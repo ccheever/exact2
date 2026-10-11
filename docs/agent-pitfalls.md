@@ -362,7 +362,11 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   read (`analyze-call-stale-read`), naming both lines. Fix: pass the value the
   helper should see, `follow(next)`, or a `let` bound before the assignment for
   the old one. (Spreadsheet F21 and Files F27 diaries, where a copied block was
-  the workaround.)
+  the workaround.) In the action's own body the same read is a warning,
+  `analyze-read-after-assign`: `now = performanceNow()` then `if now >= endsAt`
+  tests the last tick's time (focus-timer's phases changed 250 ms late in two
+  bake-off rounds). Fix: `let stamp = performanceNow()`, `now = stamp`, and read
+  `stamp`.
 
 - **A delete or save is lost when the page reloads right after it.** An action that
   `send`s a write and navigates away in the same commit passes every test, but a

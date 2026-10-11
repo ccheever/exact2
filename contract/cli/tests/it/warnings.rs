@@ -196,7 +196,7 @@ fn the_wall_clock_time_and_a_duration_are_not_named() {
 #[test]
 fn a_launch_relative_time_in_a_persisted_state_is_named() {
     // stopwatch's start mark, kept by `persist` instead of a source.
-    let src = "shape Time\n  epochAtZero: number\ncomponent App\n  resource time = exactTime() as shape Time\n  state start = 0 persist\n  state wall = 0 persist\n  state lap = 0 persist\n  action begin\n    start = performanceNow()\n    wall = time.epochAtZero + performanceNow()\n    lap = performanceNow() - start\n  view\n    button \"go\" press=begin\n";
+    let src = "shape Time\n  epochAtZero: number\ncomponent App\n  resource time = exactTime() as shape Time\n  state start = 0 persist\n  state wall = 0 persist\n  state lap = 0 persist\n  action begin\n    lap = performanceNow() - start\n    start = performanceNow()\n    wall = time.epochAtZero + performanceNow()\n  view\n    button \"go\" press=begin\n";
     assert_eq!(warned(src), [(PERSISTED.to_string(), 5)]);
 }
 
@@ -306,4 +306,73 @@ fn every_literal_colour_is_named_past_the_cap_with_one_line_on_why() {
             && warnings[25].span.line == 6,
         "{warnings:?}"
     );
+}
+
+const REREAD: &str = "analyze-read-after-assign";
+
+/// One action, `go`, its body from line 10 (LLP 1116.003 D6).
+fn go(body: &str) -> String {
+    let body: String = body.lines().map(|l| format!("    {l}\n")).collect();
+    format!(
+        "shape Ack\n  ok: bool\ncomponent App\n  mutation saved as shape Ack\n  state count = 0\n  state doubled = 0\n  state mode = \"a\"\n  state shown = \"\"\n  action go\n{body}  view\n    button \"go\" press=go\n"
+    )
+}
+
+#[test]
+fn a_read_of_a_slot_its_action_assigned_is_named_with_its_repair() {
+    // The doc's example, written the way focus-timer and
+    // password-generator wrote it: the read sees the starting `count`.
+    let direct = go("count = count + 1\ndoubled = count * 2");
+    assert_eq!(warned(&direct), [(REREAD.to_string(), 11)]);
+    let (_, warnings) = contract::compile_warned(&direct);
+    assert_eq!(
+        warnings[0].message,
+        "`count` here is its value from before the action, not the one assigned at line 10: writes land when the action ends. Bind the new value and read it: `let next = …`, `count = next`, then `next`"
+    );
+    // In a later branch's condition and its `let`, on the path that
+    // assigned it.
+    let nested = go(
+        "count = count + 1\nif mode == \"a\"\n  if count > 3\n    let seen = count\n    shown = `${seen}`",
+    );
+    assert_eq!(
+        warned(&nested),
+        [(REREAD.to_string(), 12), (REREAD.to_string(), 13)]
+    );
+    // A `send`'s argument; an assignment in one arm, read after the branch.
+    let sent = go("count = count + 1\nsend saved = keep(count)");
+    assert_eq!(warned(&sent), [(REREAD.to_string(), 11)]);
+    let arm = go("if mode == \"a\"\n  count = 1\nshown = `${count}`");
+    assert_eq!(warned(&arm), [(REREAD.to_string(), 12)]);
+}
+
+#[test]
+fn a_read_before_the_assignment_on_another_path_or_of_a_let_is_not_named() {
+    for (case, body) in [
+        // An assignment reads the starting value it replaces.
+        ("before", "doubled = count * 2\ncount = count + 1"),
+        // The doc's repair.
+        ("let", "let next = count + 1\ncount = next\ndoubled = next * 2"),
+        ("else", "if mode == \"a\"\n  count = 1\nelse\n  doubled = count"),
+        // Sequential arms over one name and literals no evaluation can
+        // both satisfy; the right of an `and` runs where its left held.
+        (
+            "exclusive",
+            "if mode == \"a\"\n  count = 1\nif mode == \"b\"\n  doubled = count\nif mode == \"b\" and count > 0\n  shown = \"b\"",
+        ),
+        // A chain over the starting state steps once an action.
+        (
+            "steps",
+            "if mode == \"a\"\n  mode = \"b\"\nif mode == \"b\"\n  mode = \"c\"",
+        ),
+    ] {
+        assert_eq!(warned(&go(body)), [], "{case}");
+    }
+}
+
+#[test]
+fn a_field_the_copy_left_alone_is_not_named() {
+    // fieldnotes' `session = Session(session, savedId=…)`, then
+    // `session.version` in the `send`: the same value either way.
+    let src = "shape Ack\n  ok: bool\nshape Item\n  id: string\n  n: number\ncomponent App\n  mutation saved as shape Ack\n  state item = Item(id=\"x\", n=0)\n  state shown = \"\"\n  action go\n    item = Item(item, n=item.n + 1)\n    send saved = keep(item.id)\n    shown = `${item.n}`\n  view\n    button \"go\" press=go\n";
+    assert_eq!(warned(src), [(REREAD.to_string(), 13)]);
 }

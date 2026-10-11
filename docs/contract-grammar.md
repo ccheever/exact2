@@ -1331,7 +1331,11 @@ Syntax is only the first layer. In particular:
   value, and neither body shows it. Pass the value as an argument, from a `let`
   bound before the write for the old value or the assigned expression for the
   new one. A derive, a resource and `pending(m)` read settled values and are not
-  refused; the same walk's exclusive paths are separate.
+  refused; the same walk's exclusive paths are separate. The same read in the
+  frame that assigned the slot is the warning `analyze-read-after-assign`
+  (LLP 1116.003 D6), unless the paths that assigned it exclude the read or decide
+  the condition it is in (`if phase == 1` … `phase = 2`, then `if phase == 2`),
+  or a record copy left the field it reads unchanged (`s = S(s, f=…)`, then `s.g`).
   `pending`/`failed` operate on declarations, not arbitrary values.
 - View roots cannot be conditional/repeated regions. Tags, attributes, and
   children must fit their lowering rules. Class application is not a CSS cascade.

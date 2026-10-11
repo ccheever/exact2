@@ -105,7 +105,8 @@ diagnostics, including related locations, before making the next repair. Each ha
 a `severity`: `"error"` refuses the build; `"warning"` (after the errors, also on a
 success) builds and runs but is not what you meant, such as a header node the iOS
 bar hides (`lower-header-unplaced`), a tab bar of one tab (`lower-single-tab`), a
-`performanceNow()` time sent to a source (`type-performance-now-persisted`) or a
+`performanceNow()` time sent to a source (`type-performance-now-persisted`), a
+state read after its own action assigned it (`analyze-read-after-assign`) or a
 literal colour that stays the same in dark mode (`lower-colour-one-scheme`, every
 site past the cap); each names its repair, and fixing it is part of the edit.
 
@@ -375,7 +376,8 @@ component App
 
 The first press yields `1/2`. Writing `doubled = count * 2` instead would use the
 old count and yield `1/0`. The same snapshot rule applies inside nested branches
-and to locals declared after a state assignment.
+and to locals declared after a state assignment. The compiler warns of such a read
+(`analyze-read-after-assign`), naming the line that assigned the slot.
 
 A local is immutable, block-scoped, and visible only after its declaration. It
 cannot shadow an in-scope name. Two disjoint arms may declare the same local name.
@@ -2080,12 +2082,12 @@ that restates a constant is weaker evidence than the user's actual sequence.
 | `press={() => save()}` | `press=save` or `press=save(captured)` |
 | Copying an action's statements into another | Call it: `arrive(path)`; the callee runs in the same commit |
 | A helper that reads a slot its caller just assigned | Pass the value: `follow(next)` (`analyze-call-stale-read`) |
+| `now = performanceNow()`, then `now` read in the same action (`analyze-read-after-assign`) | Bind it and read the local: `let stamp = performanceNow()`, `now = stamp`, then `stamp` |
 | Child `resource`, `mutation`, or `task` | Root-owned declaration and props/injections |
 | `fontSize`, `radius`, `resizeMode` | `font-size`, `border-radius`, `object-fit` |
 | `width=20px` | `width=20` or `width="20px"` |
 | Unbounded `scroll` | Real height/max-height or flex in a bounded layout |
 | `state item = none` with no usable type | Supply a typed use/write or rethink whether it is mutable state |
-| Read a slot after writing it to get the new value | Compute `let next` before the assignments |
 | `let next = …` where `next` is already an action, state or other name (`type-let-shadow`) | A name of its own: `let revised = …` |
 | `let op = ""`, then `op = "tab"` in a branch (`type-let-reassign`) | Choose the value where it is bound: `let op = key == "Tab" ? "tab" : "insert"`; or a `state` |
 | `mutation exported` and `action exported` (`type-duplicate-name`) | One name per declaration: a component's props, states, derives, resources, mutations and actions share names (`action fileSaved`) |

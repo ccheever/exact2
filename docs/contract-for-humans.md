@@ -289,8 +289,9 @@ component Snapshot
       text `${count}/${observed}` testId="value"
 ```
 
-After the first press, the text is `1/0`. The local `before` saw the old count.
-To reuse a newly computed value, compute it once first:
+After the first press, the text is `1/0`. The local `before` saw the old count,
+and the compiler warns of the read (`analyze-read-after-assign`). To reuse a newly
+computed value, compute it once first:
 
 ```text
 action step
