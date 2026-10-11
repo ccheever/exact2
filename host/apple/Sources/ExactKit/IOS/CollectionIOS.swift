@@ -134,7 +134,7 @@ extension CollectionHost {
             if scroll.contentSize.width != width { scroll.contentSize.width = width }
         } else {
             let bottom = node.bounds.height - content.maxY
-            let height = max(scroll.bounds.height, max(CGFloat(extent) + content.minY + bottom, node.content.height))
+            let height = max(node.scrollFloor(scroll), max(CGFloat(extent) + content.minY + bottom, node.content.height))
             if scroll.contentSize.height != height { scroll.contentSize.height = height }
         }
     }

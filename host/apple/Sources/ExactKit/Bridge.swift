@@ -593,6 +593,7 @@ package final class Runtime {
                 case .none: (0, [0, 0, 0, 0])
                 case .edges(let e)?: (1, [e.top, e.right, e.bottom, e.left])
                 case .whole?: (2, [0, 0, 0, 0])
+                case .inset(let top, let bottom)?: (3, [top, 0, bottom, 0])
                 }
                 for word in [view, kind] + edges.map({ Float($0).bitPattern }) {
                     withUnsafeBytes(of: word.littleEndian) { bytes.append(contentsOf: $0) }

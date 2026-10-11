@@ -308,6 +308,11 @@ component NativeFixture
   state muted = false
   action toggleMuted
     muted = not muted
+  // Chat's scroller with its tall box gone: a column that fills its height,
+  // laid out between the bar and the home indicator (LLP 1116.000 D1.2).
+  state shortChat = false
+  action toggleShortChat
+    shortChat = not shortChat
   // The tablist hidden over the root, as Signal's chat-list multi-select
   // hides its tab bar (LLP 1075.003 §3.7, amended 2026-10-05).
   state choosing = false
@@ -584,15 +589,19 @@ component NativeFixture
                         text "Cancel"
                 when e.name == "chat"
                   scroll id="list-chat" testId="list-chat" flex=1 min-height=0
-                    column padding=12 gap=8
+                    column padding=12 gap=8 min-height="100%" box-sizing="border-box"
                       button press=openPhoto testId="photo" padding=6 background-color="#e5e7eb"
                         text "Photo"
                       button press=toggleSubtitle testId="toggle-subtitle" padding=6 background-color="#e5e7eb"
                         text "Subtitle"
                       button press=toggleMuted testId="toggle-muted" padding=6 background-color="#e5e7eb"
                         text "Muted"
+                      button press=toggleShortChat testId="toggle-short-chat" padding=6 background-color="#e5e7eb"
+                        text "Short"
                       text ("title presses " + toString(titlePresses)) testId="title-presses"
-                      column testId="tall-chat" height=1600 background-color="#f0fdf4"
+                      when not shortChat
+                        column testId="tall-chat" height=1600 background-color="#f0fdf4"
+                      text "End" testId="chat-end" margin-top="auto"
                 // Rows that may shrink (CSS's default), measured as asked for.
                 when e.name == "menu"
                   column testId="menu-rows" padding=16

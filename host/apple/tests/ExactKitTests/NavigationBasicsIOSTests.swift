@@ -396,6 +396,42 @@ final class NavigationBasicsIOSTests: XCTestCase {
     }
 
 
+    /// A scroller UIKit insets lays its content out between those insets
+    /// (LLP 1116.000 D1.2): Chat's column, its tall box gone, fills the port
+    /// and its last line rests above the home indicator, with no scroll by
+    /// the insets; with the tall box back the end still lands there, and the
+    /// scroller still runs to the screen's edge, its content passing under.
+    func testAScrollerUIKitInsetsLaysItsContentOutBetweenTheInsets() throws {
+        let session = try fixture("basics-inset")
+        let (_, _, chat) = try chat(session)
+        let list = try node(session, "list-chat")
+        let sv = try XCTUnwrap(list.scroll)
+        let inset = sv.adjustedContentInset
+        XCTAssertGreaterThan(inset.top, 0, "under the bar")
+        XCTAssertGreaterThan(inset.bottom, 0, "over the home indicator")
+        until("the kernel has the scroller's insets") {
+            session.presenter.navigation.covers[list.id] == .inset(top: inset.top, bottom: inset.bottom)
+        }
+        let bottom = chat.view.bounds.maxY - chat.view.safeAreaInsets.bottom
+        let tall = { session.presenter.views.values.contains { $0.props["testId"] == "tall-chat" } }
+        try tapNode(session, "toggle-short-chat")
+        until("the tall box went") { !tall() }
+        spin(0.3)
+        let end = try node(session, "chat-end")
+        XCTAssertEqual(end.convert(end.bounds, to: chat.view).maxY, bottom - 12, accuracy: 0.5,
+                       "the filled column's last line rests above the home indicator, past its 12 of padding")
+        XCTAssertEqual(sv.contentSize.height + inset.bottom - sv.bounds.height, -inset.top, accuracy: 0.5,
+                       "a page that fits its port does not scroll by the insets")
+        try tapNode(session, "toggle-short-chat")
+        until("the tall box is back") { tall() }
+        spin(0.3)
+        XCTAssertEqual(list.convert(list.bounds, to: chat.view).maxY, chat.view.bounds.maxY, accuracy: 0.5, "it still runs to the edge")
+        list.pendingScrollTop = 100_000
+        list.applyPendingScroll()
+        spin(0.3)
+        XCTAssertEqual(end.convert(end.bounds, to: chat.view).maxY, bottom - 12, accuracy: 0.5, "at its end, as UIKit insets it")
+    }
+
     /// A real interactive pop from Photo, driven by a percent-driven
     /// transition (UIKit's own coordinator, as a finger's edge swipe has):
     /// the bar comes in with Chat, goes back out on the cancel, and after a
