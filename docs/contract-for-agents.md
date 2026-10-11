@@ -646,7 +646,7 @@ component Water
           StatBar(label=d.name, value=ml(d.ml), fraction=d.ml / 2000, tint=none)
         row justify-content="space-between"
           each d in days key=d.key
-            DoneMark(label=d.name, done=d.ml >= 2000)
+            DoneMark(caption=d.name, done=d.ml >= 2000)
         when total == 0
           EmptyState(symbol="symbol:calendar", title="No water yet", message="Each glass you log adds to today.")
             button "Log a glass" press=drink buttonStyle="bordered-prominent"
@@ -659,7 +659,7 @@ component Water
 | `SummaryCard` | `label: string`, `value: string`, `detail: string`, `progress: option<number>`, `symbol: option<string>` | a card: the symbol and label, the value large in tabular figures, the detail beside it where the card is wide and under it where it is narrow, the fraction as `progress` |
 | `StatBar` | `label: string`, `value: string`, `fraction: number`, `tint: option<string>` | the label and value over a bar `fraction` (held to 0–1) of the width: the accent short of the goal, the system green at 1 or past it, `tint` (a colour role) when given; one `meter` to a reader |
 | `RingProgress` | `label: string`, `value: string`, `fraction: number`, `tint: option<string>` | a ring filled `fraction` of the way round from the top, in the bar's colours over a grey track, the value large in its centre and the label under it; 200 across, down to 120 in a narrower box; one `progressbar` to a reader |
-| `DoneMark` | `label: string`, `done: bool` | a filled check in the system green, or an empty circle in grey, with `label` (`""` for none) under it; one image to a reader ("Mon, done") |
+| `DoneMark` | `caption: string`, `done: bool` | a filled check in the system green, or an empty circle in grey, with `caption` (short: a weekday; `""` for none) under it; one image to a reader, named by its caption and state ("Mon, done") |
 | `EmptyState` | `symbol: string`, `title: string`, `message: string`; a slot | a centred symbol, the title as a heading, the message; the nodes indented under the use (your `button`) under them |
 | `RowText` | `title: string`, `detail: string`, `value: option<string>` | a title, a secondary line under it (`""` for none) and a trailing value in tabular figures: a grouped list `row`'s content, or any list's |
 

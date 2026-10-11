@@ -427,9 +427,9 @@ component App
       column testId="card" width=400
         SummaryCard(label="Habits", value="3 / 3", detail="", progress=some(1), symbol=none)
       row testId="marks"
-        DoneMark(label="Mon", done=true)
-        DoneMark(label="Tue", done=false)
-        DoneMark(label="", done=true)
+        DoneMark(caption="Mon", done=true)
+        DoneMark(caption="Tue", done=false)
+        DoneMark(caption="", done=true)
 "#,
     );
     let plan = contract::bake(contract::compile_path(&root).unwrap(), NoData).unwrap();
@@ -527,6 +527,13 @@ component App
         .map(|m| m.props.str(PropId::AccessibilityLabel).unwrap_or(""))
         .collect();
     assert_eq!(names, ["Mon, done", "Tue, not done", "Done"]);
+    // The caption is what shows: short, under the mark (LLP 1116.003 D7).
+    let captions: Vec<_> = under(k, at(k, "marks"))
+        .into_iter()
+        .filter(|n| n.node_type == NodeType::Text)
+        .map(|n| n.props.str(PropId::Text).unwrap_or("").to_owned())
+        .collect();
+    assert_eq!(captions, ["Mon", "Tue"]);
     let tints: Vec<_> = marks
         .iter()
         .map(|m| {

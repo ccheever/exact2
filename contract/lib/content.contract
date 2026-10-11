@@ -90,20 +90,21 @@ component RingProgress
         text label font="-exact-subheadline" color="-exact-secondary-label" text-align="center" aria-hidden=true
 
 // Done or not, at a glance: a filled check in the system green, or an empty
-// circle in grey, with `label` (a day's name, `""` for none) under it.
-// Several in a `row` are a history; each is one image to a reader, its
-// label and its state spoken.
+// circle in grey, with `caption` under it: short, a day's name (`""` for
+// none). Several in a `row` are a history. Each is one image to a reader,
+// named by its caption and its state ("Mon, done"), so the caption is what
+// shows, not a sentence for VoiceOver.
 component DoneMark
   props
-    label: string
+    caption: string
     done: bool
   view
     column align-items="center" gap=4 min-width=0 role="img"
-      aria-label=(label == "" ? (done ? "Done" : "Not done") : `${label}, ${done ? "done" : "not done"}`)
+      aria-label=(caption == "" ? (done ? "Done" : "Not done") : `${caption}, ${done ? "done" : "not done"}`)
       image (done ? "symbol:select-fill" : "symbol:circle") width=26 height=26 object-fit="contain" aria-hidden=true
         -exact-tint-color=(done ? "-exact-system-green" : "-exact-tertiary-label")
-      when label != ""
-        text label font="-exact-caption1" color="-exact-secondary-label" white-space="nowrap" aria-hidden=true
+      when caption != ""
+        text caption font="-exact-caption1" color="-exact-secondary-label" white-space="nowrap" aria-hidden=true
 
 // What a screen with nothing to show says: a symbol, a title, a line saying
 // what to do. An action is the author's `button`, indented under the use.

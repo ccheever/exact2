@@ -11,7 +11,7 @@ is yours. `exact:content` draws its parts in the platform's roles and the app's 
 | `RingProgress` | `label`, `value`, `fraction: number`, `tint: option<string>` | one fraction as a ring around its number: a timer, a day's goal |
 | `StatBar` | `label`, `value`, `fraction: number`, `tint: option<string>` | one of several numbers that compare |
 | `RowText` | `title`, `detail` (`""` for none), `value: option<string>` | a row's title over a secondary line, the value trailing |
-| `DoneMark` | `label`, `done: bool` | one done or not-done mark: a habit's day, a step (green check, grey circle) |
+| `DoneMark` | `caption` (a weekday; it shows), `done: bool` | one done or not-done mark: a habit's day, a step (green check, grey circle) |
 | `EmptyState` | `symbol`, `title`, `message`; your `button` indented under it | nothing to show yet: why, and the next step |
 
 ```contract
