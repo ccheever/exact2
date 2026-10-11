@@ -1,0 +1,82 @@
+# dialog-trap-and-progress-value: one image per dialog, before | after | reference, a row per read-out (Tab past the last
+# stop, Shift+Tab before the first), the focused element outlined in red (clone: the agent's focus.logical and its layout
+# frame; reference: document.activeElement's rect over CDP). The agent's window is never key, so AppKit draws no ring.
+# Usage: python3 compose.py <out dir>
+import json, os, sys
+from PIL import Image, ImageDraw, ImageFont
+D = os.path.dirname(os.path.abspath(__file__)); S = f'{D}/../shots'; OUT = sys.argv[1]; os.makedirs(OUT, exist_ok=True)
+R = '/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit/lanes/dialog-trap-and-progress-value/ref'
+load = lambda f: {os.path.basename(o['shot']).split('-', 1)[1][:-4]: o for o in map(json.loads, open(f))}
+# The dialog each scenario is about: a focus elsewhere (a toast, the page behind) is outside it.
+EXPECTED = {'palette': 'command-palette', 'quit': 'browser-import-step-quit', 'configure': 'browser-import-step-configure', 'remove': 'browser-profile-remove-dialog',
+            'host': 'device-host-dialog', 'provider': 'add-provider-dialog', 'hub': 'usage-hub-dialog', 'theme': 'add-theme-dialog'}
+def mark(table):
+    for key, o in table.items(): o['inside'] = o.get('inside') == EXPECTED[key.split('-')[0]]
+    return table
+before, after = mark(load(f'{D}/focus-before.jsonl')), mark(load(f'{D}/focus-after.jsonl'))
+ref = {r['label']: r for r in json.load(open(f'{R}/ref-trap.json'))}
+font = ImageFont.truetype('/System/Library/Fonts/Helvetica.ttc', 24); small = ImageFont.truetype('/System/Library/Fonts/Helvetica.ttc', 17)
+RED = (255, 45, 85); W, H = 640, 420
+
+# The clone's element for the reference's: green when the clone's focus is it, red when not; amber for the two read-outs the
+# reference answers with what the clone has no stop for (Chromium's focusable scroller; a hidden file input).
+TARGET = {'palette-tab': 'palette-input*', 'palette-shift-tab': 'palette-input', 'quit-shift-tab-cancel': 'browser-import-x', 'quit-tab-x': 'browser-import-cancel',
+          'configure-shift-tab-first': 'browser-import-x', 'configure-tab-x': 'browser-import-tile-Default', 'remove-shift-tab-cancel': 'browser-profile-remove-confirm',
+          'remove-tab-confirm': 'browser-profile-remove-cancel', 'host-shift-tab-name': 'device-host-close', 'host-tab-x': 'device-host-name', 'provider-tab-x': 'wizard-step-0',
+          'hub-shift-tab-url': 'usage-hub-close', 'hub-tab-cancel': 'usage-hub-close', 'theme-shift-tab-query': 'add-theme-close*', 'theme-tab-x': 'add-theme-query'}
+AMBER = (200, 120, 0); GREEN = (0, 128, 60)
+def colour(key, o):
+    f = o.get('focus') or {}; want = TARGET[key]
+    if (f.get('testId') or '') == want.rstrip('*'): return AMBER if want.endswith('*') else GREEN
+    return RED
+def who_clone(o):
+    f = o.get('focus') or {}
+    name = f.get('testId') or f.get('label') or 'none'
+    return f'focus: {name}' + ('' if o.get('inside') else '  (outside the dialog)')
+
+def panel(png, rect, note, ok):
+    ink = ok if isinstance(ok, tuple) else (GREEN if ok else RED)
+    img = Image.open(png).convert('RGB')
+    scale = img.width / 1280
+    img = img.resize((W, H), Image.LANCZOS)
+    d = ImageDraw.Draw(img)
+    if rect and rect.get('w') and rect['y'] < 840 and rect['x'] < 1280:
+        k = W / 1280
+        x, y, w, h = rect['x'] * k, rect['y'] * k, rect['w'] * k, rect['h'] * k
+        d.rectangle((x - 3, y - 3, x + w + 3, y + h + 3), outline=RED, width=3)
+    d.rectangle((0, H - 28, W, H), fill=(255, 255, 255))
+    d.text((8, H - 24), note[:78], fill=ink, font=small)
+    return img
+
+def compose(name, title, rows):
+    pad, head, lab = 16, 64, 30
+    out = Image.new('RGB', (3 * W + 4 * pad, head + len(rows) * (H + lab + pad) + pad), (255, 255, 255)); d = ImageDraw.Draw(out)
+    d.text((pad, 20), title, fill=(20, 20, 24), font=font)
+    for j, (caption, key, reflabel) in enumerate(rows):
+        y = head + j * (H + lab + pad)
+        b, a, r = before[key], after[key], ref[reflabel]
+        panels = [panel(f'{S}/before-{key}.png', b.get('frame'), who_clone(b), colour(key, b)),
+                  panel(f'{S}/after-{key}.png', a.get('frame'), who_clone(a), colour(key, a)),
+                  panel(f'{R}/shots/ref-{key}.png', r.get('rect'), f"focus: {r['active']}", (60, 60, 66))]
+        for k, (label, img) in enumerate(zip(['Before (eb9752918)', 'After (this branch)', 'Reference (T3 Code 1e2ecbd975, CDP)'], panels)):
+            x = pad + k * (W + pad)
+            d.text((x, y + 4), f'{label}: {caption}', fill=(60, 60, 66), font=small)
+            out.paste(img, (x, y + lab)); d.rectangle((x - 1, y + lab - 1, x + W, y + lab + H), outline=(200, 200, 205))
+    out.save(f'{OUT}/{name}.png', optimize=True); print(name, out.size)
+
+compose('dt1-quit', 'Quit Brave to import (the import wizard): the focus stays in the dialog', [
+  ('Shift+Tab from Cancel', 'quit-shift-tab-cancel', 'quit: Shift+Tab from Cancel'), ('Tab from the X', 'quit-tab-x', 'quit: Tab from the X')])
+compose('dt1-configure', 'Import from Chrome (Configure): the focus stays in the dialog', [
+  ('Shift+Tab from the first tile', 'configure-shift-tab-first', 'configure: Shift+Tab from the first tile'), ('Tab from the X', 'configure-tab-x', 'configure: Tab from the X')])
+compose('dt1-remove', 'Remove “Firefox”? (AlertDialog): the focus stays in the dialog', [
+  ('Shift+Tab from Cancel', 'remove-shift-tab-cancel', 'remove: Shift+Tab from Cancel'), ('Tab from Remove profile', 'remove-tab-confirm', 'remove: Tab from Remove profile')])
+compose('dt1-host', 'Add device host: the focus stays in the dialog', [
+  ('Shift+Tab from Name', 'host-shift-tab-name', 'host: Shift+Tab from Name'), ('Tab from the X', 'host-tab-x', 'host: Tab from the X')])
+compose('dt1-provider', 'Add provider: Tab from the X comes round to the Provider step', [
+  ('Tab from the X', 'provider-tab-x', 'provider: Tab from the X')])
+compose('dt1-hub', 'Add a CLIProxyAPI hub: the X the reference has, and the focus stays in the dialog', [
+  ('Shift+Tab from Hub URL', 'hub-shift-tab-url', 'hub: Shift+Tab from Hub URL'), ('Tab from Cancel', 'hub-tab-cancel', 'hub: Tab from Cancel')])
+compose('dt1-theme', 'Add a theme: the focus stays in the dialog', [
+  ('Shift+Tab from the search field', 'theme-shift-tab-query', 'theme: Shift+Tab from the search field'), ('Tab from the X', 'theme-tab-x', 'theme: Tab from the X')])
+compose('dt1-palette', 'The command palette (CommandDialog): Tab and Shift+Tab from the field', [
+  ('Tab from the field', 'palette-tab', 'palette: Tab from the field'), ('Shift+Tab from the field', 'palette-shift-tab', 'palette: Shift+Tab from the field')])
