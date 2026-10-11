@@ -1,6 +1,7 @@
 # Restore terminal state on SIGTERM and SIGHUP
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Signal wakeup restores termios before a bounded leave attempt; normal exit waits for the full leave sequence, which closes OSC 8 and synchronized updates; PTY, mode, and flag tests cover it.
 **Systems:** terminal host, coding harness
 **Author:** Codex (GPT-6), for Charlie Cheever
 **Date:** 2026-10-06

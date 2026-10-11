@@ -1584,6 +1584,7 @@ dependencies = [
  "exact-plan",
  "exact-runner",
  "exact-textflow",
+ "libc",
  "png",
  "rustix 1.1.4",
  "unicode-segmentation",
