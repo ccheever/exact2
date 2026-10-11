@@ -132,14 +132,15 @@ export function mobileReviewSnapshot(dark = false, client: T3Client = mobileClie
     }
   }
   const comment = state.pick?.composerOwner === composerOwner ? commentFromPick(state, '', 'preview') : null;
+  const awaitingRangeEnd = !!comment && state.ranging && state.pick?.start === state.pick?.end;
   const totals = section?.source?.files ?? files;
   const data: ReviewSnapshot = { owner: state.owner, revision: client.revision, navigationRevision: state.navigationSerial, sectionId: state.selected, patchRequest: patchRequest(section), title: section?.title ?? 'Review changes', subtitle: section?.subtitle ?? '',
     sections: state.sections.map(({ id, title, subtitle }) => ({ id, title, subtitle, selected: id === state.selected })), files, rows: rows.map(row => row.kind === 'comment' ? row : { ...row, filePath: row.path }),
     loading: state.loading, error: state.error, notice: parsed.notice, raw: !files.length && parsed.text ? parsed.text : '',
     emptyTitle: section ? 'No changes' : 'No review diffs', emptyDetail: section ? parsed.text ? parsed.rawReason : section.subtitle || 'This diff is empty.' : 'This thread has no ready turn diffs and the worktree diff is empty.',
     additions: totals.reduce((sum, file) => sum + file.additions, 0), deletions: totals.reduce((sum, file) => sum + file.deletions, 0), selectedPath: files.some(file => file.path === state.selectedPath) ? state.selectedPath : '',
-    selectionTitle: state.ranging && state.pick?.composerOwner === composerOwner ? 'Select range end' : comment ? `Comment on ${comment.rangeLabel}` : '',
-    canComment: !!comment && !state.ranging && !!client.threadId && !client.pending && !client.busy, commentOpen: state.commentOpen && !!comment,
+    selectionTitle: awaitingRangeEnd ? 'Select range end' : comment ? `Comment on ${comment.rangeLabel}` : '',
+    canComment: !!comment && !awaitingRangeEnd && !!client.threadId && !client.pending && !client.busy, commentOpen: state.commentOpen && !!comment,
     commentPath: comment?.filePath ?? '', commentRange: comment?.rangeLabel ?? '', commentPreview: comment?.diff ?? '', commentCount: comments.length };
   snapshots.set(state, { version: state.version, dark, draft: `${mobileComposerTarget(client).owner}:${mobileComposerTargetText(client, mobileComposerTarget(client)) ?? ''}`, blocked, data });
   return data;
@@ -305,8 +306,8 @@ export async function mobileReviewAction(owner: string, op: string, id: string, 
         const extending = op !== 'range-start' && (op === 'extend' || state.ranging) && state.pick?.composerOwner === composerOwner && state.pick.path === id && state.pick.sectionId === state.selected;
         const anchor = extending ? state.pick!.anchor : n;
         state.pick = { composerOwner, sectionId: state.selected, path: id, anchor, start: Math.min(anchor, n), end: Math.max(anchor, n) };
-        state.ranging = op === 'range-start';
-        // Native upstream: tap opens one-line composer; long press then tap selects a range.
+        state.ranging = op === 'range-start' || extending;
+        // Native upstream retains a long-press anchor while taps adjust its endpoint.
         state.commentOpen = op === 'line' && !extending;
       } else if (op !== 'file' && op !== 'retry' && op !== 'visible') throw new ClientError('Unsupported review action.');
       if (['file', 'retry', 'visible', 'toggle'].includes(op)) {
