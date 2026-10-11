@@ -906,9 +906,24 @@ Task `20261010-realinput-1010f-followups`.
   main `issues/20261010-pointer-events-reach-ancestors.md`), so a press on the gutter no longer reaches the window
   root's `outsidePressDown`. What that count dismisses is never on screen with the gutter (the Usage page's popover: the
   page covers the thread and the pull request page), except a skill chip's details in the composer beside the thread's
-  Diff panel: a press on that panel's gutter leaves them open, where the reference's outside press closes them. Handing
-  the press on as the theme editor's picker does (injecting `outsidePressDown`) grew the plan by 777 KB for that one case,
-  and with a drag's send it is two sends of one press (`analyze-send-twice`), so it is not done. Where the "+" sits is no
+  Diff panel. Handing the press on as the theme editor's picker does (injecting `outsidePressDown`) grew the plan by
+  777 KB for that one case, and with a drag's send it is two sends of one press (`analyze-send-twice`), so it is not done;
+  since files-gutter-parity (FG-4) the gutters close the details themselves: every primary press on the Diff panel's, the
+  pull request Code tab's or the Files preview's gutter reaches the data module on the drags' queued send (a press that
+  starts no drag as `press`), which closes the newest open chip press (`closeChipFromPress`, composer-chip-popover.ts), so
+  the details close as the reference's outside press closes them (+38 KB of plan, no node). Where the "+" sits is no
   difference: as the reference's `placeUtility` → `placeUtilityFromSelection`, a file with a selection draws its "+" on
   the selection's bottom line only, so during a drag it follows the selection the drag paints, not the hover (the
   session's "the gutter's hover stays on line 3" was the clone placing it by hover, which needs no host change).
+
+## Split view's hatched empty side: a 10 pt stripe period (files-gutter-parity FG-3)
+
+Pierre (@pierre/diffs 1.3.0-beta.10, T3 Code `1e2ecbd975`) hatches the empty side of a split run with one
+`[data-content-buffer]` over the whole run: `repeating-linear-gradient(-45deg, transparent 0 4.242px, buffer 4.242px
+5.656px)` in 8 px tiles at `5px 0` (CDP: stripes `#e6e6e6` / `#1d1d1d` over the code surface `#fcfcfc` / `#0a0a0a`; the
+gutter part flat `#f8f8f8` / `#131313`). The kernel refuses `repeating-linear-gradient` (`kernel/src/gradient.rs`
+`REFUSED`; no main issue: this task files nothing) and the clone draws a virtualized row at a time, so `DiffCell` draws
+the stripes as an SVG `pattern` per row (two polygons, the reference's colours, its 25 % share of the surface and its
+phase). The period is 10 pt, not 8: a row is a whole number of 20 pt lines (wrapped lines included), and an 8 pt tile
+would break at every row's edge (20 is not a multiple of 8). The stripes are 2.5 pt across where the reference's are
+2 pt every 8. Goes when Contract paints a repeating gradient over a run of rows, or a row knows its offset in the run.
