@@ -1302,9 +1302,9 @@ package final class Presenter {
     }
 
     /// The page's canvas colour — behind the document and into the safe
-    /// areas the layout keeps out of — is the first root's background, as
-    /// Safari paints the root element's background under the status bar
-    /// and the home indicator; white when the root sets none.
+    /// areas the layout keeps out of — is the first root's background, as a
+    /// view controller's view carries its own under the status bar and the
+    /// home indicator; `systemBackground` when it sets none (LLP 1115 D2).
     var onCanvasColor: ((UIColor) -> Void)?
     /// The head's title (LLP 1048.003 D1), for the app adapter that owns the
     /// scene; an embedded view never claims it.
