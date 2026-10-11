@@ -699,7 +699,12 @@ final class BrowserAutomationTests: XCTestCase {
 
 _ = NSApplication.shared
 NSApp.setActivationPolicy(.accessory)
-let suite = XCTestSuite(forTestCaseClass: BrowserAutomationTests.self)
+// browser-recording-and-downloads: the recording hand-off (recording.swift) and agent-driven downloads (downloads.swift).
+let suite = XCTestSuite(name: "browser-automation")
+// `T3_AUTOMATION_SUITES` (class names, comma-separated) runs only those.
+let only = Set((ProcessInfo.processInfo.environment["T3_AUTOMATION_SUITES"] ?? "").split(separator: ",").map(String.init))
+for testCase in [BrowserAutomationTests.self, BrowserRecordingHandOffTests.self, BrowserDownloadTests.self] as [XCTestCase.Type]
+where only.isEmpty || only.contains(String(describing: testCase)) { suite.addTest(XCTestSuite(forTestCaseClass: testCase)) }
 suite.run()
 let run = suite.testRun!
 print("Executed \(run.executionCount) tests, with \(run.totalFailureCount) failures")

@@ -633,10 +633,14 @@ world.
   a second, its content following the page's aspect ratio); the snapshots are drawn directly rather than sent as JPEG
   (quality 80) to a second renderer.
 - **Downloads.** A response the page cannot show, a `Content-Disposition: attachment` and an `<a download>` download
-  (WKDownload). The reference saves an agent-driven page's downloads into the artifact directory and lets a person's ask
-  with the save dialog. Here a person's download asks with a save panel and an agent-mode run (which shows nothing modal)
-  saves into the artifact directory as `browser-download-<id>-<name>`; part 5's automation does not mark its pages
-  agent-driven yet, so a `preview_click` on a download link in a person's run still asks (a follow-up).
+  (WKDownload). As in the reference (browser-recording-and-downloads BR-2, 2026-10-11), a page the agent's last control
+  action changed (click, type, press, scroll, evaluate; not snapshot or wait for: `READ_ONLY_CONTROL_ACTIONS`) saves its
+  downloads into the artifact directory as `browser-download-<id>-<name>` with no dialog, and a person's press or key on
+  the page, or a navigation, hands it back, so a download asks with a save panel again. The person's input is what the
+  application's event queue carries to the page's view (an `NSEvent` local monitor; the agent's native input goes to the
+  view directly, never through the queue), where the reference's preload reports trusted `pointerdown` and `keydown`
+  events and skips the agent's expected ones. An agent-mode run shows nothing modal, so its downloads go to the artifact
+  directory whoever starts them.
 - **Settings.** Part 3 reads `browserRecordingFrameRate` (30 or 60), `browserRecordingShowKeyPresses`,
   `browserRecordingShowMousePresses` and `browserAutoShowFloatingPreview` (the reference's names and defaults) from the
   client settings; their rows in Settings › Integrations › Browser are part 4's (coordinator, 2026-10-09), and part 5's
@@ -678,15 +682,25 @@ reference's CDP desktop host (`apps/desktop/src/preview/Manager.ts`):
   asked for either way. A size not rendered in time goes back to the tab's previous one without the reference's check
   that nothing else changed it meanwhile (the module does not see the store's latest setting), and neither resize waits
   in the device toolbar's commit queue (`runBrowserViewportMutation`).
-- **Recording (part 3).** Part 3's recorder is in (the Browser row's Record button), but the automation tools are not
-  wired to it yet: `preview_recording_start` answers an execution error (no capture) once the tab is ready, and
-  `preview_recording_stop` answers that nothing records, as the reference does when no recording is active. Wiring them
-  needs the module's automation answer to wait on the data module's recording and upload; a follow-up.
+- **Recording (part 3).** Wired (browser-recording-and-downloads BR-1, 2026-10-11): `preview_recording_start` starts the
+  tab's recording on part 3's lifecycle, the one the Capture button starts (one per tab; the chrome row shows Stop
+  recording and a person's Stop ends it), and answers `{tabId, recording: true, startedAt}`; `preview_recording_stop`
+  stops the thread's recording (the tab named, else the current one, else the only one), saves the artifact, uploads
+  the file once to the request's environment as a pending attachment and answers the artifact with its
+  `uploadedAttachmentId`, which the server claims and hands the agent as a path in its environment. The module waits
+  for the tab, hands the request to the data module (`presentation.browserAutomation.recordings`) and answers with the
+  outcome it sends back; a request the data module has not answered by the request's host deadline answers an
+  execution error there (the reference's host waits on, and the broker times the request out). The upload is native
+  (`attachments.createUploadUrl`, then the bytes through the transport's `uploadAttachment`), not `fetch` with an abort
+  signal: the module gives up at the budget's last second and the transfer it started may still finish.
 - **Presentation (part 3).** The reference shows an agent's tab in the floating preview; part 3's floating player is in,
   but an agent's tab still opens in its thread's right panel (`rightPanelStore.openBrowser`), with the same `open: false`
   suppression, and a person floats it from there (a follow-up moves it into the floating player). Auto-show floating
   preview (`browserAutoShowFloatingPreview`, part 3's key) decides whether an agent's use presents the tab at all.
-- **Mute.** WebKit has no public page mute (`_setPageMuted:` and `_isPlayingAudio` are SPI). Mute silences the document's
+- **Mute.** WebKit has no public page mute (`_setPageMuted:` and `_isPlayingAudio` are SPI). Re-checked on 2026-10-11
+  (browser-recording-and-downloads BR-3) against every public header of the macOS 27.0 SDK's WebKit: the only mute
+  calls are the camera and microphone capture states and `WKWebExtensionTab.setMuted`, which the app implements for an
+  extension's request, while `WKWebView` answers `_setPageMuted:` and `_mediaMutedState` only as SPI. Mute silences the document's
   `<audio>` and `<video>` elements and keeps them silent; Unmute gives back each element's own muted state. Audible means a
   media element plays with sound the page asked for, muted or not, as Chromium's tab audio state. Web Audio is neither
   muted nor heard, and media in subframes are not covered. WebKit pauses a muted element while its page is out of the

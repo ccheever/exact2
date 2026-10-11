@@ -9,7 +9,8 @@
 // answer) subscribes, hands each queued request's plan (browser-automation-plan.ts) to the module once
 // (`browserAutomation`), adopts the tabs the module opened and reports the window's focus and live tabs
 // (`previewAutomation.focusHost`). The module answers `previewAutomation.respond` itself, so a request outlives
-// the data-source answer that planned it (a let-go answer's replies are dropped).
+// the data-source answer that planned it (a let-go answer's replies are dropped). The recording operations come back
+// here once the module has the tab (browser-automation-recording.ts).
 import type { T3Client } from './client';
 import { obj, str, type Obj } from './domain';
 import { bridgeReply, ClientError, type Native } from './protocol';
@@ -21,6 +22,7 @@ import { activeRef } from './terminal-drawer-view';
 import { surfaceStore } from './r4-surfaces-panel';
 import { browserHost, listPreviewSessions, openBrowserIn } from './browser-surface';
 import { resolveBrowserOpenDefaults } from './browser-defaults';
+import { serveRecordingRequests } from './browser-automation-recording';
 import { EMPTY_THREAD_PREVIEW_STATE, previewRuntimeTabId, readSnapshot, type PreviewEvent, type PreviewSessionSnapshot } from './browser-state';
 import {
   PREVIEW_AUTOMATION_OPERATIONS, PreviewAutomationRequestConsumer, needsPreviewAutomationSessionSync, planRequest, previewAutomationClientId,
@@ -240,6 +242,7 @@ export async function automationPrepare(client: T3Client, native: Native): Promi
       await reportAutomationFocus(client, link);
     } catch (error) { if (letGo(error)) throw error; }
   }
+  serveRecordingRequests(client); // BR-1: the recordings the module handed over (browser-automation-recording.ts)
 }
 
 /** `preview.list` on the request's connection, as an authoritative reconcile. */
@@ -260,7 +263,7 @@ export async function serveAutomation(client: T3Client, native: Native, link: Li
     pending.sending = true;
     try {
       const ref = { environmentId: link.environmentId, threadId: pending.request.threadId }, store = browserHost(client).store;
-      if (!pending.listed && pending.request.operation !== 'recordingStop' && needsPreviewAutomationSessionSync(store.read(ref), pending.request.tabId)) {
+      if (!pending.listed && needsPreviewAutomationSessionSync(store.read(ref), pending.request.tabId)) {
         // registry.refresh(previewEnvironment.list): an authoritative list (the transport bounds the read).
         await listOn(client, native, link, ref);
         pending.listed = true;
