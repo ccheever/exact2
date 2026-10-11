@@ -1,12 +1,14 @@
 # Recipe: driving iOS
 
-The simulator runs the build you made. Start `bun exact.mjs ios` early, in the
-background (the first build takes minutes, later ones a minute or two), and again after
-an edit: `test ios` and `agent ios` drive what it installed and refuse a stale build,
-naming the rebuild.
+Edit and check on the web host (`test web`, `agent web`: about a second a build), and
+drive iOS at milestones, several checks to a native build: one drive in dark mode, one
+after a write. `test ios` and `agent ios` build first when the build is missing or older
+than its sources, and say so in one line; its log is `.exact/ios-build.log`. The first
+build takes minutes, later ones a minute or two, so start the first early, in the
+background; a drive started meanwhile waits for it.
 
 ```sh
-bun exact.mjs ios > .exact/ios.log 2>&1 &      # $! is its PID
+bun exact.mjs ios > .exact/ios.log 2>&1 &      # the first build; $! is its PID
 bun exact.mjs test ios
 bun exact.mjs agent ios --storage s1 --chrome platform "clock data" tree "tap add" \
   "clock settle" "screenshot .exact/ios.png window"

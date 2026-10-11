@@ -457,7 +457,7 @@ exact_web::host!(
   cd '${dir.replaceAll("'", "'\\''")}'
   ${run} pattern      start from a working app: ${patterns().map(p => p.name).join(', ')}
   ${run} web          the web dev loop
-  ${run} test web     build, then run app.test.contract, or the files named (web; macos or ios after mac/ios)
+  ${run} test web     build, then run app.test.contract, or the files named (web, ios or macos)
   ${run} agent web tree  inspect or drive the app
   ${run} ios --run    build and launch on an iOS simulator
   ${run} mac --run    build and launch on this Mac
@@ -720,8 +720,11 @@ const log = exit => { if (verb !== 'feedback') try {
   appendFileSync(resolve(import.meta.dir, '.exact/commands.jsonl'), JSON.stringify({ at: new Date(started).toISOString(), exact2, verb: verb === 'test' || verb === 'agent' ? \`\${verb} \${host}\` : verb, exit, ms: Date.now() - started }) + '\\n');
 } catch {} return exit; };
 // The web build is about a second when nothing changed, so a web drive builds
-// first rather than refusing a stale build; a native build stays explicit.
+// first rather than refusing a stale build. An ios or macos drive builds first
+// when its build is missing or older than its sources, saying so on one line
+// (exact2's scripts/agent-build.mjs, LLP 1116.002 D4); a phone's stays explicit.
 const drivesWeb = (verb === 'test' || verb === 'agent') && host === 'web' && !rest.some(a => a === '--url' || a === '--web-dist');
+const drivesNative = (verb === 'test' || verb === 'agent') && ['ios', 'macos', 'mac'].includes(host) && !rest.includes('--device');
 // \`test [host] [file|glob …]\`: the test files named (each \`.contract\`, a glob or \`--test <file>\`, from the
 // current directory), else app.test.contract; each runs in turn and any failure fails the command.
 const tests = [];
@@ -732,10 +735,11 @@ for (let i = verb === 'test' ? 0 : rest.length; i < rest.length;) {
   if (!found.length) { console.error(\`no test file matches \${named}\`); process.exit(log(2)); }
   tests.push(...found);
 }
-if (drivesWeb) {
+if (drivesWeb || drivesNative) {
   // A flag the drive does not take is refused before the build, not after it (exact2's scripts/help.mjs).
   (await import(resolve(EXACT2, 'scripts/help.mjs')).catch(() => null))?.guardFlags(verb, rest);
-  const built = await run(verbs['web-build'], [], [0, 2, 2]);
+  const sim = rest.includes('--sim') ? ['--sim', rest[rest.indexOf('--sim') + 1]] : [];
+  const built = await run(drivesWeb ? verbs['web-build'] : ['scripts/agent-build.mjs', host, '--app', '${name}', ...sim], [], [0, 2, 2]);
   if (built) process.exit(log(built));
 }
 if (own[verb]) { const [command, ...args] = own[verb]; process.exit(log(await spawned(command === 'bun' ? process.execPath : command, [...args, ...rest], 'inherit', import.meta.dir))); }

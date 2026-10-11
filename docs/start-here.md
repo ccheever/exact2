@@ -34,7 +34,7 @@ and passes its tests.
 | `bun exact.mjs …` | What it does |
 | --- | --- |
 | `contract build app.contract --json` | `[]` or each diagnostic with its fix, after every edit; it rewrites the types `app.ts` imports. |
-| `test web`, `test ios` | Builds, then runs `app.test.contract` (iOS after `bun exact.mjs ios`). |
+| `test web`, `test ios` | Builds if needed, then runs `app.test.contract`. Check on web after each edit; drive iOS at milestones ([ios-driving](recipes/ios-driving.md)). |
 | `agent web --storage s1 "clock data" tree "tap add" "screenshot .exact/a.png"` | Drives the app as a person would; look at every screenshot. iOS with its bars: [ios-driving](recipes/ios-driving.md). |
 | `web`, `ios --run` | The dev loop (it prints its URL, rebuilds on save); a simulator. |
 
