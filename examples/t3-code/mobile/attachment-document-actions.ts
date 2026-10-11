@@ -11,9 +11,9 @@ import { mobileComposerAttachmentAction } from './composer-attachments';
 import type { AttachmentDocumentSnapshot } from './attachment-document';
 
 export function mobileAttachmentMenu(data: AttachmentDocumentSnapshot, wrap: boolean) {
-  const actions: { id: string; title: string; icon: string; selected?: boolean }[] = [];
-  if (data.renderedMode) actions.push({ id: 'preview', title: data.renderedMode === 'table' ? 'Table' : 'Preview', icon: data.renderedMode === 'table' ? 'tablecells' : 'eye', selected: data.activeMode !== 'source' },
-    { id: 'source', title: 'Source', icon: 'doc.text', selected: data.activeMode === 'source' });
+  const actions: { id: string; title: string; icon: string; selected?: boolean; inline?: boolean }[] = [];
+  if (data.renderedMode) actions.push({ id: 'preview', title: data.renderedMode === 'table' ? 'Table' : 'Preview', icon: data.renderedMode === 'table' ? 'tablecells' : 'eye', inline: true, selected: data.activeMode !== 'source' },
+    { id: 'source', title: 'Source', icon: 'doc.text', inline: true, selected: data.activeMode === 'source' });
   if (data.hasContent && data.activeMode === 'source') actions.push({ id: 'word-wrap', title: wrap ? 'Disable word wrap' : 'Enable word wrap', icon: 'text.alignleft' });
   if (data.hasContent) actions.push({ id: 'copy', title: data.truncated ? 'Copy preview' : 'Copy contents', icon: 'doc.on.doc' });
   if (data.sourceJSON) actions.push({ id: 'share', title: 'Save or share', icon: 'square.and.arrow.up' },

@@ -1,11 +1,11 @@
 // @ref llp/1109.011-responsive-workspace.decision.md#composition-decision
-// Thread uses its owned native menu coordinator; other routes keep authored controls.
+// Thread and document menus use their owned native coordinators; other routes keep authored controls.
 component MobileRootHeader
   props
     routeName: string
     title: string
+    subtitle: string
     scannerOpen: bool
-    documentMenu: string
     automationBusy: bool
     scheduledCanCreate: bool
     browserMenuConfiguration: string
@@ -19,7 +19,6 @@ component MobileRootHeader
     closeNewTask: action
     scan: action
     addEnvironment: action
-    documentAction: action
     automationAction: action
     browserMenu: action
     toggleSidebar: action
@@ -35,11 +34,16 @@ component MobileRootHeader
       when routeName != "home" and routeName != "threadQueue" and routeName != "newTaskDraft"
         button id="back" press=back aria-label="Back" testId=`back-${routeName}`
           image "symbol:back" width=20 height=20
-      text title id=(routeName == "threadBrowser" ? "browser-title" : modelChoice ? "model-choice-title" : "route-title")
-        role="heading"
-        aria-level=2
-        font-size=(routeName == "threadBrowser" or modelChoice ? 17 : 18)
-        font-weight=(routeName == "threadBrowser" ? 600 : modelChoice ? 700 : 800)
+      when subtitle != ""
+        view flex-direction="column" align-items="center" min-width=0
+          text title id="route-title" role="heading" aria-level=2 font-size=18 font-weight=800
+          text subtitle id="document-subtitle" font-size=12
+      else
+        text title id=(routeName == "threadBrowser" ? "browser-title" : modelChoice ? "model-choice-title" : "route-title")
+          role="heading"
+          aria-level=2
+          font-size=(routeName == "threadBrowser" or modelChoice ? 17 : 18)
+          font-weight=(routeName == "threadBrowser" ? 600 : modelChoice ? 700 : 800)
       when routeName == "settingsLegal"
         button id="legal-close" press=back aria-label="Close legal document"
           text "Close"
@@ -49,8 +53,6 @@ component MobileRootHeader
       when routeName == "connections" or routeName == "environments"
         button press=addEnvironment aria-label="Add environment" testId="add-environment"
           image "symbol:add" width=20 height=20
-      when routeName == "threadMedia" or routeName == "threadDraftMedia" or routeName == "newTaskMedia"
-        t3-document-menu document-menu=documentMenu change=documentAction width=32 height=32
       when routeName == "settingsScheduledTasks"
         button id="scheduled-new" press=automationAction("new", "", "", "") disabled=(not scheduledCanCreate or automationBusy) aria-label="New scheduled task"
           t3-symbol symbol-name="plus" point-size=20 symbol-tint=iconColor width=20 height=20
