@@ -5,8 +5,9 @@
 // An app outside this checkout is named by EXACT_APP_DIR, as its exact.mjs sets it.
 import { spawnSync } from 'node:child_process';
 import { linuxBinary, linuxBuild, resolveApp } from './app.mjs';
+import { guardFlags } from './help.mjs';
 
-const [name] = process.argv.slice(2);
+const [name] = guardFlags('linux', process.argv.slice(2));
 if (!name) {
   console.error('usage: bun scripts/build-linux.mjs <app>   (then: bun scripts/agent.mjs linux --app <app> …)');
   process.exit(2);

@@ -122,7 +122,9 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
                 .get(&slot)
                 .and_then(|m| m.overflow)
                 .unwrap_or(l.scrollable_overflow_rect);
-            arena.set_content(slot, (o.right, o.bottom));
+            // A scroller the platform insets: its extent less those insets.
+            let content = crate::kernel::published_extent(arena, slot, (o.right, o.bottom));
+            arena.set_content(slot, content);
             let (width, height) = placement
                 .and_then(|p| p.size)
                 .unwrap_or((l.size.width, l.size.height));

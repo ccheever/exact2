@@ -46,6 +46,10 @@ enum HostCover: Equatable {
     struct Edges: Equatable { var top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat }
     case edges(Edges)
     case whole
+    /// A scroller UIKit insets (a route's collapsing or bottom-edge
+    /// scroller): the kernel lays its content out between these insets
+    /// (LLP 1116.000 D1.2).
+    case inset(top: CGFloat, bottom: CGFloat)
 }
 
 /// The module's hatch entries (NativeModule.swift reads them from its table).

@@ -4,6 +4,8 @@ Lean elaborates slowly as a term and parses quickly as a string.
 
   answer <source> <n> <arg>… <value>   one call and its answer
   fact <resource> <value>              a host fact, by resource
+  stored <state> <value>               the device's store at launch: a
+                                       persisted state's value (LLP 1116 D5)
 
 A value: `n` and 16 hex digits of IEEE bits; a quoted string (`\"`, `\\`,
 `\n`, `\r`, `\t`, `\u00xx`); `t`, `f`, `u` (unit); `none`; `some(v)`;
@@ -116,6 +118,7 @@ def parse (text : String) : Option Oracle := Id.run do
   let mut o : Oracle := {}
   let mut answers : Array (String × List Value × Value) := #[]
   let mut facts : Array (String × Value) := #[]
+  let mut stored : Array (String × Value) := #[]
   for line in text.splitOn "\n" do
     let cs := line.toList
     let fuel := cs.length + 1
@@ -139,8 +142,17 @@ def parse (text : String) : Option Oracle := Id.run do
           pure (name, v)) with
         | .some fct => facts := facts.push fct
         | .none => return .none
-      | .none => return .none
-  o := { answers := answers.toList, facts := facts.toList }
+      | .none =>
+        match literal "stored " cs with
+        | .some r =>
+          match (do
+            let (name, r) ← str r
+            let (v, _) ← value fuel (skipSpace r)
+            pure (name, v)) with
+          | .some kept => stored := stored.push kept
+          | .none => return .none
+        | .none => return .none
+  o := { answers := answers.toList, facts := facts.toList, stored := stored.toList }
   return .some o
 
 /-- [`parse`], or an oracle that answers nothing (every call refused,

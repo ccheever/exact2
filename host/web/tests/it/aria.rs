@@ -45,3 +45,29 @@ fn form_states_and_haspopup_are_the_html_attributes() {
         assert!(batch.contains(attr), "{attr} in {batch}");
     }
 }
+
+/// LLP 1116 D8: a drawn range's value is ARIA's own attributes, numbers as
+/// HTML writes them.
+#[test]
+fn range_values_are_the_aria_attributes() {
+    let plan = contract::compile(
+        "component App\n  view\n    column\n      box role=\"progressbar\" aria-valuenow=3 aria-valuemin=0 aria-valuemax=8 aria-valuetext=\"3 of 8 glasses\" aria-label=\"Water\" testId=\"bar\" width=200 height=8\n",
+    )
+    .unwrap();
+    let (_host, batch) = Host::boot(
+        &plan.encode(),
+        caltrain_data::Caltrain,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    for attr in [
+        "\"role\":\"progressbar\"",
+        "\"aria-valuenow\":\"3\"",
+        "\"aria-valuemin\":\"0\"",
+        "\"aria-valuemax\":\"8\"",
+        "\"aria-valuetext\":\"3 of 8 glasses\"",
+    ] {
+        assert!(batch.contains(attr), "{attr} in {batch}");
+    }
+}

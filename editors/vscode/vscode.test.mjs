@@ -31,6 +31,10 @@ test('the problem matcher reads each diagnostic the compiler prints, and only th
     assert.equal(pattern.exec('  bad.contract:1:1: first declared here'), null);
     // A Windows path keeps its drive letter.
     assert.equal(pattern.exec('C:\\app\\app.contract:2:3 [syntax-x] y')?.[file], 'C:\\app\\app.contract');
+    // LLP 1116 D6: a warning is read as one, after the refusals; a refusal leaves the matcher's own severity.
+    const warned = pattern.exec('app.contract:12:7 warning [lower-single-tab] this tab bar has 1 tab');
+    assert.deepEqual([warned?.[matcher.pattern.severity], warned?.[code], warned?.[message]], ['warning', 'lower-single-tab', 'this tab bar has 1 tab']);
+    assert.equal(pattern.exec('bad.contract:4:1 [type-duplicate-shape] x')?.[matcher.pattern.severity], undefined);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }, 600_000); // A cold checkout builds the compiler first.
 

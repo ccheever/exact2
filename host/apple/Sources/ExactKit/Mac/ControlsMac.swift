@@ -27,6 +27,8 @@ final class ControlHost: NSObject {
     /// not say.
     var spinners: [UInt32: NSProgressIndicator] = [:]
     var animating: Set<UInt32> = []
+    /// Each determinate `progress`'s bar (LLP 1116 D8), beside them.
+    var bars: [UInt32: NSProgressIndicator] = [:]
 
     init(_ presenter: Presenter) { self.presenter = presenter }
 
@@ -189,6 +191,8 @@ final class ControlHost: NSObject {
         controls.removeAll()
         for spinner in spinners.values { spinner.stopAnimation(nil); spinner.removeFromSuperview() }
         spinners.removeAll()
+        for bar in bars.values { bar.removeFromSuperview() }
+        bars.removeAll()
         animating.removeAll()
         reported.removeAll()
         kinds.removeAll()
