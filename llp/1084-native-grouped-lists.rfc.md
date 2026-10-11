@@ -210,6 +210,11 @@ rather than the label colour it wrote.
 `GroupedListIOSTests.testASymbolTakesItsAuthoredTintForEachAppearance` covers
 a hidden image before the symbol, a chevron after it, and both appearances.
 
+**Amended 2026-10-11 (LLP 1116.004 D2):**
+- Where a list's box meets an edge of a viewport the safe area keeps short of
+  the screen's, its background goes on to the screen's edge, under the home
+  indicator or the status bar (`GroupedListView.hem`; chat-rooms).
+
 ## 6.2 A section without its card (2026-10-04, Signal Clone)
 
 Signal's profile header and conversation-settings header sit on the list's
