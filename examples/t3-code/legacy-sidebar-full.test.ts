@@ -242,7 +242,23 @@ describe('LS-8 (found while building): list motion and the destructive "Delete a
   test('autoAnimate (180 ms ease-out, none under reduced motion): project and thread rows slide and a leaving row fades', () => {
     expect(view).toContain('keyframes lsRowOut\n  from opacity=1 scale=1\n  to opacity=0 scale=0.98');
     const motion = '-exact-layout-transition=(reduced ? "none" : "180ms ease-out") -exact-exit-animation=(reduced ? "none" : "lsRowOut 180ms ease-out")';
-    expect(view.split(motion).length - 1).toBe(2);
+    expect(view.split(motion).length - 1).toBe(3); // the project item, its thread list and each thread row
+    expect(view).toContain('keyframes lsRowIn\n  from opacity=0 scale=0.98\n  to opacity=1 scale=1');
+    expect(view).toContain('animation=(t.enter and not reduced ? "lsRowIn 180ms ease-out" : "none")');
+    expect(view).toContain('animation=(p.enter and not reduced ? "lsRowIn 180ms ease-out" : "none")');
+  });
+  test('a row fades in when it arrives in a shown list, not on the first draw and not after its tick', () => {
+    const { client } = rig({ threads: [thread('thread-1')] });
+    const rows = (now: number) => legacySidebarSnapshot(client, now, { projectIdentity: identity }).projects.flatMap(project => [[project.name, project.enter], ...project.threads.map(row => [row.id, row.enter])]);
+    expect(rows(1000)).toEqual([['App', false], ['thread-1', false]]); // the first draw
+    client.shell.threads.push(thread('thread-2'));
+    expect(rows(1000)).toEqual([['App', false], ['thread-2', true], ['thread-1', false]]);
+    expect(rows(1000)).toEqual([['App', false], ['thread-2', true], ['thread-1', false]]); // asked again in the same tick
+    expect(rows(2000)).toEqual([['App', false], ['thread-2', false], ['thread-1', false]]);
+    client.local.clientSettings = { ...client.local.clientSettings, legacySidebarEnabled: false } as typeof client.local.clientSettings;
+    rows(3000);
+    client.local.clientSettings = { ...client.local.clientSettings, legacySidebarEnabled: true } as typeof client.local.clientSettings;
+    expect(rows(4000).every(([, enter]) => enter === false)).toBe(true); // switched on again: a first draw
   });
   test('the "Project is not empty" toast\'s Delete anyway is the destructive button', () => {
     const toastView = readFileSync(new URL('./shell-toast.contract', import.meta.url), 'utf8');

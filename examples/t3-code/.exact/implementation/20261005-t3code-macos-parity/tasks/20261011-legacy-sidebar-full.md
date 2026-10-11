@@ -67,3 +67,101 @@ list. This task builds each of them so the legacy sidebar does what `LegacySideb
   `packages/client-runtime/src/state/projectGrouping.ts` (`buildProjectGroups`,
   `shouldReplacePhysicalProjectWinner`, `selectProjectIdentitySource`), `apps/web/src/environmentGrouping.test.ts`
   184-325.
+
+Found while building (U22 is "the legacy sidebar in full"; the first build's "Remaining differences" listed these too):
+
+| Id | Clone | Reference |
+| --- | --- | --- |
+| LS-7 | The row's title, worktree glyph and a collapsed project's status dot have no tooltip; the worktree's label names the whole path | Each has a TooltipPopup: the title in full, `Worktree: <last segment> (<branch>)` (ThreadWorktreeIndicator, formatWorktreePathForDisplay), the status label |
+| LS-8 | List changes do not move; "Project is not empty"'s Delete anyway is the default (blue) button | autoAnimate (`SIDEBAR_LIST_ANIMATION_OPTIONS`, 180 ms ease-out, none under reduced motion) on the project list and each thread list; the toast's `actionVariant: "destructive"` |
+
+## Cause and fix
+
+- **LS-1** (`legacy-sidebar-links.ts` `openRowPullRequest`, `legacy-sidebar.contract` LegacyThread). The glyph is a
+  button nested in the row's button (its own press and double-click, so the row neither opens nor renames), labelled
+  and tooltipped with the status. A press reads the click's modifiers: ⌘ or Ctrl opens the system browser. With a thread
+  or draft route open (`routeThreadRef !== null`), `prTarget` over the row's own environment's projects and capabilities
+  finds the project; the pull request tab opens in that thread's right panel (`openPullRequestIn` on its panel by key) and
+  the thread opens (`goTo`: `openSelected`, or `focusFleetThread` for a background row; the result `sidebar:opened` takes
+  openThread's effects in `app.contract`). On a page, the exact project across the environments that read pull requests
+  (the focused first) answers `sidebar:pr-page:<selection>`, which opens the Pull Requests page on it. Otherwise
+  `openLink` ("Open links in"), with the row's thread when beside one.
+- **LS-2** (`legacy-sidebar-ports.ts`, `browser-targets.ts`). The sidebar keeps its own `subscribeDiscoveredLocalServers`
+  stream (key `sidebar-discovered-servers`, no configured URLs) while the legacy sidebar shows rows (`watchRowPorts`,
+  each refresh); the discovery state is keyed so the Browser empty state's stream is untouched. Each background
+  environment the fleet keeps connected subscribes too (`fleetPortsPass`/`fleetPortsEvent` in `settings-b-fleet.ts`).
+  A row's ports are the servers whose terminal is its thread; the Globe2 button "Open localhost:<port>" (tooltip with
+  "(+N)") goes to the thread and opens the port's URL for that environment beside it (`openUrlInPreview`), recording the
+  visit; a background row's opens once its environment is the focus and its thread open (`openPendingPort`).
+- **LS-3** (`modules/apple/T3RowDrop.swift`, `legacy-sidebar-drop.ts`, `app.json`). Exact's `drop` takes only the types
+  `file_handlers` declares, which would also make the app a Finder viewer of every file (a tell the reference has not), so
+  the row's button carries an access hatch (`t3-row-drop`, `data-thread-key`) and the module lays a drop target over it:
+  AppKit picks a drag destination by registered types (`_hitTest:dragTypes:`), not `hitTest`, so the target takes file
+  drags while clicks, hovers and right clicks still reach the row. A drag rings the row (1 px, primary at 70 %); a drop
+  queues the files under the row's key (folders let go, as the row's `addFolders` does nothing) and presses the row; once
+  that thread is open, the refresh takes its queue (`rowDropTake`) and adds the files as the composer's Attach does
+  (`addAttachedFiles`, split from `attachFiles`): images to the shelf, other files as chips at the caret only in that
+  thread's own editor (`editorInsert` now refuses another owner), else at the end of its stored draft.
+- **LS-4** (`legacy-sidebar.contract`). Archive (and the project's New thread) stay mounted at opacity 0 with no pointer
+  and show on hover or while the focus is anywhere in the row (`within` from each control's focus and blur), as
+  `group-focus-within`; the meta and the environment badge hide the same way. Confirm takes the focus (`autofocus`), and
+  the focus leaving it ends the confirmation; Archive's "Archive" tooltip shows only without the confirmation.
+- **LS-5** (`legacy-sidebar-links.ts` `openBranchDraft`). After the draft opens, its context is the thread's branch, its
+  worktree and `worktree`/`local` mode (`patchDraftContext`); a background thread's draft takes the same context on its
+  environment. The default sidebar's same menu row (Sidebar.tsx does the same) uses it too.
+- **LS-6** (`legacy-sidebar-fleet.ts`, `legacy-sidebar-commands.ts`, `legacy-sidebar-view.ts`, `sidebar-commands.ts`,
+  `worktree-cleanup.ts`). A background environment's requests go through its own transport (`envAccess`, as
+  desktop-activation.ts's): project Rename and Remove (`projects.mutate`), "Project is not empty" counted there, Group
+  into... (this device's override), New thread (its draft, the environment becoming the focus), the thread menu (mark
+  unread, copy path and id, rename inline from the menu or a double-click, delete with its worktree question and the
+  orphaned worktree's removal there), Archive with its undo, and the multi-selection's actions. Project settings opens
+  Settings › Projects on the project, its environment becoming the focus first (that page reads the focused environment).
+  `legacyGroups` ports buildProjectGroups' physical dedupe: rows of one checkout keep the freshest, grouped by the
+  freshest identity among them, and the stale rows' threads join the winner.
+- **LS-7**, **LS-8** (`legacy-sidebar.contract`, `legacy-sidebar-view.ts`, `toast.ts`, `shell.ts`, `shell-toast.contract`):
+  the three tooltips (the title's in `LegacyTitleTip`, which grows with the row so the title still clamps); project items
+  and thread rows carry `-exact-layout-transition` and an exit fade (`lsRowOut`), 180 ms ease-out, none under reduced
+  motion; the toast's action takes `actionVariant: 'destructive'`.
+
+## Tests
+
+- `legacy-sidebar-full.test.ts` (new): LS-1 (panel beside a thread and the thread opened, in place, the Pull Requests page,
+  ⌘, "Open links in" both ways), LS-2 (the stream's subscribe and release, labels, the button's open and its failure; a
+  background environment's stream and its deferred open), LS-3 (the drop taken for the open thread: chips, shelf, refused
+  types, the editor owner; nothing asked when nothing is queued), LS-4 and LS-8 (the view's structure), LS-5 (worktree
+  and local context), LS-6 (the dedupe cases of environmentGrouping.test.ts; background Rename, Remove with "Project is not
+  empty" and Delete anyway, New thread; a background thread's menu, rename, archive with undo, delete with the worktree
+  question; double-click rename; Project settings), LS-7 (tooltips and the worktree label).
+- `legacy-sidebar.test.ts`: the project menu has no disabled row for a background member; the worktree label.
+- `macos/tests/row-drop` (AppKit, 3): the target is AppKit's drag destination over the row while `hitTest` gives clicks
+  to the row; a drag rings it, a drop reports the row's key and its files without folders; queued drops are taken per key
+  in order and staged as Attach stages them.
+
+## Real-input batch steps
+
+Launch this branch's bundle as a lane copy (its own bundle id, the lane home outside any git checkout); Settings ›
+General › Legacy features › Sidebar (legacy) on. A project with a git checkout and a few threads (one on a branch, one
+in a worktree), the GitHub lane's server paired as a second environment (Settings › Connections › Add environment,
+`bun lane.mjs pair primary`), with a thread linked to a pull request. Never send a message.
+
+1. **LS-3, a file.** From Finder drag a text file onto a legacy thread row that is not open: while over the row it shows
+   a thin blue ring; drop: that thread opens and its composer shows the file's chip. Drag a PNG onto the open thread's
+   row: it joins the composer's image shelf. Drag a folder alone onto a row: no ring stays, nothing opens. Drag a file
+   onto a background environment's row: that environment becomes the focus, the thread opens with the chip.
+2. **LS-4, keys.** Click a thread row, press Tab: the row's Archive button shows with the focus ring (no pointer over the
+   row); Enter archives it (Archive confirmation off). Turn Archive confirmation on (Settings › General): Tab to Archive,
+   Enter: Confirm shows and has the focus; Enter archives. Again, then Tab away: the Confirm goes. Tab from a project row
+   reaches its New thread button, shown.
+3. **LS-5, menu.** Right-click the branch thread › "New thread on <branch>": the draft's branch chip shows that branch
+   (Current checkout); on the worktree thread the draft is in that worktree.
+4. **LS-6, menus.** Right-click the background project: Rename, Group into..., Remove are enabled. Rename › the dialog
+   says "Environment: <label>" › Save: the title changes. Remove on it with threads: "Project is not empty" with a red
+   Delete anyway › the removal confirm › Confirm: it goes. Right-click a background thread: the legacy menu shows; Mark
+   unread, Copy Path, Rename thread and Delete act on that environment. Project settings on a background-only project:
+   that environment becomes the focus and Settings › Projects shows the project.
+5. **LS-1, pointer.** With a thread open, click a pull request glyph of another thread: that thread opens with the pull
+   request tab in the right panel; ⌘-click opens the system browser; from the Pull Requests page the click selects it there.
+6. **LS-2, pointer.** Run a dev server in a thread's terminal (⌘J, `python3 -m http.server <lane port>`): its row shows the
+   globe; hover: "Open localhost:<port>"; click: the thread opens with a Browser tab on that port.
+7. **LS-8.** Archive a row: it fades and the rows below slide up (reduced motion is checked by the agent's `prefer`,
+   never System Settings).

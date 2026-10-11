@@ -29,13 +29,15 @@ export interface LegacyThreadRow {
   statusLabel: string; statusColor: string; statusDot: string; statusPulse: boolean;
   prIcon: string; prState: string; prTooltip: string; prPending: boolean; portLabel: string; portTip: string;
   worktree: boolean; worktreeLabel: string; remoteMachine: string; remoteLabel: string; age: string; jump: string;
+  /** autoAnimate's addition: the row came into a shown list (not the sidebar's first draw, not a scroll back into view). */
+  enter: boolean;
 }
 export interface LegacyProjectRow {
   key: string; name: string; countLabel: string; glyph: ProjectGlyph; expanded: boolean;
   statusLabel: string; statusColor: string; statusDot: string; statusPulse: boolean;
   remoteMachine: string; remoteLabel: string; remoteTooltip: string;
   threads: LegacyThreadRow[]; showEmpty: boolean; showMore: boolean; showLess: boolean;
-  hiddenLabel: string; hiddenDot: string; hiddenColor: string; hiddenPulse: boolean; newThreadLabel: string;
+  hiddenLabel: string; hiddenDot: string; hiddenColor: string; hiddenPulse: boolean; newThreadLabel: string; enter: boolean;
 }
 export interface LegacySidebarView {
   enabled: boolean; projects: LegacyProjectRow[]; manual: boolean; projectSort: string; threadSort: string; previewCount: number;
@@ -162,7 +164,7 @@ export function legacyProjectOrder(client: T3Client, threadId: string): string[]
 
 const blank = { label: '', color: '', dot: '', pulse: false };
 const pillFields = (status: StatusPill | null) => status ?? blank;
-function threadRow(client: T3Client, thread: Obj, now: number, jump: string): LegacyThreadRow {
+function threadRow(client: T3Client, thread: Obj, now: number, jump: string): Omit<LegacyThreadRow, 'enter'> {
   const id = str(thread.id), title = str(thread.title, 'Untitled thread'), session = sidebarSession(client);
   const status = pillFields(statusOf(client, thread));
   const link = currentPullRequestLink(thread.pullRequests), snapshot = link && link.snapshot && typeof link.snapshot === 'object' ? obj(link.snapshot) : null;
@@ -213,6 +215,26 @@ function dialogView(client: T3Client) {
   };
 }
 
+/**
+ * autoAnimate's additions (SIDEBAR_LIST_ANIMATION_OPTIONS): a project or thread row that appears in a list the sidebar
+ * already shows fades in once. A row is new for the projection tick it appears in (`now`, the window's clock, which
+ * the snapshot is asked again with each second); the rows of the sidebar's first draw, and rows a windowed list mounts
+ * again as they scroll into view, are not new, so they do not fade.
+ */
+type Arrivals = { shown: boolean; since: Map<string, number> };
+const arrivals = new WeakMap<T3Client, Arrivals>();
+function arrivalsOf(client: T3Client, now: number, keys: readonly string[]): (key: string) => boolean {
+  let state = arrivals.get(client);
+  if (!state) { state = { shown: false, since: new Map() }; arrivals.set(client, state); }
+  const first = !state.shown, present = new Set(keys);
+  for (const key of [...state.since.keys()]) if (!present.has(key)) state.since.delete(key);
+  for (const key of keys) if (!state.since.has(key)) state.since.set(key, first ? Number.NEGATIVE_INFINITY : now);
+  state.shown = true;
+  const since = state.since;
+  return key => (since.get(key) ?? Number.NEGATIVE_INFINITY) === now;
+}
+const forgetArrivals = (client: T3Client) => { arrivals.delete(client); };
+
 export function legacySidebarSnapshot(client: T3Client, now: number, helpers: Pick<SidebarHelpers, 'projectIdentity'>): LegacySidebarView {
   const enabled = legacyEnabled(client);
   const newThread = shortcutLabel(client, 'chat.newLocal') || shortcutLabel(client, 'chat.new');
@@ -220,12 +242,14 @@ export function legacySidebarSnapshot(client: T3Client, now: number, helpers: Pi
     newThreadTip: newThread ? `New thread (${newThread})` : 'New thread', searchShortcut: shortcutLabel(client, 'commandPalette.toggle'),
     confirmArchive: client.local.clientSettings?.confirmThreadArchive === true, noProjects: client.shell.projects.length === 0,
     jumpHints: !terminalFocused(client) && client.presentation.sidebarJumpHints === true, ...dialogView(client) };
-  if (!enabled) return { ...base, projects: [] };
+  if (!enabled) { forgetArrivals(client); return { ...base, projects: [] }; }
   const entries = sortedGroups(client);
+  const views = entries.map(({ group, threads }) => projectThreads(client, group, threads));
+  const entering = arrivalsOf(client, now, [...entries.map(entry => `project:${entry.group.key}`), ...views.flatMap(view => view.rendered.map(thread => `thread:${str(thread.id)}`))]);
   const jumps = base.jumpHints ? Array.from({ length: 9 }, (_, index) => shortcutLabel(client, `thread.jump.${index + 1}`)) : [];
   let visibleIndex = 0;
-  const projects = entries.map(({ group, threads }): LegacyProjectRow => {
-    const view = projectThreads(client, group, threads);
+  const projects = entries.map(({ group, threads }, at): LegacyProjectRow => {
+    const view = views[at]!;
     const status = resolveProjectStatusIndicator(threads.map(thread => statusOf(client, thread)));
     const hidden = pillFields(resolveProjectStatusIndicator(view.hidden.map(thread => statusOf(client, thread))));
     const representative = group.members.find(member => !member.remote) ?? group.members[0]!;
@@ -236,10 +260,10 @@ export function legacySidebarSnapshot(client: T3Client, now: number, helpers: Pi
       statusLabel: shown.label, statusColor: shown.color, statusDot: shown.dot, statusPulse: shown.pulse,
       remoteMachine: group.remoteOnly ? 'cloud' : '', remoteLabel: group.remoteOnly ? 'Remote project' : '',
       remoteTooltip: group.remoteOnly ? `Remote environment: ${group.remoteLabels.join(', ')}` : '',
-      threads: view.rendered.map(thread => threadRow(client, thread, now, jumps[visibleIndex++] ?? '')),
+      threads: view.rendered.map(thread => ({ ...threadRow(client, thread, now, jumps[visibleIndex++] ?? ''), enter: entering(`thread:${str(thread.id)}`) })),
       showEmpty: view.expanded && threads.length === 0, showMore: view.expanded && view.overflowing && !view.listExpanded, showLess: view.expanded && view.overflowing && view.listExpanded,
       hiddenLabel: hidden.label, hiddenDot: hidden.dot, hiddenColor: hidden.color, hiddenPulse: hidden.pulse,
-      newThreadLabel: `Create new thread in ${group.name}`,
+      newThreadLabel: `Create new thread in ${group.name}`, enter: entering(`project:${group.key}`),
     };
   });
   return { ...base, projects };

@@ -26,6 +26,7 @@ shape LegacyThreadRow
   remoteLabel: string
   age: string
   jump: string
+  enter: bool
 shape LegacyProjectRow
   key: string
   name: string
@@ -48,6 +49,7 @@ shape LegacyProjectRow
   hiddenColor: string
   hiddenPulse: bool
   newThreadLabel: string
+  enter: bool
 shape LegacySidebarView
   enabled: bool
   projects: list<LegacyProjectRow>
