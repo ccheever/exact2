@@ -2,10 +2,12 @@
 //! parameters spells the declaration that fits (@ref LLP 1088 D7.1,
 //! pomodoro F1): what the call site passes, then what the event appends,
 //! each payload named after the DOM property it carries and typed by the
-//! element. Analysis and lowering print it through this one function.
+//! element. Analysis and lowering print it through this one function, and
+//! the type stage for an action the miscount leaves untyped, which
+//! analysis never reaches.
 
+use crate::Ty;
 use contract_syntax::Expr;
-use contract_types::Ty;
 
 /// What `event` appends on this element, as `(name, type, said)`: `said`
 /// is how the message describes a single payload.
@@ -90,8 +92,8 @@ pub fn handler_arity_message(
         ),
     };
     // The event's record, the action's to take or leave
-    // (`contract_types::event_record`).
-    let record = contract_types::event_record(event);
+    // (`event_record`).
+    let record = crate::event_record(event);
     let calls = match (quoted.is_empty(), &then) {
         (true, None) => format!("{site} calls `{name}` with nothing"),
         (true, Some(then)) => format!("{site} calls `{name}` with {then}"),

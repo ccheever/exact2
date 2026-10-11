@@ -27,6 +27,7 @@ mod geometry;
 mod lists;
 mod literals;
 mod media;
+mod payload;
 mod persist;
 /// Router declaration checking and compile-time path expansion (LLP 1038 D2/D3).
 pub mod placeholder;
@@ -36,6 +37,7 @@ pub mod routes;
 mod selection;
 mod tasks;
 pub use bounds::MAX_TYPE_DEPTH;
+pub use payload::handler_arity_message;
 pub use selection::event_record;
 /// The strings call and the tables it is checked against (LLP 1060).
 pub mod strings;

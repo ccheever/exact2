@@ -15,11 +15,10 @@
 mod arity;
 mod calls;
 mod gates;
-mod payload;
 mod rereads;
 mod sends;
 
-pub use payload::handler_arity_message;
+pub use contract_types::handler_arity_message;
 
 use contract_syntax::{Component, Expr, File, Node, Span};
 use contract_types::{Checked, Ref, Scope, Shapes, Ty};
