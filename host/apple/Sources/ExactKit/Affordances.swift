@@ -28,7 +28,7 @@ extension NodeView {
     /// Whether a colour row is the platform's accent (`AccentColor`, iOS's
     /// inherited `tintColor`) rather than a colour of its own. An unset
     /// `tint-color` is its initial value, `AccentColor`.
-    func followsTint(_ key: String) -> Bool {
+    package func followsTint(_ key: String) -> Bool {
         guard let row = style[key] else { return key == "tint_color" }
         guard case .object(let o) = row else { return false }
         return o["sys"]?.string?.hasPrefix("@tint") == true

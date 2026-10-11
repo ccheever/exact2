@@ -167,7 +167,7 @@ package final class Presenter {
     /// visual viewport — the layout viewport does not change; the viewport
     /// insets its content by this and reveals the field being edited, in the
     /// keyboard's own animation.
-    var keyboardInset: CGFloat = 0
+    package var keyboardInset: CGFloat = 0
 
     var hasKeyboardEditor: Bool {
         views.values.contains { $0.field?.isFirstResponder == true || $0.textArea?.isFirstResponder == true }

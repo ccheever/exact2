@@ -369,6 +369,25 @@ final class GroupedListIOSTests: XCTestCase {
         XCTAssertEqual(try rgb(.dark), [1, 0, 0, 1])
     }
 
+    /// LLP 1116.004 D2 (polls, round 6): the sheet's accent is `AccentColor`,
+    /// the platform's tint, and a symbol that follows it is UIKit's: the cell
+    /// tints it with its own `tintColor`, which the root's accent sets. The
+    /// sheet's fixed blue had drawn a vote's checkmark blue under a teal accent.
+    func testASymbolInTheAccentTakesTheCellsTint() throws {
+        let p = presenter { self.model() }
+        p.apply(wireBatch([
+            ["op": "create", "id": 31, "kind": "image", "props": ["imageSource": "symbol:sf/person.circle"],
+             "style": ["tint_color": ["sys": "@tint", "c": [[0, 136, 255, 255], [0, 145, 255, 255]]]]],
+            ["op": "create", "id": 33, "kind": "text", "props": ["text": "Profile"], "style": [:]],
+            ["op": "children", "id": 10, "ids": [31, 33]],
+        ]))
+        let c = try XCTUnwrap(try cell(p, 10).contentConfiguration as? UIListContentConfiguration)
+        XCTAssertNil(c.imageProperties.tintColor, "the accent is the cell's tint, not a colour of its own")
+        window.tintColor = .systemTeal
+        let light = UITraitCollection(userInterfaceStyle: .light)
+        XCTAssertEqual(try cell(p, 10).tintColor.resolvedColor(with: light), UIColor.systemTeal.resolvedColor(with: light), "which the app's accent sets")
+    }
+
     /// Outside a batch (a sheet's dismissal replaying geometry, a subtree's
     /// appearance), the projections sync on the next turn with no batch to
     /// carry them (LLP 1079's amendment of 2026-10-04): the collection takes
@@ -671,14 +690,9 @@ final class GroupedListIOSTests: XCTestCase {
         XCTAssertFalse(s.isOn)
     }
 
-    /// LLP 1116.001 D1: a custom row that names swipe actions (the
-    /// `list-rows` recipe's scroll, in a grouped section) swipes as a
-    /// hand-built list's cell does: UIKit's actions on its list cell, a full
-    /// swipe the first. Its content need not fill the row (the sheet's
-    /// inset and padding), no table is projected, and its controls stay
-    /// hidden while the row is carried (grocery-list, round 3: the row was
-    /// refused and swiped 27 points by its scroll, the action clipped).
-    func testASwipeRowTakesItsListCellsOwnActions() throws {
+    /// A grouped section holding a custom row that names a trailing swipe
+    /// action (row 21: content 22, Delete 23) above a standard row.
+    private func swipeRow(_ onPress: @escaping (UInt32) -> Void = { _ in }) -> Presenter {
         ExactGroupedLists.install()
         let p = Presenter()
         host(p).model = { $0 == 1 ? GroupedListModel(sections: [
@@ -688,8 +702,7 @@ final class GroupedListIOSTests: XCTestCase {
         p.viewport.frame = window.bounds
         window.addSubview(p.viewport)
         window.makeKeyAndVisible()
-        var pressed: [UInt32] = []
-        p.onPress = { pressed.append($0) }
+        p.onPress = onPress
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "list", "props": ["listStyle": "inset-grouped"], "style": ["overflow_y": "scroll"]],
             ["op": "create", "id": 2, "kind": "view", "props": ["semanticTag": "section"], "style": [:]],
@@ -708,6 +721,19 @@ final class GroupedListIOSTests: XCTestCase {
             ["op": "frame", "id": 23, "x": 370.0, "y": 9.0, "w": 60.0, "h": 34.0],
             ["op": "frame", "id": 30, "x": 16.0, "y": 52.0, "w": 354.0, "h": 52.0],
         ]))
+        return p
+    }
+
+    /// LLP 1116.001 D1: a custom row that names swipe actions (the
+    /// `list-rows` recipe's scroll, in a grouped section) swipes as a
+    /// hand-built list's cell does: UIKit's actions on its list cell, a full
+    /// swipe the first. Its content need not fill the row (the sheet's
+    /// inset and padding), no table is projected, and its controls stay
+    /// hidden while the row is carried (grocery-list, round 3: the row was
+    /// refused and swiped 27 points by its scroll, the action clipped).
+    func testASwipeRowTakesItsListCellsOwnActions() throws {
+        var pressed: [UInt32] = []
+        let p = swipeRow { pressed.append($0) }
         let owner = try XCTUnwrap(p.views[21]), delete = try XCTUnwrap(p.views[23])
         XCTAssertNil(p.swipeActions.refusal(of: owner), "a grouped row's content need not fill it")
         XCTAssertTrue(delete.isHidden, "the cell's action stands for the control")
@@ -744,6 +770,43 @@ final class GroupedListIOSTests: XCTestCase {
         p.apply(wireBatch([["op": "props", "id": 2, "set": ["inert": "true"], "clear": [String]()]]))
         XCTAssertNil(l.swipeActions(at: IndexPath(item: 0, section: 0), leading: false), "inert: nothing offered")
         XCTAssertEqual(p.swipeActions.perform(23), false)
+    }
+
+    /// LLP 1116.004 D2 (grocery-list, round 6): a contact in a swipe row
+    /// that leaves the slop toward a side with actions is the swipe's, never
+    /// a press, whether or not UIKit's swipe goes on to begin. Maestro's
+    /// "fast" swipe from the row's checkbox moved nine points, short of
+    /// UIKit's threshold, and the checkbox took it as a tap. The row's claim
+    /// cancels the touch beneath and stands in no one's way; a drag toward
+    /// a side with no actions, or up the list, stays the press's.
+    func testASidewaysDragTowardTheRowsActionsIsTheSwipesNotAPress() throws {
+        let p = swipeRow()
+        let owner = try XCTUnwrap(p.views[21])
+        XCTAssertTrue(owner.isDescendant(of: try cell(p, 21).contentView))
+        let claims = { (owner.gestureRecognizers ?? []).compactMap { $0 as? SwipeActionsHost.SwipeClaim } }
+        let claim = try XCTUnwrap(claims().first, "the row claims its sideways touches")
+        XCTAssertTrue(claim.cancelsTouchesInView, "claiming cancels the press beneath")
+        XCTAssertFalse(claim.delaysTouchesEnded, "a tap's lift is not held back")
+        let swipe = UIPanGestureRecognizer()
+        XCTAssertFalse(claim.canPrevent(swipe), "UIKit's swipe goes on")
+        XCTAssertFalse(claim.canBePrevented(by: swipe))
+        let sides = claim.sides()
+        XCTAssertTrue(sides.left, "a drag to the left reveals the trailing Delete")
+        XCTAssertFalse(sides.right, "no leading action")
+        let decide = { (dx: CGFloat, dy: CGFloat) in
+            SwipeActionsHost.SwipeClaim.decide(dx: dx, dy: dy, slop: CGFloat(Gesture.slop), left: sides.left, right: sides.right)
+        }
+        XCTAssertEqual(decide(-9, 0), .claim, "Maestro's swipe from the checkbox to the screen's tenth")
+        XCTAssertEqual(decide(-48, 2), .claim, "a flick that lifts before UIKit's swipe begins")
+        XCTAssertEqual(decide(-3, 1), .wait, "a tap's wobble is still a tap")
+        XCTAssertEqual(decide(9, 0), .fail, "toward no action: the press stays, as a UIKit cell's")
+        XCTAssertEqual(decide(-3, 9), .fail, "up the list: the scroll's")
+        XCTAssertTrue(SwipeActionsHost.SwipeClaim.drags(UISwitch()), "a switch keeps its own sideways drag")
+        // A batch keeps the one claim; a row that stops swiping drops it.
+        p.apply(wireBatch([["op": "props", "id": 21, "set": ["testId": "swipe-row"], "clear": [String]()]]))
+        XCTAssertEqual(claims().count, 1)
+        p.apply(wireBatch([["op": "props", "id": 21, "set": [String: String](), "clear": ["swipeContent"]]]))
+        XCTAssertTrue(claims().isEmpty)
     }
 
     func testABatchUpdatesTheRowsAndAGoneListGoes() throws {
@@ -1023,6 +1086,42 @@ final class GroupedListIOSTests: XCTestCase {
         XCTAssertEqual(rgba(notes.textProperties.color, light), rgba(platform.textProperties.color, light), "a title that says nothing")
         XCTAssertEqual(rgba(notes.secondaryTextProperties.color, light), rgba(platform.secondaryTextProperties.color, light))
         XCTAssertEqual(notes.textProperties.font, platform.textProperties.font)
+    }
+
+    /// LLP 1116.004 D2 (chat-rooms, round 6): a page with no navigation
+    /// container keeps its viewport inside the safe area, and a grouped list
+    /// at its bottom left the root's white under the home indicator. Where
+    /// the list's box meets an edge of a viewport short of its container's,
+    /// the list's background goes on to the container's edge, behind the
+    /// viewport; not while the keyboard ends the viewport.
+    func testAListAtTheViewportsEdgeDrawsItsBackgroundToTheScreensEdge() throws {
+        let p = presenter({ self.model() }, height: 840)
+        let grey: [[Int]] = [[242, 242, 247, 255], [0, 0, 0, 255]]
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["background_color": grey]]]))
+        // The home indicator's 34 points under the viewport.
+        p.viewport.frame = CGRect(x: 0, y: 0, width: 402, height: 840)
+        p.apply(wireBatch([["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 402.0, "h": 840.0]]))
+        let skirts = { self.window.subviews.filter { $0 !== p.viewport && !$0.isHidden && $0.frame.maxY == 874 } }
+        let skirt = try XCTUnwrap(skirts().first, "the list's background reaches the screen's bottom edge")
+        XCTAssertEqual(skirt.frame, CGRect(x: 0, y: 0, width: 402, height: 874))
+        XCTAssertLessThan(try XCTUnwrap(window.subviews.firstIndex(of: skirt)), try XCTUnwrap(window.subviews.firstIndex(of: p.viewport)),
+                          "behind the viewport: only what lies past its edge shows")
+        XCTAssertFalse(skirt.isUserInteractionEnabled)
+        func rgb(_ style: UIUserInterfaceStyle) throws -> [CGFloat] {
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            try XCTUnwrap(skirt.backgroundColor).resolvedColor(with: UITraitCollection(userInterfaceStyle: style)).getRed(&r, green: &g, blue: &b, alpha: &a)
+            return [r, g, b, a].map { ($0 * 255).rounded() }
+        }
+        XCTAssertEqual(try rgb(.light), [242, 242, 247, 255], "the list's grey, in light")
+        XCTAssertEqual(try rgb(.dark), [0, 0, 0, 255], "and in dark")
+        // The keyboard ends the viewport: the keys cover that edge.
+        p.keyboardInset = 300
+        p.apply(wireBatch([["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 402.0, "h": 840.0]]))
+        XCTAssertTrue(skirts().isEmpty)
+        p.keyboardInset = 0
+        // A list short of the viewport's edge draws nothing past it.
+        p.apply(wireBatch([["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 402.0, "h": 600.0]]))
+        XCTAssertTrue(skirts().isEmpty)
     }
 }
 #endif

@@ -345,7 +345,7 @@ final class GroupedListHost: GroupedLists {
     }
 
     // LLP 1080.001 D3: what the inspection walk accounts for.
-    func inspectionOwns(_ view: UIView) -> Bool { lists.values.contains { $0.collection === view } }
+    func inspectionOwns(_ view: UIView) -> Bool { lists.values.contains { $0.collection === view || $0.owns(skirt: view) } }
     func hides(_ node: NodeView) -> Bool { lists.values.contains { $0.owner.scrollView.map { node.isDescendant(of: $0) } ?? false } }
     func projects(_ view: UIView) -> Bool { lists.values.contains { $0.carried.keys.contains((view as? NodeView)?.id ?? 0) } }
     var carriesRows: Bool { lists.values.contains { !$0.carried.isEmpty } }
@@ -380,6 +380,20 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     /// once the row has one, `remeasure` has UIKit measure it anew.
     private var unsized: Set<UInt32> = []
     private var scrollWasHidden = false
+    #if os(iOS)
+    /// The list's background past the viewport's edges (`hem`), and the
+    /// list's colours it was painted from.
+    private var skirt: UIView?
+    private var skirtKey: [[Double]?] = []
+    #endif
+    /// Whether `view` is this list's background past the viewport's edges.
+    func owns(skirt view: UIView) -> Bool {
+        #if os(iOS)
+        return skirt === view
+        #else
+        return false
+        #endif
+    }
 
     init(owner: NodeView, host: GroupedListHost) {
         self.owner = owner; self.host = host
@@ -591,7 +605,54 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         #endif
         remeasure()
         if resized { resized = false; collection.collectionViewLayout.invalidateLayout() }
+        #if os(iOS)
+        hem()
+        #endif
     }
+
+    #if os(iOS)
+    /// LLP 1116.004 D2 (chat-rooms, round 6): where the list's box meets an
+    /// edge of a viewport the safe area keeps short of the screen's — a page
+    /// with no navigation container keeps its content inside the safe area —
+    /// the list's background goes on to the screen's edge, under the home
+    /// indicator or the status bar, as a collection view pinned to its view's
+    /// edges draws its grouped background there. The canvas there was the
+    /// root's white under a grey list. Behind the viewport, so only what lies
+    /// past its edges shows. Not while the keyboard ends the viewport (the
+    /// keys cover that edge), nor on a page that scrolls, where the list does
+    /// not stay at the edge.
+    private func hem() {
+        let presenter = host.presenter, viewport = presenter.viewport
+        guard let container = viewport.superview, owner.window != nil, owner.isDescendant(of: viewport),
+              presenter.keyboardInset == 0, viewport.contentSize.height <= viewport.bounds.height + 0.5,
+              viewport.contentSize.width <= viewport.bounds.width + 0.5 else { skirt?.isHidden = true; return }
+        let port = viewport.frame, whole = container.bounds, box = owner.convert(owner.bounds, to: container)
+        let meets = { (a: CGFloat, b: CGFloat) in abs(a - b) < 0.5 }
+        let top = meets(box.minY, port.minY) && port.minY > whole.minY ? whole.minY : box.minY
+        let bottom = meets(box.maxY, port.maxY) && port.maxY < whole.maxY ? whole.maxY : box.maxY
+        let left = meets(box.minX, port.minX) && port.minX > whole.minX ? whole.minX : box.minX
+        let right = meets(box.maxX, port.maxX) && port.maxX < whole.maxX ? whole.maxX : box.maxX
+        let reach = CGRect(x: left, y: top, width: right - left, height: bottom - top)
+        guard reach != box, !owner.isHidden else { skirt?.isHidden = true; return }
+        let view = skirt ?? {
+            let made = UIView()
+            made.isUserInteractionEnabled = false
+            skirt = made
+            return made
+        }()
+        // The list's own background in each appearance: the sheet's grouped grey, or the author's.
+        let sides = [owner.channels("background_color", dark: false), owner.channels("background_color", dark: true)]
+        if sides != skirtKey || view.backgroundColor == nil {
+            skirtKey = sides
+            view.backgroundColor = UIColor { traits in sides[traits.userInterfaceStyle == .dark ? 1 : 0].map(TextEngine.color) ?? .systemGroupedBackground }
+        }
+        if view.superview !== container || container.subviews.firstIndex(of: view).map({ $0 > (container.subviews.firstIndex(of: viewport) ?? 0) }) == true {
+            container.insertSubview(view, belowSubview: viewport)
+        }
+        assign(view, \.frame, reach)
+        assign(view, \.isHidden, false)
+    }
+    #endif
 
     func cell(_ id: UInt32) -> UICollectionViewCell? {
         source.indexPath(for: id).flatMap { collection.cellForItem(at: $0) }
@@ -678,7 +739,9 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         c.image = row.symbol.flatMap { UIImage(systemName: $0) }
         // The symbol's tint as the sheet draws it (D7): the author's over the
         // sheet's own, each side of a light-dark() pair for its appearance.
-        if let value = symbolView(of: id)?.style["tint_color"] {
+        // The accent (`AccentColor`, the sheet's own) is UIKit's: the cell's
+        // tint, which an authored accent-color sets (LLP 1116.004 D2).
+        if let symbol = symbolView(of: id), let value = symbol.style["tint_color"], !symbol.followsTint("tint_color") {
             c.imageProperties.tintColor = UIColor { traits in
                 value.channels(dark: traits.userInterfaceStyle == .dark).map(TextEngine.color) ?? .tintColor
             }
@@ -871,6 +934,9 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
 
     func remove() {
         restore()
+        #if os(iOS)
+        skirt?.removeFromSuperview()
+        #endif
         collection.removeFromSuperview()
         owner.scrollView?.isHidden = scrollWasHidden
     }

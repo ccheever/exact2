@@ -28,6 +28,14 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   `line-height=1.3` (28.6 px at 22 px). (Authoring bench,
   LLP 1087: three Codex builders, caught only by a screenshot, 2026-10-05.)
 
+- **A `\n` in a text runs its two lines together.** ``text `${ref}\nResults rounded.` ``
+  showed one line on the web and in an iOS grouped footer. Cause: `white-space:
+  normal` (CSS's default) collapses a line feed to a space, as a `<div>` does. Fix:
+  `white-space="pre-line"` on the text, which every host then draws as two lines
+  (a grouped list's footer and cells included), or two `text`s. **Candidate
+  diagnostic:** a literal `\n` in a text whose `white-space` collapses it.
+  (Bake-off round 6, unit-converter; LLP 1116.004 D2, 2026-10-11.)
+
 - **A ported `clamp(inset, 15, 60)` never stops at 60.** Cause: React Native
   code's `clamp(value, min, max)` (lodash's order) is not CSS's `clamp(MIN, VAL,
   MAX)`, which is `max(MIN, min(VAL, MAX))`: `clamp(env(safe-area-inset-bottom),

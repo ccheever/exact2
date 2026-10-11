@@ -237,14 +237,24 @@ fn apple_symbol(node: &NodeRef<'_>) -> Option<String> {
     })
 }
 
-/// A text node's text, white space collapsed; `None` when blank.
+/// A text node's text, its white space collapsed as its `white-space` has
+/// the web collapse it (LLP 1116.004 D2): `normal` makes a line feed a
+/// space, and `pre-line` keeps it, so a footer the author set `pre-line` is
+/// two lines in UIKit's cell as on the page. `None` when blank.
 fn text_of(node: &NodeRef<'_>) -> Option<String> {
     if node.node_type != NodeType::Text {
         return None;
     }
-    let text: String = node.text_runs().iter().map(|r| &*r.text).collect();
-    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    (!text.is_empty()).then_some(text)
+    let text_runs = node.text_runs();
+    let runs: Vec<&str> = text_runs.iter().map(|r| &*r.text).collect();
+    let mut rows = StyleMask::EMPTY;
+    rows.set(StyleId::WhiteSpace);
+    let white_space = node.computed_style(rows).white_space.model();
+    let text = match exact_textflow::collapse(&runs, white_space) {
+        Some(collapsed) => collapsed.runs.concat(),
+        None => runs.concat(),
+    };
+    (!text.trim().is_empty()).then_some(text)
 }
 
 impl GroupedRow {

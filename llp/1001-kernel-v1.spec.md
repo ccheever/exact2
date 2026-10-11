@@ -77,6 +77,10 @@ intrinsic seam. Its height supplies `min-height: auto` in native layout, so
 siblings reserve the control's space; explicit CSS `min-height` still wins.
 This is a declared native presentation deviation: the browser keeps authored
 HTML/ARIA/CSS. No aspect ratio is inferred, and ending projection clears the size.
+Its width is the narrowest the control can be and supplies `min-width: auto`
+in place of the hidden tabs' own minimum (LLP 1116.004 D2): UIKit's segmented
+control and tab bar report none (1 point), AppKit's segmented control its
+natural width; an explicit CSS `min-width` still wins.
 
 `justify-content`, `align-content`, `align-items` and `justify-items` accept
 and default to `normal` (2026-09-23). It lowers to Taffy's unset alignment,
