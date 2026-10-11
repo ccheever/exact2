@@ -2,7 +2,9 @@
 // shape iOS presents as an action sheet — one or more press rows that hide
 // it (the actions), at most one handlerless hide-only cancel, text rows (the
 // message) — is an NSMenu popped up against its invoker by its
-// `position-area`, as a button menu is.
+// `position-area`, as a button menu is. (One in the alert shape, with text,
+// a cancel and at most three buttons, is `NSAlert` first: AlertsMac.swift,
+// LLP 1115.000 D7.6. What reaches this is a chooser, or text with no cancel.)
 // One item per action: its title, its image (a symbol, else its `img` once
 // loaded), checked for `aria-checked`, dimmed when disabled, red when
 // destructive. A chooser (more than one action, no text) is headed by its

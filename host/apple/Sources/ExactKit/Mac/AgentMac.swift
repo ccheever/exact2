@@ -484,6 +484,13 @@ extension Agent {
     }
 
     func tap(_ req: [String: Any]) -> [String: Any] {
+        // An alert's buttons are AppKit's (LLP 1115.000 D7.6): a tap on an
+        // authored button of it presses the alert's, and nothing behind its
+        // sheet takes one.
+        if presenter.alerts.presented != nil, let id = req["id"] as? Int, let node = presenter.views[UInt32(id)] {
+            guard req["phase"] == nil, let activated = presenter.alerts.click(node) else { return ["error": "view \(id) is behind an alert"] }
+            return activated ? ["tapped": id, "delivery": "host-activation", "native": "NSAlert"] : ["error": "alert button #\(id) is unavailable"]
+        }
         if let node = view(req), presenter.dialogs.blocks(node) { return ["error": "view \(node.id) is blocked by a modal dialog"] }
         if view(req)?.placedAncestor?.placementHidden == true { return ["error": "placed child is hidden"] }
         if req["phase"] == nil, req["wheel"] == nil,
@@ -731,6 +738,14 @@ extension Agent {
     /// Set an input's text as typing does: the field editor, all selected,
     /// the text inserted — the delegate hears one change with the new value.
     func type(_ req: [String: Any]) -> [String: Any] {
+        // An alert's sheet holds the keys while it is up (LLP 1115.000 D7.6):
+        // Return is its default button's, Escape its cancel's, whatever is named.
+        if presenter.alerts.presented != nil {
+            guard let key = req["key"] as? String else { return ["error": "an alert is up: only a key reaches it"] }
+            let typed = req["id"] ?? NSNull()
+            if req["phase"] as? String == "up" { return ["typed": typed, "key": key, "phase": "up", "delivery": "unhandled", "native": "NSAlert"] }
+            return ["typed": typed, "key": key, "delivery": presenter.alerts.key(key) ? "host-activation" : "unhandled", "native": "NSAlert"]
+        }
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         guard presenter.toolbar.visible(v), !v.inert else { return ["error": "view \(v.id) is hidden or inert"] }
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
@@ -952,6 +967,21 @@ extension Agent {
         return image
     }
 
+    /// `image`, the window server's picture of `window`, with the window's
+    /// sheet drawn where it sits: a sheet (an alert's) is a window of its
+    /// own, which the picture of one window leaves out.
+    private static func withSheet(_ image: CGImage, of window: NSWindow) -> CGImage {
+        guard let sheet = window.attachedSheet, let picture = ownWindowImage(sheet.windowNumber), window.frame.width > 0,
+              let context = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return image }
+        let scale = CGFloat(image.width) / window.frame.width
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        context.draw(picture, in: CGRect(x: (sheet.frame.minX - window.frame.minX) * scale, y: (sheet.frame.minY - window.frame.minY) * scale,
+                                         width: CGFloat(picture.width), height: CGFloat(picture.height)))
+        return context.makeImage() ?? image
+    }
+
     /// Whether the window server's picture holds nothing. A display that is
     /// asleep, or a locked screen, still answers, with a transparent picture
     /// a pixel or two short of the window: no picture, not a wrong one. An
@@ -989,7 +1019,8 @@ extension Agent {
             CATransaction.flush()
             let refresh = 1 / Double(max(30, window.screen?.maximumFramesPerSecond ?? 60))
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 2 * refresh + 0.004))
-            guard let image = Self.ownWindowImage(window.windowNumber) else { return ["error": "the window server gave no picture of window \(window.windowNumber); a display that is asleep or a locked screen gives an empty one"] }
+            guard let alone = Self.ownWindowImage(window.windowNumber) else { return ["error": "the window server gave no picture of window \(window.windowNumber); a display that is asleep or a locked screen gives an empty one"] }
+            let image = Self.withSheet(alone, of: window)
             guard let png = NSBitmapImageRep(cgImage: image).converting(to: .sRGB, renderingIntent: .default)?.representation(using: .png, properties: [:]) else { return ["error": "no PNG"] }
             do { try png.write(to: URL(fileURLWithPath: path)) } catch { return ["error": "write \(path): \(error)"] }
             var r: [String: Any] = ["screenshot": path, "window": true, "w": Agent.r2(v.bounds.width), "h": Agent.r2(v.bounds.height), "scale": Agent.r2(window.backingScaleFactor)]

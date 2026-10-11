@@ -4,7 +4,8 @@ A list that pushes a detail screen, a sheet with Cancel and Save, and a confirma
 On iOS each route's `header` is its navigation bar, a pushed route gets the system Back
 button and edge swipe, a sheet swipes down, and the alert is `UIAlertController`. On the
 Mac a pushed route gets Go ▸ Back (⌘[), a back chevron in the window's toolbar and the
-trackpad's swipe back; each presses a Back control the route declares, as iOS's do. The
+trackpad's swipe back; each presses a Back control the route declares, as iOS's do; the
+alert is `NSAlert`, a sheet on the window. The
 contract blocks below are one app; each route block fills its `when` in the first.
 
 A `header` is the bar when it is the route's first child and holds exactly one heading

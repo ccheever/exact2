@@ -99,6 +99,7 @@ package final class Presenter {
     /// The native menu arm (LLP 1021 D3).
     lazy var menus = MenuHost(presenter: self)
     lazy var dialogs = DialogHost(self)
+    lazy var alerts = AlertHost(self)
     lazy var navigation = NavigationHost(presenter: self)
     lazy var backSwipe = BackSwipe(self)
     /// SVG scenes and CSS animations (LLP 1055 D4, D7).

@@ -1709,7 +1709,9 @@ dialog id="remove" role="alertdialog" aria-label="Remove book?"
 ```
 
 iOS shows the centred alert, its Cancel kept; the web its modal `dialog`;
-macOS its painted dialog. Text, a cancel and at most three buttons make an
+macOS `NSAlert`, a sheet on the window, its Cancel on Escape and Return on the
+one `buttonStyle="filled"` button that is not destructive, when there is exactly
+one (LLP 1115.000 D7.6). Text, a cancel and at most three buttons make an
 alert; several actions with no text (an "Open in…" chooser) make an action
 sheet, unanchored on an iPhone (its Cancel drawn) when it has a Cancel and a popover
 at its invoker when it has none, so a tap outside can dismiss it (LLP 1115 D6).
