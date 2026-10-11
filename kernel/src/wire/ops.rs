@@ -125,7 +125,7 @@ impl Op {
                     });
                 }
                 let value = match kind {
-                    PropKind::Str => PropValue::Str(r.string()?.to_string()),
+                    PropKind::Str => PropValue::Str(r.string()?.into()),
                     PropKind::Bool => PropValue::Bool(r.u8()? != 0),
                     PropKind::Int => PropValue::Int(r.i64()?),
                     PropKind::Float => PropValue::Float(r.f64()?),

@@ -13,7 +13,7 @@ use crate::geometry::{Point, Size};
 use crate::style::{AvailableSpace, Display, Style};
 use crate::sys::DefaultCheapStr;
 use crate::tree::{
-    Cache, ClearState, Layout, LayoutInput, LayoutOutput, LayoutPartialTree, NodeId, PrintTree, RequestedAxis, RoundTree,
+    ClearState, Layout, LayoutInput, LayoutOutput, LayoutPartialTree, NodeId, PrintTree, RequestedAxis, RoundTree,
     RunMode,
     TraversePartialTree, TraverseTree, StaticPosition,
 };
@@ -121,8 +121,8 @@ struct NodeData {
     /// subtree's algorithms read (`tree/memo.rs`).
     pub(crate) memo_root: bool,
 
-    /// The cached results of the layout computation
-    pub(crate) cache: Cache,
+    /// EXACT PATCH 30: cached layout results, allocated on their first store.
+    pub(crate) cache: super::cache::LazyCache,
 
     /// The computation result from layout algorithm
     #[cfg(feature = "detailed_layout_info")]
@@ -135,7 +135,7 @@ impl NodeData {
     pub fn new(style: Rc<Style>) -> Self {
         Self {
             style,
-            cache: Cache::new(),
+            cache: super::cache::LazyCache::new(),
             unrounded_layout: Layout::new(),
             final_layout: Layout::new(),
             has_context: false,

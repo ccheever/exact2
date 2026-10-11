@@ -267,8 +267,12 @@ fn split(prefix: &str, run: &Run, mono: bool, find: &str, hits: &mut usize, out:
             Value::Number(hit as f64),
         ]));
     };
+    if find.is_empty() {
+        push(&run.text, 0, out);
+        return;
+    }
     let lower = run.text.to_lowercase();
-    if find.is_empty() || lower.len() != run.text.len() {
+    if lower.len() != run.text.len() {
         push(&run.text, 0, out);
         return;
     }

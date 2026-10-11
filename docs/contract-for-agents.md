@@ -1425,6 +1425,39 @@ P1; `apps/harness/terminal.contract` shows the task). Declare its shape
 other host it stays unloaded. A new host fact uses this channel before
 anyone proposes a new reserved source (LLP 1101.002 §0 P11).
 
+The terminal's `colors` is the selected output bit depth: `0` (monochrome),
+`4` (16 ANSI colours), `8` (256 colours), or `24` (RGB). The host reduces
+authored colours to that palette; at zero it emits no foreground/background
+colour codes, while preserving bold, underline, italic and reverse-video
+focus. Images use alternate text in monochrome. Authors can choose different
+content, symbols or emphasis rather than relying on colour alone:
+
+```contract
+shape Terminal
+  colors: number
+component App
+  resource terminal = exactSurface("terminal") as shape Terminal
+  view
+    column
+      when terminal.colors == 0
+        text "! Attention required" font-weight=700
+      else
+        text "Attention required" color="#d78700"
+```
+
+Interactive and headless CLI runs detect the palette from `TERM` and
+`COLORTERM`. Nonempty `NO_COLOR` disables colour (including `NO_COLOR=0`);
+empty `NO_COLOR` does not. `TERM=dumb`, `unknown`, an absent terminal type
+without a colour hint, and unrecognized terminal types fall back to monochrome.
+This is conservative environment detection, not a terminal capability query.
+Use `--color auto|never|16|256|truecolor` on any terminal app or `exact-terminal`
+to override it (`always` means `truecolor`; `--color=never` also works).
+An explicit choice overrides `NO_COLOR`. Plain `print`/`document` output is
+always text; the selected palette also applies to `.ans` screenshots. A Rust
+embedder may call `Host::set_colors(ColorDepth::Monochrome)` before starting
+the loop or emulator; direct painting and `Vt` otherwise default to RGB for
+deterministic tests.
+
 A `text` inside a paragraph can carry `press=` (a `span`'s `onclick`) and
 `href=` (an `a`). In the terminal a click on the run runs its
 handler; without one (and on every host for `href`) it follows the link: a path naming one of the app's routes is `navigate` on the

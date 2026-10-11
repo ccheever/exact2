@@ -31,10 +31,10 @@ pub fn prop_value(id: u16, value: &Value) -> Result<(PropId, PropValue), BridgeE
     };
     let out = match (prop.kind(), value) {
         (exact_kernel::PropKind::Str, v @ exact_plan::str_value!()) => {
-            PropValue::Str(String::from(v.text()))
+            PropValue::Str(v.text().into())
         }
         (exact_kernel::PropKind::Str, Value::Number(n)) => {
-            PropValue::Str(crate::stdlib::format_number(*n))
+            PropValue::Str(crate::stdlib::format_number(*n).into())
         }
         (exact_kernel::PropKind::Bool, Value::Bool(b)) => PropValue::Bool(*b),
         (exact_kernel::PropKind::Int, Value::Number(n))
@@ -55,9 +55,9 @@ pub fn prop_value(id: u16, value: &Value) -> Result<(PropId, PropValue), BridgeE
 /// ([`StyleValue::unsets`]): the row is cleared, as a class choice's
 /// `none` is, and nothing is refused.
 pub fn unsets(id: u16, value: &Value) -> bool {
-    matches!(value, exact_plan::str_value!())
-        && StyleId::from_bit(id as u32)
-            .is_some_and(|style| StyleValue::Text(value.text().into()).unsets(style))
+    value.as_str().is_some_and(|text| {
+        StyleId::from_bit(id as u32).is_some_and(|style| StyleValue::text_unsets(text, style))
+    })
 }
 
 /// [`set_style`] for a binding of `plan`: a `-exact-platform-color()` only as one
@@ -134,7 +134,7 @@ pub fn set_style(
                 .and_then(|p| exact_num::parse_f64(p).ok())
             {
                 Some(p) => StyleValue::Percent(p),
-                _ => StyleValue::Text(t.to_string()),
+                _ => StyleValue::Text(t.into()),
             },
         },
         _ => {

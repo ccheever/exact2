@@ -80,6 +80,22 @@ pub struct NodeRef<'a> {
 }
 
 impl<'a> NodeRef<'a> {
+    fn at(arena: &'a NodeArena, slot: u32) -> Self {
+        Self {
+            id: arena.local_id(slot),
+            key: arena.key(slot),
+            node_type: arena.node_type(slot),
+            parent: arena.parent(slot).map(|p| arena.local_id(p)),
+            style: arena.style(slot),
+            props: arena.props(slot),
+            frame: arena.frame(slot),
+            content: arena.content(slot),
+            is_root: arena.is_root(slot),
+            arena,
+            slot,
+        }
+    }
+
     /// The editor content box in this native field's local frame (LLP 1104 D5).
     pub fn field_content_rect(&self) -> Option<Frame> {
         self.arena.field_content_rect(self.slot)
@@ -137,6 +153,12 @@ impl<'a> NodeRef<'a> {
     /// rows, else its paragraph's, else the initial values.
     pub fn text_style(&self) -> TextStyle {
         self.arena.text_style(self.slot)
+    }
+
+    /// The resolved paragraph inputs used by the layout measurer, without
+    /// copying unrelated style rows.
+    pub fn paragraph(&self) -> crate::text::Paragraph {
+        self.arena.paragraph(self.slot)
     }
 
     /// The nearest explicit HTML spelling-check hint in the logical tree.
@@ -199,6 +221,16 @@ impl<'a> NodeRef<'a> {
             .iter()
             .map(|c| self.arena.local_id(*c))
             .collect()
+    }
+
+    /// Borrow the children in tree order, without allocating an id snapshot
+    /// or resolving those ids again. The arena stays borrowed for the walk.
+    pub fn child_nodes(&self) -> impl ExactSizeIterator<Item = Self> + DoubleEndedIterator + 'a {
+        let arena = self.arena;
+        arena
+            .children(self.slot)
+            .iter()
+            .map(move |&slot| Self::at(arena, slot))
     }
 }
 
@@ -805,19 +837,7 @@ impl Kernel {
     }
 
     fn node_at(&self, slot: u32) -> NodeRef<'_> {
-        NodeRef {
-            id: self.arena.local_id(slot),
-            key: self.arena.key(slot),
-            node_type: self.arena.node_type(slot),
-            parent: self.arena.parent(slot).map(|p| self.arena.local_id(p)),
-            style: self.arena.style(slot),
-            props: self.arena.props(slot),
-            frame: self.arena.frame(slot),
-            content: self.arena.content(slot),
-            is_root: self.arena.is_root(slot),
-            arena: &self.arena,
-            slot,
-        }
+        NodeRef::at(&self.arena, slot)
     }
 
     /// Every node whose `id` prop is `id`, oldest first: what a command

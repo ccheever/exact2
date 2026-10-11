@@ -126,10 +126,13 @@ fn nonnegative(id: StyleId) -> bool {
 /// the text is neither.
 pub fn parse(text: &str) -> Option<(Unit, f32)> {
     let t = text.trim_matches(['\t', '\n', '\u{c}', '\r', ' ']);
-    let lower = t.get(t.len().saturating_sub(3)..)?.to_ascii_lowercase();
-    let (unit, number) = if lower == "rem" {
+    let suffix = t.get(t.len().saturating_sub(3)..)?;
+    let (unit, number) = if suffix.eq_ignore_ascii_case("rem") {
         (Unit::Rem, &t[..t.len() - 3])
-    } else if lower.ends_with("em") {
+    } else if suffix
+        .get(suffix.len().saturating_sub(2)..)
+        .is_some_and(|s| s.eq_ignore_ascii_case("em"))
+    {
         (Unit::Em, &t[..t.len() - 2])
     } else {
         return None;
@@ -171,7 +174,7 @@ pub(crate) fn of(id: StyleId, value: &StyleValue) -> Result<Option<(Unit, f32)>,
 pub(crate) fn pixels_text(
     id: StyleId,
     value: &StyleValue,
-) -> Result<Option<StyleValue>, StyleValueError> {
+) -> Result<Option<StyleValue<'static>>, StyleValueError> {
     let StyleValue::Text(text) = value else {
         return Ok(None);
     };
@@ -200,13 +203,13 @@ pub(crate) fn pixels_text(
 
 /// What the row holds until the kernel resolves it: the length at CSS's
 /// initial font size, in the form the row's codec reads as pixels.
-pub(crate) fn provisional(id: StyleId, (_, n): (Unit, f32)) -> StyleValue {
+pub(crate) fn provisional(id: StyleId, (_, n): (Unit, f32)) -> StyleValue<'static> {
     pixels(id, n * MEDIUM)
 }
 
-fn pixels(id: StyleId, px: f32) -> StyleValue {
+fn pixels(id: StyleId, px: f32) -> StyleValue<'static> {
     if id.codec() == StyleCodec::LineHeight {
-        StyleValue::Text(format!("{}px", exact_num::Shortest(px as f64)))
+        StyleValue::Text(format!("{}px", exact_num::Shortest(px as f64)).into())
     } else {
         StyleValue::Number(px as f64)
     }

@@ -910,6 +910,7 @@ impl LayoutTree {
         self.pass += 1;
         let pass = self.pass;
         let mut runs: Vec<TextRun<'_>> = Vec::new();
+        let mut runs_slot = None;
         let mut invalid_metrics = None;
         let mut invalid_button = None;
         let mut provisional_button = false;
@@ -1084,8 +1085,13 @@ impl LayoutTree {
                         let metrics = if let Some(metrics) = known {
                             metrics
                         } else {
-                            runs.clear();
-                            arena.text_runs(slot, &mut runs);
+                            // A pass borrows an immutable arena. Consecutive offers
+                            // for one leaf can share its already flattened runs.
+                            if runs_slot != Some(slot) {
+                                runs.clear();
+                                arena.text_runs(slot, &mut runs);
+                                runs_slot = Some(slot);
+                            }
                             if runs.is_empty() {
                                 return Size::ZERO;
                             }
@@ -1349,7 +1355,10 @@ impl LayoutTree {
     pub fn rebuild(arena: &mut NodeArena) -> LayoutTree {
         let mut tree = LayoutTree::new();
         arena.clear_taffy();
-        let slots: Vec<u32> = arena.iter_live().collect();
+        let slots: Vec<u32> = arena
+            .iter_live()
+            .filter(|s| !arena.is_inline_run(*s))
+            .collect();
         for slot in &slots {
             let node = tree.new_leaf(
                 taffy_style(arena, *slot),

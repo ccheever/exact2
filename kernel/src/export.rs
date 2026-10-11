@@ -465,7 +465,7 @@ pub fn decode(bytes: &[u8]) -> Result<Snapshot, DecodeError> {
                 });
             }
             let value = match kind {
-                PropKind::Str => PropValue::Str(pr.string()?.to_string()),
+                PropKind::Str => PropValue::Str(pr.string()?.into()),
                 PropKind::Bool => match pr.u8()? {
                     0 => PropValue::Bool(false),
                     1 => PropValue::Bool(true),

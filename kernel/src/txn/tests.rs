@@ -48,14 +48,96 @@ fn work(f: impl FnOnce()) -> (usize, usize) {
 }
 
 /// Frames of `ids` after one layout, and whether the engine holds exactly
-/// the live nodes.
+/// the live layout boxes (inline runs belong to their paragraph).
 fn laid_out(k: &mut Kernel, ids: &[u32]) -> (Vec<(u32, Frame)>, bool) {
     k.compute_layout(1, Offer::definite(400.0, 800.0)).unwrap();
     let frames = ids
         .iter()
         .map(|&id| (id, k.node(id).unwrap().frame))
         .collect();
-    (frames, k.engine_nodes() == k.live_count())
+    let boxes = k
+        .arena()
+        .iter_live()
+        .filter(|s| !k.arena().is_inline_run(*s))
+        .count();
+    (frames, k.engine_nodes() == boxes)
+}
+
+#[test]
+fn inline_runs_need_no_engine_nodes_and_promote_with_current_style() {
+    let mut first = create([1, 5], NodeType::View);
+    first.extend(create(2..5, NodeType::Text));
+    first.extend([
+        prop(3, PropId::Text, "alpha"),
+        prop(4, PropId::Text, " beta"),
+        children(3, &[4]),
+        children(2, &[3]),
+        children(1, &[2, 5]),
+        Op::AttachRoot { id: 1 },
+    ]);
+    let batches = [
+        first,
+        vec![tall(3, 37.0), prop(4, PropId::Text, " changed inline")],
+        vec![children(5, &[3])],
+        vec![children(2, &[3])],
+        vec![children(2, &[])],
+        vec![children(5, &[3]), children(2, &[3]), children(5, &[3])],
+        vec![
+            Op::DestroyView { id: 3 },
+            Op::CreateView {
+                id: 3,
+                node_type: NodeType::Text,
+            },
+            prop(3, PropId::Text, "reused"),
+            children(2, &[3]),
+        ],
+        vec![children(2, &[]), Op::AttachRoot { id: 3 }],
+    ];
+    for on_demand in [false, true] {
+        let mut k = if on_demand {
+            Kernel::with_monospace_on_demand()
+        } else {
+            Kernel::with_monospace()
+        };
+        for (round, batch) in batches.iter().enumerate() {
+            k.apply(0, round as u64, batch).unwrap();
+            let mut rebuilt = k.rehydrate(Box::new(MonospaceMeasurer::default()));
+            let mut replay = Kernel::with_monospace();
+            for (i, ops) in batches[..=round].iter().enumerate() {
+                replay.apply(0, i as u64, ops).unwrap();
+            }
+            for root in k.roots() {
+                for tree in [&mut k, &mut rebuilt, &mut replay] {
+                    tree.compute_layout(root, Offer::definite(400.0, 800.0))
+                        .unwrap();
+                }
+            }
+            for slot in k.arena().iter_live() {
+                let arena = k.arena();
+                assert_eq!(arena.taffy(slot).is_none(), arena.is_inline_run(slot));
+                let id = arena.local_id(slot);
+                let frame = k.node(id).unwrap().frame;
+                assert_eq!(
+                    frame,
+                    rebuilt.node(id).unwrap().frame,
+                    "round {round}: rebuild {id}"
+                );
+                assert_eq!(
+                    frame,
+                    replay.node(id).unwrap().frame,
+                    "round {round}: replay {id}"
+                );
+            }
+            if round == 0 {
+                assert_eq!(k.engine_nodes(), 3);
+                assert_eq!(k.live_count(), 5);
+            }
+            if round == 2 || round == 5 {
+                assert_eq!(k.node(3).unwrap().frame.height, 37.0);
+                assert_eq!(k.node(4).unwrap().frame, Frame::default());
+            }
+        }
+    }
 }
 
 /// Moving N children in one op and destroying N children one op each

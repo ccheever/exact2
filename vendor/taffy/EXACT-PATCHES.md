@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28 and 29 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29 and 30 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -958,3 +958,23 @@ margin, every batch compared bit for bit (frames and scroll extents) with a
 rehydrated kernel; a feed of one kind lays out no row once its texts were
 seen; the same with the memo off. Every other layout test runs with it on
 for the lists it builds (`containment_tests`).
+
+## Patch 30: allocate tree-owned layout caches when first used
+
+`NodeData` holds a pointer to a cache, allocated only when `Cache::store`
+keeps a result. A node that has never laid out carries no nine-entry cache:
+Exact's inline text runs are engine nodes, but their paragraph is measured
+as one box. Clearing a populated cache retains its allocation for reuse on
+later edits. Hidden-layout and collapsing-margin answers that the existing
+cache declines to store allocate nothing. Cache keys, eviction, invalidation,
+replay, and the public `Cache` type are unchanged.
+
+**Held by** `tree::cache::tests::lazy_storage_preserves_cache_answers_and_clear_state`
+(the same query/store/clear sequence against the existing cache, including
+axis, parent-height, sizing-mode, margin and hidden-layout differences) and
+`lazy_storage_allocates_only_for_a_cached_result_and_reuses_it` (misses,
+refused entries, invalidation, clone independence and allocation reuse).
+The kernel's layout, replay, reparenting and fresh-tree differential tests
+also run against this storage. The stale `Style` size assertions now include
+the vendored extension rows: 600 bytes with `String`, 568 with `Arc<str>` on
+the tested 64-bit host; this patch changes neither style layout nor its size.

@@ -765,30 +765,19 @@ fn paint_over(computed: &mut StyleProps, shown: &Shown) {
 pub fn restyle_presented(last: &str, env: &Env, shown: &Shown) -> String {
     let mut paint = StyleProps::default();
     paint_over(&mut paint, shown);
-    let sides = [
-        (
-            Property::BorderTopColor,
-            StyleId::BorderColorTop,
-            &mut paint.border_color_top,
-        ),
-        (
-            Property::BorderRightColor,
-            StyleId::BorderColorRight,
-            &mut paint.border_color_right,
-        ),
-        (
-            Property::BorderBottomColor,
-            StyleId::BorderColorBottom,
-            &mut paint.border_color_bottom,
-        ),
-        (
-            Property::BorderLeftColor,
-            StyleId::BorderColorLeft,
-            &mut paint.border_color_left,
-        ),
-    ];
-    for (p, id, side) in sides {
+    for (p, id) in [
+        (Property::BorderTopColor, StyleId::BorderColorTop),
+        (Property::BorderRightColor, StyleId::BorderColorRight),
+        (Property::BorderBottomColor, StyleId::BorderColorBottom),
+        (Property::BorderLeftColor, StyleId::BorderColorLeft),
+    ] {
         if let Some(c) = shown.get(p) {
+            let side = match p {
+                Property::BorderTopColor => &mut paint.border_color_top,
+                Property::BorderRightColor => &mut paint.border_color_right,
+                Property::BorderBottomColor => &mut paint.border_color_bottom,
+                _ => &mut paint.border_color_left,
+            };
             *side = Some(fixed(c));
             paint.mask.set(id);
         }

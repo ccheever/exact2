@@ -201,7 +201,10 @@ pub fn binding(plan: &Plan, kind: NodeType, b: &BindingsRow) -> Option<(String, 
                 .chain(["all", "border-color"])
                 .filter_map(|name| {
                     let transition = exact_motion::Transitions::parse(name).ok()?;
-                    let mut style = StyleProps { transition, ..Default::default() };
+                    // This row is behind DerefMut; it cannot be a StyleProps initializer.
+                    #[allow(clippy::field_reassign_with_default)]
+                    let mut style = StyleProps::default();
+                    style.transition = transition;
                     style.mask.set(StyleId::Transition);
                     Some((name, own(&style).policy))
                 })

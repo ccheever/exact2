@@ -571,7 +571,7 @@ mod tests {
             ),
         ] {
             style
-                .set_dynamic(id, &StyleValue::Text(text.clone()))
+                .set_dynamic(id, &StyleValue::Text(text.as_str().into()))
                 .unwrap_or_else(|e| panic!("{text}: {e:?}"));
         }
         assert!(

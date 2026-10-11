@@ -106,3 +106,7 @@ shape Frame
 
 shape Ack
   ok: bool
+
+// Startup metadata, resolved by the host worker while the prompt is usable.
+shape Workspace
+  branch: string

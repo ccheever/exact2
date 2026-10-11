@@ -196,6 +196,28 @@ the plan, so this is not an original-source revision guarantee.
 and exits nonzero when formatting differs. Plain `fmt <file>` writes the result
 explicitly. Formatting never runs automatically on save.
 
+## Run a terminal app
+
+`cargo build --profile host-dev -p harness-terminal -p llp-terminal` builds
+`target/host-dev/harness` (inline; `--fullscreen` for the alternate screen)
+and `target/host-dev/llp [corpus-or-document]` (full screen). Both embed their
+terminal entry as a compiled plan. Rebuild after editing the entry or an
+import; launching the binary needs no Contract source or compiler work.
+`exact-terminal <entry.contract>` remains the source-driven development
+host. All three accept the headless operations and `--size COLSxROWS`.
+
+The harness's inline transcript is transferred to scrollback in bounded
+batches, retiring each only after the terminal prints it. A large burst
+still produces every entry immediately; fullscreen retains the full
+transcript for scrolling.
+
+Vertical `list virtualized=true` uses the shared collection window on the
+terminal. Scroll and resize report the viewport and measured rows; Tab and
+arrow navigation reach logical rows beyond the mounted window. A focused
+row stays alive when scrolled away. Closed dialogs release their virtual
+row views while retaining their list index and position. The LLP reader's
+document tree uses this path, initializing its index on first open.
+
 ## Run an app from a terminal on macOS
 
 ```sh

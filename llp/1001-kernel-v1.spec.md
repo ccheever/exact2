@@ -37,6 +37,13 @@ The generator fails closed: a row it cannot validate is a build error. A second
 copy of any table anywhere is a defect — the TypeScript encoder, when it exists,
 reads the same file.
 
+Non-inherited effect rows marked `cold` in the schema share their initial
+values until written (`kernel/build/cold.rs`). A cloned style copies the
+shared pointer; a later write owns its copy. Layout and inherited rows stay
+inline. This reduces temporary style-patch memory in terminal animations;
+row values, masks, patch/clear behavior and encoded bytes are unchanged.
+The schema metadata changes its digest, so producers and hosts re-bake together.
+
 **Defaults live in the table, once, and they are CSS's.** The style table's
 `default` column is both the storage initializer and the semantic default; there is
 no separate profile authority yet (0486's layout profile becomes relevant when a

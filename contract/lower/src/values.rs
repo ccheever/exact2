@@ -719,7 +719,7 @@ pub(crate) fn check_style_value(
                 } else if let Some(pct) = s.strip_suffix('%').and_then(|p| p.parse::<f64>().ok()) {
                     StyleValue::Percent(pct)
                 } else {
-                    StyleValue::Text(s.clone())
+                    StyleValue::Text(s.as_str().into())
                 },
             ),
             Expr::Bool(b, _) => {

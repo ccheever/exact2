@@ -183,6 +183,8 @@ pub struct State {
     pub model: String,
     pub cwd: String,
     pub branch: String,
+    /// The banner stays live until startup Git metadata arrives.
+    pub branch_loading: bool,
     pub phase: String,
     pub tokens_in: f64,
     pub tokens_out: f64,

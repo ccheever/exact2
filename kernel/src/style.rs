@@ -2,6 +2,7 @@
 //! Generated `StyleProps` holds rows; `to_taffy` converts authored to engine style.
 //! Percentages use points (0–100) on the wire/in storage, becoming fractions here.
 
+use std::borrow::Cow;
 use taffy::prelude::{auto, length, percent};
 
 use crate::arena::NodeArena;
@@ -335,12 +336,11 @@ pub use exact_motion::{link_animations, Animations, Transitions};
 /// runner, a compiler lowering a literal, a TypeScript encoder. Exactly one
 /// place turns it into a row: the generated `StyleProps::set_dynamic`.
 #[derive(Debug, Clone, PartialEq)]
-pub enum StyleValue {
-    /// A number: points for dimensions, the raw value for numeric rows, a
-    /// packed `0xRRGGBBAA` for colors.
+pub enum StyleValue<'a> {
+    /// A number: dimensions in points, raw numeric rows, or colors as `0xRRGGBBAA`.
     Number(f64),
-    /// Text: an enum value by name, or a CSS colour.
-    Text(String),
+    /// CSS text borrowed while parsing; parsed rows own any text they retain.
+    Text(Cow<'a, str>),
     /// A percentage, authored 0–100.
     Percent(f64),
     /// `auto`.
@@ -349,7 +349,7 @@ pub enum StyleValue {
     Vec2(f32, f32),
 }
 
-impl StyleValue {
+impl StyleValue<'_> {
     /// Whether this value is a CSS-wide keyword that leaves row `style`
     /// unset — inherited, else initial — which is what clearing the row
     /// does: `unset`, and `inherit` on an inherited row (`color:
@@ -359,6 +359,12 @@ impl StyleValue {
         let StyleValue::Text(t) = self else {
             return false;
         };
+        Self::text_unsets(t, style)
+    }
+
+    /// [`Self::unsets`] for borrowed text, before a producer allocates a
+    /// style value. Dynamic bindings use this on every changed row.
+    pub fn text_unsets(t: &str, style: StyleId) -> bool {
         let t = t.trim();
         t.eq_ignore_ascii_case("unset")
             || (t.eq_ignore_ascii_case("inherit") && StyleMask::INHERITED.has(style))
@@ -447,12 +453,12 @@ impl StyleValue {
 
     /// A CSS-valued row's text: text as given, a number (`aspect-ratio: 2`),
     /// a percentage (`transform-origin: 25%`) or `auto` as CSS spells it.
-    pub(crate) fn css_text(&self, style: StyleId) -> Result<String, StyleValueError> {
+    pub(crate) fn css_text(&self, style: StyleId) -> Result<Cow<'_, str>, StyleValueError> {
         match self {
-            StyleValue::Number(n) => Ok(exact_num::Shortest(*n).to_string()),
-            StyleValue::Percent(p) => Ok(format!("{}%", exact_num::Shortest(*p))),
+            StyleValue::Number(n) => Ok(exact_num::Shortest(*n).to_string().into()),
+            StyleValue::Percent(p) => Ok(format!("{}%", exact_num::Shortest(*p)).into()),
             StyleValue::Auto => Ok("auto".into()),
-            _ => self.text(style).map(str::to_string),
+            _ => self.text(style).map(Cow::Borrowed),
         }
     }
 
@@ -791,16 +797,22 @@ impl ColorValue {
     /// profile's or its own space (LLP 1100), or `light-dark(<color>,
     /// <color>)`. Anything else falls through to the plain colour parse.
     pub fn parse_light_dark(text: &str) -> Option<ColorValue> {
+        let start = text.trim_start();
+        // A hex colour cannot name a role, a profile or another colour
+        // space. Leave it to the plain parser without scanning those
+        // vocabularies (animated terminal runs use hex on every frame).
+        if start.starts_with('#') {
+            return None;
+        }
         if let Some(role) = roles::role(text) {
             return Some(ColorValue::Role(role));
         }
-        if text.trim_start().starts_with("-exact-platform-color(") {
+        if start.starts_with("-exact-platform-color(") {
             return roles::parse_platform(text);
         }
-        if text
-            .trim_start()
-            .to_ascii_lowercase()
-            .starts_with("color(--")
+        if start
+            .get(..8)
+            .is_some_and(|s| s.eq_ignore_ascii_case("color(--"))
         {
             return profiled::parse_profiled(text);
         }

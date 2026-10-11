@@ -116,9 +116,50 @@ impl RegionInst {
                     });
                 };
                 let arm = row.arms.iter().next();
+                // An index key gives each position its identity, regardless
+                // of which item occupies it. No key evaluation or lookup is
+                // needed, including when the list grows or shrinks. Stay on
+                // the general path if indices could cease to be unique f64s.
+                if deps.index_keys[index] && items.len() as u64 <= 1 << 53 {
+                    let mut changed = items.len() != rows.len();
+                    for (position, item) in items.iter().enumerate() {
+                        let mut frame = Frame {
+                            item: Some(item.clone()),
+                            index: Some(position),
+                            bound: None,
+                            ..Default::default()
+                        };
+                        if let Some(r) = rows.get_mut(position) {
+                            changed |= Self::update_item(u, r, frames, frame, body)?;
+                        } else {
+                            let slots: RowSlots = Rc::new(RefCell::new(BTreeMap::new()));
+                            frame.region = Some(self.region.0);
+                            frame.row = Some(slots.clone());
+                            let inner = with_frame(frames, frame.clone());
+                            if let Some(arm) = arm {
+                                init_owned(u, arm, &slots, &inner)?;
+                            }
+                            let roots = realize(u, None, arm, &inner)?;
+                            rows.push(Row {
+                                key: Value::Number(position as f64),
+                                dup: 0,
+                                frame,
+                                roots,
+                                slots,
+                            });
+                        }
+                    }
+                    for gone in rows.drain(items.len()..) {
+                        destroy_all(u, gone.roots);
+                    }
+                    self.subject = Some(subject);
+                    return Ok(changed);
+                }
                 // Key every item. A repeated key is the data's error, not the
                 // plan's: its later rows get their own identity, in order.
                 let mut keyed: Vec<(String, Value, u32, Frame)> = Vec::with_capacity(items.len());
+                let mut same_order = items.len() == rows.len();
+                let mut inner = with_frame(frames, Frame::default());
                 for (index, item) in items.iter().enumerate() {
                     u.work.rows_keyed += 1;
                     let frame = Frame {
@@ -127,12 +168,38 @@ impl RegionInst {
                         bound: None,
                         ..Default::default()
                     };
-                    let inner = with_frame(frames, frame.clone());
+                    *inner.last_mut().unwrap() = frame.clone();
                     let key = u.eval(row.key, &inner)?;
-                    let key_text = key_text(&key).ok_or(InstanceError::KeyKind {
-                        region: self.region,
-                    })?;
+                    // Equal scalar keys have the same canonical spelling,
+                    // including +0/-0. An old key is already validated. Delay
+                    // spelling and sorting until the key sequence changes.
+                    let same = rows
+                        .get(index)
+                        .is_some_and(|r| crate::compare::equal(&r.key, &key) == Some(true));
+                    same_order &= same;
+                    let key_text = if same {
+                        String::new()
+                    } else {
+                        key_text(&key).ok_or(InstanceError::KeyKind {
+                            region: self.region,
+                        })?
+                    };
                     keyed.push((key_text, key, 0, frame));
+                }
+                if same_order {
+                    // The duplicate ordinal is also unchanged: it is the
+                    // count of equal keys earlier in this same sequence.
+                    let mut roots = false;
+                    for (r, (_, _, _, frame)) in rows.iter_mut().zip(keyed) {
+                        roots |= Self::update_item(u, r, frames, frame, body)?;
+                    }
+                    self.subject = Some(subject);
+                    return Ok(roots);
+                }
+                for (text, key, _, _) in &mut keyed {
+                    if text.is_empty() {
+                        *text = key_text(key).expect("validated key");
+                    }
                 }
                 // A key's rows after its first are numbered in item order.
                 let order = stable_order(keyed.len(), &|i, j| keyed[i].0 < keyed[j].0);
@@ -181,23 +248,7 @@ impl RegionInst {
                     match existing {
                         Some(mut r) => {
                             roots |= found != Some(position);
-                            // Row bodies may distinguish signed zero (`1 / n > 0`):
-                            // compare by bits, not by the language's `==`. An
-                            // equivalent item keeps its object for nested memos.
-                            // A row that moved reads a new position (LLP 1062
-                            // D8): every field counts as changed, since the
-                            // index is read as the whole frame.
-                            let dirty = if r.frame.index != frame.index {
-                                !0
-                            } else {
-                                crate::compare::changed_fields(&r.frame.item, &frame.item)
-                            };
-                            if dirty == 0 {
-                                frame.item = r.frame.item.take();
-                            }
-                            frame.row = Some(r.slots.clone());
-                            r.frame = frame;
-                            roots |= update_row(u, &mut r, frames, dirty, body)?;
+                            roots |= Self::update_item(u, &mut r, frames, frame, body)?;
                             next.push(r);
                         }
                         None => {
@@ -233,6 +284,29 @@ impl RegionInst {
             }
             _ => Ok(false),
         }
+    }
+
+    fn update_item(
+        u: &mut Update<'_>,
+        r: &mut Row,
+        frames: &[Frame],
+        mut frame: Frame,
+        body: &Reads,
+    ) -> Result<bool, InstanceError> {
+        // Items may distinguish signed zero even though keys do not. A moved
+        // row also reads a new position (LLP 1062 D8), which dirties all fields.
+        let dirty = if r.frame.index != frame.index {
+            !0
+        } else {
+            crate::compare::changed_fields(&r.frame.item, &frame.item)
+        };
+        if dirty == 0 {
+            frame.item = r.frame.item.take();
+        }
+        frame.region = r.frame.region;
+        frame.row = Some(r.slots.clone());
+        r.frame = frame;
+        update_row(u, r, frames, dirty, body)
     }
 
     /// Show arm `want`; whether the roots changed.

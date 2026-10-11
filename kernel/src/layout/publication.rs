@@ -218,3 +218,143 @@ struct Shift {
     t: (f32, f32),
     base: (f32, f32),
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        Kernel, MonospaceMeasurer, NodeFlags, NodeType, Offer, Op, PropId, StyleId, StyleProps,
+        StyleValue, TextMeasureRequest, TextMeasurer, TextMetrics,
+    };
+    use std::{cell::Cell, rc::Rc};
+    struct Count(Rc<Cell<usize>>);
+    impl TextMeasurer for Count {
+        fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
+            self.0.set(self.0.get() + 1);
+            MonospaceMeasurer::default().measure(request)
+        }
+    }
+    fn style(id: u32, row: StyleId, value: &str) -> Op {
+        let mut patch = StyleProps::default();
+        patch
+            .set_dynamic(row, &StyleValue::Text(value.into()))
+            .unwrap();
+        Op::SetStyle {
+            id,
+            patch: Box::new(patch),
+        }
+    }
+    fn prop(id: u32, prop: PropId, value: &str) -> Op {
+        Op::SetProp {
+            id,
+            prop,
+            value: value.into(),
+        }
+    }
+    fn equal_fresh(k: &Kernel, offer: Offer) {
+        let mut fresh = k.rehydrate(Box::new(MonospaceMeasurer::default()));
+        fresh.compute_layout(1, offer).unwrap();
+        let arena = k.node(1).unwrap().arena;
+        for slot in arena.iter_live() {
+            let node = k.node(arena.local_id(slot)).unwrap();
+            let other = fresh.node(node.id).unwrap();
+            assert!(node.frame.bits_eq(other.frame), "frame {}", node.id);
+            assert_eq!(node.content, other.content, "overflow {}", node.id);
+            assert_eq!(
+                node.arena.flags(node.slot).has(NodeFlags::HIDDEN),
+                other.arena.flags(other.slot).has(NodeFlags::HIDDEN),
+                "hidden {}",
+                node.id
+            );
+        }
+    }
+    #[test]
+    fn paint_and_prop_edits_skip_publication_but_geometry_edits_still_publish() {
+        let calls = Rc::new(Cell::new(0));
+        let mut k = Kernel::new(Box::new(Count(calls.clone())));
+        let offer = Offer::definite(400.0, 300.0);
+        let mut ops = Vec::new();
+        for id in [1, 2, 3].into_iter().chain(10..210) {
+            ops.push(Op::CreateView {
+                id,
+                node_type: if id == 1 {
+                    NodeType::View
+                } else {
+                    NodeType::Text
+                },
+            });
+            if id >= 10 {
+                ops.push(prop(id, PropId::Text, "word "));
+            }
+        }
+        ops.extend([
+            Op::SetChildren {
+                id: 2,
+                children: (10..110).collect(),
+            },
+            Op::SetChildren {
+                id: 3,
+                children: (110..210).collect(),
+            },
+            Op::SetChildren {
+                id: 1,
+                children: vec![2, 3],
+            },
+            Op::AttachRoot { id: 1 },
+        ]);
+        k.apply(0, 1, &ops).unwrap();
+        k.compute_layout(1, offer).unwrap();
+        calls.set(0);
+        let receipt = k
+            .apply(
+                0,
+                1,
+                &[
+                    style(1, StyleId::TextColor, "#ff0000"),
+                    style(11, StyleId::BackgroundColor, "#001122"),
+                    prop(12, PropId::Href, "https://example.invalid"),
+                    prop(13, PropId::TestId, "painted-run"),
+                ],
+            )
+            .unwrap();
+        assert_eq!(receipt.touched.len(), 203);
+        let layout = k.compute_layout(1, offer).unwrap();
+        assert_eq!(k.tree().publication_visits, 0);
+        assert_eq!(calls.get(), 0);
+        assert!(layout.changed.is_empty() && layout.updated.is_empty());
+        let run = k.node(12).unwrap();
+        assert!(run.arena.flags(run.slot).has(NodeFlags::PROPS_DIRTY));
+        assert!(run.arena.flags(run.slot).has(NodeFlags::PAINT_DIRTY));
+        assert_eq!(run.props.str(PropId::Href), Some("https://example.invalid"));
+        equal_fresh(&k, offer);
+        for ops in [
+            vec![
+                prop(10, PropId::Text, "changed text with a different width"),
+                style(11, StyleId::Display, "none"),
+            ],
+            vec![
+                Op::SetChildren {
+                    id: 1,
+                    children: vec![2, 3, 10],
+                },
+                style(10, StyleId::BackgroundColor, "#112233"),
+            ],
+            vec![style(1, StyleId::Display, "none")],
+            vec![
+                style(1, StyleId::TextColor, "#0000ff"),
+                Op::ClearProp {
+                    id: 12,
+                    prop: PropId::Href,
+                },
+            ],
+            vec![
+                style(1, StyleId::Display, "block"),
+                style(11, StyleId::Display, "block"),
+            ],
+        ] {
+            k.apply(0, 1, &ops).unwrap();
+            k.compute_layout(1, offer).unwrap();
+            equal_fresh(&k, offer);
+        }
+        assert!(calls.get() > 0);
+    }
+}

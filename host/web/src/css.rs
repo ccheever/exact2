@@ -1160,7 +1160,9 @@ mod declaration_tests {
     /// the page as CSS.
     #[test]
     fn layout_rows_keep_their_css() {
-        let t = |s: &str| StyleValue::Text(s.into());
+        fn t(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
         for (rows, want) in [
             (
                 vec![(StyleId::AspectRatio, t("16/9"))],
@@ -1203,7 +1205,9 @@ mod declaration_tests {
 
     #[test]
     fn every_grid_row_has_css_and_none_is_skipped() {
-        let t = |s: &str| StyleValue::Text(s.into());
+        fn t(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
         for (row, value, want) in [
             (
                 StyleId::GridTemplateColumns,
@@ -1241,7 +1245,9 @@ mod declaration_tests {
     /// resolve, and `none` clears.
     #[test]
     fn a_3d_rotate_and_translate_are_one_declaration_each() {
-        let t = |s: &str| StyleValue::Text(s.into());
+        fn t(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
         let text = css(
             &[
                 (StyleId::Rotate, t("y 30deg")),
@@ -1271,7 +1277,9 @@ mod declaration_tests {
 
     #[test]
     fn text_stroke_is_the_compat_standards_two_properties() {
-        let t = |s: &str| StyleValue::Text(s.into());
+        fn t(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
         let text = css(
             &[
                 (StyleId::TextStrokeWidth, t("2px #ff0000")),
@@ -1285,7 +1293,9 @@ mod declaration_tests {
 
     #[test]
     fn apple_continuous_is_a_superellipse_over_a_scaled_radius() {
-        let t = |s: &str| StyleValue::Text(s.into());
+        fn t(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
         let text = css(
             &[
                 (StyleId::BorderRadiusTopLeft, StyleValue::Number(10.0)),
@@ -1307,7 +1317,9 @@ mod declaration_tests {
 
     #[test]
     fn background_image_is_one_declaration_over_the_colour() {
-        let t = |s: &str| StyleValue::Text(s.into());
+        fn t(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
         assert_eq!(
             css(
                 &[
@@ -1343,7 +1355,9 @@ mod declaration_tests {
     /// with the angle and skips nothing (kanban F30).
     #[test]
     fn press_haptic_is_the_glues_property_and_a_rotation_skips_nothing() {
-        let t = |s: &str| StyleValue::Text(s.into());
+        fn t(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
         let mut style = StyleProps::default();
         style
             .set_dynamic(StyleId::PressHaptic, &t("impact-medium"))
@@ -1362,7 +1376,9 @@ mod declaration_tests {
     #[test]
     fn a_press_scale_keeps_the_authored_scale_and_transitions() {
         let n = StyleValue::Number;
-        let t = |s: &str| StyleValue::Text(s.into());
+        fn t(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
         assert_eq!(
             css(&[(StyleId::PressScale, n(0.97))], &[]),
             "scale:calc(var(--exact-scale,1) * var(--exact-press-factor,1))!important;--exact-press:0.97;"

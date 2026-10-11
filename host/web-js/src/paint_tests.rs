@@ -617,7 +617,7 @@ fn bound_transition_stacking_matches_kernel() {
         let mut style = exact_kernel::StyleProps::default();
         let _ = style.set_dynamic(
             StyleId::Transition,
-            &exact_kernel::StyleValue::Text(value.clone()),
+            &exact_kernel::StyleValue::Text(value.as_str().into()),
         );
         let own = exact_kernel::paint_order::own_from(exact_kernel::paint_order::Facts {
             style: &style,

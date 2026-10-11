@@ -214,10 +214,10 @@ fn the_transition_row_lowers_to_css_transition_and_springs_are_named() {
         ])),
         "linear(0 0%,0.9 50%,1 100%)"
     );
-    let mut s = exact_kernel::StyleProps {
-        transition: rows,
-        ..Default::default()
-    };
+    // This row is behind DerefMut; it cannot be a StyleProps initializer.
+    #[allow(clippy::field_reassign_with_default)]
+    let mut s = exact_kernel::StyleProps::default();
+    s.transition = rows;
     s.mask.set(exact_kernel::StyleId::Transition);
     let (css, skipped) = css_text(&s, &[]);
     assert!(css.starts_with("transition:opacity 0.25s"));

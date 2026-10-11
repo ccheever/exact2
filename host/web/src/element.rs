@@ -812,7 +812,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             continue;
         }
         let text = match value {
-            PropValue::Str(s) => s.clone(),
+            PropValue::Str(s) => s.to_string(),
             PropValue::Bool(b) => b.to_string(),
             PropValue::Int(i) => i.to_string(),
             // LLP 1053.000.000.000 D3: the reserved `-1` is written as `auto`.

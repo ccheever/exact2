@@ -39,7 +39,7 @@ fn rows(css: &str) -> Rows {
     for decl in css.split(';').filter(|d| !d.is_empty()) {
         let (name, value) = decl.split_once(':').unwrap();
         let number = || StyleValue::Number(value.trim_end_matches("px").parse().unwrap());
-        let text = || StyleValue::Text(value.into());
+        let text = || StyleValue::Text(value.to_owned().into());
         match name {
             "scale" => out.push((Scale, number())),
             "opacity" => out.push((Opacity, number())),

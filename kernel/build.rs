@@ -72,6 +72,8 @@ struct StyleRow {
     /// Few nodes set it: kept apart, behind [`build/rare.rs`]'s pointer.
     #[serde(default)]
     rare: bool,
+    #[serde(default)]
+    cold: bool,
 }
 #[derive(Deserialize)]
 struct OpcodeRow {
@@ -109,6 +111,7 @@ include!("build/names.rs");
 include!("build/codec.rs");
 include!("build/validate.rs");
 include!("build/rare.rs");
+include!("build/cold.rs");
 fn digest(canonical: &str, codecs: &[(&str, String)]) -> u64 {
     let mut hasher = Sha256::new();
     hasher.update(DIGEST_DOMAIN);
@@ -881,7 +884,21 @@ fn generate(schema: &Schema, digest: u64) -> String {
     )
     .unwrap();
     writeln!(w, "    /// Iterate the set rows in bit order.").unwrap();
-    writeln!(w, "    pub fn iter(self) -> impl Iterator<Item = StyleId> {{ StyleId::ALL.into_iter().filter(move |id| self.has(*id)) }}").unwrap();
+    w.push_str(concat!(
+        "    pub fn iter(self) -> impl Iterator<Item = StyleId> {\n",
+        "        let mut words = self.words; let mut i = 0;\n",
+        "        std::iter::from_fn(move || {\n",
+        "            while i < words.len() {\n",
+        "                let word = words[i];\n",
+        "                if word == 0 { i += 1; continue; }\n",
+        "                let bit = word.trailing_zeros(); words[i] = word & (word - 1);\n",
+        "                if let Some(id) = StyleId::from_bit(i as u32 * 64 + bit) { return Some(id); }\n",
+        "                i += 1;\n",
+        "            }\n",
+        "            None\n",
+        "        })\n",
+        "    }\n",
+    ));
     writeln!(w, "}}").unwrap();
     // Compact, transient before/after values for inheritance invalidation.
     // Derive the field set from the same schema as StyleMask::INHERITED.
@@ -959,7 +976,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     .unwrap();
     writeln!(w, "#[derive(Debug, Clone, PartialEq)]").unwrap();
     writeln!(w, "pub struct StyleProps {{").unwrap();
-    for row in schema.styles.iter().filter(|r| !r.rare) {
+    for row in schema.styles.iter().filter(|r| !r.rare && !r.cold) {
         writeln!(
             w,
             "    pub {}: {},",
@@ -981,12 +998,18 @@ fn generate(schema: &Schema, digest: u64) -> String {
         "    /// The rows few nodes set ([`RareRows`]).\n    pub rare: Rare,"
     )
     .unwrap();
+    writeln!(
+        w,
+        "    /// Effect rows, shared until written.\n    pub cold: Cold,"
+    )
+    .unwrap();
     writeln!(w, "}}").unwrap();
     emit_rare(w, schema);
+    emit_cold(w, schema);
     writeln!(w, "impl Default for StyleProps {{").unwrap();
     writeln!(w, "    fn default() -> Self {{").unwrap();
     writeln!(w, "        StyleProps {{").unwrap();
-    for row in schema.styles.iter().filter(|r| !r.rare) {
+    for row in schema.styles.iter().filter(|r| !r.rare && !r.cold) {
         let codec = parse_codec(&row.codec);
         let default = default_of(&codec, &row.default, &row.field, &schema.colors);
         writeln!(w, "            {}: {},", row.field, default).unwrap();
@@ -994,6 +1017,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "            mask: StyleMask::EMPTY,").unwrap();
     writeln!(w, "            relative: Default::default(),").unwrap();
     writeln!(w, "            rare: Rare::default(),").unwrap();
+    writeln!(w, "            cold: Cold::default(),").unwrap();
     writeln!(w, "        }}").unwrap();
     writeln!(w, "    }}").unwrap();
     writeln!(w, "}}").unwrap();
@@ -1032,7 +1056,8 @@ fn generate(schema: &Schema, digest: u64) -> String {
     )
     .unwrap();
     emit_rare_copy(w, schema);
-    for row in schema.styles.iter().filter(|r| !r.rare) {
+    emit_cold_copy(w, schema);
+    for row in schema.styles.iter().filter(|r| !r.rare && !r.cold) {
         let id = pascal(&row.field);
         let clone = if parse_codec(&row.codec).is_copy() {
             ""
@@ -1128,27 +1153,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     .unwrap();
     writeln!(w, "        Ok(out)").unwrap();
     writeln!(w, "    }}").unwrap();
-    writeln!(w, "    /// Encode the rows in `mask` as a masked patch.").unwrap();
-    writeln!(
-        w,
-        "    pub fn encode_masked(&self, mask: StyleMask, w: &mut Writer) {{"
-    )
-    .unwrap();
-    writeln!(w, "        w.style_mask(mask);").unwrap();
-    for row in &schema.styles {
-        let id = pascal(&row.field);
-        if emit_grid_seam(w, &id, GridSeam::Encode) {
-            continue;
-        }
-        let codec = parse_codec(&row.codec);
-        writeln!(
-            w,
-            "        if mask.has(StyleId::{id}) {{ {} }}",
-            codec.encode_stmt(&format!("self.{}", at(row)))
-        )
-        .unwrap();
-    }
-    writeln!(w, "    }}").unwrap();
+    emit_style_encoding(w, schema);
     writeln!(
         w,
         "    /// The first masked row carrying an infinite or NaN number, if any."
