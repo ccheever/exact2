@@ -1,4 +1,4 @@
-import { createNativeComposerTheme } from './composer-native-theme';
+import { createNativeComposerTheme, flattenThemeColor } from './composer-native-theme';
 // @ref llp/1109.002-design-system-parity.spec.md#semantic-colors
 // Literal palettes from upstream 365aa87982 generated-uniwind-themes.css.
 import t0 from './themes/light.json';
@@ -154,4 +154,60 @@ export function mobileThreadLocalColors(scheme: string, palette = 't3-code') {
   const variant = `${palette === 't3-code' ? '' : `${palette}-`}${scheme === 'dark' ? 'dark' : 'light'}`;
   const tokens = themes[variant] ?? themes[scheme === 'dark' ? 'dark' : 'light'];
   return { card: tokens['--color-card'], tertiary: tokens['--color-foreground-tertiary'], subtleStrong: tokens['--color-subtle-strong'] };
+}
+
+// T3 Code (MIT), pinned365aa87982 htmlRender.ts and mobile/lib/htmlRenderTheme.ts.
+// iOS uses raw native palette roles, not the contrast-adjusted text tokens.
+// mobileTheme.ts retains raw RGB in these alpha tokens; discard alpha, never blend it.
+export function mobileHtmlRenderTheme(scheme: string, palette = 't3-code'): {
+  appearance: 'light' | 'dark'; variables: Readonly<Record<string, string>>;
+} {
+  const appearance = scheme === 'dark' ? 'dark' : 'light';
+  const variant = `${palette === 't3-code' ? '' : `${palette}-`}${appearance}`;
+  const tokens = themes[variant] ?? themes[appearance];
+  const token = (name: string) => tokens[`--color-${name}`];
+  const opaque = (name: string) => flattenThemeColor(withAlpha(token(name), 1), token('screen'));
+  const accent = opaque('inline-skill-border');
+  const fixed = appearance === 'dark'
+    ? { successForeground: '#34d399', infoForeground: '#60a5fa', chart: ['#2dd4bf', '#fbbf24', '#c084fc', '#fb7185', '#a3e635'] }
+    : { successForeground: '#047857', infoForeground: '#1d4ed8', chart: ['#0d9488', '#d97706', '#9333ea', '#e11d48', '#65a30d'] };
+  return { appearance, variables: {
+    '--background': token('screen'),
+    '--foreground': token('foreground'),
+    '--muted': token('subtle'),
+    '--muted-foreground': token('switch-inactive-thumb'),
+    '--card': token('card'),
+    '--card-foreground': token('foreground'),
+    '--popover': opaque('glass-surface'),
+    '--popover-foreground': token('foreground'),
+    '--secondary': token('secondary'),
+    '--secondary-foreground': token('secondary-foreground'),
+    '--border': token('border'),
+    '--input': token('input-border'),
+    '--ring': token('focus'),
+    '--primary': token('primary'),
+    '--primary-foreground': token('primary-foreground'),
+    '--accent': accent,
+    // All 12 pinned variants give accent and messageAction the same foreground.
+    '--accent-foreground': token('primary-foreground'),
+    '--accent-surface': token('inline-skill-background'),
+    '--accent-surface-foreground': token('inline-skill-foreground'),
+    '--destructive': opaque('danger-border'),
+    '--destructive-foreground': token('danger-foreground'),
+    '--destructive-surface': token('danger'),
+    '--warning': opaque('warning-border'),
+    '--warning-foreground': token('warning-foreground'),
+    '--warning-surface': token('warning'),
+    '--success': '#10b981',
+    '--success-foreground': fixed.successForeground,
+    '--info': '#3b82f6',
+    '--info-foreground': fixed.infoForeground,
+    '--code-background': token('md-code-bg'),
+    '--code-foreground': token('md-code-text'),
+    '--chart-1': accent,
+    ...Object.fromEntries(fixed.chart.map((color, index) => [`--chart-${index + 2}`, color])),
+    '--radius': '0.625rem',
+    '--font-sans': '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
+    '--font-mono': '"SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace',
+  } };
 }

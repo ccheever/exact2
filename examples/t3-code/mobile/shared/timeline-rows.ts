@@ -6,6 +6,7 @@
 // apps/web/src/components/chat/MessagesTimeline.logic.ts deriveMessagesTimelineRows
 // (turn folds, superseded attempts, live work, working and thinking rows).
 import { arr, obj, str, type Obj } from './domain';
+import { htmlRenderFromToolItem } from '../html-render';
 import {
   displayFailed, entryIcon, formatDuration, groupAction, isToolLike, liveEntryLabel, projectedWorkEntry,
   singleToolCallLabel, successKeepsLive, last, findLast, findLastIndex, summarizeToolGroup, summaryIcon, summaryKind, visibleInGroup, type WorkEntry,
@@ -17,6 +18,7 @@ export interface Attempt { id: string; runId: string; status: string }
 export type Entry =
   | { kind: 'message'; id: string; createdAt: string; row: Obj; item: Obj; role: 'user' | 'assistant'; attempt?: Attempt }
   | { kind: 'work'; id: string; createdAt: string; row: Obj; entry: WorkEntry; attempt?: Attempt }
+  | { kind: 'html-render'; id: string; createdAt: string; row: Obj; item: Obj; attempt?: Attempt }
   | { kind: 'event'; id: string; createdAt: string; row: Obj; item: Obj; attempt?: Attempt }
   | { kind: 'plan'; id: string; createdAt: string; row: Obj; item: Obj; attempt?: Attempt }
   | { kind: 'checkpoint'; id: string; createdAt: string; row: Obj; item: Obj; attempt?: Attempt };
@@ -35,6 +37,7 @@ export type Row =
   | { kind: 'meta'; id: string; createdAt: string; entry: Extract<Entry, { kind: 'message' }> }
   | { kind: 'event'; id: string; createdAt: string; entry: Extract<Entry, { kind: 'event' }>; subagents: Obj[]; summary: boolean }
   | { kind: 'plan'; id: string; createdAt: string; entry: Extract<Entry, { kind: 'plan' }> }
+  | { kind: 'html-render'; id: string; createdAt: string; entry: Extract<Entry, { kind: 'html-render' }> }
   | { kind: 'checkpoint'; id: string; createdAt: string; entry: Extract<Entry, { kind: 'checkpoint' }> }
   | { kind: 'setup'; id: string; createdAt: string; snapshot: Obj; embedded: boolean };
 
@@ -89,16 +92,17 @@ export function timelineEntries(input: Pick<RowInput, 'rows' | 'attempts' | 'nod
     else if (type === 'proposed_plan') entries.push({ ...base, kind: 'plan', item });
     else if (type === 'checkpoint') entries.push({ ...base, kind: 'checkpoint', item });
     else if (STANDALONE.has(type)) entries.push({ ...base, kind: 'event', item });
+    else if (htmlRenderFromToolItem(item)) entries.push({ ...base, kind: 'html-render', item });
     else entries.push({ ...base, kind: 'work', entry: { ...projectedWorkEntry(row), id } });
   }
   return entries;
 }
 
 const runOf = (entry: Entry): string => entry.kind === 'message' ? entry.role === 'assistant' ? str(entry.item.runId) : ''
-  : entry.kind === 'plan' ? str(entry.item.runId) : entry.kind === 'work' ? entry.entry.runId : '';
+  : entry.kind === 'plan' || entry.kind === 'html-render' ? str(entry.item.runId) : entry.kind === 'work' ? entry.entry.runId : '';
 const startsResponse = (entry: Entry) => entry.kind === 'message' && entry.role === 'user' && entry.item.inputIntent !== 'steer'
   && entry.item.inputIntent !== 'promoted_queued_to_steer' || entry.kind === 'work' && entry.entry.itemType === 'notification';
-const persistentResource = (entry: Entry) => entry.kind === 'event' && PERSISTENT.has(str(entry.item.type));
+const persistentResource = (entry: Entry) => entry.kind === 'html-render' || entry.kind === 'event' && PERSISTENT.has(str(entry.item.type));
 const failedItem = (entry: Entry): Obj | null => {
   const item = entry.kind === 'event' ? entry.item : entry.kind === 'work' ? entry.entry.item : null;
   return item?.type === 'error' && item.status === 'failed' && (item.parentItemId === null || item.parentItemId === undefined) ? item : null;
@@ -248,6 +252,7 @@ export function deriveRows(input: RowInput): Row[] {
       index = cursor - 1;
       continue;
     }
+    if (entry.kind === 'html-render') { rows.push({ kind: 'html-render', id: entry.id, createdAt: entry.createdAt, entry }); continue; }
     if (entry.kind === 'plan') { rows.push({ kind: 'plan', id: entry.id, createdAt: entry.createdAt, entry }); continue; }
     if (entry.kind === 'checkpoint') { rows.push({ kind: 'checkpoint', id: entry.id, createdAt: entry.createdAt, entry }); continue; }
     if (entry.kind === 'event') {
@@ -325,7 +330,7 @@ function turnFolds(entries: Entry[], terminalIds: Set<string>, latestRun: Obj | 
     }
     let runId: string | null = null;
     if (entry.kind === 'work' && entry.entry.itemType === 'system_notice') runId = null;
-    else if (entry.kind === 'message' && entry.role === 'assistant' || entry.kind === 'work') runId = runOf(entry) || runless;
+    else if (entry.kind === 'message' && entry.role === 'assistant' || entry.kind === 'work' || entry.kind === 'html-render') runId = runOf(entry) || runless;
     else if (entry.kind === 'event' && (persistentResource(entry) || entry.item.type === 'subagent')) runId = str(entry.item.runId) || runless;
     if (!runId) return;
     if (runId === runless && failedItem(entry)) runlessFailed.add(runId);

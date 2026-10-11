@@ -1,3 +1,4 @@
+use HtmlRenderContext from "./html-render.contract"
 use ComposerRootView from "./composer-root.contract"
 use ThreadSubmission, ThreadLocalColors, ThreadSubmissionRecoveryNotice from "./thread-send-root.contract"
 use ThreadLocalFeedback, ThreadLocalUsage from "./thread-local-dock.contract"
@@ -135,6 +136,7 @@ component MobileRouteContent
     mediaViewerData: MediaPreviewSnapshot
     documentData: AttachmentDocumentSnapshot
     documentMenu: AttachmentDocumentMenu
+    htmlRenderContext: HtmlRenderContext
     mediaData: MediaPreviewSnapshot
     composerAttachments: ComposerAttachmentsSnapshot
     composerLook: ComposerColors
@@ -359,7 +361,7 @@ component MobileRouteContent
       column id=`thread-flow-${routeId}` flex=1 min-height=0 width="100%" position="relative" pointer-events="none"
         view id=`thread-flow-bounds-${routeId}` position="absolute" inset=0 pointer-events="none" aria-hidden=true resize=threadGeometryChanged(threadGeometryKey)
         column position="absolute" top=0 left=0 right=0 bottom=(-threadCoveredBottom) pointer-events="auto"
-          ThreadFeed(data=threadData, workWidth=(workspace.contentSettledWidth - workspace.chatHorizontalPadding * 2), horizontalPadding=workspace.chatHorizontalPadding, userBubbleMaxWidth=workspace.userBubbleMaxWidth, bottomClearance=threadDockClearance, action=threadAction, openMedia=openMedia, colors=threadLook)
+          ThreadFeed(data=threadData, active=focused, workWidth=(workspace.contentSettledWidth - workspace.chatHorizontalPadding * 2), horizontalPadding=workspace.chatHorizontalPadding, userBubbleMaxWidth=workspace.userBubbleMaxWidth, bottomClearance=threadDockClearance, action=threadAction, openMedia=openMedia, colors=threadLook)
       when threadData.queuedFailed
         column id=`thread-dock-${routeId}` position="absolute" left=0 right=0 bottom=0 padding-left=14 padding-right=14 padding-bottom=threadBottomInset pointer-events="none"
           view id=`thread-dock-bounds-${routeId}` position="absolute" inset=0 pointer-events="none" aria-hidden=true resize=threadGeometryChanged(threadGeometryKey)
@@ -413,7 +415,7 @@ component MobileRouteContent
       when focused
         when mediaData.ready
           when mediaData.kind == "file" and (documentData.error != "" or documentData.kind == "text" or documentData.kind == "markdown" or documentData.kind == "html")
-            MobileAttachmentDocument(data=documentData, colors=reviewLook, wrap=settingsAppearance.codeWordBreak, retry=retryDocument, nativeEvent=documentNativeEvent, nativeError=mediaNativeError)
+            MobileAttachmentDocument(data=documentData, colors=reviewLook, wrap=settingsAppearance.codeWordBreak, retry=retryDocument, nativeEvent=documentNativeEvent, htmlEvent=threadAction("html-render", htmlRenderContext.key), htmlKey=htmlRenderContext.key, nativeError=mediaNativeError)
             when mediaNativeOpen
               MediaPreview(data=mediaViewerData, completed=mediaComplete)
           else when documentData.kind == "audio"
@@ -431,7 +433,13 @@ component MobileRouteContent
           else
             text "Loading file..." padding=21 color=threadLook.muted
         else when mediaData.error != ""
-          text mediaData.error padding=21 color=look.colors.dangerForeground
+          when htmlRenderContext.full
+            column flex=1 align-items="center" justify-content="center" padding=21 gap=7
+              text mediaData.error color=look.colors.dangerForeground
+              button press=retryDocument min-height=44
+                text "Reload" color=threadLook.foreground
+          else
+            text mediaData.error padding=21 color=look.colors.dangerForeground
         else
           text "Loading preview…" padding=21 color=look.colors.muted
     else when focused and informationRoute.active

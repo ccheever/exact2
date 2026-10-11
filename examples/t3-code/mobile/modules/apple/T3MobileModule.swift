@@ -28,6 +28,10 @@ final class T3MobileModule: ExactModule {
         },
         "t3-document-menu": T3MobileDocumentMenu.factory,
         "t3-document-html": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
+            if try T3MobileHTMLRender.requested(props) {
+                let instance = T3MobileHTMLRender(audioSession: module.audioSession, events: events)
+                try instance.setProps(props); return instance
+            }
             let instance = T3MobileDocumentHTML(dataRoot: module.documentRoot, audioSession: module.audioSession, events: events)
             try instance.setProps(props); return instance
         },

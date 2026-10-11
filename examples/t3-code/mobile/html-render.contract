@@ -1,0 +1,28 @@
+// App-owned HTML render metadata and native events. No child resource ownership.
+shape HtmlRenderSnapshot
+  context: string
+  key: string
+  identifier: string
+  sourceJSON: string
+  title: string
+  height: number
+  available: bool
+shape HtmlRenderContext
+  context: string
+  requestRoute: string
+  key: string
+  attachmentId: string
+  full: bool
+shape HtmlRenderResult
+  received: bool
+  context: string
+  requestRoute: string
+  identifier: string
+  revision: number
+  openKey: string
+  attachmentId: string
+  message: string
+fn htmlRenderReply(reply: option<HtmlRenderResult>): HtmlRenderResult = match reply {
+  case some(result) => result,
+  case none => HtmlRenderResult(received=false, context="", requestRoute="", identifier="", revision=0, openKey="", attachmentId="", message="")
+}

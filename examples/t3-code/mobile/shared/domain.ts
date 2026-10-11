@@ -23,7 +23,7 @@ export interface Activity { id: string; label: string; body: string; icon: strin
 export interface Message { id: string; kind: string; title: string; body: string; checkpointId?: string; runId?: string; sourceThreadId?: string; completed?: boolean; createdAt?: string; activities?: Activity[]; files?: { path: string; additions: number; deletions: number }[]; folded?: Message[]; expanded?: boolean;
   icon?: string; tone?: string; failed?: boolean; live?: boolean; startedMs?: number; detail?: string; status?: string; groupId?: string; continues?: boolean;
   revert?: number; intent?: string; intentTip?: string; attribution?: string; targetId?: string; actionLabel?: string; copied?: number; copyFailed?: boolean;
-  meta?: boolean; streaming?: boolean; actionsId?: string; collapsible?: boolean;
+  meta?: boolean; streaming?: boolean; actionsId?: string; collapsible?: boolean; htmlRenderKey?: string;
   code?: { id: string; code: string; icon: string; tokens: { id: string; text: string; cls: string }[] }[];
   diagrams?: import('./timeline-mermaid').MermaidDiagramView[];
   setup?: import('./timeline-worktree').SetupView[];

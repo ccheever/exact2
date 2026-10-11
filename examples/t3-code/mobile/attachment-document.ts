@@ -16,15 +16,15 @@ export interface AttachmentDocumentSnapshot {
   identifier: string; name: string; subtitle: string; kind: string; ready: boolean; error: string;
   text: string; hasContent: boolean; truncated: boolean; tableTruncated: boolean;
   renderedMode: string; activeMode: string; sourceJSON: string; uri: string; draft: boolean;
-  rows: ReviewRow[]; table: { id: string; header: boolean; cells: { id: string; text: string }[] }[];
+  htmlRenderSource: string; rows: ReviewRow[]; table: { id: string; header: boolean; cells: { id: string; text: string }[] }[];
 }
-type Cached = { name: string; kind: ReturnType<typeof filePreviewKind>; mimeType: string; sizeBytes: number;
+export type AttachmentDocumentCache = { name: string; kind: ReturnType<typeof filePreviewKind>; mimeType: string; sizeBytes: number;
   content: ReturnType<typeof decodeFilePreviewText> | null; contentError: string; sourceJSON: string;
   uri: string; authorizedAt: number; dark: boolean | null; rows: ReviewRow[] };
-const caches = new WeakMap<T3Client, Map<string, Cached>>();
+const caches = new WeakMap<T3Client, Map<string, AttachmentDocumentCache>>();
 export const EMPTY_ATTACHMENT_DOCUMENT: AttachmentDocumentSnapshot = { identifier: '', name: '', subtitle: '', kind: '',
   ready: false, error: '', text: '', hasContent: false, truncated: false, tableTruncated: false, renderedMode: '',
-  activeMode: 'source', sourceJSON: '', uri: '', draft: false, rows: [], table: [] };
+  activeMode: 'source', sourceJSON: '', uri: '', draft: false, htmlRenderSource: '', rows: [], table: [] };
 const owner = (client: T3Client) => JSON.stringify([client.generation, client.environmentId, client.projectId, client.threadId, mobileComposerTarget(client).owner]);
 
 /** Native returns a bounded prefix. Decode using the exact pinned fatal UTF-8 policy. */
@@ -40,7 +40,7 @@ export function decodeAttachmentPrefix(value: unknown) {
 function formattedSize(bytes: number) {
   return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.ceil(bytes / 1024))} KB`;
 }
-function projection(identifier: string, entry: Cached, scope: string, rendered: boolean, dark: boolean, hasEnvironment: boolean): AttachmentDocumentSnapshot {
+export function attachmentDocumentProjection(identifier: string, entry: AttachmentDocumentCache, scope: string, rendered: boolean, dark: boolean, hasEnvironment: boolean): AttachmentDocumentSnapshot {
   const delimiter = filePreviewDelimiter(entry), table = entry.content && delimiter ? parseDelimitedPreview(entry.content.text, delimiter) : null;
   const presentation = attachmentDocumentPresentation({ kind: entry.kind, hasTable: table !== null, hasEnvironment, rendered });
   const needsText = entry.kind === 'text' || entry.kind === 'markdown' || entry.kind === 'html' && !rendered;
@@ -55,7 +55,7 @@ function projection(identifier: string, entry: Cached, scope: string, rendered: 
     kind: entry.kind, ready: true, error: needsText ? entry.contentError : '', text: entry.content?.text ?? '', hasContent: entry.content !== null,
     truncated: entry.content?.truncated ?? false, tableTruncated: table?.truncated ?? false,
     renderedMode: presentation.renderedMode ?? '', activeMode: presentation.activeMode, sourceJSON: entry.sourceJSON,
-    uri: entry.uri, draft: scope === 'composer', rows: entry.rows,
+    uri: entry.uri, draft: scope === 'composer', htmlRenderSource: '', rows: entry.rows,
     table: table?.rows.map((row, index) => ({ id: String(index), header: index === 0,
       cells: row.map((text, column) => ({ id: String(column), text })) })) ?? [] };
 }
@@ -99,5 +99,5 @@ export async function mobileAttachmentDocument(scope: string, id: string, routeK
     } catch (error) { if (letGo(error)) throw error; entry.contentError = error instanceof Error ? error.message : 'Could not read this file.'; }
   }
   assertOwner();
-  return projection(source.identifier, entry, scope, rendered, dark, !!client.environmentId);
+  return attachmentDocumentProjection(source.identifier, entry, scope, rendered, dark, !!client.environmentId);
 }
