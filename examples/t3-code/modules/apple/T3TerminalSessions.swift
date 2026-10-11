@@ -33,7 +33,8 @@ final class T3TerminalSession {
     var label = "", hasRunningSubprocess = false
     var streamId: String? = nil, attaching = false, failed = false
     var retained = false
-    /// The transport the current stream was opened on (the stream ends with that transport's socket).
+    /// The transport the current stream is opening or open on (the stream ends with that transport's socket);
+    /// nil once it ends or fails to open, so the status's `via` names only a stream the session has.
     fileprivate weak var streamTransport: T3Transport?
     fileprivate var views: [WeakView] = []
     fileprivate var detachWork: DispatchWorkItem?
@@ -160,7 +161,7 @@ final class T3TerminalSessions {
         guard sessions[session.key] === session else { return }
         session.detachWork?.cancel(); session.detachWork = nil
         if let id = session.streamId { session.streamTransport?.terminalDetach(id) }
-        session.streamId = nil
+        session.streamId = nil; session.streamTransport = nil
         sessions[session.key] = nil
     }
 
@@ -206,7 +207,7 @@ final class T3TerminalSessions {
         }, ended: { [weak self, weak session] failure, lost in
             DispatchQueue.main.async {
                 guard let self, let session, self.sessions[key] === session, session.output.generation == generation else { return }
-                session.streamId = nil; session.attaching = false
+                session.streamId = nil; session.attaching = false; session.streamTransport = nil
                 if let failure {
                     // useAttachedTerminalSession: an attach error shows as the session's error.
                     session.failed = true
@@ -224,6 +225,7 @@ final class T3TerminalSessions {
                 guard let self, let session, self.sessions[key] === session, session.output.generation == generation else { if let id { transport.terminalDetach(id) }; return }
                 session.attaching = false
                 if let id { session.streamId = id; return }
+                session.streamTransport = nil
                 // Not connected yet: the connection's return attaches. Any other refusal shows as the error.
                 if let failure, failure.kind != "Disconnected" {
                     session.failed = true

@@ -349,6 +349,7 @@ final class TerminalStreamTests: XCTestCase {
         defer { focused.destroy(); backgroundB.destroy(); backgroundA.destroy() }
         connect(focused, a)
         let sessions = T3TerminalSessions(transport: focused)
+        let via = { (session: T3TerminalSession) in sessions.status.first { $0["key"] as? String == session.key }?["via"] as? String }
         XCTAssertTrue(until(2) { sessions.reaching("env-a") === focused })
         let viewA = T3TerminalView(props: [:], events: ExactNativeEvents(fn: { _, _, _, _, _ in }, ctx: nil, nonce: 1), agent: true)
         let viewB = T3TerminalView(props: [:], events: ExactNativeEvents(fn: { _, _, _, _, _ in }, ctx: nil, nonce: 2), agent: true)
@@ -379,6 +380,8 @@ final class TerminalStreamTests: XCTestCase {
         wait(0.3)
         XCTAssertFalse(threads(b, "terminal.attach").contains("a-1"), "A's terminal is never started on B's server")
         XCTAssertNil(sessionA.streamId, "A's terminal waits for A's server")
+        XCTAssertEqual(via(sessionA), "", "A's ended stream is not reported on the transport it was opened on")
+        XCTAssertEqual(via(sessionB), "focused")
         // A is now a background environment: its terminal attaches there again.
         sessions.observe(backgroundA)
         connect(backgroundA, a)
