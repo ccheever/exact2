@@ -19,6 +19,9 @@ final class RouteController: UIViewController {
     weak var ownedScroll: NodeView?
     /// The scroller a large title collapses with (LLP 1075.003 Stage 3).
     weak var collapseScroll: NodeView?
+    /// The scroller that is the route's last in-flow child, which reaches
+    /// the screen's bottom edge (LLP 1116 D2).
+    weak var edgeScroll: NodeView?
     /// The targets of the bar items projected from its header.
     var barPresses: [BarPress] = []
     /// The header's search field as UIKit's search controller (§9.6).

@@ -467,6 +467,7 @@ extension NavigationHost {
                 project(shape, into: c, canGoBack: canGoBack, shows: shows)
             }
             collapse(c, shape: shape, scroll: scroll)
+            reachBottom(c)
             if shows { searchField(shape?.search, in: c); segmentedTitle(shape?.segments, in: c); richTitle(shape, in: c) }
             guard c.projected != signature || !c.hatched else { continue }
             c.projected = signature
@@ -614,7 +615,8 @@ extension NavigationHost {
         guard c.collapseScroll !== target else { return }
         if let old = c.collapseScroll, let sv = old.scroll {
             let top = sv.contentOffset.y + old.scrollTopInset(sv)
-            sv.contentInsetAdjustmentBehavior = .never
+            // The bottom edge's scroller stays UIKit's to inset (`reachBottom`).
+            if old !== c.edgeScroll { sv.contentInsetAdjustmentBehavior = .never }
             old.scrollOrigin = 0
             old.scrollCollapsed = 0
             sv.contentOffset.y = top
@@ -624,6 +626,37 @@ extension NavigationHost {
         c.setContentScrollView(target?.scroll, for: .top)
         let under = shape?.level == 1 ? "collapses its title with its scroller" : "scrolls its content under the bar"
         presenter.session?.log("navigation: route \(c.key) \(target == nil ? "keeps its title still" : under)")
+    }
+
+    /// The bottom edge, as `collapse` is the top's (LLP 1116 D2): a route
+    /// whose last in-flow child is a scroller — a `navigationScroll` or not —
+    /// lets it run to the screen's bottom edge, under the home indicator and
+    /// a tab bar, and UIKit insets its content there
+    /// (`adjustedContentInset.bottom`), as a hand-built table view's is. The
+    /// route keeps no bottom cover for it (`reportCovers`). A footer under
+    /// the scroller keeps the cover; so does a page under `viewport-fit=cover`,
+    /// whose own `env()` insets would be added to UIKit's.
+    private func reachBottom(_ c: RouteController) {
+        let flowing = { (v: NodeView) in
+            v.style["display"]?.string != "none" && !["absolute", "fixed"].contains(v.style["position_type"]?.string ?? "")
+        }
+        let last = c.node.container.subviews.last { ($0 as? NodeView).map(flowing) == true } as? NodeView
+        let target = presenter.viewportFit != "cover" && last?.scroll != nil ? last : nil
+        guard c.edgeScroll !== target else { return }
+        if let old = c.edgeScroll, let sv = old.scroll, old !== c.collapseScroll { sv.contentInsetAdjustmentBehavior = .never }
+        c.edgeScroll = target
+        if let sv = target?.scroll { sv.contentInsetAdjustmentBehavior = .always }
+        // tvOS has no bottom bar whose edge follows a scroller.
+        #if !os(tvOS)
+        c.setContentScrollView(target?.scroll, for: .bottom)
+        #endif
+        presenter.session?.log("navigation: route \(c.key) \(target == nil ? "keeps its content above the bottom edge" : "scrolls its content to the bottom edge")")
+    }
+
+    /// Whether UIKit insets this scroller (`.always`): a route's collapse or
+    /// bottom-edge scroller.
+    func insetByUIKit(_ node: NodeView) -> Bool {
+        controllers.values.contains { $0.collapseScroll === node || $0.edgeScroll === node }
     }
 
     private func barItem(_ i: HeaderShape.Item, _ c: RouteController) -> UIBarButtonItem {
@@ -789,8 +822,10 @@ extension NavigationHost {
             if settled, c.viewIfLoaded?.window != nil {
                 let safe = c.view.safeAreaInsets, env = presenter.insets
                 let top = c.collapseScroll == nil ? max(0, safe.top - env.top) : 0
+                // A scroller at the bottom edge goes under it (`reachBottom`).
+                let bottom = whole && c.edgeScroll == nil ? max(0, safe.bottom - env.bottom) : 0
                 edges = .init(top: top, right: whole ? max(0, safe.right - env.right) : 0,
-                              bottom: whole ? max(0, safe.bottom - env.bottom) : 0, left: whole ? max(0, safe.left - env.left) : 0)
+                              bottom: bottom, left: whole ? max(0, safe.left - env.left) : 0)
             } else if case .edges(let e)? = covers[c.node.id] {
                 edges = e
             } else { continue }
@@ -861,24 +896,24 @@ extension NavigationHost {
         for c in controllers.values where c.hatched && presenter.views[c.node.id] === c.node {
             if c.navigationController != nil, c.isViewLoaded, c.node.superview !== c.view { say("route \(c.key)", "view") }
             guard let node = c.ownedScroll, let scroll = node.scroll else { continue }
-            for property in NavigationHost.ownedChanges(scroll, of: node, collapsing: c.collapseScroll === node) { say("route \(c.key)", property) }
+            for property in NavigationHost.ownedChanges(scroll, of: node, insetByUIKit: c.collapseScroll === node || c.edgeScroll === node) { say("route \(c.key)", property) }
         }
     }
 
     /// What Exact sets on a node's scroll view and nothing else may (LLP
     /// 1075.003 §3.5) and differs from what Exact writes: no inset (a
-    /// refresh control insets it while it spins), no automatic adjustment,
-    /// the node as its delegate, the authored keyboard dismissal. The offset
+    /// refresh control insets it while it spins), no automatic adjustment
+    /// but a route's collapse or bottom-edge scroller's, the node as its delegate, the authored keyboard dismissal. The offset
     /// and the content size are Exact's too but are not checked: they move
     /// with the user and with layout, so no last write predicts them.
-    static func ownedChanges(_ s: UIScrollView, of node: NodeView, collapsing: Bool) -> [String] {
+    static func ownedChanges(_ s: UIScrollView, of node: NodeView, insetByUIKit: Bool) -> [String] {
         var out: [String] = []
         #if os(tvOS)
         if s.contentInset != .zero { out.append("contentInset") }
         #else
         if s.contentInset != .zero, s.refreshControl?.isRefreshing != true { out.append("contentInset") }
         #endif
-        if s.contentInsetAdjustmentBehavior != (collapsing ? .always : .never) { out.append("contentInsetAdjustmentBehavior") }
+        if s.contentInsetAdjustmentBehavior != (insetByUIKit ? .always : .never) { out.append("contentInsetAdjustmentBehavior") }
         if s.delegate !== node { out.append("delegate") }
         let dismiss: UIScrollView.KeyboardDismissMode = switch node.props["keyboardDismissMode"] {
         case "interactive": .interactive
