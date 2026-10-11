@@ -7,14 +7,22 @@ import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
-import dev.exact.bench.Driver
 import java.io.File
 
 /**
- * One exact2 app on the Canvas host: [key] is its bench.py key. Launch extras besides Driver's: `freeze=1`
- * (BENCH_FREEZE), `start=N` (BENCH_START_INDEX), `kinds=…` (BENCH_KINDS); `scenario` reaches the data source as BENCH_SCENARIO.
+ * What drives an app from outside the reader: a benchmark's scroll and tap driver, a test's. The reader has none of
+ * its own and waits on none. An activity attaches one by overriding [ExactActivity.drive].
  */
-open class ExactActivity(private val key: String) : Activity() {
+fun interface Drive {
+    /** The app's first content has been drawn: called once, on the main thread. */
+    fun contentReady()
+}
+
+/**
+ * One exact2 app on the Canvas host. Launch extras: `freeze=1` (BENCH_FREEZE), `start=N` (BENCH_START_INDEX),
+ * `kinds=…` (BENCH_KINDS); `scenario` reaches the data source as BENCH_SCENARIO, `live` as BENCH_LIVE.
+ */
+open class ExactActivity : Activity() {
     /** The app's native modules (LLP 1024), by name. */
     protected open val modules: Map<String, NativeModule> = emptyMap()
     /** The app's `video` player ([VideoPlayer]); none for an app without video. */
@@ -27,7 +35,14 @@ open class ExactActivity(private val key: String) : Activity() {
     protected open val input = false
     /** The view stops above the navigation bar (the content area), not only below the status bar. */
     protected open val insetBottom = false
-    private lateinit var driver: Driver
+    /**
+     * The seam a driver attaches at ([Drive]); the default attaches none. Called once, in [onCreate], when the host
+     * has begun to boot and before the view is made: a driver sets the window up and reads its own launch extras
+     * here. [scroll] moves the app's feed by a distance in pixels ([ExactView.scrollBy]) and may be called once
+     * [onCreate] has returned.
+     */
+    protected open fun drive(scroll: (Float) -> Unit): Drive? = null
+    private var driver: Drive? = null
     private lateinit var view: ExactView
 
     override fun onCreate(state: Bundle?) {
@@ -111,13 +126,13 @@ open class ExactActivity(private val key: String) : Activity() {
                 .apply { priority = Thread.MAX_PRIORITY }.start()
             booting = size
         }
-        driver = Driver(this, key) { dy -> view.scrollBy(dy) }
-        view = ExactView(this, driver.live) {
+        driver = drive { dy -> view.scrollBy(dy) }
+        view = ExactView(this, intent.getStringExtra("live").let { it == "1" || it == "true" }) {
             run {
                 // `start=N` for an app whose rows have one pitch: scrolled there before the driver starts.
                 val start = intent.getStringExtra("start")?.toIntOrNull() ?: 0
                 if (start > 0 && startPitchDp > 0f) view.scrollBy(start * startPitchDp * resources.displayMetrics.density)
-                driver.contentReady()
+                driver?.contentReady()
             }
         }
         view.booting = booting
