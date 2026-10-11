@@ -34,6 +34,10 @@ pub struct Oracle {
     /// By resource, what each whose source the runner answers itself held
     /// at boot.
     pub facts: Rc<RefCell<Vec<(String, TypesId, Value)>>>,
+    /// The device's store at launch (LLP 1116 D5): a persisted state's kept
+    /// value, by the state's name. Empty, a fresh install's, unless
+    /// [`Oracle::with_store`].
+    pub stored: Rc<Vec<(String, TypesId, Value)>>,
 }
 
 /// The sources the runner answers itself, from the host's facts.
@@ -65,7 +69,51 @@ impl Oracle {
             plan: plan.clone(),
             transcript: Rc::default(),
             facts: Rc::default(),
+            stored: Rc::default(),
         }
+    }
+
+    /// The source a case runs against: the empty store an authored test
+    /// starts from, or the device store [`Oracle::with_store`] fills.
+    pub fn for_case(plan: &Plan, case: &crate::script::Case) -> Self {
+        let oracle = Oracle::new(plan, crate::seed_of(&case.name));
+        if case.stored {
+            oracle.with_store()
+        } else {
+            oracle
+        }
+    }
+
+    /// This source with a device store at launch: for each persisted state,
+    /// a pure function of the seed and its name, nothing kept, a value of
+    /// its type, or one of another (LLP 1116 D5).
+    pub fn with_store(mut self) -> Self {
+        let mut stored = Vec::new();
+        for row in self.plan.slots.iter().filter(|s| s.persist) {
+            let name = self.plan.str(row.name).to_string();
+            let mut rng = Rng::new(hash(self.seed, &format!("stored {name}")));
+            let v = match rng.below(3) {
+                0 => continue,
+                1 => generate(&self.plan, row.ty, &mut rng, 0),
+                _ => mismatch(&self.plan, row.ty),
+            };
+            stored.push((name, row.ty, v));
+        }
+        self.stored = Rc::new(stored);
+        self
+    }
+
+    /// The device store as the host hands it to the runner: each value as
+    /// the runner's persisted text, under its runner-owned name.
+    pub fn snapshot(&self) -> Vec<(String, String)> {
+        self.stored
+            .iter()
+            .map(|(name, _, v)| {
+                let mut text = String::new();
+                exact_runner::runner::persist::encode(v, &mut text);
+                (format!("{}{name}", exact_runner::Store::STATE), text)
+            })
+            .collect()
     }
 
     /// Another handle on the same transcript and facts.
@@ -76,6 +124,7 @@ impl Oracle {
             plan: self.plan.clone(),
             transcript: self.transcript.clone(),
             facts: self.facts.clone(),
+            stored: self.stored.clone(),
         }
     }
 
@@ -101,7 +150,29 @@ impl Oracle {
             out.push_str(&text_value(&self.plan, *t, v));
             out.push('\n');
         }
+        for (name, t, v) in self.stored.iter() {
+            out.push_str("stored ");
+            out.push_str(&crate::observe::quote(name));
+            out.push(' ');
+            out.push_str(&text_value(&self.plan, *t, v));
+            out.push('\n');
+        }
         out
+    }
+}
+
+/// A value of another kind than persisted type `ty`'s scalar, whose text
+/// the runner's decoder refuses for `ty` as the semantics' `conforms` does:
+/// never a string a number decodes from (`"NaN"`, `"Infinity"`).
+fn mismatch(plan: &Plan, ty: TypesId) -> Value {
+    let row = plan.type_(ty);
+    let scalar = match row.kind {
+        TypeKind::Option | TypeKind::List => row.elem.map_or(row.kind, |e| plan.type_(e).kind),
+        k => k,
+    };
+    match scalar {
+        TypeKind::String => Value::Number(7.0),
+        _ => Value::str("x"),
     }
 }
 

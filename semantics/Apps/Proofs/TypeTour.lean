@@ -43,9 +43,11 @@ theorem screen_boot : ∀ v, SlotOrigin typeTour "screen" v → ScreenOK v := by
   · simp only [typeTour, List.mem_cons, List.mem_nil_iff, or_false] at hst
     rcases hst with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
       simp at hn
-    rcases hv with ⟨h, -⟩ | ⟨_, hv⟩
+    -- The third origin is a persisted state's stored value: not this state.
+    rcases hv with ⟨h, -⟩ | ⟨_, hv⟩ | ⟨h, -⟩
     · cases h
     · cases hv; exact ⟨"lock", by simp [screens], rfl⟩
+    · cases h
   · simp [typeTour] at hm
   · simp [typeTour] at hr
 

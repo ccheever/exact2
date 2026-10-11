@@ -102,10 +102,12 @@ theorem counter_boot : ∀ v, SlotOrigin updateLab "counter" v → CounterOK v :
   rintro v (⟨st, hst, hn, -, hv⟩ | m | ⟨hr, -⟩)
   · simp only [updateLab, List.mem_cons, List.mem_nil_iff, or_false] at hst
     rcases hst with rfl | rfl | rfl <;> simp at hn
-    rcases hv with ⟨h, -⟩ | ⟨_, hv⟩
+    -- The third origin is a persisted state's stored value: not this state.
+    rcases hv with ⟨h, -⟩ | ⟨_, hv⟩ | ⟨h, -⟩
     · cases h
     · rw [EvalR.num_iff] at hv; subst hv
       exact ⟨1, Nat.le_refl _, by decide, by rw [lit_one]⟩
+    · cases h
   · obtain ⟨m, hm, hmn, -⟩ := m
     simp only [updateLab, List.mem_cons, List.mem_nil_iff, or_false] at hm
     rcases hm with rfl | rfl | rfl <;> simp at hmn

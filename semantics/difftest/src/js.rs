@@ -11,7 +11,7 @@
 
 use crate::oracle::{self, Oracle};
 use crate::script::{Case, Event};
-use crate::{compile, observe, seed_of};
+use crate::{compile, observe};
 use exact_plan::Value;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -132,11 +132,7 @@ struct Ready {
 /// to `dir` unless it is its own file, unchanged (its `use`s resolve there).
 fn prepare(case: &Case, dir: &Path, index: usize) -> Result<Ready, JsVerdict> {
     let plan = compile(case).map_err(JsVerdict::Refused)?;
-    let (rust, data) = observe::run(
-        plan.clone(),
-        Oracle::new(&plan, seed_of(&case.name)),
-        &case.events,
-    );
+    let (rust, data) = observe::run(plan.clone(), Oracle::for_case(&plan, case), &case.events);
     let data = data.expect("the oracle comes back");
     let file = match &case.path {
         Some(p) if std::fs::read_to_string(p).ok().as_deref() == Some(case.source.as_str()) => {
@@ -170,12 +166,27 @@ fn prepare(case: &Case, dir: &Path, index: usize) -> Result<Ready, JsVerdict> {
         .map(|(name, _, v)| format!("{}:{}", string(name), value(v)))
         .collect();
     let events: Vec<String> = case.events.iter().map(event).collect();
+    // The device's store at launch, and the persisted states whose `store`
+    // lines follow the slots (LLP 1116 D5).
+    let stored: Vec<String> = data
+        .snapshot()
+        .iter()
+        .map(|(k, v)| format!("{}:{}", string(k), string(v)))
+        .collect();
+    let persisted: Vec<String> = plan
+        .slots
+        .iter()
+        .filter(|s| s.persist)
+        .map(|s| string(plan.str(s.name)))
+        .collect();
     let json = format!(
-        "{{\"file\":{},\"events\":[{}],\"answers\":[{}],\"facts\":{{{}}}}}",
+        "{{\"file\":{},\"events\":[{}],\"answers\":[{}],\"facts\":{{{}}},\"stored\":{{{}}},\"persisted\":[{}]}}",
         string(&file.display().to_string()),
         events.join(","),
         answers.join(","),
-        facts.join(",")
+        facts.join(","),
+        stored.join(","),
+        persisted.join(",")
     );
     Ok(Ready { rust, json })
 }
