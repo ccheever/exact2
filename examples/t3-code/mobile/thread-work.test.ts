@@ -8,7 +8,7 @@ import { chatCommand } from './shared/chat-commands';
 import { setTurnItemOpen, refreshNextOpenTurnItemDetail } from './shared/timeline-item-fetch';
 import { mobileThreadActivity } from './thread-work';
 import { mobileThreadRows } from './thread';
-import { chatLocal } from './shared/timeline-presentation';
+import { chatLocal, transcriptRows } from './shared/timeline-presentation';
 import { mobileThreadColors } from './design';
 const now = Date.parse('2026-10-07T12:00:00Z');
 const time = '2026-10-07T12:00:00Z';
@@ -26,6 +26,23 @@ function clientFor(rows: Obj[]) {
 }
 const native: Native = { available: true, watch() {}, async later() { return { ok: true, value: {}, generation: 1 }; } };
 const files: Files = { fs: { async mkdir() {}, async readFile() { return new ArrayBuffer(0); }, async atomicWriteFile() {} } };
+
+test('recognized browser tools keep their globe through shared and mobile row projection', async () => {
+  for (const toolName of ['preview_status', 'preview_open', 'unknown']) {
+    const row = projected({ type: 'dynamic_tool', toolName: `mcp__t3-code__${toolName}`, input: { url: 'https://example.com' } });
+    const client = clientFor([row]);
+    for (const shown of mobileThreadRows(client, now)) if (shown.toggleOp && !shown.expanded) await chatLocal(client, native, shown.toggleOp.replace('chatlocal:', ''), shown.toggleId, '');
+    const shared = transcriptRows(client).flatMap(message => message.activities ?? []).find(value => value.id === activity.id)!;
+    expect(shared.icon).toBe(toolName === 'unknown' ? 'wrench' : 'browser');
+    for (const dark of [false, true]) {
+      const shown = mobileThreadRows(client, now, dark).flatMap(message => message.activities).find(value => value.id === activity.id)!;
+      expect(shown).toMatchObject({ symbol: toolName === 'unknown' ? 'wrench' : 'globe', iconURL: '', nativeWorkRow: '', nativeWorkDetail: false, nativeCommandDetail: false });
+      const image = mobileThreadActivity({ ...shared, iconLight: 'https://example.com/light.png', iconDark: 'https://example.com/dark.png' }, row, client, now, dark, '', 'visit');
+      expect(image.iconURL).toBe(`https://example.com/${dark ? 'dark' : 'light'}.png`);
+      expect(image.nativeWorkRow).toBe('');
+    }
+  }
+});
 
 test('native command paragraphs appear only for an expanded command call', () => {
   const row = projected({ input: '/bin/zsh -lc pwd', output: 'actual directory' }), client = clientFor([row]);
