@@ -94,6 +94,40 @@ recorded instead of shown ([main-eval](https://raw.githubusercontent.com/ccheeve
   +882,679: a new handler site in FlowRuns costs about 1 KB per inlined use (140), so the final design adds none and reuses
   the link node's and the later word's handlers.
 
+## Review round 1 (independent review of #434, 2026-10-11)
+
+Four should-fix findings, all fixed (`29120f2ad`, `69b6c0dd8`); text before/after from one agent drive per build, the same
+steps ([RL-review-before-after](https://raw.githubusercontent.com/ccheever/exact2/110d7d6945664560ecdb6201647f1479d9a09c71/reply-links/RL-review-before-after.txt), [drive2.sh](https://raw.githubusercontent.com/ccheever/exact2/81f3c81881b2793ab4cb20199690845e27704083/reply-links/RL-review-drive2.sh.txt)): before on this worktree's bundle of the PR head
+(`a56f127ff`'s code; its sources restored for the drive with their mtimes set back to before that build, content
+identical), after on the bundle of `69b6c0dd8`.
+
+- **R1-1, the pointer over a link's later words.** A mailto, irc, xmpp or fragment link's later words had an `href` on the
+  base, which ExactKit gives the pointing hand (`resetCursorRects`); the PR took the href away (a click no longer reaches
+  the host's link following) and with it the pointer, while the reference's `<a>` shows `cursor: pointer` over all of it.
+  FlowRuns gives those words, and such a link's later code span, `cursor="pointer"` (a run with a link `label`; an
+  emptied anchor has none, as an `<a>` with no href shows no pointer). Drive: `layout team`, `notes`, `channel` were
+  `cursor auto (initial)`, now `pointer`. Plan +3,276 bytes (28,711,289).
+- **R1-2, table cells.** Keeping the fragment href also reached Markdown table cells. (a) Copy as Markdown wrote
+  `[the notes](#notes)`: `cell_markdown` now keeps a link only for an http(s) URL, as `serializeAnchor` does
+  (`if (!/^https?:\/\//i.test(href)) return content;`); a file link still copies its source (the chip's
+  `data-markdown-copy`) and a context or citation reference its link. A fragment, mailto, irc or xmpp link copies its text;
+  this also changes a mailto link, which the base copied as `[mail](mailto:…)`. (b) A cell's fragment link is now drawn as
+  a link (ChatRuns' inline run: link colour, an AX link), as the reference's `<a href="#notes">` in a cell, where the base
+  drew prose; a click on it goes to the host's own link following, which refuses a URL with no scheme (`exact: refused to
+  open #notes`, ExactMac `open`): nothing opens and the thread stays, as RL-2's fragment in prose. Rust test
+  `a_table_cell_copies_only_a_web_link_as_a_link`.
+- **R1-3, the image fragment test.** `markdown.rs` `an_image_with_a_fragment_source_loads_nothing`: `![a](#shot)` is an
+  image block with an empty href (and an emptied `javascript:` source; a web source keeps it).
+- **R1-4, a stale click for `shellMenu`.** `lastPageClick` stayed set after the tail or a node's own menu answered a click,
+  so a `contextmenu` no click raised (the ContextMenu key on a focused link) within 5 s popped the shell's menu at that old
+  click. Now any key or click the monitor sees (it watches keys and the other buttons too), the tail's menu
+  (`pageClick`), and the app's own menu (T3Module's `contextMenu` op, `pageClickAnswered`) end the click. The agent's keys
+  go to the window and bypass NSApplication's monitor (AgentMac), as VoiceOver's show menu sends no event, hence the
+  third. Drive: the ContextMenu key on the focused "the team" link after the tail's menu on "team", and on "chat" after the
+  web link's own menu on `x`, each popped the shell's menu for the old click; after, neither opens a menu. AppKit test
+  `testAMenuThatAnsweredItOrALaterKeyOrClickEndsTheClick`; its first version (tail, key, click) failed 4 assertions on the
+  PR head's module ([old vs new](https://raw.githubusercontent.com/ccheever/exact2/d38b276053d5892ce56f50c5d4b423412eb29904/reply-links/RL-review-appkit.txt)).
+
 ## Acceptance results
 
 | Row | Result | Proof |
@@ -119,8 +153,9 @@ payload_json = json_set(payload_json, '$.text', cast(readfile('fixture-text.txt'
 'fixture-markdown'"`, [fixture-text.txt](https://raw.githubusercontent.com/ccheever/exact2/21efc1da7750a87ba56a417d8a86c3eb7d4622e1/reply-links/fixture-text.txt)); the
 Verification fixture thread open. Never send a message.
 
-1. **RL-1.** Click "the team" (mailto), "the channel" (irc) and "chat" (xmpp), each on its first and its last word: nothing
-   opens (no Mail, no browser, no toast). Right-click "the team": Cut (disabled), Copy (disabled, or enabled with page text
+1. **RL-1.** Hover "the team" (mailto), "the channel" (irc), "chat" (xmpp) and "the notes", each on its first and its last
+   word: the pointing hand on each (review R1-1). Click each on its first and its last word: nothing opens (no Mail, no
+   browser, no toast). Right-click "the team": Cut (disabled), Copy (disabled, or enabled with page text
    selected), Paste (disabled), Select All, and no Copy Link.
 2. **RL-2.** Click "the notes": the thread stays (until the decision below says otherwise). Right-click it: the menu of step 1.
 3. **RL-3.** Right-click the code span `x` in "the `x` docs": Open in integrated browser, Open in system browser, Copy Link;
@@ -131,6 +166,13 @@ Verification fixture thread open. Never send a message.
    `"channel"`, `"notes"` or `"docs"` after them.
 
 ## Tests
+
+Review round 1: `markdown_links.rs` `a_table_cell_copies_only_a_web_link_as_a_link` (a cell's copy text keeps only the web
+link; its fragment run is drawn as a link with `#notes`); `markdown.rs` `an_image_with_a_fragment_source_loads_nothing`;
+`reply-links.swift` `testAMenuThatAnsweredItOrALaterKeyOrClickEndsTheClick` (the tail's menu, a later key, a later click
+and the app's own menu each end the click); `external-link-menu.test.ts` pins the `cursor` of a link's later words and
+code span.
+
 
 - `browser-links.test.ts` (+1): a mailto, irc, ircs, xmpp or fragment link through `chatlocal:link-open` sends nothing to
   the module or the server and toasts nothing, with "Open links in" on either value and ⌘ held; a web link still opens.
@@ -147,24 +189,32 @@ Verification fixture thread open. Never send a message.
 
 ## Checks
 
-On the code head `1cc7f3391` (`origin/feat(example)/t3-code` `0292f4364` merged: already up to date; all exit 0): `bun test
-examples/t3-code --timeout 60000` 4454 pass / 1 skip / 0 fail (305 files); strict `tsc`; `contract build` of `app.contract`
-(1397 lines; 110,029 nodes, 28,708,013 bytes); `cargo test -p t3-code-macos --lib` 19 pass; AppKit `contextmenu` 57 run / 0
-failed (4 new); `git add -A && bun scripts/caps.mjs`; the five checks: `cargo build --all-targets --keep-going`, `cargo test
---lib --bins --tests --no-fail-fast` (3679 passed, 0 failed, 34 ignored), `cargo clippy --all-targets --keep-going -- -D
-warnings`, `cargo fmt --all -- --check`, `bun scripts/caps.mjs`, `bun scripts/boot.mjs`. The commit after it adds only this
-record's PR link.
+Review round 1, on the code head `69b6c0dd8` (`origin/feat(example)/t3-code` `0292f4364`: already merged, no new commits;
+all exit 0): `bun test examples/t3-code --timeout 60000` 4454 pass / 1 skip / 0 fail (305 files); strict `tsc`; `contract
+build` of `app.contract` (1397 lines; 110,029 nodes, 28,711,289 bytes: +3,276 for R1-1); `cargo test -p t3-code-macos --lib`
+21 pass (2 new; the Rust has not changed since); AppKit `contextmenu` 58 run / 0 failed (1 new); `git add -A && bun
+scripts/caps.mjs`; the five checks: `cargo build --all-targets --keep-going`, `cargo test --lib --bins --tests
+--no-fail-fast` (3679 passed, 0 failed, 34 ignored), `cargo clippy --all-targets --keep-going -- -D warnings`, `cargo fmt
+--all -- --check`, `bun scripts/caps.mjs`, `bun scripts/boot.mjs`. The bundle of `69b6c0dd8` was built once for the drive.
+
+Before, on the code head `1cc7f3391`: the same checks, all exit 0 (4454 pass; 28,708,013 bytes; 19 Rust; AppKit 57 / 0).
 
 ## Not done / not verified
 
-- Real-input steps 1–4 above: the coordinator's session.
+- Real-input steps 1–4 above: the coordinator's session (step 1 now also hovers for the pointer, review R1-1).
 - RL-2's click: Decision needed below.
+- The ContextMenu key on a focused mailto, irc, xmpp or fragment link opens no menu (review R1-4 ends a click the key did
+  not raise, and `shellMenu` has nothing else to answer); the reference's shell opens its menu at the focused anchor. A Mac
+  keyboard has no ContextMenu key and Chrome on a Mac gives Shift+F10 no default (MouseEventsMac), so it is reachable by
+  a PC keyboard or VoiceOver's show menu only; not built.
 
 ## Seen while building, not a finding row
 
 - A Markdown table cell's mailto link (`ChatRuns` in `TableCell`, inline runs) is a link to accessibility, and a click
   still goes to the host's own link following, which hands a mailto URL to the mail app (the reference opens nothing). A
   press on that run stops it, measured +308,280 bytes of plan (ChatRuns has many more inlined uses); not built.
+- A table cell's fragment link is a link there too since RL-2 kept the href (review R1-2): drawn and read as a link, as the
+  reference's; a click is refused by the host (`exact: refused to open #notes`), so nothing opens and the thread stays.
 
 ## Decision needed
 
@@ -175,4 +225,4 @@ route, so the app leaves the thread for the new-thread draft. The clone keeps th
 
 ## Next action
 
-Review the draft PR; answer the decision; real-input steps 1–4 in the coordinator's session.
+Review the draft PR (review round 1 fixed); answer the decision; real-input steps 1–4 in the coordinator's session.
