@@ -132,6 +132,46 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertFalse(reached.contains(caption), "a button's text is its name, not a second stop")
         XCTAssertFalse(reached.contains(spacer))
     }
+    /// X74: a heading inside a button is the button's child, as Chrome keeps
+    /// `<button><h2>` (button › heading). The button keeps its name, state
+    /// and press; its text and images stay its name, not children, so a
+    /// button holding only those is still a leaf, and `aria-hidden` hides.
+    func testAHeadingInsideAButtonIsItsChild() {
+        let (p, w, button, other) = fixture()
+        button.handlers = ["press"]
+        button.applyProps(set: ["accessibilityExpanded": "false"], clear: [])
+        let row = NodeView(id: 30, kind: "view", presenter: p)
+        let heading = NodeView(id: 31, kind: "text", presenter: p)
+        heading.applyProps(set: ["text": "Legacy features", "accessibilityRole": "heading", "accessibilityHeadingLevel": "2"], clear: [])
+        let count = NodeView(id: 32, kind: "text", presenter: p)
+        count.applyProps(set: ["text": "3 rows"], clear: [])
+        let chevron = NodeView(id: 33, kind: "image", presenter: p)
+        chevron.applyProps(set: [:], clear: [])
+        button.addSubview(row); row.addSubview(heading); button.addSubview(count); button.addSubview(chevron)
+        let caption = NodeView(id: 34, kind: "text", presenter: p)
+        caption.applyProps(set: ["text": "Dark"], clear: [])
+        let icon = NodeView(id: 35, kind: "image", presenter: p)
+        icon.applyProps(set: ["accessibilityLabel": "Moon"], clear: [])
+        other.addSubview(caption); other.addSubview(icon)
+        for n in [row, heading, count, chevron, caption, icon] { p.views[n.id] = n }
+        p.syncAccessibility()
+
+        XCTAssertEqual(button.accessibilityRole(), .button)
+        XCTAssertEqual(button.accessibilityLabel(), "Legacy features 3 rows")
+        XCTAssertFalse(button.isAccessibilityExpanded())
+        XCTAssertTrue(button.accessibilityPerformPress())
+        let children = button.accessibilityChildren() ?? []
+        XCTAssertEqual(children.count, 1, "the heading, not the button's text or images")
+        XCTAssertTrue(children.first as? NodeView === heading)
+        XCTAssertTrue(heading.accessibilityParent() as? NodeView === button)
+        XCTAssertEqual(heading.accessibilityRole()?.rawValue, "AXHeading")
+        XCTAssertEqual(heading.accessibilityValue() as? Int, 2)
+        XCTAssertFalse(heading.accessibilityPerformPress(), "the press is the button's")
+        XCTAssertNil(other.accessibilityChildren(), "a button of text and an image is a leaf")
+        heading.applyProps(set: ["accessibilityElementsHidden": "true"], clear: [])
+        XCTAssertNil(button.accessibilityChildren(), "an aria-hidden heading is no child")
+        withExtendedLifetime(w) {}
+    }
     /// Plain text takes the focus for selection but is never a Tab stop, as
     /// on the web: Tab walks the controls, and from a selected paragraph it
     /// goes on to the next stop after it. A key handler makes text focusable.

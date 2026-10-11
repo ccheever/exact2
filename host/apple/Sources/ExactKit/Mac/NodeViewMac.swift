@@ -340,6 +340,26 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if handlers.contains("hover") { presenter?.hover(self, false) }
     }
     /// A control is a leaf, as UIKit makes one: VoiceOver reads its name.
+    /// The exception is a descendant with a role of its own, which stays its
+    /// child as on the web (`controlAccessibilityChildren`). An image or a
+    /// range is a leaf.
+    package override func accessibilityChildren() -> [Any]? {
+        if props["accessibilityElementsHidden"] == "true" { return [] }
+        if actsAsButton { return controlAccessibilityChildren() }
+        return props["accessibilityRole"] == "img" || rangeRole != nil ? nil : textAccessibilityChildren() ?? super.accessibilityChildren()
+    }
+    /// A control's descendants with a role of their own, as the web keeps
+    /// them: Chrome's `<button><h2>` is button › heading (X74). Nil when it
+    /// holds only text and images, so it stays a leaf read once by its name.
+    private func controlAccessibilityChildren() -> [Any]? {
+        let named: Set<NSAccessibility.Role> = [.staticText, .image]
+        let children: [Any] = super.accessibilityChildren() ?? []
+        let own = children.filter { child in
+            let role = (child as? NSView)?.accessibilityRole() ?? (child as? NSAccessibilityElement)?.accessibilityRole()
+            return role.map { !named.contains($0) } ?? false
+        }
+        return own.isEmpty ? nil : own
+    }
     package override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
         super.accessibilityAttributeNames() + (["AXLanguage"] + Self.ariaAttributes.filter { ariaAttribute($0) != nil }).map { .init(rawValue: $0) }
     }
@@ -354,10 +374,6 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// web's does (onboarding F16: a checkbox's visible label stayed exposed).
     package override func isAccessibilityElement() -> Bool {
         accessibilityExposed && props["accessibilityElementsHidden"] != "true" && super.isAccessibilityElement()
-    }
-    package override func accessibilityChildren() -> [Any]? {
-        if props["accessibilityElementsHidden"] == "true" { return [] }
-        return actsAsButton || props["accessibilityRole"] == "img" || rangeRole != nil ? nil : textAccessibilityChildren() ?? super.accessibilityChildren()
     }
     /// What VoiceOver reaches, as the web's accessibility tree and iOS's
     /// traits have it: a pressable is a button — a link, checkbox, radio or
