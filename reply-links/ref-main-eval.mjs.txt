@@ -1,0 +1,14 @@
+// Evaluate an expression in the reference's Electron main process (node inspector). Usage: node main-eval.mjs <port> "<expr>"
+const [port, expr] = process.argv.slice(2);
+const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
+const ws = new WebSocket(list[0].webSocketDebuggerUrl);
+await new Promise((r) => ws.addEventListener('open', r));
+const send = (method, params) => new Promise((resolve) => {
+  const id = Math.floor(Math.random() * 1e9);
+  const on = (ev) => { const m = JSON.parse(ev.data); if (m.id === id) { ws.removeEventListener('message', on); resolve(m); } };
+  ws.addEventListener('message', on);
+  ws.send(JSON.stringify({ id, method, params }));
+});
+const r = await send('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true, includeCommandLineAPI: true });
+console.log(JSON.stringify(r.result?.result?.value ?? r.result ?? r));
+ws.close();
