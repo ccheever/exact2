@@ -91,8 +91,9 @@ package final class Presenter {
     /// Heavy leaves held mid-fling (LLP 1068 §5.1).
     lazy var leaves = HeavyLeaves(self)
     lazy var flats = FlatLeaves(self)
+    /// The native swipe rows (LLP 1008 §9), a grouped list's included.
+    package lazy var swipeActions = SwipeActionsHost(self)
     /// The native menu arm (LLP 1021 D3).
-    lazy var swipeActions = SwipeActionsHost(self)
     lazy var menus = MenuHost(presenter: self)
     lazy var keyboardToolbars = KeyboardToolbars(self)
     lazy var segments = SegmentHost(self)

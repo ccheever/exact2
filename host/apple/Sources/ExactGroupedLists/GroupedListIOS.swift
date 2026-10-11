@@ -339,6 +339,12 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             #if !os(tvOS)
             c.showsSeparators = s?.card ?? true
             #endif
+            #if os(iOS)
+            // A row that names swipe actions swipes as a hand-built list's
+            // cell does (LLP 1116.001 D1): UIKit's actions, a full swipe the first.
+            c.leadingSwipeActionsConfigurationProvider = { [weak self] path in self?.swipeActions(at: path, leading: true) }
+            c.trailingSwipeActionsConfigurationProvider = { [weak self] path in self?.swipeActions(at: path, leading: false) }
+            #endif
             // An authored space above a header is above it: UIKit's top inset
             // there is the header-to-rows gap (§6.4).
             let space = s?.spaceAbove
@@ -365,6 +371,15 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             return section
         }
     }
+
+    #if os(iOS)
+    /// A custom row's swipe actions on one side, as the swipe host offers
+    /// them (`swipeContent`, LLP 1008 §9); nil for any other row.
+    func swipeActions(at path: IndexPath, leading: Bool) -> UISwipeActionsConfiguration? {
+        guard let id = source.itemIdentifier(for: path), rows[id]?.custom == true else { return nil }
+        return host.presenter.swipeActions.configuration(row: id, leading: leading)
+    }
+    #endif
 
     func update(_ next: GroupedListModel) {
         let previous = model, old = rows

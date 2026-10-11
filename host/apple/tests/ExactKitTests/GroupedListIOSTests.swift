@@ -630,6 +630,81 @@ final class GroupedListIOSTests: XCTestCase {
         XCTAssertFalse(s.isOn)
     }
 
+    /// LLP 1116.001 D1: a custom row that names swipe actions (the
+    /// `list-rows` recipe's scroll, in a grouped section) swipes as a
+    /// hand-built list's cell does: UIKit's actions on its list cell, a full
+    /// swipe the first. Its content need not fill the row (the sheet's
+    /// inset and padding), no table is projected, and its controls stay
+    /// hidden while the row is carried (grocery-list, round 3: the row was
+    /// refused and swiped 27 points by its scroll, the action clipped).
+    func testASwipeRowTakesItsListCellsOwnActions() throws {
+        ExactGroupedLists.install()
+        let p = Presenter()
+        host(p).model = { $0 == 1 ? GroupedListModel(sections: [
+            .init(view: 2, header: nil, footer: nil, rows: [Row(view: 21, custom: true), Row(view: 30, title: "Plain")]),
+        ]) : nil }
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        p.viewport.frame = window.bounds
+        window.addSubview(p.viewport)
+        window.makeKeyAndVisible()
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "list", "props": ["listStyle": "inset-grouped"], "style": ["overflow_y": "scroll"]],
+            ["op": "create", "id": 2, "kind": "view", "props": ["semanticTag": "section"], "style": [:]],
+            ["op": "create", "id": 4, "kind": "view", "props": [:], "style": [:]],
+            ["op": "create", "id": 21, "kind": "view", "props": ["swipeContent": "body", "swipeTrailing": "delete", "testId": "swipe-row"],
+             "style": ["overflow_x": "scroll", "overflow_y": "hidden", "padding_right": 16.0, "border_width_bottom": 1.0]],
+            ["op": "create", "id": 22, "kind": "view", "props": ["id": "body"], "style": [:]],
+            ["op": "create", "id": 23, "kind": "button", "props": ["id": "delete", "accessibilityLabel": "Delete Milk", "destructive": "true"], "handlers": ["press"], "style": [:]],
+            ["op": "create", "id": 30, "kind": "view", "props": [:], "style": [:]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "children", "id": 2, "ids": [4]], ["op": "children", "id": 4, "ids": [21, 30]],
+            ["op": "children", "id": 21, "ids": [22, 23]], ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 402.0, "h": 874.0],
+            // The sheet's 16 in and 16 of padding: the content is 370 of a 386 × 53 row.
+            ["op": "frame", "id": 21, "x": 16.0, "y": 0.0, "w": 386.0, "h": 53.0],
+            ["op": "frame", "id": 22, "x": 0.0, "y": 9.0, "w": 370.0, "h": 34.0],
+            ["op": "frame", "id": 23, "x": 370.0, "y": 9.0, "w": 60.0, "h": 34.0],
+            ["op": "frame", "id": 30, "x": 16.0, "y": 52.0, "w": 354.0, "h": 52.0],
+        ]))
+        let owner = try XCTUnwrap(p.views[21]), delete = try XCTUnwrap(p.views[23])
+        XCTAssertNil(p.swipeActions.refusal(of: owner), "a grouped row's content need not fill it")
+        XCTAssertTrue(delete.isHidden, "the cell's action stands for the control")
+        XCTAssertNil(owner.scroll, "no scroll to pan: the cell's swipe takes the touch")
+        XCTAssertTrue(p.swipeActions.ownsAction(23))
+        let c = try cell(p, 21)
+        XCTAssertTrue(owner.isDescendant(of: c.contentView), "carried into its list cell")
+        p.swipeActions.touch(owner)
+        XCTAssertNil(p.swipeActions.cell(of: owner), "no table projected: the list cell is UIKit's own")
+        XCTAssertFalse(owner.subviews.contains { $0 is UITableView })
+
+        let l = try list(p)
+        let trailing = try XCTUnwrap(l.swipeActions(at: IndexPath(item: 0, section: 0), leading: false))
+        XCTAssertEqual(trailing.actions.count, 1)
+        XCTAssertEqual(trailing.actions.first?.style, .destructive)
+        XCTAssertEqual(trailing.actions.first?.accessibilityLabel, "Delete Milk")
+        XCTAssertTrue(trailing.performsFirstActionWithFullSwipe, "a full swipe deletes")
+        XCTAssertNil(l.swipeActions(at: IndexPath(item: 0, section: 0), leading: true), "it names no leading action")
+        XCTAssertNil(l.swipeActions(at: IndexPath(item: 1, section: 0), leading: false), "a standard row has none")
+        var completed: Bool?
+        try XCTUnwrap(trailing.actions.first).handler(try XCTUnwrap(trailing.actions.first), UIView(), { completed = $0 })
+        XCTAssertEqual(completed, true)
+        XCTAssertEqual(pressed, [23], "the action is the control's press")
+
+        // A batch gives the row back and carries it again; the control
+        // stays the cell's action, and the agent's tap on it, unrevealed,
+        // performs it as assistive technology would.
+        p.apply(wireBatch([["op": "props", "id": 21, "set": ["testId": "swipe-row"], "clear": [String]()]]))
+        XCTAssertTrue(delete.isHidden)
+        XCTAssertTrue(owner.isDescendant(of: try cell(p, 21).contentView))
+        XCTAssertEqual(p.swipeActions.perform(23), true)
+        XCTAssertEqual(pressed, [23, 23])
+        // An inert section offers no action.
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["inert": "true"], "clear": [String]()]]))
+        XCTAssertNil(l.swipeActions(at: IndexPath(item: 0, section: 0), leading: false), "inert: nothing offered")
+        XCTAssertEqual(p.swipeActions.perform(23), false)
+    }
+
     func testABatchUpdatesTheRowsAndAGoneListGoes() throws {
         var dark = false
         let p = presenter { self.model(dark: dark) }
