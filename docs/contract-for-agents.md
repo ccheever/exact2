@@ -616,13 +616,13 @@ roster. Compiler-owned router names exist only with a `routes` declaration.
 The platform answers the controls and the chrome; the app's own content is the
 author's to design (LLP 1116.000 D3): a summary at the top, bars where numbers
 compare, rows with a hierarchy, an empty state that says what to do.
-`exact:content` is a built-in library of four components that draw it with
+`exact:content` is a built-in library of six components that draw it with
 nothing but roles (`-exact-secondary-background`, `-exact-secondary-label`,
 `AccentColor`, the system hues, the text styles, symbols, the determinate
 `progress`), so dark mode, Dynamic Type and the tint come with them:
 
 ```contract
-use SummaryCard, StatBar, EmptyState, RowText from "exact:content"
+use SummaryCard, StatBar, RingProgress, DoneMark, EmptyState, RowText from "exact:content"
 
 shape Day
   key: string
@@ -633,15 +633,19 @@ fn ml(n: number): string = `${formatNumber(n, "decimal")} ml`
 
 component Water
   state total = 750
-  state days = [Day(key="mon", name="Monday", ml=1800), Day(key="tue", name="Tuesday", ml=2250)]
+  state days = [Day(key="mon", name="Mon", ml=1800), Day(key="tue", name="Tue", ml=2250)]
   action drink
     total = total + 250
   view
-    scroll height="100%"
+    scroll height="100%" accent-color="-exact-system-teal"
       column gap=16 padding=16
+        RingProgress(label="of 2,000 ml", value=ml(total), fraction=total / 2000, tint=none)
         SummaryCard(label="Today", value=ml(total), detail="of 2,000 ml", progress=some(total / 2000), symbol=some("symbol:activity"))
         each d in days key=d.key
-          StatBar(label=d.name, value=ml(d.ml), fraction=d.ml / 2000, tint=(d.ml >= 2000 ? some("-exact-system-green") : none))
+          StatBar(label=d.name, value=ml(d.ml), fraction=d.ml / 2000, tint=none)
+        row justify-content="space-between"
+          each d in days key=d.key
+            DoneMark(label=d.name, done=d.ml >= 2000)
         when total == 0
           EmptyState(symbol="symbol:calendar", title="No water yet", message="Each glass you log adds to today.")
             button "Log a glass" press=drink buttonStyle="bordered-prominent"
@@ -652,12 +656,21 @@ component Water
 | Component | Props | Draws |
 | --- | --- | --- |
 | `SummaryCard` | `label: string`, `value: string`, `detail: string`, `progress: option<number>`, `symbol: option<string>` | a card: the symbol and label, the value large in tabular figures, the detail beside it where the card is wide and under it where it is narrow, the fraction as `progress` |
-| `StatBar` | `label: string`, `value: string`, `fraction: number`, `tint: option<string>` | the label and value over a bar `fraction` (held to 0–1) of the width, in `tint` (a colour role), the accent for `none`; one `meter` to a reader |
+| `StatBar` | `label: string`, `value: string`, `fraction: number`, `tint: option<string>` | the label and value over a bar `fraction` (held to 0–1) of the width: the accent short of the goal, the system green at 1 or past it, `tint` (a colour role) when given; one `meter` to a reader |
+| `RingProgress` | `label: string`, `value: string`, `fraction: number`, `tint: option<string>` | a ring filled `fraction` of the way round from the top, in the bar's colours over a grey track, the value large in its centre and the label under it; 200 across, down to 120 in a narrower box; one `progressbar` to a reader |
+| `DoneMark` | `label: string`, `done: bool` | a filled check in the system green, or an empty circle in grey, with `label` (`""` for none) under it; one image to a reader ("Mon, done") |
 | `EmptyState` | `symbol: string`, `title: string`, `message: string`; a slot | a centred symbol, the title as a heading, the message; the nodes indented under the use (your `button`) under them |
 | `RowText` | `title: string`, `detail: string`, `value: option<string>` | a title, a secondary line under it (`""` for none) and a trailing value in tabular figures: a grouped list `row`'s content, or any list's |
 
 - Props have no defaults: pass `none` for an option. A symbol is an `image` source:
   a role (`"symbol:calendar"`) draws on every host, `"symbol:sf/<name>"` on Apple only.
+- They are in the app's accent: `accent-color` on the root (or any ancestor) tints
+  them as it tints the controls, on the web and iOS (macOS keeps the system accent,
+  as AppKit does). A state is a second colour: progress
+  short of its goal is the accent, a goal met (`fraction` 1 or more, a card's
+  `progress` at 1) the system green, done against not done green against grey. A
+  `tint` overrides it: a budget gone over passes `some("-exact-system-red")`, a
+  breakdown whose bars are shares rather than goals passes `some("AccentColor")`.
 - They draw no control and no chrome. An action is your own `button`, beside a card
   or indented under `EmptyState`. Inset-grouped lists are for settings and forms; a
   content screen is a `scroll` of these.
@@ -2236,7 +2249,9 @@ Where you must say one, name a role, which each host resolves to its own colour
 for light, dark and Increased Contrast (`labelColor` on iOS, the browser's own on
 the web; LLP 1095): CSS's system colours `Canvas`, `CanvasText`, `LinkText`,
 `GrayText`, `AccentColor`, `AccentColorText`, `Field`, `FieldText`, `ButtonFace`,
-`ButtonText`, `Highlight`, `HighlightText`, and Exact's `-exact-label`,
+`ButtonText`, `Highlight`, `HighlightText` (`AccentColor` and `LinkText` are the
+tint: the nearest `accent-color` a node or an ancestor sets, else the platform's, as
+UIKit's inherited `tintColor` is), and Exact's `-exact-label`,
 `-exact-secondary-label`, `-exact-tertiary-label`, `-exact-quaternary-label`,
 `-exact-placeholder`, `-exact-separator`, `-exact-opaque-separator`, `-exact-link`,
 `-exact-background`, `-exact-secondary-background`, `-exact-tertiary-background`,
