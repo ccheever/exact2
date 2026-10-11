@@ -21,11 +21,11 @@ describe('RF-3: the gutter hears the pointer', () => {
     const app = source('app.contract');
     expect(app).toContain('mutation lineDragChanged as shape Change queue refreshes data');
     // The "+"'s press (`comment:` in the Diff panel, `pr-code-begin` in the Code tab) queues behind its drag's sends.
-    expect(app).toContain('else if op == "diffreview" and (startsWith(id, "drag:") or startsWith(id, "gutter:") or startsWith(id, "comment:") or id == "to" or id == "end")\n');
+    expect(app).toContain('else if op == "diffreview" and (startsWith(id, "drag:") or startsWith(id, "gutter:") or startsWith(id, "comment:") or id == "to" or id == "end" or id == "press")\n');
     expect(app).toContain('      send lineDragChanged = command(op, id, value, n)');
     expect(app).toContain('    else if op == "pr-code-drag" or op == "pr-code-begin"\n      send lineDragChanged = command(`chatlocal:${op}`, id, value, 0)');
     const code = source('pages-pr-code.contract');
-    expect(code).toContain('    if startsWith(id, "drag:") or startsWith(id, "gutter:") or id == "to" or id == "end"\n      local("pr-code-drag", ref, `${op}|${id}|${n}|${value}`)');
+    expect(code).toContain('    if startsWith(id, "drag:") or startsWith(id, "gutter:") or id == "to" or id == "end" or id == "press"\n      local("pr-code-drag", ref, `${op}|${id}|${n}|${value}`)');
   });
   test('a file with a selection draws its "+" on the selection\'s bottom line only; a cell whose drag is in flight keeps it mounted', () => {
     expect(cell).toContain('when line > 0 and not open and (pin or not pinned or dragging)\n        button press=comment');

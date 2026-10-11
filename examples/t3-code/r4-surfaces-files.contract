@@ -16,7 +16,6 @@ use FileTypeIcon from "./timeline-files.contract"
 use synColor from "./markdown.contract"
 use synSlant from "./markdown.contract"
 use DiffCommentCard, DiffDraftCard from "./diff-comments.contract"
-use DiffGlyph from "./diff-glyphs.contract"
 use diffSel from "./diff-rows.contract"
 use DiagramBlocks, ChatDocument from "./markdown.contract"
 use FilesMedia from "./media-actions.contract"
@@ -314,10 +313,19 @@ component R4FilePreview
           when files.editing
             textarea id="file-editor" hatch="t3-file-editor" value=files.editorText input=local("surface-files-edit", files.path) key=editorKey blur=local("surface-files-end-edit", files.path, "") autofocus=true aria-label=files.path testId="file-editor" position="absolute" left=files.gutter top="0.4375rem" right=0 bottom="0.5625rem" padding-left=7.8 padding-right=7.8 padding-top=0 padding-bottom=0 box-sizing="border-box" border-width=0 background-color="#00000000" font-family="ui-monospace" font-size=13 line-height="20px" color="#00000000" caret-color="light-dark(#0a0a0a, #fafafa)" white-space=(files.wrap ? "pre-wrap" : "pre") overflow-wrap=(files.wrap ? "break-word" : "normal") autocorrect="off" spellcheck="false"
 
-// A press on the number selects the line (Shift extends); the gutter's "+" comments on the selection or the line.
-// A selected line paints its number's cell and its number only, as FilePreviewPanel's File over @pierre/diffs does
-// (CDP, 1e2ecbd975: [data-column-number] #d5e6ff / #254566, the number #20649e / #72b6ff, which is the diff's; the
-// code row and the comment card under it stay the surface's, and there is no bar; diff-gutter-selection-followups GS-2).
+// FilePreviewPanel's File over @pierre/diffs (CDP, 1e2ecbd975; files-gutter-parity FG-1, FG-2). A press on the number starts
+// a selection that follows the pointer over the file's lines (Shift extends it), a press on the gutter's "+" a range from the
+// selection's top, as the diff's gutter (DiffCell, diff-line-drag.ts); the release opens the draft on what it ended on
+// (onLineSelectionEnd → beginComment), so a click on a number opens one too (diff-file-comments.ts). The gutter cell holds
+// the pointer and names the line under it by the row's id (`elementFromPoint`); its press, after the gesture's release
+// found the draft open, is a keyboard's or accessibility's (the draft on the line, or the selection holding it), and keeps
+// the press from the preview's begin-edit. The "+" is Pierre's [data-utility-button]: a 20pt square in the modified blue at
+// the number's right edge (the cell less 1ch + 2pt: x 23.5 of a one-digit gutter), its 16pt plus in the surface's colour;
+// while a selection is held it sits on the selection's bottom line only (placeUtilityFromSelection), else on the hovered
+// line. The number is [data-column-number], `user-select: none`: drawn over the cell after the code, it takes no pointer,
+// so a press on it is the cell's and a gutter drag selects no text. A selected line paints its number's cell and its
+// number only (#d5e6ff / #254566, the number #20649e / #72b6ff, which is the diff's; the code row and the comment card
+// under it stay the surface's, and there is no bar; diff-gutter-selection-followups GS-2).
 component R4CodeRow
   props
     line: R4CodeLine
@@ -328,23 +336,47 @@ component R4CodeRow
     local: action
     begin: action
   state hovering = false
+  state dragging = false
+  state overId = ""
   action hover(over: bool)
     hovering = over
-  action pick(e: MouseEvent)
-    if not open
-      local((e.shiftKey ? "surface-files-comment-line-shift" : "surface-files-comment-line"), path, `${line.line}`)
+  // Any primary press is an outside press for a skill chip's details, which the window's root never hears (X71): one that
+  // starts no drag reports itself as `press` (files-gutter-parity FG-4).
+  action down(plus: bool, e: PointerEvent)
+    if not open and e.buttons == 1
+      dragging = true
+      overId = `fl:${line.line}:${path}`
+      local((plus ? "surface-files-comment-gutter" : e.shiftKey ? "surface-files-comment-drag-shift" : "surface-files-comment-drag"), path, `${line.line}`)
+    else if e.buttons == 1
+      local("surface-files-comment-press", path, "")
+  action move(e: PointerEvent)
+    // A held pointer's moves carry its button; a hover after an up this node never heard ends the drag.
+    if dragging and e.buttons == 0
+      dragging = false
+      local("surface-files-comment-end", path, "")
+    else if dragging
+      let hit = match elementFromPoint(e.clientX, e.clientY) { case some(id) => id, case none => "" }
+      if hit != "" and hit != overId
+        overId = hit
+        local("surface-files-comment-to", path, hit)
+  action up(e: PointerEvent)
+    if dragging
+      dragging = false
+      local("surface-files-comment-end", path, "")
   action comment
     if not open
       begin(line.line)
   view
-    row width="100%" align-items="flex-start" hover=hover position="relative"
-      text line.number press=pick aria-label=`Select line ${line.number}` testId=`file-line-${line.number}` width=gutter flex-shrink=0 padding-right=9.83 box-sizing="border-box" align-self="stretch" text-align="right" font-family="ui-monospace" font-size=13 line-height="20px" font-variant-numeric="tabular-nums" background-color=(line.selected ? "light-dark(#d5e6ff, #254566)" : "#00000000") color=(line.selected ? diffSel("number") : "light-dark(#565656, #9d9d9d)")
+    row id=`fl:${line.line}:${path}` width="100%" align-items="flex-start" hover=hover position="relative"
+      box width=gutter flex-shrink=0 align-self="stretch" min-height="20px" press=comment pointerdown=down(false) pointermove=move pointerup=up aria-label=`Select line ${line.number}` testId=`file-line-${line.number}` background-color=(line.selected ? "light-dark(#d5e6ff, #254566)" : "#00000000")
       text flex=1 min-width=0 padding-left=7.8 padding-right=7.8 box-sizing="border-box" font-family="ui-monospace" font-size=13 line-height="20px" white-space=(wrap ? "pre-wrap" : "pre") overflow-wrap=(wrap ? "break-word" : "normal") color="light-dark(#0a0a0a, #fafafa)"
         each run in line.runs key=run.id
           text run.text color=synColor(run.syntax) font-style=synSlant(run.syntax)
-      when not open
-        button press=comment aria-label=`Comment on line ${line.number}` testId=`file-comment-${line.number}` position="absolute" left=2 top=2 width=16 height=16 padding=0 border-radius=4 border-width=0 opacity=(hovering ? 1 : 0) background-color="light-dark(#1b4ed8, #346bf1)" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
-          DiffGlyph(name="plus", size=12, color="#ffffff")
+      when not open and (line.pin or not line.pinned or dragging)
+        button press=comment pointerdown=down(true) pointermove=move pointerup=up aria-label=`Comment on line ${line.number}` testId=`file-comment-${line.number}` position="absolute" left=(gutter - 9.83) top=0 width=20 height=20 padding=0 border-radius=4 border-width=0 opacity=(line.pin or (hovering and not line.pinned) ? 1 : 0) background-color="#009fff" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+          svg width=16 height=16 viewBox="0 0 16 16" color="light-dark(#ffffff, #111111)" flex-shrink=0 aria-hidden=true
+            path d="M8 3a.75.75 0 0 1 .75.75v3.5h3.5a.75.75 0 0 1 0 1.5h-3.5v3.5a.75.75 0 0 1-1.5 0v-3.5h-3.5a.75.75 0 0 1 0-1.5h3.5v-3.5A.75.75 0 0 1 8 3" fill="currentColor"
+      text line.number position="absolute" left=0 top=0 width=gutter padding-right=9.83 box-sizing="border-box" pointer-events="none" user-select="none" aria-hidden=true text-align="right" font-family="ui-monospace" font-size=13 line-height="20px" font-variant-numeric="tabular-nums" color=(line.selected ? diffSel("number") : "light-dark(#565656, #9d9d9d)")
 
 // FileBrowserPanel: refresh, "Search files" and expand/collapse all (36pt, 4pt
 // below in the inline panel), status lines, then the compact tree (24pt rows,

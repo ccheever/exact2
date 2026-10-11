@@ -67,13 +67,15 @@ describe('GS-2: the Files surface\'s selected lines in the reference\'s blue', (
   const code = component(files, 'R4CodeRow');
   test('the number\'s cell and the number take the CDP colours; the number\'s is the diff\'s', () => {
     expect(files).toContain('use diffSel from "./diff-rows.contract"');
-    expect(code).toContain(`background-color=(line.selected ? "light-dark(${REFERENCE.files.cell.join(', ')})" : "#00000000") color=(line.selected ? diffSel("number") : "light-dark(#565656, #9d9d9d)")`);
+    // files-gutter-parity: the number cell is the gutter box, the number drawn over it (FG-1, FG-2).
+    expect(code).toContain(`testId=\`file-line-\${line.number}\` background-color=(line.selected ? "light-dark(${REFERENCE.files.cell.join(', ')})" : "#00000000")`);
+    expect(code).toContain('color=(line.selected ? diffSel("number") : "light-dark(#565656, #9d9d9d)")');
     expect(rows).toContain(`role == "number" ? "light-dark(${REFERENCE.files.number.join(', ')})"`);
     // The cell spans its line's height, as the grid's number cell does under a wrapped line.
-    expect(code).toContain('padding-right=9.83 box-sizing="border-box" align-self="stretch"');
+    expect(code).toContain('box width=gutter flex-shrink=0 align-self="stretch" min-height="20px"');
   });
   test('no row tint and no bar: the code and the comment card under a selected line stay the surface\'s', () => {
-    expect(code).toContain('row width="100%" align-items="flex-start" hover=hover position="relative"\n');
+    expect(code).toContain('row id=`fl:${line.line}:${path}` width="100%" align-items="flex-start" hover=hover position="relative"\n');
     expect(code).not.toContain('line.selected ? "light-dark(#fef3c7');
     expect(code).not.toContain('diffSel("bar")');
     expect(files).toContain('DiffDraftCard(rangeLabel=line.label, text=draftText, selected=false,');

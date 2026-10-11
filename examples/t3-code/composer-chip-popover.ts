@@ -72,3 +72,17 @@ export async function chipPopoverLocal(client: T3Client, native: Native, op: str
   if (op === 'chip-instructions' && value) await openFileSurface(client, native, value, 0);
   return '';
 }
+
+/**
+ * A press on a diff's or the Files preview's gutter (files-gutter-parity FG-4): Base UI's outside press closes the details
+ * there too, but the window's root never hears it, as a node that hears `pointerdown` keeps the press from its ancestors
+ * (X71). The gutters report their primary presses (diff-review.ts, pages-pr-code.ts, diff-file-comments.ts), and the
+ * newest open press closes as the root's `chip-close` closes it; the window's `chip` resource follows the module's `t3.chip`.
+ */
+export async function closeChipFromPress(native: Native): Promise<void> {
+  try {
+    const reply = await bridgeReply(native, { op: 'editorChip' });
+    const press = reply.ok ? obj(reply.value) : {};
+    if (press.open === true) await bridgeReply(native, { op: 'editorChipClose', seq: Number(press.seq) || 0 });
+  } catch { /* no editor module: nothing is open */ }
+}
