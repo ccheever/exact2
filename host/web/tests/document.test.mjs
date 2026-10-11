@@ -513,6 +513,54 @@ for (const concern of ['defaults', 'nowrap', 'clamp', 'disabled accent', 'disabl
 });
 
 
+browserCheck('modal routes use the platform canvas, keep author paint, and reveal the sheet beneath on Back', async () => {
+  const css = readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8').match(/<style>([\s\S]*?)<\/style>/)[1];
+  const html = `<!doctype html><style>${css}</style><style>.authored {background-color:rgb(20,40,60)}</style>
+    <div id="exact-root"><main id="nav" navigationKey="2" navigationBack="back">
+      <section id="home" navigationKey="0"><button>Home</button></section>
+      <section id="first" navigationKey="1" navigationPresentation="modal"><button>First sheet</button></section>
+      <section id="second" navigationKey="2" navigationPresentation="modal"><button>Second sheet</button></section>
+    </main><div id="canvas" style="background-color:Canvas"></div><div id="bare"></div></div>`;
+  await withDocument('/', async tab => {
+    const page = await tab(true);
+    await page.until("document.readyState === 'complete'", 'modal fixture');
+    await page(`import('/navigation.js').then(({navigation}) => {
+      globalThis.project = () => navigation.project(document.getElementById('exact-root'), line => {throw new Error(line)});
+      project();
+    })`);
+    const read = `(() => { const read = id => {const el=document.getElementById(id),s=getComputedStyle(el);return {background:s.backgroundColor,visibility:s.visibility,inert:el.inert,covered:el.hasAttribute('data-exact-covered')};};
+      return Object.fromEntries(['home','first','second','canvas','bare'].map(id=>[id,read(id)])); })()`;
+    const canvases = [];
+    for (const scheme of ['light', 'dark']) {
+      await page(`document.documentElement.style.colorScheme='${scheme}'`);
+      const facts = await page(read);
+      canvases.push(facts.canvas.background);
+      expect(facts.first.background).toBe(facts.canvas.background);
+      expect(facts.second.background).toBe(facts.canvas.background);
+      expect(facts.second.background).not.toBe('rgba(0, 0, 0, 0)');
+      expect(facts.bare.background).toBe('rgba(0, 0, 0, 0)');
+      expect(facts.home.visibility).toBe('hidden');
+      expect(facts.first.covered).toBe(true);
+      expect(facts.first.inert).toBe(true);
+      expect(facts.second.inert).toBe(false);
+      // Authored static classes and inline rows win, including deliberate transparency.
+      await page("document.getElementById('second').className='authored'");
+      expect((await page(read)).second.background).toBe('rgb(20, 40, 60)');
+      await page("document.getElementById('second').style.backgroundColor='transparent'");
+      expect((await page(read)).second.background).toBe('rgba(0, 0, 0, 0)');
+      await page("document.getElementById('second').style.backgroundColor='';document.getElementById('second').className=''");
+    }
+    expect(canvases[0]).not.toBe(canvases[1]);
+    await page("document.getElementById('nav').setAttribute('navigationKey','1');project()");
+    const back = await page(read);
+    expect(back.first.inert).toBe(false);
+    expect(back.first.covered).toBe(false);
+    expect(back.first.visibility).toBe('visible');
+    expect(back.second.visibility).toBe('hidden');
+    expect(back.second.inert).toBe(true);
+  }, {html, files: {'/navigation.js': readFileSync(resolve(ROOT, 'host/web/navigation.js'), 'utf8')}});
+}, 20000);
+
 test('native button WebKit allowance ends at exactly 6.00 px', () => {
   const known = JSON.parse(readFileSync(resolve(ROOT, 'host/web-js/conformance/known-webkit.json'), 'utf8'));
   const pattern = new RegExp(known.find(entry => entry.app === 'synthetic-native-buttons').pattern);

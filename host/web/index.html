@@ -104,8 +104,9 @@
   /* Gesture feedback is decorative, including when its opacity is zero. */
   [swipeIndicator="true"] { pointer-events: none; }
   /* Modal dimming belongs to the host; UIKit supplies its own backdrop. It dims the route the
-     sheet covers (the navigation glue marks it), so the sheet's own background paints undimmed (recipes F6). */
-  [navigationPresentation="modal"] { isolation: isolate; position: relative; }
+     sheet covers (the navigation glue marks it), so the sheet's own background paints undimmed (recipes F6).
+     Unsaid sheet paint is the platform's Canvas, including a sheet over a sheet; authored paint wins. */
+  [navigationPresentation="modal"] { isolation: isolate; position: relative; background-color: Canvas; }
   [data-exact-covered]::after { content: ""; position: absolute; inset: 0; background: #00000033; pointer-events: none; }
   /* `all: unset` would inherit the field's color onto the placeholder. */
   input:not([data-native])::placeholder, textarea:not([data-native])::placeholder { color: light-dark(#3c3c434c, #ebebf54c); opacity: 1; }
