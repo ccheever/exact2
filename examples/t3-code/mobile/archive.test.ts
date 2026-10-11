@@ -44,6 +44,34 @@ describe('pinned archive grouping', () => {
     expect(rows.map(row => [row.first, row.last])).toEqual([[true, false], [false, false], [false, true]]);
     expect(rows[0]?.subtitle).toBe('Machine one · feature');
   });
+  test('subagent titles are presented before Archive matching and sorting without changing the shell', () => {
+    const raw = '/root/framework_press_421_main_audit';
+    const input = source('one', [thread('child', { title: raw, lineage: { relationshipToParent: 'subagent' } }),
+      thread('ordinary', { title: 'Earlier title' })]);
+    const before = JSON.stringify(input);
+    const rows = threads(projectMobileArchive([input], now));
+    expect(rows.map(row => [row.threadId, row.title])).toEqual([
+      ['ordinary', 'Earlier title'], ['child', 'Framework Press 421 Main Audit'],
+    ]);
+    expect(threads(projectMobileArchive([input], now, 'Framework Press')).map(row => row.threadId)).toEqual(['child']);
+    expect(threads(projectMobileArchive([input], now, '/root/'))).toEqual([]);
+    expect(threads(projectMobileArchive([input], now, 'feature'))).toHaveLength(2);
+    expect(threads(projectMobileArchive([input], now, 'Project'))).toHaveLength(2);
+    expect(JSON.stringify(input)).toBe(before);
+  });
+  test('title presentation preserves ordinary and fork paths, and follows the exact subagent word rules', () => {
+    const cases = [
+      ['user', '/root/user_title', { relationshipToParent: null }, '/root/user_title'],
+      ['fork', '/root/fork_title', { relationshipToParent: 'fork' }, '/root/fork_title'],
+      ['missing', '/root/literal_  composed name', undefined, '/root/literal_  composed name'],
+      ['nested', 'Subagent: /root/parent/élève_  task-name/', { relationshipToParent: 'subagent' }, 'Élève Task-name'],
+      ['named', 'Subagent: Keep_this Name', { relationshipToParent: 'subagent' }, 'Keep_this Name'],
+      ['other-path', '/tmp/keep_this', { relationshipToParent: 'subagent' }, '/tmp/keep_this'],
+    ] as const;
+    const input = source('one', cases.map(([id, title, lineage]) => thread(id, { title, lineage })));
+    const titles = new Map(threads(projectMobileArchive([input], now)).map(row => [row.threadId, row.title]));
+    for (const [id, , , expected] of cases) expect(titles.get(id)).toBe(expected);
+  });
 });
 
 let requests: Obj[], saved: Obj[], permission: string[], hook: ((request: Obj) => unknown) | null;
@@ -82,6 +110,17 @@ afterEach(() => {
 });
 
 describe('archive transport ownership', () => {
+  test('native Archive snapshots use subagent presentation for dispatcher search and row titles', async () => {
+    const previousThreads = snapshot.threads;
+    const raw = '/root/framework_press_421_main_audit';
+    snapshot.threads = [thread('child', { title: raw, lineage: { relationshipToParent: 'subagent' } })];
+    try {
+      const prepared = await mobileArchiveRead('subagent-title', mobileArchiveScope().key, native);
+      const view = answer('archiveView', [now, 'Framework Press', 'one', 'newest', true, prepared]);
+      expect(threads(view.items)).toMatchObject([{ threadId: 'child', title: 'Framework Press 421 Main Audit', canOperate: true }]);
+      expect(snapshot.threads[0]!.title).toBe(raw);
+    } finally { snapshot.threads = previousThreads; }
+  });
   test('fetches all saved environments even with selector, and uses each transport', async () => {
     const view = await readArchiveView(now, '', 'two', 'newest', native);
     expect(view.error).toBe(''); expect(view.environments.map(row => row.id)).toEqual(['two', 'one']);
