@@ -35,6 +35,7 @@ use R9CheckoutDialog from "./r9-connect.contract" // lane r9-connect
 use PrDetailView from "./pages-pr-detail.contract"
 use PrActionLayers from "./pages-pr-actions.contract"
 use FocusGuard from "./dialog-trap.contract"
+use DialogOpenFocus from "./dialog-trap.contract"
 
 // The T3Code window's overlays, moved out of app.contract, which keeps the state, resources and
 // actions: each component takes the root names it reads as props of the same names.
@@ -58,6 +59,7 @@ component ProjectPicker
         column width="100%" max-width="27.5rem" max-height=(viewport.height - 6 * rem) padding="1.125rem" gap="0.75rem" border-radius="1rem" class=Surface border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #252525)" box-sizing="border-box" role="dialog" aria-label="Choose project" testId="project-dialog"
           // The focus trap (dialog-trap.contract), as the clone's other dialogs keep theirs: Add project, Close, then each project's two buttons.
           FocusGuard(guardId="project-dialog-guard-start", target=(length(data.projects) > 0 and not commandPending ? `project-dialog-pick-${length(data.projects) - 1}` : "project-dialog-close"))
+          DialogOpenFocus(target=(data.connected ? "project-dialog-add" : "project-dialog-close"))
           row align-items="center" gap="0.75rem"
             text "Projects" font-size="1.0625rem" font-weight=600 class=Ink flex=1
             button id="project-dialog-add" press=paletteShow("command", "add-project") class=Control disabled=(not data.connected) testId="project-dialog-add"

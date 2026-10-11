@@ -24,6 +24,7 @@ use kmOpenKey from "./menu-keys.contract"
 use KeyMenuOpen from "./menu-keys.contract"
 use kmBump from "./menu-keys.contract"
 use FocusGuard from "./dialog-trap.contract"
+use DialogOpenFocus from "./dialog-trap.contract"
 
 shape TaskRowView
   id: string
@@ -361,6 +362,7 @@ component ScheduledEditor
       column position="relative" width="100%" max-width="36rem" max-height="100%" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-label=(draft.id == "" ? "New task" : "Edit task") testId="scheduled-task-dialog"
         // The focus trap (dialog-trap.contract): from Runs on (a new task's) or Name to the X.
         FocusGuard(guardId="scheduled-task-guard-start", target="close-scheduled-task")
+        DialogOpenFocus(target=(draft.id == "" and not busy ? "task-environment" : "task-title"))
         row padding-top="1.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-bottom="0.75rem" align-items="flex-start" gap="0.5rem" box-sizing="border-box" position="relative"
           column flex=1 min-width=0 gap="0.5rem"
             text (draft.id == "" ? "New task" : "Edit task") font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2

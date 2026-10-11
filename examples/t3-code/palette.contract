@@ -11,6 +11,7 @@ use DiffGlyph from "./diff-glyphs.contract"
 use synColor from "./markdown.contract"
 use synSlant from "./markdown.contract"
 use FocusGuard from "./dialog-trap.contract"
+use DialogOpenFocus from "./dialog-trap.contract"
 
 // The command palette (⌘K), the file picker (⌘P) and project content search (⇧⌘F):
 // reference CommandPaletteContent.tsx, CommandPaletteResults.tsx, ui/command.tsx and
@@ -433,6 +434,7 @@ component CommandPaletteBody
       // buttons), a row's Setup Required, the footer's action. The rows and the accessory are no Tab stops, as the
       // reference's (Autocomplete items; the accessory's tabIndex -1).
       FocusGuard(guardId="palette-guard-start", target=(view.footerAction != "" ? "palette-footer-action" : (view.toggles ? "palette-regex" : "palette-input")))
+      DialogOpenFocus(target="palette-input")
       row padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" flex-shrink=0 box-sizing="border-box"
         box position="relative" width="100%" height="2.25rem" border-radius="0.625rem" box-sizing="border-box"
           when view.addon == "back"
@@ -526,6 +528,7 @@ component PaletteDialog
     column position="absolute" left=floor((viewport.width - width) / 2) top=max(16, floor((viewport.height - height) / 2 + 0.5)) width=width z-index=61 box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow=(dark ? "inset 0 1px 0 #ffffff0a, 0 24px 72px -20px #000000e6" : "0 24px 64px -24px #000000a6") overflow="hidden" role="dialog" aria-label=view.label testId=view.testId
       // The focus trap (dialog-trap.contract): the field, Cancel, Link, then the X.
       FocusGuard(guardId="link-pr-guard-start", target="link-pr-close")
+      DialogOpenFocus(target="palette-input")
       column gap="0.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" padding-bottom="0.75rem" box-sizing="border-box"
         text view.label font-size="1.25rem" line-height="1.25rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2 padding-right="1.5rem"
         text view.contextDescription font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"

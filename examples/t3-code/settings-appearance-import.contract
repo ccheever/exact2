@@ -12,6 +12,7 @@ use BrandGitHub from "./settings-brands.contract"
 use BrandGitLab from "./settings-brands.contract"
 use SettingsConfirm from "./settings-rest-dialogs.contract"
 use FocusGuard from "./dialog-trap.contract"
+use DialogOpenFocus from "./dialog-trap.contract"
 
 component AddThemeDialog
   inject
@@ -45,6 +46,7 @@ component AddThemeDialog
       column position="relative" width="100%" max-width="48rem" max-height="100%" border-radius="1.125rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.canvas box-shadow="0 24px 64px -24px #000000a6" box-sizing="border-box" overflow="hidden" role="dialog" aria-label="Add a theme" testId="add-theme-dialog"
         // The focus trap (dialog-trap.contract): from the search field to the X (DialogPopup's last child).
         FocusGuard(guardId="add-theme-guard-start", target="add-theme-close")
+        DialogOpenFocus(target="add-theme-query")
         column padding-top="1.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-bottom="0.75rem" flex-shrink=0
           text "Add a theme" font-size="1.25rem" font-weight=600 line-height="1.25rem" color=pal.text role="heading" aria-level=2
         scroll max-height=(viewportHeight - 5.625 * rem) min-height=0 width="100%"

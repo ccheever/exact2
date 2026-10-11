@@ -11,6 +11,7 @@ use kmOpenKey from "./menu-keys.contract"
 use KeyMenuOpen from "./menu-keys.contract"
 use kmBump from "./menu-keys.contract"
 use FocusGuard from "./dialog-trap.contract"
+use DialogOpenFocus from "./dialog-trap.contract"
 use Icon from "./icons.contract"
 
 component PlanCard
@@ -97,6 +98,7 @@ component PlanSaveDialog
       column position="relative" width="100%" max-width="36rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-label="Save plan to workspace" testId="plan-save-dialog"
         // The focus trap (dialog-trap.contract): the path, Cancel, Save, then the X.
         FocusGuard(guardId="plan-save-guard-start", target="plan-save-close")
+        DialogOpenFocus(target="plan-save-path")
         column gap="0.5rem" padding="1.5rem" padding-bottom="1rem" box-sizing="border-box"
           text "Save plan to workspace" font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
           text `Enter a path relative to ${root != "" ? root : "the workspace"}.` font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"

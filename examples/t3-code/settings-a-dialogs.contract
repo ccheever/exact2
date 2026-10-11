@@ -11,6 +11,7 @@ use SettingsConfirm from "./settings-rest-dialogs.contract"
 use DeviceHostDialog from "./settings-a-hosts.contract"
 use CollectionRemoveDialog from "./settings-a-collections.contract"
 use FocusGuard from "./dialog-trap.contract"
+use DialogOpenFocus from "./dialog-trap.contract"
 
 // One root element for every settings-a dialog; `commit` keeps a dialog open
 // (each control writes immediately), `change` closes it once the write lands.
@@ -77,6 +78,7 @@ component SaDialog
       column position="relative" width="100%" max-width=width max-height="100%" border-radius="1.125rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.canvas box-shadow="0 24px 64px -24px #000000a6" box-sizing="border-box" overflow="hidden" role="dialog" aria-label=title testId=dialogId
         // The focus trap (dialog-trap.contract): the content, then the X (DialogPopup's last child).
         FocusGuard(guardId="sa-dialog-guard-start", target=`${dialogId}-close`)
+        DialogOpenFocus(target=first)
         column padding-top="1.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-bottom="0.75rem" gap="0.5rem" flex-shrink=0
           text title font-size="1.25rem" font-weight=600 line-height="1.25rem" color=pal.text role="heading" aria-level=2
           when description != ""

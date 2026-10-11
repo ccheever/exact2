@@ -29,6 +29,7 @@ use PgIcon from "./pages-icons.contract"
 use prdTone from "./pages-pr-detail.contract"
 use Tip from "./shell-tip.contract"
 use FocusGuard from "./dialog-trap.contract"
+use DialogOpenFocus from "./dialog-trap.contract"
 
 keyframes r6Spin
   from rotate=0
@@ -185,6 +186,7 @@ component R6MergeDialog
       column width="100%" max-width="32rem" position="relative" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow=(dark ? "inset 0 1px 0 #ffffff0a, 0 24px 72px -20px #000000e6" : "0 24px 64px -24px #000000a6") overflow="hidden" role="alertdialog" aria-label="Merge pull request?" testId="pr-merge-dialog"
         // The focus trap (dialog-trap.contract).
         FocusGuard(guardId="pr-merge-guard-start", target=(merge.pending ? "pr-merge-cancel" : "pr-merge-confirm"))
+        DialogOpenFocus(target="pr-merge-cancel")
         column gap="0.5rem" padding="1.5rem" box-sizing="border-box"
           text "Merge pull request?" font-size="1.25rem" font-weight=600 line-height="1.25rem" color=r6Ink() role="heading" aria-level=2
           text merge.description font-size="0.875rem" line-height="1.25rem" color=r6Muted() testId="pr-merge-dialog-description"

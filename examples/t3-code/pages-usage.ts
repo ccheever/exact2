@@ -366,7 +366,8 @@ async function usageView(client: T3Client, native: Native | null | undefined, _s
   const windowDays = WINDOWS.some(window => window.days === input.windowDays) ? input.windowDays : prefs.windowDays;
   const page = emptyUsage(metric, windowDays, input.breakdown === 'time' ? 'time' : 'model', input.width);
   const limits = metric === 'limits', noun = limits ? 'limits' : 'usage';
-  if (input.open && !limits) page.prices = presentPrices(client);
+  // UsagePage renders its price dialog whatever the metric: Model prices opens on Limits too (closed, this is one lookup).
+  if (input.open) page.prices = presentPrices(client);
   const state = await prepareUsage(client, native, { open: input.open && !!native?.available, metric, windowDays, refresh: input.refresh, now: input.now },
     (days, now) => makeWindow(days, now));
   const statuses = environmentStatuses(state);

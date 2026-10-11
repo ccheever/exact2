@@ -209,8 +209,12 @@ component UsagePricesSave
       text label font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color="#ffffff"
 
 // This dialog is drawn once for both schemes so its inputs survive an
-// appearance change; an SVG's light-dark() would not follow the flip, so its
-// glyphs are drawn per scheme instead.
+// appearance change; an SVG's light-dark() would not follow the flip, so each
+// glyph is mounted again per scheme. Its colour is still light-dark(), resolved
+// against the appearance the window draws, as New task's X is: a colour picked
+// by `scheme` alone drew #f5f5f5 on the light dialog whenever the scheme fact and
+// the window's appearance disagree (an agent launch reads the Mac's dark
+// appearance while it draws the window light), and the X and + went missing.
 component UsageSchemeIcon
   props
     name: string
@@ -221,6 +225,6 @@ component UsageSchemeIcon
   view
     box display="flex" flex-shrink=0
       when scheme == "dark"
-        PgIcon(name=name, size=size, color=dark)
+        PgIcon(name=name, size=size, color=`light-dark(${light}, ${dark})`)
       else
-        PgIcon(name=name, size=size, color=light)
+        PgIcon(name=name, size=size, color=`light-dark(${light}, ${dark})`)

@@ -24,6 +24,7 @@ use TimelineTip from "./shell-tip.contract"
 use RowTip from "./r8-pointer-tips.contract"
 use WorktreeSetupCard from "./timeline-worktree.contract"
 use FocusGuard from "./dialog-trap.contract"
+use DialogOpenFocus from "./dialog-trap.contract"
 
 // The bottom padding each row kind keeps (TimelineRowContent and WorkLogBlock).
 // The gap under a row in px at the root size 16; the row lays it out in rem (Interface font size).
@@ -495,6 +496,7 @@ component RevertDialog
       column width="100%" max-width="32rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="alertdialog" aria-label="Edit from here?" testId="revert-dialog"
         // The focus trap (dialog-trap.contract).
         FocusGuard(guardId="revert-guard-start", target="revert-keep")
+        DialogOpenFocus(target="revert-cancel")
         column gap="0.5rem" padding="1.5rem" box-sizing="border-box"
           text "Edit from here?" font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
           text "Rewind chat to before this message. Your prompt and attachments return to the composer." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"

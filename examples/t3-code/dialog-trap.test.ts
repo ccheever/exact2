@@ -120,9 +120,9 @@ const NOT_MODAL: Record<string, string> = {
 };
 
 /** Every element id the sources declare: literal ids, templated ones (whole, and their literal heads: `x-${…}` → `x-`),
- *  and the testIds handed to a component whose element takes its testId (or buttonId, or elementId) as its id. */
+ *  and the testIds handed to a component whose element takes its testId (or buttonId, elementId, target) as its id. */
 const ids = new Set<string>(), idHeads: string[] = [];
-const takesTestId = new Set<string>(), takesButtonId = new Set<string>(), takesElementId = new Set<string>();
+const takesTestId = new Set<string>(), takesButtonId = new Set<string>(), takesElementId = new Set<string>(), takesTarget = new Set<string>();
 // A component whose element's id is a prop with a suffix (`id=\`${rowId}-allow\``): each call's value names one.
 const propIds: { component: string; prop: string; suffix: string }[] = [];
 for (const text of sources.values()) {
@@ -135,6 +135,7 @@ for (const text of sources.values()) {
     if (/\bid=testId\b/.test(line)) takesTestId.add(component);
     if (/\bid=buttonId\b/.test(line)) takesButtonId.add(component);
     if (/\bid=elementId\b/.test(line)) takesElementId.add(component);
+    if (/\bid=target\b/.test(line)) takesTarget.add(component);
     const prop = /\bid=`\$\{(\w+)\}([^`$]*)`/.exec(line);
     if (prop) propIds.push({ component, prop: prop[1]!, suffix: prop[2]! });
   }
@@ -144,6 +145,7 @@ for (const text of sources.values()) for (const line of text.split('\n')) {
   if (call && takesTestId.has(call)) for (const m of line.matchAll(/\btestId="([^"]+)"/g)) ids.add(m[1]!);
   if (call && takesButtonId.has(call)) for (const m of line.matchAll(/\bbuttonId="([^"]+)"/g)) ids.add(m[1]!);
   if (call && takesElementId.has(call)) for (const m of line.matchAll(/\belementId="([^"]+)"/g)) ids.add(m[1]!);
+  if (call && takesTarget.has(call)) for (const m of line.matchAll(/\btarget=(?:"([^"]+)"|`([^`$]*)\$\{)/g)) m[1] ? ids.add(m[1]) : idHeads.push(m[2]!);
   for (const { component, prop, suffix } of propIds.filter(entry => entry.component === call))
     for (const m of line.matchAll(new RegExp(`\\b${prop}="([^"]+)"`, 'g'))) ids.add(m[1]! + suffix);
 }
@@ -330,5 +332,72 @@ describe('review fixes (PR #431)', () => {
     }
     // A thread's markdown images and videos carry none.
     for (const call of source('media-markdown.contract').split('\n').filter(line => line.trim().startsWith('MediaActions('))) expect(call).toContain('elementId="", ');
+  });
+});
+
+// dialog-initial-focus-and-model-prices (DF-1, DF-2): Base UI's Dialog moves the focus into the popup as it opens, so the
+// first Tab and Shift+Tab already start inside the trap. Its default is the popup's first Tab stop (what Tab past the
+// last comes round to: the end guard's target, or a key wrap's); an element that autofocuses as it mounts, or the
+// dialog's own `initialFocus`, takes it first. Each modal dialog carries one DialogOpenFocus naming that element: a
+// dialog without one opened with nothing focused under real keys (realinput-1011a DT-5, DT-6, DT-8), so it fails here.
+describe('every modal dialog takes the focus as it opens (Base UI\'s initialFocus)', () => {
+  // Where the reference's popup puts the focus when it is not the first Tab stop (T3 Code 1e2ecbd975, apps/web/src).
+  const NAMED: Record<string, [string, string]> = {
+    'palette.contract view.testId': ['"palette-input"', 'ui/command.tsx: CommandInput autoFocus (the link-PR dialog\'s field is its first stop too)'],
+    'settings-b-actions.contract "project-action-dialog"': ['"action-name"', 'projectScriptEditor.tsx: the Name input autoFocus'],
+    'timeline-attachments.contract "image-preview"': ['"image-preview-close"', 'chat/ExpandedImageDialog.tsx: initialFocus={closeButtonRef}'],
+    'pages-welcome.contract "welcome-dialog"': ['(step == "connect" and pairOpen ? "welcome-pairing-link" : (step == "connect" and view.ready and not busy ? "welcome-continue" : (step != "connect" and not view.importing ? "welcome-step-1" : (step == "import" ? "welcome-skip-import" : (length(view.computers) > 0 ? "welcome-computer-0" : "welcome-add-computer")))))',
+      'onboarding/WelcomeWizard.tsx: initialFocus onboarding-pairing-url, else Continue (autoFocus) while it is enabled, else the first stop'],
+  };
+  // Where the reference autofocuses the first Tab stop itself (the same element either way): checked so that a change to
+  // the stops cannot move it away.
+  const AUTOFOCUSED: Record<string, string> = {
+    'providers-wizard.contract "usage-hub-dialog"': '"usage-hub-url"', // settings/AddUsageLimitSourceDialog.tsx: Hub URL autoFocus
+    'settings-a-hosts.contract "device-host-dialog"': '(busy ? "device-host-options" : "device-host-name")', // settings/DeviceHostEditor.tsx
+    'settings-appearance-import.contract "add-theme-dialog"': '"add-theme-query"', // settings/ThemeSearchSection.tsx
+    'connections-network-dialogs.contract "create-pairing-dialog"': '"pairing-label"', // settings/ConnectionsSettings.tsx: Client label autoFocus
+  };
+  // The dialogs whose focus on opening app.contract moves itself (import-wizard-initial-focus, #409): the browser import
+  // wizard (its first stop, or the popup) and the profile removal confirm (Cancel).
+  const OWN: Record<string, string> = {
+    'browser-profiles.contract "browser-profile-remove-dialog"': 'task removalFocus',
+    'browser-profiles.contract `browser-import-step-${wizard.step}`': 'task importWizardStepFocus',
+  };
+  const opens = (line: string) => /^DialogOpenFocus\(target=(.*)\)$/.exec(line.trim())?.[1];
+
+  test('DialogOpenFocus moves the focus to its target once, at the popup\'s first layout, and again only after it was hidden', () => {
+    const trap = source('dialog-trap.contract');
+    expect(trap).toContain('component DialogOpenFocus\n  props\n    target: string\n  state opened = false\n  action laidOut(width: number, height: number)\n    if width == 0 or height == 0\n      opened = false\n    else if not opened\n      opened = true\n      if target != ""\n        focus(target)');
+    expect(trap).toContain('box aria-hidden=true resize=laidOut position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none"');
+  });
+
+  for (const dialog of dialogs.filter(dialog => dialog.key in GUARDED || dialog.key in KEYED)) {
+    test(`${dialog.key}: the focus moves into the popup as it opens`, () => {
+      const children = block(source(dialog.file).split('\n'), dialog.index).filter(line => line.trim() !== '' && !line.trimStart().startsWith('//'));
+      const direct = children.filter(line => indent(line) === indent(children[0]!));
+      const targets = children.map(opens).filter(target => target !== undefined);
+      if (dialog.key in OWN) {
+        expect(targets).toEqual([]);
+        expect(source('app.contract')).toContain(OWN[dialog.key]!);
+        return;
+      }
+      expect(targets.length).toBe(1);
+      // Right inside the popup: after the start guard where it has one, else its first child.
+      expect(opens(direct[dialog.key in GUARDED ? 1 : 0]!)).toBe(targets[0]!);
+      const target = targets[0]!;
+      for (const name of named(target)) expect([name, declared(name)]).toEqual([name, true]);
+      if (dialog.key in NAMED) expect(target).toBe(NAMED[dialog.key]![0]);
+      else if (dialog.key in GUARDED) expect(target).toBe(/target=(.*)\)$/.exec(direct.at(-1)!.trim())![1]!); // the first stop
+      else expect([dialog.key, KEYED[dialog.key]!.wraps.some(wrap => wrap.includes(target))]).toEqual([dialog.key, true]);
+      if (dialog.key in AUTOFOCUSED) expect(target).toBe(AUTOFOCUSED[dialog.key]!);
+    });
+  }
+
+  test('DF-1: Add provider opens on its Provider step, Model prices on Apply to, New task on Runs on (the reference over CDP)', () => {
+    const line = (file: string, needle: string) => source(file).split('\n').find(text => text.includes(needle))!.trim();
+    expect(line('providers-wizard.contract', 'DialogOpenFocus(target=(wizard.created')).toBe('DialogOpenFocus(target=(wizard.created == "" ? "add-provider-step-0" : "close-add-provider-x"))');
+    expect(line('pages-usage-dialogs.contract', 'DialogOpenFocus(')).toBe('DialogOpenFocus(target=first)');
+    expect(line('pages-usage-dialogs.contract', 'dialogId="usage-prices-dialog"')).toContain('first=(not page.prices.pending and not page.prices.hasChanges ? "usage-prices-apply-button" :');
+    expect(line('settings-scheduled.contract', 'DialogOpenFocus(')).toBe('DialogOpenFocus(target=(draft.id == "" and not busy ? "task-environment" : "task-title"))');
   });
 });
