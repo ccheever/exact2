@@ -90,6 +90,7 @@ pub fn case(seed: u64, size: &Size) -> Case {
         source,
         events,
         path: None,
+        stored: true,
     }
 }
 
@@ -97,7 +98,7 @@ pub fn case(seed: u64, size: &Size) -> Case {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Env {
     pub(crate) vars: Vec<(String, Ty)>,
-    /// Whether `now()` may be written.
+    /// Whether `performanceNow()` may be written.
     pub(crate) now: bool,
     /// How many `fn`s (in declaration order) may be called.
     pub(crate) fns: usize,
@@ -198,6 +199,9 @@ pub(crate) struct Gen<'s> {
     /// The mutations each of `actions` may send, by index, once written.
     pub(crate) sends: Vec<Vec<String>>,
     next: usize,
+    /// Which root states say `persist` (LLP 1116 D5): drawn apart from
+    /// `rng`, so a seed's program is the one it was with the word added.
+    pub(crate) persist: Rng,
 }
 
 const FIELDS: &[&str] = &[
@@ -226,6 +230,7 @@ impl<'s> Gen<'s> {
             sending: Vec::new(),
             sends: Vec::new(),
             next: 0,
+            persist: Rng::new(seed ^ 0x7065_7273_6973_7421),
         }
     }
 

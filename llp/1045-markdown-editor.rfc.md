@@ -304,6 +304,12 @@ and the row is kept only if the numbers say so.
   and lets plain typing and composition through; the host reads the DOM back
   and redraws only lines that changed, keeping lines the platform already
   typed correctly so autocorrect state survives. The editor owns undo.
+  Structural native edits are read from the live DOM, including nested blocks
+  and line breaks, and invalidate the line cache before redraw. Select All
+  includes the whole source; replacement removes hidden headings, link targets
+  and collapsed fences too (2026-10-06). Composition keeps the native DOM until
+  it ends. Replacement, native edits, composition, undo/redo and source-mode
+  round trips are exercised through this glue in Chrome, Firefox and WebKit.
   `markup-editor.js` and `markup-editor.wasm` load after first pixel when a
   Markdown textarea mounts; reading loads neither. Removing `markup` swaps in
   a plain textarea with the same source: the explicit source mode.

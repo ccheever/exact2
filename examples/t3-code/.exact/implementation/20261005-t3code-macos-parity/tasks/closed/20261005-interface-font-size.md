@@ -86,8 +86,8 @@ Checked sources and time: plan issue drafts in [issues](../../issues/README.md),
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
 | [X3](../../issues/closed/20261005-x03-root-font-size.md) | App-settable root font size (`rem` base) | `EXACT2-GAPS.md` X3: the host always sends 16 | blocking if reproduced (no workaround; the agent `prefer page root-font-size` can preview only) | `issue-open` reproduces it on the pin and files it; the upstream fix lands; then this ticket |
-| [X9](../issues/20261005-x09-root-component-across-files.md) | Line cap | `app.contract` near 1,500 lines | nonblocking | Conversion must not add lines; check `caps.mjs` |
-| [X10](../issues/20261005-x10-text-rendering-parity.md) | Chrome text rendering differences | Word-boundary ellipsis, weight | nonblocking | Judge scaling by `layout` geometry, not only pixel scores |
+| [X9](../../issues/closed/20261005-x09-root-component-across-files.md) | Line cap | `app.contract` near 1,500 lines | nonblocking | Conversion must not add lines; check `caps.mjs` |
+| [X10](../../issues/closed/20261005-x10-text-rendering-parity.md) | Chrome text rendering differences | Word-boundary ellipsis, weight | nonblocking | Judge scaling by `layout` geometry, not only pixel scores |
 | new — record at prepare | A `number` prop or `derive` cannot carry `rem` | Unknown | unknown | The feasibility check decides; record the gap if it fails |
 
 ## Implementation notes

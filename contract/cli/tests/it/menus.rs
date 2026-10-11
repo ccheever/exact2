@@ -67,34 +67,28 @@ fn an_hr_is_a_view_with_the_ua_sheets_rows_and_its_own_win() {
     assert_eq!(s.margin_bottom, Dimension::Points(8.0));
     assert_eq!(s.margin_left, Dimension::Auto);
     assert_eq!(s.margin_right, Dimension::Auto);
-    assert_eq!(s.border_style_top, BorderStyle::Inset);
-    assert_eq!(s.border_style_left, BorderStyle::Inset);
-    assert_eq!(s.border_widths(), [1.0; 4]);
+    // The platform's separator (LLP 1115): one solid top edge, no box.
+    assert_eq!(s.border_style_top, BorderStyle::Solid);
+    assert_eq!(s.border_style_left, BorderStyle::None);
+    assert_eq!(s.border_widths(), [1.0, 0.0, 0.0, 0.0]);
     assert_eq!(s.overflow_x, Overflow::Hidden);
     assert_eq!(s.overflow_y, Overflow::Hidden);
-    // A block in a block: the parent's width, its two borders tall.
-    assert_eq!((rule.frame.width, rule.frame.height), (200.0, 2.0));
-    // `currentcolor` inset paints Chrome's grey pair whatever `color` is
-    // (Chrome 154's pixels; its UA sheet gives `hr` no `border-color`).
+    // A block in a block: the parent's width, its one edge tall.
+    assert_eq!((rule.frame.width, rule.frame.height), (200.0, 1.0));
+    // The edge is `currentcolor`, the separator role.
     let current = rule
         .computed_style(StyleMask::of(StyleId::TextColor))
         .text_color;
-    assert_eq!(current, ColorValue::Fixed(Color::rgba(128, 128, 128, 255)));
-    let grey = |v| ColorValue::Fixed(Color::rgba(v, v, v, 255));
-    assert_eq!(
-        s.border_colors(current),
-        [grey(154), grey(238), grey(238), grey(154)]
-    );
-    // Red, and `currentcolor` written: still the grey pair, as Chrome paints.
+    let separator = exact_kernel::style::roles::role("-exact-separator").unwrap();
+    assert_eq!(current, ColorValue::Role(separator));
+    assert_eq!(s.border_colors(current)[0], current);
+    // The author's `color` wins.
     let red = node(&r, "red");
     let red_current = red
         .computed_style(StyleMask::of(StyleId::TextColor))
         .text_color;
     assert_eq!(red_current, ColorValue::Fixed(Color::rgba(255, 0, 0, 255)));
-    assert_eq!(
-        red.style.border_colors(red_current),
-        [grey(154), grey(238), grey(238), grey(154)]
-    );
+    assert_eq!(red.style.border_colors(red_current)[0], red_current);
     // The author's rows replace the sheet's.
     let flat = node(&r, "flat").style;
     assert_eq!(flat.margin_top, Dimension::Points(0.0));
@@ -134,6 +128,8 @@ fn a_confirmation_or_chooser_shape_compiles() {
         "column id=\"c\" popover=\"auto\" role=\"alertdialog\"\n  button press=go popovertarget=\"c\" popovertargetaction=(busy ? \"hide\" : \"show\")\n    text \"Go\"".into(),
         // A modal `dialog` confirmation closes by `command`.
         "dialog id=\"c\" role=\"alertdialog\" closedby=\"any\"\n  button press=go commandfor=\"c\" command=\"close\"\n    text \"Delete\"\n  button commandfor=\"c\" command=\"close\"\n    text \"Cancel\"".into(),
+        // Its `closedby="any"` is implied (LLP 1115 D6).
+        "dialog id=\"c\" role=\"alertdialog\"\n  button press=go commandfor=\"c\" command=\"close\"\n    text \"Delete\"\n  button commandfor=\"c\" command=\"close\"\n    text \"Cancel\"".into(),
         // A modal laid out as written is a `dialog` role: any content.
         "dialog id=\"c\" role=\"dialog\" aria-modal=true closedby=\"any\"\n  column gap=12\n    text \"Delete account?\"\n    row\n      button commandfor=\"c\" command=\"close\"\n        text \"Cancel\"\n      button press=go commandfor=\"c\" command=\"close\"\n        text \"Delete\"".into(),
         // Not an alertdialog: a menu takes any rows, `hr` among them.
@@ -175,7 +171,7 @@ fn a_shape_the_native_sheet_cannot_present_is_refused_naming_the_row() {
         ),
         (format!("{open}\n  text \"Sure?\"\n{CANCEL}"), "has no action"),
         (
-            "dialog id=\"c\" role=\"alertdialog\"\n  button press=go commandfor=\"c\" command=\"close\"\n    text \"Go\"".into(),
+            "dialog id=\"c\" role=\"alertdialog\" closedby=\"none\"\n  button press=go commandfor=\"c\" command=\"close\"\n    text \"Go\"".into(),
             "closedby=\"any\"",
         ),
     ] {

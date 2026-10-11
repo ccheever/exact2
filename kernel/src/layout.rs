@@ -15,7 +15,10 @@ mod containment_tests;
 #[cfg(test)]
 mod differential_tests;
 mod fields;
+mod fit;
 mod hoist;
+#[cfg(test)]
+mod memo_tests;
 mod order;
 mod publication;
 
@@ -97,6 +100,9 @@ struct MeasureContext {
     // measured around (border-box coordinates), written only by settle_flow;
     // changing them clears `measurements`, whose key does not include them.
     flow: Vec<exact_textflow::FlowShape>,
+    // A fitted paragraph's unscaled min-content width (`fit`), cleared with
+    // `measurements`.
+    fit_natural: Option<f32>,
 }
 
 #[derive(Clone, Copy)]
@@ -104,6 +110,8 @@ struct Measurement {
     width: AxisOffer,
     height: AxisOffer,
     metrics: TextMetrics,
+    // The scale a fitted paragraph was measured at; 1 for any other.
+    scale: f32,
 }
 
 /// The engine tree. Measured leaves retain their height proof and bounded offers.
@@ -150,6 +158,8 @@ pub struct LayoutTree {
     // (its old containing block still counts the box that left).
     hoist_paths: IdSet<NodeId>,
     hoist_paths_prior: IdSet<NodeId>,
+    // The fitted paragraphs measured since they last stopped fitting (`fit`).
+    fitting: IdSet<u32>,
 }
 
 // A non-visible overflow on both axes establishes a formatting context and
@@ -261,6 +271,14 @@ impl LayoutMirror for LayoutTree {
         }
         let ids = order::laid_out(arena, parent, &self.taffy, node, |c| arena.taffy(c));
         LayoutTree::set_children(self, node, &ids);
+        // A list's rows are many boxes of few shapes, rebound and built as
+        // it scrolls: each is laid out by replaying a row like it (Taffy
+        // patch 29), where one was.
+        if arena.node_type(parent) == NodeType::List {
+            for &row in &ids {
+                self.taffy.set_memo_root(row, true);
+            }
+        }
         ids.len()
     }
 
@@ -324,6 +342,13 @@ impl LayoutMirror for Unmirrored {
 }
 
 impl LayoutTree {
+    /// A multi-column container's `min-height` and `max-height` as its last
+    /// final layout resolved and applied them, border box: a larger minimum
+    /// raises the maximum (Taffy patch 30).
+    pub(crate) fn multicol_bounds(&self, node: NodeId) -> (Option<f32>, Option<f32>) {
+        self.taffy.multicol_bounds(node)
+    }
+
     /// An empty tree.
     pub fn new() -> Self {
         // Frames are CSS pixel geometry, not a host's raster grid. Rounding
@@ -355,6 +380,7 @@ impl LayoutTree {
             hoists_stale: false,
             hoist_paths: IdSet::default(),
             hoist_paths_prior: IdSet::default(),
+            fitting: IdSet::default(),
         }
     }
 
@@ -387,6 +413,17 @@ impl LayoutTree {
                 self.fault = Some(format!("{what}: {e:?}"));
             }
         }
+    }
+
+    /// Lay out a list's rows by replaying rows like them (the default), or
+    /// each by its own algorithm.
+    pub fn set_row_memo(&mut self, on: bool) {
+        self.taffy.enable_memo(on);
+    }
+
+    /// List rows laid out by a replay, and those computed and recorded.
+    pub fn row_memo_counts(&self) -> (usize, usize) {
+        self.taffy.memo_counts()
     }
 
     /// Whether the engine reported a fault since the last rebuild.
@@ -760,6 +797,7 @@ impl LayoutTree {
     fn clear_measurements(&mut self, node: NodeId) {
         if let Some(context) = self.taffy.get_node_context_mut(node) {
             context.measurements.clear();
+            context.fit_natural = None;
         }
     }
 
@@ -791,7 +829,7 @@ impl LayoutTree {
         arena: &NodeArena,
         measurer: &mut dyn TextMeasurer,
     ) -> Result<(), LayoutError> {
-        self.compute_mapped(root, offer, arena, measurer, |s| arena.taffy(s))
+        self.compute_mapped(root, offer, arena, measurer, &|s| arena.taffy(s))
     }
 
     /// Region trial trees supply their local handle map; arena handles belong
@@ -802,14 +840,14 @@ impl LayoutTree {
         offer: Offer,
         arena: &NodeArena,
         measurer: &mut dyn TextMeasurer,
-        node_for: impl Fn(u32) -> Option<NodeId>,
+        node_for: &dyn Fn(u32) -> Option<NodeId>,
     ) -> Result<(), LayoutError> {
         self.prepare_fields(root, arena, measurer)?;
         let buttons = self.prepare_buttons(root, arena, measurer)?;
         // Percentage padding uses the containing block's final width. Settle
         // its frame floor in the engine before publication, never after paint.
         for _ in 0..3 {
-            let minima = self.compute_pass(root, offer, arena, measurer, &node_for, &buttons)?;
+            let minima = self.compute_pass(root, offer, arena, measurer, node_for, &buttons)?;
             if !self.settle_field_minima(minima) {
                 return Ok(());
             }
@@ -825,7 +863,10 @@ impl LayoutTree {
         offer: Offer,
         arena: &NodeArena,
         measurer: &mut dyn TextMeasurer,
-        node_for: &impl Fn(u32) -> Option<NodeId>,
+        // A trait object, not a generic: each closure type would compile the
+        // engine's whole pass, Taffy's algorithms with it, again into every
+        // app (LLP 1047.001; LLP 1075.003 §9.11's trial tree did, +0.4 MB).
+        node_for: &dyn Fn(u32) -> Option<NodeId>,
         buttons: &IdMap<u32, NodeId>,
     ) -> Result<IdMap<NodeId, f32>, LayoutError> {
         if let Some(fault) = &self.fault {
@@ -889,6 +930,7 @@ impl LayoutTree {
         let mut invalid_metrics = None;
         let mut invalid_button = None;
         let mut provisional_button = false;
+        let mut fitted = Vec::new();
         let height_free = measurer.height_free();
         let chrome = &self.field_chrome;
         let mut minima = IdMap::default();
@@ -1049,6 +1091,25 @@ impl LayoutTree {
                         .find(|m| m.width == width && (height_free || m.height == height))
                     {
                         cached.metrics
+                    } else if fit::fits(arena, slot) {
+                        fitted.push(slot);
+                        let natural = &mut context.fit_natural;
+                        let Some((metrics, scale)) =
+                            fit::measure(arena, slot, measurer, &mut runs, natural, width, height)
+                        else {
+                            return Size::ZERO;
+                        };
+                        if context.measurements.len() == LEAF_OFFERS {
+                            context.measurements.remove(0);
+                        }
+                        let m = Measurement {
+                            width,
+                            height,
+                            metrics,
+                            scale,
+                        };
+                        context.measurements.push(m);
+                        metrics
                     } else {
                         let stamp = arena.paragraph_stamp(slot); // held: no runs to flatten
                         let known = stamp
@@ -1103,6 +1164,7 @@ impl LayoutTree {
                             width,
                             height,
                             metrics,
+                            scale: 1.0,
                         });
                         metrics
                     };
@@ -1169,10 +1231,14 @@ impl LayoutTree {
                 }
             }
         }
+        // `&mut measure`, as the boundaries take it: one measure type, so the
+        // engine's algorithms compile once (by value, every app carried two
+        // copies; LLP 1047.001).
         let result = self
             .taffy
-            .compute_layout_with_measure(root, available, measure);
+            .compute_layout_with_measure(root, available, &mut measure);
         result.map_err(|e| LayoutError::Engine(format!("compute_layout: {e:?}")))?;
+        self.fitting.extend(fitted);
         self.provisional_chrome |= provisional_button;
         if let Some(view) = invalid_button {
             return Err(LayoutError::InvalidButtonMeasure(view));
@@ -1344,12 +1410,15 @@ impl LayoutTree {
         tree
     }
 
-    /// A separate engine tree of `slot`'s subtree, for a trial that must
-    /// leave the ordinary tree, its caches and its frames alone; its handles
-    /// by slot. The arena's own handles are never written.
-    pub(crate) fn of_subtree(arena: &NodeArena, slot: u32) -> (LayoutTree, HashMap<u32, NodeId>) {
+    /// A separate engine tree of the subtrees at `roots`, for a trial that
+    /// must leave the ordinary tree, its caches and its frames alone; its
+    /// handles by slot. The arena's own handles are never written.
+    pub(crate) fn of_subtrees(
+        arena: &NodeArena,
+        roots: &[u32],
+    ) -> (LayoutTree, HashMap<u32, NodeId>) {
         let mut tree = LayoutTree::new();
-        let slots = arena.subtree(slot);
+        let slots: Vec<u32> = roots.iter().flat_map(|&r| arena.subtree(r)).collect();
         let nodes: HashMap<u32, NodeId> = slots
             .iter()
             .map(|&s| {
@@ -1370,6 +1439,20 @@ impl LayoutTree {
             tree.set_children(node, &children);
         }
         (tree, nodes)
+    }
+
+    /// Give `node`, standing in for `parent`, those of `parent`'s children
+    /// `nodes` holds, in the order its layout takes them.
+    pub(crate) fn adopt(
+        &mut self,
+        arena: &NodeArena,
+        parent: u32,
+        node: NodeId,
+        nodes: &HashMap<u32, NodeId>,
+    ) {
+        let children =
+            order::laid_out(arena, parent, &self.taffy, node, |c| nodes.get(&c).copied());
+        self.set_children(node, &children);
     }
 }
 
@@ -1397,11 +1480,14 @@ pub fn compute(
             arena.button_bases.insert(slot, record.parent_width);
         }
     }
+    let refitted = fit::settle(arena, tree);
     let mut receipt = publication::publish(arena, tree, root_slot);
+    for key in refitted {
+        if !receipt.updated.contains(&key) {
+            receipt.updated.push(key);
+        }
+    }
     receipt.flow_passes = flow_passes;
     receipt.flow_comparisons = flow_comparisons;
     Ok(receipt)
 }
-
-#[cfg(test)]
-mod upstream_layout_differential;

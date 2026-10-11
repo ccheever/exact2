@@ -26,6 +26,7 @@ use exact_runner::{Answer, DataError, DataSource, FailureKind, Outcome, Request,
 use markdown_parse::{parse, Document, Kind};
 
 mod index;
+mod page;
 mod refs;
 
 /// Read a corpus directory: every document, in number order. The reader
@@ -48,12 +49,23 @@ pub struct Llp {
     /// Roots handed out as continuation tokens and not yet taken.
     inflight: HashMap<u64, String>,
     next: u64,
+    /// The path the reader was started on (`start()`), when a host gives one.
+    start: String,
 }
 
 impl Llp {
     /// A new source with nothing read.
     pub fn new() -> Llp {
         Llp::default()
+    }
+
+    /// A source whose `start()` answers `path`: the corpus or document a
+    /// command line named (the terminal reader's argument).
+    pub fn starting_at(path: &str) -> Llp {
+        Llp {
+            start: path.to_string(),
+            ..Llp::default()
+        }
     }
 
     /// The directory a path belongs to: itself when it is one, its folder
@@ -236,10 +248,15 @@ impl DataSource for Llp {
         // and the welcome document, and the real one arrives after it.
         match source {
             "theme" => Ok(markdown_parse::theme::value()),
+            "start" => Ok(Value::record(vec![Value::str(&self.start)])),
             "index" => Ok(index_value("", &[], "", "", false, None)),
             "document" => {
                 let doc = parse(WELCOME, &|t: &str| t.to_string());
                 Ok(document_value(Path::new("LLP"), &doc, None, -1, ""))
+            }
+            "page" => {
+                let doc = parse(WELCOME, &|t: &str| t.to_string());
+                Ok(page::value(Path::new("LLP"), &doc, &Self::nowhere(), ""))
             }
             other => Err(DataError::UnknownSource(other.to_string())),
         }
@@ -254,8 +271,8 @@ impl DataSource for Llp {
         // The palette is one constant: every token is a `light-dark()` pair
         // and the host resolves it, so this takes no appearance and is never
         // re-asked when the scheme changes (LLP 1034 D1/D3).
-        if source == "theme" {
-            return Ok(Answer::Now(markdown_parse::theme::value()));
+        if source == "theme" || source == "start" {
+            return self.query(source, args).map(Answer::Now);
         }
         let asked = match args.first().and_then(Value::as_str) {
             Some(s) => s.to_string(),
@@ -385,7 +402,61 @@ impl Llp {
                 let entry = self.entry(&root, open);
                 document_value(open, doc, entry, showing, "")
             }
+            "page" => {
+                let find = args
+                    .get(1)
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                let message = match self.document_of(asked) {
+                    None => format!("{asked} holds no Markdown documents"),
+                    Some(path) if self.open.as_ref().map(|(p, _)| p != &path).unwrap_or(true) => {
+                        match self.read(&path, &root) {
+                            Ok(doc) => {
+                                self.open = Some((path, doc));
+                                String::new()
+                            }
+                            Err(message) => message,
+                        }
+                    }
+                    Some(_) => String::new(),
+                };
+                let Some((open, doc)) = &self.open else {
+                    let empty = Document::default();
+                    return page::value(Path::new(""), &empty, &Self::nowhere(), &message);
+                };
+                let entries = self.entries(&root);
+                let at = entries.iter().position(|e| &e.path == open);
+                let neighbour = |i: Option<usize>| {
+                    i.and_then(|i| entries.get(i))
+                        .map(|e| e.path.to_string_lossy().into_owned())
+                        .unwrap_or_default()
+                };
+                let local = |href: &str| {
+                    let e = entries.iter().find(|e| e.path == Path::new(href))?;
+                    Some(e.title.clone())
+                };
+                let place = page::Place {
+                    entry: at.map(|i| &entries[i]),
+                    prev: neighbour(at.and_then(|i| i.checked_sub(1))),
+                    next: neighbour(at.map(|i| i + 1)),
+                    find: &find,
+                    local: &local,
+                };
+                page::value(open, doc, &place, &message)
+            }
             other => nothing_open(&format!("no source {other}")),
+        }
+    }
+
+    /// A page with no corpus around it: the welcome, a refusal.
+    fn nowhere() -> page::Place<'static> {
+        page::Place {
+            entry: None,
+            prev: String::new(),
+            next: String::new(),
+            find: "",
+            local: &|_| None,
         }
     }
 
@@ -423,6 +494,12 @@ impl Llp {
     fn refuse(&mut self, source: &str, message: &str) -> Value {
         match source {
             "index" => index_value("", &[], "", "", false, None),
+            "page" => page::value(
+                Path::new(""),
+                &Document::default(),
+                &Self::nowhere(),
+                message,
+            ),
             _ => nothing_open(message),
         }
     }

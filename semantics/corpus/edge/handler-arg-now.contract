@@ -1,4 +1,4 @@
-// A handler's curried argument that reads now(), pressed after an idle
+// A handler's curried argument that reads performanceNow(), pressed after an idle
 // clock advance (no commit in between). Is the argument the clock when the
 // press arrives, or when the element was last rendered?
 component App
@@ -6,7 +6,7 @@ component App
   action mark(t: number)
     at = t
   view
-    button "mark" press=mark(now()) testId="mark"
+    button "mark" press=mark(performanceNow()) testId="mark"
 
 test "argument reads the clock"
   clock +100

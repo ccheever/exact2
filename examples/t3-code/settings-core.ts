@@ -15,7 +15,7 @@ import { advancedBackgroundValue, baseProfile, profileOption } from './settings-
 import { seedDiffState } from './settings-appearance-look';
 import { themeEditorCommand } from './settings-appearance-editor';
 import { themeImportCommand } from './settings-appearance-import';
-import { aboutRows, updateCommand } from './settings-a-about';
+import { aboutRows, updateCommand, updateTrackCommand } from './settings-a-about';
 import { removeThemes, useCollectionDefaults } from './settings-a-collections';
 import type { DiffState } from './diff';
 import { notificationPermission, notificationPermissionMessage } from './shell-notify';
@@ -26,6 +26,7 @@ import { persistScopedSettingsPatch, planScopedSettingsClear, planScopedSettings
   selectScopedSettingsEnvironments, type ScopedSettingsEnvironment, type ScopedSettingsPlan, type ScopedSettingsTarget } from './scoped-settings-plan';
 import { postScopedNotice, scopeEnvironments, scopeMemberFiles, scopeProjectGroups, scopedWriter, type ScopeEnvironment } from './settings-scope-sources';
 import { fleet, type EnvironmentFleet } from './settings-b-fleet';
+import { changedBrowserSettingLabels, restoreBrowserTabDefaults } from './browser-defaults'; // browser-surface part 4: Restore defaults' browser rows
 
 export type CoreOption = { id: string; value: string; label: string; detail: string; icon: string; selected: boolean; disabled: boolean };
 export type CoreRow = {
@@ -64,6 +65,10 @@ export const CLIENT_DEFAULTS = {
   sidebarProjectSortOrder: 'updated_at',
   // legacy-sidebar: the legacy sidebar's Sidebar options (contracts settings.ts: sort orders, preview count 1-15, default 6).
   sidebarThreadSortOrder: 'updated_at', sidebarThreadPreviewCount: 6,
+  // browser-surface part 3: the recording and floating-preview defaults it reads (contracts settings.ts names and defaults:
+  // BROWSER_RECORDING_FRAME_RATES 30 | 60, default 30; key and mouse presses off; auto-show on). Part 4 (profiles) draws
+  // their rows in Settings › Integrations › Browser and writes them.
+  browserRecordingFrameRate: 30, browserRecordingShowKeyPresses: false, browserRecordingShowMousePresses: false, browserAutoShowFloatingPreview: true,
 } as const;
 export type ClientPrefs = { -readonly [K in keyof typeof CLIENT_DEFAULTS]: (typeof CLIENT_DEFAULTS)[K] extends number ? number : (typeof CLIENT_DEFAULTS)[K] extends boolean ? boolean : string };
 const CHOICES: Record<string, readonly string[]> = {
@@ -76,7 +81,7 @@ const CHOICES: Record<string, readonly string[]> = {
 const BOUNDS: Record<string, [number, number, number]> = {
   appearanceContrast: [50, 200, 5], glassOpacity: [40, 100, 5], panelAnimationDurationMs: [0, 400, 25],
   fontSizeInterface: [12, 20, 1], fontSizePrompt: [12, 20, 1], fontSizeCode: [10, 18, 1], fontSizeTerminal: [8, 20, 1],
-  sidebarThreadPreviewCount: [1, 15, 1],
+  sidebarThreadPreviewCount: [1, 15, 1], browserRecordingFrameRate: [30, 60, 30],
 };
 const FONT_FAMILY = /^[^"\\;{}<>]{0,120}$/;
 const FONT_SIZE_KEYS: Record<string, string> = { fontFamilySans: 'fontSizeInterface', fontFamilyComposer: 'fontSizePrompt', fontFamilyCode: 'fontSizeCode', fontFamilyTerminal: 'fontSizeTerminal' };
@@ -126,6 +131,11 @@ export function applyDeviceSetting(local: LocalPrefs, key: string, value: string
   if (key in CLIENT_DEFAULTS) {
     const decoded = clientValue(key, value);
     if (decoded === undefined) throw new ClientError('Unsupported device setting.');
+    // ThemeLibrary's Use (ThemeSettings.tsx:906-910, singleAppearanceOf): a one-palette custom theme takes only its own
+    // half (assignHalf), so the other appearance keeps its theme; any other theme is the whole theme (setTheme).
+    const own = key === 'theme' ? (local.customThemes ?? []).find(theme => theme.id === decoded) : undefined;
+    const modes = own ? (['light', 'dark'] as const).filter(mode => own[mode] != null || own.appearance === mode) : [];
+    if (modes.length === 1) { local.clientSettings = { ...(local.clientSettings || decodeClientPrefs({})), [modes[0] === 'light' ? 'themeLight' : 'themeDark']: decoded }; return true; }
     local.clientSettings = { ...(local.clientSettings || decodeClientPrefs({})), [key]: decoded };
     if (key === 'theme') local.clientSettings = { ...local.clientSettings, themeLight: decoded as string, themeDark: decoded as string };
     return true;
@@ -145,6 +155,7 @@ export function restoreDeviceDefaults(local: LocalPrefs): void {
   Object.assign(local.deviceSettings, DEVICE_DEFAULTS);
   local.clientSettings = decodeClientPrefs({});
   local.groupingMode = 'repository';
+  restoreBrowserTabDefaults({ local }); // browser-surface part 4: the default viewport, zoom and appearance (browser-defaults.ts)
 }
 
 // ── Scope ─────────────────────────────────────────────────────────────────
@@ -190,6 +201,7 @@ export const SERVER_DEFAULTS: Record<string, Json> = {
   snoozeLimitedThreads: false, sidebarAutoSettleOnMerge: true, sidebarAutoSettleAfterDays: 3, responseStreamingMode: 'paragraph', enableProviderUpdateChecks: true,
   continueThreadsAfterServerUpdate: false, backgroundActivity: { schemaVersion: 1, profile: 'balanced', overrides: {} }, newWorktreesStartFromOrigin: true,
   addProjectBaseDirectory: '', textGenerationModelSelection: { instanceId: 'codex', model: 'gpt-6-luna', options: [{ id: 'reasoningEffort', value: 'low' }] },
+  enableAgentBrowserAccess: true,
 };
 const FILE_BACKED: Record<string, [string, string]> = { defaultThreadEnvMode: ['defaultThreadEnvMode', 'local'], worktreeSubmodules: ['worktreeSubmodules', 'recursive'] };
 // Effect's Equal.equals on decoded settings: structural, independent of key order.
@@ -221,7 +233,7 @@ export function effectiveSetting(settings: Obj, projectId: string, key: string, 
 }
 
 /** One control's context: the representative target's settings (display) and every connected target (mixed, writes). */
-type ServerContext = { settings: Obj; scope: CoreScope; files: Map<string, Obj | null>; capabilities: Obj; providers: Obj[]; environmentLabel: string;
+export type ServerContext = { settings: Obj; scope: CoreScope; files: Map<string, Obj | null>; capabilities: Obj; providers: Obj[]; environmentLabel: string;
   targets: readonly ScopedSettingsTarget[]; restartEverywhere: boolean;
   /** Each known environment's advertised providers: a model choice must exist on every target (useScopedModelDisabledReason). */
   catalogs: Map<string, Obj[]> };
@@ -248,21 +260,30 @@ function serverState(context: ServerContext, key: string) {
   const note = !scope.connected ? 'Reconnect the selected environment to change this setting.' : environmentWide ? 'Environment-wide setting. Select an environment to change it.' : '';
   return { value: first, mixed, source, inheritance, note, inert: note !== '', resettableProject: project && scoped && (source === 'project' || source === 'mixed') };
 }
-/** SettingInheritance formatValue: human labels for the chain's values. */
+const MERGE_METHOD_LABELS: Record<string, string> = { merge: 'Merge', squash: 'Squash and merge', rebase: 'Rebase and merge' };
+const SUBMODULE_LABELS: Record<string, string> = { recursive: 'Recursive', 'top-level': 'Top level only', none: 'Skip' };
+const WRITING_STYLE_LABELS: Record<string, string> = { repo_conventions: 'Repository conventions', conventional_commits: 'Conventional Commits', custom: 'Custom instructions' };
+/**
+ * SettingInheritance formatValue: human labels for the chain's values, every page's popover (General's here,
+ * Source Control's and Integrations' in source-control-view.ts). An object other than a model selection or a writing
+ * style reads "Custom": Background activity's `{ profile }` has no label of its own there (settings-rows-and-labels S1-9).
+ */
 export function formatSettingValue(key: string, value: unknown): string {
   if (value === null || value === undefined) return key === 'pullRequestMergeMethod' ? 'Last selected' : key === 'sidebarAutoSettleAfterDays' ? 'Never'
-    : key === 'defaultModelSelection' ? 'Automatic' : key === 'defaultThreadEnvMode' || key === 'worktreeSubmodules' ? 'Inherit' : 'Not set';
+    : key === 'defaultModelSelection' ? 'Automatic' : key === 'sourceControlWriterModelSelection' ? 'Text generation model'
+    : key === 'defaultThreadEnvMode' || key === 'worktreeSubmodules' ? 'Inherit' : 'Not set';
   if (typeof value === 'boolean') return value ? 'On' : 'Off';
   if (typeof value === 'number') return key === 'sidebarAutoSettleAfterDays' ? `${value} ${value === 1 ? 'day' : 'days'}` : String(value);
   if (typeof value === 'string') {
     if (key === 'defaultThreadEnvMode' && (value === 'local' || value === 'worktree')) return value === 'worktree' ? 'New worktree' : 'Current checkout';
-    if (key === 'worktreeSubmodules') return { recursive: 'Recursive', 'top-level': 'Top level only', none: 'Skip' }[value] ?? value;
+    const label = key === 'worktreeSubmodules' ? SUBMODULE_LABELS[value] : key === 'pullRequestMergeMethod' ? MERGE_METHOD_LABELS[value] : undefined;
+    if (label) return label;
     return value === '' ? 'Empty' : value;
   }
   if (Array.isArray(value)) return `${value.length} ${value.length === 1 ? 'item' : 'items'}`;
   const entry = obj(value);
   if (typeof entry.model === 'string') return entry.model;
-  if (typeof entry.profile === 'string') return { balanced: 'Balanced', performance: 'Performance', 'battery-saver': 'Battery saver', custom: 'Advanced' }[entry.profile] ?? entry.profile;
+  if (typeof entry.mode === 'string') return WRITING_STYLE_LABELS[entry.mode] ?? entry.mode;
   return 'Custom';
 }
 /** settingInheritanceLayers for the representative target: project, environment, t3.json, built-in. */
@@ -581,20 +602,59 @@ const SERVER_LABELS: Record<string, string> = {
   continueThreadsAfterServerUpdate: 'Continue threads after restarts', backgroundActivity: 'Background activity', defaultThreadEnvMode: 'New thread mode',
   newWorktreesStartFromOrigin: 'New worktrees start from origin', addProjectBaseDirectory: 'Add project base directory', textGenerationModelSelection: 'Text generation model',
 };
-/** useSettingsRestore: the labels it lists in its confirmation, device values first, then the environment's. */
-export function restoreLabels(local: LocalPrefs, settings: Obj, connected: boolean): string[] {
-  const names: Record<string, string> = { appearanceMode: 'Follow system', theme: 'Theme', appearanceContrast: 'Contrast', glassOpacity: 'Glass opacity', diffColorScheme: 'Diff colors',
-    chatWidth: 'Chat width', panelAnimationDurationMs: 'Panel animations', environmentIdentificationMode: 'Environment identification', timestampFormat: 'Time format',
-    notificationMode: 'Thread notifications', inAppNotificationsEnabled: 'In-app notifications', projectGrouping: 'Project Grouping', sidebarProjectSortOrder: 'Project order', sidebarWorkingShelfEnabled: 'Working section',
-    wordWrap: 'Word wrap', persistComposerContextStrip: 'Composer context', fontFamilySans: 'Interface font', fontSizeInterface: 'Interface font size', fontFamilyComposer: 'Prompt font',
-    fontSizePrompt: 'Prompt font size', fontFamilyCode: 'Monospace font', fontSizeCode: 'Code font size', fontFamilyTerminal: 'Terminal font', fontSizeTerminal: 'Terminal font size',
-    fontSmoothing: 'Font smoothing', diffFilesCollapsed: 'Default diff file state', diffIgnoreWhitespace: 'Diff whitespace changes', diffLayout: 'Diff layout',
-    proactivePanelsEnabled: 'Proactive panels', showSkillsInSlashMenu: 'Show skills in slash menu', composerCollapseOnScroll: 'Collapse composer on scroll',
-    composerRichTextEnabled: 'Rich text composer', sendShortcut: 'Send shortcut', followUpBehavior: 'Follow-up behavior', contextWindowMeterEnabled: 'Context window indicator',
-    confirmThreadUnpin: 'Unpin confirmation', confirmThreadArchive: 'Archive confirmation', confirmThreadDelete: 'Delete confirmation', confirmQuit: 'Quit shortcut' };
-  const device = changedDeviceLabels(local).filter(key => key in names && key !== 'themeLight' && key !== 'themeDark').map(key => names[key]!);
-  const server = connected ? Object.keys(SERVER_LABELS).filter(key => key in settings && !same(settings[key], SERVER_DEFAULTS[key])).map(key => SERVER_LABELS[key]!) : [];
-  return [...new Set([...device, ...server])];
+/** useSettingsRestore lists and re-grants Agent browser access after the browser rows (SettingsPanels.tsx: "the confirmation dialog
+ *  lists it by name, so a user restoring defaults is told the agent regains access"). An environment setting, written like the rest. */
+const AGENT_BROWSER_LABELS: Record<string, string> = { enableAgentBrowserAccess: 'Agent browser access' };
+const RESTORED_SERVER_KEYS = [...Object.keys(SERVER_LABELS), ...Object.keys(AGENT_BROWSER_LABELS)];
+/** useTheme's `themeHalves`: a theme on one appearance only (a one-palette theme's Use, assignHalf), which a whole theme (setTheme)
+ *  clears. Here a half is `themeLight` or `themeDark` apart from `theme` (a whole theme sets all three). */
+const THEME_MIX = 'themeMix';
+/**
+ * useSettingsRestore's changedSettingLabels in its order (SettingsPanels.tsx): each label with the keys it reads, `device` from this
+ * app's preferences (changedDeviceLabels) and `server` from the scope's settings. `browser` is getChangedBrowserSettingLabels' place.
+ * A font's label counts its family and its size (getChangedTypographySettingLabels). Font smoothing stays listed after the fonts: the
+ * reference neither lists nor resets it, but this app's restore resets it, so the list names it (audit-wave-followups-4).
+ */
+const RESTORE_ROWS: readonly (readonly [string, 'device' | 'server' | 'browser', readonly string[]])[] = [
+  ['Theme', 'device', ['theme']], ['Follow system', 'device', ['appearanceMode']], ['Theme mix', 'device', [THEME_MIX]], ['Contrast', 'device', ['appearanceContrast']],
+  ['Glass opacity', 'device', ['glassOpacity']],
+  ['Diff colors', 'device', ['diffColorScheme']], ['Chat width', 'device', ['chatWidth']], ['Panel animations', 'device', ['panelAnimationDurationMs']],
+  ['Environment identification', 'device', ['environmentIdentificationMode']], ['Time format', 'device', ['timestampFormat']], ['Thread notifications', 'device', ['notificationMode']],
+  ['In-app notifications', 'device', ['inAppNotificationsEnabled']], ['Visible threads', 'device', ['sidebarThreadPreviewCount']], ['Project Grouping', 'device', ['projectGrouping']],
+  ['Project order', 'device', ['sidebarProjectSortOrder']], ['Working section', 'device', ['sidebarWorkingShelfEnabled']],
+  ['Auto-settle inactive threads', 'server', ['sidebarAutoSettleAfterDays']], ['Auto-settle merged threads', 'server', ['sidebarAutoSettleOnMerge']],
+  ['Auto-resume limited threads', 'server', ['autoResumeLimitedThreads']], ['Snooze limited threads', 'server', ['snoozeLimitedThreads']],
+  ['Word wrap', 'device', ['wordWrap']], ['Composer context', 'device', ['persistComposerContextStrip']],
+  ['Interface font', 'device', ['fontFamilySans', 'fontSizeInterface']], ['Prompt font', 'device', ['fontFamilyComposer', 'fontSizePrompt']],
+  ['Code font', 'device', ['fontFamilyCode', 'fontSizeCode']], ['Terminal font', 'device', ['fontFamilyTerminal', 'fontSizeTerminal']], ['Font smoothing', 'device', ['fontSmoothing']],
+  ['Default diff file state', 'device', ['diffFilesCollapsed']], ['Diff whitespace changes', 'device', ['diffIgnoreWhitespace']], ['Diff layout', 'device', ['diffLayout']],
+  ['Proactive panels', 'device', ['proactivePanelsEnabled']], ['Show skills in slash menu', 'device', ['showSkillsInSlashMenu']],
+  ['Collapse composer on scroll', 'device', ['composerCollapseOnScroll']], ['Rich text composer', 'device', ['composerRichTextEnabled']], ['Send shortcut', 'device', ['sendShortcut']],
+  ['Follow-up behavior', 'device', ['followUpBehavior']], ['Context window indicator', 'device', ['contextWindowMeterEnabled']],
+  ['Response streaming', 'server', ['responseStreamingMode']], ['Provider update checks', 'server', ['enableProviderUpdateChecks']],
+  ['Continue threads after restarts', 'server', ['continueThreadsAfterServerUpdate']], ['Background activity', 'server', ['backgroundActivity']],
+  ['New thread mode', 'server', ['defaultThreadEnvMode']], ['New worktrees start from origin', 'server', ['newWorktreesStartFromOrigin']],
+  ['Add project base directory', 'server', ['addProjectBaseDirectory']], ['Unpin confirmation', 'device', ['confirmThreadUnpin']],
+  ['Archive confirmation', 'device', ['confirmThreadArchive']], ['Delete confirmation', 'device', ['confirmThreadDelete']], ['Quit shortcut', 'device', ['confirmQuit']],
+  ['Text generation model', 'server', ['textGenerationModelSelection']], ['', 'browser', []], ['Agent browser access', 'server', ['enableAgentBrowserAccess']],
+];
+/**
+ * useSettingsRestore: the labels its confirmation lists. Its environment values are useScopedSettings', the scope's representative
+ * target (`scopeTarget`): in a project or checkout scope, that member's project overrides and t3.json over its environment's settings.
+ * `settings` is null with no connected target (DEFAULT_SERVER_SETTINGS: no environment row is listed).
+ */
+export function restoreLabels(local: LocalPrefs, settings: Obj | null): string[] {
+  const device = new Set(changedDeviceLabels(local)), prefs = local.clientSettings || decodeClientPrefs({});
+  if (prefs.themeLight !== prefs.theme || prefs.themeDark !== prefs.theme) device.add(THEME_MIX);
+  const changed = (key: string) => settings !== null && key in settings && !same(settings[key], SERVER_DEFAULTS[key]);
+  return RESTORE_ROWS.flatMap(([label, source, keys]) => source === 'browser' ? changedBrowserSettingLabels({ local })
+    : keys.some(key => source === 'device' ? device.has(key) : changed(key)) ? [label] : []);
+}
+/** SettingsScopeContext's `target`: the representative target supplies display values, the member on the scope's environment in a
+ *  project scope, as environments prefer theirs (useResolvedSettingsScope); null when no selected environment is connected. */
+export function scopeTarget(client: T3Client, context: ServerContext): ScopedSettingsTarget | null {
+  const { environment } = selectScopedSettingsEnvironments(context.scope.resolved, context.scope.environments, client.environmentId || null);
+  return context.targets.find(target => target.environmentId === environment?.environmentId) ?? context.targets[0] ?? null;
 }
 
 export async function applyCoreSetting(client: T3Client, native: Native, id: string, value: string): Promise<string> {
@@ -610,6 +670,7 @@ export async function applyCoreSetting(client: T3Client, native: Native, id: str
     return '';
   }
   if (target.row === 'version' || target.row === 'update') return updateCommand(client, target.row, target.part);
+  if (target.row === 'update-track') return updateTrackCommand(client, native, value);
   if (target.row === MOBILE_BETA_ROW) return mobileBetaCommand(client, native, target.part, value);
   if (target.row !== 'restore-device-defaults' && !key) {
     // Device rows: saved in this app's preferences, never sent to a server.
@@ -636,12 +697,13 @@ export async function applyCoreSetting(client: T3Client, native: Native, id: str
   let plan: ScopedSettingsPlan;
   if (restore) {
     restoreDeviceDefaults(local);
+    // useSettingsRestore sends one useUpdateScopedSettings patch that always carries environment-wide keys, so in a project or
+    // checkout scope planScopedSettingsPatch plans no server write (no override is set or cleared) and, its device keys saved, warns nothing.
+    if (project) return 'Device settings restored';
     const targets = serverContext(client, scope, new Map(), settings).targets;
-    const keys = Object.keys(SERVER_LABELS).filter(name => (!project || PROJECT_SCOPED.has(name))
-      && targets.some(entry => name in entry.settings && !same(entry.settings[name], SERVER_DEFAULTS[name])));
+    const keys = RESTORED_SERVER_KEYS.filter(name => targets.some(entry => name in entry.settings && !same(entry.settings[name], SERVER_DEFAULTS[name])));
     if (keys.length === 0 || scope.kind === 'unavailable' || !scope.connected) return 'Device settings restored';
-    plan = project ? planScopedSettingsClear(scope.resolved, connectedOf(client, scope, settings), keys)
-      : planScopedSettingsPatch(scope.resolved, connectedOf(client, scope, settings), Object.fromEntries(keys.map(name => [name, SERVER_DEFAULTS[name] ?? null])));
+    plan = planScopedSettingsPatch(scope.resolved, connectedOf(client, scope, settings), Object.fromEntries(keys.map(name => [name, SERVER_DEFAULTS[name] ?? null])));
   } else if (scope.kind === 'unavailable') {
     plan = { clientPatch: {}, hasClientWrite: false, serverWrites: [], unavailableReason: scope.message };
   } else {

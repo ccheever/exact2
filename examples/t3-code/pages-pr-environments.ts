@@ -60,27 +60,42 @@ export const readsPullRequests = (environment: PrEnvironment) => obj(obj(environ
  * in the data module).
  */
 export async function environmentRequest(client: T3Client, native: Native, environmentId: string, method: string, payload: Obj,
-  options: { write?: boolean; timeoutSeconds?: number } = {}, source: EnvironmentFleet = fleet): Promise<Obj> {
+  options: { write?: boolean; timeoutSeconds?: number; share?: boolean } = {}, source: EnvironmentFleet = fleet): Promise<Obj> {
   const timeout = options.timeoutSeconds === undefined ? {} : { timeout: options.timeoutSeconds };
-  if (!environmentId || environmentId === client.environmentId) {
-    if (!options.timeoutSeconds) return client.request(native, method, payload, client.generation, options.write === true);
-    return client.call(native, { op: 'request', method, payload, ...timeout }, client.generation, options.write === true);
+  // `share`: a read that joins an identical one still pending on that transport (T3Transport `share`).
+  const share = options.share && options.write !== true ? { share: true } : {};
+  if ((!environmentId || environmentId === client.environmentId) && !options.timeoutSeconds && !share.share) {
+    return client.request(native, method, payload, client.generation, options.write === true);
   }
+  return environmentCall(client, native, environmentId, { op: 'request', method, payload, ...timeout, ...share }, options.write === true, source);
+}
+/**
+ * Any transport op (`request`, the diff's `prDiff`) on one server: the focused connection's, or a background
+ * transport's at its generation (realinput-1010e-followups RE-5: a pull request's own server, not the focus).
+ */
+export async function environmentCall(client: T3Client, native: Native, environmentId: string, request: Obj, write = false, source: EnvironmentFleet = fleet): Promise<Obj> {
+  if (!environmentId || environmentId === client.environmentId) return client.call(native, request, client.generation, write);
   const entry = [...source.entries.values()].find(candidate => candidate.environmentId === environmentId);
   if (!entry || !ready(entry)) throw new ClientError('The environment was removed.', 'EnvironmentRpcUnavailableError');
-  const reply = await bridgeReply(EnvironmentFleet.native(native, entry.key), { op: 'request', method, payload, ...timeout, generation: entry.generation });
+  const reply = await bridgeReply(EnvironmentFleet.native(native, entry.key), { ...request, generation: entry.generation });
   if (!reply.ok) throw new ClientError(reply.error!.message, reply.error!.kind, reply.error!.uncertain, { reason: reply.error!.reason, detail: reply.error!.detail });
   if (reply.generation !== entry.generation) throw new ClientError('The connection changed. Refresh before continuing.', 'stale');
   return obj(reply.value);
 }
+/** A background server's transport (its fleet key and generation) when `environmentId` names a connected one; null for the focus. */
+export function environmentTarget(client: T3Client, environmentId: string, source: EnvironmentFleet = fleet): { key: string; generation: number } | null {
+  if (!environmentId || environmentId === client.environmentId) return null;
+  const entry = [...source.entries.values()].find(candidate => candidate.environmentId === environmentId);
+  return entry && ready(entry) ? { key: entry.key, generation: entry.generation } : null;
+}
 
 /** The router's view of the servers (PullRequestRouterHost), read afresh at each decision. */
-export function routerHost(client: T3Client, native: Native, originId: string, source: EnvironmentFleet = fleet): PullRequestRouterHost {
+export function routerHost(client: T3Client, native: Native, originId: string, source: EnvironmentFleet = fleet, share = false): PullRequestRouterHost {
   return {
     originId: originId || client.environmentId,
     environments: (): RoutedEnvironment[] => prEnvironments(client, source).map(environment => ({ id: environment.id, enabled: environment.enabled, connected: environment.connected,
       local: environment.local, permission: environment.permission, pullRequestChecks: obj(obj(environment.config.environment).capabilities).pullRequestChecks === true })),
-    request: (environmentId, method, payload, options) => environmentRequest(client, native, environmentId, method, payload, options, source),
+    request: (environmentId, method, payload, options) => environmentRequest(client, native, environmentId, method, payload, { ...options, share }, source),
   };
 }
 
@@ -89,13 +104,16 @@ export function routerHost(client: T3Client, native: Native, originId: string, s
  * pull request was listed on (a background one's row), which is stripped before it is sent; the router then reads
  * or writes through whichever server the reader shares GitHub with (pullRequestRouting.ts).
  */
-export function routedPullRequestRequest(client: T3Client, native: Native, method: string, payload: Obj, write: boolean): Promise<Obj> {
+export function routedPullRequestRequest(client: T3Client, native: Native, method: string, payload: Obj, write: boolean, share = false): Promise<Obj> {
   const { environmentId, ...rest } = payload;
   // An invalidation names its pull request inside `reference`; the marker rides there too.
   const reference = obj(rest.reference), nested = str(reference.environmentId);
   if (nested) { const { environmentId: _nested, ...plain } = reference; rest.reference = plain; }
-  return pullRequestRouter.request(routerHost(client, native, str(environmentId) || nested || projectServer(client, rest)), method, rest, write);
+  return pullRequestRouter.request(routerHost(client, native, pullRequestServer(client, str(environmentId) || nested, rest), fleet, share), method, rest, write);
 }
+/** The server a pull request request belongs to: the one it was listed on, else the one its project lives on. */
+export const pullRequestServer = (client: T3Client, environmentId: string, payload: Obj, source: EnvironmentFleet = fleet): string =>
+  environmentId || projectServer(client, payload, source);
 /**
  * The server a request's project lives on when the payload does not say (a write built from the panel's reference, a row's
  * quick action): project ids are per server, so a project only a background server holds names that server; the focused

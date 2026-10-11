@@ -7,7 +7,7 @@
 // Code tab they open belongs to 20261005-pr-code-tab.
 import { arr, num, obj, str, type Obj } from './domain';
 import { relativeLabel } from './pages-prs';
-import { fullDate, noRemarkWrites, type PrReactionPill, type RemarkWrites } from './pages-pr-summary';
+import { noRemarkWrites, type PrReactionPill, type RemarkWrites } from './pages-pr-summary';
 import {
   buildPullRequestTimeline, groupPullRequestTimelineConversations, isPullRequestVerdictStale, latestPullRequestReviewOutcomes, newestPullRequestCommitAt,
   pullRequestReviewOutcome, pullRequestReviewOutcomeLabel, pullRequestReviewOutcomeStaleLabel, type PullRequestTimelineEvent,
@@ -15,9 +15,9 @@ import {
 
 /** A remark's writes on the timeline (pr-writing-and-metadata): the pencil where this reader may rewrite it, and its reactions. */
 type Writes = { canEdit: boolean; raw: string; kind: string; saving: boolean; savedSerial: number; reactions: PrReactionPill[]; reacted: string[]; canReact: boolean };
-export type PrTimelineCard = { key: string; id: string; author: string; title: string; stateLabel: string; age: string; ageTip: string; path: string; url: string; bodyId: string; body: string; markdown: boolean } & Writes;
+export type PrTimelineCard = { key: string; id: string; author: string; title: string; stateLabel: string; age: string; path: string; url: string; bodyId: string; body: string; markdown: boolean } & Writes;
 export type PrTimelineRow = {
-  key: string; kind: string; id: string; author: string; avatar: string; initial: string; hasActor: boolean; label: string; age: string; ageTip: string; path: string; url: string;
+  key: string; kind: string; id: string; author: string; avatar: string; initial: string; hasActor: boolean; label: string; age: string; path: string; url: string;
   bodyId: string; outcome: string; outcomeLabel: string; stale: boolean; staleLabel: string; sha: string; headline: string; additions: string; deletions: string;
   count: string; authorsLine: string; cards: PrTimelineCard[]; reactions: PrReactionPill[]; reacted: string[]; canReact: boolean;
 };
@@ -31,7 +31,7 @@ const plural = (count: number, one: string, many: string) => `${count.toLocaleSt
 const friendly = (value: string) => value.toLowerCase().split('_').join(' ').split('-').join(' ').replace(/^\w/u, letter => letter.toUpperCase());
 const who = (actor: Obj | null) => { const login = str(actor?.login, 'ghost'); return { author: login, avatar: str(actor?.avatarUrl), initial: login.slice(0, 1).toUpperCase(), hasActor: actor !== null }; };
 const bodyIdOf = (event: PullRequestTimelineEvent) => (event.markdown && event.body ? `pr-comment:${event.id}` : '');
-const blank = (key: string, kind: string): PrTimelineRow => ({ key, kind, id: '', author: '', avatar: '', initial: '', hasActor: false, label: '', age: '', ageTip: '', path: '', url: '', bodyId: '',
+const blank = (key: string, kind: string): PrTimelineRow => ({ key, kind, id: '', author: '', avatar: '', initial: '', hasActor: false, label: '', age: '', path: '', url: '', bodyId: '',
   outcome: '', outcomeLabel: '', stale: false, staleLabel: '', sha: '', headline: '', additions: '', deletions: '', count: '', authorsLine: '', cards: [], reactions: [], reacted: [], canReact: false });
 
 type RemarkOf = (id: string) => Writes;
@@ -43,10 +43,10 @@ function rows(events: PullRequestTimelineEvent[], newestCommitAt: string | null,
       return { ...blank(`comments:${first.id}`, 'comments'), ...who(actors[0] ?? null), hasActor: actors.length > 0, count: plural(row.events.length, 'comment', 'comments'),
         authorsLine: `${plural(actors.length, 'author', 'authors')} · ${relativeLabel(first.at, now)}`,
         cards: row.events.map(event => ({ key: `${scope}:${event.id}`, id: event.id, author: str(event.actor?.login, 'ghost'), title: event.title,
-          stateLabel: event.reviewState ? friendly(event.reviewState) : '', age: relativeLabel(event.at, now), ageTip: fullDate(event.at), path: event.path ?? '', url: event.url ?? '',
+          stateLabel: event.reviewState ? friendly(event.reviewState) : '', age: relativeLabel(event.at, now), path: event.path ?? '', url: event.url ?? '',
           bodyId: bodyIdOf(event), body: event.markdown ? '' : event.body ?? '', markdown: event.markdown, ...remarkOf(event.id) })) };
     }
-    const event = row.event, base = { ...blank(event.id, event.kind), age: relativeLabel(event.at, now), ageTip: fullDate(event.at) };
+    const event = row.event, base = { ...blank(event.id, event.kind), age: relativeLabel(event.at, now) };
     if (event.kind === 'commit') {
       const counted = event.additions !== null && event.deletions !== null && (event.additions > 0 || event.deletions > 0);
       // pr-code-tab: the whole oid, which the row's press opens in the Code tab (CommitEvent onOpen(event.id)).

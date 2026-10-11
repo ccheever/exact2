@@ -281,6 +281,47 @@ impl<D: DataSource> Runner<D> {
         }
         Ok(result)
     }
+    /// List `view`'s port is at `offset` (from its first row, as a report's):
+    /// the rows mounted out of the port that now show stop holding what
+    /// waits for them (LLP 1055 D13), in a commit of their own. No report:
+    /// the window and its rows stay the last report's, for a host that
+    /// waits for more travel before its next one.
+    pub fn collection_shown(&mut self, view: ViewId, offset: f64) -> Result<Advanced, RunnerError> {
+        if self.poisoned {
+            return Err(RunnerError::Poisoned);
+        }
+        let mut result = Advanced {
+            receipts: Vec::new(),
+            now_ms: self.now_ms,
+            error: None,
+        };
+        if !offset.is_finite() {
+            return Ok(result);
+        }
+        let mut tree = self.tree.take().expect("booted");
+        let mut ids = std::mem::take(&mut self.ids);
+        let shown = {
+            let mut update = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
+            tree.show_collection(&mut update, view, offset);
+            update.shown
+        };
+        self.tree = Some(tree);
+        self.ids = ids;
+        self.shown.extend(shown);
+        if (self.shown.revealed.iter()).any(|v| self.kernel.is_awaiting(*v)) {
+            match self.apply(Vec::new()) {
+                Ok(receipt) => result.receipts.push(Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }),
+                Err(error) => {
+                    self.poison();
+                    return Err(error);
+                }
+            }
+        }
+        Ok(result)
+    }
     /// After an ordinary commit: a list whose edge waited under a covered
     /// route asks its host for a report once the route shows, which offers
     /// the edge it reaches then.

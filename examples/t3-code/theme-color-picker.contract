@@ -22,8 +22,10 @@
 // Keys, as the reference: on the plane's two stops (saturation, brightness) the arrows step 2 %
 // (10 % with Shift), Home and End go to the ends; on the hue slider the arrows step 1° (10° with
 // Shift) and wrap. The plane's stops are invisible and focusable inside it, as the reference's
-// visually hidden range inputs; a press on the plane focuses saturation. Contract carries no
-// aria-valuenow / aria-valuetext (X49), so a stop's value is its aria-description.
+// visually hidden range inputs; a press on the plane focuses saturation. Their values are ARIA's
+// range values (LLP 1116 D8), as the reference's: a stop's `<input type="range" min=0 max=100>`
+// with `aria-valuetext="N%"`, the hue slider's `aria-valuemin=0 aria-valuemax=360 aria-valuenow`;
+// each stop's `aria-describedby` names the plane's sr-only instructions, as the reference's.
 use CorePalette from "./settings-core.contract"
 use EditorRow from "./settings-appearance-editor-shapes.contract"
 use sbByte from "./settings-b-accent.contract"
@@ -126,7 +128,7 @@ component ThemeColorSwatch
   // One colour to the draft; `force` sends even while an earlier one is in flight (a release, a key).
   action push(hh: number, ss: number, vv: number, force: bool)
     if force or not inFlight
-      let t = max(now(), max(sent, row.seq) + 0.001)
+      let t = max(performanceNow(), max(sent, row.seq) + 0.001)
       let c = tcpHex(hh, ss, vv)
       sent = t
       sentHex = c
@@ -230,7 +232,7 @@ component ThemeColorSwatch
     hexDraft = hex
     focusPart = "hex"
   action hexInput(text: string)
-    let t = max(now(), max(sent, row.seq) + 0.001)
+    let t = max(performanceNow(), max(sent, row.seq) + 0.001)
     hexDraft = text
     hexEditing = true
     sent = t
@@ -240,7 +242,7 @@ component ThemeColorSwatch
     rgbDraft = rgb
     focusPart = "rgb"
   action rgbInput(text: string)
-    let t = max(now(), max(sent, row.seq) + 0.001)
+    let t = max(performanceNow(), max(sent, row.seq) + 0.001)
     rgbDraft = text
     rgbEditing = true
     sent = t
@@ -255,7 +257,7 @@ component ThemeColorSwatch
     box position="relative" flex-shrink=0
       // The trigger and its tooltip (TooltipPopup side="top": "Choose <label> color").
       Tip(label=`Choose ${row.label} color`, side="top", align="center", offset=28)
-        button press=open pointerdown=triggerDown pointerup=triggerUp key=triggerKey popovertarget=`theme-color-${row.id}` aria-label=`Choose ${row.label} color` width="1.5rem" height="1.5rem" padding=1 box-sizing="border-box" border-radius="0.75rem" border-width=1 border-style="solid" border-color="light-dark(#27272a4d, #f5f5f54d)" background-color="#00000000" id=`theme-editor-swatch-${row.id}` testId=`theme-editor-swatch-${row.id}`
+        button press=open pointerdown=triggerDown pointerup=triggerUp key=triggerKey popovertarget=`theme-color-${row.id}` aria-label=`Choose ${row.label} color` width="1.5rem" height="1.5rem" padding=1 box-sizing="border-box" border-radius="0.75rem" border-width=1 border-style="solid" border-color="light-dark(#27272a4d, #f5f5f54d)" background-color="#00000000" id=`theme-editor-swatch-${row.id}` testId=`theme-editor-swatch-${row.id}` title=""
           box width="1.25rem" height="1.25rem" border-radius="0.625rem" background-color=row.value
       column id=`theme-color-${row.id}` popover="auto" key=popKey press=popPress retainFocus=true tabindex=-1 position="absolute" position-area=(above ? "top span-right" : "bottom span-right") margin-top=(above ? "0px" : "0.625rem") margin-bottom=(above ? "0.625rem" : "0px") user-select="none" width="18rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" overflow="hidden" role="dialog" aria-modal=true aria-label=`${row.label} color` testId=`theme-color-${row.id}-popover`
         row align-items="center" justify-content="space-between" gap="0.5rem" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" border-bottom-width=1 border-bottom-style="solid" border-color=pal.divider
@@ -269,13 +271,14 @@ component ThemeColorSwatch
             box position="absolute" left=0 top=0 right=0 bottom=0 pointer-events="none" background-image="linear-gradient(to right, #ffffff, #ffffff00)"
             box position="absolute" left=0 top=0 right=0 bottom=0 pointer-events="none" background-image="linear-gradient(to top, #000000, #00000000)"
             box position="absolute" left=0 top=0 width=(inFlight ? 2 : 1) height=1 opacity=0 pointer-events="none" inert=true aria-hidden=true resize=landed testId=`theme-color-${row.id}-landing`
-            box id=`theme-color-${row.id}-saturation` tabindex=0 autofocus key=axisKey("s") focus=focusOn("s") blur=focusOff("s") role="slider" aria-label=`${row.label} saturation` aria-description=`${round(cs * 100)}%` position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" testId=`theme-color-${row.id}-saturation`
-            box id=`theme-color-${row.id}-brightness` tabindex=0 key=axisKey("v") focus=focusOn("v") blur=focusOff("v") role="slider" aria-label=`${row.label} brightness` aria-description=`${round(cv * 100)}%` position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" testId=`theme-color-${row.id}-brightness`
+            text "Use arrow keys to adjust the focused value. Hold Shift for larger steps. Use Home and End for the minimum and maximum. Press Tab to move between saturation and brightness." id=`theme-color-${row.id}-instructions` position="absolute" width=1 height=1 overflow="hidden" opacity=0 pointer-events="none"
+            box id=`theme-color-${row.id}-saturation` tabindex=0 autofocus key=axisKey("s") focus=focusOn("s") blur=focusOff("s") role="slider" aria-label=`${row.label} saturation` aria-describedby=`theme-color-${row.id}-instructions` aria-valuemin=0 aria-valuemax=100 aria-valuenow=(cs * 100) aria-valuetext=`${round(cs * 100)}%` position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" testId=`theme-color-${row.id}-saturation`
+            box id=`theme-color-${row.id}-brightness` tabindex=0 key=axisKey("v") focus=focusOn("v") blur=focusOff("v") role="slider" aria-label=`${row.label} brightness` aria-describedby=`theme-color-${row.id}-instructions` aria-valuemin=0 aria-valuemax=100 aria-valuenow=(cv * 100) aria-valuetext=`${round(cv * 100)}%` position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" testId=`theme-color-${row.id}-brightness`
             when planeRing
               text `${focusPart == "s" ? "Saturation" : "Brightness"} ${round((focusPart == "s" ? cs : cv) * 100)}%` position="absolute" left="0.5rem" bottom="0.5rem" z-index=10 padding-left="0.375rem" padding-right="0.375rem" padding-top="0.125rem" padding-bottom="0.125rem" border-radius="0.25rem" background-color=pal.popover font-size="0.75rem" line-height="1rem" color=pal.text pointer-events="none" aria-hidden=true
             box position="absolute" left=0 top=0 width="0.75rem" height="0.75rem" box-sizing="border-box" border-radius="0.375rem" border-width=2 border-style="solid" border-color="#ffffff" box-shadow="0 0 0 1px #00000066" pointer-events="none" translate=`${cs * 15.75 * rem}px ${(1 - cv) * 7.25 * rem}px` transition=(drag == "plane" ? "none" : "translate 80ms linear") testId=`theme-color-${row.id}-plane-thumb`
           // ColorHueSlider: the hue bar and its thumb (a stop of its own).
-          box id=`theme-color-${row.id}-hue` tabindex=0 key=hueKey focus=focusOn("hue") blur=focusOff("hue") position="relative" width="16.5rem" height="1.5rem" flex-shrink=0 display="flex" align-items="center" border-radius="0.75rem" cursor="pointer" touch-action="none" pointerdown=hueDown pointermove=hueMove pointerup=hueUp box-shadow=(hueRing ? `0 0 0 2px ${pal.popover}, 0 0 0 4px ${pal.accent}` : "none") role="slider" aria-label=`${row.label} hue` aria-description=`${round(ch)}` testId=`theme-color-${row.id}-hue`
+          box id=`theme-color-${row.id}-hue` tabindex=0 key=hueKey focus=focusOn("hue") blur=focusOff("hue") position="relative" width="16.5rem" height="1.5rem" flex-shrink=0 display="flex" align-items="center" border-radius="0.75rem" cursor="pointer" touch-action="none" pointerdown=hueDown pointermove=hueMove pointerup=hueUp box-shadow=(hueRing ? `0 0 0 2px ${pal.popover}, 0 0 0 4px ${pal.accent}` : "none") role="slider" aria-label=`${row.label} hue` aria-valuemin=0 aria-valuemax=360 aria-valuenow=round(ch) testId=`theme-color-${row.id}-hue`
             box width="100%" height="0.625rem" border-radius="0.3125rem" pointer-events="none" background-image="linear-gradient(to right, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)" box-shadow="inset 0 0 0 1px #0000001f"
             box position="absolute" left=0 top="0.25rem" width="1rem" height="1rem" box-sizing="border-box" border-radius="0.5rem" border-width=2 border-style="solid" border-color="#ffffff" background-color=hueColor box-shadow="0 0 0 1px #00000066" pointer-events="none" translate=`${ch / 360 * 15.5 * rem}px 0px` transition=(drag == "hue" ? "none" : "translate 80ms linear") testId=`theme-color-${row.id}-hue-thumb`
           row gap="0.5rem" width="16.5rem"

@@ -5,7 +5,7 @@ component App
   state at = 0
   action tick
     ticks = ticks + 1
-    at = now()
+    at = performanceNow()
   task t mount
     every(100, tick)
   view

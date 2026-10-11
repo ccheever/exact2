@@ -398,7 +398,7 @@
       "patterns": [
         {
           "name": "support.function.builtin.exact-contract",
-          "match": "(?<![A-Za-z0-9_\\-])(?:blur|copyText|deliveryActivate|deliveryCheck|fastSeek|focus|format|haptic|openURL|load|requestFullscreen|reload|selectText|setSelectionRange|setScheme|setRootFontSize|showPicker|showModal|share|showNotification|closeNotification|saveFile|showOpenFilePicker|showDirectoryPicker|showSaveFilePicker|scrollIntoView|postMessage|preventDefault|stopPropagation|close|playSound|playSounds|stopSounds)(?=\\s*\\()"
+          "match": "(?<![A-Za-z0-9_\\-])(?:blur|copyText|deliveryActivate|deliveryCheck|fastSeek|focus|format|haptic|openURL|load|requestFullscreen|reload|selectText|setSelectionRange|setScheme|setRootFontSize|showPicker|showModal|share|showNotification|closeNotification|saveFile|showOpenFilePicker|showDirectoryPicker|showSaveFilePicker|scrollBy|scrollIntoView|postMessage|preventDefault|stopPropagation|close|playSound|playSounds|stopSounds)(?=\\s*\\()"
         }
       ]
     }

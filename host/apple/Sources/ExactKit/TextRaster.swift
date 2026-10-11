@@ -159,10 +159,11 @@ struct TextRasterJob {
                 return TextEngine.finishedLine(CTTypesetterCreateLine(typesetter, $0), source: source, range: $0,
                                                justify: justifies ? Double(box.width - inset) : nil)
             }
-            if let clamped, !lines.isEmpty {
-                let range = NSRange(location: clamped.location, length: clamped.length)
-                lines[lines.count - 1] = TextEngine.clampedLine(source, range: range, width: Double(box.width)) ?? lines[lines.count - 1]
-            }
+        }
+        // First pixels reuse plain range lines; apply the clamp on both paths.
+        if let clamped, !lines.isEmpty {
+            let range = NSRange(location: clamped.location, length: clamped.length)
+            lines[lines.count - 1] = TextEngine.clampedLine(source, range: range, width: Double(box.width)) ?? lines[lines.count - 1]
         }
         let positions = zip(lines, baselines).map { line, baseline in
             let inset = insets.at(CTLineGetStringRange(line).location)

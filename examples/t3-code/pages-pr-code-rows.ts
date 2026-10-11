@@ -7,6 +7,7 @@
 // kinds this tab adds are `pr-file`, `pr-thread`, `pr-pending` and `pr-draft` (pages-pr-code.contract).
 import { hunkRows, plain, ROW_LIMIT, type Row, type Segment } from './diff';
 import { diffReviewLines, type ReviewLine, type SelectedLineRange } from './diff-comments';
+import { utilityPlacement } from './diff-line-drag';
 import type { FileContents, Expansion } from './diff-lazy';
 import { isFileDiffCollapsed, reviewPositionAnchor, type DiffFoldOverride, type PrDiffFile, type PrDiffSide, type PullRequestReviewPosition } from './pages-pr-code-logic';
 
@@ -14,13 +15,15 @@ export type CodeItem = {
   id: string; kind: string; path: string; name: string; status: string; letter: string; additions: number; deletions: number; expanded: boolean; markdown: boolean;
   tone: string; number: string; segments: Segment[]; leftTone: string; leftNumber: string; leftSegments: Segment[]; rightTone: string; rightNumber: string; rightSegments: Segment[];
   label: string; gutter: number; side: string; line: number; selected: boolean; leftLine: number; rightLine: number; leftSelected: boolean; rightSelected: boolean;
+  /** The "+" pinned to the selection's bottom line (diff-line-drag.ts utilityPlacement), as the Diff panel's rows. */
+  pinned: boolean; pin: boolean; leftPin: boolean; rightPin: boolean;
   error: boolean; partial: boolean; unavailable: boolean; expandable: boolean; entry: string; text: string;
   /** The Diff panel's header counts (diff.ts headerStat); the Code tab draws its own header. */
   statAligned: boolean; addText: string; delText: string;
 };
 export const BASE: CodeItem = { id: '', kind: '', path: '', name: '', status: '', letter: '', additions: 0, deletions: 0, expanded: false, markdown: false, tone: '', number: '', segments: [],
   leftTone: '', leftNumber: '', leftSegments: [], rightTone: '', rightNumber: '', rightSegments: [], label: '', gutter: 33.3, side: '', line: 0, selected: false, leftLine: 0, rightLine: 0,
-  leftSelected: false, rightSelected: false, error: false, partial: false, unavailable: false, expandable: false, entry: '', text: '', statAligned: false, addText: '', delText: '' };
+  leftSelected: false, rightSelected: false, pinned: false, pin: false, leftPin: false, rightPin: false, error: false, partial: false, unavailable: false, expandable: false, entry: '', text: '', statAligned: false, addText: '', delText: '' };
 const LETTER: Record<string, string> = { modified: 'M', added: 'A', deleted: 'D', renamed: 'R' };
 
 /** What one file's rows read beside the file itself. */
@@ -79,6 +82,7 @@ export function codeRows(input: RowsInput): { items: CodeItem[]; truncated: bool
     const picked = input.selection?.path === file.path ? input.selection.range : null;
     const span = picked ? (() => { const from = at.get(sideKey(picked.side, picked.start)), to = at.get(sideKey(picked.endSide, picked.end)); return from === undefined || to === undefined ? null : [Math.min(from, to), Math.max(from, to)] as const; })() : null;
     const isSelected = (side: string, line: number) => { const index = line > 0 ? at.get(sideKey(side, line)) : undefined; return !!span && index !== undefined && index >= span[0] && index <= span[1]; };
+    const utility = utilityPlacement(picked, point => at.get(sideKey(point.side, point.line)) ?? null);
     const digits = Math.max(1, ...file.hunks.flatMap(hunk => hunk.lines.map(line => String(Math.max(line.old, line.next)).length)));
     const gutter = Math.round((digits * 7.8267 + 15.6533 + 9.83) * 10) / 10;
     // One group per line, on its side: conversations, then pending comments, then the draft (PullRequestCodeTab groupAt).
@@ -88,22 +92,25 @@ export function codeRows(input: RowsInput): { items: CodeItem[]; truncated: bool
     for (const thread of notes.threads) group(thread.side, thread.line).push({ ...BASE, id: `thread:${thread.id}`, kind: 'pr-thread', path: file.path, expanded, entry: thread.id });
     for (const comment of notes.pending) { const anchor = reviewPositionAnchor(comment.position); group(anchor.side, anchor.line).push({ ...BASE, id: `pending:${comment.id}`, kind: 'pr-pending', path: file.path, expanded, entry: comment.id, text: comment.body }); }
     if (notes.draft) { const anchor = reviewPositionAnchor(notes.draft.position); group(anchor.side, anchor.line).push({ ...BASE, id: `draft:${file.path}`, kind: 'pr-draft', path: file.path, expanded, label: notes.draft.label }); }
+    // What sits under a selected line is painted as selected (Pierre's renderSelection marks the annotation that
+    // follows a selected line; diff-gutter-visuals).
     const annotate = (oldLine: number, newLine: number) => {
-      for (const key of [oldLine > 0 ? sideKey('left', oldLine) : '', newLine > 0 ? sideKey('right', newLine) : '']) {
+      for (const [key, side, line] of [[oldLine > 0 ? sideKey('left', oldLine) : '', 'deletions', oldLine], [newLine > 0 ? sideKey('right', newLine) : '', 'additions', newLine]] as const) {
         const list = key ? groups.get(key) : undefined;
-        if (list) { items.push(...list); groups.delete(key); }
+        if (list) { const selected = isSelected(side, line); items.push(...list.map(item => ({ ...item, selected }))); groups.delete(key); }
       }
     };
     const push = (row: Row | { left: Row; right: Row }, key: string) => {
       if (++rows > ROW_LIMIT) return;
-      const common = { ...BASE, id: `line:${file.path}:${key}`, path: file.path, expanded, gutter };
+      const common = { ...BASE, id: `line:${file.path}:${key}`, path: file.path, expanded, gutter, pinned: utility.pinned };
       if ('left' in row) {
         items.push({ ...common, kind: 'split', leftTone: row.left.tone, leftNumber: row.left.number, leftSegments: row.left.segments, rightTone: row.right.tone, rightNumber: row.right.number,
-          rightSegments: row.right.segments, leftLine: row.left.oldLine, rightLine: row.right.newLine, leftSelected: isSelected('deletions', row.left.oldLine), rightSelected: isSelected('additions', row.right.newLine) });
+          rightSegments: row.right.segments, leftLine: row.left.oldLine, rightLine: row.right.newLine, leftSelected: isSelected('deletions', row.left.oldLine), rightSelected: isSelected('additions', row.right.newLine),
+          leftPin: utility.holds('deletions', row.left.oldLine, true), rightPin: utility.holds('additions', row.right.newLine, true) });
         annotate(row.left.oldLine, row.right.newLine);
       } else {
         const side = row.tone === 'deletion' ? 'deletions' : 'additions', line = side === 'deletions' ? row.oldLine : row.newLine;
-        items.push({ ...common, kind: 'line', tone: row.tone, number: row.number, segments: row.segments, side, line, selected: isSelected(side, line) });
+        items.push({ ...common, kind: 'line', tone: row.tone, number: row.number, segments: row.segments, side, line, selected: isSelected(side, line), pin: utility.holds(side, line, false) });
         annotate(row.tone === 'addition' ? 0 : row.oldLine, row.tone === 'deletion' ? 0 : row.newLine);
       }
     };

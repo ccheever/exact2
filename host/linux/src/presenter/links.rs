@@ -32,7 +32,7 @@ impl<D: DataSource> Presenter<D> {
     /// The glyph under a point in `id`'s painted paragraph, and its run's
     /// link: a Markdown run's own target, or an inline run's `href` (its
     /// leaf or an inline ancestor below the paragraph).
-    fn run_link(&self, id: ViewId, x: f32, y: f32) -> Option<String> {
+    pub(super) fn run_link(&self, id: ViewId, x: f32, y: f32) -> Option<String> {
         let kernel = self.host.kernel();
         let node = kernel.node(id)?;
         let paragraph = self.paragraph(id)?;

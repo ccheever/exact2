@@ -301,7 +301,7 @@ component XHeavy
       case none
   action second
     if live
-      secs = floor(now() / 1000)
+      secs = floor(performanceNow() / 1000)
   action setDraft(id: string, value: string)
     send changed = draft(id, value)
   action toggle(id: string, epoch: number, open: bool)

@@ -2,20 +2,23 @@
 // apps/web/src/previewMiniPlayerStore.ts). The reference's zustand store becomes one plain object
 // per client connection (r6-media-device.ts keeps it), keyed by thread. It lives in memory only,
 // as the reference's store does: nothing is persisted, so a relaunch forgets position and width.
-// The browser source, browserMiniPlayerSource and selectThreadPreviewMiniPlayerTabId are left out:
-// this client floats devices only.
+// browser-surface part 3 brings the browser source back (browserMiniPlayerSource,
+// selectThreadPreviewMiniPlayerTabId): a Browser tab floats as a device does.
 import type { DevicePlatform, PreviewMiniPlayerPosition } from './previewMiniPlayerLayout';
 
 export type { PreviewMiniPlayerPosition, PreviewMiniPlayerSize } from './previewMiniPlayerLayout';
 
-/** What the floating player mirrors: a device stream. */
-export type PreviewMiniPlayerSource = {
-  readonly kind: 'device';
-  readonly hostId: string;
-  readonly deviceId: string;
-  readonly platform: DevicePlatform;
-  readonly name: string;
-};
+/** What the floating player mirrors: a browser tab or a device stream. */
+export type PreviewMiniPlayerSource =
+  | { readonly kind: 'browser'; readonly tabId: string }
+  | {
+    readonly kind: 'device';
+    readonly hostId: string;
+    readonly deviceId: string;
+    readonly platform: DevicePlatform;
+    readonly name: string;
+  };
+export type DeviceMiniPlayerSource = Extract<PreviewMiniPlayerSource, { kind: 'device' }>;
 
 export interface PreviewMiniPlayerState {
   readonly source: PreviewMiniPlayerSource;
@@ -25,9 +28,13 @@ export interface PreviewMiniPlayerState {
   readonly lastInteraction: 'drag' | 'resize';
 }
 
-export function previewMiniPlayerSourceKey(source: Pick<PreviewMiniPlayerSource, 'hostId' | 'deviceId'>): string {
-  return `device:${encodeURIComponent(source.hostId)}:${encodeURIComponent(source.deviceId)}`;
+export function previewMiniPlayerSourceKey(source: PreviewMiniPlayerSource): string {
+  return source.kind === 'browser'
+    ? `browser:${source.tabId}`
+    : `device:${encodeURIComponent(source.hostId)}:${encodeURIComponent(source.deviceId)}`;
 }
+
+export const browserMiniPlayerSource = (tabId: string): PreviewMiniPlayerSource => ({ kind: 'browser', tabId });
 
 /** usePreviewMiniPlayerStore's state and actions, keyed by the thread's key instead of a ScopedThreadRef. */
 export class PreviewMiniPlayerStore {
@@ -65,4 +72,15 @@ export class PreviewMiniPlayerStore {
   }
 
   removeThread(threadKey: string): void { this.close(threadKey); }
+}
+
+export function selectThreadPreviewMiniPlayer(byThreadKey: Record<string, PreviewMiniPlayerState>, threadKey: string | null | undefined): PreviewMiniPlayerState | null {
+  if (!threadKey) return null;
+  return byThreadKey[threadKey] ?? null;
+}
+
+/** The floating browser tab, or null when nothing floats or a device does. */
+export function selectThreadPreviewMiniPlayerTabId(byThreadKey: Record<string, PreviewMiniPlayerState>, threadKey: string | null | undefined): string | null {
+  const source = selectThreadPreviewMiniPlayer(byThreadKey, threadKey)?.source;
+  return source?.kind === 'browser' ? source.tabId : null;
 }

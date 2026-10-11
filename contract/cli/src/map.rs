@@ -85,6 +85,17 @@ impl SourceMap {
         Some((self.sources.path(site.span), site.span))
     }
 
+    /// Source buttons D9's migration must make explicitly bare. These facts
+    /// come from lowering's admission check and merged rows, never source text.
+    pub fn button_migrations(&self) -> Vec<(&std::path::Path, Span)> {
+        self.sites
+            .nodes
+            .iter()
+            .filter(|node| node.button.as_ref().is_some_and(|b| b.migrate))
+            .map(|node| (self.sources.path(node.span), node.span))
+            .collect()
+    }
+
     /// Where the plan's slot, derive or action named `name` was declared.
     pub fn declared(&self, name: &str) -> Option<(&std::path::Path, Span)> {
         let d = self
@@ -161,7 +172,10 @@ impl SourceMap {
         out
     }
 
-    /// values, so the caller supplies the encoded bytes *after* baking.
+    /// Values, so the caller supplies the encoded bytes *after* baking.
+    /// `nodes[site].bare_reason` is the first default-button refusal (LLP 1104
+    /// D2). The agent can join it by plan digest and site, as it joins row
+    /// origins, and render `bare: <reason>` in `layout`. Hosts need no new prop.
     pub fn json(&self, plan_bytes: &[u8]) -> String {
         // Serialize directly: no second tree of JSON objects proportional to
         // all nodes and repeated call chains on the edit-to-plan path.
@@ -195,7 +209,13 @@ impl SourceMap {
                 out.push(b'}');
                 instance = parent as usize;
             }
-            out.extend_from_slice(b"],\"bindings\":[");
+            if let Some(reason) = node.button.as_ref().and_then(|b| b.bare_reason.as_deref()) {
+                out.extend_from_slice(b"],\"bare_reason\":");
+                quote(&mut out, reason);
+                out.extend_from_slice(b",\"bindings\":[");
+            } else {
+                out.extend_from_slice(b"],\"bindings\":[");
+            }
             for (i, (row, origin)) in node.rows.iter().enumerate() {
                 if i != 0 {
                     out.push(b',');

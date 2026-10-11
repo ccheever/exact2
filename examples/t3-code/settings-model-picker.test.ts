@@ -169,7 +169,7 @@ describe('keyboard', () => {
 });
 
 // fix-misc-batch (#298 bug 8), read from the Contract source as dialog-focus.test.ts reads its dialogs: what
-// the real-input batch found missing on screen. The macOS drive in tasks/20261008-fix-misc-batch.md shows it;
+// the real-input batch found missing on screen. The macOS drive in tasks/closed/20261008-fix-misc-batch.md shows it;
 // this guards the wiring.
 describe('the picker\'s empty state (model-picker.contract)', () => {
   const lines = async () => (await Bun.file(new URL('model-picker.contract', import.meta.url)).text()).split('\n');

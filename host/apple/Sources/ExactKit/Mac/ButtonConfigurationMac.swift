@@ -78,7 +78,11 @@ enum ButtonConfigurationMac {
         button.font = titleFont
         button.bezelColor = look.hasSuffix("-accent") ? (accent ?? .controlAccentColor) : nil
         let foreground = color(rows.title["text_color"], appearance: appearance, accent: accent)
-        button.contentTintColor = foreground ?? (look == "borderless" ? (accent ?? .controlAccentColor) : nil)
+        // SwiftUI's `.plain` draws in the label colour, `.borderless` in the
+        // accent; the table draws both borderless, so the name tells them
+        // apart (LLP 1115 wave 1). An authored colour wins over either.
+        let platformInk: NSColor? = look != "borderless" ? nil : face.style == "plain" ? .labelColor : (accent ?? .controlAccentColor)
+        button.contentTintColor = foreground ?? platformInk
         button.title = face.title ?? ""
         // Keep the author's settings. AppKit still substitutes disabled ink
         // at draw time; observation reports that platform limitation (§6).

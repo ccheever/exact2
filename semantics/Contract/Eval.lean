@@ -97,7 +97,12 @@ def formatting (f : String) (args : List Value) : Result Value :=
   | "formatDate", [.num e, .num o, .str "medium"] => .ok (.str (Format.formatDate e o false))
   | "formatDate", [.num e, .num o, .str "month-year"] => .ok (.str (Format.formatDate e o true))
   | "formatDate", [.num e, .num o, .str "iso"] => .ok (.str (Format.formatIsoDate e o))
-  | "formatNumber", [.num n, .str "compact"] => .ok (.str (Format.compact n))
+  | "formatNumber", [.num n, .str "compact", _] => .ok (.str (Format.compact n))
+  -- LLP 1116 D8: `decimal`, `percent`, and `currency` with its code.
+  | "formatNumber", [.num n, .str style, .str code] =>
+    match Format.styled n style code with
+    | .some s => .ok (.str s)
+    | .none => .error (.unsupported "`formatNumber` of a style or code it does not take")
   -- LLP 1102 §3.2: `digits` a whole-number literal the compiler admitted.
   | "toFixed", [.num x, .num d] =>
     match Format.digitsOf d 100 with
@@ -150,7 +155,7 @@ theorem text_err {tables args e} (h : text tables args = .error e) :
 not here: their callback is evaluated by `eval`. -/
 def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
   match f, args with
-  | "now", [] => .ok (.num env.now)
+  | "performanceNow", [] => .ok (.num env.now)
   | "length", [.list xs] => .ok (.num (F64.ofNat xs.length))
   | "length", [.str s] => .ok (.num (F64.ofNat (Str.utf16Length s)))
   | "isEmpty", [.list xs] => .ok (.bool xs.isEmpty)
@@ -338,6 +343,11 @@ def eval : Nat → Env → Bool → Locals → Expr → Result Value
         if env.prog.resources.any (·.name == x) then
           (lookup x env.resources).elim (.error .pending) (fun _ => .ok (.bool false))
         else .ok (.bool false)
+      | "failure", [.var x] =>
+        -- Nor says why (LLP 1109 D3).
+        if env.prog.resources.any (·.name == x) then
+          (lookup x env.resources).elim (.error .pending) (fun _ => .ok .none)
+        else .ok .none
       | _, _ => do
         let vs ← evalList fuel env inFn ls args
         stdlib env name vs

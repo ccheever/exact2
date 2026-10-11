@@ -162,8 +162,9 @@ describe('Settings › Diagnostics asks again only when the reference does', () 
   });
 
   test('a read the next answer joins lands although every answer is replaced before its reply', async () => {
-    // A sample every turn and a reply two turns after the read was sent: every answer is let go before its reply.
-    const { server, files } = await launched(2);
+    // A wake every turn and a reply three turns after the read was sent: every answer is let go before its reply. (The
+    // page's reads land before its stream opens, settings-a-telemetry.ts telemetryPage, so two turns let only one go.)
+    const { server, files } = await launched(3);
     const result = await run(server, files, { turns: 12, sampleEachTurn: true });
     expect(result.letGo).toBeGreaterThanOrEqual(2);
     expect(result.page).toMatchObject({ available: true });

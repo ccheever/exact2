@@ -1,7 +1,7 @@
 // Proves caps rules fire in throwaway repositories and a clean repo passes;
 // also exercises the shared build and launch helpers.
 // `bun test ./scripts/caps.test.mjs`.
-import { test } from 'bun:test';
+import { test, expect } from 'bun:test';
 // These cases run cargo (the filesystem tool, bakes, locks). A shell whose PATH
 // omits rustup's bin directory still finds it there; without cargo, say so.
 const cargoBin = `${process.env.CARGO_HOME ?? `${process.env.HOME}/.cargo`}/bin`;
@@ -619,10 +619,11 @@ for (const [name, html, files, expectCode, expect] of [
   // ignored by Git or not; what the bake captures, a declared shader root, a crate's files
   // (including a csv beside them), a native module's script, presentation and logic scripts,
   // a game's art and an icon the manifest names are. An ignored file outside those
-  // (scratch/) and a saved world are not. A helper script (drive.sh) is not.
+  // (scratch/), a saved world and a local server's database are not. A helper script
+  // (drive.sh) is not.
   const dir=realpathSync(mkdtempSync(join(tmpdir(),'exact-build-inputs-')));
-  for(const sub of ['shots','tools','repros','gen','shader-gen','data','modules/web','art','scratch','logic/src','assets','presentation']) mkdirSync(join(dir,sub),{recursive:true});
-  for(const [name,text] of [['.gitignore','/local.ts\n/gen/\n/shader-gen/\n/notes/\n/modules/\n/art/\n/icon.png\n/data/table.bin\n/scratch/\n'],['Cargo.toml','[workspace]'],['app.json','{"icons":[{"src":"icon.png"}]}'],['icon.png','png'],['app.contract','view'],['local.ts','key'],['run.log','log'],['shots/one.png','png'],['shots/notes.txt','notes'],['shots/exported.json','{}'],['tools/probe.mjs','mjs'],['tools/levels.ops','ops'],['repros/bug.contract','view'],['app.test.ts','test'],['app.test.contract','test'],['drive.sh','sh'],['export.csv','a,b'],['logic/build.mjs','mjs'],['logic/src/foo.test.rs','rs'],['assets/x.js','js'],['presentation/view.mjs','mjs'],['data/ledger.csv','a,b'],['gen/made.rs','fn f() {}'],['shader-gen/paint.wgsl','fn main() {}'],['shader-gen/table.bin','bytes'],['data/Cargo.toml','[package]'],['data/table.bin','bytes'],['modules/web/index.js','js'],['art/strip.png','png'],['art/fox.glb','glb'],['run.world','world'],['scratch/out.bin','bytes']]) writeFileSync(join(dir,name),text);
+  for(const sub of ['shots','tools','repros','gen','shader-gen','data','modules/web','art','scratch','logic/src','assets','presentation','server']) mkdirSync(join(dir,sub),{recursive:true});
+  for(const [name,text] of [['.gitignore','/local.ts\n/gen/\n/shader-gen/\n/notes/\n/modules/\n/art/\n/icon.png\n/data/table.bin\n/scratch/\n'],['Cargo.toml','[workspace]'],['app.json','{"icons":[{"src":"icon.png"}]}'],['icon.png','png'],['app.contract','view'],['local.ts','key'],['run.log','log'],['shots/one.png','png'],['shots/notes.txt','notes'],['shots/exported.json','{}'],['tools/probe.mjs','mjs'],['tools/levels.ops','ops'],['repros/bug.contract','view'],['app.test.ts','test'],['app.test.contract','test'],['drive.sh','sh'],['export.csv','a,b'],['logic/build.mjs','mjs'],['logic/src/foo.test.rs','rs'],['assets/x.js','js'],['presentation/view.mjs','mjs'],['data/ledger.csv','a,b'],['gen/made.rs','fn f() {}'],['shader-gen/paint.wgsl','fn main() {}'],['shader-gen/table.bin','bytes'],['data/Cargo.toml','[package]'],['data/table.bin','bytes'],['modules/web/index.js','js'],['art/strip.png','png'],['art/fox.glb','glb'],['run.world','world'],['data.db','db'],['data.db-wal','wal'],['server/club.sqlite-shm','shm'],['scratch/out.bin','bytes']]) writeFileSync(join(dir,name),text);
   const walk=()=>newerThan(0,[dir],notBuildInput(dir,[join(dir,'shader-gen')])).map(p=>relative(dir,p)).sort();
   const outside=walk();
   spawnSync('git',['init','-q'],{cwd:dir});
@@ -753,3 +754,33 @@ for (const [name, html, files, expectCode, expect] of [
   rmSync(dir, { recursive: true, force: true });
   result('Apple packages reject linked static files and roots', copied && appRefused && hostRefused && danglingRootRefused);
 }
+
+// Exercise the driver's actual method with a quantized wall clock (#285).
+test('clock +N real never seeks behind the last reply and ends at from + N', async () => {
+  const source = readFileSync(new URL('./agent.mjs', import.meta.url), 'utf8');
+  const start = source.indexOf("    async clock(spec = 'settle') {");
+  const end = source.indexOf('\n    /** The window', start);
+  for (const host of ['macos', 'ios', 'host', 'host-ios', 'web', 'linux']) {
+    for (const ahead of [0, 0.75]) {
+      const sent = [], sleeps = [], wall = [18.329417, 18.329417, 18.829417, 20.329417, 20.329417];
+      let reported = 250;
+      const s = { now: ['web', 'linux'].includes(host) ? reported : 0, async op(req) {
+        if (req.take) return { clock: reported };
+        expect(req.to).toBeGreaterThanOrEqual(reported);
+        sent.push(req.to);
+        // Keep the host's last reported time even when it is ahead of the next wall sample.
+        reported = sent.length === 1 ? req.to + ahead : req.to;
+        return { clock: reported };
+      } };
+      const clock = new Function('s', 'carrier', 'performance', 'setTimeout', 'REAL_STEP_MS',
+        `return ({${source.slice(start, end)}}).clock;`)(s, { host }, { now: () => wall.shift() },
+        (done, ms) => { sleeps.push(ms); done(); }, 50);
+      const reply = await clock('+1 real');
+      expect(sent).toEqual([250, Math.max(250.5, 250 + ahead), 251]);
+      expect(reply.clock).toBe(251);
+      expect(s.now).toBe(251);
+      expect(reply.real).toBe(2);
+      expect(sleeps).toEqual([1, 251 - sent[1]]);
+    }
+  }
+});

@@ -51,7 +51,7 @@ component MobileAttachmentDocument
         column flex=1 align-items="center" justify-content="center" padding=21 gap=7
           text "File unavailable" font-size=18 font-weight=700 color=colors.foreground
           text (nativeError != "" ? nativeError : data.error) font-size=14 line-height="22.75px" text-align="center" color=colors.muted
-          button press=retry min-height=44 padding-left=14 padding-right=14
+          button appearance="none" press=retry min-height=44 padding-left=14 padding-right=14
             text "Try again" font-size=14 color=colors.foreground
       else when not data.ready
         column flex=1 align-items="center" justify-content="center" gap=10.5

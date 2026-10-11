@@ -1,5 +1,6 @@
 use CnTooltip from "./settings-b-kit.contract"
 use TipBubble from "./shell-tip.contract"
+use DialogOpenFocus from "./dialog-trap.contract"
 
 // The provider limits as bars, T3 Code 1e2ecbd975 (MIT, see LICENSE-T3):
 // apps/web/src/components/usage/UsageLimits.tsx (PaceIcon, WindowBar, LimitWindows compact,
@@ -246,6 +247,7 @@ component ResetCreditDialog
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" testId="reset-credit-overlay"
       column width="100%" max-width="32rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfc, #0a0a0a)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="alertdialog" aria-modal=true aria-label="Use a reset credit?" testId="reset-credit-dialog"
+        DialogOpenFocus(target="reset-credit-cancel")
         column gap="0.5rem" padding="1.5rem" box-sizing="border-box"
           text "Use a reset credit?" font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
           text "This redeems one credit on your account and clears the current rate-limit windows. It cannot be undone." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #8f8f8f)"

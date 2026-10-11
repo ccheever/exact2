@@ -28,18 +28,18 @@ source changed in the integration pass apart from this README and `AGENT-HANDOFF
 - `cargo test -p t3-code-macos --lib`: 7 pass (Markdown/transcript parsing,
   table blocks and their column alignment).
 - All 26 AppKit/XCTest binaries under `macos/tests/` pass with the recipe below:
-  attach 3, composer 45, composer-files 4, contextmenu 6, fleet 8, intent 4, menus 10,
+  attach 3, composer 56, composer-files 4, contextmenu 6, fleet 8, intent 4, menus 10,
   notifications 4, r5-composer 3, r5-panels 5, r6-device 3 (loopback serve-sim peers),
   r6-media 5 (PDFKit, sandboxed WebKit; rendered HTML loads its siblings from the asset
   token's directory and, as the reference's frame, external hosts), r7-device 13 (H.264 over a loopback hub; with
   `T3_DEVICE_GLB_DIR` set to a T3 server's `client/assets` the served-model renders run
-  too), r8-keys 4, r8-pointer 2 (the title row keeps the frame the host restored), r9-device 13 (the iPhone Duo viewer over loopback panel
+  too), r8-keys 6, r8-pointer 2 (the title row keeps the frame the host restored), r9-device 13 (the iPhone Duo viewer over loopback panel
   feeds and the served model, the foldable), r9-input 10, r10-connect 4 (select-on-open,
   Korean 2-Set chords re-issued by key code and reaching menu equivalents), r10-device 4 (a Duo panel feed reopens its stream after a stalled main thread,
   including a 10-run Closed loop; the physical hand-off's single elected feed), r11-device 3
   (the 3D phone keeps H.264 and 3D through main-thread stalls, ten first opens; the soft-queue
   window), r11-upstream 3 (the draft row's NSMenu), sidebar 5,
-  ssh 4 (1 live test skipped), transport 31 (2 live tests skipped), snapshot 86 checks,
+  ssh 4 (1 live test skipped), transport 31 (2 live tests skipped), snapshot 161 checks,
   mermaid 10 checks against a running HEAD server.
 - The integrated app was built and driven against isolated HEAD-oracle (`f870c41`) backends
   with the deterministic fixture provider: the 34 round-3 states, 13 round-4 states and 9
@@ -75,7 +75,7 @@ every real-input window of rounds 9 to 11. The manual checklist is in `AGENT-HAN
 
 Requires macOS 14 or later, Xcode, the repository's Rust toolchain, Bun version
 from `package.json`, and the native TypeScript Hermes toolchain described in the
-[root setup instructions](../../../README.md#1-install-the-tools). Run from the
+[root setup instructions](../../README.md#1-install-the-tools). Run from the
 Exact repository root:
 
 ```sh
@@ -376,7 +376,10 @@ root's (`…Root`). Feature areas live in their own files
 (`sidebar-*`, `timeline-*`, `composer-*`, `shell-*`, `pages-*`, `settings-*`,
 `palette*`, `r3-*`), each `.ts` with its Contract view and tests. `client.ts`,
 `protocol.ts`, `domain.ts` and `presentation.ts` own the data source, commands and
-event projection. `modules/apple/` is the native module; `apple/` holds the bake adapter
+event projection. A labelled `button` or `link` that may mount no text says `title=""`: since
+LLP 1115 the Mac host shows the `aria-label` of a button whose mounted, not `aria-hidden` children
+give no text as its help tag, and the reference shows only its own tips (`help-tags.test.ts`
+applies the host's rule to the view tree). `modules/apple/` is the native module; `apple/` holds the bake adapter
 and native tests. T3's MIT notice is retained in `LICENSE-T3`.
 
 Exact asks an answer again when a topic it watches changes. Since exact2 #183 a change
@@ -464,3 +467,32 @@ updates are not available right now." box; a build with one omits both items.
 To drive the app the way the parity rounds did (an isolated fixture backend serving the
 HEAD oracle, the built app in agent mode, a headless Chrome reference), see the lane
 tooling under `target/t3-ui-parity/` described in `AGENT-HANDOFF.md`.
+
+## Pitfalls found here
+
+These three were in the branch's copy of `docs/agent-pitfalls.md`; adopt-main-fixes-r7 moved
+them here so the branch carries no framework-file edits. They go back to main's pitfalls file
+with #99 if they still hold there.
+
+- **A numeric `height` transition jumps on macOS.** Apple's automatic height ownership
+  requires a border-box node with `interpolate-size="allow-keywords"`, including numeric
+  endpoints. Use both on the clipping parent, for example `box-sizing="border-box"
+  interpolate-size="allow-keywords" height=(open ? 280 : 0) transition="height 400ms
+  ease-out"`. A fixed-height child then retains its grid while the parent animates. A
+  standalone macOS probe measured 105.88 pt at 100 ms and continuous reversal. (Terminal
+  parity, framework height code identical to `origin/main` `a72661fd4`, 2026-10-07;
+  `host/apple/src/height.rs`.)
+- **A one-edge border draws a 3 px frame, or a closed panel stays 3 px tall.**
+  `border-style="solid"` enables every edge; unspecified widths retain CSS's `medium`
+  default. Set `border-width=0` before the intended edge, for example `border-width=0
+  border-top-width=1 border-style="solid"`. The terminal drawer measured 3 px when its
+  declared height was zero, and its panes lost 6 px to unintended side borders. (Terminal
+  parity, 2026-10-06.)
+- **Physical IME input differs in a macOS agent window.** `EXACT_AGENT=1` launches a
+  non-activating accessory app. Its window can be key and its textarea AX-focused while
+  another process remains the foreground application. In that state, a terminal probe
+  received the first Korean syllable as separate Jamo; a fresh terminal in a normally
+  launched, active app composed it correctly. For physical keyboard acceptance, use the
+  normal app and verify both `NSApp.isActive` and the foreground PID before asking someone
+  to type. A key window or successful synthetic input alone is insufficient. Keep other test
+  windows hidden and name the visible app. (Terminal parity, 2026-10-07.)

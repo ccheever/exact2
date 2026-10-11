@@ -274,6 +274,22 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     var imageSource: String?
     var loadGeneration = 0
     package var pressed = false { didSet { if pressed != oldValue { pressChanged() } } }
+    /// The focus came from a touch's press (PointerIOS, NativeButtonsIOS),
+    /// focus WebKit never gives a button on a tap: a button holding it does
+    /// not keep a later autofocus off (Accessibility). Tab and `focus(id)`
+    /// clear it (PresenterIOS); UIKit handing the focus back when the view
+    /// moves (into a presented sheet) keeps it.
+    package var focusedByTouch = false
+    /// The focus a touch's press takes (PointerIOS, NativeButtonsIOS, the
+    /// agent's tap), marked before `becomeFirstResponder` runs: its `focus`
+    /// handler can mount an autofocus field, whose pass must see the mark.
+    @discardableResult
+    func takeTouchFocus() -> Bool {
+        focusedByTouch = true
+        if becomeFirstResponder() { return true }
+        focusedByTouch = false
+        return false
+    }
     var press = PressFeedback() // LLP 1061 D2: the feedback `pressed` drives
     package var disabled: Bool { props["disabled"] == "true" }
     /// HTML inertness covers the subtree, including direct agent activation.
@@ -301,7 +317,12 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         get { accessibilityExposed && super.isAccessibilityElement }
         set { super.isAccessibilityElement = newValue }
     }
-    package override var canBecomeFirstResponder: Bool { !formDisabled && !inert && !cssVisibilityHidden && !isHidden && field == nil && textArea == nil && (kind == "button" || isNativeButton || isRadio || explicitTabIndex != nil || canvases?.wantsInput(id) == true || !handlers.isDisjoint(with: Self.focusEvents)) }
+    /// It hears focus, blur, keys or clipboard events (`focusEvents`), names a tabindex, or is a canvas taking input
+    private var asksForFocus: Bool { explicitTabIndex != nil || canvases?.wantsInput(id) == true || !handlers.isDisjoint(with: Self.focusEvents) }
+    /// A tap focuses only a node that asked for focus: UIKit's buttons never become first responder from a
+    /// touch, though Tab and `focus(id)` reach them
+    var focusesOnPress: Bool { canBecomeFirstResponder && asksForFocus }
+    package override var canBecomeFirstResponder: Bool { !formDisabled && !inert && !cssVisibilityHidden && !isHidden && field == nil && textArea == nil && (kind == "button" || isNativeButton || isRadio || asksForFocus) }
     package override func becomeFirstResponder() -> Bool {
         guard !formDisabled, !inert, !cssVisibilityHidden else { return false }
         let ok = super.becomeFirstResponder()
@@ -317,6 +338,15 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if ok, handlers.contains("blur"), presenter?.menus.focus.quiet != true { presenter?.blur(id) }
         return ok
     }
+    #if os(iOS)
+    /// A focused node is not text entry, as the view's shortcut focus is not
+    /// (ExactViewIOS): a menu that reloads its responder's input views (a
+    /// `select`'s) raised the software keyboard over its options once a
+    /// press had left a button focused (polls, LLP 1116 D2). A canvas
+    /// taking input keeps the system's.
+    private static let noKeyboard = UIView(frame: .zero)
+    package override var inputView: UIView? { isFirstResponder && canvases?.wantsInput(id) != true ? Self.noKeyboard : nil }
+    #endif
     /// A hardware keyboard's Tab and Shift-Tab move the focus through the
     /// sequential order, as macOS's key-view loop does (`Presenter.moveFocus`);
     /// Enter and Space then press (`pressesBegan`). UIKit gives text inputs a
@@ -395,7 +425,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     }
     /// A text field's Enter as a key (its characters are its `input`, the
     /// Enter commits its `change`); the editing goes on, as on the web.
-    package func textFieldShouldBeginEditing(_ textField: UITextField) -> Bool { !disabled && !inert }
+    package func textFieldShouldBeginEditing(_ textField: UITextField) -> Bool { applyPadBar(); return !disabled && !inert }
     package func textViewShouldBeginEditing(_ textView: UITextView) -> Bool { !disabled && !inert }
 
     package func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
@@ -416,6 +446,14 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         presenter?.commitEdit(id, textField.text ?? "", change: handlers.contains("change"))
         // Enter in an input with a `submit` handler is the web's implicit submission.
         if handlers.contains("submit") { presenter?.submit(id) }
+        // The key does what its label says (LLP 1115 wave 1): Next moves to
+        // the next field (or, at the last, puts the keyboard away); Done,
+        // Go, Search and Send put the keyboard away.
+        switch props["enterKeyHint"] {
+        case "next": if presenter?.focusNextField(after: self) != true { textField.resignFirstResponder() }
+        case "done", "go", "search", "send": textField.resignFirstResponder()
+        default: break
+        }
         return false
     }
 
@@ -463,7 +501,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     func updateSymbol() {
         guard kind == "image", let source = imageSource, source.hasPrefix("symbol:") else { return }
         isAccessibilityElement = false
-        let name = props["symbolName"] ?? "", points = number("font_size", 16)
+        let name = props["symbolName"] ?? "", points = number("font_size", PageFacts.defaultRootFontSize)
         let weights: [UIImage.SymbolWeight] = [.ultraLight, .thin, .light, .regular, .medium, .semibold, .bold, .heavy, .black]
         let index = min(8, max(0, Int((number("font_weight", 400) / 100).rounded()) - 1))
         let key = "\(source):\(name):\(points):\(index):\(symbolLookKey)"
@@ -548,7 +586,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // a `color-scheme` above it included (LLP 1034 §8).
             node.presenter?.session?.noteAppearance(node)
             // An `svg`'s paints are resolved into its scene's layers.
-            node.presenter?.svg.reappear(node.id, dark: node.drawsDark, clock: node.presenter?.session?.clock)
+            node.presenter?.svg.reappear(node.id, dark: node.drawsDark, clock: node.presenter?.session?.clock, tint: node.viewTint)
             node.presenter?.requestTextPublication()
             if let presenter = node.presenter, node.superview === presenter.root { presenter.paintCanvas() }
         }
@@ -867,9 +905,12 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             f.placeholder = nil
             return
         }
-        // D3: UIKit's semantic placeholder colour on a native field. The
-        // explicitly bare editor preserves its existing authored ink rule.
-        let ink = isNativeTextControl ? UIColor.placeholderText : (f.textColor ?? SystemColor.canvasText).withAlphaComponent(0.30)
+        // UIKit's placeholder colour, which follows Increase Contrast: on a
+        // native field (D3), and on a bare one whose `color` is not its own
+        // (LLP 1115 §2, "inherited is unsaid": a grouped list's row gives
+        // its field the label colour). A bare field that writes its own
+        // colour mutes that ink.
+        let ink = isNativeTextControl || ownColor("text_color") == nil ? UIColor.placeholderText : (f.textColor ?? SystemColor.canvasText).withAlphaComponent(0.30)
         f.attributedPlaceholder = NSAttributedString(string: text, attributes: [
             .font: font,
             .foregroundColor: ink,
@@ -1119,6 +1160,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             case "search": f.keyboardType = .webSearch
             default: f.keyboardType = .default
             }
+            applyPadBar() // a pad's missing keys its field asks for: ±, Done (LLP 1116.003 D7)
             // HTML's `enterkeyhint` labels the return key (feed F25); UIKit
             // has no `previous`, which keeps the default.
             switch props["enterKeyHint"] {
@@ -1150,6 +1192,10 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // `role="img"` (an svg's) is one labelled image, as on the web (habits F16).
             isAccessibilityElement = authoredLabel != nil
             if authoredLabel != nil { accessibilityTraits.insert(.image) } else { accessibilityTraits.remove(.image) }
+        } else if rangeRole != nil {
+            // A range role is one element and its value (LLP 1116 D8).
+            isAccessibilityElement = true
+            accessibilityValue = rangeValueText
         }
         if kind == "image", let src = props["imageSource"], src != imageSource { loadImage(src) }
         if kind == "image", props["imageSource"] == nil, imageSource != nil {
@@ -1216,18 +1262,20 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         style = s
         if old["display"] != s["display"] || old["visibility"] != s["visibility"] { isHidden = hostHidden }
         if old["color_scheme"] != s["color_scheme"] { applyColorScheme() }
+        if old["accent_color"] != s["accent_color"] { applyAccentTint() }
         updateSymbol(); syncDynamicRange(from: old)
         (clipPath, clipRule) = (ClipPath.path(s["clip_path"]), ClipPath.rule(s["clip_path"]))
         applyBoxMask()
         applyFilter()
         updateMaterial()
         syncVibrancy()
+        presenter?.accent.restyled(self)
         syncScroll()
         applyAffordances()
         styleTextArea()
         field?.textAlignment = NSTextAlignment(rawValue: textAlignmentCode) ?? .left
         if let f = field, let t = text {
-            f.font = t.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
+            f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
             f.textColor = color("text_color", SystemColor.canvasText)
             applyPlaceholder(f)
             styleNativeField()
@@ -1326,10 +1374,10 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
 
     /// The scroll container's content size: the kernel's extent on an axis
     /// that scrolls, the box on one that does not (so UIKit cannot pan it
-    /// there), never less than the box.
+    /// there), never less than the box (or the port UIKit's insets leave, `scrollFloor`).
     func fitScroll() {
         guard let sv = scroll else { return }
-        let size = CGSize(width: sv.scrollsX ? max(content.width, sv.bounds.width) : sv.bounds.width, height: sv.scrollsY ? max(content.height, sv.bounds.height) : sv.bounds.height)
+        let size = CGSize(width: sv.scrollsX ? max(content.width, sv.bounds.width) : sv.bounds.width, height: sv.scrollsY ? max(content.height, scrollFloor(sv)) : sv.bounds.height)
         if sv.contentSize != size { sv.contentSize = size }
         // Forced bounce on a carousel's computed y traps Mac wheel input; one travels a quarter of its width or lays a
         // row (itself, or a child wider than the port), and a page a few points too wide keeps its bounce.

@@ -20,7 +20,7 @@ generic oracle/trace infrastructure or full T0 matrix.
 ## Provider sign-in follow-ups, 2026-10-08
 
 PR #238's unverified rows and deferred decisions are preserved in
-[provider sign-in verification follow-up](tasks/20261008-provider-sign-in-verification-followup.md).
+[provider sign-in verification follow-up](tasks/closed/20261008-provider-sign-in-verification-followup.md) (closed 2026-10-11, its rest in `STATUS.md` "Known differences").
 The remaining app-wide focus finding is [dialog shortcut focus](tasks/closed/20261008-dialog-shortcut-focus.md).
 These stay separate from merging the provider implementation; existing ownership of URL auth
 (provider-settings-upkeep) and progress accessibility (X49) is unchanged.
@@ -91,9 +91,10 @@ these user decisions have changed the tickets:
   Its live drive found and fixed a pull request row read that never settled on real GitHub.
 - `round12-wrapup` is superseded and `clone-on-exact2-main`'s import is done. The clone
   reaches `main` through #99, which stays a draft until the cleanup the user scheduled for the end.
-- Charlie decided 40 of the plan's issues on 2026-10-08 (08:07Z); `issues/README.md` "Charlie's decisions and upstream
-  state, by bucket" sums them up and each X file records its own. The records were reclassified against upstream later
-  that day (`t3-code-records-reclassify`): seven buckets, from "done on main" to "attempt withdrawn", and an adoption list. Then the user decided (2026-10-08):
+- Charlie decided 40 of the plan's issues on 2026-10-08 (08:07Z). The records were reclassified against upstream later
+  that day (`t3-code-records-reclassify`): seven buckets, from "done on main" to "attempt withdrawn", and an adoption list.
+  That bucket table is retired (2026-10-10): main moved the open issues into its `issues/` files on 2026-10-09, those
+  files carry the decisions and the live state, and `issues/README.md` maps each X record to its main file. Then the user decided (2026-10-08):
   - `browser-surface`: **build** it on a `WKWebView` inside the clone's own module (X1's path B: no CDP, Safari Web
     Inspector, injected-script automation, X1's deviation table declared). #100 was closed as not planned, so this is
     clone-side work, not a framework wait; X1 is closed. It starts after `app-contract-root-rewrite` (root line cap).
@@ -132,12 +133,11 @@ these user decisions have changed the tickets:
   (#290, #312, #308, #307 and #310 have merged), so the root stays well under the 1,500-line cap (1,478 at `ec32c8c37`, about 1,488
   with #307); Charlie's ruling on #108 and main PR #327's audit name it the remedy. [browser-surface](tasks/closed/20261005-browser-surface.md),
   after the root rewrite.
-- Waiting: `provider-sign-in-verification-followup` (its X49 row waits for main fix of #279: approved, no fix in
-  progress); `installed-font-picker` (X48, [#318](https://github.com/ccheever/exact2/issues/318): design pending, no owner selection). The deferred rows of the next real-input batch are listed in
+- Waiting: `installed-font-picker` (X48, [#318](https://github.com/ccheever/exact2/issues/318): design pending, no owner selection). The deferred rows of the next real-input batch are listed in
   `examples/t3-code/STATUS.md`.
 - Main PR [#327](https://github.com/ccheever/exact2/pull/327) (open, 2026-10-08) fixes #315 (X63), #316 (X64), #322 (X62),
   #280 (X52), #284 (X50) and #281 (X51); it is partial for #292 and #282 and withdrew #291, #317 (X65) and #320 (X67);
-  its audit's disposition for each of our issues is in `issues/README.md` and the X files. Main merged #309 (#101),
+  its audit's disposition for each of our issues is now in main's `issues/` files. Main merged #309 (#101),
   #313 (#269, partial), #314 (#235, partial) and #325 (closes #286) the same day; #324 (refs #282) was closed unmerged.
 - Main adoption round 7 is blocked: it waits for main fix of X67 (main's examples test overflows the compiler's 2 MiB
   test-thread stack on the clone, [#320](https://github.com/ccheever/exact2/issues/320), still open after #327), and it
@@ -196,62 +196,105 @@ after the tasks it shares files with have merged.
 
 Wave 1:
 1. [settings-diagnostics-and-scope](tasks/closed/20261009-settings-diagnostics-and-scope.md): S2-2 (high, Diagnostics empty),
-   S2-11, PG-8. Coordinate with the planned [settings-pages-subscribed-config](tasks/20261009-settings-pages-subscribed-config.md).
+   S2-11, PG-8. Coordinate with the planned [settings-pages-subscribed-config](tasks/closed/20261009-settings-pages-subscribed-config.md).
 2. [timeline-work-rows](tasks/closed/20261009-timeline-work-rows.md): TH-1 to TH-6, TH-10.
-3. [diff-panel-parity](tasks/20261009-diff-panel-parity.md): PA-6, PA-7, PA-8, PA-12.
+3. [diff-panel-parity](tasks/closed/20261009-diff-panel-parity.md): PA-6, PA-7, PA-8, PA-12.
 4. [right-panel-launcher-and-files](tasks/closed/20261009-right-panel-launcher-and-files.md): PA-1, PA-2, PA-4, PA-5, PA-10.
 5. [composer-provider-state-and-details](tasks/closed/20261009-composer-provider-state-and-details.md): CO-5, CO-6, CO-8, CO-9,
    CO-10, PA-9.
-6. [settings-appearance-and-skill-chip](tasks/20261009-settings-appearance-and-skill-chip.md): S1-5, S1-6, S1-12.
+6. [settings-appearance-and-skill-chip](tasks/closed/20261009-settings-appearance-and-skill-chip.md): S1-5, S1-6, S1-12.
 7. [settings-escape-and-nav](tasks/closed/20261009-settings-escape-and-nav.md): S1-1, S1-2, S2-1 (one root cause), S1-3, S1-4,
    S2-5.
 8. [snapshot-permission-helper](tasks/closed/20261009-snapshot-permission-helper.md): PG-9.
 
 Wave 2:
-9. [app-color-scheme](tasks/20261009-app-color-scheme.md): PG-1, PA-11, TH-7 (one root cause). After 7
+9. [app-color-scheme](tasks/closed/20261009-app-color-scheme.md): PG-1, PA-11, TH-7 (one root cause). After 7
    (`app-window.contract`).
-10. [shell-sidebar-palette-keys](tasks/20261009-shell-sidebar-palette-keys.md): SH-1 to SH-5, TH-8. After 1 (`app.contract`).
-11. [settings-rows-and-labels](tasks/20261009-settings-rows-and-labels.md): S1-8, S1-9, S1-16, S2-3, S2-6, S2-7, S2-8,
+10. [shell-sidebar-palette-keys](tasks/closed/20261009-shell-sidebar-palette-keys.md): SH-1 to SH-5, TH-8. After 1 (`app.contract`).
+11. [settings-rows-and-labels](tasks/closed/20261009-settings-rows-and-labels.md): S1-8, S1-9, S1-16, S2-3, S2-6, S2-7, S2-8,
     S2-10, S2-9's row alignment. After 1 (`settings-core.ts`).
-12. [markdown-links-and-files-preview](tasks/20261009-markdown-links-and-files-preview.md): PA-3, TH-9. After 4
+12. [markdown-links-and-files-preview](tasks/closed/20261009-markdown-links-and-files-preview.md): PA-3, TH-9. After 4
     (`r4-surfaces-files.contract`). TH-9 matches the live reference (the user's "match the pin" rule).
 13. [notifications-all-environments](tasks/closed/20261009-notifications-all-environments.md): PG-10. Independent; it needs a
     two-server lane.
 
 Wave 3:
-14. [model-picker-parity](tasks/20261009-model-picker-parity.md): CO-1 to CO-4, CO-7, CO-11, S2-4. After 5, 10 and 11
+14. [model-picker-parity](tasks/closed/20261009-model-picker-parity.md): CO-1 to CO-4, CO-7, CO-11, S2-4. After 5, 10 and 11
     (`r3-composer-controls-fanout.ts`, `keyboard-dispatch.ts`, `settings-scheduled.contract`,
     `settings-source-control.contract`).
-15. [usage-and-pr-pages](tasks/20261009-usage-and-pr-pages.md): PG-2 to PG-7. After 9 (`pages-usage*.contract`).
+15. [usage-and-pr-pages](tasks/closed/20261009-usage-and-pr-pages.md): PG-2 to PG-7. After 9 (`pages-usage*.contract`).
 
 Real-input rows: SH-1, PA-12, S1-3, S1-4, S1-12, S2-5, PG-9 and PG-10's system notification. Run them in one batch while
 the screen is unlocked. PG-9's grant row needs the user present.
 
 Blocked:
-- [blocked-desktop-update-controls](tasks/20261009-blocked-desktop-update-controls.md): SH-6, S1-13. The user's X40 scope
+- [blocked-desktop-update-controls](tasks/closed/20261009-blocked-desktop-update-controls.md): SH-6, S1-13. The user's X40 scope
   decision applies, but the closed app-update-feed record's "equals the reference" claim does not hold. The coordinator
   builds option (a) as a draft PR; the user decides by merging it (build) or closing it (keep out).
 - [blocked-theme-usage-highlight](tasks/20261009-blocked-theme-usage-highlight.md): S1-7. Waits for X69 on `main`.
 
-New issue: [X69](issues/20261009-x69-paint-role-node-query.md) (a read that lists the nodes a paint role reaches), a local
-draft. `issue-open` reproduces it and checks it against #321. Publication needs the user's approval.
+New issue: [X69](issues/closed/20261009-x69-paint-role-node-query.md) (a read that lists the nodes a paint role reaches), a local
+draft. `issue-open` reproduces it and checks it against #321. Publication needs the user's approval. (Filed on main on
+2026-10-10 by #386 as `issues/20261010-paint-role-node-list-read.md`, with X70, X71 and X11's backdrop case.)
 
 Decisions: TH-9 follows the user's "match the reference at the pin" rule (2026-10-09). SH-6/S1-13 go to the user as a
 draft PR (option a of the blocked record).
 
-Progress (2026-10-10): merged #357, #356, #355, #359, #365, #362 and #361 (records in `tasks/closed/`); #360 waits for a
-reference-matching change to its comparison picker; wave 2b (settings-pages-subscribed-config, shell-sidebar-palette-keys,
-settings-rows-and-labels), markdown-links-and-files-preview, app-color-scheme and the update-controls draft are in flight.
-[audit-wave-followups](tasks/20261010-audit-wave-followups.md) holds four differences the fix agents found outside their tasks.
+Progress (2026-10-10): 16 PRs merged: #357, #356, #355, #359, #365, #362, #361, #360, #364, #366, #370, #369,
+#368 (the user decided to build the no-feed update controls), #367, plus #353 and Browser part 2 (#352, merged on the
+user's decision once Charlie's acceptance list passed). Records are in `tasks/closed/`. Then merged: #371, #372, #373,
+#374, #375, #354 (Browser part 4), #376, #378, #379, #382 (the flatten), #383, #384 (main adoption round 7, main
+`bc357d03c`, `afe62dfeb`; closed) and #349 (Browser part 3, `70e2ddd4b`). `realinput-1010d` passed #349's rows, #383's
+and #384's steps 1-3 and #346's ⌘-click, and closed #296 U6 (real input cannot time its race); #308's gutter drag waits
+for a retry (the lane's Code tab answered 503). Then merged: [realinput-1010c-native](tasks/closed/20261010-realinput-1010c-native.md)
+(#398, `9cb5d3315`) and [realinput-1010c-fixes](tasks/closed/20261010-realinput-1010c-fixes.md) (#399, `df2cc67e1`),
+both closed, and [adopt-main-fixes-r8](tasks/closed/20261010-adopt-main-fixes-r8.md) (#402, main adoption round 8),
+merged by fast-forward, so main `d413487a8` is now an ancestor of the T3 branch. `realinput-1010e` (the bundle of
+`a1ade42f9`) passed #398's RC-1 step 1 and #399's RC-2, RC-3, RC-4 (b)–(d), RC-6 and RC-8.
+What did not pass (RC-1 steps 2 and 3, RC-4 (a)'s caret, RC-5, #308's 503 again) and one new finding are RE-1 to RE-6.
+Then merged: [realinput-1010d-followups](tasks/closed/20261010-realinput-1010d-followups.md) (#400, `3a88f3a9f`),
+[right-panel-escape](tasks/closed/20261010-right-panel-escape.md) (#403, `dcbb7bdf4`),
+[settings-headings](tasks/closed/20261010-settings-headings.md) (#404, `917ddd341`) and
+[realinput-1010e-followups](tasks/closed/20261010-realinput-1010e-followups.md) (#406, `2c9225c10`), all closed. X74 (a
+heading inside a button, found by #404) moved to main as `issues/20261010-macos-a-heading-inside-a-button.md` (main PR
+#405); X75 (two sends on one mutation in one turn, found by #403) was checked and not filed: main's docs declare it.
+`realinput-1010f` (the bundle of `d057787cb`) passed RD-1, RD-2's positions, RD-3, RE-1 to RE-4 and RE-5's Code tab, and
+traced RE-6's two bad states. What did not pass (RD-4's Services item, RD-2's drag offset, #308's gutter drag, the pending
+card's Discard, RE-6's hover cause) is RF-1 to RF-5. Then merged (2026-10-10 to 2026-10-11), all closed:
+[shell-context-menu](tasks/closed/20261010-shell-context-menu.md) (#407, `6bac646cc`),
+[import-wizard-initial-focus](tasks/closed/20261010-import-wizard-initial-focus.md) (#409, `d608796fa`),
+[realinput-1010f-followups](tasks/closed/20261010-realinput-1010f-followups.md) (#413, `1d620b880`),
+[diff-gutter-visuals](tasks/closed/20261011-diff-gutter-visuals.md) (#416, `2489c7c27`),
+[diff-gutter-selection-followups](tasks/closed/20261011-diff-gutter-selection-followups.md) (#417, `f427a9a27`) and
+[realinput-1010g-followups](tasks/closed/20261010-realinput-1010g-followups.md) (#419, `408eab1ad`). Framework gaps X76–X82
+moved to main (main PRs #410, #411, #412, #414, #418, #420). `realinput-1010h` (the bundle of `408eab1ad`) passed 14 of
+16 steps; RG-3's spelling guesses (another input source) and the wizard's Shift+Tab (X53) were partial. User decision of
+2026-10-11: that was the last real-input session, and build observations and failures go to `STATUS.md` "Known
+differences", not to new tasks. Later that day the user asked to fix the Known differences that could be fixed then:
+[files-gutter-parity](tasks/closed/20261011-files-gutter-parity.md) (#427, `ab908d7a1`; reopened),
+[reply-links](tasks/closed/20261011-reply-links.md) (#434, `ff1eb4ceb`),
+[dialog-trap-and-progress-value](tasks/closed/20261011-dialog-trap-and-progress-value.md) (#431, `4b6a268f3`) and
+[unverified-real-input-rows](tasks/closed/20261011-unverified-real-input-rows.md) (#426, `6becef789`) merged; framework
+gap [X83](issues/closed/20261011-x83-repeating-hatch-across-list-rows.md) moved to main (main PR #430). One final
+session, `realinput-1011a` (the bundle of `ff1eb4ceb`), passed 14 of 21 steps; dialogs that open with nothing focused,
+⌘⇧F and the steps the lane could not reach are in `STATUS.md` "Known differences". The user then asked to fix four of
+them: [dialog-initial-focus-and-model-prices](tasks/closed/20261011-dialog-initial-focus-and-model-prices.md) (#438,
+`976fce617`) and [search-key-and-timeline-commit-title](tasks/closed/20261011-search-key-and-timeline-commit-title.md)
+(#439, `a55c9e7c5`) merged, and a short session, `realinput-1011b` (the bundle of `a55c9e7c5`), passed every step; ⌘⇧F
+is taken by this Mac before any app (the reference and Xcode lose it too), so the clone did not change for it. Open: nothing that can move; main adoption round 9 waits for main #327, and the held tasks below wait on
+main.
+New local framework draft: [X70](issues/closed/20261010-x70-aria-disabled-focusable.md) (kept
+local, as the user chose for X69). User decisions of 2026-10-10: #99's clean delivery is not in this session; PG-10 runs in
+a later attended session; the old real-input rows that need a provider, Codex usage or the Korean input source run with
+real lane accounts; #227/#228 stay with the user.
 
 Coordinator additions:
-- [settings-pages-subscribed-config](tasks/20261009-settings-pages-subscribed-config.md): #353's "Found, not changed"
+- [settings-pages-subscribed-config](tasks/closed/20261009-settings-pages-subscribed-config.md): #353's "Found, not changed"
   (six Settings pages re-read the server config on every wake). After settings-diagnostics-and-scope.
-- [view-depth-under-test-stack](tasks/20261009-view-depth-under-test-stack.md): flatten the clone's views below main's
+- [view-depth-under-test-stack](tasks/closed/20261009-view-depth-under-test-stack.md): flatten the clone's views below main's
   2 MiB test-thread limit (X67, main `issues/20261009-compiler-small-stack-depth.md`), which unblocks main adoption
   round 7 and #99's clean candidate. After the wave that is in flight when it starts (it touches many `.contract` files).
-- Open Browser PRs: #352 waits for one real-input row (Rotate/Lock on `26f5c9066`; the 2026-10-09 evening try stopped when
-  the screen locked) and for Charlie's check; #349 and #354 merge the base after #352 lands, then re-drive.
+- Browser parts: all five have merged (#337, #352, #349, #354, #346).
 
 ## Implementation order
 
@@ -412,7 +455,7 @@ Task files own mutable status. Links must be updated when a task closes or reope
 | Attended real input | Final checklist (handoff "Manual verification checklist", updated) | macOS with real keyboard/trackpad | Every row passes or is recorded with evidence | session log, screenshots |
 | Repository gates | `main` head | macOS | Five checks, `caps.mjs`, clone checks, all AppKit binaries | logs |
 | Coverage | `research.md` ID tables; the reference test map from `reference-logic-tests-done-areas` | — | Every research ID marked missing or partial maps to a verified ticket and its evidence; the reference test map has no `later-ticket` rows left, and every `port` and `swift` row is `ported` with a passing test | coverage table in `AGENT-HANDOFF.md`, map |
-| Issues closed | `issues/README.md` | — | Every issue is closed: resolved upstream, adopted in the app and verified by `issue-close` (workaround removed, its rows pass at parity), or closed by the user's decision with the reason recorded | issue records, `EXACT2-GAPS.md` |
+| Issues closed | `issues/README.md` | — | Every issue is closed: resolved upstream, adopted in the app and verified by `issue-close` (workaround removed, its rows pass at parity), or closed by the user's decision with the reason recorded; a record moved to main counts once its main `issues/` file is closed and adopted | issue records, main's `issues/` files, `EXACT2-GAPS.md` |
 | Interface font size | Settings at 12, 16 and 20 px | macOS 1280×840 and 840×620 | Every surface scales where the reference uses `rem` and keeps its `px` sizes; 16 px equals the pre-conversion matrix | shot pairs at each size |
 
 Completion also needs: every ticket verified and merged into `main`, except the
@@ -424,7 +467,7 @@ resolved upstream and adopted in the app (verified by `issue-close`), or closed 
 user's decision. Criteria blocked today: X3 (if reproduced), X7 (one `media-actions`
 criterion), X4 (only if the archive workaround fails), X32 (pinned diff headers, declared until #131 lands on main),
 X33–X34 (their rows wait for main fix of #274 and #272), X68 (the Inspect row, U18), and any criterion whose ticket
-marks it blocked. A permanent declared difference (the issues README, "Charlie's decisions and upstream state, by bucket", bucket 6) closes its row as declared.
+marks it blocked. A permanent declared difference (the issues README's workaround column, or a record closed here) closes its row as declared.
 
 ## Apparatus requiring approval
 
@@ -556,6 +599,6 @@ integrated server effects/retry/lifecycle incomplete). The new reference runtime
 provisioned and getTurnItem works; the older-runtime limitation no longer applies to
 this attempt. Main migration and oracle delivery tasks remain separate work.
 
-Evidence: [live attempt](evidence/parallel/20261006-live-verification/attempt.md),
+Evidence: live attempt,
 [independent review](reviews/20261006-parallel-verification.md). No code repairs,
 framework edits, remote issue writes, task closure or publication occurred.

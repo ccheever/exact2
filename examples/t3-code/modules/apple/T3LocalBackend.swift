@@ -328,8 +328,9 @@ final class T3LocalBackend: @unchecked Sendable {
     }
 
     /// `desktopSettingsSet`: one setter of `DesktopAppSettings` (`setLocalEnvironmentEnabled`,
-    /// `setServerExposureMode`, `setTailscaleServe`), persisted before it answers; what changed and the
-    /// four keys after it. The server is not touched here (the switch and the restart are their own ops).
+    /// `setServerExposureMode`, `setTailscaleServe`, `setUpdateChannel`), persisted before it answers; what
+    /// changed and the five keys after it. The server is not touched here (the switch and the restart are
+    /// their own ops), and no update feed is (this build has none: the channel is a saved preference).
     func setDesktopSettings(_ request: [String: Any]) throws -> [String: Any] {
         let bool = { (value: Any?) in (value as? NSNumber).flatMap { CFGetTypeID($0) == CFBooleanGetTypeID() ? $0.boolValue : nil } }
         let update: (T3DesktopSettings) -> T3DesktopSettings
@@ -342,8 +343,10 @@ final class T3LocalBackend: @unchecked Sendable {
             update = { var next = $0; next.tailscaleServeEnabled = enabled
                 if let port, !(port is NSNull) { next.tailscaleServePort = T3DesktopSettings.normalizePort(port) }
                 return next }
+        } else if let channel = request["updateChannel"] as? String, ["latest", "nightly"].contains(channel) {
+            update = { T3DesktopSettings.settingUpdateChannel($0, channel) }
         } else {
-            throw T3Failure(kind: "Arguments", message: "desktopSettingsSet requires localEnvironmentEnabled, serverExposureMode or tailscaleServeEnabled.")
+            throw T3Failure(kind: "Arguments", message: "desktopSettingsSet requires localEnvironmentEnabled, serverExposureMode, tailscaleServeEnabled or updateChannel.")
         }
         let result = try settings.persist(update)
         publish { $0["desktopSettings"] = result.settings.statusValue }

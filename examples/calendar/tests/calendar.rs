@@ -131,6 +131,12 @@ impl App {
                     Dispatch::Run(item) => {
                         work.push((request.ticket, item, request.target == "changed"))
                     }
+                    // A re-ask settles with no work, as a host's executor does.
+                    Dispatch::Again => work.push((
+                        request.ticket,
+                        exact_runner::Work::Now(Box::new(Dispatch::again_outcome)),
+                        request.target == "changed",
+                    )),
                     Dispatch::Held => {
                         parked.insert(request.request.continuation.unwrap(), request);
                     }
@@ -158,6 +164,11 @@ impl App {
                         Dispatch::Held => {
                             parked.insert(token, request);
                         }
+                        Dispatch::Again => work.push((
+                            request.ticket,
+                            exact_runner::Work::Now(Box::new(Dispatch::again_outcome)),
+                            request.target == "changed",
+                        )),
                         _ => panic!("calendar lost native storage work"),
                     }
                 }

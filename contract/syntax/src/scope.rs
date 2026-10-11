@@ -270,6 +270,7 @@ impl Rewriter<'_> {
             provides,
             slot: _,
             states,
+            persist: _,
             derives,
             resources,
             mutations,
@@ -808,7 +809,7 @@ impl Rewriter<'_> {
                 // program (this file's, renamed with it) or an action, prop or
                 // inject of the name is the innermost binding.
                 let intrinsic = routing
-                    || matches!(name.as_str(), "pending" | "failed")
+                    || matches!(name.as_str(), "pending" | "failed" | "failure")
                     || (name == "t" && !declared && !self.callable_t());
                 if !intrinsic && (declared || !(self.local(name) || roster)) {
                     self.scope.rename(Kind::Call, name, *span)?;

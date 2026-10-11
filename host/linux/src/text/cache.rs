@@ -173,6 +173,13 @@ thread_local! { static TRIM_ENTRIES: std::cell::Cell<(usize, usize)> = const { s
 pub(super) fn trim_vector_entries() -> (usize, usize) {
     TRIM_ENTRIES.with(std::cell::Cell::get)
 }
+#[cfg(test)]
+thread_local! { static TRIM_WALKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+/// Eviction walks on this thread so far ([`Cache::trim`]).
+#[cfg(test)]
+pub(super) fn trim_walks() -> usize {
+    TRIM_WALKS.with(std::cell::Cell::get)
+}
 
 struct Snapshot {
     weak: Weak<Paragraph>,
@@ -257,10 +264,12 @@ thread_local! {
     /// Inside [`deferring_eviction`]: growth skips the eviction walk.
     static DEFERRED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
-/// Run `f` (a layout pass, a paint) with eviction walks deferred to the
-/// first growth after it. A walk visits every identity, so one per text a
-/// pass measures (rows mounting during a fling) is quadratic; the cold
-/// target is soft, and the pass's own texts are pinned anyway.
+/// Run `f` (a layout pass, a presenter's frame) with eviction walks deferred
+/// to the paint's maintenance ([`Cache::maintain`]) or the first growth after
+/// it. A walk visits every identity, so one per text a pass measures (rows
+/// mounting during a fling) or a paint misses (a width the kernel answers
+/// from its own cache) is quadratic; the cold target is soft, and the pass's
+/// own texts are pinned anyway.
 pub fn deferring_eviction<T>(f: impl FnOnce() -> T) -> T {
     let was = DEFERRED.with(|d| d.replace(true));
     let out = f();
@@ -708,6 +717,8 @@ impl Cache {
         self.unwalked = 0;
     }
     fn trim_walk(&mut self, keep: Option<u64>) {
+        #[cfg(test)]
+        TRIM_WALKS.with(|n| n.set(n.get() + 1));
         let mut bytes = 0;
         // Every entry's policy bytes, pinned ones included: what maintenance
         // weighs until the next walk (removals below only lower it).
@@ -976,6 +987,8 @@ fn fingerprint(spec: &Spec) -> u64 {
     std::mem::discriminant(&spec.direction).hash(&mut h);
     spec.line_clamp.hash(&mut h);
     spec.text_indent.to_bits().hash(&mut h);
+    std::mem::discriminant(&spec.text_box_trim).hash(&mut h);
+    std::mem::discriminant(&spec.text_box_edge).hash(&mut h);
     spec.runs.len().hash(&mut h);
     for run in std::iter::once(&spec.strut).chain(&spec.runs) {
         #[cfg(test)]
@@ -1001,6 +1014,8 @@ fn equal(a: &Spec, b: &Spec) -> bool {
         && a.white_space == b.white_space
         && a.direction == b.direction
         && a.line_clamp == b.line_clamp
+        && a.text_box_trim == b.text_box_trim
+        && a.text_box_edge == b.text_box_edge
         && a.runs.len() == b.runs.len()
         && std::iter::once(&a.strut)
             .chain(&a.runs)

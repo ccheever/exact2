@@ -65,20 +65,54 @@ final class R8KeysLauncher {
     /// The letters the launcher answers, upper-cased.
     var keys: Set<Character> { Set((element?.data[.surfaceLauncherKeys] ?? "").uppercased()) }
 
-    /// A plain letter the visible launcher answers, typed outside any typing context:
-    /// the launcher takes the focus and the key (its own `key` handler opens the surface).
-    func consume(_ event: NSEvent, typing: Bool) -> Bool {
-        guard event.type == .keyDown, !typing, !event.isARepeat, let view = liveView, let window = view.window, event.window === window,
+    /// What the window's key monitor does with a letter the visible launcher answers.
+    enum Route: Equatable {
+        /// Not the launcher's: the key goes on (type-to-focus may take it).
+        case none
+        /// The launcher holds the focus: the key goes on, unredirected, to Exact's key route, whose
+        /// `key` handlers at the launcher open the surface (and prevent the key's default).
+        case pass
+        /// The focus was elsewhere: the launcher took it and the key was posted again at the head
+        /// of the queue, so Exact's key route hears it at the launcher; this copy goes no further.
+        case taken
+        /// The copy `route` posted came back with the focus no longer on the launcher (it moved, or the
+        /// launcher went): it goes nowhere, as the reference's capture listener lets no launcher letter
+        /// reach type-to-focus or a text field.
+        case dropped
+    }
+
+    /// The copy `route` posted again (a real key's timestamp is its own); it is never posted a second time.
+    private var reposted: (timestamp: TimeInterval, keyCode: UInt16, window: Int)?
+
+    /// A plain letter the visible launcher answers, typed outside any typing context, is the
+    /// launcher's (the reference's window capture listener). Its `key` handlers run only from
+    /// Exact's own key monitor, never from a view's `keyDown`, and AppKit calls local monitors in
+    /// no fixed order (it changes as monitors come and go), so the letter is never consumed here:
+    /// it reaches Exact's route with the launcher focused, whichever monitor runs first.
+    func route(_ event: NSEvent, typing: Bool) -> Route {
+        guard event.type == .keyDown else { return .none }
+        let copy = (event.timestamp, event.keyCode, event.windowNumber)
+        if let reposted, reposted == copy {
+            // The launcher's letter whatever happened since: Exact's route hears it at the launcher, or nothing does.
+            self.reposted = nil
+            if let view = liveView, view.window?.firstResponder === view { return .pass }
+            return .dropped
+        }
+        guard !typing, !event.isARepeat, let view = liveView, let window = view.window, event.window === window,
               window.attachedSheet == nil,
               event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
               let characters = event.charactersIgnoringModifiers, characters.count == 1,
               let letter = characters.uppercased().first, keys.contains(letter),
               // Exact's hit test refuses an inert or hidden node: a dialog over the panel blocks it.
-              view.hitTest(NSPoint(x: view.frame.midX, y: view.frame.midY)) != nil else { return false }
-        if window.firstResponder !== view { window.makeFirstResponder(view) }
-        guard window.firstResponder === view else { return false }
-        view.keyDown(with: event)
-        return true
+              view.hitTest(NSPoint(x: view.frame.midX, y: view.frame.midY)) != nil else { return .none }
+        // The mark lasts for one launcher letter: Exact's route may take the copy before it comes back here.
+        reposted = nil
+        if window.firstResponder === view { return .pass }
+        window.makeFirstResponder(view)
+        guard window.firstResponder === view else { return .none }
+        reposted = copy
+        NSApp.postEvent(event, atStart: true)
+        return .taken
     }
 
     deinit { detach() }

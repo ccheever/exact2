@@ -34,6 +34,10 @@ pub struct AnimationPlay {
     /// engine time it began: it holds the local time it had then, and the
     /// frame moves its start by the wait.
     pub pending: Option<f64>,
+    /// While pending, whether it joined a clock origin that waits for the
+    /// frame too: then the frame gives it the origin's phase (LLP 1003.001
+    /// D8), not a start of its own.
+    pub(crate) clock_wait: bool,
 }
 
 impl AnimationPlay {
@@ -75,6 +79,14 @@ impl Engine {
     /// Set a node's `animation` row (CSS Animations 1 §3). Validates first;
     /// on error nothing changes.
     pub fn set_animations(
+        &mut self,
+        node: u64,
+        animations: &Animations,
+    ) -> Result<(), EngineError> {
+        (self.links.set_animations)(self, node, animations)
+    }
+
+    pub(super) fn set_animations_full(
         &mut self,
         node: u64,
         animations: &Animations,
@@ -130,6 +142,7 @@ impl Engine {
                         start,
                         hold,
                         dark: prior.dark,
+                        clock_wait: prior.clock_wait && pending.is_some(),
                         pending,
                     }
                 }
@@ -141,6 +154,7 @@ impl Engine {
                         hold: a.paused.then_some(0.0),
                         dark: self.dark_of(node),
                         pending: pend.filter(|_| !a.paused && !bound && !on_clock),
+                        clock_wait: false,
                     }
                 }
             };
@@ -286,6 +300,15 @@ impl Engine {
     /// that applies wins (CSS's composite order, replace); one outside its
     /// interval with no fill contributes nothing. `None` when none applies.
     pub fn animated(&self, node: u64, property: Property, underlying: Value) -> Option<Value> {
+        (self.links.animated)(self, node, property, underlying)
+    }
+
+    pub(super) fn animated_full(
+        &self,
+        node: u64,
+        property: Property,
+        underlying: Value,
+    ) -> Option<Value> {
         let now = self.sample_time();
         self.animations.get(&node)?.iter().rev().find_map(|play| {
             play.animation
@@ -300,6 +323,14 @@ impl Engine {
     /// the node already plays starts again, as a second entry of that name
     /// does. Returns the clock time the last exit animation ends.
     pub fn play_exit(&mut self, node: u64, exit: &Animations) -> Result<f64, EngineError> {
+        (self.links.play_exit)(self, node, exit)
+    }
+
+    pub(super) fn play_exit_full(
+        &mut self,
+        node: u64,
+        exit: &Animations,
+    ) -> Result<f64, EngineError> {
         exit.validate_ending()
             .map_err(|_| EngineError::InvalidAnimation)?;
         let (now, dark) = (self.sample_time(), self.dark_of(node));
@@ -316,6 +347,7 @@ impl Engine {
             hold: None,
             dark,
             pending,
+            clock_wait: false,
         }));
         self.animating.insert(node);
         Ok(now + exit.end_time())

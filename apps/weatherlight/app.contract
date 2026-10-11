@@ -194,7 +194,7 @@ component Weatherlight
           column padding=20 gap=14 background-color="#ffffff" border-radius=18 border-style="solid" border-width=1 border-color="#dce3de" testId="search-panel"
             row justify-content="space-between" align-items="center"
               text "Where shall we go?" font-family="serif" font-size=(24 * k)
-              button press=closeSearch testId="close-search" aria-label="Close city search" padding=8
+              button appearance="none" press=closeSearch testId="close-search" aria-label="Close city search" padding=8
                 text "Close ×" font-size=(16 * k) color="#536b78"
             row gap=8
               input appearance="none" id="city-query" testId="city-query" value=query input=changeQuery key=searchKey placeholder="City or postal code" aria-label="City or postal code" flex=1 min-width=0 padding=12 border-radius=8 border-style="solid" border-width=1 border-color="#c7d2ce" font-size=(16 * k)
@@ -232,7 +232,7 @@ component Weatherlight
             when forecast.message != "" and not pending(forecast)
               row gap=12 justify-content="space-between" align-items="center" padding=14 border-radius=12 background-color="#f5e8d7" testId="network-notice"
                 text forecast.message color="#825227" font-size=(13 * k) flex=1
-                button press=reloadWeather testId="retry-weather" padding=8
+                button appearance="none" press=reloadWeather testId="retry-weather" padding=8
                   text "Try again ↻" font-size=(16 * k) font-weight=600 color="#825227"
             column gap=14
               row justify-content="space-between" align-items="center" gap=12

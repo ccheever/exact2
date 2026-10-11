@@ -830,7 +830,7 @@ fn geometry_action_failure_cannot_leave_previous_pair_alive() {
 
 /// A drag's release and its handle's geometry arrive from the gesture, not
 /// through `dispatch_at`, after the page sat idle: nothing moved the runner's
-/// clock since boot. Their actions run at the input's time, so `now()` is
+/// clock since boot. Their actions run at the input's time, so `performanceNow()` is
 /// that time and an `after` the release arms counts from it, not from the
 /// clock's last value (it fired at the very next advance: a flung photo's
 /// viewer closed the frame after the fling, Bluesky clone b09).
@@ -844,9 +844,9 @@ const TIMED: &str = r#"component App
   action land
     landed = landed + 1
   action geometry(w: number, h: number, pw: number, ph: number)
-    measuredAt = now()
+    measuredAt = performanceNow()
   action finish(px: number, py: number, s: number, vx: number, vy: number, vs: number)
-    releasedAt = now()
+    releasedAt = performanceNow()
     away = true
   view
     column testId="clip" width=320.25 height=200.5 overflow="hidden" padding=0 border-width=0
@@ -862,7 +862,7 @@ fn release_and_geometry_actions_run_at_the_inputs_time_after_an_idle_clock() {
     assert_eq!(
         count(&host, "measuredAt"),
         4000.0,
-        "the geometry action's now()"
+        "the geometry action's performanceNow()"
     );
     p.op = 11;
     p.values = [0.0, 0.0, 1.0, 0.0, 0.0, 0.0];
@@ -882,7 +882,7 @@ fn release_and_geometry_actions_run_at_the_inputs_time_after_an_idle_clock() {
     assert_eq!(
         count(&host, "releasedAt"),
         5010.0,
-        "the release action's now()"
+        "the release action's performanceNow()"
     );
     for token in p.tokens {
         assert!(host

@@ -40,6 +40,16 @@ impl<D: DataSource> Bridge<D> {
         };
         self.emit(out)
     }
+    /// The window's size, which every viewport unit resolves against
+    /// everywhere; a nonpositive size clears it (LLP 1075.003 §9.11).
+    pub fn screen(&mut self, width: f32, height: f32) -> u32 {
+        let screen = (width > 0.0 && height > 0.0).then_some((width, height));
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.set_screen(screen));
+        self.emit(out)
+    }
     /// The safe-area insets changed.
     pub fn insets(&mut self, top: f32, right: f32, bottom: f32, left: f32) -> u32 {
         let out = self

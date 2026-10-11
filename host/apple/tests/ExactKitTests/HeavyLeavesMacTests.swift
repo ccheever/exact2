@@ -57,7 +57,7 @@ final class HeavyLeavesMacTests: XCTestCase {
         XCTAssertNil(session.boot(plan: bytes, size: CGSize(width: 320, height: 240)).error)
         func spin(_ seconds: Double) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
         let deadline = Date().addingTimeInterval(5)
-        while session.presenter.views.values.filter({ $0.kind == "video" }).count < 4, Date() < deadline { spin(0.02) }
+        while session.presenter.views.values.filter({ $0.kind == "video" }).count < 4, Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
         let presenter = session.presenter
         let videos = presenter.views.values.filter { $0.kind == "video" }
         XCTAssertGreaterThan(videos.count, 3, "the list built rows ahead of the port")

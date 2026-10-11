@@ -112,6 +112,9 @@ and one tag join the table (LLP 1017 §8.1; every name is the HTML one):
 - `aria-checked` on a `button` — the ARIA state, lowered like its three
   siblings at `tags.rs:165`.
 
+> **Amended by LLP 1115 (2026-10-09).** A bare `hr` is one solid edge in the separator role,
+> not Chrome's two shades.
+
 **D2 — the top layer is the host's; open state never enters the plan.**
 The kernel lays the popover subtree out on every commit regardless of
 visibility — a hidden layer, anchored: top-left at the invoker's
@@ -177,6 +180,10 @@ content; UIKit omits that row in its popover presentation. AppKit and Linux have
 no dialog projection yet and keep the subtree hidden; this is not general
 cross-platform dialog support. Existing contact popovers retain their separate
 nonmodal browser declaration and native confirmation projection.
+
+> **Superseded by LLP 1115 D6.** An alert-shaped `alertdialog` is the platform's alert on iOS,
+> with its title and Cancel kept; `closedby="any"` is implied, not required; macOS and the web
+> show the `dialog`. The Linux host still presents none.
 
 Messages removes `confirmDelete` and its authored cancellation overlay. Four
 physical cases on the rebuilt iPhone app cover one/two selections in light/dark:
@@ -393,7 +400,13 @@ not hide the popover) logs
 `confirmation <id> refused: <why>` and opens nothing; it is no longer silent.
 The popover's `aria-label` titles the `UIMenu`, and titles the sheet only
 when it is a chooser: more than one action and no explanatory text. A
-confirmation keeps no title row, as the native prompts it matches have none. A menu row's
+confirmation keeps no title row, as the native prompts it matches have none.
+*Superseded by LLP 1115 D6 (2026-10-09):* a confirmation with text, one
+cancel and at most three buttons is `UIAlertController(.alert)`, its
+`aria-label` the title (else its first line) and its Cancel kept; any other
+shape is an action sheet titled by its label, unanchored on a compact
+screen when it has a cancel and the popover below when it has none.
+`showModal(id)` from an action presents either with no invoker. A menu row's
 item image is its symbol, else its `img` once that has loaded, fitted to 24
 points. The menu reads the bitmap the hidden row already holds, so opening it
 never fetches. `UIAlertAction` has no public image, so sheet rows show no icon.

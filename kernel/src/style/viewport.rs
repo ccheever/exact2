@@ -51,11 +51,16 @@ impl ViewportUnit {
 
     /// The viewport's length in points. Native windows have no browser chrome.
     pub fn basis(self, env: &Env) -> f32 {
+        // LLP 1075.003 §9.11: the window's, when the host lays the page out
+        // in a sheet's smaller viewport.
+        let (w, h) = env
+            .screen
+            .unwrap_or((env.viewport_width, env.viewport_height));
         match self {
-            Self::Vw | Self::Svw | Self::Lvw | Self::Dvw => env.viewport_width,
-            Self::Vh | Self::Svh | Self::Lvh | Self::Dvh => env.viewport_height,
-            Self::Vmin => env.viewport_width.min(env.viewport_height),
-            Self::Vmax => env.viewport_width.max(env.viewport_height),
+            Self::Vw | Self::Svw | Self::Lvw | Self::Dvw => w,
+            Self::Vh | Self::Svh | Self::Lvh | Self::Dvh => h,
+            Self::Vmin => w.min(h),
+            Self::Vmax => w.max(h),
         }
     }
 }

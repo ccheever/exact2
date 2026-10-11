@@ -65,8 +65,8 @@ Checked sources and time: local issue drafts in [issues](../../issues/README.md)
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
-| [X10](../../issues/20261005-x10-text-rendering-parity.md) | Text rendering parity | Code wrap points and weight differ in pixel pairs | nonblocking (declared) | List in `EXACT2-GAPS.md` with the pair |
-| [X22](../../issues/20261005-x22-reactive-layout-facts.md) | Layout facts | Not needed: tokens are computed in the data module | none | — |
+| [X10](../../issues/closed/20261005-x10-text-rendering-parity.md) | Text rendering parity | Code wrap points and weight differ in pixel pairs | nonblocking (declared) | List in `EXACT2-GAPS.md` with the pair |
+| [X22](../../issues/closed/20261005-x22-reactive-layout-facts.md) | Layout facts | Not needed: tokens are computed in the data module | none | — |
 | none found | More grammars, slicing, italics | `font-style` is admitted on `text` nodes (`markdown.contract:324`); confirm with `contract vocab` at `prepare` | none | — |
 
 ## Implementation notes

@@ -6,7 +6,8 @@ import { runConnectionOp } from './connections';
 import { fleet } from './settings-b-fleet';
 import { toasts } from './toast';
 import { obj, type Obj } from './domain';
-import { ClientError, type Native } from './protocol';
+import { ClientError, type Files, type Native } from './protocol';
+import { connectionOps } from './client-ops-connection';
 import type { T3Client } from './client';
 import { checkoutLocal, checkoutView, checkoutState } from './r9-connect-checkout';
 
@@ -48,6 +49,45 @@ describe('Add environment with nothing connected', () => {
     expect(JSON.stringify(client)).not.toContain('14987');
     expect(toasts(client).map(toast => toast.title)).toEqual(['Could not add backend']);
     fleet.entries.clear();
+  });
+  // settings-rows-and-labels S2-8: the reference's renderer escapes the spaces (https://not%20a%20url/) and its request
+  // fails at the transport; nothing reaches the native transport here.
+  test('a host with spaces fails as the reference request does, after the pairing code check', async () => {
+    const message = 'Failed to fetch remote environment endpoint https://not%20a%20url/.well-known/t3/environment (HttpClientError: Transport error (GET https://not%20a%20url/.well-known/t3/environment)).';
+    for (const connected of [true, false]) {
+      const native = new Transport(), client = disconnected();
+      await expect(runConnectionOp(native, 'environment-add', 'not a url', 'ABC', connected, client)).rejects.toThrow(message);
+      expect(native.calls).toEqual([]);
+      expect(toasts(client).map(toast => [toast.title, toast.description])).toEqual([['Could not add backend', message]]);
+    }
+    await expect(runConnectionOp(new Transport(), 'environment-add', 'not a url', '', true, disconnected())).rejects.toThrow('Enter a pairing code.');
+    // A pairing link pasted into Host: the dialog splits it as the reference does (pairingFields below), and the link
+    // itself, if sent whole, still names its #token=; either way the request fails as above.
+    for (const [host, code] of [['https://not%20a%20url', 'abc'], ['https://not a url/pair#token=abc', '']]) {
+      const linked = new Transport();
+      await expect(runConnectionOp(linked, 'environment-add', host, code, true, disconnected())).rejects.toThrow(message);
+      expect(linked.calls).toEqual([]);
+    }
+    fleet.entries.clear();
+  });
+  test('Add route to a host with spaces fails the same way, after its pairing code check', async () => {
+    const message = 'Failed to fetch remote environment endpoint https://not%20a%20url/.well-known/t3/environment (HttpClientError: Transport error (GET https://not%20a%20url/.well-known/t3/environment)).';
+    const native = new Transport(), client = disconnected();
+    await expect(runConnectionOp(native, 'environment-route-add', 'env-b not a url', 'ABC', true, client)).rejects.toThrow(message);
+    expect(native.calls).toEqual([]);
+    expect(toasts(client).map(toast => [toast.title, toast.description])).toEqual([['Could not add route', message]]);
+    await expect(runConnectionOp(new Transport(), 'environment-route-add', 'env-b not a url', '', true, disconnected())).rejects.toThrow('Enter a pairing code.');
+  });
+  test('connect and reconnect to a host with spaces fail the same way and send nothing', async () => {
+    const message = 'Failed to fetch remote environment endpoint http://my%20host:3773/.well-known/t3/environment (HttpClientError: Transport error (GET http://my%20host:3773/.well-known/t3/environment)).';
+    const sent: unknown[] = [];
+    const client = { origin: 'http://127.0.0.1:3773', raw: async (_native: Native, request: unknown) => { sent.push(request); return { ok: true, generation: 1, value: {} }; } } as unknown as T3Client;
+    for (const [op, id, value] of [['connect', 'http://My Host:3773', 'ABC'], ['reconnect', 'http://My Host:3773', ''], ['connect', '', 'http://My Host:3773/pair#token=abc']] as const) {
+      const out = { message: '', id: '', value: '' };
+      await expect(connectionOps.call(client, op, id, value, 0, new Transport(), {} as Files, out)).rejects.toThrow(message);
+      expect(out).toEqual({ message: '', id, value });
+    }
+    expect(sent).toEqual([]);
   });
 });
 
@@ -140,5 +180,10 @@ describe('Add Environment fills both fields from a pasted pairing URL (parsePair
     expect(pairingFields('http://127.0.0.1:14987/pair#token=')).toMatchObject({ host: '' });
     expect(pairingFields('')).toEqual({ source: '', host: '', code: '' });
     expect(pairingFields('http://[bad')).toMatchObject({ host: '' });
+    // settings-rows-and-labels S2-8: a link whose host has spaces splits as Chromium's URL splits it (escaped host, token).
+    expect(pairingFields('https://not a url/pair#token=abc')).toEqual({ source: 'https://not a url/pair#token=abc', host: 'https://not%20a%20url', code: 'abc' });
+    expect(pairingFields('not a url/pair?token=XYZ')).toMatchObject({ host: 'https://not%20a%20url', code: 'XYZ' });
+    expect(pairingFields('https://not a url/pair?host=box.example.com#token=XYZ')).toMatchObject({ host: 'box.example.com', code: 'XYZ' });
+    expect(pairingFields('not a url')).toMatchObject({ host: '', code: '' });
   });
 });

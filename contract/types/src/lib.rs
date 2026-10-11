@@ -22,10 +22,12 @@ mod bounds;
 mod calls;
 mod checks;
 mod component;
+mod failure;
 mod geometry;
 mod lists;
 mod literals;
 mod media;
+mod persist;
 /// Router declaration checking and compile-time path expansion (LLP 1038 D2/D3).
 pub mod placeholder;
 mod posts;
@@ -168,6 +170,8 @@ fn roster_spelling(f: Stdlib, spec: &str) -> &str {
         (Stdlib::Length | Stdlib::IsEmpty, "any") => "string | list",
         (Stdlib::ToString, "any") => "number | string | bool",
         (Stdlib::First | Stdlib::At, "any") => "list",
+        // The ISO 4217 codes `"currency"` takes (LLP 1116 D8), too many to spell here.
+        (Stdlib::FormatNumber, code) if code.starts_with("\"USD\"") => "\"USD\" | \"EUR\" | …",
         _ => spec,
     }
 }
@@ -710,7 +714,7 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
         Expr::NamedArg(_, _, span) => {
             return err(
                 "type-named-argument",
-                "named arguments belong to a canvas surface binding",
+                "named arguments go to a component use, a shape's call (`Row(title=…)`), `empty(…)`, `t(…)`, a canvas `surface=` binding and `share`, `scrollIntoView`; another call's arguments are positional",
                 *span,
             )
         }
@@ -743,7 +747,8 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                     // `xs.length`, `xs.map`: the web's properties and methods.
                     let fix = match field.as_str() {
                         "length" | "map" | "filter" | "join" | "includes" | "startsWith"
-                        | "endsWith" | "concat" | "slice" | "indexOf" | "split" => {
+                        | "endsWith" | "concat" | "slice" | "indexOf" | "split" | "count"
+                        | "size" => {
                             format!(": {}", contract_syntax::idioms::method_fix(field))
                         }
                         _ => String::new(),
@@ -764,28 +769,8 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
             if !shapes.fns.contains_key(name) && strings::is_text_call(name, scope) {
                 return strings::check_call(args, *span, scope, shapes);
             }
-            if name == "failed" {
-                // Like `pending`, this reads a resource's status, not its value.
-                let [Expr::Ident(target, tspan)] = args.as_slice() else {
-                    return err(
-                        "type-failed-argument",
-                        "`failed(x)` names one resource",
-                        *span,
-                    );
-                };
-                return match scope.lookup(target) {
-                    Some((Ref::Resource(_), _)) => Ok(Ty::Bool),
-                    Some((Ref::Mutation(_), _)) => err(
-                        "type-failed-argument",
-                        format!("`{target}` is a mutation, and `failed` takes a resource: a mutation whose request fails without an answer keeps its previous value and its `then` does not run, so answer a domain result (`{{ ok: false, message }}`) to show the failure"),
-                        *tspan,
-                    ),
-                    _ => err(
-                        "type-failed-argument",
-                        format!("`{target}` is not a resource"),
-                        *tspan,
-                    ),
-                };
+            if let Some(t) = failure::check(name, args, *span, scope) {
+                return t;
             }
             if name == "pending" {
                 // `pending(x)`: whether resource or mutation `x` has a
@@ -913,6 +898,9 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                     }
                 }
                 routes::location(f, args, shapes)?;
+                if f == Stdlib::FormatNumber {
+                    literals::currency_code(args, *span)?;
+                }
                 match (f, given.first()) {
                     // `first(list<T>)` is `option<T>` (LLP 1054.000 C4).
                     (Stdlib::First, Some(Ty::List(item))) => Ty::Option(item.clone()),
@@ -1116,9 +1104,10 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
     routes::declare(file, &mut shapes)?;
     selection::declare(&mut shapes);
     geometry::declare(&mut shapes);
+    failure::declare(&mut shapes);
     for s in &file.shapes {
         if shapes.map.contains_key(&s.name) {
-            // A compiler-declared shape (`Geometry`, `Router`, …) is not a second declaration
+            // A compiler-declared shape (`Geometry`, `Failure`, `Router`, …) is not a second declaration
             // of the app's own (authoring bench).
             let message = if shapes.declared.contains(&s.name) {
                 format!("shape `{}` declared twice", s.name)
@@ -1306,6 +1295,7 @@ fn check_with_sites(
         });
     }
     check_root(file, &mut types, &expanded, &mut sink);
+    persist::check(file, &types, &expanded, &mut sink);
     // What lowering lowers: each caller's names renamed apart from what its
     // callees read, after the checks spoke in the author's (LLP 1089 D7).
     contract_syntax::hygiene(&mut expanded, file);

@@ -24,7 +24,7 @@ component Now
   action setQuery(q)
     query = q
   action tick
-    nowMs = now()
+    nowMs = performanceNow()
   action setDark(s: string)
     setScheme(s)
 

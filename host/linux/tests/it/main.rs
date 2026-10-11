@@ -2,9 +2,11 @@
 //! one binary. `tests/pinned/` holds the ones that pin the fixture font, so
 //! neither changes the other's process environment.
 
+mod ahead;
 mod animation;
 mod arrange;
 mod colors;
+mod field_align;
 mod height;
 mod height_binding;
 mod holds;

@@ -652,6 +652,7 @@ impl Parser {
             provides: Vec::new(),
             slot: false,
             states: Vec::new(),
+            persist: Vec::new(),
             derives: Vec::new(),
             resources: Vec::new(),
             mutations: Vec::new(),
@@ -741,6 +742,12 @@ impl Parser {
                             let expr = self.expr()?;
                             let none = matches!(expr, Expr::None(_));
                             self.type_annotation(&w, &name, if none { "as none" } else { "as" })?;
+                            if let Some(span) = self.persist_word(&w, &name)? {
+                                c.persist.push(Persist {
+                                    name: name.clone(),
+                                    span,
+                                });
+                            }
                             self.newline()?;
                             let b = Binding {
                                 name,
@@ -844,6 +851,13 @@ impl Parser {
         let placeholder = if self.at_ident("else") {
             self.next();
             let at = self.peek().span;
+            if !matches!(self.peek_kind(), TokenKind::Ident(_)) {
+                // `else []`, `else ""` (app farm round 1): a value, where a call goes.
+                return self.err(
+                    "syntax-placeholder-call",
+                    "a resource's `else` is a call: `else empty()` is its shape's zero (`[]` for a list, `\"\"` for text), with `field=constant` overrides for a record, or `else source(values…)`",
+                );
+            }
             let source = self.source_ident(at)?;
             self.expect_punct("(")?;
             let args = self.call_args()?;

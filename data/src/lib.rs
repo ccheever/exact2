@@ -5,6 +5,7 @@ pub mod auth;
 pub mod crypto;
 pub mod documents;
 pub mod envelope;
+pub mod image;
 mod mixed;
 pub mod placed;
 pub mod storage;

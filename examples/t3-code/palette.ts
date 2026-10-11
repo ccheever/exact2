@@ -10,7 +10,7 @@ import { projectIdentity } from './presentation';
 import { searchSettings, searchContext, breadcrumbLabel } from './settings-search';
 import { themeCards } from './settings-appearance';
 import { decodeClientPrefs, type ClientPrefs } from './settings-core';
-import { chordWinners } from './keyboard-dispatch';
+import { chordWinners, type DispatchContext } from './keyboard-dispatch';
 import { linkMode } from './palette-linkpr';
 import { scratchRoot, isScratchProject } from './pages-home';
 import { pickerProjects } from './r4-polish-palette-projects'; // r4-polish: Project order
@@ -20,6 +20,8 @@ export type PalettePart = { id: string; text: string; hit: boolean; cls: string 
 export type PaletteRow = {
   key: string; index: number; header: string; headerGap: boolean; kind: string; op: string; arg: string; arg2: string;
   icon: string; prefix: string; title: string; bold: string; description: string; shortcut: string; timestamp: string; trailing: string;
+  /** The chord that runs this row from the field (thread.jump.N on a project pick, aria grammar: `Meta+1`); '' for none. */
+  jump: string;
   terminalCount: number;
   badge: string; badgeOp: string; checkbox: boolean; checked: boolean; project: string; projectInk: string; projectSurface: string; env: string;
   branch: string; provider: string; current: boolean; matchLabel: string; matchParts: PalettePart[]; titleParts: PalettePart[]; line: string; orbs: Orb[]; top: number; height: number;
@@ -31,11 +33,13 @@ export type PaletteView = {
   enterOp: string; enterArg: string; enterArg2: string; accessory: string; accessoryKey: string; accessoryEnabled: boolean; accessoryOp: string; accessoryArg: string;
   accessoryArg2: string; footerAction: string; contextLabel: string; contextTitle: string; contextDescription: string; contextIcon: string; toggles: boolean;
   matchCase: boolean; wholeWord: boolean; regex: boolean; summary: string; panel: string; inputPaddingRight: number; loading: boolean; listHeight: number;
+  /** The chords that resolve to thread.jump.N here: the command palette's field takes each (threadJumpChords). */
+  jumpKeys: string[];
 };
 
 export const RECENT_THREAD_LIMIT = 12;
 const blankRow: PaletteRow = { key: '', index: -1, header: '', headerGap: false, kind: 'action', op: '', arg: '', arg2: '', icon: '', prefix: '', title: '', bold: '',
-  terminalCount: 0, description: '', shortcut: '', timestamp: '', trailing: '', badge: '', badgeOp: '', checkbox: false, checked: false, project: '', projectInk: '', projectSurface: '', env: '',
+  terminalCount: 0, description: '', shortcut: '', jump: '', timestamp: '', trailing: '', badge: '', badgeOp: '', checkbox: false, checked: false, project: '', projectInk: '', projectSurface: '', env: '',
   branch: '', provider: '', current: false, matchLabel: '', matchParts: [], titleParts: [], line: '', orbs: [], top: 0, height: 32 };
 export function row(fields: Partial<PaletteRow>): PaletteRow { return { ...blankRow, ...fields }; }
 
@@ -43,7 +47,7 @@ export const closedView: PaletteView = {
   open: false, mode: 'command', page: '', parent: '', back: false, addon: 'search', placeholder: '', label: 'Command palette', testId: 'command-palette', rows: [], count: 0,
   autoHighlight: true, empty: '', enterLabel: '', escapeLabel: 'Close', backHint: false, popOnEmpty: false, enterOp: '', enterArg: '', enterArg2: '', accessory: '', accessoryKey: '',
   accessoryEnabled: false, accessoryOp: '', accessoryArg: '', accessoryArg2: '', footerAction: '', contextLabel: '', contextTitle: '', contextDescription: '', contextIcon: '',
-  toggles: false, matchCase: false, wholeWord: false, regex: false, summary: '', panel: 'list', inputPaddingRight: 11, loading: false, listHeight: 0,
+  toggles: false, matchCase: false, wholeWord: false, regex: false, summary: '', panel: 'list', inputPaddingRight: 11, loading: false, listHeight: 0, jumpKeys: [],
 };
 
 /** One searchable entry before grouping: the reference CommandPaletteItem. */
@@ -117,10 +121,12 @@ export function shortcutText(shortcut: Obj): string {
   const label = KEY_LABELS[key] ?? (key.length === 1 ? key.toUpperCase() : key.charAt(0).toUpperCase() + key.slice(1));
   return `${shortcut.ctrlKey ? '⌃' : ''}${shortcut.altKey ? '⌥' : ''}${shortcut.shiftKey ? '⇧' : ''}${shortcut.metaKey || shortcut.modKey ? '⌘' : ''}${label}`;
 }
+/** The context the palette resolves its shortcuts in (CommandPalette.tsx: `modelPickerOpen: false`). */
+const PALETTE_CONTEXT: DispatchContext = { composerFocus: false, editableFocus: false, turnRunning: false, modelPickerOpen: false, draftThreadRoute: false, modalOpen: false, settingsOpen: false, diffOpen: false };
 /** findEffectiveShortcutForCommand: the last binding of the command that still wins its chord here. */
 export function commandShortcut(client: T3Client, command: string): string {
   const bindings = arr(client.config.keybindings);
-  const winners = chordWinners(bindings, { composerFocus: false, editableFocus: false, turnRunning: false, modelPickerOpen: false, draftThreadRoute: false, modalOpen: false, settingsOpen: false, diffOpen: false });
+  const winners = chordWinners(bindings, PALETTE_CONTEXT);
   const own = bindings.filter(binding => str(binding.command) === command);
   for (const binding of [...own].reverse()) {
     const shortcut = obj(binding.shortcut);
@@ -233,8 +239,10 @@ export function rootActions(client: T3Client): Item[] {
 /**
  * The New thread in... page (projectThreadItems): the sidebar's project order with the
  * current project first (buildSidebarProjectPickerEntries), the Scratch project as a
- * trailing "No project". enumerateCommandPaletteItems numbers them by thread.jump.N,
- * whose rules hold only `isDesktop`, so the served reference shows no shortcut here.
+ * trailing "No project". enumerateCommandPaletteItems numbers the first nine by
+ * thread.jump.N, whose rules hold only `isDesktop`: this is the desktop build, so each shows
+ * its ⌘N and the field runs it by that chord (CommandPalette.tsx handleKeyDown;
+ * shell-sidebar-palette-keys SH-3). "No project" past the ninth row has no shortcut.
  */
 export function newThreadInItems(client: T3Client): Item[] {
   const root = scratchRoot(client.config);
@@ -242,7 +250,25 @@ export function newThreadInItems(client: T3Client): Item[] {
   const items = projectItems({ shell: { ...client.shell, projects: ordered } }, 'new-thread-in', 'new-thread');
   if (root) items.push({ terms: ['No project', 'no project', 'without project', 'none'],
     row: row({ key: 'new-thread-in:no-project', op: 'flow', arg: 'scratch', icon: 'message-square-dashed', title: 'No project' }) });
-  return items;
+  return enumerateJumps(client, items);
+}
+/**
+ * CommandPalette.tsx handleKeyDown: a chord that resolves to a thread.jump.N command is the field's, whether or
+ * not a displayed row carries it (⌘5 with two projects, ⌘1 on the root page): it is prevented and stopped, and
+ * it runs the row that has it, if one does. These are those chords, in the palette's context.
+ */
+export function threadJumpChords(client: T3Client): string[] {
+  const winners = chordWinners(arr(client.config.keybindings), PALETTE_CONTEXT);
+  return [...winners].filter(([, command]) => /^thread\.jump\.[1-9]$/.test(command)).map(([chord]) => chord);
+}
+/** enumerateCommandPaletteItems: the Nth row (N ≤ 9) takes thread.jump.N's label and chord. */
+export function enumerateJumps(client: T3Client, items: Item[]): Item[] {
+  const winners = chordWinners(arr(client.config.keybindings), PALETTE_CONTEXT);
+  return items.map((item, index) => {
+    const command = index < 9 ? `thread.jump.${index + 1}` : '';
+    const chord = command ? [...winners].find(([, winner]) => winner === command)?.[0] ?? '' : '';
+    return { ...item, row: { ...item.row, shortcut: command ? commandShortcut(client, command) : '', jump: chord } };
+  });
 }
 function themeItems(client: T3Client, scheme: string): Item[] {
   const local = client.local as unknown as { clientSettings?: ClientPrefs; customThemes?: Parameters<typeof themeCards>[1] };

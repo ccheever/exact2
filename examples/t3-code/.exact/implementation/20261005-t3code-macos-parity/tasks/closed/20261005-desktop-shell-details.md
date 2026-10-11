@@ -51,7 +51,7 @@ Included (each row is missing or partial; line numbers are from the mc-orch tree
    traffic-light inset is dropped in full screen and restored on exit (`AppSidebarLayout.tsx`, `--workspace-controls-left`, `MACOS_TRAFFIC_LIGHTS_LEFT_INSET`). Consumers: `settings-core.contract` (`padding-left=90`),
    `r12-sidebar-width.ts` (`MACOS_TRAFFIC_LIGHTS_INSET`, the sidebar minimum width) and every other use of 90 in a title row (search by symbol and value).
 
-Excluded: the Browser surface and its Full Disk Access flow (Browser only), View > Toggle Developer Tools ([X2](../../issues/20261005-x02-app-developer-tools.md)), the T3 update menu items, WSL, the Reload/Force Reload and
+Excluded: the Browser surface and its Full Disk Access flow (Browser only), View > Toggle Developer Tools ([X2](../../issues/closed/20261005-x02-app-developer-tools.md)), the T3 update menu items, WSL, the Reload/Force Reload and
 full-screen menu title differences that come from the host's menus (declared deviations), the SSH password prompt and remote Open (`20261005-ssh-password-and-remote-open`).
 
 ## Context and guidance
@@ -78,12 +78,12 @@ Checked sources and time: planning pass 2026-10-05 against the local drafts in `
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
-| [X26](../../issues/20261005-x26-app-menu-control.md) | Menu control | `T3Menus.swift`, `R8KeysMenus.swift` | nonblocking (workaround: native menus) | none |
-| [X27](../../issues/20261005-x27-window-chrome.md) | Full-screen state fact; chrome | `T3WindowChrome.swift` observes the exit notification | nonblocking (workaround: native notification + topic; result equals the reference) | none Update 2026-10-07 (adopt-main-fixes-shell): main #164 fixed only the frame restore (the app's frame record is removed); the full-screen fact and title-row setting are still missing, so `T3FullScreen.swift` and the toolbar stay. |
-| [X25](../../issues/20261005-x25-keyboard-keyup-code-capture.md) | `repeat` and `code` for key events | the native monitor reads `isARepeat` and the key code | nonblocking | none |
+| [X26](../../issues/closed/20261005-x26-app-menu-control.md) | Menu control | `T3Menus.swift`, `R8KeysMenus.swift` | nonblocking (workaround: native menus) | none |
+| [X27](../../issues/closed/20261005-x27-window-chrome.md) | Full-screen state fact; chrome | `T3WindowChrome.swift` observes the exit notification | nonblocking (workaround: native notification + topic; result equals the reference) | none Update 2026-10-07 (adopt-main-fixes-shell): main #164 fixed only the frame restore (the app's frame record is removed); the full-screen fact and title-row setting are still missing, so `T3FullScreen.swift` and the toolbar stay. |
+| [X25](../../issues/closed/20261005-x25-keyboard-keyup-code-capture.md) | `repeat` and `code` for key events | the native monitor reads `isARepeat` and the key code | nonblocking | none |
 | [X15](../../issues/closed/20261005-x15-non-latin-key-equivalents.md) | Chords under Korean 2-Set | `R10Connect.swift` | nonblocking | test ⌘W under 2-Set 2026-10-07: #110 closed by main #168, which covers declared chords and the host's command items only; `R10Connect.swift` and the key-code fallbacks stay (adopt-main-fixes-input). |
 | [X36](../../issues/closed/20261005-x36-data-runtime-intl-locale.md) | Locale-aware `Intl` in the data runtime | not in the library | unknown (workaround: format in Swift; allowed only if equal to the reference) | check at `prepare` |
-| [X2](../../issues/20261005-x02-app-developer-tools.md) | View › Toggle Developer Tools in the View menu | X2 (DEFERRED "no devtools UI") | nonblocking: the menu item stays absent, a permanent declared difference (#101 narrowed, 2026-10-08) | none; `20261005-app-developer-tools` makes the clone's web views inspectable in development builds |
+| [X2](../../issues/closed/20261005-x02-app-developer-tools.md) | View › Toggle Developer Tools in the View menu | X2 (DEFERRED "no devtools UI") | nonblocking: the menu item stays absent, a permanent declared difference (#101 narrowed, 2026-10-08) | none; `20261005-app-developer-tools` makes the clone's web views inspectable in development builds |
 
 ## Implementation notes
 

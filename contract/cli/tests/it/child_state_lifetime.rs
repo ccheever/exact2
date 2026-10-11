@@ -236,7 +236,7 @@ fn a_refused_commit_rolls_back_a_write_to_an_arms_child_state() {
     let src = r#"
 component App
   state shown = true
-  resource t = tick(floor(now() / 1000)) as shape number
+  resource t = tick(floor(performanceNow() / 1000)) as shape number
   view
     column
       text `${t}` testId="t"

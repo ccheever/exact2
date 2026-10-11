@@ -154,6 +154,8 @@ pub(crate) mod async_ops {
     pub(crate) const FS_COPY_FILE: u32 = 118;
     pub(crate) const FS_REALPATH: u32 = 119;
     pub(crate) const FS_ATOMIC_WRITE_FILE: u32 = 120;
+    /// Exact patch 9: `fs.compressImage` over the embedder's image codec.
+    pub(crate) const FS_COMPRESS_IMAGE: u32 = 121;
 }
 
 pub(crate) mod sqlite_async {
@@ -317,6 +319,7 @@ pub(crate) const ALL: &[Assignment] = &[
     assignment!("fs.copyFile", async_ops::FS_COPY_FILE, Async),
     assignment!("fs.realpath", async_ops::FS_REALPATH, Async),
     assignment!("fs.atomicWriteFile", async_ops::FS_ATOMIC_WRITE_FILE, Async),
+    assignment!("fs.compressImage", async_ops::FS_COMPRESS_IMAGE, Async),
     assignment!("intl.datetime.create", intl_datetime::CREATE, IntlDateTime),
     assignment!("intl.datetime.format", intl_datetime::FORMAT, IntlDateTime),
     assignment!(

@@ -21,6 +21,7 @@ pub mod collection;
 mod deps;
 mod document;
 mod find;
+mod foresee;
 mod region;
 mod text;
 
@@ -32,6 +33,7 @@ pub(crate) use deps::{Deps, Input, Reads as DepReads};
 pub use document::{DocNode, DocTree, DocTreeError};
 use exact_kernel::{NodeType, Op, StyleProps, ViewId};
 use exact_plan::{ArmsId, BindingKind, Items, NodesId, Plan, RegionKind, RegionsId, Value};
+pub use foresee::Mount;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
@@ -517,6 +519,8 @@ pub struct SiteIndex {
     deps: Deps,
     /// The plan's `@keyframes`, parsed once (LLP 1055 D5).
     keyframes: bridge::KeyframesTable,
+    /// How an `animation` list's names resolve, when linked.
+    resolve_keyframes: bridge::KeyframesLink,
     /// A binding that reads nothing (a literal style row in a list row's
     /// template) has one value for the plan's life: evaluated once, by
     /// binding index, instead of once per instance.
@@ -524,8 +528,14 @@ pub struct SiteIndex {
 }
 
 impl SiteIndex {
-    /// Index the exact parent/arm pair, preserving authored order and rank ties.
+    /// Index the exact parent/arm pair, preserving authored order and rank
+    /// ties, with every capability linked.
     pub fn new(plan: &Plan) -> Self {
+        Self::linked(plan, crate::RunnerLinks::ALL.keyframes)
+    }
+
+    /// [`SiteIndex::new`], resolving keyframes as `keyframes` links.
+    pub fn linked(plan: &Plan, keyframes: bridge::KeyframesLink) -> Self {
         let mut entries = Vec::with_capacity(plan.nodes.len() + plan.regions.len());
         for (i, n) in plan.nodes.iter().enumerate() {
             entries.push(((n.parent, n.arm), n.order, Site::Node(NodesId(i as u32))));
@@ -560,6 +570,7 @@ impl SiteIndex {
             sites,
             deps: Deps::default(),
             keyframes: bridge::keyframes(plan),
+            resolve_keyframes: keyframes,
             constants: (0..plan.bindings.len())
                 .map(|_| Default::default())
                 .collect(),
@@ -901,14 +912,22 @@ impl NodeInst {
                 BindingKind::Style => {
                     let p = patch.get_or_insert_with(StyleProps::default);
                     match bridge::set_plan_style(p, binding.id, &value, plan) {
+                        // Unlinked, the plan names no rule: it was refused at
+                        // boot (LLP 1047.001 D5).
                         Ok(exact_kernel::StyleId::Animation) => {
-                            let dropped = u.sites.keyframes.resolve(&mut p.animation);
-                            u.notes.extend(dropped);
+                            if let Some(resolve) = u.sites.resolve_keyframes {
+                                u.notes
+                                    .extend(resolve(&u.sites.keyframes, &mut p.animation));
+                            }
                         }
                         // An exit names keyframes as `animation` does (LLP 1063).
                         Ok(exact_kernel::StyleId::ExitAnimation) => {
-                            let dropped = u.sites.keyframes.resolve(&mut p.rare.exit_animation);
-                            u.notes.extend(dropped);
+                            if let Some(resolve) = u.sites.resolve_keyframes {
+                                u.notes.extend(resolve(
+                                    &u.sites.keyframes,
+                                    &mut p.rare.exit_animation,
+                                ));
+                            }
                         }
                         Ok(_) => {}
                         Err(

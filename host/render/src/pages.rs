@@ -48,6 +48,11 @@ pub fn pages<D: DataSource>(
             Answer::Now(value) => break value,
             Answer::Later(request) => request,
         };
+        // Every turn meets the deadline: a source re-asked without end gets
+        // its outcome at once, every time.
+        if Instant::now() >= until {
+            return Err(fail("it didn't answer before the deadline".into()));
+        }
         ticket += 1;
         let out = RequestOut {
             ticket,
@@ -62,6 +67,8 @@ pub fn pages<D: DataSource>(
         match dispatch {
             Dispatch::Run(work) => executor.run(out, Some(work)),
             Dispatch::Held => Err("its work was held"),
+            // A source asks its answer again: it settles with no work.
+            Dispatch::Again => executor.again(&out),
             Dispatch::Host(_) | Dispatch::Missing => executor.run(out, None),
         }
         .map_err(|e| fail(e.into()))?;

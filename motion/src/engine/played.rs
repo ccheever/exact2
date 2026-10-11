@@ -50,6 +50,14 @@ impl Engine {
     /// is presented at its target from now on and no longer sampled. `None`
     /// when nothing runs there or a hold owns it.
     pub fn play_transition(&mut self, node: u64, property: Property) -> Option<PlayedTransition> {
+        (self.links.play_transition)(self, node, property)
+    }
+
+    pub(super) fn play_transition_full(
+        &mut self,
+        node: u64,
+        property: Property,
+    ) -> Option<PlayedTransition> {
         let key = (node, property);
         let at = self.sample_time();
         let slot = self.slots.get_mut(&key)?;

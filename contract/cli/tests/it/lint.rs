@@ -427,6 +427,21 @@ fn refusals_name_what_the_author_wrote_and_suggest_one_repair() {
             "syntax-expected-expression",
             "expected an expression, found `{`; Contract has no `{…}`: a handler names an action (`press=add`, `press=add(item)`) and a value is written directly (`width=10`)",
         ),
+        // The app farm's guesses (round 1): a tag, a count, a placeholder.
+        (app("", "heading \"T\""), "lower-unknown-tag", "unknown tag `heading`; a heading is `text role=\"heading\" aria-level=1` (2 and on for the level)"),
+        (app("", "table"), "lower-unknown-tag", "unknown tag `table`; a table or grid is `view display=\"grid\"` with `grid-template-columns`, or a `column` of `row`s"),
+        (app("  state xs = [1]\n", "text toString(count(xs))"), "type-refused-idiom", "write `length(x)`: Contract spells the web's `.length`, of text or of a list, as a roster function"),
+        (app("  state xs = [1]\n", "text toString(xs.size)"), "type-not-a-record", "`list<number>` has no fields: write `length(x)`: Contract spells the web's `.length`, of text or of a list, as a roster function"),
+        (
+            app("  resource todos = todosOf() as shape list<Todo> else []\n", "text \"a\""),
+            "syntax-placeholder-call",
+            "a resource's `else` is a call: `else empty()` is its shape's zero (`[]` for a list, `\"\"` for text), with `field=constant` overrides for a record, or `else source(values…)`",
+        ),
+        (
+            app("  resource todo = todoOf() as shape Todo else Todo(title=\"…\")\n", "text todo.title"),
+            "type-placeholder-shape",
+            "`todo`'s placeholder calls the shape `Todo`: write `else empty(field=…)`, the shape's zero with `field=constant` overrides",
+        ),
     ] {
         let e = contract::compile(&src).unwrap_err();
         assert_eq!((e.id.as_str(), e.message.as_str()), (id, message), "{src}");

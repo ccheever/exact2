@@ -360,3 +360,22 @@ fn two_plays_of_one_node_born_around_a_late_frame_share_the_origins_phase() {
         "the origin's phase, not its own frame"
     );
 }
+
+#[test]
+fn an_exit_appended_to_a_clock_member_starts_at_its_own_frame() {
+    let mut e = Engine::new();
+    e.set_start_on_frame(true, 0.0).unwrap();
+    e.set_animation_clock(3, Some("Pending"));
+    e.set_animations(3, &pulse("pulse 1s infinite")).unwrap();
+    e.advance(0.020).unwrap();
+    let exit = crate::keyframed("fade 300ms @keyframes fade{to{opacity:0}}").unwrap();
+    e.play_exit(3, &exit).unwrap();
+    e.present_frame(0.016).unwrap();
+    assert_eq!(e.animation_plays(3)[0].start, 0.016);
+    e.present_frame(0.033).unwrap();
+    let end = e.exit_end(3, 1).unwrap();
+    assert!(
+        (end - 0.333).abs() < 1e-9,
+        "an exit never joins the clock: {end}"
+    );
+}

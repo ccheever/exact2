@@ -6,6 +6,7 @@ import Foundation
 
 extension T3Module: T3BrowserSessionOwner {
     func browserOps(_ request: [String: Any], reply: ExactReply, next: () -> Void) {
+        if browserSessions.performProfiles(request, reply: reply) { return } // part 4: clearing, the cookie import (T3BrowserSessions+Profiles.swift)
         let generation = request["generation"] as? Int ?? 0
         switch request["op"] as? String {
         case "browserAutomation":
@@ -15,8 +16,9 @@ extension T3Module: T3BrowserSessionOwner {
             let tab = request["tab"] as? String ?? "", muted = request["muted"] as? Bool == true
             return DispatchQueue.main.async { [browserAutomation] in reply.send(["ok": true, "generation": generation, "value": ["done": browserAutomation.setMuted(tab, muted)]]) }
         default:
-            guard let answer = browserSessions.perform(request) else { return next() }
-            reply.send(answer)
+            if let answer = browserSessions.perform(request) ?? browserSessions.performNavigation(request) { return reply.send(answer) } // part 2: browserSet
+            if browserSessions.performCapture(request, reply: { reply.send($0) }) { return } // part 3 (T3BrowserCapture.swift)
+            next()
         }
     }
 

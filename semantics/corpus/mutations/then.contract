@@ -15,7 +15,7 @@ component App
     send ack = ping(sent)
   action landed
     after = after + 1
-    stamp = now()
+    stamp = performanceNow()
   view
     column
       text `${sent}/${after}` testId="count"

@@ -1,9 +1,10 @@
-// `exact release` signs every nested Mach-O file and bundle, innermost first (#119).
+// `exact release` signs every nested Mach-O file and bundle, innermost first (#119); `exact contract build`
+// refreshes an app's types (LLP 1116.001 D4.5).
 // `bun test ./scripts/exact.test.mjs`.
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, relative, resolve } from 'node:path';
 import { signingOrder } from '../host/apple/assets.mjs';
@@ -238,3 +239,136 @@ test('exact hatch writes each target\'s stub, wires it in, and declares the word
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// Catalogs are native inputs even when the app declares no native view tags.
+test('Apple asset catalogs select platform modules and invalidate native receipts on additions and deletions', () => inDir(dir => {
+  const { appleAssetCatalogInventory } = require('../host/apple/assets.mjs');
+  const { pendingBuildInputs } = require('./app.mjs');
+  const app = { dir, platform: 'ios', manifest: {} };
+  const build = { binary: { assetCatalogApp: app, metadata: {}, inputs: [], directories: [], missing: [] } };
+  const put = (path, text) => { mkdirSync(dirname(resolve(dir, path)), { recursive: true }); writeFileSync(resolve(dir, path), text); };
+  assert.deepEqual(pendingBuildInputs(build), []);
+  put('modules/apple/Shared.xcassets/Contents.json', '{"info":{"version":1,"author":"xcode"}}');
+  assert.deepEqual(pendingBuildInputs(build), ['Apple asset catalogs']);
+  const { appleRunBinary, appleArtifacts } = require('../host/apple/build.mjs');
+  const launchApp = { ...app, id: 'com.exact.catalog', name: 'catalog', displayName: 'Catalog', target: resolve(dir, 'target') };
+  const paths = appleArtifacts(launchApp);
+  assert.equal(appleRunBinary(launchApp), resolve(paths.bundle, 'Contents/MacOS', paths.executable));
+  const shared = appleAssetCatalogInventory(app, 'ios');
+  assert.equal(shared[0].path, 'modules/apple/Shared.xcassets');
+  build.binary.metadata.appleAssetCatalogs = shared;
+  assert.deepEqual(pendingBuildInputs(build), []);
+  put('modules/apple/Shared.xcassets/Contents.json', '{"info":{"version":1,"author":"exact"}}');
+  assert.deepEqual(pendingBuildInputs(build), ['Apple asset catalogs']);
+  put('ios/modules/Local.xcassets/Contents.json', '{}');
+  assert.deepEqual(appleAssetCatalogInventory(app, 'ios').map(entry => entry.path), ['ios/modules/Local.xcassets']);
+  assert.deepEqual(appleAssetCatalogInventory(app, 'macos').map(entry => entry.path), ['modules/apple/Shared.xcassets']);
+  rmSync(resolve(dir, 'ios/modules'), { recursive: true });
+  assert.equal(appleAssetCatalogInventory(app, 'ios')[0].path, shared[0].path);
+  rmSync(resolve(dir, 'modules/apple/Shared.xcassets'), { recursive: true });
+  assert.deepEqual(pendingBuildInputs(build), ['Apple asset catalogs']);
+  assert.equal(appleRunBinary(launchApp), paths.binary);
+  mkdirSync(resolve(dir, 'modules/apple/Linked.xcassets'));
+  symlinkSync(resolve(dir, 'outside'), resolve(dir, 'modules/apple/Linked.xcassets/Contents.json'));
+  assert.throws(() => appleAssetCatalogInventory(app, 'ios'), /symlinks/);
+}));
+
+test.skipIf(process.platform !== 'darwin')('Apple asset catalogs retain named images and colours, share the iOS icon pass, and reuse unchanged compiles', () => inDir(dir => {
+  const { useXcode } = require('../host/apple/devices.mjs');
+  const { appleAssets, iosAssets, appleAssetCatalogInventory } = require('../host/apple/assets.mjs');
+  const { readFileSync, readdirSync, statSync } = require('node:fs');
+  useXcode();
+  const put = (path, bytes) => { mkdirSync(dirname(resolve(dir, path)), { recursive: true }); writeFileSync(resolve(dir, path), bytes); };
+  const json = (path, value) => put(path, JSON.stringify(value));
+  const info = { version: 1, author: 'xcode' };
+  const source = 'modules/apple/Artwork.xcassets';
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64');
+  json(`${source}/Contents.json`, { info });
+  put(`${source}/Badge.imageset/image.png`, png);
+  json(`${source}/Badge.imageset/Contents.json`, { info, images: [{ idiom: 'universal', filename: 'image.png' }] });
+  const colour = red => ({ info, colors: [{ idiom: 'universal', color: { 'color-space': 'srgb', components: { red, green: '0.0', blue: '0.0', alpha: '1.0' } } }] });
+  json(`${source}/Ink.colorset/Contents.json`, colour('0.2'));
+  put('icon.png', png);
+  const app = { dir, name: 'Catalog', manifest: { icons: [{ src: 'icon.png', sizes: '1024x1024' }], background_color: '#fff', background_color_dark: '#123456' } };
+  const cache = { dir: resolve(dir, 'cache'), stamp: 'fixture-toolchain' };
+  const inventory = appleAssetCatalogInventory(app, 'ios');
+  const ios = resolve(dir, 'iOS.app'); mkdirSync(ios);
+  const keys = iosAssets(app, ios, false, { catalog: true, kept: cache, expected: inventory });
+  assert.equal(keys.CFBundleIcons.CFBundlePrimaryIcon.CFBundleIconName, 'AppIcon');
+  assert.equal(keys.UILaunchScreen.UIColorName, 'ExactLaunch');
+  assert.equal(keys.NSAccentColorName, undefined, 'no AccentColor set, no accent named');
+  const inspect = path => {
+    const result = spawnSync('xcrun', ['assetutil', '--info', resolve(path, 'Assets.car')], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    return JSON.parse(result.stdout);
+  };
+  const first = inspect(ios);
+  for (const name of ['Badge', 'Ink', 'AppIcon', 'ExactLaunch']) assert.ok(first.some(asset => asset.Name === name), name);
+  assert.equal(first.filter(asset => asset.Name === 'ExactLaunch').length, 2);
+  const held = readdirSync(cache.dir).find(name => name.startsWith('assets-ios-'));
+  const before = statSync(resolve(cache.dir, held, 'Assets.car'), { bigint: true }).mtimeNs;
+  const second = resolve(dir, 'Second.app'); mkdirSync(second);
+  assert.deepEqual(iosAssets(app, second, false, { catalog: true, kept: cache, expected: inventory }), keys);
+  assert.equal(statSync(resolve(cache.dir, held, 'Assets.car'), { bigint: true }).mtimeNs, before);
+  assert.deepEqual(readFileSync(resolve(second, 'Assets.car')), readFileSync(resolve(ios, 'Assets.car')));
+  json(`${source}/Ink.colorset/Contents.json`, colour('0.8'));
+  assert.throws(() => iosAssets(app, second, false, { kept: cache, expected: inventory }), /changed after the bake/);
+  iosAssets(app, second, false, { catalog: true, kept: cache });
+  assert.notEqual(readdirSync(cache.dir).find(name => name.startsWith('assets-ios-')), held);
+  assert.notDeepEqual(readFileSync(resolve(second, 'Assets.car')), readFileSync(resolve(ios, 'Assets.car')));
+  // An `AccentColor` set is named the app's accent, as Xcode's default
+  json(`${source}/AccentColor.colorset/Contents.json`, colour('0.5'));
+  const accented = resolve(dir, 'Accented.app'); mkdirSync(accented);
+  assert.equal(iosAssets(app, accented, false, { catalog: true }).NSAccentColorName, 'AccentColor');
+  const cached = resolve(dir, 'Cached.app'); mkdirSync(cached);
+  assert.equal(iosAssets(app, cached, false, { catalog: true, kept: cache }).NSAccentColorName, 'AccentColor', 'the cached path names it too');
+  assert.ok(inspect(accented).some(asset => asset.Name === 'AccentColor'));
+  const accentedMac = resolve(dir, 'AccentedMac.bundle/Contents/Resources'); mkdirSync(accentedMac, { recursive: true });
+  assert.equal(appleAssets(app, accentedMac, { platform: 'macos' }).NSAccentColorName, 'AccentColor', 'macOS names it too');
+  rmSync(resolve(dir, source, 'AccentColor.colorset'), { recursive: true, force: true });
+  const mac = resolve(dir, 'Catalog.bundle/Contents/Resources'); mkdirSync(mac, { recursive: true });
+  put('Catalog.bundle/Contents/Info.plist', '<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com.exact.catalog.test</string></dict></plist>');
+  appleAssets(app, mac, { platform: 'macos', kept: cache });
+  assert.ok(inspect(mac).some(asset => asset.Name === 'Badge'));
+  assert.ok(readdirSync(cache.dir).some(name => name.startsWith('assets-ios-')), 'macOS must not evict the iOS cache');
+  put('Lookup.swift', 'import AppKit\nlet bundle = Bundle(path: CommandLine.arguments[1])!\nguard bundle.image(forResource: "Badge") != nil, let colour = NSColor(named: "Ink", bundle: bundle)?.usingColorSpace(.sRGB), abs(colour.redComponent - 0.8) < 0.01 else { fatalError("named asset lookup failed") }\nprint("named assets loaded")\n');
+  const lookup = resolve(dir, 'lookup');
+  const compile = spawnSync('xcrun', ['swiftc', resolve(dir, 'Lookup.swift'), '-o', lookup], { encoding: 'utf8' });
+  assert.equal(compile.status, 0, compile.stderr);
+  const loaded = spawnSync(lookup, [resolve(dir, 'Catalog.bundle')], { encoding: 'utf8' });
+  assert.equal(loaded.status, 0, loaded.stderr);
+  assert.match(loaded.stdout, /named assets loaded/);
+  rmSync(resolve(dir, source), { recursive: true });
+  appleAssets(app, mac, { platform: 'macos', kept: cache });
+  assert.ok(!existsSync(resolve(mac, 'Assets.car')), 'removing all catalogs clears the previous output');
+}), 60000);
+
+// LLP 1116.001 D4.5: `exact contract build` of an app's app.contract rewrites the types its app.ts imports
+// when a source's signature changed, and only then, saying so in one line on stderr; `contract types` agrees.
+test('contract build regenerates app.contract.d.ts when a signature changed, and only then', () => inDir(dir => {
+  const contract = (shape) => `shape Greeting\n  text: string\n${shape}\ncomponent App\n  resource greeting = greeting("x") as shape Greeting\n  view\n    text greeting.text\n`;
+  writeFileSync(resolve(dir, 'app.contract'), contract(''));
+  writeFileSync(resolve(dir, 'app.ts'), "export const appId = 'com.example.types';\n");
+  const exact = (...args) => spawnSync(process.execPath, [resolve(import.meta.dir, 'exact.mjs'), ...args], { cwd: dir, encoding: 'utf8', timeout: 600_000 });
+  const build = () => exact('contract', 'build', 'app.contract', '--json');
+  const types = resolve(dir, 'app.contract.d.ts');
+  let r = build();
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout.trim(), '[]', 'the build\'s reply stays JSON');
+  assert.match(r.stderr, /^app\.contract\.d\.ts: written \(the types app\.ts imports\)$/m);
+  assert.equal(readFileSync(types, 'utf8'), exact('contract', 'types', 'app.contract').stdout, 'what contract types prints');
+  const written = statSync(types).mtimeMs;
+  r = build();
+  assert.doesNotMatch(r.stderr, /app\.contract\.d\.ts/, 'nothing changed, nothing said');
+  assert.equal(statSync(types).mtimeMs, written, 'nor written');
+  writeFileSync(resolve(dir, 'app.contract'), contract('  count: number\n'));
+  r = build();
+  assert.match(r.stderr, /^app\.contract\.d\.ts: regenerated, since a source's signature changed/m);
+  assert.match(readFileSync(types, 'utf8'), /"count": T\d+;/);
+  // A build that fails leaves the types as they were; another file than app.contract never writes them.
+  writeFileSync(resolve(dir, 'app.contract'), 'not a contract');
+  assert.notEqual(build().status, 0);
+  assert.match(readFileSync(types, 'utf8'), /"count"/);
+  writeFileSync(resolve(dir, 'other.contract'), contract(''));
+  assert.doesNotMatch(exact('contract', 'build', 'other.contract').stderr, /app\.contract\.d\.ts/);
+}), 600_000); // The first call may compile the compiler.

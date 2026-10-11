@@ -31,12 +31,14 @@ import { crumbsHidden } from './r10-device-crumbs'; // lane r10-device: the File
 import { restoreRightPanel } from './r10-device-panels'; // lane r10-device: the panel as the last launch left it
 import { restoredEffects } from './r11-device-panels'; // lane r11-device: with its Diff and device
 import { requestDiff } from './r11-device-diff';
-import { deviceTargetOf, deviceThreadId, restoreDeviceTarget, type DeviceTarget } from './r6-media-device';
+import { deviceTargetOf, deviceThreadId, miniStoreOf, restoreDeviceTarget, type DeviceTarget } from './r6-media-device';
 import { ensureDraftThreadId } from './r7-handoff-thread';
 import type { PrTarget } from './r5-panels-pr';
 import { letGo } from './let-go';
 // browser-surface part 1: Browser tabs over the module's WKWebView (browser-surface.ts).
-import { addBrowserSurface, browserLocal, browserPrepare, browserTab, browserView, emptyBrowserView, installBrowserCleanup, type BrowserView } from './browser-surface';
+import { annotationSendSerial, browserMiniView, emptyBrowserMini, floatingTabOf, type BrowserMiniView } from './browser-capture'; // browser-surface part 3: the floating player's browser source, an annotation's send
+import { browserMiniPlayerSource } from './previewMiniPlayerStore';
+import { addBrowserSurface, browserLocal, browserMiniSessions, browserPrepare, browserTab, browserView, emptyBrowserView, installBrowserCleanup, type BrowserView } from './browser-surface';
 import { browserTabAudio, browserTabMute } from './browser-automation-tabs'; // browser-surface part 5: Mute / Unmute and the audible indicator
 
 export type SurfaceKind = 'terminal' | 'diff' | 'files' | 'file' | 'pull-requests' | 'device' | 'pull-request' | 'attachment' | 'browser';
@@ -44,8 +46,15 @@ export type Surface = { id: string; kind: SurfaceKind; path: string; line: numbe
 export type PanelState = { surfaces: Surface[]; active: string; visible: boolean; userRevision: number };
 export type PanelTab = { id: string; kind: string; title: string; icon: string; tone: string; fileToken: string; active: boolean; pending: boolean; renaming: boolean; renameValue: string; closeTitle: string; closeBody: string; closeTarget: string; menu: TabMenuRow[]; favicon: string; faviconFallback: string; audio: string };
 export type PanelView = {
+  /** The thread (or draft) this panel belongs to (panelKey), and whether it is open on the launcher alone (rightPanelStore
+   *  isOpen with no surface: RightPanelEmptyState). The window keys its own open state by `key` (app.contract rightPanelAt). */
+  key: string; launcher: boolean;
   open: boolean; kind: string; active: string; count: number; tabs: PanelTab[]; terminal: TerminalDrawerView; terminalClose: { serial: number; title: string; body: string; target: string; op: string };
   files: FilesView; prs: PrsView; device: DeviceView; deviceSetup: boolean; pr: PrSurfaceView; attachment: AttachmentView; deviceMini: R6DeviceMini; tabStrip: TabStrip; browser: BrowserView;
+  /** Part 3: the floating player's browser tab (its frame: chat-canvas-view.ts). */
+  browserMini: BrowserMiniView;
+  /** Part 3: bumps when an annotation's ⌘Return should send, whatever the panel shows (app.contract annotationSend). */
+  annotationSend: number;
 };
 
 type Store = { panels: Map<string, PanelState>; deviceSetup: string; terminalClose: { serial: number; title: string; body: string; target: string; op: string } };
@@ -229,10 +238,13 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
     const active = state.visible ? state.surfaces.find(entry => entry.id === state.active) : undefined, target = active?.kind === 'device' ? deviceTargetOf(client, panelKey(client)) : undefined;
     const thread = deviceThreadId(client);
     if (target && thread) floatMiniDevice(client, thread, target);
+    // Part 3: a live Browser tab floats too (closePreviewPanel's browser half).
+    if (active?.kind === 'browser' && active.browser && thread && floatingTabOf(client) !== active.browser.tabId) miniStoreOf(client).open(thread, browserMiniPlayerSource(active.browser.tabId));
     state.visible = false; client.diffOpen = false; client.diffLoading = false; return '';
   }
   if (op === 'show') {
-    state.visible = state.surfaces.length > 0;
+    // rightPanelStore.show: the thread's panel opens, on its launcher when it has no surface (audit-wave-followups FU-2).
+    state.visible = true;
     const active = state.surfaces.find(entry => entry.id === state.active);
     if (state.visible && active?.kind === 'diff') await showDiff(client, native);
     return '';
@@ -240,6 +252,8 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
   if (op === 'setup-close') { surfaceStore(client).deviceSetup = ''; return ''; }
   if (op.startsWith('r5-')) return r5Local(client, native, state, op.slice(3), id, value); // r5-panels-surfaces.ts
   if (op.startsWith('browser-')) return browserLocal(client, native, state, op.slice(8), id, value); // browser-surface.ts
+  // right-panel-escape: a sheet's Files search Escape clears the search, then the dialog closes (app.contract chatLocal).
+  if (op === 'files-search-key' && id === 'sheet' && value === 'Escape') { await filesLocal(client, native, 'search-key', id, value); return surfaceLocal(client, native, 'hide', '', ''); }
   if (op.startsWith('files-')) return filesLocal(client, native, op.slice(6), id, value);
   if (op.startsWith('pr-')) return prsLocal(client, native, op.slice(3), id, value);
   if (op.startsWith('device-')) return deviceLocal(client, native, op.slice(7), id, value);
@@ -313,16 +327,23 @@ export async function panelView(client: T3Client, native: Native | null | undefi
   return {
     terminalClose: store.terminalClose,
     terminal: active?.kind === 'terminal' ? terminalPanelView(client, await terminalDrawerView(client, native, 0, now), active) : emptyTerminalDrawerView(),
-    open, kind: active?.kind ?? '', active: active?.id ?? '', count: state.surfaces.length,
+    key: panelKey(client), launcher: state.visible && !active, open, kind: active?.kind ?? '', active: active?.id ?? '', count: state.surfaces.length,
     tabs: state.surfaces.map(surface => tabOf(client, surface, state.active, pendingPaths(client))), files, prs, device, deviceSetup, ...r5,
     deviceMini: visibleMini(r6DeviceMini(client, deviceStateOf(client)), shownDevice(client)), // r12-threads: shouldRenderPreviewMiniPlayer (its frame: chat-canvas-view.ts)
     tabStrip: tabStrip(obj(client.presentation), state.surfaces.map(surface => surface.id), active?.id ?? '', activeSerial(client, panelKey(client), active?.id ?? '')),
-    browser: open && active.kind === 'browser' ? browserView(client, active) : emptyBrowserView(),
+    browser: open && active.kind === 'browser' ? browserView(client, active, now) : emptyBrowserView(client), // part 4: the client's profiles for the "+" menu and the launcher
+    browserMini: browserMiniView(client, ref => browserMiniSessions(client, ref), shownBrowserTab(client)), // part 3: shouldRenderPreviewMiniPlayer's browser half
+    annotationSend: annotationSendSerial(client), // part 3: after browserPrepare applied the picks
   };
+}
+/** The Browser tab the rendered right panel shows, if any (shouldRenderPreviewMiniPlayer). */
+export function shownBrowserTab(client: T3Client): string | null {
+  const state = panelState(client), active = state.surfaces.find(entry => entry.id === state.active);
+  return state.visible && active?.kind === 'browser' && active.browser ? active.browser.tabId : null;
 }
 /** The device the rendered right panel shows (shouldRenderPreviewMiniPlayer's renderedRightPanelSurface), if any. */
 export function shownDevice(client: T3Client): DeviceTarget | undefined {
   const state = panelState(client), active = state.surfaces.find(entry => entry.id === state.active);
   return state.visible && active?.kind === 'device' ? deviceTargetOf(client, panelKey(client)) : undefined;
 }
-export const closedPanel = (): PanelView => ({ terminalClose: { serial: 0, title: '', body: '', target: '', op: '' }, terminal: emptyTerminalDrawerView(), open: false, kind: '', active: '', count: 0, tabs: [], files: emptyFiles(), prs: emptyPrs(), device: emptyDevice(), deviceSetup: false, pr: emptyPrSurface(), attachment: emptyAttachment(), deviceMini: emptyMini(), tabStrip: NO_TAB_STRIP, browser: emptyBrowserView() });
+export const closedPanel = (): PanelView => ({ key: '', launcher: false, terminalClose: { serial: 0, title: '', body: '', target: '', op: '' }, terminal: emptyTerminalDrawerView(), open: false, kind: '', active: '', count: 0, tabs: [], files: emptyFiles(), prs: emptyPrs(), device: emptyDevice(), deviceSetup: false, pr: emptyPrSurface(), attachment: emptyAttachment(), deviceMini: emptyMini(), tabStrip: NO_TAB_STRIP, browser: emptyBrowserView(), browserMini: emptyBrowserMini(), annotationSend: 0 });

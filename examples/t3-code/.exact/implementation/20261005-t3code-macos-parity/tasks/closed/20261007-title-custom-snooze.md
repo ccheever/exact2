@@ -189,7 +189,7 @@ Found here, not in this task's scope:
   both), as Custom… now does.
 - After a right-click-opened menu, Custom…'s dialog returns the focus to the title, not to what held
   it before (the reference's finalFocus); restoring an arbitrary earlier focus needs the host modal
-  of [X53](../../issues/20261008-x53-state-driven-modal-focus.md).
+  of [X53](../../issues/closed/20261008-x53-state-driven-modal-focus.md).
 - The in-app title menu has no ↑/↓ between items (the reference's DOM fallback has none either;
   its desktop build uses the native menu, which does).
 - A toast stays above the Custom snooze overlay (both entry points, unchanged).

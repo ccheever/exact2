@@ -2,6 +2,7 @@ import { T3Client } from './client';
 import { effectiveWorktreeRules, arr, obj, str, num, applyShell, initialShell, type Obj } from './domain';
 import type { Native } from './protocol';
 import { projectIdentity } from './presentation';
+import { letGo } from './let-go';
 
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : 'Could not load this section.';
 const windows = [{ id: '5m', windowMs: 300000, bucketMs: 15000 }, { id: '15m', windowMs: 900000, bucketMs: 30000 }, { id: '30m', windowMs: 1800000, bucketMs: 60000 }, { id: '1h', windowMs: 3600000, bucketMs: 120000 }];
@@ -60,12 +61,25 @@ export function relativeTimeLabel(iso: string, now: number): string {
   const hours = Math.floor(minutes / 60);
   return hours < 24 ? `${hours}h ago` : `${Math.floor(hours / 24)}d ago`;
 }
-export async function archivedSettings(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, active: boolean, now = 0) {
+// useArchivedThreadSnapshots (archivedThreadsState.ts): one archivedShellSnapshot query per visit (Atom.swr revalidates on
+// mount), again on a new connection and after this client's own unarchive or delete (refreshArchivedThreadsForEnvironment;
+// here settingsRefresh, which app.contract bumps when a rest command succeeds), never on a wake or the minute tick.
+const archives = new WeakMap<T3Client, { key: string; value: Obj; error: string }>();
+export async function archivedSettings(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, active: boolean, now = 0, refresh = 0) {
   const empty = { available: false, loading: false, error: '', groups: [] as ArchiveGroup[] };
-  if (!active) return empty;
+  if (!active) { archives.delete(client); return empty; }
   try {
     if (!native?.available || !client.ready || (environmentId !== "" && environmentId !== client.environmentId) || (projectId && !client.shell.projects.some(project => project.id === projectId))) throw new Error('This scope is unavailable. Choose a connected environment and an existing checkout.');
-    const shell = applyShell(initialShell(), await client.readSettings(native, 'orchestration.getArchivedShellSnapshot'));
+    const visit = `${client.origin}|${client.environmentId}|${client.generation}|${refresh}`;
+    let kept = archives.get(client);
+    if (!kept || kept.key !== visit) {
+      // A shared read: an answer asked again before its reply joins it instead of sending it again (diagnostics-view.ts).
+      try { kept = { key: visit, value: await client.restAccess(native).read('orchestration.getArchivedShellSnapshot'), error: '' }; }
+      catch (failure) { if (letGo(failure)) throw failure; kept = { key: visit, value: {}, error: errorMessage(failure) }; }
+      archives.set(client, kept);
+    }
+    if (kept.error) throw new Error(kept.error);
+    const shell = applyShell(initialShell(), kept.value);
     // ArchivedThreadsPanel: archivedAt ?? createdAt, newest first, then id.
     const key = (thread: Obj) => str(thread.archivedAt || thread.createdAt);
     const groups = shell.projects.filter(project => !projectId || project.id === projectId).map(project => ({ id: str(project.id), title: str(project.title), mark: projectIdentity(str(project.title)).projectMark, ink: projectIdentity(str(project.title)).projectInk, surface: projectIdentity(str(project.title)).projectSurface, threads: shell.threads.filter(thread => thread.projectId === project.id).sort((a, b) => key(b).localeCompare(key(a)) || str(b.id).localeCompare(str(a.id))).map((thread, index) => ({ id: str(thread.id), scope: `${client.environmentId}:${project.id}:${thread.id}`, title: str(thread.title), first: index === 0,
@@ -116,11 +130,12 @@ export async function storageSettings(client: T3Client, native: Native | null | 
   if (!active) return empty;
   try {
     if (!native?.available || !client.ready || (environmentId !== "" && environmentId !== client.environmentId) || (projectId && !client.shell.projects.some(project => project.id === projectId))) throw new Error('This scope is unavailable. Choose a connected environment and existing checkout.');
-    const config = await client.readSettings(native, 'server.getConfig');
+    // useScopedSettings (StorageSettings.tsx): the connection's subscribed config (server.getConfig at connect, then
+    // subscribeServerConfig), never a read per answer.
+    const config = client.config, settings = obj(config.settings);
     const capabilities = obj(obj(config.environment).capabilities);
     if (projectId && capabilities.projectWorktreeCleanup !== true) return { ...empty, notice: 'Update the selected machines to configure project worktree cleanup.' };
     if (capabilities.storageCleanup !== true) return { ...empty, notice: 'Update the selected environments to use storage cleanup, or choose a machine that supports it.' };
-    const settings = await client.readSettings(native, 'server.getSettings');
     const override = obj(obj(settings.projectSettingsOverrides)[projectId]);
     const mode = projectId ? str(obj(override.worktreeCleanup).mode, 'inherit') : 'inherit';
     const rules = { ...obj(settings.storageCleanup), ...effectiveWorktreeRules(settings, override) };

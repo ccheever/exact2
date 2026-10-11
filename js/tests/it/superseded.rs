@@ -52,7 +52,7 @@ component App
                 work: &mut std::collections::VecDeque<(u64, exact_runner::Work)>| {
         for request in runner.take_requests() {
             let token = request.request.continuation.expect("storage continuation");
-            match runner.dispatch_work(token) {
+            match crate::runnable(runner.dispatch_work(token)) {
                 exact_runner::Dispatch::Run(w) => work.push_back((request.ticket, w)),
                 exact_runner::Dispatch::Held => {
                     held.insert(token, request.ticket);
@@ -61,7 +61,7 @@ component App
             }
         }
         for (token, dispatch) in runner.release_work() {
-            let exact_runner::Dispatch::Run(w) = dispatch else {
+            let exact_runner::Dispatch::Run(w) = crate::runnable(dispatch) else {
                 panic!("released work runs")
             };
             if let Some(ticket) = held.remove(&token) {

@@ -21,14 +21,14 @@ component MobileAttachmentAudio
       t3-document-audio media-source=source audio-active=active change=status width=0 height=0
       text data.position font-size=14 color=colors.muted
       row align-items="center" gap=14
-        button aria-label="Back 15 seconds" disabled=(not data.loaded) press=command("back") padding=14
+        button appearance="none" aria-label="Back 15 seconds" disabled=(not data.loaded) press=command("back") padding=14
           text "−15s" font-size=14 color=colors.foreground
         button disabled=(not data.loaded) press=command("toggle") padding-left=21 padding-right=21 padding-top=14 padding-bottom=14 border-radius=10.5 background-color=colors.subtle
           text (not data.loaded ? "Loading…" : data.playing ? "Pause" : "Play") font-size=14 color=colors.foreground
-        button aria-label="Forward 15 seconds" disabled=(not data.loaded) press=command("forward") padding=14
+        button appearance="none" aria-label="Forward 15 seconds" disabled=(not data.loaded) press=command("forward") padding=14
           text "+15s" font-size=14 color=colors.foreground
       when data.error != ""
         column align-items="center" gap=10.5
           text "This audio could not be played. Try again or save it to open in another app." font-size=14 text-align="center" color=colors.foreground
-          button press=retry padding=10.5
+          button appearance="none" press=retry padding=10.5
             text "Try again" font-size=14 color=colors.foreground

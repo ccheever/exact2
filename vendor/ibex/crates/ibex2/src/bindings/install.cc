@@ -2045,7 +2045,8 @@ jsi::Object Adapter::storage(const void* grants, const jsi::Function& factory) {
   static const Method fs_methods[] = {
       {"readFile",110}, {"writeFile",111}, {"appendFile",112}, {"readdir",113},
       {"mkdir",114}, {"rm",115}, {"stat",116}, {"rename",117}, {"copyFile",118},
-      {"realpath",119}, {"atomicWriteFile",120}};
+      {"realpath",119}, {"atomicWriteFile",120},
+      {"compressImage",121}};  // Exact patch 9
   jsi::Object fs(rt);
   for (const auto& method : fs_methods)
     fs.setProperty(rt, method.name, async_binding(method.name, method.op, grants));

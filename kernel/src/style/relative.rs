@@ -1,4 +1,5 @@
-//! CSS's font-relative lengths, `rem` and `em` (CSS Values 4 §6.1).
+//! CSS's font-relative lengths, `rem` and `em` (CSS Values 4 §6.1), and a
+//! platform text style as a `font-size` (`-exact-title1`, LLP 1115 D3).
 //!
 //! A row authored as `1.5rem` or `0.8em` keeps what was written here, beside
 //! the row, and the row itself always holds the pixels it resolves to — what
@@ -10,7 +11,9 @@
 //! ([`crate::txn`]): `rem` against the root font size the host sets
 //! ([`crate::Kernel::set_root_font_size`]), `em` against the element's own
 //! computed `font-size` — and, for `font-size` itself, against the parent's,
-//! as CSS says. `px` never scales.
+//! as CSS says. `px` never scales. A text style is the platform's size for it
+//! at the root font size (the platform's body size): the schema's ramp,
+//! [`text_style_size`].
 //! @ref LLP 1069.000 D3
 
 use crate::error::StyleValueError;
@@ -27,6 +30,62 @@ pub enum Unit {
     Rem,
     /// The element's font size (for `font-size`, the parent's).
     Em,
+    /// A platform text style's size at the root font size, by its id in
+    /// [`crate::TEXT_STYLES`]; only a `font-size` is one.
+    TextStyle(u8),
+}
+
+impl Unit {
+    /// The pixels one of this unit is, given the root's and the
+    /// reference (the parent's or the element's) font size.
+    pub fn basis(self, root: f32, reference: f32) -> f32 {
+        match self {
+            Unit::Rem => root,
+            Unit::Em => reference,
+            Unit::TextStyle(id) => text_style_size(id, root),
+        }
+    }
+}
+
+/// A text style's id by its written name: `-exact-<name>` or its WebKit
+/// alias, ASCII case-insensitively, as CSS matches keywords.
+/// @ref LLP 1115 D3
+pub fn text_style(name: &str) -> Option<u8> {
+    let name = name.trim_matches(['\t', '\n', '\u{c}', '\r', ' ']);
+    let exact = name
+        .get(..7)
+        .filter(|p| p.eq_ignore_ascii_case("-exact-"))
+        .map(|_| &name[7..]);
+    crate::TEXT_STYLES
+        .iter()
+        .position(|s| {
+            exact.is_some_and(|n| n.eq_ignore_ascii_case(s.name))
+                || (!s.alias.is_empty() && name.eq_ignore_ascii_case(s.alias))
+        })
+        .map(|i| i as u8)
+}
+
+/// The size of text style `id` where the root font size is `root`: the
+/// schema's ramp read at `root` (LLP 1115 D3). Between two of its body
+/// sizes it interpolates; below the first or above the last, the nearest
+/// row scales with the root.
+pub fn text_style_size(id: u8, root: f32) -> f32 {
+    let bodies = crate::TEXT_STYLE_BODIES;
+    let Some(style) = crate::TEXT_STYLES.get(usize::from(id)) else {
+        return root;
+    };
+    let sizes = style.sizes;
+    let last = bodies.len() - 1;
+    if root <= bodies[0] {
+        return sizes[0] * root / bodies[0];
+    }
+    if root >= bodies[last] {
+        return sizes[last] * root / bodies[last];
+    }
+    let i = bodies.iter().position(|&b| b >= root).unwrap_or(last);
+    let (b0, b1) = (bodies[i - 1], bodies[i]);
+    let t = (root - b0) / (b1 - b0);
+    sizes[i - 1] + (sizes[i] - sizes[i - 1]) * t
 }
 
 /// The rows of one style authored in `rem`/`em`, by row, with the factor
@@ -86,7 +145,11 @@ impl Relative {
     pub(crate) fn encode(&self, out: &mut Vec<u8>) {
         for (row, unit, n) in &self.0 {
             out.extend_from_slice(&row.bit().to_le_bytes());
-            out.push(*unit as u8);
+            match unit {
+                Unit::Rem => out.push(0),
+                Unit::Em => out.push(1),
+                Unit::TextStyle(id) => out.extend_from_slice(&[2, *id]),
+            }
             out.extend_from_slice(&n.to_bits().to_le_bytes());
         }
     }
@@ -125,6 +188,9 @@ fn nonnegative(id: StyleId) -> bool {
 /// `<number>rem` or `<number>em`, by CSS's number grammar, or `None` when
 /// the text is neither.
 pub fn parse(text: &str) -> Option<(Unit, f32)> {
+    if let Some(id) = text_style(text) {
+        return Some((Unit::TextStyle(id), 1.0));
+    }
     let t = text.trim_matches(['\t', '\n', '\u{c}', '\r', ' ']);
     let lower = t.get(t.len().saturating_sub(3)..)?.to_ascii_lowercase();
     let (unit, number) = if lower == "rem" {
@@ -148,6 +214,12 @@ pub(crate) fn of(id: StyleId, value: &StyleValue) -> Result<Option<(Unit, f32)>,
     let Some((unit, n)) = parse(text) else {
         return Ok(None);
     };
+    if matches!(unit, Unit::TextStyle(_)) && id != StyleId::FontSize {
+        return Err(StyleValueError::WrongKind {
+            style: id,
+            expected: "a length: a text style is a `font-size`",
+        });
+    }
     if !admits_relative(id) {
         return Err(StyleValueError::WrongKind {
             style: id,
@@ -200,8 +272,8 @@ pub(crate) fn pixels_text(
 
 /// What the row holds until the kernel resolves it: the length at CSS's
 /// initial font size, in the form the row's codec reads as pixels.
-pub(crate) fn provisional(id: StyleId, (_, n): (Unit, f32)) -> StyleValue {
-    pixels(id, n * MEDIUM)
+pub(crate) fn provisional(id: StyleId, (unit, n): (Unit, f32)) -> StyleValue {
+    pixels(id, n * unit.basis(MEDIUM, MEDIUM))
 }
 
 fn pixels(id: StyleId, px: f32) -> StyleValue {
@@ -244,6 +316,52 @@ mod tests {
         assert_eq!(parse("1e1em"), Some((Unit::Em, 10.0)));
         for refused in ["rem", "em", "-em", "1 rem", "1px", "1", "1.rem", "1remx"] {
             assert_eq!(parse(refused), None, "{refused}");
+        }
+    }
+
+    #[test]
+    fn a_text_style_is_a_font_size_read_from_the_ramp_at_the_root() {
+        let title1 = text_style("-exact-title1").unwrap();
+        assert_eq!(text_style(" -EXACT-Title1 "), Some(title1));
+        assert_eq!(text_style("-apple-system-title1"), Some(title1));
+        assert_eq!(
+            text_style("title1"),
+            None,
+            "an Exact role is written -exact-"
+        );
+        assert_eq!(text_style("-exact-title9"), None);
+        assert_eq!(parse("-exact-title1"), Some((Unit::TextStyle(title1), 1.0)));
+        // iOS at the default Dynamic Type (17), the Mac (13), the web (16).
+        assert_eq!(text_style_size(title1, 17.0), 28.0);
+        assert_eq!(text_style_size(title1, 13.0), 22.0);
+        assert_eq!(text_style_size(title1, 16.0), 27.0);
+        // AX5's body is 53, its title1 58: Apple's ramp, not a ratio.
+        assert_eq!(text_style_size(title1, 53.0), 58.0);
+        assert_eq!(text_style_size(title1, 18.0), 29.0, "between 17 and 19");
+        assert_eq!(
+            text_style_size(title1, 106.0),
+            116.0,
+            "past the ramp, scaled"
+        );
+        assert_eq!(text_style_size(title1, 6.5), 11.0, "below it, scaled");
+        let body = text_style("-exact-body").unwrap();
+        for root in [12.0, 13.0, 17.0, 18.0, 33.0, 60.0] {
+            assert_eq!(text_style_size(body, root), root, "body is the root size");
+        }
+        let mut s = StyleProps::default();
+        s.set_dynamic(StyleId::FontSize, &StyleValue::Text("-exact-title1".into()))
+            .unwrap();
+        assert_eq!(s.font_size, 27.0, "provisionally at CSS's medium");
+        assert_eq!(
+            s.relative.get(StyleId::FontSize),
+            Some((Unit::TextStyle(title1), 1.0))
+        );
+        for row in [StyleId::MarginTop, StyleId::LineHeight, StyleId::FontWeight] {
+            assert!(
+                s.set_dynamic(row, &StyleValue::Text("-exact-title1".into()))
+                    .is_err(),
+                "{row:?}"
+            );
         }
     }
 

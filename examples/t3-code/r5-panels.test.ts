@@ -12,6 +12,8 @@ import { prRowsView, prTarget, rowAction, checksRollup, statusTooltip, providerO
 import { previewKind, previewDelimiter, findAttachment } from './r5-panels-attach';
 import { adoptFilesPrefs, filesPrefs } from './r5-panels-prefs';
 import { surfaces } from './shell';
+import { diagramPreviewAction, diagramPreviewView } from './timeline-mermaid';
+import { decodeClientPrefs } from './settings-core';
 
 type Call = { method: string; payload: Record<string, unknown> };
 const URL72 = 'https://github.com/ccheever/exact2/pull/72';
@@ -26,7 +28,7 @@ function fakeClient(over: Record<string, unknown> = {}) {
     environmentId: 'env', threadId: 't1', projectId: 'p1', ready: true, revision: 0, generation: 1, diffOpen: false, diffText: '', diffError: '', diffLoading: false, origin: 'http://127.0.0.1:14861',
     get draftKey() { return `env:${this.threadId || `new:${this.projectId}`}`; },
     config: { environment: { capabilities: { pullRequests: true, threadPullRequests: true, pullRequestChecks: true } } },
-    local: { clientSettings: { wordWrap: true } },
+    local: { clientSettings: { ...decodeClientPrefs({}), wordWrap: true } },
     projection: { visibleTurnItems: [{ item: { type: 'user_message', attachments: [
       { type: 'file', id: 'att-md', name: 'notes.md', mimeType: 'text/markdown', sizeBytes: 64 },
       { type: 'file', id: 'att-csv', name: 'table.csv', mimeType: 'text/csv', sizeBytes: 12 },
@@ -181,11 +183,12 @@ describe('sent attachment preview (AttachmentFilePreview)', () => {
     expect(view.tabs[0]).toMatchObject({ kind: 'attachment', title: 'notes.md', fileToken: 'markdown' });
     expect(view.attachment).toMatchObject({ name: 'notes.md', size: '1 KB', preview: 'markdown', canRender: true, rendered: true, renderLabel: 'Show markdown source', renderIcon: 'code',
       showWrap: false, canCopy: true, copyLabel: 'Copy contents', canSave: true });
-    expect(view.attachment.markdown.blocks.length).toBeGreaterThan(0);
+    // audit-wave-followups-3 FW-2: the chat renderer's source (app.contract filesMarkdown), kind "attachment" (no folder).
+    expect(view.attachment.markdownSource).toEqual([{ id: 'attachment:att-md', kind: 'attachment', title: '', body: '# Notes\n\n- one\n' }]);
     expect(calls.find(call => call.method === 'attachmentText')!.payload.url).toBe('http://127.0.0.1:14861/api/assets/inline/sig');
     await surfaceLocal(client, native, 'r5-att-render', 'att-md', '');
     view = await panelView(client, native, 1000);
-    expect(view.attachment).toMatchObject({ preview: 'code', renderLabel: 'Show rendered markdown', renderIcon: 'eye', showWrap: true, wrap: true });
+    expect(view.attachment).toMatchObject({ preview: 'code', renderLabel: 'Show rendered markdown', renderIcon: 'eye', showWrap: true, wrap: true, markdownSource: [] });
     expect(view.attachment.lines.map(line => line.number)).toEqual(['1', '2', '3', '4']);
     await surfaceLocal(client, native, 'r5-att-copy', 'att-md', '');
     expect(calls.find(call => call.method === 'copyText')!.payload.text).toBe('# Notes\n\n- one\n');
@@ -197,6 +200,26 @@ describe('sent attachment preview (AttachmentFilePreview)', () => {
     await surfaceLocal(client, native, 'r5-att-save', 'att-md', '');
     const save = calls.find(call => call.method === 'attachmentSave')!;
     expect(save.payload).toMatchObject({ url: 'http://127.0.0.1:14861/api/assets/attachment/sig', name: 'notes.md' });
+  });
+  // audit-wave-followups-3 FW-2: AttachmentFilePreview's rendered Markdown is ChatMarkdown (cwd undefined), as Files' is.
+  test('a rendered attachment is the chat renderer: code colours, Mermaid diagrams and their expand', async () => {
+    const { client, replies } = fakeClient();
+    const flow = 'graph TD\n  Attachment --> Preview', text = `# Notes\n\n\`\`\`ts\nconst x = 1;\n\`\`\`\n\n\`\`\`mermaid\n${flow}\n\`\`\`\n`;
+    replies['assets.createUrl'] = () => ({ relativeUrl: '/api/assets/x', expiresAt: 0 });
+    replies.attachmentText = () => ({ ok: true, text, truncated: false });
+    let json = '';
+    replies.mermaidRender = () => ({ items: ['light', 'dark'].map(theme => ({ key: `${theme}\n${flow}`, json })) });
+    await surfaceLocal(client, native, 'r5-attachment', 'att-md', '');
+    let view = await panelView(client, native, 1);
+    expect(view.attachment.markdownSource).toEqual([{ id: 'attachment:att-md', kind: 'attachment', title: '', body: text }]);
+    expect(view.attachment.code.map(block => block.code)).toContain('const x = 1;');
+    expect(view.attachment.md.chips).toEqual([]);
+    expect(view.attachment.diagrams.map(diagram => [diagram.code, diagram.diagram])).toEqual([[flow, 'loading']]);
+    json = JSON.stringify({ status: 'rendered', width: 120, height: 80, viewBox: '0 0 120 80', items: [] });
+    view = await panelView(client, native, 1);
+    expect(view.attachment.diagrams[0]).toMatchObject({ code: flow, diagram: 'rendered', width: 120 });
+    diagramPreviewAction(client, 'diagram-open', flow);
+    expect(diagramPreviewView(client).diagramPreview.map(diagram => diagram.code)).toEqual([flow]);
   });
   test('a CSV renders as a table; a file with no preview offers Save; an unknown id fails plainly', async () => {
     const { client, replies } = fakeClient();

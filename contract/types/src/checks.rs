@@ -1059,6 +1059,27 @@ pub(super) fn check_command(
     if name == "scrollIntoView" {
         return into_view_args(args, scope, shapes, span);
     }
+    // `Element.scrollBy(x, y)` by the element's `id`: pixels, as the web's
+    // (in a terminal a row is 16, a column 8).
+    if name == "scrollBy" {
+        const USAGE: &str = "`scrollBy(\"element-id\", x, y)`, pixels to move by";
+        let ok = match args {
+            [id, x, y] => {
+                infer(id, scope, shapes)? == Ty::String
+                    && infer(x, scope, shapes)? == Ty::Number
+                    && infer(y, scope, shapes)? == Ty::Number
+            }
+            _ => false,
+        };
+        if !ok {
+            return err(
+                "type-scroll-by",
+                format!("{USAGE}: an `id` string, then two numbers"),
+                span,
+            );
+        }
+        return Ok(());
+    }
     if name == "fastSeek" || name == "load" {
         return super::media::command_args(name, args, scope, shapes, span);
     }

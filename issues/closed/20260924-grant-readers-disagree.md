@@ -1,6 +1,6 @@
 # The web and the runner still read grants a native host refuses
 
-**Status:** Closed — implementation and automated parity checks pass; one required live producer proof remains
+**Status:** Closed
 **Resolution:** One Rust parse now emits the typed, complete grant set both web targets consume; Exact API requests, stores and files follow native admission and diagnostics. Closure waits for the Weatherlight JS build-and-boot drive below.
 **Systems:** Web host, runner store, bake, grants
 **Severity:** P3
@@ -131,3 +131,5 @@ the same on origin/main (`1ed9e1f7`), not this change.
 Landed with both final reviews still marking edge cases; they are in QUEUE
 ("JS-target grant parity, what is left"), and the hostile-page cases are out
 of scope by the ruling above (on the web, grants are parity, not a sandbox).
+
+Original status qualifier (preserved during the 2026-10-08 header repair): implementation and automated parity checks pass; one required live producer proof remains.

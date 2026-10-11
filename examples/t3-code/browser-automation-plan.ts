@@ -13,6 +13,7 @@ import { normalizePreviewUrl } from './browser-url';
 import { isLocalLoopbackHost, isPrivateNetworkHost } from './host-classification';
 import { pressPlan, type PressInput } from './browser-automation-keys';
 import type { ScopedThreadRef } from './terminal-ui-state';
+import { resolvePreviewViewport, type PreviewViewportResizeInput } from './browser-viewport';
 
 // ── contracts previewAutomation.ts ───────────────────────────────────────────────────────────────
 export const PREVIEW_AUTOMATION_V1_OPERATIONS = ['status', 'open', 'navigate', 'snapshot', 'click', 'type', 'press', 'scroll', 'evaluate', 'waitFor', 'recordingStart', 'recordingStop'] as const;
@@ -164,8 +165,11 @@ export type PlanContext = {
   budgetMs: number;
   /** Tabs whose presentation the agent suppressed (`open: false`) in this thread. */
   suppressed: ReadonlySet<string>;
-  /** The floating-preview preference (`browserAutoShowFloatingPreview`, part 3's setting; on until then). */
+  /** The floating-preview preference (`browserAutoShowFloatingPreview`, part 3's setting, default on; its row is Settings › Integrations › Browser, part 4). */
   autoShowFloatingPreview: boolean;
+  /** The configured open defaults (part 4's browserDefaults): a tab an agent creates without a size gets them, as a
+   *  hand-opened one does. Fill and Default when absent. */
+  openDefaults?: { viewport: PreviewViewportSetting; profileId: string };
 };
 export type Plan = Record<string, unknown> & { requestId: string; operation: PreviewAutomationOperation };
 /** What the data module does besides sending the plan: show a tab, record or clear a suppression. */
@@ -201,11 +205,12 @@ export function planRequest(context: PlanContext): { plan: Plan; effects: PlanEf
     let url: string | undefined;
     if (input.url !== undefined) { try { url = normalizePreviewUrl(input.url); } catch { return fail(operationError({ ...errorContext, tabId: activeTabId })); } }
     if (!activeTabId) {
+      const viewport = context.openDefaults?.viewport ?? FILL_PREVIEW_VIEWPORT;
       return { plan: { ...base, tabId: null, runtimeId: null, open: {
-        create: { threadId: request.threadId, ...(input.url !== undefined ? { url: input.url } : {}), viewport: FILL_PREVIEW_VIEWPORT, profileId: 'default' },
+        create: { threadId: request.threadId, ...(input.url !== undefined ? { url: input.url } : {}), viewport, profileId: context.openDefaults?.profileId ?? 'default' },
         epoch: state.serverEpoch, present, suppress: suppressed,
         // Part 2 (the device toolbar) renders it; T3BrowserViewport is the hook.
-        defaultViewport: previewAutomationDefaultViewport(false, { viewport: FILL_PREVIEW_VIEWPORT }),
+        defaultViewport: previewAutomationDefaultViewport(false, { viewport }),
       } }, effects };
     }
     const snapshot = state.sessions[activeTabId] ?? state.snapshot;
@@ -231,9 +236,11 @@ export function planRequest(context: PlanContext): { plan: Plan; effects: PlanEf
       break;
     }
     case 'resize': {
-      const input = request.input as { mode?: string; width?: number; height?: number; preset?: string; orientation?: string };
-      plan.viewport = input.mode === 'freeform' ? { _tag: 'freeform', width: input.width, height: input.height }
-        : input.mode === 'preset' ? { _tag: 'preset', presetId: input.preset, ...(input.orientation ? { orientation: input.orientation } : {}) } : FILL_PREVIEW_VIEWPORT;
+      // resolvePreviewViewport (part 2): a preset carries its size, swapped for the other orientation; an unknown
+      // preset or a freeform size without both sides fails the request, as the reference's throw does.
+      const input = request.input as Partial<PreviewViewportResizeInput>;
+      try { plan.viewport = resolvePreviewViewport({ ...input, mode: input.mode ?? 'fill' }); }
+      catch { return fail(operationError(errorContext)); }
       break;
     }
     case 'press': plan.key = pressPlan(request.input as PressInput); break;

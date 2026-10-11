@@ -23,7 +23,7 @@ theorem each_sem {fl : Bool} {name l ps body} (hname : name = if fl then "filter
   constructor
   · intro h
     rcases evalR_call_inv h with ⟨_, _, h1, _⟩ | ⟨_, ⟨_, _, _, _, _, h1, h2, h3, h4, h5⟩ |
-      ⟨_, _, _, _, _, h1, h2, h3, h4, h5⟩ | ⟨y, h2, _⟩ | ⟨_, _, h1⟩⟩
+      ⟨_, _, _, _, _, h1, h2, h3, h4, h5⟩ | ⟨y, h2, _⟩ | ⟨y, h2, _⟩ | ⟨_, _, h1⟩⟩
     · rw [hfd] at h1; cases h1
     · cases fl <;> simp at h1 h2
       obtain ⟨rfl, rfl, rfl⟩ := h2
@@ -31,6 +31,7 @@ theorem each_sem {fl : Bool} {name l ps body} (hname : name = if fl then "filter
     · cases fl <;> simp at h1 h2
       obtain ⟨rfl, rfl, rfl⟩ := h2
       exact ⟨_, _, h3, h5, h4⟩
+    · cases fl <;> simp at h2
     · cases fl <;> simp at h2
     · cases fl
       · exact absurd h1 stdlib_map
@@ -69,6 +70,7 @@ theorem case_call (ih : AllOk fuel) (hc : compile (fuel + 1) p depth sc n (.call
       exact case_each (fl := true) ih hl0 hb0 hx (each_sem (fl := true) rfl hfd')
     · exact case_pending hfd hc hx
     · exact case_failed hfd hc hx
+    · exact case_failure hfd hc hx
     · split at hc
       · cases hc
       rename_i hname
@@ -77,7 +79,7 @@ theorem case_call (ih : AllOk fuel) (hc : compile (fuel + 1) p depth sc n (.call
       simp only [Except.bind_ok_iff] at hc
       obtain ⟨⟨ca, ts⟩, ha, h1⟩ := hc
       simp only [Except.ok.injEq, Prod.mk.injEq] at h1; obtain ⟨rfl, rfl⟩ := h1
-      exact case_stdlib ih hfd (fun h => hname (by rcases h with h | h | h | h <;> simp [h])) ha hx
+      exact case_stdlib ih hfd (fun h => hname (by rcases h with h | h | h | h | h <;> simp [h])) ha hx
 
 theorem compile_succ (ih : AllOk fuel) : CompileOk (fuel + 1) := by
   intro p depth sc n e c t hc env inFn ls venv L P hx

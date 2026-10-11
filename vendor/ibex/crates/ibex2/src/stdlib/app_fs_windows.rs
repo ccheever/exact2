@@ -8,10 +8,94 @@ use crate::{
 };
 use std::{
     fs::File,
-    io,
+    io::{self, Write},
     path::{Path, PathBuf},
     sync::Arc,
 };
+/// Exact documents use the selected directory's owned Windows handle.
+pub(crate) fn document(
+    root: &File,
+    path: &str,
+    op: FsOp,
+    data: Option<&[u8]>,
+) -> io::Result<FsResult> {
+    let parts: Vec<_> = if path.is_empty() {
+        Vec::new()
+    } else {
+        path.split('/').collect()
+    };
+    for part in &parts {
+        windows_directory::validate_name(part)?;
+    }
+    let mut parents = vec![Directory::selected(root)?];
+    if op == FsOp::Mkdir {
+        for part in parts {
+            parents.push(parents.last().unwrap().child(part, true)?);
+        }
+        return Ok(FsResult::Done);
+    }
+    let (leaf, ancestors) = parts
+        .split_last()
+        .map_or((None, &[][..]), |(leaf, parents)| (Some(*leaf), parents));
+    for part in ancestors {
+        parents.push(parents.last().unwrap().child(part, false)?);
+    }
+    let parent = parents.last().unwrap();
+    let leaf_required =
+        || leaf.ok_or_else(|| io::Error::other("cannot read a directory (filesystem code EISDIR)"));
+    match op {
+        FsOp::ReadFile => parent.document_read(leaf_required()?).map(FsResult::Bytes),
+        FsOp::ReadDir => {
+            let dir = match leaf {
+                Some(leaf) => parent.child(leaf, false)?,
+                None => parent.try_clone()?,
+            };
+            dir.names().map(FsResult::Names)
+        }
+        FsOp::Stat => {
+            let file = match leaf {
+                Some(leaf) => parent.entry(leaf)?,
+                None => parent.0.try_clone()?,
+            };
+            let meta = file.metadata()?;
+            Ok(FsResult::Stat(crate::stdlib::fs::Stat {
+                size: meta.len(),
+                is_file: meta.is_file(),
+                is_directory: meta.is_dir(),
+                modified_ms: meta
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0),
+            }))
+        }
+        FsOp::WriteFile | FsOp::AppendFile => {
+            let flags = libc::O_WRONLY
+                | libc::O_CREAT
+                | if op == FsOp::AppendFile {
+                    libc::O_APPEND
+                } else {
+                    0
+                };
+            let mut file = parent.file(leaf_required()?, flags)?;
+            if op == FsOp::WriteFile {
+                file.set_len(0)?;
+            }
+            file.write_all(data.unwrap_or(&[]))?;
+            Ok(FsResult::Done)
+        }
+        FsOp::AtomicWriteFile => {
+            parent.write(leaf_required()?, data.unwrap_or(&[]), &token()?)?;
+            Ok(FsResult::Done)
+        }
+        FsOp::Remove => {
+            parent.unlink(leaf_required()?)?;
+            Ok(FsResult::Done)
+        }
+        _ => Err(io::Error::other("operation is not available on a document")),
+    }
+}
 #[derive(Clone, Debug)]
 pub struct AppDirectories {
     roots: Arc<[Directory; 3]>,

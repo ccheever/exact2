@@ -312,6 +312,13 @@ export const NETWORK_OPS = ['network-access', 'tailscale-serve', 'endpoint-defau
 type Result = { status: Obj | null; generation: number };
 const none: Result = { status: null, generation: -1 };
 const messageOf = (error: unknown, fallback: string) => (error instanceof Error && error.message ? error.message : fallback);
+/**
+ * What the reference's renderer reads when a desktop bridge call rejects (audit-wave-followups-2 FV-5): Electron's
+ * `ipcRenderer.invoke` wraps the main process's `error.toString()` (the tagged error's name, then its message) in its
+ * own Error, so Settings › Connections shows "Error invoking remote method 'desktop:set-server-exposure-mode':
+ * DesktopServerExposureModePersistenceError: Failed to persist …" in its toast and row.
+ */
+export const ipcFailure = (channel: string, error: unknown): Error => new Error(`Error invoking remote method '${channel}': ${String(error)}`);
 
 /** Restart the embedded server with the exposure's envelope (applyLocalSetting, the U4 stopgap), and read the facts afresh. */
 async function restart(client: T3Client, native: Native): Promise<Result> {
@@ -331,9 +338,11 @@ export async function runNetworkOp(client: T3Client, native: Native, op: string,
     try {
       if (live.port !== primary.status.port && primary.status.port) { await exposure.configureFromSettings({ port: primary.status.port }); live.port = primary.status.port; }
       previous = exposure.getState().mode;
-      const change = await exposure.setMode(value === 'on' ? 'network-accessible' : 'local-only');
+      // DesktopServerExposure.setMode's failures reach the renderer through the IPC (the setServerExposureMode method).
+      const change = await exposure.setMode(value === 'on' ? 'network-accessible' : 'local-only').catch((error: unknown) => { throw letGo(error) ? error : ipcFailure('desktop:set-server-exposure-mode', error); });
       live.revalidating = true; // refreshDesktopNetworkAccessState() after the change
       if (!change.requiresRelaunch) return none;
+      // The restart in place stands in for the reference's relaunch, which has no failure the renderer reads: its own message.
       try { return await restart(client, native); }
       catch (error) {
         if (letGo(error)) throw error;
@@ -356,7 +365,8 @@ export async function runNetworkOp(client: T3Client, native: Native, op: string,
     try {
       const port = enabled ? Number(value.slice(3)) : exposure.getState().tailscaleServePort;
       if (enabled && (!/^\d+$/u.test(value.slice(3)) || !Number.isInteger(port) || port < 1 || port > 65_535)) throw new Error('Enter a port from 1 to 65535.');
-      const change = await exposure.setTailscaleServeEnabled({ enabled, port });
+      // DesktopServerExposure.setTailscaleServeEnabled's failures reach the renderer through the IPC, as setMode's do.
+      const change = await exposure.setTailscaleServeEnabled({ enabled, port }).catch((error: unknown) => { throw letGo(error) ? error : ipcFailure('desktop:set-tailscale-serve-enabled', error); });
       live.revalidating = true; // refreshDesktopNetworkAccessState()
       const result = change.requiresRelaunch ? await restart(client, native) : none;
       networkUi.tailscaleSerial++;

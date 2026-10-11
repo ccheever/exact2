@@ -248,6 +248,20 @@ impl<D: DataSource> Host<D> {
                     }
                 }
             }
+            // A fitted paragraph's scale moves with its layout (LLP 1116.001 D1.4).
+            let fit = fit_scale(&node);
+            if m.props.get("fitScale") != fit.as_ref() {
+                match fit {
+                    Some(scale) => {
+                        batch.props(id, &[("fitScale", scale.clone())], &[]);
+                        m.props.insert("fitScale".into(), scale);
+                    }
+                    None => {
+                        batch.props(id, &[], &["fitScale"]);
+                        m.props.remove("fitScale");
+                    }
+                }
+            }
             let field_content = node.field_content_rect();
             if (self.layout_withheld && node.node_type == NodeType::TextInput)
                 || m.field_content != field_content
@@ -354,7 +368,9 @@ impl<D: DataSource> Host<D> {
             self.fit_routes[i].1 = Some(sig);
             let c = (sig[0], (height - cover).max(0.0));
             let m = self.mirror.entry(id).or_default();
-            if self.layout_withheld || m.content != Some(c) {
+            // The detent reads the height alone: a route that does not
+            // scroll has no use for a new width.
+            if self.layout_withheld || m.content.map(|c| c.1) != Some(c.1) {
                 m.content = Some(c);
                 batch.content(id, c.0, c.1);
             }
@@ -371,6 +387,12 @@ pub(super) fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
     // Floor with the direct children's extent plus the end padding, as the
     // last layout resolved it (a percentage is of the containing block).
     let (_, _, pad_right, pad_bottom) = kernel.resolved_padding(node.key).unwrap_or_default();
+    // A scroller UIKit insets: its end padding holds those insets, which
+    // UIKit adds back (LLP 1116.000 D1.2), as `node.content` leaves them out.
+    let pad_bottom = match kernel.arena().cover(node.key.index) {
+        Some(exact_kernel::HostCover::Inset([top, bottom])) => pad_bottom - top - bottom,
+        _ => pad_bottom,
+    };
     let (mut w, mut h) = node.content;
     for child in node.children() {
         if let Some(c) = kernel.node(child) {

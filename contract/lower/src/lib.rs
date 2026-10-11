@@ -19,6 +19,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+mod buttons;
 mod class;
 mod collection;
 mod color_profile;
@@ -31,6 +32,7 @@ mod fields;
 mod fonts;
 mod grouped;
 mod handlers;
+mod identity;
 mod keyframes;
 mod lint;
 mod media;
@@ -48,15 +50,18 @@ pub mod tags;
 mod timers;
 mod values;
 pub mod vocab;
+mod warnings;
 
 pub use dataset::{data_words, hatch_words};
 pub use error::LowerError;
 pub(crate) use error::{err, err_one};
 pub use fields::Profile;
+pub use identity::compiler_identity;
 pub use lint::lint;
 use lint::{unknown_attr, unknown_tag};
 pub use native::{is_module_tag, module_tags};
-pub use sites::{Declared, NodeSite, Origin, Sites};
+pub use sites::{ButtonSite, Declared, NodeSite, Origin, Sites};
+pub use warnings::{warnings, MAX_WARNINGS};
 
 use contract_analyze::Analysis;
 use contract_syntax::{Attr, Expr, File, FnDecl, Node, Owner, Span};
@@ -70,17 +75,6 @@ use exact_plan::{
 };
 use std::collections::BTreeMap;
 use std::path::Path;
-
-/// The compiler identity a plan carries: the crate version folded with the
-/// configuration digest (there is no configuration yet).
-pub fn compiler_identity() -> u64 {
-    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    for b in concat!("contract-lower ", env!("CARGO_PKG_VERSION")).bytes() {
-        h ^= b as u64;
-        h = h.wrapping_mul(0x0100_0000_01b3);
-    }
-    h
-}
 
 pub(crate) struct Lowerer<'a> {
     pub b: PlanBuilder,
@@ -298,6 +292,7 @@ fn lower_with_sites(
     for (i, s) in root.states.iter().enumerate() {
         let ty = l.ty_id(&root_types.slots[i])?;
         let id = l.b.slot(&s.name, ty, placeholder);
+        l.b.set_slot_persist(id, root.persists(&s.name));
         l.slots.push(id);
     }
     l.declare_routes(file);
@@ -644,18 +639,19 @@ impl<'a> Lowerer<'a> {
                 // `class=` expands its style's rows first; the node's own
                 // attribute of the same name replaces the style's (LLP 1017 P6).
                 // @ref LLP 1084 D7 — a grouped list's sheet, under its classes.
+                let button_context = grouped::button_context(attrs);
                 let (mut sheet, unmarked) = grouped::split(attrs);
                 let attrs = unmarked.as_ref().unwrap_or(attrs);
                 let (class_label, mut expanded) = self.class_rows(attrs)?.unzip();
-                let native = expanded
-                    .iter()
-                    .flatten()
-                    .chain(attrs.iter())
-                    .rev()
-                    .find(|a| a.name == "appearance");
-                if tag == "button"
-                    && native.is_some_and(|a| matches!(&a.value, Expr::Str(v, _) if v == "auto"))
-                {
+                let button = self.button_appearance(
+                    tag,
+                    expanded.as_deref().unwrap_or(&[]),
+                    attrs,
+                    children,
+                    button_context,
+                    *span,
+                )?;
+                if button.as_ref().is_some_and(|b| b.native) {
                     grouped::native_rows(&mut sheet);
                 }
                 let class_len = expanded.as_ref().map_or(0, Vec::len) + sheet.len();
@@ -679,6 +675,7 @@ impl<'a> Lowerer<'a> {
                     svg::coerce_lengths(tag, svg::in_svg(self.svg_depth > 0, parent_tag), expanded);
                 let expanded = lengths.as_deref().unwrap_or(expanded);
                 self.check_svg(tag, parent_tag, expanded, *span)?;
+                shorthands::check_text_box(tag, parent_tag, expanded)?;
                 // @ref LLP 1034 §8 — an inline run paints in its paragraph's
                 // scheme: no host gives a run an appearance of its own.
                 if tag == "text" && parent_tag == Some("text") {
@@ -708,18 +705,18 @@ impl<'a> Lowerer<'a> {
                 // type is a text field, `checkbox` a form control.
                 let canonical_type = controls::canonical_type_attrs(tag, expanded);
                 let expanded = canonical_type.as_deref().unwrap_or(expanded);
-                let control = controls::control(tag, expanded)?;
+                let control =
+                    controls::control(tag, expanded, button.as_ref().is_some_and(|b| b.native))?;
                 let t = control.map_or(t.clone(), |kind| controls::tag(kind, t.clone()));
                 let face = (control == Some("button"))
                     .then(|| grouped::unsheet(children))
                     .flatten();
                 let children = face.as_ref().unwrap_or(children);
-                if control == Some("button") {
-                    self.check_native_button(expanded, children, *span)?;
-                }
                 controls::check_nesting(tag, parent_tag, *span)?;
                 controls::check_progress(tag, expanded, children)?;
                 self.check_menu_shapes(tag, expanded, children, *span)?;
+                let closedby = menus::implied_closedby(tag, expanded, *span);
+                let expanded = closedby.as_deref().unwrap_or(expanded);
                 let numeric = controls::range_attrs(tag, control, expanded);
                 let expanded = numeric.as_deref().unwrap_or(expanded);
                 // @ref LLP 1084 D1, D3 — a grouped list's sheet, before its
@@ -771,6 +768,9 @@ impl<'a> Lowerer<'a> {
                     !self.may_hold_absolute(children),
                 )?;
                 let expanded = relative.as_deref().unwrap_or(expanded);
+                let first = parent_tag.is_none() && arm.is_none() && order == 0;
+                let back = self.nav_place.unnamed(first, expanded, *span);
+                let expanded = back.as_deref().unwrap_or(expanded);
                 values::check_glass_group(&t, expanded)?;
                 let has =
                     |names: &[&str]| expanded.iter().any(|a| names.contains(&a.name.as_str()));
@@ -803,7 +803,7 @@ impl<'a> Lowerer<'a> {
                         || !has(&["navigationKey"])
                         || !has(&["navigationBack"]))
                 {
-                    return err("lower-navigate-root", "`navigate` belongs to the navigation root (navigationKey and navigationBack)", *span);
+                    return err("lower-navigate-root", "`navigate` belongs to the navigation root (the first root, with navigationKey)", *span);
                 }
                 let mut bindings: Vec<BindingsRow> = Vec::new();
                 let mut handlers: Vec<(EventKind, exact_plan::ActionsId, Vec<Code>)> = Vec::new();
@@ -822,10 +822,12 @@ impl<'a> Lowerer<'a> {
                         expr: self.fixed(false, value),
                     });
                 }
+                self.link_run_color(tag, parent_tag, expanded, &mut bindings);
+                self.heading_style(tag, expanded, scope, locals, &mut bindings)?;
                 // @ref LLP 1069.001 (amended 2026-10-07) — an indeterminate
-                // `progress` is busy, as ARIA's `aria-busy`: a bool, which a
-                // fixed prop (text) cannot be.
-                if tag == "progress" {
+                // `progress` (no `value`, LLP 1116 D8) is busy, as ARIA's
+                // `aria-busy`: a bool, which a fixed prop (text) cannot be.
+                if tag == "progress" && !expanded.iter().any(|a| a.name == "value") {
                     bindings.push(BindingsRow {
                         kind: BindingKind::Prop,
                         id: exact_kernel::PropId::AccessibilityBusy as u16,
@@ -935,6 +937,20 @@ impl<'a> Lowerer<'a> {
                             Origin::Own
                         };
                         origins.resize(bindings.len(), origin);
+                    }
+                }
+                if button.as_ref().is_some_and(|b| !b.native)
+                    && !bindings
+                        .iter()
+                        .any(|b| b.kind == BindingKind::Style && b.id == StyleId::Appearance as u16)
+                {
+                    bindings.push(BindingsRow {
+                        kind: BindingKind::Style,
+                        id: StyleId::Appearance as u16,
+                        expr: self.fixed(true, "none"),
+                    });
+                    if let Some(origins) = &mut origins {
+                        origins.resize(bindings.len(), Origin::Tag);
                     }
                 }
                 if t.node_type == NodeType::TextInput {
@@ -1063,6 +1079,7 @@ impl<'a> Lowerer<'a> {
                     sites.nodes.push(sites::node_site(
                         *span,
                         *instance,
+                        button,
                         &bindings,
                         origins.as_deref().expect("site origins"),
                     ));
@@ -1246,6 +1263,11 @@ impl<'a> Lowerer<'a> {
                 ),
                 a.span,
             );
+        }
+        if let Some(why) = shorthands::text_box_trim_refusal(&a.name, tag, module)
+            .or_else(|| fields::outline_refusal(&a.name, tag, control))
+        {
+            return err("lower-attr-tag", why, a.span);
         }
         if a.name == "alt" && tag != "image" {
             return err(

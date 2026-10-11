@@ -170,7 +170,12 @@ final class T3Composer {
             editor.pastingAsText = false
             return Routed(event: nil)
         }
-        if let launcher, launcher.consume(event, typing: window.firstResponder is NSText || window.firstResponder is NSTextField) { return Routed(event: nil) }
+        // realinput-1010-fixes RI-1: a launcher letter goes on to Exact's key route (never type-to-focus).
+        switch launcher?.route(event, typing: window.firstResponder is NSText || window.firstResponder is NSTextField) ?? .none {
+        case .pass: return Routed(event: event)
+        case .taken, .dropped: return Routed(event: nil)
+        case .none: break
+        }
         guard T3Composer.redirectable(window.firstResponder, in: window), T3Composer.interactive(composer) else { return nil }
         if flags == .command, key == "v" {
             guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else { return nil }

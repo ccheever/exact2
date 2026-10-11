@@ -396,3 +396,66 @@ fn a_limited_report_rebinds_the_rows_it_would_keep() {
     }
     assert!(rebound > 0);
 }
+
+/// Travel of two viewports between passes, under a lead (a host that waits
+/// for its pass, LLP 1078): the rows behind are all two viewports past the
+/// port when a pass sees them, and its first slice builds only its limit.
+/// The rest wait for the slices after it, which rebind them: once the window
+/// has grown to its lead, no row is built from nothing.
+#[test]
+fn a_slice_holds_the_rows_its_window_still_needs() {
+    let (mut fresh, mut reused) = (boot(SOURCE, false), boot(SOURCE, true));
+    let views = |r: &Runner<Rows>| -> std::collections::BTreeSet<ViewId> {
+        r.collections()[0].rows.iter().map(|row| row.view).collect()
+    };
+    let (mut built, mut rebound, mut most) = (0, 0, 0);
+    for (pass, top) in (0..12).map(|i| (i, 700. * i as f64)) {
+        // The reader asks again while a slice leaves rows.
+        for slice in 0..32 {
+            let fill = exact_runner::CollectionFill {
+                velocity: 1e6,
+                limit: Some(2),
+                ..Default::default()
+            };
+            let before = views(&reused);
+            fresh
+                .collection_feedback_filled(facts(&fresh, top), fill)
+                .unwrap();
+            reused
+                .collection_feedback_filled(facts(&reused, top), fill)
+                .unwrap();
+            let bound = reused.last_instance_work().rows_rebound;
+            let new = views(&reused).difference(&before).count();
+            rebound += bound;
+            // The first passes grow the window to its lead.
+            if pass >= 3 {
+                built += new;
+            }
+            let (a, b) = (rows(&fresh), rows(&reused));
+            for (index, row) in &b {
+                if let Some(row_built) = a.get(index) {
+                    assert_eq!(row_built, row, "row {index} at {top}, slice {slice}");
+                }
+            }
+            let shown = |r: &Runner<Rows>| {
+                r.collections()[0]
+                    .rows
+                    .iter()
+                    .filter(|row| row.start + row.size > top && row.start < top + 320.)
+                    .map(|row| row.index)
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(shown(&fresh), shown(&reused), "at {top}, slice {slice}");
+            most = most.max(b.len());
+            if !reused.collections()[0].pending && !fresh.collections()[0].pending {
+                break;
+            }
+            assert!(slice < 31, "the slices at {top} never ended");
+        }
+    }
+    assert!(rebound > 50, "{rebound}");
+    assert_eq!(built, 0, "rows built from nothing under a lead");
+    // A viewport before, the view, three after (64 px rows in 320), and
+    // what one pass's travel leaves behind for the next.
+    assert!(most <= 25 + 12, "{most} rows mounted");
+}

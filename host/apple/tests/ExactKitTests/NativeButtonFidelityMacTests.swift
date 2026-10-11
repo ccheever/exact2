@@ -72,6 +72,19 @@ final class NativeButtonFidelityMacTests: XCTestCase {
             reference.attributedTitle.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor)
         XCTAssertNil(b.contentTintColor); XCTAssertTrue(b.image?.isTemplate == true)
     }
+    func testMinContentUsesTheLongestRunEvenWithAppKitsSingleLineStandIn() {
+        let cache = ButtonMeasureCache(), appearance = NSAppearance(named: .aqua)!
+        var f = ButtonFace(); f.title = "A long title that wraps"; f.macos = "push"
+        f.symbol = "lock.fill"
+        let minimum = cache.measure(f, widthKind: 1, width: 0, appearance: appearance, scale: 2)
+        let maximum = cache.measure(f, widthKind: 2, width: 0, appearance: appearance, scale: 2)
+        var run = f; run.title = "wraps"
+        let expected = configured(run).fittingSize
+        XCTAssertEqual(CGFloat(minimum.width), expected.width, accuracy: 0.5)
+        XCTAssertLessThan(minimum.width, maximum.width)
+        f.rows.title["white_space"] = .string("nowrap")
+        XCTAssertEqual(cache.measure(f, widthKind: 1, width: 0, appearance: appearance, scale: 2).width, maximum.width)
+    }
     func testAbsentControlSizeDoesNotOverwriteThePlatformControl() {
         var f = ButtonFace(); f.title = "Title"
         let b = NSButton(title: "Title", target: nil, action: nil); b.controlSize = .small
@@ -133,6 +146,21 @@ final class NativeButtonFidelityMacTests: XCTestCase {
         XCTAssertEqual(try button(session, "control-tile").imagePosition, .imageAbove)
         XCTAssertNotNil(try button(session, "resend-code").contentTintColor)
         XCTAssertNotNil(try button(session, "sign-in").bezelColor)
+        // LLP 1115 wave 1: an icon-only button's label is its help tag; a titled one has none unasked.
+        XCTAssertEqual(try button(session, "clear").toolTip, "Clear")
+        XCTAssertNil(try button(session, "sign-in").toolTip)
+    }
+    /// LLP 1115 wave 1: `plain` is SwiftUI's, in the label colour;
+    /// `borderless` keeps the accent; an authored colour wins over both.
+    func testPlainDrawsInLabelColourAndBorderlessInTheAccent() {
+        var f = ButtonFace(); f.title = "Title"; f.macos = "borderless"
+        f.style = "plain"
+        XCTAssertEqual(configured(f).contentTintColor, .labelColor)
+        f.style = "borderless"
+        XCTAssertEqual(configured(f).contentTintColor, .controlAccentColor)
+        f.style = "plain"
+        f.rows.title = ["text_color": .array([.number(255), .number(0), .number(0), .number(255)])]
+        XCTAssertNotEqual(configured(f).contentTintColor, .labelColor)
     }
     func testEveryUnsupportedRowHasAStandInAndRadiusWins() throws {
         var f = ButtonFace(); f.title = "Title"; f.subtitle = "Subtitle"; f.rows.imageGap = 17
@@ -308,7 +336,9 @@ final class NativeButtonFidelityMacTests: XCTestCase {
         let green = NSColor(red: 52.0 / 255, green: 199.0 / 255, blue: 89.0 / 255, alpha: 1)
         let tint = name.hasPrefix("a-") || name == "wide" ? green : NSColor.controlAccentColor
         if !glass && accent.contains(name) || ["prominent-glass", "prominent-clear-glass"].contains(name) { b.bezelColor = tint }
-        b.contentTintColor = !b.isBordered ? tint : nil
+        // `plain` is SwiftUI's: the label colour, not the accent (LLP 1115 wave 1).
+        let plain: Set<String> = ["plain", "get-app", "try-demo", "subscriptions", "sign-out", "clear", "a-plain"]
+        b.contentTintColor = b.isBordered ? nil : plain.contains(name) ? .labelColor : tint
         b.title = titles[name] ?? (symbols[name] == nil ? name : "")
         if name == "resend-code" || name == "disabled-authored" {
             b.contentTintColor = .controlAccentColor

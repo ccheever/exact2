@@ -259,11 +259,16 @@ impl Emitter<'_> {
                 Some(contract_syntax::Owner::Instance) => (".none".into(), true),
                 Some(contract_syntax::Owner::Root) | None => (".none".into(), false),
             };
+            // A persisted root state (LLP 1116 D5) says so; the rest keep
+            // the default, so an embedding without one reads as before.
+            let persist = matches!(owners.get(i), Some(contract_syntax::Owner::Root) | None)
+                && root.persists(&s.name);
             states.push(format!(
-                "{{ name := {}, ty := {}, init := {}, owner := {owner}, late := {late} }}",
+                "{{ name := {}, ty := {}, init := {}, owner := {owner}, late := {late}{} }}",
                 string(&s.name),
                 ty(&ct.slots[i]),
-                self.expr(&s.expr)?
+                self.expr(&s.expr)?,
+                if persist { ", persist := true" } else { "" }
             ));
         }
         if root.states.len() <= locale_at {
@@ -360,6 +365,10 @@ impl Emitter<'_> {
         let mut seen = std::collections::BTreeSet::new();
         let mut todo: Vec<String> = quoted_after(body, ".record \"");
         for name in quoted_after(body, ".call \"") {
+            if name == "failure" {
+                // `failure(x)` answers the compiler's `Failure` (LLP 1109 D3).
+                todo.push("Failure".into());
+            }
             if let Some(f) = exact_plan::Stdlib::from_name(&name) {
                 for spec in f.params().iter().chain([&f.returns()]) {
                     record_names(&Ty::from_roster(spec), &mut todo);
@@ -635,7 +644,7 @@ impl Emitter<'_> {
             // `pending(x)`/`failed(x)` name a resource or a mutation: a
             // prop's ascription around the name is not an expression here.
             Expr::Call(name, args, _)
-                if matches!(name.as_str(), "pending" | "failed")
+                if matches!(name.as_str(), "pending" | "failed" | "failure")
                     && matches!(args.as_slice(), [Expr::Typed(x, _, _)] if matches!(**x, Expr::Ident(..))) =>
             {
                 let [Expr::Typed(x, _, _)] = args.as_slice() else {
@@ -657,7 +666,12 @@ impl Emitter<'_> {
                     exact_plan::Stdlib::from_name(name).filter(|_| !shapes.fns.contains_key(name))
                 {
                     for d in f.omitted(args.len()) {
-                        parts.push(format!("(.num 0x{:016x})", d.to_bits()));
+                        parts.push(match d {
+                            exact_plan::StdlibDefault::Number(n) => {
+                                format!("(.num 0x{:016x})", n.to_bits())
+                            }
+                            exact_plan::StdlibDefault::Str(s) => format!("(.str {})", string(s)),
+                        });
                     }
                 }
                 format!("(.call {} [{}])", string(name), parts.join(", "))

@@ -49,7 +49,7 @@ component SettingsThreadPreferences
                 row min-height=56 box-sizing="border-box" gap=10.5 padding-left=14 padding-right=14 padding-top=10.5 padding-bottom=10.5 align-items="center"
                   text data.projectLabel flex=1 min-width=0 line-clamp=2 font-size=roles.body.size color=colors.foreground
                   when not busy and not data.pending and data.supportsOverrides and data.hasOverrides
-                    button press=changeServer("clear", "") disabled=data.disabled padding=7 aria-label="Use environment defaults"
+                    button appearance="none" press=changeServer("clear", "") disabled=data.disabled padding=7 aria-label="Use environment defaults"
                       text "Use defaults" color=colors.link font-size=roles.footnote.size font-weight=500
                 when not data.supportsOverrides
                   text "Update the selected environments to edit project overrides." padding-left=14 padding-right=14 padding-bottom=10.5 font-size=roles.footnote.size color=colors.muted

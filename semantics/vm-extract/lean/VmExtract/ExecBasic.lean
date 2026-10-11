@@ -184,6 +184,16 @@ theorem exec_failedResource (k : Nat) : ExecOk (.failedResource k) := by
   · simp at hx; obtain ⟨rfl, rfl, rfl⟩ := hx
     first | simp [Out, TrapRel] | (split <;> simp_all [Out, TrapRel])
 
+theorem exec_failureResource (k : Nat) : ExecOk (.failureResource k) := by
+  vm_intro
+  have hv := (operand_ok hx0).1
+  simp only [hostInst, LHost.resourceFailure, lookup, he, hv, bind_ok, uncurry_apply_pair] at hx
+  simp only [Contract.Vm.exec]
+  split at hx <;> rename_i heq <;> simp only [heq, bind_ok, branch_ok, branch_err, residual_err] at hx ⊢
+  · vm_push
+  · simp at hx; obtain ⟨rfl, rfl, rfl⟩ := hx
+    first | simp [Out, TrapRel] | (split <;> simp_all [Out, TrapRel])
+
 theorem exec_refresh (k : Nat) : ExecOk (.refresh k) := by
   vm_intro
   have hv := (operand_ok hx0).1

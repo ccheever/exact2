@@ -15,15 +15,15 @@ component Gates
   state framed = 0
   action show(t: string)
     toast = t
-    until = now() + 5000
+    until = performanceNow() + 5000
   action expire
-    log = `${log} X${toast}@${now()}`
+    log = `${log} X${toast}@${performanceNow()}`
     toast = ""
   action start
     on = true
   action tick
     n = n + 1
-    log = `${log} T${n}@${now()}`
+    log = `${log} T${n}@${performanceNow()}`
     if n % 3 == 2
       on = false
   action fly

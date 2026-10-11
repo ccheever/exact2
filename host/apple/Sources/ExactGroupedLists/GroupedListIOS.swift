@@ -41,6 +41,64 @@ extension Runtime {
 
 /// A grouped list as the kernel reads it (`Kernel::grouped_list`).
 struct GroupedListModel: Equatable {
+    /// How a text is set where its author said so (`TextLook`, LLP 1116.003
+    /// D7: author > platform); the defaults leave it the platform's.
+    struct Look: Equatable {
+        /// A font as the text's computed rows have it (`TextFont`).
+        struct Font: Equatable {
+            var size: Double, weight: Int, italic = false, family = 0, numeric = 0
+        }
+        /// The most lines it shows, 0 for any number.
+        var lines = 0
+        /// A line cut short ends in "…", not at the edge.
+        var ellipsis = false
+        /// Its colour, as a style row crosses; nil: the platform's.
+        var color: BatchValue?
+        /// Its font; nil: the platform's.
+        var font: Font?
+        init(lines: Int = 0, ellipsis: Bool = false, color: BatchValue? = nil, font: Font? = nil) {
+            self.lines = lines; self.ellipsis = ellipsis; self.color = color; self.font = font
+        }
+        init(json: Any?) {
+            let o = json as? [String: Any] ?? [:]
+            lines = (o["lines"] as? NSNumber)?.intValue ?? 0
+            ellipsis = o["ellipsis"] as? Bool ?? false
+            color = o["color"].flatMap(Self.value)
+            font = (o["font"] as? [String: Any]).flatMap { f in
+                (f["size"] as? NSNumber).map { Font(size: $0.doubleValue, weight: (f["weight"] as? NSNumber)?.intValue ?? 400,
+                                                    italic: f["italic"] as? Bool ?? false, family: (f["family"] as? NSNumber)?.intValue ?? 0,
+                                                    numeric: (f["numeric"] as? NSNumber)?.intValue ?? 0) }
+            }
+        }
+        /// A JSON value as the batch decodes one.
+        private static func value(_ json: Any) -> BatchValue? {
+            switch json {
+            case let n as NSNumber: return CFGetTypeID(n) == CFBooleanGetTypeID() ? .bool(n.boolValue) : .number(n.doubleValue)
+            case let s as String: return .string(s)
+            case let a as [Any]: return .array(a.compactMap(value))
+            case let o as [String: Any]: return .object(o.compactMapValues(value))
+            default: return nil
+            }
+        }
+        /// Onto a cell's or a header's text: only what the author said
+        /// changes UIKit's. `engine` makes the author's font.
+        func apply(to text: inout UIListContentConfiguration.TextProperties, engine: TextEngine?) {
+            if lines > 0 {
+                text.numberOfLines = lines
+                text.lineBreakMode = ellipsis ? .byTruncatingTail : .byClipping
+            }
+            if let color {
+                // Each appearance's side, a platform colour resolved by UIKit.
+                text.color = UIColor { traits in
+                    color.channels(dark: traits.userInterfaceStyle == .dark, contrast: traits.accessibilityContrast == .high)
+                        .map(TextEngine.color) ?? .label
+                }
+            }
+            if let font, let made = engine?.font(size: CGFloat(font.size), weight: font.weight, family: font.family, italic: font.italic, numeric: font.numeric) {
+                text.font = made
+            }
+        }
+    }
     struct Row: Equatable {
         var view: UInt32
         var custom = false
@@ -53,11 +111,15 @@ struct GroupedListModel: Equatable {
         var pressable = false
         var destructive = false
         var disabled = false
+        var titleLook = Look()
+        var secondaryLook = Look()
     }
     struct Section: Equatable {
         var view: UInt32
         var header: String?
         var footer: String?
+        var headerLook = Look()
+        var footerLook = Look()
         var rows: [Row]
         /// Whether the rows sit on a card; false for a transparent group
         /// (`section background-color="transparent"`): clear cells, no separators.
@@ -84,9 +146,11 @@ struct GroupedListModel: Equatable {
                            title: r["title"] as? String, secondary: r["secondary"] as? String,
                            subtitle: r["subtitle"] as? Bool ?? false, accessory: r["accessory"] as? String ?? "none",
                            target: id(r["target"]), pressable: r["pressable"] as? Bool ?? false,
-                           destructive: r["destructive"] as? Bool ?? false, disabled: r["disabled"] as? Bool ?? false)
+                           destructive: r["destructive"] as? Bool ?? false, disabled: r["disabled"] as? Bool ?? false,
+                           titleLook: Look(json: r["titleLook"]), secondaryLook: Look(json: r["secondaryLook"]))
             }
-            return Section(view: view, header: s["header"] as? String, footer: s["footer"] as? String, rows: rows,
+            return Section(view: view, header: s["header"] as? String, footer: s["footer"] as? String,
+                           headerLook: Look(json: s["headerLook"]), footerLook: Look(json: s["footerLook"]), rows: rows,
                            card: s["card"] as? Bool ?? true,
                            spaceAbove: (s["spaceAbove"] as? NSNumber).map { CGFloat($0.doubleValue) })
         }
@@ -171,6 +235,23 @@ final class GroupedListHost: GroupedLists {
     /// Whether a list draws `id` (a row, or a row's toggle or detail
     /// button): the agent finds it in UIKit's cell, not the hidden row.
     func draws(_ id: UInt32) -> Bool { list(drawing: id) != nil }
+
+    /// The agent's reveal (r5 password generator): a row a list draws, or a
+    /// view in a custom row, scrolled to by its cell in the collection view,
+    /// as a finger scrolls the list. A row with no cell yet has its views in
+    /// the hidden authored scroll, whose offset moves nothing on screen.
+    func reveal(_ id: UInt32, port: (UIScrollView) -> CGRect) -> Bool? {
+        if let (list, row) = list(drawing: id) { return list.reveal(row.view, inner: nil, port: port(list.collection)) }
+        guard let node = presenter.views[id] else { return nil }
+        var at: UIView? = node
+        while let view = at {
+            if let row = view as? NodeView, let list = lists.values.first(where: { $0.model.sections.contains { $0.rows.contains { $0.view == row.id && $0.custom } } }) {
+                return list.reveal(row.id, inner: node.convert(node.bounds, to: row), port: port(list.collection))
+            }
+            at = view.superview
+        }
+        return nil
+    }
 
     /// Where a real finger aimed at `node` lands, for a row this host draws
     /// (LLP 1080.000 D4): the row's cell; on its toggle's control, the cell's
@@ -267,6 +348,7 @@ final class GroupedListHost: GroupedLists {
     func inspectionOwns(_ view: UIView) -> Bool { lists.values.contains { $0.collection === view } }
     func hides(_ node: NodeView) -> Bool { lists.values.contains { $0.owner.scrollView.map { node.isDescendant(of: $0) } ?? false } }
     func projects(_ view: UIView) -> Bool { lists.values.contains { $0.carried.keys.contains((view as? NodeView)?.id ?? 0) } }
+    var carriesRows: Bool { lists.values.contains { !$0.carried.isEmpty } }
 }
 
 /// One projected list.
@@ -291,6 +373,12 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     private var flipping: UInt32?
     /// A custom cell's height changed since the list was last laid out.
     private var resized = false
+    /// Custom rows whose cell was last sized to nothing: a row with no box
+    /// yet, as one a commit inserts under a sheet has until the sheet gives
+    /// back its geometry (LLP 1116.002 D2). UIKit never shows a cell with no
+    /// height, so never configures it again to learn the row's later size:
+    /// once the row has one, `remeasure` has UIKit measure it anew.
+    private var unsized: Set<UInt32> = []
     private var scrollWasHidden = false
 
     init(owner: NodeView, host: GroupedListHost) {
@@ -302,16 +390,10 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         collection.accessibilityIdentifier = owner.props["testId"]
         let cell = UICollectionView.CellRegistration<GroupedCell, UInt32> { [unowned self] cell, _, id in configure(cell, id) }
         let header = UICollectionView.SupplementaryRegistration<UICollectionViewListCell>(elementKind: UICollectionView.elementKindSectionHeader) { [unowned self] view, _, path in
-            var c = view.defaultContentConfiguration()
-            c.text = section(at: path.section)?.header
-            view.contentConfiguration = c
-            view.marginsIgnoreSafeArea()
+            label(view, header: true, section: path.section)
         }
         let footer = UICollectionView.SupplementaryRegistration<UICollectionViewListCell>(elementKind: UICollectionView.elementKindSectionFooter) { [unowned self] view, _, path in
-            var c = view.defaultContentConfiguration()
-            c.text = section(at: path.section)?.footer
-            view.contentConfiguration = c
-            view.marginsIgnoreSafeArea()
+            label(view, header: false, section: path.section)
         }
         source = UICollectionViewDiffableDataSource(collectionView: collection) { view, path, id in
             view.dequeueConfiguredReusableCell(using: cell, for: path, item: id)
@@ -327,6 +409,17 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         model.sections.indices.contains(index) ? model.sections[index] : nil
     }
 
+    /// A section's header or footer: UIKit's, in the author's colour and
+    /// font where the author gave its text one (LLP 1116.003 D7).
+    private func label(_ view: UICollectionViewListCell, header: Bool, section index: Int) {
+        let s = section(at: index)
+        var c = view.defaultContentConfiguration()
+        c.text = header ? s?.header : s?.footer
+        (header ? s?.headerLook : s?.footerLook)?.apply(to: &c.textProperties, engine: owner.text)
+        view.contentConfiguration = c
+        view.marginsIgnoreSafeArea()
+    }
+
     /// Each section's header and footer exist only where it has the text.
     private func layout() -> UICollectionViewLayout {
         UICollectionViewCompositionalLayout { [weak self] index, environment in
@@ -337,6 +430,12 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             c.footerMode = s?.footer == nil ? .none : .supplementary
             #if !os(tvOS)
             c.showsSeparators = s?.card ?? true
+            #endif
+            #if os(iOS)
+            // A row that names swipe actions swipes as a hand-built list's
+            // cell does (LLP 1116.001 D1): UIKit's actions, a full swipe the first.
+            c.leadingSwipeActionsConfigurationProvider = { [weak self] path in self?.swipeActions(at: path, leading: true) }
+            c.trailingSwipeActionsConfigurationProvider = { [weak self] path in self?.swipeActions(at: path, leading: false) }
             #endif
             // An authored space above a header is above it: UIKit's top inset
             // there is the header-to-rows gap (§6.4).
@@ -364,6 +463,15 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             return section
         }
     }
+
+    #if os(iOS)
+    /// A custom row's swipe actions on one side, as the swipe host offers
+    /// them (`swipeContent`, LLP 1008 §9); nil for any other row.
+    func swipeActions(at path: IndexPath, leading: Bool) -> UISwipeActionsConfiguration? {
+        guard let id = source.itemIdentifier(for: path), rows[id]?.custom == true else { return nil }
+        return host.presenter.swipeActions.configuration(row: id, leading: leading)
+    }
+    #endif
 
     func update(_ next: GroupedListModel) {
         let previous = model, old = rows
@@ -405,6 +513,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         // Headers and footers live in the sections' layout: one that came,
         // went or changed lays the list out again.
         let texts = previous.sections.map { [$0.header, $0.footer] } != next.sections.map { [$0.header, $0.footer] }
+            || previous.sections.map { [$0.headerLook, $0.footerLook] } != next.sections.map { [$0.headerLook, $0.footerLook] }
             || !recarded.isEmpty // separators are the section layout's
         let regapped = previous.sections.map(\.spaceAbove) != next.sections.map(\.spaceAbove) || previous.spaceBelow != next.spaceBelow
         if restyled { collection.setCollectionViewLayout(layout(), animated: false) }
@@ -413,10 +522,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             for kind in [UICollectionView.elementKindSectionHeader, UICollectionView.elementKindSectionFooter] {
                 for path in collection.indexPathsForVisibleSupplementaryElements(ofKind: kind) {
                     guard let view = collection.supplementaryView(forElementKind: kind, at: path) as? UICollectionViewListCell else { continue }
-                    var c = view.defaultContentConfiguration()
-                    c.text = kind == UICollectionView.elementKindSectionHeader ? section(at: path.section)?.header : section(at: path.section)?.footer
-                    view.contentConfiguration = c
-                    view.marginsIgnoreSafeArea()
+                    label(view, header: kind == UICollectionView.elementKindSectionHeader, section: path.section)
                 }
             }
             collection.collectionViewLayout.invalidateLayout()
@@ -433,19 +539,44 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             assign(collection, \.contentInsetAdjustmentBehavior, scroll.contentInsetAdjustmentBehavior)
             // An authored space under a last section with a footer is under
             // the footer: its section's bottom inset is the rows-to-footer gap.
+            // What the list adds to the hidden scroll's insets: an authored
+            // space under a last section with a footer (its section's bottom
+            // inset is the rows-to-footer gap), and the list's own padding,
+            // room before its first section and after its last as a scroll's
+            // is (a tab bar's, under a list that runs beneath it).
+            var added = UIEdgeInsets.zero
+            if model.sections.last?.footer != nil, let below = model.spaceBelow { added.bottom += below }
+            added.top += CGFloat(owner.style["padding_top"]?.number ?? 0)
+            added.bottom += CGFloat(owner.style["padding_bottom"]?.number ?? 0)
             var inset = scroll.contentInset
-            if model.sections.last?.footer != nil, let below = model.spaceBelow { inset.bottom += below }
-            // The list's own padding is room before its first section and
-            // after its last, as a scroll's is: a tab bar's, under a list
-            // that runs beneath it.
-            inset.top += CGFloat(owner.style["padding_top"]?.number ?? 0)
-            inset.bottom += CGFloat(owner.style["padding_bottom"]?.number ?? 0)
+            inset.top += added.top
+            inset.bottom += added.bottom
+            // A list at rest at its top stays there, its first section below
+            // the new room, as a scroll keeps its top under a new inset.
+            // Only when the inset moves and the list is still, so a drag, a
+            // fling or a bounce past the top is left alone.
+            let moved = collection.contentInset.top != inset.top
+            let atTop = abs(collection.contentOffset.y + collection.adjustedContentInset.top) < 0.5
             assign(collection, \.contentInset, inset)
-            assign(collection, \.verticalScrollIndicatorInsets, scroll.verticalScrollIndicatorInsets)
+            if moved, atTop, !(collection.isTracking || collection.isDragging || collection.isDecelerating) {
+                collection.contentOffset.y = -collection.adjustedContentInset.top
+            }
+            // The indicator keeps to the same room.
+            var indicator = scroll.verticalScrollIndicatorInsets
+            indicator.top += added.top
+            indicator.bottom += added.bottom
+            assign(collection, \.verticalScrollIndicatorInsets, indicator)
             // A short list bounces, as Settings does; UICollectionView's own
             // default would not.
             assign(collection, \.alwaysBounceVertical, owner.scrollsVertically)
             assign(collection, \.bounces, owner.style["overscroll_behavior_y"]?.string != "none")
+            // A route's bar follows the scroller its `navigationScroll` names;
+            // this list is drawn in that scroller's place, so the bar follows
+            // the list (a large title over a hidden scroll never showed).
+            let controller = sequence(first: owner as UIResponder, next: { $0.next }).lazy.compactMap { $0 as? UIViewController }.first
+            if let controller, controller.contentScrollView(for: .top) === scroll {
+                controller.setContentScrollView(collection, for: .top)
+            }
         }
         assign(collection, \.frame, owner.bounds)
         for cell in collection.visibleCells {
@@ -458,11 +589,39 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         #if !os(tvOS)
         for (id, toggle) in switches { refresh(id, toggle) }
         #endif
+        remeasure()
         if resized { resized = false; collection.collectionViewLayout.invalidateLayout() }
     }
 
     func cell(_ id: UInt32) -> UICollectionViewCell? {
         source.indexPath(for: id).flatMap { collection.cellForItem(at: $0) }
+    }
+
+    /// Row `id`'s middle, or the middle of `inner` (a box in the row's own
+    /// space), scrolled to the middle of `port` when outside it, unanimated
+    /// and inside the scrollable range; its cell made and its views carried.
+    /// A row never shown has an estimated place until its cell sizes it, so
+    /// it is measured again after each move, at most three times.
+    func reveal(_ id: UInt32, inner: CGRect?, port: CGRect) -> Bool {
+        guard let path = source.indexPath(for: id) else { return false }
+        // The port as it sits in the bounds, which move as the list scrolls.
+        let seen = port.offsetBy(dx: 0, dy: -collection.bounds.minY)
+        var scrolled = false
+        for _ in 0..<3 {
+            collection.layoutIfNeeded()
+            guard let frame = collection.layoutAttributesForItem(at: path)?.frame else { break }
+            let mid = CGPoint(x: frame.midX, y: frame.minY + (inner?.midY ?? frame.height / 2))
+            let now = seen.offsetBy(dx: 0, dy: collection.bounds.minY)
+            if now.minY <= mid.y && mid.y < now.maxY { break }
+            let i = collection.adjustedContentInset
+            let y = min(max(collection.contentOffset.y + mid.y - now.midY, -i.top), max(-i.top, collection.contentSize.height + i.bottom - collection.bounds.height))
+            guard y != collection.contentOffset.y else { break }
+            collection.contentOffset.y = y
+            scrolled = true
+        }
+        collection.layoutIfNeeded()
+        mount()
+        return scrolled
     }
 
     /// The control a row's accessory shows: its switch, or UIKit's detail
@@ -526,8 +685,13 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         }
         c.text = row.title
         c.secondaryText = row.secondary
+        // A `line-clamp` or a line kept whole, and the author's colour and
+        // font, as outside a list (D7); a destructive row's own colour is
+        // red where its author gave none.
+        row.titleLook.apply(to: &c.textProperties, engine: owner.text)
+        row.secondaryLook.apply(to: &c.secondaryTextProperties, engine: owner.text)
         if row.destructive {
-            c.textProperties.color = .systemRed
+            if row.titleLook.color == nil { c.textProperties.color = .systemRed }
             c.imageProperties.tintColor = .systemRed
         }
         if row.disabled {
@@ -648,16 +812,50 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             carriedOrder.append(id)
         }
         guard let place = carried[id] else { return }
-        // A card-less section has no UIKit separator to stand in for the
-        // row's own border, so the row keeps its full height (§6.2).
-        let separator = card(of: id) ? CGFloat(row.style["border_width_bottom"]?.number ?? 0) : 0
-        let height = max(0, place.frame.height - separator)
+        let height = cellHeight(id, row: place.frame.height)
         // Never invalidated here: a cell is configured inside the data
         // source's update; `mount` lays the list out after it.
         if cell.height != height { cell.height = height; resized = true }
+        if height > 0 { unsized.remove(id) } else { unsized.insert(id) }
         cell.contentView.clipsToBounds = true
-        if row.superview !== cell.contentView { cell.contentView.addSubview(row) }
+        if row.superview !== cell.contentView {
+            cell.contentView.addSubview(row)
+            // A paragraph drawn while its row was home, under the hidden
+            // scroll, painted nothing and may have found no room for a
+            // worker; it shows now, outside any batch's refresh when a
+            // cell comes back, so the pump paints it (`refreshVisibleText`).
+            host.presenter.requestTextPublication()
+        }
         row.frame = CGRect(origin: CGPoint(x: place.frame.minX, y: 0), size: place.frame.size)
+    }
+
+    /// A custom row's cell height for a row box `height` tall: less the
+    /// separator the cell draws instead of the row's own border. A card-less
+    /// section has no UIKit separator to stand in for it, so the row keeps
+    /// its full height (§6.2).
+    private func cellHeight(_ id: UInt32, row height: CGFloat) -> CGFloat {
+        let separator = card(of: id) ? CGFloat(host.presenter.views[id]?.style["border_width_bottom"]?.number ?? 0) : 0
+        return max(0, height - separator)
+    }
+
+    /// A row whose cell was sized to nothing and that has a box now (the
+    /// sheet over it closed and gave back its geometry) comes into the list
+    /// again: UIKit configures and measures its cell anew, which carries the
+    /// row in at its height.
+    private func remeasure() {
+        unsized = unsized.filter { rows[$0]?.custom == true }
+        let grown = unsized.filter { id in
+            host.presenter.views[id].map { cellHeight(id, row: carried[id]?.frame.height ?? $0.frame.height) > 0 } ?? false
+        }
+        guard !grown.isEmpty else { return }
+        unsized.subtract(grown)
+        // Out and in again: a reload keeps the size the layout learned; an
+        // inserted item starts from the estimate, which shows its cell.
+        let snapshot = source.snapshot()
+        var without = snapshot
+        without.deleteItems(grown.filter { snapshot.indexOfItem($0) != nil })
+        source.apply(without, animatingDifferences: false)
+        source.apply(snapshot, animatingDifferences: false)
     }
 
     /// Every carried row back in its authored place.
@@ -702,6 +900,27 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         assign(cell, \.isUserInteractionEnabled, !inert)
         assign(cell, \.accessibilityElementsHidden, inert)
     }
+    /// A cell is given its row as it shows (LLP 1116.003 D7). UIKit keeps a
+    /// cell that leaves the port and shows it again without configuring it,
+    /// and a batch since may have given its row home: `mount` carries rows
+    /// only into the cells shown then. At launch the list lays out before
+    /// its box settles, so every row of a long list had a kept cell, and the
+    /// rows scrolled to came up blank until scrolled away and back.
+    func collectionView(_ view: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt path: IndexPath) {
+        guard let cell = cell as? GroupedCell, let id = source.itemIdentifier(for: path), cell.row == id else { return }
+        carry(id, into: cell)
+        interact(cell, id)
+        // Laid out after this pass, as `mount` does after the data source's.
+        if resized {
+            resized = false
+            DispatchQueue.main.async { [weak self] in self?.collection.collectionViewLayout.invalidateLayout() }
+        }
+    }
+    /// The list scrolls in its authored scroll's place, so it drives the
+    /// text as that scroll does: what shows has its pixels before the frame
+    /// commits, and a paragraph still owed them keeps the pump going until
+    /// it shows (a carried row's, drawn while the row was home).
+    func scrollViewDidScroll(_ scrollView: UIScrollView) { host.presenter.groupedListScrolled() }
     func collectionView(_ view: UICollectionView, shouldSelectItemAt path: IndexPath) -> Bool {
         collectionView(view, shouldHighlightItemAt: path)
     }

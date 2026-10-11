@@ -9,6 +9,7 @@
 
 /// Advance widths of the system UI font at 12pt (printable ASCII), as measured
 /// in the reference's canvas (pages-text-width.ts R12); others count 6.9.
+#[allow(clippy::approx_constant)] // 6.28 is a measured advance, not τ
 const R12: [f64; 95] = [
     3.38, 3.73, 5.73, 7.56, 7.56, 11.1, 8.54, 3.56, 4.58, 4.58, 5.66, 7.56, 3.56, 5.66, 3.56, 3.66,
     7.56, 5.57, 7.24, 7.52, 7.72, 7.42, 7.64, 6.83, 7.66, 7.64, 3.56, 3.56, 7.56, 7.56, 7.56, 6.15,
@@ -64,8 +65,7 @@ fn cell_markdown(runs: &[markdown_parse::Run]) -> String {
         if run.bold && !run.code {
             text = format!("**{text}**");
         }
-        if !run.href.is_empty() && skill_source.is_none() {
-            let href = run.href.strip_prefix(FILE_LINK).unwrap_or(&run.href);
+        if let Some(href) = cell_link(&run.href).filter(|_| skill_source.is_none()) {
             text = format!("[{text}]({href})");
         }
         out.push_str(&text);
@@ -74,6 +74,19 @@ fn cell_markdown(runs: &[markdown_parse::Run]) -> String {
         .collect::<Vec<_>>()
         .join(" ")
         .replace('|', "\\|")
+}
+/// The destination a cell's link copies with: serializeAnchor keeps only an http(s) URL (`if (!/^https?:\/\//i.test(href))
+/// return content;`), so a mailto, irc, xmpp or fragment link copies its text (reply-links review); a file link copies its
+/// source (the chip's `data-markdown-copy`), and a context or citation reference its link, as before.
+fn cell_link(href: &str) -> Option<&str> {
+    if let Some(path) = href.strip_prefix(FILE_LINK) {
+        return Some(path);
+    }
+    let lower = href.to_ascii_lowercase();
+    ["http://", "https://", "t3-context://", "t3-citation://"]
+        .iter()
+        .any(|prefix| lower.starts_with(prefix))
+        .then_some(href)
 }
 fn cell_plain(runs: &[markdown_parse::Run]) -> String {
     runs.iter()
@@ -198,6 +211,8 @@ fn table_block(first: usize, gap: f64, rows: &[&markdown_parse::Block], align: &
         Value::str(&markdown),
         Value::str(&csv),
         Value::Bool(false),
+        Value::str(""),
+        Value::Number(-1.0),
     ])
 }
 
@@ -210,6 +225,11 @@ fn no_table(fields: &mut Vec<Value>) {
         Value::str(""),
         Value::Bool(false),
     ]);
+}
+
+/// A block's GFM task (markdown_links.rs task_items): "open", "done" or "", and its marker's offset.
+fn task_fields((task, offset): (&'static str, f64)) -> [Value; 2] {
+    [Value::str(task), Value::Number(offset)]
 }
 
 /// `![name](t3-context://v1/image/…)`: the parser keeps inline images as bare

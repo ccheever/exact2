@@ -235,11 +235,13 @@ export const DRAG_BOUNDS = { press: 10000, hold: 10000, over: 2000, total: 10000
  * begun before the first, not lifted after the last. `ask` is the app's carrier; `touches`
  * the runner's.
  */
-export async function realTap({ ask, touches, id, at, drag, abandon }) {
+export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
   // A failure of the runner or of the app's carrier: no diagnostic read follows it (`tapRefusal`).
   const transport = (message) => Object.assign(new Error(message), { transport: true });
   const what = drag ? `drag #${id}` : `tap #${id}`;
-  const aimReq = { op: 'tap', id, aim: at ? { x: at[0], y: at[1] } : true };
+  // A plain tap aims at the target's own press (LLP 1012 §1: never a control inside it its middle reaches);
+  // `rel` is a point in the target (`tap <target> at <x> <y>`), whatever a finger there reaches; a drag starts at the middle.
+  const aimReq = { op: 'tap', id, aim: at ? { x: at[0], y: at[1] } : rel ? { at: rel } : drag ? true : { press: true } };
   const first = await ask(aimReq);
   if (first.error) throw new Error(first.error);
   const fg = await touches.ask({ op: 'foreground' });
@@ -366,6 +368,7 @@ export async function realTap({ ask, touches, id, at, drag, abandon }) {
         ...(drag ? { drag: { dx: drag.dx, dy: drag.dy, press: drag.press, over: moves ? drag.over : 0, hold: drag.hold } } : {}),
         ...(during.length ? { during } : {}),
         injected: injected.injected, aim: a.point, orientation: a.orientation,
+        ...(a.avoided ? { avoided: a.avoided } : {}),
       };
     }
     if (Date.now() >= deadline) throw new Error(`${what}: no touch reached the app's window within 1 s; the runner finished at ${injected.injected?.end} (log: ${JSON.stringify(seen)})`);

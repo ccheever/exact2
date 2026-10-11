@@ -10,7 +10,8 @@ import { knownSessions } from './terminal-drawer-view';
 import { selectRunningSubprocessTerminalIds } from './terminal-session';
 import { terminalFocused } from './terminal-focus';
 import { searchMatch, serverMatches, snoozePresets, threadSearchPending, type SearchPart, type SnoozePreset } from './sidebar-presentation';
-import { SETTLED_TAIL_INITIAL_COUNT, SETTLED_TAIL_PAGE_COUNT, clock, sidebarPrefs, sidebarSession, undoLive } from './sidebar-state';
+import { SETTLED_TAIL_INITIAL_COUNT, SETTLED_TAIL_PAGE_COUNT, clock, localDate, sidebarPrefs, sidebarSession, undoLive } from './sidebar-state';
+import { NO_CALENDAR, firstWeekday, snoozeCalendar, type SnoozeCalendar } from './snooze-calendar'; // shell-sidebar-palette-keys (TH-8)
 import { sidebarProviderPill } from './sidebar-provider-pill';
 import { grayIdentity, projectGlyph, type ProjectGlyph } from './r3-sidebar-glyph';
 import { rowTips, type SidebarRowTip } from './r3-sidebar-tips';
@@ -27,6 +28,7 @@ import { orderItemsByPreferredIds } from './legacy-sidebar-model'; // legacy-sid
 import { WORKTREE_DIALOG_TITLE, worktreeDialogDescription } from './worktree-cleanup'; // thread-commands-and-keys: G5
 import { bulkMenuState, menuRows, threadMenuItems, threadMenuState, type MenuRow } from './sidebar-menu'; // the row's context popover (exact2 #223)
 import { draftMenuRows } from './r11-upstream-drafts';
+import { replaceContextReferences } from './composer-editor-menu'; // a draft row's chips read as their labels
 
 type Identity = (name: string) => { projectMark: string; projectInk: string; projectSurface: string };
 type Badge = (provider: Obj | undefined, providers: Obj[]) => { providerBadge: string; providerBadgeColor: string };
@@ -67,6 +69,7 @@ export interface SidebarView {
   scopeOpen: boolean; scopeQuery: string; scopeFirst: string; navigateKind: string; navigateProject: string;
   renameId: string; renameTitle: string; selectionCount: number; undoText: string; undoLabel: string; undoUntil: number;
   dialog: string; dialogTitle: string; dialogDescription: string; dialogMode: string; dialogDate: string; dialogTime: string; dialogAmount: string; dialogUnit: string; dialogError: string; dialogReturn: string; jumpHints: boolean;
+  calendar: SnoozeCalendar;
   pillKey: string; pillTone: string; pillTitle: string; pillDescription: string; pillDismissible: boolean; sweepEpoch: number;
 }
 
@@ -273,6 +276,9 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
       undoLabel: shortcutLabel(client, 'thread.undo') ? `${shortcutLabel(client, 'thread.undo')} to undo` : 'Undo',
       dialog: session.dialog.kind, dialogTitle: dialogTitle(session.dialog), dialogDescription: dialogDescription(session.dialog),
       dialogMode: session.dialogMode, dialogDate: session.dialogDate, dialogTime: session.dialogTime, dialogAmount: session.dialogAmount, dialogUnit: session.dialogUnit, dialogError: session.dialogError,
+      // shell-sidebar-palette-keys (TH-8): the date button's text and its calendar popover.
+      calendar: session.dialog.kind !== 'snooze' ? NO_CALENDAR
+        : snoozeCalendar(session.dialogDate, session.calendarMonth || session.dialogDate.slice(0, 7), localDate(new Date(now)), firstWeekday(), session.calendarFocus, session.calendarFocusSeq),
       dialogReturn: dialogReturn(session.dialog), // dialog-shortcut-focus: Base UI's finalFocus
       jumpHints: hints,
       pillKey: pill?.key ?? '', pillTone: pill?.tone ?? '', pillTitle: pill?.title ?? '', pillDescription: pill?.description ?? '', pillDismissible: pill?.dismissible ?? false,
@@ -329,8 +335,10 @@ export function draftRows(client: T3Client, identity: Identity): SidebarDraft[] 
     const text = (client.local.drafts[key] ?? '').trim(), attachments = (client.local.snapshotDrafts?.[key] ?? []).length;
     if (!text && !attachments) continue;
     const name = str(project.title), mark = identity(name);
+    // SidebarDraftRow's promptPreview: a context chip reads as its label (replaceComposerContextReferences), not its link.
+    const prompt = replaceContextReferences(text, reference => reference.label).trim().split('\n', 1)[0] ?? '';
     rows.push({ id, projectName: name, mark: mark.projectMark, ink: mark.projectInk, surface: mark.projectSurface, glyph: projectGlyph(client, project, identity),
-      preview: text ? text.split('\n', 1)[0]! : `${attachments} attachment${attachments === 1 ? '' : 's'}`, menu: draftMenuRows(client, id) });
+      preview: prompt || `${attachments} attachment${attachments === 1 ? '' : 's'}`, menu: draftMenuRows(client, id) });
   }
   return rows;
 }

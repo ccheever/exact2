@@ -134,7 +134,7 @@ package final class TextArea: NSTextView {
             let origin = textContainerOrigin
             let rect = NSRect(x: origin.x, y: origin.y, width: textContainer?.containerSize.width ?? bounds.width, height: bounds.height - origin.y)
             (placeholder as NSString).draw(in: rect, withAttributes: [
-                .font: font ?? NSFont.systemFont(ofSize: 16),
+                .font: font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize),
                 .foregroundColor: owner?.isNativeTextControl == true ? NSColor.placeholderTextColor : (textColor ?? SystemColor.canvasText).withAlphaComponent(0.3),
             ])
         }
@@ -233,15 +233,16 @@ extension NodeView {
     func styleTextArea() {
         guard let f = textArea, let t = text else { return }
         guard !f.hasMarkedText() else { layoutTextArea(); return }
-        f.font = t.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
+        f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
         f.textColor = color("text_color", SystemColor.canvasText)
         f.insertionPointColor = caretColor
         let native = isNativeTextControl
         textAreaScroll?.borderType = native ? .bezelBorder : .noBorder
-        textAreaScroll?.focusRingType = native ? .default : .none
+        textAreaScroll?.focusRingType = native && !outlineNone ? .default : .none
         textAreaScroll?.drawsBackground = native
         f.drawsBackground = native
-        f.focusRingType = native ? .default : .exterior
+        f.focusRingType = outlineNone ? .none : native ? .default : .exterior
+        restyleFieldFocus()
         f.textContainerInset = native ? FieldChromeCache.textareaInset(for: effectiveAppearance, scale: window?.backingScaleFactor ?? 1) : .zero
         let paragraph = NSMutableParagraphStyle()
         if let height = usedLineHeight {
@@ -358,6 +359,11 @@ final class SecureField: NSSecureTextField {
     override func becomeFirstResponder() -> Bool { focused(delegate) { super.becomeFirstResponder() } }
     override var focusRingMaskBounds: NSRect { bareFieldMask(self) ?? super.focusRingMaskBounds }
     override func drawFocusRingMask() { if !drawBareFieldMask(self) { super.drawFocusRingMask() } }
+}
+/// A native search input's field (`SearchFieldCell`, NativeFieldsMac.swift).
+final class SearchField: NSSearchField {
+    override class var cellClass: AnyClass? { get { SearchFieldCell.self } set {} }
+    override func becomeFirstResponder() -> Bool { focused(delegate) { super.becomeFirstResponder() } }
 }
 private func bareFieldMask(_ field: NSTextField) -> NSRect? {
     guard let owner = field.delegate as? NodeView, !owner.isNativeTextControl else { return nil }

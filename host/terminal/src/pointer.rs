@@ -21,6 +21,8 @@ pub struct Presented {
     pub scrollers: Vec<(ViewId, CellRect, f32)>,
     /// The open top layer's cells, when one is open.
     pub layer: Option<CellRect>,
+    /// Inline runs a click reaches, and their cells.
+    pub runs: Vec<(ViewId, CellRect)>,
     /// The screen row of the painting's first row.
     pub origin: Option<i32>,
     /// A layer opened or closed since this was presented: what it shows is
@@ -35,6 +37,7 @@ impl<D: DataSource> Host<D> {
             hits: painted.hits.clone(),
             scrollers: painted.scrollers.clone(),
             layer: painted.layer,
+            runs: painted.runs.clone(),
             origin: origin.or(self.presented.origin),
             stale: false,
         };
@@ -51,6 +54,48 @@ impl<D: DataSource> Host<D> {
             return None;
         }
         self.presented.origin.map(|o| y - o)
+    }
+
+    /// A press on an inline run at a cell of the presented painting: its
+    /// `press` handler, or else its link (`Host::follow`). Whether a run
+    /// was there.
+    fn press_run_at(&mut self, x: i32, y: i32) -> bool {
+        let found = self
+            .presented
+            .runs
+            .iter()
+            .rev()
+            .find(|(_, r)| r.contains(x, y))
+            .map(|(id, _)| *id);
+        found.is_some_and(|id| self.press_run(id))
+    }
+
+    /// A press on an inline run: its `press` handler, or else the link it
+    /// or its paragraph names. Whether anything took it.
+    pub fn press_run(&mut self, id: ViewId) -> bool {
+        if self.handler(id, exact_plan::EventKind::Press).is_some() {
+            self.press_with(id, false);
+            return true;
+        }
+        let kernel = self.kernel();
+        let mut at = Some(id);
+        while let Some(n) = at.and_then(|a| kernel.node(a)) {
+            if let Some(href) = n.props.str(PropId::Href).filter(|h| !h.is_empty()) {
+                let href = href.to_string();
+                self.follow(&href);
+                return true;
+            }
+            if n.node_type != exact_kernel::NodeType::Text {
+                break;
+            }
+            at = n.parent;
+        }
+        false
+    }
+
+    /// Whether `id` is an inline run a click can reach on the screen.
+    pub fn is_presented_run(&self, id: ViewId) -> bool {
+        self.presented.runs.iter().any(|(r, c)| *r == id && c.w > 0)
     }
 
     /// The topmost interactive node at a screen cell.
@@ -82,14 +127,21 @@ impl<D: DataSource> Host<D> {
                 }
                 return;
             }
-            if let Some(id) = hit {
-                self.press(id);
+            match hit {
+                Some(id) => self.press(id),
+                None => {
+                    self.press_run_at(x, local);
+                }
             }
             return;
         }
         match hit {
             Some(id) => self.press(id),
-            None => self.focus(None),
+            None => {
+                if !self.press_run_at(x, local) {
+                    self.focus(None);
+                }
+            }
         }
     }
 
@@ -134,6 +186,41 @@ impl<D: DataSource> Host<D> {
         false
     }
 
+    /// The first presented scroller (with a layer open, the layer's) by
+    /// rows: the arrows, with nothing focused.
+    pub fn scroll_rows(&mut self, rows: i32) {
+        if let Some((id, _, reach)) = self.presented.scrollers.first().copied() {
+            self.scroll_by(id, reach, rows);
+        }
+    }
+
+    /// The first presented scroller to its top or its end: Home and End.
+    pub fn scroll_edge(&mut self, end: bool) {
+        if let Some((id, _, reach)) = self.presented.scrollers.first().copied() {
+            self.scroll.insert(id, if end { reach } else { 0.0 });
+            self.changed();
+        }
+    }
+
+    /// A scroller by `y` pixels, rounded to whole rows and kept within its
+    /// reach; a node that does not scroll does not move (the web's
+    /// `Element.scrollBy` on an element without overflow).
+    pub(crate) fn scroll_node_by(&mut self, id: ViewId, y: f32) {
+        let kernel = self.kernel();
+        let Some(n) = kernel.node(id) else { return };
+        let scrolls = n.node_type == exact_kernel::NodeType::ScrollView
+            || matches!(
+                n.style.overflow_y,
+                exact_kernel::Overflow::Scroll | exact_kernel::Overflow::Auto
+            );
+        if !scrolls {
+            return;
+        }
+        let [bt, _, bb, _] = n.style.border_widths_in(&kernel.env());
+        let reach = (n.content.1 - (n.frame.height - bt - bb)).max(0.0);
+        self.scroll_by(id, reach, (y / ROW).round() as i32);
+    }
+
     fn scroll_by(&mut self, id: ViewId, reach: f32, rows: i32) {
         let at = self.scroll.entry(id).or_insert(0.0);
         *at = (at.min(reach) + rows as f32 * ROW).clamp(0.0, reach);
@@ -143,6 +230,9 @@ impl<D: DataSource> Host<D> {
     /// Whether `id`, or the interactive node it sits in, has cells in what
     /// was presented: the agent's `tap` presses only what a person could.
     pub fn on_screen(&self, id: ViewId) -> bool {
+        if self.is_presented_run(id) {
+            return true;
+        }
         let kernel = self.kernel();
         let mut at = Some(id);
         while let Some(n) = at {

@@ -184,16 +184,16 @@ component MessagesStress
         text "No FPS / latency measured here. Synchronous generation and eager mounting can block. Pause cannot interrupt in-flight work." font-size=11 color="#80521c"
       when paged
         row flex-shrink=0 padding=8 gap=8 align-items="center" background-color="#e8edf5"
-          button press=latest testId="latest" padding=6
+          button appearance="none" press=latest testId="latest" padding=6
             text "Latest" font-size=12
           text `${history.earlier}–${history.later} · resident window, not whole history` testId="window-range" font-size=12
       when not eager and not windowed and not bounded
         row flex-shrink=0 padding=8 gap=8 align-items="center" flex-wrap="wrap" background-color="#e8edf5"
-          button press=earlier testId="earlier" padding=6
+          button appearance="none" press=earlier testId="earlier" padding=6
             text "Earlier 100" font-size=12
-          button press=later testId="later" padding=6
+          button appearance="none" press=later testId="later" padding=6
             text "Later 100" font-size=12
-          button press=latest testId="latest" padding=6
+          button appearance="none" press=latest testId="latest" padding=6
             text "Latest page" font-size=12
           text `${offset + 1}–${offset + 100} of ${count}` testId="page-range" font-size=12
       when windowed or bounded

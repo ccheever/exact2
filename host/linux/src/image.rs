@@ -20,6 +20,8 @@ mod bitmap;
 #[cfg(test)]
 #[path = "image/control_tests.rs"]
 mod control_tests;
+#[path = "image/crop.rs"]
+mod crop;
 #[cfg(test)]
 #[path = "image/decode_tests.rs"]
 mod decode_tests;
@@ -51,6 +53,15 @@ struct View {
     visible: bool,
     refusal: Option<Refusal>,
     symbol_size: Option<f32>,
+    /// How the box fits the picture, where it clips the picture to itself
+    /// and is nothing but the picture (no padding, no border): the fit a
+    /// part of the picture may be decoded for (`crop`).
+    fit: Option<exact_kernel::ObjectFit>,
+    /// The box changed size while it showed a part: from then on it gets the
+    /// whole picture (a box that animates would ask for a part a frame).
+    resized: bool,
+    /// The request is for a part of the picture.
+    part: bool,
 }
 
 /// One generation's bounded live demand, sharing its budget with replacements.
@@ -65,6 +76,12 @@ pub struct Images {
     pub loaded: Vec<(String, (u32, u32))>,
     decode_enabled: bool,
     deferred: usize,
+    /// The last [`Images::sync_visible`] met a picture (an image that is not
+    /// a symbol), and the kernel epoch at which one met none and reported
+    /// nothing: until a commit, another has nothing to find (a symbol asks
+    /// no file and is the same shown or not).
+    pictures: bool,
+    pub(crate) settled: Option<u64>,
     /// The image nodes in preorder, as of a kernel epoch: the walk
     /// [`Images::sync_visible`] needs, redone only after a commit.
     pub(crate) order: Option<(u64, Vec<ViewId>)>,
@@ -95,6 +112,8 @@ impl Images {
             loaded: Vec::new(),
             decode_enabled: true,
             deferred: 0,
+            pictures: false,
+            settled: None,
             order: None,
             box_index: None,
         }
@@ -143,6 +162,11 @@ impl Images {
     pub fn sync(&mut self, kernel: &Kernel, live: &[ViewId]) -> Vec<Report> {
         self.sync_visible(kernel, live, 1., |_| true)
     }
+    /// [`Images::settled`] after a sync at `epoch`.
+    pub(crate) fn settled_at(&self, epoch: u64, quiet: bool) -> Option<u64> {
+        (quiet && !self.pictures && self.deferred == 0).then_some(epoch)
+    }
+
     pub(crate) fn sync_visible(
         &mut self,
         kernel: &Kernel,
@@ -153,6 +177,7 @@ impl Images {
         let mut reports = Vec::new();
         let mut seen = std::collections::HashSet::with_capacity(live.len().min(SUBSCRIPTIONS));
         self.deferred = 0;
+        self.pictures = false;
         for id in live {
             let Some(node) = kernel.node(*id) else {
                 continue;
@@ -187,8 +212,12 @@ impl Images {
                 visible: true,
                 refusal: None,
                 symbol_size: None,
+                fit: None,
+                resized: false,
+                part: false,
             });
             view.desired = (node.frame.width * scale, node.frame.height * scale);
+            view.fit = plain_box(node.style).then_some(node.style.object_fit);
             // LLP 1035.004.000: a symbol is an em square no file fills (the
             // paint walk strokes a portable role's path into it, `symbol`),
             // never a file request and never the previously accepted raster.
@@ -212,6 +241,7 @@ impl Images {
                 continue;
             }
             // Only a picture loads by whether it shows: a symbol's never asked.
+            self.pictures = true;
             view.visible = visible(*id);
             if view.symbol_size.take().is_some() {
                 reports.push((*id, None));
@@ -396,8 +426,14 @@ impl Images {
                 }
             }
             if let Some((request, _)) = view.request {
+                // A part was cut for the box as it was: any other box (or
+                // fit) gets the whole picture, now and from here on.
+                let recut = view.part
+                    && (view.requested_for != view.desired
+                        || view.fit != Some(exact_kernel::ObjectFit::Cover));
+                view.resized |= recut;
                 // A changed offered size replaces demand, retaining old pixels.
-                if resize_changes_decode(header, view.requested_for, view.desired) {
+                if recut || resize_changes_decode(header, view.requested_for, view.desired) {
                     self.backend.cancel(request);
                     view.request = None;
                 }
@@ -414,14 +450,27 @@ impl Images {
                 // little larger serves this view too: no second decode, no
                 // second charge.
                 let wanted = u64::from(decode.pixels.width) * u64::from(decode.pixels.height);
-                let decode = self
-                    .backend
-                    .session
-                    .covering(source, self.generation, 1, decode.pixels, wanted * 5 / 2)
+                let held = (self.backend.session).covering(
+                    source,
+                    self.generation,
+                    1,
+                    decode.pixels,
+                    wanted * 5 / 2,
+                );
+                let decode = held
                     .filter(|p| *p != decode.pixels)
                     .and_then(|p| png_decode::DecodePlan::new(header, (p.width, p.height)).ok())
                     .filter(|p| p.peak_bytes() <= admission_budget)
                     .unwrap_or(decode);
+                // No whole picture to share: one that a box clips to itself
+                // is decoded as the part the box shows (`crop`), unless the
+                // box has changed size under a part before.
+                let cut = (held.is_none() && !view.resized && *PARTS)
+                    .then_some(view.fit)
+                    .flatten()
+                    .and_then(|fit| crop::part(decode.natural(), decode.pixels, view.desired, fit))
+                    .and_then(|(x, y, pixels)| decode.part(x, y, pixels).ok());
+                let decode = cut.unwrap_or(decode);
                 let demand = Demand {
                     view: view.key,
                     key: RasterKey {
@@ -429,6 +478,7 @@ impl Images {
                         generation: self.generation,
                         pixels: decode.pixels,
                         variant: 1,
+                        crop: decode.crop,
                     },
                     metadata: header.metadata,
                     cost: decode.cost,
@@ -436,9 +486,29 @@ impl Images {
                 };
                 match self.backend.request(demand) {
                     Ok(request) => {
-                        view.request = Some((request, decode.pixels));
+                        view.request = Some((request, decode.full()));
                         view.requested_for = view.desired;
+                        view.part = !decode.crop.whole();
                         view.refusal = None;
+                        // A picture the cache holds is ready as it is asked
+                        // for: taken now, it is in this paint, not the next
+                        // poll's (a frame later, of the five a row is in
+                        // view for at 24,000 dp/s).
+                        if matches!(
+                            self.backend.session.status(request),
+                            Some(RequestStatus::Ready)
+                        ) {
+                            if let Some(lease) = self.backend.session.take_ready(request) {
+                                if let Some(bitmap) = lease.payload::<Arc<Bitmap>>() {
+                                    self.bitmaps.insert(*id, bitmap.clone());
+                                    let natural = bitmap.natural();
+                                    reports.push((*id, Some((natural.0 as f32, natural.1 as f32))));
+                                    view.lease = Some(lease);
+                                    view.accepted = Some(request);
+                                    view.displayed_source = view.source.clone();
+                                }
+                            }
+                        }
                     }
                     Err(e) => view.refusal = Some(e),
                 }
@@ -549,6 +619,7 @@ impl Images {
         self.bitmaps.clear();
         self.loaded.clear();
         self.generation = self.backend.generation();
+        self.settled = None;
     }
     #[cfg(unix)]
     pub(crate) fn wake_fd(&self) -> std::os::fd::RawFd {
@@ -624,6 +695,22 @@ fn plan(
         }
         pixels = (pixels.0.div_ceil(2), pixels.1.div_ceil(2));
     }
+}
+
+/// `EXACT_PICTURE_PARTS=0`: every picture is decoded whole, to compare.
+static PARTS: std::sync::LazyLock<bool> =
+    std::sync::LazyLock::new(|| std::env::var("EXACT_PICTURE_PARTS").map_or(true, |v| v != "0"));
+
+/// Whether a node's box is nothing but its content: no padding and no
+/// border, so the box a picture is clipped to is the node's frame.
+fn plain_box(style: &exact_kernel::StyleProps) -> bool {
+    use exact_kernel::Dimension;
+    let none = |d: &Dimension| matches!(d, Dimension::Points(p) if *p == 0.0);
+    style.border_widths() == [0.0; 4]
+        && none(&style.padding_top)
+        && none(&style.padding_right)
+        && none(&style.padding_bottom)
+        && none(&style.padding_left)
 }
 
 fn resize_changes_decode(

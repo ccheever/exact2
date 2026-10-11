@@ -12,6 +12,8 @@ final class T3ComposerStyler {
     weak var editor: T3ComposerEditor?
     private(set) weak var view: NSTextView?
     private var underlay: T3ComposerUnderlay?
+    /// Above the text: the chip that is the selection, over the text view's highlight (realinput-1010e-followups RE-3).
+    private(set) var overlay: T3ComposerUnderlay?
     private var observers: [NSObjectProtocol] = []
     private var click: NSClickGestureRecognizer?
     private var clickTarget: ClickTarget?
@@ -67,6 +69,10 @@ final class T3ComposerStyler {
             layer.styler = self
             host.addSubview(layer, positioned: .below, relativeTo: scroller)
             underlay = layer
+            let above = T3ComposerUnderlay(frame: scroller.frame)
+            above.styler = self; above.selectedOnly = true
+            host.addSubview(above, positioned: .above, relativeTo: scroller)
+            overlay = above
             scroller.postsFrameChangedNotifications = true
             scroller.contentView.postsBoundsChangedNotifications = true
             let center = NotificationCenter.default
@@ -104,6 +110,7 @@ final class T3ComposerStyler {
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         observers.removeAll()
         underlay?.removeFromSuperview(); underlay = nil
+        overlay?.removeFromSuperview(); overlay = nil
         if let click { view?.removeGestureRecognizer(click) }
         click = nil; clickTarget = nil
         authored.forEach { $0.invalidate() }; authored.removeAll()
@@ -114,6 +121,7 @@ final class T3ComposerStyler {
         guard let underlay, let scroller = view?.enclosingScrollView else { return }
         if underlay.frame != scroller.frame { underlay.frame = scroller.frame }
         underlay.needsDisplay = true
+        if let overlay { if overlay.frame != scroller.frame { overlay.frame = scroller.frame }; overlay.needsDisplay = true }
         tips.refresh()
         press.remeasure()
     }
@@ -208,6 +216,21 @@ final class T3ComposerStyler {
         tips.refresh()
         press.validate()
         press.refreshAccessibility()
+        noteSelection()
+    }
+
+    /// realinput-1010e-followups RE-3: the chip whose whole source is the selection (ProseMirror's NodeSelection, which a
+    /// press on a skill chip makes). The text view's highlight covers the pill painted below the text, so the overlay
+    /// paints that chip again above it, tinted as the reference paints a selected chip (`data-composer-chip-selected`:
+    /// Highlight at 30% over it).
+    private(set) var selectedChip: T3ComposerChip?
+    func noteSelection() {
+        guard let view else { return }
+        let selection = view.selectedRange()
+        let chip = selection.length > 0 && view.string == styled ? chips.first { $0.range == selection } : nil
+        guard chip != selectedChip else { return }
+        selectedChip = chip
+        overlay?.needsDisplay = true
     }
 
     /// An edit the text view is about to make (the delegate's change hook).
@@ -607,6 +630,8 @@ final class T3ComposerStyler {
 /// code backgrounds and task checkboxes, at the source's laid-out positions.
 final class T3ComposerUnderlay: NSView {
     weak var styler: T3ComposerStyler?
+    /// The overlay above the text: only the chip that is the selection, inside the scroller's visible content.
+    var selectedOnly = false
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
@@ -615,6 +640,12 @@ final class T3ComposerUnderlay: NSView {
         let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         let font = styler.baseFont ?? NSFont.systemFont(ofSize: 14)
         let toSelf = { (rect: NSRect) in view.convert(rect, to: self) }
+        if selectedOnly {
+            guard let chip = styler.selectedChip, let rect = styler.chipRect(chip), let clip = view.enclosingScrollView?.contentView else { return }
+            NSBezierPath(rect: clip.convert(clip.bounds, to: self)).addClip()
+            drawChip(chip, in: toSelf(rect), size: font.pointSize * 0.86, dark: dark, styler: styler, font: font)
+            return
+        }
         for mark in styler.marks where mark.kind == "code" {
             // The pill is the code font's content box plus 0.046em above and
             // below, hung from the line's baseline as an inline box is.
@@ -653,6 +684,11 @@ final class T3ComposerUnderlay: NSView {
         path.lineWidth = 1
         if !resolved { path.setLineDash([3, 2], count: 2, phase: 0) }
         path.stroke()
+        if chip == styler.selectedChip {
+            let key = styler.view?.window?.isKeyWindow == true && styler.view?.window?.firstResponder === styler.view
+            (key ? NSColor.selectedTextBackgroundColor : NSColor.unemphasizedSelectedTextBackgroundColor).withAlphaComponent(0.3).setFill()
+            NSBezierPath(roundedRect: rect, xRadius: size * 0.25, yRadius: size * 0.25).fill()
+        }
         let icon = size * 1.17
         let iconRect = NSRect(x: rect.minX + 1 + size * 0.5, y: rect.midY - icon / 2, width: icon, height: icon)
         if let image {
@@ -711,6 +747,8 @@ final class T3ComposerUnderlay: NSView {
         "pr-closed": ["#4b3337", "#f2d3d4", "#d556651c", "#e4b6b9", "#db697461"],
         "citation": ["#2f3b4f", "#ceddf4", "#4684e51c", "#aec5e9", "#5a91e961"],
         "terminal": ["#2c3f39", "#cbe2d6", "#009f6e1c", "#a9cdbd", "#3ba97d61"],
+        // browser-surface part 3: an Annotate chip (ContextChip "preview-annotation", oklch(0.62 0.134 70); the timeline's context-element inks).
+        "preview-annotation": ["#44382c", "#e9d9c7", "#b875011c", "#d7bfa6", "#b8750161"],
         "image": ["#4b3337", "#f2d3d4", "#d556651c", "#e4b6b9", "#db697461"],
         // r4-composer: an attached video's file chip (ContextChip kind "video", oklch(0.62 0.16 48)).
         "video": ["#4a352e", "#f0d6c8", "#d062171c", "#e1baa7", "#d7733b61"],

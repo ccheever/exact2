@@ -32,7 +32,7 @@ Excluded: sign-in and install (`20261005-provider-sign-in-and-install`), Codex m
 PR #238 handoff (2026-10-08): the reference
 `ProviderSettingsPanel.environment.test.tsx:584` URL-auth action case was excluded from
 provider-sign-in-and-install. It remains owned here by the URL auth acceptance row below;
-see [verification follow-up](../20261008-provider-sign-in-verification-followup.md).
+see [verification follow-up](20261008-provider-sign-in-verification-followup.md).
 
 ## Context and guidance
 
@@ -54,7 +54,7 @@ Scheduling preference (not a prerequisite): after `20261005-main-fix-adoption` (
 
 ## Issue assessment at preparation
 
-Checked sources and time: plan `issues/` drafts read 2026-10-05; no upstream search (no network). Records: [X17](../../issues/20261005-x17-popover-position-try.md), [X9](../../issues/20261005-x09-root-component-across-files.md), [X21](../../issues/20261005-x21-two-way-websocket.md), [X10](../../issues/20261005-x10-text-rendering-parity.md), [X13](../../issues/closed/20261005-x13-hover-keys-during-pan.md), [X35](../../issues/closed/20261005-x35-secure-text-entry.md), [X44](../../issues/20261005-x44-remote-image-policy.md).
+Checked sources and time: plan `issues/` drafts read 2026-10-05; no upstream search (no network). Records: [X17](../../issues/closed/20261005-x17-popover-position-try.md), [X9](../../issues/closed/20261005-x09-root-component-across-files.md), [X21](../../issues/closed/20261005-x21-two-way-websocket.md), [X10](../../issues/closed/20261005-x10-text-rendering-parity.md), [X13](../../issues/closed/20261005-x13-hover-keys-during-pan.md), [X35](../../issues/closed/20261005-x35-secure-text-entry.md), [X44](../../issues/20261005-x44-remote-image-policy.md).
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |

@@ -554,6 +554,30 @@ impl Context {
         self.endowment.state.set_sqlite_provider(provider)
     }
 
+    /// The codec `fs.compressImage` runs (Exact patch 9). Without one the
+    /// operation refuses as unsupported.
+    pub fn set_image_codec(
+        &self,
+        codec: Arc<crate::stdlib::fs::ImageCodec>,
+    ) -> Result<(), crate::boundary::HostError> {
+        self.endowment.state.set_image_codec(codec)
+    }
+
+    /// Call when giving up on a storage wait (Exact patch 9): no
+    /// `fs.compressImage` still in flight will write after this returns
+    /// `Abandoned`; `Written` means one finished its write and its
+    /// completion is coming, so keep waiting for it.
+    pub fn abandon_image_work(&self) -> crate::stdlib::fs::Abandoned {
+        self.endowment.state.abandon_image_work()
+    }
+
+    /// [`Context::abandon_image_work`] for a waiter that may be retired:
+    /// `live` is asked under the registry's lock, so set the retirement
+    /// flag before issuing work and no call issued after is abandoned.
+    pub fn abandon_image_work_if(&self, live: &dyn Fn() -> bool) -> crate::stdlib::fs::Abandoned {
+        self.endowment.state.abandon_image_work_if(live)
+    }
+
     /// Worker-safe, edge-triggered notification that schedules the embedder's
     /// loop. Admissions coalesce and at most one callback runs at a time; a
     /// publisher that finds one running records another edge and returns.
@@ -574,6 +598,13 @@ impl Context {
 
     pub fn is_idle(&self) -> bool {
         self.endowment.state.is_idle()
+    }
+
+    /// Host operations started and not yet returned, a let-go
+    /// `fs.compressImage` among them, its completion queued or not
+    /// (Exact patch 11).
+    pub fn in_flight(&self) -> usize {
+        self.endowment.state.in_flight()
     }
 
     /// Borrowed Arc-backed pointer for the JSI adapter. The context must

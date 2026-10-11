@@ -148,6 +148,13 @@ pub trait Backend {
     fn slot_begin(&mut self, _id: ViewId) {}
     /// The picture's drawing ends.
     fn slot_end(&mut self) {}
+    /// Begin image node `id`'s slot again, outside its kept row `row`, as
+    /// that row's recording drew it (the same calls follow, then
+    /// [`Backend::slot_end`]): a picture arrived and nothing else in the row
+    /// changed. False: this backend cannot, and the row is recorded again.
+    fn slot_again(&mut self, _row: u32, _id: ViewId) -> bool {
+        false
+    }
     /// The layer just begun is one its reader records again in each frame's
     /// colour (a `color` or `background-color` transition): it keeps the
     /// drawing.

@@ -118,5 +118,6 @@ export async function planAction(client: T3Client, native: Native, op: string, i
 export function planSaveView(client: T3Client) {
   const save = saves.get(client);
   const open = !!save && save.threadId === client.threadId;
-  return { planSaveOpen: open, planSavePath: open ? save!.path : '', planSaveRoot: open ? planRoot(client) : '', planSaving: open && save!.saving };
+  return { planSaveOpen: open, planSavePath: open ? save!.path : '', planSaveRoot: open ? planRoot(client) : '', planSaving: open && save!.saving,
+    planSaveRow: open ? save!.rowId : '' }; // the plan whose menu opened it, which it gives the focus back to (DialogFinalFocus)
 }

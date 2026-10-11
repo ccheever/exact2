@@ -31,7 +31,7 @@ final class SmoothCollectionIOSTests: XCTestCase {
     /// Runs the loop until `done`, failing with `what` after `timeout` s.
     private func wait(_ what: String, _ timeout: Double = 2, _ done: () -> Bool) {
         let deadline = Date().addingTimeInterval(timeout)
-        while !done(), Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.005)) }
+        while !done(), Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.005)) }
         XCTAssertTrue(done(), what)
     }
     private func moving(_ p: Presenter) -> Bool { p.collections.offsetDrivers[1] != nil }
@@ -244,6 +244,44 @@ final class SmoothCollectionIOSTests: XCTestCase {
         XCTAssertFalse(p.collections.animating.contains(1))
         XCTAssertNil(p.collections.offsetDrivers[1])
         XCTAssertGreaterThan(scroll.contentOffset.y, 0.1, "set at once")
+    }
+
+    /// LLP 1116.000 D1.3: a transcript opened at its end below the bar, then
+    /// moved under it (a route's scroller goes under a collapsing title once
+    /// its push lands). UIKit clamps the offset to the taller frame and then
+    /// compensates for the new inset, which together put the end an inset
+    /// short of the port's; the port's start (CSS's scrollTop) stays, so the
+    /// end the runner follows is still the end.
+    func testAPortThatGoesUnderTheBarKeepsWhereItStarts() throws {
+        let p = presenter()
+        let host = UIViewController()
+        host.additionalSafeAreaInsets.top = 100
+        window.rootViewController = host
+        host.view.frame = window.bounds
+        host.view.layoutIfNeeded()
+        let bar = host.view.safeAreaInsets.top
+        XCTAssertGreaterThanOrEqual(bar, 100)
+        p.apply(wireBatch([collections(revision: 1, correction: NSNull()),
+            ["op": "create", "id": 1, "kind": "list", "style": ["overflow_y": "scroll"]],
+            ["op": "create", "id": 10, "kind": "view"], ["op": "create", "id": 11, "kind": "view"],
+            ["op": "children", "id": 10, "ids": [11]], ["op": "children", "id": 1, "ids": [10]], ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": Double(bar), "w": 300.0, "h": Double(400 - bar)],
+            ["op": "frame", "id": 10, "x": 0.0, "y": 0.0, "w": 300.0, "h": 40.0],
+            ["op": "content", "id": 1, "w": 300.0, "h": 2000.0]]))
+        // In the controller's view, as a route's content is, where the bar's
+        // safe area reaches it.
+        let node = try XCTUnwrap(p.views[1])
+        host.view.addSubview(node)
+        let scroll = try XCTUnwrap(node.scroll)
+        p.apply(wireBatch([collections(revision: 2, correction: ["scrollSequence": "0", "offset": 2000, "smooth": false])]))
+        let end = { scroll.contentSize.height + scroll.adjustedContentInset.bottom - scroll.bounds.height }
+        XCTAssertEqual(scroll.contentOffset.y, end(), accuracy: 0.5, "opened at its end, below the bar")
+        let start = try XCTUnwrap(p.collections.geometry(1)).offset
+        scroll.contentInsetAdjustmentBehavior = .always
+        p.apply(wireBatch([["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 400.0]]))
+        XCTAssertEqual(scroll.adjustedContentInset.top, bar, accuracy: 0.5, "under the bar, which UIKit insets it by")
+        XCTAssertEqual(try XCTUnwrap(p.collections.geometry(1)).offset, start, accuracy: 0.5, "the port starts where it did")
+        XCTAssertEqual(scroll.contentOffset.y, end(), accuracy: 0.5, "and its end is still the end")
     }
 }
 #endif

@@ -62,7 +62,7 @@ Checked sources and time: {{at prepare}}.
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
-| [X9](../../issues/20261005-x09-root-component-across-files.md) | Resources in child components / root across files | `EXACT2-GAPS.md` X9 | nonblocking (this ticket is the workaround) | `issue-open` when convenient |
+| [X9](../../issues/closed/20261005-x09-root-component-across-files.md) | Resources in child components / root across files | `EXACT2-GAPS.md` X9 | nonblocking (this ticket is the workaround) | `issue-open` when convenient |
 
 ## Implementation notes
 

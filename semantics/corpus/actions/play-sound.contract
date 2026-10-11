@@ -9,7 +9,7 @@ component App
   state d = 1
   action tick
     playSound("assets/tick.wav")
-    playSound("assets/tick.wav", at=now() + 100, gain=0.5, group="hat")
+    playSound("assets/tick.wav", at=performanceNow() + 100, gain=0.5, group="hat")
     n = n + 1
   action stop
     stopSounds(group="hat")

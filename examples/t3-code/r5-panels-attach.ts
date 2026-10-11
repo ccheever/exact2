@@ -5,15 +5,21 @@
 // delimitedPreview). The captured bytes are read from a signed asset URL
 // (`assets.createUrl`, re-minted after five minutes), never from a workspace
 // file of the same name; the subheader reads "Attachment › name  size" with the
-// rendered/source toggle, word wrap, Copy contents and Save file.
+// rendered/source toggle, word wrap, Copy contents and Save file. Its rendered
+// Markdown is ChatMarkdown with no `cwd` (audit-wave-followups-3 FW-2).
 import type { T3Client } from './client';
 import { arr, num, obj, str, type Obj } from './domain';
 import { ClientError, type Native } from './protocol';
 import { pushToast } from './toast';
 import { assetUrl } from './settings-b-icons';
 import { formatAttachmentSize } from './composer-editor-files';
-import { markdownDocument, tableRows, type Document } from './r4-surfaces-render';
-import { codeLines, type CodeLine } from './r4-surfaces-files';
+import { tableRows } from './r4-surfaces-render';
+import { codeLines, type CodeLine, type MarkdownSource } from './r4-surfaces-files';
+import { markdownEnv, messageChips, type MarkdownEnv } from './r4-timeline-chips';
+import { messageCodeBlocks } from './timeline-highlight';
+import { filesMermaid, type MermaidDiagramView } from './timeline-mermaid';
+import { timelineView } from './timeline-presentation';
+import { markdownMediaUrls } from './media-views';
 import { fileIconToken } from './timeline-files';
 import { mediaBody, mediaErrorMessage } from './r6-media-preview'; // lane r6-media: PDF, HTML, audio and video bodies
 import { sourceGutter } from './r9-device-crumbs'; // lane r9-device: the reference's line-number column
@@ -23,8 +29,12 @@ export type AttachmentMeta = { id: string; name: string; mimeType: string; sizeB
 export type AttachmentView = {
   id: string; name: string; size: string; preview: string; error: string; canRender: boolean; rendered: boolean; renderLabel: string; renderIcon: string;
   showWrap: boolean; wrap: boolean; canCopy: boolean; copyLabel: string; copied: boolean; canSave: boolean; saving: boolean; saveLabel: string;
-  truncatedNote: string; markdown: Document; table: { id: string; header: boolean; cells: { id: string; text: string; syntax: string }[] }[];
-  lines: CodeLine[]; gutter: number; url: string; noPreview: string; code: never[];
+  truncatedNote: string; table: { id: string; header: boolean; cells: { id: string; text: string; syntax: string }[] }[];
+  lines: CodeLine[]; gutter: number; url: string; noPreview: string;
+  // audit-wave-followups-3 FW-2: the rendered Markdown as Files' (r4-surfaces-files.ts FilesView): renderFileMarkdown's one
+  // message (kind "attachment"), its chips and settings, code colours, Mermaid fences, host-path media and Copy code's check.
+  markdownSource: MarkdownSource[]; md: MarkdownEnv; code: ReturnType<typeof messageCodeBlocks>; diagrams: MermaidDiagramView[];
+  mdUrls: { id: string; url: string; fill: string; hover: string; border: string; ink: string }[]; codeCopied: string; codeCopyNonce: number;
 };
 type Content = { text: string; truncated: boolean };
 type State = { url: string; urlAt: number; urlError: string; content: Content | null; contentError: string; rendered: boolean; saving: boolean; copiedAt: number; mediaError: string };
@@ -95,6 +105,26 @@ async function mint(client: T3Client, native: Native, meta: AttachmentMeta, disp
   return url;
 }
 const message = (error: unknown, fallback: string) => (error instanceof Error && error.message ? error.message : fallback);
+const NO_MARKDOWN = () => ({ markdownSource: [], md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [], runCommands: [] }, code: [], diagrams: [], mdUrls: [], codeCopied: '', codeCopyNonce: 0 });
+
+/**
+ * AttachmentFilePreview's rendered Markdown: `<ChatMarkdown text cwd={undefined} />`, the chat renderer Files' rendered
+ * file uses (r4-surfaces-files.ts renderedMarkdown), with no folder: relative links and images resolve against nothing
+ * (macos/src/markdown_links.rs link_href_without_cwd), code blocks keep their colours and Copy code, tables their menu,
+ * ```mermaid fences draw (filesMermaid: Files and an attachment are never the active surface together), and the task
+ * checkboxes stay disabled.
+ */
+async function renderedAttachment(client: T3Client, native: Native | null | undefined, meta: AttachmentMeta, text: string, now: number) {
+  const copy = timelineView(client).codeCopy, copied = copy.threadId === client.threadId;
+  const urls = native?.available ? await markdownMediaUrls(client, native, '', now, [text]) : [];
+  const diagrams = await filesMermaid(client, native, text);
+  return {
+    markdownSource: [{ id: `attachment:${meta.id}`, kind: 'attachment', title: '', body: text }],
+    md: { ...markdownEnv(client), chips: messageChips({ text }, '', []) },
+    code: messageCodeBlocks(text), diagrams, mdUrls: urls.map(entry => ({ ...entry, fill: '', hover: '', border: '', ink: '' })),
+    codeCopied: copied ? copy.text : '', codeCopyNonce: copied ? copy.nonce : 0,
+  };
+}
 
 /** The surface's projection: the URL (minted on first view), the text body for text kinds, and the header's controls. */
 export async function attachmentView(client: T3Client, native: Native | null | undefined, meta: AttachmentMeta, now: number): Promise<AttachmentView> {
@@ -125,6 +155,7 @@ export async function attachmentView(client: T3Client, native: Native | null | u
   // useCopyToClipboard: "Copied" for two seconds of the window's clock, stamped by the first view after the copy.
   if (state.copiedAt < 0 && now) state.copiedAt = now;
   const copied = state.copiedAt < 0 || (state.copiedAt > 0 && now - state.copiedAt < 2000);
+  const rich = preview === 'markdown' ? await renderedAttachment(client, native, meta, text, now) : NO_MARKDOWN();
   return {
     id: meta.id, name: meta.name, size: formatAttachmentSize(meta.sizeBytes), preview, error: failure,
     canRender: !!renderedMode, rendered,
@@ -134,15 +165,15 @@ export async function attachmentView(client: T3Client, native: Native | null | u
     canCopy: !!content, copyLabel: copied ? 'Copied' : content?.truncated ? 'Copy preview' : 'Copy contents', copied,
     canSave: !!state.url, saving: state.saving, saveLabel: state.saving ? 'Preparing file…' : 'Save file',
     truncatedNote: content?.truncated ? `Preview limited to the first 1 MB of a ${meta.sizeBytes.toLocaleString('en-US')} byte file. Save the file to read it in full.` : '',
-    markdown: preview === 'markdown' ? markdownDocument(`attachment:${meta.id}`, text) : { id: '', blocks: [] }, table: table?.rows ?? [],
+    ...rich, table: table?.rows ?? [],
     lines, gutter: sourceGutter(lines.length), url: preview === 'image' || mediaBody(preview, true) ? state.url : '',
     // The unsupported body.
-    noPreview: preview === 'none' ? `Save it to open in an app that supports ${extension} files.` : '', code: [],
+    noPreview: preview === 'none' ? `Save it to open in an app that supports ${extension} files.` : '',
   };
 }
 export const emptyAttachment = (): AttachmentView => ({
   id: '', name: '', size: '', preview: '', error: '', canRender: false, rendered: false, renderLabel: '', renderIcon: '', showWrap: false, wrap: true, canCopy: false,
-  copyLabel: 'Copy contents', copied: false, canSave: false, saving: false, saveLabel: 'Save file', truncatedNote: '', markdown: { id: '', blocks: [] }, table: [], lines: [], gutter: 0, url: '', noPreview: '', code: [],
+  copyLabel: 'Copy contents', copied: false, canSave: false, saving: false, saveLabel: 'Save file', truncatedNote: '', table: [], lines: [], gutter: 0, url: '', noPreview: '', ...NO_MARKDOWN(),
 });
 export const attachmentToken = (name: string) => fileIconToken(name);
 

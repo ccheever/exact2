@@ -16,7 +16,9 @@ import { arr, num, obj, str, type Obj } from './domain';
 import { ClientError, type Native } from './protocol';
 import { letGo } from './let-go';
 import { pushToast } from './toast';
-import { buildDiffReviewComment, diffReviewLines, type SelectedLineRange, type SelectionSide } from './diff-comments';
+import { buildDiffReviewComment, diffReviewLines, findDiffReviewLineIndex, type SelectedLineRange, type SelectionSide } from './diff-comments';
+import { dragTo, gutterClick, parseLineCellId, pressGutter, pressLine, releaseDrag, type LineDrag, type LinePoint, type RowIndex } from './diff-line-drag';
+import { closeChipFromPress } from './composer-chip-popover';
 import { changeType, expandRange, type Expansion, type FileContents } from './diff-lazy';
 import { diffFileTreeEntries, diffTreeRows, ancestorDirectories, collectDirectoryPaths, allDirectoriesExpanded, type DiffTreeRow } from './diff-tree';
 import { decodeClientPrefs } from './settings-core';
@@ -30,7 +32,10 @@ import {
 } from './pages-pr-code-logic';
 import { BASE, codeRows, fileKey, hiddenCount, isCollapsed, type CodeItem } from './pages-pr-code-rows';
 import { FLUSH_DELAY_MS, FilesViewedStore } from './pages-pr-viewed';
-import { startDetached } from './composer-replies';
+import { startDetached, type DetachedReply } from './composer-replies';
+import { startFleetDetached } from './usage-replies';
+import { environmentCall, environmentTarget, pullRequestServer, routedPullRequestRequest, routerHost } from './pages-pr-environments';
+import { pullRequestRouter } from './pages-pr-routing';
 import { emptyThreadState, presentThreads, threadBodies, threadCommand, type PrThreadCard, type ThreadState } from './pages-pr-threads';
 
 /** Commits per press of "Show more" in the scope menu. */
@@ -43,7 +48,7 @@ export type CodeState = {
   parsed: Map<string, RenderablePatch>;
   toggled: ReadonlySet<string>; foldOverride: DiffFoldOverride; visibleCommits: number;
   ignoreWhitespace: boolean; wrap: boolean; orphansOpen: boolean; treeClosed: Set<string>; treeSelected: string;
-  selection: { path: string; range: SelectedLineRange } | null; draft: Draft | null;
+  selection: { path: string; range: SelectedLineRange } | null; drag: LineDrag | null; draft: Draft | null;
   contents: Record<string, FileContents>; expansions: Record<string, Expansion>; contentsDue: Map<string, { path: string; gap: number }>;
   viewed: FilesViewedStore; threads: ThreadState; shown: string;
 };
@@ -53,7 +58,7 @@ function fresh(client: { local: object }, key: string): CodeState {
   const settings = prefs(client);
   return { key, mounted: false, commit: null, refresh: 0, slices: [], cursor: null, diffDue: true, diffError: '', parsed: new Map(), toggled: new Set(), foldOverride: null,
     visibleCommits: COMMIT_PAGE_SIZE, ignoreWhitespace: settings.diffIgnoreWhitespace, wrap: settings.wordWrap, orphansOpen: false, treeClosed: new Set(), treeSelected: '',
-    selection: null, draft: null, contents: {}, expansions: {}, contentsDue: new Map(), viewed: new FilesViewedStore(), threads: emptyThreadState(), shown: '' };
+    selection: null, drag: null, draft: null, contents: {}, expansions: {}, contentsDue: new Map(), viewed: new FilesViewedStore(), threads: emptyThreadState(), shown: '' };
 }
 /** The Code tab of the pull request on screen; another pull request starts over. */
 export function codeState(client: { local: object }, key: string): CodeState {
@@ -73,11 +78,17 @@ function scope(code: CodeState, commit: string | null): void {
   if (code.commit === commit) return;
   code.commit = commit;
   // PullRequestCodeTab's reset on scopeKey: the draft, the selection, the folds, the menu page, the orphans.
-  code.draft = null; code.selection = null; code.toggled = new Set(); code.foldOverride = null; code.visibleCommits = COMMIT_PAGE_SIZE; code.orphansOpen = false;
+  code.draft = null; code.selection = null; code.drag = null; code.toggled = new Set(); code.foldOverride = null; code.visibleCommits = COMMIT_PAGE_SIZE; code.orphansOpen = false;
   restart(code);
 }
 
-export type CodeContext = { client: T3Client; reference: WriteReference; detail: Obj; activity: Obj | null };
+/**
+ * `environmentId`: the server the pull request was listed on ('' for the focused one). realinput-1010e-followups RE-5: the
+ * tab's reads and its Viewed writes go to that server, as the reference's do (pullRequests.ts: the diff is the pull request
+ * environment's own HTTP read, filesViewed, setFilesViewed and diffFileContents its routed requests); sent to the focused
+ * server instead, a pull request listed on a paired server answered HTTP 503 (provider-unsupported) from the embedded one.
+ */
+export type CodeContext = { client: T3Client; reference: WriteReference; detail: Obj; activity: Obj | null; environmentId?: string };
 const host = (reference: WriteReference) => ({ projectId: reference.projectId, ...(reference.host ? { host: reference.host } : {}), repository: reference.repository, number: reference.number });
 const commitsOf = (activity: Obj | null) => arr(activity?.commits).slice().sort((left, right) => Date.parse(str(right.committedDate)) - Date.parse(str(left.committedDate)));
 const contentsKeyOf = (code: CodeState, path: string) => `${scopeKey(code)}::${path}`;
@@ -94,8 +105,9 @@ function signature(code: CodeState): string {
  * asks again); the reads run otherwise.
  */
 export async function readCode(ctx: CodeContext & { native: Native; tab: string; refresh: number }): Promise<'wake' | 'done'> {
-  const { client, native, reference, detail, activity } = ctx, key = pullRequestReviewKey(reference);
+  const { client, native, reference, detail, activity } = ctx, key = pullRequestReviewKey(reference), listedOn = ctx.environmentId ?? '';
   const code = codeState(client, `${client.environmentId}|${key}`);
+  await tellReaders(client, native);
   if (ctx.tab === 'code') code.mounted = true;
   if (!code.mounted || obj(detail.capabilities).diff !== true) return 'done';
   // The panel's Refresh goes around the host's cache: the diff from its first page, and the ticks.
@@ -109,16 +121,17 @@ export async function readCode(ctx: CodeContext & { native: Native; tab: string;
   if (code.viewed.flushable()) {
     const presses = code.viewed.key();
     await sleep(native, FLUSH_DELAY_MS);
-    if (code.viewed.key() === presses) await flushViewed(client, native, code, reference);
+    if (code.viewed.key() === presses) await flushViewed(client, native, code, reference, listedOn);
   }
   if (viewedOn && code.viewed.due) {
-    try { code.viewed.adopt(obj(await client.call(native, { op: 'request', method: 'pullRequests.filesViewed', payload: host(reference), share: true })) as never); }
+    try { code.viewed.adopt(obj(await routedPullRequestRequest(client, native, 'pullRequests.filesViewed', { ...host(reference), environmentId: listedOn }, false, true)) as never); }
     catch (error) { if (letGo(error)) throw error; code.viewed.failed(error instanceof Error && error.message ? error.message : 'The host did not answer.'); }
   }
   if (code.diffDue) {
     const asked = scopeKey(code), cursor = code.cursor;
     try {
-      const answer = obj(await client.call(native, { op: 'prDiff', payload: { ...host(reference), ...(cursor === null ? {} : { cursor }), ...(code.commit === null ? {} : { commit: code.commit }) } }));
+      const payload = { ...host(reference), ...(cursor === null ? {} : { cursor }), ...(code.commit === null ? {} : { commit: code.commit }) };
+      const answer = obj(await environmentCall(client, native, pullRequestServer(client, listedOn, payload), { op: 'prDiff', payload }));
       if (scopeKey(code) === asked && code.cursor === cursor) {
         code.slices = adoptDiffSlice(code.slices, { cursor, patch: str(answer.patch), truncated: answer.truncated === true, nextCursor: str(answer.nextCursor) || null,
           omittedFileStats: arr(answer.omittedFileStats).map(file => ({ path: str(file.path), additions: num(file.additions), deletions: num(file.deletions) })) });
@@ -134,7 +147,7 @@ export async function readCode(ctx: CodeContext & { native: Native; tab: string;
     code.contentsDue.delete(contentsKey);
     if (!file) continue;
     try {
-      const answer = obj(await client.call(native, { op: 'request', method: 'pullRequests.diffFileContents', share: true, payload: diffFileContentsInput(reference, code.commit, file) }));
+      const answer = obj(await routedPullRequestRequest(client, native, 'pullRequests.diffFileContents', { ...diffFileContentsInput(reference, code.commit, file), environmentId: listedOn }, false, true));
       code.contents[contentsKey] = { state: 'loaded', oldContents: str(answer.oldContents), newContents: str(answer.newContents), error: '' };
       const gapKey = `${contentsKey}::${want.gap}`;
       code.expansions[gapKey] = expandRange(code.expansions[gapKey], hiddenCount(file, want.gap, code.contents[contentsKey]));
@@ -331,22 +344,18 @@ export async function prCodeLocal(ctx: CodeLocalContext & { native: Native }, op
       else if (contents?.state !== 'error') code.contentsDue.set(contentsKey, { path, gap: index });
       return '';
     }
-    case 'select': case 'select-shift': {
-      // Pierre's line selection: a press selects a line, a Shift-press extends it in the same file.
-      if (code.draft || code.commit !== null) return '';
-      const [side = '', line = '', path = ''] = fields(value, 3), at = { side: (side === 'deletions' ? 'deletions' : 'additions') as SelectionSide, line: Number(line) };
-      const anchor = op === 'select-shift' && code.selection?.path === path ? code.selection.range : null;
-      code.selection = { path, range: anchor ? { ...anchor, end: at.line, endSide: at.side } : { start: at.line, side: at.side, end: at.line, endSide: at.side } };
-      return '';
-    }
-    case 'row': {
-      // DiffRow's commands: `diffreview|line:<side>[:shift]|<line>|<path>` and `diffreview|expand|<gap>|<path>`.
+    case 'row': case 'drag': {
+      // DiffRow's commands: `diffreview|expand|<gap>|<path>`, and the gutter's drags (diff-line-drag.ts): `drag:<side>[:shift]`
+      // and `gutter:<side>` on a press on a line number or the "+", `to` with the cell id under the pointer, `end` on the release;
+      // `press`, a primary press on the gutter that starts none. Each press is an outside press for a skill chip's details,
+      // which the window's root never hears (the panel beside the composer; files-gutter-parity FG-4).
       const [, id = '', n = '', path = ''] = fields(value, 4), [action = '', side = '', shift = ''] = id.split(':');
-      if (action === 'line') return prCodeLocal(ctx, shift === 'shift' ? 'select-shift' : 'select', `${side}|${n}|${path}`);
       if (action === 'expand') return prCodeLocal(ctx, 'expand', `${path}|${n}`);
+      if (action === 'press' || action === 'drag' || action === 'gutter') await closeChipFromPress(ctx.native);
+      if (action === 'drag' || action === 'gutter' || action === 'to' || action === 'end') return lineDrag(ctx, code, action, side, shift === 'shift', Number(n), path);
       return '';
     }
-    case 'begin': return beginComment(client, code, ctx.detail, value);
+    case 'begin': return beginComment(ctx, code, value);
     case 'cancel': code.draft = null; code.selection = null; return '';
     case 'add': {
       // "Add to review": the comment joins the pending review (pages-pr-writes-logic.ts PullRequestReviewStore).
@@ -360,40 +369,112 @@ export async function prCodeLocal(ctx: CodeLocalContext & { native: Native }, op
     default: throw new ClientError(`Unknown Code tab action: ${op}`);
   }
 }
-/** beginComment: the gutter's "+" (or a selection's end) opens the draft on the line it ends on, on the whole change only. */
-function beginComment(client: T3Client, code: CodeState, detail: Obj | null, value: string): string {
+/** Whether the viewer can comment on lines now (PullRequestCodeTab's canCommentOnLines and no draft open): the gutter is on. */
+function linesOpen(code: CodeState, detail: Obj | null): boolean {
   const capabilities = obj(detail?.capabilities), review = obj(capabilities.review), permissions = obj(detail?.viewerPermissions);
-  if (code.draft || code.commit !== null || review.inlineComment !== true || permissions.comment !== true) return '';
-  const [side = '', line = '', path = ''] = fields(value, 3), at = { side: (side === 'deletions' ? 'deletions' : 'additions') as SelectionSide, line: Number(line) };
+  return !code.draft && code.commit === null && review.inlineComment === true && permissions.comment === true;
+}
+const loadedContents = (code: CodeState, path: string) => { const contents = code.contents[contentsKeyOf(code, path)]; return contents?.state === 'loaded' ? contents : null; };
+/**
+ * beginComment from the gutter's "+" press (`chatlocal:pr-code-begin`, on the drags' queued send). Its pointer gesture owns
+ * the click: a press while that gesture is in flight is its release, one after it finds the draft open. A press no gesture
+ * carried (a keyboard or accessibility press) comments on what the gesture would: the selection's top to bottom, else its
+ * line (diff-line-drag.ts gutterClick); the draft goes on the range's last line, on the whole change only.
+ */
+function beginComment(ctx: CodeLocalContext, code: CodeState, value: string): string {
+  if (code.drag?.mode === 'gutter') return lineDrag(ctx, code, 'end', '', false, 0, '');
+  if (!linesOpen(code, ctx.detail)) return '';
+  const [side = '', line = '', path = ''] = fields(value, 3), at: LinePoint = { side: (side === 'deletions' ? 'deletions' : 'additions') as SelectionSide, line: Number(line) };
   const target = filesOf(code).find(entry => entry.path === path);
   if (!target || !(at.line > 0)) return '';
-  // The gutter's button comments on the selection when its line is in it, else on that line alone.
-  const selected = code.selection?.path === path ? code.selection.range : null;
-  const contents = code.contents[contentsKeyOf(code, path)], loaded = contents?.state === 'loaded' ? contents : null;
-  const lines = diffReviewLines(target, loaded);
-  const probe = (range: SelectedLineRange) => buildDiffReviewComment({ id: 'probe', sectionId: '', sectionTitle: '', filePath: path, lines, range, text: '' });
-  const inside = selected && (() => { const whole = probe(selected), one = probe({ start: at.line, side: at.side, end: at.line, endSide: at.side }); return !!whole && !!one && one.startIndex >= whole.startIndex && one.startIndex <= whole.endIndex; })();
-  const range: SelectedLineRange = inside && selected ? selected : { start: at.line, side: at.side, end: at.line, endSide: at.side };
-  // A range collapses to its last line: only GitHub carries a multi-line comment.
-  const position = resolveDiffReviewPosition(target, range.end, range.endSide ?? range.side, loaded);
+  const lines = diffReviewLines(target, loadedContents(code, path));
+  const index: RowIndex = point => { const found = findDiffReviewLineIndex(lines, point.line, point.side); return found < 0 ? null : found; };
+  return beginRange(code, ctx.detail, path, gutterClick(code.selection, path, at, index));
+}
+/** The draft on a range (beginComment's body): a range collapses to its last line, as only GitHub carries a multi-line comment. */
+function beginRange(code: CodeState, detail: Obj | null, path: string, range: SelectedLineRange): string {
+  const target = filesOf(code).find(entry => entry.path === path);
+  if (!target || !linesOpen(code, detail)) return '';
+  const position = resolveDiffReviewPosition(target, range.end, range.endSide ?? range.side, loadedContents(code, path));
   if (position === null) return '';
   code.selection = { path, range };
   code.draft = { fileKey: fileKey(target), path, oldPath: target.previous && target.previous !== path && target.status === 'renamed' ? target.previous : null, position, range };
-  void client;
   return '';
+}
+/**
+ * The gutter's drags (realinput-1010f RF-3; diff-line-drag.ts): a press on a line number or on the "+" starts one, each
+ * line the pointer reaches moves its end, and the release opens the draft on what it ended on (PullRequestCodeTab's
+ * onGutterUtilityClick and onLineSelectionEnd are both beginComment). Off while a draft is open or a commit is scoped.
+ */
+function lineDrag(ctx: CodeLocalContext, code: CodeState, action: string, side: string, shift: boolean, line: number, value: string): string {
+  if (action === 'end') {
+    const { selection, gutter, ended } = releaseDrag(code.drag, code.selection), path = code.drag?.path ?? '';
+    code.drag = null; code.selection = selection;
+    const range = gutter ?? ended;
+    return range ? beginRange(code, ctx.detail, path, range) : '';
+  }
+  if (action === 'to') {
+    const hit = parseLineCellId(value);
+    if (hit) ({ drag: code.drag, selection: code.selection } = dragTo(code.drag, code.selection, hit.path, hit.at));
+    return '';
+  }
+  if (!linesOpen(code, ctx.detail) || !(line > 0)) { code.drag = null; return ''; }
+  const path = value, at: LinePoint = { line, side: side === 'deletions' ? 'deletions' : 'additions' };
+  const target = filesOf(code).find(entry => entry.path === path);
+  if (!target) return '';
+  const lines = diffReviewLines(target, loadedContents(code, path));
+  const index: RowIndex = point => { const found = findDiffReviewLineIndex(lines, point.line, point.side); return found < 0 ? null : found; };
+  ({ drag: code.drag, selection: code.selection } = action === 'gutter' ? pressGutter(code.selection, path, at, index) : pressLine(code.selection, path, at, shift, index));
+  return '';
+}
+const SET_FILES_VIEWED = 'pullRequests.setFilesViewed';
+/** Viewed writes the host accepted whose readers are not told yet: the router's `afterWrite`, run by the panel's next answer. */
+const accepted = new WeakMap<object, { origin: string; payload: Obj }[]>();
+/**
+ * The reference's `finish` for each accepted Viewed write (pullRequestRouting.ts): the servers read through for the pull
+ * request get `filesViewedOnly` invalidations, before the read that follows the write. One the answer let go stays for the next.
+ */
+async function tellReaders(client: T3Client, native: Native): Promise<void> {
+  const pending = accepted.get(client);
+  while (pending && pending.length > 0) {
+    const write = pending[0]!;
+    await pullRequestRouter.afterWrite(routerHost(client, native, write.origin), SET_FILES_VIEWED, write.payload);
+    pending.shift();
+  }
 }
 /**
  * The flush: one `setFilesViewed` of the gathered presses, sent detached (its reply lands with the
  * next snapshot's drain, composer-replies.ts), so no answer waits on it and none can lose it. A
  * write that never left (its answer let go first) is put back for the next flush: the write is
  * idempotent, so sending it again is safe.
+ *
+ * realinput-1010e-followups: it is routed from the pull request's own server, as the reference's
+ * command is (`routedRequest`, pullRequestRouting.ts lists it in `writes`): the identity probes,
+ * then the first server in the reference's order that shares the GitHub account and is trusted to
+ * write, a server that cannot take it now passing it to the next (`dispatch`). No server that can
+ * take it now (the pull request's own not connected and no other trusted): the batch waits for the
+ * next flush. A refusal that comes back in the reply (a guard that saw another account after the
+ * probe) fails the batch, as any failed write does: the route is behind the answer that sent it.
  */
-async function flushViewed(client: T3Client, native: Native, code: CodeState, reference: WriteReference): Promise<void> {
+async function flushViewed(client: T3Client, native: Native, code: CodeState, reference: WriteReference, listedOn: string): Promise<void> {
   const taken = code.viewed.takeBatch();
   if (!taken) return;
-  const key = code.key;
-  const { reply } = await startDetached(client, native, 'pullRequests.setFilesViewed', { ...host(reference), files: taken.batch });
-  void reply.then(answer => {
+  const key = code.key, payload = { ...host(reference), files: taken.batch }, origin = pullRequestServer(client, listedOn, payload);
+  const out: { sent?: { reply: Promise<DetachedReply> } } = {};
+  const send = async (environmentId: string, routed: Obj): Promise<Obj> => {
+    const remote = environmentTarget(client, environmentId);
+    if (environmentId && environmentId !== client.environmentId && !remote) throw new ClientError('The environment was removed.', 'EnvironmentRpcUnavailableError');
+    out.sent = remote ? await startFleetDetached(native, remote, SET_FILES_VIEWED, routed) : await startDetached(client, native, SET_FILES_VIEWED, routed);
+    return {};
+  };
+  try { await pullRequestRouter.dispatch(routerHost(client, native, origin), SET_FILES_VIEWED, payload, send); }
+  catch (error) {
+    if (!out.sent) code.viewed.requeue(taken);
+    if (letGo(error)) throw error;
+  }
+  if (!out.sent) return;
+  void out.sent.reply.then(answer => {
+    if (answer.ok) { const pending = accepted.get(client) ?? []; pending.push({ origin, payload }); accepted.set(client, pending); }
     // The reader has moved on: what is on screen has nothing to do with this answer.
     if (peekCode(client)?.key !== key) return;
     if (answer.ok) { code.viewed.landed(taken, 'ok'); return; }

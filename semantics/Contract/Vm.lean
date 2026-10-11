@@ -66,6 +66,8 @@ inductive Instr where
   | nativeProps (n : Nat)
   | map (off : Nat)
   | filter (off : Nat)
+  /-- `failure(x)` (LLP 1109 D3): `none`, or `some` of why it failed. -/
+  | failureResource (r : Nat)
   deriving Repr, BEq, Inhabited, DecidableEq
 
 abbrev Code := List Instr
@@ -119,6 +121,9 @@ structure Env where
   mutationSlots : List Nat := []
   pendingResources : List Bool := []
   failedResources : List Bool := []
+  /-- Why each failed resource failed, (code, message), as the runner's
+  `failed_why`: read only while `failedResources` holds. -/
+  failures : List (Option (String × String)) := []
   pendingMutations : List Bool := []
   /-- The route table the router verbs read (the runner's `Routing`). -/
   routes : Route.Table := []
@@ -225,6 +230,17 @@ def pop2 : List Value → Except Trap (Value × Value × List Value)
 /-- The top `n`, in push order, and what is below them. -/
 def popN (n : Nat) (s : List Value) : Option (List Value × List Value) :=
   if s.length < n then Option.none else Option.some ((s.take n).reverse, s.drop n)
+
+/-- What `FailureResource r` pushes once `r` settled: `none` until it
+failed, then the compiler's `Failure` record, `{ code, message }`, the
+runner's `error`/`it failed` where it has no reason (vm.rs
+`resource_failure`). -/
+def failureValue (env : Env) (r : Nat) : Value :=
+  if env.failedResources[r]?.getD false then
+    .some (.record "Failure" (match env.failures[r]? with
+      | Option.some (Option.some (c, msg)) => [.str c, .str msg]
+      | _ => [.str "error", .str "it failed"]))
+  else .none
 
 /-- Run the instruction `i` at `m.pc` (in code of `size` instructions). -/
 def exec (size : Nat) (env : Env) (i : Instr) (m : Machine) : Out :=
@@ -366,6 +382,10 @@ def exec (size : Nat) (env : Env) (i : Instr) (m : Machine) : Out :=
     match env.resources[r]? with
     | Option.some (Option.some _) => push (.bool (env.failedResources[r]?.getD false))
     | _ => .error .pending
+  | .failureResource r =>
+    match env.resources[r]? with
+    | Option.some (Option.some _) => push (failureValue env r)
+    | _ => .error .pending
   | .pendingMutation k => push (.bool (env.pendingMutations[k]?.getD false))
   | .pop => do let (_, s) ← pop1 m.stack; next s
   | .bindLocal => do
@@ -478,7 +498,8 @@ def opcodes : List (String × List Operand) :=
    ("Command", [.str, .u16]), ("Pop", []), ("BindLocal", []), ("LoadLocal", [.u16]),
    ("DropLocal", []), ("Return", []), ("Send", [.idx, .str, .u16]), ("Refresh", [.idx]),
    ("PendingResource", [.idx]), ("PendingMutation", [.idx]), ("FailedResource", [.idx]),
-   ("NativeProps", [.u32]), ("LoadIndex", [.u16]), ("Map", [.u32]), ("Filter", [.u32])]
+   ("NativeProps", [.u32]), ("LoadIndex", [.u16]), ("Map", [.u32]), ("Filter", [.u32]),
+   ("FailureResource", [.idx])]
 
 /-- What decoding needs from the plan besides the bytes: its string pool,
 each type's (name, field count), and the roster in wire order with each
@@ -589,6 +610,7 @@ def decode (pool : Pool) (bs : ByteArray) : Except String Code := do
       | "PendingResource" => pure (.pendingResource a0)
       | "PendingMutation" => pure (.pendingMutation a0)
       | "FailedResource" => pure (.failedResource a0)
+      | "FailureResource" => pure (.failureResource a0)
       | "NativeProps" => pure (.nativeProps a0)
       | "Map" => do pure (.map (← off a0))
       | "Filter" => do pure (.filter (← off a0))
@@ -621,5 +643,6 @@ def Instr.text : Instr → String
   | .pendingResource r => s!"PendingResource {r}" | .pendingMutation m => s!"PendingMutation {m}"
   | .failedResource r => s!"FailedResource {r}" | .nativeProps n => s!"NativeProps {n}"
   | .map o => s!"Map +{o}" | .filter o => s!"Filter +{o}"
+  | .failureResource r => s!"FailureResource {r}"
 
 end Contract.Vm

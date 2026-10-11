@@ -52,6 +52,8 @@ impl<D: DataSource> Presenter<D> {
                 "setSelectionRange" => self.set_selection_range(&c.args),
                 // An element's, by its id (minesweeper F3); a row's is the runner's.
                 "scrollIntoView" => self.scroll_element_into_view(&c.args),
+                // `Element.scrollBy(x, y)`, by its id.
+                "scrollBy" => self.scroll_element_by(&c.args),
                 // The inverse of `message=`: text into the named surface's
                 // canvas, stamped now and delivered in order with its input.
                 "postMessage" => {

@@ -396,6 +396,45 @@ for (const provider of ['github', 'gitlab', 'bitbucket', 'azure-devops'] as cons
   });
 }
 
+// realinput-1010e-followups RE-5: the clone's Viewed flush sends the write detached (its reply comes back in a later
+// answer), so `dispatch` routes it as `request` does and `afterWrite` is the invalidations after the host accepted it.
+describe('a routed write sent detached (dispatch, afterWrite)', () => {
+  const reference = { projectId: 'project-1', host: 'github.com', repository: 'acme/web', number: 7 };
+  const files = [{ path: 'a.ts', viewed: true }];
+  const identity = { host: 'github.com', provider: 'github', accountId: '123', viewer: 'maria-rcks' };
+  const clients = () => ({
+    [ORIGIN]: { 'pullRequests.routing': () => identity, 'pullRequests.filesViewed': () => ({ files: [], truncated: false }) },
+    [LOCAL]: { 'pullRequests.routingIdentity': () => identity, 'pullRequests.filesViewed': () => ({ files: [], truncated: false }) },
+  } as Record<string, Record<string, Handler>>);
+  test('goes where the awaited write goes, and tells the readers only after the host accepted it', async () => {
+    // The awaited write (the reference's routedRequest) on one router, the detached one on another, over the same servers.
+    const awaitedHost = new FakeHost({ ...clients(), [LOCAL]: { ...clients()[LOCAL], 'pullRequests.setFilesViewed': () => ({}) } });
+    const awaited = new PullRequestRouter();
+    await awaited.request(awaitedHost, 'pullRequests.filesViewed', reference, false);
+    await awaited.request(awaitedHost, 'pullRequests.setFilesViewed', { ...reference, files }, true);
+    const host = new FakeHost(clients()), route = new PullRequestRouter(), sent: { environment: string; payload: Obj }[] = [];
+    await route.request(host, 'pullRequests.filesViewed', reference, false);
+    expect(await route.dispatch(host, 'pullRequests.setFilesViewed', { ...reference, files }, async (environment, payload) => { sent.push({ environment, payload }); return {}; })).toEqual({});
+    expect(sent).toEqual([{ environment: LOCAL, payload: { ...reference, files, expectedAccountId: '123' } }]);
+    expect(host.names(':invalidate')).toEqual([]);
+    await route.afterWrite(host, 'pullRequests.setFilesViewed', { ...reference, files });
+    const told = (from: FakeHost) => from.calls.filter(call => call.method === 'pullRequests.invalidate').map(call => [call.environment, call.payload]);
+    expect(told(host)).toEqual(told(awaitedHost));
+    expect(told(host).length).toBeGreaterThan(0);
+    for (const [, payload] of told(host)) expect(payload).toEqual({ reference: expect.objectContaining(reference), filesViewedOnly: true });
+  });
+  test('a server that cannot take it before it leaves passes it to the next; none at all is the error', async () => {
+    const host = new FakeHost(clients()), route = new PullRequestRouter(), tried: string[] = [];
+    const unavailable = () => new ClientError('The environment was removed.', 'EnvironmentRpcUnavailableError');
+    await route.dispatch(host, 'pullRequests.setFilesViewed', { ...reference, files }, async environment => { tried.push(environment); if (environment === LOCAL) throw unavailable(); return {}; });
+    expect(tried).toEqual([LOCAL, ORIGIN]);
+    // One server (nothing to route to): the write is the origin's, and its refusal is the caller's to handle.
+    const single = new FakeHost(clients(), { single: true });
+    await expect(route.dispatch(single, 'pullRequests.setFilesViewed', { ...reference, files }, async () => { throw unavailable(); })).rejects.toMatchObject({ kind: 'EnvironmentRpcUnavailableError' });
+    expect(single.calls).toEqual([]);
+  });
+});
+
 for (const permission of ['default', 'origin-off', 'destination-off', 'read-only'] as const) {
   test(`does not probe another environment with ${permission} routing permission`, async () => {
     const calls: string[] = [];

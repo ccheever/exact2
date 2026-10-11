@@ -124,6 +124,16 @@ impl<D: DataSource> DataSource for Anonymous<D> {
     fn native(&self) -> Option<exact_runner::Native> {
         self.inner.native()
     }
+    fn overlay(
+        &mut self,
+        source: &str,
+        args: &[Value],
+        answer: &Value,
+        writes: &[exact_runner::Write<'_>],
+    ) -> Result<Option<exact_runner::Overlaid>, DataError> {
+        self.inner.overlay(source, args, answer, writes)
+    }
+
     fn forgotten(&mut self, store: &exact_runner::Store, in_flight: &[InFlight<'_>]) {
         self.inner.forgotten(store, in_flight);
     }

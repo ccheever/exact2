@@ -118,10 +118,14 @@ fn a_display_frame_leaves_the_input_clock_at_the_wall() {
         0.125,
         "the touch's own time, not the runner's"
     );
-    let fade = host.runner.kernel().find_by_test_id("fade")[0];
-    let node = exact_kernel::motion::motion_node(fade);
-    let held = host.engine.begin_hold(node, Property::Opacity, 0.126, None);
-    assert!(matches!(held, Ok(Some(_))), "{held:?}");
+    // The host admits a hold (a drag's) at a wall time behind the frame.
+    let fade = id(&host, "fade");
+    let held = host.hold_begin(fade, Property::Opacity, 126.0);
+    assert!(
+        held.contains("\"token\"") && held.contains("\"error\":null"),
+        "{held}"
+    );
+    assert_eq!(host.engine.now(), 0.126);
 }
 
 #[test]
@@ -232,10 +236,14 @@ fn a_timer_advance_after_a_display_frame_keeps_the_wall() {
     host.frame_at(133.0, 120.0);
     host.advance(125.0);
     assert_eq!(host.now_ms, 125.0, "the wall, not the runner's target");
-    let fade = host.runner.kernel().find_by_test_id("fade")[0];
-    let node = exact_kernel::motion::motion_node(fade);
-    let held = host.engine.begin_hold(node, Property::Opacity, 0.126, None);
-    assert!(matches!(held, Ok(Some(_))), "{held:?}");
+    // The host admits a hold (a drag's) at a wall time behind the frame.
+    let fade = id(&host, "fade");
+    let held = host.hold_begin(fade, Property::Opacity, 126.0);
+    assert!(
+        held.contains("\"token\"") && held.contains("\"error\":null"),
+        "{held}"
+    );
+    assert_eq!(host.engine.now(), 0.126);
 }
 
 #[test]
@@ -261,4 +269,114 @@ fn after_the_takeover_the_hosts_clock_is_the_agents() {
     assert_eq!(host.now_ms, 200.0);
     let flipped = host.set_scheme(true);
     assert!(flipped.contains("\"error\":null"), "{flipped}");
+}
+
+const ACCORDION: &str = r##"component A
+  state open = false
+  action toggle
+    open = not open
+  view
+    column width="100%" height="100%" interpolate-size="allow-keywords"
+      button testId="toggle" press=toggle
+        text "Toggle"
+      column testId="body" height=(open ? "auto" : "0px") box-sizing="border-box" overflow="hidden" transition="height 200ms linear"
+        box height=120
+      box testId="following" width=20 height=20 -exact-layout-transition="200ms linear"
+"##;
+
+fn accordion() -> Host<NoData> {
+    let plan = contract::compile(ACCORDION).unwrap().encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    host.start_on_frame(true, 0.0);
+    host
+}
+
+fn height(host: &Host<NoData>, test_id: &str) -> f32 {
+    host.runner
+        .kernel()
+        .node(id(host, test_id))
+        .unwrap()
+        .frame
+        .height
+}
+
+#[test]
+fn a_curve_a_tick_begins_starts_at_that_tick_s_frame() {
+    let mut host = accordion();
+    let toggle = id(&host, "toggle");
+    host.dispatch_at(toggle, Event::Press, 100.0);
+    host.tick_at(110.0, 116.0);
+    // The height moves in this tick; its layout moves `following`, whose
+    // layout transition the tick itself begins.
+    host.tick_at(126.0, 132.0);
+    assert!(height(&host, "body") > 0.0);
+    let following =
+        exact_kernel::motion::motion_node(host.runner.kernel().find_by_test_id("following")[0]);
+    assert_eq!(
+        host.engine.curve_start(following, Property::Layout),
+        Some(0.132),
+        "started in the frame that began it, not waiting for the next"
+    );
+}
+
+#[test]
+fn the_takeover_settles_a_height_it_ends() {
+    let mut host = accordion();
+    let toggle = id(&host, "toggle");
+    host.dispatch_at(toggle, Event::Press, 100.0);
+    host.tick_at(110.0, 116.0);
+    host.tick_at(126.0, 132.0);
+    host.start_on_frame(false, 500.0);
+    assert_eq!(
+        height(&host, "body"),
+        120.0,
+        "the takeover's tick laid the end out"
+    );
+}
+
+#[test]
+fn a_prepared_host_taken_over_before_its_commit_replaces_its_held_specs_next() {
+    const PULSE: &str = r##"keyframes pulse
+  from opacity=0.2
+  to opacity=1
+component A
+  view
+    box testId="pulse" width=24 height=24 animation="pulse 1s infinite"
+"##;
+    let plan = contract::compile(PULSE).unwrap().encode();
+    let spec = |bridge: &crate::abi::Bridge<NoData>, len: u32| {
+        let batch = String::from_utf8_lossy(bridge.output_bytes(len as usize)).into_owned();
+        let v: serde_json::Value = serde_json::from_str(&batch).unwrap();
+        let op = v["ops"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|op| op["op"] == "animations")
+            .cloned();
+        (op.map(|op| op["specs"][0].clone()), batch)
+    };
+    let mut bridge = crate::abi::Bridge::new();
+    bridge.start_on_frame(true, 0.0);
+    bridge.input_write(&plan);
+    bridge.prepare_plan(plan.len(), NoData, crate::abi::Hooks::none(), 390., 844.);
+    bridge.start_on_frame(false, 50.0);
+    let len = bridge.commit_plan();
+    let (stored, batch) = spec(&bridge, len);
+    assert_eq!(
+        stored.expect("specs")["h"],
+        0.0,
+        "the stored batch, as prepared: {batch}"
+    );
+    let len = bridge.tick(60.0);
+    let (next, batch) = spec(&bridge, len);
+    let next = next.unwrap_or_else(|| panic!("the next batch replaces it: {batch}"));
+    assert!(next["h"].is_null(), "{batch}");
+    assert_eq!(next["s"], 0.05);
 }

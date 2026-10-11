@@ -4,6 +4,7 @@
 use ScheduledPage from "./settings-scheduled.contract"
 use ScheduledEditor from "./settings-scheduled.contract"
 use ProjectsPage from "./settings-projects.contract"
+use DialogOpenFocus from "./dialog-trap.contract"
 
 // ConfirmDialogHost.tsx / ui/alert-dialog.tsx: title, description, Cancel and
 // Confirm. Escape and the backdrop cancel. Cancel takes the focus as it opens,
@@ -30,6 +31,7 @@ component SettingsConfirm
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #090909a3)" testId=`${dialogId}-overlay`
       column width="100%" max-width="32rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="alertdialog" aria-label=title testId=dialogId
+        DialogOpenFocus(target=`${dialogId}-cancel`)
         column gap="0.5rem" padding="1.5rem" box-sizing="border-box"
           text title font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
           when description != ""
@@ -54,10 +56,11 @@ component SettingsRestDialogs
     rest: action
     raw: action
     close: action
+    taskBase: action
   view
     when editor == "task"
       each draft in scheduled.editors key=draft.key
-        ScheduledEditor(data=scheduled, draft=draft, busy=busy, error=error, close=close, rest=rest)
+        ScheduledEditor(data=scheduled, draft=draft, busy=busy, error=error, close=close, rest=rest, lookupBase=taskBase)
     when editor == "project-remove" and subject == ""
       SettingsConfirm(title=projects.confirmTitle, description=projects.confirmDescription, confirmLabel="Confirm", destructive=true, busy=busy, error=error, dialogId="project-remove", cancel=close, confirm=raw("remove-group", label, ""))
     when editor == "project-remove" and subject != ""
