@@ -3,7 +3,7 @@ name: 20261011-pr-list-scroll-and-sidebar-sweep
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified-with-open-real-input-rows
-delivery: none
+delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-pr-list-scroll-and-sidebar-sweep
@@ -206,3 +206,31 @@ the GitHub lane paired. Never send a message.
   only while live and the `|cancel|` release; PS-1's guard: the Pull Requests list mounts on the page and the scheme
   only, never on the window's focus or visibility, its rows keyed. The three PS-2 tests fail on the base (`6db5cadea`'s
   contracts), the two others pass there.
+
+## Checks
+
+On `2207574b3` (this branch merged with the feature tip `fe0e39c91`), each run once:
+
+| Check | Exit | Note |
+| --- | --- | --- |
+| `bun test examples/t3-code --timeout 60000` | 0 | 4666 pass, 1 skip, 0 fail (312 files) |
+| strict `tsc` (README command) | 0 | |
+| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | 28,884,506 bytes; `app.contract` 1,398 lines; the `lower-colour-one-scheme` warnings come with round 9 and are none of this change's lines |
+| `cargo test -p t3-code-macos --lib`, AppKit binaries | not run | no Rust or Swift changed |
+| `git add -A && bun scripts/caps.mjs` | 0 | all budgets within cap |
+| `cargo build --all-targets --keep-going` | 0 | |
+| `cargo test --lib --bins --tests --no-fail-fast` | 101 | 3,744 passed, 1 failed, 36 ignored: `button_migration::every_app_corpus_and_example_compiles_and_the_button_migration_is_complete` on main's `apps/color-gallery/app.contract:269` (main #440), inherited with round 9 as its record and #462's say; nothing under `examples/t3-code` |
+| `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | |
+| `cargo fmt --all -- --check` | 0 | |
+| `bun scripts/boot.mjs` | 0 | |
+| `host/apple/build.mjs t3-code-macos --bundle` | 0 | once on `f803f4c61`'s app code, again after the merge (framework changed), before the one live drive |
+
+During development: the touched Bun tests (`pr-list-scroll-and-sidebar-sweep.test.ts`, `r12-sidebar.test.ts`, `r11-upstream.test.ts`), `contract build` after each contract edit (three builds refused while finding how ThreadSection may call the hover: "Framework problem met").
+
+## Delivery
+
+Draft PR into `feat(example)/t3-code` (below). Merged from `origin/feat(example)/t3-code` (`fe0e39c91`, main adoption round 9 and #462) before the final checks; no conflicts.
+
+## Next action
+
+Review; then the real-input batch steps 1-6 in the coordinator's session.
