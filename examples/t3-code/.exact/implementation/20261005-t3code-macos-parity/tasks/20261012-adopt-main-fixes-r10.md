@@ -30,10 +30,11 @@ itself is ambiguous).
 | RT-1 | X61: the composer and Settings › Appearance's prompt preview draw Exact's focus ring when focused; Contract had no `outline` | `outline="none"` on both textareas, as the reference's `focus:outline-none` (`ComposerPromptEditorTiptap.tsx`, the preview is the same editor) |
 | RT-2 | X74: Settings › General › Legacy features: an sr-only level-2 heading (`SettingsSrHeading`) sits before the button, because a Mac button was an accessibility leaf | The level-2 heading goes inside its button, as the reference's `CollapsibleTrigger` holds `<h2>`: button › heading [level=2]; `SettingsSrHeading` stays only where the reference's heading is itself `sr-only` |
 | RT-3 | X72: `formatUsd` (`pages-usage.ts`) rounds half away from zero itself because Apple's `Intl` rounded half to even | `Intl.NumberFormat` as the reference's `usageFormat.ts` `CURRENCY`, if the test oracle still passes and the running macOS app shows USD 0.825 as $0.83; else kept, with why |
-| RT-4 | X73: the Pull Requests Filters popover's rest box (`pr-filters-rest`): `closeSub` focuses it instead of `blur()` | `closeSub` calls `blur()` (the reference leaves the focus on BODY); the rest box goes; `menu-keys.test.ts` follows; an agent drive closes Filters by the window's own key path with nothing focused |
+| RT-4 | X73: the Pull Requests Filters popover's rest box (`pr-filters-rest`): `closeSub` focuses it instead of `blur()` | `closeSub` calls `blur()` (the reference leaves the focus on BODY); the rest box goes; `menu-keys.test.ts` follows; an agent drive closes Filters by the window's own key path with nothing focused. **Decided (b) in review round 2: kept**, as at `fe0e39c91`: the rest box also returns the focus to Filters after the second Escape, as the reference does, until a popover close event (X66, #319) |
 | RT-5 | X76, X78: the shell menu's Copy is disabled over unselected page text; a `link` node has no `AXURL` and a Markdown table cell's link runs are invalid elements outside the app | No clone change expected: `EXACT2-GAPS.md` rows and "Text context menu" S1/S3 say fixed on main and adopted, real-input check pending; real-input steps below |
 | RT-6 | X55: a `status`/`alert` node was plain text (or nothing) to AppKit, and announced only with an explicit `aria-live` | Check the clone's status and alert nodes (toasts, inline errors, live regions) reach AX with the reference's roles (`AXApplicationStatus`/`AXApplicationAlert`/`AXApplicationDialog`); retire an explicit `aria-live` that only stood in for a role; the `aria-modal` subtree projection still waits on main (X55 stays partial) |
 | RT-7 | X71 part 2: on macOS a press in a popover reached no ancestor's `pointerdown` | Retire a clone workaround for it, if any; else say none |
+| SW-1 | Found in this round (main's `analyze-read-after-assign` at `sidebar.contract:254`–`262`): a sidebar row-action sweep reads the slots its start branch resets, so one that starts after an earlier sweep keeps that sweep's offset to its release, places its first move from the old origin and arms at once with the old verb, top and rows (or stays cancelled after an Escape), and every move arms the rows of the move before | Added in review round 2 (the coordinator): the sweep starts fresh each time, as the reference's `startActionSweep` makes a new closure per press and resolves the rows at the pointer's current position on each move; the start's values and the move's offset are `let` bindings and the slots are written from them |
 
 ## Steps
 
@@ -61,10 +62,11 @@ itself is ambiguous).
 | RT-1 | the composer and the prompt preview focused, `screenshot … window` | before / after / reference images |
 | RT-2 | `tree --ax` of Settings › General › Legacy features | before / after text (button › heading [level=2]) |
 | RT-3 | `pages-usage.test.ts`; the running app's Usage page, 30 days, an amount of USD 0.825 | before / after text |
-| RT-4 | `menu-keys.test.ts`; agent drive: Filters › Author, the pointer into the submenu, Escape in the search (`closeSub`), then the window's key path with nothing focused | before / after text (focus and popover state) |
+| RT-4 | `menu-keys.test.ts`; agent drive: Filters › Author, the pointer into the submenu, Escape in the search (`closeSub`), then the window's key path with nothing focused (decided (b): FW-3's rest box check; the base build's drive is the after, the code being `fe0e39c91`'s) | before / after text (focus and popover state) |
 | RT-5 | `EXACT2-GAPS.md`; real-input steps | real input (open) |
 | RT-6 | `tree --ax` of the clone's status, alert and toast nodes | before / after text |
 | RT-7 | reading the clone's popovers and its outside-press plumbing | text |
+| SW-1 | `sidebar-sweep.test.ts` runs ThreadSection's own `sweep` and `cancelSweep` from `sidebar.contract` with Contract's action semantics: fails on the base body, passes after | before / after text (the test's output) |
 
 ## Reference
 
@@ -78,6 +80,7 @@ itself is ambiguous).
 - RT-4: `apps/web/src/components/pullRequest/PullRequestListFilters.tsx` (Base UI Menu submenus; the focus left on
   BODY when the pointer left the submenu's trigger), closed record
   [realinput-1010c-fixes](closed/20261010-realinput-1010c-fixes.md) RC-3.
+- SW-1: `apps/web/src/components/Sidebar.tsx` `startActionSweep` (a new `targetKey`/`sweptKeys` closure per press; `onStart: sweepTo(originKey)`, `onMove: sweepTo(sidebarThreadKeyAtY(list, y))`), `SIDEBAR_DRAG_DISTANCE = 6`; `Sidebar.logic.ts` `resolveSidebarSweepKeys`.
 - RT-6: `apps/web/src/components/settings/ProviderSetupSection.tsx` (`<p role="status">` installation status, the
   `sr-only` `role="status"` pending label), `ProviderAuthenticationSection.tsx` (`<span role="status">` account
   description), `CodexSetupSection.tsx` (the account description is plain `SettingsRow`/`CodexWelcomeCard` text),
@@ -111,7 +114,7 @@ squash: a squash drops main from the branch's ancestry.
 | Item | Main commit | Outcome | Clone change |
 | --- | --- | --- | --- |
 | Contract refusals and renames | all | `contract build` exit 0 on the merged tree before any clone change (6,161 slots, 110,198 nodes, 48 resources) and after it (110,194 nodes) | nothing forced |
-| New `contract build` warnings: `analyze-read-after-assign` (LLP 1116.003 D6) | `42e0da95d` | 19 warnings at 9 sites, all reads the runtime already did (writes land when the action ends; the warning is new, the behaviour is not). Read each: `confirmUi` (`app.contract:1385`), `coreThemeDialog` (`:906`), `showSnapshotSetup` (`app-window.contract:467`, `:472`) and the rename `key` (`:541`) read the value from before the action on purpose; `paletteCursor` (`app.contract:313`/`:321`) is assigned and read in exclusive `if` arms (`ArrowUp`, `Back`); `sidebarDragMove`'s `dragDx`/`dragDy` (`app-window.contract:579`/`:591`) are 0 at a drag's start anyway (reset at its end, `:601`). One is a real bug: a row-action sweep (`sidebar.contract:254`-`262`) that starts after an earlier one keeps the last sweep's `sweepDx`/`sweepDy` to its release and places its first move from the last `sweepY` (the reset's writes land only when the action ends). Reproduced in a one-file app in review round 1 and listed in `STATUS.md` "Found, not in scope" (below, "Review round 1"); not changed here (behaviour as before) | none |
+| New `contract build` warnings: `analyze-read-after-assign` (LLP 1116.003 D6) | `42e0da95d` | 19 warnings at 9 sites, all reads the runtime already did (writes land when the action ends; the warning is new, the behaviour is not). Read each: `confirmUi` (`app.contract:1385`), `coreThemeDialog` (`:906`), `showSnapshotSetup` (`app-window.contract:467`, `:472`) and the rename `key` (`:541`) read the value from before the action on purpose; `paletteCursor` (`app.contract:313`/`:321`) is assigned and read in exclusive `if` arms (`ArrowUp`, `Back`); `sidebarDragMove`'s `dragDx`/`dragDy` (`app-window.contract:579`/`:591`) are 0 at a drag's start anyway (reset at its end, `:601`). One is a real bug: a row-action sweep (`sidebar.contract:254`-`262`) that starts after an earlier one keeps the last sweep's `sweepDx`/`sweepDy` to its release and places its first move from the last `sweepY` (the reset's writes land only when the action ends). Reproduced in a one-file app in review round 1; fixed in review round 2 (SW-1). **Review round 2 found this list capped**: `contract build` prints at most 20 warnings before the colours (`contract_lower::MAX_WARNINGS`, `contract/lower/src/warnings.rs`), so the 19 shown and `type-performance-now-persisted` were the first 20. A compiler build with the cap lifted (the constant changed in the worktree for one run and restored at once; nothing committed) lists 24 `analyze-read-after-assign` at 14 sites before SW-1 and 21 after it. The five not read in round 1: `browser-surface.contract:117` (`focusField`: `touched` is unchanged when `on`), `pages-prs.contract:451` (`open`: the old `sub` says the submenu is opening), `requests.contract:103` and `shell-details.contract:115` (`toggleMenu`, `toggleScripts`: `not menuOpen`, `not scriptsOpen` is the opening, commented so) read the old value on purpose; `composer-controls.contract:922` is the sweep's twin, a real bug: the queued-run grip `drag` resets `dragDy` in its start branch and then adds to the old one, so a grip drag after an earlier one (after its drop bumps `queueDropSeq`, or on another run) starts at that drag's offset, and its insertion line and drop index are shifted by it. Not fixed here (outside the coordinator's two items): listed in `STATUS.md` "Found, not in scope" with the same fix shape | SW-1 |
 | `lower-colour-one-scheme`, `type-performance-now-persisted` | — | 230 and 1, as round 9 recorded (unchanged) | none |
 | X61 `outline: none` | `998fe3031` (#459) | fixes X61 | RT-1 |
 | X74 a heading inside a button | `845cd6af3` (#451) | fixes X74 | RT-2 |
@@ -141,12 +144,19 @@ squash: a squash drops main from the branch's ancestry.
   `formatCount` keeps its own grouping (not a workaround; the reference's `INTEGER` formatter gives the same text for an
   integer). The Bun oracle still passes (its fixed list is ICU's answers), and the running macOS app shows USD 0.825 as
   $0.83 through Hermes with main's prelude.
-- **RT-4 (X73).** `closeSub` calls `blur()` when the pointer left the submenu's row (Base UI leaves the focus on BODY) and
-  the `pr-filters-rest` box is gone. With nothing focused, the next Escape reaches main #446's `MenuHost.key` path and
-  closes Filters. One thing the rest box gave and `blur()` does not: from the rest box the closing popover returned the
-  focus to the Filters button, as the reference's FloatingFocusManager does from BODY; now the focus stays nowhere
-  (below, "Decision needed"). While option (a) stands this is a declared difference: `EXACT2-GAPS.md` X73 (and X66's
-  blocked list) and `STATUS.md` "Known differences" say so (review round 1).
+- **RT-4 (X73). Kept, decided (b).** Since main #446 (round 9) the window's Escape closes an auto popover with nothing
+  focused, so `closeSub` could call `blur()` (Base UI leaves the focus on BODY) without the rest box; this round's first
+  build did, and its drive showed nothing focused after the Escape in "Search authors" and Filters closing on the window's
+  Escape. But the rest box gives one thing `blur()` cannot: when that Escape closes Filters, the closing popover returns
+  the focus that was inside it to the Filters button, as the reference's FloatingFocusManager (`returnFocus`, from BODY)
+  does, ring included (drive: the base build, logical focus on Filters, node 929; `blur()`, none; the reference,
+  `document.activeElement` BUTTON "Filters"). The clone cannot answer the close with `focus("pull-requests-filters")`: a
+  popover has no close event (X66, #319). The coordinator chose (b) by the reference parity rule: after the second
+  Escape the reference returns the focus to Filters, and the base build did too, so losing it is worse than an invisible
+  focus holder after the first Escape. `PrFiltersMenu` (`pages-prs.contract`: the `pr-filters-rest` box and `closeSub`'s
+  `focus("pr-filters-rest")`) and `menu-keys.test.ts` FW-3 are `fe0e39c91`'s again (their comments now say why the box
+  stays); `EXACT2-GAPS.md` X73 has its workaround text back with the note, and the declared difference review round 1
+  added (X73, `STATUS.md` "Known differences") is gone.
 - **RT-5 (X76, X78).** No clone change. The shell menu module (`T3TextContextMenu.replacement(for:)`) takes ExactKit's
   text menu wherever ExactKit shows one, so once #454 selects the word on a secondary click, the shell's menu over
   unselected text has Copy enabled; `link(at:)` already falls back to a link node's own `accessibilityURL()`, which #455
@@ -166,6 +176,19 @@ squash: a squash drops main from the branch's ancestry.
   the diff and file gutters) are nodes that hear the pointer themselves, X71's part 1, which stays open; no clone code
   stood in for a press inside a popover reaching the root's `pointerdown`. With #461 a press on a popover's plain part
   (the colour picker's header, a painted menu's padding) now counts as the window's outside press, as Base UI's does.
+- **SW-1 (the sweep's carry-over).** `ThreadSection.sweep` (`sidebar.contract`) reset its slots in a start branch and
+  then read them, and an action's reads see the values from before it (its writes land when it ends). On the base body
+  (`sidebar-sweep.test.ts`, run on it first): a sweep on row c after one of three 10-pt moves on row a gives offset 33
+  (not 3), point 44 (not 77) and arms `|a|b|` at once on a 3-pt move; one on the same row after the release keeps the
+  last sweep's offset (30, not 10) and arms with its verb (`unsettle`: nothing); one after an Escape stays cancelled on
+  its first move; and every move arms the rows of the move before (the 6-pt distance and `sweepAt` read the last
+  move's), so the first move past 6 pt armed nothing. The reference's `startActionSweep` makes a new closure per press
+  (`targetKey = null`, `sweptKeys = []`, the pressed row and action) and resolves the rows at the pointer's current
+  position on each move. Fix: `let fresh`, the start's values (`mode`, `cancelled`, `armed`, `originY`, `originTop`, `lo`,
+  `hi`: the slot when not fresh) and this move's offset and point (`movedX`, `movedY`, `at`) are `let` bindings; the
+  start branch writes the origin slots from them, `sweepDx`/`sweepDy`/`sweepAt` take the locals, and `sweepKeys` is
+  computed from them (emptied on a fresh sweep still under the distance). `cancelSweep` and the release (`sweepEpoch`)
+  are unchanged.
 
 ## Acceptance results
 
@@ -180,10 +203,11 @@ Evidence: [drive.sh](https://raw.githubusercontent.com/ccheever/exact2/b112e8c4f
 | RT-1 | pass: focused composer and prompt preview, before the 2 pt ring, after none, the reference none (`outline-style: none`) | [composer](https://raw.githubusercontent.com/ccheever/exact2/3f8ab69802190a8b46a383dead052c080d80f4bc/adopt-main-fixes-r10/rt1-composer-focus.png), [prompt preview](https://raw.githubusercontent.com/ccheever/exact2/7226af957c2955e572a47e5074390c49d93fbeb0/adopt-main-fixes-r10/rt1-prompt-preview-focus.png) |
 | RT-2 | pass: before the 1×1 heading is the button's sibling; after `button "Legacy features"` › `heading [level=2]` (its parent is the button), as the reference's snapshot | [AX text](https://raw.githubusercontent.com/ccheever/exact2/be71f2eef41de8effffd11f7245b09cebc07e032/adopt-main-fixes-r10/rt2-legacy-ax.txt) |
 | RT-3 | pass: Day table, Oct 9 Codex (USD 0.825) `$0.83` before (own rounding) and after (`Intl.NumberFormat`), the reference `$0.83`; `pages-usage.test.ts` passes | [image](https://raw.githubusercontent.com/ccheever/exact2/b74860fcabfde6acc43ee0f183ef4d63127084dc/adopt-main-fixes-r10/rt3-usage-day.png), [text](https://raw.githubusercontent.com/ccheever/exact2/5659b8143a96374eba51b35012022615c1344d40/adopt-main-fixes-r10/rt3-usage.txt) |
-| RT-4 | pass for the retirement: after Escape in "Search authors" (pointer left the row) nothing is focused (before: the rest box, node 937; reference: BODY), and the window's own Escape (`type t3-code key Escape`, nothing focused) closes Filters. Differs from the reference after the close: the focus stays nowhere, the reference returns it to Filters ("Decision needed"; declared in `EXACT2-GAPS.md` X73 and `STATUS.md` "Known differences" while option (a) stands). Before, the focus also returned to Filters (node 929), but an agent-mode window is never key, so its column draws no ring. Real keys: batch step 1 | [first Escape](https://raw.githubusercontent.com/ccheever/exact2/ad3986bcf662c4e6854c098e21af7977ec8d0368/adopt-main-fixes-r10/rt4-filters-escape.png), [second Escape](https://raw.githubusercontent.com/ccheever/exact2/822c4572c2f93c49548b5b35a60a47234233e006/adopt-main-fixes-r10/rt4-filters-closed-v2.png) (each column's focus written on it), [focus text](https://raw.githubusercontent.com/ccheever/exact2/d19c906677a5b1a5b2e9269a5cd580e159a851c9/adopt-main-fixes-r10/rt4-filters-focus.txt) |
+| RT-4 | kept, decided (b) (review round 2): `closeSub` focuses the rest box, as at `fe0e39c91`; `menu-keys.test.ts` FW-3 passes. The `PrFiltersMenu` code equals `fe0e39c91`'s, so the base build's drive is the after (not re-driven): after Escape in "Search authors" the focus is on the hidden rest box (node 937; the reference: BODY; no ring either way), the window's Escape closes Filters and the focus returns to the Filters button (node 929; the reference: BUTTON "Filters", ring). The `blur()` variant (option (a), built in this round's first commits and not landed) left nothing focused after the close: the middle column of each image. The focus ring itself does not draw under the agent (its window is never key). Real keys: batch step 1 | [first Escape](https://raw.githubusercontent.com/ccheever/exact2/ad3986bcf662c4e6854c098e21af7977ec8d0368/adopt-main-fixes-r10/rt4-filters-escape.png), [second Escape](https://raw.githubusercontent.com/ccheever/exact2/822c4572c2f93c49548b5b35a60a47234233e006/adopt-main-fixes-r10/rt4-filters-closed-v2.png) (the before column is this branch's code; each column's focus written on it), [focus text](https://raw.githubusercontent.com/ccheever/exact2/d19c906677a5b1a5b2e9269a5cd580e159a851c9/adopt-main-fixes-r10/rt4-filters-focus.txt) |
 | RT-5 | agent pass for X76 (an agent right-click on unselected "Text generation": the shell menu's Copy disabled before, enabled after); records updated; real input open (batch steps 2 and 3) | [menu log](https://raw.githubusercontent.com/ccheever/exact2/23b4b5e5f7881ab290402094ca554919e343425b/adopt-main-fixes-r10/rt5-textmenu.txt) |
 | RT-6 | pass: the toast is `AXApplicationDialog` (before: not exposed), the provider banner `AXApplicationAlert` (before: plain text), "No settings found" `AXApplicationStatus`; the Settings page is no dialog (the first after drive showed `AXApplicationDialog "Settings"` before `0af2a208d`); `adopt-main-fixes-r10.test.ts` | [AX text](https://raw.githubusercontent.com/ccheever/exact2/50a0f72ac4edbff2c1ef6de71ffc77fb672bca4d/adopt-main-fixes-r10/rt6-roles-ax.txt) |
 | RT-7 | none to retire (read; Cause and fix) | this record |
+| SW-1 | pass: `sidebar-sweep.test.ts` against `fe0e39c91`'s `sidebar.contract` 3 fail (a 2-pt first move puts `sweepAt` at 0, not 16; a sweep on row c after one on row a gives `[33, 74, 44, "|a|b|"]` for `[3, 74, 77, ""]`; the same row after a release keeps offset 30 for 10 and arms with the last verb), on this branch 3 pass. Not driven in the app (a real drag; batch step 5) | [test output before / after](https://raw.githubusercontent.com/ccheever/exact2/3a023d8c0fd5924cf8068b10a03624c8feee84b2/adopt-main-fixes-r10/sweep-test.txt) |
 
 Drives (agent mode, 1280×840, `--epoch 2026-10-12T04:00:00+09:00 --time-zone Asia/Seoul`, base port 16740, the clone's
 server on 16742; both lanes reset each time with the same seed, the provider CLIs pinned to an absent path, the pages
@@ -199,7 +223,7 @@ home outside any git checkout), window 1280×840, a thread open (Verification fi
 1. **RT-4 (X73, RC-3's steps).** Pull Requests (sidebar) › Filters › click Author; move the pointer into the submenu and
    click in "Search authors"; press Escape: Author closes, Filters stays open. Press Escape again: Filters closes.
    Note where the focus is after the second Escape (a ring on Filters or none): the reference T3 Code (Alpha) lane
-   window shows the ring on Filters; this branch is expected to show none (Decision needed).
+   window shows the ring on Filters, and so should this branch (the rest box, decided (b)).
 2. **RT-5 (X76).** Settings › General: right-click a word of a section title that is not selected ("Text generation"):
    the word is selected and the shell's menu shows Copy enabled; choose Copy and paste into the composer: the word.
 3. **RT-5 (X78).** A thread whose reply has a Markdown table with a web link in a cell (or any reply link): with
@@ -208,6 +232,10 @@ home outside any git checkout), window 1280×840, a thread open (Verification fi
    link in Settings › Providers: the shell's menu offers Copy Link.
 4. **RT-1 under real input (optional).** Click into the composer and into Settings › Appearance's prompt preview: no
    focus ring on either.
+5. **SW-1 (optional; it settles lane threads, Undo after).** A section with four or more settleable threads: press a
+   row's Settle and drag down over two rows, release (they settle; Undo). Press another row's Settle and drag down by one
+   row: the armed rows start at the pressed row and follow the pointer (before the fix they were offset by the first
+   sweep's drag and armed on the first move).
 
 ## Tests
 
@@ -217,10 +245,15 @@ home outside any git checkout), window 1280×840, a thread open (Verification fi
   two section-title lines.
 - `pages-usage.test.ts`: `formatUsd` is `Intl.NumberFormat` (source), the fixed ICU answers and the 16,000-value sweep
   (RT-3).
-- `menu-keys.test.ts`: `closeSub` calls `blur()`, no `pr-filters-rest` (RT-4).
+- `menu-keys.test.ts`: FW-3's check as at `fe0e39c91` (`closeSub` focuses `pr-filters-rest`, no `blur()`, the rest box is the
+  popover's first child) (RT-4, decided (b)); the round's first commits had made it check `blur()`.
 - `adopt-main-fixes-r10.test.ts` (new, 3): explicit `aria-live` only on the browser profile removal error and the toast
   region; the provider setup's status lines keep `role="status"`, the Codex description has none; the Settings surface
   and the pull request link preview write no role (RT-6). `dialog-trap.test.ts` drops the two from its dialog inventory.
+- `sidebar-sweep.test.ts` (new, 3; SW-1): reads ThreadSection's `sweep` and `cancelSweep` from `sidebar.contract` and runs them
+  with Contract's action semantics (a read sees the value from before the action, a `let` is visible after its line, the
+  last write wins) over four rows' frames: each move arms the rows up to the pointer as it is; a sweep on another row after
+  a release, on the same row after a release, and after an Escape start from the press. 3 fail on `fe0e39c91`'s body.
 
 ## Checks
 
