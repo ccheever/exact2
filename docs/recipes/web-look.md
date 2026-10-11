@@ -28,52 +28,122 @@ What you write wins: a heading's `font-weight`, an `accent-color` on a button or
 - `buttonStyle="bordered-prominent"` once a screen, for the action people came for.
 - `destructive=true` on anything that deletes; ask first with a `dialog role="alertdialog"`.
 - `list appearance="auto" listStyle="inset-grouped"` of `section`s for a settings screen.
-- On wide screens, a centred column is optional (it changes layout): `column max-width="640px"
-  width="100%" box-sizing="border-box" margin="0 auto"`, as below.
+- **Use a wide window.** A list and its detail sit side by side when the window is wide,
+  and a phone pushes the detail, as below. A phone-width column centred on a desktop is
+  "a stretched phone UI".
+
+## List and detail: one column on a phone, side by side when wide
 
 ```contract
 routes nav
-  home "/"
+  people "/"
+    person "/person/:id"
 
-component Settings
-  state size = "medium"
-  state alerts = true
+shape Person
+  id: string
+  name: string
+  phone: string
+
+shape Viewport
+  width: number
+
+component People
+  resource people = loadPeople() as shape list<Person> else empty()
+  resource viewport = exactViewport() as shape Viewport
+  derive wide = viewport.width >= 720
+  derive selected = top(nav).name == "person" ? top(nav).params.id : ""
+  action open(id: string)
+    nav = selected == "" ? push(nav, path("person", id)) : replace(nav, path("person", id))
   action back
     nav = back(nav)
-  action choose(next: string)
-    size = next
-  action flip(on: bool)
-    alerts = on
-  action ask
-    showModal("reset")
-  action reset
-    size = "medium"
-    alerts = true
   view
-    main navigationKey=`${top(nav).id}` navigationBack="back" width="100%" height="100%"
-      each e in stack(nav) key=e.id
-        column navigationKey=`${e.id}` navigationScroll="content" position="absolute" inset=0 display="flex" flex-direction="column"
+    main navigationKey=(wide ? "split" : `${top(nav).id}`) navigationBack="back" testId="app" width="100%" height="100%"
+      when wide
+        column navigationKey="split" navigationScroll="side" position="absolute" inset=0 display="flex" flex-direction="column"
           header display="flex" align-items="center" padding="8px 16px"
-            text "Settings" role="heading" aria-level=1 flex=1
-          scroll id="content" flex=1 min-height=0
-            column gap=16 padding=16 max-width="640px" width="100%" box-sizing="border-box" margin="0 auto"
-              row role="tablist" aria-label="Text size"
-                button role="tab" aria-selected=(size == "small") press=choose("small") flex=1
-                  text "Small"
-                button role="tab" aria-selected=(size == "medium") press=choose("medium") flex=1
-                  text "Medium"
-              row gap=8 align-items="center"
-                text "Alerts" flex=1
-                input type="checkbox" switch checked=alerts change=flip aria-label="Alerts"
-              row gap=8 justify-content="end"
-                button press=ask destructive=true
-                  text "Reset"
-                button press=back buttonStyle="bordered-prominent"
-                  text "Done"
-          dialog id="reset" role="alertdialog" aria-label="Reset settings?"
-            text "Text size and alerts go back to their defaults."
-            button press=reset destructive=true commandfor="reset" command="close"
-              text "Reset"
-            button commandfor="reset" command="close"
-              text "Cancel"
+            text "People" role="heading" aria-level=1
+          row flex=1 min-height=0
+            list id="side" appearance="auto" listStyle="plain" width=320 flex-shrink=0
+              Rows(people=people, selected=selected, pushes=false, open=open)
+            scroll flex=1 min-width=0 border-left-width=1 border-left-style="solid" border-color="-exact-separator"
+              each p in filter(people, x => x.id == selected) key=p.id
+                Detail(p=p)
+              when selected == ""
+                text "Choose a person." color="-exact-secondary-label" padding=24
+      else
+        each e in stack(nav) key=e.id
+          column navigationKey=`${e.id}` navigationScroll=`content-${e.id}` position="absolute" inset=0
+            display="flex" flex-direction="column"
+            header display="flex" align-items="center" padding="8px 16px"
+              text (e.name == "people" ? "People" : "") role="heading" aria-level=(e.name == "people" ? 1 : 2)
+            when e.name == "people"
+              list id=`content-${e.id}` appearance="auto" listStyle="plain" flex=1 min-height=0
+                Rows(people=people, selected="", pushes=true, open=open)
+            else
+              scroll id=`content-${e.id}` flex=1 min-height=0
+                each p in filter(people, x => x.id == e.params.id) key=p.id
+                  Detail(p=p)
+
+component Rows
+  props
+    people: list<Person>
+    selected: string
+    pushes: bool
+    open: action
+  view
+    section
+      each p in people key=p.id
+        button press=open(p.id) aria-current=(p.id == selected) testId=`person-${p.id}`
+          text p.name font=(p.id == selected ? "-exact-headline" : "-exact-body")
+            color=(p.id == selected ? "AccentColor" : "-exact-label")
+          when pushes
+            image "symbol:forward-chevron"
+
+component Detail
+  props
+    p: Person
+  view
+    column gap=4 padding=24
+      text p.name role="heading" aria-level=2
+      text "Phone" font="-exact-subheadline" color="-exact-secondary-label" margin-top=12
+      link href=`tel:${p.phone}` testId="detail-phone"
+        text p.phone
 ```
+
+```ts
+import type { Answer, Sources } from './app.contract.d.ts';
+
+export const appId = 'com.example.people'; // exact new writes this line
+export const grants = '';
+
+const sources: Sources = {
+  loadPeople: () => [
+    { id: '1', name: 'Ada Lovelace', phone: '+1 415 555 0101' },
+    { id: '2', name: 'Grace Hopper', phone: '+1 415 555 0102' },
+  ],
+};
+export const answer: Answer = (source, args, store, storage, native) => sources[source](args, store, storage, native);
+```
+
+```contract-test
+test "a wide window shows the list beside the detail"
+  size 1000x700
+  tap "person-2"
+  expect text "detail-phone" == "+1 415 555 0102"
+  tap "person-1"
+  expect text "detail-phone" == "+1 415 555 0101"
+
+test "a phone pushes the detail"
+  size 390x844
+  tap "person-2"
+  clock settle
+  expect text "detail-phone" == "+1 415 555 0102"
+```
+
+- `exactViewport()` is the window: `when wide` chooses the composition, not only the
+  wrap. Both read the router, so a selection survives a resize: a wide window replaces
+  the selected route, a phone pushes it.
+- Wide, it is one route with one app bar: the list keeps its width (`width=320
+  flex-shrink=0`), the detail takes the rest, and the selected row is the accent, not a
+  painted box. A phone's rows push, so they carry the chevron.
+- Columns that wrap rather than change: [responsive-columns](responsive-columns.md).

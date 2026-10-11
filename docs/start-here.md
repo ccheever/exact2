@@ -11,14 +11,16 @@ property, and the long guides by section only for what no recipe covers.
 2. **Ship the platform.** Say what a thing *is* (a `header` with a heading and buttons,
    a `tablist`, a `dialog role="alertdialog"`) and each host draws its own control: on
    iOS the navigation bar, the tab bar, the system alert.
-3. **Leave colours, fonts and metrics unsaid**, so dark mode, Dynamic Type and the tint
-   come with the platform. To say one, name a role: `color="-exact-secondary-label"`,
-   `font="-exact-footnote"`, `AccentColor`, `-exact-system-red`. A hand-built lookalike
-   of a system control (a painted switch, buttons drawn as a tab bar, a title in a big
-   `font-size`) is a bug; `bun <exact2>/scripts/no-tells.mjs .` lists literal values.
-4. **Deliberate design is allowed.** The platform answers what you omit; the few things
-   an app designs (a timer's big readout, a chart, a progress ring) may set their size
-   and colour. Changing digits take `font-variant-numeric="tabular-nums"`.
+3. **The platform answers what you omit:** controls, bars, navigation, the type ramp,
+   control colours, dark mode. To say a colour or size, name a role
+   (`color="-exact-secondary-label"`, `font="-exact-footnote"`, `-exact-system-red`). A
+   lookalike of a system control (a painted switch, a title in a big `font-size`) is a
+   bug; `bun <exact2>/scripts/no-tells.mjs .` lists literal values.
+4. **Your content is yours to design:** a summary leading the main screen (today's
+   total, the score), rows with a hierarchy (a `-exact-headline` title over
+   `-exact-secondary-label` details), colour that means something, bars where numbers
+   compare (`progress`), an empty state that says what to do. A content screen is not a
+   settings list; inset-grouped is for settings and forms ([content-design](recipes/content-design.md)).
 
 ## The workflow
 
@@ -221,6 +223,7 @@ same storage. Every form, and the real-clock drive before calling it done: [test
 
 - Another screen, a sheet with Cancel and Save, a confirmation: [navigation-stack](recipes/navigation-stack.md).
 - Tabs, when the app has at least two: [tabs](recipes/tabs.md).
+- A main screen that isn't a settings list: [content-design](recipes/content-design.md).
 - A form or settings screen, pickers, switches, validation: [grouped-form](recipes/grouped-form.md).
 - A number field: `inputmode="decimal"` gives the iPhone's number pad: [number-field](recipes/number-field.md).
 - A big number: its `font-size` with `font-variant-numeric="tabular-nums"`: [numeric-readout](recipes/numeric-readout.md).
@@ -233,7 +236,7 @@ same storage. Every form, and the real-clock drive before calling it done: [test
 - A remembered setting: [persisted-setting](recipes/persisted-setting.md).
 - The network: [fetch-loading-error](recipes/fetch-loading-error.md); your own server: [rest-backend](recipes/rest-backend.md).
 - Columns that wrap on a phone: [responsive-columns](recipes/responsive-columns.md).
-- How it looks on the web: [web-look](recipes/web-look.md).
+- How it looks on the web; list and detail side by side when wide: [web-look](recipes/web-look.md).
 - After a write: clear or close on an ok reply, a refusal in words: [after-a-write](recipes/after-a-write.md).
 
 ## Look it up, when no recipe covers it

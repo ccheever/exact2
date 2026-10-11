@@ -38,7 +38,8 @@ test "they stack on a phone"
   `display="grid" grid-template-columns="repeat(auto-fill, minmax(280px, 1fr))"`.
 - To choose a different layout, not just a different wrap, read the window:
   `resource viewport = exactViewport() as shape Viewport` (`width: number`) and
-  `when viewport.width >= 700`.
+  `when viewport.width >= 700`. A list and its detail side by side when wide, pushed on
+  a phone: [web-look](web-look.md).
 - A horizontal board on a phone is a `scroll overflow-x="scroll"` of fixed-width
   columns instead; never three columns squeezed into a third of a phone each.
 - Look at both sizes: `agent web --size 390x844 "screenshot .exact/phone.png"` and
