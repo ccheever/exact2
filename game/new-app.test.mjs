@@ -27,24 +27,30 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     // Execute the generated dispatcher against fake SDK entry points: cwd may
     // be anywhere, but the source and test file must still name this app.
     const sdk = resolve(parent, 'sdk');
-    for (const file of ['host/web/build.mjs', 'scripts/agent.mjs', 'scripts/exact.mjs']) {
+    for (const file of ['host/web/build.mjs', 'scripts/agent.mjs', 'scripts/agent-build.mjs', 'scripts/exact.mjs']) {
       mkdirSync(resolve(sdk, file, '..'), { recursive: true });
       writeFileSync(resolve(sdk, file), 'console.log(JSON.stringify({args:process.argv.slice(2),app:process.env.EXACT_APP_DIR,offline:process.env.HERMES_LEAN_SYS_OFFLINE}));');
     }
     const testArgs = host => [host, '--app', 'field-log', '--test', resolve(realpathSync(dir), 'app.test.contract')];
-    for (const [command, args] of [
+    // A drive builds first (LLP 1116.002 D4): web-build, or agent-build for ios and macos, its output on
+    // stderr so stdout stays the drive's; a phone's build stays explicit.
+    const webBuild = ['field-log'], ios = ['ios', '--app', 'field-log'];
+    for (const [command, args, built = null] of [
       [['web-build'], ['field-log']],
-      [['test'], testArgs('web')],
-      [['test', 'web'], testArgs('web')],
-      [['test', 'ios'], testArgs('ios')],
-      [['test', 'macos', '--size', '800x600'], [...testArgs('macos'), '--size', '800x600']],
-      [['agent', 'web', 'tree', 'type title a title with spaces'], ['web', '--app', 'field-log', 'tree', 'type title a title with spaces']],
-      [['agent', 'ios', 'state'], ['ios', '--app', 'field-log', 'state']],
+      [['test'], testArgs('web'), webBuild],
+      [['test', 'web'], testArgs('web'), webBuild],
+      [['test', 'ios'], testArgs('ios'), ios],
+      [['test', 'macos', '--size', '800x600'], [...testArgs('macos'), '--size', '800x600'], ['macos', '--app', 'field-log']],
+      [['agent', 'web', 'tree', 'type title a title with spaces'], ['web', '--app', 'field-log', 'tree', 'type title a title with spaces'], webBuild],
+      [['agent', 'ios', 'state'], ['ios', '--app', 'field-log', 'state'], ios],
+      [['agent', 'ios', '--sim', 'lane', 'tree'], ['ios', '--app', 'field-log', '--sim', 'lane', 'tree'], [...ios, '--sim', 'lane']],
+      [['agent', 'ios', '--device', 'tree'], ['ios', '--app', 'field-log', '--device', 'tree']],
       [['contract', 'build', 'app.contract', '--json'], ['contract', 'build', 'app.contract', '--json']],
     ]) {
       const result = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), ...command], { cwd: parent, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
       assert.equal(result.status, 0, result.stderr);
       assert.deepEqual(JSON.parse(result.stdout), { args, app: realpathSync(dir), offline: '1' });
+      assert.deepEqual(result.stderr.trim() ? JSON.parse(result.stderr).args : null, built, `${command.join(' ')} builds first`);
     }
     // chat F19, calendar F13: the files named, from the current directory (a glob too), each run in turn.
     mkdirSync(resolve(dir, 'tests'));
@@ -62,8 +68,11 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     writeFileSync(resolve(sdk, 'scripts/agent.mjs'), 'process.exit(7);');
     const refused = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'test', 'ios'], { cwd: parent, env: { ...process.env, EXACT2: sdk } });
     assert.equal(refused.status, 7, 'a failed app test fails the generated command');
+    writeFileSync(resolve(sdk, 'scripts/agent-build.mjs'), 'process.exit(5);');
+    const unbuilt = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'agent', 'macos', 'tree'], { cwd: parent, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
+    assert.deepEqual([unbuilt.status, unbuilt.stdout], [5, ''], 'a failed build fails the drive, which never starts');
     const logged = readFileSync(resolve(dir, '.exact/commands.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
-    assert.deepEqual(logged.map(c => [c.verb, c.exit]).slice(-2), [['test ios', 2], ['test ios', 7]], 'each command is logged, without its arguments, a glob that matched nothing too');
+    assert.deepEqual(logged.map(c => [c.verb, c.exit]).slice(-3), [['test ios', 2], ['test ios', 7], ['agent macos', 5]], 'each command is logged, without its arguments, a glob that matched nothing and a failed build too');
     assert.ok(logged.some(c => c.verb === 'contract' && c.exit === 0), 'the contract command is logged too');
     const manifest = readFileSync(resolve(dir, 'Cargo.toml'), 'utf8');
     writeFileSync(resolve(dir, 'Cargo.toml'), manifest.replace(/^taffy = .*\n/m, ''));

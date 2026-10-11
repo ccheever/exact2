@@ -30,6 +30,7 @@ const DRIVE = [
   ['--fail-fetch <prefix>', 'each fetch whose URL starts with it fails, from the first data load'],
   ['--url <url>', 'web: drive a page already served (the dev loop\'s) instead of building'],
   ['--browser chrome|firefox|webkit', 'web (default chrome; bunx playwright@1.63.0 install firefox webkit)'],
+  ['--sim <udid|name>', 'iOS: which simulator (else EXACT_SIM, a booted iPhone, or the newest iPhone Pro)'],
   ['--device · --phone <udid|name>', 'a connected iPhone (built with ios --device), and which'],
   ['--plan <file>', 'a compiled plan (contract build -o) in place of the app\'s'],
   ['--world <file>', 'a game: a saved world to load'],
@@ -86,9 +87,10 @@ Ports    none. Runs to completion: exit 0 when it built. test web and agent web 
       ...DRIVE.filter(([row]) => !specs(row).some((spec) => ['--storage', ...TEST_IGNORES.map(name)].includes(name(spec)))),
     ],
     internal: [...TEST_IGNORES, ...DRIVE_INTERNAL],
-    body: `web builds the app first (web-build); a native host drives the build you made and refuses a
-stale one, naming the rebuild. Each test launches the app fresh with its own store, after
-its first data has landed; its leading lines (size, epoch, fail fetch …) override flags.
+    body: `web builds the app first (web-build); ios and macos build first when the build is missing or
+older than its sources, saying so on stderr (a phone's: ios --device). Each test launches the
+app fresh with its own store, after its first data has landed; its leading lines (size, epoch,
+fail fetch …) override flags.
 Ports    none to choose. web: headless Chrome over a pipe; the page on 127.0.0.1, each test at a
          port fixed by its own store's name (20000-47999).
          ${NATIVE_PORTS}
@@ -102,8 +104,9 @@ Lines    tap, type, expect text|tree|state, clock data|settle|+<ms>, reload, fai
     usage: 'bun exact.mjs agent [web|ios|macos|linux|android] [flags] <op> [<op> …]',
     flags: DRIVE,
     internal: ['--test <file>', ...DRIVE_INTERNAL],
-    body: `Launches the app (web builds it first), runs each op, one quoted argument each, on the
-agent's clock, prints each reply and closes it. Without --storage, storage is refused.
+    body: `Launches the app (web builds it first; ios and macos when missing or stale, saying so on
+stderr), runs each op, one quoted argument each, on the agent's clock, prints each reply and
+closes it. Without --storage, storage is refused.
 Ops      a target is a testId, else a view's exact text or label
   tree [<target>] · tree --ax · state [<path>] · logs · layout [<target>]
   tap <target> [contextmenu|dblclick|hover|drag <dx> <dy>|…]
@@ -135,7 +138,8 @@ Runs     to completion; each drive launches the app anew (--storage keeps its da
     ],
     get internal() { return appleRest(this.flags); },
     body: `The first build takes minutes, later ones a minute or two; several booted simulators are
-refused, not guessed (set EXACT_SIM). test ios and agent ios drive what it installed.
+refused, not guessed (set EXACT_SIM). test ios and agent ios run it first themselves when
+the build is missing or older than its sources.
 Ports    none. Runs to completion (--run too). Start a long build in the background with &
          and keep editing; its PID ($!) stops it.`,
     example: 'bun exact.mjs ios --run',
@@ -150,7 +154,7 @@ Ports    none. Runs to completion (--run too). Start a long build in the backgro
       OPTIMIZE,
     ],
     get internal() { return appleRest(this.flags); },
-    body: `test macos and agent macos drive what it built, and refuse a stale build.
+    body: `test macos and agent macos run it first themselves when the build is missing or stale.
 Ports    none. Runs to completion; with --run, until the app quits (^C ends it).`,
     example: 'bun exact.mjs mac --run',
   },
