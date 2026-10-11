@@ -123,7 +123,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
   });
   // A named store's profile and origin are kept between drives, as a native scratch store is; `fresh` empties it first (a test's).
   // Under the drive's env, as `runTests` places and removes it (review b5-c 3).
-  const kept = storage === undefined ? null : driveStore(selected.id, storage, env);
+  const kept = storage === undefined ? null : driveStore(selected, storage, env);
   if (kept && fresh) await removeBrowserProfile(kept.profile);
   await new Promise((ok, fail) => { server.once('error', fail); server.listen(kept && !pageURL ? kept.port : 0, '127.0.0.1', ok); }).catch((e) => {
     throw e.code === 'EADDRINUSE' ? new Error(`--storage ${storage}: its page's port ${kept.port} is in use: another drive of this store is open (a store is one drive's at a time), or another program holds the port: try another store name`) : e;

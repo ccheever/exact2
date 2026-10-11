@@ -359,6 +359,38 @@ test('update names the app by its crates, not its folder', () => {
   }
 });
 
+// LLP 1116.004 D8: bake-off contacts, round 6, drove an earlier round's contacts.json: both rounds' apps were
+// `com.example.contacts-exact2`, and a store is named by the app's id. A new app's id is its own; an app made
+// before keeps the id it has, since its stores, bundle and update stream are named by it.
+test('a new app\'s id is its own, and update keeps the id an older app has', () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-id-'));
+  try {
+    const one = resolve(parent, 'r5/contacts'), two = resolve(parent, 'r6/contacts');
+    createApp(one); createApp(two);
+    const read = (dir, file) => readFileSync(resolve(dir, file), 'utf8');
+    const ids = [one, two].map(dir => {
+      const manifest = JSON.parse(read(dir, 'app.json'));
+      assert.match(manifest.app.id, /^com\.example\.contacts-[0-9a-f]{6}$/);
+      assert.equal(manifest.id, manifest.app.id, 'the web manifest names the same app');
+      assert.ok(read(dir, 'app.ts').includes(`\nexport const appId = '${manifest.app.id}';\n`), 'app.ts names the id app.json does');
+      assert.equal(readManifest(dir, 'contacts').app.id, manifest.app.id, 'the id is one the schema accepts');
+      return manifest.app.id;
+    });
+    assert.notEqual(ids[0], ids[1]);
+    // An app from before keeps `com.example.contacts` through update, in app.json and app.ts.
+    for (const file of ['app.json', 'app.ts']) writeFileSync(resolve(one, file), read(one, file).replaceAll(ids[0], 'com.example.contacts'));
+    const before = ['app.json', 'app.ts'].map(file => read(one, file));
+    createApp(one, { update: true });
+    assert.deepEqual(['app.json', 'app.ts'].map(file => read(one, file)), before);
+    assert.equal(JSON.parse(before[0]).app.id, 'com.example.contacts');
+    // And a pattern writes the id it has, taking the template's app.ts as untouched.
+    assert.match(applyPattern(one, 'one-screen').said, /\(com\.example\.contacts\)$/);
+    assert.ok(read(one, 'app.ts').includes("\nexport const appId = 'com.example.contacts';\n"));
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+}, 60_000); // Three offline Cargo resolutions.
+
 // LLP 1116.001 D3: a pattern replaces the template's three files with the app's own id and name; a file the
 // author edited is refused unless forced; rest brings its server, test runner and command, which go with it.
 test('a pattern replaces the template, refuses an edited file unless forced, and takes its extras with it', () => {
@@ -369,9 +401,12 @@ test('a pattern replaces the template, refuses an edited file unless forced, and
     assert.deepEqual(patterns().map(p => p.name), ['one-screen', 'list-detail', 'tabs', 'dashboard', 'rest']);
     for (const { line } of patterns()) assert.ok(line.length > 20 && line.length <= 92 && !line.startsWith('//'), line);
     const read = (file) => readFileSync(resolve(dir, file), 'utf8');
+    // The app's own id (LLP 1116.004 D8), which the template's untouched app.ts carries.
+    const id = JSON.parse(read('app.json')).app.id;
+    assert.match(id, /^com\.example\.field-log-[0-9a-f]{6}$/);
     const { said } = applyPattern(dir, 'list-detail');
-    assert.match(said, /^list-detail: wrote app\.contract, app\.ts, app\.test\.contract as Field Log \(com\.example\.field-log\)$/);
-    assert.match(read('app.ts'), /^export const appId = 'com\.example\.field-log';$/m);
+    assert.equal(said, `list-detail: wrote app.contract, app.ts, app.test.contract as Field Log (${id})`);
+    assert.ok(read('app.ts').includes(`\nexport const appId = '${id}';\n`));
     assert.match(read('app.contract'), /^\/\/ Field Log: a list that pushes a detail/);
     assert.match(read('app.contract'), /text "Field Log" role="heading" aria-level=1/);
     assert.doesNotMatch(read('app.contract') + read('app.ts'), /Starter|com\.example\.starter/);
@@ -388,7 +423,7 @@ test('a pattern replaces the template, refuses an edited file unless forced, and
     assert.match(applyPattern(dir, 'rest').next, /bun exact\.mjs api-test web$/);
     assert.ok(existsSync(resolve(dir, 'server.ts')) && existsSync(resolve(dir, 'test.mjs')));
     assert.deepEqual(JSON.parse(read('app.json')).commands, { 'api-test': ['bun', 'test.mjs'] });
-    assert.equal(JSON.parse(read('app.json')).app.id, 'com.example.field-log');
+    assert.equal(JSON.parse(read('app.json')).app.id, id);
     assert.match(applyPattern(dir, 'one-screen').said, /removed server\.ts, test\.mjs$/);
     assert.ok(!existsSync(resolve(dir, 'server.ts')) && JSON.parse(read('app.json')).commands === undefined);
     // A name with a quote stays one Contract string.

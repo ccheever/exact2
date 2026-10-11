@@ -20,6 +20,7 @@ import { basename, dirname, isAbsolute, join, normalize, posix, relative, resolv
 import { fileURLToPath } from 'node:url';
 import { transformSync } from 'rolldown/utils';
 import { buildEditor, buildFlow, buildMarkdown, buildModule, buildMotion, fresh, moduleGrants, webCompiler } from './module.mjs';
+import { developmentStore } from '../../scripts/agent-launch.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
@@ -452,6 +453,13 @@ if (production) for (const f of readdirSync(gen).filter(f => f.endsWith('.js')))
   if (/searchParams\.has\(["']agent["']\)|params\.has\(["']agent["']\)|URLSearchParams\([^)]*\)\.has\(["']agent["']\)/.test(code) && !code.includes('const AGENT_ADMITTED = true;')) { console.error(`${f} reads ?agent without AGENT_ADMITTED; a production build must not admit agent mode`); process.exit(1); }
   writeFileSync(resolve(gen, f), code.replaceAll('const AGENT_ADMITTED = true;', 'const AGENT_ADMITTED = false;'));
 }
+// A development page's storage is its app's (LLP 1116.004 D8): every app the dev server serves
+// shares its origin, so the app directory's digest (agent-launch.mjs `appDigest`) keys its files,
+// databases and kept keys (storage-environment.js) and its `localStorage` (rt.js `Kept`). A release keeps the id alone.
+if (!production) for (const f of readdirSync(gen).filter(f => f.endsWith('.js'))) {
+  const code = readFileSync(resolve(gen, f), 'utf8'), scoped = developmentStore(code, realpathSync(appDir));
+  if (scoped !== code) writeFileSync(resolve(gen, f), scoped);
+}
 // Bun's bundler, in this process, for the server bundle. A build that
 // renders nothing (the dev loop's) makes no server bundle.
 const how = opt('--render') ?? 'rust';
@@ -590,7 +598,10 @@ async function copyLazyModules(roots) {
     }
     const from = resolve(root, source), code = name.endsWith('.js') || name.endsWith('.mjs') ? readFileSync(from, 'utf8') : null;
     mkdirSync(dirname(resolve(out, name)), { recursive: true });
-    cpSync(from, resolve(out, name));
+    // The adapters' own storage-environment.js names the app's development store, as the page's chunk does (above).
+    const scoped = code != null && !production ? developmentStore(code, realpathSync(appDir)) : code;
+    if (scoped !== code) writeFileSync(resolve(out, name), scoped);
+    else cpSync(from, resolve(out, name));
     if (code != null) for (const specifier of [...moduleImports(code), ...literalModuleURLs(code)]) {
       const dependency = publicDependency(name, specifier);
       if (dependency.startsWith('..')) throw new Error(`${name}: lazy dependency leaves the build root: ${specifier}`);

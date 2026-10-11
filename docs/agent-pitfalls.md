@@ -824,6 +824,15 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   store) into that folder first; `logs` shows the module's `console.log`.
   (Signal clone, live transport, 2026-10-05.)
 
+- **A drive shows another app's data.** Cause: a store is named by the app's id, and
+  apps made before `exact new` wrote a unique id share one when they share a name
+  (`com.example.contacts-exact2`, a bake-off's every round): a native drive's
+  `--storage s1`, a simulator's container and the installed app are that id's. The
+  web keeps a development store by the app's folder too, so there it is the app's
+  own. Fix: give an older app an id of its own, in `app.json`'s `app.id` (and `id`)
+  and `app.ts`'s `appId`, as `exact new` writes them (`com.example.<name>-3f9a2c`).
+  (LLP 1116.004 D8, bake-off round 6 contacts.)
+
 - **A save that fails in the background is lost to the person.** An answer that
   saves unawaited has replied before the write fails, so no answer reports it;
   `logs` has `storage failed: …`, but the person sees nothing. Fix: keep the
