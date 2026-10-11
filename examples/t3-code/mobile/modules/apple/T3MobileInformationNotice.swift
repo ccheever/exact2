@@ -34,10 +34,7 @@ final class T3MobileInformationNotice: ExactNativeInstance {
         scroll.backgroundColor = color(props["notice-sheet"]); card.backgroundColor = color(props["notice-card"]); source.isHidden = props["has-source"] != "true"
         scroll.contentInset.bottom = max(0, CGFloat(Double(props["notice-bottom"] ?? "36") ?? 36) - 36)
     }
-    private func color(_ value: String?) -> UIColor {
-        guard let value, value.hasPrefix("#"), let n = UInt64(value.dropFirst(), radix: 16) else { return .label }
-        let rgb = value.count == 9 ? n >> 8 : n; return UIColor(red: CGFloat((rgb >> 16) & 255) / 255, green: CGFloat((rgb >> 8) & 255) / 255, blue: CGFloat(rgb & 255) / 255, alpha: value.count == 9 ? CGFloat(n & 255) / 255 : 1)
-    }
+    private func color(_ value: String?) -> UIColor { T3HomeChrome.color(value ?? "") }
     override func destroy() { alive = false; text.resignFirstResponder() }
 }
 #endif
