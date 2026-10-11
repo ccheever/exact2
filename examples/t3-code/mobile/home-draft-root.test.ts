@@ -8,6 +8,31 @@ import { arr, obj, type Obj } from './shared/domain';
 import { nativeFiles, type Native, type Files } from './shared/protocol';
 import { fleet } from './shared/settings-b-fleet';
 
+test('actual bare draft source waits for grouping preferences and uses the supplied mode', async () => {
+  const priorClient = { ...mobileClient }, priorFleet = { ...fleet }, calls: Obj[] = [];
+  const native: Native = { available: true, watch() {}, async later(input) {
+    const request = obj(input); calls.push(request);
+    return { ok: true, generation: mobileClient.generation, value: request.op === 'environments'
+      ? { saved: [{ environmentId: 'bare-root', enabled: true }] }
+      : request.op === 'readPreferences' ? { text: '{"version":1}' } : {} };
+  } };
+  const storage: Files = { fs: { async mkdir() {}, async readFile() { throw new Error('No portable storage'); }, async atomicWriteFile() {} } };
+  try {
+    Object.assign(mobileClient, new MobileDraftClient()); Object.assign(fleet, { saved: [], entries: new Map(), revision: 0 });
+    await mobileClient.command('dismiss-error', '', '', 0, native, nativeFiles(native));
+    Object.assign(mobileClient, { environmentId: 'bare-root', origin: 'https://bare.test', projectId: 'a', connection: 'connected', shellLoaded: true });
+    mobileClient.shell.projects = ['a', 'b'].map(id => ({ id, title: id, workspaceRoot: `/${id}`, repositoryIdentity: { canonicalKey: 'same' } }));
+    calls.length = 0;
+    for (const [mode, expected] of [['', 'loading'], ['separate', 'pick'], ['repository', 'prepare']]) {
+      const result = obj(await answer('newTaskFlow', ['bare-root-flow', 'bare-visit', '/new/draft', true, 0, 1791420000000, 0, mode], {} as never, storage, native));
+      expect(result.status).toBe(expected); expect(result.ready).toBe(false);
+      expect(result.needsPrepare).toBe(mode === 'repository');
+    }
+    expect(calls.map(call => call.op)).toEqual(['environments', 'environments', 'environments']);
+    expect(mobileClient.projectId).toBe('a');
+  } finally { Object.assign(mobileClient, priorClient); Object.assign(fleet, priorFleet); }
+});
+
 test('actual Home source persists Discard through native preferences, not the portable file handle', async () => {
   const key = 'new-task:root-storage-regression';
   const writes: Obj[] = [], calls: Obj[] = [];

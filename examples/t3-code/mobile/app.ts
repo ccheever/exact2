@@ -784,7 +784,8 @@ async function newTaskFlow(args: unknown[], native?: Native | null) {
   const session = String(args[0]), visit = String(args[1]), location = String(args[2]), active = args[3] === true;
   // Invalidate departing actions synchronously, before the catalog read or any
   // dependent resource can use the previous flow's composer owner.
-  const initial = mobileNewTaskFlowView(session, visit, location, active, false);
+  const groupingMode = str(args[7]);
+  const initial = mobileNewTaskFlowView(session, visit, location, active, false, mobileClient, fleet, groupingMode);
   if (!active || initial.status === 'add-project' || initial.status === 'file' || !native?.available) return initial;
   const catalog = await bridgeReply(native, { op: 'environments' });
   if (!mobileNewTaskFlowCurrent(initial.owner, visit, location)) return initial;
@@ -796,7 +797,8 @@ async function newTaskFlow(args: unknown[], native?: Native | null) {
     return !entryState || ['connecting', 'reconnecting'].includes(entryState.phase)
       || entryState.phase === 'connected' && entryState.synchronized !== entryState.generation;
   });
-  return mobileNewTaskFlowView(session, visit, location, active, catalog.ok && mobileClient.preferencesLoaded && !pending);
+  return mobileNewTaskFlowView(session, visit, location, active, catalog.ok && mobileClient.preferencesLoaded && !pending,
+    mobileClient, fleet, groupingMode, catalog.ok ? saved.map(entry => str(entry.environmentId)) : undefined);
 }
 
 async function threadView(args: unknown[], native?: Native | null) {

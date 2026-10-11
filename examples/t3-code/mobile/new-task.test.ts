@@ -36,7 +36,7 @@ async function fixture() {
       : request.method === 'vcs.switchRef' ? { refName: 'normalized-branch' } : {};
     return { ok: true, generation: client.generation, value };
   } };
-  const snapshot = (location: string, visit = 'visit', session = 'flow', ready = true) => view(session, visit, location, true, ready, client, fleet);
+  const snapshot = (location: string, visit = 'visit', session = 'flow', ready = true, groupingMode = 'repository') => view(session, visit, location, true, ready, client, fleet, groupingMode);
   const action = (owner: string, kind: string, id = '', value = '', visit = 'visit') => act(owner, visit, kind, id, value, native, files, client, fleet);
   return { client, fleet, files, native, calls, snapshot, action };
 }
@@ -46,8 +46,77 @@ test('Choose project never adopts the prior thread or even a sole project automa
   const chooser = f.snapshot('/new');
   expect(chooser).toMatchObject({ chooser: true, title: 'Choose project', ready: false, needsPrepare: false });
   expect(f.client.threadId).toBe('old-thread'); expect(f.client.local.drafts['env:new:a']).toBe('A original');
-  expect(f.snapshot('/new/draft', 'draft')).toMatchObject({ status: 'pick', nextLocation: '/new', ready: false });
   expect(f.calls).toHaveLength(0);
+});
+
+test('bare draft selects the sole project through a fresh independent identity', async () => {
+  const f = await fixture(); f.client.threadId = 'old-thread'; f.client.shell.projects = f.client.shell.projects.slice(0, 1);
+  const draft = f.snapshot('/new/draft');
+  expect(draft).toMatchObject({ status: 'prepare', needsPrepare: true, ready: false, nextLocation: '' });
+  expect(f.calls).toHaveLength(0); expect(f.client.threadId).toBe('old-thread');
+  expect(await f.action(draft.owner, 'prepare')).toMatchObject({ message: '', nextLocation: '' });
+  expect(f.snapshot('/new/draft')).toMatchObject({ ready: true, needsPrepare: false });
+  const first = f.client.draftKey;
+  expect(first).toBe('new-task:id-1'); expect(f.client.draft).toBe(''); expect(f.client.threadId).toBe('');
+  expect(f.client.local.drafts['env:new:a']).toBe('A original');
+  await f.action(draft.owner, 'prepare'); expect(f.client.draftKey).toBe(first);
+  const next = f.snapshot('/new/draft', 'next', 'other-flow');
+  expect(next.needsPrepare).toBe(true);
+  expect(await f.action(next.owner, 'prepare', '', '', 'next')).toMatchObject({ message: '' });
+  expect(f.client.draftKey).toBe('new-task:id-2');
+  expect(f.calls.filter(call => call.op === 'ids')).toHaveLength(2);
+});
+
+test('bare draft waits for catalog and grouping preferences before selecting', async () => {
+  const f = await fixture(); f.client.shell.projects = f.client.shell.projects.slice(0, 1);
+  expect(f.snapshot('/new/draft', 'visit', 'flow', false)).toMatchObject({ status: 'loading', needsPrepare: false, nextLocation: '' });
+  expect(f.snapshot('/new/draft', 'visit', 'flow', true, '')).toMatchObject({ status: 'loading', needsPrepare: false, nextLocation: '' });
+  expect(f.calls).toHaveLength(0);
+  const ready = f.snapshot('/new/draft'); expect(ready.needsPrepare).toBe(true);
+  expect(await f.action(ready.owner, 'prepare')).toMatchObject({ message: '' });
+  expect(f.snapshot('/new/draft').ready).toBe(true);
+});
+
+test('bare draft counts logical project groups and uses their representative', async () => {
+  for (const mode of ['repository', 'separate']) {
+    const f = await fixture();
+    for (const project of f.client.shell.projects) project.repositoryIdentity = { canonicalKey: 'same-repository' };
+    const draft = f.snapshot('/new/draft', 'visit', 'flow', true, mode);
+    if (mode === 'repository') {
+      expect(draft).toMatchObject({ needsPrepare: true, nextLocation: '' });
+      expect(await f.action(draft.owner, 'prepare')).toMatchObject({ message: '' });
+      expect(f.client.projectId).toBe('a'); expect(f.client.draftKey).toBe('new-task:id-1');
+    } else {
+      expect(draft).toMatchObject({ needsPrepare: false, nextLocation: '/new', ready: false });
+      expect(f.calls).toHaveLength(0);
+    }
+  }
+  const multiple = await fixture();
+  expect(multiple.snapshot('/new/draft')).toMatchObject({ needsPrepare: false, nextLocation: '/new', ready: false });
+  const empty = await fixture(); empty.client.shell.projects = [];
+  expect(empty.snapshot('/new/draft')).toMatchObject({ needsPrepare: false, nextLocation: '/new', ready: false });
+});
+
+test('bare draft selection never repairs explicit or partial query identities', async () => {
+  const f = await fixture(); f.client.shell.projects = f.client.shell.projects.slice(0, 1);
+  for (const query of ['environmentId=env&projectId=missing', 'projectId=missing', 'environmentId=env', 'projectId=', 'draftId=missing', 'branch=main', 'worktreePath=%2Fwork']) {
+    expect(f.snapshot(`/new/draft?${query}`)).toMatchObject({ needsPrepare: false, nextLocation: '/new', ready: false });
+  }
+  expect(f.calls).toHaveLength(0); expect(f.client.local.drafts['env:new:a']).toBe('A original');
+});
+
+test('bare draft selection rechecks the sole project while allocating its identity', async () => {
+  const f = await fixture(); f.client.shell.projects = f.client.shell.projects.slice(0, 1);
+  let finish!: (value: unknown) => void, entered!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; }), original = f.native.later;
+  f.native.later = async input => obj(input).op === 'ids'
+    ? (entered(), await new Promise(resolve => { finish = resolve; })) : original(input);
+  const draft = f.snapshot('/new/draft'), preparing = f.action(draft.owner, 'prepare');
+  await started; f.client.shell.projects.push({ id: 'b', title: 'B', workspaceRoot: '/b' });
+  finish({ ok: true, generation: f.client.generation, value: ['stale-id'] });
+  await expect(preparing).rejects.toMatchObject({ kind: 'superseded' });
+  expect(f.client.local.drafts['new-task:stale-id']).toBeUndefined();
+  expect(f.snapshot('/new/draft')).toMatchObject({ needsPrepare: false, ready: false, nextLocation: '/new' });
 });
 
 test('explicit project selection keeps existing shared drafts and enables only that flow', async () => {
