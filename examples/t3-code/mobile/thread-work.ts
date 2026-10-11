@@ -14,7 +14,7 @@ export interface ThreadAnswerFile { id: string; name: string; image: boolean; ur
 export interface ThreadAnswerHistory { id: string; question: string; answer: string; files: ThreadAnswerFile[] }
 export interface ThreadActivity { id: string; label: string; body: string; output: string; result: string; detail: string;
   failed: boolean; expandable: boolean; expanded: boolean; reasoning: boolean; loading: boolean; symbol: string; timestamp: string;
-  prominentError: boolean; warning: boolean; call: boolean; retryRunId: string; retryDisabled: boolean; iconURL: string; reasoningBlocks: ThreadBlock[]; answerPreview: string; hasAnswer: boolean; answerHistory: ThreadAnswerHistory[]; nativeWorkRow: string; nativeWorkDetail: boolean; nativeCommandDetail: boolean }
+  prominentError: boolean; warning: boolean; call: boolean; retryRunId: string; retryDisabled: boolean; iconURL: string; reasoningBlocks: ThreadBlock[]; answerPreview: string; hasAnswer: boolean; answerHistory: ThreadAnswerHistory[]; nativeWorkRow: string; nativeWorkImage: boolean; nativeWorkDetail: boolean; nativeCommandDetail: boolean }
 const toolSymbols: Record<string, string> = { terminal: 'terminal', 'file-text': 'doc.text', 'file-code': 'doc.text', search: 'magnifyingglass',
   brain: 'brain', 'circle-alert': 'exclamationmark.circle', 'file-pen': 'square.and.pencil', 'folder-open': 'folder', globe: 'globe', browser: 'globe', 'git-branch': 'arrow.triangle.branch', zap: 'bolt' };
 const errorTime = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
@@ -107,15 +107,15 @@ export function mobileThreadActivity(activity: Activity, row: Obj | undefined, c
       JSON.stringify({ visibility: row.visibility, sourceThreadId: row.sourceThreadId, sourceItemId: row.sourceItemId,
         item: workDisplayItem(original) }, null, 2)], dark, toolSymbols[activity.icon] ?? 'terminal', activity.expandable === true) : '';
   const iconURL = dark ? activity.iconDark ?? activity.iconLight ?? '' : activity.iconLight ?? activity.iconDark ?? '';
-  const searchCopy = original.type === 'file_search' && !iconURL && row ? nativeWorkConfiguration(client, activity.id, routeKey, expanded,
+  const searchCopy = original.type === 'file_search' && row ? nativeWorkConfiguration(client, activity.id, routeKey, expanded,
     activity.label, [title ? `${title.charAt(0).toUpperCase()}${title.slice(1)}` : formatSearchToolLabel(original) ?? 'Searched files', str(original.pattern),
       JSON.stringify({ visibility: row.visibility, sourceThreadId: row.sourceThreadId, sourceItemId: row.sourceItemId,
         item: workDisplayItem(original) }, null, 2)], dark, toolSymbols[activity.icon] ?? 'wrench', activity.expandable === true) : '';
-  const webCopy = original.type === 'web_search' && !iconURL && row ? nativeWorkConfiguration(client, activity.id, routeKey, expanded,
+  const webCopy = original.type === 'web_search' && row ? nativeWorkConfiguration(client, activity.id, routeKey, expanded,
     activity.label, [title ? `${title.charAt(0).toUpperCase()}${title.slice(1)}` : 'Searched the web', Array.isArray(original.patterns) ? original.patterns.join(', ') : '',
       JSON.stringify({ visibility: row.visibility, sourceThreadId: row.sourceThreadId, sourceItemId: row.sourceItemId,
         item: workDisplayItem(original) }, null, 2)], dark, toolSymbols[activity.icon] ?? 'wrench', activity.expandable === true) : '';
-  const readCopy = original.type === 'dynamic_tool' && isRead && !title && !iconURL && row ? nativeWorkConfiguration(client, activity.id, routeKey, expanded,
+  const readCopy = original.type === 'dynamic_tool' && isRead && !title && row ? nativeWorkConfiguration(client, activity.id, routeKey, expanded,
     activity.label, [formatReadToolLabel(collectToolFilePaths({ input: original.input })[0] ?? ''), collectToolFilePaths(original).join('\n')],
     dark, toolSymbols[activity.icon] ?? 'wrench', activity.expandable === true) : '';
   return {
@@ -123,6 +123,7 @@ export function mobileThreadActivity(activity: Activity, row: Obj | undefined, c
       warning ? `Usage limit reached.${reset ? ` Retry after ${reset}.` : ''}` : failureSummary,
       [failureSummary, str(failure.message), JSON.stringify({ visibility: row.visibility, sourceThreadId: row.sourceThreadId,
         sourceItemId: row.sourceItemId, item: workDisplayItem(original) }, null, 2)], dark, 'exclamationmark.circle', false) : commandCopy || searchCopy || webCopy || readCopy,
+    nativeWorkImage: iconURL !== '' && (searchCopy !== '' || webCopy !== '' || readCopy !== ''),
     nativeWorkDetail: false, nativeCommandDetail: commandCopy !== '' && call !== null, reasoningBlocks: [], answerPreview: answer ? questionAnswerPreview(answer) : '',
     hasAnswer: answer !== null && hasQuestionAnswer(answer), answerHistory: expanded && answer && row ? answerHistory(answer, client, row, now) : [], label: warning ? `Usage limit reached.${reset ? ` Retry after ${reset}.` : ''}`
       : prominentError ? failureSummary : activity.reasoning && expanded ? activity.status ?? 'Thought' : activity.label,
