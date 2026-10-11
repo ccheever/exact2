@@ -1,7 +1,8 @@
 // Starter: one screen: a summary card, the buttons that change it, a count kept by `persist`.
-// The one colour written is the accent, on the root: a role, as here, or one pair,
-// `accent-color="light-dark(#0a7d61, #3dd6a8)"`. Surfaces and text are roles or unsaid, so
-// dark mode is the platform's: a hex on a page, card or text stays light as the bars turn dark.
+// The one colour written is the accent, on the root: any system colour, as here (teal, mint or
+// yellow as well), or one pair, `accent-color="light-dark(#0a7d61, #3dd6a8)"`. Surfaces and
+// text are roles or unsaid, so dark mode is the platform's: a hex on a page, card or text stays
+// light as the bars turn dark.
 // One route: a second screen is a route under `home`, a `when e.name == …` beside this one and
 // `nav = push(nav, path(…))`, and `follow` keeps the browser's Back and deep links working.
 use SummaryCard from "exact:content"
