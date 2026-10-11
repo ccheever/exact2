@@ -996,8 +996,9 @@ pub(crate) fn check_prop_value(
                     return err(
                         "lower-attr-value",
                         format!(
-                            "symbol `{role}` is not a role; roles: {}",
-                            exact_kernel::generated::SYMBOL_ROLES.join(", ")
+                            "symbol `{role}` is not a role; roles: {}; or name any SF Symbol as `symbol:sf/<name>` (`symbol:sf/{}`), drawn on Apple and blank elsewhere, so a tab or button that must show everywhere takes a role",
+                            exact_kernel::generated::SYMBOL_ROLES.join(", "),
+                            if role.is_empty() { "star.fill" } else { role }
                         ),
                         span,
                     );
