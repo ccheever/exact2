@@ -681,7 +681,7 @@ fn row(node: &Node, separated: bool) -> Node {
             positional: positional.clone(),
             attrs: rows,
             children: if stack {
-                stack_lines(children)
+                stack_lines(children, attrs)
             } else {
                 children.clone()
             },
@@ -953,10 +953,18 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
             )
         }
         ("column", _) if stack => subtitle(child),
-        _ if lines && stacks(child) => with(
-            child,
-            vec![n("margin-top", 15.0, at), n("margin-bottom", 15.0, at)],
-        ),
+        _ if !stack && stacks(child) => {
+            let margins = if lines {
+                vec![n("margin-top", 15.0, at), n("margin-bottom", 15.0, at)]
+            } else {
+                Vec::new()
+            };
+            // A control's lines are its label, in its own colour.
+            match tag.as_str() {
+                "button" | "link" => with(child, margins),
+                _ => stack_of_lines(child, margins),
+            }
+        }
         _ => child.clone(),
     }
 }
@@ -1046,6 +1054,41 @@ fn stacks(node: &Node) -> bool {
         if !hidden(node) && column_row(tag, attrs) && children.iter().filter(|c| !hidden(c)).count() >= 2)
 }
 
+/// A stack of lines in a row that is not the subtitle cell, with `sheet`
+/// (its margins): its texts are drawn as the subtitle cell draws its lines
+/// (LLP 1116.000 D3.2), the first a title in the row's size and colour, a
+/// later one 15 points in the secondary colour. It is presentation left
+/// unsaid, which is the platform's (LLP 1115): a text's own `font`,
+/// `font-size` or `color` replaces the row it names, as the author's rows
+/// replace the sheet's, and so does the stack's own (`stack_lines`).
+fn stack_of_lines(node: &Node, sheet: Vec<Attr>) -> Node {
+    let Node::Element {
+        attrs, children, ..
+    } = node
+    else {
+        return node.clone();
+    };
+    let lines = stack_lines(children, attrs);
+    match with(node, sheet) {
+        Node::Element {
+            tag,
+            positional,
+            attrs,
+            span,
+            instance,
+            ..
+        } => Node::Element {
+            tag,
+            positional,
+            attrs,
+            children: lines,
+            span,
+            instance,
+        },
+        other => other,
+    }
+}
+
 /// A title over a subtitle: UIKit's subtitle cell, 15 above and below, the
 /// second line 15 points in the secondary colour.
 fn subtitle(node: &Node) -> Node {
@@ -1061,7 +1104,7 @@ fn subtitle(node: &Node) -> Node {
         return node.clone();
     };
     let at = *span;
-    let parts = stack_lines(children);
+    let parts = stack_lines(children, attrs);
     let mut rows = vec![
         n("flex-grow", 1.0, at),
         n("min-width", 0.0, at),
@@ -1080,12 +1123,26 @@ fn subtitle(node: &Node) -> Node {
 }
 
 /// A subtitle stack's lines: the title in the row's size and colour, the
-/// second line 15 points in the secondary colour.
-fn stack_lines(children: &[Node]) -> Vec<Node> {
+/// second line 15 points in the secondary colour. A size or colour the
+/// stack's author wrote (`own`, its rows) reaches its lines, which the
+/// sheet's would otherwise replace; a class or a style may say either.
+fn stack_lines(children: &[Node], own: &[Attr]) -> Vec<Node> {
+    let says = |names: &[&str]| {
+        own.iter().any(|a| {
+            names.contains(&a.name.as_str())
+                || matches!(a.name.as_str(), "class" | "className" | "style")
+        })
+    };
+    let (size, colour) = (!says(&["font", "font-size"]), !says(&["color"]));
+    let keep = move |a: &Attr| match a.name.strip_prefix(MARK) {
+        Some("font-size") => size,
+        Some("color") => colour,
+        _ => true,
+    };
     // The second line, whether written or shown by a condition: a text
     // after the first shown one, chosen by the condition where the arms
     // differ (as `part` counts a row's texts).
-    fn line(c: &Node, texts: &mut Count) -> Node {
+    fn line(c: &Node, texts: &mut Count, keep: &dyn Fn(&Attr) -> bool) -> Node {
         match c {
             Node::When {
                 tag,
@@ -1096,9 +1153,9 @@ fn stack_lines(children: &[Node]) -> Vec<Node> {
             } => {
                 let start = Count::Known(texts.low());
                 *texts = start.clone();
-                let then = then.iter().map(|n| line(n, texts)).collect();
+                let then = then.iter().map(|n| line(n, texts, keep)).collect();
                 let after = std::mem::replace(texts, start);
-                let otherwise = otherwise.iter().map(|n| line(n, texts)).collect();
+                let otherwise = otherwise.iter().map(|n| line(n, texts, keep)).collect();
                 *texts = match (after, texts.clone()) {
                     (Count::Known(a), Count::Known(b)) if a == b => Count::Known(a),
                     (Count::Known(a), Count::Known(b)) => Count::Cond(cond.clone(), a, b),
@@ -1120,7 +1177,7 @@ fn stack_lines(children: &[Node]) -> Vec<Node> {
                 let choose = |c: &Expr, a: Expr, b: Expr| {
                     Expr::Ternary(Box::new(c.clone()), Box::new(a), Box::new(b), at)
                 };
-                let (sheet, next) = match texts.clone() {
+                let (mut sheet, next) = match texts.clone() {
                     Count::Known(0) => (Vec::new(), Count::Known(1)),
                     Count::Known(count) => (
                         vec![n("font-size", 15.0, at), s("color", SECONDARY, at)],
@@ -1135,11 +1192,15 @@ fn stack_lines(children: &[Node]) -> Vec<Node> {
                     ),
                 };
                 *texts = next;
+                sheet.retain(keep);
                 with(c, sheet)
             }
             other => other.clone(),
         }
     }
     let mut texts = Count::Known(0);
-    children.iter().map(|c| line(c, &mut texts)).collect()
+    children
+        .iter()
+        .map(|c| line(c, &mut texts, &keep))
+        .collect()
 }

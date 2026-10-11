@@ -3,7 +3,7 @@
 //! kernel reads its sections and rows as a native list draws them. Bare row
 //! fixtures exercise LLP 1104's default in the grouped-list context.
 
-use exact_kernel::{Accessory, GroupedRow, Kernel, Offer, PropId};
+use exact_kernel::{Accessory, Color, GroupedRow, Kernel, Offer, PropId, StyleMask};
 use exact_runner::{DataError, DataSource, Runner, Value};
 
 struct NoData;
@@ -527,6 +527,57 @@ fn a_row_holding_its_own_stack_keeps_the_cells_margins() {
     let frame = |t: &str| k.node(id(&own, t)).unwrap().frame;
     assert!((frame("in").y - frame("tight").y - 8.0).abs() < 0.01);
     assert!((frame("in2").y - frame("loose").y - 40.0).abs() < 0.01);
+}
+
+#[test]
+fn a_stack_of_lines_takes_the_subtitle_cells_text_styles() {
+    // LLP 1116.000 D3.2: household-list's items (a title, who added it, who
+    // checked it) drew three lines alike. A stack of lines in a row is drawn
+    // as the subtitle cell draws its two: the first text the title, a later
+    // one 15 points in the secondary colour. What the author wrote wins,
+    // row by row, on the text or on the stack its texts inherit from.
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go\n      column\n        text \"Privacy\" testId=\"cell-title\"\n        text \"Screen lock\" testId=\"cell-detail\"\n    row\n      input type=\"checkbox\" checked=on input=flip\n      column flex=1 min-width=0\n        text \"Milk\" testId=\"title\"\n        text \"Added by Alice\" testId=\"by\"\n        when on\n          text \"Checked by Bob\" testId=\"checked\"\n      button press=go\n        text \"Delete\" testId=\"delete\"\n    row\n      column flex=1 min-width=0 gap=8\n        text \"Ship it\" testId=\"card\"\n        text \"Ada\" font=\"-exact-footnote\" color=\"#123456\" testId=\"authored\"\n        text \"Late\" color=\"#ff0000\" testId=\"red\"\n        text \"Big\" font-size=20 testId=\"big\"\n        row gap=8\n          button press=go\n            text \"To Doing\" testId=\"move\"\n    row padding-top=8 padding-bottom=8\n      column color=\"#00ff00\" font-size=13\n        text \"A\" testId=\"own-a\"\n        text \"B\" testId=\"own-b\"\n        text \"C\" testId=\"own-c\"\n    row\n      column color=\"#00ff00\"\n        text \"Title\"\n        text \"Detail\" testId=\"cell-own\"");
+    let k = r.kernel();
+    let hex = |h: &str| Color::parse_hex(h).unwrap();
+    let look = |t: &str| {
+        let s = k.node(id(&r, t)).unwrap().computed_style(StyleMask::ALL);
+        (
+            s.font_size,
+            s.text_color.resolve(false),
+            s.text_color.resolve(true),
+        )
+    };
+    let (title, detail) = (look("cell-title"), look("cell-detail"));
+    assert_eq!(
+        (title.0, detail.0),
+        (17.0, 15.0),
+        "the subtitle cell's own lines"
+    );
+    assert_eq!(look("title"), title, "the first text is the title");
+    assert_eq!(look("by"), detail, "a later one the subtitle's line");
+    assert_eq!(look("checked"), detail, "one shown by a condition too");
+    assert_eq!(look("card"), title, "beside a row of buttons");
+    assert_ne!(look("delete"), detail, "a control's label is its own");
+    assert_ne!(look("move"), detail, "and a button's in the stack");
+    let authored = look("authored");
+    assert!(authored.0 < 15.0, "an authored font wins: {authored:?}");
+    assert_eq!(authored.1, hex("#123456"), "an authored colour wins");
+    let red = look("red");
+    assert_eq!((red.0, red.1), (15.0, hex("#ff0000")), "row by row");
+    let big = look("big");
+    assert_eq!((big.0, big.1, big.2), (20.0, detail.1, detail.2));
+    // The stack's own rows reach its lines; a row with its own padding keeps
+    // the styles (only its margins are the author's).
+    for t in ["own-a", "own-b", "own-c"] {
+        let own = look(t);
+        assert_eq!((own.0, own.1), (13.0, hex("#00ff00")), "{t}");
+    }
+    let own = look("cell-own");
+    assert_eq!(
+        (own.0, own.1),
+        (15.0, hex("#00ff00")),
+        "the subtitle cell's too"
+    );
 }
 
 #[test]
