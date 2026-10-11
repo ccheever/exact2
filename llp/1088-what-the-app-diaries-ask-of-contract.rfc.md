@@ -740,8 +740,8 @@ them, on every evaluator.
   units, each piece made well formed on its own (D2's rule: an astral
   character is two U+FFFD), and `split("", "")` is `[]`. One list step per
   piece, taken before the pieces are built (the runner counts them first;
-  the JS target steps before an empty separator's split and after any
-  other's, the same trap either way), then the list's extent measured as
+  the JS target counts a nonempty separator's matches up to the remaining
+  budget before splitting), then the list's extent measured as
   `Opcode::List`'s. No limit argument, no regular expression.
 - **Each evaluator.** Runner: `strings::{index_of, pieces, split}`,
   `lists::index_of`, `vm.rs` `list_call`. JS target: `x_indexOf` and

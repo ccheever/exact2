@@ -1477,11 +1477,12 @@ function locale() {
 const table = name => Texts.find(r => r[0] === name);
 /** `t(key, name=value…)`: MF2 simple messages, `{name}` or `{$name}`; an
  * unfilled name keeps its spelling; `\{ \} \\` escape. budget.js's `x_t` bounds it. */
-export function text(name, key, pairs) {
+export function text(name, key, pairs, emit) {
   const text = table(name)?.[2][key] ?? Texts[0][2][key];
   if (text == null) throw new Refusal(`t: no text ${key}`);
-  const at = n => { for (let i = 0; i < pairs.length; i += 2) if (pairs[i] === n) return pairs[i + 1]; };
-  return text.replace(/\\([{}\\])|\{\s*\$?([A-Za-z_][\w-]*)\s*\}/g, (m, e, n) => e ?? at(n) ?? m);
+  const out = [], put = emit ?? (piece => out.push(piece)), at = n => { for (let i = 0; i < pairs.length; i += 2) if (pairs[i] === n) return pairs[i + 1]; }; let from = 0;
+  for (const m of text.matchAll(/\\([{}\\])|\{\s*\$?([A-Za-z_][\w-]*)\s*\}/g)) { put(text.slice(from, m.index)); put(m[1] ?? at(m[2]) ?? m[0]); from = m.index + m[0].length; }
+  put(text.slice(from)); return out;
 }
 /** The resolved table sets the document's `lang` and `dir` (LLP 1060, ruled). */
 let LocaleSlot = null;
