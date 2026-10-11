@@ -118,7 +118,7 @@ export function mobileComposerSettings(query = '', filter = '', showLegacy = fal
     && (!state.pending || canEdit && !!candidate && !candidate.unavailable && !selectionReason(client, candidate.provider, candidate.model));
   return { revision: client.revision, open: state.open, busy: state.busy, canEdit, canSave,
     saveLabel: state.pending ? 'Save' : 'Done', query, filter, showLegacy, hasLegacy: entries.some(entry => entry.model.isLegacy === true),
-    empty: models.length ? '' : needle ? 'No matching models' : 'No models available', pending: !!state.pending, models, filters, options, runtimes,
+    empty: models.length ? '' : filter === '@favorites' && !needle ? 'No favorite models' : filter || needle ? 'No matching models' : 'No available models', pending: !!state.pending, models, filters, options, runtimes,
     runtimeLabel: runtimes.find(row => row.selected)?.label ?? '', error: state.error, environmentId: client.environmentId, threadId: client.threadId };
 }
 
