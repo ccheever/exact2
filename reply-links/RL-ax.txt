@@ -1,0 +1,137 @@
+reply-links: the reply's links in the accessibility tree (2026-10-11)
+
+Reference (CDP Accessibility.getFullAXTree, ref-ax.mjs; the paragraphs' children):
+paragraph:
+  StaticText "Known $verify skill. Price $5 stays plain; code "
+  code ""
+  StaticText " stays plain; "
+  link "li n k e d $ v e r i f y" url=https://example.test/
+    StaticText "l"
+    StaticText "i"
+    none "" (ignored)
+    StaticText "n"
+    none "" (ignored)
+    StaticText "k"
+    none "" (ignored)
+    StaticText "e"
+    none "" (ignored)
+    StaticText "d"
+    none "" (ignored)
+    StaticText " "
+    none "" (ignored)
+    StaticText "$"
+    none "" (ignored)
+    StaticText "v"
+    none "" (ignored)
+    StaticText "e"
+    none "" (ignored)
+    StaticText "r"
+    none "" (ignored)
+    StaticText "i"
+    none "" (ignored)
+    StaticText "f"
+    none "" (ignored)
+    StaticText "y"
+    none "" (ignored)
+  StaticText " stays a link."
+paragraph:
+  StaticText "Review "
+  link "parser"
+    StaticText "parser"
+  StaticText ", "
+  link "fixture.txt" url=t3code://app/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/project/fixture.txt
+    none "" (ignored)
+    none "" (ignored)
+  StaticText ", "
+  link "fixture.txt:3"
+    StaticText "fixture.txt:3"
+  StaticText "."
+paragraph:
+  StaticText "Write to "
+  link "the team" url=mailto:team@example.test
+    StaticText "the team"
+  StaticText ", join "
+  link "the channel" url=irc://irc.example.test/t3
+    StaticText "the channel"
+  StaticText ", "
+  link "chat" url=xmpp:team@example.test
+    StaticText "chat"
+  StaticText " or read "
+  link "the notes" url=t3code://app/#notes
+    StaticText "the notes"
+  StaticText "."
+paragraph:
+  StaticText "Code inside: "
+  link "the x docs" url=https://example.com/c
+    StaticText "the "
+    code ""
+    StaticText " docs"
+  StaticText " and "
+  link "y docs" url=https://example.com/d
+    code ""
+    StaticText " docs"
+  StaticText "."
+
+Before (agent tree --ax, macOS in-process; the reply's elements left to right):
+text           "Review "                                  x=280 y=147 w=50 h=23 interactive=False via=self native=AXStaticText
+text           "parser"                                   x=330 y=147 w=41 h=23 interactive=False via=self native=AXStaticText
+text           ", "                                       x=371 y=147 w=8 h=23 interactive=False via=self native=AXStaticText
+button         "/Users/daehyeonmun/orca/workspaces/exac   x=380 y=150 w=89 h=17 interactive=True via=self native=AXButton
+text           ", "                                       x=469 y=147 w=8 h=23 interactive=False via=self native=AXStaticText
+text           "fixture.txt:3"                            x=477 y=147 w=75 h=23 interactive=False via=self native=AXStaticText
+text           "."                                        x=552 y=147 w=4 h=23 interactive=False via=self native=AXStaticText
+text           "Write "                                   x=280 y=180 w=38 h=23 interactive=False via=self native=AXStaticText
+text           "to "                                      x=318 y=180 w=17 h=23 interactive=False via=self native=AXStaticText
+text           "the "                                     x=335 y=180 w=25 h=23 interactive=False via=self native=AXStaticText
+text           "team"                                     x=359 y=180 w=32 h=23 interactive=False via=self native=AXStaticText
+text           ", "                                       x=392 y=180 w=8 h=23 interactive=False via=self native=AXStaticText
+text           "join "                                    x=399 y=180 w=27 h=23 interactive=False via=self native=AXStaticText
+text           "the "                                     x=426 y=180 w=25 h=23 interactive=False via=self native=AXStaticText
+text           "channel"                                  x=451 y=180 w=51 h=23 interactive=False via=self native=AXStaticText
+text           ", "                                       x=501 y=180 w=8 h=23 interactive=False via=self native=AXStaticText
+text           "chat"                                     x=509 y=180 w=28 h=23 interactive=False via=self native=AXStaticText
+text           " "                                        x=537 y=180 w=4 h=23 interactive=False via=self native=AXStaticText
+text           "or "                                      x=541 y=180 w=17 h=23 interactive=False via=self native=AXStaticText
+text           "read "                                    x=558 y=180 w=33 h=23 interactive=False via=self native=AXStaticText
+text           "the "                                     x=591 y=180 w=25 h=23 interactive=False via=self native=AXStaticText
+text           "notes."                                   x=616 y=180 w=40 h=23 interactive=False via=self native=AXStaticText
+text           "Code "                                    x=280 y=213 w=38 h=23 interactive=False via=self native=AXStaticText
+text           "inside: "                                 x=318 y=213 w=46 h=23 interactive=False via=self native=AXStaticText
+link           "the x docs"                               x=364 y=213 w=45 h=23 interactive=True via=self native=AXLink
+text           " "                                        x=465 y=213 w=4 h=23 interactive=False via=self native=AXStaticText
+text           "and "                                     x=469 y=213 w=28 h=23 interactive=False via=self native=AXStaticText
+text           "y"                                        x=496 y=216 w=21 h=19 interactive=False via=self native=AXStaticText
+text           " "                                        x=517 y=213 w=4 h=23 interactive=False via=self native=AXStaticText
+text           "docs"                                     x=521 y=213 w=31 h=23 interactive=False via=self native=AXStaticText
+text           "."                                        x=552 y=213 w=4 h=23 interactive=False via=self native=AXStaticText
+
+After (the same read):
+text           "Review "                                  x=280 y=147 w=50 h=23 interactive=False via=self native=AXStaticText
+text           "parser"                                   x=330 y=147 w=41 h=23 interactive=False via=self native=AXStaticText
+text           ", "                                       x=371 y=147 w=8 h=23 interactive=False via=self native=AXStaticText
+button         "/Users/daehyeonmun/orca/workspaces/exac   x=380 y=150 w=89 h=17 interactive=True via=self native=AXButton
+text           ", "                                       x=469 y=147 w=8 h=23 interactive=False via=self native=AXStaticText
+text           "fixture.txt:3"                            x=477 y=147 w=75 h=23 interactive=False via=self native=AXStaticText
+text           "."                                        x=552 y=147 w=4 h=23 interactive=False via=self native=AXStaticText
+text           "Write "                                   x=280 y=180 w=38 h=23 interactive=False via=self native=AXStaticText
+text           "to "                                      x=318 y=180 w=17 h=23 interactive=False via=self native=AXStaticText
+link           "the team"                                 x=335 y=180 w=25 h=23 interactive=True via=self native=AXLink
+text           ", "                                       x=392 y=180 w=8 h=23 interactive=False via=self native=AXStaticText
+text           "join "                                    x=399 y=180 w=27 h=23 interactive=False via=self native=AXStaticText
+link           "the channel"                              x=426 y=180 w=25 h=23 interactive=True via=self native=AXLink
+text           ", "                                       x=501 y=180 w=8 h=23 interactive=False via=self native=AXStaticText
+link           "chat"                                     x=509 y=180 w=28 h=23 interactive=True via=self native=AXLink
+text           " "                                        x=537 y=180 w=4 h=23 interactive=False via=self native=AXStaticText
+text           "or "                                      x=541 y=180 w=17 h=23 interactive=False via=self native=AXStaticText
+text           "read "                                    x=558 y=180 w=33 h=23 interactive=False via=self native=AXStaticText
+link           "the notes"                                x=591 y=180 w=25 h=23 interactive=True via=self native=AXLink
+text           "."                                        x=652 y=180 w=4 h=23 interactive=False via=self native=AXStaticText
+text           "Code "                                    x=280 y=213 w=38 h=23 interactive=False via=self native=AXStaticText
+text           "inside: "                                 x=318 y=213 w=46 h=23 interactive=False via=self native=AXStaticText
+link           "the x docs"                               x=364 y=213 w=45 h=23 interactive=True via=self native=AXLink
+text           " "                                        x=465 y=213 w=4 h=23 interactive=False via=self native=AXStaticText
+text           "and "                                     x=469 y=213 w=28 h=23 interactive=False via=self native=AXStaticText
+link           "y docs"                                   x=496 y=213 w=41 h=23 interactive=True via=self native=AXLink
+text           "."                                        x=573 y=213 w=4 h=23 interactive=False via=self native=AXStaticText
+
+Out of process a link node has no AXURL (X78, EXACT2-GAPS); the reference's links carry theirs (url= above).
