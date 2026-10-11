@@ -219,20 +219,26 @@
   });
   if (roundsEven) {
     var bind = Object.getOwnPropertyDescriptor(Native.prototype, "format").get, resolve = Native.prototype.resolvedOptions;
-    // `n` rounded to the digits the engine prints: significant digits; or
-    // fraction digits, of the percent for a percent and of the mantissa in
-    // scientific notation (which the engine prints only for a decimal). A
-    // unit is left alone: the engine converts it to the locale's unit first.
+    // The digits the engine prints: significant digits; or fraction digits,
+    // of the percent for a percent and of the mantissa in scientific
+    // notation (which the engine prints only for a decimal). Compact with
+    // no digit options, which the engine prints in full, names none: it
+    // keeps its style's own digits, those a formatter without `notation`
+    // names. A unit is left alone: the engine converts it to the locale's
+    // unit first.
+    var digitsOf = function (o) {
+      if (o.style === "unit") return null;
+      if (o.maximumSignificantDigits !== undefined) return { significant: o.maximumSignificantDigits };
+      if (o.maximumFractionDigits !== undefined)
+        return { fraction: o.maximumFractionDigits + (o.style === "percent" ? 2 : 0), scientific: o.notation === "scientific" && o.style === "decimal" };
+      if (o.notation !== "compact") return null;
+      return digitsOf(resolve.call(new Native(o.locale, { style: o.style, currency: o.currency, currencyDisplay: o.currencyDisplay })));
+    };
+    // `n` rounded to those digits.
     var roundFor = function (format, s, n) {
       if (typeof n === "bigint") return n;
       var x = +n;
-      if (s.digits === undefined) {
-        var o = resolve.call(format);
-        s.digits = o.style === "unit" ? null
-          : o.maximumSignificantDigits !== undefined ? { significant: o.maximumSignificantDigits }
-          : o.maximumFractionDigits !== undefined ? { fraction: o.maximumFractionDigits + (o.style === "percent" ? 2 : 0), scientific: o.notation === "scientific" && o.style === "decimal" }
-          : null;
-      }
+      if (s.digits === undefined) s.digits = digitsOf(resolve.call(format));
       var d = s.digits;
       if (!d || x === 0 || !isFinite(x)) return x;
       var text = plain(Math.abs(x)), int = text.split(".")[0];

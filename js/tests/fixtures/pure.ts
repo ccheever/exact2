@@ -152,6 +152,15 @@ export function exercise(source: string): string {
     for(const mode of ['ceil','floor','expand','trunc','halfCeil','halfFloor','halfExpand','halfTrunc','halfEven','up'])
       out['en-US roundingMode '+mode]=[1.25,-1.25,1.35,1.21,-1.21,1.2,-0.01].map(v=>format({maximumFractionDigits:1,roundingMode:mode},v))
         .concat([1250,-1250,1350,12500].map(v=>format({notation:'compact',roundingMode:mode},v)));
+    // Compact the prelude prints in full (a currency or percent, a long
+    // display, a locale it has no table for), at values Chrome's compact
+    // prints with the same digits.
+    out['en-US compact currency halves']=[0.825,0.125,-0.825].map(v=>format({...usd,notation:'compact'},v));
+    for(const mode of ['halfEven','floor','ceil'])
+      out['en-US compact currency '+mode]=[0.825,0.829,-0.821].map(v=>format({...usd,notation:'compact',roundingMode:mode},v));
+    out['en-US compact percent halves']=[0.125,-0.125,0.165].map(v=>format({style:'percent',notation:'compact'},v));
+    out['en-US compact long halves']=[0.0125,-0.0125,0.0145].map(v=>format({notation:'compact',compactDisplay:'long'},v));
+    out['sk-SK compact halves']=[0.0125,-0.0125,0.0145].map(v=>new Intl.NumberFormat('sk-SK',{notation:'compact'}).format(v));
     const nf=new Intl.NumberFormat('en-US');
     out['en-US resolved roundingMode']=[nf,new Intl.NumberFormat('en-US',{roundingMode:'floor'} as Intl.NumberFormatOptions),new Intl.NumberFormat('en-US',{notation:'compact',roundingMode:'halfEven'} as Intl.NumberFormatOptions)]
       .map(f=>String((f.resolvedOptions() as {roundingMode?:string}).roundingMode)).concat([String(nf.format===nf.format),typeof Object.getOwnPropertyDescriptor(Intl.NumberFormat.prototype,'format')?.get]);
