@@ -7,8 +7,8 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-diff-cite-popover
-pr_url: null
-verified_commit: null
+pr_url: https://github.com/ccheever/exact2/pull/479
+verified_commit: 383724256
 ---
 
 # Cite: the citation chip's comment popover, and the rest of Cite
