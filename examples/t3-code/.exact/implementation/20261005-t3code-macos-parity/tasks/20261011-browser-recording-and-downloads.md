@@ -173,21 +173,26 @@ with `lane-setup.sh` (the "Lane browser agent" fake ACP agent as the only provid
 
 ## Checks
 
-On the final head (`f02e62e82` plus this record; the Bun suite, tsc and the contract build ran on `266c552a4`, and `f02e62e82` changed only Swift and an AppKit test):
+On `ee1e9f1fd` (the review fixes `1c4ae3191` merged with `origin/feat(example)/t3-code` at `e91bdc8af`; this record's
+later commit changes only the record). The review fixes change no Rust or Swift, so the AppKit binaries and
+`cargo test -p t3-code-macos --lib` were not re-run (last run on `f02e62e82`: AppKit `browser-automation`, `browser`,
+`browser-capture` 36, 29 and 34 tests, 0 failures; `t3-code-macos` 21 passed).
 
 | Check | Exit | Note |
 | --- | --- | --- |
-| `bun test examples/t3-code --timeout 60000` | 0 | 4667 pass, 1 skip, 0 fail (312 files) |
+| `bun test examples/t3-code --timeout 60000` | 0 | 4685 pass, 1 skip, 0 fail (314 files) |
 | strict `tsc` (README command) | 0 | |
-| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | `app.contract` 1,407 lines; 28,820,686 bytes |
-| AppKit `browser-automation`, `browser`, `browser-capture` (README recipe) | 0 | 36, 29 and 34 tests, 0 failures |
-| `cargo test -p t3-code-macos --lib` | 0 | 21 passed |
+| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | `app.contract` 1,418 lines; 28,866,586 bytes |
 | `git add -A && bun scripts/caps.mjs` | 0 | all budgets within cap |
 | `cargo build --all-targets --keep-going` | 0 | |
-| `cargo test --lib --bins --tests --no-fail-fast` | 0 | 3,679 passed, 0 failed, 34 ignored |
+| `cargo test --lib --bins --tests --no-fail-fast` | 0 | 3,756 passed, 0 failed, 36 ignored (95 suites) |
 | `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | |
 | `cargo fmt --all -- --check` | 0 | |
 | `bun scripts/boot.mjs` | 0 | |
+
+The first run of these on `d51b8d9fc` (the fixes merged with the feature branch at `fe0e39c91`) had `cargo test` exit 101
+on main's `apps/color-gallery` button (`button_migration`, the failure adopt-main-fixes-r9 recorded); the feature branch
+then moved to `e91bdc8af`, whose round 10 fixes that sweep, and the run above is on the merge of it.
 
 ## Not done / not verified
 
