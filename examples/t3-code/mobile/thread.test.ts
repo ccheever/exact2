@@ -178,6 +178,31 @@ describe('mobile V2 transcript presentation', () => {
     client.scopes = [];
     expect(mobileThread(now, false, client).approvals[0]).toMatchObject({ disabled: true, options: [{ id: 'decline', label: 'No' }, { id: 'accept', label: 'Yes' }] });
   });
+  test('approval warning uses the first truthy provider warning without changing options or admission', () => {
+    const approval = item('approval', 'approval_request', { requestId: 'request', requestKind: 'command', prompt: 'Run command?' });
+    const client = fixture([approval], { runtimeRequests: [{ id: 'request', status: 'pending', kind: 'command', createdAt: at(0), responseCapability: { type: 'live' } }] });
+    const view = () => mobileThread(now, false, client).approvals[0]!;
+    expect(view()).toMatchObject({ warning: '', disabled: false });
+    approval.options = [];
+    expect(view()).toMatchObject({ warning: '', options: [] });
+    const options = [{ decision: 'decline', label: 'No', warning: '' },
+      { decision: 'acceptForSession', label: 'Allow session', warning: '  Future commands may run.\nConfirm this choice.  ' },
+      { decision: 'accept', label: 'Yes', warning: 'Later warning' }];
+    approval.options = options;
+    expect(view()).toMatchObject({ warning: options[1]!.warning, disabled: false,
+      options: options.map(option => ({ id: option.decision, label: option.label, warning: option.warning })) });
+    expect(approval.options).toEqual(options);
+    client.scopes = [];
+    expect(view()).toMatchObject({ warning: options[1]!.warning, disabled: true });
+    client.scopes = ['orchestration:operate'];
+    client.local.pending[client.environmentId] = { method: 'orchestration.dispatchCommand', payload: { requestId: 'request' }, description: 'Respond', threadId: 't1', text: '', uncertain: false };
+    expect(view()).toMatchObject({ warning: options[1]!.warning, disabled: true });
+    delete client.local.pending[client.environmentId];
+    approval.options = [{ decision: 'accept', label: 'Yes', warning: ' \n ' }, ...options];
+    expect(view()).toMatchObject({ warning: ' \n ', disabled: false });
+    approval.options = [{ decision: 'accept', label: 'Yes', warning: '' }, { decision: 'decline', label: 'No' }];
+    expect(view().warning).toBe('');
+  });
   test('composer admission follows actual synchronization, model and request permissions', () => {
     const client = fixture(); client.local.drafts[client.draftKey] = 'Inspect source';
     expect(mobileThreadComposer(client)).toMatchObject({ canSend: true, sendLabel: 'Send', modelUnavailable: false });

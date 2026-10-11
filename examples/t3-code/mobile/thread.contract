@@ -164,6 +164,8 @@ component ThreadApprovals
               text approval.detail font-size=14 line-height="21px" color=colors.secondary
             when length(approval.reason) > 0
               text approval.reason font-size=14 line-height="19px" color=colors.secondary
+            when length(approval.warning) > 0
+              text approval.warning font-size=13 line-height="19.5px" color=colors.warningForeground
             row flex-wrap="wrap" gap=8.75
               each option in approval.options key=option.id
                 button press=action("approval", approval.id, option.id) disabled=approval.disabled
