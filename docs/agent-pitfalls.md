@@ -53,11 +53,6 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   deliberately light-only design, write `color-scheme="light"` on the root, which
   holds the whole app in light as `overrideUserInterfaceStyle` does. (Shelf port,
   2026-10-09.)
-- **On iOS the whole window scrolls when the keyboard opens, and the header goes
-  with it.** Cause: without `interactive-widget`, the root is not resized for the
-  keyboard. Fix: `interactive-widget="resizes-content"` on the root, or
-  `overlays-content` with a `role="toolbar" toolbarPlacement="keyboard"` for a
-  toolbar that rides the keyboard without relayout (LLP 1008 §9.1). (Signal Clone.)
 
 - **The app is wider than the window, and its tests still pass.** A root with
   `width="100%"` and `padding=24` is 48 points too wide: sizes are `content-box`, as

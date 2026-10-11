@@ -196,7 +196,7 @@ extension Agent {
         let keyboardContainer = presenter.modals.coordinateView ?? presenter.session?.view
         let keyboardTop = keyboardContainer.flatMap { presenter.keyboardGuideTop(in: $0) }
         var keyboard: [String: Any] = ["visible": keyboardTop != nil, "overlap": Agent.r2(presenter.keyboardInset),
-                                       "policy": presenter.interactiveWidget ?? "resizes-visual", "interactive": presenter.interactiveKeyboardDrag]
+                                       "policy": presenter.keyboardPolicy, "interactive": presenter.interactiveKeyboardDrag]
         if let top = keyboardTop, let container = keyboardContainer {
             keyboard["top"] = Agent.r2(vp.convert(CGPoint(x: 0, y: top), from: container).y - vp.contentOffset.y)
         }
@@ -448,15 +448,16 @@ extension Agent {
     /// inline only as far as it takes) — unanimated, as far as each one's
     /// range allows; their delegates tell the app, as a finger's scroll does.
     /// In view is what a person sees: inside the scroll view's insets, as the
-    /// presenter's own reveal of a focused field measures it, so the bars and,
-    /// under the default `interactive-widget`, the keyboard (the viewport's
-    /// bottom inset) are out of view. `overlays-content` insets nothing, so
-    /// there the keyboard's top bounds it (LLP 1086.000.000 D2).
+    /// presenter's own reveal of a focused field measures it, so the bars and
+    /// the keyboard are out of view: the viewport ends at its top
+    /// (`resizes-content`, the default) or is inset by it (`resizes-visual`).
+    /// `overlays-content` insets nothing, so there the keyboard's top bounds
+    /// it (LLP 1086.000.000 D2).
     func reveal(_ req: [String: Any]) -> [String: Any] {
         guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         let from = box(v)
         // The keyboard's top in the window, as the presenter last applied it.
-        let keyboard = presenter.interactiveWidget == "overlays-content" ? presenter.keyboardTop : nil
+        let keyboard = presenter.keyboardPolicy == "overlays-content" ? presenter.keyboardTop : nil
         var scrolled = false
         for case let sv as UIScrollView in sequence(first: v.superview, next: { $0?.superview }).compactMap({ $0 }) where sv.isScrollEnabled {
             let frame = v.convert(v.bounds, to: sv), mid = CGPoint(x: frame.midX, y: frame.midY), i = sv.adjustedContentInset

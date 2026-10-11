@@ -3,7 +3,8 @@
 // — the safe area of its own container, or the whole of it when the first
 // root says `viewport-fit="cover"`, the safe-area insets then going to the
 // kernel for its `env()` lengths (LLP 1008 §9) — and, under
-// `interactive-widget="resizes-content"`, the keyboard's top. The plan
+// `interactive-widget="resizes-content"` (the default, LLP 1116 D2), the
+// keyboard's top. The plan
 // boots at the first layout that has a size and follows every later size
 // (a rotation, a split) and every change of the insets. Bounded
 // containment: the session's page scrolls inside this view exactly as the
@@ -209,7 +210,7 @@ public final class ExactView: UIView {
     }
 
     /// Frame the viewport to the safe area or the whole view — and, under
-    /// `interactive-widget="resizes-content"`, to the keyboard's top, where
+    /// `resizes-content` (`keyboardPolicy`), to the keyboard's top, where
     /// the bottom inset is the keyboard's and not the home indicator's (the
     /// web's rule) — and, once booted, tell the kernel about new insets or a
     /// new size. Called inside the keyboard's animation block, so the frames
@@ -243,7 +244,7 @@ public final class ExactView: UIView {
         let whole = cover || presenter.navigation.wantsWholeView
         var frame = whole ? container.bounds : container.bounds.inset(by: safe)
         var insets = cover ? safe : .zero
-        if presenter.interactiveWidget == "resizes-content" {
+        if presenter.keyboardPolicy == "resizes-content" {
             let top: CGFloat
             // A sheet's guide remains in its local coordinates as UIKit moves
             // the sheet, including during interactive dismissal.
