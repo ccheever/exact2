@@ -96,15 +96,20 @@ itself is ambiguous).
 - `ccb5364be`: this record's first version.
 - `ff42bf623`: `git merge --no-ff origin/main` at `8e7d9cbb0` (#447, #451, #454, #455, #457, #459, #461, LLP
   1115/1116's waves, `ccd3d3be7`). No conflict.
-- `958299f7c`: the retirements (RT-1 to RT-4, RT-6); `920afc609`: `EXACT2-GAPS.md`, `STATUS.md`, `issues/README.md`.
+- `958299f7c`: the retirements (RT-1 to RT-4, RT-6; RT-4's undone in review round 2, `5c8fbb6e1`); `920afc609`: `EXACT2-GAPS.md`, `STATUS.md`, `issues/README.md`.
 - `0af2a208d`: RT-6's two dialog roles the reference does not have (found in the first after drive, below).
 - `6bb7e084d`: main `aec9a93a5` (two LLP commits, merged before the bundle); `fb6081a2a`: main `f084cc1c9` (10 commits:
   the Android reader and Canvas host, `apps/caltrain/android`, iOS navigation #449, LLP 1115.000/1115.001 accepted). The
   one conflict was `Cargo.toml`'s `members` line (main added `apps/caltrain/android`, the T3 branch carries
   `examples/t3-code/macos`): main's line plus the clone's member. `Cargo.lock` merged clean.
+- Review round 2 (`5c8fbb6e1`, `ade46167f`, then records): after a fresh fetch `origin/feat(example)/t3-code` is still
+  `fe0e39c91`, already in this branch, so `git merge 'origin/feat(example)/t3-code'` is "Already up to date" and makes no
+  merge commit. Main is now `4c72dc622`, 62 commits past `f084cc1c9` (Android, LLP 1116.004, `efe10e0c1` and `ad3d5695d`'s
+  style refusals, #422, #424); not adopted here, the next round takes them.
 
-On the final head after a fresh fetch: `git merge-base --is-ancestor origin/main HEAD` yes, `git rev-list --count
-HEAD..origin/feat(example)/t3-code` 0, and `git diff origin/main HEAD -- ':!examples/t3-code' ':!Cargo.lock'
+On the final head after a fresh fetch: `git merge-base --is-ancestor f084cc1c9 HEAD` yes (main's tip at the last merge;
+`origin/main` has moved since, above), `git rev-list --count
+HEAD..origin/feat(example)/t3-code` 0, and `git diff f084cc1c9 HEAD -- ':!examples/t3-code' ':!Cargo.lock'
 ':!Cargo.toml'` empty (the `Cargo.toml` / `Cargo.lock` difference is the `examples/t3-code/macos` member and the
 `t3-code-macos` package only). The PR must land as a merge (or a fast-forward of the feature branch to its head), never a
 squash: a squash drops main from the branch's ancestry.
@@ -280,6 +285,24 @@ passed, 0 failed, 36 ignored, 95 suites); `cargo clippy --all-targets --keep-goi
 -- --check` 0; `bun scripts/boot.mjs` 0. The one Bun test that names `EXACT2-GAPS.md` (`dialog-trap.test.ts`, a comment)
 passes (161).
 
+Review round 2, once on `d66474556` (`5c8fbb6e1` RT-4 (b), `ade46167f` SW-1, `STATUS.md` and this record; later commits
+change this record only), `target/r10/checks-rr2.sh`:
+
+| Check | Exit | Note |
+| --- | --- | --- |
+| `bun test examples/t3-code --timeout 60000` | 0 | 4,668 pass, 1 skip, 0 fail (313 files: `sidebar-sweep.test.ts` added) |
+| strict `tsc` (README command) | 0 | |
+| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | 6,161 slots, 110,196 nodes, 48 resources; 250 warnings shown, no error (230 `lower-colour-one-scheme`, 19 `analyze-read-after-assign` of 21 behind the 20-warning cap, 1 `type-performance-now-persisted`; none at `sidebar.contract`; "Each item"). `app.contract` 1,398 lines; `sidebar.contract` 306, `pages-prs.contract` 817, `sidebar-sweep.test.ts` 188 |
+| `git add -A && bun scripts/caps.mjs` | 0 | all budgets within cap |
+| `cargo build --all-targets --keep-going` | 0 | |
+| `cargo test --lib --bins --tests --no-fail-fast` | 0 | 3,756 passed, 0 failed, 36 ignored (95 suites) |
+| `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | |
+| `cargo fmt --all -- --check` | 0 | |
+| `bun scripts/boot.mjs` | 0 | |
+
+`cargo test -p t3-code-macos --lib` and the bundle were not run again: review round 2 changed no Rust or Swift, and nothing
+was driven.
+
 The AppKit binaries were not run: no module Swift changed, and main's Apple changes since round 9 are the AX roles, the
 link URL, the right-click word, the heading child, the field ring, the popover press walk and an iOS autofocus guard,
 each driven above where the clone meets it.
@@ -308,13 +331,34 @@ An independent review of the draft PR found two should-fix problems; both are re
 | RT-4: retiring the rest box loses the focus return after the second Escape, which the base build had; the X73 row said only "workaround retired"; image 5's before column draws no ring though the before build focused Filters | `EXACT2-GAPS.md` X73 declares the lost return while option (a) stands (cause, drive numbers, X66 #319 as the blocker, what (b) undoes); X66's blocked list names it; `STATUS.md` "Known differences" has the row; "Decision needed" keeps the question for the coordinator. Image 5 is recomposed with each column's focus written on it (before: Filters, node 929, no ring because an agent-mode window is never key; after: none; reference: BUTTON "Filters", ring), [rt4-filters-closed-v2.png](https://raw.githubusercontent.com/ccheever/exact2/822c4572c2f93c49548b5b35a60a47234233e006/adopt-main-fixes-r10/rt4-filters-closed-v2.png); the PR caption says so |
 | The row-action sweep's carry-over (`sidebar.contract:254`-`262`) was recorded only here | Reproduced: a one-file app with the sweep's start branch and move, run headless by this worktree's `exact-terminal`, gives row b's first move an offset of 33 after three moves of 10 on row a (3 expected) and its second 36 (6 expected), so the old offset lasts the whole sweep ([repro](https://raw.githubusercontent.com/ccheever/exact2/8bdbf4b0b2f1a7637d7eb37897deb902e51d40c9/adopt-main-fixes-r10/sweep-carryover.txt)). Listed in `STATUS.md` "Found, not in scope" with steps, cause and the fix shape (`let` bindings), as the user's 2026-10-11 rule lists build observations rather than opening tasks; not driven in the app and not fixed here (it predates this PR) |
 
+## Review round 2
+
+The coordinator decided the two open points of review round 1.
+
+| Decision | What was done |
+| --- | --- |
+| RT-4 takes option (b) by the reference parity rule: after the second Escape the reference returns the focus to Filters, and the base build did too, so losing it is worse than an invisible focus holder after the first Escape | `5c8fbb6e1`: `pages-prs.contract` `PrFiltersMenu` (the hidden `pr-filters-rest` box, `closeSub`'s `focus("pr-filters-rest")`) and `menu-keys.test.ts` FW-3's check are `fe0e39c91`'s again (comments only differ: why the box stays after #446); `EXACT2-GAPS.md` X73 has its workaround text back with the note that main fixed X73 (#446) and the box stays until X66 (#319, a popover close event) because it also returns the focus to Filters as the reference does; X66's blocked list says the same; `issues/README.md`'s X73 row likewise. The declared difference of review round 1 is gone from X73 and from `STATUS.md` "Known differences". Not re-driven: the code equals `fe0e39c91`'s, so the base build's RT-4 readouts are the after (Acceptance results) |
+| Fix the sidebar sweep's carry-over, reset per sweep as the reference's sweep does, with a test that fails on the base and passes after; move it from `STATUS.md` "Found, not in scope" to this record's built rows | `ade46167f`: SW-1 (Outcome, Cause and fix, Acceptance results). The headless one-file repro needs a built `exact-terminal`, which no clone Bun test spawns, so the test is a Bun test over the contract's own action instead (`sidebar-sweep.test.ts`: it reads ThreadSection's `sweep` and `cancelSweep` from `sidebar.contract` and runs them with Contract's action semantics); 3 fail on `fe0e39c91`'s body, 3 pass after. `STATUS.md` "Found, not in scope" no longer lists it |
+
+Found while doing it: `contract build` prints at most 20 warnings before the colours, so round 1's warning list was the first
+19 `analyze-read-after-assign`; the full list ("Each item") has one more real bug of the same class, the queued
+messages' grip drag (`composer-controls.contract:916`–`922`), listed in `STATUS.md` "Found, not in scope", not fixed here.
+
 ## Not done / not verified
 
-- Real input (steps 1–3 above): reserved for the coordinator's `realinput-1011c`; this task used no real input.
+- Real input (steps 1–3, and the optional 4 and 5): reserved for the coordinator's `realinput-1011c`; this task used no
+  real input.
 - The live drive ran on `0af2a208d`'s sources over main `aec9a93a5`; the final head adds main `f084cc1c9` (Android, iOS
-  navigation, LLP docs; nothing on the Mac path) and this record. Not re-driven (the brief's one retry was used).
+  navigation, LLP docs; nothing on the Mac path), review round 2's RT-4 restoration (the code of `fe0e39c91`, whose
+  before drive is its evidence) and SW-1 (a drag; its proof is `sidebar-sweep.test.ts`, its real drag step 5). Not
+  re-driven (the brief's one retry was used).
+- The queued messages' grip drag carries the last drag's offset (`composer-controls.contract:916`–`922`): found in review
+  round 2, outside the coordinator's two items; listed in `STATUS.md` "Found, not in scope".
 
 ## Decision needed
+
+**Decided (b)** by the coordinator in review round 2 (the reference parity rule; "Review round 2"). The question as
+it was asked:
 
 RT-4: retiring the rest box (as specified) leaves no focus after Filters closes from the window's Escape, where the
 reference (Base UI's FloatingFocusManager `returnFocus`, from BODY) gives it back to the Filters button, ring and all.
@@ -333,9 +377,8 @@ old check and the X73 row's workaround text, and drops those sentences.
 
 ## Seen while building, not a finding row
 
-- `analyze-read-after-assign` at `sidebar.contract:254`–`262`: a row-action sweep after an earlier one keeps that
-  sweep's offset to its release ("Each item"). A real bug, pre-existing; listed in `STATUS.md` "Found, not in scope"
-  with steps and a one-file reproduction (review round 1), not fixed here.
+- `analyze-read-after-assign` at `sidebar.contract:254`–`262`: a row-action sweep after an earlier one kept that
+  sweep's offset to its release ("Each item"). Built in review round 2 as SW-1.
 - The reference lane's Usage page reads Claude Code $0.08 on Oct 9 where the clone's reads $0.10: the clone lane carries
   the pages lane's `acme-coder-1` price override and the reference lane does not (the same before and after).
 - The sidebar's project scope popup writes `role="dialog"` where the reference's is a Combobox popup; not changed (not
@@ -343,5 +386,5 @@ old check and the X73 row's workaround text, and drops those sentences.
 
 ## Next action
 
-The coordinator reviews the draft PR, answers "Decision needed", runs steps 1–3 in `realinput-1011c`, and lands the PR
-as a merge or a fast-forward (never a squash).
+The coordinator reviews the draft PR (review round 2), runs steps 1–3 (and the optional 4 and 5) in `realinput-1011c`,
+and lands the PR as a merge or a fast-forward (never a squash).
