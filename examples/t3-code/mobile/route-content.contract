@@ -423,7 +423,7 @@ component MobileRouteContent
       row gap=14 padding=14
         text fileData.subtitle flex=1 min-width=0 line-clamp=1 color=reviewLook.muted font-size=12
         t3-document-menu document-menu=fileMenu document-tint=reviewLook.icon change=fileMenuAction width=32 height=32
-      MobileFileView(data=fileData, colors=reviewLook, wrap=settingsAppearance.codeWordBreak, fontSize=settingsAppearance.codeFontSize, rowHeight=settingsAppearance.codeLine, numberSize=settingsAppearance.codeNumber, preview=filePreview, refresh=refreshFile)
+      MobileFileView(data=fileData, colors=reviewLook, wrap=settingsAppearance.codeWordBreak, fontSize=settingsAppearance.codeFontSize, rowHeight=settingsAppearance.codeLine, numberSize=settingsAppearance.codeNumber, preview=filePreview, refresh=refreshFile, action=fileMenuAction)
     else when routeName == "threadMedia" or routeName == "threadDraftMedia" or routeName == "newTaskMedia"
       when focused
         when mediaData.ready

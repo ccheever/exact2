@@ -147,7 +147,7 @@ final class T3MobileModule: ExactModule {
         documentRoot = directory
         clientCache = T3MobileClientCache(directory: directory.appendingPathComponent("mobile-client-cache", isDirectory: true))
         document = T3MobileDocument(dataRoot: directory)
-        media = T3MobileMedia(dataRoot: directory, audioSession: audioSession)
+        media = T3MobileMedia(dataRoot: directory, audioSession: audioSession, changed: context.changed)
         attachments = T3MobileAttachments(dataRoot: directory, agent: context.agent)
         homePreferences = T3MobilePreferences(directory: directory, changed: { context.changed("t3.mobile-preferences") })
         let credentials = T3Credentials(persistent: !context.agent)
@@ -173,6 +173,7 @@ final class T3MobileModule: ExactModule {
         sheets.configure(navigation)
     }
     override func route(_ route: ExactRoute) {
+        media.observe(route)
         T3MobileNavigation.configure(route, formSheet: route.data[.mobileFormSheet] == "true",
             scanActionID: route.data[.mobileScanAction], scannerOpen: route.data[.mobileScannerOpen] == "true",
             tint: route.controller.traitCollection.userInterfaceStyle == .dark ? .white : .black)
@@ -206,7 +207,7 @@ final class T3MobileModule: ExactModule {
         if element.hatch == .mobileReviewList || element.hatch == .mobileReviewRow { reviewViewport.end(element) }
         if element.hatch == .mobileVoiceEditor { voice.editor.end(element) }
     }
-    override func routeEnded(_ route: ExactRoute) { keyboard.end(route); archiveChrome.end(route); modelSearch.end(route); homeSwipes.end(route); sheets.end(route); threadHeader.end(route); documentMenus.end(route); workLog.end(route); terminal.menus.end(route); inspectorChrome.end(route); homeChrome.end(route); settingsNavigation.end(route); scheduledNavigation.end(route); informationLegal.end(route) }
+    override func routeEnded(_ route: ExactRoute) { media.end(route); keyboard.end(route); archiveChrome.end(route); modelSearch.end(route); homeSwipes.end(route); sheets.end(route); threadHeader.end(route); documentMenus.end(route); workLog.end(route); terminal.menus.end(route); inspectorChrome.end(route); homeChrome.end(route); settingsNavigation.end(route); scheduledNavigation.end(route); informationLegal.end(route) }
     override func window(_ window: ExactWindow) { keyboard.configureWindow(window) }
     override func windowEnded(_ window: ExactWindow) { keyboard.endWindow(window) }
 
@@ -457,7 +458,7 @@ final class T3MobileModule: ExactModule {
             document.perform(request) { reply.send($0) }
         case "mobileAudioControl":
             audio.perform(request) { reply.send($0) }
-        case "mobileMediaShare":
+        case "mobileMediaShare", "mobileMediaShareCancel", "mobileMediaShareStatus":
             media.perform(request) { reply.send($0) }
         case "composerAttachPick", "composerAttachRead", "composerAttachRemove", "snapshotDraftRead", "snapshotDraftRemove", "mobileAttachmentPreview":
             attachments.perform(request) { reply.send($0) }
@@ -485,6 +486,7 @@ final class T3MobileModule: ExactModule {
         case "mobileHomeHaptic":
             if request["kind"] as? String == "light" { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
             else if request["kind"] as? String == "success" { UINotificationFeedbackGenerator().notificationOccurred(.success) }
+            else if request["kind"] as? String == "selection" { UISelectionFeedbackGenerator().selectionChanged() }
             else { reply.fail("Unknown Home feedback."); return }
             answer()
         case "mobileAlert":

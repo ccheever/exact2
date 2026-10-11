@@ -1,9 +1,12 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
 import { T3Client } from './shared/client';
 import { obj, type Obj } from './shared/domain';
 import type { Native } from './shared/protocol';
 import { mobileFilesRead, mobileFilesAction, mobileFileRead, mobileFileSnapshot, mobileFilesSnapshot, mobileFileMenu, mobileFilePresentation } from './file-data';
 import { buildFileTree, flattenFileTree } from './file-tree-model';
+import { workspaceSvgSnapshot, workspaceSvgRead, workspaceSvgPrepare, workspaceSvgAction, workspaceSvgObserve, workspaceSvgConnection, type SvgVisit } from './workspace-svg';
+import { mobileNative, mobileClient } from './client';
+import { answer } from './app';
 
 function fixture() {
   const client = new T3Client(); client.origin = 'https://example.test'; client.environmentId = 'env'; client.projectId = 'p'; client.generation = 1;
@@ -12,7 +15,8 @@ function fixture() {
   const calls: Obj[] = []; let hook: ((request: Obj) => unknown) | undefined;
   const native: Native = { available: true, watch() {}, async later(input) {
     const request = obj(input); calls.push(request); const custom = hook?.(request); if (custom !== undefined) return await custom;
-    const value = request.op === 'http' ? { authenticated: true, permissions: ['filesystem:read'] }
+    const value = request.op === 'mobileMediaShare' ? { identifier: JSON.parse(String(request.sourceJSON)).identifier, routeKey: request.routeKey, phase: 'terminal', message: '' }
+      : request.op === 'mobileMediaShareStatus' ? { phase: 'idle' } : request.op === 'http' ? { authenticated: true, permissions: ['filesystem:read'] }
       : request.method === 'projects.listEntries' ? { entries: obj(request.payload).directoryPath === 'src' ? [{ kind: 'file', path: 'src/a.ts' }] : [{ kind: 'directory', path: 'src' }, { kind: 'file', path: 'README.md' }] }
       : request.method === 'projects.searchEntries' ? { entries: [{ kind: 'file', path: 'other/Needle.ts' }], truncated: true }
       : request.method === 'projects.readFile' ? { contents: 'const a = 1;\r\n\tvalue\r\n', byteLength: 27, truncated: false } : {};
@@ -199,4 +203,383 @@ test('an unrelated tree refresh preserves the captured file menu while a changed
   f.hook(request => request.method === 'projects.readFile' ? { ok: true, generation: 1, value: { contents: 'changed bytes', byteLength: 13, truncated: false } } : undefined);
   await mobileFileRead('src/a.ts', f.native, false, 0, true, f.client);
   expect(menu()).not.toBe(before);
+});
+
+function svgFixture(path = 'assets/icon.svg') {
+  const f = fixture(); f.client.threadId = 'thread'; f.client.threadLive = true;
+  let grants = true, signs = 0;
+  const visit: SvgVisit = { path, location: `/threads/env/thread/files/${encodeURIComponent(path)}`, visit: 'visit-a', flowOwner: '' };
+  const observe = (at = visit) => workspaceSvgObserve([{ id: at.visit, name: at.path ? 'threadFile' : 'thread', url: at.location, params: { filePath: at.path } }], f.client);
+  observe();
+  f.hook(request => request.op === 'http' ? { ok: true, generation: 1, value: { authenticated: true, permissions: grants ? ['filesystem:read'] : [] } }
+    : request.method === 'assets.createUrl' ? { ok: true, generation: 1, value: { relativeUrl: `/signed.svg?signature=${++signs}` } } : undefined);
+  const read = (at = visit) => workspaceSvgPrepare(at, f.native, false, false, f.client);
+  const snapshot = (at = visit) => workspaceSvgSnapshot(at, false, f.client)!;
+  const action = (operation: string) => workspaceSvgAction(JSON.stringify({ identifier: snapshot().owner, operation }),
+    { owner: snapshot().owner, visit: visit.visit, location: visit.location }, f.native, f.client);
+  const status = () => workspaceSvgRead(visit, f.native, false, f.client);
+  return { ...f, visit, read, snapshot, status, action, observe, deny: () => { grants = false; } };
+}
+
+test.each([
+  ['assets/icon.svg', 'workspace-file', '/repo/assets/icon.svg', 'assets/icon.svg'],
+  ['/other/raw.svg#draft?x', 'media-file', '/other/raw.svg#draft?x', ''],
+  ['C:\\outside\\icon.svg', 'media-file', 'C:\\outside\\icon.svg', ''],
+  ['\\\\server\\share\\icon.svg', 'media-file', '\\\\server\\share\\icon.svg', ''],
+] as const)('SVG signs the reference resource and preserves literal paths: %s', async (path, tag, absolutePath, relativePath) => {
+  const f = svgFixture(path), data = (await f.read())!;
+  expect(f.calls.filter(call => call.method === 'projects.readFile')).toHaveLength(0);
+  expect(f.calls.find(call => call.method === 'assets.createUrl')?.payload).toEqual({ resource: { _tag: tag, threadId: 'thread', path: absolutePath } });
+  expect(data).toMatchObject({ path, fullPath: absolutePath, relativePath, loading: false, svgCanRead: true, rows: [], contents: '' });
+  expect(JSON.parse(data.svgSource)).toMatchObject({ source: 'remote', workspaceSvg: true, url: 'https://example.test/signed.svg?signature=1' });
+});
+
+test('SVG image menu has only reference image actions and shares fresh original bytes', async () => {
+  const f = svgFixture(), data = (await f.read())!;
+  const actions = JSON.parse(mobileFileMenu(data, false, false, 'visit-a', true).configuration).actions as Obj[];
+  expect(actions.map(row => row.title)).toEqual(['Copy full path', 'Copy relative path', 'Save or share', 'Refresh']);
+  expect(actions.slice(0, 2).map(row => row.copyValue)).toEqual(['/repo/assets/icon.svg', 'assets/icon.svg']);
+  expect((await f.action('share')).message).toBe('');
+  expect(f.calls.filter(call => call.method === 'assets.createUrl')).toHaveLength(2);
+  const request = f.calls.find(call => call.op === 'mobileMediaShare')!;
+  expect(JSON.parse(String(request.sourceJSON))).toMatchObject({ source: 'remote', kind: 'file', name: 'icon.svg', url: 'https://example.test/signed.svg?signature=2' });
+  expect(f.snapshot().svgSource).toBe(data.svgSource);
+});
+
+test('SVG Refresh reuses the signature; explicit retry remints and changes the native identity', async () => {
+  const f = svgFixture(), first = (await f.read())!;
+  await f.action('refresh'); const refreshed = f.snapshot();
+  expect(f.calls.filter(call => call.method === 'assets.createUrl')).toHaveLength(1);
+  expect(JSON.parse(refreshed.svgSource).url).toBe('https://example.test/signed.svg?signature=1&revision=1');
+  expect(JSON.parse(refreshed.svgSource).identifier).not.toBe(JSON.parse(first.svgSource).identifier);
+  await f.action('retry');
+  expect(f.calls.filter(call => call.method === 'assets.createUrl')).toHaveLength(2);
+  expect(JSON.parse(f.snapshot().svgSource).url).toContain('signature=2');
+});
+
+test('failed SVG resolution settles and a retry clears the failed result', async () => {
+  const f = svgFixture(), original = f.native.later; let fail = true;
+  f.native.later = input => obj(input).method === 'assets.createUrl' && fail
+    ? Promise.resolve({ ok: false, generation: 1, error: { kind: 'File', message: 'missing' } }) : original(input);
+  expect(await f.read()).toMatchObject({ loading: false, svgFailure: 'failed', svgSource: '', error: 'missing' });
+  fail = false; await f.action('retry');
+  expect(f.snapshot()).toMatchObject({ loading: false, svgFailure: '', error: '' });
+  expect(f.snapshot().svgSource).not.toBe('');
+});
+
+test('late SVG response cannot enter a new visit of the same path', async () => {
+  const f = svgFixture(), original = f.native.later;
+  let release!: (value: unknown) => void, began!: () => void;
+  const started = new Promise<void>(resolve => { began = resolve; });
+  f.native.later = input => obj(input).method === 'assets.createUrl' ? (began(), new Promise(resolve => { release = resolve; })) : original(input);
+  const pending = f.read(); await started;
+  const next = { ...f.visit, visit: 'visit-b' }; f.observe(next);
+  release({ ok: true, generation: 1, value: { relativeUrl: '/stale.svg' } });
+  await expect(pending).rejects.toMatchObject({ kind: 'superseded' });
+  expect(f.snapshot(next).svgSource).toBe('');
+});
+
+test('a newer permission denial retires an in-flight SVG signature', async () => {
+  const f = svgFixture(), original = f.native.later;
+  let release!: (value: unknown) => void, began!: () => void;
+  const started = new Promise<void>(resolve => { began = resolve; });
+  f.native.later = input => obj(input).method === 'assets.createUrl' ? (began(), new Promise(resolve => { release = resolve; })) : original(input);
+  const pending = f.read(); await started; f.deny();
+  await f.client.http(mobileNative(f.native, f.client), '/api/auth/session');
+  release({ ok: true, generation: 1, value: { relativeUrl: '/denied.svg' } });
+  await expect(pending).rejects.toMatchObject({ kind: 'superseded' });
+  expect(f.snapshot()).toMatchObject({ svgSource: '', svgCanRead: false, svgFailure: 'failed' });
+});
+
+test('leaving an SVG visit drops the JS owner without using a captured native handle', async () => {
+  const f = svgFixture(); await f.read(); const original = f.native.later;
+  let release!: (value: unknown) => void, began!: () => void;
+  const started = new Promise<void>(resolve => { began = resolve; });
+  f.native.later = input => obj(input).op === 'mobileMediaShare'
+    ? (f.calls.push(obj(input)), began(), new Promise(resolve => { release = resolve; })) : original(input);
+  const pending = f.action('share'); await started;
+  await f.action('share'); expect(f.calls.filter(call => call.op === 'mobileMediaShare')).toHaveLength(1);
+  f.observe({ path: '', location: '/', visit: 'home', flowOwner: '' });
+  expect(f.calls.some(call => call.op === 'mobileMediaShareCancel')).toBe(false);
+  release({ ok: false, generation: 1, error: { kind: 'Media', message: 'cancelled' } });
+  expect((await pending).message).toBe('');
+});
+
+test('SVG initial load and share signing settle independently', async () => {
+  const f = svgFixture(), original = f.native.later; let signs = 0;
+  let release!: (value: unknown) => void, began!: () => void;
+  const started = new Promise<void>(resolve => { began = resolve; });
+  f.native.later = input => obj(input).method === 'assets.createUrl' && ++signs === 1
+    ? (began(), new Promise(resolve => { release = resolve; })) : original(input);
+  const loading = f.read(); await started; expect((await f.action('share')).message).toBe('');
+  release({ ok: true, generation: 1, value: { relativeUrl: '/initial.svg' } });
+  expect(await loading).toMatchObject({ loading: false, svgSharing: false, error: '' });
+  expect(JSON.parse(f.snapshot().svgSource).url).toBe('https://example.test/initial.svg');
+});
+
+test('SVG retry re-mints after reconnect with unchanged connection identity', async () => {
+  const f = svgFixture(), original = f.native.later; f.client.connection = 'disconnected';
+  await f.read();
+  f.native.later = async input => { if (obj(input).op === 'retry') { f.client.connection = 'connected'; return { ok: true, generation: 1, value: {} }; } return original(input); };
+  expect((await f.action('retry')).message).toBe('');
+  expect(f.snapshot()).toMatchObject({ loading: false, error: '', svgFailure: '' });
+  expect(JSON.parse(f.snapshot().svgSource).url).toContain('/signed.svg');
+});
+
+test('SVG failed retry preserves its error and loses authority when its route departs', async () => {
+  const f = svgFixture(); f.client.connection = 'disconnected'; await f.read();
+  f.native.later = async () => ({ ok: false, generation: 1, error: { kind: 'Reconnect', message: 'retry denied', uncertain: true } });
+  expect(await f.action('retry')).toMatchObject({ message: 'retry denied', kind: 'Reconnect', uncertain: true });
+  let release!: (value: unknown) => void, started!: () => void;
+  const pending = new Promise<void>(resolve => { started = resolve; });
+  f.native.later = () => (started(), new Promise(resolve => { release = resolve; }));
+  const retry = f.action('retry'); await pending;
+  f.observe({ ...f.visit, location: '/threads/env/thread', path: '', visit: 'back' });
+  release({ ok: false, generation: 1, error: { kind: 'Reconnect', message: 'old error' } });
+  expect((await retry).message).toBe('');
+});
+
+test('SVG revoked share settles and can retry without a stuck busy flag', async () => {
+  const f = svgFixture(); await f.read(); const original = f.native.later;
+  let release!: (value: unknown) => void, began!: () => void;
+  const started = new Promise<void>(resolve => { began = resolve; });
+  f.native.later = input => obj(input).op === 'mobileMediaShare' ? (began(), new Promise(resolve => { release = resolve; })) : original(input);
+  const share = f.action('share'); await started; f.deny();
+  await f.client.http(mobileNative(f.native, f.client), '/api/auth/session');
+  expect(f.snapshot()).toMatchObject({ svgSharing: true, svgCanRead: false, loading: false });
+  await f.status();
+  release({ ok: false, generation: 1, error: { kind: 'Media', message: 'cancelled' } }); await share;
+  expect(f.snapshot().svgSharing).toBe(false);
+  await f.action('retry'); expect(f.snapshot().loading).toBe(false);
+});
+
+test('SVG retry cannot start signing in a different focused environment after awaiting', async () => {
+  const f = svgFixture(); f.client.connection = 'disconnected'; await f.read();
+  let release!: (value: unknown) => void, began!: () => void;
+  const started = new Promise<void>(resolve => { began = resolve; });
+  f.native.later = input => { f.calls.push(obj(input)); began(); return new Promise(resolve => { release = resolve; }); };
+  const pending = f.action('retry'); await started;
+  f.client.environmentId = 'other'; f.client.origin = 'https://other.test'; f.client.connection = 'connected';
+  release({ ok: true, generation: 1, value: {} });
+  expect((await pending).message).toBe('');
+  expect(f.calls.some(call => call.method === 'assets.createUrl')).toBe(false);
+});
+
+test('SVG drive-slash workspace uses the reference Windows join', async () => {
+  const f = svgFixture(); f.client.shell.projects[0]!.workspaceRoot = 'C:/repo';
+  const data = (await f.read())!;
+  expect(data.fullPath).toBe('C:/repo\\assets\\icon.svg');
+  expect(obj(f.calls.find(call => call.method === 'assets.createUrl')?.payload).resource).toMatchObject({ path: data.fullPath });
+});
+
+test('SVG same-id location replacement rejects a captured action without snapshot demand', async () => {
+  const f = svgFixture(); await f.read(); const captured = f.snapshot(); const before = f.calls.length;
+  f.observe({ ...f.visit, path: 'other.svg', location: '/threads/env/thread/files/other.svg' });
+  await workspaceSvgAction(JSON.stringify({ identifier: captured.owner, operation: 'share' }),
+    { owner: captured.owner, visit: f.visit.visit, location: f.visit.location }, f.native, f.client);
+  expect(f.calls).toHaveLength(before);
+  expect(() => f.snapshot()).toThrow('The file route changed.');
+});
+
+test.each([
+  ['offline', 'You are offline', false, false], ['connecting', 'Connecting to Laptop...', true, true],
+  ['reconnecting', 'Reconnecting to Laptop...', true, true], ['unsupported', 'Client not supported', false, false],
+  ['available', 'Laptop is disconnected', true, false], ['error', 'Laptop is unavailable', true, false],
+] as const)('SVG connection notice follows reference %s presentation', (phase, title, retry, retrying) => {
+  expect(workspaceSvgConnection(phase, 'Laptop', '', 'trace')).toMatchObject({ title, retry, retrying, trace: 'trace' });
+  expect(workspaceSvgConnection('reconnecting', 'Laptop', 'network error').detail).toBe('The app will keep retrying automatically. network error');
+});
+
+test('SVG connecting is loading while reconnecting uses the reference connection notice', async () => {
+  const f = svgFixture(); f.client.connection = 'connecting';
+  expect(f.snapshot()).toMatchObject({ svgPhase: 'connecting', svgFailure: '', loading: true });
+  f.client.connection = 'reconnecting';
+  expect(f.snapshot()).toMatchObject({ svgPhase: 'reconnecting', svgFailure: 'disconnected', svgRetrying: true, svgRetryAllowed: true });
+});
+
+let restoreAppClient: (() => void) | undefined;
+afterEach(() => { if (restoreAppClient) { workspaceSvgObserve([], mobileClient); restoreAppClient(); restoreAppClient = undefined; } });
+function appSvgFixture(path: string) {
+  const saved = { ...mobileClient }, projects = mobileClient.shell.projects;
+  restoreAppClient = () => { Object.assign(mobileClient, saved); mobileClient.shell.projects = projects; };
+  const generation = mobileClient.generation + 1;
+  Object.assign(mobileClient, { origin: 'https://example.test', environmentId: 'env', projectId: 'p', generation,
+    connection: 'connected', configLive: true, shellLive: true, threadId: 'thread', threadLive: true });
+  mobileClient.shell.projects = [{ id: 'p', title: 'Project', workspaceRoot: '/repo' }];
+  const visit = { path, location: '/threads/env/thread/files/' + encodeURIComponent(path), visit: 'actual-' + generation, flowOwner: '' };
+  const args = [path, 'light', 0, false, visit.location, '', visit.visit], calls: Obj[] = [];
+  let hook: ((request: Obj) => unknown) | undefined;
+  const native: Native = { available: true, watch() {}, async later(input) {
+    const request = obj(input); calls.push(request); const custom = hook?.(request); if (custom !== undefined) return await custom;
+    return { ok: true, generation, value: request.op === 'http' ? { authenticated: true, permissions: ['filesystem:read'] }
+      : request.method === 'assets.createUrl' ? { relativeUrl: '/real.svg' }
+      : request.method === 'projects.readFile' ? { contents: '<svg>cached</svg>', truncated: false } : {} };
+  } };
+  const call = (name: 'workspace' | 'fileSnapshot' | 'filePrepare', values: unknown[], input: Native | null = native) => answer(name, values as never, {} as never, null as never, input as never);
+  const observe = (active: boolean) => call('workspace', [[{ id: active ? visit.visit : 'home', name: active ? 'threadFile' : 'home',
+    url: active ? visit.location : '/', params: active ? { filePath: path, threadEnvironment: 'env', threadId: 'thread' } : {} }], { width: 390, height: 844 }, 0]);
+  return { visit, args, calls, native, call, observe, hook: (next: typeof hook) => { hook = next; } };
+}
+
+test('actual app rejects a queued SVG prepare after workspace departure without a text fallback', async () => {
+  const f = appSvgFixture('assets/offroute.svg'); f.observe(true); f.observe(false);
+  await expect(Promise.resolve().then(() => f.call('filePrepare', f.args))).rejects.toMatchObject({ kind: 'superseded' });
+  expect(f.calls.some(call => call.method === 'projects.readFile')).toBe(false);
+});
+
+test('actual app discards a late SVG failure after departure without entering the text reader', async () => {
+  const f = appSvgFixture('assets/late.svg'); f.observe(true);
+  let release!: (value: unknown) => void, began!: () => void; const started = new Promise<void>(resolve => { began = resolve; });
+  f.hook(request => request.method === 'assets.createUrl' ? (began(), new Promise(resolve => { release = resolve; })) : undefined);
+  const pending = Promise.resolve(f.call('filePrepare', f.args)); await started; f.observe(false);
+  release({ ok: false, generation: mobileClient.generation, error: { kind: 'File', message: 'asset missing' } });
+  await expect(pending).rejects.toMatchObject({ kind: 'superseded' });
+  expect(f.calls.some(call => call.method === 'projects.readFile')).toBe(false);
+});
+
+test('actual app cannot reveal cached SVG source from an old snapshot', async () => {
+  const f = appSvgFixture('assets/cached.svg'); await mobileFileRead(f.visit.path, f.native, false, 0, false, mobileClient);
+  f.observe(true); f.observe(false);
+  await expect(Promise.resolve().then(() => f.call('fileSnapshot', f.args))).rejects.toThrow('The file route changed.');
+});
+
+test('actual app treats a missing native SVG bridge as a preview failure, never source text', async () => {
+  const f = appSvgFixture('assets/no-native.svg'); f.observe(true);
+  expect(await f.call('filePrepare', f.args, null)).toMatchObject({ svg: true, rows: [], loading: false, svgSource: '', svgFailure: 'failed' });
+  expect(f.calls).toHaveLength(0);
+});
+
+test.each([false, true])('obsolete SVG load %s cannot replace a newer successful retry', async failed => {
+  const f = svgFixture(), original = f.native.later; let signs = 0;
+  let release!: (value: unknown) => void, began!: () => void; const started = new Promise<void>(resolve => { began = resolve; });
+  f.native.later = input => obj(input).method === 'assets.createUrl' && ++signs === 1
+    ? (began(), new Promise(resolve => { release = resolve; })) : original(input);
+  const first = f.read(); await started; await f.action('retry');
+  const latest = f.snapshot().svgSource;
+  release(failed ? { ok: false, generation: 1, error: { kind: 'File', message: 'old failure' } }
+    : { ok: true, generation: 1, value: { relativeUrl: '/old.svg' } });
+  await expect(first).rejects.toMatchObject({ kind: 'superseded' });
+  expect(f.snapshot()).toMatchObject({ svgSource: latest, error: '', loading: false });
+});
+
+test('a later SVG action suppresses an old share error report', async () => {
+  const f = svgFixture(); await f.read(); const original = f.native.later;
+  let release!: (value: unknown) => void, began!: () => void; const started = new Promise<void>(resolve => { began = resolve; });
+  f.native.later = input => obj(input).op === 'mobileMediaShare' ? (began(), new Promise(resolve => { release = resolve; })) : original(input);
+  const share = f.action('share'); await started; await f.action('refresh');
+  release({ ok: false, generation: 1, error: { kind: 'Media', message: 'obsolete share error' } });
+  expect((await share).message).toBe('');
+  expect(f.snapshot().error).toBe('');
+});
+
+
+test('an abandoned Share acknowledgement remains busy until fresh native status settles', async () => {
+  const f = svgFixture(); await f.read(); const original = f.native.later;
+  let status: Obj = {}, shareCalls = 0;
+  f.native.later = async input => {
+    const request = obj(input);
+    if (request.op === 'mobileMediaShare') {
+      shareCalls++;
+      status = { identifier: JSON.parse(String(request.sourceJSON)).identifier, routeKey: f.visit.visit, phase: 'preparing', message: '' };
+      throw Object.assign(new Error('abandoned'), { name: 'FetchError', kind: 'Aborted' });
+    }
+    if (request.op === 'mobileMediaShareStatus') return { ok: true, generation: 1, value: status };
+    return original(input);
+  };
+  expect((await f.action('share')).message).toBe('');
+  expect(f.snapshot().svgSharing).toBe(true);
+  await f.action('refresh'); await f.action('share');
+  expect(shareCalls).toBe(1); expect((await f.status())!.svgSharing).toBe(true);
+  status = { ...status, phase: 'cancelling' };
+  expect((await f.status())!.svgSharing).toBe(true);
+  status = { ...status, phase: 'terminal', message: 'Download failed' };
+  expect(await f.status()).toMatchObject({ svgSharing: false, svgShareMessage: 'Download failed' });
+  expect((await f.status())!.svgShareMessage).toBe('Download failed');
+  await f.action('share'); expect(shareCalls).toBe(2);
+});
+
+test('revocation uses the fresh status answer and keeps busy through native cleanup', async () => {
+  const f = svgFixture(); await f.read(); const original = f.native.later;
+  let status: Obj = {}, cancelCalls = 0;
+  f.native.later = async input => {
+    const request = obj(input);
+    if (request.op === 'mobileMediaShare') {
+      status = { identifier: JSON.parse(String(request.sourceJSON)).identifier, routeKey: f.visit.visit, phase: 'preparing' };
+      return { ok: true, generation: 1, value: status };
+    }
+    if (request.op === 'mobileMediaShareStatus') return { ok: true, generation: 1, value: status };
+    if (request.op === 'mobileMediaShareCancel') {
+      cancelCalls++; expect(request.identifier).toBe(status.identifier);
+      status = { ...status, phase: 'cancelling' }; return { ok: true, generation: 1, value: status };
+    }
+    return original(input);
+  };
+  await f.action('share'); f.deny(); await f.client.http(mobileNative(f.native, f.client), '/api/auth/session');
+  expect(await f.status()).toMatchObject({ svgSharing: true, svgCanRead: false }); expect(cancelCalls).toBe(1);
+  expect(await f.status()).toMatchObject({ svgSharing: true, svgCanRead: false }); expect(cancelCalls).toBe(1);
+  status = { ...status, phase: 'terminal', message: 'The file route changed.' };
+  expect(await f.status()).toMatchObject({ svgSharing: false, svgShareMessage: '' });
+});
+
+test('a delayed idle status cannot clear a newer share attempt', async () => {
+  const f = svgFixture(); await f.read(); const original = f.native.later;
+  let release!: (value: unknown) => void, started!: () => void;
+  const began = new Promise<void>(resolve => { started = resolve; });
+  f.native.later = input => {
+    const request = obj(input);
+    if (request.op === 'mobileMediaShareStatus') { started(); return new Promise(resolve => { release = resolve; }); }
+    if (request.op === 'mobileMediaShare') return Promise.resolve({ ok: true, generation: 1, value: {
+      identifier: JSON.parse(String(request.sourceJSON)).identifier, routeKey: f.visit.visit, phase: 'presented' } });
+    return original(input);
+  };
+  const pending = f.status(); await began; await f.action('share');
+  release({ ok: true, generation: 1, value: { phase: 'idle' } }); await pending;
+  expect(f.snapshot().svgSharing).toBe(true);
+});
+
+
+test('a mismatched-owner cancelling status does not request another cancellation', async () => {
+  const f = svgFixture(); await f.read(); const original = f.native.later; let cancelCalls = 0;
+  f.native.later = async input => {
+    const request = obj(input);
+    if (request.op === 'mobileMediaShareStatus') return { ok: true, generation: 1,
+      value: { identifier: 'retired-owner-share', routeKey: f.visit.visit, phase: 'cancelling' } };
+    if (request.op === 'mobileMediaShareCancel') cancelCalls++;
+    return original(input);
+  };
+  await f.status(); await f.status(); expect(cancelCalls).toBe(0);
+});
+
+test('an abandoned SVG preparation can sign again on its next same-visit preparation', async () => {
+  const f = svgFixture(), original = f.native.later; let signs = 0;
+  f.native.later = async input => {
+    if (obj(input).method === 'assets.createUrl' && ++signs === 1)
+      throw Object.assign(new Error('answer replaced'), { name: 'FetchError', kind: 'Aborted' });
+    return original(input);
+  };
+  await expect(f.read()).rejects.toMatchObject({ kind: 'superseded' });
+  expect(f.snapshot()).toMatchObject({ svgSource: '', error: '', svgFailure: '' });
+  expect(await f.read()).toMatchObject({ loading: false, error: '', svgFailure: '' });
+  expect(signs).toBe(2); expect(f.snapshot().svgSource).not.toBe('');
+});
+
+test.each(['success', 'error', 'new-generation'] as const)('overlapping same-visit preparation fences the older %s result', async older => {
+  const f = svgFixture(), original = f.native.later; let signs = 0;
+  let release!: (value: unknown) => void, reject!: (reason: unknown) => void, began!: () => void;
+  const started = new Promise<void>(resolve => { began = resolve; });
+  f.native.later = input => {
+    if (obj(input).method === 'assets.createUrl' && ++signs === 1) {
+      began(); return new Promise((resolve, fail) => { release = resolve; reject = fail; });
+    }
+    return Promise.resolve(original(input)).then(reply => ({ ...obj(reply), generation: f.client.generation }));
+  };
+  const pending = f.read().catch(error => error); await started;
+  if (older === 'new-generation') f.client.generation++;
+  const replacement = await f.read(); expect(signs).toBe(2);
+  expect(replacement).toMatchObject({ loading: false, error: '', svgFailure: '' });
+  const source = replacement!.svgSource; expect(source).not.toBe('');
+  if (older === 'error') reject(new Error('old preparation error'));
+  else release({ ok: true, generation: 1, value: { relativeUrl: '/obsolete.svg' } });
+  expect(await pending).toMatchObject({ kind: 'superseded' });
+  expect(f.snapshot()).toMatchObject({ svgSource: source, loading: false, error: '', svgFailure: '' });
 });

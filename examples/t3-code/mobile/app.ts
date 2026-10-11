@@ -55,6 +55,7 @@ import { mobileTerminalPrepare, mobileTerminalAction, mobileTerminalEvent, mobil
 import { mobileReviewColors } from './review-colors';
 import { mobileReviewRead, mobileReviewSnapshot, mobileReviewAction } from './review-data';
 import { mobileNewTaskFileSnapshot, mobileNewTaskFileRead } from './new-task-file';
+import { workspaceSvgRead, workspaceSvgSnapshot, workspaceSvgPrepare, workspaceSvgAction, workspaceSvgObserve, workspaceSvgPath } from './workspace-svg';
 import { mobileFilesRead, mobileFilesSnapshot, mobileFilesAction, mobileFileRead, mobileFileSnapshot, mobileFileMenu, type FileSnapshot } from './file-data';
 import { MOBILE_SERVER_ROUTES, mobileServerSettings, mobileServerSettingsCommand } from './settings-server';
 import { settingsProviderNative, mobileProviderAccounts, mobileProviderAccountsSnapshot, mobileProviderCommand, mobileProviderField } from './settings-provider';
@@ -225,6 +226,7 @@ const sources: Sources = {
   },
   workspace: (args, _store, storage, nativeInput) => {
     const native = nativeInput;
+    workspaceSvgObserve(args[0]);
     return workspace(args);
   },
   workspaceThreadSelection: (args, _store, storage, nativeInput) => {
@@ -442,15 +444,21 @@ const sources: Sources = {
   },
   fileSnapshot: (args, _store, storage, nativeInput) => {
     const native = sourceNative('fileSnapshot', args, nativeInput);
+    if (workspaceSvgPath(String(args[0] ?? ''))) return workspaceSvgRead({ path: String(args[0]), location: String(args[4]), visit: String(args[6]), flowOwner: String(args[5]) }, native, args[1] === 'dark');
     if (String(args[4]).startsWith('/new/draft/files/')) return mobileNewTaskFileSnapshot(String(args[0] ?? ''), String(args[4]), String(args[6]), String(args[5]), args[1] === 'dark');
     return mobileFileSnapshot(String(args[0] ?? ''), args[1] === 'dark', Number(args[2] ?? 0));
   },
-  filePrepare: (args, _store, storage, nativeInput) => {
+  filePrepare: async (args, _store, storage, nativeInput) => {
     const native = sourceNative('filePrepare', args, nativeInput);
+    if (workspaceSvgPath(String(args[0] ?? ''))) return (await workspaceSvgPrepare({ path: String(args[0]), location: String(args[4]), visit: String(args[6]), flowOwner: String(args[5]) }, native, args[1] === 'dark', args[3] === true))!;
     if (String(args[4]).startsWith('/new/draft/files/')) return mobileNewTaskFileRead(String(args[0] ?? ''), String(args[4]), String(args[6]), String(args[5]), args[1] === 'dark', native);
     return mobileFileRead(String(args[0] ?? ''), native, args[1] === 'dark', Number(args[2] ?? 0), args[3] === true);
   },
   fileMenu: args => mobileFileMenu(args[0] as FileSnapshot, args[1], args[2], args[3], args[4]),
+  fileShare: (args, _store, storage, nativeInput) => workspaceSvgAction(String(args[0]),
+    { owner: String(args[1]), visit: String(args[2]), location: String(args[3]) }, sourceNative('fileShare', args, nativeInput)),
+  fileAction: (args, _store, storage, nativeInput) => workspaceSvgAction(String(args[0]),
+    { owner: String(args[1]), visit: String(args[2]), location: String(args[3]) }, sourceNative('fileAction', args, nativeInput)),
   serverSettings: (args, _store, storage, nativeInput) => {
     const native = sourceNative('serverSettings', args, nativeInput);
     return mobileServerSettings(MOBILE_SERVER_ROUTES[String(args[0])] ?? 'new-threads', String(args[1]), args[2] === true ? native : null);
