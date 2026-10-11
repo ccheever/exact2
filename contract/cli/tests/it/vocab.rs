@@ -92,6 +92,20 @@ fn header_states_when_it_is_the_navigation_bar() {
             .is_some_and(|n| n.contains("navigation bar")),
         "{doc}"
     );
+    // LLP 1115.000 D5.2: what a route with no bar of its own gets, and the
+    // word that says it has none, under the tag and under the word.
+    for part in ["system Back button alone", "`navigationBar=\"none\"`"] {
+        assert!(header.contains(part), "{part}: {header}");
+    }
+    let bar = stdout(&vocab(&["navigationBar"]));
+    for part in [
+        "\"none\"",
+        "\"auto\"",
+        "the edge swipe still goes back",
+        "system Back button alone",
+    ] {
+        assert!(bar.contains(part), "{part}: {bar}");
+    }
 }
 
 #[test]

@@ -14,7 +14,8 @@ later route's, and a pushed route with no bar of its own (no header, or one that
 bar) gets a bar holding the system Back button alone. A full-bleed screen that draws
 its own way back says `navigationBar="none"` on its route: no bar, and the edge swipe
 still goes back. `contract vocab header` states it whole, and the compiler warns
-(`lower-header-no-bar`, `lower-header-unplaced`).
+(`lower-header-no-bar`, `lower-header-unplaced`, and `lower-back-twice` for a Back
+control drawn under the bar's).
 
 <!-- check: app -->
 ```contract

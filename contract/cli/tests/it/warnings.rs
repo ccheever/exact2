@@ -144,6 +144,134 @@ fn a_header_with_no_heading_or_two_is_named_as_no_bar() {
     );
 }
 
+/// A stack whose root names its Back control `back` (or `root` says
+/// otherwise), with a route pushed over Home: `route` is the pushed route's
+/// attributes and `body` its children, their lines at 16 on.
+fn pushed(root: &str, route: &str, body: &str) -> String {
+    let body: String = body.lines().map(|l| format!("            {l}\n")).collect();
+    format!(
+        "routes nav\n  home \"/\"\n    detail \"/detail\"\ncomponent App\n  action back\n    nav = back(nav)\n  view\n    main navigationKey=`${{top(nav).id}}` {root}\n      each e in stack(nav) key=e.id\n        when e.name == \"home\"\n          column navigationKey=`${{e.id}}`\n            header\n              text \"Home\" role=\"heading\" aria-level=1\n        when e.name == \"detail\"\n          column navigationKey=`${{e.id}}` {route}\n{body}"
+    )
+}
+
+const BACK_TWICE: &str = "lower-back-twice";
+const NAMED: &str = "navigationBack=\"back\"";
+const BACK: &str = "button id=\"back\" press=back\n  text \"Back\"";
+
+#[test]
+fn a_back_control_drawn_under_the_system_back_is_named_with_the_opt_out() {
+    // LLP 1115.000 D5.2: on iOS every pushed route has the bar, whose Back
+    // presses the authored control, so one drawn in the page is a second.
+    let drawn = pushed(NAMED, "", &format!("{BACK}\ntext \"Detail\""));
+    assert_eq!(warned(&drawn), [(BACK_TWICE.to_string(), 16)], "{drawn}");
+    let (_, warnings) = contract::compile_warned(&drawn);
+    for part in [
+        "`id=\"back\"`",
+        "the screen shows two",
+        "Delete it",
+        "into the route's `header`",
+        "`navigationBar=\"none\"`",
+    ] {
+        assert!(warnings[0].message.contains(part), "{part}: {warnings:?}");
+    }
+    // Under a header that is the bar, too: the bar's Back and this one.
+    let below = pushed(
+        NAMED,
+        "",
+        &format!("header\n  text \"Detail\" role=\"heading\"\n{BACK}"),
+    );
+    assert_eq!(warned(&below), [(BACK_TWICE.to_string(), 18)], "{below}");
+    // And in a `header` that is not the route's first child, which is a
+    // box in the page.
+    let second = pushed(
+        NAMED,
+        "",
+        &format!("text \"first\"\nheader\n  {}", BACK.replace('\n', "\n  ")),
+    );
+    assert_eq!(warned(&second), [(BACK_TWICE.to_string(), 18)], "{second}");
+}
+
+#[test]
+fn a_back_control_the_bar_stands_for_or_a_route_with_no_bar_is_not_warned() {
+    let in_header = format!(
+        "header\n  {}\n  text \"Detail\" role=\"heading\"\ntext \"body\"",
+        BACK.replace('\n', "\n  ")
+    );
+    for (root, route, body) in [
+        // In the route's first `header`, which is the bar: UIKit's Back
+        // button stands for it, and it is not drawn.
+        (NAMED, "", in_header.clone()),
+        // The route says it has no bar: its own Back is the only one.
+        (NAMED, "navigationBar=\"none\"", BACK.to_string()),
+        // A sheet is the first route of its own stack: no system Back.
+        (NAMED, "navigationPresentation=\"modal\"", BACK.to_string()),
+        (
+            NAMED,
+            "navigationPresentation=\"fullscreen\"",
+            BACK.to_string(),
+        ),
+        // What the compiler cannot read is given the benefit.
+        (
+            NAMED,
+            "navigationBar=(e.name == \"detail\" ? \"none\" : \"auto\")",
+            BACK.to_string(),
+        ),
+        (
+            NAMED,
+            "navigationPresentation=(e.name == \"detail\" ? \"modal\" : \"\")",
+            BACK.to_string(),
+        ),
+        (
+            NAMED,
+            "",
+            "button id=`${e.name}` press=back\n  text \"Back\"".to_string(),
+        ),
+        // Not drawn in the page: hidden, or in a popover.
+        (
+            NAMED,
+            "",
+            "button id=\"back\" press=back display=\"none\"\n  text \"Back\"".to_string(),
+        ),
+        (
+            NAMED,
+            "",
+            format!(
+                "column id=\"more\" popover=\"auto\"\n  {}",
+                BACK.replace('\n', "\n  ")
+            ),
+        ),
+        // A root that names no Back control: `id="back"` is any element.
+        ("", "", BACK.to_string()),
+        // One element for every route, each branch opening with its bar:
+        // a later branch's header is the route's first child when taken.
+        (
+            NAMED,
+            "",
+            format!(
+                "when e.url == \"/\"\n  header\n    text \"A\" role=\"heading\"\nwhen e.url != \"/\"\n  {}",
+                in_header.replace('\n', "\n  ")
+            ),
+        ),
+    ] {
+        let src = pushed(root, route, &body);
+        assert_eq!(warned(&src), [], "{src}");
+    }
+    // A written `auto` or an empty presentation is the default, and warned.
+    for route in ["navigationBar=\"auto\"", "navigationPresentation=\"\""] {
+        let src = pushed(NAMED, route, BACK);
+        assert_eq!(warned(&src), [(BACK_TWICE.to_string(), 16)], "{src}");
+    }
+    // In a first `header` that is no bar, the header's own warning names
+    // the bar that holds the system Back above it; the control is not
+    // named a second time.
+    let no_bar = pushed(
+        NAMED,
+        "",
+        &format!("header\n  {}", BACK.replace('\n', "\n  ")),
+    );
+    assert_eq!(warned(&no_bar), [(NO_BAR.to_string(), 16)], "{no_bar}");
+}
+
 /// A root tab bar: tabs that name their panels, as polls and chat-rooms
 /// wrote with one tab.
 fn tabs(tabs: &str) -> String {
