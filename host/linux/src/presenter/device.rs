@@ -104,6 +104,8 @@ impl<D: DataSource> Presenter<D> {
     pub fn reader_replaced(&mut self, backend: Box<dyn Backend>) {
         self.brush.replace_backend(backend);
         self.brush.forget_rows();
+        // Nor of what it was told of the scrollers: the new one asks again.
+        self.reader = Default::default();
         self.dirty = true;
     }
 }

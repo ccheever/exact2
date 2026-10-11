@@ -100,6 +100,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         p.native = { natives?.node(it) }
         p.row = { id -> rows[id] ?: pending[id]?.let { rows[it] } }
         p.group = { id -> groups.getOrPut(id) { android.graphics.RenderNode("exact group").apply { setClipToBounds(false) } } }
+        p.holder = { id -> scrolling.holder(id) }
         p.slot = { slots[it] }
     }
     private val background = Player(fonts)
@@ -192,22 +193,43 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
             return
         }
         val frames = android.view.Choreographer.getInstance()
+        scrolling.released()
         frames.removeFrameCallback(turn); turnPosted = false
         frames.removeFrameCallback(sampler); samplerPosted = false
         frames.removeFrameCallback(holder); holdFrom = 0L
         removeCallbacks(timer); removeCallbacks(refiner)
     }
 
+    /** A finger's scroll, its fling and its ends ([Scrolling], LLP 1115.001 D7). */
+    private val scrolling = Scrolling(this)
+
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: MotionEvent): Boolean {
+        // A touch that scrolls is the reader's and exact2 hears no more of it; any other goes on to exact2.
+        if (started && scrolling.touch(e)) return true
         val action = when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> 0; MotionEvent.ACTION_UP -> 1; MotionEvent.ACTION_MOVE -> 2; else -> 3
         }
+        forward(action, e.x, e.y, e.getToolType(0), -1L)
+        // What is under it, asked behind the down itself: by the time the finger passes the slop the reader knows
+        // which scrollers it could move and which axes exact2's own gestures claim.
+        if (action == 0 && started) {
+            val serial = scrolling.serial
+            val o = owner
+            if (o != null) o.under(e.x, e.y) { scrolling.under(serial, it) } else scrolling.under(serial, Native.under(e.x, e.y))
+        }
+        return true
+    }
+
+    /** A touch to exact2 (0 down, 1 up, 2 move, 3 cancel) at the view's pixels. [wait]: the ms the frame waits for
+     * exact2's answer, or negative for the action's own. [Scrolling] cancels a touch its scroll won with this, and
+     * waits for nothing. */
+    internal fun forward(action: Int, x: Float, y: Float, tool: Int, wait: Long) {
         val o = owner
         // A press or release waits for exact2's answer within this frame, as a click handler holds the main thread; a
         // drag's moves barely wait, so the drag keeps its frames.
         if (o != null) {
-            if (!started) return true
+            if (!started) return
             // A press wakes the GPU ([Warm]) and does not wait for exact2's answer (what a press shows, if anything,
             // comes with the next frame): no frame is held by the wait, and the release's response finds the GPU
             // awake (warm=0: the press waits, as a release does).
@@ -219,17 +241,47 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
                 o.held(true)
             }
             if (action == 1 || action == 3) holdFrom = 0L
-            val answered = o.touch(action, e.x, e.y, e.getToolType(0), if (press) 0L else if (action == 2) 2L else releaseWait)
+            val answered = o.touch(action, x, y, tool, if (wait >= 0) wait else if (press) 0L else if (action == 2) 2L else releaseWait)
             if (action == 1 || action == 3) o.held(false)
             if (answered) publish()
-            return true
+            return
         }
-        Native.touch(action, e.x, e.y, e.getToolType(0))
+        Native.touch(action, x, y, tool)
         if (action == 1) keys?.focusChanged()
         // A frame only when the touch changed what exact2 draws (a down on a plain row changes nothing).
         if (started) pump()
-        return true
     }
+
+    /** The reader moved scroller [id] by ([dx], [dy]) px ([Scrolling]): exact2 is told, on its thread or here. The
+     * move's number among those sent to exact2's thread (each stream names the last it includes), or 0 where exact2
+     * runs here and has taken it. */
+    internal fun scrolled(id: Int, dx: Float, dy: Float, rev: Int): Int {
+        if (dy != 0f) travelled(dy)
+        val o = owner
+        if (o == null) {
+            Native.scrolled(id, dx, dy, rev)
+            Native.scrollers()?.let { scrolling.told(it) }
+            step()
+            return 0
+        }
+        val s = ++mainSeq
+        o.scrolled(id, dx, dy, rev, s)
+        return s
+    }
+
+    /** A scroller with no node of its own moved: this frame waits a moment for exact2's paint of it, as it does for
+     * a drag's moves, so the content keeps up with the finger. */
+    internal fun awaitScrolled() {
+        val o = owner ?: return
+        if (o.answer(2L) {}) publish()
+    }
+
+    /** Scroller [id]'s rows' node, once a stream drew them. */
+    internal fun group(id: Int): android.graphics.RenderNode? = groups[id]
+    /** A frame that draws what moved, with nothing recorded again. */
+    internal fun tick() { ticker?.invalidate() }
+    /** The view's own drawing is recorded again from the last stream (what it names changed). */
+    internal fun again() { rootSig = null; invalidate() }
 
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean =
         keys?.down(event)?.also { if (it) pump() } ?: super.onKeyDown(keyCode, event)
@@ -313,18 +365,26 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         while (true) {
             val p = o.queue.poll() ?: break
             any = true
-            if (p.move) { move = p; applyMoveTracks(p.ops) } else {
-                move = null; painted = true; feedNext = p.feed; applyStream(p.ops); feedBaseX = 0f; feedBaseY = 0f
-                allQuiet = allQuiet && retained(p.ops)
+            val ops = p.ops
+            if (ops != null) {
+                if (p.move) { move = p; applyMoveTracks(ops) } else {
+                    move = null; painted = true; feedNext = p.feed; applyStream(ops); feedBaseX = 0f; feedBaseY = 0f
+                    allQuiet = allQuiet && retained(ops)
+                }
+                feed = p.feed
             }
-            feed = p.feed
             while (sent.isNotEmpty() && sent.first().first <= p.seq) sent.removeFirst()
+            // What the reader's own scrolling was told with this stream, in the streams' order.
+            scrolling.acked(p.seq)
+            p.scrollers?.let { scrolling.told(it) }
         }
-        if (move != null) {
-            applyMove(move.ops)
+        val moveOps = move?.ops
+        if (moveOps != null) {
+            applyMove(moveOps)
             groups[feed]?.let { feedBaseX = it.translationX; feedBaseY = it.translationY }
         }
-        if (any) placeFeed()
+        // The feed where a driver's scrolls put it, then every scroller a finger moved where the reader has it.
+        if (any) { placeFeed(); scrolling.place() }
         if (coverTrace && painted) traceNewRows()
         moved = !painted
         quiet = painted && allQuiet && move == null
@@ -483,8 +543,10 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         n.near(nearShow, nearKeep, nearKnown, nearSeen)
     }
 
-    /** Where the feed's group is drawn: the last stream's place, less the scrolls the owner has yet to apply. */
+    /** Where the feed's group is drawn: the last stream's place, less the scrolls the owner has yet to apply; where a
+     * finger moved it, the reader's own place for it ([Scrolling.shift]). */
     private fun feedY(): Float {
+        scrolling.shift(feed)?.let { return it }
         var residual = 0f
         for ((_, d) in sent) residual += d
         return feedBaseY - residual
@@ -523,12 +585,19 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         return y + h > top && y < bottom
     }
 
-    /** A scroll of [dy] px: to exact2, on its thread or here. With an owner, the feed's drawn rows move now. */
-    fun scrollBy(dy: Float) {
+    /** The feed travelled [dy] px: its speed, which decides where rows are recorded and which are made first. */
+    private fun travelled(dy: Float) {
         val now = System.nanoTime()
         val dt = (now - scrollAt) / 1e9f
         scrollAt = now
         scrollV = if (dt > 0.1f || dt <= 0f) 0f else scrollV * 0.6f + dy / dt * 0.4f
+    }
+
+    /** A driver's scroll of the feed by [dy] px ([ExactActivity.drive]): to exact2, on its thread or here. With an
+     * owner, the feed's drawn rows move now. A finger's scroll is [Scrolling]'s. */
+    fun scrollBy(dy: Float) {
+        travelled(dy)
+        scrolling.released()
         val o = owner
         if (o == null) { Native.scroll(dy); step(); return }
         val s = ++mainSeq
@@ -674,15 +743,12 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         android.os.Trace.endSection()
         fresh ?: return false
         Native.chrome()?.let(chrome)
+        val told = Native.scrollers()
         val stream = fresh.order(ByteOrder.LITTLE_ENDIAN).asIntBuffer()
-        if (stream.limit() > 0 && stream.get(0) == 22) {
-            applyMove(stream)
-            applyMoveTracks(stream)
-            moved = true
-            return true
-        }
-        moved = false
-        applyStream(stream)
+        moved = stream.limit() > 0 && stream.get(0) == 22
+        if (moved) { applyMove(stream); applyMoveTracks(stream) } else applyStream(stream)
+        told?.let { scrolling.told(it) }
+        scrolling.place()
         return true
     }
 

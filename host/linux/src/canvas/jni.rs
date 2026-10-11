@@ -421,6 +421,64 @@ macro_rules! canvas_jni {
                 with(|h| h.scroll(dy));
             }
 
+            fn ints(env: *mut JNIEnv, words: &[i32]) -> jintArray {
+                // SAFETY: `env` is the JNI call's; the region is `words`.
+                unsafe {
+                    let arr = ((**env).NewIntArray.expect("jni"))(env, words.len() as i32);
+                    ((**env).SetIntArrayRegion.expect("jni"))(
+                        env,
+                        arr,
+                        0,
+                        words.len() as i32,
+                        words.as_ptr(),
+                    );
+                    arr
+                }
+            }
+
+            /// What is under a point of the view (pixels), for the reader
+            /// deciding what a drag from there is (LLP 1115.001 D7.3):
+            /// the presenter's own claims, a count, and eleven words a
+            /// scroller, innermost first (`Presenter::reader_under`).
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_under(
+                env: *mut JNIEnv,
+                _class: jclass,
+                x: jfloat,
+                y: jfloat,
+            ) -> jintArray {
+                let words = with(|h| h.under(x, y)).unwrap_or_else(|| vec![0, 0]);
+                ints(env, &words)
+            }
+
+            /// The reader moved scroller `id` by (`dx`, `dy`) pixels,
+            /// knowing revision `rev` of it.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_scrolled(
+                _env: *mut JNIEnv,
+                _class: jclass,
+                id: jint,
+                dx: jfloat,
+                dy: jfloat,
+                rev: jint,
+            ) {
+                with(|h| h.scrolled(id as u32, dx, dy, rev as u32));
+            }
+
+            /// What the reader is told of the scrollers it knows, nine
+            /// words each (`Presenter::reader_scrollers`), when that is not
+            /// what this last returned (else null).
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_scrollers(
+                env: *mut JNIEnv,
+                _class: jclass,
+            ) -> jintArray {
+                match with(|h| h.scrollers()).flatten() {
+                    Some(words) => ints(env, &words),
+                    None => std::ptr::null_mut(),
+                }
+            }
+
             /// A touch (0 down, 1 up, 2 move, 3 cancel) at the view's
             /// pixels, and what touched: Android's tool type (1 a finger,
             /// 2 a stylus, 3 a mouse, 4 an eraser; LLP 1115.001 D7.4).
@@ -696,7 +754,8 @@ macro_rules! canvas_jni {
                 flag($crate::android_hint::fast_thread(tid, fast != 0))
             }
 
-            /// The scroller `scroll` moves (its group's id in the stream), or 0.
+            /// The feed: the scroller a finger last moved up or down, or a
+            /// driver's `scroll` found (its group's id in the stream), or 0.
             #[no_mangle]
             pub unsafe extern "system" fn Java_dev_exact_canvas_Native_feed(
                 _env: *mut JNIEnv,

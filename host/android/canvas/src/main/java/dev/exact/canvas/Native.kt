@@ -40,7 +40,25 @@ object Native {
     @JvmStatic external fun refine(limit: Int, velocity: Float): Int
     @JvmStatic external fun nextDue(): Double
     @JvmStatic external fun fds(): IntArray
+    /** A driver from outside scrolls the feed by [dy] px ([ExactActivity.drive]). A finger's scroll is the three
+     * calls below. */
     @JvmStatic external fun scroll(dy: Float)
+    /** What is under a point of the view (pixels), for the reader to decide what a drag from there is (LLP 1115.001
+     * D7.3): the axes exact2's own gestures there claim (bit 0 sideways, bit 1 up and down), a count, and eleven
+     * numbers a scroller, innermost first: its id, flags (bit 0 it takes a sideways drag from here, bit 1 one up or
+     * down, bit 2 its rows are a node the reader can move), its revision, then as float bits its offset (x, y), its
+     * farthest offset (x, y) and the box it shows in (x, y, width, height). exact2 tells the reader of each of them
+     * from then on ([scrollers]). */
+    @JvmStatic external fun under(x: Float, y: Float): IntArray
+    /** The reader moved scroller [id] by ([dx], [dy]) px, knowing revision [rev] of it. exact2 clamps the move to
+     * the scroller's travel, and drops one sent under a revision the app's own scroll has moved on from. */
+    @JvmStatic external fun scrolled(id: Int, dx: Float, dy: Float, rev: Int)
+    /** What exact2 tells the reader of the scrollers it knows, when that is not what this last returned (else
+     * null): nine numbers each: its id, flags (as [under]'s, for any drag), its revision, then as float bits where
+     * it is (x, y), the offset its rows were last painted at (x, y) and its farthest offset (x, y). The revision
+     * moves on when the app scrolled it (a `scrollTop` write, a reveal): the reader then takes this offset and ends
+     * its fling. A scroller the reader knew that is not among them is gone. */
+    @JvmStatic external fun scrollers(): IntArray?
     /** A touch (0 down, 1 up, 2 move, 3 cancel) at the view's pixels, and what touched: the event's tool type
      * ([android.view.MotionEvent.getToolType]). A finger is reported to the app as a touch that hovers nothing and
      * leaves no focus ring, a mouse as a mouse (LLP 1115.001 D7.4). */
@@ -84,6 +102,7 @@ object Native {
     @JvmStatic external fun hardwarePictures(on: Boolean)
     /** Pictures announced and not fetched yet: id, width, height triples. */
     @JvmStatic external fun pendingPictures(): IntArray
-    /** The scroller [scroll] moves (its group's id in the stream), 0 before the first scroll found one. */
+    /** The feed: the scroller a finger last moved up or down, or a driver's [scroll] found (its group's id in the
+     * stream); 0 before either. */
     @JvmStatic external fun feed(): Int
 }

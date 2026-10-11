@@ -1,21 +1,47 @@
 // A page that says nothing about its look (LLP 1115 D7): a heading, a
 // paragraph, a button and a field, with no colour, font or size written.
 // What shows is the platform's: the page and its text follow the device's
-// scheme, and the text its font scale. The button opens a second page that
-// says nothing about Back either: no Back control, no `navigate` handler,
-// so the system's Back is the router's own (LLP 1115 D5). A fixture for a
-// host's defaults, built for Android's Canvas host first (LLP 1115.001 D3,
-// D6; `android/`).
+// scheme, and the text its font scale. The first button opens a second page
+// that says nothing about Back either: no Back control, no `navigate`
+// handler, so the system's Back is the router's own (LLP 1115 D5). A fixture
+// for a host's defaults, built for Android's Canvas host first (LLP 1115.001
+// D3, D6; `android/`).
+//
+// The second button opens a page to scroll (LLP 1115.001 D7): a list of 240
+// rows, virtualized, each a button that says which it was. Its first row is
+// a strip that scrolls sideways and its second a scroller of its own, nested
+// in the list, which hands a drag on to the list at its ends. The button
+// above the list scrolls it to a row, as an app does (`scrollTop`). Nothing
+// says how any of it scrolls: the slop, the fling, the ends and the
+// indicator are the platform's.
 routes nav
   home "/"
     next "/next"
+    rows "/rows"
 
 component Unsaid
   state name = ""
+  state picked = -1
+  state target = 60
+  state top = 0
+  derive ten = split("0 1 2 3 4 5 6 7 8 9", " ")
+  derive forty = concat(concat(ten, ten), concat(ten, ten))
+  derive cards = map(concat(ten, ten), (x, i) => i)
+  derive lines = map(forty, (x, i) => i)
+  derive rows = map(concat(concat(forty, forty), concat(concat(forty, forty), concat(forty, forty))), (x, i) => i)
   action open
     nav = push(nav, "/next")
+  action openRows
+    nav = push(nav, "/rows")
   action rename(value)
     name = value
+  action pick(i: number)
+    picked = i
+  // The strip is 120 tall, the nested scroller 200, and each row after them 56.
+  action jump
+    let next = target == 60 ? 150 : 60
+    target = next
+    top = 320 + (next - 2) * 56
   view
     main navigationKey=`${top(nav).id}` testId="unsaid" width="100%" height="100%"
       each e in stack(nav) key = e.id
@@ -26,6 +52,30 @@ component Unsaid
             button press=open testId="button"
               text "Open the next page"
             input value=name input=rename placeholder="A field" aria-label="A field" testId="field"
+            button press=openRows testId="open-rows"
+              text "Open a list to scroll"
           when e.name == "next"
             text "The next page" role="heading" aria-level=1 testId="next-heading"
             text "It has no Back control. The system's Back returns to the first page, and from there it leaves the app." testId="next-paragraph"
+          when e.name == "rows"
+            column display="flex" flex-direction="column" height="100%" gap=8
+              row display="flex" align-items="center" gap=12
+                text (picked < 0 ? "No row pressed" : `Pressed row ${picked}`) flex=1 testId="picked"
+                button press=jump testId="jump"
+                  text `Go to row ${target == 60 ? 150 : 60}`
+              list id="rows" virtualized=true flex=1 min-height=0 width="100%" overflow-x="hidden" estimated-item-height=56 scrollTop=top testId="rows"
+                each i in rows key=i
+                  column width="100%"
+                    when i == 0
+                      scroll width="100%" height=120 overflow-x="scroll" overflow-y="hidden" testId="strip"
+                        row display="flex" gap=8 height="100%"
+                          each c in cards key=c
+                            column width=140 flex-shrink=0 box-sizing="border-box" padding=12 border-width=1 border-style="solid" border-radius=12
+                              text `Card ${c}`
+                    when i == 1
+                      scroll width="100%" height=200 box-sizing="border-box" border-width=1 border-style="solid" border-radius=12 testId="nested"
+                        each n in lines key=n
+                          text `Nested line ${n}` padding=12
+                    when i > 1
+                      button press=pick(i) width="100%" height=56 box-sizing="border-box" text-align="start" testId=`row-${i}`
+                        text `Row ${i}`

@@ -1,6 +1,6 @@
-//! The reader's scroll steps and touches (LLP 1076 §3.3): a driver's scroll
-//! moves the feed, and a touch is the presenter's pointer at the view's
-//! pixels. Each touch says what touched (LLP 1115.001 D7.4): this entry is
+//! A driver's scroll steps and the reader's touches (LLP 1076 §3.3): a
+//! driver's scroll moves the feed (a finger's is `scroll.rs`), and a touch
+//! is the presenter's pointer at the view's pixels. Each touch says what touched (LLP 1115.001 D7.4): this entry is
 //! where a finger is told from a mouse, which desktop Linux's own inputs
 //! (evdev, VNC) and the agent remain.
 
@@ -9,10 +9,13 @@ use crate::presenter::PointerKind;
 use exact_runner::DataSource;
 
 impl<D: DataSource + Default> CanvasHost<D> {
-    /// Scroll what is under the viewport's center by `dy` pixels.
+    /// A driver from outside (a benchmark's, a test's) scrolls the feed by
+    /// `dy` pixels: the scroller a finger last moved, else what is under
+    /// the viewport's center.
     pub fn scroll(&mut self, dy: f32) {
         let (x, y) = (self.viewport.0 / 2.0, self.viewport.1 / 2.0);
         let _s = Section::begin(c"exact scroll");
+        self.driven();
         self.scrolled = self.prefetching;
         self.scrolled_at = self.now();
         self.travel.scrolled(dy / self.scale, self.scrolled_at);

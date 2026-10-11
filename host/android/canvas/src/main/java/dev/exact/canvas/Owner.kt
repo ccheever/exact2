@@ -67,8 +67,10 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
     }
 
     /** A published stream: [ops] (a copy, the reader's), whether it only moves the last paint, the last scroll it
-     * includes, and the feed's group (0 before the first scroll). */
-    class Pub(val ops: IntBuffer, val move: Boolean, val seq: Int, val feed: Int)
+     * includes, and the feed's group (0 before the first scroll). [scrollers]: what exact2 tells the reader of its
+     * scrollers as of this stream ([Native.scrollers]), null when that is what it last told; with no [ops], that
+     * statement alone. */
+    class Pub(val ops: IntBuffer?, val move: Boolean, val seq: Int, val feed: Int, val scrollers: IntArray?)
 
     /** At the main thread's own priority, not above it ([priority]): its work is ahead of the frame the main thread
      * draws, never instead of it (THREAD_PRIORITY_DISPLAY let it preempt the main thread on a phone with few big cores:
@@ -100,6 +102,9 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
     private var owedDy = 0f
     private var owedSeq = 0
     private var stepPosted = false
+    /** A finger's moves the exact thread has not taken, summed by scroller: how far, and the revision known. */
+    private class Moved(var dx: Float, var dy: Float, var rev: Int)
+    private val owedMoves = LinkedHashMap<Int, Moved>()
     /** lead=1: the velocity the window leads by (px/s, positive toward the end; otherwise none, a viewport each side).
      * Fast travel ([LEAD_ON] dp/s and on, until it slows below [LEAD_OFF]) leads by all exact2 allows (two viewports
      * more): a lead that followed the measured speed moved the window's far edge with each frame's jitter, mounting and
@@ -210,11 +215,39 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
         handler.post(step)
     }
 
+    /** The reader moved scroller [id] by ([dx], [dy]) px, knowing revision [rev] of it ([Scrolling]); the main
+     * thread's [seq]th scroll. Summed like a driver's, so a busy thread catches up at once. */
+    fun scrolled(id: Int, dx: Float, dy: Float, rev: Int, seq: Int) {
+        synchronized(lock) {
+            val m = owedMoves.getOrPut(id) { Moved(0f, 0f, rev) }
+            // What was sent under an older revision is dropped by exact2 anyway.
+            if (m.rev != rev) { m.dx = 0f; m.dy = 0f; m.rev = rev }
+            m.dx += dx; m.dy += dy
+            owedSeq = seq
+            if (stepPosted) return
+            stepPosted = true
+        }
+        handler.post(step)
+    }
+
+    /** What is under a point of the view ([Native.under]), asked on the exact thread behind the touch that landed
+     * there. [done] on the main thread with the answer, after the statement of the scrollers it names is published,
+     * so the reader knows where each is before it decides anything. */
+    fun under(x: Float, y: Float, done: (IntArray) -> Unit) {
+        handler.post { val u = Native.under(x, y); produce(); main.post { done(u) } }
+    }
+
     private val step = Runnable {
         val dy: Float; val s: Int
-        synchronized(lock) { dy = owedDy; s = owedSeq; owedDy = 0f; stepPosted = false }
+        var ids: IntArray? = null; var moves: Array<Moved>? = null
+        synchronized(lock) {
+            dy = owedDy; s = owedSeq; owedDy = 0f; stepPosted = false
+            if (owedMoves.isNotEmpty()) { ids = owedMoves.keys.toIntArray(); moves = owedMoves.values.toTypedArray(); owedMoves.clear() }
+        }
         android.os.Trace.beginSection("exact scroll")
-        Native.scroll(dy)
+        val fingers = moves
+        if (fingers != null) for (k in fingers.indices) Native.scrolled(ids!![k], fingers[k].dx, fingers[k].dy, fingers[k].rev)
+        if (fingers == null || dy != 0f) Native.scroll(dy)
         android.os.Trace.endSection()
         seq = s
         produce()
@@ -298,6 +331,11 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
         android.os.Trace.beginSection("exact native frame")
         val fresh = Native.frame()
         android.os.Trace.endSection()
+        val told = Native.scrollers()
+        if (fresh == null && told != null) {
+            queue.add(Pub(null, true, seq, 0, told))
+            if (!notifying.getAndSet(true)) main.post { notifying.set(false); published() }
+        }
         if (fresh != null) {
             // A heap copy: no native allocation or Cleaner per stream, at up to a stream a frame.
             val words = IntArray(fresh.capacity() / 4)
@@ -310,7 +348,7 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
                 for (k in pics.indices step 3) if (!made.containsKey(pics[k])) made[pics[k]] = makePicture(pics[k], pics[k + 1], pics[k + 2], hwbuf)
                 android.os.Trace.endSection()
             }
-            queue.add(Pub(ints, ints.limit() > 0 && ints.get(0) == 22, seq, Native.feed()))
+            queue.add(Pub(ints, ints.limit() > 0 && ints.get(0) == 22, seq, Native.feed(), told))
             if (!notifying.getAndSet(true)) main.post { notifying.set(false); published() }
         }
         Native.chrome()?.let { c -> main.post { chrome(c) } }

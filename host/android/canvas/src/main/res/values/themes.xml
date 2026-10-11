@@ -9,4 +9,9 @@
         <item name="android:windowSplashScreenAnimatedIcon">@android:color/transparent</item>
         <item name="android:windowSplashScreenIconBackgroundColor">@android:color/transparent</item>
     </style>
+    <!-- A scroller's indicator (Scrolling.Indicator): a view with the scrollbars View draws for one that scrolls,
+         as android:scrollbars gives a ScrollView its. The thumb, its size and its fade are the theme's. -->
+    <style name="ExactScrollbars">
+        <item name="android:scrollbars">vertical|horizontal</item>
+    </style>
 </resources>

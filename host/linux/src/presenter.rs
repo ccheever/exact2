@@ -76,6 +76,7 @@ mod links;
 mod preferences;
 mod retained_action;
 mod reveal;
+mod scrollers;
 mod shortcuts;
 #[cfg(target_os = "android")]
 pub(crate) mod still;
@@ -108,6 +109,7 @@ use painter::cpu_info;
 pub(crate) use painter::PainterBoot;
 pub use painter::{set_custom_painter, PainterChoice, PainterFactory, PainterInfo};
 pub use pointer::PointerKind;
+pub use scrollers::{Scroller, Under, PAGE};
 pub use window::{Chrome, Window};
 
 /// The presenter: one host, its painter, and the host state.
@@ -192,6 +194,8 @@ pub struct Presenter<D: DataSource> {
     slop: f64,
     /// The shell's window, its insets, and the page's place in it (D3.3).
     window: window::State,
+    /// What a shell that scrolls by itself was told of its scrollers (D7.3).
+    reader: scrollers::Reader,
     /// The viewport segments the agent set (LLP 1078 D7), for `layout.env`;
     /// the posture and counts are the runner's.
     pub(crate) segments: Vec<exact_kernel::Rect>,
@@ -433,6 +437,7 @@ impl<D: DataSource> Presenter<D> {
             pointer_kind: PointerKind::Mouse,
             slop: exact_motion::gesture::SLOP,
             window: Default::default(),
+            reader: Default::default(),
             segments: Vec::new(),
             surfaces: Default::default(),
             module: None,

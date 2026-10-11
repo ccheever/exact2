@@ -155,6 +155,8 @@ mod picture;
 mod reader;
 #[path = "canvas/refine.rs"]
 mod refine;
+#[path = "canvas/scroll.rs"]
+mod scroll;
 #[path = "canvas/shadow.rs"]
 mod shadow;
 #[path = "canvas/slot.rs"]
@@ -1023,7 +1025,7 @@ pub struct CanvasHost<D: DataSource> {
     origin_ns: i64,
     clock_sent: bool,
     tracks: HashMap<u32, Vec<u32>>,
-    /// The scroller [`CanvasHost::scroll`] moves.
+    /// The scroller [`CanvasHost::scroll`] moves, and a finger last did.
     feed: Option<ViewId>,
     /// Whether the windows' lead is back after the first frame (and after
     /// a touch's response).

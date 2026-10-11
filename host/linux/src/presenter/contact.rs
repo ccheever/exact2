@@ -226,7 +226,7 @@ impl<D: DataSource> Presenter<D> {
 
     /// Every candidate of a contact on `hit`: innermost first, then reorder >
     /// transform > height > pan > swipe on one node (LLP 1057.001 §1).
-    fn candidates(&self, hit: NodeKey) -> Vec<Candidate> {
+    pub(super) fn candidates(&self, hit: NodeKey) -> Vec<Candidate> {
         let ranked = [
             self.arrange_candidate(hit),
             self.transform_candidate(hit),
