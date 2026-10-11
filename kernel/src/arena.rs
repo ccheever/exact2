@@ -71,7 +71,8 @@ pub struct NodeArena {
     /// node's own space (width, height), Taffy's `content_size`.
     contents: Vec<(f32, f32)>,
     /// Host intrinsic size: a replaced element's natural size or a projected
-    /// tablist's native control size; `None` before measurement or after removal.
+    /// tablist's or radio group's native control size; `None` before
+    /// measurement or after removal.
     intrinsic: Vec<Option<(f32, f32)>>,
     /// What a host container covers of a box (LLP 1075.003 §3.5): a few
     /// route nodes at most, so a list by slot rather than a column (and not a

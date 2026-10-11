@@ -177,8 +177,8 @@ impl Lowerer<'_> {
                     _ => cancels.push(row),
                 },
                 // An author laying a modal out (onboarding's Delete account?
-                // in a `column` of rows) wants `role="dialog"`: say so.
-                other => return refuse(row, format!("a `{other}` row is not text, an action or the cancel; to lay the dialog out yourself, give it `role=\"dialog\"` (with `aria-modal=true`), which takes any content and is drawn as written")),
+                // in a `column` of rows) wants a sheet: say so.
+                other => return refuse(row, format!("a `{other}` row is not text, an action or the cancel; a modal you lay out yourself is a sheet, a route with `navigationPresentation=\"modal\"` (docs/recipes/navigation-stack.md)")),
             }
         }
         for (i, later) in cancels.iter().enumerate() {

@@ -36,10 +36,10 @@ component Notes
             input type="search" value=query input=search placeholder="Search" aria-label="Search notes"
               testId="search" width="100%"
           scroll id="notes-list" flex=1 min-height=0
-            row role="tablist" aria-label="Filter" margin="8px 16px"
-              button role="tab" aria-selected=(scope == "all") press=show("all") testId="filter-all" flex=1
+            row role="radiogroup" aria-label="Filter" margin="8px 16px"
+              button role="radio" aria-checked=(scope == "all") press=show("all") testId="filter-all" flex=1
                 text "All"
-              button role="tab" aria-selected=(scope == "pinned") press=show("pinned") testId="filter-pinned" flex=1
+              button role="radio" aria-checked=(scope == "pinned") press=show("pinned") testId="filter-pinned" flex=1
                 text "Pinned"
             each n in shown key=n.id
               scroll swipeContent=`note-${n.id}` swipeTrailing=`delete-${n.id}`
@@ -73,7 +73,7 @@ test "search, filter, swipe and the long-press menu"
 ```
 
 - In the `header`, an `input type="search"` is the bar's search field, under the
-  large title. A `tablist` in the content (text tabs, no `aria-controls`) is a
+  large title. The filter is a value, so a `radiogroup` of radios: the platform's
   segmented control.
 - The swipe is a horizontal snap scroll naming its content and its trailing action; on
   iOS the action is UIKit's own swipe action, and a full swipe performs the first one.

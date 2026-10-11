@@ -2,8 +2,11 @@
 // The items are app.ts's (app:/data/items.json). A phone pushes the detail; a wide window
 // shows the list beside it by itself, because a row draws the disclosure chevron
 // (`contract vocab navigationSplit`). A smaller app deletes what it doesn't need: the
-// delete (`askRemove`, `remove`, the dialog), or the notes (the shape's field, the sheet's
-// and the detail's sections).
+// delete (`askRemove`, `remove`, the dialog), the notes (the shape's field, the sheet's and
+// the detail's sections), or the lock (the shape's `locked`, `setLock`, the badge, the
+// switch and Delete's reason).
+use Badge from "exact:content"
+
 routes nav
   items "/"
     item "/item/:id"
@@ -13,6 +16,7 @@ shape Item
   id: string
   title: string
   notes: string
+  locked: bool
 
 shape Reply
   ok: bool
@@ -27,6 +31,7 @@ component App
   resource lib = loadItems() as shape list<Item> else empty()
   mutation added as shape Reply refreshes lib then afterSave
   mutation removed as shape Reply refreshes lib
+  mutation lockSaved as shape Reply refreshes lib
   derive selected = match at(filter(stack(nav), e => e.name == "item"), -1) { case some(e) => e.params.id, case none => "" }
   derive saveError = match added { case some(r) => r.error, case none => "" }
   // Said after the first Save, in red under the field; the next attempt clears it.
@@ -57,6 +62,8 @@ component App
   action afterSave
     if saveError == "" and top(nav).name == "add"
       nav = back(nav)
+  action setLock(on: bool)
+    send lockSaved = lockItem(selected, on)
   action askRemove
     showModal("remove")
   action remove
@@ -83,6 +90,9 @@ component App
                       text it.title
                       when it.notes != ""
                         text it.notes font="-exact-subheadline" color="-exact-secondary-label" line-clamp=1
+                    // A status is a badge, not coloured text: `some("-exact-system-orange")` for Full.
+                    when it.locked
+                      Badge(label="Locked", tint=none)
                     image "symbol:forward-chevron"
                 footer
                   text (length(lib) == 0 ? "Nothing yet. Tap + to add the first item." : "") testId="items-empty"
@@ -93,15 +103,7 @@ component App
               text titleOf(lib, e.params.id) role="heading" aria-level=2 testId="detail-title"
             list id="item-detail" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
               each it in filter(lib, x => x.id == e.params.id) key=it.id
-                section
-                  header
-                    text "Notes"
-                  row padding-top=10 padding-bottom=10
-                    text (it.notes == "" ? "No notes." : it.notes) flex=1 min-width=0
-                      color=(it.notes == "" ? "-exact-secondary-label" : "-exact-label") testId="detail-notes"
-                section
-                  button press=askRemove destructive=true testId="delete-item"
-                    text "Delete Item"
+                ItemSections(item=it, setLock=setLock, askRemove=askRemove)
         when e.name == "add"
           column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="add-form" position="absolute" inset=0
             header display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
@@ -131,3 +133,25 @@ component App
           text "Delete"
         button commandfor="remove" command="close" testId="remove-cancel"
           text "Cancel"
+
+// One item: its notes, its lock, and Delete, which asks first, or says why it can't.
+component ItemSections
+  props
+    item: Item
+    setLock: action
+    askRemove: action
+  view
+    section
+      header
+        text "Notes"
+      row padding-top=10 padding-bottom=10
+        text (item.notes == "" ? "No notes." : item.notes) flex=1 min-width=0
+          color=(item.notes == "" ? "-exact-secondary-label" : "-exact-label") testId="detail-notes"
+    section
+      row
+        text "Locked"
+        input type="checkbox" switch checked=item.locked change=setLock aria-label="Locked" testId="lock-item"
+      button press=askRemove destructive=true disabled=item.locked testId="delete-item"
+        text "Delete Item"
+      footer
+        text (item.locked ? "Unlock this item to delete it." : "") testId="delete-reason"

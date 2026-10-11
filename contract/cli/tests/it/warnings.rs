@@ -411,3 +411,222 @@ fn a_field_the_copy_left_alone_is_not_named() {
     let src = "shape Ack\n  ok: bool\nshape Item\n  id: string\n  n: number\ncomponent App\n  mutation saved as shape Ack\n  state item = Item(id=\"x\", n=0)\n  state shown = \"\"\n  action go\n    item = Item(item, n=item.n + 1)\n    send saved = keep(item.id)\n    shown = `${item.n}`\n  view\n    button \"go\" press=go\n";
     assert_eq!(warned(src), [(REREAD.to_string(), 13)]);
 }
+
+const UNLABELLED: &str = "lower-button-unlabelled";
+
+/// One screen of buttons, its view's lines at 6 on, with a `Pill`
+/// component whose button is filled through its slot.
+fn buttons(view: &str) -> String {
+    let view: String = view.lines().map(|l| format!("      {l}\n")).collect();
+    format!(
+        "component App\n  state label = \"Add\"\n  action go\n    label = \"x\"\n  view\n    column\n{view}component Pill\n  slot\n  view\n    button width=44 height=44\n      children\n"
+    )
+}
+
+#[test]
+fn a_button_with_nothing_to_say_is_named_with_its_repair() {
+    // water-tracker's +500 ml button: no child, blank on every host.
+    let blank = buttons("button press=go testId=\"add-500\" flex=1");
+    assert_eq!(warned(&blank), [(UNLABELLED.to_string(), 7)]);
+    let (_, warnings) = contract::compile_warned(&blank);
+    assert!(
+        warnings[0]
+            .message
+            .contains("holds no text and no `aria-label`")
+            && warnings[0].message.contains("Put its words in it")
+            && warnings[0].message.contains("docs/recipes/symbols.md"),
+        "{warnings:?}"
+    );
+    // A symbol with no name is drawn and read as nothing; a swatch, an
+    // empty text and an `svg` of shapes say nothing either.
+    let symbol = buttons("button press=go appearance=\"none\"\n  image \"symbol:add\"");
+    assert_eq!(warned(&symbol), [(UNLABELLED.to_string(), 7)]);
+    let (_, warnings) = contract::compile_warned(&symbol);
+    assert!(
+        warnings[0]
+            .message
+            .contains("shows only an image with no name")
+            && warnings[0]
+                .message
+                .contains("`aria-label=\"Add\"` on the button"),
+        "{warnings:?}"
+    );
+    for view in [
+        "button press=go\n  row\n    view width=10 height=10 background-color=\"-exact-system-red\"",
+        "button press=go aria-label=\"\"\n  text \"\"",
+        "button press=go\n  svg viewBox=\"0 0 10 10\" width=10 height=10\n    circle cx=5 cy=5 r=4",
+        "button press=go\n  when label == \"\"\n    image \"symbol:add\"",
+    ] {
+        assert_eq!(
+            warned(&buttons(view)),
+            [(UNLABELLED.to_string(), 7)],
+            "{view}"
+        );
+    }
+    // A component used twice is one line, at its button; an empty slot
+    // fill leaves it blank.
+    let pills = buttons("Pill()\nPill()");
+    assert_eq!(warned(&pills), [(UNLABELLED.to_string(), 12)]);
+}
+
+#[test]
+fn a_button_with_words_a_name_or_a_doubt_is_not_named() {
+    for view in [
+        "button press=go\n  text \"Add\"",
+        // A text of any expression, through a `when` or an `each`.
+        "button press=go\n  text label",
+        "button press=go\n  when label == \"\"\n    text \"Add\"\n  else\n    image \"symbol:add\"",
+        "button press=go\n  each w in [\"a\"] key=w\n    text w",
+        // An icon button named, by itself or by its image.
+        "button press=go aria-label=\"Add\"\n  image \"symbol:add\"",
+        "button press=go aria-label=label\n  image \"symbol:add\"",
+        "button press=go aria-labelledby=\"caption\" width=44 height=44",
+        "button press=go\n  image \"symbol:add\" alt=\"Add\"",
+        "button press=go\n  svg viewBox=\"0 0 10 10\" width=10 height=10 aria-label=\"Add\"\n    circle cx=5 cy=5 r=4",
+        // A bare box keeps its words; one hidden from VoiceOver is no button to it.
+        "button appearance=\"none\" press=go\n  row\n    text \"Add\"",
+        "button press=go aria-hidden=true position=\"absolute\" inset=0",
+        // Filled through a slot.
+        "Pill()\n  text \"Add\"",
+    ] {
+        assert_eq!(warned(&buttons(view)), [], "{view}");
+    }
+}
+
+const DIALOG_ROLE: &str = "lower-dialog-role";
+
+#[test]
+fn a_dialog_role_on_a_box_is_named_with_its_repair() {
+    // flashcards' editor: a `column role="dialog" aria-modal=true`, with
+    // no Escape, no focus kept inside and no iOS sheet.
+    let editor = buttons(
+        "column role=\"dialog\" aria-modal=true aria-label=\"Add a flashcard\" testId=\"editor\"\n  text \"Add a flashcard\" role=\"heading\"\n  button press=go\n    text \"Save\"",
+    );
+    assert_eq!(warned(&editor), [(DIALOG_ROLE.to_string(), 7)]);
+    let (_, warnings) = contract::compile_warned(&editor);
+    let m = &warnings[0].message;
+    assert!(
+        m.starts_with("`role=\"dialog\"` on a `column` names a dialog without making one")
+            && m.contains("no Escape")
+            && m.contains("a route with `navigationPresentation=\"modal\"`")
+            && m.contains("`dialog role=\"alertdialog\"`, opened with `showModal(id)`")
+            && m.contains("docs/recipes/navigation-stack.md"),
+        "{m}"
+    );
+    let alert =
+        buttons("view role=\"alertdialog\" aria-label=\"Delete?\"\n  text \"Gone for good.\"");
+    assert_eq!(warned(&alert), [(DIALOG_ROLE.to_string(), 7)]);
+}
+
+#[test]
+fn a_dialog_a_popover_and_a_modal_route_are_not_named() {
+    for view in [
+        // The `dialog` element, as a confirmation or laid out.
+        "dialog id=\"remove\" role=\"alertdialog\" aria-label=\"Delete?\"\n  text \"Gone for good.\"\n  button press=go commandfor=\"remove\" command=\"close\"\n    text \"Delete\"\n  button commandfor=\"remove\" command=\"close\"\n    text \"Cancel\"",
+        "dialog id=\"edit\" role=\"dialog\" closedby=\"any\"\n  text \"Edit\"",
+        // A popover: light dismiss and Escape; as an alertdialog, the
+        // native confirmation.
+        "column id=\"pick\" popover=\"auto\" role=\"dialog\" aria-label=\"Theme\"\n  text \"Light\"",
+        // A computed role is the benefit of the doubt.
+        "column role=(label == \"\" ? \"dialog\" : \"region\")\n  text \"a\"",
+        // `aria-modal` alone keeps VoiceOver inside an overlay (LLP 1080.003).
+        "column aria-modal=true\n  text \"Call\"",
+    ] {
+        assert_eq!(warned(&buttons(view)), [], "{view}");
+    }
+    // A route the router presents as a sheet.
+    let sheet = "routes nav\n  home \"/\"\n    add \"/add\"\ncomponent App\n  action back\n    nav = back(nav)\n  view\n    main navigationKey=`${top(nav).id}` navigationBack=\"back\" width=\"100%\" height=\"100%\"\n      each e in stack(nav) key=e.id\n        column navigationKey=`${e.id}` navigationPresentation=(e.name == \"add\" ? \"modal\" : \"push\") role=\"dialog\" position=\"absolute\" inset=0\n          text e.name\n";
+    assert_eq!(warned(sheet), []);
+}
+
+const COUNT_PLURAL: &str = "lower-count-plural";
+
+/// One screen over a count and a name, its view's lines at 9 on, with a
+/// `fn` on line 1 for the cases that need one.
+fn counted(view: &str, function: &str) -> String {
+    let view: String = view.lines().map(|l| format!("      {l}\n")).collect();
+    format!(
+        "{function}\nshape Event\n  going: number\n  capacity: number\ncomponent App\n  state known = 1\n  state total = 3\n  state name = \"Ada\"\n  state events = [Event(going=3, capacity=4)]\n  view\n    column\n{view}"
+    )
+}
+
+#[test]
+fn a_count_before_a_plural_noun_is_named_with_its_repair() {
+    // flashcards' and event-rsvp's round-6 lines: the noun fixed, the count
+    // free to be 1, under a choice made on something else.
+    let cards = counted(
+        "text (known == total ? \"You worked through every card.\" : `${total - known} cards to keep practicing next time.`)",
+        "",
+    );
+    assert_eq!(warned(&cards), [(COUNT_PLURAL.to_string(), 12)]);
+    let (_, warnings) = contract::compile_warned(&cards);
+    assert!(
+        warnings[0]
+            .message
+            .starts_with("this count reads \"1 cards\" when it is 1")
+            && warnings[0]
+                .message
+                .contains("`${n} ${n == 1 ? \"card\" : \"cards\"}`")
+            && warnings[0].message.contains("`contract vocab plural`"),
+        "{warnings:?}"
+    );
+    let spots = counted(
+        "each e in events key=e.going\n  text (e.going >= e.capacity ? \"Full · no spots left\" : `${e.going} going · ${e.capacity - e.going} spots left`)",
+        "",
+    );
+    assert_eq!(warned(&spots), [(COUNT_PLURAL.to_string(), 13)]);
+    // An irregular plural, a `length`, a derive, a `fn`'s parameter, an
+    // action's message.
+    for (view, function) in [
+        ("text `${total} people`", ""),
+        ("text `${length(events)} events`", ""),
+        (
+            "text daysText(total)",
+            "fn daysText(d: number): string = `${d} days`",
+        ),
+    ] {
+        let src = counted(view, function);
+        assert_eq!(warned(&src).len(), 1, "{src}");
+        assert_eq!(warned(&src)[0].0, COUNT_PLURAL, "{src}");
+    }
+    let (_, warnings) = contract::compile_warned(&counted("text `${total} people`", ""));
+    assert!(
+        warnings[0]
+            .message
+            .contains("`${n} ${n == 1 ? \"person\" : \"people\"}`"),
+        "{warnings:?}"
+    );
+    let toast = counted("text name", "").replace(
+        "  view\n",
+        "  action add\n    let n = total + 1\n    name = `${n} entries saved`\n  view\n",
+    );
+    assert_eq!(warned(&toast), [(COUNT_PLURAL.to_string(), 12)]);
+}
+
+#[test]
+fn a_chosen_noun_a_string_a_unit_or_a_total_is_not_named() {
+    for (view, function) in [
+        // The noun chosen by the number, in the template or around it.
+        (
+            "text `${total} ${total == 1 ? \"card\" : \"cards\"} left`",
+            "",
+        ),
+        ("text (total == 1 ? \"1 card\" : `${total} cards`)", ""),
+        ("text (total != 1 ? `${total} cards` : \"1 card\")", ""),
+        ("when total > 1\n  text `${total} cards`", ""),
+        (
+            "text cardsText(total)",
+            "fn cardsText(n: number): string = n == 1 ? \"1 card\" : `${n} cards`",
+        ),
+        // A string, a unit's abbreviation, a percent, a word that is no
+        // plural, a total after `of`.
+        ("text `${name} votes`", ""),
+        ("text `${total} lbs · ${total} ms · ${total} kg`", ""),
+        ("text `${total}% done`", ""),
+        ("text `${total} plus tax, ${total} was`", ""),
+        ("text `${known} of ${total} cards`", ""),
+    ] {
+        let src = counted(view, function);
+        assert_eq!(warned(&src), [], "{src}");
+    }
+}

@@ -86,6 +86,8 @@ export function observe(views, inactive = () => false) {
       // one authored on a host-drawn control (a tab bar's item) is the platform's, as UIKit's own labels are.
       for (let e = el.parentElement, k = 0; e && k < 3; e = e.parentElement, k++) if (e.matches(CONTROL)) {
         item.of = viewOf(e);
+        // A disabled control's label is an inactive component's text, which WCAG 1.4.3 does not judge.
+        if (e.matches(':disabled') || e.getAttribute('aria-disabled') === 'true') item.inactive = true;
         if (rgba(getComputedStyle(e).backgroundColor)) item.label = true;
         let inked = false;
         for (let a = el; a && !inked; a = a === e ? null : a.parentElement) inked = !!authored(a, 'color');

@@ -26,7 +26,7 @@ import { dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { writeInstallPages } from '../../scripts/install-page.mjs';
-import { webInputDigests } from '../../scripts/agent-launch.mjs';
+import { compilerWarnings, webInputDigests } from '../../scripts/agent-launch.mjs';
 import { authClientMetadata, checkModuleRoster, gpuModules, rustPolicy, webGpuArtifacts, webHostFiles } from '../../scripts/app.mjs';
 import { buildRust, rustFiles, rustCards, rustPackage } from '../../scripts/rust.mjs';
 import { webDist, copyShaders, bakeOutput, buildBake, contractLast, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp, wasmRemapFlags, WEB_STD, WEB_TOOLCHAIN, webToolchainEnv } from '../../scripts/app.mjs';
@@ -66,10 +66,13 @@ if (target !== '--wasm' && !game && !bakeOnly) {
   const said = (text) => (text ?? '').replaceAll(stage, dist);
   js.stderr = said(js.stderr);
   process.stdout.write(said(js.stdout));
+  // The compiler's warnings, as `contract build` says them, its file from here: the count names them (LLP 1116.004 D7).
+  const compiler = compilerWarnings(js.stderr);
   if (js.status === 0) {
     // What the JS target warned of, in its own words: the count it prints names nothing (workout F3, kanban F30).
     // The bundler's notes on the generated glue are not the app's to act on. The types app.ts imports, when
     // the build rewrote them, are one line (LLP 1116.001 D4.5).
+    for (const line of compiler) console.error(line);
     for (const line of (js.stderr ?? '').split('\n')) if (/^(warning|app\.contract\.d\.ts): /.test(line)) console.error(line);
     writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({ exactBuild: 1, target: 'js', app: { id: app.id, name: app.displayName },
       manifestSha256: appManifestDigest(app), files: buildFileCards(stage), inputs: webInputDigests(app, true) }) + '\n');
@@ -79,7 +82,7 @@ if (target !== '--wasm' && !game && !bakeOnly) {
   }
   // The child's own message, not the tail of Bun's trace (a frame and its version line).
   const ambientDiagnostic = (l) => /^.+:\d+:\d+: .+ is unavailable in data sources[;:]/.test(l);
-  const all = (js.stderr ?? '').trim().split('\n').filter((l) => ambientDiagnostic(l) || !/^\s*(Compiling|Finished|Running)/.test(l));
+  const all = (js.stderr ?? '').trim().split('\n').filter((l) => ambientDiagnostic(l) || !/^\s*(Compiling|Finished|Running)/.test(l) && !compilerWarnings(l).length);
   const warnings = all.filter((l) => !ambientDiagnostic(l) && /^warning: /.test(l)), lines = all.filter((l) => ambientDiagnostic(l) || !/^\s*warning/.test(l));
   // Keep TypeScript's lines (`app.ts(2,8): error TS…`) and the shared
   // ambient check's file:line:col diagnostics, including paths with spaces.
@@ -88,7 +91,7 @@ if (target !== '--wasm' && !game && !bakeOnly) {
     .map((l) => l.replace(/^Error: (?=module outside captured app: )/, ''));
   const reason = (message.length ? message : lines.slice(-3)).join('\n');
   const types = all.filter((l) => /^app\.contract\.d\.ts: /.test(l));
-  console.error(`${[...types, ...warnings, reason].join('\n')}\n${app.name}: the web build (the JS target) failed; the wasm target is internal (--wasm)`);
+  console.error(`${[...types, ...warnings, reason, ...compiler].join('\n')}\n${app.name}: the web build (the JS target) failed; the wasm target is internal (--wasm)`);
   process.exit(1);
 }
 const crate = app.crate('web');

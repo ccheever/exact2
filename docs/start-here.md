@@ -1,6 +1,6 @@
 # Start here: building an app with Exact
 
-The only required reading; the rest is lookup, listed last.
+The only required reading; the rest is lookup.
 
 ## The idea
 
@@ -36,15 +36,13 @@ Start from the nearest pattern: it compiles and passes its tests.
 
 | `bun exact.mjs …` | What it does |
 | --- | --- |
-| `contract build app.contract --json` | `[]` or each diagnostic with its fix, after every edit; it rewrites the types `app.ts` imports. |
-| `test web`, `test ios` | Builds if stale, then runs `app.test.contract`. |
-| `agent web --storage s1 "clock data" tree "tap add" "screenshot .exact/a.png"` | Drives the app as a person would; look at every screenshot. iOS with its bars: [ios-driving](recipes/ios-driving.md). |
+| `contract build app.contract --json` | `[]` or each diagnostic with its fix; it rewrites the types `app.ts` imports. Builds print the warnings. |
+| `verify`, `verify ios` | Builds if stale, runs `app.test.contract` (`test web` alone), then `check` light and dark at phone and desktop widths, in one report. A clean `verify` is done. |
+| `agent web --storage s1 "clock data" "tap add" "check both"` | Drives the app as a person would: another screen, a write; a screenshot at milestones. iOS with its bars: [ios-driving](recipes/ios-driving.md). |
 | `web`, `ios --run` | The dev loop (it prints its URL, rebuilds on save); a simulator. |
 
-Edit and check on the web host (about a second a build); drive iOS at milestones,
-several checks a build: one in dark mode (`"prefer prefers-color-scheme dark"` first),
-one after a write. Drive by `testId`; keep scratch files in `.exact/` (any other new
-file is a source, and makes the build stale).
+Run `verify` after each edit, `verify ios` at milestones. Drive by `testId`; keep
+scratch files in `.exact/` (any other new file is a source, and makes the build stale).
 
 ## One screen: the view, its data, its test
 
@@ -62,7 +60,7 @@ shape Reply
   ok: bool
   error: string
 
-fn leftText(n: number): string = n == 1 ? "1 item left" : `${n} items left`
+fn leftText(n: number): string = `${n} ${n == 1 ? "item" : "items"} left`
 
 component Groceries
   state draft = ""
@@ -177,7 +175,7 @@ with: [tests](recipes/tests.md).
 ## Pitfalls that cost the most
 
 1. **Styling a platform control.** Paint (`background-color`, `border`, `font-size`,
-   `height`) on a `button`, field or bar still makes it your box. Emphasis is a part
+   `height`) on a `button`, field or bar makes it your box. Emphasis is a part
    (`RoundButton`, `AnswerTile`, `SummaryCard`: `content-design`) or
    `buttonStyle="bordered-prominent"`.
 2. **`width="100%"` with padding overflows** (`content-box`, as in CSS). Drop the width;
@@ -185,12 +183,12 @@ with: [tests](recipes/tests.md).
 3. **A `header` holds a heading, one text after it (the bar's subtitle) and buttons**
    (or a search field, a `tablist`); anything else isn't in the iOS bar.
 4. **A drive without `--storage <name>`** refuses storage, so the app looks empty.
-5. **Trusting green tests.** They pass on a layout that spills off the screen, and on
-   the virtual clock. Look at screenshots and drive each write once on the real clock.
+5. **Trusting green tests.** They pass on the virtual clock: drive each write once on
+   the real clock. `verify` checks the first screen; `"check both"` the rest.
 
 ## Look it up
 
-**A pattern** replaces the recipe beside it: read one or the other. A list, its pushed
+**A pattern** replaces the recipe beside it. A list, its pushed
 detail, a create sheet, a delete alert: `pattern list-detail` (in an app you
 have, `navigation-stack`). Tabs: `pattern tabs` (`tabs`). A summary, bars, a ring:
 `pattern dashboard` (`content-design`). Your own server: `pattern rest` (`rest-backend`).
@@ -203,6 +201,7 @@ have, `navigation-stack`). Tabs: `pattern tabs` (`tabs`). A summary, bars, a rin
 `web-look` (wide screens), `tests`, `ios-driving`, `functions`.
 
 **Otherwise:** `bun exact.mjs contract vocab <name> <name> …` for any tag, property,
-function or part; [contract-for-agents](contract-for-agents.md) and
+function, part or how-to (`scroll`, `plural`, `choice`, `modal`);
+[contract-for-agents](contract-for-agents.md) and
 [agent-pitfalls](agent-pitfalls.md) by section; [reference](reference.md) for the data
 module's globals and native hatches; `<exact2>/apps/shelf`, a whole app with tests.

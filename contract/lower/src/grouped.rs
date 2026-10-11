@@ -557,6 +557,29 @@ fn with(node: &Node, sheet: Vec<Attr>) -> Node {
     }
 }
 
+/// `yes` where the boolean attribute `name` is true, else `otherwise`; a
+/// bound one chooses as it changes.
+fn by_flag(attrs: &[Attr], name: &str, yes: &str, otherwise: Expr, span: Span) -> Expr {
+    let yes = Expr::Str(yes.into(), span);
+    match attrs.iter().rev().find(|a| a.name == name) {
+        Some(Attr {
+            value: Expr::Bool(true, _),
+            ..
+        }) => yes,
+        Some(Attr {
+            value: Expr::Bool(false, _),
+            ..
+        })
+        | None => otherwise,
+        Some(a) => Expr::Ternary(
+            Box::new(a.value.clone()),
+            Box::new(yes),
+            Box::new(otherwise),
+            span,
+        ),
+    }
+}
+
 /// A row and its direct parts: a cell's metrics (52 high, 16 in, the text
 /// at 56 after an icon), its separator from the text to the trailing edge,
 /// the icon in the leading margin, a value or subtitle in the secondary
@@ -595,24 +618,17 @@ fn row(node: &Node, separated: bool) -> Node {
             .concat(),
         );
     }
+    // Red when destructive; a disabled row is the tertiary label's grey,
+    // its symbols too, as UIKit draws one (`GroupedListIOS.swift`).
     let tint = |plain: &str| -> Expr {
-        match attrs.iter().rev().find(|a| a.name == "destructive") {
-            Some(Attr {
-                value: Expr::Bool(true, _),
-                ..
-            }) => Expr::Str(RED.into(), span),
-            Some(Attr {
-                value: Expr::Bool(false, _),
-                ..
-            })
-            | None => Expr::Str(plain.into(), span),
-            Some(a) => Expr::Ternary(
-                Box::new(a.value.clone()),
-                Box::new(Expr::Str(RED.into(), span)),
-                Box::new(Expr::Str(plain.into(), span)),
-                span,
-            ),
-        }
+        let red = by_flag(
+            attrs,
+            "destructive",
+            RED,
+            Expr::Str(plain.into(), span),
+            span,
+        );
+        by_flag(attrs, "disabled", TERTIARY, red, span)
     };
     // The row starts at its text: after a leading symbol, a symbol shown
     // by a condition included, as `part` styles it.

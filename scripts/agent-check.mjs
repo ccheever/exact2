@@ -47,14 +47,17 @@ function backdrop(png, scale, it) {
 
 /** The contrast a text needs (WCAG 1.4.3, and LLP 1115's platform answers): 4.5:1; 3:1 for large text (24 px, or 18.66 px bold), for a
  *  control's label on its own fill (D3's ink rule), for ink the platform chose (a tab bar's item) and for text in a platform colour (the
- *  secondary label, system red: the platform's palette, as a hand-built app draws it). The platform's tertiary and quaternary labels and its placeholders are its own and not judged. */
+ *  secondary label, system red: the platform's palette, as a hand-built app draws it). The platform's tertiary and quaternary labels and its placeholders are its own and not judged,
+ *  nor is a disabled control's label (WCAG's inactive component). */
 function floor(it, scheme) {
-  const r = role(it.fgRole) ?? (it.name === 'UILabel' ? drawnRole(it.fg, scheme) : null);
+  if (it.inactive) return null;
+  const r = role(it.fgRole) ?? drawnRole(it.fg, scheme);
   if (r && /^(tertiary|quaternary)-label$|^placeholder$|^GrayText$/.test(r)) return null;
   if (it.size >= 24 || (it.size >= 18.66 && it.weight >= 700) || it.label || it.platformInk || (r && /^secondary-label$|^system-|^link$|^LinkText$|^AccentColor$|^ButtonText$/.test(r))) return 3;
   return 4.5;
 }
-/** The platform role a native label's ink is, by its value in this scheme (UIKit's own labels carry no name). */
+/** The platform role an ink is, by its value in this scheme: UIKit's own labels carry no name, nor does a text whose colour
+ *  is inherited or the grouped list's sheet's (a section footer's secondary label on the web). */
 function drawnRole(fg, scheme = 'light') {
   if (!fg) return null;
   for (const r of new Set(ROLES.values())) {
@@ -176,13 +179,14 @@ export function report(runs, nodes, host) {
       for (const f of run.findings.slice(0, SHOWN)) out.push(line(f, nodes));
       if (run.findings.length > SHOWN) out.push(`  … and ${run.findings.length - SHOWN} more (--json lists them all)`);
     }
-    for (const a of run.advice ?? []) out.push(advise(a, run.width, nodes));
+    for (const a of run.advice ?? []) out.push(advise(a, run.viewport?.w, nodes));
   }
   return out.join('\n');
 }
 
-/** `check [light|dark|both]` on a session: the host's observation and a capture under each scheme asked, judged; the scheme is put back. */
-export async function checkOp(s, args = []) {
+/** `check [light|dark|both]` on a session: the host's observation and a capture under each scheme asked, judged; the scheme is put back.
+ *  `shots(viewport, scheme)` names a file to keep each capture in (verify's), else they go with the check. */
+export async function checkOp(s, args = [], { shots } = {}) {
   const word = args[0] ?? 'current';
   if (!['current', 'light', 'dark', 'both'].includes(word) || args.length > 1) throw new Error('check [light|dark|both]: the presented screen, judged in text; `check dark` under prefers-color-scheme dark, `check both` under each');
   if (!['web', 'ios', 'host-ios'].includes(s.host)) throw new Error(`check: the web and iOS hosts carry it, not ${s.host}`);
@@ -195,10 +199,10 @@ export async function checkOp(s, args = []) {
     for (const scheme of asked) {
       let obs = first;
       if (scheme !== first.scheme || preferred) { await s.prefer({ 'prefers-color-scheme': scheme }); preferred = scheme; obs = await s.op({ op: 'check' }); }
-      const path = resolve(dir, `${scheme}.png`);
+      const path = shots?.(obs.viewport, scheme) ?? resolve(dir, `${scheme}.png`);
       await s.carrier.screenshot(path, obs.capture?.window === true); // iOS observes in the window's points: a sheet is not in the viewport's picture
       const png = decodePng(readFileSync(path));
-      runs.push({ scheme: obs.scheme, asked: scheme, target: obs.target, findings: judge(obs, png, { host: s.host === 'web' ? 'web' : 'ios' }), ...(obs.advice ? { advice: obs.advice, width: obs.viewport.w } : {}) });
+      runs.push({ scheme: obs.scheme, asked: scheme, target: obs.target, viewport: obs.viewport, findings: judge(obs, png, { host: s.host === 'web' ? 'web' : 'ios' }), ...(obs.advice ? { advice: obs.advice } : {}) });
     }
   } finally {
     if (preferred && preferred !== first.scheme) await s.prefer({ 'prefers-color-scheme': first.scheme }).catch(() => {});

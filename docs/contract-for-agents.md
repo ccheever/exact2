@@ -81,7 +81,7 @@ A proposal in a design document is not an implemented grammar production.
 
 In an app made by `exact new`, run its own `exact.mjs` from the app's directory.
 `bun exact.mjs update` regenerates that file, so the app's own verbs go in
-`app.json`'s `commands` (`"verify": ["bun", "verify.mjs"]` is `bun exact.mjs verify
+`app.json`'s `commands` (`"seed": ["bun", "seed.mjs"]` is `bun exact.mjs seed
 web`, run in the app's directory), which it reads and update leaves alone.
 Its `contract` verb is exact2's compiler, with paths relative to where you run it:
 
@@ -105,6 +105,9 @@ diagnostics, including related locations, before making the next repair. Each ha
 a `severity`: `"error"` refuses the build; `"warning"` (after the errors, also on a
 success) builds and runs but is not what you meant, such as a header node the iOS
 bar hides (`lower-header-unplaced`), a tab bar of one tab (`lower-single-tab`), a
+`button` with no words and no `aria-label` (`lower-button-unlabelled`), a dialog's
+role on a box (`lower-dialog-role`), a count before a plural noun, `${n} cards`
+(`lower-count-plural`), a
 `performanceNow()` time sent to a source (`type-performance-now-persisted`), a
 state read after its own action assigned it (`analyze-read-after-assign`) or a
 literal colour that stays the same in dark mode (`lower-colour-one-scheme`, every
@@ -619,7 +622,7 @@ roster. Compiler-owned router names exist only with a `routes` declaration.
 The platform answers the controls and the chrome; the app's own content is the
 author's to design (LLP 1116.000 D3): a summary at the top, bars where numbers
 compare, rows with a hierarchy, an empty state that says what to do.
-`exact:content` is a built-in library of eight components that draw it with
+`exact:content` is a built-in library of nine components that draw it with
 nothing but roles (`-exact-secondary-background`, `-exact-secondary-label`,
 `AccentColor`, the system hues, the text styles, symbols, the determinate
 `progress`), so dark mode, Dynamic Type and the tint come with them:
@@ -664,6 +667,7 @@ component Water
 | `DoneMark` | `caption: string`, `done: bool` | a filled check in the system green, or an empty circle in grey, with `caption` (short: a weekday; `""` for none) under it; one image to a reader, named by its caption and state ("Mon, done") |
 | `EmptyState` | `symbol: string`, `title: string`, `message: string`; a slot | a centred symbol, the title as a heading, the message; the nodes indented under the use (your `button`) under them |
 | `RowText` | `title: string`, `detail: string`, `value: option<string>` | a title, a secondary line under it (`""` for none) and a trailing value in tabular figures: a grouped list `row`'s content, or any list's |
+| `Badge` | `label: string`, `tint: option<string>` | a status in a word ("Full", "Cancelled") in a capsule, the caption style semibold, keeping its own size beside a title; `none` the neutral grey, `some("AccentColor")`, or a system hue under dark ink (white on indigo); read as its text |
 | `RoundButton` | `label: string`, `tint: option<string>`, `press: action`, `disabled: bool`, `testId: string` | the platform's own button as an 80-point circle (the Clock's Start, Stop, Lap): filled with `tint` (a role: `"AccentColor"`, `"-exact-system-green"`), ink the host picks for contrast; `none` is the neutral grey with the label's ink |
 | `AnswerTile` | `label: string`, `status: string`, `press: action`, `testId: string` | a full-width tile for one answer, the label in the headline style; `status` `"idle"` (a neutral fill), `"selected"` (the accent's outline and check), `"correct"` (the system green, dark ink, a check), `"wrong"` (the system red, white ink, a cross) or `"dimmed"`; told and dimmed tiles are disabled; a reader hears "Quito, correct" |
 
@@ -1085,6 +1089,7 @@ lists any literal colour, font size or weight an app's `.contract` files still w
 | `popover="auto" role="menu"` of `button`s, opened by `popovertarget` (a row whose `popovertarget` names another menu: its submenu) | `UIMenu`, nested (LLP 1021) |
 | `dialog role="alertdialog" aria-label="Remove book?"` of a `text`, its action(s) and one Cancel | `UIAlertController(.alert)`: the label its title, the text its message (LLP 1115 D6; recipe [below](#a-confirmation)) |
 | `role="tablist"`: each tab a symbol over a label / one text or image | `UITabBar` / `UISegmentedControl`, the tablist at least its native height unless `min-height` says otherwise (LLP 1059) |
+| `role="radiogroup"` of `button role="radio" aria-checked=…`, each one text or image (a value chosen from a few) | `UISegmentedControl`, as a tablist's; never a tab bar (LLP 1116.004 D5.2) |
 | a route whose first child is a `header` holding one heading, a text after it and its buttons | the navigation bar; a level-1 heading (`aria-level=1`) is a large title, the text after it the subtitle |
 | a route with `navigationPresentation="modal"` | a sheet |
 
@@ -1149,7 +1154,7 @@ column navigationKey=`${e.id}` navigationScroll="inbox-list" position="absolute"
 column navigationKey=`${e.id}` navigationScroll="list" position="absolute" inset=0 display="flex" flex-direction="column"
   header
     text "Shopping List" role="heading" aria-level=1
-    text `${left} items left`
+    text `${left} ${left == 1 ? "item" : "items"} left`
     button press=add aria-label="Add Item"
       image "symbol:add"
   scroll id="list" flex=1 min-height=0
@@ -1168,7 +1173,10 @@ column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="
 ```
 
 `action reload` is `refresh items`; `pending(items)` is true while it runs.
-A segmented control in the content is the same `row role="tablist"` of text tabs
+A segmented control in the content chooses a value or switches panels: a value
+from two to five (a preset, units, a period, a filter) is a `row role="radiogroup"` of
+`button role="radio" aria-checked=…`, each pressing its value (the web gives it the
+arrow keys and one Tab stop); switching panels, a `row role="tablist"` of text tabs
 outside the header. iOS needs a swipe row's content exactly the scroll's size
 ([pitfalls](agent-pitfalls.md), "There is no `swipeleft`").
 
@@ -2116,6 +2124,9 @@ that restates a constant is weaker evidence than the user's actual sequence.
 | `press={() => save()}` | `press=save` or `press=save(captured)` |
 | Copying an action's statements into another | Call it: `arrive(path)`; the callee runs in the same commit |
 | A helper that reads a slot its caller just assigned | Pass the value: `follow(next)` (`analyze-call-stale-read`) |
+| `button press=add` with no child, or only an `image "symbol:…"` (`lower-button-unlabelled`) | Its words in it (`text "Add"`), or `aria-label="Add"` on a symbol-only button |
+| `column role="dialog" aria-modal=true` for a modal you lay out (`lower-dialog-role`) | A sheet, a route with `navigationPresentation="modal"` ([navigation-stack](recipes/navigation-stack.md)); a confirmation is `dialog role="alertdialog"`, opened with `showModal(id)` |
+| `` `${n} cards` ``, which reads "1 cards" (`lower-count-plural`) | The noun chosen by the number: `` `${n} ${n == 1 ? "card" : "cards"}` `` (`contract vocab plural`) |
 | `now = performanceNow()`, then `now` read in the same action (`analyze-read-after-assign`) | Bind it and read the local: `let stamp = performanceNow()`, `now = stamp`, then `stamp` |
 | Child `resource`, `mutation`, or `task` | Root-owned declaration and props/injections |
 | `fontSize`, `radius`, `resizeMode` | `font-size`, `border-radius`, `object-fit` |

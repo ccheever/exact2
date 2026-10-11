@@ -877,3 +877,35 @@ fn an_authored_colour_and_font_reach_the_platforms_texts_and_unsaid_ones_stay_it
         (TextLook::default(), TextLook::default())
     );
 }
+
+/// Round 6's event-rsvp (LLP 1116.004 D9): an action that can't be taken is
+/// disabled, and a disabled row looks it everywhere the sheet draws, as
+/// UIKit draws one: the tertiary label's grey in place of its red or its
+/// label colour, bound or not.
+#[test]
+fn a_disabled_row_is_the_tertiary_labels_grey() {
+    let grey = ColorValue::LightDark(
+        Color::rgba(0x3c, 0x3c, 0x43, 0x4d),
+        Color::rgba(0xeb, 0xeb, 0xf5, 0x4d),
+    );
+    let red = ColorValue::LightDark(
+        Color::rgba(0xff, 0x38, 0x3c, 255),
+        Color::rgba(0xff, 0x42, 0x45, 255),
+    );
+    let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go destructive=true disabled=true testId=\"off\"\n      text \"Delete\"\n    button press=go destructive=true disabled=dark testId=\"bound\"\n      text \"Delete\"\n    button press=go disabled=on testId=\"plain\"\n      text \"Open\"");
+    let colour = |r: &Runner<NoData>, t: &str| r.kernel().node(id(r, t)).unwrap().style.text_color;
+    assert_eq!(colour(&r, "off"), grey);
+    assert_eq!(
+        colour(&r, "bound"),
+        red,
+        "enabled, a destructive row is red"
+    );
+    assert_eq!(colour(&r, "plain"), grey);
+    let bound = id(&r, "bound");
+    r.dispatch(bound, exact_runner::Event::Press).unwrap();
+    assert_eq!(
+        colour(&r, "bound"),
+        grey,
+        "disabled once its condition holds"
+    );
+}

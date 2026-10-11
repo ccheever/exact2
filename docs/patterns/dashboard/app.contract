@@ -1,5 +1,6 @@
 // Starter: a dashboard: a summary, bars that compare and the latest rows, over a source.
-// One column on a phone, two on a wide window; the one colour written is the accent, on the root.
+// Two columns on a wide window (the summary beside the rows), one on a phone; the one colour
+// written is the accent, on the root.
 use SummaryCard, StatBar, RowText, EmptyState from "exact:content"
 
 routes nav
@@ -43,26 +44,30 @@ component App
           header display="flex" align-items="center" padding="8px 16px"
             text "Starter" role="heading" aria-level=1
           scroll id="content" refresh=reload refreshing=pending(summary) flex=1 min-height=0
-            column gap=20 padding=16 max-width=1040 margin-left="auto" margin-right="auto"
-              row role="tablist" aria-label="Period"
-                button role="tab" aria-selected=(period == "week") press=show("week") testId="week" flex=1
-                  text "This Week"
-                button role="tab" aria-selected=(period == "month") press=show("month") testId="month" flex=1
-                  text "This Month"
-              SummaryCard(label="Spent", value=money(summary.spent), detail=detail, progress=some(min(1, summary.spent / summary.budget)), symbol=some("symbol:chart"))
-              when length(summary.categories) == 0
-                EmptyState(symbol="symbol:chart", title="Nothing spent this week", message="Spending shows here by category as it comes in.")
-                  button press=show("month") testId="see-month"
-                    text "See This Month"
-              else
-                // Cards of at least 320 points share a wide window and stack on a phone; on this
-                // plain page a card is `-exact-secondary-background`, as the summary's is.
-                row flex-wrap="wrap" align-items="flex-start" gap=20
-                  column flex="1 1 320px" min-width=0 gap=14 padding=20 border-radius=16 background-color="-exact-secondary-background" testId="by-category"
+            // Two columns on a wide window, one on a phone: each is `flex="1 1 320px"` in a
+            // wrapping row, so as many 320-point columns as fit share the width. The summary
+            // and its controls lead; the rows sit beside them, or under them on a phone.
+            row flex-wrap="wrap" align-items="flex-start" gap=20 padding=16 max-width=1040 margin-left="auto" margin-right="auto"
+              column flex="1 1 320px" min-width=0 gap=20 testId="summary"
+                row role="radiogroup" aria-label="Period"
+                  button role="radio" aria-checked=(period == "week") press=show("week") testId="week" flex=1
+                    text "This Week"
+                  button role="radio" aria-checked=(period == "month") press=show("month") testId="month" flex=1
+                    text "This Month"
+                SummaryCard(label="Spent", value=money(summary.spent), detail=detail, progress=some(min(1, summary.spent / summary.budget)), symbol=some("symbol:chart"))
+                // On this plain page a card is `-exact-secondary-background`, as the summary's is.
+                when length(summary.categories) > 0
+                  column gap=14 padding=20 border-radius=16 background-color="-exact-secondary-background" testId="by-category"
                     text "By Category" role="heading" aria-level=3
                     each c in summary.categories key=c.id
                       StatBar(label=c.name, value=`${money(c.spent)} of ${money(c.budget)}`, fraction=c.spent / c.budget, tint=(c.spent > c.budget ? some("-exact-system-red") : none))
-                  column flex="1 1 320px" min-width=0 padding="20px 20px 10px" border-radius=16 background-color="-exact-secondary-background" testId="recent"
+              column flex="1 1 320px" min-width=0
+                when length(summary.recent) == 0
+                  EmptyState(symbol="symbol:chart", title="Nothing spent this week", message="Spending shows here by category as it comes in.")
+                    button press=show("month") testId="see-month"
+                      text "See This Month"
+                else
+                  column padding="20px 20px 10px" border-radius=16 background-color="-exact-secondary-background" testId="recent"
                     text "Recent" role="heading" aria-level=3
                     each x in summary.recent key=x.id
                       RowText(title=x.title, detail=x.detail, value=some(money(x.amount)))

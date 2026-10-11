@@ -11,7 +11,7 @@ box (emphasis is a part: [content-design](content-design.md)).
 | `buttonStyle="bordered-prominent"` (`"filled"`) | the accent as its fill: the screen's one primary action |
 | `buttonStyle="plain"`, `"tinted"` | the accent as text; as a light tint |
 | `destructive=true` | the system red, in the button's style |
-| `row role="tablist"` in the content; a root `tablist` (`aria-controls`) | a segmented control; a tab bar |
+| `row role="radiogroup"` of `button role="radio"` (a value from two to five); a root `tablist` (`aria-controls`) | a segmented control, the arrows moving the choice; a tab bar |
 | a route's `header` | an app bar, sticky on a page that scrolls |
 | `dialog role="alertdialog"` | the system alert: its `aria-label` the title |
 | `input type="checkbox" switch` | a switch |

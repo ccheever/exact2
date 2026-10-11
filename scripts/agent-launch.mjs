@@ -3,13 +3,27 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { accessSync, constants, existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { basename, delimiter, dirname, relative, resolve } from 'node:path';
+import { basename, delimiter, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { types as utilTypes } from 'node:util';
 import { filesystemLock } from './filesystem.mjs';
 import { bakeOutput, linuxBinary, moduleDirectory, pendingBuildInputs, resolveApp, windowsFile, shaderWatchRoots, webDist } from './app.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
+
+/** The compiler's warnings in what a build said (LLP 1116.004 D7), each once as `contract build` prints
+ * it, `file:line:col warning [id] text`: the web compiler's or a bake's own line, or Cargo's for a build
+ * script's (`warning: <crate>@<version>: …`); its file from `cwd` when it is below it. */
+export function compilerWarnings(text, cwd = process.cwd()) {
+  const lines = new Set();
+  for (const line of String(text ?? '').split('\n')) {
+    const m = /^(?:warning: [\w-]+@[^\s:]+: )?(\S(?:.*?\S)?):(\d+:\d+ warning \[[\w-]+\] .*)$/.exec(line);
+    if (!m) continue;
+    const near = relative(cwd, m[1]);
+    lines.add(`${isAbsolute(m[1]) && !near.startsWith('..') ? near : m[1]}:${m[2]}`);
+  }
+  return [...lines];
+}
 
 /** Preserve the original operation failure and any owned cleanup handle. */
 export function retainCleanupError(error, failure) {

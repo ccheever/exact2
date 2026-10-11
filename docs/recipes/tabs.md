@@ -56,8 +56,10 @@ test "each tab keeps its own stack"
 ```
 
 - The root `tablist` (each tab a symbol over a label, naming its panel with
-  `aria-controls`) is the iOS tab bar. A `tablist` in the content is a segmented
-  control instead ([list-rows](list-rows.md)).
+  `aria-controls`) is the iOS tab bar. A `tablist` switches panels; a value chosen
+  from two to five (a preset, units, a period) is a `row role="radiogroup"` of
+  `button role="radio" aria-checked=…`, the platform's segmented control
+  ([persisted-setting](persisted-setting.md), `contract vocab choice`).
 - Every tab's stack stays mounted: a pushed screen, a draft and a scroll offset survive
   a visit to another tab. Selecting the shown tab again pops it to its root.
 - To hide the bar on one screen, set `display="none"` on the tablist; never remove it

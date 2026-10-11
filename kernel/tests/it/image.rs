@@ -437,6 +437,30 @@ fn a_projected_tablist_reserves_its_native_height_and_releases_it() {
     assert_eq!(frame(&mut kernel, 1).1, 20.0);
 }
 
+/// LLP 1116.004 D5.2: a radio group drawn as the platform's segmented
+/// control reserves its height as a tablist does; another role is refused.
+#[test]
+fn a_projected_radio_group_reserves_its_native_height() {
+    use exact_kernel::{PropId, PropValue};
+    let (mut kernel, _) = tree(None);
+    for (version, role) in [(2u64, "group"), (3, "radiogroup")] {
+        kernel
+            .apply(
+                1,
+                version,
+                &[Op::SetProp {
+                    id: 1,
+                    prop: PropId::AccessibilityRole,
+                    value: PropValue::Str(role.into()),
+                }],
+            )
+            .unwrap();
+        let measured = kernel.set_intrinsic_size(1, Some((390.0, 32.0)));
+        assert_eq!(measured.is_ok(), role == "radiogroup", "{role}");
+    }
+    assert_eq!(frame(&mut kernel, 1).1, 32.0);
+}
+
 #[test]
 fn a_tab_bar_minimum_moves_siblings_without_overriding_explicit_css_min_height() {
     use exact_kernel::{PropId, PropValue};

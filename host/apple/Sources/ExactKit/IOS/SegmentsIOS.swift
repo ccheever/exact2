@@ -3,6 +3,8 @@
 // a tab bar item's own shape — to a tab bar (LLP 1059). Contract remains the
 // state owner; UIKit owns the control. Layout stays authored: the control
 // fills the tablist's box and reports its native minimum height to layout.
+// @ref LLP 1116.004 D5.2 — a radio group of radios (a value chosen from a
+// few) is the same segmented control, its selection `aria-checked`.
 #if os(iOS) || os(tvOS)
 import UIKit
 
@@ -168,10 +170,18 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         presenter.contextmenu(tab.id)
     }
 
+    /// A tablist's pressable tabs, or a radio group's pressable radios
+    /// (LLP 1116.004 D5.2: a value chosen from a few is the same control).
     private func tabs(in owner: NodeView) -> [NodeView] {
-        owner.container.subviews.compactMap { $0 as? NodeView }.filter {
-            $0.isButton && $0.props["accessibilityRole"] == "tab" && $0.handlers.contains("press")
+        let role = Self.member(of: owner)
+        return owner.container.subviews.compactMap { $0 as? NodeView }.filter {
+            $0.isButton && $0.props["accessibilityRole"] == role && $0.handlers.contains("press")
         }
+    }
+    static func member(of owner: NodeView) -> String { owner.props["accessibilityRole"] == "radiogroup" ? "radio" : "tab" }
+    /// The chosen member: a tab `aria-selected`, a radio `aria-checked`.
+    static func chosen(_ tab: NodeView) -> Bool {
+        tab.props[tab.props["accessibilityRole"] == "radio" ? "accessibilityChecked" : "accessibilitySelected"] == "true"
     }
 
     private func available(_ owner: UIView) -> Bool {
@@ -224,11 +234,11 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         }
     }
 
-    /// Journal why a tablist is or is not a segmented control, once per change.
+    /// Journal why a tablist or radio group is or is not a segmented control, once per change.
     private func decide(_ owner: NodeView, _ decision: String) {
         guard decisions[owner.id] != decision else { return }
         decisions[owner.id] = decision
-        presenter.session?.log("tablist #\(owner.id): \(decision)")
+        presenter.session?.log("\(owner.props["accessibilityRole"] ?? "tablist") #\(owner.id): \(decision)")
     }
 
     private func restore(owner id: UInt32) {
@@ -367,9 +377,13 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         // @ref LLP 1039 D6 — only explicit vertical tablists opt out; ignore invalid ARIA values.
         // A tablist whose place a tab container's bar takes is the container's
         // (LLP 1075.003 §3.7): it is hidden, and projects nothing of its own.
+        // A radio group of two or more radios is the same segmented control
+        // (LLP 1116.004 D5.2); it is never a tab bar.
         let owners = presenter.carrying("role:tablist").filter {
             $0.props["accessibilityRole"] == "tablist" &&
                 $0.props["accessibilityOrientation"] != "vertical" && !presenter.navigation.adopts(tablist: $0)
+        } + presenter.carrying("role:radiogroup").filter {
+            $0.props["accessibilityRole"] == "radiogroup" && $0.props["accessibilityOrientation"] != "vertical"
         }
         for list in presenter.carrying("role:tablist") {
             let adopted = presenter.navigation.adopts(tablist: list)
@@ -382,7 +396,8 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         for id in Array(decisions.keys) where !live.contains(id) { decisions.removeValue(forKey: id) }
         for owner in owners {
             let tabs = tabs(in: owner)
-            let faces = tabs.compactMap(TabBarFace.init)
+            let radios = Self.member(of: owner) == "radio"
+            let faces = radios ? [] : tabs.compactMap(TabBarFace.init)
             if tabs.count > 1, faces.count == tabs.count {
                 owner.accessibilityTraits.remove(.tabBar)
                 decide(owner, "projected to UITabBar (\(tabs.count) items)")
@@ -395,8 +410,9 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             let unshown = tabs.first { $0.segmentFace == nil }
             if tabs.count <= 1 || unshown != nil {
                 restore(owner: owner.id)
-                owner.accessibilityTraits.insert(.tabBar)
-                decide(owner, unshown.map { "kept as authored: tab #\($0.id) is not one image or its label alone, which a segment cannot show" } ?? "kept as authored: fewer than two pressable tabs")
+                if !radios { owner.accessibilityTraits.insert(.tabBar) }
+                let member = radios ? "radio" : "tab"
+                decide(owner, unshown.map { "kept as authored: \(member) #\($0.id) is not one image or its label alone, which a segment cannot show" } ?? "kept as authored: fewer than two pressable \(member)s")
                 continue
             }
             owner.accessibilityTraits.remove(.tabBar)
@@ -430,7 +446,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             control.accessibilityIdentifier = owner.props["testId"]
             control.segmentLabels = tabs.map(Self.segmentLabel)
             control.segmentIDs = tabs.map { $0.props["testId"] }
-            let selected = tabs.firstIndex { $0.props["accessibilitySelected"] == "true" } ?? UISegmentedControl.noSegment
+            let selected = tabs.firstIndex(where: Self.chosen) ?? UISegmentedControl.noSegment
             // A choice the finger made and the control has not reported yet
             // stays; resetting it would make the report name the old segment.
             let pending = control.isTracking || control.selectedSegmentIndex != control.settled
