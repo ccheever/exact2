@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-legacy-sidebar-full
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/469
 verified_commit: null
 ---
 
@@ -232,7 +232,7 @@ All on `aef1a2d16` (the final app code; the commits after it change only this re
 
 ## Delivery
 
-Draft PR {pr} into `feat(example)/t3-code`.
+Draft PR [#469](https://github.com/ccheever/exact2/pull/469) into `feat(example)/t3-code`.
 
 ## Next action
 
