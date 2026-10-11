@@ -971,7 +971,8 @@ text's highlight, ⌘↵ save and send). What stays different:
   follows the chip (the native editor reports its frame on every scroll and move).
 - **The highlight.** The reference marks the cited range with `::highlight(t3-assistant-citation-comment)` (the primary at
   45%); the clone draws the same colour as a background on the cited part of each text run (MarkedText), and on a whole
-  inline code span when the quote covers part of it. For a chip this session did not cite (another session's prompt),
+  inline code span when the quote covers part of it. Between the words of a block laid out word by word the spaces stay
+  unmarked (each word's trailing space is drawn without its background). For a chip this session did not cite (another session's prompt),
   the quote's first place in its answer is marked (the reference resolves it with the quote's context).
 - **The quote's line breaks.** The selector (start, end, prefix, suffix) is the reference's: both streams collapse every
   whitespace run. The quote's own text keeps one line break between two blocks where the reference's DOM stream has
