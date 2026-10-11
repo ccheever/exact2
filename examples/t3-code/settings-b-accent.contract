@@ -53,14 +53,18 @@ component ProviderAccentPicker
   // The focused stop or slider ("s", "v", "hue"), and whether the last input was a pointer (no focus ring then).
   state focusPart = ""
   state mouse = false
+  // Enter or Space on the trigger: the popover opens from the keyboard, so its first stop shows the ring
+  // (focus-visible). The trigger takes no pointer event, so a press on it still reaches the window's
+  // outside-press count (the Usage page's pinned popover, usage-pooled.test.ts).
+  state keyOpen = false
   action open
     dragging = false
     hexEditing = false
     focusPart = ""
-  action triggerDown
-    mouse = true
+    mouse = not keyOpen
+    keyOpen = false
   action triggerKey(k: string)
-    mouse = false
+    keyOpen = k == "Enter" or k == " "
   action dragPlane(dx: number, dy: number)
     s = min(1, max(0, (dragging ? s : s0) + dx / 224))
     v = min(1, max(0, (dragging ? v : v0) - dy / 144))
@@ -143,7 +147,7 @@ component ProviderAccentPicker
     box position="relative" flex-shrink=0
       // The busy tracker: 2 wide while a command is pending, back to 1 when it lands (`landed`).
       box position="absolute" left=0 top=0 width=(busy ? 2 : 1) height=1 opacity=0 pointer-events="none" inert=true aria-hidden=true resize=landed testId="provider-accent-landing"
-      button press=open pointerdown=triggerDown key=triggerKey popovertarget=`provider-accent-${editorId}` hover=hover aria-label=`${accent == "" ? "Add" : "Change"} accent color for ${title}` disabled=(not writable) testId="provider-accent" display="flex" flex-direction="row" align-items="center" justify-content="center" width="1.75rem" height="1.75rem" padding=0 box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color=(accent != "" ? accent : (hovered ? "light-dark(#27272914, #f5f5f514)" : "#00000000")) title=""
+      button press=open key=triggerKey popovertarget=`provider-accent-${editorId}` hover=hover aria-label=`${accent == "" ? "Add" : "Change"} accent color for ${title}` disabled=(not writable) testId="provider-accent" display="flex" flex-direction="row" align-items="center" justify-content="center" width="1.75rem" height="1.75rem" padding=0 box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color=(accent != "" ? accent : (hovered ? "light-dark(#27272914, #f5f5f514)" : "#00000000")) title=""
         when accent == ""
           // Button variant="ghost-muted": muted-foreground, foreground on hover.
           CnGlyph(name="plus", size=16, color=(hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))

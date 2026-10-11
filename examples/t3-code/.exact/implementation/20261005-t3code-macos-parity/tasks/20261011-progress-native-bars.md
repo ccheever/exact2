@@ -59,8 +59,13 @@ minimum and maximum) and `ab9110c3a` (a determinate `progress value=… max=…`
   `UsageLimitsPooled.tsx` segment: a `<button>` named "<account>: N% left, …", its fill and hatch `aria-hidden`;
   `UsagePage.tsx` model breakdown bars: `aria-hidden`.
 - `apps/web/src/components/ui/color-picker.tsx`: the plane's stops are `<input type="range" min=0 max=100>` with
-  `aria-valuetext="N%"`; `ColorHueSlider` a `role="slider"` with `aria-valuemin={0} aria-valuemax={360}
-  aria-valuenow={Math.round(value)}`.
+  `aria-valuetext="N%"` and `aria-describedby` naming the plane's sr-only instructions ("Use arrow keys to adjust the
+  focused value. Hold Shift for larger steps. Use Home and End for the minimum and maximum. Press Tab to move between
+  saturation and brightness."); `ColorHueSlider` a `role="slider"` with `aria-valuemin={0} aria-valuemax={360}
+  aria-valuenow={Math.round(value)}`. It has two users: `settings/ThemeColorPicker.tsx` (the theme editor's swatches)
+  and `settings/ProviderAccentColorPicker.tsx` (a provider instance's accent: the plane `label="Accent color"`
+  `variant="edge"`, the slider `label="Accent color hue"`; ProviderInstanceCard.tsx commits each change, 120 ms
+  debounced).
 - `apps/web/src/components/preview/PreviewChromeRow.tsx` `.preview-loading-progress`: `aria-hidden`.
 - `apps/web/src/components/cloud/RelayClientInstallDialog.tsx` `<progress>` (T3 Connect: scope closed by the user) and
   `sidebar/DesktopUpdateStatusIcon.tsx` (the desktop update feed: scope closed) have no clone counterpart.
@@ -100,7 +105,8 @@ type="range" min=0 max=100>` with `aria-valuetext`), the hue slider `aria-valuem
 aria-valuenow=round(h)`. Before, macOS exposed none of the three (a drawn `role="slider"` was no element before main's
 `43f6d298c`); after, each is an `AXSlider` with value, minimum, maximum and, on the stops, the "N%" value description.
 `EXACT2-GAPS.md` X49 (fixed on main, adopted; workaround: none, retired by this task) and X55 (the progress bars: none;
-`status`, `alert` and the modal dialog still wait for main) are updated.
+`status`, `alert` and the modal dialog still wait for main) are updated. The provider accent picker, color-picker.tsx's
+second user, was missed in Step 1 and is built in review round 1 below.
 
 **Declared difference (platform, LLP 1116 D8 as built):** AppKit gives a determinate bar no tint, so the Antigravity bar
 draws in the system accent (grey while the window is inactive) and at AppKit's small bar's thickness, where Chrome draws
@@ -108,12 +114,53 @@ the reference's `<progress>` 4 px high in its own colours (green on grey in the 
 `accent-foreground` there); the clone writes the reference's `accent-color`, which iOS and the web honour. Recorded in
 `EXACT2-GAPS.md` X49.
 
+## Review round 1 (2026-10-12)
+
+An independent review of #462 found two should-fix problems; both are fixed on `37ad3353f`.
+
+1. **The provider accent picker, the second counterpart of color-picker.tsx** (`settings-b-accent.contract`
+   ProviderAccentPicker, markup from the initial clone `b0a14280a`): its plane was a `role="group"` with no stops, no
+   range values and no Tab stops, and its hue a `role="group"` named with its value (`Accent color hue ${floor(ch)}`),
+   the value-in-the-name pattern this task retires. Now it is ProviderAccentColorPicker.tsx's: the plane (`role="group"`
+   "Accent color saturation and brightness") holds two invisible, focusable stops, `role="slider"` "Accent color
+   saturation" / "Accent color brightness" with `aria-valuemin=0 aria-valuemax=100 aria-valuenow=(s × 100)
+   aria-valuetext="N%"`, the first autofocused as the popover opens (Base UI's initial focus, as the reference: its
+   focus lands on "Accent color saturation"); the hue is a `role="slider"` "Accent color hue" with `aria-valuemin=0
+   aria-valuemax=360 aria-valuenow=round(h)` and a Tab stop. The keys are color-picker.tsx's (stops: arrows 2 %, Shift
+   10 %, Home/End; hue: arrows 1°, Shift 10°, wrapping), a drag focuses its control (the reference's pointerdown), and a
+   keyboard focus draws the ring and the plane's "Saturation N%"/"Brightness N%" label (focus-visible). Each key
+   commits its colour, as the reference commits each change; a colour the window drops because a command is pending
+   (`providerAccent` takes none while `commandPending`) is sent when that command lands, through a busy tracker beside
+   the trigger (2 wide while busy, its `resize` back to 1 sends the colour the picker reached; the theme picker's
+   pattern, X22), so the last colour a key reached is the one saved. The claim "every range box says its value" now
+   holds for groups too: `progress-native-bars.test.ts` fails on any `aria-label` that carries a value (`floor(`,
+   `round(`, `%`), and checks the accent picker's markup.
+2. **The stops' description** (`theme-color-picker.contract`, and the accent picker's new stops): each stop's
+   `aria-describedby` names the plane's sr-only instructions, a `text` with the reference's sentence (1 px, clipped,
+   transparent, as Tailwind's `sr-only`, the idiom of `settings-kit.contract` SettingsSrHeading), as color-picker.tsx's
+   `aria-describedby={instructionsId}`. On macOS the stop's AXHelp is that text (`Accessibility.swift`
+   `accessibleDescription`); in the reference it is the slider's description.
+
+Live drive (agent mode, 1280×840, once): before on `t3-code-evidence-base` at `6db5cadea` (lane
+`progress-native-bars-before`), after on this branch's bundle built from `37ad3353f` (lane `progress-native-bars`),
+reference T3 Code 1e2ecbd975 (lane `progress-native-bars`, CDP `Accessibility.getFullAXTree`). Opened, the clone's
+picker reads as the reference's: the group, "Accent color saturation" 84.26 (focused), "Accent color brightness"
+92.16, both with the instructions as their help, "Accent color hue" 221; after Shift+→, Tab, Shift+↓, Tab, → both read
+94.26, 82.16 and 222, both draw the "Brightness 82%" label and the ring, and both saved `#0c47d2` (the lane's
+settings). Before: two groups, "Accent color hue 221", nothing to Tab to. The theme picker's stops read the instructions
+as their help after, as the reference's. The out-of-process AX reader reached no window this time (`windows: 0`; the
+agent-mode window, as PV-1 found), so the AX values are the agent's `tree --ax`, the AppKit accessibility objects read
+in process (role, name, value, help, focus); the range bounds are the markup's (tested) and were read out of process for
+the theme picker's sliders in round 0.
+
 ## Acceptance results
 
 | Row | Result | Proof |
 | --- | --- | --- |
 | PB-1 | pass (out-of-process AX read, the client API VoiceOver uses; agent `tree`; reference over CDP): before, the Antigravity and context window bars are `AXBusyIndicator`s named "Antigravity download, 30%" / "Context window usage, 42%" with value 0; after, `AXProgressIndicator` "Antigravity download" value 0.3 of 0–1 and "Context window usage" value 42 (95) of 0–100, as the reference's `progressbar` 13680000 of 0–45600000 and 42 (95) of 0–100; the Usage WindowBar an `AXImage` named with its figures before and after (the reference's `role="img"`). Measured on a one-file probe per side (each bar's lines copied from the source, literals for the data) on the clone's own binaries: the lane can show neither bar live (a runtime download is a provider install, token usage a provider turn) | [pb1-bars-light.png](https://raw.githubusercontent.com/ccheever/exact2/0536f61abd7a4201708b1c75cca7f1734d0b7e06/progress-native-bars/pb1-bars-light.png), [pb1-bars-dark.png](https://raw.githubusercontent.com/ccheever/exact2/7af60a7844fef6a01978b7eb65602d96ba3d0f3f/progress-native-bars/pb1-bars-dark.png), [pnb-record.txt](https://raw.githubusercontent.com/ccheever/exact2/17071586f2ff54291ff630e3add36de44a984dbd/progress-native-bars/pnb-record.txt), [probe-before.contract.txt](https://raw.githubusercontent.com/ccheever/exact2/b11b04adc0d11ced8d9ace4e2ef5d89de4854398/progress-native-bars/probe-before.contract.txt), [probe-after.contract.txt](https://raw.githubusercontent.com/ccheever/exact2/a57b609cce832bfebe562be06457b7b2ef3dc1e1/progress-native-bars/probe-after.contract.txt) |
 | PB-2 | pass (live agent drive, before and after, the same ops; out-of-process AX read; reference over CDP): before, the picker's stops and hue slider are no AX element (only the plane's group); after, three `AXSlider`s, "Background saturation" 10 of 0–100 ("10%"), "Background brightness" 0 of 0–100 ("0%"), "Background hue" 1 of 0–360 after Shift+→, Tab, Shift+↓, →, as the reference's sliders; the picker looks the same; `progress-value.contract` gone; `EXACT2-GAPS.md` X49, X55 | [pb2-picker.png](https://raw.githubusercontent.com/ccheever/exact2/03ab66c39466f63759789070d50b6f91a8fa0d74/progress-native-bars/pb2-picker.png), [pnb-record.txt](https://raw.githubusercontent.com/ccheever/exact2/17071586f2ff54291ff630e3add36de44a984dbd/progress-native-bars/pnb-record.txt), [drive.sh.txt](https://raw.githubusercontent.com/ccheever/exact2/7413690b335128a8a1a4fa6c046fb0174d1b2ae7/progress-native-bars/drive.sh.txt) |
+| R1-1 provider accent picker | pass (live agent drive before/after, the same opening; reference over CDP): before, two `AXGroup`s ("Accent color saturation and brightness", "Accent color hue 221"), no stop; after, the group with `AXSlider` "Accent color saturation" 84.26 (focused on open) and "Accent color brightness" 92.16, and `AXSlider` "Accent color hue" 221, as the reference's sliders (84.26, 92.16, 221; its focus on saturation); after Shift+→, Tab, Shift+↓, Tab, → the clone and the reference both read 94.26, 82.16, 222 and saved `#0c47d2` | [r1-accent-open.png](https://raw.githubusercontent.com/ccheever/exact2/ce009a040c11cbfa4b12469b8182d72ca13d9a35/progress-native-bars/r1-accent-open.png), [r1-accent-keys.png](https://raw.githubusercontent.com/ccheever/exact2/b145217072200f3550e8e354525e10856e80c458/progress-native-bars/r1-accent-keys.png), [r1-record.txt](https://raw.githubusercontent.com/ccheever/exact2/7149fb092be95a9690897c2c6ba74aacc92f4e82/progress-native-bars/r1-record.txt), [r1-drive.sh.txt](https://raw.githubusercontent.com/ccheever/exact2/686fb4dc00b90306e4fdcb7e61c0ac818e8caf0f/progress-native-bars/r1-drive.sh.txt) |
+| R1-2 the stops' description | pass (same drive): after, the theme picker's and the accent picker's four stops carry the instructions as their help ("Use arrow keys to adjust the focused value. …"), as the reference's sliders' description; before, none | [r1-theme-described.png](https://raw.githubusercontent.com/ccheever/exact2/b34a12e5c1157047fe183f95002608caab67a0ae/progress-native-bars/r1-theme-described.png), [r1-record.txt](https://raw.githubusercontent.com/ccheever/exact2/7149fb092be95a9690897c2c6ba74aacc92f4e82/progress-native-bars/r1-record.txt) |
 | VoiceOver on the bars and sliders | implemented, not verified (real input is the coordinator's session): Real-input batch steps below | — |
 
 Drives (agent mode, 1280×840): before on `t3-code-evidence-base` at `6db5cadea` (lane `progress-native-bars-before`),
@@ -132,6 +179,11 @@ send a message. Turn VoiceOver on (⌘F5) only for these steps and off after.
 1. **PB-2, the colour picker.** Settings › Appearance › Create theme › the Background swatch. VO on the plane's first stop
    reads "Background saturation, 0%, slider" (or the current percentage); Shift+→ changes it and VO speaks the new
    value ("10%"); VO-→ to "Background brightness, N%, slider"; then "Background hue, 0, slider", → speaks 1. Escape twice.
+1a. **Review round 1, the accent picker.** Settings › Providers › Codex › the "+" beside Display name. The focus lands
+   on the plane's first stop: VO reads "Accent color saturation, 84%, slider" and, after a pause, the instructions ("Use
+   arrow keys to adjust the focused value. …"); Shift+→ speaks "94%"; Tab: "Accent color brightness, 92%"; Tab:
+   "Accent color hue, 221, slider" (no number in the name), → speaks 222. Then press Clear color (the accent goes back to
+   none). In the theme editor's picker (step 1) VO likewise reads the instructions on each stop.
 2. **PB-1, the bars, on the probe.** The lane cannot download Antigravity or show a thread's token usage without a
    provider, so use the probe: `target/debug/contract build probe-after.contract -o probe-after.plan` (the file from the
    evidence above), then launch the lane copy's executable with `EXACT_PLAN=<abs>/probe-after.plan` (and the lane's
@@ -153,6 +205,12 @@ send a message. Turn VoiceOver on (⌘F5) only for these steps and off after.
   Usage bars' and the loading bar's reference markup. Two mutations fail it (the hue slider back on `aria-description`:
   2 fail; the context bar back to `aria-hidden`: 1 fail).
 - `progress-value.test.ts` deleted with its contract; `provider-setup.test.ts` drops `progressPercent`.
+- Review round 1: `progress-native-bars.test.ts` (9): the theme picker's stops with `aria-describedby` and the
+  instructions' text; the provider accent picker's stops (inside the plane, Tab stops, the first autofocused, their keys,
+  range values, description) and hue slider (`role="slider"` "Accent color hue", 0–360, `aria-valuenow`); the app-wide
+  check also fails on a value in an `aria-label`. The hue back to `role="group"` named `Accent color hue ${floor(ch)}`
+  fails 2. `settings-b-accent.test.ts` (+3): colorPickers.test.tsx's two ProviderAccentColorPicker key tests ported with
+  their names (each key's commit and the reported values), and the Contract key rules checked against color-picker.tsx's.
 
 ## Checks
 
