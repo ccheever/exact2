@@ -1,0 +1,32 @@
+#!/bin/zsh
+# reply-links: one agent drive per build (not committed). Usage: drive.sh before|after
+# before: the evidence worktree (prebuilt, eb9752918, the feature tip's code); after: this task's worktree.
+# Lane base 16936 (embedded server 16938: the clone's development server takes only 16000-16999, so the given 17120 is the
+# reference's). The lanes' fixture reply (turn item fixture-markdown) holds a mailto, irc, xmpp and fragment link and two web
+# links with code spans (fixture-text.txt). No mailto link is ever left-clicked (the tip's text would hand it to the mail app).
+MODE=${1:?before|after}
+S=/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/ff0894f2-cfb5-44b9-94c8-a8504a994fef/scratchpad/reply-links
+A=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit
+OUT=$S/runs/$MODE; rm -rf $OUT; mkdir -p $OUT/shots; P=$OUT/shots
+if [ $MODE = before ]; then ROOT=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-evidence-base; LANE=reply-links-before
+else ROOT=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-reply-links; LANE=reply-links; fi
+rm -f $A/lanes/$LANE/logs/opened-urls.txt
+rc() { OPS+=("tap t3-code contextmenu at $1 $2" "clock +800 real" "logs"); }   # a right-click at a window point
+OPS=("clock +20000 real" "clock +3000 real" "tap thread-verify-timeline" "clock +3000 real" "tap dismiss-provider-warning" "clock +800 real"
+     "screenshot $P/01-thread.png window" "tree --ax" "logs")
+rc 347 191   # "the team" (mailto), its first word
+rc 375 191   # "team"
+rc 438 191   # "the channel" (irc)
+rc 523 191   # "chat" (xmpp)
+rc 603 191   # "the notes" (#notes), its first word
+rc 419 224   # the code span "x" in "the `x` docs"
+OPS+=("tap y contextmenu" "clock +800 real" "logs")   # the code span "y" that starts "`y` docs"
+# Left clicks (never on the mailto link): irc, xmpp, the fragment, then the two code spans of the web links.
+OPS+=("tap t3-code at 438 191" "clock +1200 real" "logs" "tap t3-code at 476 191" "clock +1200 real" "logs" "tap t3-code at 523 191" "clock +1200 real" "logs"
+      "tap t3-code at 603 191" "clock +1200 real" "screenshot $P/02-after-fragment.png window" "logs"
+      "tap t3-code at 419 224" "clock +1500 real" "logs" "tap y" "clock +1500 real" "logs"
+      "screenshot $P/03-end.png window" "state" "logs")
+cd $OUT
+EXACT_ROOT=$ROOT $A/clone-drive.sh $LANE 16936 "${OPS[@]}" > $OUT/agent.jsonl 2> $OUT/agent.err
+echo "exit $?" >> $OUT/agent.err
+cp $A/lanes/$LANE/logs/opened-urls.txt $OUT/opened-urls.txt 2>/dev/null || echo "(none)" > $OUT/opened-urls.txt
