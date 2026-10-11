@@ -21,6 +21,7 @@ pub mod collection;
 mod deps;
 mod document;
 mod find;
+mod foresee;
 mod region;
 mod text;
 
@@ -32,6 +33,7 @@ pub(crate) use deps::{Deps, Input, Reads as DepReads};
 pub use document::{DocNode, DocTree, DocTreeError};
 use exact_kernel::{NodeType, Op, StyleProps, ViewId};
 use exact_plan::{ArmsId, BindingKind, Items, NodesId, Plan, RegionKind, RegionsId, Value};
+pub use foresee::Mount;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;

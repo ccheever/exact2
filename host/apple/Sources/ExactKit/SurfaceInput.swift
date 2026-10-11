@@ -13,15 +13,13 @@ extension NodeView {
     var returnsPointerFocusToCanvas: Bool {
         kind == "button" && props["action"] == nil && props["accessibilityRole"] != "slider" && inputCanvas != nil
     }
+    #if os(macOS)
     /// Pointer-completed HUD presses return the keyboard to the enclosing world.
     func finishPointerPress() {
         guard returnsPointerFocusToCanvas, let canvas = inputCanvas else { return }
-        #if os(macOS)
         finishPress(canvas: canvas, window: window, pointer: true)
-        #else
-        if isFirstResponder { _ = canvas.becomeFirstResponder(); presenter?.syncAccessibility() }
-        #endif
     }
+    #endif
 
     #if os(macOS)
     /// Complete an activation with the input owner captured before dispatch.
@@ -63,7 +61,8 @@ extension NodeView {
         return isSurfaceControl ? window?.makeFirstResponder(self) == true : focusCanvas()
         #else
         if presenter?.editing != nil { return true }
-        return isSurfaceControl ? becomeFirstResponder() : focusCanvas()
+        if isSurfaceControl { return isFirstResponder || takeTouchFocus() }
+        return focusCanvas()
         #endif
     }
     @discardableResult

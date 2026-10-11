@@ -298,3 +298,33 @@ impl<D: DataSource + Default> CanvasHost<D> {
         }
     }
 }
+
+/// A press's screen laid out ahead of its release (`presenter/ahead.rs`).
+impl<D: DataSource + Default> CanvasHost<D> {
+    /// After a touch (`CanvasHost::touch`, which answered `r`): a touch down
+    /// leaves its press to lay out ahead; its end, either way, leaves nothing.
+    pub(super) fn touched(&mut self, action: i32, x: f32, y: f32, now: f64, r: Result<(), String>) {
+        if let Err(e) = r {
+            eprintln!("exact: {e}");
+        }
+        match action {
+            0 => self.p.foresee_press(x, y, now),
+            2 => {}
+            _ => self.p.forget_press(),
+        }
+    }
+
+    /// One slice (about `budget_us` of shaping) of laying out what the touch
+    /// that is down would open; whether more is left. For when the host has
+    /// nothing else to do: it changes nothing that is shown. A touch that
+    /// has scrolled since opens nothing.
+    pub fn ahead(&mut self, budget_us: u32) -> bool {
+        let _s = Section::begin(c"exact ahead");
+        if (self.p.foreseen_at()).is_some_and(|down| self.scrolled_at >= down) {
+            self.p.forget_press();
+            return false;
+        }
+        self.p
+            .foresee_slice(std::time::Duration::from_micros(budget_us.into()))
+    }
+}

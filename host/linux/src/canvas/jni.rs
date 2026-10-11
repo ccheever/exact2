@@ -314,6 +314,17 @@ macro_rules! canvas_jni {
                 with(|h| h.touch(action, x, y));
             }
 
+            /// One slice of laying out what the touch that is down would
+            /// open (`CanvasHost::ahead`); whether more is left.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_ahead(
+                _env: *mut JNIEnv,
+                _class: jclass,
+                budget_us: jint,
+            ) -> jboolean {
+                flag(with(|h| h.ahead(budget_us.max(0) as u32)).unwrap_or(false))
+            }
+
             #[no_mangle]
             pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_poll(
                 _env: *mut JNIEnv,
