@@ -333,6 +333,15 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if ok, handlers.contains("blur"), presenter?.menus.focus.quiet != true { presenter?.blur(id) }
         return ok
     }
+    #if os(iOS)
+    /// A focused node is not text entry, as the view's shortcut focus is not
+    /// (ExactViewIOS): a menu that reloads its responder's input views (a
+    /// `select`'s) raised the software keyboard over its options once a
+    /// press had left a button focused (polls, LLP 1116 D2). A canvas
+    /// taking input keeps the system's.
+    private static let noKeyboard = UIView(frame: .zero)
+    package override var inputView: UIView? { isFirstResponder && canvases?.wantsInput(id) != true ? Self.noKeyboard : nil }
+    #endif
     /// A hardware keyboard's Tab and Shift-Tab move the focus through the
     /// sequential order, as macOS's key-view loop does (`Presenter.moveFocus`);
     /// Enter and Space then press (`pressesBegan`). UIKit gives text inputs a
