@@ -432,6 +432,12 @@ fn turn<D: DataSource>(
 }
 
 impl<D: DataSource + 'static> DataSource for Placed<D> {
+    fn set_document_owner(&mut self, owner: u64) {
+        if let Some(inner) = &mut self.inner {
+            inner.set_document_owner(owner);
+        }
+    }
+
     /// The wrapper's envelope lines, plus the inline module's journal.
     /// A worker owner keeps the module's journal (LLP 1097 D6): nothing of
     /// it is forwarded while the owner holds it.

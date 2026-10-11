@@ -59,6 +59,7 @@ impl Hooks {
 
 /// The buffers and the host behind the exports.
 pub struct Bridge<D: DataSource> {
+    document_owner: u64,
     host: Option<Host<D>>,
     region: Option<crate::content_region::ContentRegionRegistration>,
     prepared: Option<PreparedHost<D>>,
@@ -123,6 +124,7 @@ impl<D: DataSource> Bridge<D> {
     /// Empty, linking what `links` names (the entry's, LLP 1047.001 D3).
     pub const fn with_links(links: crate::link::Links<D>) -> Bridge<D> {
         Bridge {
+            document_owner: 0,
             links,
             host: None,
             region: None,
@@ -465,11 +467,12 @@ impl<D: DataSource> Bridge<D> {
     fn boot_fresh(
         &mut self,
         plan: PlanBytes<'_>,
-        data: D,
+        mut data: D,
         hooks: Hooks,
         width: f32,
         height: f32,
     ) -> Result<String, String> {
+        data.set_document_owner(self.document_owner);
         if let Some(compat) = self.compat {
             exact_runner::delivery::refuse_analysis(compat).map_err(str::to_string)?;
         }
@@ -669,10 +672,11 @@ impl<D: DataSource> Bridge<D> {
                 self.input[plan_len + receipt_len..].to_vec(),
             )
         };
-        let data = match replacement() {
+        let mut data = match replacement() {
             Ok(data) => data,
             Err(error) => return self.refuse_preparation(&format!("module generation: {error:?}")),
         };
+        data.set_document_owner(self.document_owner);
         let mut validated = None;
         if self.painted {
             match data.preload() {
@@ -688,6 +692,7 @@ impl<D: DataSource> Bridge<D> {
                     return self.refuse_preparation(&format!("module generation: {error:?}"))
                 }
             };
+            validation.set_document_owner(self.document_owner);
             if let Err(error) = validation.activate_for_validation() {
                 return self.refuse_preparation(&format!("candidate module: {error:?}"));
             }
@@ -755,7 +760,7 @@ impl<D: DataSource> Bridge<D> {
     fn prepare_plan_carried(
         &mut self,
         len: usize,
-        data: D,
+        mut data: D,
         hooks: Hooks,
         width: f32,
         height: f32,
@@ -766,6 +771,7 @@ impl<D: DataSource> Bridge<D> {
             return refusal;
         }
         self.prepared = None;
+        data.set_document_owner(self.document_owner);
         let plan = self.input[..len.min(self.input.len())].to_vec();
         // Build the candidate beside the live host. A decode, app-identity,
         // or runner refusal must not turn a reload into an empty window.
