@@ -17,6 +17,7 @@ import { addReviewCommentChip, insertContext, localId, removeReviewCommentChip }
 import { ASSISTANT_CITATION_MAX_TEXT_LENGTH, createAssistantTextSelector, formatAssistantCitationHref, parseAssistantCitationHref } from './diff-citations';
 import { pushToast } from './toast';
 import { letGo } from './let-go';
+import { closeChipFromPress } from './composer-chip-popover';
 
 /** After a preview answers: read the per-file patches it asked for (the first four, then whatever was requested since). */
 export async function loadDiffFiles(client: T3Client, native: Native): Promise<void> {
@@ -28,7 +29,8 @@ export async function loadDiffFiles(client: T3Client, native: Native): Promise<v
 /**
  * `diffreview` ops; answers the toast text ('' for none). Line ops name the side and modifier in
  * the op (`drag:additions:shift`, `gutter:deletions`, `comment:deletions`), the file in `value` and the line in `n`;
- * a drag's `to` takes the cell id under the pointer in `value`, its `end` nothing; `expand` takes the hidden range's index in `n`.
+ * a drag's `to` takes the cell id under the pointer in `value`, its `end` nothing; `press` is a gutter press that starts
+ * none; `expand` takes the hidden range's index in `n`.
  */
 export async function diffReview(client: T3Client, native: Native, op: string, value: string, n: number): Promise<string> {
   const state = client.diffState, scope = state.scopeKey;
@@ -78,6 +80,10 @@ export async function diffReview(client: T3Client, native: Native, op: string, v
     return '';
   }
   if (action === 'to' || action === 'end') return lineDrag(client, state, scope, action, value);
+  // A primary press on the gutter (`press`: one that starts no drag, while a draft is open or on an empty side) is an outside
+  // press for a skill chip's details, which the window's root never hears (files-gutter-parity FG-4).
+  if (action === 'press' || action === 'drag' || action === 'gutter') await closeChipFromPress(native);
+  if (action === 'press') return '';
   if (state.draft && ['comment', 'drag', 'gutter'].includes(action)) return ''; // an open draft holds the gutter (enableLineSelection: false)
   if (action === 'drag' || action === 'gutter') {
     // A press on a line number or the "+" starts the gutter's drag (realinput-1010f RF-3, diff-line-drag.ts).
