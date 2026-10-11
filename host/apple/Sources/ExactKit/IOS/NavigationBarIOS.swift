@@ -649,10 +649,32 @@ extension NavigationHost {
             sv.contentOffset.y = top
         }
         c.collapseScroll = target
+        // A scroller at its start (CSS scrollTop 0) stays there as UIKit
+        // begins to inset it: UIKit keeps the offset it had, a new
+        // scroller's 0, which left its content's top under the bar.
+        let atStart = target?.scroll.map { $0.contentOffset.y <= 0.5 - $0.adjustedContentInset.top } ?? false
         if let sv = target?.scroll { sv.contentInsetAdjustmentBehavior = .always }
         c.setContentScrollView(target?.scroll, for: .top)
+        if atStart, let sv = target?.scroll { rest(sv, in: c) }
         let under = shape?.level == 1 ? "collapses its title with its scroller" : "scrolls its content under the bar"
         presenter.session?.log("navigation: route \(c.key) \(target == nil ? "keeps its title still" : under)")
+    }
+
+    /// A route's new collapsing scroller at its start (`collapse`): its
+    /// content's top just below the bar, where UIKit's inset puts it, and a
+    /// large title expanded, as a new screen opens. A header and scroller
+    /// replaced in place (trivia-quiz's results after its questions) find
+    /// the bar as the content before left it, collapsed or inline; UIKit
+    /// fits it to the item again only when asked (`sizeToFit`).
+    private func rest(_ sv: UIScrollView, in c: RouteController) {
+        if sv.contentOffset.y != -sv.adjustedContentInset.top { sv.contentOffset.y = -sv.adjustedContentInset.top }
+        // tvOS has no large titles.
+        #if !os(tvOS)
+        guard c.navigationItem.largeTitleDisplayMode == .always, c.viewIfLoaded?.window != nil,
+              let nav = c.navigationController, nav.topViewController === c, nav.transitionCoordinator == nil,
+              !nav.isNavigationBarHidden else { return }
+        nav.navigationBar.sizeToFit()
+        #endif
     }
 
     /// The bottom edge, as `collapse` is the top's (LLP 1116 D2): a route
