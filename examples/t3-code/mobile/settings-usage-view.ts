@@ -14,13 +14,13 @@ const reveals=new Set<string>();let detailPrepared:Prepared|null=null;
 export function mobileUsageReveal(key:string){if(reveals.has(key))reveals.delete(key);else reveals.add(key);}
 const masked=(value:string|undefined,key:string)=>!value?'':reveals.has(key)?value:'••••••••';
 const paceLabel=(pace:string|null)=>pace==='ahead'?'Ahead of pace':pace==='under'?'Under pace':pace==='on'?'On pace':'';
-export function mobileUsagePresentation(input:Prepared|null){
-  detailPrepared=input;if(!input)reveals.clear();
+export function mobileUsagePresentation(input:Prepared|null,publish=true){
+  if(publish){detailPrepared=input;if(!input)reveals.clear();}
   const sources=input?.sources??[],summaries=sources.flatMap(source=>source.summary?[{id:source.id,label:source.label,summary:source.summary}]:[]),merged=mergeUsage(summaries),tokens=input?.metric==='tokens',compatible=summaries.filter(item=>Number(item.summary.contractVersion)>=4&&Number(item.summary.contractVersion)<=6),actual=compatible.length>0;
   const accounts=collectLimitAccounts(input?.presentations??new Map()),pools=collectLimitPools(accounts,input?.now??0),periods=input?windowPeriods(input.window):[],byPeriod=new Map((input?.window.resolution==='hour'?merged.hourly:merged.daily).map(period=>[period.key,period]));
   const peak=Math.max(0,...periods.map(key=>{const period=byPeriod.get(key);return period?(tokens?period.totalTokens:period.costUsd):0;}));
   const hasCursorAccount=sources.some(source=>arr(source.summary?.sources).some(item=>obj(item.fingerprint).provider==='cursor'&&obj(item.fingerprint).hostId==='cursor.com'));
-  return {ready:!!input,error:'',tab:input?.tab??'limits',metric:tokens?'tokens':'cost',hasUsage:actual,
+  return {ready:!!input,error:'',tab:input?.tab??'limits',metric:tokens?'tokens':'cost',hasUsage:actual,canRefresh:(input?.tab??'limits')==='limits'||sources.some(source=>source.canRead),refreshing:false,
     emptyMessage:!input?'':!sources.length?'Select an environment to see usage.':!actual&&input.tab==='usage'?'No usage summary is available for these environments.':'',
     environments:sources.map(source=>({id:source.id,label:source.label,status:source.error||(!source.connected?'Waiting for connection…':''),connected:source.connected})),
     notices:[...collectLimitNotices(input?.presentations??new Map()),...merged.mismatches.map(item=>`${item.environment}: ${item.direction==='serverBehind'?'Update the server to read usage.':'Update this app to read usage.'}`),...sources.flatMap(source=>arr(source.summary?.sources).flatMap(item=>str(item.message)?[`${source.label}: ${str(item.message)}`]:[]))].map((text,index)=>({id:String(index),text})),

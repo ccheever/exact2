@@ -7,6 +7,8 @@ import { collectLimitAccounts, collectLimitPools, displayLimitWindows, type Limi
 import { mobileUsageConfig } from './settings-usage-types';
 import { mobileUsage, mobileUsageCommand, mobileUsageSelection, mobileUsageSnapshot, mobileUsageWindow, usageGrant } from './settings-usage';
 import { mobileUsagePresentation, mobileUsageAccount } from './settings-usage-view';
+import { mobileAutomationPrepare, mobileAutomationSnapshot, mobileAutomationCommand } from './settings-scheduled-flow';
+import { ClientError } from './shared/protocol';
 const window=(kind='session',usedPercent=50)=>({id:'primary',kind,label:'Allowance',usedPercent,resetsAt:'2026-10-08T00:00:00Z',windowDurationMins:300});
 const nativeAccount=(limits:Obj,email=' A@Example.test '):Obj=>({instanceId:'one',driver:'codex',enabled:true,installed:true,auth:{status:'authenticated',email},usageLimits:limits});
 const limits:Obj={checkedAt:'2026-10-07T00:00:00Z',windows:[window()],resetCredits:{availableCount:1}};
@@ -30,12 +32,12 @@ test('explicit empty selection stays empty; diagnostic permissions distinguish o
   expect(usageGrant({authenticated:true,scopes:['orchestration:read']})).toBe(true);expect(usageGrant({authenticated:true,scopes:['orchestration:read'],auth:{serverUpdateScope:'environment:maintain'}})).toBe(false);expect(usageGrant({authenticated:true,scopes:['diagnostics:read'],permissions:[]})).toBe(false);
 });
 const original={origin:mobileClient.origin,environmentId:mobileClient.environmentId,connection:mobileClient.connection,config:mobileClient.config,generation:mobileClient.generation};
-afterEach(async()=>{await mobileUsage('null','limits','{}','cost',0,null,false,false);Object.assign(mobileClient,original);});
+afterEach(async()=>{await mobileAutomationPrepare('settings','{}','','','',0,null);await mobileUsage('null','limits','{}','cost',0,null,false,false);Object.assign(mobileClient,original);});
 let generation=201;
-function transport(permissions=['diagnostics:read','providers:manage']){const calls:Obj[]=[];const id=`usage-${++generation}`,config={settings:{},providers:[nativeAccount(limits)]};Object.assign(mobileClient,{origin:'http://usage.test',environmentId:id,connection:'connected',generation,config});let ratesFail=false;
-  const native:Native={available:true,watch(){},async later(input){const request=obj(input);calls.push(request);if(request.method==='server.refreshUsageRates'&&ratesFail)return {ok:false,generation,error:{kind:'server',message:'Rates offline'}};
+function transport(permissions=['diagnostics:read','providers:manage']){const calls:Obj[]=[];const id=`usage-${++generation}`,config={settings:{},providers:[nativeAccount(limits)]};Object.assign(mobileClient,{origin:'http://usage.test',environmentId:id,connection:'connected',generation,config});let ratesFail=false;let intercept:((request:Obj)=>Promise<void>)|null=null;
+  const native:Native={available:true,watch(){},async later(input){const request=obj(input);calls.push(request);await intercept?.(request);if(request.method==='server.refreshUsageRates'&&ratesFail)return {ok:false,generation,error:{kind:'server',message:'Rates offline'}};
     const value=request.op==='environments'?{saved:[{origin:'http://usage.test',environmentId:id}]}:request.op==='http'?{authenticated:true,permissions}:request.method==='server.getConfig'?mobileClient.config:request.method==='server.getUsageSummary'?{contractVersion:6,readAt:'2026-10-07T00:00:00Z',sources:[],buckets:[]}:request.method==='provider.consumeResetCredit'?{outcome:'noCredit'}:{};return {ok:true,generation,value};}};
-  return {id,native,calls,permissions,failRates:()=>{ratesFail=true;}};
+  return {id,native,calls,permissions,failRates:()=>{ratesFail=true;},intercept:(hook:((request:Obj)=>Promise<void>)|null)=>{intercept=hook;}};
 }
 const now=Date.parse('2026-10-07T12:00:00Z'),windowJSON=JSON.stringify(mobileUsageWindow(30,now));
 test('metric projection is network-free; scope mismatch cannot display another account',async()=>{
@@ -92,4 +94,172 @@ test('nonempty usage provider rows project only declared UI fields',()=>{
     expect(Object.keys(data.providers[0]!).sort()).toEqual(keys);
     expect(data.providers[0]).toMatchObject({id:'claude',label:'Claude Code',value:metric==='cost'?'$2.00':'1K',share:'100.0%'});
   }
+});
+
+function refreshBarrier(){
+  let enter!:()=>void,release!:()=>void;
+  const entered=new Promise<void>(resolve=>{enter=resolve;}),closed=new Promise<void>(resolve=>{release=resolve;});
+  return {entered,release,wait:async()=>{enter();await closed;}};
+}
+async function openUsage(native:Native,tab='usage',days='1'){
+  await mobileAutomationPrepare('settings','{}','','','',now,native);
+  await mobileAutomationPrepare('settingsUsage','{}','','','',now,native);
+  await mobileAutomationCommand('usage-local','tab',tab,'',now,native);
+  await mobileAutomationCommand('usage-local','days',days,'',now,native);
+  await mobileAutomationPrepare('settingsUsage','{}','','','',now,native);
+}
+test('pull refresh availability follows diagnostics permission rather than summary availability',async()=>{
+  const fixture=transport([]);await openUsage(fixture.native);
+  expect(mobileAutomationSnapshot().usage.canRefresh).toBe(false);
+  const count=fixture.calls.length,result=await mobileAutomationCommand('usage-refresh','','','',now+60_000,fixture.native);
+  expect(result.message).toContain('cannot read usage');expect(fixture.calls).toHaveLength(count);
+  await mobileAutomationCommand('usage-local','tab','limits','',now,fixture.native);
+  expect(mobileAutomationSnapshot().usage.canRefresh).toBe(true);
+  const allowed=mobileUsagePresentation({tab:'usage',window:mobileUsageWindow(1,now),metric:'cost',now,presentations:new Map(),external:false,
+    sources:[{id:'allowed',label:'Allowed',connected:true,summary:null,error:'',canRead:true,canWrite:false,canManage:false,config:{}}]});
+  expect(allowed.hasUsage).toBe(false);expect(allowed.canRefresh).toBe(true);
+});
+test('Usage pull uses the new hourly window, deduplicates pulls and stays busy through the final read',async()=>{
+  const fixture=transport();await openUsage(fixture.native);fixture.calls.length=0;
+  const gate=refreshBarrier();let summaryRead=false;
+  fixture.intercept(async request=>{if(request.method==='server.getUsageSummary')summaryRead=true;else if(request.op==='environments'&&summaryRead)await gate.wait();});
+  const refreshedAt=now+90_000,pending=mobileAutomationCommand('usage-refresh','','','',refreshedAt,fixture.native);await gate.entered;
+  try{
+    expect(mobileAutomationSnapshot(true).usage.refreshing).toBe(true);
+    expect(mobileAutomationSnapshot(false).usage.refreshing).toBe(false);
+    const count=fixture.calls.length,duplicate=await mobileAutomationCommand('usage-refresh','','','',refreshedAt+1,fixture.native);
+    expect(duplicate.refresh).toBe(false);expect(fixture.calls).toHaveLength(count);
+    expect(fixture.calls.filter(call=>call.method==='server.refreshUsageRates')).toHaveLength(1);
+    expect(fixture.calls.filter(call=>call.method==='server.getUsageSummary').map(call=>call.payload)).toEqual([mobileUsageWindow(1,refreshedAt)]);
+  }finally{gate.release();}
+  const result=await pending;expect(result.message).toBe('');expect(result.refresh).toBe(false);
+  expect(mobileAutomationSnapshot().now).toBe(refreshedAt);expect(mobileAutomationSnapshot(true).usage.refreshing).toBe(false);
+});
+test('Limits pull probes providers and keeps the selected Usage window',async()=>{
+  const fixture=transport([]);await openUsage(fixture.native,'limits','7');fixture.calls.length=0;
+  const result=await mobileAutomationCommand('usage-refresh','','','',now+3_600_000,fixture.native);
+  expect(result.message).toBe('');expect(result.refresh).toBe(false);expect(mobileAutomationSnapshot().now).toBe(now);
+  expect(fixture.calls.filter(call=>call.method==='server.refreshProviders')).toHaveLength(1);
+  expect(fixture.calls.some(call=>call.method==='server.refreshUsageRates'||call.method==='server.getUsageSummary')).toBe(false);
+});
+test('failed rate refresh still reads the selected window and settles the pull',async()=>{
+  const fixture=transport();await openUsage(fixture.native);fixture.failRates();fixture.calls.length=0;
+  const result=await mobileAutomationCommand('usage-refresh','','','',now+60_000,fixture.native);
+  expect(result.message).toContain('Rates offline');expect(mobileAutomationSnapshot(true).usage.refreshing).toBe(false);
+  expect(fixture.calls.filter(call=>call.method==='server.getUsageSummary')).toHaveLength(1);
+});
+for(const change of ['departure','tab','days','environment'] as const)test(`held pull retires its result after ${change}`,async()=>{
+  const fixture=transport();await openUsage(fixture.native);fixture.calls.length=0;
+  const gate=refreshBarrier();fixture.intercept(async request=>{if(request.method==='server.refreshUsageRates')await gate.wait();});
+  const pending=mobileAutomationCommand('usage-refresh','','','',now+60_000,fixture.native);await gate.entered;
+  try{
+    if(change==='departure')await mobileAutomationPrepare('settings','{}','','','',now+120_000,fixture.native);
+    else if(change==='tab')await mobileAutomationCommand('usage-local','tab','limits','',now+120_000,fixture.native);
+    else if(change==='days')await mobileAutomationCommand('usage-local','days','7','',now+120_000,fixture.native);
+    else{
+      const chooser:Native={...fixture.native,async later(input){if(obj(input).op==='mobileScheduledMenu')return {ok:true,generation:mobileClient.generation,value:{choice:JSON.stringify(['environment',fixture.id])}};return fixture.native.later(input);}};
+      await mobileAutomationCommand('usage-environments','','','',now+120_000,chooser);
+    }
+    expect(mobileAutomationSnapshot(true).usage.refreshing).toBe(false);
+  }finally{gate.release();}
+  const result=await pending;expect(result.message).toBe('');expect(result.refresh).toBe(false);
+  expect(fixture.calls.some(call=>call.method==='server.getUsageSummary')).toBe(false);
+  const snapshot=mobileAutomationSnapshot();
+  if(change==='departure'){expect(snapshot.route).toBe('settings');expect(snapshot.usage.ready).toBe(false);await mobileAutomationPrepare('settingsUsage','{}','','','',now+180_000,fixture.native);expect(mobileAutomationSnapshot().now).toBe(now+180_000);}
+  else if(change==='tab')expect(snapshot.tab).toBe('limits');
+  else if(change==='days'){expect(snapshot.days).toBe(7);expect(snapshot.now).toBe(now+120_000);}
+  else expect(snapshot.selection).toBe('[]');
+});
+test('native cancellation releases the pull owner without a follow-up read',async()=>{
+  const fixture=transport();await openUsage(fixture.native);fixture.calls.length=0;
+  fixture.intercept(async request=>{if(request.method==='server.refreshUsageRates')throw new ClientError('cancelled','superseded');});
+  await expect(mobileAutomationCommand('usage-refresh','','','',now+60_000,fixture.native)).rejects.toMatchObject({kind:'superseded'});
+  expect(mobileAutomationSnapshot(true).usage.refreshing).toBe(false);expect(fixture.calls.some(call=>call.method==='server.getUsageSummary')).toBe(false);
+});
+
+test('a held final refresh read cannot replace a newer selected window',async()=>{
+  const fixture=transport();await openUsage(fixture.native);fixture.calls.length=0;
+  const gate=refreshBarrier();let summaryRead=false,held=false;
+  fixture.intercept(async request=>{if(request.method==='server.getUsageSummary')summaryRead=true;else if(request.op==='environments'&&summaryRead&&!held){held=true;await gate.wait();}});
+  const pending=mobileAutomationCommand('usage-refresh','','','',now+60_000,fixture.native);await gate.entered;
+  try{
+    await mobileAutomationCommand('usage-local','days','7','',now+120_000,fixture.native);
+    await mobileAutomationPrepare('settingsUsage','{}','','','',now+120_000,fixture.native);
+    expect(mobileAutomationSnapshot().days).toBe(7);expect(mobileAutomationSnapshot().usage.chartTitle).toBe('Daily cost');
+  }finally{gate.release();}
+  const result=await pending;expect(result.refresh).toBe(false);expect(result.message).toBe('');
+  expect(mobileAutomationSnapshot().now).toBe(now+120_000);expect(mobileAutomationSnapshot().usage.chartTitle).toBe('Daily cost');
+});
+
+for(const transition of ['same-minute range','tab roundtrip'] as const)test(`current summary waiter survives a retired writer after ${transition}`,async()=>{
+  const fixture=transport();await openUsage(fixture.native);fixture.calls.length=0;
+  const gate=refreshBarrier();let held=false;
+  fixture.intercept(async request=>{if(request.method==='server.getUsageSummary'&&!held){held=true;await gate.wait();}});
+  const refreshedAt=now+90_000,refresh=mobileAutomationCommand('usage-refresh','','','',refreshedAt,fixture.native);await gate.entered;
+  let load:Promise<unknown>|undefined,settled=false;
+  try{
+    if(transition==='same-minute range')await mobileAutomationCommand('usage-local','days','1','',refreshedAt+5_000,fixture.native);
+    else{
+      await mobileAutomationCommand('usage-local','tab','limits','',refreshedAt+5_000,fixture.native);
+      await mobileAutomationCommand('usage-local','tab','usage','',refreshedAt+5_000,fixture.native);
+    }
+    load=mobileAutomationPrepare('settingsUsage','{}','','','',refreshedAt+5_000,fixture.native).then(value=>{settled=true;return value;});
+    await new Promise<void>(resolve=>setImmediate(resolve));
+    expect(settled).toBe(false);
+    expect(fixture.calls.filter(call=>call.method==='server.getUsageSummary')).toHaveLength(1);
+  }finally{gate.release();}
+  await Promise.all([refresh,load]);
+  const snapshot=mobileAutomationSnapshot();expect(snapshot.usage.ready).toBe(true);expect(snapshot.usage.hasUsage).toBe(true);
+  expect(snapshot.usage.environments[0]?.status).toBe('');expect(snapshot.tab).toBe('usage');
+  expect(fixture.calls.filter(call=>call.method==='server.getUsageSummary')).toHaveLength(1);
+});
+for(const rejectRetry of [false,true])test(`current summary waiter retries a cancelled producer only once, retry rejects=${rejectRetry}`,async()=>{
+  const fixture=transport();await openUsage(fixture.native);fixture.calls.length=0;
+  const gate=refreshBarrier();let summaries=0;
+  fixture.intercept(async request=>{if(request.method==='server.getUsageSummary'){summaries++;if(summaries===1){await gate.wait();throw new ClientError('old answer cancelled','superseded');}if(rejectRetry)throw new ClientError('new answer cancelled','superseded');}});
+  const refreshedAt=now+90_000,refresh=mobileAutomationCommand('usage-refresh','','','',refreshedAt,fixture.native).catch(error=>error);await gate.entered;
+  let load:Promise<unknown>|undefined;
+  try{
+    await mobileAutomationCommand('usage-local','days','1','',refreshedAt+5_000,fixture.native);
+    load=mobileAutomationPrepare('settingsUsage','{}','','','',refreshedAt+5_000,fixture.native).catch(error=>error);
+    await new Promise<void>(resolve=>setImmediate(resolve));expect(summaries).toBe(1);
+  }finally{gate.release();}
+  const [oldResult,newResult]=await Promise.all([refresh,load]);
+  expect(oldResult).toMatchObject({kind:'superseded'});expect(summaries).toBe(2);
+  if(rejectRetry)expect(newResult).toMatchObject({kind:'superseded'});
+  else{expect(newResult).not.toBeInstanceOf(Error);expect(mobileAutomationSnapshot().usage.hasUsage).toBe(true);}
+});
+test('a current summary waiter reports a shared network failure without retrying it',async()=>{
+  const fixture=transport();await openUsage(fixture.native);fixture.calls.length=0;
+  const gate=refreshBarrier();let summaries=0;
+  fixture.intercept(async request=>{if(request.method==='server.getUsageSummary'){summaries++;await gate.wait();throw new Error('Summary offline');}});
+  const refreshedAt=now+90_000,refresh=mobileAutomationCommand('usage-refresh','','','',refreshedAt,fixture.native);await gate.entered;
+  let load:Promise<unknown>|undefined;
+  try{
+    await mobileAutomationCommand('usage-local','days','1','',refreshedAt+5_000,fixture.native);
+    load=mobileAutomationPrepare('settingsUsage','{}','','','',refreshedAt+5_000,fixture.native);
+    await new Promise<void>(resolve=>setImmediate(resolve));
+  }finally{gate.release();}
+  await Promise.all([refresh,load]);expect(summaries).toBe(1);
+  expect(mobileAutomationSnapshot().usage.environments[0]?.status).toContain('Summary offline');
+});
+test('a new environment selection cannot refresh the previous prepared sources while loading',async()=>{
+  const fixture=transport();await openUsage(fixture.native);
+  const chooser:Native={...fixture.native,async later(input){if(obj(input).op==='mobileScheduledMenu')return {ok:true,generation:mobileClient.generation,value:{choice:JSON.stringify(['environment',fixture.id])}};return fixture.native.later(input);}};
+  await mobileAutomationCommand('usage-environments','','','',now,chooser);fixture.calls.length=0;
+  const gate=refreshBarrier();let held=false;
+  fixture.intercept(async request=>{if(request.op==='environments'&&!held){held=true;await gate.wait();}});
+  const load=mobileAutomationPrepare('settingsUsage','{}','','','',now,fixture.native);await gate.entered;
+  try{
+    const snapshot=mobileAutomationSnapshot();expect(snapshot.selection).toBe('[]');expect(snapshot.usage.tab).toBe('usage');
+    expect(snapshot.usage.ready).toBe(false);expect(snapshot.usage.canRefresh).toBe(false);
+    const count=fixture.calls.length;
+    const pull=await mobileAutomationCommand('usage-refresh','','','',now+60_000,fixture.native);expect(pull.refresh).toBe(false);expect(pull.message).toBe('');
+    const guarded=await mobileUsageCommand('refresh-usage','','',now+60_000,fixture.native,null,{selection:'[]',window:mobileUsageWindow(1,now),current:()=>true});
+    expect(guarded.message).toContain('selection is still loading');expect(fixture.calls).toHaveLength(count);
+  }finally{gate.release();}
+  await load;expect(mobileAutomationSnapshot().usage.canRefresh).toBe(false);
+  await mobileAutomationCommand('usage-local','tab','limits','',now,fixture.native);expect(mobileAutomationSnapshot().usage.canRefresh).toBe(true);
+  fixture.calls.length=0;await mobileAutomationCommand('usage-refresh','','','',now+60_000,fixture.native);
+  expect(fixture.calls.some(call=>call.method==='server.refreshProviders'||call.method==='server.refreshUsageRates'||call.method==='server.getUsageSummary')).toBe(false);
 });

@@ -357,7 +357,7 @@ const sources: Sources = {
   },
   automationSnapshot: (args, _store, storage, nativeInput) => {
     const native = sourceNative('automationSnapshot', args, nativeInput);
-    const snapshot = mobileAutomationSnapshot();
+    const snapshot = mobileAutomationSnapshot(args[1] === true);
     return args[1] === true ? { ...snapshot, editor: { ...snapshot.editor, busy: true, canSave: false, webhookCopyable: false } } : snapshot;
   },
   automationCommand: (args, _store, storage, nativeInput) => {
