@@ -16,15 +16,15 @@ component App
   view
     column padding=16 gap=12
       text "Tip" role="heading" aria-level=2
-      row role="tablist" aria-label="Tip"
+      row role="radiogroup" aria-label="Tip"
         each p in [15, 18, 20, 25] key=p
-          button role="tab" aria-selected=(tipPercent == p) press=tip(p) testId=`tip-${p}` flex=1
+          button role="radio" aria-checked=(tipPercent == p) press=tip(p) testId=`tip-${p}` flex=1
             text `${p}%`
       text "Temperature" role="heading" aria-level=2
-      row role="tablist" aria-label="Temperature"
-        button role="tab" aria-selected=(units == "C") press=unit("C") testId="unit-c" flex=1
+      row role="radiogroup" aria-label="Temperature"
+        button role="radio" aria-checked=(units == "C") press=unit("C") testId="unit-c" flex=1
           text "°C"
-        button role="tab" aria-selected=(units == "F") press=unit("F") testId="unit-f" flex=1
+        button role="radio" aria-checked=(units == "F") press=unit("F") testId="unit-f" flex=1
           text "°F"
 ```
 
@@ -66,3 +66,6 @@ What to know:
   cannot persist (`type-persist-child`): keep the setting in the root and pass it
   down as a prop.
 - **A derive is never persisted.** Persist what it reads (`syntax-persist-derive`).
+- **A choice of one value** is a `radiogroup` of radios, each `aria-checked` when it is
+  the value: the platform's segmented control, the arrows moving it on the web. A
+  `tablist` is for switching panels.

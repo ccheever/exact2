@@ -2,6 +2,7 @@
 // control on macOS; Contract remains the owner of selection and actions.
 // The control fills the tablist's content box and reports its native height
 // to layout as the tablist's automatic minimum, as on iOS (LLP 1059 D2a).
+// @ref LLP 1116.004 D5.2 — a radio group of radios is the same control.
 #if os(macOS)
 import AppKit
 
@@ -38,17 +39,23 @@ final class SegmentHost {
 
     init(_ presenter: Presenter) { self.presenter = presenter }
 
-    /// Journal why a tablist is or is not a segmented control, once per change.
+    /// Journal why a tablist or radio group is or is not a segmented control, once per change.
     private func decide(_ owner: NodeView, _ decision: String) {
         guard decisions[owner.id] != decision else { return }
         decisions[owner.id] = decision
-        presenter.session?.log("tablist #\(owner.id): \(decision)")
+        presenter.session?.log("\(owner.props["accessibilityRole"] ?? "tablist") #\(owner.id): \(decision)")
     }
 
+    /// A tablist's pressable tabs, or a radio group's pressable radios.
     private func tabs(in owner: NodeView) -> [NodeView] {
-        owner.container.subviews.compactMap { $0 as? NodeView }.filter {
-            $0.isButton && $0.props["accessibilityRole"] == "tab" && $0.handlers.contains("press")
+        let role = owner.props["accessibilityRole"] == "radiogroup" ? "radio" : "tab"
+        return owner.container.subviews.compactMap { $0 as? NodeView }.filter {
+            $0.isButton && $0.props["accessibilityRole"] == role && $0.handlers.contains("press")
         }
+    }
+    /// The chosen member: a tab `aria-selected`, a radio `aria-checked`.
+    private static func chosen(_ tab: NodeView) -> Bool {
+        tab.props[tab.props["accessibilityRole"] == "radio" ? "accessibilityChecked" : "accessibilitySelected"] == "true"
     }
 
     private func restore(owner id: UInt32) {
@@ -95,7 +102,7 @@ final class SegmentHost {
 
     func sync() {
         // @ref LLP 1039 D6 — only explicit vertical tablists opt out; ignore invalid ARIA values.
-        let owners = presenter.carrying("role:tablist").filter {
+        let owners = (presenter.carrying("role:tablist") + presenter.carrying("role:radiogroup")).filter {
             $0.props["accessibilityOrientation"] != "vertical"
         }
         let live = Set(owners.map(\.id))
@@ -113,7 +120,8 @@ final class SegmentHost {
             }
             if tabs.count <= 1 || unshown != nil {
                 restore(owner: owner.id)
-                decide(owner, unshown.map { "kept as authored: tab #\($0.id) is not one image or its label alone, which a segment cannot show" } ?? "kept as authored: fewer than two pressable tabs")
+                let member = owner.props["accessibilityRole"] == "radiogroup" ? "radio" : "tab"
+                decide(owner, unshown.map { "kept as authored: \(member) #\($0.id) is not one image or its label alone, which a segment cannot show" } ?? "kept as authored: fewer than two pressable \(member)s")
                 continue
             }
             decide(owner, "projected to NSSegmentedControl (\(tabs.count) segments)")
@@ -162,7 +170,7 @@ final class SegmentHost {
                 }
                 control.setEnabled(!tab.disabled && !tab.inert, forSegment: index)
             }
-            control.selectedSegment = tabs.firstIndex { $0.props["accessibilitySelected"] == "true" } ?? -1
+            control.selectedSegment = tabs.firstIndex(where: Self.chosen) ?? -1
             owner.addSubview(control, positioned: .above, relativeTo: nil)
             measure(owner, control)
         }

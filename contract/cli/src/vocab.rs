@@ -8,8 +8,14 @@
 //! lookups admit; the commands are `contract_syntax::HOST_COMMANDS`; the
 //! functions are `contract::functions`', the roster's signatures beside the
 //! grammar's tables. Several names are one call, each entry in turn (LLP
-//! 1116.001 D4.3), so a build's lookups are one step.
+//! 1116.001 D4.3), so a build's lookups are one step. A concept (`scroll`,
+//! `plural`, `choice`, `modal`) answers with its whole idiom, after the
+//! entries of a tag or attribute of the same name (`concepts.md`, LLP
+//! 1116.004 D5.1).
 
+mod concepts;
+
+use concepts::Concept;
 use contract::functions::{self, Function};
 use contract_lower::tags::{self, AttrTarget, Tag};
 use contract_lower::vocab;
@@ -64,11 +70,13 @@ pub fn run(args: &[String]) -> ExitCode {
         }
         _ => {
             let mut known = true;
+            // A concept two names share prints once, at the first.
+            let mut shown = Vec::new();
             for (i, name) in names.iter().enumerate() {
                 if i > 0 {
                     println!();
                 }
-                known &= one_text(name);
+                known &= one_text(name, &mut shown);
             }
             exit(known)
         }
@@ -96,27 +104,8 @@ struct Entry {
     command: Option<String>,
     function: Option<Function>,
     part: Option<Part>,
-    concept: Option<&'static Concept>,
+    concept: Option<Concept>,
 }
-
-/// What a builder looks up by what they want, which no tag, attribute or
-/// function names (`plural`): the idiom in a few lines, and where it is
-/// shown whole (LLP 1116.004 D4).
-struct Concept {
-    name: &'static str,
-    lines: &'static [&'static str],
-    see: &'static str,
-}
-
-const CONCEPTS: &[Concept] = &[Concept {
-    name: "plural",
-    lines: &[
-        "a count chooses its noun by the number: `${n} ${n == 1 ? \"item\" : \"items\"} left` reads \"1 item left\", \"0 items left\", \"3 items left\"",
-        "a `fn` keeps one wording for every count: fn items(n: number): string = `${n} ${n == 1 ? \"item\" : \"items\"}`",
-        "an irregular noun is both words written out (`n == 1 ? \"person\" : \"people\"`); Contract has no `Intl.PluralRules`",
-    ],
-    see: "docs/recipes/functions.md",
-}];
 
 /// A component of a built-in library (`exact:content`'s `RoundButton`), read
 /// from its source: its props, and the comment above it (LLP 1116.003 D4).
@@ -171,7 +160,7 @@ fn entry(name: &str) -> Option<Entry> {
     let command = HOST_COMMANDS.contains(&name).then(|| command_text(name));
     let function = functions::function(name);
     let part = part(name);
-    let concept = CONCEPTS.iter().find(|c| c.name == name);
+    let concept = concepts::concept(name);
     let known = tag.is_some()
         || attr.is_some()
         || !value_of.is_empty()
@@ -235,33 +224,43 @@ fn one_json(name: &str) -> (Value, bool) {
         doc["part"] = json!({ "module": p.module, "props": p.props, "about": p.about });
     }
     if let Some(c) = concept {
-        doc["concept"] = json!({ "lines": c.lines, "see": c.see });
+        // A name the web has and Contract refuses (`every`) says so beside it.
+        if function.is_none() {
+            if let Some(note) = idiom(name) {
+                doc["refusal"] = note.into();
+            }
+        }
+        doc["concept"] = concept_json(&c);
     }
     (doc, true)
 }
 
-/// One name as text, printed (a refusal on stderr), and whether it was known.
-fn one_text(name: &str) -> bool {
+/// One name as text, printed (a refusal on stderr), and whether it was
+/// known; a concept already in `shown` is named, not printed again.
+fn one_text(name: &str, shown: &mut Vec<&'static str>) -> bool {
     let Some(Entry {
+        tag,
+        attr,
         value_of,
         open,
         command,
         function,
         part,
         concept,
-        ..
     }) = entry(name)
     else {
         eprintln!("{}", refusal(name));
         return false;
     };
-    if let Some(c) = concept {
-        println!("{name}: an idiom (no tag, attribute or function of that name)");
-        for line in c.lines {
-            println!("  {line}");
-        }
-        println!("  {}", c.see);
-    }
+    // Nothing but the concept: a name the web has and Contract refuses
+    // (`every`) says so first; anything else is printed above the concept.
+    let only = tag.is_none()
+        && attr.is_none()
+        && value_of.is_empty()
+        && open.is_none()
+        && command.is_none()
+        && function.is_none()
+        && part.is_none();
     if let Some(p) = part {
         println!(
             "{name}: a part of `{}` (`use {name} from \"{}\"`)",
@@ -320,7 +319,33 @@ fn one_text(name: &str) -> bool {
     if let Some(f) = &function {
         print!("{}", function_text(f));
     }
+    if let Some(c) = concept {
+        if only {
+            if let Some(note) = idiom(name) {
+                println!("{note}");
+            }
+        }
+        if shown.contains(&c.name) {
+            println!("{name}: the concept `{}`, above", c.name);
+        } else {
+            if !only {
+                println!();
+            }
+            print!("{}", c.text());
+            shown.push(c.name);
+        }
+    }
     true
+}
+
+fn concept_json(c: &Concept) -> Value {
+    json!({
+        "name": c.name,
+        "title": c.title,
+        "names": c.names,
+        "answer": c.answer,
+        "contract": c.contract(),
+    })
 }
 
 /// Why the compiler refuses a name the web has (`sort`, `now`, `padStart`),
@@ -532,8 +557,8 @@ fn everything() -> Value {
         "contextual": vocab::CONTEXTUAL.iter().map(|(n, on)| json!({"name": n, "only": on})).collect::<Vec<_>>(),
         "commands": HOST_COMMANDS,
         "functions": functions::functions().iter().map(function_json).collect::<Vec<_>>(),
+        "concepts": concepts::concepts().iter().map(concept_json).collect::<Vec<_>>(),
         "notes": { "modules": vocab::MODULE_NOTE, "data": vocab::DATA_NOTE },
-        "concepts": CONCEPTS.iter().map(|c| json!({"name": c.name, "lines": c.lines, "see": c.see})).collect::<Vec<_>>(),
     })
 }
 
@@ -731,7 +756,13 @@ fn listing() -> String {
         vocab::MODULE_NOTE,
         vocab::DATA_NOTE
     );
-    out += "\nidioms, by what you want (`contract vocab <name>`):\n";
-    wrapped(&mut out, CONCEPTS.iter().map(|c| c.name.to_string()));
+    let concepts = concepts::concepts();
+    out += &format!(
+        "\nconcepts ({}): `contract vocab <name>` answers with the whole idiom, its code and its recipe\n",
+        concepts.len()
+    );
+    for c in &concepts {
+        out += &format!("  {:<10} {}\n", c.name, c.title);
+    }
     out
 }

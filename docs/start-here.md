@@ -1,6 +1,6 @@
 # Start here: building an app with Exact
 
-The only required reading; the rest is lookup, listed last.
+The only required reading; the rest is lookup.
 
 ## The idea
 
@@ -175,7 +175,7 @@ with: [tests](recipes/tests.md).
 ## Pitfalls that cost the most
 
 1. **Styling a platform control.** Paint (`background-color`, `border`, `font-size`,
-   `height`) on a `button`, field or bar still makes it your box. Emphasis is a part
+   `height`) on a `button`, field or bar makes it your box. Emphasis is a part
    (`RoundButton`, `AnswerTile`, `SummaryCard`: `content-design`) or
    `buttonStyle="bordered-prominent"`.
 2. **`width="100%"` with padding overflows** (`content-box`, as in CSS). Drop the width;
@@ -184,11 +184,11 @@ with: [tests](recipes/tests.md).
    (or a search field, a `tablist`); anything else isn't in the iOS bar.
 4. **A drive without `--storage <name>`** refuses storage, so the app looks empty.
 5. **Trusting green tests.** They pass on the virtual clock: drive each write once on
-   the real clock. `verify` checks the first screen; `"check both"` in a drive, others.
+   the real clock. `verify` checks the first screen; `"check both"` the rest.
 
 ## Look it up
 
-**A pattern** replaces the recipe beside it: read one or the other. A list, its pushed
+**A pattern** replaces the recipe beside it. A list, its pushed
 detail, a create sheet, a delete alert: `pattern list-detail` (in an app you
 have, `navigation-stack`). Tabs: `pattern tabs` (`tabs`). A summary, bars, a ring:
 `pattern dashboard` (`content-design`). Your own server: `pattern rest` (`rest-backend`).
@@ -201,6 +201,7 @@ have, `navigation-stack`). Tabs: `pattern tabs` (`tabs`). A summary, bars, a rin
 `web-look` (wide screens), `tests`, `ios-driving`, `functions`.
 
 **Otherwise:** `bun exact.mjs contract vocab <name> <name> …` for any tag, property,
-function or part; [contract-for-agents](contract-for-agents.md) and
+function, part or how-to (`scroll`, `plural`, `choice`, `modal`);
+[contract-for-agents](contract-for-agents.md) and
 [agent-pitfalls](agent-pitfalls.md) by section; [reference](reference.md) for the data
 module's globals and native hatches; `<exact2>/apps/shelf`, a whole app with tests.

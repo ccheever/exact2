@@ -49,10 +49,10 @@ component App
             // and its controls lead; the rows sit beside them, or under them on a phone.
             row flex-wrap="wrap" align-items="flex-start" gap=20 padding=16 max-width=1040 margin-left="auto" margin-right="auto"
               column flex="1 1 320px" min-width=0 gap=20 testId="summary"
-                row role="tablist" aria-label="Period"
-                  button role="tab" aria-selected=(period == "week") press=show("week") testId="week" flex=1
+                row role="radiogroup" aria-label="Period"
+                  button role="radio" aria-checked=(period == "week") press=show("week") testId="week" flex=1
                     text "This Week"
-                  button role="tab" aria-selected=(period == "month") press=show("month") testId="month" flex=1
+                  button role="radio" aria-checked=(period == "month") press=show("month") testId="month" flex=1
                     text "This Month"
                 SummaryCard(label="Spent", value=money(summary.spent), detail=detail, progress=some(min(1, summary.spent / summary.budget)), symbol=some("symbol:chart"))
                 // On this plain page a card is `-exact-secondary-background`, as the summary's is.

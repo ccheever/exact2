@@ -576,7 +576,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         registerForTraitChanges(SystemColor.traits) { (node: NodeView, _: UITraitCollection) in // platform colours follow contrast and level too (LLP 1095 D5)
             // A control's accent, a tablist's tint and a grouped list's
             // switches resolve per appearance in their projections.
-            if node.kind == "control" || node.kind == "list" || node.props["accessibilityRole"] == "tablist" {
+            if node.kind == "control" || node.kind == "list" || ["tablist", "radiogroup"].contains(node.props["accessibilityRole"] ?? "") {
                 node.presenter?.requestProjectionSync()
             }
             node.paragraphOwner.invalidateText()

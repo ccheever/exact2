@@ -147,7 +147,9 @@ extension ControlHost {
         let written = NativeButtonIOS.Written(
             face: face, accent: accent, enabled: !owner.disabled,
             label: owner.authoredLabel ?? face.title, testId: owner.props["testId"],
-            selected: owner.props["accessibilitySelected"] == "true", expanded: owner.props["accessibilityExpanded"],
+            // A checked radio is selected, as Safari's VoiceOver reads one (`setAccessibilityChecked`).
+            selected: owner.props["accessibilitySelected"] == "true" || owner.checkedRole.map { $0.role == "radio" && $0.checked } == true,
+            expanded: owner.props["accessibilityExpanded"],
             pressed: owner.pressedState, traits: .init(button.traitCollection),
             interactive: owner.style["pointer_events"]?.string != "none")
         guard button.written != written else { return }
