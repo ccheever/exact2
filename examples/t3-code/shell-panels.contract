@@ -81,7 +81,7 @@ component SurfacePanel
         row height=52 flex-shrink=0 padding-right="0.8125rem" box-sizing="border-box" align-items="center" justify-content="flex-end" gap="0.25rem" position="relative" z-index=20
           when sheet
             box position="relative" flex-shrink=0
-              button id="panel-toggle-details" press=details("toggle", "", "") hover=hover("details") aria-label="Toggle thread details panel" aria-expanded=detailsOpen testId="panel-toggle-details" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(detailsOpen or hovered == "details" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
+              button press=details("toggle", "", "") hover=hover("details") aria-label="Toggle thread details panel" aria-expanded=detailsOpen testId="panel-toggle-details" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(detailsOpen or hovered == "details" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
                 ShellIcon(name="square-menu", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
               TipBubble(label=(shell.keyThreadPanel == "" ? "Toggle thread details" : `Toggle thread details (${shell.keyThreadPanel})`), side="bottom", align="center", offset=32, inset=0, shown=(hovered == "details"))
           box position="relative" flex-shrink=0 display=(sheet ? "none" : "flex")

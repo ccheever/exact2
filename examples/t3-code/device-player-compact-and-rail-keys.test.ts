@@ -3,12 +3,15 @@
 // header's popover where the floating player leaves it no placement, DR-1 the device rail menus' keys at a focused row.
 // The canvas cases run chat-canvas-view.ts; the rows and the wiring are read from the Contract sources, as
 // menu-keys.test.ts reads its menus. The behaviour is driven on the macOS bundle (the task record's drive).
-import { beforeEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';
 import type { Native } from './protocol';
 import { chatCanvasView, type ChatCanvasArgs } from './chat-canvas-view';
 import { DETAILS_FRAMES, measureThreadDetailsCard, resolveThreadDetailsCardDensity } from './thread-details-card-layout';
 import { floatMiniDevice, miniStoreOf } from './r6-media-device';
+import { shellDetails } from './shell-details';
+import { forgetDetails } from './r6-pr-actions';
+import { resetPrimary, primaryAt } from './local-primary-fixture';
 
 const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
 async function component(file: string, name: string): Promise<string> {
@@ -145,18 +148,30 @@ describe('DP-2: the card becomes the header\'s popover where no placement is lef
     // Over a right panel sheet (a narrow window) the window draws it, above the sheet, as the base did.
     const overlays = await component('app-overlays.contract', 'WindowOverlays');
     expect(overlays).toContain('when detailsSheet and scheme == "dark"\n      ThreadDetailsPanel(details=details, density=detailsDensity, right=13,');
-    expect(await source('app-window.contract')).toContain('detailsSheet=(detailsOpen and narrowDiff and (rightPanel or shell.panel.open or data.diffOpen)), detailsDensity=canvas.density');
+    const window = await component('app-window.contract', 'T3Window');
+    expect(window).toContain('derive detailsSheet = detailsOpen and narrowDiff and (rightPanel or shell.panel.open or data.diffOpen)');
+    expect(window).toContain('detailsSheet=detailsSheet, detailsDensity=canvas.density');
     const layer = await component('shell-details.contract', 'ThreadDetailsPanel');
     expect(layer).toContain('z-index=35 testId="thread-details-layer"');
     expect(await component('r6-device.contract', 'R6DeviceMiniPlayer')).toContain('z-index=40 role="region" aria-label="Floating device preview"');
-    // Outside presses close it, as Base UI's: a press on the player as its gesture starts, a press beside the chat column
-    // (the sidebar, the right panel) but not on the right panel's own details button, which toggles it.
+    // Outside presses close it, as Base UI's: the backdrop takes the column's presses; the window closes it on a primary
+    // press beside the chat column (the sidebar, the right panel, the terminal drawer) or on the floating player, which lies
+    // above the backdrop (its pill buttons, its screen, its resize edges); a drag on the player too, as its gesture starts.
+    // Over a right panel sheet the window's popover has a window-wide backdrop, so the rule stands aside.
     expect(root).toContain('    canvasGestureValue = value\n    detailsOpen = detailsOpen and value == ""');
-    const window = await component('app-window.contract', 'T3Window');
-    expect(window).toContain('if detailsOpen and e.buttons == 1 and (e.clientX < (data.sidebarOpen ? sidebarWidth : 0) or e.clientX >= (data.sidebarOpen ? sidebarWidth : 0) + conversationWidth) and not (e.clientX >= frame("panel-toggle-details").x');
-    expect(window).toContain('frame("panel-toggle-details").height)\n      detailsAct("dismiss", "", "")');
+    const press = under(window, 'action outsidePressDown(e: PointerEvent)').join('\n');
+    expect(press).toContain('    if detailsOpen and not detailsSheet and e.buttons == 1\n      let column = frame("chat-column")\n      let edge = data.look.fontSize / 4\n');
+    expect(press).toContain('if not (e.clientX >= column.x and e.clientX < column.x + column.width and e.clientY >= column.y and e.clientY < column.y + column.height) or (canvas.mini.show and e.clientX >= column.x + canvas.mini.x - edge and e.clientX < column.x + canvas.mini.x + canvas.mini.width + edge and e.clientY >= column.y + canvas.mini.top - edge and e.clientY < column.y + canvas.mini.top + canvas.mini.height + edge)\n        detailsAct("dismiss", "", "")');
+    // The right panel's details button is drawn only on a sheet, under the window's backdrop: no exception names it.
+    expect(press).not.toContain('panel-toggle-details');
+    for (const file of ['r4-surfaces.contract', 'shell-panels.contract']) expect(await source(file)).not.toContain('id="panel-toggle-details"');
     expect(root).toContain('op != "ui:changes" and op != "dismiss")');
-    for (const file of ['r4-surfaces.contract', 'shell-panels.contract']) expect(await source(file)).toContain('button id="panel-toggle-details" press=details("toggle", "", "")');
+    // The column's frame is the press's bounds; its z-index lays it, and so the popover, over the terminal drawer under it
+    // (the reference's popover is portaled over the drawer), at the reference's height (100dvh − 6.5rem).
+    expect(column).toContain('    column id="chat-column" flex=1 min-width=0 min-height=0 height="100%" position="relative" z-index=1 inert=pageCover hatch="t3-frame" data-frame="chat"');
+    expect(column.split('ThreadDetailsPanel(details=details, density=canvas.density, right=13, maxHeight=(viewport.height - 104),').length - 1).toBe(2);
+    const stack = under(window, 'column flex=1 min-width=0 height="100%" // terminal-drawer');
+    expect([stack.findIndex(line => line.includes('ChatColumn(')), stack.findIndex(line => line.includes('TerminalDrawer('))]).toEqual([0, 1]);
     // The header's button is pressed for the presentation it toggles (selectThreadPanelOpen).
     expect(column.split('detailsOpen=(detailsOpen or (details.inline and canvas.cardShown))').length - 1).toBe(2);
     expect(column).toContain('ThreadDetailsInline(details=details, density=canvas.density,');
@@ -168,6 +183,44 @@ describe('DP-2: the card becomes the header\'s popover where no placement is lef
     const git = await component('r4-git.contract', 'R4GitRows');
     expect(git).not.toContain('details.inline');
     expect(git).toContain('width=((inline ? 262 : 246) * rem / 16)');
+  });
+});
+
+describe('DP-2: the pull request rows place their cards for the presentation shown', () => {
+  afterEach(resetPrimary);
+  const URL104 = 'https://github.com/t3-fixture/pr-demo/pull/104';
+  const github = { provider: 'github', canonicalKey: 'github.com/t3-fixture/pr-demo', displayName: 't3-fixture/pr-demo', owner: 't3-fixture', name: 'pr-demo', locator: { remoteUrl: 'https://github.com/t3-fixture/pr-demo.git' } };
+  const checks = ['build', 'test', 'lint'].map(name => ({ name, status: 'success', description: null, url: `https://github.com/t3-fixture/pr-demo/actions/runs/${name.length}` }));
+  const detail = { provider: 'github', projectId: 'p1', projectTitle: 'pr-demo', workspaceRoot: '/repos/pr-demo', repository: 't3-fixture/pr-demo', number: 104, title: 'Update README badges', body: '',
+    url: URL104, state: 'open', isDraft: false, mergeability: 'mergeable', additions: 24, deletions: 6, changedFiles: 3, headBranch: 'feature/clean', baseBranch: 'main',
+    capabilities: { actions: ['merge', 'ready', 'draft', 'close'], mergeMethods: ['merge', 'squash', 'rebase'] }, viewerPermissions: { actions: ['merge', 'ready', 'draft', 'close'] },
+    mergeCapabilities: { merge: true, squash: true, rebase: true }, checks };
+  test('an open popover on a wide chat (the player took the docked card\'s place) lays its rows out for the popover', async () => {
+    primaryAt('http://127.0.0.1:3773', 'env');
+    const native = { available: true, watch() {}, later: async () => ({}) } as unknown as Native;
+    const prClient = { ready: true, projectId: 'p1', threadId: 't1', environmentId: 'env', origin: 'http://127.0.0.1:3773', local: { composerControls: { contexts: {} } }, draftKey: 'env:t1', generation: 1, revision: 0,
+      config: { availableEditors: [], environment: { label: 'Local', capabilities: { pullRequests: true, threadPullRequests: true, pullRequestChecks: true } }, providers: [] },
+      projection: { thread: { id: 't1', lineage: {} }, runs: [], subagents: [], contextTransfers: [] },
+      shell: { projects: [{ id: 'p1', title: 'pr-demo', workspaceRoot: '/repos/pr-demo', repositoryIdentity: github }],
+        threads: [{ id: 't1', projectId: 'p1', title: 'T t1', status: 'idle', createdAt: '2026-10-04T10:00:00.000Z', branch: 'main', lineage: { parentThreadId: null, relationshipToParent: null },
+          pullRequests: [{ host: 'github.com', repository: 't3-fixture/pr-demo', number: 104, url: URL104, source: 'manual', linkedAt: '2026-10-04T10:00:00.000Z',
+            snapshot: { title: 'Update README badges', state: 'open', isDraft: false, syncedAt: '2026-10-04T10:00:00.000Z' }, watch: null }] }] },
+      rpc: async (_native: unknown, method: string) => method === 'pullRequests.detail' ? detail : method === 'pullRequests.checks' ? { state: 'open', checks } : {},
+      restAccess: () => ({ call: async (request: { op?: string }) => (request.op === 'subscribe' ? { id: 'sub-1' } : {}) }),
+    } as unknown as T3Client;
+    // The docked card (open by default on a wide chat): 262 pt rows 12 pt in; the trigger ends 83.3 pt from the window's edge.
+    const docked = (await shellDetails(prClient, native, false, 't1', true, 1, 0)).prRows.rows[0]!;
+    expect([docked.r6.tail, docked.r6.card.maxWidth]).toEqual([83.3, 262 + 8]);
+    // The popover shown on the same wide chat: 246 pt rows 13 pt in, as on a narrow one.
+    const shown = (await shellDetails(prClient, native, true, 't1', true, 1, 0)).prRows.rows[0]!;
+    const narrow = (await shellDetails(prClient, native, true, 't1', false, 1, 0)).prRows.rows[0]!;
+    expect([shown.r6.tail, shown.r6.card.maxWidth]).toEqual([84.3, 246 + 8]);
+    expect(shown.r6).toEqual(narrow.r6);
+    forgetDetails(prClient);
+  });
+  test('the window passes the popover shown, not the toggle it remembers', async () => {
+    expect(await source('app.contract')).toContain('  resource details = shellDetails(detailsShown, data.threadId,');
+    expect(await source('shell-details.ts')).toContain('rightGap, inline: inline && !open }),');
   });
 });
 
