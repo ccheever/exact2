@@ -394,6 +394,7 @@ class Collection {
     const served = this.served?.get(key);
     if (served) this.served.delete(key);
     const w = served ?? document.createElement("div");
+    w.$exactTree = true;
     w.style.cssText = WRAP[this.axis];
     w.setAttribute("role", "listitem");
     w.setAttribute("data-listitemkey", key);
@@ -423,7 +424,7 @@ class Collection {
       const gap = this.index.prefix(p) - this.index.prefix(cursor);
       if (gap > 0) {
         let s = this.spacers[n];
-        if (!s) { const el = document.createElement("div"); el.setAttribute("aria-hidden", "true"); el.style.cssText = SPACER[this.axis]; s = this.spacers[n] = { el, size: null }; }
+        if (!s) { const el = document.createElement("div"); el.$exactTree = true; el.setAttribute("aria-hidden", "true"); el.style.cssText = SPACER[this.axis]; s = this.spacers[n] = { el, size: null }; }
         if (s.size !== gap) { s.el.style.setProperty(MAIN[this.axis], num(gap) + "px"); s.size = gap; }
         kids.push(s.el); n++;
       }

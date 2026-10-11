@@ -420,6 +420,7 @@ component NativeFixture
                       button press=openNote testId="open-note" padding=6 background-color="#e5e7eb"
                         text "Note"
                       column hatch="badge" data-tone=(composed > 0 ? "busy" : "info") testId="hatched-badge" width=20 height=20 border-radius=10 background-color="#f59e0b"
+                        head description="Badge"
                     text ("composed " + toString(composed)) testId="composed"
                     row role="toolbar" toolbarPlacement="window" aria-label="Window" testId="window-toolbar" gap=6
                       button press=compose aria-label="Compose" testId="toolbar-compose" padding=6 background-color="#e5e7eb"
@@ -718,8 +719,10 @@ component HatchedRows
       column id="row-menu" popover="auto" position="absolute" role="menu" width=200 padding=8 background-color="#ffffff"
         button popovertarget="row-menu" popovertargetaction="hide" testId="row-menu-close" height=44
           text "Close"
-      list virtualized=true width="100%" flex=1 min-height=0 overflow-x="hidden" estimated-item-height=40 testId="hatched-list"
+      list virtualized=true hatch="feed" width="100%" flex=1 min-height=0 overflow-x="hidden" estimated-item-height=40 testId="hatched-list"
         each r in items key=r.n
           row contextPopover="row-menu" height=40 align-items="center" gap=8 padding-left=12 testId=`row-${r.n}`
             column hatch="dot" data-reuse=(reuse ? "true" : "false") width=12 height=12 border-radius=6 background-color="#6366f1"
             text ("Row " + toString(r.n))
+            button press=toggleReuse testId=`row-button-${r.n}`
+              text "Toggle"

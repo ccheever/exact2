@@ -1,6 +1,7 @@
 # Preserve nonbreaking whitespace in terminal text flow
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Terminal wrapping uses its original tokenizer except that NBSP, narrow NBSP, figure space, and FEFF stay inside words; mode, Unicode-space, CRLF, and headless tests cover it.
 **Systems:** terminal measurement, text flow
 **Author:** Codex (GPT-6), for Charlie Cheever
 **Date:** 2026-10-06

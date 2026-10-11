@@ -1,6 +1,7 @@
 # Reject incompatible computed style branches before lowering
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Refused root string bindings and mixed inferred arms or match subjects on number-only rows while preserving CSS-wide keyword choices; number_only_style_choices_reject_computed_string_arms, number_only_style_choices_accept_valid_css_wide_keywords, mixed_types_inside_computed_arms_and_match_subjects_are_found (the lowerer's walk) and shared_numeric_lets_are_checked_once_per_binding cover these cases; number_only_style_choices_reject_mixed_nested_expressions pins the type checker's own type-branches refusal of those forms.
 **Systems:** Contract type checking, native/web style parity
 **Author:** Codex (GPT-6), for Charlie Cheever
 **Date:** 2026-10-06

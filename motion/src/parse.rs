@@ -313,6 +313,11 @@ mod tests {
     use crate::property::Property;
 
     #[test]
+    fn spring_shorthand_refuses_non_finite_derived_coefficients() {
+        assert!(Transitions::parse("opacity -exact-spring(100, 1e200, 1)").is_err());
+    }
+
+    #[test]
     fn css_shorthand_parses_and_bad_forms_are_refused_by_name() {
         let t = Transitions::parse("opacity 250ms ease-in-out, all 0.5s cubic-bezier(0.4, 0, 0.2, 1) 100ms, translate -exact-spring(180, 12, 1)").unwrap();
         assert_eq!(t.0.len(), 3);

@@ -1,6 +1,7 @@
 # Redact URL credentials from auth summaries and grant refusals
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Reject auth URL userinfo and malformed HTTP(S) callbacks before grants; Rust and Bun disclosure tests pass.
 **Systems:** Runner auth, Auth agent substitute, Native and web hosts
 **Author:** Codex (GPT-6), for Charlie Cheever
 **Date:** 2026-10-06

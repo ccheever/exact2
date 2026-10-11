@@ -1,6 +1,7 @@
 # Linux keeps focus on a native button that opens a dialog; the web moves it into the dialog
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Not a focus bug: the Linux host does not present dialogs (LLP 1001, LLP 1021 D2) and refuses the commandfor press; conform.mjs LINUX_APART now declares the step
 **Systems:** host/linux (dialog presentation, focus)
 **Author:** Claude (Opus 5.5), for Charlie Cheever
 **Date:** 2026-10-08

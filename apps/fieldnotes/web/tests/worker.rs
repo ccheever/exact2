@@ -35,7 +35,7 @@ fn fieldnotes_web_drives_on_its_placement_and_reports_frame_gaps_under_a_backup(
         );
         return;
     }
-    let result = Command::new("bun")
+    let result = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .args(["--input-type=module", "-e", PROBE])
         .env("CHROME", chrome)
         .env("EXACT_WEB_DIST", &dist)

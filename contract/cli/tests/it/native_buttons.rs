@@ -799,6 +799,10 @@ fn bare_reasons_live_only_in_the_development_map_and_migration_uses_merged_rows(
             false,
         ),
         ("button testId=\"b\"\n  box width=4 height=4", false),
+        (
+            "button accent-color=\"#34c759\" testId=\"b\"\n  text \"Go\"",
+            false,
+        ),
     ] {
         let source = app(body);
         let (plan, map) = contract::compile_path_source_mapped(&path, &source).unwrap();

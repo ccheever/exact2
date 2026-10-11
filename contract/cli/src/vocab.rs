@@ -536,6 +536,9 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
         AttrTarget::Prop(p) | AttrTarget::InvertedBoolProp(p) => {
             doc["prop"] = p.name().into();
             doc["type"] = prop_type(*p).into();
+            if let Some(accepts) = vocab::accepts(*p) {
+                doc["accepts"] = accepts.into();
+            }
         }
         AttrTarget::Handler(event) => doc["event"] = (*event).into(),
         AttrTarget::Surface => {}
@@ -626,6 +629,9 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
         }
         AttrTarget::Prop(p) => {
             let mut line = format!("prop {}, {}", p.name(), prop_type(*p));
+            if let Some(accepts) = vocab::accepts(*p) {
+                line += &format!(", accepts {accepts}");
+            }
             // A prop with a fixed set of names lists them (authoring bench: `vocab buttonStyle`).
             if p.name() == "buttonStyle" {
                 line += &format!(

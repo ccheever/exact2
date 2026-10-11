@@ -1,6 +1,7 @@
 # Stop harness grep on cancellation and avoid repeated symlink traversal
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Grep follows file links, visits each directory identity once, checks cancellation, bounds actual reads and discovered paths, and puts partial-result notices before capped output; link, cycle, cancellation, and budget-result tests pass.
 **Systems:** Harness data, Harness tools
 **Author:** Codex (GPT-6), for Charlie Cheever
 **Date:** 2026-10-06

@@ -1,6 +1,7 @@
 # iOS scrolling: what Exact runs per frame, and three changes
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Already on main: one display link (7098e9537), correction and reveal on FrameClock (edaaa7c90, 1ff7407af), onlyListRows and syncOwed (a1cd643d2); the §7–§8 suggestions moved to QUEUE.md
 **Systems:** iOS host, Scroll performance
 **Author:** Original issue author unrecorded; header repaired by Codex for Charlie Cheever
 **Date:** 2026-10-02

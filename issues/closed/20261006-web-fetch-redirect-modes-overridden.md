@@ -1,6 +1,7 @@
 # Honor caller redirect modes in the browser fetch facade
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed by c001a862b (#415): admission.js redirectOf(input, init) passes the caller's redirect mode to the browser fetch instead of forcing follow
 **Systems:** web JS data, fetch parity
 **Author:** Codex (GPT-6), for Charlie Cheever
 **Date:** 2026-10-06

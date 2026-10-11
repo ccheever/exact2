@@ -25,7 +25,7 @@ export function install(exact) {
   // A paragraph text flows around shapes is its fragments on the page; the
   // tree is its own text and runs (flow.js keeps them).
   const flowed = el => el.$flow && el.querySelector(':scope > [data-flow-fragment]');
-  const kids = el => el.getAttribute('markup') === 'markdown' ? [] : flowed(el) ? el.$flow.kids : [...el.children].filter(c => !c.hasAttribute('data-surface') && !c.hasAttribute('data-exiting'));
+  const kids = el => el.getAttribute('markup') === 'markdown' ? [] : flowed(el) ? el.$flow.kids : [...el.children].filter(c => !c.hasAttribute('data-surface') && !c.hasAttribute('data-exiting') && (el.getAttribute('data-hatch') == null || c.$exactTree));
   // A text's inline runs are text nodes too (the runner's tree; element.rs
   // marks only the paragraph `data-exact-text`).
   // (A flowed paragraph's runs are held off the page: runs too.)

@@ -280,9 +280,12 @@ visible replacement glyphs, and hyperlink targets are validated URLs. This is a
 test, not a convention: the smoke feeds an app hostile strings and checks the
 byte stream.
 
-**The terminal is always restored.** Raw mode, the alternate screen, mouse
-reporting and the keyboard protocol are undone on normal exit, on panic (a
-hook), and on SIGINT/SIGTERM/SIGHUP. SIGKILL cannot be caught. exact1 ran a
+**The terminal is restored on exit.** Normal exit writes the leave sequences
+before undoing raw mode and waits for output to drain. On panic (a hook) and
+SIGINT/SIGTERM/SIGHUP, raw mode is undone first, then the leave sequences get
+a bounded attempt. They close any OSC 8 link and synchronized update left by
+an interrupted frame. If terminal output is stopped, those bytes are best
+effort; they cannot be delivered until the terminal accepts them. SIGKILL cannot be caught. exact1 ran a
 separate guardian process for that case (0368 §Runtime), and this RFC doesn't:
 one process, with `reset` documented as the cure. Q5 asks whether that's
 enough.

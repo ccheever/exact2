@@ -1,6 +1,7 @@
 # Check ImageData dimensions and allocation size before constructing its pixel buffer
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Check ImageData byte length and reserve fallibly; Chrome-matched constructor and context exception tests pass.
 **Systems:** Canvas 2D, Rust recorder
 **Author:** Codex (GPT-6), for Charlie Cheever
 **Date:** 2026-10-06

@@ -1368,7 +1368,7 @@ impl<'a> Lowerer<'a> {
                     if index < 2 && matches!(ty, Ty::String) {
                         return err("lower-attr-type", "a computed `flex` must be a number, a literal CSS shorthand or a choice of literal shorthands; for a computed basis write the longhands, as in `flex-grow=1 flex-shrink=1 flex-basis=w`", a.span);
                     }
-                    values::check_style_value(&component, &[row], &ty, font)?;
+                    self.check_style(&component, &[row], &ty, font, scope)?;
                     bindings.push(BindingsRow {
                         kind: BindingKind::Style,
                         id: row as u16,
@@ -1394,7 +1394,7 @@ impl<'a> Lowerer<'a> {
                         for (&row, value) in rows.iter().zip(sides) {
                             let (code, ty) = self.typed_code(&value, scope, locals)?;
                             let side = Attr { value, ..a.clone() };
-                            values::check_style_value(&side, &[row], &ty, font)?;
+                            self.check_style(&side, &[row], &ty, font, scope)?;
                             bindings.push(BindingsRow {
                                 kind: BindingKind::Style,
                                 id: row as u16,
@@ -1405,7 +1405,7 @@ impl<'a> Lowerer<'a> {
                     }
                 }
                 let (code, ty) = self.typed_code(&a.value, scope, locals)?;
-                values::check_style_value(a, rows, &ty, font)?;
+                self.check_style(a, rows, &ty, font, scope)?;
                 for &row in rows {
                     bindings.push(BindingsRow {
                         kind: BindingKind::Style,

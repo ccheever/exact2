@@ -960,6 +960,8 @@ classes select two named styles with `class=(condition ? A : B)`. Computed value
 go on nodes. There is no selector cascade, dynamic style object, or arbitrary
 class-string composition. A style branch can mix a number and a CSS keyword in
 a property's admitted value space; this does not add general union types.
+On a number-only row such as `opacity`, a computed branch known to be a string
+is refused at build time even when another branch is numeric.
 
 For scrolling, provide a bound and inspect measured layout. For virtualized
 lists, use `list virtualized=true` (no other tag takes it), one direct keyed

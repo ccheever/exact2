@@ -1,6 +1,7 @@
 # Restore deploy-capture tests after Contract source discovery
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Built the live Contract compiler with --locked --offline in the selected guarded Cargo target, used Cargo's executable artifact path for target triples, ran it on captured paths, and supplied a stub for synthetic fixtures; deploy-paths, app, and deploy tests cover discovery and capture.
 **Systems:** deploy source capture, build scripts, verification
 **Author:** Codex (GPT-6), for Charlie Cheever
 **Date:** 2026-10-06

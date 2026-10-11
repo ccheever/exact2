@@ -1,6 +1,7 @@
 # The wasm web host's agent tree omits a hatch's parts that the JS target joins
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The JS agent excludes hatch-owned DOM while preserving Exact's row wrappers, spacers, and head templates; native-fixture strict conformance covers the list and head inside hatches.
 **Systems:** host/web (wasm agent tree), host/web-js/agent.js, access hatches
 **Author:** Claude (Opus 5.5), for Charlie Cheever
 **Date:** 2026-10-08
