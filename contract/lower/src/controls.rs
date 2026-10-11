@@ -477,11 +477,8 @@ impl Lowerer<'_> {
         } else {
             self.fixed(false, "switch")
         };
-        bindings.push(BindingsRow {
-            kind: BindingKind::Prop,
-            id: id as u16,
-            expr,
-        });
+        // The word is the author's.
+        bindings.push(crate::prop_row(id, expr, true));
         Ok(true)
     }
 }
@@ -499,11 +496,8 @@ pub(crate) fn derived_rows(bindings: &mut Vec<BindingsRow>) -> bool {
     else {
         return false;
     };
-    bindings.push(BindingsRow {
-        kind: BindingKind::Prop,
-        id: PropId::AccessibilityChecked as u16,
-        expr,
-    });
+    let checked = PropId::AccessibilityChecked;
+    bindings.push(crate::prop_row(checked, expr, crate::IMPLIED));
     true
 }
 

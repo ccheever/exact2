@@ -48,6 +48,7 @@ fn defaults_masks_and_wire_vocabulary() {
 fn bad_shape_outside_is_a_typed_decode_rejection() {
     let mut w = Writer::new();
     w.style_mask(StyleMask::of(StyleId::ShapeOutside));
+    w.style_mask(StyleMask::EMPTY);
     w.string("url(dancer.png)");
     assert_eq!(
         StyleProps::decode_patch(&mut Reader::new(w.as_slice())),

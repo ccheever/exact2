@@ -108,8 +108,9 @@ impl<'a> NodeRef<'a> {
     /// The node whose own row supplies `id` here: this node when it sets the
     /// row; for a row the schema marks inherited, the nearest logical ancestor
     /// that does; `None` when the initial value applies (LLP 1035.000 D1).
-    /// Authored presence stays in `style.mask`; this is where a computed
-    /// value came from.
+    /// Which rows are set stays in `style.mask`, and which of those the
+    /// author wrote in `style.written`; this is where a computed value came
+    /// from.
     pub fn source_of(&self, id: StyleId) -> Option<ViewId> {
         self.arena
             .inherited_source(self.slot, id)

@@ -137,11 +137,8 @@ impl Lowerer<'_> {
             }
         }
         if !native || (explicit.is_none() && !rows.is_empty()) {
-            bindings.push(BindingsRow {
-                kind: BindingKind::Style,
-                id: StyleId::Appearance as u16,
-                expr: self.fixed(true, "none"),
-            });
+            let none = self.fixed(true, "none");
+            bindings.push(crate::style_row(StyleId::Appearance, none, crate::IMPLIED));
         }
         Ok(())
     }

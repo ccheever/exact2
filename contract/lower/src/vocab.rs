@@ -195,6 +195,7 @@ pub fn refusal(name: &str) -> String {
         name: name.into(),
         value: Expr::Bool(true, span),
         span,
+        written: true,
     };
     let attr = crate::lint::unknown_attr("view", &attr).message;
     let mut hints: Vec<&str> = Vec::new();

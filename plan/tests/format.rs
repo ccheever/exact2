@@ -52,6 +52,7 @@ fn sample() -> Plan {
             kind: BindingKind::Prop,
             id: 0,
             expr: text,
+            written: true,
         }],
         &[(EventKind::Press, tick, &[])],
         None,

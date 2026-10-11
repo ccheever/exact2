@@ -32,6 +32,59 @@ fn tall(id: u32, height: f64) -> Op {
     }
 }
 
+/// `color` on `id`, written by its author or implied by the compiler.
+fn colour(id: u32, value: &str, written: bool) -> Op {
+    let mut patch = StyleProps::default();
+    patch
+        .set_dynamic(StyleId::TextColor, &StyleValue::Text(value.into()))
+        .unwrap();
+    if written {
+        patch.written.set(StyleId::TextColor);
+    }
+    Op::SetStyle {
+        id,
+        patch: Box::new(patch),
+    }
+}
+
+/// LLP 1115.000 D2: "written" is a fact each row carries. A patch says it
+/// for each row it sets, the node keeps it beside the row, and a child that
+/// only inherits the value has no row and so no bit.
+#[test]
+fn a_node_keeps_which_of_its_rows_its_author_wrote() {
+    let mut ops = create([1, 2, 3], NodeType::View);
+    ops.extend([children(1, &[2, 3]), Op::AttachRoot { id: 1 }]);
+    ops.extend([colour(1, "#111111", true), colour(2, "#111111", false)]);
+    let mut k = kernel(&ops);
+    let wrote = |k: &Kernel, id: u32| k.node(id).unwrap().style.written;
+    let row = crate::StyleMask::of(StyleId::TextColor);
+    assert_eq!(wrote(&k, 1), row, "the author's row");
+    assert!(
+        wrote(&k, 2).is_empty(),
+        "the compiler's row: set, not written"
+    );
+    assert!(k.node(2).unwrap().style.mask.has(StyleId::TextColor));
+    // Inherited: the value arrives, the bit does not.
+    let child = k.node(3).unwrap();
+    let computed = child.computed_style(crate::StyleMask::INHERITED);
+    assert_eq!(computed.text_color, k.node(1).unwrap().style.text_color);
+    assert!(computed.written.is_empty() && child.style.written.is_empty());
+    // A written value equal to the parent's is still written; the same
+    // value with another bit is a change the node's hosts hear of.
+    let touched = k.apply(0, 2, &[colour(2, "#111111", true)]).unwrap();
+    assert_eq!(wrote(&k, 2), row);
+    assert!(touched.touched.contains(&k.node(2).unwrap().key));
+    // Another row's patch leaves the bit; the row's own patch replaces it.
+    k.apply(0, 3, &[tall(1, 40.0)]).unwrap();
+    assert_eq!(wrote(&k, 1), row);
+    k.apply(0, 4, &[colour(1, "#222222", false)]).unwrap();
+    assert!(wrote(&k, 1).is_empty(), "the winner's bit");
+    // A cleared row has no bit.
+    k.apply(0, 5, &[Op::ClearStyle { id: 2, mask: row }])
+        .unwrap();
+    assert!(wrote(&k, 2).is_empty() && !k.node(2).unwrap().style.mask.has(StyleId::TextColor));
+}
+
 fn prop(id: u32, prop: PropId, value: &str) -> Op {
     Op::SetProp {
         id,

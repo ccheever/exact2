@@ -64,6 +64,8 @@ struct FlatPaint: Equatable {
         "border_radius_top_left", "border_radius_top_right", "border_radius_bottom_right", "border_radius_bottom_left",
         // A fixed fill paints alike in either scheme (LLP 1034 §8).
         "color_scheme",
+        // Which rows the author wrote (LLP 1115.000 D2): nothing a leaf paints.
+        "written",
     ]
 
     init?(_ style: NodeStyle) {

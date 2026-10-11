@@ -905,7 +905,10 @@ class by comparing the EXNODE export before and after.
 
 The closed op list (revision 1): `CreateView`, `DestroyView` (**subtree** — the
 WS-I correction, from day one), `SetProp`, `ClearProp`, `SetStyle` (a **masked
-patch**), `ClearStyle` (a mask), `SetChildren`, `AttachRoot`. There is no
+patch**: the mask of the rows it sets, the mask of those its author wrote, then
+each set row's value; the second mask since 2026-10-11, LLP 1115.000 D2, and a
+row marked written and not set is a typed rejection), `ClearStyle` (a mask),
+`SetChildren`, `AttachRoot`. There is no
 `ComputeLayout` op: layout is a host call (`Kernel::compute_layout`), because the
 host owns the frame clock. A root with `width: auto` fills the width it is
 offered — CSS's block rule, which Taffy does not apply to a root — and stays

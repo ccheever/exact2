@@ -156,6 +156,7 @@ fn fixture_plan(root: &str, nodes: &str) -> Plan {
                     kind: BindingKind::Style,
                     id: row as u16,
                     expr: builder.constant(&value),
+                    written: true,
                 }
             })
             .collect();
@@ -163,6 +164,7 @@ fn fixture_plan(root: &str, nodes: &str) -> Plan {
             kind: BindingKind::Prop,
             id: PropId::TestId as u16,
             expr: builder.constant(&Value::str(&format!("n{id}"))),
+            written: true,
         });
         let node = builder.node(
             NodeType::View as u8,
@@ -627,6 +629,7 @@ fn bound_transition_stacking_matches_kernel() {
             kind: BindingKind::Style,
             id: StyleId::Transition as u16,
             expr: Default::default(),
+            written: true,
         },
     )
     .unwrap();

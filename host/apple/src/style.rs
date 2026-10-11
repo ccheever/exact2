@@ -11,7 +11,10 @@
 //! `vec2` as `[x,y]`; numbers as numbers. The four motion targets
 //! (`translate`, `scale`, `rotate`, `opacity`) are left out: a presenter
 //! applies their *presentation* values from `present` ops, never the style.
-//! Rows a presenter cannot use yet are named, not guessed.
+//! Rows a presenter cannot use yet are named, not guessed. Beside the rows,
+//! `"written"` names those of them the author wrote on this node (LLP
+//! 1115.000 D2): a presenter reads it where the platform's answer stands for
+//! what the author left unsaid, and an inherited value is never in it.
 
 use exact_kernel::style::ColorValue;
 use exact_kernel::{
@@ -112,6 +115,8 @@ fn style_json_rows(
     let mut first = true;
     // Colour rows that name a system colour (LLP 1077 D13), by row.
     let mut systems: Vec<(&str, &str)> = Vec::new();
+    // @ref LLP 1115.000 D2 — the rows sent that the author wrote here.
+    let mut written = String::new();
     for id in style.mask.iter() {
         let name = id.name();
         // LLP 1043.000 M3: the presenter will use resolved shapes.
@@ -422,6 +427,10 @@ fn style_json_rows(
         };
         if wrote {
             first = false;
+            if style.written.has(id) {
+                let comma = if written.is_empty() { "" } else { "," };
+                let _ = write!(written, "{comma}\"{name}\"");
+            }
         } else {
             out.truncate(mark);
         }
@@ -438,6 +447,10 @@ fn style_json_rows(
             let _ = write!(out, "\"{row}\":\"{system}\"");
         }
         out.push('}');
+    }
+    // A written row was sent, so an entry precedes this one.
+    if !written.is_empty() {
+        let _ = write!(out, ",\"written\":[{written}]");
     }
     out.push('}');
     (out, skipped)
@@ -1319,6 +1332,66 @@ mod flow_tests {
             json(4).get("visibility").is_none(),
             "initial visible is not sent"
         );
+    }
+
+    /// LLP 1115.000 D2: the dictionary names the rows its author wrote on
+    /// the node. A colour the compiler implied or a child only inherits
+    /// crosses as a value and is not named; a platform colour and a colour
+    /// equal to the parent's are named like any other; a written row no
+    /// presenter is sent (a margin) is not.
+    #[test]
+    fn the_dictionary_names_the_rows_its_author_wrote() {
+        use exact_kernel::{Kernel, MonospaceMeasurer, Op};
+        let mut kernel = Kernel::new(Box::new(MonospaceMeasurer::default()));
+        let patch = |rows: &[(StyleId, &str, bool)]| {
+            let mut p = StyleProps::default();
+            for (id, value, written) in rows {
+                p.set_dynamic(*id, &StyleValue::Text((*value).into()))
+                    .unwrap();
+                if *written {
+                    p.written.set(*id);
+                }
+            }
+            Box::new(p)
+        };
+        let (red, view) = ("-exact-system-red", NodeType::View);
+        let mut ops: Vec<Op> = (1..=5)
+            .map(|id| Op::CreateView {
+                id,
+                node_type: view,
+            })
+            .collect();
+        let page = [
+            (StyleId::TextColor, red, true),
+            (StyleId::MarginTop, "8px", true),
+            (StyleId::BackgroundColor, "#ffffff", false),
+        ];
+        let (same, implied) = (
+            [(StyleId::TextColor, red, true)],
+            [(StyleId::TextColor, "#111111", false)],
+        );
+        for (id, rows) in [(1, &page[..]), (3, &same[..]), (4, &implied[..])] {
+            let patch = patch(rows);
+            ops.push(Op::SetStyle { id, patch });
+        }
+        let children = vec![2, 3, 4];
+        ops.push(Op::SetChildren { id: 1, children });
+        kernel.apply(0, 1, &ops).unwrap();
+        let json = |id: u32| -> serde_json::Value {
+            serde_json::from_str(&style_json_for(&kernel.node(id).unwrap(), &Env::default()).0)
+                .unwrap()
+        };
+        assert_eq!(json(1)["written"], serde_json::json!(["text_color"]));
+        assert_eq!(json(1)["text_color"]["sys"], "systemRedColor");
+        assert_eq!(json(2)["text_color"], json(1)["text_color"], "inherited");
+        assert!(json(2).get("written").is_none(), "{}", json(2));
+        assert_eq!(
+            json(3)["written"],
+            serde_json::json!(["text_color"]),
+            "the parent's colour, written again"
+        );
+        assert!(json(4).get("written").is_none(), "the compiler's row");
+        assert!(json(5).get("written").is_none(), "no row");
     }
 
     /// Quarters are written as `{n}` writes them.

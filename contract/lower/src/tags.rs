@@ -13,7 +13,7 @@
 //! (`size`, `fontSize`, `radius`, `label`) is refused with the CSS name it
 //! became.
 use exact_kernel::{NodeType, PropId, StyleId};
-use exact_plan::{BindingKind, BindingsRow};
+use exact_plan::BindingsRow;
 /// What an attribute lowers to.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AttrTarget {
@@ -1278,11 +1278,8 @@ impl crate::Lowerer<'_> {
         bindings: &mut Vec<BindingsRow>,
     ) {
         if tag == "text" && parent_tag == Some("text") && attrs.iter().any(|a| a.name == "href") {
-            bindings.push(BindingsRow {
-                kind: BindingKind::Style,
-                id: StyleId::TextColor as u16,
-                expr: self.fixed(true, "LinkText"),
-            });
+            let link = self.fixed(true, "LinkText");
+            bindings.push(crate::style_row(StyleId::TextColor, link, crate::IMPLIED));
         }
     }
 
@@ -1346,11 +1343,8 @@ impl crate::Lowerer<'_> {
             // ARIA's default level, said: a host that reads the level (iOS's
             // header-shaped route takes only a heading with one) sees 2.
             let expr = self.expr_code(&Expr::Number(2.0, Default::default()), scope, locals)?;
-            bindings.push(BindingsRow {
-                kind: BindingKind::Prop,
-                id: p("accessibilityHeadingLevel") as u16,
-                expr,
-            });
+            let level = p("accessibilityHeadingLevel");
+            bindings.push(crate::prop_row(level, expr, crate::IMPLIED));
         }
         let span = level.map_or_else(Default::default, |l| l.span());
         let two = Expr::Number(2.0, span);
@@ -1365,11 +1359,7 @@ impl crate::Lowerer<'_> {
             leaves(level, &|n| Expr::Number(f64::from(style(n).1), span)).expect("literal leaves");
         for (row, value) in [(StyleId::FontSize, size), (StyleId::FontWeight, weight)] {
             let expr = self.expr_code(&value, scope, locals)?;
-            bindings.push(BindingsRow {
-                kind: BindingKind::Style,
-                id: row as u16,
-                expr,
-            });
+            bindings.push(crate::style_row(row, expr, crate::IMPLIED));
         }
         Ok(())
     }

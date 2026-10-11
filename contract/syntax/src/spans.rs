@@ -108,7 +108,7 @@ structs! {
     Param { name, ty, span }
     Action { name, params, body, span }
     Task { name, kind, gate, key, timer, span }
-    Attr { name, value, span }
+    Attr { name, value, span, written }
 }
 
 macro_rules! record_variants {

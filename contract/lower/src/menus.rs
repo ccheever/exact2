@@ -38,6 +38,7 @@ pub(crate) fn implied_closedby(tag: &str, attrs: &[Attr], span: Span) -> Option<
         name: "closedby".into(),
         value: Expr::Str("any".into(), span),
         span,
+        written: crate::IMPLIED,
     });
     Some(attrs)
 }

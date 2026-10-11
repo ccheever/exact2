@@ -911,7 +911,7 @@ impl NodeInst {
                 }
                 BindingKind::Style => {
                     let p = patch.get_or_insert_with(StyleProps::default);
-                    match bridge::set_plan_style(p, binding.id, &value, plan) {
+                    match bridge::set_binding_style(p, binding, &value, plan) {
                         // Unlinked, the plan names no rule: it was refused at
                         // boot (LLP 1047.001 D5).
                         Ok(exact_kernel::StyleId::Animation) => {

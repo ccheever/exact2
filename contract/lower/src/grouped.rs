@@ -113,6 +113,7 @@ fn attr(name: &str, value: Expr, span: Span) -> Attr {
         name: format!("{MARK}{name}"),
         value,
         span,
+        written: crate::IMPLIED,
     }
 }
 

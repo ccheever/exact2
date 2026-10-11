@@ -975,6 +975,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     }
     writeln!(w, "    /// Rows explicitly set.").unwrap();
     writeln!(w, "    pub mask: StyleMask,").unwrap();
+    w.push_str("    /// The set rows the author wrote on this node (@ref LLP 1115.000 D2): an attribute or a class's row,\n    /// never one the compiler implied or one only inherited. A patch says it for each row it sets.\n    pub written: StyleMask,\n");
     writeln!(
         w,
         "    /// The rows authored in `rem`/`em`, which the kernel keeps resolved (LLP 1069.000 D3)."
@@ -996,7 +997,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
         let default = default_of(&codec, &row.default, &row.field, &schema.colors);
         writeln!(w, "            {}: {},", row.field, default).unwrap();
     }
-    writeln!(w, "            mask: StyleMask::EMPTY,").unwrap();
+    w.push_str("            mask: StyleMask::EMPTY,\n            written: StyleMask::EMPTY,\n");
     writeln!(w, "            relative: Default::default(),").unwrap();
     writeln!(w, "            rare: Rare::default(),").unwrap();
     writeln!(w, "        }}").unwrap();
@@ -1005,7 +1006,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "impl StyleProps {{").unwrap();
     writeln!(
         w,
-        "    /// Copy every row set in `patch.mask` from `patch`, and mark it set here."
+        "    /// Copy every row set in `patch.mask` from `patch`, and mark it set here, written as `patch` says."
     )
     .unwrap();
     writeln!(
@@ -1014,7 +1015,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     )
     .unwrap();
     // One masked copy serves the patch, the reset and the row copy.
-    writeln!(w, "        self.copy_rows(patch, patch.mask);").unwrap();
+    w.push_str("        self.copy_rows(patch, patch.mask);\n        self.written = self.written.minus(patch.mask).union(patch.written.intersect(patch.mask));\n");
     writeln!(w, "    }}").unwrap();
     writeln!(
         w,
@@ -1024,11 +1025,11 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "    pub fn clear(&mut self, mask: StyleMask) {{").unwrap();
     writeln!(w, "        let before = self.mask;").unwrap();
     writeln!(w, "        self.copy_rows(&StyleProps::default(), mask);").unwrap();
-    writeln!(w, "        self.mask = before.minus(mask);").unwrap();
+    w.push_str("        self.mask = before.minus(mask);\n        self.written = self.written.minus(mask);\n");
     writeln!(w, "    }}").unwrap();
     writeln!(
         w,
-        "    /// Copy the rows in `mask` from `from` and mark them set here, whatever `from`'s own mask says."
+        "    /// Copy the rows in `mask` from `from` and mark them set here, whatever `from`'s own mask says.\n    /// Which rows are written does not change: a patch says that (`apply_patch`), an inherited value never."
     )
     .unwrap();
     writeln!(
@@ -1075,7 +1076,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     // each copy resolved to; written another way, it is changed.
     writeln!(
         w,
-        "            if !self.mask.has(id) || relative.0 != relative.1 || (relative.1.is_none() && self.get(id) != patch.get(id)) {{ changed.set(id); }}"
+        "            if !self.mask.has(id) || self.written.has(id) != patch.written.has(id) || relative.0 != relative.1 || (relative.1.is_none() && self.get(id) != patch.get(id)) {{ changed.set(id); }}"
     )
     .unwrap();
     writeln!(w, "        }}").unwrap();
@@ -1101,7 +1102,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "    }}").unwrap();
     writeln!(
         w,
-        "    /// Decode a masked patch: the mask words, then each set row's value in bit order."
+        "    /// Decode a masked patch: the mask words, the written rows' words, then each set row's value in bit order."
     )
     .unwrap();
     writeln!(
@@ -1109,8 +1110,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
         "    pub fn decode_patch(r: &mut Reader<'_>) -> Result<StyleProps, DecodeError> {{"
     )
     .unwrap();
-    writeln!(w, "        let mask = r.style_mask()?;").unwrap();
-    writeln!(w, "        let mut out = StyleProps::default();").unwrap();
+    w.push_str("        let (mask, written) = (r.style_mask()?, r.style_mask()?);\n        if !written.minus(mask).is_empty() { return Err(DecodeError::WrittenUnsetRow); }\n        let mut out = StyleProps::default();\n");
     for row in &schema.styles {
         let id = pascal(&row.field);
         if emit_grid_seam(w, &id, GridSeam::Decode) {
@@ -1125,7 +1125,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
         )
         .unwrap();
     }
-    writeln!(w, "        out.mask = mask;").unwrap();
+    writeln!(w, "        (out.mask, out.written) = (mask, written);").unwrap();
     writeln!(
         w,
         "        out.validate_domain().map_err(DecodeError::from)?;"
@@ -1136,10 +1136,9 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "    /// Encode the rows in `mask` as a masked patch.").unwrap();
     writeln!(
         w,
-        "    pub fn encode_masked(&self, mask: StyleMask, w: &mut Writer) {{"
+        "    pub fn encode_masked(&self, mask: StyleMask, w: &mut Writer) {{\n        w.style_mask(mask);\n        w.style_mask(self.written.intersect(mask));"
     )
     .unwrap();
-    writeln!(w, "        w.style_mask(mask);").unwrap();
     for row in &schema.styles {
         let id = pascal(&row.field);
         if emit_grid_seam(w, &id, GridSeam::Encode) {

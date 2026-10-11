@@ -216,6 +216,7 @@ impl NavPlace {
                 name: "navigationBack".into(),
                 value: Expr::Str(String::new(), span),
                 span,
+                written: crate::IMPLIED,
             });
             attrs
         })

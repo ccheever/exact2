@@ -101,6 +101,22 @@ pub fn set_plan_style(
     set_style(patch, id, value, plan.stacks.len())
 }
 
+/// [`set_plan_style`] for one of `plan`'s style bindings, with what the
+/// binding says of the row: whether its author wrote it on this node
+/// (@ref LLP 1115.000 D2). The kernel keeps that beside the row.
+pub fn set_binding_style(
+    patch: &mut StyleProps,
+    binding: &exact_plan::BindingsRow,
+    value: &Value,
+    plan: &exact_plan::Plan,
+) -> Result<StyleId, BridgeError> {
+    let style = set_plan_style(patch, binding.id, value, plan)?;
+    if binding.written {
+        patch.written.set(style);
+    }
+    Ok(style)
+}
+
 /// Set style row `id` on `patch` from `value`.
 pub fn set_style(
     patch: &mut StyleProps,

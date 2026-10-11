@@ -92,6 +92,7 @@ fn fixture_plan(root: &str, nodes: &str) -> Plan {
                     kind: BindingKind::Style,
                     id: row as u16,
                     expr: builder.constant(&value),
+                    written: true,
                 }
             })
             .collect();

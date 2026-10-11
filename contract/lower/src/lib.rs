@@ -76,6 +76,34 @@ use exact_plan::{
 use std::collections::BTreeMap;
 use std::path::Path;
 
+/// A row the compiler implies, which no author wrote (LLP 1115.000 D2): a
+/// tag's fixed row, a heading's style, a sheet's row, one derived from
+/// another. Whether a row is written is said where it is emitted, never
+/// worked out afterwards: an attribute's row takes [`Attr::written`].
+pub(crate) const IMPLIED: bool = false;
+
+/// A style row, `written` when its author wrote it on this node.
+pub(crate) fn style_row(id: StyleId, expr: Code, written: bool) -> BindingsRow {
+    let (kind, id) = (BindingKind::Style, id as u16);
+    BindingsRow {
+        kind,
+        id,
+        expr,
+        written,
+    }
+}
+
+/// A prop row, `written` as a style row is.
+pub(crate) fn prop_row(id: exact_kernel::PropId, expr: Code, written: bool) -> BindingsRow {
+    let (kind, id) = (BindingKind::Prop, id as u16);
+    BindingsRow {
+        kind,
+        id,
+        expr,
+        written,
+    }
+}
+
 pub(crate) struct Lowerer<'a> {
     pub b: PlanBuilder,
     sites: Option<Sites>,
@@ -749,6 +777,7 @@ impl<'a> Lowerer<'a> {
                         name: "min-width".into(),
                         value: Expr::Number(0.0, *span),
                         span: *span,
+                        written: IMPLIED,
                     });
                     attrs
                 });
@@ -809,18 +838,10 @@ impl<'a> Lowerer<'a> {
                 let mut handlers: Vec<(EventKind, exact_plan::ActionsId, Vec<Code>)> = Vec::new();
                 let mut surface: Option<exact_plan::SurfacesId> = None;
                 for (style, value) in t.fixed_styles {
-                    bindings.push(BindingsRow {
-                        kind: BindingKind::Style,
-                        id: *style as u16,
-                        expr: self.fixed(true, value),
-                    });
+                    bindings.push(style_row(*style, self.fixed(true, value), IMPLIED));
                 }
                 for (prop, value) in t.fixed_props {
-                    bindings.push(BindingsRow {
-                        kind: BindingKind::Prop,
-                        id: *prop as u16,
-                        expr: self.fixed(false, value),
-                    });
+                    bindings.push(prop_row(*prop, self.fixed(false, value), IMPLIED));
                 }
                 self.link_run_color(tag, parent_tag, expanded, &mut bindings);
                 self.heading_style(tag, expanded, scope, locals, &mut bindings)?;
@@ -828,11 +849,12 @@ impl<'a> Lowerer<'a> {
                 // `progress` (no `value`, LLP 1116 D8) is busy, as ARIA's
                 // `aria-busy`: a bool, which a fixed prop (text) cannot be.
                 if tag == "progress" && !expanded.iter().any(|a| a.name == "value") {
-                    bindings.push(BindingsRow {
-                        kind: BindingKind::Prop,
-                        id: exact_kernel::PropId::AccessibilityBusy as u16,
-                        expr: self.b.constant(&Value::Bool(true)),
-                    });
+                    let busy = self.b.constant(&Value::Bool(true));
+                    bindings.push(prop_row(
+                        exact_kernel::PropId::AccessibilityBusy,
+                        busy,
+                        IMPLIED,
+                    ));
                 }
                 // @ref LLP 1048.003 D4 — the page scrolls where this does.
                 let positional = match positional.as_slice() {
@@ -844,11 +866,12 @@ impl<'a> Lowerer<'a> {
                                 bound.span,
                             );
                         }
-                        bindings.push(BindingsRow {
-                            kind: BindingKind::Prop,
-                            id: exact_kernel::PropId::ScrollDocument as u16,
-                            expr: self.b.constant(&Value::Bool(true)),
-                        });
+                        let document = self.b.constant(&Value::Bool(true));
+                        bindings.push(prop_row(
+                            exact_kernel::PropId::ScrollDocument,
+                            document,
+                            true,
+                        ));
                         &[][..]
                     }
                     // @ref LLP 1069.001 D1, LLP 1069.002 D1 — HTML's `switch`
@@ -870,11 +893,7 @@ impl<'a> Lowerer<'a> {
                     };
                     let (code, ty) = self.typed_code(first, scope, locals)?;
                     values::check_prop_value(tag, first, first.span(), prop, &ty)?;
-                    bindings.push(BindingsRow {
-                        kind: BindingKind::Prop,
-                        id: prop as u16,
-                        expr: code,
-                    });
+                    bindings.push(prop_row(prop, code, true));
                 }
                 if positional.len() > 1 {
                     return err(
@@ -942,11 +961,8 @@ impl<'a> Lowerer<'a> {
                         .iter()
                         .any(|b| b.kind == BindingKind::Style && b.id == StyleId::Appearance as u16)
                 {
-                    bindings.push(BindingsRow {
-                        kind: BindingKind::Style,
-                        id: StyleId::Appearance as u16,
-                        expr: self.fixed(true, "none"),
-                    });
+                    let none = self.fixed(true, "none");
+                    bindings.push(style_row(StyleId::Appearance, none, IMPLIED));
                     if let Some(origins) = &mut origins {
                         origins.resize(bindings.len(), Origin::Tag);
                     }
@@ -1369,11 +1385,7 @@ impl<'a> Lowerer<'a> {
                         return err("lower-attr-type", "a computed `flex` must be a number, a literal CSS shorthand or a choice of literal shorthands; for a computed basis write the longhands, as in `flex-grow=1 flex-shrink=1 flex-basis=w`", a.span);
                     }
                     self.check_style(&component, &[row], &ty, font, scope)?;
-                    bindings.push(BindingsRow {
-                        kind: BindingKind::Style,
-                        id: row as u16,
-                        expr: code,
-                    });
+                    bindings.push(style_row(row, code, a.written));
                 }
             }
             tags::AttrTarget::Styles(rows) => {
@@ -1381,11 +1393,7 @@ impl<'a> Lowerer<'a> {
                     // @ref LLP 1053 G7 — each arm's family is a stack id now.
                     let stacks = self.family_stacks(&a.value)?;
                     let (code, _) = self.typed_code(&stacks, scope, locals)?;
-                    bindings.push(BindingsRow {
-                        kind: BindingKind::Style,
-                        id: StyleId::FontFamily as u16,
-                        expr: code,
-                    });
+                    bindings.push(style_row(StyleId::FontFamily, code, a.written));
                     return Ok(());
                 }
                 // CSS's one-to-four-value box shorthands: a binding a side.
@@ -1395,11 +1403,7 @@ impl<'a> Lowerer<'a> {
                             let (code, ty) = self.typed_code(&value, scope, locals)?;
                             let side = Attr { value, ..a.clone() };
                             self.check_style(&side, &[row], &ty, font, scope)?;
-                            bindings.push(BindingsRow {
-                                kind: BindingKind::Style,
-                                id: row as u16,
-                                expr: code,
-                            });
+                            bindings.push(style_row(row, code, a.written));
                         }
                         return Ok(());
                     }
@@ -1407,11 +1411,7 @@ impl<'a> Lowerer<'a> {
                 let (code, ty) = self.typed_code(&a.value, scope, locals)?;
                 self.check_style(a, rows, &ty, font, scope)?;
                 for &row in rows {
-                    bindings.push(BindingsRow {
-                        kind: BindingKind::Style,
-                        id: row as u16,
-                        expr: code,
-                    });
+                    bindings.push(style_row(row, code, a.written));
                 }
             }
             tags::AttrTarget::InvertedBoolProp(prop) => {
@@ -1421,11 +1421,7 @@ impl<'a> Lowerer<'a> {
                 asm.simple(exact_plan::Opcode::Not);
                 let code = self.b.code(asm);
                 values::check_prop_value(&a.name, &a.value, a.span, prop, &ty)?;
-                bindings.push(BindingsRow {
-                    kind: BindingKind::Prop,
-                    id: prop as u16,
-                    expr: code,
-                });
+                bindings.push(prop_row(prop, code, a.written));
             }
             tags::AttrTarget::Prop(prop) => {
                 let glass;
@@ -1454,11 +1450,7 @@ impl<'a> Lowerer<'a> {
                     expr::compile(self, &mut asm, &words, scope, &mut depth)?;
                 }
                 let code = self.b.code(asm);
-                bindings.push(BindingsRow {
-                    kind: BindingKind::Prop,
-                    id: prop as u16,
-                    expr: code,
-                });
+                bindings.push(prop_row(prop, code, a.written));
             }
             tags::AttrTarget::Surface => {
                 if tag != "canvas" {
