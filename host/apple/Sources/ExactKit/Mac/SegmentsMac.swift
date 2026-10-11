@@ -61,9 +61,11 @@ final class SegmentHost {
     }
 
     /// The control's own size, at any width of the box: its height does not
-    /// follow that width, and a tablist's reported width is never read (the
-    /// seam takes only a positive one). It fills the content box, so a
-    /// border-box minimum also holds the padding and border around it.
+    /// follow that width. Its width is the narrowest it can be, the
+    /// tablist's automatic minimum width (LLP 1116.004 D2): AppKit's control
+    /// does not shrink its segments, so its natural width. It fills the
+    /// content box, so a border-box minimum also holds the padding and
+    /// border around it.
     private func measure(_ owner: NodeView, _ control: NSSegmentedControl) {
         let natural = control.intrinsicContentSize
         var size = CGSize(width: max(natural.width, 1), height: natural.height)

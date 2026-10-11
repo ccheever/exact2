@@ -1424,18 +1424,27 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     }
     // A native tab bar fills the tablist's box, a segmented control its
     // content box. Its measured height supplies the automatic minimum, so
-    // even a short authored row reserves the control.
-    // An explicit CSS min-height still owns that constraint; no natural ratio
-    // or preferred width is inferred from this container measurement.
+    // even a short authored row reserves the control. Its width is the
+    // narrowest the control can be, the automatic minimum width in place of
+    // the hidden tabs' own (LLP 1116.004 D2): UIKit's fits its segments to
+    // any box, so a grouped row's tablist shrinks to the row; AppKit's keeps
+    // its natural width.
+    // An explicit CSS min-height or min-width still owns that constraint; no
+    // natural ratio or preferred width is inferred from this container
+    // measurement.
     if !arena.node_type(slot).is_replaced()
         && !matches!(
             arena.node_type(slot),
             NodeType::Control | NodeType::NativeView
         )
-        && s.min_size.height.is_auto()
     {
-        if let Some((_, height)) = arena.intrinsic(slot) {
-            s.min_size.height = length(height);
+        if let Some((width, height)) = arena.intrinsic(slot) {
+            if s.min_size.height.is_auto() {
+                s.min_size.height = length(height);
+            }
+            if s.min_size.width.is_auto() {
+                s.min_size.width = length(width);
+            }
         }
     }
     // @ref LLP 1075.003 §3.5 — what a native container covers of the box.

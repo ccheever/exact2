@@ -257,7 +257,6 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
     private func natural(_ id: UInt32, _ control: UISegmentedControl) -> CGSize {
         let fonts = [UIControl.State.normal, .selected].map { (control.titleTextAttributes(for: $0)?[.font] as? UIFont).map { "\($0.fontName) \($0.pointSize)" } ?? "" }
         let segments = (0..<control.numberOfSegments).map { "\(control.titleForSegment(at: $0) ?? "")|\(control.imageForSegment(at: $0)?.size ?? .zero)|\(control.widthForSegment(at: $0))" }
-            + ["\(control.apportionsSegmentWidthsByContent)"]
         let t = control.traitCollection
         let source = "\(segments)|\(fonts)|\(t.preferredContentSizeCategory.rawValue)|\(t.legibilityWeight.rawValue)"
         // A hatch's own look (a background image, a divider) sizes it too:
@@ -265,7 +264,12 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         let customized = control.backgroundImage(for: .normal, barMetrics: .default) != nil
             || control.dividerImage(forLeftSegmentState: .normal, rightSegmentState: .normal, barMetrics: .default) != nil
         if !customized, let known = naturals[id], known.source == source { return known.size }
+        // As equal segments: the width they fit in before the control
+        // apportions a narrower box by their content (`sync`).
+        let apportioned = control.apportionsSegmentWidthsByContent
+        if apportioned { control.apportionsSegmentWidthsByContent = false }
         let size = control.intrinsicContentSize
+        if apportioned { control.apportionsSegmentWidthsByContent = true }
         naturals[id] = customized ? nil : (source, size)
         return size
     }
@@ -274,13 +278,16 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         guard bars[owner.id] === control || controls[owner.id] === control, presenter.views[owner.id] === owner else { return }
         var size: CGSize
         if control is UISegmentedControl {
-            // Its own size, at any width of the box: its height does not
-            // follow that width, and a tablist's reported width is never read
-            // (the seam takes only a positive one), so a resize does not
-            // remeasure. It fills the content box, so a border-box minimum
-            // also holds the padding and border around it.
+            // Its own height, at any width of the box: its height does not
+            // follow that width, so a resize does not remeasure. Its width
+            // is the narrowest it can be (LLP 1116.004 D2), the tablist's
+            // automatic minimum: none, as UIKit fits its segments to any
+            // box, so a row's other parts never push it past the row's edge
+            // (unit-converter: four text tabs overflowed a grouped row by
+            // the hidden tabs' own widths). It fills the content box, so a
+            // border-box minimum also holds the padding and border around it.
             let natural = natural(owner.id, control as! UISegmentedControl)
-            size = CGSize(width: max(natural.width, 1), height: natural.height)
+            size = CGSize(width: 1, height: natural.height)
             if owner.style["box_sizing"]?.string == "border-box" {
                 let border = owner.number("border_width")
                 size.height += owner.number("border_width_top", border) + owner.number("padding_top")
@@ -288,8 +295,8 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             }
         } else {
             guard owner.bounds.width > 0 else { return }
-            size = CGSize(width: owner.bounds.width,
-                          height: control.sizeThatFits(CGSize(width: owner.bounds.width, height: 0)).height)
+            // A tab bar lays its items out in any width: none is its narrowest.
+            size = CGSize(width: 1, height: control.sizeThatFits(CGSize(width: owner.bounds.width, height: 0)).height)
         }
         guard size.width.isFinite, size.height.isFinite, size.height > 0 else { return }
         guard sizes[owner.id] != size else { return }
@@ -438,6 +445,10 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             if control.selectedSegmentIndex == selected { control.settled = selected }
             owner.bringSubviewToFront(control)
             measure(owner, control)
+            // Equal segments where they fit; in a narrower box UIKit gives
+            // each segment its content's share, so "Temperature" keeps its
+            // letters beside "Length" (LLP 1116.004 D2).
+            assign(control, \.apportionsSegmentWidthsByContent, frame.width + 0.5 < natural(owner.id, control).width)
         }
     }
 
