@@ -227,11 +227,29 @@ describe('LS-2 on a background environment: its own stream, and its thread opens
 describe('LS-7 (found while building): the row\'s tooltips', () => {
   const view = readFileSync(new URL('./legacy-sidebar.contract', import.meta.url), 'utf8');
   test('the title, the worktree glyph, the collapsed project\'s status and the controls carry the reference\'s tooltips', () => {
-    expect(view).toContain('LegacyTitleTip(label=t.title)');
+    expect(view).toContain('LegacyTitleTip(label=t.title, relay=innerHover)');
     expect(view).toContain('Tip(label=t.worktreeLabel, side="top"');
     expect(view).toContain('Tip(label=p.statusLabel, side="top"');
     expect(view).toContain('Tip(label=(t.prPending ? "" : t.prTooltip)');
     expect(view).toContain('Tip(label=t.portTip');
+  });
+  // The host hovers only the nearest node with a hover handler (MouseChainMac `hoverUnderPointer`), so a pointer entering
+  // a row on its title would hover the title's tooltip and not the row: Archive stayed hidden and a press there opened the
+  // thread (the first after drive). Every tooltip trigger inside a row tells the row, as group-hover holds for the whole row.
+  test('every tooltip trigger inside a thread row or a project header tells the row the pointer is on it', () => {
+    const thread = view.slice(view.indexOf('component LegacyThread'), view.indexOf('component LegacyTitleTip'));
+    const project = view.slice(view.indexOf('component LegacyProject'), view.indexOf('// SidebarThreadRow'));
+    for (const [row, triggers] of [[thread, 5], [project, 2]] as const) {
+      expect(row).toContain('action innerHover(value: bool)\n    inner = value');
+      expect(row).toContain('derive pointed = over or inner');
+      expect(row.match(/\bTip\(/g) ?? []).toHaveLength(0); // a plain Tip's hover would not reach the row
+      expect(row.match(/Tip\([^\n]*relay=innerHover\)/g) ?? []).toHaveLength(triggers);
+    }
+    for (const tip of ['component LegacyTitleTip', 'component LegacyRowTip']) {
+      const body = view.slice(view.indexOf(tip), view.indexOf('\n  view', view.indexOf(tip)));
+      expect(body).toContain('relay: action');
+      expect(body).toContain('over = value\n    relay(value)');
+    }
   });
   test('the worktree tooltip names the worktree by its last segment (formatWorktreePathForDisplay), then the branch', () => {
     const { client } = rig({ threads: [thread('thread-1'), thread('wt', { worktreePath: '/work/.t3/worktrees/app-feature', branch: 'feature/x' }), thread('plain', { worktreePath: '/work/.t3/worktrees/solo' })] });
@@ -304,7 +322,7 @@ describe('LS-4: Archive and New thread in the tab order (group-focus-within)', (
   const thread = view.slice(view.indexOf('component LegacyThread'), view.indexOf('component LegacyRenameField'));
   const project = view.slice(view.indexOf('component LegacyProject'), view.indexOf('// SidebarThreadRow'));
   test('Archive stays mounted (opacity 0, no pointer) and shows on hover or while the focus is in the row', () => {
-    expect(thread).toContain('derive revealed = (over or inside) and not t.running');
+    expect(thread).toContain('derive revealed = (pointed or inside) and not t.running');
     expect(thread).toContain('when not t.running\n            box position="absolute" right="0.125rem" top="0.25rem" opacity=(revealed ? 1 : 0) pointer-events=(revealed ? "auto" : "none")');
     expect(thread).not.toContain('when over and not t.running');
     for (const target of ['press=open(t.id, "click")', 'press=run("legacy-pr"', 'press=run("legacy-port"', 'press=archive']) {
@@ -319,7 +337,7 @@ describe('LS-4: Archive and New thread in the tab order (group-focus-within)', (
     expect(thread).toContain('Tip(label=(legacy.confirmArchive ? "" : "Archive")');
   });
   test('the project\'s New thread stays mounted and crossfades with the environment badge', () => {
-    expect(project).toContain('derive revealed = over or inside');
+    expect(project).toContain('derive revealed = pointed or inside');
     expect(project).toContain('opacity=(revealed ? 1 : 0) pointer-events=(revealed ? "auto" : "none")');
     expect(project).toContain('opacity=(revealed ? 0 : 1) pointer-events="none" role="img" aria-label=p.remoteLabel');
     expect(project).not.toContain('when over\n          box position="absolute" right="0.125rem"');
