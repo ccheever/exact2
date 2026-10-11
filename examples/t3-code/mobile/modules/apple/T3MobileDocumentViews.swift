@@ -4,30 +4,95 @@
 import UIKit
 import WebKit
 
-final class T3MobileDocumentMenu: ExactNativeInstance {
-    static let factory = ExactNativeFactory { props, events in
-        let view = T3MobileDocumentMenu(events: events); try view.setProps(props); return view
-    }
-    private let button = UIButton(type: .system)
+/// The document's native menu follows the public route and native-element lifetimes.
+final class T3MobileDocumentMenus {
+    private final class RouteRef { weak var value: ExactRoute?; init(_ value: ExactRoute) { self.value = value } }
+    private final class MenuRef { weak var value: T3MobileDocumentMenu?; init(_ value: T3MobileDocumentMenu) { self.value = value } }
+    private var routes: [String: RouteRef] = [:], menus: [String: MenuRef] = [:]
     private var alive = true
-    private var configuration = ""
+    func makeView(props: [String: String], events: ExactNativeEvents) throws -> ExactNativeInstance {
+        guard alive else { throw ExactNativeRefusal("The document session has ended.") }
+        let menu = T3MobileDocumentMenu(owner: self, events: events); try menu.setProps(props); return menu
+    }
+    func configure(_ route: ExactRoute) {
+        guard alive else { return }; routes[route.key] = RouteRef(route); menus[route.key]?.value?.attach(route)
+    }
+    func end(_ route: ExactRoute) {
+        guard routes[route.key]?.value === route else { return }
+        menus[route.key]?.value?.detach(); routes.removeValue(forKey: route.key)
+    }
+    fileprivate func bind(_ menu: T3MobileDocumentMenu, key: String) {
+        guard alive else { return }
+        if let old = menus[key]?.value, old !== menu { old.detach() }
+        menus[key] = MenuRef(menu)
+        if let route = routes[key]?.value { menu.attach(route) }
+    }
+    fileprivate func unbind(_ menu: T3MobileDocumentMenu, key: String) {
+        if menus[key]?.value === menu { menus.removeValue(forKey: key) }
+    }
+    func destroy() { alive = false; for ref in menus.values { ref.value?.detach() }; menus.removeAll(); routes.removeAll() }
+}
+
+final class T3MobileDocumentMenu: ExactNativeInstance {
+    private weak var owner: T3MobileDocumentMenus?
+    private weak var route: ExactRoute?
+    private var routeKey = ""
+    private let button = UIButton(type: .system)
+    private var group: UIBarButtonItemGroup?
+    private var alive = true
+    private var revision = UUID()
+    private var configuration = "", identifier = "", title = "", rendered = ""
+    private var rows: [[String: Any]] = []
+    private var tint: UIColor?, renderedTint: UIColor?
     override var view: UIView { button }
-    override init(events: ExactNativeEvents) {
+    init(owner: T3MobileDocumentMenus, events: ExactNativeEvents) {
+        self.owner = owner
         super.init(events: events)
         button.setImage(UIImage(systemName: "ellipsis"), for: .normal)
         button.showsMenuAsPrimaryAction = true
         button.accessibilityLabel = "File actions"
     }
     override func setProps(_ props: [String: String]) throws {
-        guard let raw = props["document-menu"], let data = raw.data(using: .utf8),
+        guard alive, let raw = props["document-menu"], let data = raw.data(using: .utf8),
               let config = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let identifier = config["identifier"] as? String else { throw ExactNativeRefusal("Invalid file menu.") }
-        let rows = config["actions"] as? [[String: Any]] ?? []
-        configuration = raw
-        button.isEnabled = !identifier.isEmpty
-        if let tint = props["document-tint"] { button.tintColor = try T3SymbolView.color(tint) }
-        var modes: [UIMenuElement] = []
-        var actions: [UIMenuElement] = []
+        let key = props["route-key"] ?? ""
+        guard props["route-key"] == nil || !key.isEmpty else { throw ExactNativeRefusal("Invalid file menu route.") }
+        let nextTint = try props["document-tint"].map(T3SymbolView.color)
+        if key != routeKey { detach(); owner?.unbind(self, key: routeKey); routeKey = key }
+        configuration = raw; self.identifier = identifier; title = config["title"] as? String ?? ""
+        rows = config["actions"] as? [[String: Any]] ?? []; tint = nextTint
+        button.isEnabled = !identifier.isEmpty; button.tintColor = tint
+        button.isUserInteractionEnabled = key.isEmpty; button.accessibilityElementsHidden = !key.isEmpty
+        if !key.isEmpty { owner?.bind(self, key: key) }
+        refresh()
+    }
+    fileprivate func attach(_ route: ExactRoute) {
+        if self.route !== route { detach(); self.route = route }
+        refresh()
+    }
+    private func refresh() {
+        guard alive else { return }
+        if routeKey.isEmpty { removeItem(); button.menu = makeMenu(); return }
+        guard let route, route.isLive else { return }
+        if let group, rendered == configuration, renderedTint == tint {
+            if !route.controller.navigationItem.trailingItemGroups.contains(where: { $0 === group }) {
+                route.controller.navigationItem.trailingItemGroups.append(group)
+            }
+            return
+        }
+        removeItem()
+        button.menu = makeMenu()
+        let item = UIBarButtonItem(image: UIImage(systemName: "ellipsis"), menu: button.menu)
+        item.accessibilityLabel = "File actions"; item.accessibilityIdentifier = "document-actions"
+        item.isEnabled = button.isEnabled; item.tintColor = tint
+        let next = UIBarButtonItemGroup.fixedGroup(representativeItem: nil, items: [item])
+        group = next; rendered = configuration; renderedTint = tint
+        route.controller.navigationItem.trailingItemGroups.append(next)
+    }
+    private func makeMenu() -> UIMenu {
+        let token = revision, raw = configuration, identifier = identifier
+        var modes: [UIMenuElement] = [], actions: [UIMenuElement] = []
         for row in rows {
             guard let id = row["id"] as? String, let title = row["title"] as? String else { continue }
             var attributes: UIMenuElement.Attributes = id == "remove" ? .destructive : []
@@ -35,7 +100,12 @@ final class T3MobileDocumentMenu: ExactNativeInstance {
             let action = UIAction(title: title, image: UIImage(systemName: row["icon"] as? String ?? ""),
                             attributes: attributes,
                             state: row["selected"] as? Bool == true ? .on : .off) { [weak self] _ in
-                guard let self, alive, configuration == raw else { return }
+                guard let self, alive, revision == token, configuration == raw else { return }
+                if !routeKey.isEmpty {
+                    guard let route = self.route, route.isLive, route.key == routeKey,
+                          route.controller.navigationController?.topViewController === route.controller,
+                          route.controller.viewIfLoaded?.window != nil, route.controller.presentedViewController == nil else { return }
+                }
                 if let value = row["copyValue"] as? String {
                     UIPasteboard.general.string = value
                     UISelectionFeedbackGenerator().selectionChanged()
@@ -48,9 +118,19 @@ final class T3MobileDocumentMenu: ExactNativeInstance {
             if row["inline"] as? Bool == true { modes.append(action) } else { actions.append(action) }
         }
         if !modes.isEmpty { actions.insert(UIMenu(options: .displayInline, children: modes), at: 0) }
-        button.menu = UIMenu(title: config["title"] as? String ?? "", children: actions)
+        return UIMenu(title: title, children: actions)
     }
-    override func destroy() { alive = false; button.menu = nil }
+    private func removeItem() {
+        revision = UUID()
+        if let item = route?.controller.navigationItem, let group {
+            item.trailingItemGroups = item.trailingItemGroups.filter { $0 !== group }
+        }
+        group = nil; rendered = ""; renderedTint = nil
+    }
+    fileprivate func detach() { removeItem(); route = nil }
+    override func destroy() {
+        alive = false; configuration = ""; rows = []; button.menu = nil; detach(); owner?.unbind(self, key: routeKey)
+    }
 }
 
 private final class T3MobileHTMLNavigation: NSObject, WKNavigationDelegate {
