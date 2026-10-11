@@ -106,6 +106,7 @@ component MobileRouteContent
     data: Snapshot
     detail: EnvironmentDetailData
     informationRoute: InformationRoute
+    informationListCovered: bool
     informationData: InformationData
     informationLegal: InformationConfiguration
     settingsData: SettingsView
@@ -442,7 +443,7 @@ component MobileRouteContent
             text mediaData.error padding=21 color=look.colors.dangerForeground
         else
           text "Loading preview…" padding=21 color=look.colors.muted
-    else when focused and informationRoute.active
+    else when (focused and informationRoute.active) or informationListCovered
       SettingsInformation(data=informationData, route=routeName, query=informationQuery, legalConfiguration=informationLegal.configuration, colors=settingsData.root.colors, roles=settingsData.root.roles, bottom=settingsData.root.bottom, navigate=openInformation, command=informationCommand, queryChanged=informationSearch)
     else when routeName == "settings"
       SettingsRoot(data=settingsData.root, navigate=openSetting)
