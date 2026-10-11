@@ -4,18 +4,28 @@
 //! data source is ready — a TypeScript module its host loads after first
 //! pixel — and the runner asks again at `data_ready`.
 //!
-//! Encoded as the identifying arguments (one canonical list) and the value, hex, joined
-//! by `|`; a kept answer whose arguments no longer match, whose bytes no
-//! longer decode, or whose value no longer fits the declared shape is
-//! simply not used, and the compiled empty-store placeholder stands.
+//! Kept as the identifying arguments' canonical list followed by the answer's
+//! canonical bytes, each decoded as it was encoded; a kept answer whose arguments no longer match, whose
+//! bytes no longer decode, or whose value no longer fits the declared shape
+//! is simply not used, and the compiled empty-store placeholder stands.
 
 use super::{DataSource, Runner, RunnerError};
 use crate::store::Store;
 use exact_kernel::CommitReceipt;
 use exact_plan::Value;
 
-/// The largest kept answer, encoded: a session, a list of names — never a feed.
-pub(super) const MAX_KEPT_BYTES: usize = 8 * 1024;
+/// The largest kept answer: its identifying arguments' and its value's canonical bytes, 4 KiB together (a session,
+/// a list of names — never a feed)
+const KEPT_DATA_BYTES: usize = 4096;
+/// The longest kept entry: the data, with the arguments' list header
+pub(super) const MAX_KEPT_BYTES: usize = KEPT_DATA_BYTES + 5;
+
+/// Whether answers are kept, and the resources an answer too big to keep was said of, once each
+#[derive(Debug, Default)]
+pub(super) struct Keeping {
+    pub(super) on: bool,
+    pub(super) too_big: Vec<usize>,
+}
 
 /// The store name a resource's kept answer lives under.
 /// The kept entries in `snapshot` no declared reader of `plan` seeds. A
@@ -23,7 +33,7 @@ pub(super) const MAX_KEPT_BYTES: usize = 8 * 1024;
 /// so any other entry (a reader made transient, a resource removed) is
 /// forgotten on disk, not carried forever. A reload's carried readers are
 /// checked for compatibility instead.
-pub(super) fn obsolete(plan: &exact_plan::Plan, snapshot: &[(String, String)]) -> Vec<String> {
+pub(super) fn obsolete(plan: &exact_plan::Plan, snapshot: &[(String, Vec<u8>)]) -> Vec<String> {
     snapshot
         .iter()
         .filter_map(|(name, _)| {
@@ -39,7 +49,7 @@ pub(super) fn obsolete(plan: &exact_plan::Plan, snapshot: &[(String, String)]) -
 
 /// Every kept entry in `snapshot`: what an app that keeps no answers
 /// forgets (LLP 1069.008.000 D7).
-pub(super) fn all(snapshot: &[(String, String)]) -> Vec<String> {
+pub(super) fn all(snapshot: &[(String, Vec<u8>)]) -> Vec<String> {
     snapshot
         .iter()
         .filter(|(name, _)| name.starts_with(Store::KEPT))
@@ -53,17 +63,17 @@ pub(super) fn kept_name(resource: &str) -> String {
     name
 }
 
-pub(super) fn encode(args: &[Value], value: &Value) -> String {
-    let mut s = hex(&Value::list(args.to_vec()).to_bytes());
-    s.push('|');
-    s.push_str(&hex(&value.to_bytes()));
-    s
+pub(super) fn encode(args: &[Value], value: &Value) -> Vec<u8> {
+    let mut w = exact_plan::bytes::Writer::default();
+    Value::list(args.to_vec()).encode(&mut w);
+    value.encode(&mut w);
+    w.into_vec()
 }
 
-// Count canonical bytes only as far as the hex-text budget permits. Iterators
+// Count canonical bytes only as far as the budget permits. Iterators
 // borrow children: even an enormous list never allocates a traversal-sized stack.
 fn fits(args: &[Value], value: &Value) -> bool {
-    let mut remaining = (MAX_KEPT_BYTES - 1) / 2 - 5; // separator and args-list header
+    let mut remaining = KEPT_DATA_BYTES;
     let mut stack = vec![std::slice::from_ref(value).iter(), args.iter()];
     while let Some(items) = stack.last_mut() {
         let Some(item) = items.next() else {
@@ -98,54 +108,24 @@ fn fits(args: &[Value], value: &Value) -> bool {
     true
 }
 
-pub(super) fn decode(text: &str) -> Option<(Vec<Value>, Value)> {
-    if text.len() > MAX_KEPT_BYTES {
+pub(super) fn decode(bytes: &[u8]) -> Option<(Vec<Value>, Value)> {
+    if bytes.len() > MAX_KEPT_BYTES {
         return None;
     }
-    let (a, v) = text.split_once('|')?;
-    let args = match Value::from_bytes(&unhex(a)?).ok()? {
-        Value::List(items) => items.to_vec(),
-        _ => return None,
+    // Each from its own depth, as it was kept: no envelope costs the answer a level
+    let mut r = exact_plan::bytes::Reader::new(bytes);
+    let Value::List(args) = Value::decode(&mut r).ok()? else {
+        return None;
     };
-    let value = Value::from_bytes(&unhex(v)?).ok()?;
-    Some((args, value))
-}
-
-/// Two lowercase digits a byte (`{:02x}`'s), without the formatter: a kept
-/// answer is written on a first press's path.
-fn hex(bytes: &[u8]) -> String {
-    const DIGITS: &[u8; 16] = b"0123456789abcdef";
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        out.push(char::from(DIGITS[usize::from(b >> 4)]));
-        out.push(char::from(DIGITS[usize::from(b & 15)]));
-    }
-    out
-}
-
-fn unhex(s: &str) -> Option<Vec<u8>> {
-    if !s.len().is_multiple_of(2) {
-        return None;
-    }
-    fn digit(b: u8) -> Option<u8> {
-        match b {
-            b'0'..=b'9' => Some(b - b'0'),
-            b'a'..=b'f' => Some(b - b'a' + 10),
-            b'A'..=b'F' => Some(b - b'A' + 10),
-            _ => None,
-        }
-    }
-    s.as_bytes()
-        .chunks_exact(2)
-        .map(|pair| Some(digit(pair[0])? * 16 + digit(pair[1])?))
-        .collect()
+    let value = Value::decode(&mut r).ok()?;
+    r.is_empty().then(|| (args.to_vec(), value))
 }
 
 impl<D: DataSource> Runner<D> {
     /// Keep a store-reading resource's fresh answer for the next boot's
     /// first frame (LLP 1027 D4), when this source may not be ready then.
     pub(super) fn keep_answer(&mut self, i: usize, args: &[Value], value: &Value) {
-        if !self.keeps_answers || !self.store_readers[i] {
+        if !self.keeping.on || !self.store_readers[i] {
             return;
         }
         // @ref LLP 1039 D3 / LLP 1030 D7 — runner facts are never kept answers.
@@ -159,16 +139,25 @@ impl<D: DataSource> Runner<D> {
             return;
         }
         // @ref LLP 1027.005 D6 — context reaches the source but does not
-        // enter the kept entry or its 8 KB budget. With no context these
-        // are the exact same arguments and encoding as before.
+        // enter the kept entry or its budget.
         let row = &self.plan.resources[i];
         let args = &args[..row.args.len as usize - usize::from(row.context)];
+        let name = kept_name(self.plan.str(row.name));
         if !fits(args, value) {
+            // An older answer kept for it would show stale at the next launch: forget it (with the commit), and
+            // say so once
+            self.store.forget_kept(&name);
+            if !self.keeping.too_big.contains(&i) {
+                self.keeping.too_big.push(i);
+                let line = format!(
+                    "too big to keep: resource `{}` answered with more than {KEPT_DATA_BYTES} bytes (4 KiB) counting its identifying arguments, so the next launch cannot show this answer before the resource answers again. To show it at launch, keep the answer and its identifying arguments under 4 KiB: move what the first screen does not need into another resource, and pass large inputs that do not identify the answer (a token, a time) after `with`, which are not counted; an input that identifies it stays in the call, or becomes a smaller key (LLP 1027 D4)",
+                    self.plan.str(row.name)
+                );
+                self.log(line);
+            }
             return;
         }
-        let encoded = encode(args, value);
-        let name = kept_name(self.plan.str(self.plan.resources[i].name));
-        self.store.keep(&name, &encoded);
+        self.store.keep(&name, encode(args, value));
     }
 
     /// The data source is ready — a host loaded its TypeScript module after
@@ -326,29 +315,30 @@ mod tests {
     fn a_kept_answer_round_trips_and_a_damaged_one_is_not_used() {
         let args = vec![Value::str("mv"), Value::Number(3.0)];
         let value = Value::record(vec![Value::Bool(true), Value::str("ada")]);
-        let text = encode(&args, &value);
-        let (a, v) = decode(&text).unwrap();
+        let bytes = encode(&args, &value);
+        let (a, v) = decode(&bytes).unwrap();
         assert_eq!(a, args);
         assert_eq!(v.to_bytes(), value.to_bytes());
-        assert!(decode("").is_none());
-        assert!(decode("zz|00").is_none());
-        let valid_args = hex(&Value::list(vec![]).to_bytes());
-        for invalid in ["€", "€x", "é", "💬", "a💬a", "0g", "+1"] {
-            assert!(decode(&format!("{invalid}|00")).is_none());
-            assert!(decode(&format!("{valid_args}|{invalid}")).is_none());
+        assert!(decode(b"").is_none());
+        assert!(decode(&bytes[..bytes.len() - 1]).is_none());
+        // An entry kept as hex text, or bytes that are not an arguments list then one answer, is not used
+        assert!(decode(b"0500000000|00").is_none());
+        let mut trailing = bytes.clone();
+        trailing.push(0);
+        for not_an_entry in [
+            Value::list(args.clone()).to_bytes(),
+            [Value::str("mv").to_bytes(), value.to_bytes()].concat(),
+            trailing,
+        ] {
+            assert!(decode(&not_an_entry).is_none());
         }
-        assert!(decode(&text[..text.len() - 1]).is_none());
+        // The deepest answer a value may be still decodes: keeping it costs no level
+        let mut deep = Value::Number(1.0);
+        for _ in 0..64 {
+            deep = Value::record(vec![deep]);
+        }
+        assert!(decode(&encode(&args, &deep)).is_some());
         assert_eq!(kept_name("remembered"), "exact.kept.remembered");
-    }
-
-    #[test]
-    fn hex_is_two_lowercase_digits_a_byte() {
-        let every: Vec<u8> = (0..=255).collect();
-        let reference = |bytes: &[u8]| bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
-        assert_eq!(hex(&every), reference(&every));
-        assert_eq!(hex(&[]), "");
-        let value = Value::record(vec![Value::str("é💬"), Value::Number(-2.5)]).to_bytes();
-        assert_eq!(hex(&value), reference(&value));
     }
 
     #[test]
@@ -370,8 +360,8 @@ mod tests {
                 );
             }
         }
-        // Hex plus its separator is always odd: 8191 fits, 8193 does not.
-        for size in [4084, 4085, 4086, 10000] {
+        // The data budget's edge: with no arguments, a string of 4091 bytes fits (its header is 5), 4092 does not.
+        for size in [4090, 4091, 4092, 10000] {
             let value = Value::str(&"x".repeat(size));
             for args in [&[][..], &values[..]] {
                 assert_eq!(

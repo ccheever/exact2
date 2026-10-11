@@ -4,7 +4,9 @@
 
 use exact_plan::Value;
 use exact_runner::failure::FailureCode;
-use exact_runner::{Answer, DataError, HttpScheduling, Outcome, Request, Response, Store};
+use exact_runner::{
+    Answer, DataError, HttpScheduling, Outcome, Redirect, Request, Response, Store,
+};
 use serde_json::{json, Value as Json};
 
 /// The header that marks a response as a turn's reply, not a host's.
@@ -15,13 +17,14 @@ fn unavailable(message: impl Into<String>) -> DataError {
 }
 
 /// A module's scoped snapshot of the committed store: its own `secret.keep`
-/// names, never the runner's kept answers (LLP 1027.002 D3, change 1).
-pub fn snapshot(store: &Store, grants: &str) -> Vec<(String, String)> {
+/// names, never the runner's kept answers or persisted states (LLP
+/// 1027.002 D3, change 1; LLP 1116 D5).
+pub fn snapshot(store: &Store, grants: &str) -> Vec<(String, Vec<u8>)> {
     let granted = Store::new(grants, []).granted().to_vec();
     store
         .snapshot()
         .into_iter()
-        .filter(|(name, _)| !name.starts_with(Store::KEPT) && granted.iter().any(|g| g == name))
+        .filter(|(name, _)| !Store::runner_owned(name) && granted.iter().any(|g| g == name))
         .collect()
 }
 
@@ -32,7 +35,13 @@ pub fn encode(result: Result<Answer, DataError>, local: &mut Store, logs: Vec<St
     let writes: Vec<Json> = local
         .take_writes()
         .into_iter()
-        .map(|w| json!([w.name, w.value]))
+        // A module writes only secrets, which are text
+        .map(|w| {
+            json!([
+                w.name,
+                w.value.map(|v| String::from_utf8_lossy(&v).into_owned())
+            ])
+        })
         .collect();
     let mut body = json!({"turn": 1, "reads": local.reads(), "topics": local.take_topics(), "writes": writes, "logs": logs});
     match result {
@@ -160,6 +169,7 @@ fn request_json(request: &Request) -> Json {
         "stream": request.stream,
         "timeout_ms": request.timeout_ms,
         "body_from": request.body_from,
+        "redirect": (request.redirect != Redirect::Follow).then(|| request.redirect.name()),
     })
 }
 
@@ -217,6 +227,8 @@ fn request_from(json: &Json) -> Result<Request, DataError> {
             Json::String(path) => Some(path.clone()),
             _ => return Err(unavailable("turn reply: an invalid exactBodyFrom")),
         },
+        redirect: Redirect::parse(json["redirect"].as_str())
+            .map_err(|_| unavailable("turn reply: an invalid redirect mode"))?,
     })
 }
 
@@ -236,7 +248,7 @@ mod tests {
 
     #[test]
     fn a_turn_round_trips_its_value_writes_reads_and_yields() {
-        let mut local = Store::new("secret.keep a", [("a".to_string(), "1".to_string())]);
+        let mut local = Store::new("secret.keep a", [("a".to_string(), "1".into())]);
         let _ = local.get("a");
         local.set("a", "2").unwrap();
         let value = Value::record(vec![Value::str("x"), Value::Number(2.0)]);
@@ -310,14 +322,14 @@ mod tests {
         let store = Store::new(
             "secret.keep a\nsecret.keep b",
             [
-                ("a".to_string(), "1".to_string()),
-                ("b".to_string(), "2".to_string()),
-                ("exact.kept.x".to_string(), "k".to_string()),
+                ("a".to_string(), "1".into()),
+                ("b".to_string(), "2".into()),
+                ("exact.kept.x".to_string(), "k".into()),
             ],
         );
         assert_eq!(
             snapshot(&store, "secret.keep b\nnet.fetch https://x"),
-            vec![("b".to_string(), "2".to_string())]
+            vec![("b".to_string(), "2".into())]
         );
         assert_eq!(unbase64(&base64(b"hello, turn")).unwrap(), b"hello, turn");
         assert_eq!(unbase64("!!"), None);

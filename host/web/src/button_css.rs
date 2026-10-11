@@ -5,7 +5,7 @@ pub(super) fn rows(
     out: &mut String,
     authored: &dyn Fn(&mut String, exact_kernel::StyleId) -> bool,
 ) {
-    use exact_kernel::{FlexDirection, StyleId, TextAlign};
+    use exact_kernel::{FlexDirection, StyleId, TextAlign, WhiteSpace};
     for (id, value, gap, space) in [
         (
             StyleId::ColumnGap,
@@ -37,10 +37,18 @@ pub(super) fn rows(
             FlexDirection::Column | FlexDirection::ColumnReverse
         );
         out.push_str(if column {
-            "--exact-button-leading-subtitle-areas:\"image\" \"space\" \"title\" \"subtitle\";--exact-button-trailing-subtitle-areas:\"title\" \"subtitle\" \"space\" \"image\";--exact-button-space-width:0px;--exact-button-space-height:var(--exact-button-row-gap,1em);--exact-button-columns:minmax(0,auto);--exact-button-space:var(--exact-button-row-space);"
+            "--exact-button-leading-subtitle-areas:\"image\" \"space\" \"title\" \"subtitle\";--exact-button-trailing-subtitle-areas:\"title\" \"subtitle\" \"space\" \"image\";--exact-button-space-width:0px;--exact-button-space-height:var(--exact-button-row-gap,1em);--exact-button-columns:minmax(var(--exact-button-title-min,min-content),auto);--exact-button-space:var(--exact-button-row-space);"
         } else {
-            "--exact-button-leading-subtitle-areas:\"image space title\" \"image space subtitle\";--exact-button-trailing-subtitle-areas:\"title space image\" \"subtitle space image\";--exact-button-space-width:var(--exact-button-column-gap,auto);--exact-button-space-height:0px;--exact-button-columns:auto auto minmax(0,auto);--exact-button-space:var(--exact-button-column-space);"
+            "--exact-button-leading-subtitle-areas:\"image space title\" \"image space subtitle\";--exact-button-trailing-subtitle-areas:\"title space image\" \"subtitle space image\";--exact-button-space-width:var(--exact-button-column-gap,auto);--exact-button-space-height:0px;--exact-button-columns:auto auto minmax(var(--exact-button-title-min,min-content),auto);--exact-button-space:var(--exact-button-column-space);"
         });
+    }
+    // @ref LLP 1116 D1 — the title column keeps its min-content floor
+    // (index.html), so a narrow row never cuts a word; a title the author
+    // keeps to one line may still truncate.
+    if style.mask.has(StyleId::WhiteSpace)
+        && matches!(style.white_space, WhiteSpace::Nowrap | WhiteSpace::Pre)
+    {
+        out.push_str("--exact-button-title-min:0px;");
     }
     if style.mask.has(StyleId::FlexDirection) {
         out.push_str(if matches!(style.flex_direction, FlexDirection::Column | FlexDirection::ColumnReverse) {

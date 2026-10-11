@@ -2,7 +2,7 @@
 //! "month-year"`) or a digit count (`0..=100`).
 
 use crate::{err, TypeError};
-use contract_syntax::Expr;
+use contract_syntax::{Expr, Span};
 
 /// A roster parameter spelled as string literals (`"medium" | "month-year"`)
 /// takes one of them, written as a literal: a style is chosen where the call
@@ -67,4 +67,24 @@ pub(crate) fn digits_argument(
         ),
         arg.span(),
     )
+}
+
+/// `formatNumber`'s third argument, a currency's ISO 4217 code, is written
+/// with `"currency"` and only with it (@ref LLP 1116 D8): the code picks the
+/// symbol and the fraction digits, and no other style has one.
+pub(crate) fn currency_code(args: &[Expr], span: Span) -> Result<(), TypeError> {
+    let currency = matches!(args.get(1), Some(Expr::Str(style, _)) if style == "currency");
+    match (currency, args.get(2)) {
+        (true, None) => err(
+            "type-format-style",
+            "`formatNumber(n, \"currency\", code)` names its currency: an ISO 4217 code written as a string literal, as in `formatNumber(total, \"currency\", \"USD\")`",
+            span,
+        ),
+        (false, Some(code)) => err(
+            "type-format-style",
+            "argument 3 of `formatNumber` is a currency's ISO 4217 code, written only with `\"currency\"` (`formatNumber(total, \"currency\", \"USD\")`); `\"compact\"`, `\"decimal\"` and `\"percent\"` take two arguments",
+            code.span(),
+        ),
+        _ => Ok(()),
+    }
 }

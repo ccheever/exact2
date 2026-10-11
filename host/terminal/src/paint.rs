@@ -223,6 +223,7 @@ fn node(
                 text(scene, out, &n, content, columns(px), clip, current)
             }
             NodeType::Control if native_button => button(scene, out, &n, rect, clip),
+            NodeType::Control if bar(&n) => progress_bar(scene, out, &n, content, clip, current),
             NodeType::TextInput => field(scene, out, &n, content, clip, current),
             NodeType::Image => image(scene, out, &n, content, clip),
             _ => {}
@@ -283,6 +284,31 @@ fn node(
     }
     if visible && scene.focus == Some(id) && n.node_type != NodeType::TextInput && !native_button {
         out.grid.reverse(rect, clip);
+    }
+}
+
+/// A determinate `progress` (LLP 1116 D8).
+fn bar(n: &NodeRef<'_>) -> bool {
+    exact_kernel::ControlKind::of(n.node_type, n.props)
+        == Some(exact_kernel::ControlKind::ProgressBar)
+}
+
+/// A determinate `progress` as text: its middle row of content cells, `█`
+/// to its value and `░` after it, in its colour (LLP 1116 D8).
+fn progress_bar(
+    scene: &Scene<'_>,
+    out: &mut Painted,
+    n: &NodeRef<'_>,
+    content: CellRect,
+    clip: CellRect,
+    current: ColorValue,
+) {
+    let filled = (content.w as f64 * exact_kernel::Progress::of(n.props).fraction()).round() as i32;
+    let y = content.y + (content.h - 1).max(0) / 2;
+    let style = base_style(scene, n, current);
+    for i in 0..content.w {
+        let glyph = if i < filled { "█" } else { "░" };
+        out.grid.put(content.x + i, y, glyph, 1, style, clip);
     }
 }
 

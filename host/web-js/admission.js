@@ -56,7 +56,23 @@ async function within(response, limit) {
 // `expires`, when a caller already spent part of the deadline (an
 // `exactBodyFrom` read, ts-fetch.js): its instant on the page's clock and the
 // deadline as the caller gave it, checked just before the request goes out.
-export async function fetchWith(set, input, init = {}, expires = null) {
+/** `fetch`'s `redirect` as the native prelude checks it, read once: the
+ * init's, else a `Request`'s, else `follow`; any other word is a `TypeError`. */
+export function redirectOf(input, init) {
+  const raw = init?.redirect;
+  const mode = raw !== undefined ? String(raw) : typeof Request === 'function' && input instanceof Request ? input.redirect : 'follow';
+  if (mode !== 'follow' && mode !== 'manual' && mode !== 'error') throw new TypeError('redirect must be follow, manual or error');
+  return mode;
+}
+
+/** `{...init}` without `skip`, whose getters are not run again. */
+export function ownWithout(init, skip) {
+  const copy = {};
+  for (const key of Object.keys(init)) if (!skip.includes(key)) copy[key] = init[key];
+  return copy;
+}
+
+export async function fetchWith(set, input, init = {}, expires = null, redirect = redirectOf(input, init)) {
   let value, asset, deadline, signal;
   init ??= {};
   deadline = deadlineOf(init);
@@ -74,7 +90,7 @@ export async function fetchWith(set, input, init = {}, expires = null) {
   // @ref LLP 1103 D1, D2 — a driver fault: the refused connection's failure, never sent.
   if (!asset && takeFault(value)) throw new FetchError('Network', faultMessage(value));
   try {
-    const { exactTimeout: _, exactIndependentHttp: __, ...rest } = init;
+    const rest = ownWithout(init, ['exactTimeout', 'exactIndependentHttp', 'redirect']);
     // The caller's signal, from `init` or the input `Request` (`null`
     // clears the Request's, `undefined` keeps it, as `fetch` has them).
     const own = rest.signal !== undefined ? rest.signal : typeof Request === 'function' && input instanceof Request ? input.signal : undefined;
@@ -90,7 +106,7 @@ export async function fetchWith(set, input, init = {}, expires = null) {
     // By the clock, just before it goes out: grant work and a body read that
     // held the event loop past the deadline fire no timer first.
     if (until && performance.now() >= until.at) throw new FetchError('Timeout', `the request timed out after ${until.ms} ms`);
-    const response = await browserFetch(typeof Request === 'function' && input instanceof Request ? input : value, { ...rest, ...(signal ? { signal } : {}), redirect: 'follow' });
+    const response = await browserFetch(typeof Request === 'function' && input instanceof Request ? input : value, { ...rest, ...(signal ? { signal } : {}), redirect });
     // A redirect that left the grants names where it led (podcast F5), as
     // the native executor does; the browser followed it to this last hop.
     if (response.url && (asset

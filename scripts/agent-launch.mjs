@@ -161,6 +161,7 @@ export function parseFlags(argv) {
     else if (argv[i] === '--touch') flags.touch = argv[++i];
     else if (argv[i] === '--chrome') flags.chrome = argv[++i];
     else if (argv[i] === '--phone') flags.phone = argv[++i];
+    else if (argv[i] === '--sim') flags.sim = argv[++i];
     else if (argv[i] === '--storage') flags.storage = argv[++i];
     // A driver fault armed before the app's first data load (LLP 1103 D3): every fetch whose URL starts with it fails.
     else if (argv[i] === '--fail-fetch') flags.failFetch = [flags.failFetch, argv[++i]].filter(Boolean).join('\n');
@@ -208,17 +209,11 @@ export function parityScript({ mediaClock = 'wall', lineHeight = null } = {}) {
     Element.prototype.setAttribute = function (name, value) { const r = setAttribute.call(this, name, value); if (this instanceof HTMLMediaElement && String(name).toLowerCase() === 'src') reset(this); return r; };
     addEventListener('ratechange', e => { if (page.has(e.target)) swallow(e); }, true);
     addEventListener('loadstart', e => { if (e.target instanceof HTMLMediaElement) { of(e.target); real.def.set.call(e.target, 0); real.rate.set.call(e.target, 0); } }, true); }` : '';
-  // The cross-browser parity sheet (`lineHeight` set) also pins a default native button's UA metrics to
-  // Chrome's: each engine's UA sheet sizes a bare `<button>` its own way (plain HTML, 16px page: padding
-  // 1px 6px in Chrome, 1px 4px in Firefox, 0 6px 1px and an 11px font in WebKit, so "Case 1" is 58.3, 52.9
-  // and 50.6 px wide), and with these rows all three agree within 0.3 px. Only the styles that keep the UA
-  // box (`bordered`, the default, and `gray`); the others set their own padding (host/web/index.html).
-  // A native field (`data-native`) the same way: its UA padding, border and `normal` line height differ
-  // (plain HTML, 16px system-ui: an input is 24, 26 and 30 px tall, a two-row textarea 42, 48 and 46).
-  // Over index.html's `[data-native] { all: revert }`, under a field's authored (inline) rows.
-  const controls = "#exact-root button:is([data-button-style=bordered],[data-button-style=gray]){padding:1px 6px;border-width:2px}"
-    + ` #exact-root input[data-native]{padding:1px 2px;border-width:2px;line-height:${lineHeight}}`
-    + ` #exact-root textarea[data-native]{padding:2px;border-width:1px;line-height:${lineHeight}}`;
+  // The cross-browser parity sheet (`lineHeight` set) also pins a native field's (`data-native`) line
+  // height, `normal` in each engine's own metric. Its padding and border, like every native button's,
+  // are the page's own since LLP 1116 D1 (host/web/index.html), the same in every engine. Over index.html's
+  // field rule, under a field's authored (inline) rows.
+  const controls = `#exact-root input[data-native],#exact-root textarea[data-native]{line-height:${lineHeight}}`;
   const line = lineHeight != null ? `{ const s = new CSSStyleSheet(); s.replaceSync('body{line-height:${lineHeight}} ${controls}'); document.adoptedStyleSheets = [...document.adoptedStyleSheets, s]; }` : '';
   return media + line;
 }
@@ -405,8 +400,10 @@ export function gitIgnored(dir, keep = []) {
 // saved world, an export — and the trees a build takes files from (the bake's
 // assets and deck, a game's art and logic, a native module's scripts, the host
 // crates, fonts and strings). A build reads more than the bake captures, so the
-// rule names the outputs and leaves everything else an input.
-export const OUTPUT = /\.(png|jpe?g|gif|webp|apng|avif|bmp|log|txt|mov|mp4|webm|pdf|trace|world|csv|tsv)$/i;
+// rule names the outputs and leaves everything else an input. A local server's
+// database and its journal are written as the app runs (round 4's book-club: a
+// write-ahead log made every native drive stale; LLP 1116.002 D4).
+export const OUTPUT = /\.(png|jpe?g|gif|webp|apng|avif|bmp|log|txt|mov|mp4|webm|pdf|trace|world|csv|tsv|db|sqlite3?)(-(wal|shm|journal))?$/i;
 export const INPUT_TREE = /^(assets|deck|gpu|art|modules|fonts|strings|logic|data|web|apple|ios|macos|linux)(\/|$)/;
 // An agent's own tree (notes: shots/, tools/; platformer: drive.sh, tools/*.ops)
 // and a test file are never inputs, even when the name looks like a source.

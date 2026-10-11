@@ -553,6 +553,10 @@ fn compute_inner(
     let text_align = style.text_align();
     let align_content = style.align_content();
     drop(style);
+    // EXACT PATCH 30: the height bounds the caller cuts the columns by
+    if multicol.is_some() && run_mode == RunMode::PerformLayout {
+        tree.set_multicol_bounds(node_id, min_size.height, max_size.height);
+    }
     // EXACT PATCH 27: a multi-column container's children resolve percentage
     // widths against the column width. A height its columns size (the
     // caller's `used_height`) is no basis for percentage heights, even where
