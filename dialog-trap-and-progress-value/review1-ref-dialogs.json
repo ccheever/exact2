@@ -1,0 +1,56 @@
+[
+ {
+  "label": "prices: open",
+  "active": "BUTTON \"All environments\"",
+  "insideDialog": true,
+  "dialog": "Custom model prices"
+ },
+ {
+  "label": "prices: Tab from the X",
+  "active": "BUTTON \"All environments\"",
+  "insideDialog": true,
+  "dialog": "Custom model prices"
+ },
+ {
+  "label": "prices: Shift+Tab from the first stop",
+  "active": "BUTTON[Close] \"\"",
+  "insideDialog": true,
+  "dialog": "Custom model prices"
+ },
+ {
+  "label": "new task: open",
+  "active": "BUTTON[role=combobox] \"Daehyeon’s MacBook Pro\"",
+  "insideDialog": true,
+  "dialog": "New task"
+ },
+ {
+  "label": "new task: Runs on focused",
+  "active": "BUTTON[role=combobox] \"Daehyeon’s MacBook Pro\"",
+  "insideDialog": true,
+  "dialog": "New task"
+ },
+ {
+  "label": "new task: Shift+Tab from Runs on",
+  "active": "BUTTON[Close] \"\"",
+  "insideDialog": true,
+  "dialog": "New task"
+ },
+ {
+  "label": "new task: Tab from the X",
+  "active": "BUTTON[role=combobox] \"Daehyeon’s MacBook Pro\"",
+  "insideDialog": true,
+  "dialog": "New task"
+ },
+ {
+  "label": "new task: Create task focused",
+  "active": "BUTTON \"Create task\"",
+  "insideDialog": true,
+  "dialog": "New task"
+ },
+ {
+  "label": "new task: Tab from Create task",
+  "active": "BUTTON[Close] \"\"",
+  "insideDialog": true,
+  "dialog": "New task"
+ }
+]
