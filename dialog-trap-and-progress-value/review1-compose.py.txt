@@ -1,0 +1,73 @@
+# dialog-trap-and-progress-value review round 1: one image per scenario, before | after | reference, a row per read-out,
+# the clone's focused element outlined (green: where the reference's focus goes; red: elsewhere, the dialog left).
+# Reference: its own focus-visible ring (keyboard focus over CDP). Usage: python3 compose.py <out dir>
+import json, os, sys
+from PIL import Image, ImageDraw, ImageFont
+D = os.path.dirname(os.path.abspath(__file__)); S = f'{D}/shots'; OUT = sys.argv[1]; os.makedirs(OUT, exist_ok=True)
+def readouts(f):
+    rows = [json.loads(l) for l in open(f) if l.strip()]; out = {}
+    for i, r in enumerate(rows):
+        shot = next((v for v in r.values() if isinstance(v, str) and v.endswith('.png')), None)
+        if not shot: continue
+        st, tr, lay = rows[i - 3], rows[i - 2], rows[i - 1]
+        ns = {n['id']: n for n in tr['nodes']}; fid = st.get('focus', {}).get('logical'); n = ns.get(fid)
+        frame = next(({k: m[k] for k in ('x', 'y', 'w', 'h')} for m in lay['nodes'] if m['id'] == fid), None)
+        inside = None; a = n
+        while a is not None:
+            if (a.get('props') or {}).get('accessibilityRole') in ('dialog', 'alertdialog'): inside = a['props'].get('testId'); break
+            a = ns.get(a.get('parent'))
+        out[os.path.basename(shot).split('-', 1)[1][:-4]] = {'testId': (n or {}).get('props', {}).get('testId'), 'frame': frame, 'inside': inside}
+    return out
+before, after = readouts(f'{D}/drive-before.jsonl'), readouts(f'{D}/drive-after.jsonl')
+ref = {r['label']: r for r in json.load(open(f'{D}/ref-content.json')) + json.load(open(f'{D}/ref-dialogs.json'))}
+font = ImageFont.truetype('/System/Library/Fonts/Helvetica.ttc', 24); small = ImageFont.truetype('/System/Library/Fonts/Helvetica.ttc', 17)
+RED, GREEN, GREY = (220, 30, 60), (0, 128, 60), (60, 60, 66); W, H = 640, 420
+def panel(png, o, want, dialog):
+    img = Image.open(png).convert('RGB').resize((W, H), Image.LANCZOS); d = ImageDraw.Draw(img)
+    if o is None: note, ink = '', GREY
+    else:
+        ok = o['testId'] == want
+        ink = GREEN if ok else RED
+        note = f"focus: {o['testId'] or 'none'}" + ('' if o['inside'] == dialog else '  (outside the dialog)')
+        f = o['frame']
+        if f and f['w'] and f['y'] < 840 and f['x'] < 1280:
+            k = W / 1280; x, y, w, h = f['x'] * k, f['y'] * k, f['w'] * k, f['h'] * k
+            d.rectangle((x - 3, y - 3, x + w + 3, y + h + 3), outline=ink, width=3)
+    d.rectangle((0, H - 28, W, H), fill=(255, 255, 255)); d.text((8, H - 24), note[:78], fill=ink, font=small)
+    return img
+def compose(name, title, dialog, rows):
+    pad, head, lab = 16, 64, 30
+    out = Image.new('RGB', (3 * W + 4 * pad, head + len(rows) * (H + lab + pad) + pad), (255, 255, 255)); d = ImageDraw.Draw(out)
+    d.text((pad, 20), title, fill=(20, 20, 24), font=font)
+    for j, (caption, key, reflabel, want) in enumerate(rows):
+        y = head + j * (H + lab + pad); r = ref[reflabel]
+        panels = [panel(f'{S}/before-{key}.png', before[key], want, dialog), panel(f'{S}/after-{key}.png', after[key], want, dialog),
+                  panel(f'{D}/ref-{key}.png', None, want, dialog)]
+        ImageDraw.Draw(panels[2]).text((8, H - 24), f"focus: {r['active']}"[:78], fill=GREY, font=small)
+        for k, (label, img) in enumerate(zip(['Before (eb9752918)', 'After (this branch)', 'Reference (T3 Code 1e2ecbd975, CDP)'], panels)):
+            x = pad + k * (W + pad); d.text((x, y + 4), f'{label}: {caption}', fill=GREY, font=small)
+            out.paste(img, (x, y + lab)); d.rectangle((x - 1, y + lab - 1, x + W, y + lab + H), outline=(200, 200, 205))
+    out.save(f'{OUT}/{name}.png', optimize=True); print(name, out.size)
+compose('dt1-content-search', 'Search project contents: the three toggles are Tab stops, and the focus stays in the dialog', 'project-content-search', [
+  ('Tab from the field', 'content-tab', 'content search: Tab from the field', 'palette-match-case'),
+  ('Shift+Tab from the field', 'content-shift-tab', 'content search: Shift+Tab from the field', 'palette-regex'),
+  ('Tab from Use regular expression', 'content-tab-regex', 'content search: Tab from Use regular expression', 'palette-input')])
+compose('dt1-prices', 'Custom model prices (Usage on Cost): the focus stays in the dialog', 'usage-prices-dialog', [
+  ('Tab from the X', 'prices-tab-x', 'prices: Tab from the X', 'usage-prices-apply'),
+  ('Shift+Tab from Apply to', 'prices-shift-tab-first', 'prices: Shift+Tab from the first stop', 'usage-prices-dialog-close')])
+compose('dt1-newtask', 'New task (Settings › Scheduled Tasks): the focus stays in the dialog', 'scheduled-task-dialog', [
+  ('Shift+Tab from Runs on', 'newtask-shift-tab-first', 'new task: Shift+Tab from Runs on', 'close-scheduled-task'),
+  ('Tab from the X', 'newtask-tab-x', 'new task: Tab from the X', 'task-environment'),
+  ('Tab from Create task', 'newtask-tab-save', 'new task: Tab from Create task', 'close-scheduled-task')])
+
+# Found in the drive, not this task's: Model prices on the Limits view (QUEUE.md). No focus read-out, the screens only.
+pad, head, lab = 16, 64, 30
+out = Image.new('RGB', (3 * W + 4 * pad, head + H + lab + pad), (255, 255, 255)); d = ImageDraw.Draw(out)
+d.text((pad, 20), 'Usage on Limits › the environment menu › Model prices (an existing difference, QUEUE.md)', fill=(20, 20, 24), font=font)
+for k, (label, png, note) in enumerate([('Before (eb9752918)', f'{S}/before-prices-limits.png', 'no dialog'), ('After (this branch)', f'{S}/after-prices-limits.png', 'no dialog'),
+                                         ('Reference (T3 Code 1e2ecbd975, CDP)', f'{D}/ref-prices-limits.png', 'Custom model prices opens')]):
+    img = Image.open(png).convert('RGB').resize((W, H), Image.LANCZOS); dd = ImageDraw.Draw(img)
+    dd.rectangle((0, H - 28, W, H), fill=(255, 255, 255)); dd.text((8, H - 24), note, fill=GREY, font=small)
+    x = pad + k * (W + pad); d.text((x, head + 4), label, fill=GREY, font=small); out.paste(img, (x, head + lab))
+    d.rectangle((x - 1, head + lab - 1, x + W, head + lab + H), outline=(200, 200, 205))
+out.save(f'{OUT}/prices-limits.png', optimize=True); print('prices-limits', out.size)
