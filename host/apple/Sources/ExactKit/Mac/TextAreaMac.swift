@@ -134,7 +134,7 @@ package final class TextArea: NSTextView {
             let origin = textContainerOrigin
             let rect = NSRect(x: origin.x, y: origin.y, width: textContainer?.containerSize.width ?? bounds.width, height: bounds.height - origin.y)
             (placeholder as NSString).draw(in: rect, withAttributes: [
-                .font: font ?? NSFont.systemFont(ofSize: 16),
+                .font: font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize),
                 .foregroundColor: owner?.isNativeTextControl == true ? NSColor.placeholderTextColor : (textColor ?? SystemColor.canvasText).withAlphaComponent(0.3),
             ])
         }

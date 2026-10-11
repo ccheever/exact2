@@ -162,51 +162,55 @@ package final class TextSelection {
                 guard let self, let node, self.gesture == current else { return }
                 self.pendingBegin = false
                 guard let index else { self.clear(); return }
-                self.begin(node, clicks: clicks, index: index)
+                self.begin(node, clicks: clicks, point: point, index: index)
                 let drag = self.deferredDrag, end = self.deferredEnd
                 self.deferredDrag = nil; self.deferredEnd = nil
                 if let drag { self.drag(drag) }
                 if let end { self.end(end.0, event: end.1) }
             }
-        } else { begin(node, clicks: clicks, index: index(node, at: point)) }
+        } else { begin(node, clicks: clicks, point: point, index: index(node, at: point)) }
     }
 
     /// A secondary click that no authored `contextmenu` takes (X76): on
     /// text outside the selection it selects the word under the pointer,
-    /// the one a double click selects, and takes the focus as that click
-    /// does, as Chrome and an `NSTextView` do on a Mac before their menu
-    /// opens. Inside the selection, its ends included (Chrome's
-    /// `FrameSelection::Contains`), it keeps it; text the reader cannot
-    /// select keeps whatever is selected. Off the glyphs (past a line's
-    /// end, below the last line) it takes the nearest word, as an
-    /// `NSTextView` does; Chrome selects nothing there. Returns false when
-    /// the point is not known yet: a reader paragraph whose caret cache
-    /// misses it asks its raster worker, decides on the answer and then
-    /// runs `answered`, for the menu the click could not open.
+    /// the one a double click there selects (the text system's, MAC-16),
+    /// and takes the focus as that click does, as Chrome and an
+    /// `NSTextView` do on a Mac before their menu opens. Inside the
+    /// selection, its ends included (Chrome's `FrameSelection::Contains`),
+    /// it keeps it; text the reader cannot select keeps whatever is
+    /// selected. Off the glyphs (past a line's end, below the last line) it
+    /// takes the nearest word, as an `NSTextView` does; Chrome selects
+    /// nothing there. Returns false when the point is not known yet: a
+    /// reader paragraph whose caret cache misses it asks its raster worker,
+    /// decides on the answer and then runs `answered`, for the menu the
+    /// click could not open.
     func secondaryClick(_ node: NodeView, event: NSEvent, answered: @escaping () -> Void) -> Bool {
         guard selectable(node) else { return true }
         let point = node.local(event.locationInWindow)
         guard let reader = node.readerParagraph, reader.offset(at: point, node: node) == nil else {
-            secondaryClick(node, at: index(node, at: point)); return true
+            secondaryClick(node, at: index(node, at: point), point: point); return true
         }
         gesture += 1; pendingBegin = false; deferredDrag = nil; deferredEnd = nil
         let current = gesture
         reader.resolveOffset(at: point, node: node) { [weak self, weak node] index, _ in
             guard let self, let node, self.gesture == current, let index else { return }
-            self.secondaryClick(node, at: index)
+            self.secondaryClick(node, at: index, point: point)
             answered()
         }
         return false
     }
 
-    private func secondaryClick(_ node: NodeView, at index: Int) {
+    private func secondaryClick(_ node: NodeView, at index: Int, point: NSPoint) {
         if let selected = range(node), selected.length > 0, index >= selected.location, index <= NSMaxRange(selected) { return }
         node.window?.makeFirstResponder(node)
         gesture += 1; motion = 0; pendingBegin = false; deferredDrag = nil; deferredEnd = nil
-        begin(node, clicks: 2, index: index)
+        begin(node, clicks: 2, point: point, index: index)
     }
 
-    private func begin(_ node: NodeView, clicks: Int, index: Int) {
+    /// `point` is the click's, in the node's space; `index` the caret
+    /// nearest it. A double click and a secondary click take their word from
+    /// both, by the one rule below.
+    private func begin(_ node: NodeView, clicks: Int, point: NSPoint, index: Int) {
         list = nil; logicalAnchor = nil; logicalFocus = nil; allListText = false
         anchor = node; focus = node
         anchorIndex = index
@@ -217,12 +221,12 @@ package final class TextSelection {
         } else if clicks == 2 {
             let text = node.paragraphSpec().runs.map(\.text).joined() as NSString
             if text.length > 0 {
-                let at = min(anchorIndex, text.length - 1)
-                var lo = at, hi = at
-                func space(_ i: Int) -> Bool { CharacterSet.whitespacesAndNewlines.contains(UnicodeScalar(text.character(at: i)) ?? " ") }
-                while lo > 0 && !space(lo - 1) { lo -= 1 }
-                while hi < text.length && !space(hi) { hi += 1 }
-                anchorIndex = lo; focusIndex = hi; dragged = true
+                // The word a double click takes in an `NSTextView`, by the
+                // text system's own boundaries: "hello," without its comma,
+                // a Chinese or Japanese word and not its whole run.
+                let at = character(node, at: point, caret: index, in: text)
+                let word = NSAttributedString(string: text as String).doubleClick(at: at)
+                anchorIndex = word.location; focusIndex = NSMaxRange(word); dragged = true
             }
         }
         if let (owner, start) = position(node, offset: anchorIndex), let (_, end) = position(node, offset: focusIndex) {
@@ -401,6 +405,33 @@ package final class TextSelection {
         let x = content.minX + p.origin(i, align: spec.align, width: content.width)
         let offset = p.stringIndex(in: i, at: mapped.x - x)
         return offset == kCFNotFound ? length(node) : min(max(0, offset), length(node))
+    }
+
+    /// The character under `point`, which a double click takes its word
+    /// from. `caret` (`index`) is the caret nearest the point: the next
+    /// character's from a glyph's trailing half, and the next line's first
+    /// past a line's end. A reader paragraph's lines are its worker's; there
+    /// the caret stands, stepped back off white space, so that a click on a
+    /// word's last letter still takes the word.
+    private func character(_ node: NodeView, at point: NSPoint, caret: Int, in text: NSString) -> Int {
+        let caret = min(max(0, caret), text.length - 1)
+        guard node.readerParagraph == nil, let (p, spec, i) = line(node, at: point) else {
+            let blank = CharacterSet.whitespacesAndNewlines.contains(UnicodeScalar(text.character(at: caret)) ?? " ")
+            return blank && caret > 0 ? caret - 1 : caret
+        }
+        let row = p.lines[i], range = CTLineGetStringRange(row)
+        guard range.length > 0 else { return caret }
+        let content = node.paragraphBox()
+        let x = node.caretPoint(point).x - content.minX - p.origin(i, align: spec.align, width: content.width)
+        var at = caret
+        if caret > range.location {
+            // Between the carets either side of the character before: on it,
+            // whichever way its run reads.
+            let before = text.rangeOfComposedCharacterSequence(at: caret - 1).location
+            let a = CTLineGetOffsetForStringIndex(row, before, nil), b = CTLineGetOffsetForStringIndex(row, caret, nil)
+            if x >= min(a, b), x < max(a, b) { at = before }
+        }
+        return min(max(at, range.location), range.location + range.length - 1)
     }
 
     private func link(_ node: NodeView, at point: NSPoint) -> String? { node.inlineLink(at: point) }

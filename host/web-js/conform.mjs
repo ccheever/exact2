@@ -369,14 +369,16 @@ async function drive(t, report, fail, dir, ws, js) {
       // own clock); nearest-neighbour on both leaves one filter to compare.
       const still = `document.getElementById('conform-still') || document.head.insertAdjacentHTML('beforeend', '<style id=conform-still>img{image-rendering:pixelated!important}</style>'); new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))`;
       await pair(() => W.carrier?.evaluate(still).catch(() => {}), () => J.carrier?.evaluate(still).catch(() => {}));
+      // Each picture is the clock's, a transition where it stands, as a film's frame is (a plain
+      // screenshot shows one where it ends, LLP 1116.003 D8, which the wasm target's does not).
       if (crossBrowser) {
         // Preserve the other engine's picture even when Chrome's oracle
         // cannot capture (for example a broken GPU process on Linux).
         for (const [session, path, label] of [[J, pj, other], [W, pw, reference]]) {
-          try { await session.screenshot(path); }
+          try { await session.screenshot(path, false, undefined, true); }
           catch (error) { fail(step, `${label} screenshot: ${error.message.split('\n')[0]}`); st++; }
         }
-      } else await pair(() => W.screenshot(pw), () => J.screenshot(pj));
+      } else await pair(() => W.screenshot(pw, false, undefined, true), () => J.screenshot(pj, false, undefined, true));
       // A playing video's frames and controls are the browser's clock, not the runner's.
       if (!crossBrowser) {
         const share = diffPng(pw, pj, resolve(dir, `${slug}-side-by-side.png`), lw.nodes.filter(n => n.type === 'Video'));

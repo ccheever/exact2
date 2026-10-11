@@ -15,6 +15,11 @@ final class PopoverMacTests: XCTestCase {
         window.isReleasedWhenClosed = false
         window.contentView = p.viewport
         windows.append(window)
+        build(p)
+        window.makeFirstResponder(p.views[2])
+        return p
+    }
+    private func build(_ p: Presenter) {
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view"],
             ["op": "create", "id": 2, "kind": "button", "props": ["popovertarget": "form"]],
@@ -32,8 +37,6 @@ final class PopoverMacTests: XCTestCase {
             ["op": "frame", "id": 5, "x": 10, "y": 80, "w": 80, "h": 30],
             ["op": "frame", "id": 6, "x": 10, "y": 10, "w": 80, "h": 30],
         ]))
-        window.makeFirstResponder(p.views[2])
-        return p
     }
     private func key(_ window: NSWindow, up: Bool = false, repeatKey: Bool = false) -> NSEvent {
         NSEvent.keyEvent(with: up ? .keyUp : .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
@@ -165,6 +168,49 @@ final class PopoverMacTests: XCTestCase {
         XCTAssertTrue(p.dialogs.key(key(window)))
         XCTAssertNil(p.dialogs.active)
         other.menus.reset()
+    }
+    /// `blur()` leaves the window itself the first responder, and Escape
+    /// still closes the auto popover, as the web's close request does with
+    /// BODY focused. Of two sessions in one window, only the one whose
+    /// shortcuts hear the window's keys then closes its own; a focus in a
+    /// view outside the session keeps its Escape.
+    func testEscapeAfterBlurClosesOnlyTheSessionThatOwnsTheWindowsKeys() throws {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        windows.append(window)
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: 400))
+        window.contentView = content
+        let sessions = (0..<2).map { i -> ExactSession in
+            let session = ExactApp.shared.makeSession(label: "popover-blur-\(i)")
+            let view = ExactView(session: session)
+            view.frame = NSRect(x: 500 * CGFloat(i), y: 0, width: 500, height: 400)
+            content.addSubview(view)
+            build(session.presenter)
+            return session
+        }
+        defer { sessions.forEach { $0.destroy() } }
+        let first = sessions[0].presenter, second = sessions[1].presenter
+        let outside = NSTextField(frame: NSRect(x: 0, y: 0, width: 80, height: 24))
+        content.addSubview(outside)
+        first.press(2)
+        second.press(2)
+        XCTAssertTrue(first.menus.isOpen(first.views[3]!))
+        XCTAssertTrue(second.menus.isOpen(second.views[3]!))
+        XCTAssertTrue(window.makeFirstResponder(outside))
+        XCTAssertFalse(first.menus.key(key(window)), "a focus outside the session keeps its Escape")
+        XCTAssertFalse(second.menus.key(key(window)))
+        XCTAssertTrue(window.makeFirstResponder(first.views[4]!.field))
+        first.blurElement([])
+        XCTAssertTrue(window.firstResponder === window, "blur() focuses no node")
+        XCTAssertFalse(second.menus.key(key(window)), "the window's keys are the first session's")
+        XCTAssertTrue(second.menus.isOpen(second.views[3]!))
+        XCTAssertTrue(first.menus.key(key(window)))
+        XCTAssertFalse(first.menus.isOpen(first.views[3]!))
+        XCTAssertTrue(first.menus.key(key(window, up: true)))
+        XCTAssertTrue(window.firstResponder === window, "the focus stays on no node, as the web's on BODY")
+        XCTAssertTrue(second.menus.isOpen(second.views[3]!))
     }
     func testCompositionOwnsEscapeAndNoAutofocusLeavesFocusAtTheInvoker() throws {
         let p = fixture(), window = p.viewport.window!

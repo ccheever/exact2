@@ -425,7 +425,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     }
     /// A text field's Enter as a key (its characters are its `input`, the
     /// Enter commits its `change`); the editing goes on, as on the web.
-    package func textFieldShouldBeginEditing(_ textField: UITextField) -> Bool { !disabled && !inert }
+    package func textFieldShouldBeginEditing(_ textField: UITextField) -> Bool { applyPadBar(); return !disabled && !inert }
     package func textViewShouldBeginEditing(_ textView: UITextView) -> Bool { !disabled && !inert }
 
     package func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
@@ -450,7 +450,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         // the next field (or, at the last, puts the keyboard away); Done,
         // Go, Search and Send put the keyboard away.
         switch props["enterKeyHint"] {
-        case "next": if presenter?.moveFocus(backward: false, fields: true) != true { textField.resignFirstResponder() }
+        case "next": if presenter?.focusNextField(after: self) != true { textField.resignFirstResponder() }
         case "done", "go", "search", "send": textField.resignFirstResponder()
         default: break
         }
@@ -905,9 +905,12 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             f.placeholder = nil
             return
         }
-        // D3: UIKit's semantic placeholder colour on a native field. The
-        // explicitly bare editor preserves its existing authored ink rule.
-        let ink = isNativeTextControl ? UIColor.placeholderText : (f.textColor ?? SystemColor.canvasText).withAlphaComponent(0.30)
+        // UIKit's placeholder colour, which follows Increase Contrast: on a
+        // native field (D3), and on a bare one whose `color` is not its own
+        // (LLP 1115 §2, "inherited is unsaid": a grouped list's row gives
+        // its field the label colour). A bare field that writes its own
+        // colour mutes that ink.
+        let ink = isNativeTextControl || ownColor("text_color") == nil ? UIColor.placeholderText : (f.textColor ?? SystemColor.canvasText).withAlphaComponent(0.30)
         f.attributedPlaceholder = NSAttributedString(string: text, attributes: [
             .font: font,
             .foregroundColor: ink,
@@ -1157,6 +1160,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             case "search": f.keyboardType = .webSearch
             default: f.keyboardType = .default
             }
+            applyPadBar() // a pad's missing keys its field asks for: ±, Done (LLP 1116.003 D7)
             // HTML's `enterkeyhint` labels the return key (feed F25); UIKit
             // has no `previous`, which keeps the default.
             switch props["enterKeyHint"] {

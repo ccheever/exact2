@@ -187,8 +187,9 @@ component Reflow
     elapsed = 0
     scrollTop = 0
   action appearance
-    dark = not dark
-    setScheme(dark ? "light" : "dark")
+    let next = not dark
+    dark = next
+    setScheme(next ? "dark" : "light")
   action pause
     running = not running
   action step

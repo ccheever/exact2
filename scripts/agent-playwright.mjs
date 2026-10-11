@@ -431,7 +431,8 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
         await frame();
         return { at: kind === 'wheel' ? deliveredAt : [x, y], ...(avoided ? { avoided } : {}) };
       },
-      async screenshot(path) {
+      async screenshot(path, window = false, film = false) {
+        if (!film) await ask({ op: 'picture' }); // a transition under way is shown where it ends, unless filmed (LLP 1116.003 D8)
         await frame();
         const pending = await page.evaluate(async () => { const on = i => { const b = i.getBoundingClientRect(); return b.bottom > 0 && b.right > 0 && b.top < innerHeight && b.left < innerWidth; }; const left = () => [...document.images].filter(i => !i.complete && on(i)); const end = performance.now() + 3000; while (left().length && performance.now() < end) await new Promise(r => setTimeout(r, 25)); await globalThis.exact.imageFrames?.(); return left().length; });
         await frame(); await page.screenshot({ path, type: 'png' });

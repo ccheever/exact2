@@ -14,11 +14,14 @@ fn rows(a: &Attr) -> Vec<StyleId> {
     }
 }
 
+/// Rows a native button carries and stays the platform's: where it sits, and its
+/// `accent-color` (its tint, LLP 1116.001 D2; start-here offers it on a button).
 fn layout(id: StyleId) -> bool {
     use StyleId::*;
     matches!(
         id,
-        Width
+        AccentColor
+            | Width
             | Height
             | MinWidth
             | MinHeight

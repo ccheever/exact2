@@ -803,6 +803,9 @@ recommendation on that basis; the maintainer decides.
      inheritance, `currentcolor`, motion), not for a native platform's
      palette values, and each such difference is declared in LLP 1001. Confirm
      this reading of "the web is the standard" for colour values.
+   > **Settled by LLP 1115 (2026-10-09).** The platform wins on that platform:
+   > author > platform > CSS default. Unsaid motion is the platform's too, so "motion"
+   > above now means motion the author wrote.
 
 **From stage 2 (D8–D11, §10):**
 

@@ -1,6 +1,7 @@
 #if os(macOS)
 import AppKit
 import CExact
+import CoreText
 import XCTest
 @testable import ExactKit
 
@@ -51,9 +52,33 @@ final class TextSelectionMacTests: XCTestCase {
         return p
     }
 
-    private func mouse(_ type: NSEvent.EventType, _ point: NSPoint) -> NSEvent {
+    private func mouse(_ type: NSEvent.EventType, _ point: NSPoint, clicks: Int = 1) -> NSEvent {
         NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                           windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1)!
+                           windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: clicks, pressure: type == .leftMouseUp ? 0 : 1)!
+    }
+    /// One line of text a session lays out (a bare presenter has no text
+    /// engine), in the window; the session is the caller's to destroy.
+    private func laidOut(_ text: String) -> (ExactSession, NodeView) {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "text-selection")
+        let p = session.presenter
+        p.viewport.frame = NSRect(x: 0, y: 0, width: 400, height: 100)
+        window = NSWindow(contentRect: p.viewport.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = p.viewport
+        let node = NodeView(id: 1, kind: "text", presenter: p)
+        node.frame = NSRect(x: 0, y: 0, width: 380, height: 20)
+        node.props = ["text": text]
+        node.style = ["font_size": 16.0, "line_height": "20px"]
+        p.root.addSubview(node); p.views[1] = node
+        return (session, node)
+    }
+    /// Where the character at `index` of a one-line paragraph is drawn: its
+    /// leading edge and its width, in the node's space.
+    private func glyph(_ node: NodeView, _ index: Int) throws -> (x: CGFloat, width: CGFloat) {
+        let line = try XCTUnwrap(node.paragraphLayout()?.lines.first)
+        let from = CTLineGetOffsetForStringIndex(line, index, nil), to = CTLineGetOffsetForStringIndex(line, index + 1, nil)
+        return (node.paragraphBox().minX + from, to - from)
     }
     /// A click routed as NSWindow routes a person's: the view under the
     /// point takes the focus first, then hears the mouse; the release is a
@@ -163,6 +188,59 @@ final class TextSelectionMacTests: XCTestCase {
         XCTAssertEqual(p.selection.selectedText(), "Article title\n\nBody\n\nPlain content\n\nOpted in")
         XCTAssertNil(p.selection.range(p.views[3]!), "the header's title is chrome")
         XCTAssertNil(p.selection.range(p.views[9]!), "a button's label is the control's")
+    }
+
+    /// A double click selects a word by the text system's boundaries, as an
+    /// `NSTextView` does: without the punctuation beside it (the run between
+    /// two spaces took "hello," whole), and a Japanese word, not its
+    /// sentence. The word is the one under the pointer, which in a letter's
+    /// trailing half is not the nearest caret's.
+    func testADoubleClickSelectsTheWordUnderThePointer() throws {
+        let sentence = "今日は良い天気ですね", text = "Say hello, world. " + sentence
+        let (session, node) = laidOut(text)
+        defer { session.destroy() }
+        let p = session.presenter
+        func doubleClick(_ index: Int, _ fraction: CGFloat) throws -> String {
+            let at = try glyph(node, index)
+            p.selection.begin(node, event: mouse(.leftMouseDown, node.convert(NSPoint(x: at.x + at.width * fraction, y: 10), to: nil), clicks: 2))
+            return p.selection.selectedText()
+        }
+        XCTAssertEqual(try doubleClick(5, 0.5), "hello", "a word, without its comma")
+        XCTAssertEqual(try doubleClick(8, 0.8), "hello", "its last letter's trailing half is still the word")
+        XCTAssertEqual(try doubleClick(9, 0.5), ",", "the comma is its own")
+        XCTAssertEqual(try doubleClick(11, 0.2), "world", "its first letter's leading half")
+        XCTAssertEqual(try doubleClick(15, 0.8), "world", "without its full stop")
+        // The system's own answer for the second character of the sentence
+        // ("今日" where this was written), from its trailing half.
+        let system = NSAttributedString(string: text).doubleClick(at: 19)
+        let word = try doubleClick(19, 0.8)
+        XCTAssertEqual(word, (text as NSString).substring(with: system))
+        XCTAssertLessThan((word as NSString).length, (sentence as NSString).length, "a word of the sentence, not the sentence")
+        p.selection.begin(node, event: mouse(.leftMouseDown, node.convert(NSPoint(x: 40, y: 10), to: nil), clicks: 3))
+        XCTAssertEqual(p.selection.selectedText(), text, "a triple click is still the paragraph")
+    }
+
+    /// X76 by MAC-16's rule: a secondary click outside the selection takes
+    /// the word a double click at the same point takes, by the text
+    /// system's boundaries ("hello" without its comma, a word of a Japanese
+    /// sentence), so the two never disagree.
+    func testASecondaryClickSelectsTheWordADoubleClickSelects() throws {
+        let text = "Say hello, world. 今日は良い天気ですね"
+        let (session, node) = laidOut(text)
+        defer { session.destroy() }
+        let p = session.presenter
+        for (index, fraction) in [(5, 0.5), (8, 0.8), (9, 0.5), (11, 0.2), (15, 0.8), (19, 0.8)] as [(Int, CGFloat)] {
+            let at = try glyph(node, index)
+            let point = node.convert(NSPoint(x: at.x + at.width * fraction, y: 10), to: nil)
+            p.selection.begin(node, event: mouse(.leftMouseDown, point, clicks: 2))
+            let word = p.selection.selectedText()
+            p.selection.clear()
+            let right = try XCTUnwrap(NSEvent.mouseEvent(with: .rightMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                         windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+            XCTAssertTrue(p.selection.secondaryClick(node, event: right, answered: {}), "a laid-out paragraph places the click at once")
+            XCTAssertFalse(word.isEmpty)
+            XCTAssertEqual(p.selection.selectedText(), word, "character \(index) at \(fraction) of its width")
+        }
     }
 
     /// A secondary click on selected text, with no authored `contextmenu`,

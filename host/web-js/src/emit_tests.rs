@@ -66,3 +66,19 @@ fn a_runner_owned_resource_is_marked() {
     assert!(time.contains(".r.owned=true;"), "{time}");
     assert!(!full.contains(".r.owned"), "{full}");
 }
+
+/// LLP 1116 D8: a literal `value` on a `progress` is its `<progress>`'s
+/// attribute, as a bound one is its property; without it the browser draws
+/// an indeterminate bar.
+#[test]
+fn a_literal_progress_value_is_its_attribute() {
+    let plan = contract::compile(
+        "component App\n  view\n    column\n      progress value=0.4 max=1 aria-label=\"Done\"\n",
+    )
+    .unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    let at = js.find("\"progress\"").expect("a <progress>");
+    let made = js[at..].split(';').next().unwrap();
+    assert!(made.contains("\"value\":\"0.4\""), "{made}");
+    assert!(made.contains("\"max\":\"1\""), "{made}");
+}
