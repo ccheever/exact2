@@ -126,7 +126,7 @@ private final class T3MobileLegalView: ExactNativeInstance {
     fileprivate func policy(_ action: WKNavigationAction, _ reply: @escaping (WKNavigationActionPolicy) -> Void) {
         guard alive, let url = action.request.url else { reply(.cancel); return }
         if Self.permitted(url) {
-            if action.targetFrame == nil || action.request.cachePolicy != .reloadIgnoringLocalAndRemoteCacheData {
+            if action.targetFrame == nil {
                 var request = action.request; request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
                 reply(.cancel); web.load(request)
             } else { reply(.allow) }
