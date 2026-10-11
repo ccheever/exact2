@@ -20,9 +20,11 @@
 // - A node whose `contextmenu` leaves the click to the shell (a reply's mailto, irc, xmpp or fragment link: ChatMarkdown's
 //   anchor returns before `preventDefault` when the link has no web host) asks for the shell's menu of that click
 //   (`shellMenu`, external-link-menu.ts; reply-links RL-1, RL-2), as Electron's `context-menu` then fires. The click is
-//   answered once, and only while it is the last input: a key (the ContextMenu key raises `contextmenu` on the focused
-//   node without a click) or another click ends it, and so does a menu that answered it (the tail's, or the app's own
-//   through T3ContextMenu: `pageClickAnswered`), for a path that sends no event (the agent's keys, VoiceOver's show menu).
+//   answered once, and only while it is the last input: a key or another click ends it, and so does a menu that answered
+//   it (the tail's, or the app's own through T3ContextMenu: `pageClickAnswered`), for a path that sends no event (the
+//   agent's keys). A `contextmenu` with no click behind it is the ContextMenu key's on the focused link (ExactKit raises
+//   it at the focus): the shell's menu opens at the focused node (`focusMenu`, reply-links-reference-behavior RL-6).
+//   VoiceOver's show menu raises no `contextmenu` on the host (NodeView answers no AXShowMenu; EXACT2-GAPS X84).
 //
 // The monitor ends every click it answers (it returns nil, never `self?.handle(event) ?? event`: optional chaining
 // would flatten handle's nil back into the event and the host's menu would pop after the shell's). Under the agent
@@ -132,11 +134,36 @@ final class T3TextContextMenu: NSObject {
     func pageClickAnswered() { lastPageClick = nil }
 
     /// `shellMenu`: the node that took the last page click left it to the shell; the shell's menu for that click, as the
-    /// page shows it (`pageClick`). Nothing for no click, one already answered, or one older than a few seconds.
-    func shellMenuForLastClick(now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Bool {
-        guard let click = lastPageClick, now - click.at < 5 else { return false }
+    /// page shows it (`pageClick`). With no such click (none, one already answered, or one older than a few seconds) the
+    /// `contextmenu` came from no click: the ContextMenu key on the focused link (ExactKit raises it at the focus), for
+    /// which Chromium raises `context-menu` at the focused anchor and the shell's menu opens (reply-links-reference-behavior
+    /// RL-6): the menu for the focused page node, at its middle (`focusMenu`).
+    func shellMenuForLastClick(now: TimeInterval = ProcessInfo.processInfo.systemUptime, windows: [NSWindow]? = nil) -> Bool {
+        guard let click = lastPageClick, now - click.at < 5 else {
+            lastPageClick = nil
+            return focusMenu(in: windows ?? ([NSApp.keyWindow, NSApp.mainWindow].compactMap { $0 } + NSApp.orderedWindows))
+        }
         lastPageClick = nil
         return pageClick(click.event)
+    }
+
+    /// The shell's menu for the focused page node of the first of `windows` that has one (not a text input, whose own menu
+    /// is the right-click's), as Chromium's keyboard `context-menu` has it: at the node's middle, Copy while page text is
+    /// selected, no Copy Link for a URL the shell refuses. The reference pops it with no position, so Electron places it at
+    /// the pointer; a keyboard menu here opens at the focus, as ExactKit's ContextMenu key and T3ContextMenu's `keyboard` do.
+    func focusMenu(in windows: [NSWindow]) -> Bool {
+        for window in windows {
+            guard window.isVisible, let focused = window.firstResponder as? NSView, let content = window.contentView,
+                  focused.isDescendant(of: content), let page = Self.page(focused), focused !== page, Self.textInput(focused) == nil else { continue }
+            let visible = focused.visibleRect.intersection(focused.bounds)
+            guard !visible.isEmpty,
+                  let event = NSEvent.mouseEvent(with: .rightMouseDown, location: focused.convert(NSPoint(x: visible.midX, y: visible.midY), to: nil),
+                                                 modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                                 context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else { continue }
+            show(Self.pageMenu(focused, event, selected: Self.selectionExists(page)), event, focused)
+            return true
+        }
+        return false
     }
 
     // MARK: Selected page text (RD-4)

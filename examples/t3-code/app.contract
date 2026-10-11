@@ -409,6 +409,19 @@ component T3Code
         if result.message == "terminal:focus-composer"
           focus("composer")
       case none
+  // reply-links-reference-behavior RL-4: a Markdown `#fragment` link's click leaves for the new-thread draft (Electron's
+  // hash router reads the hash as the index route, IndexDraftLanding): the window shows it as a new thread's, the
+  // composer focused (commandCompleted's `sidebar:new-thread`).
+  mutation fragmentChanged as shape Change refreshes data then fragmentOpened
+  action fragmentOpened
+    match fragmentChanged
+      case some(result)
+        if result.message == "sidebar:new-thread"
+          draftOwner = "__unset__"
+          jumpRequest = jumpRequest + 1
+          utilityPage = ""
+          focus("composer")
+      case none
   state commandPending = false
   state pendingModal = ""
   state modalError = ""
@@ -1194,6 +1207,8 @@ component T3Code
       send fileCommentChanged = command(`chatlocal:${op}`, id, value, 0)
     else if op == "pr-code-drag" or op == "pr-code-begin"
       send lineDragChanged = command(`chatlocal:${op}`, id, value, 0) // realinput-1010f RF-3: the Code tab's gutter drags and "+", in turn
+    else if op == "link-open" and startsWith(value, "#")
+      send fragmentChanged = command(`chatlocal:${op}`, id, value, 0) // reply-links-reference-behavior RL-4 (fragmentOpened)
     else
       send localChanged = command(`chatlocal:${op}`, id, op == "table-menu" ? `${frame(`table-copy-${id}`).x}|${frame(`table-copy-${id}`).y}|${frame(`table-copy-${id}`).width}|${frame(`table-copy-${id}`).height}|${viewport.width}|${viewport.height}|${value}` : value, 0) // lane r8-keys: a table popup's trigger frame
   state foldHold = false

@@ -22,6 +22,7 @@ import { resolveBrowserOpenDefaults } from './browser-defaults';
 import { BrowserSettingsReadError } from './browser-profiles';
 import { mediaFileReference } from './media-reference';
 import { assetUrl } from './settings-b-icons';
+import { mostRecentProjectId } from './pages-home';
 
 export type BrowserLinkTarget = 'system' | 'app';
 export type LinkEvent = { readonly metaKey: boolean; readonly ctrlKey: boolean };
@@ -112,9 +113,9 @@ export async function openLink(client: T3Client, native: Native, url: string, op
  *  result in the work-log inspector ("external": the system browser). */
 export async function openLinkFromUi(client: T3Client, native: Native, kind: string, url: string): Promise<string> {
   if (!url) return '';
-  // reply-links RL-1, RL-2: ChatMarkdown leaves a mailto, irc, xmpp or fragment link's click to the desktop shell, whose
-  // window-open handler opens only http(s) and remote-editor links (DesktopWindow.ts, parseSafeExternalUrl): nothing opens.
-  // A fragment also sets the page's hash, which Electron's hash router reads as a route (it leaves the thread); the clone stays.
+  if (kind === 'link' && url.startsWith('#')) return openFragmentLink(client, native);
+  // reply-links RL-1: ChatMarkdown leaves a mailto, irc or xmpp link's click to the desktop shell, whose window-open
+  // handler opens only http(s) and remote-editor links (DesktopWindow.ts, parseSafeExternalUrl): nothing opens.
   if (kind === 'link' && !isWebUrl(url)) return '';
   let event = NO_MODIFIER;
   if (kind === 'link') {
@@ -133,6 +134,20 @@ export async function openLinkFromUi(client: T3Client, native: Native, kind: str
     pushToast(client, { kind: 'error', title: kind === 'link' || kind === 'external' ? 'Unable to open link' : 'Unable to open check details', description: error instanceof Error ? error.message : 'An error occurred.' });
   }
   return '';
+}
+
+/** A Markdown `#fragment` link's click (reply-links-reference-behavior RL-4; ChatMarkdown `handleMarkdownFragmentClick`):
+ *  it scrolls to an element with that id where the page has one (a GFM footnote or a raw-HTML id, neither of which the
+ *  clone draws); with none the click goes on and sets the page's hash, which Electron's hash router (main.tsx
+ *  `createHashHistory`) reads as the index route, whose IndexDraftLanding opens the draft of the most recently active
+ *  project and the composer takes the focus (`sidebar:new-thread`, app.contract commandCompleted). A click with ⌘, ⌥, ⇧
+ *  or ⌃ held the handler leaves to the shell, which opens nothing for it (a new window it denies). */
+export async function openFragmentLink(client: T3Client, native: Native): Promise<string> {
+  const gesture = obj((await bridgeReply(native, { op: 'composerSendIntent' }).catch(() => ({ ok: false, generation: 0, value: {} }))).value);
+  if (str(gesture.modifiers) !== '') return '';
+  try { await client.openDraft(native, mostRecentProjectId(client.shell)); }
+  catch (error) { if (letGo(error)) throw error; }
+  return 'sidebar:new-thread';
 }
 
 /** openTerminalLinkInPreview: a terminal hyperlink where the setting says, unless ⌘ or Ctrl asked for the system

@@ -17,7 +17,54 @@ private final class LinkNode: NSView {
     override func accessibilityURL() -> URL? { URL(string: url) }
 }
 
+/// A link node that holds the focus, as ExactKit's focused `link` (a Tab stop) does.
+private final class FocusedLinkNode: NSView {
+    override var acceptsFirstResponder: Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .link }
+}
+
 final class ShellMenuForLinkTests: ShellMenuCase {
+    // reply-links-reference-behavior RL-6: the ContextMenu key on a focused mailto, irc, xmpp or fragment link. ExactKit
+    // raises the link node's `contextmenu` at the focus with no click (MouseEventsMac `contextMenuKey`); the reference
+    // (CDP's ContextMenu key on the focused anchor, its main process read back, 2026-10-12) gets Chromium's keyboard
+    // `context-menu` at the anchor's middle and pops the shell's Cut, Copy, Paste, Select All, no Copy Link.
+    func testTheContextMenuKeyOnAFocusedLinkOpensTheShellMenuAtTheLink() {
+        var points: [NSPoint] = []
+        shell.present = { [unowned self] menu, event, view in popped.append((T3ShellMenu.describe(menu), view)); points.append(event.locationInWindow) }
+        let link = FocusedLinkNode(frame: NSRect(x: 40, y: 30, width: 80, height: 22))
+        page.addSubview(link)
+        XCTAssertTrue(window.makeFirstResponder(link))
+        XCTAssertTrue(shell.shellMenuForLastClick(windows: [window]), "no click raised it: the menu for the focused link")
+        XCTAssertEqual(popped.map(\.titles), [["Cut (disabled)", "Copy (disabled)", "Paste (disabled)", "Select All"]])
+        XCTAssertTrue(popped.first?.view === link)
+        XCTAssertEqual(points.first, link.convert(NSPoint(x: 40, y: 11), to: nil), "at the link's middle")
+        page.selected = true
+        XCTAssertTrue(shell.shellMenuForLastClick(windows: [window]), "each key its own menu")
+        XCTAssertEqual(popped.last?.titles, ["Cut (disabled)", "Copy", "Paste (disabled)", "Select All"], "Copy with page text selected")
+    }
+
+    func testAFreshClickStillWinsAndNoFocusedLinkOpensNothing() {
+        let link = FocusedLinkNode(frame: NSRect(x: 40, y: 30, width: 80, height: 22))
+        page.addSubview(link)
+        XCTAssertFalse(shell.shellMenuForLastClick(windows: [window]), "no click and no focused page node")
+        window.makeFirstResponder(page)
+        XCTAssertFalse(shell.shellMenuForLastClick(windows: [window]), "the page itself is no link")
+        let field = NSTextView(frame: NSRect(x: 200, y: 30, width: 120, height: 22))
+        page.addSubview(field)
+        window.makeFirstResponder(field)
+        XCTAssertFalse(shell.shellMenuForLastClick(windows: [window]), "a text input's menu is its right-click's")
+        XCTAssertTrue(popped.isEmpty)
+        window.makeFirstResponder(link)
+        var points: [NSPoint] = []
+        shell.present = { [unowned self] menu, event, view in popped.append((T3ShellMenu.describe(menu), view)); points.append(event.locationInWindow) }
+        let other = LinkNode(frame: NSRect(x: 300, y: 120, width: 80, height: 22))
+        page.addSubview(other)
+        rightClick(at: at(other, NSPoint(x: 10, y: 10)))
+        XCTAssertTrue(shell.shellMenuForLastClick(windows: [window]))
+        XCTAssertTrue(popped.first?.view === other, "a right-click's menu is the click's, wherever the focus is")
+        XCTAssertEqual(points.first, other.convert(NSPoint(x: 10, y: 10), to: nil))
+    }
+
     func testALinksHandlerLeavesItsClickToTheShellOnce() {
         let link = LinkNode(frame: NSRect(x: 20, y: 20, width: 80, height: 22))
         page.addSubview(link)
