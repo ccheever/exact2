@@ -180,7 +180,7 @@ Ports    none. Runs to completion.`,
     usage: 'bun exact.mjs contract <subcommand> …      (paths from where you run it)',
     flags: [],
     body: `  build <file.contract> [-o <file.plan>] [--json] [--map]   --json: [] or each diagnostic with its range
-  types <file.contract> [-o <app.d.ts>]   the types app.ts imports
+  types <file.contract> [-o <app.d.ts>]   the types app.ts imports (build app.contract, test, web refresh them)
   vocab [--json] [<name> …]               the tags, attributes, CSS properties and functions Contract takes;
                                           each name's entry in turn, exit 1 if one is unknown
   fmt [--check | --stdout] <file.contract> · fmt --uses <file.contract>

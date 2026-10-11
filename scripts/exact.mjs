@@ -34,7 +34,7 @@ import { accessSync, chmodSync, constants, existsSync, mkdirSync, mkdtempSync, r
 import { homedir, tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { BINARYEN } from '../host/web/stages.mjs';
-import { delimiter, resolve } from 'node:path';
+import { basename, delimiter, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cargoEnvironment, executableName, HERMES_INSTALLER, hermesBundle, hermesTarget, resolveApp, WEB_TOOLCHAIN, webToolchainEnv } from './app.mjs';
 import { createApp, createGame } from '../game/new.mjs';
@@ -508,7 +508,29 @@ export function contract(args, env = process.env) {
   if (!existsSync(binary)) console.error('exact contract: building the Contract compiler once (a few minutes on a cold checkout)…');
   const result = spawnSync('cargo', [`+${pin}`, 'run', '-q', '--manifest-path', resolve(ROOT, 'Cargo.toml'), '-p', 'contract', '--', ...args], {stdio: 'inherit', env: clean});
   if (result.error) throw new Error(`cargo: ${result.error.message} (install rustup from https://rustup.rs)`);
+  // A build of an app's `app.contract` refreshes the types its `app.ts` imports (LLP 1116.001 D4.5).
+  const input = args[0] === 'build' ? args.slice(1).find((arg, i, rest) => !arg.startsWith('-') && rest[i - 1] !== '-o') : null;
+  if (result.status === 0 && input && basename(input) === 'app.contract') refreshTypes(dirname(resolve(input)), binary);
   return result.status ?? 1;
+}
+
+/** The types `app.ts` imports, `contract types app.contract -o app.contract.d.ts`, rewritten
+ * only when they changed: when a source's signature did (LLP 1116.001 D4.5). The web build and
+ * the native development bake write the same file the same way, so a builder never runs the
+ * step. A drawing app's carry the canvas seam, as both add it. Says so in one line on stderr,
+ * so `--json` stays the build's reply; returns whether it wrote. */
+export function refreshTypes(dir, binary = resolve(ROOT, 'target/debug', process.platform === 'win32' ? 'contract.exe' : 'contract')) {
+  const ts = resolve(dir, 'app.ts'), out = resolve(dir, 'app.contract.d.ts');
+  if (!existsSync(ts) || !existsSync(binary)) return false;
+  const types = spawnSync(binary, ['types', resolve(dir, 'app.contract')], {encoding: 'utf8', maxBuffer: 1 << 26});
+  if (types.status !== 0) return false;
+  let text = types.stdout;
+  if (/export\s+(?:function|const|let)\s+draw\b|export\s*\{[^}]*\bdraw\b/.test(readFileSync(ts, 'utf8'))) text += readFileSync(resolve(ROOT, 'js/bake/src/canvas-types.d.ts'), 'utf8');
+  const before = existsSync(out) ? readFileSync(out, 'utf8') : null;
+  if (before === text) return false;
+  writeFileSync(out, text);
+  console.error(`app.contract.d.ts: ${before === null ? 'written' : 'regenerated, since a source\'s signature changed'} (the types app.ts imports)`);
+  return true;
 }
 
 /** `exact new`: check the machine first, since a missing Cargo fails the

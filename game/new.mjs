@@ -401,7 +401,7 @@ Commands, from this directory:
 | | |
 |---|---|
 | \`bun exact.mjs <verb> --help\`, \`bun exact.mjs help\` | a verb's flags, the ports it opens, whether it stays in the foreground, and an example; the verbs. Read these, not exact2's scripts |
-| \`bun exact.mjs contract types app.contract -o app.contract.d.ts\` | the types \`app.ts\` imports; rerun after changing a source's signature |
+| \`bun exact.mjs contract types app.contract -o app.contract.d.ts\` | the types \`app.ts\` imports; \`contract build app.contract\`, \`test\` and \`web\` rewrite them when a source's signature changes |
 | \`bun exact.mjs contract build app.contract --json\` | compile; \`[]\` or every diagnostic with its range |
 | \`bun exact.mjs contract vocab [name]\` | the tags, attributes, CSS properties and functions Contract accepts; one function's signature, rules and example |
 | \`bun exact.mjs web\` | the web dev loop, at the URL it prints (8765 unless another loop holds it) |
