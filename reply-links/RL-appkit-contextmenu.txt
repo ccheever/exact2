@@ -1,0 +1,165 @@
+Test Suite 'Context menus, tab input, file menus and the shell's menu' started at 2026-10-11 13:35:23.936.
+Test Suite 'ContextMenuTests' started at 2026-10-11 13:35:23.937.
+Test Case '-[T3contextmenuTests.ContextMenuTests testArchiveMenuSeparatesTheDestructiveDeleteWithItsTrashSymbol]' started.
+Test Case '-[T3contextmenuTests.ContextMenuTests testArchiveMenuSeparatesTheDestructiveDeleteWithItsTrashSymbol]' passed (0.041 seconds).
+Test Case '-[T3contextmenuTests.ContextMenuTests testChoosingAnItemReportsItsId]' started.
+Test Case '-[T3contextmenuTests.ContextMenuTests testChoosingAnItemReportsItsId]' passed (0.069 seconds).
+Test Case '-[T3contextmenuTests.ContextMenuTests testDeclaredSectionsAndDisabledItemsAreKept]' started.
+Test Case '-[T3contextmenuTests.ContextMenuTests testDeclaredSectionsAndDisabledItemsAreKept]' passed (0.003 seconds).
+Test Case '-[T3contextmenuTests.ContextMenuTests testExportWritesTheThemeFileIntoTheIsolatedDirectory]' started.
+Test Case '-[T3contextmenuTests.ContextMenuTests testExportWritesTheThemeFileIntoTheIsolatedDirectory]' passed (0.002 seconds).
+Test Case '-[T3contextmenuTests.ContextMenuTests testImportReadsJsonFilesFromTheIsolatedDirectory]' started.
+Test Case '-[T3contextmenuTests.ContextMenuTests testImportReadsJsonFilesFromTheIsolatedDirectory]' passed (0.003 seconds).
+Test Case '-[T3contextmenuTests.ContextMenuTests testOpenVsxReadsRefuseOtherHosts]' started.
+Test Case '-[T3contextmenuTests.ContextMenuTests testOpenVsxReadsRefuseOtherHosts]' passed (0.000 seconds).
+Test Case '-[T3contextmenuTests.ContextMenuTests testPanelTabMenuKeepsPlainOrderAndDisabledCloseActions]' started.
+Test Case '-[T3contextmenuTests.ContextMenuTests testPanelTabMenuKeepsPlainOrderAndDisabledCloseActions]' passed (0.000 seconds).
+Test Case '-[T3contextmenuTests.ContextMenuTests testThemeFilesOverTheLimitOrUnreadableComeBackEmpty]' started.
+Test Case '-[T3contextmenuTests.ContextMenuTests testThemeFilesOverTheLimitOrUnreadableComeBackEmpty]' passed (0.004 seconds).
+Test Case '-[T3contextmenuTests.ContextMenuTests testThemePanelStartsInTheVsCodeExtensionsFolder]' started.
+Test Case '-[T3contextmenuTests.ContextMenuTests testThemePanelStartsInTheVsCodeExtensionsFolder]' passed (0.360 seconds).
+Test Case '-[T3contextmenuTests.ContextMenuTests testUnderTheAgentTheMenuAnswersDismissedWithoutTracking]' started.
+t3.contextmenu: Close
+Test Case '-[T3contextmenuTests.ContextMenuTests testUnderTheAgentTheMenuAnswersDismissedWithoutTracking]' passed (0.001 seconds).
+Test Suite 'ContextMenuTests' passed at 2026-10-11 13:35:24.421.
+	 Executed 10 tests, with 0 failures (0 unexpected) in 0.483 (0.484) seconds
+Test Suite 'TabInputTests' started at 2026-10-11 13:35:24.421.
+Test Case '-[T3contextmenuTests.TabInputTests testDoubleClickIsLeftToTheTitleButtonsOwnDblclick]' started.
+Test Case '-[T3contextmenuTests.TabInputTests testDoubleClickIsLeftToTheTitleButtonsOwnDblclick]' passed (0.005 seconds).
+Test Case '-[T3contextmenuTests.TabInputTests testMiddleClickClosesExactlyOneTabAndConsumesEvent]' started.
+Test Case '-[T3contextmenuTests.TabInputTests testMiddleClickClosesExactlyOneTabAndConsumesEvent]' passed (0.003 seconds).
+Test Case '-[T3contextmenuTests.TabInputTests testMiddleClickClosesTheTabUnderThePointerAmongSeveral]' started.
+Test Case '-[T3contextmenuTests.TabInputTests testMiddleClickClosesTheTabUnderThePointerAmongSeveral]' passed (0.003 seconds).
+Test Case '-[T3contextmenuTests.TabInputTests testOrdinaryClickAndRemovedTabsDoNotDispatch]' started.
+Test Case '-[T3contextmenuTests.TabInputTests testOrdinaryClickAndRemovedTabsDoNotDispatch]' passed (0.003 seconds).
+Test Case '-[T3contextmenuTests.TabInputTests testShiftF10PassesToTheTabsOwnKeyHandler]' started.
+Test Case '-[T3contextmenuTests.TabInputTests testShiftF10PassesToTheTabsOwnKeyHandler]' passed (0.002 seconds).
+Test Suite 'TabInputTests' passed at 2026-10-11 13:35:24.437.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.015 (0.016) seconds
+Test Suite 'FileMenuTests' started at 2026-10-11 13:35:24.437.
+Test Case '-[T3contextmenuTests.FileMenuTests testChatMediaLinkMenu]' started.
+Test Case '-[T3contextmenuTests.FileMenuTests testChatMediaLinkMenu]' passed (0.000 seconds).
+Test Case '-[T3contextmenuTests.FileMenuTests testEmptyChildrenAreAPlainItemAndNoSubmenu]' started.
+Test Case '-[T3contextmenuTests.FileMenuTests testEmptyChildrenAreAPlainItemAndNoSubmenu]' passed (0.000 seconds).
+Test Case '-[T3contextmenuTests.FileMenuTests testFilesTreeMenuHasOpenWithSubmenuAndPicksTheChildEditor]' started.
+Test Case '-[T3contextmenuTests.FileMenuTests testFilesTreeMenuHasOpenWithSubmenuAndPicksTheChildEditor]' passed (0.102 seconds).
+Test Case '-[T3contextmenuTests.FileMenuTests testPullRequestLinkMenu]' started.
+Test Case '-[T3contextmenuTests.FileMenuTests testPullRequestLinkMenu]' passed (0.070 seconds).
+Test Suite 'FileMenuTests' passed at 2026-10-11 13:35:24.609.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.172 (0.172) seconds
+Test Suite 'TextContextMenuTests' started at 2026-10-11 13:35:24.609.
+Test Case '-[T3contextmenuTests.TextContextMenuTests testOtherClicksKeepTheirOwnMenus]' started.
+Test Case '-[T3contextmenuTests.TextContextMenuTests testOtherClicksKeepTheirOwnMenus]' passed (0.012 seconds).
+Test Case '-[T3contextmenuTests.TextContextMenuTests testSelectedReadOnlyTextGetsTheShellsFourEditingRoles]' started.
+Test Case '-[T3contextmenuTests.TextContextMenuTests testSelectedReadOnlyTextGetsTheShellsFourEditingRoles]' passed (0.122 seconds).
+Test Case '-[T3contextmenuTests.TextContextMenuTests testTheInstalledMonitorPopsTheShellsMenuAndTheHostsNeverFollows]' started.
+Test Case '-[T3contextmenuTests.TextContextMenuTests testTheInstalledMonitorPopsTheShellsMenuAndTheHostsNeverFollows]' passed (0.006 seconds).
+Test Case '-[T3contextmenuTests.TextContextMenuTests testTheMonitorTakesTheClickAndUnderTheAgentLogsTheMenuInsteadOfTracking]' started.
+t3.textmenu: Cut (disabled) | Copy | Paste (disabled) | Select All
+Test Case '-[T3contextmenuTests.TextContextMenuTests testTheMonitorTakesTheClickAndUnderTheAgentLogsTheMenuInsteadOfTracking]' passed (0.005 seconds).
+Test Case '-[T3contextmenuTests.TextContextMenuTests testTheShellsMenuPopsUpWithoutServices]' started.
+Test Case '-[T3contextmenuTests.TextContextMenuTests testTheShellsMenuPopsUpWithoutServices]' passed (0.234 seconds).
+Test Case '-[T3contextmenuTests.TextContextMenuTests testUnderTheAgentTheInstalledMonitorLogsTheMenuAndTheHostsNeverTracks]' started.
+t3.textmenu: Cut (disabled) | Copy | Paste (disabled) | Select All
+Test Case '-[T3contextmenuTests.TextContextMenuTests testUnderTheAgentTheInstalledMonitorLogsTheMenuAndTheHostsNeverTracks]' passed (0.004 seconds).
+Test Suite 'TextContextMenuTests' passed at 2026-10-11 13:35:24.991.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.382 (0.382) seconds
+Test Suite 'ShellPageMenuTests' started at 2026-10-11 13:35:24.991.
+Test Case '-[T3contextmenuTests.ShellPageMenuTests testAnAppDrawnIconUnderANodeGetsCopyImage]' started.
+Test Case '-[T3contextmenuTests.ShellPageMenuTests testAnAppDrawnIconUnderANodeGetsCopyImage]' passed (0.003 seconds).
+Test Case '-[T3contextmenuTests.ShellPageMenuTests testAnEmptyAreaGetsCutCopyPasteDisabledAndSelectAll]' started.
+Test Case '-[T3contextmenuTests.ShellPageMenuTests testAnEmptyAreaGetsCutCopyPasteDisabledAndSelectAll]' passed (0.003 seconds).
+Test Case '-[T3contextmenuTests.ShellPageMenuTests testAnImageGetsCopyImageWhichCopiesItsBitmap]' started.
+Test Case '-[T3contextmenuTests.ShellPageMenuTests testAnImageGetsCopyImageWhichCopiesItsBitmap]' passed (0.042 seconds).
+Test Case '-[T3contextmenuTests.ShellPageMenuTests testAnInlineLinkGetsCopyLinkWhichCopiesTheCanonicalURL]' started.
+Test Case '-[T3contextmenuTests.ShellPageMenuTests testAnInlineLinkGetsCopyLinkWhichCopiesTheCanonicalURL]' passed (0.065 seconds).
+Test Case '-[T3contextmenuTests.ShellPageMenuTests testANodeWithItsOwnContextmenuKeepsItAndTheShellStaysOut]' started.
+Test Case '-[T3contextmenuTests.ShellPageMenuTests testANodeWithItsOwnContextmenuKeepsItAndTheShellStaysOut]' passed (0.004 seconds).
+Test Case '-[T3contextmenuTests.ShellPageMenuTests testAWindowWithoutAnExactPageGetsNoMenu]' started.
+Test Case '-[T3contextmenuTests.ShellPageMenuTests testAWindowWithoutAnExactPageGetsNoMenu]' passed (0.004 seconds).
+Test Case '-[T3contextmenuTests.ShellPageMenuTests testDestroyTakesTheTailOutOfTheChain]' started.
+Test Case '-[T3contextmenuTests.ShellPageMenuTests testDestroyTakesTheTailOutOfTheChain]' passed (0.003 seconds).
+Test Case '-[T3contextmenuTests.ShellPageMenuTests testPageTextSelectedElsewhereEnablesCopyAndTheRolesActOnThePage]' started.
+Test Case '-[T3contextmenuTests.ShellPageMenuTests testPageTextSelectedElsewhereEnablesCopyAndTheRolesActOnThePage]' passed (0.123 seconds).
+Test Case '-[T3contextmenuTests.ShellPageMenuTests testSelectedTextKeepsRD4sMenuThroughTheSameTemplate]' started.
+Test Case '-[T3contextmenuTests.ShellPageMenuTests testSelectedTextKeepsRD4sMenuThroughTheSameTemplate]' passed (0.004 seconds).
+Test Case '-[T3contextmenuTests.ShellPageMenuTests testUnderTheAgentTheTailLogsTheMenuAndNothingTracks]' started.
+t3.textmenu: Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All
+Test Case '-[T3contextmenuTests.ShellPageMenuTests testUnderTheAgentTheTailLogsTheMenuAndNothingTracks]' passed (0.004 seconds).
+Test Suite 'ShellPageMenuTests' passed at 2026-10-11 13:35:25.248.
+	 Executed 10 tests, with 0 failures (0 unexpected) in 0.256 (0.257) seconds
+Test Suite 'ShellTextMenuTests' started at 2026-10-11 13:35:25.248.
+Test Case '-[T3contextmenuTests.ShellTextMenuTests testAClickInsideTheSelectionKeepsIt]' started.
+Test Case '-[T3contextmenuTests.ShellTextMenuTests testAClickInsideTheSelectionKeepsIt]' passed (0.012 seconds).
+Test Case '-[T3contextmenuTests.ShellTextMenuTests testAMisspelledWordGetsFiveSuggestionsAndOneReplacesIt]' started.
+Test Case '-[T3contextmenuTests.ShellTextMenuTests testAMisspelledWordGetsFiveSuggestionsAndOneReplacesIt]' passed (0.041 seconds).
+Test Case '-[T3contextmenuTests.ShellTextMenuTests testAMisspellingWithoutGuessesSaysNoSuggestions]' started.
+Test Case '-[T3contextmenuTests.ShellTextMenuTests testAMisspellingWithoutGuessesSaysNoSuggestions]' passed (0.007 seconds).
+Test Case '-[T3contextmenuTests.ShellTextMenuTests testAnEmptyFieldGetsEveryRoleDisabledAndTakesTheFocus]' started.
+Test Case '-[T3contextmenuTests.ShellTextMenuTests testAnEmptyFieldGetsEveryRoleDisabledAndTakesTheFocus]' passed (0.006 seconds).
+Test Case '-[T3contextmenuTests.ShellTextMenuTests testAnEmptyTextareaDisablesSelectAllButAnEmptyComposerKeepsIt]' started.
+Test Case '-[T3contextmenuTests.ShellTextMenuTests testAnEmptyTextareaDisablesSelectAllButAnEmptyComposerKeepsIt]' passed (0.004 seconds).
+Test Case '-[T3contextmenuTests.ShellTextMenuTests testASecureFieldNeverCutsOrCopies]' started.
+Test Case '-[T3contextmenuTests.ShellTextMenuTests testASecureFieldNeverCutsOrCopies]' passed (0.006 seconds).
+Test Case '-[T3contextmenuTests.ShellTextMenuTests testAWordInAFieldIsSelectedAndCutAndCopyAreEnabled]' started.
+Test Case '-[T3contextmenuTests.ShellTextMenuTests testAWordInAFieldIsSelectedAndCutAndCopyAreEnabled]' passed (0.005 seconds).
+Test Case '-[T3contextmenuTests.ShellTextMenuTests testPastTheTextNothingIsSelectedAndPasteFollowsTheClipboard]' started.
+Test Case '-[T3contextmenuTests.ShellTextMenuTests testPastTheTextNothingIsSelectedAndPasteFollowsTheClipboard]' passed (0.005 seconds).
+Test Case '-[T3contextmenuTests.ShellTextMenuTests testUnderTheAgentTheInputsMenuIsLoggedAndNothingTracks]' started.
+t3.textmenu: Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All (disabled)
+Test Case '-[T3contextmenuTests.ShellTextMenuTests testUnderTheAgentTheInputsMenuIsLoggedAndNothingTracks]' passed (0.006 seconds).
+Test Suite 'ShellTextMenuTests' passed at 2026-10-11 13:35:25.341.
+	 Executed 9 tests, with 0 failures (0 unexpected) in 0.093 (0.094) seconds
+Test Suite 'ShellTemplateTests' started at 2026-10-11 13:35:25.341.
+Test Case '-[T3contextmenuTests.ShellTemplateTests testSafeExternalURLsAreWebAndRemoteEditorLinks]' started.
+Test Case '-[T3contextmenuTests.ShellTemplateTests testSafeExternalURLsAreWebAndRemoteEditorLinks]' passed (0.000 seconds).
+Test Case '-[T3contextmenuTests.ShellTemplateTests testTheTemplateOrdersSuggestionsLinkImageThenTheRoles]' started.
+Test Case '-[T3contextmenuTests.ShellTemplateTests testTheTemplateOrdersSuggestionsLinkImageThenTheRoles]' passed (0.000 seconds).
+Test Suite 'ShellTemplateTests' passed at 2026-10-11 13:35:25.342.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+Test Suite 'ShellWebMenuTests' started at 2026-10-11 13:35:25.342.
+Test Case '-[T3contextmenuTests.ShellWebMenuTests testAMisspelledWordInAFieldGetsWebKitsFirstFiveGuesses]' started.
+t3.textmenu: check | chef | chew | chez | cheek | — | Cut | Copy | Paste (disabled) | Select All
+Test Case '-[T3contextmenuTests.ShellWebMenuTests testAMisspelledWordInAFieldGetsWebKitsFirstFiveGuesses]' passed (3.753 seconds).
+Test Case '-[T3contextmenuTests.ShellWebMenuTests testEachPageCaseGetsTheReferencesItems]' started.
+t3.textmenu: Cut (disabled) | Copy | Paste (disabled) | Select All
+t3.textmenu: Copy Link | — | Cut (disabled) | Copy | Paste (disabled) | Select All
+t3.textmenu: Copy Image | — | Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All
+t3.textmenu: Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All (disabled)
+t3.textmenu: Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All
+Test Case '-[T3contextmenuTests.ShellWebMenuTests testEachPageCaseGetsTheReferencesItems]' passed (6.880 seconds).
+Test Case '-[T3contextmenuTests.ShellWebMenuTests testReshapeKeepsWebKitsOwnItemsForTheHitAndDropsTheRest]' started.
+Test Case '-[T3contextmenuTests.ShellWebMenuTests testReshapeKeepsWebKitsOwnItemsForTheHitAndDropsTheRest]' passed (2.031 seconds).
+Test Suite 'ShellWebMenuTests' passed at 2026-10-11 13:35:38.006.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 12.663 (12.664) seconds
+Test Suite 'RealInput1010gTests' started at 2026-10-11 13:35:38.006.
+Test Case '-[T3contextmenuTests.RealInput1010gTests testCutTakesTheWordTheRightClickSelectedInAField]' started.
+Test Case '-[T3contextmenuTests.RealInput1010gTests testCutTakesTheWordTheRightClickSelectedInAField]' passed (0.044 seconds).
+Test Case '-[T3contextmenuTests.RealInput1010gTests testTheDrawnShellMenuHasNoAutoFillServicesOrWritingTools]' started.
+Test Case '-[T3contextmenuTests.RealInput1010gTests testTheDrawnShellMenuHasNoAutoFillServicesOrWritingTools]' passed (1.678 seconds).
+Test Case '-[T3contextmenuTests.RealInput1010gTests testTheToolIconUnderItsPassThroughHookGetsCopyImage]' started.
+Test Case '-[T3contextmenuTests.RealInput1010gTests testTheToolIconUnderItsPassThroughHookGetsCopyImage]' passed (0.040 seconds).
+Test Suite 'RealInput1010gTests' passed at 2026-10-11 13:35:39.769.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 1.763 (1.763) seconds
+Test Suite 'RealInput1010gWebTests' started at 2026-10-11 13:35:39.769.
+Test Case '-[T3contextmenuTests.RealInput1010gWebTests testABrowserPagesMenuIsDrawnWithoutServicesOrAutoFill]' started.
+Test Case '-[T3contextmenuTests.RealInput1010gWebTests testABrowserPagesMenuIsDrawnWithoutServicesOrAutoFill]' passed (2.268 seconds).
+Test Suite 'RealInput1010gWebTests' passed at 2026-10-11 13:35:42.036.
+	 Executed 1 test, with 0 failures (0 unexpected) in 2.268 (2.268) seconds
+Test Suite 'ShellMenuForLinkTests' started at 2026-10-11 13:35:42.036.
+Test Case '-[T3contextmenuTests.ShellMenuForLinkTests testALinksHandlerLeavesItsClickToTheShellOnce]' started.
+Test Case '-[T3contextmenuTests.ShellMenuForLinkTests testALinksHandlerLeavesItsClickToTheShellOnce]' passed (0.005 seconds).
+Test Case '-[T3contextmenuTests.ShellMenuForLinkTests testAWebLinkWouldStillGetCopyLinkFromTheTemplate]' started.
+Test Case '-[T3contextmenuTests.ShellMenuForLinkTests testAWebLinkWouldStillGetCopyLinkFromTheTemplate]' passed (0.003 seconds).
+Test Case '-[T3contextmenuTests.ShellMenuForLinkTests testNoClickOrAStaleOneOpensNothing]' started.
+Test Case '-[T3contextmenuTests.ShellMenuForLinkTests testNoClickOrAStaleOneOpensNothing]' passed (0.003 seconds).
+Test Case '-[T3contextmenuTests.ShellMenuForLinkTests testPageTextSelectedEnablesCopyAsOnThePage]' started.
+Test Case '-[T3contextmenuTests.ShellMenuForLinkTests testPageTextSelectedEnablesCopyAsOnThePage]' passed (0.003 seconds).
+Test Suite 'ShellMenuForLinkTests' passed at 2026-10-11 13:35:42.050.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.014 (0.014) seconds
+Test Suite 'Context menus, tab input, file menus and the shell's menu' passed at 2026-10-11 13:35:42.050.
+	 Executed 57 tests, with 0 failures (0 unexpected) in 18.108 (18.115) seconds
+t3.rg3: composer "chek", AppKit's pop-up (6bac646cc): ["check", "chef", "Cut", "Copy", "Paste", "Select All", "AutoFill", "Services"]; the shell's: ["check", "chef", "Cut", "Copy", "Paste", "Select All"]
+t3.rg3: field "theme", AppKit's pop-up (6bac646cc): ["Cut", "Copy", "Paste", "Select All", "AutoFill", "Services"]; the shell's: ["Cut", "Copy", "Paste", "Select All"]
+t3.rg3: Browser page, a word: ["Cut", "Copy", "Paste", "Select All"]; a word in a field: ["Cut", "Copy", "Paste", "Select All"]
+context menu tests: 57 run, 0 failed
