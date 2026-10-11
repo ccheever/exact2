@@ -13,11 +13,12 @@ The only required reading; the rest is lookup, listed last.
    mode are the platform's. A colour or size names a role (`-exact-secondary-label`,
    `font="-exact-footnote"`, `-exact-system-red`); a lookalike of a system control is a
    bug (`bun <exact2>/scripts/no-tells.mjs .` lists literals). The one colour you write
-   is the accent, on the root: a role (`accent-color="-exact-system-indigo"`) or one
-   `light-dark(light, dark)` pair, which controls, tabs, progress, links and
-   `exact:content` follow. Others are unsaid or roles (`-exact-label`,
-   `-exact-secondary-grouped-background`): a hex on text, a page or a card stays put in
-   dark mode while the platform's text and controls change (four apps broke).
+   is the accent, on the root: any system colour (`accent-color="-exact-system-teal"`) or
+   one `light-dark(light, dark)` pair, which controls, tabs, progress, links and
+   `exact:content` follow. Others are unsaid or roles, since a hex stays put in dark
+   mode. A card on a plain page is `-exact-secondary-background`, on a
+   `-exact-grouped-background` page `-exact-secondary-grouped-background`; a surface
+   inside a card is the tertiary role.
 4. **Design your content:** the screen's purpose gets a focal point (big type, a fill,
    a shape), rows a hierarchy, an empty state what to do, a wide window two columns;
    inset-grouped is for settings and forms. `exact:content` draws these
@@ -31,7 +32,7 @@ bun exact.mjs pattern      # lists the starting apps; `pattern list-detail` writ
 bun exact.mjs ios          # in the background: the first iOS build takes minutes
 ```
 
-Start from the nearest pattern and change it: it compiles and passes its tests.
+Start from the nearest pattern: it compiles and passes its tests.
 
 | `bun exact.mjs …` | What it does |
 | --- | --- |
@@ -194,13 +195,12 @@ detail, a create sheet, a delete alert: `pattern list-detail` (in an app you
 have, `navigation-stack`). Tabs: `pattern tabs` (`tabs`). A summary, bars, a ring:
 `pattern dashboard` (`content-design`). Your own server: `pattern rest` (`rest-backend`).
 
-**A recipe**, [`recipes/<name>.md`](recipes/): `grouped-form` (forms, settings),
-`after-a-write`, `keyboard-and-focus`, `number-field` (`inputmode="decimal"`),
-`numeric-readout`, `money` (`formatNumber`), `dates-and-days`, `timers` (`task …
-every`), `timer-that-survives-relaunch`, `random-and-shuffle`, `symbols`,
-`chat-thread`, `persisted-setting` (`persist`), `files-and-grants` (SQLite too),
-`fetch-loading-error`, `responsive-columns`, `web-look` (wide screens), `tests`,
-`ios-driving`, `functions`.
+**A recipe**, [`recipes/<name>.md`](recipes/): `grouped-form`, `after-a-write`,
+`keyboard-and-focus`, `number-field` (`inputmode="decimal"`), `numeric-readout`,
+`money` (`formatNumber`), `dates-and-days`, `timers`, `timer-that-survives-relaunch`,
+`random-and-shuffle`, `symbols`, `chat-thread`, `persisted-setting` (`persist`),
+`files-and-grants` (SQLite too), `fetch-loading-error`, `responsive-columns`,
+`web-look` (wide screens), `tests`, `ios-driving`, `functions`.
 
 **Otherwise:** `bun exact.mjs contract vocab <name> <name> …` for any tag, property,
 function or part; [contract-for-agents](contract-for-agents.md) and

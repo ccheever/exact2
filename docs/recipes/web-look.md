@@ -23,8 +23,8 @@ your own box.
 
 What you write wins: a heading's `font-weight`, an `accent-color` on a button or the root.
 The one colour to write is that accent, a role or one `light-dark(light, dark)` pair. A
-page, card or text colour is a role (`-exact-secondary-grouped-background`,
-`-exact-label`) or unsaid: a hex stays the same in dark mode while the controls change.
+page, card or text colour is a role (a card on a plain page `-exact-secondary-background`,
+text `-exact-label`) or unsaid: a hex stays the same in dark mode while the controls change.
 
 ## The attributes that matter
 

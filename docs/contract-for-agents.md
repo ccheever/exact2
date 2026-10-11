@@ -2265,7 +2265,11 @@ UIKit's inherited `tintColor` is), and Exact's `-exact-label`,
 `quaternary-`), and the hues `-exact-system-red`, `-orange`, `-yellow`, `-green`,
 `-mint`, `-teal`, `-cyan`, `-blue`, `-indigo`, `-purple`, `-pink`, `-brown`,
 `-gray` (each `-exact-system-…`). `color="-exact-secondary-label"`, not
-`color="#8e8e93"`; `border-color="-exact-separator"`, not a grey hex. A brand colour
+`color="#8e8e93"`; `border-color="-exact-separator"`, not a grey hex. Surfaces come
+in pairs: a card on a plain page (`-exact-background`, or unsaid) is
+`-exact-secondary-background`; on a `-exact-grouped-background` page it is
+`-exact-secondary-grouped-background` (white in light mode, so on a plain white page
+it vanishes); a surface inside either card is its pair's tertiary role. A brand colour
 the platform has no role for is the one place for a literal.
 
 **Type: say a heading, not a size.** Body text is the platform's body size

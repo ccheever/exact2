@@ -11,7 +11,9 @@
 - **A wide window gets a layout:** two columns or cards (`flex="1 1 320px"` in a wrapping
   row), not a phone's column centred.
 - **Colour is a role, a system colour or the accent** (`accent-color` on the root), never
-  a hex.
+  a hex. Surfaces pair with their page: a card on a plain page is
+  `-exact-secondary-background`, on a `-exact-grouped-background` page
+  `-exact-secondary-grouped-background`; a surface inside a card the tertiary role.
 
 | Part | Props (`none` for an option) | For |
 | --- | --- | --- |
