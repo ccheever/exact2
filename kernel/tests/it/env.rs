@@ -546,3 +546,28 @@ fn a_compact_env_sum_keeps_positioned_layout_finite() {
         .unwrap();
     assert_eq!(frame(&kernel, 2), (f32::MAX, f32::MIN, 10.0, 10.0));
 }
+
+#[test]
+fn compact_segment_edges_preserve_cancellation_before_narrowing() {
+    exact_kernel::link_segments();
+    for var in ["right", "bottom"] {
+        for (origin, size, offset, expected) in [
+            (3e38, 3e38, -3e38, 3e38),
+            (-3e38, -3e38, 3e38, -3e38),
+            (3e38, 3e38, 0.0, f32::MAX),
+            (-3e38, -3e38, 0.0, f32::MIN),
+            (20.0, 40.0, -70.0, -10.0),
+        ] {
+            let env = Env::default().with_segments(
+                2,
+                1,
+                vec![Rect::new(origin, origin, size, size), Rect::default()],
+            );
+            assert!(env.is_finite());
+            let source = format!("calc(env(viewport-segment-{var} 0 0) + {offset}px)");
+            let d = Dimension::parse_env(&source).unwrap();
+            assert_eq!(d.resolve(&env), Dimension::Points(expected), "{source}");
+            assert_eq!(d.resolve(&Env::default()), Dimension::Auto);
+        }
+    }
+}
