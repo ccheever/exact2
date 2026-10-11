@@ -105,13 +105,16 @@ impl Oracle {
 
     /// The device store as the host hands it to the runner: each value as
     /// the runner's persisted text, under its runner-owned name.
-    pub fn snapshot(&self) -> Vec<(String, String)> {
+    pub fn snapshot(&self) -> Vec<(String, Vec<u8>)> {
         self.stored
             .iter()
             .map(|(name, _, v)| {
                 let mut text = String::new();
                 exact_runner::runner::persist::encode(v, &mut text);
-                (format!("{}{name}", exact_runner::Store::STATE), text)
+                (
+                    format!("{}{name}", exact_runner::Store::STATE),
+                    text.into_bytes(),
+                )
             })
             .collect()
     }

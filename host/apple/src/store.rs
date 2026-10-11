@@ -52,10 +52,13 @@ impl Prefs {
         }
     }
 
-    fn read(&self, kv: &Kv) -> Vec<(String, String)> {
+    fn read(&self, kv: &Kv) -> Vec<(String, Vec<u8>)> {
         match self {
             #[cfg(target_vendor = "apple")]
-            Prefs::Defaults(app) => crate::defaults::read(app, Store::STATE),
+            Prefs::Defaults(app) => crate::defaults::read(app, Store::STATE)
+                .into_iter()
+                .map(|(name, value)| (name, value.into_bytes()))
+                .collect(),
             #[cfg(not(target_vendor = "apple"))]
             Prefs::Defaults(_) => Vec::new(),
             Prefs::Kv => kv
@@ -63,7 +66,7 @@ impl Prefs {
                 .unwrap_or_default()
                 .into_iter()
                 .filter_map(|key| {
-                    let value = kv.get_text(STATE, &key).ok().flatten()?;
+                    let value = kv.get(STATE, &key).ok().flatten()?;
                     Some((format!("{}{key}", Store::STATE), value))
                 })
                 .collect(),
@@ -201,7 +204,7 @@ pub struct Endowed {
     /// The bindings the executor takes.
     pub bindings: Option<Bindings>,
     /// What the platform's stores held, read before the runner boots.
-    pub snapshot: Vec<(String, String)>,
+    pub snapshot: Vec<(String, Vec<u8>)>,
     /// Where a commit's writes go.
     pub secrets: Option<Box<dyn KeptStore>>,
     /// Why the grants bound nothing.
@@ -274,7 +277,8 @@ impl Platform {
         // A persisted state: a preference, written now (a setting changes
         // when a person changes it, not every frame).
         if let Some(key) = w.name.strip_prefix(Store::STATE) {
-            return self.prefs.write(&self.kv, key, w.value.as_deref());
+            let text = w.value.as_deref().map(String::from_utf8_lossy);
+            return self.prefs.write(&self.kv, key, text.as_deref());
         }
         match (w.name.strip_prefix(Store::KEPT), &w.value) {
             (Some(key), value) => {
@@ -292,7 +296,7 @@ impl Platform {
                 );
                 Ok(())
             }
-            (None, Some(v)) => self.secrets.set(&w.name, v),
+            (None, Some(v)) => self.secrets.set(&w.name, &String::from_utf8_lossy(v)),
             (None, None) => self.secrets.forget(&w.name),
         }
     }
@@ -333,7 +337,7 @@ impl Drop for Failures {
 /// writer (`flush_kept`). An answer a crash loses is fetched again.
 struct Kept {
     kv: Kv,
-    value: Option<String>,
+    value: Option<Vec<u8>>,
     failed: std::sync::Arc<Failures>,
 }
 
@@ -404,7 +408,7 @@ fn write_kept() {
 
 fn write_one(key: &str, write: Kept) {
     let done = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match &write.value {
-        Some(v) => write.kv.set_text(KEPT, key, v),
+        Some(v) => write.kv.set(KEPT, key, v),
         None => write.kv.delete(KEPT, key),
     }));
     let why = match done {
@@ -435,12 +439,12 @@ fn wait_until_written(
 
 /// What the store holds under the granted names — the runner's snapshot.
 /// A name the store cannot read is absent, as an ungranted one is.
-pub fn snapshot_of(bindings: Option<&Bindings>) -> Vec<(String, String)> {
+pub fn snapshot_of(bindings: Option<&Bindings>) -> Vec<(String, Vec<u8>)> {
     snapshot_in(bindings, &Prefs::Kv)
 }
 
 /// [`snapshot_of`], with the persisted states `prefs` holds (LLP 1116 D5).
-pub fn snapshot_in(bindings: Option<&Bindings>, prefs: &Prefs) -> Vec<(String, String)> {
+pub fn snapshot_in(bindings: Option<&Bindings>, prefs: &Prefs) -> Vec<(String, Vec<u8>)> {
     let Some(b) = bindings else {
         return Vec::new();
     };
@@ -451,13 +455,19 @@ pub fn snapshot_in(bindings: Option<&Bindings>, prefs: &Prefs) -> Vec<(String, S
             .unwrap_or_default()
             .into_iter()
             .filter_map(|key| {
-                let value = b.kv.get_text(KEPT, &key).ok().flatten()?;
+                let value = b.kv.get(KEPT, &key).ok().flatten()?;
                 Some((format!("{}{key}", Store::KEPT), value))
             });
     b.secrets
         .names()
         .iter()
-        .filter_map(|n| b.secrets.get(n).ok().flatten().map(|v| (n.to_string(), v)))
+        .filter_map(|n| {
+            b.secrets
+                .get(n)
+                .ok()
+                .flatten()
+                .map(|v| (n.to_string(), v.into_bytes()))
+        })
         .chain(kept)
         .chain(prefs.read(&b.kv))
         .collect()
@@ -478,16 +488,20 @@ mod tests {
         };
         let write = |name: &str, value: Option<&str>| StoreWrite {
             name: name.into(),
-            value: value.map(str::to_string),
+            value: value.map(|v| v.as_bytes().to_vec()),
         };
         let first = Platform::of(&launch());
-        // A resource's own name is the key, whatever its case.
+        // A resource's own name is the key, whatever its case, and its
+        // bytes are kept as they are, text or not
+        let bytes = vec![5, 0, 0, 0, 0, 0xff, 0x80];
         first
-            .write(&write("exact.kept.crewState", Some("args|value")))
+            .write(&StoreWrite {
+                name: "exact.kept.crewState".into(),
+                value: Some(bytes.clone()),
+            })
             .unwrap();
         first.write(&write("app.token", Some("t"))).unwrap();
-        assert!(snapshot_of(Some(&launch()))
-            .contains(&("exact.kept.crewState".into(), "args|value".into())));
+        assert!(snapshot_of(Some(&launch())).contains(&("exact.kept.crewState".into(), bytes)));
         first.write(&write("exact.kept.crewState", None)).unwrap();
         assert!(!snapshot_of(Some(&launch()))
             .iter()
@@ -602,7 +616,7 @@ mod tests {
         let opens = Opens(gated.clone());
         let keep = |value: Option<&str>| StoreWrite {
             name: "exact.kept.feed".into(),
-            value: value.map(str::to_string),
+            value: value.map(|v| v.as_bytes().to_vec()),
         };
         // The disk is shut: every write still returns.
         for value in [Some("1"), Some("2"), None, Some("3"), Some("4")] {
@@ -695,7 +709,7 @@ mod tests {
         let launch = || endow_for(grants, app).unwrap();
         let write = |name: &str, value: Option<&str>| StoreWrite {
             name: name.into(),
-            value: value.map(str::to_string),
+            value: value.map(|v| v.as_bytes().to_vec()),
         };
         let first = Platform::of(&launch());
         first
