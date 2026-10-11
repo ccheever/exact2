@@ -9,13 +9,20 @@
 //! `routes.rs`'s `check_scroll` does: a `when`, `each` or `match`, a use
 //! or a slot, a computed role or type.
 
+use crate::tags::AttrTarget;
 use crate::LowerError;
-use contract_syntax::{Attr, BinOp, Expr, FnDecl, Node, Span, Stmt, TemplatePart, UnOp};
+use contract_syntax::{
+    Attr, BinOp, Binding, Component, Expr, FnDecl, Node, Span, Stmt, StyleDecl, TemplatePart, UnOp,
+};
 use contract_types::Checked;
+use exact_kernel::StyleId;
 use exact_plan::Stdlib;
 use std::collections::BTreeSet;
 
-/// At most this many warnings from one compile.
+/// At most this many warnings from one compile, before the colours that
+/// stay one scheme: those name every site, each in a short line, since a
+/// repair of the first twenty would only show the next (rules/RULES.md,
+/// "Every check reports all failures in one run").
 pub const MAX_WARNINGS: usize = 20;
 
 /// Every warning the checked file earns, in source order of its checks.
@@ -52,6 +59,7 @@ pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
     }
     performance_now(root, &checked.file.fns, &mut out);
     out.truncate(MAX_WARNINGS);
+    one_scheme(root, &checked.file.styles, &checked.file.fns, &mut out);
     out
 }
 
@@ -586,6 +594,306 @@ fn performance_now(root: &contract_syntax::Component, fns: &[FnDecl], out: &mut 
                 "this argument to `{source}` is computed from `performanceNow()`, the milliseconds since this launch, which start again at 0 on every launch, so a time the source keeps is wrong after a relaunch. Send the wall-clock time, `time.epochAtZero + performanceNow()` (with `resource time = exactTime() as shape T` and `epochAtZero: number` in `T`), or a duration, `performanceNow() - start` (docs/contract-grammar.md, `performanceNow()`)"
             ),
             span,
+        });
+    }
+}
+
+/// What a colour property paints, for the role its repair names.
+#[derive(Clone, Copy)]
+enum Paints {
+    Text,
+    Surface,
+    Line,
+    Accent,
+}
+
+impl Paints {
+    /// The rows whose colour is the page's own: text, surfaces, lines and
+    /// the accent. `fill`, `stroke` and a symbol's palette are artwork's,
+    /// and a shadow darkens in either scheme, as UIKit's does.
+    fn of(name: &str) -> Option<Paints> {
+        let rows = match crate::style_names::lookup(name)? {
+            AttrTarget::Styles(rows) => rows,
+            AttrTarget::Shorthand => crate::shorthands::rows(name),
+            _ => return None,
+        };
+        rows.iter().find_map(|row| match row {
+            StyleId::TextColor | StyleId::CaretColor | StyleId::TextStrokeColor => {
+                Some(Paints::Text)
+            }
+            StyleId::BackgroundColor => Some(Paints::Surface),
+            StyleId::BorderColorTop
+            | StyleId::BorderColorRight
+            | StyleId::BorderColorBottom
+            | StyleId::BorderColorLeft
+            | StyleId::ColumnRuleColor => Some(Paints::Line),
+            StyleId::AccentColor | StyleId::TintColor => Some(Paints::Accent),
+            _ => None,
+        })
+    }
+
+    fn repair(self) -> &'static str {
+        match self {
+            Paints::Text => "name a role (`-exact-label`, `-exact-secondary-label`, `AccentColor`) or leave it unsaid",
+            Paints::Surface => "name a role (`-exact-secondary-grouped-background`, `-exact-fill`, `AccentColor`) or leave it unsaid",
+            Paints::Line => "name a role (`-exact-separator`) or leave it unsaid",
+            Paints::Accent => "name a role (`-exact-system-teal`) or write one `light-dark(light, dark)` pair",
+        }
+    }
+}
+
+/// Whether one value of a colour property is a literal colour, the same in
+/// both schemes: a hex, `rgb()`, `hsl()`, a colour in its own space or a
+/// named colour. `transparent` (any colour of no alpha), `currentColor`,
+/// the roles (`-exact-label`, `CanvasText`, `AccentColor`), a
+/// `light-dark()` pair and `-exact-platform-color()` are not.
+fn literal_colour(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    if let Some(open) = lower.find('(') {
+        let colour = matches!(
+            &lower[..open],
+            "rgb" | "rgba" | "hsl" | "hsla" | "hwb" | "lab" | "lch" | "oklab" | "oklch" | "color"
+        );
+        if !colour {
+            return false;
+        }
+    }
+    match exact_color::parse(&lower) {
+        Some(exact_color::Parsed::Legacy(c)) => c.a > 0.0,
+        Some(exact_color::Parsed::Wide(c)) => c.alpha > 0.0,
+        _ => false,
+    }
+}
+
+/// The literal colours in one string a colour property takes: each value
+/// at the top level, where white space and commas outside parentheses
+/// split them (`1px solid #ddd`), so `light-dark(#fff, #000)` is one.
+fn literal_colours(text: &str, out: &mut Vec<String>) {
+    let (mut depth, mut start) = (0usize, None);
+    let mut take = |s: &str| {
+        if literal_colour(s) && !out.iter().any(|c| c == s) {
+            out.push(s.to_string());
+        }
+    };
+    for (i, c) in text.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            c if (c.is_whitespace() || c == ',') && depth == 0 => {
+                if let Some(s) = start.take() {
+                    take(&text[s..i]);
+                }
+                continue;
+            }
+            _ => {}
+        }
+        start.get_or_insert(i);
+    }
+    if let Some(s) = start {
+        take(&text[s..]);
+    }
+}
+
+/// What the view's names may hold, as far as colour goes.
+struct Leaves<'a> {
+    fns: &'a [FnDecl],
+    derives: &'a [Binding],
+}
+
+impl Leaves<'_> {
+    /// The literal colours `e` may be: its string leaves, through `?:`,
+    /// `match`, a template's text, a `fn`'s body and a derive. A name the
+    /// view binds, a state, a field or a call of the stdlib is given the
+    /// benefit of the doubt. `depth` bounds the expansion.
+    fn colours(&self, e: &Expr, locals: &[String], depth: u32, out: &mut Vec<String>) {
+        match e {
+            Expr::Str(text, _) => literal_colours(text, out),
+            Expr::Template(parts, _) => {
+                for p in parts {
+                    if let TemplatePart::Text(text) = p {
+                        literal_colours(text, out);
+                    }
+                }
+            }
+            Expr::Ternary(_, yes, no, _) => {
+                self.colours(yes, locals, depth, out);
+                self.colours(no, locals, depth, out);
+            }
+            Expr::Match {
+                var, some, none, ..
+            } => {
+                let mut inner = locals.to_vec();
+                inner.push(var.clone());
+                self.colours(some, &inner, depth, out);
+                self.colours(none, locals, depth, out);
+            }
+            Expr::Let { name, body, .. } => {
+                let mut inner = locals.to_vec();
+                inner.push(name.clone());
+                self.colours(body, &inner, depth, out);
+            }
+            Expr::Typed(inner, _, _) | Expr::Some(inner, _) => {
+                self.colours(inner, locals, depth, out)
+            }
+            Expr::Call(name, _, _) if depth > 0 => {
+                if let Some(f) = self.fns.iter().find(|f| &f.name == name) {
+                    let params: Vec<String> = f.params.iter().map(|p| p.name.clone()).collect();
+                    self.colours(&f.body, &params, depth - 1, out);
+                }
+            }
+            Expr::Ident(name, _) if depth > 0 && !locals.contains(name) => {
+                if let Some(d) = self.derives.iter().find(|d| &d.name == name) {
+                    self.colours(&d.expr, &[], depth - 1, out);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// One attribute that sets a literal colour.
+struct Site {
+    span: Span,
+    name: String,
+    paints: Paints,
+    colours: Vec<String>,
+}
+
+/// Every attribute of `attrs` that sets a literal colour on the page's own
+/// rows, once a name.
+fn colour_sites(attrs: &[Attr], leaves: &Leaves<'_>, locals: &[String], out: &mut Vec<Site>) {
+    for (i, a) in attrs.iter().enumerate() {
+        if attrs[i + 1..].iter().any(|b| b.name == a.name) {
+            continue;
+        }
+        let Some(paints) = Paints::of(&a.name) else {
+            continue;
+        };
+        let mut colours = Vec::new();
+        leaves.colours(&a.value, locals, 4, &mut colours);
+        if !colours.is_empty() {
+            out.push(Site {
+                span: a.span,
+                name: a.name.clone(),
+                paints,
+                colours,
+            });
+        }
+    }
+}
+
+/// `lower-colour-one-scheme`: a literal colour (a hex, `rgb()`, `hsl()`, a
+/// named colour) on a colour property of the page, outside `light-dark()`
+/// (LLP 1116.002 D1). It stays the same in dark mode while the platform's
+/// text and controls change: round 4's light cards under white text. The
+/// one authored colour is the accent, a role or one `light-dark()` pair;
+/// the rest are roles or unsaid. It still fires when the app forces a
+/// `color-scheme`, which is the app with no dark mode. Artwork (`fill`,
+/// `stroke`, anything in an `svg`, a game's picture) is exempt.
+///
+/// One line a node and property, each short, so every site is named in
+/// one run; with more than one, a last line says why and what the accent
+/// may be.
+fn one_scheme(root: &Component, styles: &[StyleDecl], fns: &[FnDecl], out: &mut Vec<LowerError>) {
+    // A game (LLP 1046) reads its world through `exactSurface`: its HUD and
+    // title screen are its art, over a world no scheme repaints.
+    if root.resources.iter().any(|r| r.source == "exactSurface") {
+        return;
+    }
+    let leaves = Leaves {
+        fns,
+        derives: &root.derives,
+    };
+    let mut sites = Vec::new();
+    for s in styles {
+        colour_sites(&s.attrs, &leaves, &[], &mut sites);
+    }
+    let mut stack: Vec<(&Node, Vec<String>)> =
+        root.view.iter().rev().map(|n| (n, Vec::new())).collect();
+    while let Some((node, locals)) = stack.pop() {
+        let (children, locals): (Vec<&Node>, Vec<String>) = match node {
+            Node::Element { tag, .. } if tag == "svg" => continue,
+            Node::Element {
+                attrs, children, ..
+            } => {
+                colour_sites(attrs, &leaves, &locals, &mut sites);
+                (children.iter().collect(), locals)
+            }
+            Node::When {
+                then, otherwise, ..
+            } => (then.iter().chain(otherwise).collect(), locals),
+            Node::Each {
+                var, index, body, ..
+            } => {
+                let mut inner = locals;
+                inner.push(var.clone());
+                inner.extend(index.clone());
+                (body.iter().collect(), inner)
+            }
+            Node::Match { some, none, .. } => {
+                // The `none` arm cannot see the `some` arm's name; a name
+                // bound in either is the benefit of the doubt in both.
+                let mut inner = locals;
+                inner.push(some.0.clone());
+                (some.1.iter().chain(none).collect(), inner)
+            }
+            Node::Use { children, .. } => (children.iter().collect(), locals),
+            Node::Children { .. } => continue,
+        };
+        stack.extend(children.into_iter().rev().map(|n| (n, locals.clone())));
+    }
+    // A component used twice is inlined twice: one line for its source.
+    let mut seen = BTreeSet::new();
+    sites.retain(|s| {
+        seen.insert((
+            s.span.source_id,
+            s.span.line,
+            s.span.col,
+            s.span.end_col,
+            s.name.clone(),
+        ))
+    });
+    let why = "The one authored colour is the accent: a role, or one `light-dark(light, dark)` pair on `accent-color`. A forced `color-scheme` is no repair: the app then has no dark mode (docs/contract-for-agents.md, \"Colours: say a role, not a value\")";
+    // `#fff` on `color` stays; `#fff`, `#eee` on `background-color` stay.
+    let shown = |s: &Site| {
+        let mut shown: Vec<String> = s.colours.iter().take(3).map(|c| format!("`{c}`")).collect();
+        if s.colours.len() > 3 {
+            shown.push("…".into());
+        }
+        let stay = if s.colours.len() == 1 {
+            "stays"
+        } else {
+            "stay"
+        };
+        format!("{} on `{}` {stay}", shown.join(", "), s.name)
+    };
+    if let [s] = sites.as_slice() {
+        out.push(LowerError {
+            id: "lower-colour-one-scheme",
+            message: format!(
+                "{} the same in dark mode while the platform's text and controls change: {}. {why}",
+                shown(s),
+                s.paints.repair()
+            ),
+            span: s.span,
+        });
+        return;
+    }
+    for s in &sites {
+        out.push(LowerError {
+            id: "lower-colour-one-scheme",
+            message: format!("{} the same in dark mode: {}", shown(s), s.paints.repair()),
+            span: s.span,
+        });
+    }
+    if let Some(first) = sites.first() {
+        out.push(LowerError {
+            id: "lower-colour-one-scheme",
+            message: format!(
+                "these {} literal colours stay the same in dark mode while the platform's text and controls change, so a light card keeps its colour under the platform's white text: name a role for each or leave it unsaid. {why}",
+                sites.len()
+            ),
+            span: first.span,
         });
     }
 }
