@@ -57,12 +57,13 @@ object Native {
     @JvmStatic external fun canvasFrame(view: Int): Long
     /** That frame's buffer, or null. */
     @JvmStatic external fun canvasBuffer(view: Int): android.hardware.HardwareBuffer?
-    /** A key at the focused field: a character (or '\n' for Enter), or Backspace. Apps whose activity sets
-     * [ExactActivity.input] export it (and [editing], [back]). */
+    /** A key at the focused field: a character (or '\n' for Enter), or Backspace. */
     @JvmStatic external fun key(code: Int, backspace: Boolean)
     /** Whether an editable field holds the focus: 0 none, 1 an input, 3 a textarea. */
     @JvmStatic external fun editing(): Int
-    /** System Back: whether the app pressed its `id="back"` control. */
+    /** System Back (LLP 1115.001 D6): whether the app took it. From its navigation root's selected route it goes to
+     * the Back control the root names, else to the root's `navigate` handler, else it is the runner's own `back`;
+     * false when there is nowhere to go back to, and the activity finishes. */
     @JvmStatic external fun back(): Boolean
     /** Run the calling thread on the cores outside the slowest cluster; whether it was set. */
     @JvmStatic external fun fastCores(): Boolean

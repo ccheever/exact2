@@ -92,25 +92,30 @@ The cut was the smallest one. Left in the reader:
 ## Not done
 
 - **Most of LLP 1115.001.** A finger does not scroll, text arrives one key at a time, the Rust calls nothing on the
-  platform, and there is no accessibility. The app is edge to edge (D3.3, D3.4, D3.6): the reader tells exact2 the
-  window's size, the display's density and the system's raw insets (bars, cutout, keyboard, gestures;
-  `Native.window`) and pads nothing; exact2 says where the page is, what colour is behind it and whether its scheme
-  is dark (`Native.chrome`), and the reader puts the view there, makes that colour the window's background and sets
-  the bars' icons by it. The software keyboard ends the page at its top, and the field being edited stays in view.
-  The keyboard's own slide is not followed frame by frame (`WindowInsetsAnimation`), and a `status-bar-style`
-  (LLP 1105) is not read. The device's settings
-  reach the app (D3.1, `Device.kt`, `Native.configure`): night mode, the font scale (the root font size is 16 times
-  it; Material's type ramp is a later stage), the locale, "remove animations", high contrast, and that the screen is
-  a finger's. The layout direction, the 12 or 24-hour clock and bold text cross too and change nothing yet: exact2
-  has no door for them. Of the lifecycle (D15) the first two parts are built: the manifest declares the configuration changes
-  the host takes in place, an activity made again adopts the host that runs (`Native.start` on a thread that has
-  one), and the host does no frame work while the activity is stopped. Nothing is saved for a process the system
-  kills (D15.3).
+  platform, and there is no accessibility. What is built of it:
+  - *Edge to edge* (D3.3, D3.4, D3.6). The reader tells exact2 the window's size, the display's density and the
+    system's raw insets (bars, cutout, keyboard, gestures; `Native.window`) and pads nothing. exact2 says where the
+    page is, what colour is behind it and whether its scheme is dark (`Native.chrome`); the reader puts the view
+    there, makes that colour the window's background and sets the bars' icons by the scheme. The software keyboard
+    ends the page at its top, and the field being edited stays in view. The keyboard's own slide is not followed
+    frame by frame (`WindowInsetsAnimation`), and a `status-bar-style` (LLP 1105) is not read.
+  - *The device's settings* (D3.1, `Device.kt`, `Native.configure`): night mode, the font scale (the root font size
+    is 16 times it; Material's type ramp is a later stage), the locale, "remove animations", high contrast, and that
+    the screen is a finger's. The layout direction, the 12 or 24-hour clock and bold text cross too and change
+    nothing yet: exact2 has no door for them.
+  - *Back, in order* (D6, `Native.back`): from the navigation root's selected route, the Back control the root names,
+    else the root's `navigate`, else the runner's own `back`; with nowhere to go back to, the activity finishes. The
+    back callback is always enabled, so there is no predictive preview, and no top layer closes first (there is
+    none yet).
+  - *The lifecycle's first two parts* (D15): the manifest declares the configuration changes the host takes in
+    place, an activity made again adopts the host that runs (`Native.start` on a thread that has one), and the host
+    does no frame work while the activity is stopped. Nothing is saved for a process the system kills (D15.3).
 - **No agent carrier** for the APK (`--reader`, LLP 1107 §4.4).
 - **No check builds any of it.** Gradle is in none of the five checks or the async lane, and nothing builds
   `exact-linux` for the Android target.
-- **The shell is a development build**: signed with the debug key, with no icon. Its one activity turns keys on for every app, and gives none a native module
-  (LLP 1024) or a video player, which the benchmark's apps passed from an activity of their own.
+- **The shell is a development build**: signed with the debug key, with no icon. Its one activity turns keys on for
+  every app, and gives none a native module (LLP 1024) or a video player, which the benchmark's apps passed from an
+  activity of their own.
 - **An app's GPU module** (LLP 1009) is not built or packaged, as the benchmark's `build.sh` did for its apps.
   Caltrain's sky was not tried.
 - **No update store** and no replaced Rust module: the Canvas host has neither, though an app's compatibility

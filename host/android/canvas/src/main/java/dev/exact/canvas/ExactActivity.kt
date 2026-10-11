@@ -30,8 +30,7 @@ open class ExactActivity : Activity() {
     private var natives: Natives? = null
     /** The row pitch `start=N` scrolls by (0: the app's plan scrolls to it itself). */
     protected open val startPitchDp = 0f
-    /** The app has text fields: keys and the software keyboard reach it ([Keys]), and system Back presses its
-     * `id="back"` control (the app's library exports Native.key, editing and back). */
+    /** The app has text fields: keys and the software keyboard reach it ([Keys]). */
     protected open val input = false
     /**
      * The seam a driver attaches at ([Drive]); the default attaches none. Called once, in [onCreate], when the host
@@ -120,11 +119,12 @@ open class ExactActivity : Activity() {
         view.owner = owner
         owner?.editingChanged = { view.keys?.focusChanged() }
         Exact.answered = { view.onPublished() }
-        if (input) {
-            view.keys = Keys(view)
-            onBackInvokedDispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT) {
-                if (Exact.back()) view.invalidate() else finish()
-            }
+        if (input) view.keys = Keys(view)
+        // System Back goes where the app's routes send it ([Native.back], LLP 1115.001 D6); with nowhere to go it
+        // leaves the app. The callback is always on: enabling it only while Back has somewhere to go, which gives
+        // the system's own leave animation and its predictive preview, waits for the host to be able to say so.
+        onBackInvokedDispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT) {
+            if (Exact.back()) view.invalidate() else finish()
         }
         // No background of its own: the window's shows behind the page, the launch theme's surface until the host says
         // the page's ([chrome]).
