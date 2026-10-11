@@ -7,7 +7,7 @@ use CodeTip from "./r4-timeline-tips.contract"
 use Icon from "./icons.contract"
 use MorphMaximize from "./shell-morph.contract"
 use CiteButton, CitePart from "./diff-cite.contract"
-use MarkdownMedia from "./media-markdown.contract"
+use MarkdownMedia, MarkdownInlineMedia from "./media-markdown.contract"
 use hoverTipAtFrame from "./hover-layer.contract" // pr-links-previews-and-routing: a pull request link's card
 use kmArrow from "./menu-keys.contract"
 shape ChatRun
@@ -505,6 +505,12 @@ component FlowRuns
             ContextChipBox(run=run)
         when not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and run.kind == "break"
           box width="100%" height=0 flex-shrink=0
+        // media-signed-urls-and-attachment-markdown MD-1: an image inside a line of text (ChatMarkdownImage, not
+        // standalone), through its media chip (media-views.ts markdownInlineImages); a surface with no media chips
+        // (a pull request's text) keeps its alt text.
+        when run.kind == "media" and length(filter(chips, (chip) => chip.kind == "media" and chip.href == run.href)) > 0
+          each chip in filter(chips, (chip) => chip.kind == "media" and chip.href == run.href) key=chip.id
+            MarkdownInlineMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local)
         // pr-links-previews-and-routing: a pull request link in a pull request's text (its chip names the card's target).
         when not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and run.kind != "break" and ((run.kind == "link" or run.kind == "link-start") and length(filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href)) > 0)
           each chip in filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href) key=chip.id
@@ -512,7 +518,7 @@ component FlowRuns
         // Prose, an emptied anchor's text, and a mailto or fragment link's later words: no href of their own, so a click
         // follows nothing (the link node above is the link); a link's words keep its pointer (an emptied anchor has no
         // `label`, and an `<a>` with no href shows none).
-        when not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and run.kind != "break" and not ((run.kind == "link" or run.kind == "link-start") and length(filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href)) > 0) and run.kind != "link-start" and not (run.kind == "link" and webLink(run.href))
+        when not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and run.kind != "break" and not ((run.kind == "link" or run.kind == "link-start") and length(filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href)) > 0) and run.kind != "link-start" and not (run.kind == "link" and webLink(run.href)) and not (run.kind == "media" and length(filter(chips, (chip) => chip.kind == "media" and chip.href == run.href)) > 0)
           text run.text aria-hidden=(run.kind == "link" and run.label != "") cursor=(run.kind == "link" and run.label != "" ? "pointer" : "auto") white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color=(run.kind == "link" ? "light-dark(#1447e6, #50a2ff)" : color)
 
 // A pull request link in a pull request's text (pr-links-previews-and-routing; ChatMarkdown's anchor with

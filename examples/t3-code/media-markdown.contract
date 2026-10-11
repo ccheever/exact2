@@ -94,3 +94,39 @@ component MarkdownMediaBody
         MediaUnavailableLabel(alt=alt, video=false)
       when kind != "video" and not (brokenUrl != "" and brokenUrl == url)
         image url aria-label=alt error=imageBroke max-width="100%" max-height="30rem" object-fit="contain" border-radius="0.5rem" testId="markdown-media-image"
+
+// media-signed-urls-and-attachment-markdown MD-1: an image inside a line of text (ChatMarkdownImage with `standalone`
+// false, in MediaActions): nothing while its URL is signed (a zero-size status span, no 16:9 slot), the image once it
+// is, and ChatMarkdownImageFallback's chip when it cannot load (with the menu when it has a source); a video plays in
+// the line (ChatMarkdownVideo). Lean: markdown.contract FlowRuns holds one for every flowed block.
+component MarkdownInlineMedia
+  props
+    alt: string
+    kind: string
+    access: string
+    target: string
+    tip: string
+    source: string
+    urls: list<AttachmentUrl>
+    local: action
+  derive url = access == "direct" ? target : join(map(filter(urls, (entry) => entry.id == target and entry.url != ""), (entry) => entry.url), "")
+  derive refused = access == "environment" and length(filter(urls, (entry) => entry.id == `media-failed:${slice(target, 6)}`)) > 0
+  // ChatMarkdownImage failedSrc: the URL whose picture or player reported `error` (exact2 #121).
+  state brokenUrl = ""
+  action broke(reason: string)
+    let ignored = reason
+    brokenUrl = url
+  view
+    when access == "blocked"
+      MediaUnavailableLabel(alt=alt, video=(kind == "video"))
+    when access != "blocked" and (refused or (url != "" and brokenUrl == url))
+      MediaActions(source=source, tip=tip, local=local, elementId="", testId=(kind == "video" ? "markdown-video-actions" : "markdown-image-actions"))
+        MediaUnavailableLabel(alt=alt, video=(kind == "video"))
+    when access != "blocked" and not refused and url == ""
+      box width=0 height=0 role="status" aria-label=(kind == "video" ? "Loading video" : "Loading image")
+    when access != "blocked" and not refused and url != "" and brokenUrl != url
+      MediaActions(source=source, tip=tip, local=local, elementId="", testId=(kind == "video" ? "markdown-video-actions" : "markdown-image-actions"))
+        when kind == "video"
+          video url controls=true playsinline=true preload="metadata" aria-label=(alt != "" ? alt : "Video preview") error=broke width="100%" max-width="40rem" aspect-ratio="16 / 9" border-radius="0.5rem" background-color="#000000" object-fit="contain" testId="markdown-media-video"
+        else
+          image url aria-label=alt error=broke max-width="100%" max-height="30rem" object-fit="contain" border-radius="0.5rem" testId="markdown-media-image"
