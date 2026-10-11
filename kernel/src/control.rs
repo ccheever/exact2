@@ -5,7 +5,7 @@
 //! The rules here are HTML's, so the runner can hold every host to them: a
 //! select's value is one of its enabled options' values.
 
-use crate::generated::{NodeType, PropId};
+use crate::generated::{NodeType, PropId, StyleId};
 use crate::id::ViewId;
 use crate::kernel::{Kernel, NodeRef};
 use crate::props::PropList;
@@ -39,6 +39,9 @@ pub enum ControlKind {
     /// `progress` with no `value`: HTML's indeterminate progress, shown as
     /// the platform's activity indicator (LLP 1069.001, amended 2026-10-07).
     Progress,
+    /// `progress` with a `value`: HTML's determinate progress bar, the
+    /// platform's own ([`Progress`]; LLP 1116 D8).
+    ProgressBar,
 }
 
 impl ControlKind {
@@ -49,6 +52,7 @@ impl ControlKind {
         }
         Some(match props.str(PropId::Type) {
             Some("button") => ControlKind::Button,
+            Some("progress") if props.get(PropId::Value).is_some() => ControlKind::ProgressBar,
             Some("progress") => ControlKind::Progress,
             Some("file") => ControlKind::File,
             Some("select") => ControlKind::Select,
@@ -83,6 +87,10 @@ impl ControlKind {
             // is the size, not a host's report (LLP 1069.001, amended
             // 2026-10-07).
             ControlKind::Progress => (20.0, 20.0),
+            // Chrome's `<progress>` at the reset's 16 px. Its UA sheet sizes
+            // the box (`10em` by `1em`, `style::taffy_style`), so this is only
+            // an axis the author made `auto`.
+            ControlKind::ProgressBar => (160.0, 16.0),
         }
     }
 
@@ -210,6 +218,56 @@ impl Range {
         let value =
             number(props.str(PropId::Value)).unwrap_or(self.min + (self.max - self.min) / 2.0);
         self.sanitize(value)
+    }
+}
+
+/// A determinate progress's `value` and `max` by HTML's rules (the
+/// `progress` element's current value and maximum): `max` is 1 unless it
+/// reads as a number above 0; `value` is 0 unless it reads as one, and
+/// then held to 0 and `max` (LLP 1116 D8).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Progress {
+    /// The current value.
+    pub value: f64,
+    /// The maximum.
+    pub max: f64,
+}
+
+impl Progress {
+    /// A progress's value and maximum from its props.
+    pub fn of(props: &PropList) -> Progress {
+        let max = number(props.str(PropId::Max))
+            .filter(|m| *m > 0.0)
+            .unwrap_or(1.0);
+        let value = number(props.str(PropId::Value))
+            .unwrap_or(0.0)
+            .clamp(0.0, max);
+        Progress { value, max }
+    }
+
+    /// How much of the bar is filled, 0 to 1 (HTML's `position`).
+    pub fn fraction(&self) -> f64 {
+        self.value / self.max
+    }
+}
+
+/// A determinate `progress`'s box as HTML's UA sheet gives it (Chrome 154,
+/// as Gecko and WebKit): `width: 10em; height: 1em; box-sizing:
+/// border-box`, under every authored row. They are specified sizes, so a
+/// flex column or a grid does not stretch the bar, as it would a range
+/// (LLP 1116 D8; `kernel/tests/it/browser_controls.rs`). Its font size is a
+/// layout row, so a change to it restyles the node.
+pub(crate) fn progress_box(arena: &crate::arena::NodeArena, slot: u32, s: &mut taffy::Style) {
+    let style = arena.style(slot);
+    let em = arena.computed_source(slot, StyleId::FontSize).font_size;
+    if !style.mask.has(StyleId::Width) {
+        s.size.width = taffy::prelude::length(10.0 * em);
+    }
+    if !style.mask.has(StyleId::Height) {
+        s.size.height = taffy::prelude::length(em);
+    }
+    if !style.mask.has(StyleId::BoxSizing) {
+        s.box_sizing = taffy::style::BoxSizing::BorderBox;
     }
 }
 
@@ -533,6 +591,36 @@ mod tests {
             0.9,
             "a step past max steps back"
         );
+    }
+
+    #[test]
+    fn a_progress_holds_its_value_to_htmls_bounds() {
+        let mut props = PropList::default();
+        props.set(PropId::Type, PropValue::Str("progress".into()));
+        assert_eq!(
+            ControlKind::of(NodeType::Control, &props),
+            Some(ControlKind::Progress),
+            "no value: the activity indicator"
+        );
+        props.set(PropId::Value, PropValue::Str("0.25".into()));
+        assert_eq!(
+            ControlKind::of(NodeType::Control, &props),
+            Some(ControlKind::ProgressBar)
+        );
+        let p = Progress::of(&props);
+        assert_eq!((p.value, p.max, p.fraction()), (0.25, 1.0, 0.25));
+        props.set(PropId::Max, PropValue::Str("8".into()));
+        props.set(PropId::Value, PropValue::Str("3".into()));
+        assert_eq!(Progress::of(&props).fraction(), 0.375);
+        props.set(PropId::Value, PropValue::Str("9".into()));
+        assert_eq!(Progress::of(&props).value, 8.0, "above max: max");
+        props.set(PropId::Value, PropValue::Str("-1".into()));
+        assert_eq!(Progress::of(&props).value, 0.0, "below 0: 0");
+        props.set(PropId::Value, PropValue::Str("lots".into()));
+        assert_eq!(Progress::of(&props).value, 0.0, "unreadable: 0");
+        props.set(PropId::Max, PropValue::Str("0".into()));
+        props.set(PropId::Value, PropValue::Str("0.5".into()));
+        assert_eq!(Progress::of(&props).max, 1.0, "a max of 0 or less: 1");
     }
 
     #[test]

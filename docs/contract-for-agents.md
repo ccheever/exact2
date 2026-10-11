@@ -958,6 +958,7 @@ lists any literal colour, font size or weight an app's `.contract` files still w
 | `input type="range"` | `UISlider` |
 | `input type="date"`, `"time"`, `"datetime-local"` | `UIDatePicker`; with an empty `value` it shows the format as a placeholder (`mm/dd/yyyy`), as the web and macOS do, and a choice fills it |
 | `select` of `option`s | a pop-up button with its menu |
+| `progress value=done max=goal` (a goal, an upload; `width="100%"` to fill) | `UIProgressView`, tinted by `accent-color` (LLP 1116 D8); never a drawn track and fill |
 | `progress` (no `value`) | `UIActivityIndicatorView`, `.large` from a 37-point box (LLP 1069.001) |
 | `popover="auto" role="menu"` of `button`s, opened by `popovertarget` (a row whose `popovertarget` names another menu: its submenu) | `UIMenu`, nested (LLP 1021) |
 | `dialog role="alertdialog" aria-label="Remove book?"` of a `text`, its action(s) and one Cancel | `UIAlertController(.alert)`: the label its title, the text its message (LLP 1115 D6; recipe [below](#a-confirmation)) |

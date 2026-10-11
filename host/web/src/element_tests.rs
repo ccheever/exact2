@@ -67,6 +67,49 @@ fn svg_only(prop: PropId) -> bool {
         )
 }
 
+/// LLP 1116 D8: a determinate progress is HTML's own `<progress>`, which
+/// the browser draws and sizes: its `value` and `max` the attributes, its
+/// role implicit, no `type`, and none of the ring's box.
+#[test]
+fn a_progress_with_a_value_is_htmls_progress_element() {
+    let style = StyleProps::default();
+    let mut props = PropList::default();
+    for (prop, value) in [
+        (PropId::Type, "progress"),
+        (PropId::AccessibilityRole, "progressbar"),
+        (PropId::Value, "0.25"),
+        (PropId::Max, "1"),
+        (PropId::AccessibilityLabel, "Water"),
+    ] {
+        props.set(prop, PropValue::Str(value.into()));
+    }
+    let facts = NodeFacts {
+        id: 1,
+        node_type: NodeType::Control,
+        style: &style,
+        props: &props,
+        is_root: false,
+        inline_run: false,
+    };
+    assert_eq!(super::tag_of(&facts, false), "progress");
+    assert_eq!(
+        super::tag_of(&facts, true),
+        "progress",
+        "phrasing in a button"
+    );
+    let out = super::props_of(&facts);
+    let get = |k: &str| out.get(k).map(String::as_str);
+    assert_eq!(get("value"), Some("0.25"));
+    assert_eq!(get("max"), Some("1"));
+    assert_eq!(get("aria-label"), Some("Water"));
+    for gone in ["role", "type", "aria-busy", "data-exact-progress"] {
+        assert_eq!(get(gone), None, "{gone}: {out:?}");
+    }
+    let css = super::host_css_of(&facts, None, String::new(), "progress");
+    assert!(!css.contains("contain"), "the browser's box: {css}");
+    assert!(include_str!("../index.html").contains("progress { display: block; }"));
+}
+
 /// LLP 1069.001, amended 2026-10-07: an indeterminate progress is a box
 /// the base sheet draws a ring in (HTML's own draws a bar), ARIA's role
 /// and busy state its attributes, sized as the kernel's 20 × 20 leaf.

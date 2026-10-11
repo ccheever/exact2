@@ -1382,6 +1382,8 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
         {
             s.box_sizing = taffy::style::BoxSizing::BorderBox;
         }
+        // HTML's UA sheet sizes a determinate `progress` (LLP 1116 D8).
+        Some(crate::ControlKind::ProgressBar) => crate::control::progress_box(arena, slot, &mut s),
         _ => {}
     }
     let direction = arena.computed_source(slot, StyleId::Direction).direction;

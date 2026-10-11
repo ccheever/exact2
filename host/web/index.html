@@ -40,6 +40,9 @@
   #exact-root [data-native] { all: revert; display: block; font: inherit; letter-spacing: inherit; color: inherit; }
   #exact-root [data-native]:disabled { color: revert; }
   select { display: block; }
+  /* A determinate progress is HTML's (LLP 1116 D8): the browser draws it and its UA sheet sizes it (`10em` by `1em`,
+     border-box), as the kernel does; a block, as every node is, where the UA's is an inline-block. */
+  progress { display: block; }
   /* A link is a bare node too: the UA's link colour, underline and pointer
      go, as a button's control styling does. A \`link\` is block-level like any
      node and inherits its colour; a run with an \`href\` stays inline in its

@@ -764,21 +764,81 @@ fn an_indeterminate_progress_is_a_busy_control_of_twenty_points() {
     assert_eq!(size(&r, "row"), (20.0, 20.0), "a flex item keeps its size");
 }
 
+/// LLP 1116 D8: `progress value=… max=…` is HTML's determinate bar: the
+/// same `Control`, its `value` and `max` HTML's strings (a bound number
+/// follows its state), not busy, and the box HTML's UA sheet gives it —
+/// `10em` by `1em`, kept in a flex column, `width` and `height` winning.
 #[test]
-fn the_compiler_refuses_a_progress_bar_and_progress_children() {
+fn a_progress_with_a_value_is_the_determinate_bar() {
+    let mut r = boot(
+        "component App\n  state glasses = 2\n  action drink\n    glasses = glasses + 1\n  view\n    column testId=\"root\"\n      progress value=glasses max=8 aria-label=\"Water\" testId=\"water\"\n      progress value=0.5 width=\"100%\" height=4 testId=\"wide\"\n      column font-size=20\n        progress value=1 testId=\"big\"\n      button press=drink testId=\"drink\"\n        text \"Drink\"\n",
+    );
+    let water = r.kernel().node(view_of(&r, "water")).unwrap();
+    assert_eq!(water.node_type, NodeType::Control);
+    assert_eq!(water.props.str(PropId::Type), Some("progress"));
+    assert_eq!(
+        water.props.str(PropId::AccessibilityRole),
+        Some("progressbar")
+    );
+    assert_eq!(
+        water.props.bool(PropId::AccessibilityBusy),
+        None,
+        "not busy"
+    );
+    assert_eq!(water.props.str(PropId::Value), Some("2"));
+    assert_eq!(water.props.str(PropId::Max), Some("8"));
+    assert_eq!(
+        exact_kernel::ControlKind::of(water.node_type, water.props),
+        Some(exact_kernel::ControlKind::ProgressBar)
+    );
+    assert_eq!(exact_kernel::Progress::of(water.props).fraction(), 0.25);
+    let drink = view_of(&r, "drink");
+    r.dispatch(drink, Event::Press).unwrap();
+    let water = r.kernel().node(view_of(&r, "water")).unwrap();
+    assert_eq!(water.props.str(PropId::Value), Some("3"));
+    let root = view_of(&r, "root");
+    r.kernel_mut()
+        .compute_layout(root, exact_kernel::Offer::definite(320.0, 480.0))
+        .unwrap();
+    let size = |r: &Runner<NoData>, t: &str| {
+        let f = r.kernel().node(view_of(r, t)).unwrap().frame;
+        (f.width, f.height)
+    };
+    assert_eq!(size(&r, "water"), (160.0, 16.0), "a flex column keeps it");
+    assert_eq!(size(&r, "wide"), (320.0, 4.0));
+    assert_eq!(size(&r, "big"), (200.0, 20.0), "in `em`s");
+}
+
+#[test]
+fn the_compiler_refuses_what_a_progress_does_not_take() {
     let refused = |line: &str| {
         let src = format!("component App\n  state done = 3\n  view\n    column\n      {line}\n");
         contract::compile(&src).unwrap_err().to_string()
     };
-    for attr in ["value=done", "value=0.5", "max=10", "type=\"bar\""] {
+    for (attr, says) in [
+        ("max=10", "`max` is the top of the bar a `value` makes"),
+        ("type=\"bar\"", "`progress` takes no `type`"),
+        (
+            "value=done aria-valuenow=done",
+            "its `value` and `max` are its range",
+        ),
+        (
+            "value=done aria-valuemax=10",
+            "`progress` takes no `aria-valuemax`",
+        ),
+    ] {
         let e = refused(&format!("progress {attr}"));
         assert!(
-            e.contains("lower-attr-tag") && e.contains("`progress` takes no"),
+            e.contains("lower-attr-tag") && e.contains(says),
             "{attr}: {e}"
         );
     }
-    let e = refused("progress value=done max=10");
-    assert!(e.contains("determinate progress bar"), "{e}");
-    let e = refused("progress\n        text \"Loading\"");
+    let e = refused("progress value=done\n        text \"Loading\"");
     assert!(e.contains("lower-void") && e.contains("children"), "{e}");
+    let e = refused("progress\n        text \"Loading\"");
+    assert!(e.contains("lower-void"), "{e}");
+    contract::compile(
+        "component App\n  view\n    progress value=0.5 aria-valuetext=\"Half\" aria-label=\"Upload\"\n",
+    )
+    .unwrap_or_else(|e| panic!("{e}"));
 }

@@ -82,6 +82,47 @@ final class ProgressIOSTests: XCTestCase {
         XCTAssertEqual(bar.accessibilityValue, "2 of 8 glasses")
     }
 
+    private func bar(_ id: Int, _ props: [String: String], y: Double = 0) -> [[String: Any]] {
+        [["op": "create", "id": id, "kind": "control",
+          "props": ["type": "progress", "accessibilityRole": "progressbar"].merging(props) { $1 },
+          "handlers": [], "style": ["accent_color": [255, 0, 0, 255]]],
+         ["op": "frame", "id": id, "x": 0.0, "y": y, "w": 160.0, "h": 16.0]]
+    }
+
+    /// LLP 1116 D8: with a `value`, a `progress` is UIKit's progress view
+    /// (`.default`) across its content box at its own height, centred, at
+    /// HTML's fraction (`max` 1 unsaid; past `max`, full), tinted by its
+    /// `accent-color` and named by `aria-label`; VoiceOver hears the
+    /// percentage. Its value taken away, it is the activity indicator again.
+    func testAValuedProgressIsUIKitsProgressView() throws {
+        let p = presenter(box(1) + bar(2, ["value": "0.25", "testId": "water", "accessibilityLabel": "Water"]) + bar(3, ["value": "3", "max": "8"], y: 40)
+                          + [["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]]])
+        let water = try XCTUnwrap(p.controls.bars[2])
+        XCTAssertEqual(water.progressViewStyle, .default)
+        XCTAssertEqual(water.progress, 0.25)
+        XCTAssertEqual(water.frame.width, 160, "across its box")
+        XCTAssertEqual(water.frame.height, water.intrinsicContentSize.height)
+        XCTAssertEqual(water.frame.midY, 8, "centred in its 16-point box")
+        XCTAssertNil(p.controls.spinners[2], "no activity indicator")
+        XCTAssertFalse(water.isUserInteractionEnabled)
+        XCTAssertEqual(water.accessibilityLabel, "Water")
+        XCTAssertEqual(water.accessibilityIdentifier, "water")
+        XCTAssertEqual(water.accessibilityValue, "25%")
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        try XCTUnwrap(water.progressTintColor).getRed(&r, green: &g, blue: &b, alpha: &a)
+        XCTAssertEqual([r, g, b, a], [1, 0, 0, 1], "its accent")
+        XCTAssertEqual(try XCTUnwrap(p.controls.bars[3]).progress, 0.375)
+        let seen = try XCTUnwrap(p.controls.observation(try XCTUnwrap(p.views[2])))
+        XCTAssertEqual(seen["view"] as? String, "UIProgressView")
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["value": "2", "accessibilityValueText": "All of it"]]]))
+        XCTAssertEqual(water.progress, 1, "past max: full")
+        XCTAssertEqual(water.accessibilityValue, "All of it")
+        p.apply(wireBatch([["op": "props", "id": 2, "clear": ["value"]]]))
+        XCTAssertNil(p.controls.bars[2])
+        XCTAssertNil(water.superview)
+        XCTAssertNotNil(p.controls.spinners[2], "no value: the indicator")
+    }
+
     func testItStopsWhenHiddenOrRemoved() throws {
         try XCTSkipIf(ExactEnv.agentFreezes, "the agent's frozen clock holds every indicator")
         let p = presenter(box(1) + progress(2) + [["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]])

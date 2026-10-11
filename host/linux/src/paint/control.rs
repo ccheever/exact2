@@ -424,6 +424,38 @@ pub(super) fn progress(
     }
 }
 
+/// A determinate `progress` (LLP 1116 D8): UIKit's progress view, drawn as
+/// the range's track is here — a 4 px pill across the content box, centred,
+/// in the system fill, and the accent to the value from the leading edge.
+pub(super) fn progress_bar(
+    backend: &mut dyn Backend,
+    node: &NodeRef<'_>,
+    content: Rect4,
+    ts: Transform,
+    dark: bool,
+) {
+    let (x, y, w, h) = content;
+    let t = 4f32.min(h);
+    if w <= 0.0 || t <= 0.0 {
+        return;
+    }
+    let fraction = exact_kernel::Progress::of(node.props).fraction() as f32;
+    let rtl = node.computed_row(exact_kernel::StyleId::Direction, |s| s.direction)
+        == exact_kernel::Direction::Rtl;
+    let filled = w * fraction;
+    let bar = |from: f32, width: f32| Shape::new((from, y + (h - t) / 2.0, width, t), [t / 2.0; 4]);
+    let rest = if dark {
+        [0x78, 0x78, 0x80, 0x5c]
+    } else {
+        [0x78, 0x78, 0x80, 0x33]
+    };
+    backend.fill(&bar(x, w), rest, ts);
+    if filled > 0.0 {
+        let from = if rtl { x + w - filled } else { x };
+        backend.fill(&bar(from, filled), accent(node, dark).unwrap_or(ACCENT), ts);
+    }
+}
+
 #[cfg(test)]
 mod field_tests {
     use crate::text::{Measurer, TextEngine};

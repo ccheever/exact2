@@ -5,6 +5,9 @@
 // while it shows, and stops where it is hidden (`display: none` on it or
 // above it), removed, or under the agent's clock, which shows one still frame. It is its own accessibility element (UIKit's
 // "In progress"), named by the node's `aria-label`.
+// @ref LLP 1116 D8 — with a `value`, it is UIKit's progress view instead
+// (`.default`), across the content box at its own height, tinted by the
+// node's `accent-color` (none leaves UIKit's tint), at HTML's fraction.
 #if os(iOS) || os(tvOS)
 import UIKit
 
@@ -16,13 +19,15 @@ extension ControlHost {
     static let platformInk: UIColor = UIActivityIndicatorView(style: .medium).color
 
     func syncProgress() {
-        let owners = presenter.carrying(ControlKinds.progress).filter { $0.kind == "control" }
-        let live = Set(owners.map(\.id))
+        let all = presenter.carrying(ControlKinds.progress).filter { $0.kind == "control" }
         let leaving = Set(presenter.leaving.values.flatMap { $0.members.map(\.id) })
+        let held = ExactEnv.agentFreezes || presenter.session?.clock != nil
+        syncBars(all.filter { $0.props["value"] != nil }, leaving: leaving, held: held)
+        let owners = all.filter { $0.props["value"] == nil }
+        let live = Set(owners.map(\.id))
         for id in Array(spinners.keys) where !live.contains(id) && !leaving.contains(id) {
             spinners.removeValue(forKey: id)?.removeFromSuperview()
         }
-        let held = ExactEnv.agentFreezes || presenter.session?.clock != nil
         for owner in owners {
             let spinner = spinners[owner.id] ?? {
                 let made = UIActivityIndicatorView(style: .medium)
@@ -54,6 +59,39 @@ extension ControlHost {
         if held { for id in leaving { if let s = spinners[id], s.isAnimating { s.stopAnimating() } } }
     }
 
+    /// The determinate bars (LLP 1116 D8). A change of value eases, as
+    /// UIKit's does on a hand-built screen, except under the agent's clock,
+    /// which shows where it lands; VoiceOver hears the percentage (or the
+    /// node's `aria-valuetext`), as from UIKit's own.
+    private func syncBars(_ owners: [NodeView], leaving: Set<UInt32>, held: Bool) {
+        let live = Set(owners.map(\.id))
+        for id in Array(bars.keys) where !live.contains(id) && !leaving.contains(id) {
+            bars.removeValue(forKey: id)?.removeFromSuperview()
+        }
+        for owner in owners {
+            let fresh = bars[owner.id] == nil
+            let bar = bars[owner.id] ?? {
+                let made = UIProgressView(progressViewStyle: .default)
+                made.isUserInteractionEnabled = false
+                bars[owner.id] = made
+                return made
+            }()
+            let mount = owner.controlMount
+            if bar.superview !== mount { mount.addSubview(bar) }
+            let box = owner.contentBox()
+            let height = bar.intrinsicContentSize.height
+            assign(bar, \.frame, CGRect(x: box.minX, y: box.midY - height / 2, width: box.width, height: height))
+            assign(bar, \.progressTintColor, owner.channels("accent_color").map { TextEngine.color($0) })
+            assign(bar, \.isHidden, owner.cssVisibilityHidden)
+            assign(bar, \.accessibilityIdentifier, owner.props["testId"])
+            assign(bar, \.accessibilityLabel, owner.props["accessibilityLabel"])
+            let fraction = Float(ProgressSpec(owner.props).fraction)
+            if bar.progress != fraction { bar.setProgress(fraction, animated: !fresh && !held && bar.window != nil) }
+            let words = owner.props["accessibilityValueText"].flatMap { $0.isEmpty ? nil : $0 }
+            assign(bar, \.accessibilityValue, words ?? NumberFormatter.localizedString(from: NSNumber(value: fraction), number: .percent))
+        }
+    }
+
     /// Whether nothing from the node up hides it: `display: none` hides a
     /// node's view, and a hidden ancestor hides it too.
     static func shown(_ view: UIView) -> Bool {
@@ -67,6 +105,10 @@ extension ControlHost {
 
     /// The agent's `native.control` for a progress.
     func progressObservation(_ node: NodeView) -> [String: Any]? {
+        if let bar = bars[node.id] {
+            return ["view": "UIProgressView", "progress": Double(bar.progress), "tinted": bar.progressTintColor != nil,
+                    "size": [Agent.r2(bar.bounds.width), Agent.r2(bar.bounds.height)]]
+        }
         guard let s = spinners[node.id] else { return nil }
         return ["view": "UIActivityIndicatorView", "style": s.style == .large ? "large" : "medium", "animating": s.isAnimating,
                 "size": [Agent.r2(s.bounds.width), Agent.r2(s.bounds.height)]]

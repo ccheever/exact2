@@ -1162,7 +1162,11 @@ impl Painter {
                 self.range_control(node, content, ts, walk.scene.chosen.get(&node.id))
             }
             NodeType::Control if node.props.str(PropId::Type) == Some("progress") => {
-                control::progress(self.backend.as_mut(), node, content, ts, self.dark)
+                if node.props.get(PropId::Value).is_some() {
+                    control::progress_bar(self.backend.as_mut(), node, content, ts, self.dark)
+                } else {
+                    control::progress(self.backend.as_mut(), node, content, ts, self.dark)
+                }
             }
             NodeType::Control if node.props.str(PropId::Type) == Some("button") => {
                 let face = walk.scene.kernel.press_face(node.id).unwrap_or_default();

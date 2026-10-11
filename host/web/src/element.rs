@@ -334,7 +334,16 @@ fn canvas_css(node: &NodeFacts<'_>, css: &mut String) {
 /// Whether the node is an indeterminate `progress` (LLP 1069.001, amended
 /// 2026-10-07), which the page draws as a ring in a box.
 fn is_progress(node: &NodeFacts<'_>) -> bool {
-    node.node_type == NodeType::Control && node.props.str(PropId::Type) == Some("progress")
+    exact_kernel::ControlKind::of(node.node_type, node.props)
+        == Some(exact_kernel::ControlKind::Progress)
+}
+
+/// Whether the node is a determinate `progress` (LLP 1116 D8): HTML's own
+/// `<progress value max>`, which the browser draws and sizes (its UA
+/// sheet's `10em` by `1em`, as the kernel's `control::progress_box`).
+fn is_progress_bar(node: &NodeFacts<'_>) -> bool {
+    exact_kernel::ControlKind::of(node.node_type, node.props)
+        == Some(exact_kernel::ControlKind::ProgressBar)
 }
 
 /// A progress's box sized as the kernel's measured leaf: 20 × 20 content,
@@ -524,6 +533,7 @@ fn element(node: &NodeFacts<'_>) -> &'static str {
         // An indeterminate progress is a box the page draws a ring in
         // (LLP 1069.001, amended 2026-10-07): HTML's own draws a bar.
         NodeType::Control if is_progress(node) => "div",
+        NodeType::Control if is_progress_bar(node) => "progress",
         NodeType::Control => "input",
         NodeType::Canvas => "canvas",
         NodeType::WebView => "iframe",
@@ -1037,8 +1047,8 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
     if node.node_type.scrolls_by_default() {
         out.insert("data-scroll".into(), "true".into());
     }
-    if element(node) == "select" {
-        // A `<select>` is its own kind; its `type` is not an attribute.
+    if matches!(element(node), "select" | "progress") {
+        // A `<select>` and a `<progress>` are their own kinds; `type` is not an attribute.
         out.remove("type");
     } else if is_progress(node) {
         // The base sheet draws the ring from this mark.
@@ -1106,6 +1116,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
         ("input", Some("checkbox")) => Some("checkbox"),
         ("input", Some("radio")) => Some("radio"),
         ("a", _) if out.contains_key("href") => Some("link"),
+        ("progress", _) => Some("progressbar"),
         _ => None,
     };
     if implicit.is_some() && out.get("role").map(String::as_str) == implicit {

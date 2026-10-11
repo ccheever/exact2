@@ -397,6 +397,7 @@ extension Presenter {
         // Nor a progress trait: a `progress`'s indicator (LLP 1069.001,
         // amended 2026-10-07) is ARIA's busy `progressbar` by its class.
         if obj is UIActivityIndicatorView, forced == nil { e["role"] = "progressbar"; states["busy"] = true }
+        if obj is UIProgressView, forced == nil { e["role"] = "progressbar" } // LLP 1116 D8
         // A drawn range role says its role by ARIA's (LLP 1116 D8).
         if let node = obj as? NodeView, forced == nil, let range = node.rangeRole { e["role"] = range }
         e["interactive"] = forced == nil && (o.accessibilityRespondsToUserInteraction || editable || names.contains("button") || names.contains("link") || names.contains("adjustable"))

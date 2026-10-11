@@ -964,7 +964,22 @@ action mark(para: string, s: Selection)
 text para.body selectionchange=mark(para.id)
 ```
 
-### Activity: `progress`
+### Progress: `progress`
+
+`progress value=… max=…` is HTML's determinate progress bar, each platform's
+own: `UIProgressView` (`.default`) on iOS, tinted by `accent-color` (UIKit's
+tint where none is said); a determinate `NSProgressIndicator` bar on macOS
+(small, regular where the box holds its 20 points; AppKit gives it no tint);
+the browser's `<progress>` on the web; and on Linux a painted bar, a 4-pixel
+track filled with the accent. `max` is 1 unless said (a number above 0), and
+`value` is held to 0 and `max`, as HTML holds it; both take numbers, bound or
+literal. Its box is HTML's: `10em` by `1em` (160 × 16 at 16 px), specified
+sizes, so a flex column or grid does not stretch it; write `width="100%"` for a
+full-width bar. The bar is centred in the box at its own thickness. Its role is
+`progressbar`, its value the platform's (UIKit's "25%", AppKit's value of its
+maximum, the DOM's attributes); name it with `aria-label`, and `aria-valuetext`
+gives the words a reader speaks instead. A change of value eases on iOS, except
+under the agent's clock.
 
 `progress` with no `value` is HTML's indeterminate progress, shown as the
 platform's activity indicator: `UIActivityIndicatorView` on iOS (`.medium`,
@@ -978,10 +993,12 @@ system's colour, as AppKit gives a spinner no tint. Its role is `progressbar`,
 busy (`aria-busy`); name it with `aria-label`. It turns while it shows, and
 stops where it is hidden or gone; under the agent's held clock it shows one
 still frame (on the web, the frame at the agent's time, as every CSS animation;
-Linux paints one still frame always). `value` (a determinate bar) and `max` (that
-bar's) are refused for now, and so are children and `type`.
+Linux paints one still frame always). A `max` with no `value` is refused (it is
+the bar's), and so are children, `type`, and `aria-valuenow`, `aria-valuemin`
+and `aria-valuemax` (`value` and `max` are its range).
 
 ```text
+progress value=glasses max=8 width="100%" aria-label="Water today"
 progress aria-label="Loading"
 progress width=37 height=37 color="#1083fe" aria-label="Loading posts"
 ```

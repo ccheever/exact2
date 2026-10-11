@@ -309,8 +309,10 @@ pub fn tag(name: &str) -> Option<Tag> {
         },
         // @ref LLP 1069.001 (amended 2026-10-07) — HTML's `progress` with no
         // `value`, indeterminate: the platform's activity indicator, a
-        // measured leaf (20 × 20 until sized). ARIA's role is `progressbar`;
-        // the lowering adds `aria-busy` (`Lowerer::progress_rows`).
+        // measured leaf (20 × 20 until sized); the lowering adds `aria-busy`.
+        // @ref LLP 1116 D8 — with a `value` (and `max`, strings as a
+        // range's), the determinate bar, sized by HTML's UA sheet. ARIA's
+        // role is `progressbar` either way.
         "progress" => Tag {
             node_type: NodeType::Control,
             fixed_styles: &[],
