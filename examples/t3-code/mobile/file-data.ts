@@ -154,7 +154,7 @@ export function mobileFilePresentation(input: { owner: string; revision: number;
     rows: read && !read.error ? lines.map((text, at) => ({ ...reviewRow(`source-line:${at}`, 'line'), path, text: text.replace(/\t/g, '    '),
       oldNumber: '', newNumber: String(at + 1), lineIndex: at, change: 'context', selected: at === target, tokens: tokens[at] ?? [] })) : [],
     truncated: read?.truncated === true, notice: read?.truncated ? 'Preview limited to the first 1 MB of a truncated file.' : '',
-    markdown: /\.(md|mdx)$/i.test(path), initialRowId: target >= 0 ? `source-line:${target}` : '' };
+    markdown: /\.(?:md|mdx)$/i.test(path.split(/[?#]/, 1)[0] ?? ''), initialRowId: target >= 0 ? `source-line:${target}` : '' };
 }
 /** Pinned ThreadFilesRouteScreen: modes belong to one path; clipboard keeps raw host text. */
 export function mobileFileMenu(data: FileSnapshot, preview: boolean, wrap: boolean, routeId: string, preferenceReady: boolean) {
