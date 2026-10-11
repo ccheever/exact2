@@ -71,7 +71,7 @@ component SettingsInformation
     when route == "settingsLegal"
       t3-information-legal configuration=legalConfiguration flex=1 min-height=0 testId="settings-legal-document"
     else when route == "settingsOpenSourceLicense" and data.detail.available
-      t3-information-notice entry-id=data.detail.id notice-name=data.detail.name notice-metadata=data.detail.metadata notice-text=data.detail.notice has-source=(length(data.detail.sourceURL) > 0) notice-point-size=roles.body.size notice-line-height=roles.body.line notice-title-size=roles.title.size notice-foreground=colors.foreground notice-muted=colors.muted notice-sheet=colors.sheet notice-card=colors.grouped notice-link=colors.link notice-bottom=bottom change=openSource flex=1 min-height=0 testId="license-notice"
+      t3-information-notice entry-id=data.detail.id notice-name=data.detail.name notice-metadata=data.detail.metadata notice-text=data.detail.notice has-source=(length(data.detail.sourceURL) > 0) notice-point-size=roles.body.size notice-line-height=(roles.body.size * 1.5) notice-title-size=roles.largeTitle.size notice-title-line-height=roles.largeTitle.line notice-foreground=colors.foreground notice-muted=colors.muted notice-sheet=colors.sheet notice-card=colors.grouped notice-link=colors.link notice-bottom=bottom change=openSource flex=1 min-height=0 testId="license-notice"
     else
       column flex=1 min-height=0 background-color=colors.sheet font-family="DM Sans"
         scroll id="settings-information-scroll" flex=1 min-height=0
