@@ -220,7 +220,7 @@ test "the header's button likes it"
 `,
     'app.ts': `import type { Answer, Result, Sources } from './app.contract.d.ts';
 
-export const appId = '${id}';
+export const appId = '${id}'; // app.json's app.id: change the two together
 export const grants = '';
 
 const sources: Sources = {

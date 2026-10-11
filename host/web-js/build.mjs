@@ -329,7 +329,7 @@ if (ts) {
     ...['__exact_entry.ts', '__exact_tsconfig.json', '__exact_config.mjs', '__exact_paths.json', '__exact_declarations.json', '__exact_canvas.js', '__exact_canvas.d.ts']
       .filter(name => existsSync(resolve(appDir, name))).map(name => `${name} is reserved for the producer`),
     ...('draw' in tsModule) !== ('surfaces' in tsModule) ? ['app.ts exports `draw` and `surfaces` together, or neither (LLP 1056 D1)'] : [],
-    ...!tsModule.appId ? ['app.ts exports no appId'] : tsModule.appId !== expected ? [`app.ts's appId is ${tsModule.appId}, but app.json names ${expected}`] : [],
+    ...!tsModule.appId ? ['app.ts exports no appId'] : tsModule.appId !== expected ? [`app.ts's appId is ${tsModule.appId}, but app.json's "app": { "id" } is ${expected} (its top-level "id" is the web manifest's, another field): make the two the same`] : [],
   ];
   if (problems.length) { console.error(problems.map(p => `error: ${p}`).join('\n')); process.exit(1); }
 }
