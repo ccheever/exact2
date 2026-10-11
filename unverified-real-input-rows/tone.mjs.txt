@@ -1,0 +1,32 @@
+// unverified-real-input-rows UV-4: two pages for the Browser surface's muted-tab row. /a plays a 90 s 440 Hz tone (quiet, looping)
+// (autoplay, and a Play button covering the page for a click) and puts the tone's time in its title every 200 ms, so the
+// tab chip shows whether the media advances; /b is a quiet page. Not committed. Usage: bun tone.mjs <port>
+import { writeFileSync } from 'node:fs';
+const port = Number(process.argv[2] ?? 17165);
+function wav(seconds = 90, rate = 8000) {
+  const n = seconds * rate, data = Buffer.alloc(n * 2);
+  for (let i = 0; i < n; i++) data.writeInt16LE(Math.round(Math.sin(2 * Math.PI * 440 * i / rate) * 0.02 * 32767), i * 2);
+  const head = Buffer.alloc(44);
+  head.write('RIFF', 0); head.writeUInt32LE(36 + data.length, 4); head.write('WAVE', 8); head.write('fmt ', 12);
+  head.writeUInt32LE(16, 16); head.writeUInt16LE(1, 20); head.writeUInt16LE(1, 22); head.writeUInt32LE(rate, 24);
+  head.writeUInt32LE(rate * 2, 28); head.writeUInt16LE(2, 32); head.writeUInt16LE(16, 34); head.write('data', 36); head.writeUInt32LE(data.length, 40);
+  return Buffer.concat([head, data]);
+}
+const tone = wav();
+const pageA = `<!doctype html><meta charset="utf-8"><title>Tone</title>
+<style>body{margin:0;font:16px -apple-system,sans-serif}button{position:fixed;inset:0;width:100%;height:100%;border:0;background:#f4f4f5;font-size:28px}</style>
+<audio id="tone" src="/tone.wav" loop autoplay></audio>
+<button id="play" onclick="document.getElementById('tone').play()">Play the tone</button>
+<script>
+const tone = document.getElementById('tone');
+setInterval(() => { document.title = 'Tone ' + tone.currentTime.toFixed(1) + 's' + (tone.paused ? ' paused' : '') + (tone.muted ? ' muted' : ''); }, 200);
+</script>`;
+const pageB = `<!doctype html><meta charset="utf-8"><title>Quiet page</title><p style="font:20px -apple-system,sans-serif;margin:40px">A page with no sound.</p>`;
+const server = Bun.serve({ hostname: '127.0.0.1', port, fetch(req) {
+  const path = new URL(req.url).pathname;
+  if (path === '/tone.wav') return new Response(tone, { headers: { 'content-type': 'audio/wav' } });
+  if (path === '/b') return new Response(pageB, { headers: { 'content-type': 'text/html; charset=utf-8' } });
+  return new Response(pageA, { headers: { 'content-type': 'text/html; charset=utf-8' } });
+} });
+writeFileSync(`${import.meta.dir}/tone.pid`, String(process.pid));
+console.log(`tone pages on http://127.0.0.1:${server.port}/a and /b`);
