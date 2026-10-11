@@ -1,9 +1,11 @@
-// @ref LLP 1075.003 §3.5, §3.7 — Exact's navigation bar on iOS, one per
-// stack and fixed (titles that do not collapse): the header-shaped route's
-// projection, the content area the bar leaves (`HostCover`), the delegate
-// slot Exact keeps and forwards, the authored elements a hatch acts on, and
-// the development check of what Exact owns. When the hatches run is
-// NavigationIOS.swift's; the module side is ExactNativeModule.swift.
+// @ref LLP 1075.003 §3.5, §3.7 — Exact's navigation bar on iOS: the
+// header-shaped route's projection, the content area the bar leaves
+// (`HostCover`), the delegate slot Exact keeps and forwards, the authored
+// elements a hatch acts on, and the development check of what Exact owns.
+// When the hatches run is NavigationIOS.swift's; the module side is
+// ExactNativeModule.swift.
+// @ref LLP 1115.000 D5.3 — whether the bar shows is each route's, never
+// decided once for its stack (`routeShowsBar`, NavigationTitleIOS.swift).
 #if os(iOS) || os(tvOS)
 import UIKit
 
@@ -362,8 +364,10 @@ final class BarPress: NSObject {
     @objc func press() { _ = host?.act(id, 0) }
 }
 
-/// One stack Exact built: its delegate, whether it shows the bar (LLP 1037
-/// F1: for its whole life), and what the development check last saw.
+/// One stack Exact built: its delegate, whether its routes may show the bar
+/// (they may unless the app's `navigation` hatch says no; which of them
+/// shows it is each route's, LLP 1115.000 D5.3), and what the development
+/// check last saw.
 final class NavigationStack {
     let proxy = NavigationDelegateProxy()
     var showsBar: Bool
@@ -379,9 +383,10 @@ final class NavigationStack {
 }
 
 extension NavigationHost {
-    /// Whether a stack's bar shows: the stack's choice, except under the
-    /// agent's own chrome, where the authored header paints (LLP 1075.003
-    /// §3.4).
+    /// Whether a stack's routes may show the bar: they may, unless the app's
+    /// hatch chose otherwise, and never under the agent's own chrome, where
+    /// the authored header paints (LLP 1075.003 §3.4). Whether one route
+    /// shows it is `routeShowsBar`.
     func barShows(_ nav: UINavigationController) -> Bool {
         !ExactEnv.authoredChrome && stacks[ObjectIdentifier(nav)]?.showsBar == true
     }
@@ -412,16 +417,18 @@ extension NavigationHost {
     }
 
     /// A navigation controller for a stack whose first route is `first`:
-    /// Exact's delegate, the bar's visibility from the plan, then the
-    /// `navigation` hatch (LLP 1075.003 Q3 (c)). Large titles are on, and each
-    /// route's item says whether its title is large, so a level-1 heading
-    /// pushed over an inline one is large; `prefersLargeTitles` is the app's
-    /// from the hatch on (§3.5).
+    /// Exact's delegate, the `navigation` hatch (LLP 1075.003 Q3 (c)), then
+    /// the bar as the first route has it. The stack's routes may show the
+    /// bar whatever its first route is (LLP 1115.000 D5.3: a stack that
+    /// opens on a route with no header still shows the bar for a later
+    /// route that has one). Large titles are on, and each route's item says
+    /// whether its title is large, so a level-1 heading pushed over an
+    /// inline one is large; `prefersLargeTitles` is the app's from the
+    /// hatch on (§3.5).
     func makeNavigation(first: NodeView?) -> UINavigationController {
         let nav = UINavigationController()
-        let shape = first.flatMap { HeaderShape(route: $0, back: container?.props["navigationBack"]) }
         stackCount += 1
-        let stack = NavigationStack(showsBar: shape != nil, order: stackCount)
+        let stack = NavigationStack(showsBar: true, order: stackCount)
         stack.proxy.host = self
         stacks[ObjectIdentifier(nav)] = stack
         nav.delegate = stack.proxy
@@ -432,7 +439,10 @@ extension NavigationHost {
             stack.showsBar = presenter.session?.natives.navigationHatch(nav, built: true, showsBar: stack.showsBar, label: stack.label) ?? stack.showsBar
             stack.hatched = true
         }
-        nav.setNavigationBarHidden(!barShows(nav), animated: false)
+        // Hidden for a first route that shows none, before UIKit shows it;
+        // `showBar` follows every route from `willShow` on.
+        let shows = barShows(nav) && first.map { HeaderShape(route: $0, back: nil).flatMap(HeaderShape.shown) != nil } ?? false
+        nav.setNavigationBarHidden(!shows, animated: false)
         return nav
     }
 

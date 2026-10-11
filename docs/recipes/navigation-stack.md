@@ -9,9 +9,9 @@ A `header` is the bar when it is the route's first child and holds exactly one h
 (`text role="heading"`): the heading is the title (large at `aria-level=1`), buttons
 before it lead and after it trail, the first text after it is the subtitle, and the rest
 of the header is hidden. With no heading or two the route has no bar, no title and no
-Back button, and the header draws in the page; a stack has bars only when its first
-route's header is one. `contract vocab header` states it whole, and the compiler warns
-(`lower-header-no-bar`, `lower-header-unplaced`).
+Back button, and the header draws in the page. Each route's bar is its own: a stack
+whose first route has none still shows a later route's. `contract vocab header` states
+it whole, and the compiler warns (`lower-header-no-bar`, `lower-header-unplaced`).
 
 <!-- check: app -->
 ```contract

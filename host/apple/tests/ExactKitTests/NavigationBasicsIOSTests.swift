@@ -30,9 +30,11 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertTrue(done(), what)
     }
 
-    private func fixture(_ label: String) throws -> ExactSession {
+    /// A session over the native fixture's plan, or over the one `plan`
+    /// names: `EXACT_NAVIGATION_BARS_PLAN` is `scripts/fixtures/navigation-bars.contract`.
+    private func fixture(_ label: String, plan: String = "EXACT_FIXTURE_PLAN") throws -> ExactSession {
         let env = ProcessInfo.processInfo.environment
-        let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(env["EXACT_FIXTURE_PLAN"], "build.mjs --test --ios compiles the fixture's plan")))
+        let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(env[plan], "build.mjs --test --ios compiles the fixtures' plans")))
         let session = ExactApp.shared.makeSession(label: label)
         sessions.append(session)
         let view = ExactView(session: session)
@@ -393,6 +395,34 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertFalse(nav.isNavigationBarHidden)
         XCTAssertEqual(chat.view.safeAreaInsets.top, chatTop, accuracy: 0.5)
         XCTAssertTrue(chat.navigationItem.titleView is HeaderTitleView)
+    }
+
+    /// LLP 1115.000 D5.3, over `scripts/fixtures/navigation-bars.contract`:
+    /// the bar is each route's, never decided once for its stack. A stack
+    /// that opens on a route with no header has no bar there, shows the bar
+    /// for a pushed route whose header is one, and hides it again when that
+    /// route is popped.
+    func testAStackWhoseFirstRouteHasNoHeaderShowsTheBarForALaterRouteThatHasOne() throws {
+        let session = try fixture("bars-per-route", plan: "EXACT_NAVIGATION_BARS_PLAN")
+        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        let start = try XCTUnwrap(nav.topViewController as? RouteController)
+        XCTAssertTrue(nav.isNavigationBarHidden, "the stack's first route has no header: no bar")
+        let bare = start.view.safeAreaInsets.top
+        let content = try node(session, "content-start")
+        XCTAssertEqual(content.convert(content.bounds, to: start.view).minY, bare, accuracy: 0.5, "its content starts below the status bar")
+        try tapNode(session, "start-open-detail")
+        until("Detail pushed") { nav.viewControllers.count == 2 && nav.transitionCoordinator == nil }
+        let detail = try XCTUnwrap(nav.topViewController as? RouteController)
+        XCTAssertFalse(nav.isNavigationBarHidden, "a later route's header is the bar, whatever the first route had")
+        XCTAssertEqual(detail.navigationItem.title, "Detail")
+        XCTAssertFalse(detail.navigationItem.hidesBackButton, "with UIKit's Back button")
+        XCTAssertTrue(try node(session, "header-detail").isHidden, "the bar shows the header; iOS does not paint it")
+        until("Detail's content starts below the bar") { detail.view.safeAreaInsets.top > bare + 20 }
+        // UIKit's Back button pops it: the bar leaves with Detail.
+        nav.popViewController(animated: true)
+        until("back to Start") { nav.viewControllers.count == 1 && nav.transitionCoordinator == nil }
+        until("no bar on the first route again") { nav.isNavigationBarHidden && abs(start.view.safeAreaInsets.top - bare) < 0.5 }
+        until("its content below the status bar, as before") { abs(content.convert(content.bounds, to: start.view).minY - bare) < 0.5 }
     }
 
 

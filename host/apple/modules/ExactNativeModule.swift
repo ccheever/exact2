@@ -553,10 +553,12 @@ final class ExactHatches {
 /// A navigation controller Exact built (LLP 1075.003 §3.2, §3.7).
 public final class ExactNavigation {
     public let controller: UINavigationController
-    /// Whether the stack shows UIKit's bar: one bar per stack, for its life
-    /// (LLP 1037 F1). Exact's default is whether the stack's first route is
-    /// header-shaped; set it in `navigation`. Under the agent the authored
-    /// header paints and the bar stays hidden whatever this says.
+    /// Whether the stack's routes may show UIKit's bar. Exact's default is
+    /// true, and each route then decides for itself (LLP 1115.000 D5.3: a
+    /// route whose header is the bar shows it, whatever the stack's first
+    /// route is); false, set in `navigation`, and no route of the stack
+    /// shows one. Under the agent the authored header paints and the bar
+    /// stays hidden whatever this says.
     public var showsBar: Bool
     /// The app's navigation delegate. Exact keeps the controller's own slot,
     /// where it reconciles pops, and forwards each call here after its own
