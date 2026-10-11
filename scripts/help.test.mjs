@@ -8,7 +8,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync,
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { createApp } from '../game/new.mjs';
-import { HELP, knownFlags } from './help.mjs';
+import { HELP, helpText, knownFlags } from './help.mjs';
 
 const ROOT = resolve(import.meta.dir, '..');
 const APP_VERBS = ['web', 'web-build', 'test', 'agent', 'ios', 'mac', 'linux', 'android', 'update', 'contract', 'hatch', 'pattern', 'feedback'];
@@ -34,11 +34,12 @@ test('each verb of a new app\'s exact.mjs, and no verb, answers help from exact2
     const exact = (...args) => timed([resolve(dir, 'exact.mjs'), ...args], { cwd: dir, env: { ...process.env, EXACT2: sdk } });
     for (const verb of APP_VERBS) {
       const lead = verb === 'test' ? ['ios'] : verb === 'agent' ? ['web', 'tree'] : [];
-      for (const args of [[verb, '--help'], [verb, ...lead, '-h'], ['help', verb]]) {
+      for (const args of [[verb, '--help'], [verb, ...lead, '-h'], ['help', verb], [verb, '--help', 'all']]) {
         const r = exact(...args);
         assert.equal(r.status, 0, `${args.join(' ')}: ${r.stderr}`);
         assert.ok(r.stdout.startsWith(HELP[verb].usage), `${args.join(' ')} printed:\n${r.stdout}`);
         assert.ok(r.ms < 2000, `${args.join(' ')} took ${Math.round(r.ms)} ms`);
+        assert.equal(r.stdout.trim(), helpText(verb, { all: args.includes('all') }), `${args.join(' ')}: the short text, or with all the whole`);
       }
     }
     for (const args of [[], ['help'], ['--help'], ['-h']]) {
@@ -102,7 +103,22 @@ test('each verb\'s help names exactly the flags its script parses, in a short te
     ['new', parsed(between("if (verb === 'new')", '\n  }'))],
   ]) assert.deepEqual([...knownFlags(verb).keys()].sort(), flags, `${verb}: the help's flags (documented and internal) against its script's`);
   for (const verb of Object.keys(HELP)) {
-    const lines = (`${HELP[verb].usage}\n${HELP[verb].body}`.split('\n').length + HELP[verb].flags.length);
-    assert.ok(lines <= 34, `${verb}'s help is ${lines} lines; it is replayed in an agent's context, so keep it short`);
+    const lines = helpText(verb, { all: true }).split('\n').length;
+    assert.ok(lines <= 36, `${verb}'s help is ${lines} lines; it is replayed in an agent's context, so keep it short`);
+  }
+});
+
+// LLP 1116.003 D5: the helps a small web app reads first (web, test, agent) say what a first build
+// needs; `--help all` names every flag the short text leaves out, and the ports.
+test('a first build\'s helps are short, and --help all has every flag', () => {
+  for (const verb of ['web', 'test', 'agent']) {
+    const short = helpText(verb), all = helpText(verb, { all: true });
+    assert.ok(short.length <= 1800, `${verb} --help is ${short.length} bytes`);
+    assert.match(short, new RegExp(`^More     bun exact\\.mjs ${verb} --help all: `, 'm'));
+    for (const [row] of [...HELP[verb].flags, ...HELP[verb].more]) {
+      for (const spec of row.split(' · ')) assert.ok(all.includes(spec.split(' ')[0]), `${verb} --help all names ${spec}`);
+    }
+    assert.match(all, /^Ports {4}/m, `${verb} --help all says its ports`);
+    assert.doesNotMatch(all, /^More /m);
   }
 });
