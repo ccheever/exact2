@@ -272,7 +272,17 @@ the Linux host implements this list, not that file):
   but not in the headers; without it the form is refused), so
   `locationInWindow` is the point named — a window-less wheel read it in
   screen space. A press on a node without a handler
-  reaches its parent the way a DOM click bubbles. With `wheel: [dx, dy]`,
+  reaches its parent the way a DOM click bubbles. **A tap that names a node
+  presses that node** (2026-10-09; the Bluesky clone's `tap post-0` liked and
+  reposted real people's posts): one with its own press whose middle holds
+  another control — whatever a press there would deliver: a press, a link run,
+  a form control or field, a grouped list's row, a canvas — is pressed at the
+  nearest point of its box a grid search finds reaching it (`avoided` in the
+  reply), else refused; one without is refused when its middle holds a
+  control, naming both. `tap <target> at <x> <y>`
+  (`{"op":"tap","id":V,"at":[x,y]}`) is a press at a point in the target,
+  whatever a finger there reaches, on every carrier (Windows and Android
+  share the Linux presenter's). With `wheel: [dx, dy]`,
   `dy > 0` scrolls down on both hosts; the web sends CDP `mouseWheel` under
   `--disable-smooth-scrolling` (fractional deltas allowed), macOS a phase-less
   pixel-unit `CGEvent` (`wheel1 = −dy`, `wheel2 = −dx`, rounded to whole
@@ -592,7 +602,7 @@ rendered as `--- name` + newline + the rendering, joined by blank lines,
 with a final newline; a sample named `empty` or `dropped` is a `logs`
 reply, the rest are named by their op. `scripts/smoke.mjs` checks it before
 opening a host; `--record` rewrites it after a deliberate change. The input
-grammar — `tap <target> [wheel <dx> <dy> [gesture] [at <x> <y>] [modifiers <M>] | hover |
+grammar — `tap <target> [at <x> <y> | wheel <dx> <dy> [gesture] [at <x> <y>] [modifiers <M>] | hover |
 mouse | dblclick | contextmenu | auxclick | clicks <1-3>` (each `[at <x> <y>] [modifiers <M>]`)
 `| modifiers <M> | down [at <x> <y>] [modifiers <M>]]`, `tap move <x> <y>｜by <dx> <dy> [over <ms>]
 [modifiers <M>]`, `tap hold [<ms>]`, `tap up [modifiers <M>]`, `tap cancel` (the four phase

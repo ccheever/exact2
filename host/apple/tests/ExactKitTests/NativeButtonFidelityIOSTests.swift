@@ -127,6 +127,39 @@ final class NativeButtonFidelityIOSTests: XCTestCase {
         }
     }
     // Independent use of UIKit's public system-spacing API for the reference column.
+    func testMinContentUsesUnbreakableRunsAndTheNativeChrome() throws {
+        let session = try fixture(); defer { session.destroy() }
+        let traits = session.presenter.viewport.traitCollection
+        for placement in ["leading", "top"] {
+            var f = ButtonFace(); f.ios = "filled"; f.title = "A long title that wraps"
+            f.symbol = "lock.fill"; f.placement = placement
+            f.rows.button = ["padding_left": .number(22), "padding_right": .number(22)]
+            let maximum = session.buttonMeasurements.measure(f, widthKind: 2, width: 0, traits: traits)
+            let minimum = session.buttonMeasurements.measure(f, widthKind: 1, width: 0, traits: traits)
+            var run = f; run.title = "wraps"
+            let expected = session.buttonMeasurements.measure(run, widthKind: 2, width: 0, traits: traits)
+            XCTAssertEqual(minimum.width, expected.width, accuracy: 0.5, placement)
+            XCTAssertLessThan(minimum.width, maximum.width, placement)
+            let fitted = session.buttonMeasurements.measure(f, widthKind: 0, width: CGFloat(minimum.width), traits: traits)
+            XCTAssertEqual(minimum.height, fitted.height, accuracy: 0.5)
+            f.rows.title["line_clamp"] = .number(2)
+            XCTAssertEqual(session.buttonMeasurements.measure(f, widthKind: 1, width: 0, traits: traits).width, minimum.width, accuracy: 0.5)
+            f.rows.title["white_space"] = .string("nowrap")
+            let nowrap = session.buttonMeasurements.measure(f, widthKind: 1, width: 0, traits: traits)
+            XCTAssertEqual(nowrap.width, maximum.width, accuracy: 0.5, "CSS nowrap has no soft breaks")
+        }
+        var f = ButtonFace(); f.title = "One\u{00a0}unbroken run"; f.ios = "filled"
+        let minimum = session.buttonMeasurements.measure(f, widthKind: 1, width: 0, traits: traits)
+        f.title = "One\u{00a0}unbroken"
+        XCTAssertEqual(minimum.width, session.buttonMeasurements.measure(f, widthKind: 2, width: 0, traits: traits).width, accuracy: 0.5)
+        f.title = "A long title that wraps"; f.subtitle = "A secondary unbreakable phrase"
+        f.rows.subtitle["font_size"] = .number(23)
+        let subtitleMinimum = session.buttonMeasurements.measure(f, widthKind: 1, width: 0, traits: traits)
+        f.title = "wraps"; f.subtitle = "unbreakable"
+        XCTAssertEqual(subtitleMinimum.width, session.buttonMeasurements.measure(f, widthKind: 2, width: 0, traits: traits).width, accuracy: 0.5,
+            "the subtitle uses its own native font and line-break runs")
+    }
+
     private func standardSpacing() -> CGFloat {
         let parent = UIView(), a = UIView(), b = UIView()
         for v in [a, b] { v.translatesAutoresizingMaskIntoConstraints = false; parent.addSubview(v) }

@@ -95,6 +95,8 @@ describe('header and panels', () => {
     const client = fakeClient({ threadId: 't1', projectId: 'p1', shell: { threads: [{ id: 't1', projectId: 'p1' }], projects: [{ id: 'p1', workspaceRoot: '/p' }] } });
     const rows = surfaces(client);
     expect(rows.map(row => `${row.label} ${row.shortcut}`)).toEqual(['Browser B', 'Terminal T', 'Files F', 'Diff D', 'Pull request P', 'Linked pull requests L', 'Device M']);
+    // realinput-1010-fixes RI-1: the launcher hears a row's letter in either case (surfaceShortcutActionForKey).
+    expect(rows.map(row => row.letter).join('')).toBe('btfdplm');
     expect(rows.find(row => row.id === 'diff')).toMatchObject({ available: true, reason: '' });
     // browser-surface: the Browser row needs the desktop module (its WKWebView); without one it says why.
     expect(rows.find(row => row.id === 'browser')).toMatchObject({ available: false, reason: 'Only available in the desktop app.' });
@@ -403,6 +405,10 @@ describe('shell commands and routed failures', () => {
     expect(settingsFailure(value, 'rest:task', 'scope', 'action=save&id=t', 'Scheduled task is incomplete: Add a title, prompt, project, and model.')).toBe('Scheduled task is incomplete');
     expect(settingsFailure(value, 'rest:task', 'scope', 'action=save', 'Use an interval of at least one minute.')).toBe('Invalid interval');
     expect(settingsFailure(value, 'rest:task', 'scope', 'action=save', 'Enter an existing checkout path.')).toBe('Checkout path is required');
+    // settings-rows-and-labels S2-3: the editor's own message (taskInput) maps to the reference's title and description.
+    const checkout = client().value;
+    expect(settingsFailure(checkout, 'rest:task', 'scope', 'action=save', 'Checkout path is required: Enter the path of the checkout to run in.')).toBe('Checkout path is required');
+    expect(toasts(checkout).map(toast => [toast.title, toast.description])).toEqual([['Checkout path is required', 'Enter the path of the checkout to run in.']]);
     expect(settingsFailure(value, 'rest:task', 'scope', 'action=save', 'Could not save scheduled task: Choose an available provider and model.')).toBe('Could not save scheduled task');
     expect(settingsFailure(value, 'rest:task', 'scope', 'action=toggle&id=t', 'denied')).toBe('Could not update scheduled task');
     expect(settingsFailure(value, 'rest:keybinding', 'scope', 'action=remove&previous=x', 'denied')).toBe('Unable to remove keybinding');

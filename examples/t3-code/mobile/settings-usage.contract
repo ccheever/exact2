@@ -155,7 +155,7 @@ component SettingsUsage
           column padding=14 gap=7 border-radius=24 background-color=colors.grouped
             text `Cursor account usage · ${cursor.label}` color=colors.foreground font-size=roles.body.size
             text "Allow access to Cursor's login in macOS Keychain on this environment to read account usage." color=colors.muted font-size=roles.footnote.size
-            button press=command("enable-cursor", cursor.id, "") disabled=cursor.disabled min-height=44
+            button appearance="none" press=command("enable-cursor", cursor.id, "") disabled=cursor.disabled min-height=44
               text "Enable" color=colors.link font-size=roles.body.size
         when length(data.emptyMessage) > 0
           text data.emptyMessage padding-top=56 padding-bottom=56 text-align="center" color=colors.muted font-size=roles.body.size
@@ -268,7 +268,7 @@ component SettingsUsageAccount
           column background-color=colors.grouped border-radius=24 padding=14 gap=10.5
             text data.label color=colors.foreground font-size=roles.title.size font-weight=500
             when data.hasEmail
-              button press=reveal(data.key) min-height=44 aria-label=(data.revealed ? "Hide email" : "Show email")
+              button appearance="none" press=reveal(data.key) min-height=44 aria-label=(data.revealed ? "Hide email" : "Show email")
                 text data.email color=colors.muted font-size=roles.body.size
             when length(data.plan) > 0
               text data.plan color=colors.muted font-size=roles.footnote.size

@@ -3,14 +3,25 @@ import { describe, expect, test } from 'bun:test';
 import { answer } from './app';
 
 describe('mobile pairing source', () => {
-  test('keeps the copied parser identical to the adopted desktop source', () => {
-    const local = readFileSync(new URL('./shared/r10-connect-pairing.ts', import.meta.url), 'utf8');
-    const desktop = readFileSync(new URL('../r10-connect-pairing.ts', import.meta.url), 'utf8');
-    expect(local.split('\n').slice(2).join('\n')).toBe(desktop);
+  test('keeps the copied parser identical to its declared immutable source', () => {
+    const pin = '887b2491b182f851b11253655f6aa84fe2a26708';
+    const source = 'examples/t3-code/r10-connect-pairing.ts';
+    const local = readFileSync(new URL('./shared/r10-connect-pairing.ts', import.meta.url));
+    const prefix = Buffer.from('// GAP 001: bake cannot capture parent imports. Remove this copy when ancestor mounts work.\n'
+      + `// Unchanged body from ${source} at ${pin}.\n`);
+    expect(local.subarray(0, prefix.length)).toEqual(prefix);
+    const result = Bun.spawnSync(['git', 'cat-file', 'blob', `${pin}:${source}`], { cwd: new URL('./', import.meta.url).pathname });
+    expect(result.exitCode).toBe(0);
+    expect(local.subarray(prefix.length)).toEqual(Buffer.from(result.stdout));
   });
   test('uses the shared hosted-link parser', () => {
     expect(answer('pairingFields', ['https://t3.codes/pair?host=https%3A%2F%2Fserver.example#token=fixture']))
       .toEqual({ source: 'https://t3.codes/pair?host=https%3A%2F%2Fserver.example#token=fixture', host: 'https://server.example', code: 'fixture' });
+  });
+  test('keeps rejected space-host input intact without prefilling a code', () => {
+    const source = '  https://not a url/pair#token=fixture  ';
+    expect(answer('pairingFields', [source]))
+      .toEqual({ source, host: source.trim(), code: '' });
   });
   test('answers empty input at bake and rejects unknown sources', () => {
     expect(answer('pairingFields', [''])).toEqual({ source: '', host: '', code: '' });

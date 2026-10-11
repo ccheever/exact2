@@ -139,8 +139,8 @@ Local evidence, relative to the checkout root (not committed):
 - `target/desktop-audit/native/native-diff-scope.{png,json}` and
   `native-diff-uncommitted.{png,json}`.
 - `target/desktop-audit/native/native-terminal-echo.{png,json}`.
-- [Cancelled-refresh probe](../../../../../../../target/desktop-audit/watch-probe/repro.ts) and
-  [recorded output](../../../../../../../target/desktop-audit/watch-probe/output.ndjson).
+- Cancelled-refresh probe (`target/desktop-audit/watch-probe/repro.ts`) and recorded output
+  (`target/desktop-audit/watch-probe/output.ndjson`).
 
 ### Repeatable causal probe
 

@@ -6,7 +6,7 @@
 **Systems:** All
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-28
-**Related:** LLP 1001, LLP 1002, LLP 1003, LLP 1004, LLP 1005, LLP 1006, LLP 1007, LLP 0552, LLP 0491, LLP 0507, LLP 0486
+**Related:** LLP 1001, LLP 1002, LLP 1003, LLP 1004, LLP 1005, LLP 1006, LLP 1007, LLP 1115, LLP 0552, LLP 0491, LLP 0507, LLP 0486
 
 ## Summary
 
@@ -112,7 +112,8 @@ and this one does not. Read them first.
 - `scripts/` — `caps` and `boot` (two of the five checks), `metrics` (the startup and
   speed numbers in one run, diagnostic), `issue` (filesystem issues, `docs/issues.md`),
   and `exact.mjs` (`exact new`, `setup`, `contract`, `run`, `install`).
-- `docs/` — the guides for people and agents building apps: Contract for agents,
+- `docs/` — the guides for people and agents building apps: `start-here.md` (the one
+  required read, LLP 1115 D7) and its recipes, then for lookup Contract for agents,
   for humans, its grammar, the pitfalls, and the developer reference (LLP 1086).
 - `skills/`, `.claude/skills/` — the orchestrate skill and the LLP skills (installed
   from `ccheever/llp@v0.5.1`; receipt in `.llp/skills-receipt.json`).
@@ -159,9 +160,11 @@ under `host/apple`, then `metrics.mjs --long`.
 
 ## Durable constraints (from the rules, restated for orientation)
 
-- **The web is the standard.** A semantic that could follow CSS follows CSS —
-  defaults, property names, value vocabularies, behavior. Deviations are declared
-  with a reason (LLP 1001 §1). `AGENTS.md` carries the same rule.
+- **Write the web, ship the platform** (LLP 1115, 2026-10-09; it replaced "the web is
+  the standard" here). Authors write CSS: property names, value vocabularies and
+  layout defaults follow CSS, and a layout deviation is declared with a reason (LLP
+  1001 §1). What the author leaves unsaid that a person can see or feel is the
+  platform's. Author > platform > CSS default. `AGENTS.md` carries the same rule.
 - Delete; don't deprecate. No compat shims before 1.0. Names change.
 - Generated files are built, never committed (`kernel/build.rs` → `OUT_DIR`).
 - 1,500 lines per source file; vendored code exempt.

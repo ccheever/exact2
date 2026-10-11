@@ -318,6 +318,12 @@ impl Tree {
         self.last_work = u.work;
         Ok((changed || released, edge))
     }
+    /// [`Collection::reveal_at`] for list `view`.
+    pub(crate) fn show_collection(&mut self, u: &mut Update<'_>, view: ViewId, offset: f64) {
+        if let Some(collection) = find_collection_mut(&mut self.children, view) {
+            collection.reveal_at(u, offset);
+        }
+    }
     pub(crate) fn has_collection(&self, view: ViewId) -> bool {
         find_collection(&self.children, view).is_some()
     }

@@ -21,6 +21,8 @@
 // `routingAllowed` is folded into `permission` by the host: an SSH environment whose saved profile no
 // longer produces the stored connection key reads "off" (routingPermissionFor over the key the
 // current catalog computes), the same answer the reference's profile-store comparison gives.
+// `dispatch` is the same routing for a write sent detached (the Viewed ticks, whose reply comes back
+// in a later answer): its invalidations are `afterWrite`, run by the answer that sees the reply.
 import { arr, num, obj, str, type Obj } from './domain';
 import { ClientError } from './protocol';
 import { letGo } from './let-go';
@@ -278,6 +280,12 @@ export interface PullRequestRouterHost {
 
 /** Where a reference was read through: its origin, the reference with the verified host, and the servers that answered. */
 export type RoutedRead = { origin: string; reference: Obj; targets: Set<string> };
+/**
+ * The write leg of `dispatch`: puts the write on one server and answers once it has left, its reply coming back later
+ * (a detached write, composer-replies.ts). It throws, before anything leaves, when that server cannot take it now
+ * (EnvironmentRpcUnavailableError), which passes the write to the next candidate as a refusal before dispatch does.
+ */
+export type DetachedSend = (environmentId: string, payload: Obj) => Promise<Obj>;
 /** The routed-reads memory, shared by every router over the same connections (the reference keys it by registry). */
 export type RoutedReadMemory = Map<string, RoutedRead>;
 const MEMORY_LIMIT = 256;
@@ -334,6 +342,34 @@ export class PullRequestRouter {
     }
   }
 
+  /**
+   * A routed write whose reply comes back later (the Viewed ticks' flush, pages-pr-code.ts: no answer waits on it). It is
+   * routed as `request` routes a write (the identity probes, the reference's candidate order, a server that refuses before
+   * the write leaves passing it to the next), but `send` puts it on the chosen server and returns at once. The readers'
+   * invalidations (the reference's `finish`) follow the host's acceptance: the caller runs `afterWrite` in the answer that
+   * sees the reply, because a native call needs an answer to run in and the reply arrives outside this one.
+   */
+  dispatch(host: PullRequestRouterHost, method: string, payload: Obj, send: DetachedSend): Promise<Obj> {
+    return this.routed(host, method, payload, true, undefined, send);
+  }
+
+  /** The reference's `finish` after a write the host accepted: every server read through for the pull request is told (`filesViewedOnly` for the Viewed marks). */
+  async afterWrite(host: PullRequestRouterHost, method: string, ref: Obj): Promise<void> {
+    if (!PR_ROUTED_WRITES.has(method) || this.used.size === 0) return;
+    const origin = host.originId;
+    const targets = new Map<string, Obj[]>([[origin, [ref]]]);
+    for (const entry of this.used.values()) {
+      if (entry.origin !== origin || !matchesReference(entry.reference, ref)) continue;
+      for (const target of [...entry.targets, origin]) {
+        const refs = targets.get(target) ?? [];
+        if (!refs.some(existing => existing.host === entry.reference.host)) refs.push(entry.reference);
+        targets.set(target, refs);
+      }
+    }
+    const viewedOnly = method === SET_FILES_VIEWED;
+    await this.fanOut([...targets].map(([target, refs]) => [target, [...refs.map(reference => ({ reference, ...(viewedOnly ? { filesViewedOnly: true } : {}) })), ...(viewedOnly ? [] : [{}])]] as const), host);
+  }
+
   private allowed(host: PullRequestRouterHost, destination: string, write: boolean): boolean {
     const environments = host.environments();
     return routingAllowed(environments.find(entry => entry.id === host.originId), environments.find(entry => entry.id === destination), write);
@@ -360,11 +396,15 @@ export class PullRequestRouter {
     this.used.set(refKey, entry);
   }
 
-  /** routedRequest: the invalidate fan-out, then a read or write through the first allowed server with the same GitHub account. */
-  private async routed(host: PullRequestRouterHost, method: string, input: Obj, write: boolean, sourceRead?: () => Promise<Obj>): Promise<Obj> {
+  /**
+   * routedRequest: the invalidate fan-out, then a read or write through the first allowed server with the same GitHub
+   * account. `send` (dispatch) replaces the request's own leg on each server and leaves the fan-out to `afterWrite`.
+   */
+  private async routed(host: PullRequestRouterHost, method: string, input: Obj, write: boolean, sourceRead?: () => Promise<Obj>, send?: DetachedSend): Promise<Obj> {
     const origin = host.originId;
     const reads = PR_ROUTED_READS.has(method), writes = PR_ROUTED_WRITES.has(method), uncertain = write || writes;
-    const source = sourceRead ?? memo(() => host.request(origin, method, input, { write: uncertain }));
+    const leg = (id: string, payload: Obj, options: { write: boolean; timeoutSeconds?: number }) => send ? send(id, payload) : host.request(id, method, payload, options);
+    const source = sourceRead ?? memo(() => leg(origin, input, { write: uncertain }));
     if (method === INVALIDATE && isInvalidation(input)) {
       const result = await host.request(origin, method, input, { write });
       const targets = new Map<string, Obj>();
@@ -378,23 +418,12 @@ export class PullRequestRouter {
       await this.fanOut([...targets].map(([target, reference]) => [target, [{ ...input, ...(filter === undefined ? {} : { reference }) }]] as const), host);
       return result;
     }
-    if ((!reads && !writes) || !isPullRequestRef(input)) return host.request(origin, method, input, { write });
+    if ((!reads && !writes) || !isPullRequestRef(input)) return leg(origin, input, { write });
     const ref = input;
     const refKey = JSON.stringify([origin, str(ref.projectId), typeof ref.host === 'string' ? ref.host.toLowerCase() : null, str(ref.repository).toLowerCase(), String(num(ref.number))]);
     const finish = async (operation: () => Promise<Obj>): Promise<Obj> => {
       const result = await operation();
-      if (!writes || this.used.size === 0) return result;
-      const targets = new Map<string, Obj[]>([[origin, [ref]]]);
-      for (const entry of this.used.values()) {
-        if (entry.origin !== origin || !matchesReference(entry.reference, ref)) continue;
-        for (const target of [...entry.targets, origin]) {
-          const refs = targets.get(target) ?? [];
-          if (!refs.some(existing => existing.host === entry.reference.host)) refs.push(entry.reference);
-          targets.set(target, refs);
-        }
-      }
-      const viewedOnly = method === SET_FILES_VIEWED;
-      await this.fanOut([...targets].map(([target, refs]) => [target, [...refs.map(reference => ({ reference, ...(viewedOnly ? { filesViewedOnly: true } : {}) })), ...(viewedOnly ? [] : [{}])]] as const), host);
+      if (!send) await this.afterWrite(host, method, ref);
       return result;
     };
     const environments = host.environments();
@@ -410,7 +439,7 @@ export class PullRequestRouter {
     // Old servers and unknown accounts retain the existing path.
     if (identity === null || identity.provider !== 'github') return finish(source);
     const routedInput = { ...input, host: identity.host, expectedAccountId: identity.accountId };
-    const guardedSource = sourceRead ?? memo(() => host.request(origin, method, routedInput, { write: uncertain }));
+    const guardedSource = sourceRead ?? memo(() => leg(origin, routedInput, { write: uncertain }));
     const sourceLocal = originEntry?.local === true;
     const candidates = [
       ...(sourceLocal && writes ? [origin] : []),
@@ -424,7 +453,7 @@ export class PullRequestRouter {
       if (id === origin) result = await guardedSource();
       else {
         if (!host.environments().some(entry => entry.id === id)) throw new ClientError('The environment was removed.', 'EnvironmentRpcUnavailableError');
-        result = await host.request(id, method, routedInput, { write: uncertain, ...(reads ? { timeoutSeconds: READ_TIMEOUT } : {}) });
+        result = await leg(id, routedInput, { write: uncertain, ...(reads ? { timeoutSeconds: READ_TIMEOUT } : {}) });
       }
       this.remember(origin, refKey, { ...ref, host: identity.host }, id);
       return result;

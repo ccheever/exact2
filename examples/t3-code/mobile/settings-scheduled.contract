@@ -230,9 +230,9 @@ component SettingsScheduledEditor
               when length(data.webhookAddress) > 0
                 text data.webhookAddress color=colors.foreground font-size=roles.footnote.size overflow-wrap="anywhere"
                 row gap=14
-                  button press=copyWebhook() disabled=(not data.webhookCopyable) min-height=44
+                  button appearance="none" press=copyWebhook() disabled=(not data.webhookCopyable) min-height=44
                     text "Copy URL" color=colors.link font-size=roles.footnote.size
-                  button press=rotateWebhook() disabled=(not data.canSave) min-height=44
+                  button appearance="none" press=rotateWebhook() disabled=(not data.canSave) min-height=44
                     text "Rotate URL" color=colors.link font-size=roles.footnote.size
               when length(data.webhookNote) > 0
                 text data.webhookNote color=colors.muted font-size=roles.footnote.size
@@ -305,5 +305,5 @@ component SettingsScheduledBranch
                   when branch.selected
                     t3-symbol symbol-name="checkmark" point-size=16 symbol-tint=colors.icon width=16 height=16
           when data.hasMore
-            button press=more() min-height=44
+            button appearance="none" press=more() min-height=44
               text "Load more" color=colors.link font-size=roles.body.size

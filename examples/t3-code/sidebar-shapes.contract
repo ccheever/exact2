@@ -1,5 +1,30 @@
 use R5Probe from "./r5-composer.contract"
 // The sidebar's projected rows and view state (sidebar-view.ts).
+// shell-sidebar-palette-keys (TH-8): Custom snooze's calendar month (snooze-calendar.ts, drawn by snooze-calendar.contract).
+shape CalendarDay
+  id: string
+  label: string
+  aria: string
+  outside: bool
+  disabled: bool
+  selected: bool
+  today: bool
+  stop: bool
+shape CalendarWeek
+  id: string
+  days: list<CalendarDay>
+shape CalendarWeekday
+  id: string
+  short: string
+  name: string
+shape SnoozeCalendar
+  dateLabel: string
+  title: string
+  weekdays: list<CalendarWeekday>
+  weeks: list<CalendarWeek>
+  focus: string
+  focusSeq: number
+
 shape SnoozePreset
   id: string
   label: string
@@ -176,6 +201,8 @@ shape SidebarView
   dialogError: string
   // dialog-shortcut-focus: the `id` a closed dialog gives the focus back to (its thread's row), "" for none.
   dialogReturn: string
+  // shell-sidebar-palette-keys (TH-8): Custom snooze's date button and its calendar popover (snooze-calendar.ts).
+  calendar: SnoozeCalendar
   jumpHints: bool
   pillKey: string
   pillTone: string

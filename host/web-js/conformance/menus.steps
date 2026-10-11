@@ -3,6 +3,11 @@ wheel pad 40
 wheel off 40
 # The row's own handler, and only it, hears its contextmenu.
 menu row
+# Dismiss the browser's native menu before the next keyboard input.
+key row Escape
+# The keyboard's ContextMenu uses the same handler at the focus.
+key row ContextMenu
+key row Escape
 # A field keeps the browser's edit menu: nothing runs.
 menu area
 # The outer column's handler hears a contextmenu on itself.

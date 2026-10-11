@@ -9,7 +9,7 @@ import type { T3Client } from './client';
 import type { OpOut } from './client-ops';
 import { forgetDraftThreadId, launchThreadId } from './r7-handoff-thread';
 import { composerNow, stagesChanges, stage, rememberModel, rememberOptions, stagedFor, clearStaged, nextTurnCommands, resolveDispatchMode, followUpBehavior, withDispatchMode, planFollowUp, resolvePlanSubmission } from './composer-controls';
-import { additiveGesture, fanoutSelections, sendFanout, setFanout, toggleFanout } from './r3-composer-controls-fanout';
+import { additiveGesture, fanoutSelections, fanoutSupported, sendFanout, setFanout, toggleFanout } from './r3-composer-controls-fanout';
 import { acknowledgeWoke, lockedProviderReason, applyOptionChoice, backgroundStarted } from './composer-controls-commands';
 import { dispatchSelection, promptForSend, ultrathinkChoice } from './composer-ultrathink'; // composer-fidelity G9
 import { queuedEdit, saveQueuedEdit } from './composer-controls-queue';
@@ -18,6 +18,7 @@ import { composerSelection } from './composer-provider-selection'; // composer-p
 import { isUsageLimitsCommand, usageLimitsOffered, openUsageLimits } from './composer-controls-usage';
 import { feedbackCommandFor, feedbackInFlight, sendFeedback } from './composer-feedback'; // usage-reset-and-feedback
 import { withMessageContext } from './composer-editor';
+import { annotationAttachedToDraft, annotationSendMarked, takeAnnotationSend } from './browser-annotation'; // browser-surface part 3: an annotation's send
 import { sendIntent } from './composer-editor-intent';
 import { launchTitle } from './composer-editor-title';
 import { promptLengthMessage } from './composer-editor-menu';
@@ -69,9 +70,10 @@ export async function composerWrites(this: T3Client, op: string, id: string, val
   let resultMessage = '';
   try {
     if (op === 'send' && pendingRequests(this.projection).approvals.length) throw new ClientError('Resolve this approval request to continue.');
+    else if (op === 'send' && activeInput(this) && annotationSendMarked(this)) resultMessage = annotationAttachedToDraft(this); // onSend: a direct annotation never answers a question
     else if (op === 'send' && activeInput(this)) await submitAnswers.call(this, native, storage, '', value);
     else if (op === 'send') await autoBalanceSend(this, native, async () => { resultMessage = (await send.call(this, native, storage, value)) || ''; }); // auto-balance: onSend's guard (a move in flight finishes first)
-    else if (op === 'provider' || op === 'model') await changeModel.call(this, native, storage, op, id, value);
+    else if (op === 'provider' || op === 'model') await changeModel.call(this, native, storage, op, id, value, n === 1); // n 1: the picker's Shift+click or Shift+Return
     else if (op === 'model-option') await changeModelOption.call(this, native, storage, id, value);
     else if (op === 'runtime' || op === 'interaction') await changeMode.call(this, native, storage, op, value);
     else if (op === 'stop') {
@@ -99,7 +101,7 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   const feedback = feedbackCommandFor(this, value || this.draft); // Codex /feedback uploads the thread instead of sending a turn
   if (feedback) return sendFeedback(this, native, value || this.draft, feedback);
   const plan = planFollowUp(this);
-  const submission = plan ? resolvePlanSubmission(value || this.draft, plan.markdown) : null;
+  const submission = plan ? resolvePlanSubmission(value || this.draft, plan.markdown) : null, annotationSend = takeAnnotationSend(this);
   // The turn runs on the instance and model the composer shows (composer-provider-selection.ts): a stored model the
   // catalog no longer lists sends the instance's default, as deriveEffectiveComposerModelState does.
   const chosen = composerSelection(this, !!fanoutSelections(this));
@@ -115,9 +117,10 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   if (!submission || submission.interactionMode === 'plan') this.local.drafts[this.draftKey] = text;
   const gesture = await this.call(native, { op: 'composerSendIntent' }).catch(() => ({}));
   const running = !!selection.threadId && threadPhase(this.projection) === 'running';
-  const intent = sendIntent(this.config, gesture, running, !selection.threadId, terminalOpen(this));
+  // browser-surface part 3: an annotation's ⌘↩ sends in the foreground, "auto" (PreviewView onSendAnnotation).
+  const intent = annotationSend ? 'foreground' : sendIntent(this.config, gesture, running, !selection.threadId, terminalOpen(this));
   const provider = arr(this.config.providers).find(provider => provider.instanceId === sendProviderId);
-  if (!provider || !providerAvailable(provider)) throw new ClientError('This provider is unavailable. Configure it in T3 Code.');
+  if (!provider || !providerAvailable(provider)) { if (annotationSend) return annotationAttachedToDraft(this); throw new ClientError('This provider is unavailable. Configure it in T3 Code.'); } // onSend: !providerAvailable
   if (!arr(provider.models).some(model => model.slug === sendModelId)) throw new ClientError('Choose one of the models advertised by T3.');
   if (Array.isArray(provider.supportedRuntimeModes) && !provider.supportedRuntimeModes.includes(this.runtimeMode)) {
     throw new ClientError('Choose a permission mode supported by this provider.');
@@ -144,7 +147,7 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
       await this.write(native, storage, { method: 'orchestration.launchThread', payload: withMessageContext(this, payload, text),
         description: 'Send', threadId: selection.threadId, text, uncertain: false }, assertOwner);
     } else {
-      const mode = submission ? 'auto' : resolveDispatchMode(running, followUpBehavior(this), intent === 'alternate');
+      const mode = submission || annotationSend ? 'auto' : resolveDispatchMode(running, followUpBehavior(this), intent === 'alternate');
       const payload = withDispatchMode(withMessageContext(this, sendPayload(commandId, selection.threadId, messageId, text, attachments), text), mode,
         dispatchSelection(this, sendProviderId, sendModelId, JSON.parse(selection.options)));
       if (submission?.interactionMode === 'default' && plan) payload.sourcePlanRef = { threadId: selection.threadId, planId: plan.planId };
@@ -173,7 +176,7 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
     await this.openThread(native, this.threadId);
   }
 }
-async function changeModel(this: T3Client, native: Native, storage: Files, op: string, id: string, instance = ''): Promise<void> {
+async function changeModel(this: T3Client, native: Native, storage: Files, op: string, id: string, instance = '', shift = false, toggled = false): Promise<void> {
   const providerId = op === 'provider' ? id : instance || this.providerId;
   const provider = arr(this.config.providers).find(provider => provider.instanceId === providerId);
   if (!provider || !providerAvailable(provider)) throw new ClientError('This provider is unavailable. Configure it in T3 Code.');
@@ -185,8 +188,14 @@ async function changeModel(this: T3Client, native: Native, storage: Files, op: s
   }
   const locked = lockedProviderReason(this, providerId);
   if (locked) throw new ClientError(locked);
-  // A draft's Shift-click (or Shift+Return) adds the model to a multi-model fan-out; a plain pick ends it.
-  if (op === 'model' && await additiveGesture(this, native)) { const single = toggleFanout(this, providerId, modelId); if (!single) return; return changeModel.call(this, native, storage, 'model', single.model, single.instanceId); }
+  // A draft's Shift-click (or Shift+Return) adds the model to a multi-model fan-out; a plain pick ends it. The picker says so
+  // (model-picker-parity CO-7, the press's own shiftKey); the native gesture covers a press it could not see. That press is
+  // taken on every pick, first (T3ComposerIntent hands it out once): left behind, it would toggle again the one model a
+  // removal leaves, or make the next pick within 2 s (a ⌘N jump) additive. The model a toggle leaves is a plain pick.
+  if (op === 'model' && !toggled) {
+    const pressed = await additiveGesture(this, native);
+    if ((shift && fanoutSupported(this)) || pressed) { const single = toggleFanout(this, providerId, modelId); if (!single) return; return changeModel.call(this, native, storage, 'model', single.model, single.instanceId, false, true); }
+  }
   setFanout(this, null);
   const remembered = rememberModel(this, providerId, modelId);
   if (stagesChanges(this)) { stage(this, { providerId, modelId, options: remembered }); return; }

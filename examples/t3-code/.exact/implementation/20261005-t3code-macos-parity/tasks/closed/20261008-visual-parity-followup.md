@@ -102,7 +102,7 @@ an expanded header wider than 24rem is cut where the reference's `th` shows it w
 - The General/Project traits menu is clamped against the window's right edge (General's existing menu).
 - From #250, still open: inline code naming a workspace path is a file chip in the reference; square
   intraline emphasis (inline spans paint background only).
-- [X59](../../issues/20261008-x59-line-clamp-first-layout-ellipsis.md): a collapsed cell's first layout
+- [X59](../../issues/closed/20261008-x59-line-clamp-first-layout-ellipsis.md): a collapsed cell's first layout
   after the toggle shows its wrapped first line without the ellipsis (base too); after a restyle (the
   dark capture) the ellipsis is there.
 

@@ -134,7 +134,7 @@ component VoiceGlobalPill
           button width=30 height=30 padding=0 press=action("cancel") aria-label=(data.phase == "error" ? "Dismiss voice input error" : "Cancel dictation")
             column align-items="center" justify-content="center"
               t3-symbol symbol-name="xmark" point-size=13 symbol-weight="regular" symbol-tint=colors.iconMuted width=13 height=13
-          button flex=1 min-width=0 height=34 padding=0 press=expand(false) aria-label=(data.phase == "error" ? data.error : data.label)
+          button appearance="none" flex=1 min-width=0 height=34 padding=0 press=expand(false) aria-label=(data.phase == "error" ? data.error : data.label)
             text (data.phase == "error" ? data.error : data.label) font-size=10.5 font-weight=500 line-clamp=1 color=(data.phase == "error" ? colors.danger : colors.foreground)
           when data.phase == "recording"
             row gap=1.75 height=14 align-items="center" aria-hidden=true

@@ -30,6 +30,8 @@ type Publish = { step: number; provider: string; repository: string | null; visi
 export interface GitState {
   cwd: string; status: Obj | null; run: Run | null; success: { cwd: string; title: string; description: string; at: number } | null;
   dialog: string; pending: Pending | null; editing: boolean; excluded: Set<string>; initPending: boolean;
+  /** Which control opened the dialog (the quick action or the menu), which it gives the focus back to as it closes. */
+  opener: 'quick' | 'menu';
   ends: Map<string, Obj>; branchSync: { threadId: string; draftKey: string; branch: string }[]; publish: Publish; editor: string; lastNow: number;
 }
 const freshPublish = (): Publish => ({ step: 0, provider: '', repository: null, visibility: 'private', remote: 'origin', protocol: 'ssh', advanced: false, pending: false, error: '', result: null, discovered: [], loaded: false });
@@ -37,7 +39,7 @@ const states = new WeakMap<T3Client, GitState>();
 export function gitState(client: T3Client): GitState {
   let state = states.get(client);
   if (!state) {
-    state = { cwd: '', status: null, run: null, success: null, dialog: '', pending: null, editing: false, excluded: new Set(), initPending: false, ends: new Map(), branchSync: [], publish: freshPublish(), editor: '', lastNow: 0 };
+    state = { cwd: '', status: null, run: null, success: null, dialog: '', opener: 'quick', pending: null, editing: false, excluded: new Set(), initPending: false, ends: new Map(), branchSync: [], publish: freshPublish(), editor: '', lastNow: 0 };
     states.set(client, state);
   }
   return state;
@@ -149,6 +151,7 @@ export async function gitCommand(client: T3Client, native: Native, op: string, i
   const state = gitState(client);
   if (id && state.cwd && id !== state.cwd) throw new ClientError('The workspace changed. Try again.');
   if (op === 'quick') {
+    if (!state.dialog) state.opener = 'quick';
     const status = state.status, action = quickAction(status, !!state.run?.running, status?.isDefaultRef === true, status?.hasPrimaryRemote === true);
     if (action.kind === 'open_publish') { openPublish(state); return ''; }
     if (action.kind === 'run_pull') return pull(client, native, state);
@@ -157,6 +160,7 @@ export async function gitCommand(client: T3Client, native: Native, op: string, i
     return '';
   }
   if (op === 'menu') {
+    if (!state.dialog) state.opener = 'menu';
     const item = menuItems(state.status, !!state.run?.running, state.status?.hasPrimaryRemote === true).find(entry => entry.dialogAction === value || entry.id === value);
     if (value === 'publish') { openPublish(state); return ''; }
     if (!item || item.disabled) throw new ClientError(item ? menuReason(item, state.status, !!state.run?.running, state.status?.hasPrimaryRemote === true) : 'That action is unavailable.');
@@ -314,7 +318,7 @@ export function gitCardView(client: T3Client, status: Obj | null, error: string,
     menu: [...items.map(item => ({ id: item.id as string, label: item.label, icon: item.icon, disabled: item.disabled, reason: menuReason(item, status, busy, hasRemote) })),
       ...(status?.isRepo === true && !hasRemote ? [{ id: 'publish', label: 'Publish repository...', icon: 'cloud-upload', disabled: busy, reason: '' }] : [])],
     menuPublish: status?.isRepo === true && !hasRemote, notes: menuNotes(status, error),
-    dialog: state.dialog, sourceMark: providerMark(status),
+    dialog: state.dialog, dialogFrom: state.opener === 'menu' ? 'details-git-menu' : 'details-git-action', sourceMark: providerMark(status),
     commitBranch: str(status?.refName) || '(detached HEAD)', commitDefault: status?.isDefaultRef === true, editing: state.editing,
     files: files.map(file => ({ ...file, excluded: state.excluded.has(file.path) })), fileCount: files.length, selectedCount: selected.length,
     allSelected: state.excluded.size === 0, noneSelected: selected.length === 0, someSelected: state.excluded.size > 0 && selected.length > 0,

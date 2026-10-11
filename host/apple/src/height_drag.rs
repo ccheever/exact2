@@ -325,7 +325,7 @@ mod tests {
   action done
     closed = closed + 1
   action release(height: number, velocity: number)
-    at = now()
+    at = performanceNow()
     open = false
   view
     box id="sheet" testId="sheet" height=200 box-sizing="border-box"

@@ -208,7 +208,7 @@ import CoreText
         XCTAssertEqual(gate.count, 1, "old blocked allocation still owns the only worker turn")
         gate.release.signal()
         let deadline = Date().addingTimeInterval(3)
-        while received.ids.isEmpty && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.005)) }
+        while received.ids.isEmpty && Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.005)) }
         XCTAssertEqual(received.ids, [40])
         XCTAssertEqual(gate.count, 2)
         lifetime.service.close()

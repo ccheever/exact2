@@ -450,6 +450,28 @@ fn the_webs_list_idioms_are_refused_with_their_fix() {
             "compute it in the data source",
         );
     }
+    // The four with a composition in the roster name it.
+    // (`some(…)` is the parser's: `some(x)` also makes an option.)
+    for (f, id, instead) in [
+        (
+            "findIndex",
+            "type-refused-idiom",
+            "indexOf(map(xs, x => …), true)",
+        ),
+        ("find", "type-refused-idiom", "first(filter(xs, x => …))"),
+        (
+            "some",
+            "syntax-refused-idiom",
+            "includes(map(xs, x => …), true)",
+        ),
+        (
+            "every",
+            "type-refused-idiom",
+            "not includes(map(xs, x => …), false)",
+        ),
+    ] {
+        refused(&format!("text toString({f}(xs, x => x.n))"), id, instead);
+    }
     refused(
         "text toString(Math.min(1, 2))",
         "syntax-method-call",

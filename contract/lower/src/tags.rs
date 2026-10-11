@@ -1,7 +1,7 @@
 //! The tag and attribute table: Contract's view vocabulary onto the kernel's.
 //!
 //! @ref LLP 1004 D2 (kernel ordinals from `exact-kernel`, never redeclared)
-//! @ref `rules/RULES.md` §Scope (the web is the standard: every row here is a
+//! @ref LLP 1115 §2 (names stay CSS: every row here is a
 //! CSS property or an HTML attribute by its CSS/HTML name)
 //! @ref LLP 1017 §8.1 (the literal CSS names, hyphens as grammar, no aliases;
 //! `testId` and explicitly declared host-policy props aside)
@@ -13,6 +13,7 @@
 //! (`size`, `fontSize`, `radius`, `label`) is refused with the CSS name it
 //! became.
 use exact_kernel::{NodeType, PropId, StyleId};
+use exact_plan::{BindingKind, BindingsRow};
 /// What an attribute lowers to.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AttrTarget {
@@ -113,14 +114,11 @@ pub fn tag(name: &str) -> Option<Tag> {
         // content the kernel centres as HTML's anonymous button box does,
         // with the UA sheet's `text-align: center`. An authored `display`
         // makes it a flex or grid container, as in Chrome.
-        // @ref LLP 1069.011 D1 — Exact's UA sheet: a button is the author's
-        // box (`appearance: none`); `appearance="auto"` asks for the platform's.
+        // @ref LLP 1104 D1, D2 — lowering chooses native or bare from the
+        // author's rows and face; the tag has no fixed appearance.
         "button" => Tag {
             node_type: NodeType::Pressable,
-            fixed_styles: &[
-                (StyleId::TextAlign, "center"),
-                (StyleId::Appearance, "none"),
-            ],
+            fixed_styles: &[(StyleId::TextAlign, "center")],
             fixed_props: &[(PropId::AccessibilityRole, "button")],
             positional: None,
         },
@@ -311,8 +309,10 @@ pub fn tag(name: &str) -> Option<Tag> {
         },
         // @ref LLP 1069.001 (amended 2026-10-07) — HTML's `progress` with no
         // `value`, indeterminate: the platform's activity indicator, a
-        // measured leaf (20 × 20 until sized). ARIA's role is `progressbar`;
-        // the lowering adds `aria-busy` (`Lowerer::progress_rows`).
+        // measured leaf (20 × 20 until sized); the lowering adds `aria-busy`.
+        // @ref LLP 1116 D8 — with a `value` (and `max`, strings as a
+        // range's), the determinate bar, sized by HTML's UA sheet. ARIA's
+        // role is `progressbar` either way.
         "progress" => Tag {
             node_type: NodeType::Control,
             fixed_styles: &[],
@@ -582,7 +582,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // The viewport meta's `interactive-widget`, read from the first root
         // (LLP 1008 §9): `resizes-content` shrinks the layout viewport to a
         // software keyboard's top, so what is pinned to the bottom rises with
-        // it; the default, `resizes-visual`, insets the viewport instead.
+        // it, iOS's default (LLP 1116 D2); `resizes-visual`, the web's
+        // default and iOS's opt-out, insets the viewport instead.
         "interactive-widget" => AttrTarget::Prop(p("interactiveWidget")),
         "value" => AttrTarget::Prop(p("value")),
         "estimated-item-height" => AttrTarget::Prop(p("estimatedItemHeight")),
@@ -653,6 +654,12 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "aria-required" => AttrTarget::Prop(p("accessibilityRequired")),
         "aria-haspopup" => AttrTarget::Prop(p("accessibilityHasPopup")),
         "aria-current" => AttrTarget::Prop(p("accessibilityCurrent")), // Depot: a nav link's page
+        // @ref LLP 1116 D8 — a range role's value (`progressbar`, `slider`,
+        // `meter`, …), numbers written as HTML writes them (`aria_values`).
+        "aria-valuenow" => AttrTarget::Prop(p("accessibilityValueNow")),
+        "aria-valuemin" => AttrTarget::Prop(p("accessibilityValueMin")),
+        "aria-valuemax" => AttrTarget::Prop(p("accessibilityValueMax")),
+        "aria-valuetext" => AttrTarget::Prop(p("accessibilityValueText")),
         // SVG 2 attributes CSS cannot set (LLP 1055 D1/D2), by their SVG names.
         "viewBox" => AttrTarget::Prop(p("viewBox")),
         "preserveAspectRatio" => AttrTarget::Prop(p("preserveAspectRatio")),
@@ -794,6 +801,11 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "alignSelf" => "align-self",
         "boxSizing" => "box-sizing",
         "fit" | "objectFit" => "object-fit",
+        // UIKit's, SwiftUI's and React Native's shrink-to-fit (LLP 1116.001 D1.4).
+        "adjustsFontSizeToFitWidth"
+        | "adjustsFontSizeToFit"
+        | "minimumScaleFactor"
+        | "minimumFontScale" => "-exact-fit",
         "justify" | "justifyContent" => "justify-content",
         "overflowX" => "overflow-x",
         "overflowY" => "overflow-y",
@@ -939,10 +951,30 @@ pub(crate) fn html_tag(name: &str) -> Option<&'static str> {
         "label" => {
             "a label is `text` beside its field, and the field is named by `aria-label` (or `aria-labelledby` with the text's `id`)"
         }
-        "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
+        "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "heading" => {
             "a heading is `text role=\"heading\" aria-level=1` (2 and on for the level)"
         }
-        "img" => "an image is `image`",
+        // The app farm's guesses (round 1): each names the Contract form
+        // that does the job.
+        "small" | "code" | "pre" | "paragraph" | "subtitle" => {
+            "text is `text`, styled by its attributes (`font-size`, `font-family`, `white-space`)"
+        }
+        "form" => {
+            "there is no `form`: a field's Enter is its `submit` (`input … submit=save`), and a `button`'s `press` acts"
+        }
+        "table" | "thead" | "tbody" | "tr" | "td" | "th" | "grid" => {
+            "a table or grid is `view display=\"grid\"` with `grid-template-columns`, or a `column` of `row`s"
+        }
+        "details" | "summary" => {
+            "there is no `details`: keep `open` in state, show the body `when open`, and toggle it from a `button`"
+        }
+        "hstack" | "vstack" | "stack" | "flex" => "a horizontal stack is `row`, a vertical one `column`",
+        "container" | "card" => "a box is `view` (or `column`, `row`), styled by a `style` declared in this file",
+        "spacer" => "a spacer is `view flex=1` in a `row` or `column`",
+        "divider" => "a divider is `hr`",
+        "br" => "a line break is a new `text`, or `\\n` in a string with `white-space=\"pre-line\"`",
+        "icon" => "an icon is `image \"symbol:<role>\"`, or an `svg`",
+        "img" | "picture" => "an image is `image`",
         "a" => "a link is `link`",
         "title" | "meta" => "a page's title and description are `head title=… description=…`",
         "ul" | "ol" | "li" => "a list is `list` (or a `column` of rows)",
@@ -1225,4 +1257,115 @@ pub(crate) fn multicol_on_flex(
         return crate::err("lower-attr-tag", format!("`{}` makes a block a multi-column container, and `{tag}` makes a flex or grid container, where CSS ignores it; write `view` (a block) for columns", a.name), a.span);
     }
     Ok(())
+}
+
+impl crate::Lowerer<'_> {
+    /// @ref LLP 1115 §3 — a run with an `href` in its paragraph is a link:
+    /// unsaid, its colour is the platform's link role (the tint on iOS,
+    /// `linkColor` on macOS, the browser's own on the web), as the UA's
+    /// `a:link` is. Pushed before the author's rows, so a `color` on the run
+    /// or its class wins; a block-level `link` keeps inheriting.
+    pub(crate) fn link_run_color(
+        &mut self,
+        tag: &str,
+        parent_tag: Option<&str>,
+        attrs: &[contract_syntax::Attr],
+        bindings: &mut Vec<BindingsRow>,
+    ) {
+        if tag == "text" && parent_tag == Some("text") && attrs.iter().any(|a| a.name == "href") {
+            bindings.push(BindingsRow {
+                kind: BindingKind::Style,
+                id: StyleId::TextColor as u16,
+                expr: self.fixed(true, "LinkText"),
+            });
+        }
+    }
+
+    /// @ref LLP 1115 D3 — a heading is the platform's text style for its
+    /// level, as a hand-built screen's would be: 1 `title1`, 2 `title2`, 3
+    /// `title3`, 4 and on `headline` (ARIA's default level is 2), at the
+    /// style's size for the root font size and its emphasized weight (LLP
+    /// 1116 D7): bold for a title, whose own weight is regular, as Apple's
+    /// emphasized title styles and the web's headings are; `headline`'s own
+    /// semibold. A level chosen
+    /// between literals (`aria-level=(top ? 1 : 2)`) chooses between their
+    /// styles; any other computed level is 2's. Pushed before the author's
+    /// rows, so a written `font-size` or `font-weight` wins; an inherited one
+    /// is unsaid and does not.
+    pub(crate) fn heading_style(
+        &mut self,
+        tag: &str,
+        attrs: &[contract_syntax::Attr],
+        scope: &crate::Scope,
+        locals: u16,
+        bindings: &mut Vec<BindingsRow>,
+    ) -> Result<(), crate::LowerError> {
+        use contract_syntax::Expr;
+        let heading = attrs
+            .iter()
+            .any(|a| a.name == "role" && matches!(&a.value, Expr::Str(v, _) if v == "heading"));
+        if tag != "text" || !heading {
+            return Ok(());
+        }
+        let style = |level: f64| {
+            let name = match level {
+                1.0 => "title1",
+                3.0 => "title3",
+                n if n >= 4.0 => "headline",
+                _ => "title2",
+            };
+            let id = exact_kernel::style::relative::text_style(&format!("-exact-{name}"));
+            let weight =
+                exact_kernel::TEXT_STYLES[usize::from(id.expect("a schema text style"))].weight;
+            (name, if weight == 400 { 700 } else { weight })
+        };
+        // The level's literal leaves, each mapped; `None` when one is computed.
+        fn leaves(e: &Expr, f: &dyn Fn(f64) -> Expr) -> Option<Expr> {
+            Some(match e {
+                Expr::Number(n, _) => f(*n),
+                Expr::Str(v, _) => f(v.trim().parse().ok()?),
+                Expr::Ternary(c, yes, no, span) => Expr::Ternary(
+                    c.clone(),
+                    Box::new(leaves(yes, f)?),
+                    Box::new(leaves(no, f)?),
+                    *span,
+                ),
+                _ => return None,
+            })
+        }
+        let level = attrs
+            .iter()
+            .find(|a| a.name == "aria-level")
+            .map(|a| &a.value);
+        if level.is_none() {
+            // ARIA's default level, said: a host that reads the level (iOS's
+            // header-shaped route takes only a heading with one) sees 2.
+            let expr = self.expr_code(&Expr::Number(2.0, Default::default()), scope, locals)?;
+            bindings.push(BindingsRow {
+                kind: BindingKind::Prop,
+                id: p("accessibilityHeadingLevel") as u16,
+                expr,
+            });
+        }
+        let span = level.map_or_else(Default::default, |l| l.span());
+        let two = Expr::Number(2.0, span);
+        let level = level
+            .filter(|l| leaves(l, &|_| two.clone()).is_some())
+            .unwrap_or(&two);
+        let size = leaves(level, &|n| {
+            Expr::Str(format!("-exact-{}", style(n).0), span)
+        })
+        .expect("literal leaves");
+        let weight =
+            leaves(level, &|n| Expr::Number(f64::from(style(n).1), span)).expect("literal leaves");
+        for (row, value) in [(StyleId::FontSize, size), (StyleId::FontWeight, weight)] {
+            let expr = self.expr_code(&value, scope, locals)?;
+            bindings.push(BindingsRow {
+                kind: BindingKind::Style,
+                id: row as u16,
+                expr,
+            });
+        }
+        Ok(())
+    }
 }

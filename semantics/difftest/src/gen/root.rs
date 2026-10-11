@@ -40,7 +40,9 @@ impl Gen<'_> {
             if t.needs_list() || init == "none" {
                 untyped.push((name.clone(), t.clone()));
             }
-            decls.push_str(&format!("  state {name} = {init}\n"));
+            let persist = t.persistable() && self.persist.chance(1, 3);
+            let persist = if persist { " persist" } else { "" };
+            decls.push_str(&format!("  state {name} = {init}{persist}\n"));
             states.push((name, t));
         }
         env.vars.extend(states.iter().cloned());
@@ -234,7 +236,7 @@ impl Gen<'_> {
                     let ms = self.rng.pick(&[1, 100, 500]);
                     format!("after({ms}, {a})")
                 };
-                // A gate and a key over the states alone: never `now()`,
+                // A gate and a key over the states alone: never `performanceNow()`,
                 // directly or through a derive or a `fn` (D9, D12).
                 let start = if self.size.schedule && self.rng.chance(1, 2) {
                     let mut genv = root.states_env.clone();

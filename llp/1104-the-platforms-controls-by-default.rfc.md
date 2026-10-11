@@ -1,7 +1,7 @@
 # LLP 1104: The platform's controls by default — text fields and buttons
 
 **Type:** RFC
-**Status:** Draft r10, 2026-10-07. Steps 1–2 (fields) landed on main (3af60bc8b). Step 3 (LLP 1069.011.001's native buttons for `appearance="auto"`) built and reviewed; step 4 (buttons native by default) not built. r1–r4 (built: e97afa5af, aeb69b382, 3b904632d) gave fields compiled default rows and Exact-drawn focus rings. r5 replaced that design with the platform's controls. r6 built on James's LLP 1069.011.001 r3. r6 was reviewed blind by Astra and Grok (both NOT READY); r7 folded both. r8 recorded Charlie's rulings and the iOS focus probe. r9 recorded what building fields settled. r10 records step 3.
+**Status:** Draft r11, 2026-10-07. Built in full: steps 1–2 (fields, 3af60bc8b), step 3 (native buttons for `appearance="auto"`, 0365ad1a4) and step 4 (buttons native by default) are on main or landing. Earlier revisions: r1–r4 compiled field rows (built and replaced); r5 the platform's controls; r6–r7 James's 1069.011.001 and two blind reviews; r8 Charlie's rulings and the iOS focus probe; r9 fields as built; r10 step 3; r11 step 4.
 **Direction (Charlie, r5):** text fields and buttons default to the platform's look; hosts measure and draw it; author rows customise the native control where they can; hosts differ on purpose; the OS draws focus; fields and buttons share one switch whose default is `auto`.
 **Rulings (Charlie, on r7):**
 - On the web, a native control inherits the page's font and colour, as the common reset does (D4). `AGENTS.md`'s "the web is the standard" is amended to match. The other platforms keep their own control fonts.
@@ -166,6 +166,9 @@ The table is a starting point. The build fills in each cell from a measured fixt
 
 ### D4 — A native control's text: the platform's on Apple, the page's on the web
 
+> **LLP 1115.000 D4.10 proposes** that a surface the web host paints (a field, a select, the
+> app bar) carry its own ink, not the inherited colour. Not yet accepted.
+
 The browser's UA sheet gives `input`, `textarea` and `button` their own text style instead of the inherited one. In Chromium:
 - `font: -webkit-small-control` (13.33px), `color: FieldText`;
 - `letter-spacing: normal`, `word-spacing: normal`, `line-height: normal`;
@@ -233,6 +236,10 @@ Phase 1 probes the chrome across fonts from 11 to 34pt, two families and constra
 
 ### D6 — The OS draws a native control's focus; Exact draws the bare box's
 
+> **LLP 1115.000 D7 proposes** that on the Mac focus follow the Mac and not the web: a click
+> on a button leaves the first responder, and Tab honours Keyboard Navigation. Not yet
+> accepted.
+
 - **One focus owner per node.** A native field's owner is the native view. A native button's owner is the native view on macOS, tvOS and the web, and the node on iOS (below). Anything else's owner is the node. Every focus path uses that one mapping: Tab traversal, programmatic `focus()`/`blur()`, `autofocus`, `retainFocus`, collection pinning of a focused row, activation, and the routing of `focus`, `blur` and `key`. The node relays events from its owner. The agent's `tap` and focus operations address the node, as today.
 - **A focusable button doesn't need a handler of its own.** A `button` is focusable and shows a ring with no press handler of its own. That fixes the `pressable` gap at `NodeViewMac.swift:205` and the ring mask at `FocusMac.swift:50`.
 - **Native controls:**
@@ -255,6 +262,7 @@ Phase 1 probes the chrome across fonts from 11 to 34pt, two families and constra
 
   This is what a browser does after `all: unset` with a focus restore (CSS UI 4 §7.2.2).
 - **Painted hosts** have no OS ring and paint one as part of their look (D7): `field_ring` for fields on Linux, and a new ring for buttons there and in the terminal.
+- **An author takes a field's ring off (Charlie's ruling on #302, 2026-10-08; built 2026-10-12, #459):** the rings above are defaults. `outline="none"` (or `outline-style="none"`, the one value admitted) on a text `input` or a `textarea`, native or bare, draws none on any host: no UA ring or restore on the web, neither AppKit's nor Exact's on macOS, no `field_ring` on Linux. Tab order and the accessibility tree stay, and replacing the look is the author's duty (WCAG 2.4.7); #283 (`focusin`/`focusout`, `issues/20261009-bubbling-focus-events.md`) is how a wrapper will hear the focus. The rest of `outline`, and `outline` on any other element, stay refused (`issues/closed/20261009-field-outline-none.md`).
 - **Retired:** `fieldStyle` (prop 253) and its `data-fieldstyle` mark. Prop numbers aren't reused.
 
 ### D7 — The painted hosts have a look of their own
@@ -275,6 +283,7 @@ Phase 1 probes the chrome across fonts from 11 to 34pt, two families and constra
   - **The box:** `box-sizing` is the UA's, content-box for fields and border-box for buttons (D5).
   - **The authored rows** arrive as inline style, as today.
 - **Button looks:** `buttonStyle`'s web looks (`index.html:62-76`) are 1069.011.001's to change in its step 3. Its D5, for one, lifts line 62's `nowrap`. `bordered`, the default, is the UA button: line 62's `revert` rows already give it the UA's padding, border and font.
+  > **Amended by LLP 1116 D1 (2026-10-10).** `bordered` is no longer the UA button, and a native field no longer keeps the UA's chrome: the page draws a neutral-fill button and a 36 px field with a 1 px line and 8 px corners over the revert (LLP 1116 §4). The marker, the revert and the authored rows' precedence stand.
 - **The size gap:** the cause of the tiny native button is unmeasured. Phase 1 traces it first, with the JS target and the wasm oracle side by side, and fixes it before any app's buttons turn native.
 - **Sizes are the browser's.** Conformance compares the JS target against the wasm oracle in Chrome, and both pages ship this stylesheet. So §4 also compares them with a plain page of the same elements and no Exact stylesheet.
 
@@ -414,3 +423,10 @@ About nine lane-days for this RFC. LLP 1069.011.001 is unestimated in its text; 
   - **Declared stand-ins:** macOS keeps AppKit's disabled colour even when the author wrote one; non-uniform corner radii keep the platform shape on iOS; macOS subtitle, gap, wrapping and padding as 1069.011.001 §6 says. WebKit's native buttons are about a pixel shorter than Chrome's, a bounded known difference in conformance.
   - **Dropped:** the in-XCTest pixel comparison (an unhosted runner has no window scene); height comparisons against same-width references and the presented bounds replace it.
   - **Open (QUEUE):** a native button's `em` title under an authored absolute font misses Dynamic Type until the kernel face record carries the font basis.
+- r11, 2026-10-07: step 4 built (lanes C1 Contract, codemod and docs; C2a macOS button focus; C2b the terminal's button, Linux's ring and web focus; F5 integration and before/after drives; S4s and F6 review fixes), reviewed blind by Astra max and Grok 4.7 xhigh (`llp/reviews/1104-buttons-default.*`). What it settled:
+  - **The codemod** added `appearance="none"` to 54 buttons (12 apps and the corpus) whose only styling was colour, font, padding or layout, so they look as before; examples needed none. Unstyled buttons became native: before/after drives of every changed app on the web and iOS showed ten apps unchanged and Windows Desk's text-like buttons becoming visible platform buttons.
+  - **Grouped-list rows** (and a row's detail accessory) stay bare under the default, with a bare reason naming the context: the grouped-list projection is built on pressable rows. Explicit `appearance="auto"` keeps the custom native row. D2 did not name this; it is a declared addition.
+  - **Min-content:** a native button's min-content width is its widest unbreakable run plus chrome (a `nowrap` title's is its full width), so it shrinks in a flex row as a CSS `<button>` does.
+  - **Names:** a native button's accessible name is `aria-labelledby`, then `aria-label`, then its face, on iOS and macOS.
+  - **macOS focus:** the `NSButton` owns focus (AppKit's ring, Tab regardless of Keyboard navigation), checked by active-window screenshot along with Exact's ring on bare and handlerless buttons.
+  - **Open (QUEUE):** the agent's held-contact cancel on a native macOS button can still activate it (timing-dependent; a person's click is unaffected).

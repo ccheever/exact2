@@ -42,13 +42,17 @@ final class NativeFieldsMacTests: XCTestCase {
                         XCTAssertEqual(exact.top, Float(scroller.contentView.frame.minY + platformTextareaInset.height))
                         XCTAssertEqual(exact.minimum_height, 0)
                     } else {
-                        let control = kind == 1 ? NSSecureTextField() : NSTextField()
+                        let control = kind == 1 ? NSSecureTextField() : kind == 2 ? NSSearchField() : NSTextField()
                         control.font = font; control.stringValue = "Hg"
                         XCTAssertEqual(exact.minimum_height, Float(control.fittingSize.height))
                         for height in [CGFloat(exact.minimum_height), 60, 90] {
                             let bounds = NSRect(x: 0, y: 0, width: 240, height: height)
                             let rect = control.cell!.drawingRect(forBounds: bounds)
                             XCTAssertEqual(exact.left, Float(rect.minX), accuracy: 0.00001)
+                            // A search cell centres its text and grows its
+                            // buttons in a taller box; the host centres the
+                            // line in the kernel's rect (`nativeEditorRect`).
+                            if kind == 2, height != CGFloat(exact.minimum_height) { continue }
                             XCTAssertEqual(exact.top, Float(rect.minY), accuracy: 0.00001)
                             XCTAssertEqual(exact.right, Float(bounds.maxX - rect.maxX), accuracy: 0.00001)
                             XCTAssertEqual(exact.bottom, Float(bounds.maxY - rect.maxY), accuracy: 0.00001)
@@ -127,6 +131,51 @@ final class NativeFieldsMacTests: XCTestCase {
         XCTAssertFalse(field.drawsBackground)
         XCTAssertEqual(field.focusRingType, .exterior)
         XCTAssertEqual(field.frame, node.contentBox())
+    }
+    /// LLP 1115 D8: a native `input type="search"` is AppKit's search field
+    /// (its magnifier and clear button, Escape clearing it), its text in the
+    /// published content rect, which the kernel measured from the same
+    /// class; drawn by the author (`appearance: none`) it is a plain field.
+    func testSearchInputIsANativeSearchField() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "native-search-field")
+        defer { session.destroy() }
+        let node = NodeView(id: 1, kind: "input", presenter: session.presenter)
+        node.frame = NSRect(x: 0, y: 0, width: 240, height: 40)
+        node.applyProps(set: ["value": "trains", "type": "search", "placeholder": "Search"], clear: [])
+        node.applyStyle([:])
+        let standard = NSSearchField(), probe = NSRect(x: 0, y: 0, width: 240, height: 40)
+        standard.font = NSFont.systemFont(ofSize: 13)
+        let text = standard.cell!.drawingRect(forBounds: probe)
+        node.applyFieldContent(["rect": [Double(text.minX), 0, Double(text.width), 40]])
+        let field = try XCTUnwrap(node.field)
+        XCTAssertTrue(field is NSSearchField)
+        XCTAssertTrue(field.cell is SearchFieldCell)
+        XCTAssertEqual(field.stringValue, "trains")
+        XCTAssertEqual(field.frame, node.bounds)
+        XCTAssertGreaterThan(text.minX, NSTextField().cell!.drawingRect(forBounds: probe).minX, "room for the magnifier")
+        let line = try XCTUnwrap(field.cell?.drawingRect(forBounds: field.bounds))
+        XCTAssertEqual(line.minX, text.minX)
+        XCTAssertEqual(line.midY, 20, accuracy: 0.5, "one line centred, as the kernel measures it")
+        let window = NSWindow(contentRect: node.bounds, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = node
+        var typed: [String] = []
+        node.handlers = ["input"]
+        session.presenter.onInput = { _, value in typed.append(value) }
+        XCTAssertTrue(window.makeFirstResponder(field))
+        let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
+        editor.doCommand(by: #selector(NSResponder.cancelOperation(_:)))
+        XCTAssertEqual(field.stringValue, "", "Escape clears a search field")
+        XCTAssertEqual(typed, [""], "and the clear is the input's `input`")
+        node.applyStyle(["appearance": .string("none")])
+        XCTAssertFalse(node.field is NSSearchField, "an author-drawn search input is a plain field")
+        XCTAssertEqual(node.field?.stringValue, "")
+        node.applyStyle([:])
+        XCTAssertTrue(node.field is NSSearchField)
+        node.applyProps(set: ["type": "text"], clear: [])
+        XCTAssertFalse(node.field is NSSearchField)
     }
     func testTextareaBorderContentRectAndFocusMask() throws {
         _ = NSApplication.shared
@@ -209,6 +258,43 @@ final class NativeFieldsMacTests: XCTestCase {
             XCTAssertEqual(node.fieldFocused, bare, "a bare field takes Exact's ring; a native one is AppKit's")
             window.makeFirstResponder(nil)
             XCTAssertFalse(node.fieldFocused)
+        }
+    }
+    /// LLP 1104 D6: `outline: none` takes every ring off a focused field,
+    /// Exact's and AppKit's, native or bare, single-line or not, while the
+    /// field still takes the focus; unset, the ring is back at once.
+    func testOutlineNoneDrawsNoRingOnAFocusedField() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "exact-field-outline")
+        defer { session.destroy() }
+        func ring(_ node: NodeView) -> CALayer? { node.layer?.sublayers?.first { $0.name == "exact.fieldFocus" } }
+        for kind in ["textarea", "input"] {
+            for bare in [false, true] {
+                let what = "\(bare ? "bare" : "native") \(kind)"
+                let node = NodeView(id: 1, kind: kind, presenter: session.presenter)
+                node.frame = NSRect(x: 0, y: 0, width: 240, height: kind == "input" ? 40 : 100)
+                node.wantsLayer = true
+                let kept: NodeStyle = bare ? ["appearance": .string("none")] : [:]
+                var quiet = kept
+                quiet["outline_style"] = .string("none")
+                node.applyStyle(quiet)
+                let editor: NSView = try XCTUnwrap(node.textArea ?? node.field)
+                let window = NSWindow(contentRect: node.bounds, styleMask: [.titled], backing: .buffered, defer: false)
+                window.isReleasedWhenClosed = false
+                defer { window.close() }
+                window.contentView = node
+                XCTAssertTrue(window.makeFirstResponder(editor), "\(what) takes the focus")
+                XCTAssertNil(ring(node), "\(what): no Exact ring above the editor")
+                XCTAssertFalse(node.fieldFocused, "\(what): no Exact ring on its border")
+                XCTAssertEqual(editor.focusRingType, .none, "\(what): no AppKit ring")
+                XCTAssertEqual(node.textAreaScroll?.focusRingType ?? .none, .none, "\(what): no ring on the scroll view")
+                node.applyStyle(kept)
+                XCTAssertEqual(ring(node) != nil || node.fieldFocused || editor.focusRingType == .default, true, "\(what) keeps a ring without it")
+                XCTAssertNotEqual(editor.focusRingType, .none)
+                node.applyStyle(quiet)
+                XCTAssertNil(ring(node))
+                XCTAssertFalse(node.fieldFocused)
+            }
         }
     }
     func testBareFieldsRingFollowsTheWholeAuthoredBoxAndClearsOnBlur() throws {

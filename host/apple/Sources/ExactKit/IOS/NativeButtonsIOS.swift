@@ -84,30 +84,16 @@ extension NodeView {
     }
 
     /// D4: the control's primary action is what a custom button's touch-up
-    /// does, once. Each node from this one up to the press's target takes
-    /// the focus when it can, unless a `retainFocus` ancestor keeps the
-    /// editor's (as the touch-up walks the responder chain); the target is
-    /// this node or, without a handler, the nearest ancestor with one whose
-    /// box holds the touch (refused at a disabled one), resolved first; a
-    /// target that did not take the focus ends the editing; then `press`
-    /// and the canvas's pointer return.
+    /// does, once: the target is this node or, without a handler, the
+    /// nearest ancestor with one whose box holds the touch (refused at a
+    /// disabled one), resolved first; then the press's focus
+    /// (`focusForPress`), and `press` when there is a target.
     func activateNative() {
         guard let presenter, !disabled, !inert else { return }
         let target = activationTarget(at: convert(CGPoint(x: bounds.midX, y: bounds.midY), to: nil))
-        var at: UIView? = self
-        while let view = at, view !== presenter.viewport {
-            if let node = view as? NodeView {
-                if node.canBecomeFirstResponder, !node.isFirstResponder, presenter.contextRetainsFocus(node) != true {
-                    _ = node.becomeFirstResponder()
-                }
-                if node === target { break }
-            }
-            at = view.superview
-        }
+        focusForPress(target: target)
         guard let target, presenter.views[target.id] === target else { return }
-        if !target.isFirstResponder && presenter.contextRetainsFocus(target) != true { presenter.viewport.endEditing(true) }
         presenter.press(target.id)
-        target.finishPointerPress()
     }
 }
 
@@ -115,6 +101,11 @@ extension ControlHost {
     func makeNativeButton(_ node: NodeView) -> UIControl {
         let button = NativeButtonIOS(configuration: .bordered())
         button.owner = node
+        // The node is not an element. UIKit leaves this default false until
+        // assistive technology loads its runtime, so expose the control's
+        // identity and explicit name from its first frame as on a bare button.
+        button.isAccessibilityElement = true
+        button.accessibilityTraits.insert(.button)
         button.addAction(UIAction { [weak button] _ in button?.owner?.activateNative() }, for: .primaryActionTriggered)
         return button
     }
@@ -155,7 +146,7 @@ extension ControlHost {
         let face = self.face(owner.id)
         let written = NativeButtonIOS.Written(
             face: face, accent: accent, enabled: !owner.disabled,
-            label: owner.props["accessibilityLabel"].flatMap { $0.isEmpty ? nil : $0 } ?? face.title, testId: owner.props["testId"],
+            label: owner.authoredLabel ?? face.title, testId: owner.props["testId"],
             selected: owner.props["accessibilitySelected"] == "true", expanded: owner.props["accessibilityExpanded"],
             pressed: owner.pressedState, traits: .init(button.traitCollection),
             interactive: owner.style["pointer_events"]?.string != "none")

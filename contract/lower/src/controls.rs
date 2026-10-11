@@ -58,6 +58,7 @@ fn canonical_type_expr(value: &Expr) -> Option<Expr> {
 pub(crate) fn control(
     tag: &str,
     attrs: &[contract_syntax::Attr],
+    native_button: bool,
 ) -> Result<Option<&'static str>, LowerError> {
     if tag != "textarea" {
         if let Some(a) = attrs.iter().find(|a| a.name == "rows") {
@@ -74,7 +75,7 @@ pub(crate) fn control(
         }
     }
     // @ref LLP 1069.011 D1, D2 — a native button, and its style nowhere else.
-    if tag == "button" && native_button(attrs)? {
+    if tag == "button" && native_button {
         if let Some(a) = attrs.iter().find(|a| a.name == "checked") {
             return err(
                 "lower-attr-tag",
@@ -197,18 +198,18 @@ pub(crate) fn control(
 
 /// The sentence of `rules/DEFERRED.md` that bounds the picker (LLP 1069.002
 /// D1), cited by each refusal.
-pub const PICKER_ADMISSION: &str = "rules/DEFERRED.md admits an image/video picker, widened to the types the app's `file_handlers` declare: \"Still no picker for any file, and no camera.\"";
+pub const PICKER_ADMISSION: &str = "rules/DEFERRED.md admits an image/video picker, widened to the types the app's `file_handlers` declare: \"Still no picker for any file, and no `capture` on the picker (the camera is a native module, §Components, 2026-10-02).\"";
 
 /// `input type="file"` (LLP 1069.002 D1): `accept` is a literal list of
 /// `image/*`, `video/*`, `image/<subtype>`, `video/<subtype>`, or a MIME
 /// type or extension the manifest's `file_handlers` declares (checked at
 /// bake, where the manifest is read: `contract::picker`); `capture` is
-/// refused, and so are `*/*` and an empty list.
+/// refused, naming the camera's route, and so are `*/*` and an empty list.
 fn file_input(attrs: &[contract_syntax::Attr]) -> Result<(), LowerError> {
     if let Some(a) = attrs.iter().find(|a| a.name == "capture") {
         return err(
             "lower-picker-capture",
-            format!("`capture` opens a camera, which is not admitted: {PICKER_ADMISSION}"),
+            format!("`capture` is not admitted on the picker; take a photo with an app native module behind the `device.camera` grant, as `apps/recorder` is for the microphone: {PICKER_ADMISSION}"),
             a.span,
         );
     }
@@ -336,8 +337,9 @@ pub(crate) fn tag(kind: &str, t: Tag) -> Tag {
 
 /// A range's `value`, `min`, `max` and `step` as HTML's strings: a number
 /// literal is written as one, a bound number through `toString` (LLP
-/// 1069.001 D4: the props are strings on the wire, typed per control).
-/// `None` when nothing needs rewriting.
+/// 1069.001 D4: the props are strings on the wire, typed per control); so
+/// too a determinate `progress`'s `value` and `max`, and ARIA's range
+/// values on any element (LLP 1116 D8). `None` when nothing needs rewriting.
 pub(crate) fn range_attrs(
     tag: &str,
     control: Option<&str>,
@@ -353,10 +355,13 @@ pub(crate) fn range_attrs(
     let names: &[&str] = match control {
         Some("range") => &["value", "min", "max", "step"],
         None if number => &["min", "max", "step"],
-        _ => return None,
+        None if tag == "progress" => &["value", "max"],
+        _ => &[],
     };
+    let aria = ["aria-valuenow", "aria-valuemin", "aria-valuemax"];
     let numeric = |a: &contract_syntax::Attr| {
-        names.contains(&a.name.as_str()) && !matches!(a.value, Expr::Str(..))
+        (names.contains(&a.name.as_str()) || aria.contains(&a.name.as_str()))
+            && !matches!(a.value, Expr::Str(..))
     };
     if !attrs.iter().any(numeric) {
         return None;
@@ -399,11 +404,13 @@ pub(crate) fn check_nesting(tag: &str, parent: Option<&str>, span: Span) -> Resu
     Ok(())
 }
 
-/// `progress` (LLP 1069.001, amended 2026-10-07) is HTML's indeterminate
-/// one only: no `value` or `max`, which would make it a determinate bar
-/// Exact does not draw yet; no `type`, which is the kind it is; and no
-/// children, since every host draws the indicator HTML's fallback content
-/// stands in for.
+/// `progress` is HTML's (LLP 1069.001, amended 2026-10-07; LLP 1116 D8):
+/// with a `value`, the determinate bar, `max` its top (1 unsaid); without
+/// one, the indeterminate activity indicator, where a `max` means nothing
+/// and is refused. No `type`, which is the kind it is; no ARIA range
+/// values, which its `value` and `max` are (`aria-valuetext` stays: the
+/// words a reader speaks); and no children, since every host draws the
+/// control HTML's fallback content stands in for.
 pub(crate) fn check_progress(
     tag: &str,
     attrs: &[contract_syntax::Attr],
@@ -412,14 +419,16 @@ pub(crate) fn check_progress(
     if tag != "progress" {
         return Ok(());
     }
-    if let Some(a) = attrs
-        .iter()
-        .find(|a| matches!(a.name.as_str(), "value" | "max" | "type"))
-    {
+    let valued = attrs.iter().any(|a| a.name == "value");
+    if let Some(a) = attrs.iter().find(|a| match a.name.as_str() {
+        "type" | "aria-valuenow" | "aria-valuemin" | "aria-valuemax" => true,
+        "max" => !valued,
+        _ => false,
+    }) {
         let why = match a.name.as_str() {
-            "type" => "it is always the activity indicator",
-            "value" => "a `value` makes HTML's determinate progress bar, which Exact does not draw yet; without one it is the platform's activity indicator",
-            _ => "`max` belongs to HTML's determinate progress bar, which Exact does not draw yet; without a `value` it is the platform's activity indicator",
+            "type" => "it is the platform's progress bar with a `value` and its activity indicator without one".to_string(),
+            "max" => "`max` is the top of the bar a `value` makes; without one it is the platform's activity indicator".to_string(),
+            name => format!("its `value` and `max` are its range, which every platform reads (`{name}` is for a drawn `role=\"progressbar\"`)"),
         };
         return err(
             "lower-attr-tag",
@@ -430,7 +439,7 @@ pub(crate) fn check_progress(
     if let Some(child) = children.first() {
         return err(
             "lower-void",
-            "`progress` takes no children: it is the platform's activity indicator (name it with `aria-label`)",
+            "`progress` takes no children: it is the platform's own control (name it with `aria-label`)",
             child.span(),
         );
     }
@@ -496,23 +505,6 @@ pub(crate) fn derived_rows(bindings: &mut Vec<BindingsRow>) -> bool {
         expr,
     });
     true
-}
-
-/// @ref LLP 1069.011 D1 — whether a `button` is a native one: its effective
-/// `appearance` (its class's rows, then its own, over the fixed `none`) is the
-/// literal `auto`. A bound one is refused: being native decides the node.
-fn native_button(attrs: &[contract_syntax::Attr]) -> Result<bool, LowerError> {
-    match attrs.iter().rev().find(|a| a.name == "appearance") {
-        None => Ok(false),
-        Some(a) => match &a.value {
-            Expr::Str(v, _) => Ok(v == "auto"),
-            _ => err(
-                "lower-appearance",
-                "a `button`'s `appearance` is a literal: `\"auto\"` makes it the platform's own button, `\"none\"` (the default) the author's box. To switch between them, write `when` with two buttons",
-                a.span,
-            ),
-        },
-    }
 }
 
 /// The native button lowering's tag (LLP 1069.011 D3): a `Control` of type

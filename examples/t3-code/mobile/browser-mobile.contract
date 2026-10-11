@@ -109,7 +109,7 @@ component MobileBrowser
         column flex=1 align-items="center" justify-content="center" gap=14 padding=21
           when data.error != ""
             text data.error text-align="center" font-size=12.25 color=colors.muted
-            button press=action("refresh", "")
+            button appearance="none" press=action("refresh", "")
               text "Retry" color=colors.foreground
           else
             t3-archive-spinner spinner-tint=colors.icon width=20 height=20

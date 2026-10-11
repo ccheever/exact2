@@ -1,6 +1,17 @@
 //! Visibility comes from the native painter's nested scroll/clip geometry.
 use super::*;
 
+/// `EXACT_PICTURES_AT_MOUNT=1`: every mounted picture is asked for, in view
+/// or not. For a host whose rows a reader moves before this presenter hears
+/// of the scroll (the Android canvas host: its window leads the travel, and
+/// the reader draws a mounted row where the scroll has brought it): there a
+/// row is on screen before its box is in this viewport, and a picture asked
+/// for only then came frames late (heavy at 24,000 dp/s: 39% of the view
+/// was pictures not yet there, against 28% once they are asked at mount;
+/// most were held decoded and only waiting to be asked for).
+static AT_MOUNT: std::sync::LazyLock<bool> =
+    std::sync::LazyLock::new(|| std::env::var("EXACT_PICTURES_AT_MOUNT").is_ok_and(|v| v != "0"));
+
 impl<D: DataSource> Presenter<D> {
     /// Loads that arrived since the last call: their sizes reach the kernel.
     /// Whether anything changed.
@@ -45,6 +56,13 @@ impl<D: DataSource> Presenter<D> {
         moved: &BTreeMap<ViewId, (f32, f32)>,
     ) -> Option<String> {
         let epoch = self.host.kernel().epoch();
+        // A tree whose only images are symbols (a list's icons) has nothing
+        // that loads by whether it shows: once synced at this epoch, a move
+        // or a paint finds the same. Walking them all at every pass and
+        // paint was 8% of a fling's thread on a list of icon rows.
+        if self.images.settled == Some(epoch) {
+            return None;
+        }
         if self.images.order.as_ref().is_none_or(|(e, _)| *e != epoch) {
             let kernel = self.host.kernel();
             let order = if kernel.has_type(NodeType::Image) {
@@ -57,28 +75,30 @@ impl<D: DataSource> Presenter<D> {
         // Both go back below; nothing in between replaces them.
         let (order_epoch, live) = self.images.order.take().unwrap_or_default();
         // The pictures' and the row groups' own boxes (each one's first), not
-        // every painted box: found once for this paint's boxes and this order.
-        let index = match self.images.box_index.take() {
-            Some((serial, epoch, index)) if serial == self.boxes_serial && epoch == order_epoch => {
-                index
+        // every painted box: found once for this paint's boxes and this
+        // order, and only when a box is asked for (a picture's, or a moved
+        // group's: a list of icon rows asks for none, at every commit).
+        let index = std::cell::OnceCell::new();
+        if let Some((serial, epoch, kept)) = self.images.box_index.take() {
+            if serial == self.boxes_serial && epoch == order_epoch {
+                let _ = index.set(kept);
             }
-            _ => {
+        }
+        let host = &self.host;
+        let boxes = |id: &ViewId| {
+            let index = index.get_or_init(|| {
                 let mut index = std::collections::HashMap::new();
-                if !live.is_empty() {
-                    let mut wanted: std::collections::HashSet<ViewId> =
-                        live.iter().copied().collect();
-                    wanted.extend(self.brush.row_groups().iter().map(|(g, _, _)| *g));
-                    for (i, b) in self.boxes.iter().enumerate() {
-                        if wanted.contains(&b.id) {
-                            index.entry(b.id).or_insert(i);
-                        }
+                let mut wanted: std::collections::HashSet<ViewId> = live.iter().copied().collect();
+                wanted.extend(self.brush.row_groups().iter().map(|(g, _, _)| *g));
+                for (i, b) in self.boxes.iter().enumerate() {
+                    if wanted.contains(&b.id) {
+                        index.entry(b.id).or_insert(i);
                     }
                 }
                 index
-            }
+            });
+            index.get(id).map(|&i| (i, &self.boxes[i]))
         };
-        let host = &self.host;
-        let boxes = |id: &ViewId| index.get(id).map(|&i| (i, &self.boxes[i]));
         type Shift = (usize, usize, (f32, f32), Option<crate::paint::Rect4>);
         let shifts: Vec<Shift> = self
             .brush
@@ -95,6 +115,9 @@ impl<D: DataSource> Presenter<D> {
             .sync_visible(host.kernel(), &live, self.brush.scale, |id| {
                 if host.route_visibility(id).0 {
                     return false;
+                }
+                if *AT_MOUNT {
+                    return true;
                 }
                 let Some((i, b)) = boxes(&id) else {
                     return true;
@@ -122,9 +145,12 @@ impl<D: DataSource> Presenter<D> {
                 }
                 w > 0. && h > 0. && x < viewport.0 && y < viewport.1 && x + w > 0. && y + h > 0.
             });
-        self.images.box_index = Some((self.boxes_serial, order_epoch, index));
+        self.images.box_index = index
+            .into_inner()
+            .map(|index| (self.boxes_serial, order_epoch, index));
         self.images.order = Some((order_epoch, live));
         self.dirty |= !reports.is_empty();
+        self.images.settled = self.images.settled_at(epoch, reports.is_empty());
         if reports.is_empty() {
             return None;
         }

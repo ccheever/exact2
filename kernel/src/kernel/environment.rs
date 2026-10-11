@@ -34,6 +34,7 @@ impl Kernel {
         let next = Env {
             control_text_styles: env.control_text_styles,
             button_fonts: env.button_fonts,
+            screen: env.screen,
             ..next
         };
         self.replace_env(next)

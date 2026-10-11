@@ -85,8 +85,8 @@ component App
   action showMobileNotice(title: string, message: string)
     if message != ""
       send notice = alert("info", title, message)
-  resource projectFaviconDemand = projectFaviconDemand(top(nav).name, `${top(nav).id}`, top(nav).name == "home", workspace.usesSplitView and workspace.sidebarVisible, home.items, sidebarHome.items, newTaskData.projects, archiveData.items, projectOverview, wallTime.epochAtZero + max(elapsed, now()), data.revision, data.faviconRevision) as shape ProjectFaviconAdmission
-  resource projectFavicons = projectFavicons(projectFaviconDemand.revision, wallTime.epochAtZero + max(elapsed, now())) as shape ProjectFaviconPrepared
+  resource projectFaviconDemand = projectFaviconDemand(top(nav).name, `${top(nav).id}`, top(nav).name == "home", workspace.usesSplitView and workspace.sidebarVisible, home.items, sidebarHome.items, newTaskData.projects, archiveData.items, projectOverview, wallTime.epochAtZero + max(elapsed, performanceNow()), data.revision, data.faviconRevision) as shape ProjectFaviconAdmission
+  resource projectFavicons = projectFavicons(projectFaviconDemand.revision, wallTime.epochAtZero + max(elapsed, performanceNow())) as shape ProjectFaviconPrepared
   resource projectImages = projectImages(projectFaviconDemand.revision, projectFavicons.revision) as shape ProjectFaviconImages
   mutation projectImageChanged as shape Change queue refreshes projectImages
   action projectImageEvent(mountId: string, requestKey: string, url: string, event: string, message: string)
@@ -106,7 +106,7 @@ component App
       incomingShareState = incomingShare.state
       if incomingShare.location != ""
         nav = push(nav, incomingShare.location)
-  resource outbox = outboxView(data.revision, wallTime.epochAtZero + max(elapsed, now())) as shape MobileOutboxDrive
+  resource outbox = outboxView(data.revision, wallTime.epochAtZero + max(elapsed, performanceNow())) as shape MobileOutboxDrive
   mutation outboxChanged as shape Change refreshes data, threadData, outbox
   mutation outboxEdited as shape MobileOutboxEdit then didEditOutbox
   action didEditOutbox
@@ -122,12 +122,12 @@ component App
   task readOutbox mount
     after(1, readOutbox)
   action readOutbox
-    send outboxChanged = outboxAction("read", "", wallTime.epochAtZero + now())
+    send outboxChanged = outboxAction("read", "", wallTime.epochAtZero + performanceNow())
   task deliverOutbox when outbox.next != "" and not pending(outboxChanged) and not (newTaskActive and newTaskFlow.pendingEditor) key=outbox.next
     every(1000, deliverOutbox)
   action deliverOutbox
     if not pending(outboxChanged) and not (newTaskActive and newTaskFlow.pendingEditor)
-      send outboxChanged = outboxAction("deliver", outbox.next, wallTime.epochAtZero + now())
+      send outboxChanged = outboxAction("deliver", outbox.next, wallTime.epochAtZero + performanceNow())
   resource accountEntry = accountEntry(top(nav).name, depth(nav) > 1, `${top(nav).id}`) as shape AccountEntry
   resource notificationSettings = notificationSettings() as shape NotificationsData
   task enterAccount when accountEntry.kind != "" key=top(nav).id
@@ -157,7 +157,7 @@ component App
   action reconcileInspector
     inspectorAction("", "")
   action inspectorAction(kind: string, value: string)
-    send inspectorChanged = inspectorTransition(inspectorSerialized, inspectorContext.serialized, kind, value, wallTime.epochAtZero + now(), inspectorContentSerialized, appearance.scheme)
+    send inspectorChanged = inspectorTransition(inspectorSerialized, inspectorContext.serialized, kind, value, wallTime.epochAtZero + performanceNow(), inspectorContentSerialized, appearance.scheme)
   action didInspectorChange
     match inspectorChanged
       case some(result)
@@ -259,7 +259,7 @@ component App
   resource appearance = appearance(preferences.serialized, viewport.prefersColorScheme) as shape Appearance
   resource look = theme(appearance.scheme, appearance.themeId) as shape Theme
   resource snapshotRead = snapshotRead() as shape SnapshotRead
-  resource data = snapshot(appearance.scheme, appearance.themeId, snapshotRead.serial, wallTime.epochAtZero + max(elapsed, now())) as shape Snapshot
+  resource data = snapshot(appearance.scheme, appearance.themeId, snapshotRead.serial, wallTime.epochAtZero + max(elapsed, performanceNow())) as shape Snapshot
   resource keyboard = keyboardSnapshot(`${top(nav).id}`, top(nav).url, data.revision) as shape MobileKeyboardSnapshot
   mutation keyboardCopied as shape MobileKeyboardResult refreshes keyboard
   mutation keyboardDismissed as shape MobileKeyboardResult refreshes keyboard
@@ -336,15 +336,15 @@ component App
   task automationClock when top(nav).name == "settingsScheduledTasks"
     every(60000, tickAutomation)
   action tickAutomation
-    automationElapsed = now()
+    automationElapsed = performanceNow()
   action automationAction(op: string, id: string, value: string, extra: string)
     if op == "field" or op == "branch-query" or op == "usage-local" or op == "usage-reveal"
-      send automationEdited = automationCommand(op, id, value, extra, wallTime.epochAtZero + now(), `${top(nav).id}`)
+      send automationEdited = automationCommand(op, id, value, extra, wallTime.epochAtZero + performanceNow(), `${top(nav).id}`)
     else if op == "branch-fetch" or op == "branch-more"
       if top(nav).name == "settingsScheduledBranch"
-        send automationBranchRead = automationCommand(op, id, value, extra, wallTime.epochAtZero + now(), `${top(nav).id}`)
+        send automationBranchRead = automationCommand(op, id, value, extra, wallTime.epochAtZero + performanceNow(), `${top(nav).id}`)
     else if not pending(automationChanged)
-      send automationChanged = automationCommand(op, id, value, extra, wallTime.epochAtZero + now(), `${top(nav).id}`)
+      send automationChanged = automationCommand(op, id, value, extra, wallTime.epochAtZero + performanceNow(), `${top(nav).id}`)
   state automationBranchVersion = 0
   task automationBranchDebounce when top(nav).name == "settingsScheduledBranch" and automationBranchVersion > 0 key=automationBranchVersion
     after(150, automationBranchFetch)
@@ -450,7 +450,7 @@ component App
   state sidebarProject = ""
   state sidebarSettledCount = 10
   resource sidebarChrome = homeChrome(workspace.sidebarRouteKey, sidebarQuery, sidebarEnvironment, sidebarProject, appearance.scheme, layout.safeBottom, layout.liquidGlass, data.revision, data.environments, appearance.groupingMode, "sidebar") as shape HomeChromeView
-  resource sidebarHome = homeView(data.revision, wallTime.epochAtZero + max(elapsed, now()), sidebarQuery, sidebarSettledCount, shelves.loaded, shelves.workingEnabled, shelves.workingExpanded, shelves.snoozedExpanded, shelves.settledExpanded, sidebarChrome.environmentId, sidebarChrome.projectKey, `${workspace.environmentId}:${workspace.threadId}`, appearance.groupingMode, `${top(nav).id}`, top(nav).name == "home" or top(nav).name == "homeArrange", workspace.usesSplitView and workspace.sidebarVisible, data.environments, "sidebar", snapshotRead.serial > 0) as shape HomeView
+  resource sidebarHome = homeView(data.revision, wallTime.epochAtZero + max(elapsed, performanceNow()), sidebarQuery, sidebarSettledCount, shelves.loaded, shelves.workingEnabled, shelves.workingExpanded, shelves.snoozedExpanded, shelves.settledExpanded, sidebarChrome.environmentId, sidebarChrome.projectKey, `${workspace.environmentId}:${workspace.threadId}`, appearance.groupingMode, `${top(nav).id}`, top(nav).name == "home" or top(nav).name == "homeArrange", workspace.usesSplitView and workspace.sidebarVisible, data.environments, "sidebar", snapshotRead.serial > 0) as shape HomeView
   mutation sidebarEvent as shape ChromeEvent then didSidebarEvent
   action sidebarChromeEvent(value: string)
     send sidebarEvent = homeChromeEvent(value)
@@ -522,7 +522,7 @@ component App
     streamHaptics = filter(streamHaptics, item => includes(map(stack(nav), entry => `${entry.id}`), item.routeId))
   action updateStreamFeedback
     if hapticFeed.routeId == hapticRoute and hapticFeed.environmentId == hapticEnvironment and hapticFeed.threadId == hapticThread and hapticEnvironment == data.environmentId and hapticThread == data.threadId
-      let time = wallTime.epochAtZero + now()
+      let time = wallTime.epochAtZero + performanceNow()
       match first(filter(streamHaptics, item => item.routeId == hapticFeed.routeId))
         case some(previous)
           let pulse = previous.owner == hapticFeed.owner and hapticFeed.id != "" and (previous.id != hapticFeed.id or (hapticFeed.textLength > previous.textLength and time - previous.lastAt >= 320))
@@ -541,36 +541,36 @@ component App
   mutation richComposerDiscovery as shape ComposerRootResult refreshes richComposer
   mutation richComposerChanged as shape ComposerRootResult queue refreshes data, richComposer, threadSubmission then didRichComposerChange
   action richComposerAction(op: string, admission: string, key: string, payload: string)
-    send richComposerChanged = composerRootAction(richComposerInput, op, admission, key, payload, wallTime.epochAtZero + now())
+    send richComposerChanged = composerRootAction(richComposerInput, op, admission, key, payload, wallTime.epochAtZero + performanceNow())
   action richComposerEvent(value: string)
     richComposerLatch = value
-    send richComposerChanged = composerRootAction(richComposerInput, "event", richComposer.admission, "", value, wallTime.epochAtZero + now())
+    send richComposerChanged = composerRootAction(richComposerInput, "event", richComposer.admission, "", value, wallTime.epochAtZero + performanceNow())
   action richComposerMessage(value: string)
-    send richComposerChanged = composerRootAction(richComposerInput, "rich", richComposer.admission, "", value, wallTime.epochAtZero + now())
+    send richComposerChanged = composerRootAction(richComposerInput, "rich", richComposer.admission, "", value, wallTime.epochAtZero + performanceNow())
   task prepareRichComposer when richComposer.files.needsPrepare key=richComposer.files.prepareKey
     after(1, prepareRichComposer)
   action prepareRichComposer
-    send richComposerFiles = composerRootAction(richComposerInput, "prepare-files", richComposer.admission, richComposer.files.prepareKey, "", wallTime.epochAtZero + now())
+    send richComposerFiles = composerRootAction(richComposerInput, "prepare-files", richComposer.admission, richComposer.files.prepareKey, "", wallTime.epochAtZero + performanceNow())
   task cleanRichComposer when richComposer.files.cleanupKey != "" key=richComposer.files.cleanupKey
     after(1, cleanRichComposer)
   action cleanRichComposer
-    send richComposerFiles = composerRootAction(richComposerInput, "cleanup-files", richComposer.admission, richComposer.files.cleanupKey, "", wallTime.epochAtZero + now())
+    send richComposerFiles = composerRootAction(richComposerInput, "cleanup-files", richComposer.admission, richComposer.files.cleanupKey, "", wallTime.epochAtZero + performanceNow())
   task queryRichComposer when richComposer.queries.immediateKey != "" key=richComposer.queries.immediateKey
     after(1, queryRichComposer)
   action queryRichComposer
-    send richComposerImmediate = composerRootAction(richComposerInput, "immediate", richComposer.admission, richComposer.queries.immediateKey, "", wallTime.epochAtZero + now())
+    send richComposerImmediate = composerRootAction(richComposerInput, "immediate", richComposer.admission, richComposer.queries.immediateKey, "", wallTime.epochAtZero + performanceNow())
   task queryRichPath when richComposer.queries.path.key != "" key=richComposer.queries.path.key
     after(200, queryRichPath)
   action queryRichPath
-    send richComposerPath = composerRootAction(richComposerInput, "wake", richComposer.admission, richComposer.queries.path.key, "", wallTime.epochAtZero + now())
+    send richComposerPath = composerRootAction(richComposerInput, "wake", richComposer.admission, richComposer.queries.path.key, "", wallTime.epochAtZero + performanceNow())
   task queryRichPullRequests when richComposer.queries.pullRequests.key != "" key=richComposer.queries.pullRequests.key
     after(180, queryRichPullRequests)
   action queryRichPullRequests
-    send richComposerPullRequests = composerRootAction(richComposerInput, "wake", richComposer.admission, richComposer.queries.pullRequests.key, "", wallTime.epochAtZero + now())
+    send richComposerPullRequests = composerRootAction(richComposerInput, "wake", richComposer.admission, richComposer.queries.pullRequests.key, "", wallTime.epochAtZero + performanceNow())
   task queryRichDiscovery when richComposer.queries.discovery.key != "" key=richComposer.queries.discovery.key
     after(10000, queryRichDiscovery)
   action queryRichDiscovery
-    send richComposerDiscovery = composerRootAction(richComposerInput, "wake", richComposer.admission, richComposer.queries.discovery.key, "", wallTime.epochAtZero + now())
+    send richComposerDiscovery = composerRootAction(richComposerInput, "wake", richComposer.admission, richComposer.queries.discovery.key, "", wallTime.epochAtZero + performanceNow())
   task claimRichEffect when richComposer.effectId != "" key=richComposer.effectId
     after(1, claimRichEffect)
   action claimRichEffect
@@ -593,7 +593,7 @@ component App
     after(1, readThreadRecovery)
   action readThreadRecovery
     if threadSubmission.needsRead and not pending(threadSubmissionRead)
-      send threadSubmissionRead = threadSubmissionAction(threadSubmissionInput, "recovery-read", threadSubmission.readKey, "", threadSubmission.expectedOwner, `${top(nav).id}`, wallTime.epochAtZero + now())
+      send threadSubmissionRead = threadSubmissionAction(threadSubmissionInput, "recovery-read", threadSubmission.readKey, "", threadSubmission.expectedOwner, `${top(nav).id}`, wallTime.epochAtZero + performanceNow())
   mutation threadSubmissionChanged as shape ThreadSubmissionResult refreshes data, threadData, queueData, threadSubmission then didThreadSubmission
   action didThreadSubmission
     let message = threadSubmissionNoticeMessage(threadSubmissionChanged, `${top(nav).id}`, threadSubmission.expectedOwner)
@@ -601,7 +601,7 @@ component App
       send notice = alert("info", "Could not complete action", message)
   action threadLocalCommand(op: string, id: string, value: string)
     if not pending(changed) and not pending(threadSubmissionChanged)
-      send threadSubmissionChanged = threadSubmissionAction(threadSubmissionInput, op, id, value, threadSubmission.expectedOwner, `${top(nav).id}`, wallTime.epochAtZero + now())
+      send threadSubmissionChanged = threadSubmissionAction(threadSubmissionInput, op, id, value, threadSubmission.expectedOwner, `${top(nav).id}`, wallTime.epochAtZero + performanceNow())
   resource threadLook = threadColors(appearance.scheme, appearance.themeId) as shape ThreadColors
   resource htmlRenderContext = htmlRenderContext(top(nav).name, `${top(nav).id}`, top(nav).params.threadEnvironment, top(nav).params.threadId, searchParam(top(nav), "htmlRender"), top(nav).params.attachmentId, mediaUi.readVersion, data.revision) as shape HtmlRenderContext
   mutation htmlRenderChanged as shape HtmlRenderResult queue refreshes threadData, documentData then didHtmlRender
@@ -610,7 +610,7 @@ component App
     if result.received and result.requestRoute == `${top(nav).id}` and result.context == htmlRenderContext.context
       showMobileNotice("Page", result.message)
       if result.openKey != "" and result.attachmentId != "" and not htmlRenderContext.full and length(filter(threadData.rows, row => row.htmlRender.identifier == result.identifier and row.htmlRender.key == result.openKey)) > 0
-        mediaUi = mediaUiOpen(mediaUi, wallTime.epochAtZero + now())
+        mediaUi = mediaUiOpen(mediaUi, wallTime.epochAtZero + performanceNow())
         nav = push(nav, path("threadMedia", data.environmentId, data.threadId, result.attachmentId) + "?htmlRender=" + encodeURIComponent(result.openKey))
   resource threadData = threadView(data.revision, wallTime.epochAtZero + elapsed, appearance.scheme, top(nav).params.threadEnvironment, top(nav).params.threadId, startsWith(top(nav).name, "thread"), `${top(nav).id}`, top(nav).name, htmlRenderContext.context, workspace.contentSettledWidth - workspace.chatHorizontalPadding * 2, appearance.themeId) as shape ThreadSnapshot
   resource queueData = queueSnapshot(`${top(nav).id}`, top(nav).name == "threadQueue" and workspaceRouteReady, wallTime.epochAtZero + elapsed, data.revision) as shape MobileQueueSnapshot
@@ -618,7 +618,7 @@ component App
   task prepareQueueThumbnails when top(nav).name == "threadQueue" and workspaceRouteReady and queueData.visit == `${top(nav).id}` and queueData.thumbnailRequest != "" and not pending(queuePrepared) key=`${queueData.owner}:${queueData.visit}:${queueData.thumbnailRequest}`
     after(1, loadQueueThumbnails)
   action loadQueueThumbnails
-    send queuePrepared = queuePrepare(queueData.owner, queueData.visit, queueData.thumbnailRequest, wallTime.epochAtZero + now())
+    send queuePrepared = queuePrepare(queueData.owner, queueData.visit, queueData.thumbnailRequest, wallTime.epochAtZero + performanceNow())
   task dismissEmptyQueue when top(nav).name == "threadQueue" and workspaceRouteReady and queueData.visit == `${top(nav).id}` and queueData.environmentId == data.environmentId and queueData.threadId == data.threadId and queueData.dismiss key=top(nav).id
     after(1, back)
   mutation routeSelected as shape ThreadSelection refreshes data then didLoadRouteThread
@@ -657,7 +657,7 @@ component App
         send outboxEdited = outboxEdit(id, `${top(nav).id}`)
     else if op == "outbox:retry"
       if not pending(outboxChanged)
-        send outboxChanged = outboxAction("retry", id, wallTime.epochAtZero + now())
+        send outboxChanged = outboxAction("retry", id, wallTime.epochAtZero + performanceNow())
     else if top(nav).params.threadEnvironment == data.environmentId and top(nav).params.threadId == data.threadId
       if op == "html-render"
         send htmlRenderChanged = htmlRenderEvent(htmlRenderContext.context, id, value, `${top(nav).id}`, htmlRenderContext.full)
@@ -671,10 +671,10 @@ component App
         nav = push(nav, path("threadQueue", data.environmentId, data.threadId))
       else if (op == "send" or op == "send-alternate") and threadSubmission.ordinary
         if not pending(changed) and not pending(threadSubmissionChanged)
-          send threadSubmissionChanged = threadSubmissionAction(threadSubmissionInput, op, "", value, id, `${top(nav).id}`, wallTime.epochAtZero + now())
+          send threadSubmissionChanged = threadSubmissionAction(threadSubmissionInput, op, "", value, id, `${top(nav).id}`, wallTime.epochAtZero + performanceNow())
       else
         lastOperation = "thread-action"
-        send changed = command(op, id, value, `${wallTime.epochAtZero + now()}`, taskGuardOwner, taskGuardRoute)
+        send changed = command(op, id, value, `${wallTime.epochAtZero + performanceNow()}`, taskGuardOwner, taskGuardRoute)
   derive workspaceRouteReady = data.ready and top(nav).params.threadEnvironment == data.environmentId and top(nav).params.threadId == data.threadId
   derive threadHeaderOptions = ThreadHeaderOptions(routeKey=`${top(nav).id}`, routeIdentity=`${top(nav).url}:${terminalId}`, focused=(workspaceRouteReady and (top(nav).name == "thread" or top(nav).name == "threadReview" or (top(nav).name == "threadFiles" and workspace.fileInspectorSupported and filesData.error == ""))), split=workspace.usesSplitView, sidebarVisible=workspace.sidebarVisible, canGoBack=depth(nav) > 1, returnToChat=top(nav).name == "threadFiles", foreground=threadLook.foreground, review=top(nav).name == "threadReview", reviewRevision=reviewData.revision, dark=appearance.scheme == "dark", inspectorAvailable=workspace.fileInspectorSupported, inspectorVisible=workspace.inspectorVisible)
   resource threadHeader = threadHeader(threadHeaderOptions, data.revision) as shape ThreadHeaderSnapshot
@@ -683,10 +683,10 @@ component App
   task prepareThreadHeader when threadHeader.needsPrepare and not pending(threadHeaderPrepared) key=`${threadHeader.owner}:${threadHeader.needsPrepare}`
     after(1, prepareThreadHeader)
   action prepareThreadHeader
-    send threadHeaderPrepared = threadHeaderPrepare(threadHeader.owner, wallTime.epochAtZero + now())
+    send threadHeaderPrepared = threadHeaderPrepare(threadHeader.owner, wallTime.epochAtZero + performanceNow())
   action threadHeaderAction(value: string)
     if not pending(threadHeaderChanged)
-      send threadHeaderChanged = threadHeaderAction(value, threadHeaderOptions, wallTime.epochAtZero + now())
+      send threadHeaderChanged = threadHeaderAction(value, threadHeaderOptions, wallTime.epochAtZero + performanceNow())
   task launchThreadScript when workspaceRouteReady and top(nav).name == "threadTerminal" and threadHeader.pendingLaunch != "" and terminalId == threadHeader.pendingTerminalId and not pending(threadHeaderChanged) key=threadHeader.pendingLaunch
     after(1, launchThreadScript)
   action launchThreadScript
@@ -725,7 +725,7 @@ component App
   task prepareAnswerFiles when workspaceRouteReady and (top(nav).name == "thread" or (top(nav).name == "threadFiles" and workspace.fileInspectorSupported and filesData.error == "")) and threadData.environmentId == data.environmentId and threadData.threadId == data.threadId and threadData.answerFilesRequest != "" and not pending(answerFilesPrepared) key=`${threadData.answerFilesOwner}:${threadData.answerFilesRequest}`
     after(1, loadAnswerFiles)
   action loadAnswerFiles
-    send answerFilesPrepared = answerFilesPrepare(threadData.answerFilesOwner, threadData.answerFilesRequest, wallTime.epochAtZero + now())
+    send answerFilesPrepared = answerFilesPrepare(threadData.answerFilesOwner, threadData.answerFilesRequest, wallTime.epochAtZero + performanceNow())
   resource previewOwner = previewOwner(workspaceRouteReady and startsWith(top(nav).name, "thread"), data.revision) as shape PreviewOwner
   resource previewPrepared = previewPrepare(previewOwner.owner) as shape InformationRead
   resource previewLook = previewColors(appearance.scheme, appearance.themeId) as shape MobilePreviewColors
@@ -817,7 +817,7 @@ component App
     terminalSelection = terminalCaptureSelect(terminalSelection, index)
   action attachTerminalOutput
     if not pending(terminalAttached)
-      send terminalAttached = terminalAttach(terminalSelection.key, terminalSelection.text, terminalSelection.start, terminalSelection.end, wallTime.epochAtZero + now(), `${top(nav).id}`)
+      send terminalAttached = terminalAttach(terminalSelection.key, terminalSelection.text, terminalSelection.start, terminalSelection.end, wallTime.epochAtZero + performanceNow(), `${top(nav).id}`)
   action didTerminalAttach
     match terminalAttached
       case some(result)
@@ -833,7 +833,7 @@ component App
         terminalSelection = terminalSelection
   resource gitLook = gitColors(appearance.scheme, appearance.themeId) as shape GitColors
   state gitFeedbackPreviousPhase = "idle"
-  resource gitFeedback = gitFeedback(wallTime.epochAtZero + max(agentsElapsed, now()), data.revision, workspaceRouteReady) as shape MobileGitFeedbackSnapshot
+  resource gitFeedback = gitFeedback(wallTime.epochAtZero + max(agentsElapsed, performanceNow()), data.revision, workspaceRouteReady) as shape MobileGitFeedbackSnapshot
   mutation gitFeedbackChanged as shape MobileGitFeedbackResult refreshes gitFeedback
   task gitFeedbackClock when gitFeedback.visible and gitFeedback.phase == "running"
     every(1000, tickAgents)
@@ -848,8 +848,8 @@ component App
       haptic(gitFeedback.phase)
     gitFeedbackPreviousPhase = gitFeedback.phase
   action pressGitFeedback(owner: string, id: string)
-    send gitFeedbackChanged = gitFeedbackAction(owner, id, "press", wallTime.epochAtZero + now())
-  resource gitData = gitSnapshot(wallTime.epochAtZero + max(elapsed, now()), data.revision) as shape MobileGitSnapshot
+    send gitFeedbackChanged = gitFeedbackAction(owner, id, "press", wallTime.epochAtZero + performanceNow())
+  resource gitData = gitSnapshot(wallTime.epochAtZero + max(elapsed, performanceNow()), data.revision) as shape MobileGitSnapshot
   resource gitBranchesData = gitBranchesSnapshot(data.revision) as shape MobileGitBranchesSnapshot
   state gitForm = GitForm(message="", branch="", worktreeBase="", worktreeBranch="")
   mutation gitPrepared as shape MobileGitSnapshot refreshes gitData, data
@@ -865,9 +865,9 @@ component App
   task reconcileGit when workspaceRouteReady and gitData.needsReconcile and not pending(gitChanged) key=`${gitData.owner}:${gitData.needsReconcile}`
     after(1, reconcileGit)
   action prepareGit
-    send gitPrepared = gitRead(gitData.owner, wallTime.epochAtZero + now())
+    send gitPrepared = gitRead(gitData.owner, wallTime.epochAtZero + performanceNow())
   action prepareGitBranches
-    send gitBranchesPrepared = gitBranchesRead(gitBranchesData.owner, wallTime.epochAtZero + now())
+    send gitBranchesPrepared = gitBranchesRead(gitBranchesData.owner, wallTime.epochAtZero + performanceNow())
   action reconcileGit
     gitAction("reconcile", "", "")
   action refreshGit
@@ -880,7 +880,7 @@ component App
         nav = push(nav, path("gitOverview", data.environmentId, data.threadId))
   action gitAction(op: string, id: string, value: string)
     if workspaceRouteReady and not pending(gitChanged)
-      send gitChanged = gitAction(gitData.owner, op, id, value, wallTime.epochAtZero + now(), `${top(nav).id}`)
+      send gitChanged = gitAction(gitData.owner, op, id, value, wallTime.epochAtZero + performanceNow(), `${top(nav).id}`)
       if op == "confirm" and top(nav).name == "gitConfirm"
         nav = replace(nav, path("thread", data.environmentId, data.threadId))
   action didGitChange
@@ -906,7 +906,7 @@ component App
         gitForm = gitForm
   action gitBranchAction(op: string, name: string, base: string)
     if workspaceRouteReady and not pending(gitBranchChanged)
-      send gitBranchChanged = gitBranchAction(gitBranchesData.owner, op, name, base, wallTime.epochAtZero + now(), `${top(nav).id}`)
+      send gitBranchChanged = gitBranchAction(gitBranchesData.owner, op, name, base, wallTime.epochAtZero + performanceNow(), `${top(nav).id}`)
   action didGitBranchChange
     match gitBranchChanged
       case some(result)
@@ -1044,7 +1044,7 @@ component App
     send audioChanged = audioAction(documentData.identifier, value)
   resource mediaViewerData = attachmentNativePreview(mediaUi.nativeSource) as shape MediaPreviewSnapshot
   derive mediaRouteKey = `${top(nav).id}:${mediaUi.readVersion}`
-  resource documentData = attachmentDocument(mediaScope, top(nav).params.attachmentId, mediaRouteKey, mediaUi.rendered, appearance.scheme, mediaActive and mediaData.kind == "file", mediaData.identifier, mediaUi.readAt > 0 ? mediaUi.readAt : wallTime.epochAtZero, taskGuardOwner, taskGuardRoute, htmlRenderContext.context, htmlRenderContext.key, appearance.themeId, mediaUi.nativeOpen, htmlRenderContext.full ? wallTime.epochAtZero + max(elapsed, now()) : 0) as shape AttachmentDocumentSnapshot
+  resource documentData = attachmentDocument(mediaScope, top(nav).params.attachmentId, mediaRouteKey, mediaUi.rendered, appearance.scheme, mediaActive and mediaData.kind == "file", mediaData.identifier, mediaUi.readAt > 0 ? mediaUi.readAt : wallTime.epochAtZero, taskGuardOwner, taskGuardRoute, htmlRenderContext.context, htmlRenderContext.key, appearance.themeId, mediaUi.nativeOpen, htmlRenderContext.full ? wallTime.epochAtZero + max(elapsed, performanceNow()) : 0) as shape AttachmentDocumentSnapshot
   resource documentMenu = attachmentMenu(documentData, settingsAppearance.codeWordBreak) as shape AttachmentDocumentMenu
   mutation documentChanged as shape AttachmentDocumentAction refreshes data then didDocumentAction
   action documentAction(value: string)
@@ -1052,7 +1052,7 @@ component App
   action documentNativeEvent(value: string)
     send documentChanged = attachmentNativeEvent(value, documentData.identifier)
   action didDocumentAction
-    let result = documentReplyPlan(mediaUi, documentChanged, mediaActive, documentData.identifier, wallTime.epochAtZero + now())
+    let result = documentReplyPlan(mediaUi, documentChanged, mediaActive, documentData.identifier, wallTime.epochAtZero + performanceNow())
     mediaUi = result.next
     showMobileNotice("File", result.message)
     if result.close
@@ -1060,7 +1060,7 @@ component App
     if result.toggleWrap
       send preferenceChanged = preferenceChange("codeWordBreak", settingsAppearance.codeWordBreak ? "false" : "true")
   action retryDocument
-    mediaUi = mediaUiRetry(mediaUi, wallTime.epochAtZero + now())
+    mediaUi = mediaUiRetry(mediaUi, wallTime.epochAtZero + performanceNow())
   resource mediaData = mediaPreview(mediaScope, top(nav).params.attachmentId, mediaRouteKey, newTaskActive ? data.environmentId : top(nav).params.threadEnvironment, newTaskActive ? "" : top(nav).params.threadId, mediaActive, data.environmentId, data.threadId, data.generation, taskGuardOwner, taskGuardRoute, mediaContentOwner, composerAttachments.contentOwner, htmlRenderContext.context, htmlRenderContext.key) as shape MediaPreviewSnapshot
   mutation mediaCompleted as shape MediaCompletion then didMediaComplete
   action mediaComplete(value: string)
@@ -1076,18 +1076,18 @@ component App
   action openDraftMedia(id: string, owner: string)
     if owner == composerAttachments.contentOwner
       mediaContentOwner = owner
-      mediaUi = mediaUiOpen(mediaUi, wallTime.epochAtZero + now())
+      mediaUi = mediaUiOpen(mediaUi, wallTime.epochAtZero + performanceNow())
       nav = push(nav, startsWith(top(nav).name, "newTask") ? path("newTaskMedia", id) : path("threadDraftMedia", data.environmentId, data.threadId, id))
   action openMedia(id: string)
-    mediaUi = mediaUiOpen(mediaUi, wallTime.epochAtZero + now())
+    mediaUi = mediaUiOpen(mediaUi, wallTime.epochAtZero + performanceNow())
     nav = push(nav, path("threadMedia", data.environmentId, data.threadId, id))
   derive attachmentMenuActive = top(nav).name == "thread" or (top(nav).name == "newTaskDraft" and newTaskData.canSelect) or (top(nav).name == "threadFiles" and workspace.fileInspectorSupported and filesData.error == "")
-  resource composerAttachments = composerAttachments(data.revision, taskGuardOwner, taskGuardRoute, wallTime.epochAtZero + now(), `${top(nav).id}`, top(nav).url, attachmentMenuActive) as shape ComposerAttachmentsSnapshot
+  resource composerAttachments = composerAttachments(data.revision, taskGuardOwner, taskGuardRoute, wallTime.epochAtZero + performanceNow(), `${top(nav).id}`, top(nav).url, attachmentMenuActive) as shape ComposerAttachmentsSnapshot
   mutation composerPreviewsPrepared as shape InformationRead refreshes composerAttachments, data
   task prepareComposerPreviews when (top(nav).name == "thread" or top(nav).name == "newTaskDraft" or (top(nav).name == "threadFiles" and workspace.fileInspectorSupported)) and composerAttachments.previewRequest != "" and not pending(composerPreviewsPrepared) key=`${composerAttachments.contentOwner}:${composerAttachments.previewRequest}`
     after(1, loadComposerPreviews)
   action loadComposerPreviews
-    send composerPreviewsPrepared = composerPreviewsPrepare(composerAttachments.contentOwner, composerAttachments.previewRequest, wallTime.epochAtZero + now())
+    send composerPreviewsPrepared = composerPreviewsPrepare(composerAttachments.contentOwner, composerAttachments.previewRequest, wallTime.epochAtZero + performanceNow())
   action removeAttachment(kind: string, id: string, owner: string)
     lastOperation = "attachments"
     send changed = attachmentAction(kind, id, taskGuardOwner, taskGuardRoute, owner, `${top(nav).id}`, top(nav).url, attachmentMenuActive)
@@ -1115,7 +1115,7 @@ component App
   resource modelData = composerSettings(modelQuery, modelFilter, modelLegacy, data.revision, taskGuardOwner, taskGuardRoute) as shape ComposerSettingsSnapshot
   derive newTaskActive = startsWith(top(nav).name, "newTask")
   derive newTaskSession = match first(filter(stack(nav), route => route.name == "newTask")) { case some(route) => `${route.id}`, case none => "" }
-  resource newTaskFlow = newTaskFlow(newTaskSession, `${top(nav).id}`, top(nav).url, newTaskActive or startsWith(top(nav).name, "addProject"), data.revision, wallTime.epochAtZero + max(elapsed, now()), incomingShareInbox.revision, preferences.ready ? appearance.groupingMode : "") as shape NewTaskFlowSnapshot
+  resource newTaskFlow = newTaskFlow(newTaskSession, `${top(nav).id}`, top(nav).url, newTaskActive or startsWith(top(nav).name, "addProject"), data.revision, wallTime.epochAtZero + max(elapsed, performanceNow()), incomingShareInbox.revision, preferences.ready ? appearance.groupingMode : "") as shape NewTaskFlowSnapshot
   resource addProjectData = addProjectObserve(newTaskSession, workspaceEntries, `${top(nav).id}`, data.revision) as shape AddProjectSnapshot
   resource addProjectLook = addProjectColors(appearance.scheme, appearance.themeId) as shape AddProjectColors
   derive addProjectAlert = addProjectNextAlert(addProjectData)
@@ -1167,7 +1167,7 @@ component App
     after(1, redirectNewTask)
   action prepareNewTask
     if newTaskFlow.requestRoute == `${top(nav).id}` and newTaskFlow.needsPrepare and not pending(taskChanged) and not pending(taskPrepared)
-      send taskPrepared = newTaskAction(newTaskFlow.owner, `${top(nav).id}`, "prepare", "", "", wallTime.epochAtZero + now())
+      send taskPrepared = newTaskAction(newTaskFlow.owner, `${top(nav).id}`, "prepare", "", "", wallTime.epochAtZero + performanceNow())
   action redirectNewTask
     if newTaskFlow.requestRoute == `${top(nav).id}` and newTaskFlow.nextLocation != "" and not pending(taskChanged) and not pending(taskPrepared)
       nav = open(nav, newTaskFlow.nextLocation)
@@ -1218,7 +1218,7 @@ component App
   action taskAction(kind: string, id: string, value: string)
     if not pending(taskChanged) and not pending(taskPrepared)
       newTaskOperation = kind
-      send taskChanged = newTaskAction(newTaskFlow.owner, `${top(nav).id}`, kind, id, value, wallTime.epochAtZero + now())
+      send taskChanged = newTaskAction(newTaskFlow.owner, `${top(nav).id}`, kind, id, value, wallTime.epochAtZero + performanceNow())
   action didTaskChange
     let result = taskReplyPlan(taskChanged, newTaskOperation)
     if not result.hasReply
@@ -1238,7 +1238,7 @@ component App
       else if result.navigation == "back"
         nav = back(nav)
   action editNewDraft(value: string, owner: string)
-    send taskDraftChanged = newTaskAction(newTaskFlow.owner, `${top(nav).id}`, "draft", owner, value, wallTime.epochAtZero + now())
+    send taskDraftChanged = newTaskAction(newTaskFlow.owner, `${top(nav).id}`, "draft", owner, value, wallTime.epochAtZero + performanceNow())
   mutation taskDraftChanged as shape NewTaskFlowResult refreshes data, newTaskData
   action editNewQuery(value: string)
     newTaskQuery = value
@@ -1257,7 +1257,7 @@ component App
   resource archiveChrome = archiveChrome(top(nav).name == "archive" ? `${top(nav).id}` : "", viewport.width, layout.safeBottom, layout.liquidGlass, archiveFilters.query, archiveFilters.environment, archiveFilters.sort, archiveData.environments) as shape ArchiveChromeSnapshot
   resource archiveScope = archiveScope(data.revision, data.environmentId, data.generation, data.ready, data.status, data.environments) as shape ArchiveScope
   resource archiveRead = archiveRead(top(nav).name == "archive" ? `${top(nav).id}` : "", archiveScope.key, archiveRefresh) as shape ArchiveRead
-  resource archiveData = archiveView(wallTime.epochAtZero + max(elapsed, now()), archiveFilters.query, archiveFilters.environment, archiveFilters.sort, top(nav).name == "archive", archiveRead, archiveScope, length(filter(stack(nav), entry => entry.name == "archive")) > 0) as shape ArchiveData
+  resource archiveData = archiveView(wallTime.epochAtZero + max(elapsed, performanceNow()), archiveFilters.query, archiveFilters.environment, archiveFilters.sort, top(nav).name == "archive", archiveRead, archiveScope, length(filter(stack(nav), entry => entry.name == "archive")) > 0) as shape ArchiveData
   task expireArchive when length(filter(stack(nav), entry => entry.name == "archive")) == 0
     after(300000, tick)
   resource agentLook = agentColors(appearance.scheme, appearance.themeId) as shape AgentActivityColors
@@ -1265,7 +1265,7 @@ component App
   task agentsClock when (top(nav).name == "threadAgents" and agents.liveCount > 0) or (threadHeaderOptions.focused and workingControl.statusKind == "working")
     every(1000, tickAgents)
   action tickAgents
-    agentsElapsed = now()
+    agentsElapsed = performanceNow()
   resource agents = agentActivity(data.environmentId, data.threadId, wallTime.epochAtZero + max(elapsed, agentsElapsed), data.revision) as shape AgentActivityData
   mutation archived as shape Change refreshes data, archiveRead then didArchiveChange
   mutation archiveConfirmation as shape Notice then didConfirmArchive
@@ -1299,12 +1299,12 @@ component App
   state settledCount = 10
   resource shelves = homePreferences() as shape HomePreferences
   resource homeLook = homeColors(appearance.scheme, appearance.themeId) as shape HomeColors
-  resource home = homeView(data.revision, wallTime.epochAtZero + max(elapsed, now()), homeQuery, settledCount, shelves.loaded, shelves.workingEnabled, shelves.workingExpanded, shelves.snoozedExpanded, shelves.settledExpanded, chrome.environmentId, chrome.projectKey, "", appearance.groupingMode, `${top(nav).id}`, top(nav).name == "home" or top(nav).name == "homeArrange", workspace.usesSplitView and workspace.sidebarVisible, data.environments, "compact", snapshotRead.serial > 0) as shape HomeView
+  resource home = homeView(data.revision, wallTime.epochAtZero + max(elapsed, performanceNow()), homeQuery, settledCount, shelves.loaded, shelves.workingEnabled, shelves.workingExpanded, shelves.snoozedExpanded, shelves.settledExpanded, chrome.environmentId, chrome.projectKey, "", appearance.groupingMode, `${top(nav).id}`, top(nav).name == "home" or top(nav).name == "homeArrange", workspace.usesSplitView and workspace.sidebarVisible, data.environments, "compact", snapshotRead.serial > 0) as shape HomeView
   mutation shelfChanged as shape Change refreshes shelves
   task clock mount
     every(60000, tick)
   action tick
-    elapsed = now()
+    elapsed = performanceNow()
   action toggleHomeShelf(section: string)
     send shelfChanged = toggleShelf(section)
   action showMore
@@ -1314,10 +1314,10 @@ component App
     if kind == "arrange-open"
       nav = push(nav, path("homeArrange"))
     else
-      send homeChanged = homeAction(`${top(nav).id}`, environmentId, threadId, kind, value, wallTime.epochAtZero + now())
+      send homeChanged = homeAction(`${top(nav).id}`, environmentId, threadId, kind, value, wallTime.epochAtZero + performanceNow())
   action homeArrangeDrop(requestRoute: string, version: string, environmentId: string, threadId: string, section: string, targetKey: string, placement: string)
     if requestRoute == `${top(nav).id}` and top(nav).name == "homeArrange"
-      send homeChanged = homeArrangeAction(requestRoute, version, environmentId, threadId, section, targetKey, placement, wallTime.epochAtZero + now())
+      send homeChanged = homeArrangeAction(requestRoute, version, environmentId, threadId, section, targetKey, placement, wallTime.epochAtZero + performanceNow())
   action didHomeChange
     match homeChanged
       case some(result)

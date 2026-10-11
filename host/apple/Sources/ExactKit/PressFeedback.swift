@@ -25,6 +25,9 @@ struct PressFeedback {
     /// The origin's offset from the centre the render server's ease was
     /// built about; nil while none runs.
     var easedAbout: CGPoint?
+    /// When the platform's dim (LLP 1115, `dimPress`) went down; nil while
+    /// none is held.
+    var dimmedAt: CFTimeInterval?
     #endif
     /// In and back alike: a fast settle that reads as a physical give.
     static let duration: CFTimeInterval = 0.12
@@ -88,14 +91,25 @@ extension NodeView {
         #endif
     }
 
-    /// `pressed` changed: ease toward the pressed scale, or back to 1.
+    /// `pressed` changed: ease toward the pressed scale, or back to 1; on
+    /// iOS a node that declares none dims instead (LLP 1115, `dimPress`).
     func pressChanged() {
         if pressed { pressHaptic() }
+        #if os(iOS)
+        if platformPressDims { dimPress(pressed); return }
+        if !pressed { dimPress(false) }
+        #endif
         aimPress(pressed, release: !pressed)
     }
     /// The pointer moved while pressed: the feedback follows whether it is
     /// still inside, as the tap's own acceptance does on release.
-    func pressFollows(inside: Bool) { if pressed { aimPress(inside) } }
+    func pressFollows(inside: Bool) {
+        guard pressed else { return }
+        #if os(iOS)
+        if platformPressDims { dimPress(inside); return }
+        #endif
+        aimPress(inside)
+    }
 
     private func aimPress(_ down: Bool, release: Bool = false) {
         let target = down ? number("press_scale", 1) : 1
@@ -172,6 +186,9 @@ extension NodeView {
     /// No ease of the press on the render server: a view taken for another
     /// node, or one a flight carries, shows its own transform alone.
     func stopPressEase() {
+        #if os(iOS)
+        dimPress(false, instantly: true)
+        #endif
         guard press.easedAbout != nil || layer.animation(forKey: "press") != nil else { return }
         layer.removeAnimation(forKey: "press")
         press.easedAbout = nil
@@ -307,6 +324,88 @@ extension NodeView {
     }
     #endif
 }
+
+#if os(iOS)
+/// The platform's press feedback (LLP 1115, which overrides LLP 1061's "UIKit
+/// shows none" for iOS): a pressable node that is not a native control and
+/// declares no feedback of its own dims while held, as a hand-built UIKit
+/// screen's custom button (`UIButton` `.custom` dims its content) or a
+/// SwiftUI plain-style button over a card does. Down is immediate and up
+/// fades back, as `UIButton`'s highlight. It rides on `pressed`, so it keeps
+/// UIKit's delayed touches: in a scroll view a touch that becomes a pan
+/// never presses (`delaysContentTouches`), and a pan that takes one already
+/// down cancels it, which fades back. A quick tap that arrives with its
+/// down and up in one turn still flashes (`dimHold`). The dim is an additive
+/// Core Animation on `opacity`, never the model's alpha, so it composes with
+/// every engine write and never stays behind. Being a dissolve, not motion,
+/// it is what Reduce Motion keeps (HIG, Motion). macOS and tvOS: nothing
+/// (AppKit's custom views show none; tvOS's focus is the feedback).
+extension NodeView {
+    /// The opacity a dimmed node shows, as a fraction of its own: UIKit's
+    /// custom-button dim and SwiftUI's plain-style press sit near here.
+    static let dimmedOpacity: Float = 0.65
+    /// How long a dim fades back.
+    static let dimFade: CFTimeInterval = 0.2
+    /// How long a dim shows at least, so a quick tap still flashes.
+    static let dimHold: CFTimeInterval = 0.1
+
+    /// Whether a press shows the platform's dim: a node the host presses
+    /// (a `press` handler or a link), with no `-exact-press-scale` written
+    /// (any value, 1 included, is the author's), no `pointerdown` or
+    /// `pointerup` of its own (the author paints its pressed state), and not
+    /// a scrim covering the window (a backdrop that closes a sheet shows
+    /// nothing in UIKit). A native button is UIKit's own and never comes here.
+    var platformPressDims: Bool {
+        guard style["press_scale"] == nil, !isNativeButton, !isSurfaceControl,
+              handlers.contains("press") || defaultLink != nil,
+              !handlers.contains("pointerdown"), !handlers.contains("pointerup") else { return false }
+        if let w = window {
+            let r = convert(bounds, to: w)
+            if r.width >= w.bounds.width, r.height >= w.bounds.height * 0.9 { return false }
+        }
+        return true
+    }
+
+    /// Dim (`down`) or fade back. `instantly` drops it without the fade.
+    func dimPress(_ down: Bool, instantly: Bool = false) {
+        let key = "pressDim"
+        let now = CACurrentMediaTime()
+        if down {
+            guard press.dimmedAt == nil else { return }
+            press.dimmedAt = now
+            let delta = -layer.opacity * (1 - Self.dimmedOpacity)
+            let hold = CABasicAnimation(keyPath: "opacity")
+            hold.isAdditive = true
+            hold.fromValue = delta
+            hold.toValue = delta
+            hold.duration = .greatestFiniteMagnitude
+            hold.isRemovedOnCompletion = false
+            hold.fillMode = .both
+            layer.add(hold, forKey: key)
+            return
+        }
+        let at = press.dimmedAt
+        press.dimmedAt = nil
+        // Under the agent's clock (LLP 1012) the release lands, as UIKit's
+        // animations are skipped; a view taken for another node or flying
+        // drops a fade still running too.
+        if instantly || ExactEnv.agentFreezes {
+            if layer.animation(forKey: key) != nil { layer.removeAnimation(forKey: key) }
+            return
+        }
+        guard let at, let hold = layer.animation(forKey: key) as? CABasicAnimation, hold.duration == .greatestFiniteMagnitude else { return }
+        let back = CABasicAnimation(keyPath: "opacity")
+        back.isAdditive = true
+        back.fromValue = hold.fromValue
+        back.toValue = 0
+        back.duration = Self.dimFade
+        back.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        back.beginTime = layer.convertTime(max(now, at + Self.dimHold), from: nil)
+        back.fillMode = .backwards
+        layer.add(back, forKey: key)
+    }
+}
+#endif
 
 #if os(macOS)
 /// Frames for presses in flight (macOS; iOS eases on the render server,

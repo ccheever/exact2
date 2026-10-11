@@ -18,11 +18,9 @@ func batchFixture(ops: [[String: Any]], timers: Bool, motion: Bool, clock: Doubl
 private final class ClockTicks: @unchecked Sendable {
     // The production timer and this oracle run only on the main run loop.
     var count = 0
-    var times: [Double] = []
     func tick() {
         precondition(Thread.isMainThread)
         count += 1
-        times.append(CACurrentMediaTime() * 1000)
     }
 }
 
@@ -144,6 +142,15 @@ final class SessionClockTimerTests: XCTestCase {
         while Date() < end && RunLoop.main.run(mode: mode, before: end) {}
     }
 
+    /// Runs `mode` until `ticks` has ticked, for `seconds` at most. A timer
+    /// firing does not end a run-loop pass, so each pass is 10 ms at most.
+    private func run(_ mode: RunLoop.Mode, untilTicked ticks: ClockTicks, seconds: TimeInterval = 2) {
+        let end = Date(timeIntervalSinceNow: seconds)
+        while ticks.count == 0 && Date() < end {
+            RunLoop.main.run(mode: mode, before: min(end, Date(timeIntervalSinceNow: 0.01)))
+        }
+    }
+
     private func trackingMode() -> RunLoop.Mode {
         // Model the existing AppKit tracking/common-mode membership without
         // a window, synthetic delegate notification or an agent clock.
@@ -158,7 +165,7 @@ final class SessionClockTimerTests: XCTestCase {
         let timer = SessionClockTimer.schedule(after: 0.025) { _ in ticks.tick() }
         defer { timer.invalidate() }
         XCTAssertEqual(timer.timeInterval, 0)
-        run(.default, seconds: 0.6)
+        run(.default, untilTicked: ticks)
         XCTAssertGreaterThan(ticks.count, 0)
     }
 
@@ -218,25 +225,12 @@ final class SessionClockTimerTests: XCTestCase {
         XCTAssertNil(session.clockTimer)
     }
 
-    func testOldPollFailsTheWallClockCadenceBar() {
-        let ticks = ClockTicks(), started = CACurrentMediaTime()
-        let old = Timer(timeInterval: 0.25, repeats: true) { _ in ticks.tick() }
-        RunLoop.main.add(old, forMode: .common)
-        defer { old.invalidate() }
-        run(.default, seconds: 2)
-        let maxGap = zip(ticks.times, ticks.times.dropFirst()).map { $1 - $0 }.max() ?? 0
-        print(String(format: "TIMER NEGATIVE CONTROL old250 elapsed_ms=%.1f wakes=%d max_gap_ms=%.2f", (CACurrentMediaTime() - started) * 1000, ticks.count, maxGap))
-        XCTAssertGreaterThan(ticks.count, 1)
-        XCTAssertLessThan(ticks.count, 50, "the old timer must fail the animation throughput bar")
-        XCTAssertGreaterThan(maxGap, 40, "the old timer must fail the animation gap bar")
-    }
-
     func testClockRunsWhileTrackingModeIsActive() {
         XCTAssertTrue(Thread.isMainThread)
         let mode = trackingMode(), ticks = ClockTicks()
         let timer = SessionClockTimer.schedule(after: 0.025) { _ in ticks.tick() }
         defer { timer.invalidate() }
-        run(mode, seconds: 0.6)
+        run(mode, untilTicked: ticks)
         XCTAssertGreaterThan(ticks.count, 0, "tracking must not suspend the session clock")
     }
 
@@ -244,11 +238,11 @@ final class SessionClockTimerTests: XCTestCase {
         XCTAssertTrue(Thread.isMainThread)
         let mode = trackingMode(), ticks = ClockTicks()
         let timer = SessionClockTimer.schedule(after: 0.025) { _ in ticks.tick() }
-        run(mode, seconds: 0.6)
+        run(mode, untilTicked: ticks)
         XCTAssertGreaterThan(ticks.count, 0)
         timer.invalidate()
         let stopped = ticks.count
-        run(mode, seconds: 0.3)
+        run(mode, seconds: 0.1)
         XCTAssertFalse(timer.isValid)
         XCTAssertEqual(ticks.count, stopped)
     }

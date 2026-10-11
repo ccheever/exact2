@@ -75,7 +75,7 @@ component ThreadComposer
           row align-items="center" gap=7 padding-left=14 padding-right=14 padding-bottom=7
             t3-symbol symbol-name="pencil" point-size=12 symbol-tint=colors.muted width=12 height=12
             text "Editing queued message" flex=1 min-width=0 line-clamp=1 font-size=12 color=colors.muted
-            button press=action("queued-edit-cancel", data.contentOwner, "") disabled=(not data.canCancel) min-height=28 padding-left=3.5 padding-right=3.5 aria-label="Cancel editing queued message"
+            button appearance="none" press=action("queued-edit-cancel", data.contentOwner, "") disabled=(not data.canCancel) min-height=28 padding-left=3.5 padding-right=3.5 aria-label="Cancel editing queued message"
               text "Cancel" font-size=12 font-weight=500 color=colors.primary
         when data.editNotice != ""
           column padding-left=14 padding-right=14 padding-bottom=10.5
@@ -85,7 +85,7 @@ component ThreadComposer
               when data.editNoticeDismissKey != ""
                 ThreadComposerNoticeDismiss(noticeKey=data.editNoticeDismissKey, icon=colors.iconMuted, action=action)
         when data.editPendingId != ""
-          button press=action("queued-edit-retry", data.editPendingId, "") disabled=(not data.canRetryEdit) padding=7
+          button appearance="none" press=action("queued-edit-retry", data.editPendingId, "") disabled=(not data.canRetryEdit) padding=7
             text "Retry queued message save" font-size=13 color=colors.primary
         when data.modelUnavailable
           button press=openModelSettings padding-left=10.5 padding-right=10.5 padding-top=7 padding-bottom=7 text-align="left"
@@ -148,12 +148,12 @@ component ThreadComposer
         when richHere
           ComposerCommandPopover(data=rich.menu, colors=rich.colors, dark=dark, liquidGlass=liquidGlass, hairline=1 / max(1, displayScale), pick=pickCommand)
           when rich.files.message != ""
-            button press=richAction("retry", rich.admission, "files", "") padding=7
+            button appearance="none" press=richAction("retry", rich.admission, "files", "") padding=7
               text rich.files.message font-size=13 color=colors.muted
           when rich.message != ""
             text rich.message padding=7 font-size=13 color=colors.muted
           when rich.pendingCommandKey != ""
-            button press=richAction("retry", rich.admission, rich.pendingCommandKey, "") padding=7
+            button appearance="none" press=richAction("retry", rich.admission, rich.pendingCommandKey, "") padding=7
               text "Retry editor action" font-size=13 color=colors.primary
         when data.showReadOnlyNotice
           text "This connection cannot control this task. You can still edit your draft." padding-top=7 font-size=13 line-height="17px" color=colors.muted

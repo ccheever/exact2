@@ -10,7 +10,10 @@ import AppKit
 /// - Edit holds the reference's items alone: since exact2 #226 the host files a
 ///   ⌘F, ⌘D or ⌘G button there after Select All (⇧⌘G is the branch picker), so each
 ///   stays a hidden key equivalent too; a command standing in for one of Edit's own
-///   items (the app's Undo ⌘Z) keeps its place.
+///   items (the app's Undo ⌘Z) keeps its place. Since LLP 1115 D8 the host's Edit is
+///   Xcode's template (Paste and Match Style, Find, Spelling and Grammar, Substitutions,
+///   Transformations), which the reference's lacks: those are hidden, and an app command
+///   the host stood in Find's place (⌘F, ⌘G, ⇧⌘G) stays a hidden key equivalent there.
 /// - View starts with Reload (⌘R) and Force Reload (⇧⌘R), which reload the window,
 ///   as the reference's roles reload the page. The host's Develop menu (Reload ⌘R,
 ///   Open Project… ⌘O, App Info… ⌘D) and its Go menu are not part of the reference
@@ -22,6 +25,7 @@ import AppKit
 ///   File › Close Window route a keystroke to the window's command first.
 final class R8KeysMenus: NSObject, NSMenuDelegate, NSMenuItemValidation {
     private var reloadAction: Selector?
+    private var saveTrace: NSMenuItem?
     private weak var reloadTarget: AnyObject?
     private weak var file: NSMenu?
     private weak var edit: NSMenu?
@@ -35,7 +39,19 @@ final class R8KeysMenus: NSObject, NSMenuDelegate, NSMenuItemValidation {
                 reloadAction = reload.action
                 reloadTarget = reload.target as AnyObject?
             }
+            // A development build keeps the host's Save Trace (⌥⌘T, LLP 1079 D5) as a hidden key equivalent: the reference has
+            // no Develop menu, but a real-input session's trace has no other way out of a macOS window (realinput-1010e RE-6:
+            // ⌥⌘T reached the view as a key; the macOS host handles no SIGUSR1, whose default ends the process).
+            if let trace = develop.submenu?.items.first(where: { $0.keyEquivalent == "t" && $0.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask) == [.command, .option] }) {
+                develop.submenu?.removeItem(trace)
+                saveTrace = trace
+            }
             bar.removeItem(develop)
+        }
+        if let trace = saveTrace, trace.menu == nil, let view = bar.items.first(where: { $0.submenu?.title == "View" })?.submenu {
+            trace.isHidden = true
+            trace.allowsKeyEquivalentWhenHidden = true
+            view.addItem(trace)
         }
         if let go = bar.items.first(where: { $0.submenu?.title == "Go" }) { bar.removeItem(go) }
         // One window, no window tabs: AppKit's Show Tab Bar / Show All Tabs are not in the reference View menu.
@@ -96,6 +112,13 @@ final class R8KeysMenus: NSObject, NSMenuDelegate, NSMenuItemValidation {
             if !item.isHidden { item.isHidden = true }
             item.allowsKeyEquivalentWhenHidden = true
         }
+        for item in menu.items where Self.isTemplateExtra(item) {
+            if !item.isHidden { item.isHidden = true }
+            // An app command in Find keeps its chord; the host's own text actions there do not
+            // (the reference has none of them).
+            for child in item.submenu?.items ?? [] where Self.isCommand(child) { child.allowsKeyEquivalentWhenHidden = true }
+            if Self.isCommand(item) { item.allowsKeyEquivalentWhenHidden = true }
+        }
         var afterSeparator = true
         for item in menu.items {
             if item.isSeparatorItem {
@@ -105,6 +128,14 @@ final class R8KeysMenus: NSObject, NSMenuDelegate, NSMenuItemValidation {
         }
     }
     static func isCommand(_ item: NSMenuItem) -> Bool { item.target.map { String(describing: type(of: $0)) == "ShortcutHost" } == true }
+    /// The host's Edit items from Xcode's template that DesktopApplicationMenu.ts's Edit lacks (LLP 1115 D8):
+    /// Paste and Match Style (⌥⇧⌘V; the reference's Paste as Text is ⇧⌘V, T3Menus.swift) and four submenus.
+    static let templateSubmenus: Set<String> = ["Find", "Spelling and Grammar", "Substitutions", "Transformations"]
+    static func isTemplateExtra(_ item: NSMenuItem) -> Bool {
+        if let sub = item.submenu { return templateSubmenus.contains(sub.title) }
+        return item.action == #selector(NSTextView.pasteAsPlainText(_:)) && !isCommand(item)
+            && item.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask).contains(.option)
+    }
     static func standsIn(_ item: NSMenuItem) -> Bool {
         let key = item.keyEquivalent.lowercased(), mask = item.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask)
         return (mask == .command && ["z", "x", "c", "v", "a"].contains(key)) || (mask == [.command, .shift] && key == "z")

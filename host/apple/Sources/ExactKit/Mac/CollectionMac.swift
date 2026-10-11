@@ -136,6 +136,10 @@ final class KnobDrag {
 }
 
 extension CollectionHost {
+    /// AppKit insets no list's port by a bar it runs under (iOS's
+    /// `portInsets`): nothing moves it.
+    func portInsets(_ id: UInt32) -> [Double]? { nil }
+    func keepStart(_ id: UInt32, at top: Double) {}
     /// The contiguous run of mounted rows that reaches into the port, in the
     /// document's coordinates and across its full cross size. Padding
     /// before the first item or after the last counts as covered. Nil when
@@ -392,11 +396,7 @@ extension CollectionHost {
     }
     func focusedView() -> UInt32? {
         guard let presenter, let responder = presenter.viewport.window?.firstResponder else { return nil }
-        for node in presenter.views.values {
-            if responder === node || responder === node.textArea ||
-                (node.field.flatMap { $0.currentEditor() }.map { responder === $0 } ?? false) { return node.id }
-        }
-        return nil
+        return presenter.keyTarget(responder)?.id
     }
     private func nodeID(_ hit: NSView?) -> UInt32? {
         var view = hit

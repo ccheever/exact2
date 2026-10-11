@@ -6,8 +6,7 @@
 // reply its parse never takes; `fixtureStats()` answers a record `Mismatch`
 // does not describe. Either way the request is no longer pending: a resource
 // keeps its last value and is `failed` for those arguments, not asked again
-// for them (an equal argument, a declared refresh's re-read at a send whose
-// reply is to come), and asked again for new ones, by `refresh`, or by a
+// for them (an equal argument), and asked again for new ones, by `refresh`, or by a
 // declared refresh forced when a mutation answered at once lands; a commit refused after it cleared
 // the failure (`lost(-1, …)` refuses its arguments) restores it; a mutation
 // ends unsent, its slot as it was and its `then` not run. `sent` counts the

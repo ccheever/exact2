@@ -33,14 +33,18 @@ import { adoptShellPrefs } from './shell-prefs';
 import { adoptFilesPrefs } from './r5-panels-prefs';
 import { adoptSidebarWidth } from './r4-polish-sidebar-width'; // r4-polish: the stored sidebar width
 import { VCS_STATUS_KEY, vcsStatusEvent } from './shell-vcs';
+import { adoptBrowserPrefs } from './browser-defaults'; // browser-surface part 4
 import { PR_REFRESH_KEY, prRefreshEvent, adoptPrSnapshots } from './pages-pr-refresh';
 import { DEVICE_STATE_KEY, deviceStateEvent } from './r4-surfaces-device';
 import { LIVE_KEYS, liveEvent } from './live-streams';
+import { DISCOVERED_SERVERS_KEY, discoveredServersEvent } from './browser-targets'; // browser-surface part 2: the live local servers
+import { adoptBrowserHistory } from './browser-history'; // browser-surface part 2: the Browser tab's history
 import { PREVIEW_AUTOMATION_KEY, PREVIEW_EVENTS_KEY, previewStreamEvent } from './browser-automation';
 import { WORKTREE_SETUP_KEY, worktreeSetupEvent } from './timeline-worktree';
 import { GIT_ACTION_KEY, gitActionEvent } from './r4-git-actions';
 import { TERMINAL_METADATA_KEY, terminalMetadataEvent } from './terminal-drawer-view'; // terminal-drawer
 import { adoptTerminalContexts } from './terminal-integrations';
+import { adoptPreviewAnnotations } from './browser-annotation'; // browser-surface part 3: Annotate's drafts
 import { providerSetupEvent } from './provider-setup'; // provider-sign-in-and-install: the auth and install streams
 import { composerReplyEvent, settleLostReplies, settleStaleReplies } from './composer-replies'; // usage-reset-and-feedback: detached requests' replies
 import { codexHandoffEvent } from './codex-handoff-events'; // managed-codex-chatgpt: the handoff stream when this connection is the primary
@@ -49,6 +53,7 @@ import { obj, str, num, arr, initialShell, applyShell, threadSnapshot, applyThre
   readyCheckpoint, type Obj, type Shell, type ThreadState } from './domain';
 import { ClientError, bridgeReply, providerAvailable, applyConfig, type Native, type Files } from './protocol';
 import { clampInterfaceFontSize } from './appearance-fonts';
+import { windowAppearanceMode } from './settings-appearance-look'; // audit-wave-followups-2 FV-3: the window draws in the resolved mode
 
 const localPath = 'app:/data/t3-code.json';
 type Selection = { projectId: string; threadId: string };
@@ -193,12 +198,14 @@ export class T3Client {
       next.customThemes = decodeCustomThemes(saved.customThemes);
       adoptModelPrefs(next, saved); // settings-b: model visibility/order (settings-b-models.ts)
       next.composerControls = decodeComposerControls(saved.composerControls);
-      adoptTerminalContexts(next, saved);
+      adoptTerminalContexts(next, saved); adoptPreviewAnnotations(next, saved);
       adoptStash(next, saved); // composer-editor: the prompt stash (composer-editor-stash.ts)
       adoptComposerFiles(next, saved); // composer-editor: folded pastes (composer-editor-files.ts)
       adoptPagesPrefs(next, saved); adoptPrSnapshots(next, saved); // pages: page preferences and the first-run flag (pages-prefs.ts); the kept pull request details (pages-pr-refresh.ts)
       adoptShellPrefs(next, saved); // shell: notice dismissals and closed workspace cards (shell-prefs.ts)
+      adoptBrowserPrefs(next, saved); // browser-surface part 4: the Browser's profiles and the defaults a new tab opens with (browser-defaults.ts)
       adoptFilesPrefs(next, saved); // r5-panels: Files explorer and render preferences (r5-panels-prefs.ts)
+      adoptBrowserHistory(next, saved); // browser-surface part 2: the Browser tab's history (browser-history.ts)
       adoptTerminalPrefs(next, saved); this.dropLegacyKeys = adoptLocalPrefs(next, saved); // each thread's drawer (terminal-ui-state.ts); the default endpoint (local-environment.ts: the switch and exposure moved to desktop-settings.json)
       if (groupingModes.includes(str(saved.lastGroupingMode))) next.lastGroupingMode = str(saved.lastGroupingMode);
       const device = obj(saved.deviceSettings);
@@ -308,7 +315,7 @@ export class T3Client {
     native.watch('t3.notify'); // r13-threads: a command's wake redraws the composer (Send's "Preparing machine")
     try {
       await this.load(storage);
-      await this.raw(native, { op: 'devicePresentation', ...this.local.deviceSettings, confirmQuit: quitMode(this.local), rootFontSize: clampInterfaceFontSize((this.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface) });
+      await this.raw(native, { op: 'devicePresentation', ...this.local.deviceSettings, appearanceMode: windowAppearanceMode(this), confirmQuit: quitMode(this.local), rootFontSize: clampInterfaceFontSize((this.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface) });
       const ticket = statusTicket(this);
       const status = await this.raw(native, { op: 'status' });
       if (status.ok) settleTraces(this, obj(status.value), ticket);
@@ -498,6 +505,7 @@ export class T3Client {
         if (key === PR_REFRESH_KEY) { prRefreshEvent(this, entry); continue; } // pages-pr-refresh.ts: pullRequests.subscribeRefreshes
         if (key === GIT_ACTION_KEY) { gitActionEvent(this, entry); continue; } // r4-git-actions.ts: the card's git.runStackedAction stream
         if (key === DEVICE_STATE_KEY) { deviceStateEvent(this, entry); continue; } // r4-surfaces-device.ts: the device hub state
+        if (key === DISCOVERED_SERVERS_KEY) { discoveredServersEvent(this, entry); continue; } // browser-targets.ts: subscribeDiscoveredLocalServers
         if (providerSetupEvent(this, entry) || keepAliveEvent(this, entry) || composerReplyEvent(this, entry) || codexHandoffEvent(entry)) continue; // keep-alive.ts: running threads' detail streams, the primary's lifecycle; composer-replies.ts: a /feedback upload's or a redeem's reply codex-handoff-events.ts: the ChatGPT handoff on the primary
         if (LIVE_KEYS.includes(key)) { liveEvent(this, entry); continue; } // live-streams.ts: scheduled tasks and project clones
         if (key === TERMINAL_METADATA_KEY) { terminalMetadataEvent(this, entry); continue; } // terminal-drawer-view.ts: terminal labels and sessions
@@ -650,14 +658,14 @@ export class T3Client {
     const out: OpOut = { message: '', id, value, providers }; // an area's ops hand back their message (client-ops.ts)
     try {
       await this.load(storage);
-      await this.raw(native, { op: 'devicePresentation', ...this.local.deviceSettings, confirmQuit: quitMode(this.local), rootFontSize: clampInterfaceFontSize((this.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface) });
+      await this.raw(native, { op: 'devicePresentation', ...this.local.deviceSettings, appearanceMode: windowAppearanceMode(this), confirmQuit: quitMode(this.local), rootFontSize: clampInterfaceFontSize((this.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface) });
       if (await runOps(this, READ_OPS, op, id, value, n, native, storage, out)) ({ message: resultMessage, id, value } = out);
       else {
         if (providers) providers.requireWrite(); else this.requireWrite(); // a provider write on another environment needs that one's session
         if (await runOps(this, WRITE_OPS, op, id, value, n, native, storage, out)) ({ message: resultMessage, id, value } = out);
         else throw new ClientError(`Unknown action: ${op}`);
       }
-      if ((op === 'device-setting' || op === 'settings-core') && native?.available) await this.raw(native, { op: 'devicePresentation', ...this.local.deviceSettings, confirmQuit: quitMode(this.local), rootFontSize: clampInterfaceFontSize((this.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface) });
+      if ((op === 'device-setting' || op === 'settings-core') && native?.available) await this.raw(native, { op: 'devicePresentation', ...this.local.deviceSettings, appearanceMode: windowAppearanceMode(this), confirmQuit: quitMode(this.local), rootFontSize: clampInterfaceFontSize((this.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface) });
       await this.save(storage);
       await this.flushSnapshotReleases(native, storage);
       shellSuccess(this, op, value, resultMessage, id);

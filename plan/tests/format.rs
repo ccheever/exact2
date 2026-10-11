@@ -679,7 +679,7 @@ fn router_format_round_trips_and_checks_semantic_links() {
         assert_eq!(f.returns(), result);
         assert_eq!(Stdlib::from_wire(f as u8), Some(f));
     }
-    assert_eq!(Stdlib::Now as u8, 0);
+    assert_eq!(Stdlib::PerformanceNow as u8, 0);
     assert_eq!(Stdlib::Min as u8, 7);
 }
 

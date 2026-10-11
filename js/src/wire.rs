@@ -1,7 +1,7 @@
 //! The JSON both sides of the host door speak: a fetch as the prelude
 //! records it, a reply as `__exact_fulfill` and `__exact_message` take it,
 //! and the Canvas 2D recorder's text and image questions (ops 9 and 10).
-use exact_runner::{Outcome, Request};
+use exact_runner::{Outcome, Redirect, Request};
 use serde_json::{json, Value as Json};
 
 pub(crate) fn request_from_json(text: &str) -> Result<Request, String> {
@@ -52,6 +52,14 @@ pub(crate) fn request_from_json(text: &str) -> Result<Request, String> {
                     .ok_or("a request timeout must be 1 to 3600000 ms")? as u32,
             ),
         },
+        // `exactBodyFrom`: the path alone; the host reads the file when it
+        // runs the request, so the bytes never cross the module.
+        body_from: match j.get("body_from") {
+            None | Some(Json::Null) => None,
+            Some(Json::String(path)) => Some(path.clone()),
+            Some(_) => return Err("exactBodyFrom must be an app:/ path".into()),
+        },
+        redirect: Redirect::parse(j.get("redirect").and_then(Json::as_str))?,
     })
 }
 

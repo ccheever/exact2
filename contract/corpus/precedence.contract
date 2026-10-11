@@ -14,6 +14,7 @@ component App
   view
     column testId="surface" width=400 height=500 pan=moved touch-action="none"
       box testId="row" width=400 height=100 swiperight=reply touch-action="pan-y" transition="translate -exact-spring(300, 30, 1)"
-        button testId="button" press=push width=80 height=40
+        // This fixture exercises Exact's press/swipe/pan contact arbitration.
+        button appearance="none" testId="button" press=push width=80 height=40
           text "button"
       text `${replies}/${panned}/${pressed}` testId="out"

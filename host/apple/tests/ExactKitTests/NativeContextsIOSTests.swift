@@ -179,6 +179,38 @@ final class NativeContextsIOSTests: XCTestCase {
         XCTAssertEqual(rebuilt.selectedSegmentIndex, 0, "a rebuilt control shows the selection")
     }
 
+    /// LLP 1116.003 (r5 weather: "ExactSegmentedControl covers its middle"):
+    /// a real touch on a tab a segmented control draws aims at its segment,
+    /// the control taking the touch, never at the hidden authored tab.
+    func testARealTouchAimsAtTheSegmentItsControlDraws() throws {
+        let session = ExactApp.shared.makeSession(label: "segment-aim")
+        defer { session.destroy() }
+        let p = session.presenter
+        let faces: [UInt32: ButtonFace] = [2: face("Day"), 3: face("Week"), 4: face("Month")]
+        p.buttonFace = { faces[$0] ?? ButtonFace() }
+        let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+        window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        window.frame = CGRect(x: 0, y: 0, width: 400, height: 400)
+        window.rootViewController = UIViewController()
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        p.viewport.frame = window.bounds
+        window.rootViewController?.view.addSubview(p.viewport)
+        var ops = view(1, ["accessibilityRole": "tablist"])
+        for (i, id) in [2, 3, 4].enumerated() { ops += native(id, ["accessibilityRole": "tab"], x: Double(i) * 100, w: 100) }
+        p.apply(wireBatch(ops + [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "roots", "ids": [1]]]))
+        let control = try XCTUnwrap(p.views[1]?.subviews.compactMap { $0 as? UISegmentedControl }.first)
+        control.layoutIfNeeded()
+        let reply = Agent(session: session).aim(["id": 3, "aim": ["press": true]])
+        if (reply["error"] as? String)?.contains("foreground") == true { throw XCTSkip("the test host is in the background: a real touch's aim refuses it") }
+        let aim = try XCTUnwrap(reply["aim"] as? [String: Any], "\(reply)")
+        let w = try XCTUnwrap(aim["window"] as? [Double])
+        let local = control.convert(CGPoint(x: w[0], y: w[1]), from: nil)
+        XCTAssertTrue(control.bounds.contains(local), "on the control: \(local)")
+        XCTAssertEqual(Int(local.x / (control.bounds.width / 3)), 1, "on Week, the middle segment: \(local)")
+        XCTAssertEqual(aim["hit"] as? Int, 1, "the touch lands in the tablist's node: \(aim)")
+    }
+
     func testAMenuRowsSymbolIsItsItemsImageNativeOrCustom() throws {
         let p = presenter(
             view(1, ["popover": "auto", "id": "menu", "accessibilityRole": "menu"])
@@ -229,7 +261,7 @@ final class NativeContextsIOSTests: XCTestCase {
         XCTAssertEqual(p.menus.activate(try XCTUnwrap(p.views[1])), true, "it opens")
         let alert = try XCTUnwrap(controller.presentedViewController as? UIAlertController)
         XCTAssertEqual(alert.actions.map(\.title), ["Delete", "Cancel"])
-        XCTAssertNil(alert.title, "a confirmation has no title row; its label is not one")
+        XCTAssertNil(alert.title, "its popover has no label; the invoker's is not one")
         XCTAssertEqual(alert.actions.map(\.style), [.destructive, .cancel])
         guard scene != nil else { return }
         let settled = expectation(description: "presented")
@@ -352,10 +384,13 @@ final class NativeContextsIOSTests: XCTestCase {
     /// `position-area: center` on the sheet (LLP 1021 "Placement"): anchored
     /// at the whole invoker, no arrow, allowed over it; UIKit centres the
     /// sheet across the invoker and picks its vertical position itself.
+    /// Without a cancel, as a chooser with one is an unanchored sheet on a
+    /// compact screen (LLP 1115 D6, ConfirmationAlertIOSTests).
     func testACentredSheetSitsOverItsInvoker() throws {
         let (p, controller, scene) = chooser({ Self.providers })
         defer { p.menus.reset(); window.isHidden = true }
         p.apply(wireBatch([["op": "style", "id": 2, "style": ["position_area": "center"]],
+                           ["op": "children", "id": 2, "ids": [3, 4, 5]],
                            ["op": "frame", "id": 1, "x": 100.0, "y": 150.0, "w": 200.0, "h": 40.0]]))
         let source = try XCTUnwrap(p.views[1])
         XCTAssertEqual(p.menus.activate(source), true)

@@ -233,7 +233,7 @@ const evaluate = (expression: string, names: string[]) => new Function(...names,
 describe('the timeline clock and the work rows in Contract (TH-4, TH-5, TH-6, TH-10)', () => {
   test('TH-6: the root ticks liveNow each second while a subagent is live, and the row passes it on', async () => {
     const app = await source('app.contract');
-    expect(app).toMatch(/\n {4}if data\.running or data\.subagentsLive or [^\n]*\n {6}liveNow = now\(\)\n/);
+    expect(app).toMatch(/\n {4}if data\.running or data\.subagentsLive or [^\n]*\n {6}liveNow = performanceNow\(\)\n/);
     expect(app).toContain('task liveClock mount\n    every(1000, liveTick)');
     expect(await source('app-window.contract')).toContain('timelineNow=(wallTime.epochAtZero + max(liveNow, elapsed))');
     expect(await source('timeline.contract')).toContain('SubagentRow(agent=agent, command=command, now=now)');

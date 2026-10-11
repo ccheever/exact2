@@ -1,4 +1,4 @@
-// An action's body reads a derive and a resource whose inputs read now(),
+// An action's body reads a derive and a resource whose inputs read performanceNow(),
 // after an advance that committed nothing: it sees them as the last commit
 // settled them (the pre-state), and the resource is asked again only at
 // settlement, with the written slot. The web JS target once re-evaluated
@@ -6,8 +6,8 @@
 // runner never asks.
 component App
   state k = 1
-  derive at = now() * k
-  resource r = load(now() * k) as shape number
+  derive at = performanceNow() * k
+  resource r = load(performanceNow() * k) as shape number
   state seen = -1
   state seenR = -1
   action mark

@@ -45,6 +45,8 @@ final class RegionTextSource: Sendable {
     let direction: Int
     let lineClamp: Int
     let overflowWrap: Int
+    /// CSS `text-box`: `Spec`'s trim, over and under edges.
+    let textBox: (trim: Int, over: Int, under: Int)
     /// A preserved tab's stop interval (CSS `tab-size: 8`), as the engine's
     /// paragraphs have it; nil when no tab is preserved.
     let tabInterval: CGFloat?
@@ -72,13 +74,14 @@ final class RegionTextSource: Sendable {
             return RegionTextRun(text: run.text, font: font(run), lineHeight: run.lineHeight,
                                  letterSpacing: run.letterSpacing,
                                  color: TextEngine.color(run.color ?? spec.color).cgColor,
-                                 underline: run.decoration.contains("underline") || (run.decoration.isEmpty && !run.href.isEmpty),
+                                 underline: run.underlined,
                                  strike: run.decoration.contains("line-through"), href: run.href,
                                  range: NSRange(location: offset, length: count))
         }
         let base = spec.strut ?? spec.runs.first
         strut = base.map(font); strutExplicit = base?.lineHeight != nil
         align = spec.align; direction = spec.direction; lineClamp = spec.lineClamp; overflowWrap = spec.overflowWrap
+        textBox = (spec.textBoxTrim, spec.textBoxOver, spec.textBoxUnder)
         text = spec.runs.map(\.text).joined()
         tabInterval = spec.preserves && text.contains("\t") ? base.map { TextEngine.tabInterval(font($0).value, letterSpacing: $0.letterSpacing) } : nil
         utf16Count = offset

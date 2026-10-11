@@ -437,7 +437,7 @@ component MobileRouteContent
             column flex=1 align-items="center" justify-content="center" padding=21 gap=7
               text "No preview for this file" font-size=18 font-weight=700 color=threadLook.foreground
               text mediaNativeError font-size=14 text-align="center" color=threadLook.muted
-              button press=retryDocument min-height=44
+              button appearance="none" press=retryDocument min-height=44
                 text "Try again" color=threadLook.foreground
           else when mediaData.kind != "file" or documentData.ready
             MediaPreview(data=mediaData, completed=mediaComplete)
@@ -447,7 +447,7 @@ component MobileRouteContent
           when htmlRenderContext.full
             column flex=1 align-items="center" justify-content="center" padding=21 gap=7
               text mediaData.error color=look.colors.dangerForeground
-              button press=retryDocument min-height=44
+              button appearance="none" press=retryDocument min-height=44
                 text "Reload" color=threadLook.foreground
           else
             text mediaData.error padding=21 color=look.colors.dangerForeground

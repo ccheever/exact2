@@ -21,7 +21,7 @@ verified_commit: 21019bed3936baedf5b9169324a637b894d2e7a9
 - An HTML or PDF file in Files has "Open file in preview browser".
 - An image file has no word-wrap toggle.
 
-Found by the 2026-10-09 desktop audit ([review](../reviews/20261009-desktop-audit.md)). Reference: T3 Code `1e2ecbd975`
+Found by the 2026-10-09 desktop audit ([review](../../reviews/20261009-desktop-audit.md)). Reference: T3 Code `1e2ecbd975`
 as an Electron production build. Clone: `c603c22d6`, a development build.
 
 ## Findings

@@ -20,7 +20,7 @@ component NewTaskRecoveryNotice
         text "Saved task needs attention" font-size=14 font-weight=600 color=colors.foreground
         text data.message font-size=13 line-height="17px" color=colors.muted
         each item in data.actions key=item.key
-          button press=action("transfer-recovery", item.key, "") disabled=busy padding=7 text-align="left"
+          button appearance="none" press=action("transfer-recovery", item.key, "") disabled=busy padding=7 text-align="left"
             text item.label font-size=14 color=colors.foreground
-        button press=action("transfer-recovery-refresh", "", "") disabled=busy padding=7 text-align="left"
+        button appearance="none" press=action("transfer-recovery-refresh", "", "") disabled=busy padding=7 text-align="left"
           text "Refresh saved status" font-size=13 color=colors.muted

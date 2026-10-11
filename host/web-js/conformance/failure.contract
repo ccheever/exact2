@@ -1,0 +1,35 @@
+// data: completion-storm
+// Synthetic conformance plan: `failure(x)` (LLP 1109 D3) is `none` until a
+// resource fails, then `some` of its code and message, on Completion Storm's
+// sources. `lost(n)` for n ≠ 0 sends a request whose reply its parse never
+// takes (the source's own error: `error`), and `fixtureStats()` answers a
+// record `Mismatch` does not describe (`shape`). `ask(0)` answers at once,
+// and the failure goes with the arguments it was for. The message differs by
+// host, so only whether it says anything shows. The root paints the page
+// white over the data app's manifest background.
+shape Mismatch
+  message: number
+  received: number
+
+component Failure
+  state n = 0
+  resource probe = lost(n) as shape number
+  resource stats = fixtureStats() as shape Mismatch else empty()
+  derive probeWhy = match failure(probe) { case some(f) => `${f.code} ${length(f.message) > 0}`, case none => "none" }
+  view
+    column testId="root" height="100%" box-sizing="border-box" padding=10 gap=6 background-color="#ffffff"
+      text `probe ${probe} ${probeWhy}` testId="probe"
+      text (match failure(stats) { case some(f) => `stats ${f.code}`, case none => "stats none" }) testId="stats"
+      when failed(probe) && failure(probe) != none
+        text "the banner shows" testId="banner"
+      row gap=4 flex-wrap="wrap"
+        button press=ask(1) testId="ask-1"
+          text "ask 1"
+        button press=ask(0) testId="ask-0"
+          text "ask 0"
+        button press=retry testId="retry"
+          text "refresh"
+  action ask(k: number)
+    n = k
+  action retry
+    refresh probe

@@ -258,6 +258,11 @@ shape DiffItem
   rightLine: number
   leftSelected: bool
   rightSelected: bool
+  // The file has a selection: its gutter "+" is pinned to the selection's bottom line (pin, or leftPin/rightPin in split), not hover.
+  pinned: bool
+  pin: bool
+  leftPin: bool
+  rightPin: bool
   error: bool
   partial: bool
   unavailable: bool
@@ -395,6 +400,7 @@ shape Snapshot
   interactionMode: string
   hasMore: bool
   historyLoading: bool
+  threadLoading: bool // audit-wave-followups FU-1: a server thread's detail is not in yet (ChatView threadDetailLoading)
   diffOpen: bool
   diffLoading: bool
   diffError: string
@@ -455,6 +461,7 @@ shape Snapshot
   planSavePath: string
   planSaveRoot: string
   planSaving: bool
+  planSaveRow: string
   providers: list<Provider>
   models: list<Model>
   approvals: list<Approval>

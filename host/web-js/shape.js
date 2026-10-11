@@ -43,3 +43,14 @@ export function eq(a, b) {
   for (let i = 0; i < a.length; i++) if (!eq(a[i], b[i])) return false;
   return true;
 }
+/** `failure(x)`'s code for what a source let through (LLP 1109 D3), as js/src/prelude.js `failureCode` and
+ * runner/src/failure.rs read it: a fetch's rejection by its kind, a coded storage refusal, an answer ts-data.js
+ * found outside its shape (`Shaped`), else the source's own error. */
+export const Shaped = Symbol("shape");
+const FETCH_FAILURE = { Network: "offline", Timeout: "timeout", Refused: "refused" };
+export function failureCode(e) {
+  if (!e || typeof e !== "object") return "error";
+  if (e[Shaped]) return "shape";
+  if (e.name === "FetchError") return FETCH_FAILURE[e.kind] ?? "error";
+  return e.kind === "Unavailable" && typeof e.code === "string" ? "storage" : "error";
+}

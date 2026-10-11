@@ -34,12 +34,24 @@ enum T3RemoteAuth {
 
     /// The text for a refused request: the server's own message, then mapRemoteEnvironmentError's
     /// detail for an invalid credential or a scope the link does not grant (only the token exchange
-    /// answers `scope_not_granted` / `invalid_scope`), then the HTTP status.
+    /// answers `scope_not_granted` / `invalid_scope`), then a pull request error's own sentence (its
+    /// `message` is a getter the schema does not send, as on the RPC path, T3Protocol `typed`), then the
+    /// HTTP status. realinput-1010e-followups RE-5: `POST /api/pull-requests/diff` answers 503 with
+    /// `{ _tag: "PullRequestUnavailableError", reason, provider }`, which the reference's HttpApi client
+    /// decodes and shows by its message ("Change requests cannot be browsed for this project's host yet.").
     static func failureMessage(_ decoded: [String: Any]?, status: Int) -> String {
         if let message = decoded?["message"] as? String { return message }
-        switch decoded?["reason"] as? String ?? "" {
+        let text = { (key: String) in (decoded?[key] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "" }
+        switch text("reason") {
         case "invalid_credential": return "The environment credential is invalid."
         case "scope_not_granted", "invalid_scope": return "The environment rejected the authentication request."
+        default: break
+        }
+        switch text("_tag") {
+        case "PullRequestUnavailableError":
+            let sentence = T3PullRequestErrors.unavailable(reason: text("reason"), provider: text("provider"))
+            if !sentence.isEmpty { return sentence }
+        case "PullRequestOperationError" where !text("detail").isEmpty: return "Pull request operation \(text("operation")) failed: \(text("detail"))"
         default: break
         }
         return "The server returned HTTP \(status)."

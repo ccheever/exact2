@@ -1,0 +1,17 @@
+# The LLP reader in a terminal (LLP 1101): the terminal host over the
+# reader's own data module, full screen.
+[package]
+name = "llp-terminal"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The LLP reader in the terminal"
+publish = false
+
+[[bin]]
+name = "llp"
+path = "src/main.rs"
+
+[dependencies]
+exact-terminal = { path = "../../../host/terminal" }
+llp-data = { path = "../data" }

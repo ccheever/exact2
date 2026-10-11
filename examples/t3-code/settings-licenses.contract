@@ -23,17 +23,17 @@ component NoticesPanel
   view
     column width="100%" gap="0.625rem" testId="licenses-settings"
       row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center" justify-content="space-between" gap="1rem" box-sizing="border-box"
-        text "Third-party notices" font-size="0.875rem" line-height="1.25rem" color="light-dark(#262629b3, #f5f5f5b3)" role="heading" aria-level=2
+        text "Third-party notices" font-size="0.875rem" font-weight=400 line-height="1.25rem" color="light-dark(#262629b3, #f5f5f5b3)" role="heading" aria-level=2
         when data.ready
           row align-items="center" gap=(searchOpen ? "0.5rem" : "0.375rem")
             text (data.matched == data.total ? `${data.total} notices` : `${data.matched} of ${data.total}`) font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="license-count"
             when not searchOpen
-              button press=openSearch aria-label="Search open-source licenses" id="open-license-search" testId="open-license-search" width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+              button press=openSearch aria-label="Search open-source licenses" id="open-license-search" testId="open-license-search" width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
                 LucideSearch(size=12, color="light-dark(#71717b, #818181)")
             when searchOpen
               row width="11rem" height="1.75rem" align-items="center" gap="0.375rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)"
                 LucideSearch(size=12, color="light-dark(#71717b, #818181)")
-                input value=query input=edit key=searchKey focus=focusSearch blur=closeSearch autofocus=true placeholder="Search licenses" aria-label="Search open-source licenses" testId="license-search" flex=1 min-width=0 height="1.5rem" padding=0 position="relative" top="0.21875rem" line-height="1.5rem" border-width=0 background-color="#00000000" font-size="0.8125rem" color="light-dark(#27272a, #f5f5f5)"
+                input value=query input=edit key=searchKey focus=focusSearch blur=closeSearch autofocus=true placeholder="Search licenses" aria-label="Search open-source licenses" testId="license-search" flex=1 min-width=0 height="1.5rem" padding=0 position="relative" top="0.21875rem" line-height="1.5rem" border-width=0 background-color="#00000000" font-size="0.8125rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off"
       column width="100%" box-sizing="border-box" border-radius="0.875rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e899, #ffffff09)" background-color="light-dark(#ffffff66, #11111166)" box-shadow="0 1px 2px #0000000d"
         when data.error != ""
           column align-items="flex-start" gap="0.75rem" padding-left="1rem" padding-right="1rem" padding-top="1.25rem" padding-bottom="1.25rem" box-sizing="border-box"

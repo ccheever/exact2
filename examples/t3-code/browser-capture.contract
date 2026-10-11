@@ -1,0 +1,234 @@
+// browser-surface part 3 (capture): the chrome row's Annotate, Capture and Float preview buttons and the floating
+// player's browser source (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975: apps/web/src/components/preview/
+// PreviewChromeRow.tsx 121-320, ThreadPreviewMiniPlayer.tsx BrowserMiniPlayer and MiniPlayerShell; index.css
+// `animate-status-pulse`). `view.capture` is browser-capture.ts `browserCaptureView`; `local` runs
+// `surface-browser-<op>` (browser-capture.ts `captureLocal`, `browserMiniLocal`). The floating player shows the tab's
+// page through the same `t3-browser` view the panel uses: one WKWebView sits in one place, so the player borrows it
+// while the panel does not show that tab (T3BrowserView.swift).
+use TipBubble from "./shell-tip.contract"
+use BrowserCapture from "./browser-shapes.contract"
+use BrowserMini from "./browser-shapes.contract"
+use ChatCanvasMini from "./chat-canvas.contract"
+
+// animate-status-pulse (status-pulse 2s infinite): full, then half opacity; reduced motion holds it still.
+keyframes bcStatusPulse
+  from opacity=1
+  40% opacity=1
+  50% opacity=0.5
+  90% opacity=0.5
+  to opacity=1
+
+// Lucide 0.553 (ISC) glyphs, one path each.
+fn bcPath(name: string): string = name == "mouse-pointer-click" ? "M14 4.1 12 6M5.1 8l-2.9-.8M6 12l-1.9 2M7.2 2.2 8 5.1M9.037 9.69a.498.498 0 0 1 .653-.653l11 4.5a.5.5 0 0 1-.074.949l-4.349 1.041a1 1 0 0 0-.74.739l-1.04 4.35a.5.5 0 0 1-.95.074z" : name == "camera" ? "M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4zM9 13a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" : name == "picture-in-picture-2" ? "M21 9V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10c0 1.1.9 2 2 2h4M14 13h6a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-6a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2Z" : name == "panel-right" ? "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM15 3v18" : name == "x" ? "M18 6 6 18M6 6l12 12" : ""
+
+// The pill (MiniPlayerShell's `h-8 p-0.5 gap-0.5 border`, icon-xs buttons): its width for `items` buttons (the recording
+// dot counts), and the button under a point of its box ("" between them, on its padding or off it).
+fn bcPillWidth(rem: number, items: number): number = items * 1.5 * rem + (items - 1) * 0.125 * rem + 0.25 * rem + 2
+fn bcPillIndex(x: number, rem: number): number = floor((x - 1 - 0.125 * rem) / (1.625 * rem))
+fn bcPillName(index: number): string = index == 0 ? "restore" : (index == 1 ? "window" : (index == 2 ? "close" : ""))
+fn bcPillSlot(x: number, y: number, rem: number, recording: bool): string = (y < 0.25 * rem or y > 1.75 * rem or x < 1 + 0.125 * rem or x - 1 - 0.125 * rem - bcPillIndex(x, rem) * 1.625 * rem > 1.5 * rem) ? "" : bcPillName(bcPillIndex(x, rem) - (recording ? 1 : 0))
+// The part of the floating player under a point of its box (`width` wide, the handle `inset` from its top right): the
+// 12 pt handle (the reference's `group`, "dot"), the rest of the pill's box ("pill"), or the page ("").
+fn bcPlayerZone(x: number, y: number, width: number, inset: number, pill: number, rem: number): string = (y < inset or y > inset + 2 * rem or x > width - inset or x < width - inset - pill) ? "" : ((x >= width - inset - 0.75 * rem and y <= inset + 0.75 * rem) ? "dot" : "pill")
+
+component BcIcon
+  props
+    name: string
+    size: number
+    color: string
+  view
+    svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 pointer-events="none" aria-hidden=true
+      path d=bcPath(name)
+
+// PreviewChromeRow's Annotate, Capture and Float preview, between the address and More: rebuilt per scheme so the
+// glyphs resolve light-dark().
+component BrowserCaptureButtons
+  inject
+    scheme: string
+  props
+    view: BrowserCapture
+    tabId: string
+    local: action
+  view
+    when scheme == "dark"
+      BrowserCaptureRow(view=view, tabId=tabId, local=local, scheme="dark")
+    else
+      BrowserCaptureRow(view=view, tabId=tabId, local=local, scheme="light")
+
+component BrowserCaptureRow
+  props
+    view: BrowserCapture
+    tabId: string
+    local: action
+    scheme: string
+  // onCapture(event.shiftKey): a Shift-click records; a click saves a screenshot; while recording it stops.
+  action capture(e: MouseEvent)
+    local("surface-browser-capture", tabId, (e.shiftKey and not view.recording) ? "record" : "")
+  view
+    row gap="0.25rem" align-items="center" flex-shrink=0
+      // variant secondary and the primary glyph while annotating; "Cancel annotation (Esc)" then.
+      BcButton(icon="mouse-pointer-click", label=(view.pickActive ? "Cancel annotation" : "Annotate preview"), tip=view.pickTip, disabled=view.pickDisabled, on=view.pickActive, tone="primary", dot=false, pressedState=true, press=local("surface-browser-annotate", tabId, scheme), testId="browser-annotate")
+      BcButton(icon="camera", label=(view.recording ? "Stop recording" : "Capture screenshot"), tip=(view.recording ? "Stop recording" : "Screenshot · Shift-click to record"), disabled=view.captureDisabled, on=view.recording, tone="destructive", dot=view.recording, pressedState=false, press=capture, testId="browser-capture")
+      BcButton(icon="picture-in-picture-2", label=(view.floating ? "Close floating preview" : "Float preview over chat"), tip=(view.floating ? "Close floating preview" : "Float preview over chat"), disabled=view.floatDisabled, on=view.floating, tone="primary", dot=false, pressedState=true, press=local("surface-browser-float", tabId, ""), testId="browser-float")
+
+// Button icon-xs, ghost, or secondary while `on` (its glyph in the tone's colour), its tooltip under it, and the
+// recording dot in the top-right corner (size-1.5, destructive, pulsing unless motion is reduced).
+component BcButton
+  inject
+    still: bool
+  props
+    icon: string
+    label: string
+    tip: string
+    disabled: bool
+    on: bool
+    tone: string
+    dot: bool
+    pressedState: bool
+    press: action
+    testId: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    box position="relative" flex-shrink=0 hover=hover
+      button press=press disabled=disabled aria-label=label aria-pressed=(pressedState ? on : false) title="" testId=testId position="relative" width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" display="flex" flex-direction="row" align-items="center" justify-content="center" opacity=(disabled ? 0.64 : 1) background-color=(on ? (over ? "light-dark(#fafafae6, #ffffff07)" : "light-dark(#fafafa, #ffffff08)") : (over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000"))
+        BcIcon(name=icon, size=14, color=(on ? (tone == "destructive" ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#1b4ed8, #346bf1)") : "light-dark(#71717b, #a1a1aa)"))
+        when dot
+          box position="absolute" right="0.125rem" top="0.125rem" width="0.375rem" height="0.375rem" border-radius="0.1875rem" background-color="light-dark(#fb2c36, #fb414a)" animation=(still ? "none" : "bcStatusPulse 2s infinite") pointer-events="none" aria-hidden=true testId=`${testId}-dot`
+      TipBubble(label=tip, side="bottom", align="end", offset=28, inset=0, shown=over)
+
+// ThreadPreviewMiniPlayer BrowserMiniPlayer in MiniPlayerShell: the tab's page at the chat canvas's frame (12pt
+// radius, shadow-2xl/35, a 1pt inner ring), "Reconnecting preview…" until the page is there, the drag handle and
+// its hover pill (the recording dot, Open in right panel, Pop into separate window, Close floating preview) and
+// the eight resize grips. `gesture` reports a drag or resize to the chat canvas (chat-canvas-view.ts): one serial
+// per gesture, taken at its first pan (beginGesture's frame), and the pan's total since (handlePointerMove's delta).
+component BrowserMiniPlayer
+  inject
+    rem: number
+    still: bool
+  props
+    mini: BrowserMini
+    frame: ChatCanvasMini
+    // The chat canvas's width: a pill near its right edge aligns its tooltips to their buttons' ends, as Base UI's
+    // collision shift keeps a tooltip inside the window.
+    canvasWidth: number
+    local: action
+    gesture: action
+  // The pointer over the player (its box's hover) and the part of it under the pointer (its `pointermove`): the pill
+  // shows on the handle and stays while the pointer is on its box (the group's hover takes the pill in while it shows).
+  state over = false
+  state zone = ""
+  state dotOver = false
+  state pillFocus = ""
+  state dragging = ""
+  state started = 0
+  state serial = ""
+  state gx = 0
+  state gy = 0
+  // The pill button under the pointer, and the one whose tooltip a press closed (Base UI's Tooltip closes on its
+  // trigger's press until the pointer moves to another trigger or leaves).
+  state tipAt = ""
+  state tipShut = ""
+  // The agent's hover moves first and enters after, so entering reads the part the last move found; leaving forgets it.
+  action overPlayer(value: bool)
+    over = value
+    dotOver = value and (zone == "dot" or (zone == "pill" and (pillFocus != "" or dragging != "")))
+    zone = value ? zone : ""
+    tipAt = value ? tipAt : ""
+    tipShut = value ? tipShut : ""
+  action movePlayer(e: PointerEvent)
+    let at = bcPlayerZone(e.offsetX, e.offsetY, frame.width, frame.pillInset, pillWidth, rem)
+    let shown = over and (at == "dot" or (at == "pill" and pill))
+    let slot = shown ? bcPillSlot(e.offsetX - (frame.width - frame.pillInset - pillWidth), e.offsetY - frame.pillInset, rem, mini.recording) : ""
+    zone = at
+    dotOver = shown
+    tipShut = slot == tipAt ? tipShut : ""
+    tipAt = slot
+  action shutTip(id: string)
+    tipShut = id
+  action focusPill(id: string, value: bool)
+    pillFocus = value ? id : (pillFocus == id ? "" : pillFocus)
+  action pan(direction: string, dx: number, dy: number)
+    let starting = dragging == ""
+    let count = starting ? started + 1 : started
+    let id = starting ? `${floor(performanceNow())}.${count}` : serial
+    let nx = (starting ? 0 : gx) + dx
+    let ny = (starting ? 0 : gy) + dy
+    started = count
+    serial = id
+    dragging = direction
+    gx = nx
+    gy = ny
+    gesture(`${id}|${mini.sourceKey}|${direction}|${nx}|${ny}`)
+  action release(vx: number, vy: number)
+    dragging = ""
+    gx = 0
+    gy = 0
+    gesture("")
+  derive pill = dotOver or pillFocus != "" or dragging != ""
+  derive pillWidth = bcPillWidth(rem, mini.recording ? 4 : 3)
+  derive tipAlign = frame.x + frame.width > canvasWidth - 7.5 * rem ? "end" : "center"
+  derive edge = 0.25 * rem
+  derive corner = 0.5 * rem
+  view
+    box position="absolute" left=frame.x top=frame.top width=frame.width height=frame.height z-index=40 hover=overPlayer pointermove=movePlayer role="region" aria-label="Floating browser preview" testId="browser-mini-player"
+      column position="absolute" left=0 top=0 right=0 bottom=0 border-radius=frame.radius overflow="hidden" background-color="light-dark(#f4f4f5, #1a1a1a)" box-shadow="0 25px 50px -12px #00000059"
+        t3-browser tab=mini.runtimeId url=mini.url profile=mini.profileId environment=mini.environment aria-label="Browser page" testId="browser-mini-page" position="absolute" left=0 top=0 right=0 bottom=0
+        when not mini.hasWebContents
+          box position="absolute" left=0 top=0 right=0 bottom=0 display="flex" align-items="center" justify-content="center" background-color="light-dark(#f4f4f5, #1a1a1a)" pointer-events="none" testId="browser-mini-reconnecting"
+            text "Reconnecting preview…" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+        box position="absolute" left=0 top=0 right=0 bottom=0 border-radius=frame.radius border-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffff14)" pointer-events="none"
+      // The resting dot: muted, or destructive and pulsing while recording ("Recording preview").
+      box position="absolute" top=(frame.pillInset - 1) right=(frame.pillInset - 1) width="0.625rem" height="0.625rem" border-radius="0.3125rem" border-width=1 border-style="solid" border-color="light-dark(#ffffffb3, #0a0a0ab3)" background-color=(mini.recording ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#0a0a0a40, #fafafa40)") box-sizing="border-box" box-shadow="0 1px 2px 0 #0000000d" opacity=(pill ? 0 : 1) animation=(mini.recording and not still ? "bcStatusPulse 2s infinite" : "none") transition=(still ? "opacity 0ms" : "opacity 150ms cubic-bezier(0.4, 0, 0.2, 1)") pointer-events="none" role=(mini.recording ? "status" : "") aria-label=(mini.recording ? "Recording preview" : "") testId="browser-mini-dot"
+      // ThreadPreviewMiniPlayer's `group`: the 12 pt handle, which grows to the pill's box while the pill shows (the
+      // group-hover). Whether the pointer is on it is the player's own hover and moves (`bcPlayerZone`), not a hover of
+      // the handle: a real pointer that came to rest on the 12 pt box often brought no enter there, so the pill waited for
+      // another move (realinput-1010d RD-1), while the player's box has heard the pointer since it crossed the page. The
+      // pill's buttons hear no hover of their own either: on macOS a hover node over another trades the hover with it on
+      // every move, and a child outside its parent's box gets none (X62, #322). Their tooltips follow the pointer's place.
+      // The drag is a box behind the pill, not the handle that holds its buttons: the reference's buttons stop the
+      // pointer-down, so a press on one never drags, while the dot and the pill's padding still do (the pill lets the
+      // pointer through; only its buttons take it).
+      box position="absolute" top=frame.pillInset right=frame.pillInset width=(pill ? pillWidth : 0.75 * rem) height=(pill ? 2 * rem : 0.75 * rem) cursor=(dragging == "move" ? "grabbing" : "grab") testId="browser-mini-handle"
+        box position="absolute" left=0 top=0 right=0 bottom=0 pan=pan("move") panrelease=release touch-action="none" cursor=(dragging == "move" ? "grabbing" : "grab") testId="browser-mini-grab"
+        row position="absolute" top=0 right=0 width=pillWidth height="2rem" padding="0.125rem" gap="0.125rem" box-sizing="border-box" align-items="center" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffff14)" background-color="light-dark(#fefefeeb, #171717eb)" box-shadow="0 10px 15px -3px #00000033" opacity=(pill ? 1 : 0) transition=(still ? "opacity 0ms" : "opacity 150ms cubic-bezier(0.4, 0, 0.2, 1)") pointer-events="none" cursor=(dragging == "move" ? "grabbing" : "grab") testId="browser-mini-pill"
+          when mini.recording
+            box width="1.5rem" height="1.5rem" display="flex" align-items="center" justify-content="center" flex-shrink=0 aria-hidden=true
+              box width="0.5rem" height="0.5rem" border-radius="0.25rem" background-color="light-dark(#fb2c36, #fb414a)" animation=(still ? "none" : "bcStatusPulse 2s infinite")
+          BcPillButton(icon="panel-right", label="Open preview in right panel", tip="Open in right panel", on=false, shown=pill, align=tipAlign, hot=(tipAt == "restore"), tipShown=(pill and tipAt == "restore" and tipShut != "restore"), press=local("surface-browser-mini-restore", mini.runtimeId, ""), shut=shutTip("restore"), focusChange=focusPill("restore"), testId="browser-mini-restore")
+          BcPillButton(icon="picture-in-picture-2", label=(mini.separateWindow ? "Close popped-out preview" : "Pop preview into separate window"), tip=(mini.separateWindow ? "Close separate window" : "Pop into separate window"), on=mini.separateWindow, shown=pill, align=tipAlign, hot=(tipAt == "window"), tipShown=(pill and tipAt == "window" and tipShut != "window"), press=local("surface-browser-mini-window", mini.runtimeId, ""), shut=shutTip("window"), focusChange=focusPill("window"), testId="browser-mini-window")
+          BcPillButton(icon="x", label="Close floating preview", tip="Close floating preview", on=false, shown=pill, align=tipAlign, hot=(tipAt == "close"), tipShown=(pill and tipAt == "close" and tipShut != "close"), press=local("surface-browser-mini-close", mini.runtimeId, ""), shut=shutTip("close"), focusChange=focusPill("close"), testId="browser-mini-close")
+      box position="absolute" left=0 right=0 top=(0 - edge) height=(2 * edge) pan=pan("north") panrelease=release touch-action="none" cursor="ns-resize" role="presentation" testId="browser-mini-resize-north"
+      box position="absolute" left=0 right=0 bottom=(0 - edge) height=(2 * edge) pan=pan("south") panrelease=release touch-action="none" cursor="ns-resize" role="presentation" testId="browser-mini-resize-south"
+      box position="absolute" top=0 bottom=0 left=(0 - edge) width=(2 * edge) pan=pan("west") panrelease=release touch-action="none" cursor="ew-resize" role="presentation" testId="browser-mini-resize-west"
+      box position="absolute" top=0 bottom=0 right=(0 - edge) width=(2 * edge) pan=pan("east") panrelease=release touch-action="none" cursor="ew-resize" role="presentation" testId="browser-mini-resize-east"
+      box position="absolute" left=(0 - corner) top=(0 - corner) width=(2 * corner) height=(2 * corner) pan=pan("northwest") panrelease=release touch-action="none" cursor="nwse-resize" role="presentation" testId="browser-mini-resize-northwest"
+      box position="absolute" right=(0 - corner) top=(0 - corner) width=(2 * corner) height=(2 * corner) pan=pan("northeast") panrelease=release touch-action="none" cursor="nesw-resize" role="presentation" testId="browser-mini-resize-northeast"
+      box position="absolute" left=(0 - corner) bottom=(0 - corner) width=(2 * corner) height=(2 * corner) pan=pan("southwest") panrelease=release touch-action="none" cursor="nesw-resize" role="presentation" testId="browser-mini-resize-southwest"
+      box position="absolute" right=(0 - corner) bottom=(0 - corner) width=(2 * corner) height=(2 * corner) pan=pan("southeast") panrelease=release touch-action="none" cursor="nwse-resize" role="presentation" testId="browser-mini-resize-southeast"
+
+// A pill button (Button ghost icon-xs, secondary while `on`), focusable while the pill is hidden, with its tooltip
+// above it (TooltipPopup side="top"). The player says whether the pointer is on it (`hot`) and whether its tooltip shows.
+component BcPillButton
+  props
+    icon: string
+    label: string
+    tip: string
+    on: bool
+    shown: bool
+    align: string
+    hot: bool
+    tipShown: bool
+    press: action
+    shut: action
+    focusChange: action
+    testId: string
+  action pressed
+    shut()
+    press()
+  view
+    box position="relative" flex-shrink=0
+      button press=pressed focus=focusChange(true) blur=focusChange(false) pointer-events=(shown ? "auto" : "none") aria-label=label title="" testId=testId width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(on ? "light-dark(#fafafa, #ffffff08)" : (hot and shown ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000"))
+        BcIcon(name=icon, size=14, color="light-dark(#27272a, #f5f5f5)")
+      TipBubble(label=tip, side="top", align=align, offset=28, inset=0, shown=tipShown)

@@ -21,10 +21,16 @@ const HOUR = 3_600_000;
 // ── Formatting (usageFormat.ts) ─────────────────────────────────────────────
 
 const group = (digits: string) => digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+/**
+ * usageFormat.ts CURRENCY (`Intl.NumberFormat` en-US USD, two fraction digits). ICU rounds the number's shortest
+ * decimal digits half away from zero (`halfExpand`), so 0.825 is $0.83 where `toFixed` rounds the binary value
+ * (0.8249…) down. Hermes's Apple `Intl` rounded half to even ($0.82) until main #447 (X72) gave the Apple prelude
+ * ICU's rounding; the clone formatted USD itself until then (adopt-main-fixes-r10 RT-3).
+ */
+let currency: Intl.NumberFormat | undefined; // made at the first amount, not as the module loads
 export function formatUsd(value: number): string {
-  const fixed = Math.abs(value).toFixed(2);
-  const [whole = '0', cents = '00'] = fixed.split('.');
-  return `${value < 0 && Number(fixed) !== 0 ? '-' : ''}$${group(whole)}.${cents}`;
+  currency ??= new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return currency.format(value);
 }
 export function formatCount(value: number): string { return group(String(Math.round(value))); }
 const trim = (value: number) => {
@@ -337,7 +343,8 @@ async function usageView(client: T3Client, native: Native | null | undefined, _s
   const windowDays = WINDOWS.some(window => window.days === input.windowDays) ? input.windowDays : prefs.windowDays;
   const page = emptyUsage(metric, windowDays, input.breakdown === 'time' ? 'time' : 'model', input.width);
   const limits = metric === 'limits', noun = limits ? 'limits' : 'usage';
-  if (input.open && !limits) page.prices = presentPrices(client);
+  // UsagePage renders its price dialog whatever the metric: Model prices opens on Limits too (closed, this is one lookup).
+  if (input.open) page.prices = presentPrices(client);
   const state = await prepareUsage(client, native, { open: input.open && !!native?.available, metric, windowDays, refresh: input.refresh, now: input.now },
     (days, now) => makeWindow(days, now));
   const statuses = environmentStatuses(state);
@@ -475,15 +482,29 @@ function holds(ast: unknown, context: Record<string, boolean>, depth = 0): boole
   const left = holds(node.left, context, depth + 1), right = holds(node.right, context, depth + 1);
   return node.type === 'and' ? left && right : node.type === 'or' ? left || right : false;
 }
-/** The usage page's chords from the server's resolved keybindings, evaluated with usagePageOpen. */
-export function usageKeys(config: Obj, chord: (shortcut: Obj) => string): { id: string; chord: string; kind: string; value: string; days: number; label: string }[] {
+/** keybindings.ts formatShortcutLabel on macOS (formatShortcutKeyLabel's key names): ⌃⌥⇧⌘, then the key. */
+export function shortcutGlyphs(shortcut: Obj): string {
+  const key = str(shortcut.key);
+  const names: Record<string, string> = { ' ': 'Space', escape: 'Esc', arrowup: 'Up', arrowdown: 'Down', arrowleft: 'Left', arrowright: 'Right' };
+  const label = names[key] ?? (key.length === 1 ? key.toUpperCase() : key.slice(0, 1).toUpperCase() + key.slice(1));
+  return `${shortcut.ctrlKey ? '⌃' : ''}${shortcut.altKey ? '⌥' : ''}${shortcut.shiftKey ? '⇧' : ''}${shortcut.metaKey || shortcut.modKey ? '⌘' : ''}${label}`;
+}
+/**
+ * The usage page's chords from the server's resolved keybindings, evaluated with usagePageOpen; each carries
+ * UsagePage's shortcutTitle (usage-and-pr-pages PG-4): the label and the chord, "Past 24h (⇧⌘1)". A command bound
+ * twice comes first with its effective (latest winning) binding, as findEffectiveShortcutForCommand picks it.
+ */
+export function usageKeys(config: Obj, chord: (shortcut: Obj) => string): { id: string; chord: string; kind: string; value: string; days: number; label: string; title: string }[] {
   const bindings = arr(config.keybindings);
   const context = { usagePageOpen: true, isDesktop: true, true: true };
-  const winners = new Map<string, string>();
+  const winners = new Map<string, Obj>();
   for (const binding of [...bindings].reverse()) {
     const key = chord(obj(binding.shortcut));
     if (!key || winners.has(key) || !holds(binding.whenAst, context)) continue;
-    winners.set(key, str(binding.command));
+    winners.set(key, binding);
   }
-  return [...winners].filter(([, command]) => USAGE_COMMANDS[command]).map(([key, command]) => ({ id: command, chord: key, ...USAGE_COMMANDS[command]! }));
+  return [...winners].filter(([, binding]) => USAGE_COMMANDS[str(binding.command)]).map(([key, binding]) => {
+    const option = USAGE_COMMANDS[str(binding.command)]!;
+    return { id: str(binding.command), chord: key, ...option, title: `${option.label} (${shortcutGlyphs(obj(binding.shortcut))})` };
+  });
 }

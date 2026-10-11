@@ -13,9 +13,9 @@ import { resolve } from 'node:path';
 
 const dir = mkdtempSync(resolve(tmpdir(), 'exact-js-baked-'));
 const webJs = name => resolve(new URL(`../../web-js/${name}`, import.meta.url).pathname);
-for (const f of ['rt.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'notify.js']) copyFileSync(webJs(f), resolve(dir, f));
+for (const f of ['rt.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'notify.js']) copyFileSync(webJs(f), resolve(dir, f));
 copyFileSync(resolve(new URL('../notify-glue.js', import.meta.url).pathname), resolve(dir, 'notify-glue.js'));
-for (const [file, names] of Object.entries({ 'navigation.js': ['renderMarkup', 'reportPlace', 'onSelection', 'textField', 'settleRadios', 'animationClocks', 'launchLocation'], 'pointer.js': ['pointer', 'record'], 'commands.js': ['commands'], 'focus.js': ['autofocus', 'press', 'hold', 'within'],
+for (const [file, names] of Object.entries({ 'navigation.js': ['renderMarkup', 'reportPlace', 'onSelection', 'textField', 'settleRadios', 'installFits', 'animationClocks', 'launchLocation'], 'pointer.js': ['pointer', 'record'], 'commands.js': ['commands'], 'focus.js': ['autofocus', 'press', 'hold', 'within'],
   'media.js': ['media', 'mediaProp', 'mediaOn', 'mediaPiece', 'requestFullscreen'], 'document.js': ['Docs', 'Head', 'head', 'markDocument', 'projectRoots'],
   'svg-transform.js': ['svgTransform'], 'backdrop.js': ['backdropValue'], 'dataset.js': ['ds'], 'hatches.js': ['ht'], 'perf.js': ['pf'], 'format.js': ['x_formatTime', 'x_formatDate', 'x_formatNumber', 'x_toFixed', 'x_formatDecimal'] }))
   writeFileSync(resolve(dir, file), names.map(n => `export const ${n} = () => {};`).join('\n') + (file === 'media.js' ? '\nexport const MEDIA_EVENTS = new Set();' : ''));
@@ -25,21 +25,31 @@ writeFileSync(resolve(dir, 'presence-glue.js'), 'globalThis.exact.presence = () 
 // ts-data.js over a scripted store (the storage test below), written before
 // anything is imported from here: the loader reads this directory once.
 const stub = (file, text) => writeFileSync(resolve(dir, file), text);
-stub('admission.js', 'export const createSecretFacade = () => ({ read: false }); export const hasGrant = () => true; export const setAppGrantSet = g => g;');
+stub('admission.js', 'export const createSecretFacade = () => ({ read: false }); export const hasGrant = () => true; export const setAppGrantSet = g => g; export const overlaying = { on: false }; export const inOverlay = api => new Error(api);');
 stub('admission-data.js', 'export const tsGrantSet = {};');
-stub('ts-fetch.js', 'export const answering = { call: null };');
+stub('ts-fetch.js', 'export const answering = { call: null }; export const files = { appId: null };');
 stub('names.js', 'export const sourceTypes = {};');
 stub('storage-environment.js', "export const storageKey = () => 'k'; export const agentStorageRefusal = 'no store';");
 // A write lands a task later; a read answers at once: unqueued, it would overtake.
 stub('storage-fs.js', `const files = new Map(); export const createFileSystem = () => ({
   atomicWriteFile: (p, v) => new Promise((ok, no) => setTimeout(() => p.includes('absent/') ? no(Object.assign(new Error('filesystem: No such file'), { code: 'ENOENT' })) : ok(files.set(p, v)), 5)),
   writeFile: (p, v) => new Promise(ok => setTimeout(() => ok(files.set(p, v)), 1)),
-  readFile: async p => files.get(p) ?? '' });`);
+  readFile: async p => files.get(p) ?? '',
+  compressImage: async (from, to, o) => ({ path: to, type: 'image/jpeg', size: o.maxBytes, width: o.maxDimension, height: 1 }) });`);
 stub('app.mjs', `export const appId = 'test';
   export function answer(source, [op, value], store, storage) {
     if (op === 'save') { storage.fs.atomicWriteFile('app:/data/song', value).catch(() => {}); return 'saved ' + value; }
     if (op === 'read') return storage.fs.readFile('app:/data/song');
+    if (op === 'capture') { globalThis.capturedStorage = storage; return 'captured'; }
     if (op === 'bad') { storage.fs.atomicWriteFile('app:/data/absent/x', value).catch(() => {}); return 'saved'; }
+    if (op === 'compress') {
+      const options = { maxDimension: 4000, maxBytes: 2000000 };
+      const done = storage.fs.compressImage('app:/tmp/in.jpg', 'app:/tmp/out.jpg', options);
+      options.maxDimension = 1; // after the call: the call keeps what it was given
+      return done.then(r => JSON.stringify(r));
+    }
+    if (op === 'compress-bad') return storage.fs.compressImage('app:/tmp/in.jpg', 'app:/tmp/out.jpg', { maxDimension: 0, maxBytes: 1 })
+      .then(() => 'ok', e => e.constructor.name + ' ' + e.code + ' ' + e.message);
     const codes = [];
     for (let i = 0; i < 258; i++) codes.push(storage.fs.writeFile('app:/data/flood', String(i)).then(() => 'ok', e => e.code));
     return codes[257];
@@ -65,6 +75,61 @@ test('a baked answer shows until the source is ready, then is asked; a settled o
     expect([baked(), kept()]).toEqual([42, 5]);
     expect(asked).toEqual(['stamp', 'stamp']);
   } finally { if (page === undefined) delete globalThis.document; else globalThis.document = page; }
+});
+
+// Only `ready` asks what a stand-in shows, so a refusal then fails the resource instead of the commit (runner kept.rs).
+test('a stand-in whose ask is refused at ready fails its resource', async () => {
+  const page = globalThis.document;
+  globalThis.document = { querySelector: () => null, getElementById: () => ({}) };
+  try {
+    const { res, data, commit } = await import(resolve(dir, 'rt.js'));
+    data.answer = () => null;
+    let stamp;
+    commit(() => { stamp = res('refusedStamp', 'refusedStamp', () => [], 0, [], 'n', 0); stamp(); });
+    expect([stamp(), stamp.f()]).toEqual([0, false]);
+    data.answer = () => { throw Object.assign(new Error('the module refused'), { refuse: true }); };
+    for (const f of data.q.splice(0)) f();
+    expect([stamp(), stamp.f(), stamp.p(), stamp.e()?.[1]]).toEqual([0, true, false, 'the module refused']); // its own failure, in that commit
+  } finally { if (page === undefined) delete globalThis.document; else globalThis.document = page; }
+});
+
+// A `ready` commit refused for a reason no answer gave (a gate, a derive) is followed by one in which the stand-in fails, not
+// pending, so it does not stand in for good (runner kept.rs `fail_stand_ins`).
+test('a stand-in whose ready commit is refused otherwise fails in the next', async () => {
+  const page = globalThis.document;
+  globalThis.document = { querySelector: () => null, getElementById: () => ({}) };
+  try {
+    const { res, data, commit, Refusal } = await import(resolve(dir, 'rt.js'));
+    data.answer = () => null;
+    let stamp;
+    commit(() => { stamp = res('gatedStamp', 'gatedStamp', () => [], 0, [], 'n', 0); stamp(); });
+    data.answer = () => { throw new Refusal('a key that is no key'); };
+    for (const f of data.q.splice(0)) f();
+    expect([stamp(), stamp.f(), stamp.p(), stamp.e()?.[1]]).toEqual([0, true, false, 'the commit that asked it again was refused: a key that is no key']);
+  } finally { if (page === undefined) delete globalThis.document; else globalThis.document = page; }
+});
+
+// The same through a gate: a placeholder answers a valid value at `ready`, for which a gated task's key is no key. The
+// refused commit's settle asks nothing again, and the placeholder fails for the arguments it was asked with.
+test('a stand-in whose answer at ready makes a gate key no key fails in the next commit', async () => {
+  const page = globalThis.document;
+  globalThis.document = { querySelector: () => null, getElementById: () => ({}) };
+  const { res, data, commit, gated, act, sig, W, clock, journal } = await import(resolve(dir, 'rt.js'));
+  clock.agent = true;
+  try {
+    data.answer = () => null;
+    let stamp;
+    commit(() => { stamp = res('keyedStamp', 'keyedStamp', () => ['k'], undefined, undefined, 'n', 0); stamp(); });
+    gated(1000, act(() => {}), 1, 0, () => true, () => (stamp() === 99 ? NaN : 1), 'keyed');
+    let asks = 0;
+    data.answer = () => (asks++, { v: 99 });
+    for (const f of data.q.splice(0)) f();
+    expect(journal.some(l => l.includes('TaskKey { task: "keyed" }'))).toBe(true);
+    expect([stamp(), stamp.f(), stamp.p(), asks]).toEqual([0, true, false, 1]);
+    const k = sig(0, 'n');
+    act(() => W(k, 1))();
+    expect([k(), asks]).toEqual([1, 1]); // later commits stand and ask nothing
+  } finally { clock.agent = false; if (page === undefined) delete globalThis.document; else globalThis.document = page; }
 });
 
 // An answer that keeps coming (LLP 1016.000): each message settles the
@@ -111,6 +176,174 @@ test('a mutation answered at once forces the async read it refreshes', async () 
   expect([doc(), doc.p()]).toEqual([1, false]);
 });
 
+
+// Optimistic writes (overlay.js): a send shows through the source's overlay in its commit and asks nothing; the
+// write shows until an answer asked after its landing has it; one that fails disappears at once and the read is asked
+// again. The same lifecycle as the runner's writes.rs (contract/cli/tests/it/overlay.rs).
+test('a write shows through the overlay from its send until an answer has it, and a failed one rolls back', async () => {
+  const { res, mut, M, data, commit, sig } = await import(resolve(dir, 'rt.js'));
+  let server = 1, asks = 0;
+  const writes = [];
+  data.answer = (source, args) => {
+    if (source === 'count') { asks++; return { promise: Promise.resolve(server) }; }
+    return { promise: new Promise((ok, fail) => writes.push({ ok: () => { server++; ok(server); }, fail })) };
+  };
+  data.overlay = (source, args, answer, ws) => ({ value: answer + ws.filter(w => !w.answered).length, keep: [] });
+  let count;
+  commit(() => { count = res('count', 'count', () => [], undefined, undefined, 'n', 0); count(); });
+  await new Promise(r => setTimeout(r, 0));
+  expect(count()).toBe(1);
+  const added = mut('added', sig(null), [count], 'n');
+  const before = asks;
+  commit(() => M(added, 'add', [1]));
+  expect([count(), asks]).toEqual([2, before]); // shown at once, nothing asked
+  writes[0].ok();
+  await new Promise(r => setTimeout(r, 0));
+  await new Promise(r => setTimeout(r, 0));
+  expect([count(), asks]).toEqual([2, before + 1]); // asked after landing; the answer (2) has it, no double count
+  commit(() => M(added, 'add', [1]));
+  expect(count()).toBe(3);
+  writes[1].fail(new Error('the write failed'));
+  for (let i = 0; i < 10 && count() !== 2; i++) await new Promise(r => setTimeout(r, 0));
+  expect(count()).toBe(2); // rolled back
+  expect(asks).toBe(before + 2); // and read again to reconcile
+  // A newer send supersedes one in flight: the newer shows, and nothing is asked at the send.
+  commit(() => M(added, 'add', [1]));
+  commit(() => M(added, 'add', [1]));
+  expect([count(), asks]).toEqual([3, before + 2]);
+  data.overlay = undefined;
+});
+
+// An assignment to a mutation's slot ends its pending write in that commit, and `state.writes` lists what shows.
+test('an assignment ends a pending write, and the writes are listed for the agent', async () => {
+  const { res, mut, M, W, data, commit, sig, writeRecords } = await import(resolve(dir, 'rt.js'));
+  data.answer = (source) => source === 'n' ? { promise: Promise.resolve(1) } : { promise: new Promise(() => {}) };
+  data.overlay = (source, args, answer, ws) => ({ value: answer + ws.length, keep: [] });
+  let n;
+  commit(() => { n = res('n', 'n', () => [], undefined, undefined, 'n', 0); n(); });
+  await new Promise(r => setTimeout(r, 0));
+  const slot = sig(null), m = mut('bump', slot, [n], 'n');
+  commit(() => M(m, 'bump', []));
+  const mine = () => writeRecords().filter(w => w.mutation === 'bump').map(w => [w.mutation, w.landed]); // earlier tests' writes stay in this runtime
+  expect([n(), mine()]).toEqual([2, [['bump', false]]]);
+  commit(() => W(slot, null));
+  expect([n(), mine()]).toEqual([1, []]);
+  data.overlay = undefined;
+});
+
+// The runner's own resources show their facts, never a write: a landed write that refreshes only those retires.
+test('a landed write shown in no resource of the source\'s retires', async () => {
+  const { res, mut, M, data, commit, sig, writeRecords } = await import(resolve(dir, 'rt.js'));
+  const replies = [], overlaid = [];
+  data.answer = (source) => source === 'exactTime' ? { v: 1 } : { promise: new Promise(ok => replies.push(ok)) };
+  data.overlay = (source, args, answer, ws) => { overlaid.push(source); return { value: answer + ws.length, keep: [] }; };
+  let time;
+  commit(() => { time = res('time', 'exactTime', () => [], undefined, undefined, 'n', 0); time.r.owned = true; time(); }); // as emit.rs marks it
+  const m = mut('stamp', sig(null), [time], 'n');
+  const mine = () => writeRecords().filter(w => w.mutation === 'stamp');
+  commit(() => M(m, 'add', [1]));
+  expect([time(), overlaid, mine().length]).toEqual([1, [], 1]);
+  replies[0](2);
+  for (let i = 0; i < 10 && mine().length; i++) await new Promise(r => setTimeout(r, 0));
+  expect([time(), overlaid, mine()]).toEqual([1, [], []]);
+  data.overlay = undefined;
+});
+
+// A reconciling read that fails is the resource's newest ask: an older read still in flight is let go, so its late
+// answer does not replace the failure (runner settlement.rs `RequestEffect::Answered`).
+test('a failed reconciling read lets go of an older read in flight', async () => {
+  const { res, mut, M, W, data, commit, sig } = await import(resolve(dir, 'rt.js'));
+  let late;
+  data.answer = source => source === 'older' ? { promise: new Promise(ok => { late = ok; }) } : { promise: new Promise(() => {}) };
+  let older;
+  commit(() => { older = res('older', 'older', () => [], 1, [], 'n', 0); older(); });
+  const slot = sig(null), m = mut('older-write', slot, [older], 'n');
+  commit(() => M(m, 'save', [1]));
+  data.answer = source => { if (source === 'older') throw Object.assign(new Error('down'), { refuse: true }); return { promise: new Promise(() => {}) }; };
+  commit(() => W(slot, null)); // the write ends: `older` is read again, and that read fails
+  expect([older.f(), older.p()]).toEqual([true, false]);
+  late(7);
+  for (let i = 0; i < 3; i++) await new Promise(r => setTimeout(r, 0));
+  expect([older(), older.f()]).toEqual([1, true]);
+});
+
+// A refused commit puts back what each resource showed, and the view reads that, not what the refused commit asked.
+test('a reconciling answer that makes a gate key no key is not shown after the rollback', async () => {
+  const { res, mut, M, W, data, commit, sig, act, gated, clock } = await import(resolve(dir, 'rt.js'));
+  clock.agent = true;
+  try {
+    data.answer = source => source === 'gatedCount' ? { v: 1 } : null;
+    let count;
+    commit(() => { count = res('gatedCount', 'gatedCount', () => [], undefined, undefined, 'n', 0); count(); });
+    gated(1000, act(() => {}), 1, 0, () => true, () => (count() === 99 ? NaN : 1), 'counted');
+    let fail;
+    data.answer = source => source === 'gatedCount' ? { v: 1 } : { promise: new Promise((_, no) => { fail = no; }) };
+    const slot = sig(null), m = mut('counted-write', slot, [count], 'n');
+    commit(() => M(m, 'save', [1]));
+    data.answer = source => source === 'gatedCount' ? { v: 99 } : { promise: new Promise(() => {}) };
+    fail(new Error('the write failed')); // the write ends, the read answers 99, and the gate refuses that commit
+    for (let i = 0; i < 3; i++) await new Promise(r => setTimeout(r, 0));
+    expect([count(), count.f(), count.p()]).toEqual([1, true, false]); // failed, keeping what it showed
+    const k = sig(0, 'n');
+    act(() => W(k, 1))();
+    expect(k()).toBe(1);
+  } finally { clock.agent = false; }
+});
+
+// The commit that fails the owed read is refused too (a key that reads `failed`): nothing is owed then, so nothing recurses.
+test('a refused commit that fails an owed read leaves nothing owed when it is refused too', async () => {
+  const { res, mut, M, W, data, commit, sig, act, gated, clock, journal } = await import(resolve(dir, 'rt.js'));
+  clock.agent = true;
+  try {
+    data.answer = source => source === 'twiceCount' ? { v: 1 } : null;
+    let count, fail, broken = true;
+    commit(() => { count = res('twiceCount', 'twiceCount', () => [], undefined, undefined, 'n', 0); count(); });
+    gated(1000, act(() => {}), 1, 0, () => true, () => (broken && (count() === 99 || count.f()) ? NaN : 1), 'twice');
+    data.answer = source => source === 'twiceCount' ? { v: 1 } : { promise: new Promise((_, no) => { fail = no; }) };
+    const slot = sig(null), m = mut('twice-write', slot, [count], 'n');
+    commit(() => M(m, 'save', [1]));
+    data.answer = source => source === 'twiceCount' ? { v: 99 } : { promise: new Promise(() => {}) };
+    fail(new Error('the write failed'));
+    for (let i = 0; i < 3; i++) await new Promise(r => setTimeout(r, 0));
+    expect(journal.some(l => l.includes('refused the reads a refused commit owed'))).toBe(true);
+    expect([count(), count.f()]).toEqual([1, true]);
+    const k = sig(0, 'n');
+    broken = false; // the app's key is a key again: commits stand
+    act(() => W(k, 1))();
+    expect(k()).toBe(1);
+  } finally { clock.agent = false; }
+});
+
+// An overlay outside the resource's shape counts as none: the answer shows, and an answered write it keeps retires.
+test('an overlay outside the shape keeps nothing', async () => {
+  const { res, mut, M, data, commit, sig, writeRecords } = await import(resolve(dir, 'rt.js'));
+  let land;
+  data.answer = source => source === 'shapeless' ? { v: 1 } : { promise: new Promise(ok => { land = ok; }) };
+  data.overlay = (source, args, answer, ws) => ({ value: 'not a number', keep: ws.map(w => w.id) });
+  let n;
+  commit(() => { n = res('shapeless', 'shapeless', () => [], undefined, undefined, 'n', 0); n(); });
+  const slot = sig(null), m = mut('shapeless-write', slot, [n], 'n');
+  commit(() => M(m, 'save', [1]));
+  land(2);
+  for (let i = 0; i < 3; i++) await new Promise(r => setTimeout(r, 0));
+  expect([n(), writeRecords().filter(w => w.mutation === 'shapeless-write')]).toEqual([1, []]);
+  data.overlay = undefined;
+});
+
+// A send answered at once replaces one in flight: the older reply is let go, so it never overwrites the newer (runner commit.rs).
+test('a send answered at once lets go of the one in flight it replaces', async () => {
+  const { mut, M, data, commit, sig } = await import(resolve(dir, 'rt.js'));
+  const replies = [];
+  data.answer = (source, args) => source === 'now' ? { v: args[0] } : { promise: new Promise(ok => replies.push(ok)) };
+  const slot = sig(null), m = mut('pick', slot, [], 'n');
+  commit(() => M(m, 'later', [1]));
+  commit(() => M(m, 'now', [2]));
+  expect([slot(), m.p()]).toEqual([2, false]);
+  replies[0](1);
+  await new Promise(r => setTimeout(r, 0));
+  await new Promise(r => setTimeout(r, 0));
+  expect(slot()).toBe(2);
+});
 
 // A queue with no `then` (LLP 1092 D3, D6): off the agent, the commit its reply lands in makes the waiting send due,
 // and the wall clock's `drive()` asks it with nothing else to wake it; the send waited with its own arguments.
@@ -227,6 +460,35 @@ test('toFixed and formatDecimal are the runner\'s', async () => {
   expect(x_formatDecimal(-Number.MAX_VALUE, 2)).toBe('-1797693134862315708145274237317043567980705675258449965989174768031572607800285387605895586327668781715404589535143824642343213268894641827684675467035375169860499105765512820762454900903893289440758685084551339423045832369032229481658085593321233482747978262041447231687381771809192998812504040261841248583.68');
 });
 
+// LLP 1116 D8: format.js's `decimal`, `currency` and `percent` are Intl.NumberFormat("en-US")'s, swept against Bun's own
+// Intl: halves at each style's cut, magnitudes from 1e-12 to 1e28, random doubles, every code the roster lists
+// (runner/tests/it/format.rs pins the runner's to rows from the same Intl). Non-finite is "", as every format's is.
+test('decimal, currency and percent numbers are Intl\'s', async () => {
+  const { x_formatNumber } = await import(webJs('format.js'));
+  const roster = JSON.parse(readFileSync(new URL('../../../plan/tables/format.json', import.meta.url), 'utf8')).stdlib
+    .find(f => f.name === 'formatNumber');
+  const codes = roster.params[2].split(' | ').map(c => JSON.parse(c));
+  const nf = options => new Intl.NumberFormat('en-US', options);
+  const styles = [['decimal', '', nf({})], ['percent', '', nf({ style: 'percent' })],
+    ...codes.map(c => ['currency', c, nf({ style: 'currency', currency: c })])];
+  const wrong = [];
+  const check = x => { for (const [style, code, f] of styles) if (x_formatNumber(x, style, code) !== f.format(x)) wrong.push([x, style, code]); };
+  [0, -0, 1, -1, 1.005, 2.675, 1.0005, 999.9995, 0.9995, -0.0001, 1e21, 5e-324, Number.MAX_VALUE, -Number.MAX_VALUE,
+    -881366968154907.25, 9007199254740993].forEach(check);
+  for (let d = 0; d <= 5; d++) for (let k = -1000; k <= 1000; k++) check((k + 0.5) / 10 ** d);
+  let seed = 1;
+  const next = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  for (let i = 0; i < 4000; i++) check((next() - 0.5) * 2 * 10 ** (Math.floor(next() * 40) - 12));
+  const bits = new Float64Array(1), words = new Uint32Array(bits.buffer);
+  for (let i = 0; i < 2000; i++) { words[0] = next() * 2 ** 32; words[1] = next() * 2 ** 32; if (Number.isFinite(bits[0])) check(bits[0]); }
+  expect(wrong.slice(0, 10)).toEqual([]);
+  expect([x_formatNumber(1481.4666, 'currency', 'USD'), x_formatNumber(-5, 'currency', 'USD'), x_formatNumber(0.256, 'percent', ''),
+    x_formatNumber(1234567.891, 'decimal', ''), x_formatNumber(5, 'currency', 'CHF'), x_formatNumber(1250, 'compact', '')])
+    .toEqual(['$1,481.47', '-$5.00', '26%', '1,234,567.891', 'CHF 5.00', '1.2K']);
+  expect([NaN, Infinity, -Infinity].flatMap(x => styles.slice(0, 3).map(([style, code]) => x_formatNumber(x, style, code))))
+    .toEqual(Array(9).fill(''));
+});
+
 // LLP 1088 §9.1: `concat`, and `slice` and `includes` over a list, are the web's array methods (`includes` by
 // SameValueZero), on the caller's budget: each takes its `$s`, traps where the runner's `list_call` does — before it
 // builds — and leaves its own steps in `ST` (one an item kept, or scanned up to the match); text takes none.
@@ -315,6 +577,18 @@ test('notifications: refused without the grant, listed under the agent, else pos
 // store would answer the read first; at most 256 wait behind the one in
 // flight, the next refused `full` and journaled; each counts in flight until
 // it lands, and a failure is journaled. ts-data.js over a scripted store.
+// A storage call in an overlay is refused by its method's name, as the prelude names it (js/tests/it/overlay.rs).
+test('storage in an overlay is refused by name', async () => {
+  const { data } = await import(resolve(dir, 'rt.js'));
+  const { install } = await import(resolve(dir, 'ts-data.js'));
+  const { overlaying } = await import(resolve(dir, 'admission.js'));
+  install(data);
+  expect(data.ts('work', ['capture', ''], new Map()).v).toBe('captured');
+  overlaying.on = true;
+  try { await expect(globalThis.capturedStorage.fs.readFile('app:/data/song')).rejects.toThrow('storage.readFile()'); }
+  finally { overlaying.on = false; }
+});
+
 test('storage keeps the order issued, a bound, a count, and a journal', async () => {
   const { data, inflight, journal } = await import(resolve(dir, 'rt.js'));
   const { install } = await import(resolve(dir, 'ts-data.js'));
@@ -338,6 +612,20 @@ test('storage keeps the order issued, a bound, a count, and a journal', async ()
   expect(inflight.n).toBe(before);
   expect(data.background()).toMatchObject({ queued: 0, inFlight: 0, failed: 1, last: 'storage failed: atomicWriteFile app:/data/absent/x: ENOENT filesystem: No such file' });
   expect(journal.some(l => l.endsWith('storage failed: atomicWriteFile app:/data/absent/x: ENOENT filesystem: No such file'))).toBe(true);
+});
+
+// `fs.compressImage` on the JS target (LLP 1069.002 A1.1): its options are
+// checked and copied before it is queued; a bad one is a TypeError that
+// never enters the queue.
+test('compressImage copies its options and refuses bad ones before the queue', async () => {
+  const { data } = await import(resolve(dir, 'rt.js'));
+  const { install } = await import(resolve(dir, 'ts-data.js'));
+  install(data);
+  const ask = op => data.ts('work', [op, ''], new Map());
+  expect(JSON.parse(await ask('compress').promise)).toEqual({ path: 'app:/tmp/out.jpg', type: 'image/jpeg', size: 2000000, width: 4000, height: 1 });
+  const bad = ask('compress-bad');
+  expect(data.background().queued + data.background().inFlight).toBe(0);
+  expect(await bad.promise).toBe('TypeError undefined storage.fs.compressImage(): maxDimension must be an integer from 1 to 8192');
 });
 
 test('a string past MAX_STRING joins to itself alone and is counted in UTF-8 bytes', async () => {

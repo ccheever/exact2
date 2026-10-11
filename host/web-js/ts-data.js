@@ -6,11 +6,12 @@
 // IndexedDB under a handle the store holds; its code is fetched on first
 // use); `openAuthSession` is auth.js.
 import * as source from '__APP_TS__';
-import { createSecretFacade, hasGrant, setAppGrantSet } from './admission.js';
+import { createSecretFacade, hasGrant, inOverlay, overlaying, setAppGrantSet } from './admission.js';
 import { tsGrantSet } from './admission-data.js';
-import { answering } from './ts-fetch.js';
+import { answering, files as bodyFiles } from './ts-fetch.js';
 import { sourceTypes } from './names.js';
 import { checkpoint, clock, commit, inflight, journal, painted, R, Resources } from './rt.js';
+import { Shaped } from './shape.js';
 __AUTH_IMPORT__
 // Values cross by the plan's types (`named` into the module's objects,
 // `arrays` back into the runtime's arrays), with each type's converters made
@@ -106,7 +107,7 @@ function outside(v, t) {
 }
 const checked = (name, v, t) => {
   const e = outside(v, t);
-  if (e) throw Object.assign(new Error(`\`${name}\` answered outside its shape: ${e}`), { kind: 'Unavailable' });
+  if (e) throw Object.assign(new Error(`\`${name}\` answered outside its shape: ${e}`), { kind: 'Unavailable', [Shaped]: true });
   return v;
 };
 export const named = (v, t) => converters(t)[0](v);
@@ -136,9 +137,9 @@ const pageModule = () => page ??= load().then(m => m.pageModule({
 }));
 const native = Object.freeze({
   get available() { return true; },
-  call() { throw new Error('native.call: the web has no synchronous module call; use native.later'); },
-  watch(topic) { if (!watching) throw new Error('native.watch outside an answer'); const t = String(topic); (watched.get(t) ?? watched.set(t, new Set()).get(t)).add(watching); },
-  later: request => pageModule().then(p => p.later(request)),
+  call() { if (overlaying.on) throw inOverlay('native.call()'); throw new Error('native.call: the web has no synchronous module call; use native.later'); },
+  watch(topic) { if (overlaying.on) throw inOverlay('native.watch()'); if (!watching) throw new Error('native.watch outside an answer'); const t = String(topic); (watched.get(t) ?? watched.set(t, new Set()).get(t)).add(watching); },
+  later: request => overlaying.on ? Promise.reject(inOverlay('native.later()')) : pageModule().then(p => p.later(request)),
 });
 // App storage as a source sees it (`storage`, LLP 1027.001): `fs` and
 // `sqlite` over the web host's own adapters (`storage-fs.js`,
@@ -182,6 +183,7 @@ function landed(op, ok, value) {
   op.reject(error);
 }
 function queued(what, run) {
+  if (overlaying.on) return Promise.reject(inOverlay(`storage.${what.split(' ')[0]}()`)); // `what` is the method, then its path
   if (head && queue.length >= MAX_QUEUED) {
     journal.push(`t=${clock.now} storage refused: full (${what})`);
     return Promise.reject(Object.assign(new Error(`storage queue full: ${MAX_QUEUED} operations wait`), { kind: 'Unavailable', code: 'full' }));
@@ -250,14 +252,26 @@ function storageOf(grants) {
     } });
   };
   const methods = ['readFile', 'writeFile', 'atomicWriteFile', 'appendFile', 'readdir', 'mkdir', 'rm', 'stat', 'rename', 'copyFile', 'realpath'];
+  // `compressImage` (LLP 1069.002 A1): its options are checked before it is
+  // queued, as the native prelude checks them; app files only.
+  const compressImage = (from, to, options) => {
+    const api = 'storage.fs.compressImage()', d = options?.maxDimension, b = options?.maxBytes;
+    if (typeof from !== 'string' || typeof to !== 'string') return Promise.reject(new TypeError(`${api}: from and to must be app:/ paths`));
+    if (!options || typeof options !== 'object') return Promise.reject(new TypeError(`${api}: options must be {maxDimension, maxBytes}`));
+    if (!Number.isInteger(d) || d < 1 || d > 8192) return Promise.reject(new TypeError(`${api}: maxDimension must be an integer from 1 to 8192`));
+    if (!Number.isInteger(b) || b < 1 || b > 67108864) return Promise.reject(new TypeError(`${api}: maxBytes must be an integer from 1 to 67108864`));
+    const limits = { maxDimension: d, maxBytes: b };
+    return (admitted ? queued(`compressImage ${from}`, () => files().then(f => f.compressImage(from, to, limits))) : denied('fs.compressImage')).catch(coded);
+  };
   return Object.freeze({
     fs: Object.freeze({ directories: Object.freeze({ data: 'app:/data', cache: 'app:/cache', temporary: 'app:/tmp' }),
+      compressImage,
       ...Object.fromEntries(methods.map(m => [m, (...args) => {
         const captured = structuredClone(args);
         const run = () => (isDocument(captured) ? documents() : files()).then(f => f[m](...captured));
         return (admitted ? queued(`${m}${typeof args[0] === 'string' ? ` ${args[0]}` : ''}`, run) : denied(`fs.${m}`, isDocument(captured))).catch(coded);
       }])) }),
-    sqlite: Object.freeze({ open: path => { const call = answering.call; return (admitted ? queued(`open ${path}`, () => databases().then(d => d.open(path))).then(d => database(d, path, call)) : denied('sqlite.open')).catch(coded); } }),
+    sqlite: Object.freeze({ open: path => { const call = answering.call; return (admitted ? queued(`open ${path}`, () => databases().then(d => d.open(path))).then(d => database(d, path, call)) : denied(`sqlite.open ${path}: no grant covers it; grant \`sqlite.open ${path}\`, or \`sqlite.open ${String(path).slice(0, String(path).lastIndexOf('/'))}\` for every file there (a grant covers its path and what is below it, by whole names)`)).catch(coded); } }),
     work: promise => Promise.resolve(promise),
   });
 }
@@ -266,6 +280,7 @@ function storageOf(grants) {
 const opener = (stream, conv) => (deliver, controller) => import('./ts-stream.js').then(m => m.open(stream, conv, tsGrantSet, deliver, controller));
 export function install(data, mixed = false, modules = null) {
   data.appId = source.appId;
+  bodyFiles.appId = source.appId ?? null; // `exactBodyFrom`'s store (ts-fetch.js)
   data.grants = setAppGrantSet(tsGrantSet);
   const storage = storageOf(tsGrantSet);
   // The module's storage, as the runner's `state.background` (LLP 1097 D8).
@@ -322,6 +337,19 @@ export function install(data, mixed = false, modules = null) {
   // answer is the Rust module's, not ready until it loads; rust-data.js
   // then asks it first and this module for what it calls unknown.
   data.answer = mixed ? (name, args, store, target) => { try { return ts(name, args, store, target); } catch { return null; } } : ts;
+  // An overlay (`overlay.js`): what a resource shows while writes affect it, in overlay mode; `undefined` without one.
+  overlaying.say = line => journal.push(`t=${clock.now} ${line}`);
+  data.overlay = source.overlay && ((name, args, answer, writes) => {
+    const types = sourceTypes[name]; if (!types) return undefined;
+    const keep = [], ws = writes.map(w => { const t = sourceTypes[w.source]; return Object.freeze({ id: w.id, mutation: w.mutation, source: w.source, answered: w.answered,
+      args: w.args.map((a, i) => named(a, t?.[0][i])), ...(w.reply === undefined ? {} : { reply: named(w.reply, t?.[1]) }), keep: () => { if (!keep.includes(w.id)) keep.push(w.id); } }); });
+    overlaying.on = true;
+    try {
+      const v = source.overlay(name, args.map((a, i) => named(a, types[0][i])), named(answer, types[1]), ws);
+      if (v && typeof v.then === 'function') throw new Error('an overlay returned a promise: it runs synchronously inside a commit and cannot await; compute its value from `answer` and `writes` and return it');
+      return v === undefined ? undefined : { value: conv(checked(name, v, types[1]), types[1], `overlay ${name}`), keep };
+    } finally { overlaying.on = false; }
+  });
   data.ts = ts;
   for (const f of data.q.splice(0)) f();
 }

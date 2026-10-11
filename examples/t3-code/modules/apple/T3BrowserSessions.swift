@@ -13,8 +13,8 @@ import WebKit
 ///
 /// Storage: each environment's profile has its own persistent WebKit data store (the reference's
 /// `persist:t3code-preview-<scope>` partition), identified by a UUID derived from the environment and the
-/// profile, apart from the app's other web views. Agent runs keep everything in memory. (Profiles beyond the
-/// built-in Default, Incognito's in-memory store and clearing arrive with part 4.)
+/// profile, apart from the app's other web views; Incognito's store is in memory (part 4, which adds the named
+/// profiles, clearing and the cookie import: T3BrowserSessions+Profiles.swift). Agent runs keep everything in memory.
 ///
 /// One registry per module, so per session: two sessions in one process (the sample host's) keep their own
 /// pages, and a session that ends closes only its own (T3Module `browserSessions`, `T3BrowserSessionOwner`).
@@ -26,6 +26,14 @@ final class T3BrowserSessions {
     private var scheduled = false
     /// The module's ops and syncs, newest last (the agent's status).
     private(set) var log: [String] = []
+    /// Part 3 (capture): the module's data root (T3Module sets it), where the screenshots, recordings and downloads go
+    /// (T3BrowserArtifacts: the local server's `userdata/browser-artifacts`), where Annotate's crops become draft images,
+    /// and the pages a recording or the separate window holds painting (T3BrowserCapture.swift).
+    var dataRoot: URL?
+    var artifactDirectoryOverride: URL?
+    lazy var artifactDirectory: URL = artifactDirectoryOverride ?? T3BrowserArtifacts.directory(dataRoot: dataRoot)
+    var imageDirectory: URL? { dataRoot?.appendingPathComponent("snapshots", isDirectory: true).appendingPathComponent("drafts", isDirectory: true) }
+    let parking = T3BrowserParking()
     /// A page made or closed (browser-surface part 5: the automation host's scripts go in before the first load).
     var created: ((T3BrowserSession) -> Void)?
     var ended: ((String) -> Void)?
@@ -50,7 +58,9 @@ final class T3BrowserSessions {
         let key = "\(environment)\u{0}\(profile)"
         if let store = stores[key] { return store }
         let store: WKWebsiteDataStore
-        if agent { store = .nonPersistent() }
+        // Part 4: Incognito keeps its data in memory, gone when the app quits (one store per environment, as the
+        // reference's ephemeral partition per scope); every other profile persists in its own store.
+        if agent || profile == "incognito" { store = .nonPersistent() }
         else if #available(macOS 14.0, *) { store = WKWebsiteDataStore(forIdentifier: Self.storeIdentifier(environment: environment, profile: profile)) }
         else { store = .default() }
         stores[key] = store
@@ -65,35 +75,52 @@ final class T3BrowserSessions {
         return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))
     }
 
-    /// The tab's page, made on first use (at its URL, if it has one).
+    /// The tab's page, made on first use (at its URL, if it has one). A page made for a known size (a fixed viewport's,
+    /// at its zoom, from `browserSync`; or the stage's laid-out box, from `T3BrowserView`) is made at it before its
+    /// first load, so its first layout is that size (part 2, #352).
     @discardableResult
-    func ensure(id: String, url: String, profile: String, environment: String) -> T3BrowserSession {
+    func ensure(id: String, url: String, profile: String, environment: String, size: NSSize? = nil, zoom: Double? = nil) -> T3BrowserSession {
         if let existing = sessions[id] { return existing }
         let session = T3BrowserSession(id: id, profile: profile.isEmpty ? "default" : profile, environment: environment,
-                                       store: store(environment: environment, profile: profile.isEmpty ? "default" : profile), agent: agent)
+                                       store: store(environment: environment, profile: profile.isEmpty ? "default" : profile), agent: agent, imageDirectory: imageDirectory)
         session.changed = { [weak self] in self?.publish() }
+        session.downloads.directory = { [weak self] in self?.artifactDirectory ?? FileManager.default.temporaryDirectory }
         session.dialogs = !agent
         sessions[id] = session
         created?(session)
+        if let zoom { session.setZoom(zoom) }
+        if let size, size.width > 0, size.height > 0 { session.web.setFrameSize(size) }
         if let target = URL(string: url), ["http", "https"].contains(target.scheme?.lowercased() ?? "") { session.navigate(target) }
         note("open \(id)")
         publish()
         return session
     }
 
-    /// `browserSync`: a page for each live session, and no other.
-    func sync(_ live: [[String: Any]]) {
+    /// The agent tabs' `opened` notes the data module has adopted (`connectionId\0requestId`), as its last `browserSync`
+    /// listed them: the automation host answers an open once its note is among them.
+    private(set) var adopted: Set<String> = []
+
+    /// `browserSync`: a page for each live session, and no other. A page made here before the data module adopts it (an
+    /// agent tab the host made) is closed by a sync that does not list it yet, and made again by the one that does.
+    func sync(_ live: [[String: Any]], adopted notes: [String] = []) {
+        adopted = Set(notes)
         var keep = Set<String>()
         for entry in live {
             guard let id = entry["id"] as? String, !id.isEmpty else { continue }
             keep.insert(id)
-            ensure(id: id, url: entry["url"] as? String ?? "", profile: entry["profile"] as? String ?? "default", environment: entry["environment"] as? String ?? "")
+            // A tab at a fixed viewport: its CSS size at its zoom, in points (as the stage and T3BrowserViewport size it).
+            let width = (entry["width"] as? NSNumber)?.doubleValue ?? 0, height = (entry["height"] as? NSNumber)?.doubleValue ?? 0
+            let zoom = (entry["zoom"] as? NSNumber).map { T3BrowserSession.normalizedZoom($0.doubleValue) } ?? 1
+            let size = width > 0 && height > 0 ? NSSize(width: width * zoom, height: height * zoom) : nil
+            ensure(id: id, url: entry["url"] as? String ?? "", profile: entry["profile"] as? String ?? "default", environment: entry["environment"] as? String ?? "",
+                   size: size, zoom: size == nil ? nil : zoom)
         }
         for id in sessions.keys where !keep.contains(id) { close(id) }
     }
 
     func close(_ id: String) {
         guard let session = sessions.removeValue(forKey: id) else { return }
+        parking.forget(session)
         session.close()
         ended?(id)
         note("close \(id)")
@@ -114,7 +141,7 @@ final class T3BrowserSessions {
     }
 
     /// The registry's own record, and a `t3.browser:` host line (the agent's `logs`).
-    private func note(_ line: String) {
+    func note(_ line: String) {
         log.append(String(line.prefix(200)))
         if log.count > 24 { log.removeFirst(log.count - 24) }
         FileHandle.standardError.write(Data("t3.browser: \(line.prefix(300))\n".utf8))
@@ -122,7 +149,7 @@ final class T3BrowserSessions {
 
     /// The module's status (`presentation.browserTabs`, `presentation.browserLog`).
     var status: [String: Any] {
-        ["browserTabs": sessions.mapValues(\.report), "browserLog": log]
+        ["browserTabs": sessions.mapValues { $0.report.merging($0.navigationReport) { first, _ in first } }, "browserLog": log] // part 2: zoom, appearance
     }
 
     /// The data module's ops (T3Module+Browser.swift); nil for any other op.
@@ -131,7 +158,7 @@ final class T3BrowserSessions {
         let answer = { (value: [String: Any]) -> [String: Any] in ["ok": true, "generation": generation, "value": value] }
         switch request["op"] as? String {
         case "browserSync":
-            sync(request["tabs"] as? [[String: Any]] ?? [])
+            sync(request["tabs"] as? [[String: Any]] ?? [], adopted: request["adopted"] as? [String] ?? [])
             return answer(["tabs": sessions.count])
         case "browserNavigate":
             let started = navigate(id: request["tab"] as? String ?? "", url: request["url"] as? String ?? "", profile: request["profile"] as? String ?? "default", environment: request["environment"] as? String ?? "")

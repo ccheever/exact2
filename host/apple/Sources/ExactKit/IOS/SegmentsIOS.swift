@@ -6,7 +6,49 @@
 #if os(iOS) || os(tvOS)
 import UIKit
 
-private final class ExactSegmentedControl: UISegmentedControl {
+/// A segmented control whose segments carry their tabs' names and test ids
+/// (LLP 1116 D2, D6): a title segment's `aria-label`, when it says more than
+/// its words, is its accessibility label, and a tab's `testId` its
+/// accessibility identifier, so XCUITest and Maestro address it as any
+/// other node. UIKit has no API for either on a segment: they are written
+/// on its segment views, in order, after each layout, which is when UIKit
+/// makes them. A segment named by nothing is UIKit's (its title).
+class LabelledSegmentedControl: UISegmentedControl {
+    var segmentLabels: [String?] = [] { didSet { if segmentLabels != oldValue { setNeedsLayout() } } }
+    var segmentIDs: [String?] = [] { didSet { if segmentIDs != oldValue { setNeedsLayout() } } }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        labelSegments()
+    }
+    /// The segment views (`UISegment`, two containers down on iOS 27), in
+    /// segment order: left to right, reversed right to left.
+    var segmentViews: [UIView] {
+        var found: [UIView] = []
+        func walk(_ view: UIView, _ depth: Int) {
+            for child in view.subviews {
+                if String(describing: type(of: child)) == "UISegment" { found.append(child) } else if depth < 3 { walk(child, depth + 1) }
+            }
+        }
+        walk(self, 0)
+        let views = found.enumerated().sorted { a, b in
+            let x = (a.element.convert(a.element.bounds, to: self).minX, b.element.convert(b.element.bounds, to: self).minX)
+            return x.0 == x.1 ? a.offset < b.offset : x.0 < x.1
+        }.map(\.element)
+        return effectiveUserInterfaceLayoutDirection == .rightToLeft ? views.reversed() : views
+    }
+    func labelSegments() {
+        let views = segmentViews
+        guard views.count == numberOfSegments else { return }
+        for (index, view) in views.enumerated() {
+            let label = segmentLabels.indices.contains(index) ? segmentLabels[index] : nil
+            let id = segmentIDs.indices.contains(index) ? segmentIDs[index] : nil
+            if view.accessibilityLabel != label { view.accessibilityLabel = label }
+            if view.accessibilityIdentifier != id { view.accessibilityIdentifier = id }
+        }
+    }
+}
+
+private final class ExactSegmentedControl: LabelledSegmentedControl {
     let ownerID: UInt32
     var icons: [Int: (source: AnyObject, size: CGSize, label: String)] = [:]
     /// The selection last reported or applied. A finger moves the selection
@@ -34,13 +76,19 @@ private final class ExactTabBar: UITabBar {
     required init?(coder: NSCoder) { nil }
 }
 
+/// A tab bar item that remembers the symbol it was made with.
+private final class TabBarItem: UITabBarItem { var made = "" }
+private extension UITabBarItem { var madeWith: String? { (self as? TabBarItem)?.made } }
+
 /// A tab a tab bar item can show: one symbol and one label, nothing else.
 private struct TabBarFace: Equatable {
     let symbol: String
     let title: String
     /// Its accessible name: the tab's explicit label, else its title.
     let label: String
-    let tint: UIColor
+    /// The selected item's colour when the author gave one; nil leaves the
+    /// bar UIKit's tint (LLP 1115 D4).
+    let tint: UIColor?
 
     init?(_ tab: NodeView) {
         // A native tab's face, from the kernel; its tint its accent
@@ -50,7 +98,7 @@ private struct TabBarFace: Equatable {
             self.symbol = symbol
             self.title = title
             label = tab.props["accessibilityLabel"] ?? title
-            tint = tab.channels("accent_color").map { TextEngine.color($0) } ?? .label
+            tint = tab.channels("accent_color").map { TextEngine.color($0) }
             return
         }
         let children = tab.container.subviews.compactMap { $0 as? NodeView }
@@ -62,7 +110,7 @@ private struct TabBarFace: Equatable {
         self.symbol = image.props["symbolName"] ?? ""
         title = label.accessibleText
         self.label = tab.props["accessibilityLabel"] ?? title
-        tint = image.color("tint_color", .label)
+        tint = image.ownUIColor("tint_color")
     }
 }
 
@@ -137,7 +185,8 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
 
     /// An image-only authored tab stays image-only in UIKit. Its accessible
     /// name belongs to the segment image; it is not a visible fallback title.
-    /// A text-only tab's words are its title (`SegmentFace`).
+    /// A text-only tab's words are its title, and an `aria-label` that says
+    /// otherwise its accessibility label (`SegmentFace`, LLP 1116 D6).
     private func content(_ tab: NodeView, at index: Int, in control: ExactSegmentedControl) {
         let label = tab.accessibleName
         if case .image(let icon)? = tab.segmentFace {
@@ -168,10 +217,10 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             image.accessibilityLabel = label
             control.setImage(image, forSegmentAt: index)
             control.icons[index] = (name as NSString, size, label)
-        } else {
+        } else if case .title(let title)? = tab.segmentFace {
             control.icons.removeValue(forKey: index)
             if control.imageForSegment(at: index) != nil { control.setImage(nil, forSegmentAt: index) }
-            if control.titleForSegment(at: index) != label { control.setTitle(label, forSegmentAt: index) }
+            if control.titleForSegment(at: index) != title { control.setTitle(title, forSegmentAt: index) }
         }
     }
 
@@ -263,7 +312,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
 
     /// Symbol-over-label tabs as a tab bar in the tablist's box. The tints
     /// are the authored ones — a selected symbol's and an unselected one's —
-    /// so an app's accent is the tab bar's, never the platform's blue.
+    /// so an app's accent is the tab bar's; unsaid, the platform's tint.
     private func project(_ owner: NodeView, _ tabs: [NodeView], _ faces: [TabBarFace]) {
         controls.removeValue(forKey: owner.id)?.removeFromSuperview()
         adopt(owner, tabs)
@@ -282,23 +331,25 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         assign(bar, \.isUserInteractionEnabled, available(owner))
         assign(bar, \.accessibilityLabel, owner.props["accessibilityLabel"])
         let current = bar.items ?? []
-        if current.count != faces.count || zip(current, faces).contains(where: { $0.title != $1.title || $0.accessibilityIdentifier != $1.symbol }) {
+        if current.count != faces.count || zip(current, faces).contains(where: { $0.title != $1.title || $0.madeWith != $1.symbol }) {
             bar.setItems(faces.enumerated().map { index, face in
-                let item = UITabBarItem(title: face.title, image: face.symbol.isEmpty ? nil : UIImage(systemName: face.symbol), tag: index)
-                item.accessibilityIdentifier = face.symbol
+                let item = TabBarItem(title: face.title, image: face.symbol.isEmpty ? nil : UIImage(systemName: face.symbol), tag: index)
+                item.made = face.symbol
                 return item
             }, animated: false)
         }
         for ((item, tab), face) in zip(zip(bar.items ?? [], tabs), faces) {
             assign(item, \.isEnabled, !tab.disabled)
+            // Its test id is the tab's (LLP 1116 D2).
+            if item.accessibilityIdentifier != tab.props["testId"] { item.accessibilityIdentifier = tab.props["testId"] }
             // Its name is the tab's, as the hidden tab's was (astra's code review).
             if item.accessibilityLabel != face.label { item.accessibilityLabel = face.label }
         }
         let selected = tabs.firstIndex { $0.props["accessibilitySelected"] == "true" }
         let item = selected.flatMap { bar.items?[$0] }
         if bar.selectedItem !== item { bar.selectedItem = item }
-        // The selected item takes the authored accent; the rest keep the
-        // bar's own face. (Title attributes through a UITabBarAppearance
+        // The selected item takes the authored accent, else UIKit's tint;
+        // the rest keep the bar's own face. (Title attributes through a UITabBarAppearance
         // replace the bar's own rendering of every title; not used.)
         if let selected, bar.tintColor != faces[selected].tint { bar.tintColor = faces[selected].tint }
         owner.bringSubviewToFront(bar)
@@ -376,6 +427,9 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
                 content(tab, at: index, in: control)
                 control.setEnabled(!tab.disabled, forSegmentAt: index)
             }
+            control.accessibilityIdentifier = owner.props["testId"]
+            control.segmentLabels = tabs.map(Self.segmentLabel)
+            control.segmentIDs = tabs.map { $0.props["testId"] }
             let selected = tabs.firstIndex { $0.props["accessibilitySelected"] == "true" } ?? UISegmentedControl.noSegment
             // A choice the finger made and the control has not reported yet
             // stays; resetting it would make the report name the old segment.
@@ -385,6 +439,13 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             owner.bringSubviewToFront(control)
             measure(owner, control)
         }
+    }
+
+    /// A title segment's accessibility label: its tab's name where that is
+    /// not its words (an image segment's is its image's, `content`).
+    static func segmentLabel(_ tab: NodeView) -> String? {
+        guard case .title(let title)? = tab.segmentFace, tab.accessibleName != title else { return nil }
+        return tab.accessibleName
     }
 
     @objc private func changed(_ sender: ExactSegmentedControl) {
@@ -401,6 +462,20 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         guard let owner = presenter.views[entry.key], available(owner), !node.disabled else { return false }
         presenter.press(node.id)
         return true
+    }
+
+    /// Where a finger aimed at tab `node` lands, for a segment a control
+    /// draws (LLP 1080.000 D4; r5 weather): the control, and the segment's
+    /// box in it — its segment view's, else an equal share. Nil for a node no
+    /// segmented control draws (a tab bar's items are UIKit's private views).
+    func drawn(_ node: NodeView) -> (control: UIControl, segment: CGRect)? {
+        guard let entry = members.first(where: { $0.value.contains(node.id) }), let control = controls[entry.key],
+              let index = entry.value.firstIndex(of: node.id), control.numberOfSegments == entry.value.count else { return nil }
+        let views = control.segmentViews
+        if views.count == control.numberOfSegments { return (control, views[index].convert(views[index].bounds, to: control)) }
+        let share = control.bounds.width / CGFloat(entry.value.count)
+        let slot = control.effectiveUserInterfaceLayoutDirection == .rightToLeft ? entry.value.count - 1 - index : index
+        return (control, CGRect(x: share * CGFloat(slot), y: 0, width: share, height: control.bounds.height))
     }
 
     func observation(_ node: NodeView) -> [String: Any]? {

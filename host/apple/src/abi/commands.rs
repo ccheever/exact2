@@ -4,7 +4,8 @@
 //! runner's journal, a select's options for the menu the presenter
 //! builds (LLP 1069.001 D5), a radio's group (x2apps survey #2), a
 //! grouped list's sections (LLP 1084), and
-//! whether a followed link names one of the app's routes (LLP 1038 §7).
+//! whether a followed link names one of the app's routes (LLP 1038 §7),
+//! and where the host's own Back goes (LLP 1115 D5).
 use super::Bridge;
 use exact_runner::auth::{self, Arm, Browser};
 use exact_runner::DataSource;
@@ -21,6 +22,20 @@ impl<D: DataSource> Bridge<D> {
                 .as_ref()
                 .is_some_and(|h| h.runner().route_matches(&location)),
         )
+    }
+
+    /// `exact_location_beneath`: the location of the visit beneath visit
+    /// `id` on its stack, UTF-8 in the output buffer, empty when there is
+    /// none — where the host's own Back goes for a route with no authored
+    /// Back control (LLP 1115 D5). Not a batch: nothing changes.
+    pub fn location_beneath(&mut self, id: u64) -> u32 {
+        let location = self
+            .host
+            .as_ref()
+            .and_then(|h| h.runner().location_beneath(id))
+            .unwrap_or_default();
+        self.output = location.into_bytes();
+        self.output.len() as u32
     }
 
     /// `exact_scrolled`: a scroller the presenter shows, or the page, now
@@ -231,9 +246,12 @@ impl<D: DataSource> Bridge<D> {
 
     /// A grouped list's sections and rows (`exact_grouped_list`, LLP 1084
     /// D4), as JSON in the output buffer: `{"style","sections":[{"view",
-    /// "header","footer","card","spaceAbove","rows":[{"view","custom","symbol","title",
+    /// "header","footer","headerLook","footerLook","card","spaceAbove","rows":[{"view","custom","symbol","title",
     /// "secondary","subtitle","accessory","target","pressable",
-    /// "destructive","disabled"}]}],"spaceBelow"}`, `null` for a node that is not one.
+    /// "destructive","disabled","titleLook","secondaryLook"}]}],"spaceBelow"}`,
+    /// `null` for a node that is not one. A look is `{"lines","ellipsis",
+    /// "color","font"}`: a colour row's wire form and `{"size","weight",
+    /// "italic","family","numeric"}`, each `null` where the author said nothing.
     /// `accessory` is `none`, `disclosure`, `checkmark`, `toggle` or
     /// `detail`; `target` the toggle's control or the detail's button. Not
     /// a batch: nothing changes.
@@ -243,6 +261,28 @@ impl<D: DataSource> Bridge<D> {
         let opt = |v: &Option<String>, json: &mut String| match v {
             Some(t) => quote(t, json),
             None => json.push_str("null"),
+        };
+        // How a text is set where its author said so (LLP 1116.003 D7): its
+        // colour as a style row crosses, its font as its computed rows.
+        let look = |key: &str, l: &exact_kernel::TextLook, json: &mut String| {
+            json.push_str(key);
+            json.push_str(&format!(
+                "{{\"lines\":{},\"ellipsis\":{},\"color\":",
+                l.lines, l.ellipsis
+            ));
+            match l.color {
+                Some(c) => crate::style::push_color_value(json, c),
+                None => json.push_str("null"),
+            }
+            json.push_str(",\"font\":");
+            match l.font {
+                Some(f) => json.push_str(&format!(
+                    "{{\"size\":{},\"weight\":{},\"italic\":{},\"family\":{},\"numeric\":{}}}",
+                    f.size, f.weight, f.italic, f.family, f.numeric
+                )),
+                None => json.push_str("null"),
+            }
+            json.push('}');
         };
         let list = self
             .host
@@ -261,6 +301,8 @@ impl<D: DataSource> Bridge<D> {
                     opt(&s.header, &mut json);
                     json.push_str(",\"footer\":");
                     opt(&s.footer, &mut json);
+                    look(",\"headerLook\":", &s.header_look, &mut json);
+                    look(",\"footerLook\":", &s.footer_look, &mut json);
                     json.push_str(&format!(",\"card\":{}", s.card));
                     json.push_str(&format!(
                         ",\"spaceAbove\":{}",
@@ -286,13 +328,16 @@ impl<D: DataSource> Bridge<D> {
                             Accessory::Detail(id) => ("detail", Some(id)),
                         };
                         json.push_str(&format!(
-                            ",\"subtitle\":{},\"accessory\":\"{accessory}\",\"target\":{},\"pressable\":{},\"destructive\":{},\"disabled\":{}}}",
+                            ",\"subtitle\":{},\"accessory\":\"{accessory}\",\"target\":{},\"pressable\":{},\"destructive\":{},\"disabled\":{}",
                             r.subtitle,
                             target.map_or("null".into(), |t| t.to_string()),
                             r.pressable,
                             r.destructive,
                             r.disabled
                         ));
+                        look(",\"titleLook\":", &r.title_look, &mut json);
+                        look(",\"secondaryLook\":", &r.secondary_look, &mut json);
+                        json.push('}');
                     }
                     json.push_str("]}");
                 }

@@ -53,7 +53,7 @@ final class ModalDetentIOSTests: XCTestCase {
 
     private func until(_ what: String, _ seconds: Double = 5, _ done: () -> Bool) {
         let deadline = Date().addingTimeInterval(seconds)
-        while !done(), Date() < deadline { spin(0.02) }
+        while !done(), Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
         XCTAssertTrue(done(), what)
     }
 
@@ -100,9 +100,9 @@ final class ModalDetentIOSTests: XCTestCase {
         return top
     }
 
-    /// The fixture's menu: 16 points of padding around More, Fewer and its
-    /// rows, 44 points each.
-    private func rows(_ n: Int) -> CGFloat { 16 + 44 * CGFloat(2 + n) + 16 }
+    /// The fixture's menu: 16 points of padding around More, Fewer, its
+    /// rows, Close and Close both, 44 points each.
+    private func rows(_ n: Int) -> CGFloat { 16 + 44 * CGFloat(4 + n) + 16 }
 
     /// `invalidateDetents()` calls on any sheet while `body` runs. This
     /// window finishes no presentation transition (the sheet's view stays
@@ -117,6 +117,43 @@ final class ModalDetentIOSTests: XCTestCase {
         defer { method_exchangeImplementations(original, counting) }
         UISheetPresentationController.exactTestInvalidations = 0
         try body()
+    }
+
+    /// LLP 1115 D5: a sheet that declares no Back control still swipes down,
+    /// and its dismissal goes back by the root's `navigate`, once.
+    func testASheetWithNoBackControlStillSwipesDownAndGoesBackByNavigate() throws {
+        try sheetSwipesDown(navigate: true)
+    }
+
+    /// The same with no `navigate` handler: the runner's own back, once.
+    func testASheetWithNoBackControlAndNoNavigateHandlerIsTheRunnersOwnBack() throws {
+        try sheetSwipesDown(navigate: false)
+    }
+
+    private func sheetSwipesDown(navigate: Bool) throws {
+        let session = try fixture("sheet-back-always")
+        let root = try node(session, "navigation")
+        if !navigate { root.handlers.remove("navigate") }
+        try tap(session, "open-note")
+        until("the note is presented as a sheet") { sheet()?.sheetPresentationController != nil }
+        let presented = try XCTUnwrap(sheet())
+        let controller = try XCTUnwrap(presented.presentationController)
+        let modals = session.presenter.modals
+        XCTAssertTrue(modals.presentationControllerShouldDismiss(controller), "the swipe may dismiss it")
+        // A finished swipe: UIKit dismisses the sheet, then tells its
+        // delegate (this window finishes no transition, so it is told here).
+        presented.presentingViewController?.dismiss(animated: false)
+        modals.presentationControllerDidDismiss(controller)
+        until("the router went back") {
+            let text = session.agent(#"{"op":"state"}"#)
+            let json = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any]
+            let nav = (json?["slots"] as? [String: Any])?["nav"] as? [String: Any]
+            return ((nav?["tabs"] as? [[String: Any]])?.first?["stack"] as? [Any])?.count == 1
+        }
+        let journal = session.agent(#"{"op":"logs","since":0}"#)
+        XCTAssertEqual(journal.components(separatedBy: "(follow)").count - 1, navigate ? 1 : 0, "navigate once, or never: \(journal)")
+        XCTAssertEqual(journal.components(separatedBy: "host back").count - 1, navigate ? 0 : 1, "the runner's own back without a handler: \(journal)")
+        XCTAssertFalse(journal.contains("modal dismissal refused"))
     }
 
     /// Through the real presenter: a row added or taken away reaches the

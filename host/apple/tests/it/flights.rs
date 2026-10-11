@@ -176,3 +176,25 @@ fn a_flight_on_a_bouncy_spring_lands_only_once_it_stays_settled() {
     let seek = host.tick(6600.0);
     assert!(!seek.contains(&land), "not landed mid-oscillation: {seek}");
 }
+
+#[test]
+fn with_the_first_frame_rule_a_flight_lands_from_the_frame_that_started_it() {
+    let mut host = boot();
+    host.start_on_frame(true, 0.0);
+    let toggle = view(&host, "toggle").unwrap();
+    host.dispatch_at(toggle, Event::Press, 100.0);
+    let large = view(&host, "large").unwrap();
+    let first = host.tick_at(110.0, 116.0);
+    assert_eq!(
+        progress(&first, large),
+        Some(0.0),
+        "the first frame shows the start: {first}"
+    );
+    let land = format!("{{\"op\":\"land\",\"id\":{large}}}");
+    assert!(
+        !host.tick_at(400.0, 405.0).contains(&land),
+        "300 ms from the commit is not its end"
+    );
+    let done = host.tick_at(420.0, 417.0);
+    assert!(done.contains(&land), "300 ms from the frame is: {done}");
+}

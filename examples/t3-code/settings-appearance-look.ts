@@ -8,7 +8,7 @@
 // palette's light-dark() tokens.
 import type { T3Client } from './client';
 import { CLIENT_DEFAULTS, decodeClientPrefs, type ClientPrefs } from './settings-core';
-import { fontStack, palette, themeRoles } from './settings-appearance';
+import { effectiveMode, fontStack, palette, themeRoles } from './settings-appearance';
 import type { CustomTheme } from './settings-themes';
 import type { DiffState } from './diff';
 import { STANDARD, previewTheme } from './settings-appearance-editor';
@@ -42,11 +42,20 @@ const DIFF = {
     addLine: 'light-dark(#155dfc, #51a2ff)', delLine: 'light-dark(#f54900, #ff8904)' },
 };
 
+/**
+ * What the app wears: the stored themes in the mode they resolve to (audit-wave-followups-2 FV-3, resolveThemeAppearance),
+ * or, while the theme editor is open, its draft: on its appearance's half and in that appearance whatever the mode
+ * (ThemeEditorPanel's applyThemeColorPreview toggles the `dark` class to the appearance being edited). The root's
+ * `scheme`, the window (devicePresentation) and the palettes all take it.
+ */
+export function paintOf(client: T3Client): { prefs: ClientPrefs; custom: CustomTheme[]; mode: string } {
+  const preview = previewTheme(client), prefs = prefsOf(client), custom = customOf(client);
+  if (!preview) return { prefs, custom, mode: effectiveMode(client.local.deviceSettings.appearanceMode, prefs, custom) };
+  return { prefs: { ...prefs, [preview.appearance === 'light' ? 'themeLight' : 'themeDark']: preview.id }, custom: [...custom, preview], mode: preview.appearance };
+}
+
 export function look(client: T3Client): Look {
-  const preview = previewTheme(client);
-  const prefs = preview ? { ...prefsOf(client), [preview.appearance === 'light' ? 'themeLight' : 'themeDark']: preview.id } : prefsOf(client);
-  const custom = preview ? [...customOf(client), preview] : customOf(client);
-  const mode = client.local.deviceSettings.appearanceMode;
+  const { prefs, custom, mode } = paintOf(client);
   const pal = palette(prefs, custom, mode);
   const diffState = (client as unknown as { diffState?: DiffState }).diffState;
   if (diffState) seedDiffState(client, diffState);
@@ -69,6 +78,11 @@ export function look(client: T3Client): Look {
     skillsInSlash: prefs.showSkillsInSlashMenu, followUp: prefs.followUpBehavior, legacySidebar: prefs.legacySidebarEnabled,
     confirmUnpin: prefs.confirmThreadUnpin, confirmArchive: prefs.confirmThreadArchive, confirmDelete: prefs.confirmThreadDelete,
   };
+}
+
+/** devicePresentation's appearance mode: the window draws in the mode `look` resolves (T3WindowChrome.setAppearance), the theme editor's draft's included. */
+export function windowAppearanceMode(client: T3Client): string {
+  return paintOf(client).mode;
 }
 
 /** bg-message (--message-surface): the theme's messageSurface role; the stock theme keeps --accent. */
@@ -112,7 +126,7 @@ const TERMINAL_PALETTES: Record<string, readonly [string, string]> = {
 /** JSON for the native terminal bridge; custom/editor roles override the standard palette. */
 export function terminalTheme(id: string, mode: 'light' | 'dark', custom: CustomTheme[]): string {
   const own = custom.find(theme => theme.id === id);
-  const roles = { ...STANDARD[mode], ...(own ? own[mode] ?? own[own.appearance] ?? {} : {}) };
+  const roles = { ...STANDARD[mode], ...(own?.[mode] ?? {}) };
   const builtIn = own ? undefined : TERMINAL_PALETTES[id]?.[mode === 'dark' ? 1 : 0].split(' ');
   const rgb = (hex: string) => ({ r: parseInt(hex.slice(1, 3), 16), g: parseInt(hex.slice(3, 5), 16), b: parseInt(hex.slice(5, 7), 16) });
   return JSON.stringify({ dark: mode === 'dark',

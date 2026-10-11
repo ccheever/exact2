@@ -65,8 +65,13 @@ pub fn node_key(node: u64) -> NodeKey {
 /// `transition` row and targets.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct MotionSync {
-    /// Nodes destroyed by the commit.
+    /// Nodes destroyed by the commit, and those it renewed (LLP 1078): a
+    /// renewed node is forgotten and heard again as new.
     pub removed: Vec<u64>,
+    /// Which of `removed` are renewed nodes, ascending. A host with its own
+    /// engine may treat them as the rest; [`MotionSync::apply`] does not
+    /// forget one that holds only settled values and is restated bare.
+    pub renewed: Vec<u64>,
     /// Properties that no longer have an eligible numeric target. A host must
     /// also retire their presentation projection/overlay and owned playback.
     /// Unlike `removed`, this preserves the node's other motion properties.
@@ -106,9 +111,46 @@ impl MotionSync {
         applied
     }
 
+    /// The nodes this sync restates with something that moves or could: a
+    /// transition, a layout transition, a clock, an animation, a timeline or
+    /// a path. Ascending.
+    fn moving(&self) -> Vec<u64> {
+        let mut moving: Vec<u64> = (self.transitions.iter())
+            .filter(|(_, row)| !row.0.is_empty())
+            .chain(self.layout.iter().filter(|(_, row)| !row.0.is_empty()))
+            .map(|(node, _)| *node)
+            .chain((self.clocks.iter()).filter_map(|(node, clock)| clock.as_ref().map(|_| *node)))
+            .chain(
+                (self.animations.iter())
+                    .filter_map(|(node, row)| (!row.0.is_empty()).then_some(*node)),
+            )
+            .chain((self.timelines.iter()).filter_map(|(node, source, bound)| {
+                (source.is_some() || bound.is_some()).then_some(*node)
+            }))
+            .chain((self.paths.iter()).filter_map(|(node, path)| path.as_ref().map(|_| *node)))
+            .collect();
+        moving.sort_unstable();
+        moving
+    }
+
     fn apply_rows(&self, engine: &mut Engine) -> Result<(), EngineError> {
+        // A renewed node the engine holds only settled values for, restated
+        // with nothing that moves, is not forgotten first: observing its
+        // values leaves what forgetting it and observing them would
+        // ([`Engine::at_rest`]), and presents the values that changed, not
+        // all four of every node of a rebound list row.
+        let moving = if self.renewed.is_empty() {
+            Vec::new()
+        } else {
+            self.moving()
+        };
         for node in &self.removed {
-            engine.remove(*node);
+            let stays = self.renewed.binary_search(node).is_ok()
+                && moving.binary_search(node).is_err()
+                && engine.at_rest(*node);
+            if !stays {
+                engine.remove(*node);
+            }
         }
         for (node, property) in &self.retired {
             engine.remove_property(*node, *property);
@@ -649,7 +691,10 @@ impl Kernel {
     /// is exactly what makes it a removal.
     pub fn motion_sync(&self, receipt: &CommitReceipt) -> MotionSync {
         // A renewed node is forgotten and heard again as new (LLP 1078).
+        let mut renewed: Vec<u64> = receipt.renewed.iter().copied().map(motion_node).collect();
+        renewed.sort_unstable();
         let mut sync = MotionSync {
+            renewed,
             removed: receipt
                 .destroyed
                 .iter()

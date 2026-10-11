@@ -1,0 +1,11 @@
+- **Should-fix — [GroupedListIOS.swift:454](/private/tmp/bsky4-rv/wt-gp/host/apple/Sources/ExactGroupedLists/GroupedListIOS.swift:454): “not dragging” does not mean resting.** A fling or bounce within 0.5 points of the old top passes this guard while `isDecelerating` is true. If padding or the hidden refresh inset changes then, the offset snaps to the new boundary during motion. Exclude tracking and deceleration before writing the offset. [UIKit distinguishes deceleration from dragging.](https://developer.apple.com/documentation/uikit/uiscrollview/isdecelerating)
+
+- **Nit — [GroupedListIOSTests.swift:420](/private/tmp/bsky4-rv/wt-gp/host/apple/tests/ExactKitTests/GroupedListIOSTests.swift:420): useful assertion, incomplete regression coverage.** Measuring `cell.frame.minY - contentOffset.y` tests visible geometry, but the fixture lays out a short, unpadded list first. An unconditional snap on every mount would also pass. Add padding in the creation batch before layout, plus a tall list scrolled away from its top; verify subsequent mounts and padding removal preserve its position. Also exercise nonzero inherited insets and footer `spaceBelow`.
+
+The ordinary `.never` first mount starts at zero and needs no content-size measurement to select `-newTop`. There is no deferred correction racing the agent’s wheel; `scrollIntoView` commands drain after projection. Existing off-top collection offsets skip the explicit snap, including during rotation or padding removal. Authored scroll restoration still targets the hidden scroll—a pre-existing limitation.
+
+Keyboard lift changes **bottom**, so it does not trigger this correction. Refresh-control **top** changes do trigger it; refresh presentation remains on the hidden scroll. The indicator additions correctly preserve inherited insets and add padding and footer room once.
+
+I prefer Grok’s section-layout alternative for CSS padding: it makes the gap part of content and avoids this offset correction. Preserve the first section’s existing default or `spaceAbove`, add padding above its header or rows, and invalidate when padding changes. Keep the indicator adjustment.
+
+Static review; UIKit tests were not run under the read-only constraint. **Nothing blocks landing.**

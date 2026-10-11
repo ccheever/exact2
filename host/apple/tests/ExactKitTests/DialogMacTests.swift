@@ -184,7 +184,7 @@ final class DialogMacTests: XCTestCase {
             ["op": "frame", "id": 7, "x": 100, "y": 80, "w": 100, "h": 30],
             ["op": "frame", "id": 8, "x": 100, "y": 10, "w": 100, "h": 30],
         ]))
-        let inside = try XCTUnwrap(p.views[7])
+        let inside = try XCTUnwrap(p.controls.controls[7] as? NativeButtonMac)
         let background = try XCTUnwrap(p.controls.controls[8] as? NativeButtonMac)
         var pressed: [UInt32] = []
         p.onPress = { pressed.append($0) }

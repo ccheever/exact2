@@ -36,7 +36,6 @@ export function providerRuntime(provider: Obj, entry: ProviderSetupEntry, enviro
   return {
     key: str(provider.instanceId), statusMessage,
     progressValue: phase === 'downloading' && total !== null && total > 0 ? downloaded : 0, progressMax: phase === 'downloading' && total !== null && total > 0 ? total : 0,
-    progressPercent: phase === 'downloading' && total !== null && total > 0 ? Math.min(100, Math.max(0, Math.round((downloaded / total) * 1000) / 10)) : 0,
     message: !installActive && message && message !== statusMessage ? message : '',
     customNote: usesCustomBinary, unavailableNote: !installed && !canInstall,
     token: `${phase}:${str(installation?.operationId)}`,

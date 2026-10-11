@@ -89,8 +89,9 @@ export async function keybindingSettings(client: T3Client, native: Native | null
   if (!active) return empty;
   try {
     if (!native?.available || !client.ready || (environmentId !== "" && environmentId !== client.environmentId)) throw new Error('Choose a connected environment to manage keybindings.');
-    const config = await client.readSettings(native, 'server.getConfig');
-    const bindings = arr(config.keybindings);
+    // KeybindingsSettings.tsx: the representative environment's serverConfig (server.getConfig at connect, then
+    // subscribeServerConfig's keybindingsUpdated), never a read per answer.
+    const config = client.config, bindings = arr(config.keybindings);
     const listed = buildRows(bindings, ''), all = listed.map(row => ({ ...row, when: row.condition })), rows = query.trim() ? buildRows(bindings, query) : listed;
     const when = whenEditor(draftWhen);
     const draftKeyValue = draftKey.trim(), draftWhenValue = when.error ? '' : printWhen(parseWhen(draftWhen.trim()) || undefined);

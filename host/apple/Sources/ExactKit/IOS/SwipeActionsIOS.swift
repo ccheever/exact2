@@ -12,7 +12,12 @@ import UIKit.UIGestureRecognizerSubclass
 /// has ended, the row is closed and UIKit's animation has settled, the
 /// content goes back and the table goes. VoiceOver and Switch Control read a
 /// row's actions from its cell, so while either runs every row stays projected.
-final class SwipeActionsHost {
+///
+/// A grouped list's row (LLP 1116.001 D1) is a list cell already: UIKit's
+/// own, which the list carries the row's views into. Its swipe is that
+/// cell's, as a hand-built list's is: the list asks `configuration` for its
+/// actions, and the row's controls stay hidden while the row is one.
+package final class SwipeActionsHost {
     unowned let presenter: Presenter
     private var rows: [UInt32: Row] = [:]
     private var refusals: [UInt32: String] = [:]
@@ -30,11 +35,11 @@ final class SwipeActionsHost {
     var assistive: Bool { UIAccessibility.isVoiceOverRunning || UIAccessibility.isSwitchControlRunning }
 
     // Ordinary batches always see the original hierarchy and local frames.
-    func prepare() { for row in rows.values where row.projected { row.restore() } }
+    func prepare() { for row in rows.values where row.projected || row.grouped { row.restore() } }
     /// A touch is landing on `owner`: project its row now, and release it
     /// again if the touch never reaches the table.
     func touch(_ owner: NodeView) {
-        guard let row = rows[owner.id], row.owner === owner, !row.projected else { return }
+        guard let row = rows[owner.id], row.owner === owner, !row.projected, !row.grouped else { return }
         row.mount()
         DispatchQueue.main.async { [weak row] in row?.settle() }
     }
@@ -45,6 +50,33 @@ final class SwipeActionsHost {
     func reset() {
         for row in rows.values { row.remove() }
         rows.removeAll(); refusals.removeAll()
+    }
+    #if os(iOS)
+    /// A grouped list row's actions on one side, as its list cell offers
+    /// them (LLP 1116.001 D1); nil for a row that names none there, or that
+    /// is no grouped list's swipe row.
+    package func configuration(row id: UInt32, leading: Bool) -> UISwipeActionsConfiguration? {
+        guard let row = rows[id], row.grouped else { return nil }
+        return row.configuration(leading ? row.leading : row.trailing)
+    }
+    #endif
+
+    /// Whether `owner` is a grouped list's row: its section's group's child
+    /// (LLP 1084 D3), drawn in UIKit's list cell. Read while the batch's
+    /// hierarchy is the authored one (the list gives its rows back first).
+    private func groupedRow(_ owner: NodeView) -> Bool {
+        #if os(iOS)
+        guard presenter.groupedLists != nil else { return false }
+        func parent(_ view: UIView?) -> NodeView? {
+            var at = view?.superview
+            while let v = at { if let node = v as? NodeView { return node }; at = v.superview }
+            return nil
+        }
+        guard let list = parent(parent(parent(owner))) else { return false }
+        return list.kind == "list" && list.props["listStyle"] != nil
+        #else
+        return false
+        #endif
     }
 
     /// `changed`: the views the batch touched and their ancestors. An owner
@@ -64,7 +96,7 @@ final class SwipeActionsHost {
             if let changed, !changed.contains(owner.id), !renamed.contains(content),
                let row = rows[owner.id], row.owner === owner, !row.names.contains(where: renamed.contains) {
                 claimed.insert(row.body.id)
-                if row.projected || assistive { row.mount() }
+                if row.projected || row.grouped || assistive { row.mount() }
                 wanted.insert(owner.id)
                 continue
             }
@@ -77,6 +109,8 @@ final class SwipeActionsHost {
             }
             let controls = names.compactMap(resolve)
             let body = resolve(content)
+            // A grouped row's cell is UIKit's: its content need not fill the row.
+            let grouped = groupedRow(owner)
             // The first rule the row breaks, by name and with the sizes it
             // compared (splitter rough 10: a hairline border on the scroll
             // left its content half a point short, and the refusal said only
@@ -93,7 +127,7 @@ final class SwipeActionsHost {
                     if control === body || control.isDescendant(of: body) { return "\"\(name)\" is inside swipeContent \"\(content)\"" }
                     if label(control).isEmpty { return "\"\(name)\" has no accessible name (aria-label or text)" }
                 }
-                if abs(body.bounds.width - owner.bounds.width) >= 0.5 || abs(body.bounds.height - owner.bounds.height) >= 0.5 {
+                if !grouped, abs(body.bounds.width - owner.bounds.width) >= 0.5 || abs(body.bounds.height - owner.bounds.height) >= 0.5 {
                     return "swipeContent \"\(content)\" is \(size(body)), not the row's \(size(owner)) border box (a border or padding on the row shrinks it)"
                 }
                 if claimed.contains(body.id) { return "swipeContent \"\(content)\" is another row's too" }
@@ -107,13 +141,13 @@ final class SwipeActionsHost {
                 continue
             }
             refusals.removeValue(forKey: owner.id)
-            if let old = rows[owner.id], old.body !== body { old.remove(); rows.removeValue(forKey: owner.id) }
-            let row = rows[owner.id] ?? Row(owner: owner, body: body, host: self)
+            if let old = rows[owner.id], old.body !== body || old.grouped != grouped { old.remove(); rows.removeValue(forKey: owner.id) }
+            let row = rows[owner.id] ?? Row(owner: owner, body: body, host: self, grouped: grouped)
             rows[owner.id] = row
             row.names = names
             row.leading = Array(controls.prefix(leadingNames.count))
             row.trailing = Array(controls.dropFirst(leadingNames.count))
-            if row.projected || assistive { row.mount() }
+            if row.projected || grouped || assistive { row.mount() }
             wanted.insert(owner.id)
         }
         for id in Array(rows.keys) where !wanted.contains(id) { rows.removeValue(forKey: id)?.remove() }
@@ -187,6 +221,8 @@ final class SwipeActionsHost {
         unowned let host: SwipeActionsHost
         let owner: NodeView
         let body: NodeView
+        /// A grouped list's row: its list cell swipes, and no table is made.
+        let grouped: Bool
         var leading: [NodeView] = []
         var trailing: [NodeView] = []
         /// The owner's leading and trailing names, as its props said when
@@ -202,6 +238,10 @@ final class SwipeActionsHost {
         // completes. That temporary state is not an authored input restriction.
         private var actionAncestors: [UInt32: [Ancestor]] = [:]
         private var scrollWasHidden = false
+        /// A grouped row's: its owner's inertness, read in the authored
+        /// hierarchy, and whether its scroll was stilled for the cell's swipe.
+        private var ownerInert = false
+        private var stilled = false
         private var logicalFrame = CGRect.zero
         private var priorSize = CGSize.zero
         /// The projection, only while a swipe can start or is shown.
@@ -214,8 +254,8 @@ final class SwipeActionsHost {
         var projected: Bool { table != nil }
         var projection: UITableViewCell? { cell }
 
-        init(owner: NodeView, body: NodeView, host: SwipeActionsHost) {
-            self.owner = owner; self.body = body; self.host = host
+        init(owner: NodeView, body: NodeView, host: SwipeActionsHost, grouped: Bool) {
+            self.owner = owner; self.body = body; self.host = host; self.grouped = grouped
             super.init()
         }
         private func project() -> (UITableView, Cell) {
@@ -250,9 +290,11 @@ final class SwipeActionsHost {
             if let parent = logicalParent, let carrier { parent.addSubview(carrier); carrier.frame = logicalFrame }
             for (control, hidden) in hiddenControls { control.isHidden = hidden }
             hiddenControls.removeAll()
+            if stilled { owner.scroll?.isScrollEnabled = true; stilled = false }
             owner.scroll?.isHidden = scrollWasHidden
         }
         func remove() {
+            if grouped { restore(); return }
             guard let table else { return }
             restore(); carrier = nil; logicalParent = nil
             table.setEditing(false, animated: false); table.removeFromSuperview()
@@ -273,7 +315,29 @@ final class SwipeActionsHost {
             }
             remove()
         }
+        /// A grouped row in its list cell: its controls hidden (the cell's
+        /// actions stand for them) and its content at the scroll's start,
+        /// which takes no pan, so the cell's swipe sees the touch.
+        private func mountGrouped() {
+            actionAncestors.removeAll()
+            for control in leading + trailing {
+                // Up to the row: above it is the list's, which draws in its
+                // hidden scroll's place, and the cell carries the row's inertness.
+                var ancestors: [Ancestor] = [], current: UIView? = control
+                while let view = current { ancestors.append(Ancestor(view)); if view === owner { break }; current = view.superview }
+                actionAncestors[control.id] = ancestors
+            }
+            ownerInert = owner.inert
+            scrollWasHidden = owner.scroll?.isHidden ?? false
+            for control in leading + trailing { hide(control) }
+            if let scroll = owner.scroll {
+                let start = -scroll.adjustedContentInset.left
+                if scroll.contentOffset.x != start { scroll.contentOffset.x = start }
+                if scroll.isScrollEnabled { scroll.isScrollEnabled = false; stilled = true }
+            }
+        }
         func mount() {
+            if grouped { mountGrouped(); return }
             // A waiting scroll's children are the owner's own (`scrollDormant`).
             guard owner.scroll != nil || owner.scrollDormant else { return }
             let scroll: UIView = owner.scroll ?? owner
@@ -332,9 +396,10 @@ final class SwipeActionsHost {
             guard let target = (leading + trailing).first(where: { $0.id == id }) else { return nil }
             // A projected row's content is the cell's already: mounting it
             // again would carry the table into its own cell.
-            let was = projected
+            // A grouped row is mounted by every batch; its cell is the list's.
+            let was = projected || grouped
             if !was { mount() }
-            let offered = projected && enabled(target)
+            let offered = (projected || grouped) && enabled(target)
             if !was { DispatchQueue.main.async { [weak self] in self?.settle() } }
             if offered { host.presenter.press(target.id) }
             return offered
@@ -364,6 +429,7 @@ final class SwipeActionsHost {
 
         private func enabled(_ target: NodeView) -> Bool {
             guard let ancestors = actionAncestors[target.id], !ancestors.isEmpty else { return false }
+            if grouped && ownerInert { return false }
             for ancestor in ancestors {
                 guard let view = ancestor.view else { return false }
                 // What the projection saved is the host's word; CSS's `display: none` hides besides.
@@ -386,7 +452,7 @@ final class SwipeActionsHost {
             return title
         }
         #if !os(tvOS)
-        private func configuration(_ controls: [NodeView]) -> UISwipeActionsConfiguration? {
+        fileprivate func configuration(_ controls: [NodeView]) -> UISwipeActionsConfiguration? {
             let actions = controls.filter(enabled).map { target in
                 let destructive = target.props["destructive"] == "true"
                 let action = UIContextualAction(style: destructive ? .destructive : .normal, title: nil) { [weak self, weak target] _, _, complete in
@@ -396,12 +462,13 @@ final class SwipeActionsHost {
                 }
                 action.accessibilityLabel = host.label(target)
                 if target.isNativeButton {
-                    // A native action (LLP 1069.011.000 D6): its accent, or the
-                    // platform's colour; a destructive one sets none, whatever
-                    // its accent (UIKit's red); its symbol, recorded for
-                    // discovery as a snapshot is.
-                    if !destructive {
-                        action.backgroundColor = target.channels("accent_color").map { TextEngine.color($0) } ?? .systemBlue
+                    // A native action (LLP 1069.011.000 D6): its accent, or
+                    // UIKit's colour for its style (grey; LLP 1115 D4); a
+                    // destructive one sets none, whatever its accent (UIKit's
+                    // red); its symbol, recorded for discovery as a snapshot is.
+                    if !destructive, target.style["accent_color"]?.isSystemColor == false,
+                       let accent = target.channels("accent_color").map({ TextEngine.color($0) }) {
+                        action.backgroundColor = accent
                     }
                     if let symbol = target.face?.symbol, let image = UIImage(systemName: symbol) {
                         image.accessibilityLabel = host.label(target)
@@ -410,7 +477,8 @@ final class SwipeActionsHost {
                     } else { action.title = host.label(target) }
                     return action
                 }
-                action.backgroundColor = target.color("background_color", .systemBlue)
+                // Its authored background, else UIKit's for its style.
+                if let fill = target.cgColor("background_color") { action.backgroundColor = UIColor(cgColor: fill) }
                 // A custom action's symbol is a system image, as a native one's
                 // is (LLP 1069.011.000 D1); anything else is its snapshot.
                 if let face = target.face, face.fits, !face.raster, let symbol = face.symbol, let image = UIImage(systemName: symbol) {
@@ -457,8 +525,17 @@ final class SwipeActionsHost {
                 }
             }
         }
+        /// Where UIKit draws the row's actions: its table, or a grouped row's
+        /// list, in the span of the row's cell (UIKit opens one cell at a time).
+        private var drawn: (root: UIView, span: CGRect?)? {
+            if let table { return (table, nil) }
+            guard grouped, let list = host.presenter.groupedLists?.scroller(for: owner.id),
+                  let cell = sequence(first: owner as UIView, next: { $0.superview }).first(where: { $0 is UICollectionViewCell }),
+                  cell.isDescendant(of: list) else { return nil }
+            return (list, cell.convert(cell.bounds, to: list))
+        }
         func actionView(_ id: UInt32, visibleOnly: Bool = true) -> UIButton? {
-            guard let table, let target = (leading + trailing).first(where: { $0.id == id }) else { return nil }
+            guard let (table, span) = drawn, let target = (leading + trailing).first(where: { $0.id == id }) else { return nil }
             var matches: [UIButton] = []
             func hasImage(_ view: UIView) -> Bool {
                 if let actual = (view as? UIImageView)?.image, let expected = images[id], actual === expected || actual.isEqual(expected) { return true }
@@ -472,6 +549,7 @@ final class SwipeActionsHost {
                 if visibleOnly && (view.isHidden || view.alpha <= 0.01) { return }
                 if let button = view as? UIButton,
                    (!visibleOnly || table.bounds.intersects(button.convert(button.bounds, to: table))),
+                   span.map({ $0.contains(CGPoint(x: $0.midX, y: button.convert(button.bounds, to: table).midY)) }) ?? true,
                    button.accessibilityLabel == host.label(target) || hasImage(button) { matches.append(button) }
                 for child in view.subviews { visit(child) }
             }

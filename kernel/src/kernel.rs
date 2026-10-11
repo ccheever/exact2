@@ -26,11 +26,14 @@ mod document;
 mod environment;
 mod geometry;
 mod intrinsic;
+mod row_memo;
 mod sticky;
 mod trim;
 
 pub use cover::HostCover;
-pub(crate) use cover::{children_changed as cover_children_changed, header_inset};
+pub(crate) use cover::{
+    apply as apply_cover, children_changed as cover_children_changed, published_extent,
+};
 pub use sticky::StickyConstraint;
 
 /// How many receipts the kernel retains for late readers.
@@ -189,6 +192,14 @@ impl<'a> NodeRef<'a> {
         let mut runs = Vec::new();
         self.arena.text_runs(self.slot, &mut runs);
         runs
+    }
+
+    /// The scale this paragraph is drawn at, as its last layout chose it
+    /// (`-exact-fit: shrink`, LLP 1116.001 D1.4): 1 unless it was shrunk to
+    /// fit its box. [`Self::text_runs`] are at it already; a host that draws
+    /// from the style rows multiplies their sizes by it.
+    pub fn fit_scale(&self) -> f32 {
+        self.arena.fit_scale(self.slot)
     }
 
     /// Child wire ids, in order.

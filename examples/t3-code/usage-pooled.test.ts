@@ -521,9 +521,21 @@ describe('light dismiss of a pinned segment popover (popover-escape-parity)', ()
     for (const file of readdirSync(new URL('./', import.meta.url)).filter(name => name.endsWith('.contract')).sort()) {
       (await source(file)).split('\n').forEach(line => { if (/^\s*[a-z][\w-]*\b[^\n]*\spointer(down|up|move)=/.test(line)) takers.push(`${file} ${/testId=(?:"([^"]+)"|`([^`]+)`)/.exec(line)?.slice(1).find(Boolean) ?? ''}`); });
     }
+    // browser-surface-capture (realinput-1010c, 1010d RD-1): the floating player hears `pointermove` for its pill and the
+    // pill's tooltips (its buttons hear no hover, X62); a press there is the page's, the player's drag or resize, or a pill
+    // button's, and the Usage page's popover is never on screen with the chat's floating player. realinput-1010f RF-3: the
+    // diff gutter's number and "+" hear the pointer for their drags; the gutter is in a thread's Diff panel or a pull
+    // request's Code tab, which the Usage page covers, so its popover is never on screen with them either. files-gutter-parity
+    // FG-2: so do the Files preview's number and "+", a right-panel surface the Usage page covers too (a skill chip's details
+    // beside them close from the gutter's own press, FG-4).
     expect(takers).toEqual([
       'app-window.contract t3-code',
+      'browser-capture.contract browser-mini-player',
+      'diff-rows.contract diff-line-${path}-${side}-${line}',
+      'diff-rows.contract diff-comment-${path}-${side}-${line}',
       'pages-usage.contract usage-page',
+      'r4-surfaces-files.contract file-line-${line.number}',
+      'r4-surfaces-files.contract file-comment-${line.number}',
       'theme-color-picker.contract theme-editor-swatch-${row.id}',
       'theme-color-picker.contract theme-color-${row.id}-plane',
       'theme-color-picker.contract theme-color-${row.id}-hue',
@@ -561,5 +573,21 @@ describe('the reset confirm gives the segment the focus back (#298 item 12)', ()
     expect(page).not.toContain('page.pooled.confirm != ""');
     // The confirm's commands still ask for the segment's focus (the agent clock settles it with the answer).
     expect(await source('usage-bars.contract')).toContain('button id="reset-credit-cancel" press=command(`${prefix}-reset-cancel`, target, "", 0) key=fromCancel autofocus=true disabled=busy aria-keyshortcuts="Escape"');
+  });
+});
+
+// dialog-initial-focus-and-model-prices MP-1: UsagePage renders its price dialog whatever the metric, so the environment
+// menu's Model prices opens it on Limits too (the clone presented the prices only on Cost and Tokens).
+describe('Model prices on every metric', () => {
+  it('opens on Limits as on Cost and Tokens, and closes on each', async () => {
+    const rig = new Rig(laptop(), null);
+    expect((await rig.page({ metric: 'limits' })).prices.open).toBe(false);
+    await rig.command('usage-prices-open');
+    for (const metric of ['limits', 'cost', 'tokens']) {
+      const prices = (await rig.page({ metric })).prices;
+      expect([metric, prices.open, prices.selectionLabel]).toEqual([metric, true, 'All environments']);
+    }
+    await rig.command('usage-prices-close');
+    for (const metric of ['limits', 'cost']) expect([metric, (await rig.page({ metric })).prices.open]).toEqual([metric, false]);
   });
 });

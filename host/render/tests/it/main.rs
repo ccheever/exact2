@@ -665,6 +665,53 @@ fn a_route_lists_its_pages_with_its_source() {
     );
 }
 
+/// A `pages=` source that is re-asked without end (`Dispatch::Again` gets
+/// its outcome at once, every time) still meets the enumerator's deadline
+/// (Astra, code review round 1: the loop checked it only after a drain came
+/// back empty, and spun).
+#[test]
+fn a_pages_source_re_asked_without_end_meets_the_deadline() {
+    struct Forever;
+    impl DataSource for Forever {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(source.into()))
+        }
+        fn answer(&mut self, _: &mut Store, _: &str, _: &[Value]) -> Result<Answer, DataError> {
+            Ok(Answer::Later(Request::continuation(1)))
+        }
+        fn dispatch(&mut self, _: u64, _: &Store) -> exact_runner::Dispatch {
+            exact_runner::Dispatch::Again
+        }
+        fn parse(
+            &mut self,
+            _: &mut Store,
+            _: &str,
+            _: &[Value],
+            _: Outcome,
+        ) -> Result<Answer, DataError> {
+            Ok(Answer::Later(Request::continuation(1)))
+        }
+    }
+    let plan = contract::compile(
+        "routes nav\n  tab home \"/\" render=build\n    post \"/post/:post\" render=build pages=posts(\"public\")\ncomponent A\n  view\n    text \"a\"\n",
+    )
+    .unwrap();
+    let (done, finished) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let row = plan
+            .routes
+            .iter()
+            .find(|r| plan.str(r.name) == "post")
+            .unwrap();
+        let listed = exact_render::pages(&plan, Forever, row, Duration::from_millis(300));
+        let _ = done.send(listed);
+    });
+    let listed = finished
+        .recv_timeout(Duration::from_secs(20))
+        .expect("the enumerator returns at its deadline");
+    assert!(listed.unwrap_err().contains("deadline"));
+}
+
 #[test]
 fn rendered_document_sets_html_language_and_direction() {
     let mut rendered = at(Post::Soon, Duration::from_secs(5));
@@ -709,12 +756,12 @@ shape ClockAnswer
   at: number
 
 component Clock
-  state first = now()
-  resource observed = clock(now()) as shape ClockAnswer
+  state first = performanceNow()
+  resource observed = clock(performanceNow()) as shape ClockAnswer
   view
     column
       text `First ${first}`
-      text `Clock ${now()}`
+      text `Clock ${performanceNow()}`
       text `Resource ${observed.at}`
 "#,
     )

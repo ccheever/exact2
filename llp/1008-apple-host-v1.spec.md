@@ -998,6 +998,9 @@ re-sent by the batch that changes the insets. `layout` reports the insets
 given as `env` (LLP 1012 §1) — zero when the viewport is the safe area, as
 `env()` is zero on a page without the meta.
 
+> **Amended by LLP 1115 D2.** Where the root sets none it is the platform's background
+> (`systemBackground` on iOS, `windowBackgroundColor` on the Mac), never a fixed white.
+
 The standalone macOS adapter also applies the current `viewport-fit` when it
 installs its window callback: mounting the view can already have booted the
 embedded plan. Every successful session boot re-sends the view's insets,
@@ -1059,6 +1062,16 @@ runtime already believes them applied. The deferred change retains the keyboard'
 animation duration and curve; it is independent of the removed view's lifetime.
 The Messages forwarding-cancel/Back drive verifies the inbox's painted search
 position returns to its original full-height position.
+**`resizes-content` is iOS's default (2026-10-10, LLP 1116 D2).** A hand-built
+app keeps a focused field and the content under it above the keyboard (UIKit's
+keyboard layout guide, SwiftUI's keyboard safe area); the web's default left the
+fields under it covered and panned the whole page, header and all, so the bake-off
+graders marked it down. A root without `interactive-widget` now has the
+`resizes-content` reading above (`Presenter.keyboardPolicy`; the agent's
+`state.keyboard.policy` reports it); `interactive-widget="resizes-visual"` is the
+opt-out to the inset reading, and `overlays-content` stays as below. The web keeps
+the browser's default.
+
 **`interactive-widget="overlays-content"` and the keyboard toolbar
 (2026-10-03, §9.1).** CSS's third value: the keyboard covers the viewport and
 nothing is resized. Its consumer, the Signal Clone app (an outside app,

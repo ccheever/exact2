@@ -25,6 +25,19 @@ import CExact
 import CoreText
 
 /// One styled run: what changes glyph metrics.
+extension Run {
+    /// This run at `scale` of its size, in the kernel's f32 arithmetic
+    /// (`TextStyle::scaled`, LLP 1116.001 D1.4: a fitted paragraph).
+    func scaled(_ scale: Float) -> Run {
+        guard scale != 1 else { return self }
+        var run = self
+        run.size = CGFloat(Float(size) * scale)
+        run.lineHeight = lineHeight.map { CGFloat(Float($0) * scale) }
+        run.letterSpacing = CGFloat(Float(letterSpacing) * scale)
+        return run
+    }
+}
+
 package struct Run: Hashable {
     package var text: String
     package var size: CGFloat
@@ -123,6 +136,13 @@ struct Spec: Hashable {
     /// blur in points, then the colour's r g b a (0–255), resolved for the
     /// appearance. Nil when the runs' own differ (`gatherShadows`).
     var shadow: [Double]? = nil
+    /// CSS `text-box-trim` (0 none, 1 trim-start, 2 trim-end, 3 trim-both)
+    /// and `text-box-edge`'s over (0 text, 1 cap, 2 ex) and under (0 text,
+    /// 1 alphabetic) edges: the paragraph is cut to its fonts' own metrics,
+    /// for measuring and painting alike.
+    var textBoxTrim = 0
+    var textBoxOver = 0
+    var textBoxUnder = 0
 }
 
 /// Where collapsed white space went, from `exact_text_collapse`: offsets
@@ -799,7 +819,7 @@ package final class TextEngine {
             }
             if let sh = r.shadow, TextEngine.isShadow(sh) { a[.exactShadow] = TextRunShadow(sh) }
             if r.letterSpacing != 0 { a[.kern] = r.letterSpacing }
-            if r.decoration.contains("underline") || (r.decoration.isEmpty && !r.href.isEmpty) { a[.underlineStyle] = NSUnderlineStyle.single.rawValue }
+            if r.underlined { a[.underlineStyle] = NSUnderlineStyle.single.rawValue }
             if r.decoration.contains("line-through") { a[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
             if !r.hidden, let fill = r.background.map(TextEngine.color), fill.cgColor.alpha > 0 {
                 let f = a[.font] as! PlatformFont
@@ -1138,8 +1158,13 @@ package final class TextEngine {
         // up once, on iOS (CSSLineBox). A width rounds up to the browser's
         // 1/64 layout unit, so text laid out again at its own measured width
         // still fits on its lines.
+        var height = explicit ? y : ceil(y)
+        // CSS `text-box-trim`: the first line cut at its fonts' text, cap or
+        // ex top, the last at their baseline or descent, as the measurer and
+        // the painter both see it (`Spec.textBoxTrim`).
+        trimTextBox(spec, lines: lines, baselines: &baselines, lineBottoms: &lineBottoms, height: &height)
         let paragraph = Paragraph(lines: lines, baselines: baselines, width: CSSLineBox.layoutWidth(maxWidth),
-                                  height: explicit ? y : ceil(y), lineBottoms: lineBottoms,
+                                  height: height, lineBottoms: lineBottoms,
                                   shape: shape, offeredWidth: width, glyphCount: glyphCount)
         paragraph.clampedRange = clampedRange
         paragraph.insets = insets
@@ -1212,31 +1237,27 @@ package final class TextEngine {
             residency.putMinimum(identity, width: CSSLineBox.layoutWidth(widest))
             return CSSLineBox.layoutWidth(widest)
         }
-        // Repeated words previously reused entire cached Paragraphs. Keep that
-        // benefit with probe-local scalars, bounded by the same logical-payload
-        // target; unique words beyond it are measured normally, never omitted.
-        var words: [Run: CGFloat] = [:]
-        var wordBytes = 0
-        // CSS `text-indent` is part of the first line, so of its first word's
-        // piece; a list item's indent of each of its words, its marker hung.
+        // Each piece is measured as a line of the paragraph's typesetter, so
+        // the paragraph is shaped once. A resident shape is used if there is
+        // one; this measure does not make one resident.
+        // `text-indent` applies to the first line only (CSS Text 3 §8.1), so
+        // only to the first piece. A run's own indent (a list item's) applies to
+        // each of its pieces.
+        let resident = residency.shape(TextShapeKey(identity: identity, paint: TextPaint(spec)))
+        let source = resident?.attributed ?? attributed(spec)
+        let typesetter = resident?.typesetter ?? CTTypesetterCreateWithAttributedString(source)
         var indent = spec.textIndent
-        for r in spec.runs where !r.hang {
-            for word in unbreakablePieces(r.text) {
-                var one = spec
-                one.runs = [Run(text: String(word), size: r.size, weight: r.weight, family: r.family, italic: r.italic, lineHeight: r.lineHeight, letterSpacing: r.letterSpacing, numeric: r.numeric)]
-                let key = one.runs[0]
-                defer { indent = 0 }
-                let inset = indent + r.indent
-                if let width = words[key] { widest = max(widest, width + inset); continue }
-                // This probe needs one scalar, never a cached width-specific
-                // Paragraph or a historical per-word CTTypesetter.
-                let line = CTLineCreateWithAttributedString(attributed(one))
-                let width = CSSLineBox.layoutWidth(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
-                widest = max(widest, width + inset)
-                let bytes = key.text.utf8.count + MemoryLayout<Run>.stride + MemoryLayout<CGFloat>.stride
-                if bytes <= residency.softTargetBytes - wordBytes {
-                    words[key] = width; wordBytes += bytes
-                }
+        var offset = 0
+        for r in spec.runs {
+            let text = r.text as NSString
+            defer { offset += text.length }
+            guard !r.hang else { continue }
+            for piece in Self.pieceRanges(text, boundaries: lineBoundaries(text, length: text.length)) {
+                let range = CFRange(location: offset + piece.range.location, length: piece.range.length)
+                var line = CTTypesetterCreateLine(typesetter, range)
+                if piece.hyphenated { line = Self.inkedSoftHyphen(line, source: source, range: range) }
+                widest = max(widest, CSSLineBox.layoutWidth(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))) + indent + r.indent)
+                indent = 0
             }
         }
         residency.putMinimum(identity, width: widest)
@@ -1362,6 +1383,7 @@ package final class TextEngine {
         // Metric-only keys match the geometry used by the colored presenter.
         var made = Spec(runs: runs, align: Int(request.align), lineClamp: Int(request.line_clamp), color: [0, 0, 0, 255], overflowWrap: Int(request.overflow_wrap), direction: Int(request.direction), whiteSpace: Int(request.white_space), strut: run(request.strut))
         made.textIndent = CGFloat(request.text_indent); made.hyphens = Int(request.hyphens)
+        made.textBoxTrim = Int(request.text_box_trim); made.textBoxOver = Int(request.text_box_over); made.textBoxUnder = Int(request.text_box_under)
         if made.hyphens == 2, let lang = request.lang {
             made.language = String(decoding: UnsafeBufferPointer(start: lang, count: request.lang_len), as: UTF8.self)
         }

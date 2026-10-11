@@ -7,28 +7,40 @@ use crate::{err, LowerError, Lowerer};
 use contract_syntax::{Attr, Expr, Node, Span};
 use exact_kernel::StyleId;
 
-/// HTML's `hr`: the UA stylesheet's rows (`display: block` is every node's
-/// already): `margin: 0.5em auto; border-style: inset; border-width: 1px;
-/// color: gray; overflow: hidden` (LLP 1021 D1). Chrome's sheet names no
-/// `border-color`: the sides stay `currentcolor`, which an `inset` side
-/// paints as `#eeeeee`'s pair (`StyleProps::border_colors`).
+/// HTML's `hr`, as the platform draws a separator (LLP 1115 §3, wave 1):
+/// the UA stylesheet's `margin: 0.5em auto; overflow: hidden`, and in place
+/// of its two-toned `inset` 1px box a single solid top edge in the
+/// separator role (`-exact-separator`: `separatorColor` on Apple). The edge
+/// is `currentcolor`, so an author's `color` or `border-*` still wins
+/// (LLP 1021 D1).
 pub(crate) const HR: &[(StyleId, &str)] = &[
     (StyleId::MarginTop, "0.5em"),
     (StyleId::MarginBottom, "0.5em"),
     (StyleId::MarginLeft, "auto"),
     (StyleId::MarginRight, "auto"),
-    (StyleId::BorderStyleTop, "inset"),
-    (StyleId::BorderStyleRight, "inset"),
-    (StyleId::BorderStyleBottom, "inset"),
-    (StyleId::BorderStyleLeft, "inset"),
+    (StyleId::BorderStyleTop, "solid"),
     (StyleId::BorderWidthTop, "1"),
-    (StyleId::BorderWidthRight, "1"),
-    (StyleId::BorderWidthBottom, "1"),
-    (StyleId::BorderWidthLeft, "1"),
-    (StyleId::TextColor, "gray"),
+    (StyleId::TextColor, "-exact-separator"),
     (StyleId::OverflowX, "hidden"),
     (StyleId::OverflowY, "hidden"),
 ];
+
+/// A `dialog` whose role is `alertdialog` is presented as the platform's
+/// confirmation, which a tap outside dismisses: its `closedby` is `any`
+/// unless written (LLP 1115 D6), so the web's `dialog` behaves the same.
+/// The attributes with it added, or `None` when nothing is implied.
+pub(crate) fn implied_closedby(tag: &str, attrs: &[Attr], span: Span) -> Option<Vec<Attr>> {
+    if tag != "dialog" || literal(attrs, "role") != Some("alertdialog") || has(attrs, "closedby") {
+        return None;
+    }
+    let mut attrs = attrs.to_vec();
+    attrs.push(Attr {
+        name: "closedby".into(),
+        value: Expr::Str("any".into(), span),
+        span,
+    });
+    Some(attrs)
+}
 
 fn literal<'a>(attrs: &'a [Attr], name: &str) -> Option<&'a str> {
     match &attrs.iter().rev().find(|a| a.name == name)?.value {
@@ -101,11 +113,13 @@ impl Lowerer<'_> {
         let Some(id) = literal(attrs, "id") else {
             return Ok(());
         };
+        // An unwritten `closedby` is implied (`implied_closedby`); one written
+        // otherwise asks for what the native confirmation cannot do.
         let closedby = attrs.iter().rev().find(|a| a.name == "closedby");
-        if dialog && closedby.is_none_or(|c| matches!(&c.value, Expr::Str(v, _) if v != "any")) {
+        if dialog && closedby.is_some_and(|c| matches!(&c.value, Expr::Str(v, _) if v != "any")) {
             return err(
                 "lower-alertdialog",
-                format!("alertdialog `dialog` `{id}` needs `closedby=\"any\"`: a native confirmation is dismissed by a tap outside it"),
+                format!("alertdialog `dialog` `{id}` cannot take this `closedby`: a native confirmation is dismissed by a tap outside it, so it is `closedby=\"any\"` (leave it unwritten)"),
                 span,
             );
         }

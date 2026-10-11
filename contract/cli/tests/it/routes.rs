@@ -386,8 +386,8 @@ fn imported_routes_cannot_claim_a_root_and_root_routes_survive_component_lifting
     let child = "component Screen\n  props\n    entry: Entry\n  state draft = entry.url\n  action edit(value: string)\n    draft = value\n  view\n    input value=draft change=edit testId=`draft-${entry.id}`\n";
     std::fs::write(dir.join("shared.contract"), child).unwrap();
     let source = SOURCE.replace(
-        "          button id=\"back\" press=back",
-        "          Screen(entry=e)\n          button id=\"back\" press=back",
+        "          button appearance=\"none\" id=\"back\" press=back",
+        "          Screen(entry=e)\n          button appearance=\"none\" id=\"back\" press=back",
     );
     std::fs::write(
         &app,
@@ -651,7 +651,10 @@ fn navigate_delivers_one_location_or_lets_the_action_ignore_it() {
         SOURCE.replace("navigate=followLink", "navigate=followLink(\"/\")"),
         SOURCE
             .replace("navigate=followLink", "navigate=home")
-            .replace("button id=\"back\"", "button navigate=home id=\"back\""),
+            .replace(
+                "button appearance=\"none\" id=\"back\"",
+                "button appearance=\"none\" navigate=home id=\"back\"",
+            ),
     ] {
         assert!(contract::compile(&source).is_err());
     }
@@ -699,11 +702,68 @@ component App
             .contains("`main > column > column > column > column`"),
         "{error}"
     );
-    // A key outside any root is not a route.
+    // A key outside any root is not a route: below a root that carries
+    // none, nothing is a navigation root (LLP 1116 D6 makes the first root
+    // with a key one).
     contract::compile(
-        "component App\n  view\n    column navigationKey=\"a\"\n      column navigationKey=\"b\"\n",
+        "component App\n  view\n    column\n      column navigationKey=\"a\"\n        column navigationKey=\"b\"\n",
     )
     .unwrap();
+}
+
+#[test]
+fn a_root_with_a_key_and_no_back_control_named_is_the_navigation_root() {
+    // @ref LLP 1116 D6, LLP 1115 D5 — `navigationBack` is optional: the
+    // first root with a `navigationKey` is the navigation root, naming the
+    // empty id, which no control carries, so the platform's Back is the
+    // router's own (the unit-converter builder lost the native bar to it).
+    let source = r#"routes nav
+  home "/"
+    detail "/detail"
+component App
+  view
+    main navigationKey=`${top(nav).id}` width="100%" height="100%"
+      each e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` position="absolute" inset=0
+          text e.url
+"#;
+    let mut r = boot(contract::compile(source).unwrap(), "/detail");
+    let root = r.kernel().roots()[0];
+    let props = &r.kernel().node(root).unwrap().props;
+    assert_eq!(props.str(PropId::NavigationBack), Some(""));
+    assert_rows(&r);
+    let top = selected(&state(&r)["slots"]["nav"]).last().unwrap()["id"]
+        .as_u64()
+        .unwrap();
+    assert!(
+        r.host_back(top).unwrap().is_some(),
+        "the system Back pops the router"
+    );
+    assert_eq!(selected(&state(&r)["slots"]["nav"]).len(), 1);
+    assert_rows(&r);
+    // Routes now sit where every host finds them, or are refused.
+    let wrapped = source.replace(
+        "      each e in stack(nav) key=e.id\n        column navigationKey",
+        "      column\n        each e in stack(nav) key=e.id\n          column navigationKey",
+    );
+    let error = contract::compile(&wrapped).unwrap_err();
+    assert_eq!(error.id, "lower-route-place", "{error}");
+    // A named control is the author's, as before.
+    let named = contract::compile(&source.replace(
+        "main navigationKey=`${top(nav).id}`",
+        "main navigationKey=`${top(nav).id}` navigationBack=\"back\"",
+    ))
+    .unwrap();
+    let r = boot(named, "/detail");
+    let root = r.kernel().roots()[0];
+    assert_eq!(
+        r.kernel()
+            .node(root)
+            .unwrap()
+            .props
+            .str(PropId::NavigationBack),
+        Some("back")
+    );
 }
 
 #[test]

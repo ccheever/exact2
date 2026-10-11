@@ -1,6 +1,11 @@
 # iOS scrolling: what Exact runs per frame, and three changes
 
-**Status:** Built on the `ide/exact2` fork's `main` branch, 2026-10-02:
+**Status:** Open
+**Systems:** iOS host, Scroll performance
+**Author:** Original issue author unrecorded; header repaired by Codex for Charlie Cheever
+**Date:** 2026-10-02
+
+Built on the `ide/exact2` fork's `main` branch, 2026-10-02:
 - `4ffb9488`
 - `2be59e59`
 - `9a3d70cc`

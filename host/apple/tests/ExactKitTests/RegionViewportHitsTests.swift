@@ -80,7 +80,7 @@ import XCTest
         defer { service.close() }
         func drain() -> RegionAnswer {
             let deadline = Date().addingTimeInterval(5)
-            while inbox.answers.isEmpty && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.001)) }
+            while inbox.answers.isEmpty && Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.001)) }
             precondition(!inbox.answers.isEmpty, "actual queue delivery")
             return inbox.answers.removeFirst()
         }

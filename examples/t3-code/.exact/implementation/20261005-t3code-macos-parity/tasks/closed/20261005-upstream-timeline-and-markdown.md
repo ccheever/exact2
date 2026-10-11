@@ -80,10 +80,10 @@ Checked sources and time: local issue drafts in [issues](../../issues/README.md)
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
-| [X9](../../issues/20261005-x09-root-component-across-files.md) | Resource in a child component, or a root across files | `app.contract` 1,327 and `client.ts` 1,455 of 1,500 lines; this ticket adds a fetch resource and state | nonblocking until the cap (workaround: `client-ops-*.ts` and child components, which `20261005-hot-file-split` prepares) | Remove A1 code first; measure lines before adding |
+| [X9](../../issues/closed/20261005-x09-root-component-across-files.md) | Resource in a child component, or a root across files | `app.contract` 1,327 and `client.ts` 1,455 of 1,500 lines; this ticket adds a fetch resource and state | nonblocking until the cap (workaround: `client-ops-*.ts` and child components, which `20261005-hot-file-split` prepares) | Remove A1 code first; measure lines before adding |
 | [X13](../../issues/closed/20261005-x13-hover-keys-during-pan.md) | Hover events during a pan | A17: a scroll while the pointer rests | nonblocking | Run the A17 drive; record the result |
 | [X24](../../issues/closed/20261005-x24-still-pointer-rehover.md) | Hover re-test under a still pointer | The `t3-rehover` workaround may reopen a tip right after the scroll | nonblocking | Assert the tip stays closed until the pointer moves Update 2026-10-07 (adopt-main-fixes-shell): `t3-rehover` is gone; main #174's host re-hover after a scroll sends hover, not mouse motion, so `T3TimelineTooltip`'s latch still keeps the tip closed. |
-| [X10](../../issues/20261005-x10-text-rendering-parity.md) | Text rendering parity | Row text wrap points and weight differ in pixel pairs | nonblocking | List in `EXACT2-GAPS.md` with the pair |
+| [X10](../../issues/closed/20261005-x10-text-rendering-parity.md) | Text rendering parity | Row text wrap points and weight differ in pixel pairs | nonblocking | List in `EXACT2-GAPS.md` with the pair |
 | none found | A1–A4, tool icons, skill chips | Contract already draws images and `font-style` (`markdown.contract:324`); check the image element with `contract vocab` at `prepare` | none | — |
 
 ## Implementation notes
@@ -165,7 +165,7 @@ acceptance remains unverified. Local evidence: `/tmp/t3-parallel-final-native.lo
 
 **Result: failed.** 158 Bun,10 Rust and11 native hook assertions pass; real pinned server output fetched and shown. Actual ExactKit Tab loop skips tool-output scroll region (acceptsFirstResponder/canBecomeKeyView/tabbable false). This is a functional acceptance failure. Remaining detailed live rows are listed in evidence.
 
-See [live attempt](../../evidence/parallel/20261006-live-verification/attempt.md), [capture report](../../evidence/parallel/20261006-live-verification/checks-final/report.json), and [independent review](../../reviews/20261006-parallel-verification.md). Source remained unchanged. No framework issue was resolved or closed by this app-only verification.
+See live attempt, capture report, and [independent review](../../reviews/20261006-parallel-verification.md). Source remained unchanged. No framework issue was resolved or closed by this app-only verification.
 
 ## Authorized repair pass, 2026-10-06
 
@@ -173,9 +173,9 @@ User explicitly requested repair and continuation through verification. Prior fa
 
 ## Final targeted repair evidence, 2026-10-06
 
-Verification **blocked**, not closed. The final named native bundle passes the loaded-output boundary:334.88→334.88 after three Down keys→294.88 on the first Up. Actual native frames and source receipt: [frame-ID replay](../../evidence/20261005-upstream-timeline-and-markdown/20261006-repair-verification/frame-id-agent/observations.md). Actual Tab/disclosure reachability and known-skill/rendering evidence remain in the preceding repair packets.
+Verification **blocked**, not closed. The final named native bundle passes the loaded-output boundary:334.88→334.88 after three Down keys→294.88 on the first Up. Actual native frames and source receipt: frame-ID replay. Actual Tab/disclosure reachability and known-skill/rendering evidence remain in the preceding repair packets.
 
-The independent read slots preserve per-row output ownership. The [overlap attempt](../../evidence/20261005-upstream-timeline-and-markdown/20261006-repair-verification/two-slot-agent/observations.md) cannot prove concurrent admission: the deterministic agent clock awaits A's replies before it advances the `then` callback for B. Independent review identifies this as a harness limitation, not a production serialization finding. Normal live mode is blocked on credential keychain insertion; no user keychain was modified. Focused-tooltip and attended wheel acceptance remain incomplete. Prior failed evidence is preserved; no pixel-perfect loop was performed.
+The independent read slots preserve per-row output ownership. The overlap attempt cannot prove concurrent admission: the deterministic agent clock awaits A's replies before it advances the `then` callback for B. Independent review identifies this as a harness limitation, not a production serialization finding. Normal live mode is blocked on credential keychain insertion; no user keychain was modified. Focused-tooltip and attended wheel acceptance remain incomplete. Prior failed evidence is preserved; no pixel-perfect loop was performed.
 
 ## Wave 3 repair: Tab order, 2026-10-06
 

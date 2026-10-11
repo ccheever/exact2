@@ -110,6 +110,11 @@ named here pass.
     `mixed` max-content 4 -> 5 of 5; two line widths moved closer to
     Chrome, none further. Tests: `css_tests.rs`
     (`a_common_character_after_a_cjk_bracket_is_shaped_in_the_brackets_run`).
+16. **Inline glyph iteration.** `#[inline]` on `GlyphIter::next` and
+    `Glyph::style_index`. Neither is generic, so a build without LTO (the
+    host's `host-dev` profile) called each once per glyph from the host's
+    run, cluster and glyph walk: 21 ms of a 1 MiB paragraph's 992,721
+    glyphs, 7.5 ms inlined (expo-build-1000). No behaviour changes.
 
 All other archive files are byte-for-byte upstream. The upstream test suite
 (not in the archive) passed with patches 1–4 applied; with 4–7, five tests

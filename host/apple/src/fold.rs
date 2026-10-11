@@ -22,6 +22,15 @@ impl<D: DataSource> Host<D> {
         self.set_environment(env)
     }
 
+    /// The window's own size, whatever is presented in it (LLP 1075.003
+    /// §9.11): what every viewport unit (`vw`, `vh`, `vmin`, `vmax` and kin) resolves
+    /// against everywhere, root and every sheet, never a sheet's viewport,
+    /// so no length follows a sheet's height. `None`: the layout viewport.
+    pub fn set_screen(&mut self, screen: Option<(f32, f32)>) -> String {
+        let env = self.runner.kernel().env().with_screen(screen);
+        self.set_environment(env)
+    }
+
     pub(super) fn set_environment(&mut self, env: Env) -> String {
         let mut batch = Batch::new();
         let error = match self.runner.kernel_mut().set_env(env) {

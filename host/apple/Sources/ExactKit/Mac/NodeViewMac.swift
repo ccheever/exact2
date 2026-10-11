@@ -45,7 +45,10 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     weak var ghostParent: NodeView?
     let firstDraw: () -> Void
     let kind: String
-    var inlineText: [InlineText] = []
+    var inlineText: [InlineText] = [] { didSet { inlineAccessibility = nil } }
+    /// Its runs' elements, kept until the runs change, and what else made
+    /// them (`textAccessibilityChildren`).
+    var inlineAccessibility: (key: String?, elements: [NSAccessibilityElement])?
     var inlinePressed: UInt32?
     /// An SVG element a click in this `svg` went down on (LLP 1055.000 D17).
     var svgPressed: UInt32?
@@ -235,6 +238,10 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             return
         }
         if reorderKey(name) || presenter?.controls.radioKey(self, name, held: KeyCodes.held(event.modifierFlags)) == true { return }
+        if isButton, !pressable, name == "Enter" || name == " " {
+            activateNative()
+            return
+        }
         if pressable, name == "Enter" || (name == " " && props["href"] == nil) {
             let canvas = inputCanvas, ownerWindow = window
             presenter?.press(id)
@@ -299,7 +306,17 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// of a fling's main thread on bones, 2026-09-30, against SwiftUI's 9).
     package override func resetCursorRects() {
         super.resetCursorRects()
-        if let cursor = CSSCursor.value(style["cursor"]?.string ?? "auto") { addCursorRect(bounds, cursor: cursor) }
+        if let cursor = CSSCursor.value(style["cursor"]?.string ?? "auto") { addCursorRect(bounds, cursor: cursor); return }
+        // `cursor: auto` over a link is AppKit's pointing hand, as
+        // `NSTextView` shows over its links (LLP 1115 §3): a `link` node, and
+        // each `href` run of a paragraph.
+        if props["accessibilityRole"] == "link" || !(props["href"] ?? "").isEmpty {
+            addCursorRect(bounds, cursor: .pointingHand)
+            return
+        }
+        for run in inlineText where run.isLink && !run.hidden {
+            for rect in inlineRects(run) { addCursorRect(rect, cursor: .pointingHand) }
+        }
     }
     func syncHoverTracking() {
         let wants = handlers.contains("hover") || handlers.contains("pointermove") || inlineText.contains(where: { $0.handlers.contains("hover") })
@@ -326,6 +343,26 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if handlers.contains("hover") { presenter?.hover(self, false) }
     }
     /// A control is a leaf, as UIKit makes one: VoiceOver reads its name.
+    /// The exception is a descendant with a role of its own, which stays its
+    /// child as on the web (`controlAccessibilityChildren`). An image or a
+    /// range is a leaf.
+    package override func accessibilityChildren() -> [Any]? {
+        if props["accessibilityElementsHidden"] == "true" { return [] }
+        if actsAsButton { return controlAccessibilityChildren() }
+        return props["accessibilityRole"] == "img" || rangeRole != nil ? nil : textAccessibilityChildren() ?? super.accessibilityChildren()
+    }
+    /// A control's descendants with a role of their own, as the web keeps
+    /// them: Chrome's `<button><h2>` is button › heading (X74). Nil when it
+    /// holds only text and images, so it stays a leaf read once by its name.
+    private func controlAccessibilityChildren() -> [Any]? {
+        let named: Set<NSAccessibility.Role> = [.staticText, .image]
+        let children: [Any] = super.accessibilityChildren() ?? []
+        let own = children.filter { child in
+            let role = (child as? NSView)?.accessibilityRole() ?? (child as? NSAccessibilityElement)?.accessibilityRole()
+            return role.map { !named.contains($0) } ?? false
+        }
+        return own.isEmpty ? nil : own
+    }
     package override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
         super.accessibilityAttributeNames() + (["AXLanguage"] + Self.ariaAttributes.filter { ariaAttribute($0) != nil }).map { .init(rawValue: $0) }
     }
@@ -340,33 +377,6 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// web's does (onboarding F16: a checkbox's visible label stayed exposed).
     package override func isAccessibilityElement() -> Bool {
         accessibilityExposed && props["accessibilityElementsHidden"] != "true" && super.isAccessibilityElement()
-    }
-    package override func accessibilityChildren() -> [Any]? {
-        if props["accessibilityElementsHidden"] == "true" { return [] }
-        return actsAsButton || props["accessibilityRole"] == "img" ? nil : textAccessibilityChildren() ?? super.accessibilityChildren()
-    }
-    /// What VoiceOver reaches, as the web's accessibility tree and iOS's
-    /// traits have it: a pressable is a button — a link, checkbox, radio or
-    /// switch when its role says so — a labelled image (or `role="img"`,
-    /// an svg's) an image, and a `group` or `radiogroup` a group of its
-    /// children. Headings are paragraphs (`updateTextAccessibility`); names
-    /// come from `syncAccessibility`.
-    func updateRoleAccessibility() {
-        let role = props["accessibilityRole"]
-        if actsAsButton {
-            setAccessibilityElement(true)
-            if let checked = checkedRole { setAccessibilityChecked(checked.role, checked.checked) }
-            else { setAccessibilityToggle(pressedState, else: role == "link" ? .link : .button) }
-            setAccessibilitySelected(props["accessibilitySelected"] == "true")
-            if let expanded = props["accessibilityExpanded"] { setAccessibilityExpanded(expanded == "true") }
-        } else if kind == "image" || role == "img" {
-            let labelled = authoredLabel != nil
-            setAccessibilityElement(labelled)
-            setAccessibilityRole(labelled ? .image : nil)
-        } else if role == "group" || role == "radiogroup" {
-            setAccessibilityElement(true)
-            setAccessibilityRole(role == "radiogroup" ? .radioGroup : .group)
-        }
     }
     /// Where an image source resolves, as a page resolves `src`: an `http(s)`
     /// URL as is; a relative path under the asset root (`EXACT_ASSETS`, else
@@ -446,7 +456,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         }
         if kind == "textarea" { makeTextArea() }
         if kind == "input" {
-            let f = makeField(secure: false)
+            let f = makeField(.plain)
             addSubview(f)
             field = f
         }
@@ -771,10 +781,15 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
 
     /// The field for an input: `NSSecureTextField` for `type="password"`
-    /// (the web's masking), a plain one otherwise; the same delegate,
-    /// borderless, the node paints its own box.
-    func makeField(secure: Bool) -> NSTextField {
-        let f = secure ? SecureField(frame: .zero) : Field(frame: .zero)
+    /// (the web's masking), `NSSearchField` for a native `type="search"`, a
+    /// plain one otherwise; the same delegate, borderless, the node paints
+    /// its own box.
+    func makeField(_ kind: FieldClass) -> NSTextField {
+        let f: NSTextField = switch kind {
+        case .secure: SecureField(frame: .zero)
+        case .search: SearchField(frame: .zero)
+        case .plain: Field(frame: .zero)
+        }
         f.isBordered = false
         f.isBezeled = false
         f.drawsBackground = false
@@ -805,7 +820,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     func applyPlaceholder(_ f: NSTextField) {
         let text = props["placeholder"] ?? ""
-        let font = f.font ?? NSFont.systemFont(ofSize: 17)
+        let font = f.font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
         if text.isEmpty {
             f.placeholderAttributedString = nil
             f.placeholderString = nil
@@ -887,21 +902,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         props = next
         if set["symbolEffectValue"] != nil { updateSymbol() }
         applyTextArea()
-        if let f = field {
-            // `type` changed between password and text: a secure field is a
-            // different class on AppKit, so the field is remade in place.
-            let secure = props["type"] == "password"
-            if (f is NSSecureTextField) != secure {
-                let n = makeField(secure: secure)
-                n.frame = f.frame
-                n.stringValue = f.stringValue
-                n.font = f.font
-                n.textColor = f.textColor
-                f.removeFromSuperview()
-                addSubview(n)
-                field = n
-            }
-        }
+        remakeFieldIfNeeded()
         if let f = field {
             if let v = props["value"] {
                 // While the field is being edited its field editor holds the
@@ -1096,7 +1097,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         styleTextArea()
         if let f = field, let t = text {
             (f.currentEditor() as? NSTextView)?.insertionPointColor = caretColor
-            f.font = t.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
+            f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
             f.textColor = color("text_color", SystemColor.canvasText)
             applyPlaceholder(f)
             styleNativeField()
@@ -1443,10 +1444,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // menu opens.
         pointerPressed(event)
         let canvas = canvasInput?.pointer(event, phase: "down") == true
-        let menu = !disabled && props["contextPopover"]?.isEmpty == false // and its popover's NSMenu (LLP 1021 §5.1)
-        if !disabled, handlers.contains("contextmenu") { presenter?.mouseEvent(id, 10, pointerSample(event).line) }
-        if menu { presenter?.menus.context(self, at: convert(event.locationInWindow, from: nil)) }
-        if menu || (!disabled && handlers.contains("contextmenu")) { return }
+        if dispatchContextMenu(at: convert(event.locationInWindow, from: nil), sample: pointerSample(event)) { return }
         if !canvas { super.rightMouseDown(with: event) }
     }
     package override func scrollWheel(with event: NSEvent) {

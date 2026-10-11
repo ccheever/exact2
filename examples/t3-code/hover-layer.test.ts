@@ -75,7 +75,7 @@ describe('#262: the base branch hover card is drawn by the window layer and take
 
   test('the layer draws the open pull request\'s card, and a button in it keeps the card (the host hands the hover to the button)', async () => {
     const window = await source('app-window.contract');
-    expect(window).toContain('PaFreshnessCard(actions=prDetail.actions, scheme=viewport.prefersColorScheme, act=prAct, keep=hoverTipAt(hoverTip, "card"), testId=hoverTip.testId)');
+    expect(window).toContain('PaFreshnessCard(actions=prDetail.actions, scheme=scheme, act=prAct, keep=hoverTipAt(hoverTip, "card"), testId=hoverTip.testId)');
     const button = await component('pages-pr-actions.contract', 'PaOutlineButton');
     expect(button).toContain('action hover(value: bool)\n    over = value\n    keep(value)');
     const card = await component('pages-pr-actions.contract', 'PaFreshnessCard');
@@ -145,7 +145,7 @@ describe('the layer and its timing', () => {
       hoverUntil = until
       hoverHold(until)`);
     // Base UI's open delay (nothing drawn before it) and closeDelay, on the root's hover clock.
-    expect(await source('hover-layer.contract')).toContain('fn hoverOpenDelay(kind: string): number = kind == "pr-preview" ? 350 : kind == "scopes" ? 250 : (kind == "usage" ? 300 : 0)');
+    expect(await source('hover-layer.contract')).toContain('fn hoverOpenDelay(kind: string): number = kind == "pr-preview" ? 350 : kind == "scopes" ? 250 : (kind == "usage" ? 300 : (kind == "policy" ? 200 : 0))');
     const lines = window.split('\n');
     const overlays = lines.findIndex(line => line.startsWith('        WindowOverlays('));
     const layer = lines.findIndex(line => line.startsWith('          HoverLayer(tip=hoverTip, viewportWidth=viewport.width, viewportHeight=viewport.height, hoverAt=hoverTipAt)'));
@@ -176,6 +176,32 @@ describe('the layer and its timing', () => {
     hoverWait = hoverWait + 10
   action hoverHold(end: number)
     hoverEnd = end`);
-    expect(root).toContain('T3Window(data=data, viewport=viewport, hoverWait=hoverWait, hoverHold=hoverHold,');
+    expect(root).toContain('T3Window(data=data, viewport=viewport, scheme=scheme, hoverWait=hoverWait, hoverHold=hoverHold,');
+  });
+});
+
+describe('settings-rows-and-labels S1-16, S2-7: one "Background policy details" tooltip, drawn by the window layer', () => {
+  test('PolicyTip hands its button frame to the layer on hover and focus: kind policy, side top, centred, after 200 ms', async () => {
+    const body = await component('settings-kit.contract', 'PolicyTip');
+    expect(body).toContain('inject\n    rem: number\n    hoverTipAt: action');
+    expect(tipCall(body)).toEqual({ key: 'tipId', kind: 'policy', side: 'top', align: 'center', frame: 'tipId', testId: '`${tipId}-tooltip`', inside: 'on' });
+    expect(body).toContain('action hover(over: bool)\n    hovered = over\n    show(over)');
+    expect(body).toContain('action focusTip(on: bool)\n    focused = on\n    show(on)');
+    expect(body).toContain('button id=tipId hover=hover focus=focusTip(true) blur=focusTip(false) aria-label="Background policy details" aria-description=tip testId=tipId');
+    // A policy tip is a tooltip: it takes no pointer and closes with its trigger.
+    const layer = await component('hover-layer.contract', 'HoverLayer');
+    expect(layer).toContain('derive card = tip.kind != "tip" and tip.kind != "policy"');
+    expect(await source('hover-layer.contract')).toContain('fn hoverDelay(kind: string): number = kind == "scopes" ? 100 : (kind == "freshness" or kind == "pr-preview" ? 120 : (kind == "usage" ? 50 : 0))');
+  });
+  test('General, Providers and Source Control use it beside the row title, with the reference words', async () => {
+    expect(await source('settings-rows.contract')).toContain('PolicyTip(tip=row.info, tipId=`setting-info-${row.id}`)');
+    const providers = await source('providers.contract');
+    expect(providers).toContain('PvRow(title="Health check interval", description="Refresh provider status, versions, and models in the background. Set to 0 to disable.", status="", policy="This interval is configured here, then the shared Background activity policy decides whether provider probes may run when the timer fires. Custom intervals appear as Advanced in General settings.", wide=');
+    expect(providers).not.toContain('policyOpen');
+    const row = await component('providers-kit.contract', 'PvRow');
+    expect(row.match(/role="heading" aria-level=3\n              when policy != ""\n                PolicyTip\(tip=policy, tipId="provider-health-policy"\)/g)).toHaveLength(2);
+    const git = await source('settings-source-control.contract');
+    expect(git).toContain('text "Git fetch interval" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)"\n              PolicyTip(tip="This interval is configured for Git only. The shared Background activity policy still decides whether Git refreshes may run when the timer fires. Custom intervals appear as Advanced in General settings.", tipId="git-fetch-policy")');
+    expect(git).not.toContain('text "Automatic Git fetch interval"');
   });
 });

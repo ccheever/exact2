@@ -1,7 +1,7 @@
 // Lane r8-pointer, reworked by r13-store (F3): a wall time that is a real epoch.
 //
 // What a data source can know. The window's time is exactTime's `epochAtZero`
-// plus its own clock (app.contract passes `wallTime.epochAtZero + now()`).
+// plus its own clock (app.contract passes `wallTime.epochAtZero + performanceNow()`).
 // Until the host has told the date `epochAtZero` is 0, so the window time is
 // seconds since launch: a number, but not an instant. The runtime refuses
 // `Date.now()` in data sources (js/src/prelude.js), so `clock()` has nothing

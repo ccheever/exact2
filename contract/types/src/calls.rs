@@ -368,6 +368,13 @@ pub(super) fn unknown_function(
     shapes: &Shapes,
     span: Span,
 ) -> TypeError {
+    if name == "now" {
+        return TypeError {
+            id: "type-now-renamed",
+            message: contract_syntax::idioms::NOW_REFUSED.into(),
+            span,
+        };
+    }
     // The web's list operations and number formatters Contract refuses
     // (LLP 1017.003 §Diagnostics) say what to do instead.
     if let Some(why) = contract_syntax::idioms::refusal(name) {
@@ -410,7 +417,7 @@ fn similar_function<'a>(name: &str, scope: &'a Scope, shapes: &'a Shapes) -> Opt
         return None;
     }
     let global = |candidate: &str| {
-        matches!(candidate, "pending" | "failed")
+        matches!(candidate, "pending" | "failed" | "failure")
             || (candidate == "path" && shapes.routes.is_some())
             || shapes.fns.contains_key(candidate)
             || super::Stdlib::from_name(candidate)
@@ -421,7 +428,7 @@ fn similar_function<'a>(name: &str, scope: &'a Scope, shapes: &'a Shapes) -> Opt
         .keys()
         .map(String::as_str)
         .chain(super::Stdlib::ALL.iter().map(|f| f.name()))
-        .chain(["pending", "failed", "path"]);
+        .chain(["pending", "failed", "failure", "path"]);
     let mut found = None;
     for candidate in names {
         if !one_spelling_edit(name.as_bytes(), candidate.as_bytes()) || !global(candidate) {

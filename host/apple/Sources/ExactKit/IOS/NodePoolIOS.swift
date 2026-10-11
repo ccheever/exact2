@@ -533,6 +533,7 @@ extension NodeView {
     func rebind(_ newID: UInt32) {
         id = newID
         incarnation = NodePool.issue()
+        focusedByTouch = false
         // UIKit's setters are not free, even to the same value.
         if isHidden { isHidden = false }
         if alpha != 1 { alpha = 1 }

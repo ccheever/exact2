@@ -60,6 +60,62 @@ impl<D: DataSource> Presenter<D> {
         });
     }
 
+    /// An app's `scrollBy("element-id", x, y)`: that scroll container moves
+    /// by the pixels given, clamped to its travel, as the web's
+    /// `Element.scrollBy`; an element that does not scroll does not move.
+    pub(super) fn scroll_element_by(&mut self, args: &[exact_plan::Value]) {
+        let name = args
+            .first()
+            .and_then(exact_plan::Value::as_str)
+            .unwrap_or_default();
+        let by = |i: usize| {
+            args.get(i)
+                .and_then(exact_plan::Value::as_number)
+                .unwrap_or(0.0) as f32
+        };
+        let collection_limits = self.collection_scroll_limits();
+        let kernel = self.host.kernel();
+        let Some(node) = kernel
+            .find_by_id(name)
+            .first()
+            .and_then(|key| kernel.node_by_key(*key))
+        else {
+            self.host.log(format!(
+                "scrollBy \"{name}\" refused: no live node with that id"
+            ));
+            return;
+        };
+        let id = node.id;
+        let bounds = self.display.bounds(kernel, id).unwrap_or_else(|| {
+            self.brush.scroll_bounds(
+                kernel,
+                self.host.content_region(),
+                &node,
+                collection_limits.get(&id).copied(),
+            )
+        });
+        let scrolls = |o| matches!(o, Overflow::Scroll | Overflow::Auto);
+        let (ox, oy) = bounds.axes;
+        let off = self.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
+        let next = (
+            if scrolls(ox) {
+                (off.0 + by(1)).clamp(0.0, bounds.max.0)
+            } else {
+                off.0
+            },
+            if scrolls(oy) {
+                (off.1 + by(2)).clamp(0.0, bounds.max.1)
+            } else {
+                off.1
+            },
+        );
+        if next != off {
+            self.scroll.insert(id, next);
+            self.dirty = true;
+            self.collection_scrolled(id);
+        }
+    }
+
     /// Each scroll container above `id`, innermost first, then the page,
     /// moves by what `by(target, port)` asks (viewport coordinates), clamped
     /// to its travel.

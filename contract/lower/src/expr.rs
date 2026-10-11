@@ -113,7 +113,7 @@ pub(crate) fn compile(
         Expr::NamedArg(_, _, span) => {
             return err(
                 "lower-named-argument",
-                "named arguments belong to a canvas surface binding",
+                "named arguments go to a component use, a shape's call (`Row(title=…)`), `empty(…)`, `t(…)`, a canvas `surface=` binding and `share`, `scrollIntoView`; another call's arguments are positional",
                 *span,
             )
         }
@@ -266,9 +266,9 @@ pub(crate) fn compile(
             {
                 return l.text_call(asm, args, *span, scope, locals);
             }
-            if name == "failed" {
+            if name == "failed" || name == "failure" {
                 let [Expr::Ident(target, _)] = args.as_slice() else {
-                    return err("lower-failed", "`failed(x)` names one resource", *span);
+                    return err("lower-failed", format!("`{name}(x)` names one resource"), *span);
                 };
                 let Some((Ref::Resource(i), _)) = scope.lookup(target) else {
                     return err(
@@ -277,8 +277,14 @@ pub(crate) fn compile(
                         *span,
                     );
                 };
-                asm.failed_resource(l.resources[i as usize]);
-                return Ok(Ty::Bool);
+                let r = l.resources[i as usize];
+                if name == "failed" {
+                    asm.failed_resource(r);
+                    return Ok(Ty::Bool);
+                }
+                // @ref LLP 1109 D3 — `none`, or `some` of `{ code, message }`.
+                asm.failure_resource(r);
+                return Ok(Ty::Option(Box::new(Ty::Record("Failure".into()))));
             }
             if name == "pending" {
                 // Typed already: one name, a resource or a mutation.
@@ -367,7 +373,15 @@ pub(crate) fn compile(
             // The defaults of trailing optional parameters the call omitted
             // (LLP 1088 D2): the plan's call always carries the full arity.
             for &d in f.omitted(args.len()) {
-                asm.number(d);
+                match d {
+                    exact_plan::StdlibDefault::Number(n) => {
+                        asm.number(n);
+                    }
+                    exact_plan::StdlibDefault::Str(s) => {
+                        let id = l.b.str(s);
+                        asm.str(id);
+                    }
+                }
             }
             asm.call(f);
             match (f, given.first(), given.get(1)) {

@@ -75,9 +75,9 @@ final class FieldChromeCache: @unchecked Sendable {
         provisional.provisional = 1
         return provisional
     }
-    // Search keeps today's NSTextField. Its kind still has its own cache entry.
+    /// The class a native field of `kind` is (`FieldClass`), measured as it.
     static func platformField(kind: UInt8) -> NSTextField {
-        kind == 1 ? NSSecureTextField(frame: .zero) : NSTextField(frame: .zero)
+        kind == 1 ? NSSecureTextField(frame: .zero) : kind == 2 ? NSSearchField(frame: .zero) : NSTextField(frame: .zero)
     }
     /// Preserve NSTextView's standard space around glyphs while the kernel
     /// owns the wrapping width (and Exact keeps lineFragmentPadding at zero).

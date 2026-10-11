@@ -217,6 +217,40 @@ extension NodeView {
     /// top is the bar's bottom, whatever its height (UIKit keeps the offset
     /// plus that inset fixed while the title collapses) — else 0.
     func scrollTopInset(_ sv: UIScrollView) -> CGFloat { scrollOrigin > 0 ? sv.adjustedContentInset.top : 0 }
+    /// The least content height UIKit takes: the box, or for a scroller
+    /// UIKit insets, the port between the insets the kernel lays its content
+    /// out in (LLP 1116.000 D1.2), so a page shorter than that port does not
+    /// scroll by the bar and the home indicator, as a table view's does not.
+    func scrollFloor(_ sv: UIScrollView) -> CGFloat {
+        guard case .inset(let top, let bottom)? = presenter?.navigation.covers[id] else { return sv.bounds.height }
+        return max(0, sv.bounds.height - top - bottom)
+    }
+}
+extension UIColor {
+    /// LLP 1115 D2: what an unset background is, the platform's —
+    /// `systemBackground` (tvOS has none; white stands in).
+    package static var platformBackground: UIColor {
+        #if os(tvOS)
+        return .white
+        #else
+        return .systemBackground
+        #endif
+    }
+}
+extension NodeView {
+    /// LLP 1115 §2, "inherited is unsaid": the colour row `key` when it is
+    /// written on this node — not a platform colour, and not the same as
+    /// the nearest node view above it has (what CSS's inheritance gave it).
+    /// Nil leaves the control the platform's tint (D4).
+    func ownColor(_ key: String) -> BatchValue? {
+        guard let row = style[key], !row.isSystemColor else { return nil }
+        let above = sequence(first: superview, next: { $0?.superview }).lazy.compactMap { $0 as? NodeView }.first
+        return row.key == above?.style[key]?.key ? nil : row
+    }
+    /// `ownColor` as this node draws it now, or nil.
+    func ownUIColor(_ key: String) -> UIColor? {
+        ownColor(key) == nil ? nil : cgColor(key).map { UIColor(cgColor: $0) }
+    }
 }
 extension NodeView {
     /// Whether a scroll animation ended at the running animation's target,

@@ -9,7 +9,8 @@
 use exact_kernel::style::cells::{COLUMN, ROW};
 use exact_kernel::text::Paragraph;
 use exact_kernel::{
-    AxisOffer, OverflowWrap, TextMeasureRequest, TextMeasurer, TextMetrics, TextRun,
+    AxisOffer, ButtonFaceStyle, ButtonMeasure, ButtonMeasureRequest, OverflowWrap, PressFace,
+    TextMeasureRequest, TextMeasurer, TextMetrics, TextRun,
 };
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
@@ -160,6 +161,31 @@ fn trim(line: &mut Line, trailing: usize) {
     line.glyphs.truncate(keep);
 }
 
+/// LLP 1104 D7: the terminal drops the symbol and paints the title, or
+/// the accessible label of a symbol-only face. Measurement and paint share
+/// this wrap, with one cell of chrome on each side.
+pub(crate) fn button_lines(
+    face: &PressFace,
+    style: &ButtonFaceStyle,
+    width: AxisOffer,
+) -> Vec<Line> {
+    let title = face
+        .title
+        .as_deref()
+        .or(face.label.as_deref())
+        .unwrap_or("");
+    let runs = [TextRun {
+        text: title.into(),
+        style: exact_kernel::text::TextStyle::from_style(&style.title),
+    }];
+    let (limit, min) = match width {
+        AxisOffer::Definite(w) => (Some(columns(w).saturating_sub(2)), false),
+        AxisOffer::MinContent => (Some(0), true),
+        AxisOffer::MaxContent => (None, false),
+    };
+    wrap(&runs, &Paragraph::from_style(&style.title), limit, min)
+}
+
 /// The kernel's measurer: every cluster is a column (two if wide), every
 /// line a row, whatever the font size — the terminal's face is the user's.
 #[derive(Debug, Default)]
@@ -182,6 +208,15 @@ impl TextMeasurer for CellMeasurer {
             height: lines.len() as f32 * ROW,
             first_baseline: Some(ROW * 0.75),
         }
+    }
+
+    fn button_measure(&mut self, request: &ButtonMeasureRequest) -> Option<ButtonMeasure> {
+        let lines = button_lines(&request.face, &request.style, request.width);
+        Some(ButtonMeasure {
+            width: (lines.iter().map(Line::cols).max().unwrap_or(0) + 2) as f32 * COLUMN,
+            height: lines.len() as f32 * ROW,
+            provisional: false,
+        })
     }
 
     fn height_free(&self) -> bool {
