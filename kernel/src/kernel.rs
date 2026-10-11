@@ -25,6 +25,8 @@ mod cover;
 mod document;
 mod environment;
 mod geometry;
+mod history;
+use history::RetainedReceipt;
 mod intrinsic;
 mod row_memo;
 mod sticky;
@@ -245,7 +247,7 @@ pub struct Kernel {
     epoch: u64,
     incarnation: u64,
     provisional_layouts: u64,
-    receipts: VecDeque<CommitReceipt>,
+    receipts: VecDeque<RetainedReceipt>,
     region: Option<crate::region::RegionState>,
     region_leases: crate::region::RegionLeases,
     /// A kernel with layout on demand builds the engine only when a layout
@@ -898,9 +900,10 @@ impl Kernel {
         indexed.iter().min().map(|slot| self.arena.key(*slot))
     }
 
-    /// Retained commit receipts, oldest first.
-    pub fn receipts(&self) -> impl Iterator<Item = &CommitReceipt> {
-        self.receipts.iter()
+    /// Retained commit receipts, oldest first, decoded when requested.
+    /// Commits return their receipt directly; history reads own their copies.
+    pub fn receipts(&self) -> impl Iterator<Item = CommitReceipt> + '_ {
+        self.receipts.iter().map(RetainedReceipt::receipt)
     }
 
     /// Destroy every node and bump the incarnation. Keys minted before never resolve again.

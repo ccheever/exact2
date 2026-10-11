@@ -341,7 +341,7 @@ fn lists<'a>(children: &'a mut [Child], plan: &Plan, frames: &[Frame], out: &mut
             Child::Region(region) => match &mut region.active {
                 Active::Arm { roots, frame, .. } => {
                     let mut inner = frames.to_vec();
-                    inner.push(frame.clone());
+                    inner.push(frame.scope());
                     lists(roots, plan, &inner, out);
                 }
                 Active::Rows { rows } => {
@@ -387,7 +387,7 @@ fn by_view<'a>(
             Child::Region(region) => match &mut region.active {
                 Active::Arm { roots, frame, .. } => {
                     let mut inner = frames.to_vec();
-                    inner.push(frame.clone());
+                    inner.push(frame.scope());
                     if let Some(found) = by_view(roots, view, &inner) {
                         return Some(found);
                     }

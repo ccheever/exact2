@@ -169,11 +169,31 @@ enum Active {
     /// `when` / `match`: the active arm and its roots.
     Arm {
         arm: Option<usize>,
-        frame: Frame,
+        frame: ArmFrame,
         roots: Vec<Child>,
     },
     /// `each`: rows by key, in current order.
     Rows { rows: Vec<Row> },
+}
+
+/// A conditional arm has a match binding and optional owned state, but no
+/// loop item or index. Expand those absent fields only while visiting its scope.
+#[derive(Debug, Clone, Default)]
+struct ArmFrame {
+    bound: Option<Value>,
+    row: Option<RowSlots>,
+    region: Option<u32>,
+}
+
+impl ArmFrame {
+    fn scope(&self) -> Frame {
+        Frame {
+            bound: self.bound.clone(),
+            row: self.row.clone(),
+            region: self.region,
+            ..Frame::default()
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -187,7 +207,8 @@ struct Row {
     /// The row's own slots (LLP 1017 P4c): the `state` a child component
     /// declared, one value per row, kept across reorders with the key,
     /// dropped with the row, initialized when the row is created.
-    slots: RowSlots,
+    /// Ordinary stateless rows omit it unless nested state needs the identity.
+    slots: Option<RowSlots>,
 }
 
 /// One step of the instance path from the plan's roots to a view: the
@@ -446,6 +467,17 @@ impl<'a> Update<'a> {
         }
     }
 
+    /// Detach removed views before destroying them, in the same atomic batch.
+    /// Both groups keep their order; retaining the live-op buffer avoids
+    /// allocating and growing a second copy of the whole update.
+    fn detach_before_destroy(&mut self) {
+        let gone: Vec<_> = self
+            .ops
+            .extract_if(.., |op| matches!(op, Op::DestroyView { .. }))
+            .collect();
+        self.ops.extend(gone);
+    }
+
     fn with_frame<R>(
         &mut self,
         frames: &[Frame],
@@ -467,6 +499,20 @@ impl<'a> Update<'a> {
     fn eval(&mut self, code: exact_plan::Code, frames: &[Frame]) -> Result<Value, Trap> {
         let env = Env { frames, ..self.env };
         vm::eval_value_reusing(self.env.plan.code(code), &env, &mut self.scratch)
+    }
+
+    fn eval_binding(
+        &mut self,
+        binding: exact_plan::BindingsId,
+        code: exact_plan::Code,
+        frames: &[Frame],
+    ) -> Result<Value, Trap> {
+        self.sites.projections[binding.0 as usize].eval(
+            self.env.plan.code(code),
+            &self.env,
+            frames,
+            &mut self.scratch,
+        )
     }
 
     /// Whether anything `reads` reads may differ from what the tree shows.
@@ -552,6 +598,7 @@ pub struct SiteIndex {
     /// template) has one value for the plan's life: evaluated once, by
     /// binding index, instead of once per instance.
     constants: Vec<std::cell::OnceCell<Value>>,
+    projections: Vec<vm::Prepared>,
 }
 
 impl SiteIndex {
@@ -600,6 +647,11 @@ impl SiteIndex {
             resolve_keyframes: keyframes,
             constants: (0..plan.bindings.len())
                 .map(|_| Default::default())
+                .collect(),
+            projections: plan
+                .bindings
+                .iter()
+                .map(|b| vm::Prepared::new(plan.code(b.expr)))
                 .collect(),
         };
         index.deps = Deps::new(plan, &index);
@@ -768,7 +820,7 @@ fn update_row(
     body: &Reads,
 ) -> Result<bool, InstanceError> {
     u.work.rows_scanned += 1;
-    let saved = u.enter(dirty, Some(&row.slots));
+    let saved = u.enter(dirty, row.slots.as_ref());
     let result = if u.stale(body) {
         u.with_frame(frames, row.frame.clone(), |u, inner| {
             update_all(u, &mut row.roots, inner)
@@ -873,14 +925,14 @@ impl NodeInst {
                     Some(value) => value.clone(),
                     None => {
                         u.work.bindings_evaluated += 1;
-                        let value = u.eval(binding.expr, frames)?;
+                        let value = u.eval_binding(b, binding.expr, frames)?;
                         u.sites.constants[b.0 as usize].get_or_init(|| value.clone());
                         value
                     }
                 }
             } else {
                 u.work.bindings_evaluated += 1;
-                u.eval(binding.expr, frames)?
+                u.eval_binding(b, binding.expr, frames)?
             };
             let unchanged = self.last[i]
                 .as_ref()
@@ -1175,11 +1227,7 @@ impl Tree {
         // the final child lists before destroying them, so a removed list does
         // not rebuild its parent's siblings once per row. Still one atomic
         // batch; preserve relative destroy order for receipts and host effects.
-        let (mut live, gone): (Vec<_>, Vec<_>) = std::mem::take(&mut u.ops)
-            .into_iter()
-            .partition(|op| !matches!(op, Op::DestroyView { .. }));
-        live.extend(gone);
-        u.ops = live;
+        u.detach_before_destroy();
         self.seen = Seen::of(&u.env);
         self.last_work = u.work;
         Ok(())

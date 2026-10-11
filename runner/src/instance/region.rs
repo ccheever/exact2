@@ -13,7 +13,7 @@ impl RegionInst {
                 RegionKind::Each => Active::Rows { rows: Vec::new() },
                 _ => Active::Arm {
                     arm: None,
-                    frame: Frame::default(),
+                    frame: ArmFrame::default(),
                     roots: Vec::new(),
                 },
             },
@@ -58,7 +58,7 @@ impl RegionInst {
                     frame,
                     roots,
                     want,
-                    Frame::default(),
+                    ArmFrame::default(),
                     frames,
                 )
             }
@@ -69,15 +69,14 @@ impl RegionInst {
                     match u.eval(row.subject, frames)? {
                         Value::Option(Some(v)) => (
                             Some(0),
-                            Frame {
-                                item: None,
+                            ArmFrame {
                                 bound: Some((*v).clone()),
                                 ..Default::default()
                             },
                         ),
                         Value::Option(None) => (
                             if row.arms.len > 1 { Some(1) } else { None },
-                            Frame::default(),
+                            ArmFrame::default(),
                         ),
                         _ => {
                             return Err(InstanceError::SubjectKind {
@@ -116,6 +115,7 @@ impl RegionInst {
                     });
                 };
                 let arm = row.arms.iter().next();
+                let mut slots_needed = None;
                 // An index key gives each position its identity, regardless
                 // of which item occupies it. No key evaluation or lookup is
                 // needed, including when the list grows or shrinks. Stay on
@@ -132,12 +132,12 @@ impl RegionInst {
                         if let Some(r) = rows.get_mut(position) {
                             changed |= Self::update_item(u, r, frames, frame, body)?;
                         } else {
-                            let slots: RowSlots = Rc::new(RefCell::new(BTreeMap::new()));
+                            let slots = new_row_slots(plan, arm, body, &mut slots_needed);
                             frame.region = Some(self.region.0);
-                            frame.row = Some(slots.clone());
+                            frame.row = slots.clone();
                             let inner = with_frame(frames, frame.clone());
-                            if let Some(arm) = arm {
-                                init_owned(u, arm, &slots, &inner)?;
+                            if let (Some(arm), Some(slots)) = (arm, slots.as_ref()) {
+                                init_owned(u, arm, slots, &inner)?;
                             }
                             let roots = realize(u, None, arm, &inner)?;
                             rows.push(Row {
@@ -255,11 +255,11 @@ impl RegionInst {
                             roots = true;
                             // A new row: its slots start from their initializers,
                             // evaluated here so an initializer may read the item.
-                            let slots: RowSlots = Rc::new(RefCell::new(BTreeMap::new()));
-                            frame.row = Some(slots.clone());
+                            let slots = new_row_slots(plan, arm, body, &mut slots_needed);
+                            frame.row = slots.clone();
                             let inner = with_frame(frames, frame.clone());
-                            if let Some(arm) = arm {
-                                init_owned(u, arm, &slots, &inner)?;
+                            if let (Some(arm), Some(slots)) = (arm, slots.as_ref()) {
+                                init_owned(u, arm, slots, &inner)?;
                             }
                             let roots = realize(u, None, arm, &inner)?;
                             if dup > 0 {
@@ -304,7 +304,7 @@ impl RegionInst {
             frame.item = r.frame.item.take();
         }
         frame.region = r.frame.region;
-        frame.row = Some(r.slots.clone());
+        frame.row = r.slots.clone();
         r.frame = frame;
         update_row(u, r, frames, dirty, body)
     }
@@ -315,10 +315,10 @@ impl RegionInst {
         u: &mut Update<'_>,
         region: RegionsId,
         arm: &mut Option<usize>,
-        frame: &mut Frame,
+        frame: &mut ArmFrame,
         roots: &mut Vec<Child>,
         want: Option<usize>,
-        new_frame: Frame,
+        new_frame: ArmFrame,
         frames: &[Frame],
     ) -> Result<bool, InstanceError> {
         let plan = u.env.plan;
@@ -330,7 +330,7 @@ impl RegionInst {
                 frame.bound = new_frame.bound;
             }
             let saved = u.enter(dirty, frame.row.as_ref());
-            let result = update_all(u, roots, &with_frame(frames, frame.clone()));
+            let result = update_all(u, roots, &with_frame(frames, frame.scope()));
             u.leave(saved);
             return result;
         }
@@ -347,9 +347,9 @@ impl RegionInst {
                 let slots: RowSlots = Rc::new(RefCell::new(BTreeMap::new()));
                 frame.region = Some(region.0);
                 frame.row = Some(slots.clone());
-                init_owned(u, id, &slots, &with_frame(frames, frame.clone()))?;
+                init_owned(u, id, &slots, &with_frame(frames, frame.scope()))?;
             }
-            *roots = realize(u, None, arm_id, &with_frame(frames, frame.clone()))?;
+            *roots = realize(u, None, arm_id, &with_frame(frames, frame.scope()))?;
         }
         Ok(true)
     }
@@ -382,6 +382,21 @@ impl RegionInst {
             }
         }
     }
+}
+
+// A row needs an identity table if it owns state, or if nested state reads
+// use its identity to limit traversal to the written instance's scope chain.
+// Decide once, only when this update actually creates a row.
+fn new_row_slots(
+    plan: &Plan,
+    arm: Option<ArmsId>,
+    body: &Reads,
+    needed: &mut Option<bool>,
+) -> Option<RowSlots> {
+    let needed = *needed.get_or_insert_with(|| {
+        body.opaque || body.row_slots || arm.is_some_and(|arm| owns_slots(plan, arm))
+    });
+    needed.then(|| Rc::new(RefCell::new(BTreeMap::new())))
 }
 
 /// Whether arm `arm`'s instance owns any slot.

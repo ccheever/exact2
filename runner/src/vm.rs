@@ -9,6 +9,9 @@
 //! trusted. There is no closure, no heap of the VM's own, no ambient read that
 //! is not an operand: `performanceNow()` reads the clock the runner passes in.
 
+mod prepared;
+pub(crate) use prepared::Prepared;
+
 use crate::machine::{self, Host, Kind, Machine, Num, Val};
 pub use crate::machine::{Instruction, Trap};
 use crate::stdlib;
@@ -498,35 +501,17 @@ fn prepare_projection(
 // parameter bound once. Recognize the complete body, including both jump
 // targets and the local's lifetime; every other body uses the interpreter.
 fn projected_string_default(code: &[u8], env: &Env<'_>, value: &Value) -> Option<Value> {
-    use Opcode::{BindLocal, DropLocal, Eq, Jump, JumpIfFalse, LoadLocal, Return, Str};
-    let tail: &[u8; 30] = code.get(6..)?.try_into().ok()?;
-    if !value.is_str()
-        || tail[..5] != [BindLocal as u8, LoadLocal as u8, 0, 0, Str as u8]
-        || tail[9..16] != [Eq as u8, JumpIfFalse as u8, 31, 0, 0, 0, Str as u8]
-        || tail[20..]
-            != [
-                Jump as u8,
-                34,
-                0,
-                0,
-                0,
-                LoadLocal as u8,
-                0,
-                0,
-                DropLocal as u8,
-                Return as u8,
-            ]
-    {
+    if !value.is_str() {
         return None;
     }
-    let literal = u32::from_le_bytes(tail[5..9].try_into().ok()?) as usize;
+    let (literal, replacement) = prepared::string_default(code)?;
+    let literal = literal as usize;
     let literal = env.strings.get(literal)?;
     if !literal.is_str() {
         return None;
     }
     if value == literal {
-        let replacement = u32::from_le_bytes(tail[16..20].try_into().ok()?) as usize;
-        env.strings.get(replacement).cloned()
+        env.strings.get(replacement as usize).cloned()
     } else {
         Some(value.clone())
     }

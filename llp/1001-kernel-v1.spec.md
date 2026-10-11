@@ -929,6 +929,11 @@ in a vector. Adjacent duplicates collapse before sorting; publication removes
 remaining duplicates, destroyed generations and newly created nodes, in slot
 order. The retained vector releases excess scratch capacity. The same-batch
 reuse case is held by `tests/apply.rs::touched_receipt_is_unique_ordered_and_excludes_destroyed_or_created_generations`.
+The history stores adjacent, consecutive keys with the same generation as ranges
+when that takes less space; short or sparse lists stay raw. It preserves every
+key's order and generation and every receipt field. `Kernel::receipts()` decodes
+owned receipts on demand; live commits still return ordinary receipts directly.
+The ring's 64-batch retention and reset behavior are unchanged (`kernel/history.rs`).
 `compute_layout(root, offer)` runs Taffy over that root, publishes absolute frames,
 and returns a `LayoutReceipt` naming exactly the nodes whose frame bits changed —
 the changed-geometry receipt.

@@ -12,7 +12,7 @@ use std::collections::BTreeSet;
 use std::io::Read;
 use std::ops::{Deref, Range};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 /// One document's uncompressed text in a shared corpus buffer.
 /// Cloning it keeps the snapshot alive without copying its text.
@@ -20,6 +20,17 @@ use std::sync::Arc;
 pub struct CorpusText {
     text: Arc<String>,
     range: Range<usize>,
+    lowercase_expands_to_ascii: OnceLock<bool>,
+}
+
+impl CorpusText {
+    fn count_lowercase_matches(&self, query: &str) -> usize {
+        count_lowercase_matches_with_guard(self, query, || {
+            *self
+                .lowercase_expands_to_ascii
+                .get_or_init(|| lowercase_expands_to_ascii(self))
+        })
+    }
 }
 
 impl Deref for CorpusText {
@@ -73,7 +84,7 @@ impl Entry {
         if query.is_empty() {
             return Some(0);
         }
-        let hits = count_lowercase_matches(&self.body, query);
+        let hits = self.body.count_lowercase_matches(query);
         (hits > 0
             || self.number.contains(query)
             || self.title.to_lowercase().contains(query)
@@ -83,15 +94,27 @@ impl Entry {
     }
 }
 
+fn lowercase_expands_to_ascii(text: &str) -> bool {
+    text.contains('\u{130}') || text.contains('\u{212a}')
+}
+
+#[cfg(test)]
+fn count_lowercase_matches(text: &str, query: &str) -> usize {
+    count_lowercase_matches_with_guard(text, query, || lowercase_expands_to_ascii(text))
+}
+
 // ASCII needles can be counted directly without allocating a lowercase
 // copy of every body. Unicode queries and the two non-ASCII characters
 // whose lowercase contains ASCII keep str::to_lowercase's full semantics.
-fn count_lowercase_matches(text: &str, query: &str) -> usize {
+fn count_lowercase_matches_with_guard(
+    text: &str,
+    query: &str,
+    lowercase_expands_to_ascii: impl FnOnce() -> bool,
+) -> usize {
     if query.is_empty()
         || !query.is_ascii()
         || query.bytes().any(|b| b.is_ascii_uppercase())
-        || text.contains('\u{130}')
-        || text.contains('\u{212a}')
+        || lowercase_expands_to_ascii()
     {
         return text.to_lowercase().matches(query).count();
     }
@@ -216,6 +239,7 @@ fn entry(
         body: CorpusText {
             text: Arc::clone(text),
             range,
+            lowercase_expands_to_ascii: OnceLock::new(),
         },
     })
 }
@@ -292,7 +316,31 @@ pub fn field(body: &str, name: &str) -> Option<String> {
 
 #[cfg(test)]
 mod search_tests {
-    use super::count_lowercase_matches;
+    use super::{count_lowercase_matches, CorpusText};
+    use std::sync::{Arc, OnceLock};
+
+    #[test]
+    fn corpus_text_caches_the_guard_for_its_exact_range() {
+        let text = Arc::new("İplainK".to_string());
+        let plain = CorpusText {
+            text: Arc::clone(&text),
+            range: 2..7,
+            lowercase_expands_to_ascii: OnceLock::new(),
+        };
+        assert_eq!(plain.count_lowercase_matches("K"), 0);
+        assert!(plain.lowercase_expands_to_ascii.get().is_none());
+        assert_eq!(plain.count_lowercase_matches("i"), 1);
+        assert_eq!(plain.lowercase_expands_to_ascii.get(), Some(&false));
+
+        let kelvin = CorpusText {
+            text,
+            range: 7..10,
+            lowercase_expands_to_ascii: OnceLock::new(),
+        };
+        assert_eq!(kelvin.count_lowercase_matches("k"), 1);
+        assert_eq!(kelvin.lowercase_expands_to_ascii.get(), Some(&true));
+        assert_eq!(kelvin.clone().lowercase_expands_to_ascii.get(), Some(&true));
+    }
 
     #[test]
     fn ascii_search_keeps_unicode_lowercase_and_nonoverlapping_counts() {

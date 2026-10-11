@@ -122,7 +122,7 @@ fn inner_lists<'a>(
             Child::Region(region) => match &mut region.active {
                 Active::Arm { roots, frame, .. } => {
                     let mut inner = frames.to_vec();
-                    inner.push(frame.clone());
+                    inner.push(frame.scope());
                     inner_lists(roots, &inner, site, sites, out);
                 }
                 Active::Rows { rows } => {

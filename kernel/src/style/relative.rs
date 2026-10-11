@@ -201,6 +201,31 @@ pub(crate) fn pixels_text(
     Ok(Some(StyleValue::Number(n as f64)))
 }
 
+type PreparedLength = (Option<(Unit, f32)>, Option<StyleValue<'static>>);
+
+/// Convert the one length spelling `value` can contain. The accepted
+/// units have disjoint last bytes, after CSS whitespace. Keep the original
+/// value for each parser so its grammar and refusal stay unchanged.
+pub(crate) fn prepare(id: StyleId, value: &StyleValue) -> Result<PreparedLength, StyleValueError> {
+    let last = match value {
+        StyleValue::Text(text) => text
+            .trim_end_matches(['\t', '\n', '\u{c}', '\r', ' '])
+            .as_bytes()
+            .last()
+            .copied(),
+        _ => None,
+    };
+    match last {
+        Some(b'm' | b'M') => {
+            let relative = of(id, value)?;
+            Ok((relative, relative.map(|r| provisional(id, r))))
+        }
+        Some(b'h' | b'H') => Ok((None, super::cells::of(id, value)?)),
+        Some(b'x' | b'X') => Ok((None, pixels_text(id, value)?)),
+        _ => Ok((None, None)),
+    }
+}
+
 /// What the row holds until the kernel resolves it: the length at CSS's
 /// initial font size, in the form the row's codec reads as pixels.
 pub(crate) fn provisional(id: StyleId, (_, n): (Unit, f32)) -> StyleValue<'static> {
@@ -237,6 +262,77 @@ impl StyleProps {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn length_dispatch_preserves_conversions_and_refusals_for_every_row() {
+        fn prior(id: StyleId, value: &StyleValue) -> Result<PreparedLength, StyleValueError> {
+            let relative = of(id, value)?;
+            let provisional = relative.map(|r| super::provisional(id, r));
+            let pixels = pixels_text(id, value)?;
+            let cells = super::super::cells::of(id, value)?;
+            Ok((relative, provisional.or(pixels).or(cells)))
+        }
+        let texts = [
+            "",
+            "#00abff",
+            "#ABC",
+            "normal",
+            "medium",
+            "auto",
+            "none",
+            "1",
+            "1px",
+            "-1PX",
+            "1.5rem",
+            "-.5em",
+            "+2REM",
+            "1e1Em",
+            "rem",
+            "-em",
+            "1 rem",
+            "1.rem",
+            "1remx",
+            "1ch",
+            "1.5LH",
+            "-2ch",
+            "1e1lh",
+            "ch",
+            "1 ch",
+            "1e39rem",
+            "1e39ch",
+            "1e39px",
+            "NaNem",
+            "infinitylh",
+            "1%",
+            "calc(1px + 2%)",
+            "min(1em, 2px)",
+            "light-dark(#000, #fff)",
+            "color(display-p3 1 0 0)",
+            "界ch",
+            "é",
+            "\u{a0}1em",
+            "1lh\u{a0}",
+            "1px\0",
+            "1em\u{b}",
+            "\u{b}1ch",
+        ];
+        for id in StyleId::ALL {
+            for value in [
+                StyleValue::Auto,
+                StyleValue::Number(12.0),
+                StyleValue::Percent(50.0),
+            ] {
+                assert_eq!(prepare(id, &value), prior(id, &value), "{id:?} {value:?}");
+            }
+            for text in texts {
+                for (left, right) in [("", ""), (" ", " "), ("\t\n", "\u{c}\r ")] {
+                    let text = format!("{left}{text}{right}");
+                    let value = StyleValue::Text(text.as_str().into());
+                    assert_eq!(prepare(id, &value), prior(id, &value), "{id:?} {text:?}");
+                }
+            }
+        }
+    }
 
     #[test]
     fn parses_css_numbers_with_either_unit() {

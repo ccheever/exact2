@@ -449,8 +449,8 @@ fn validate(arena: &NodeArena, ops: &[Op]) -> Result<(), ApplyError> {
                 for child in children {
                     if staged.parent_of(*child) != Some(*id) {
                         arrivals.push((op_index, *child));
+                        staged.parents.insert(*child, Some(*id));
                     }
-                    staged.parents.insert(*child, Some(*id));
                 }
                 staged.children.insert(*id, children.clone());
             }

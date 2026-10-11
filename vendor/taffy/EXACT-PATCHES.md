@@ -978,3 +978,13 @@ The kernel's layout, replay, reparenting and fresh-tree differential tests
 also run against this storage. The stale `Style` size assertions now include
 the vendored extension rows: 600 bytes with `String`, 568 with `Arc<str>` on
 the tested 64-bit host; this patch changes neither style layout nor its size.
+
+## Patch 31: release node contexts with their primary nodes
+
+`TaffyTree::remove` and `TaffyTree::clear` remove the matching
+`node_context_data` entries as well as the primary node slots. A secondary map
+owns its values independently, so leaving these entries behind retained Exact's
+measurement and flow vectors until physical slot reuse or tree destruction and
+allowed stale node keys to retrieve removed contexts. Focused drop-counter
+tests cover immediate and exactly-once destruction, replacement, physical slot
+reuse, stale-key absence, and preservation of an unrelated survivor context.

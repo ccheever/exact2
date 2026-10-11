@@ -387,3 +387,93 @@ component Card
     let n = indexed.kernel().node_by_key(key).unwrap();
     assert_eq!(n.props.str(PropId::Text), Some("new:new:0:0"));
 }
+
+#[test]
+fn nested_row_state_does_not_visit_an_unrelated_stateless_parent_subtree() {
+    use exact_kernel::PropId;
+    use exact_runner::Event;
+
+    let source = r#"shape Group
+  id: number
+  labels: list<string>
+component App
+  state groups = [Group(id=0, labels=["target"]), Group(id=1, labels=["other"])]
+  action replace(items: list<Group>)
+    groups = items
+  view
+    column
+      each group, i in groups key=KEY
+        column
+          each label in group.labels key=label
+            Counter(label=label)
+component Counter
+  props
+    label: string
+  state taps = 0
+  action bump
+    taps = taps + 1
+  view
+    text `${label}:${taps}` testId=label press=bump
+"#;
+    struct Unused;
+    impl DataSource for Unused {
+        fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
+            panic!("unexpected source {name}")
+        }
+    }
+    for key in ["group.id", "i"] {
+        let mut r = Runner::boot(
+            contract::compile(&source.replace("KEY", key)).unwrap(),
+            Unused,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        let target = r.kernel().find_by_test_id("target")[0];
+        let id = r.kernel().node_by_key(target).unwrap().id;
+        r.dispatch(id, Event::Press).unwrap();
+        let before_growth = r.last_instance_work().rows_scanned;
+        let group = |id, labels| Value::record(vec![Value::Number(id), Value::list(labels)]);
+        r.act(
+            "replace",
+            vec![Value::list(vec![
+                group(0.0, vec![Value::str("target")]),
+                group(
+                    1.0,
+                    (0..512)
+                        .map(|i| Value::str(&format!("other-{i}")))
+                        .collect(),
+                ),
+            ])],
+        )
+        .unwrap();
+        let target = r.kernel().find_by_test_id("target")[0];
+        let id = r.kernel().node_by_key(target).unwrap().id;
+        r.dispatch(id, Event::Press).unwrap();
+        assert_eq!(
+            r.kernel()
+                .node_by_key(target)
+                .unwrap()
+                .props
+                .str(PropId::Text),
+            Some("target:2")
+        );
+        let other = r.kernel().find_by_test_id("other-511")[0];
+        assert_eq!(
+            r.kernel()
+                .node_by_key(other)
+                .unwrap()
+                .props
+                .str(PropId::Text),
+            Some("other-511:0")
+        );
+        // The sibling's 512 children cannot make one local write do more work.
+        assert_eq!(
+            r.last_instance_work().rows_scanned,
+            before_growth,
+            "{key}: {:?}",
+            r.last_instance_work()
+        );
+    }
+}

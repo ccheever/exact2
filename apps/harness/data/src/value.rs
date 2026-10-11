@@ -47,8 +47,14 @@ fn c(text: &str) -> String {
 fn run(r: &Run) -> Run {
     Run {
         text: c(&r.text),
+        fg: r.fg.clone(),
+        bg: r.bg.clone(),
+        bold: r.bold,
+        italic: r.italic,
+        dim: r.dim,
+        under: r.under,
+        strike: r.strike,
         href: link(&r.href),
-        ..r.clone()
     }
 }
 

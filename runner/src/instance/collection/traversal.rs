@@ -310,11 +310,7 @@ impl Tree {
         };
         let (changed, edge) = feedback_walk(&mut self.children, u, &[], &feedback, &by_view, fill)?
             .unwrap_or((false, None));
-        let (mut live, gone): (Vec<_>, Vec<_>) = std::mem::take(&mut u.ops)
-            .into_iter()
-            .partition(|op| !matches!(op, Op::DestroyView { .. }));
-        live.extend(gone);
-        u.ops = live;
+        u.detach_before_destroy();
         self.last_work = u.work;
         Ok((changed || released, edge))
     }
@@ -409,7 +405,7 @@ fn feedback_walk(
             Child::Region(region) => match &mut region.active {
                 Active::Arm { roots, frame, .. } => {
                     let mut inner = frames.to_vec();
-                    inner.push(frame.clone());
+                    inner.push(frame.scope());
                     feedback_walk(roots, u, &inner, feedback, by_view, fill)?
                 }
                 Active::Rows { rows } => {
@@ -518,7 +514,7 @@ fn release_other_pins(
             Child::Region(region) => match &mut region.active {
                 Active::Arm { roots, frame, .. } => {
                     let mut inner = frames.to_vec();
-                    inner.push(frame.clone());
+                    inner.push(frame.scope());
                     changed |= release_other_pins(roots, u, &inner, target, categories)?;
                 }
                 Active::Rows { rows } => {
@@ -671,7 +667,7 @@ pub(in crate::instance) fn invalidate_typography(
             Child::Region(region) => match &mut region.active {
                 Active::Arm { roots, frame, .. } => {
                     let mut inner = frames.to_vec();
-                    inner.push(frame.clone());
+                    inner.push(frame.scope());
                     invalidate_typography(roots, u, &inner)?;
                 }
                 Active::Rows { rows } => {
@@ -722,7 +718,7 @@ fn edit_walk<T>(
             Child::Region(r) => match &mut r.active {
                 Active::Arm { roots, frame, .. } => {
                     let mut inner = frames.to_vec();
-                    inner.push(frame.clone());
+                    inner.push(frame.scope());
                     edit_walk(roots, view, u, &inner, edit)?
                 }
                 Active::Rows { rows } => {

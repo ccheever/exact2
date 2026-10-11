@@ -249,7 +249,7 @@ fn bounded_bootstrap_twenty_traversals_release_row_slots_and_kernel_views() {
         let mut h = Harness::new(n, true, false);
         assert_eq!(h.snapshot().rows.len(), BOOTSTRAP_ROWS);
         assert_eq!(h.tree.last_work.rows_keyed, n);
-        let weak = Rc::downgrade(&h.collection().mounted[0].row.slots);
+        let weak = Rc::downgrade(h.collection().mounted[0].row.slots.as_ref().unwrap());
         let original = h.snapshot().rows[0].root;
         for traversal in 0..20 {
             for step in 0..20 {
@@ -851,8 +851,8 @@ fn measured_interior_zero_run_bounds_25k_realized_views_and_row_slots() {
     let focus = bootstrap.rows[1].root;
     let interaction = bootstrap.rows[2].root;
     let retired_root = bootstrap.rows[3].root;
-    let retired_slots = Rc::downgrade(&h.collection().mounted[3].row.slots);
-    let pinned_slots = Rc::downgrade(&h.collection().mounted[1].row.slots);
+    let retired_slots = Rc::downgrade(h.collection().mounted[3].row.slots.as_ref().unwrap());
+    let pinned_slots = Rc::downgrade(h.collection().mounted[1].row.slots.as_ref().unwrap());
     let mut first = h.feedback(0.0);
     first.focus_view = Some(focus);
     first.interaction_view = Some(interaction);

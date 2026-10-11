@@ -1155,7 +1155,7 @@ impl Collection {
             key: self.keys[position].clone(),
             frame,
             roots,
-            slots,
+            slots: Some(slots),
         })
     }
     /// Preflight the entire report before releasing any other collection's pins.

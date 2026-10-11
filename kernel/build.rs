@@ -1258,21 +1258,8 @@ fn generate(schema: &Schema, digest: u64) -> String {
     )
     .unwrap();
     writeln!(w, "    pub fn set_dynamic(&mut self, id: StyleId, value: &StyleValue) -> Result<(), StyleValueError> {{").unwrap();
-    // `rem`/`em` store their pixels at the initial root size, and are
-    // remembered for the kernel to resolve (LLP 1069.000 D3).
-    writeln!(
-        w,
-        "        let relative = crate::style::relative::of(id, value)?;"
-    )
-    .unwrap();
-    writeln!(
-        w,
-        "        let provisional = relative.map(|r| crate::style::relative::provisional(id, r));"
-    )
-    .unwrap();
-    // `14px` on a row that reads a bare number as pixels (LLP 1102 §3.10);
-    // a terminal's `ch`/`lh` at the fixed cell (LLP 1101 D3).
-    w.push_str("        let pixels = crate::style::relative::pixels_text(id, value)?;\n        let cells = crate::style::cells::of(id, value)?;\n        let value = provisional.as_ref().or(pixels.as_ref()).or(cells.as_ref()).unwrap_or(value);\n");
+    // Dispatch disjoint length suffixes once; ordinary style text needs no conversion.
+    w.push_str("        let (relative, converted) = crate::style::relative::prepare(id, value)?;\n        let value = converted.as_ref().unwrap_or(value);\n");
     writeln!(w, "        match id {{").unwrap();
     // Rows that convert alike share one conversion, then store by row: the
     // conversion (and its refusal) is written once per codec, not per row.
