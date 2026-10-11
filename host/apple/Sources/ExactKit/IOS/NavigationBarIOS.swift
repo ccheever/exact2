@@ -468,6 +468,7 @@ extension NavigationHost {
             }
             collapse(c, shape: shape, scroll: scroll)
             reachBottom(c)
+            c.paintBackdrop()
             if shows { searchField(shape?.search, in: c); segmentedTitle(shape?.segments, in: c); richTitle(shape, in: c) }
             guard c.projected != signature || !c.hatched else { continue }
             c.projected = signature

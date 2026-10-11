@@ -42,30 +42,56 @@ final class RouteController: UIViewController {
     }
     override func loadView() {
         view = UIView()
-        // The sheet supplies its surface behind transparent authored corners.
-        // Dimming belongs outside that surface, to UIKit's presentation.
-        // A dynamic colour: the route's own background resolved for the
-        // controller's current appearance, re-resolved by UIKit when it
-        // changes (a route loaded before its window has a trait collection
-        // would otherwise keep the light colour in dark mode). A route
-        // without one shows the system background, not white.
+        paintBackdrop()
+        view.addSubview(node)
+    }
+
+    /// The backdrop's colours last written, light and dark.
+    private var backdropKey: [[Double]?]?
+    /// The controller's view paints what shows behind the route. The sheet
+    /// supplies its surface behind transparent authored corners; dimming
+    /// belongs outside that surface, to UIKit's presentation. Otherwise a
+    /// dynamic colour: the route's backdrop (`backdrop`) resolved for the
+    /// controller's current appearance, re-resolved by UIKit when it changes
+    /// (a route loaded before its window has a trait collection would
+    /// otherwise keep the light colour in dark mode), and written again when
+    /// a batch changes it. A route under no background shows the system
+    /// background, not white.
+    func paintBackdrop() {
+        guard isViewLoaded else { return }
+        let modal = node.props["navigationPresentation"] == "modal"
+        let key = modal ? nil : [backdrop(dark: false), backdrop(dark: true)]
+        guard view.backgroundColor == nil || key != backdropKey else { return }
+        backdropKey = key
         #if os(tvOS)
         // tvOS has no system backgrounds; white stands in, as the viewport's.
-        view.backgroundColor = node.props["navigationPresentation"] == "modal"
-            ? .white
-            : UIColor { [weak node] traits in
-                node?.channels("background_color", dark: traits.userInterfaceStyle == .dark).map { TextEngine.color($0) } ?? .white
-            }
+        let system = UIColor.white
         #else
         // A sheet's surface is the platform's (LLP 1115 D2): the route
         // paints its own background, if any, over it.
-        view.backgroundColor = node.props["navigationPresentation"] == "modal"
-            ? .systemBackground
-            : UIColor { [weak node] traits in
-                node?.channels("background_color", dark: traits.userInterfaceStyle == .dark).map { TextEngine.color($0) } ?? .systemBackground
-            }
+        let system = UIColor.systemBackground
         #endif
-        view.addSubview(node)
+        view.backgroundColor = modal ? system : UIColor { [weak self] traits in
+            self?.backdrop(dark: traits.userInterfaceStyle == .dark).map { TextEngine.color($0) } ?? system
+        }
+    }
+
+    /// What shows behind the route where it paints nothing: its own
+    /// background, else the nearest one its logical ancestors paint — its
+    /// tabpanel's, then the boxes up to the root — as the web shows them
+    /// through a transparent route (LLP 1116 D2: a root's
+    /// `-exact-grouped-background` under every screen).
+    func backdrop(dark: Bool) -> [Double]? {
+        let painted = { (n: NodeView) in n.channels("background_color", dark: dark).flatMap { $0.count < 4 || $0[3] > 0 ? $0 : nil } }
+        if let own = painted(node) { return own }
+        guard let host, let root = host.container else { return nil }
+        var next: UIView? = host.logicalParent(of: node)
+        while let v = next {
+            if let n = v as? NodeView, let colour = painted(n) { return colour }
+            if v === root { break }
+            next = v.superview
+        }
+        return nil
     }
     func mount() {
         loadViewIfNeeded()
@@ -160,6 +186,13 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     private var refusedKey: String?
 
     init(presenter: Presenter) { self.presenter = presenter }
+
+    /// The node a route is a child of in the tree, where UIKit holds its
+    /// view elsewhere: the root or, with tabs, its tabpanel.
+    func logicalParent(of route: NodeView) -> NodeView? {
+        guard let owner = logicalChildren.first(where: { $0.value.contains(route.id) })?.key else { return nil }
+        return owner == container?.id ? container : presenter.views[owner]
+    }
 
     /// Logical child-list edits leave declared, retained routes inside their
     /// controllers; newly added or no-longer-declared nodes use normal mounting.

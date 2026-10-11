@@ -291,6 +291,34 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertNil(detail.contentScrollView(for: .bottom))
     }
 
+    /// A route that paints no background shows what the web shows through
+    /// it — the root's (LLP 1116 D2: `-exact-grouped-background` on the root
+    /// under every screen, and under the home indicator) — light and dark,
+    /// written again when a batch changes it; its own background wins.
+    func testARouteWithoutABackgroundShowsTheRootsUnderIt() throws {
+        let session = try fixture("basics-backdrop")
+        let (_, _, chat) = try chat(session)
+        let root = try node(session, "navigation")
+        let rgb = { (style: UIUserInterfaceStyle) -> [Int] in
+            let c = chat.view.backgroundColor?.resolvedColor(with: UITraitCollection(userInterfaceStyle: style)) ?? .clear
+            var v: (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
+            c.getRed(&v.0, green: &v.1, blue: &v.2, alpha: &v.3)
+            return [v.0, v.1, v.2, v.3].map { Int(($0 * 255).rounded()) }
+        }
+        let colour = { (v: [Double]) in BatchValue.array(v.map { .number($0) }) }
+        XCTAssertEqual(rgb(.light), [255, 255, 255, 255], "its own white")
+        chat.node.style["background_color"] = nil
+        root.style["background_color"] = .array([colour([242, 242, 247, 255]), colour([28, 28, 30, 255])])
+        chat.paintBackdrop()
+        XCTAssertEqual(rgb(.light), [242, 242, 247, 255], "the root's, light")
+        XCTAssertEqual(rgb(.dark), [28, 28, 30, 255], "the root's, dark")
+        XCTAssertEqual(chat.view.convert(chat.view.bounds, to: nil).maxY, try XCTUnwrap(chat.view.window).bounds.maxY,
+                       "under the home indicator too")
+        chat.node.style["background_color"] = colour([0, 0, 255, 255])
+        chat.paintBackdrop()
+        XCTAssertEqual(rgb(.light), [0, 0, 255, 255], "the route's own wins")
+    }
+
     func testARouteWithNoHeaderHasNoBarAndTheBarFollowsAPop() throws {
         let session = try fixture("basics-nobar")
         let (_, nav, chat) = try chat(session)
