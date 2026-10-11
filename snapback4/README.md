@@ -174,8 +174,8 @@ component Guestbook
             text "Post"
         text notice testId="notice"
         text board.latest testId="latest"
-        for note in board.notes key=note.id
-          text `${note.author}: ${note.body}${note.pending ? " (sending)" : ""}` testId=`note-${note.id}`
+        for note, i in board.notes key=note.id
+          text `${note.author}: ${note.body}${note.pending ? " (sending)" : ""}` testId=`note-${i}`
 ```
 
 `app.ts`:
@@ -252,6 +252,7 @@ test "a note posts, and another persona sees it"
   type "persona" "bob"
   clock data
   expect text "latest" == "dev:alice: hello from alice"
+  expect text "note-0" == "dev:alice: hello from alice"
 
 test "offline, a note is kept, then delivered on reconnect"
   clock data
@@ -372,11 +373,23 @@ const renewed = await db.refreshSession(now);          // near expiresAt: keep r
 - **In tests.** Let the app sync once (`clock data`) before `fail fetch`: a
   partition that has never synced cannot open offline. Assert a write's
   fate (`outcome`), not a notice the app shows while it is still pending.
+- **Ids the server mints are unique, not ordered.** A row's `id` does not
+  sort in creation order (a later row's can sort first), so never take the
+  largest id as the newest: give the table a `time` the mutation sets (`at:
+  now`) and read in its index's order (`last 50 by byTime`). A test file
+  cannot know a minted id either, so a `testId` built from one is out of
+  its reach. Reach a row by position, from `each`'s index (`each note, i in
+  board.notes key=note.id` with ``testId=`note-${i}` ``, as the guestbook
+  does: `expect text "note-0" == …`), by what it shows (`tap "<its exact
+  text or label>"`), or through a derive of the row the test made (the
+  mutation's reply id, or the newest row, as the guestbook's `latest`).
 - **Live updates.** A data answer has a bounded life and tests settle on
   answers, so do not hold a long `poll(20)` inside a resource. Drive
   freshness from Contract: a `task` that calls an action every few seconds,
   whose resources `sync()` (or `poll(0)`) and read again, and `refreshes` on
-  the mutations that change them.
+  the mutations that change them. `refreshes` asks again only the resources
+  it names: name every one the write changes (`refreshes board, feed`), or a
+  second view of the same rows stays as it was until its next refresh.
 
 On the web the partition is the wasm device, persisted through Exact SQLite
 after every call, one call at a time; a failed save rebuilds the device from
