@@ -1,6 +1,7 @@
 # `outline: none` on `input` and `textarea`, to remove the focus ring Exact draws on a bare field
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by #459
 **Systems:** kernel schema, Contract, GUI hosts
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)
