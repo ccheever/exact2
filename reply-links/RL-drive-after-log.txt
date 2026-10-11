@@ -1,0 +1,25 @@
+[2] tap target=thread-verify-timeline at=[127.5, 141]
+[4] tap target=dismiss-provider-warning at=[991.27, 89]
+[6] screenshot 01-thread.png
+[9] tap target=t3-code at=[347, 191]
+[11]   app: t3.textmenu: Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All
+[12] tap target=t3-code at=[375, 191]
+[14]   app: t3.textmenu: Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All
+[15] tap target=t3-code at=[438, 191]
+[17]   app: t3.textmenu: Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All
+[18] tap target=t3-code at=[523, 191]
+[20]   app: t3.textmenu: Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All
+[21] tap target=t3-code at=[603, 191]
+[23]   app: t3.textmenu: Cut (disabled) | Copy (disabled) | Paste (disabled) | Select All
+[24] tap target=t3-code at=[419, 224]
+[26]   app: t3.contextmenu: Open in integrated browser | Open in system browser | Copy Link
+[27] tap target=y at=[516.91, 224.83]
+[29]   app: t3.contextmenu: Open in integrated browser | Open in system browser | Copy Link
+[30] tap target=t3-code at=[438, 191]
+[33] tap target=t3-code at=[476, 191]
+[36] tap target=t3-code at=[523, 191]
+[39] tap target=t3-code at=[603, 191]
+[41] screenshot 02-after-fragment.png
+[43] tap target=t3-code at=[419, 224]
+[46] tap target=y at=[516.91, 224.83]
+[49] screenshot 03-end.png
