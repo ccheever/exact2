@@ -214,6 +214,8 @@ fn types(
                     eprintln!("{output}: {error}");
                     return ExitCode::from(1);
                 }
+                // Silence read as "did it run?" (app farm wave 2: 100); stdout stays empty.
+                eprintln!("{command}: wrote {output}");
             } else {
                 print!("{declarations}");
             }

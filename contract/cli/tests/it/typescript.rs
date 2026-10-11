@@ -281,9 +281,13 @@ fn the_cli_emits_types_and_refuses_bad_inputs_without_touching_last_good_output(
     };
     let stdout = invoke(&["types", "app.contract"]);
     assert!(stdout.status.success());
-    assert!(invoke(&["types", "app.contract", "-o", "app.d.ts"])
-        .status
-        .success());
+    let written = invoke(&["types", "app.contract", "-o", "app.d.ts"]);
+    assert!(written.status.success());
+    assert!(written.stdout.is_empty());
+    assert_eq!(
+        String::from_utf8_lossy(&written.stderr),
+        "types: wrote app.d.ts\n"
+    );
     assert_eq!(
         stdout.stdout,
         std::fs::read(fixture.0.join("app.d.ts")).unwrap()
