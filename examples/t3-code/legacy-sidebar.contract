@@ -21,6 +21,7 @@ use SidebarUpdatePill from "./sidebar-icons.contract"
 use SidebarProjectGlyph from "./sidebar-icons.contract"
 use CnMachineIcon from "./settings-b-kit.contract"
 use Tip from "./shell-tip.contract"
+use TipBubble from "./shell-tip.contract"
 use SidebarTip from "./sidebar-row.contract"
 use TerminalProcessIndicator from "./sidebar-row.contract"
 use ProviderPill from "./r4-polish-tip.contract"
@@ -40,6 +41,11 @@ keyframes lsStatusPulse
   50% opacity=0.5
   90% opacity=0.5
   to opacity=1
+
+// auto-animate's removal (SIDEBAR_LIST_ANIMATION_OPTIONS: 180 ms ease-out): a leaving row fades and shrinks a little.
+keyframes lsRowOut
+  from opacity=1 scale=1
+  to opacity=0 scale=0.98
 
 fn lsPrTone(lifecycle: string): string = lifecycle == "draft" ? "light-dark(#71717b, #9f9fa9cc)" : lifecycle == "closed" ? "light-dark(#e7000b, #ffa2a2e6)" : lifecycle == "merged" ? "light-dark(#7f22fe, #c4b4ffe6)" : lifecycle == "open" ? "light-dark(#009966, #5ee9b5e6)" : "light-dark(#71717b, #818181)"
 
@@ -257,18 +263,21 @@ component LegacyProject
     inside = value
   derive revealed = over or inside
   view
-    column width="100%" padding-bottom="0.25rem" box-sizing="border-box" testId=`legacy-project-${p.key}`
+    // autoAnimate on the project list and each thread list (180 ms ease-out; none under reduced motion): rows slide
+    // when one comes or goes, and a leaving row fades.
+    column width="100%" padding-bottom="0.25rem" box-sizing="border-box" -exact-layout-transition=(reduced ? "none" : "180ms ease-out") -exact-exit-animation=(reduced ? "none" : "lsRowOut 180ms ease-out") testId=`legacy-project-${p.key}`
       row width="100%" height="2rem" position="relative" hover=hover
         when legacy.manual
           box reorderFor="legacy-projects" touch-action="none" aria-label=`Drag ${p.name} to reorder` testId=`legacy-project-grip-${p.key}` width="0.875rem" height="2rem" margin-left="-0.25rem" display="flex" align-items="center" justify-content="center" flex-shrink=0 cursor="grab"
             LegacyIcon(name="grip-vertical", size=12, color=(over ? "light-dark(#71717b, #818181)" : "light-dark(#71717b4d, #8181814d)"))
         button cursor="pointer" press=local("legacy-toggle", p.key, "") contextmenu=run("legacy-project-menu", p.key, "") focus=within(true) blur=within(false) aria-expanded=p.expanded aria-label=p.name testId=`legacy-project-toggle-${p.key}` flex=1 min-width=0 height="2rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" gap="0.5rem" border-radius="0.5rem" border-width=0 background-color=(over ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000") display="flex" flex-direction="row" align-items="center"
           when not p.expanded and p.statusLabel != ""
-            box width="0.875rem" height="0.875rem" margin-left="-0.125rem" display="flex" align-items="center" justify-content="center" flex-shrink=0 role="img" aria-label=p.statusLabel testId=`legacy-project-status-${p.key}`
-              when over
-                LegacyIcon(name="chevron-right", size=14, color="light-dark(#71717b, #818181)")
-              else
-                box width="0.5625rem" height="0.5625rem" border-radius="0.3125rem" background-color=p.statusDot animation=(p.statusPulse ? "lsStatusPulse 2s infinite" : "none")
+            Tip(label=p.statusLabel, side="top", align="start", offset=18)
+              box width="0.875rem" height="0.875rem" margin-left="-0.125rem" display="flex" align-items="center" justify-content="center" flex-shrink=0 role="img" aria-label=p.statusLabel testId=`legacy-project-status-${p.key}`
+                when over
+                  LegacyIcon(name="chevron-right", size=14, color="light-dark(#71717b, #818181)")
+                else
+                  box width="0.5625rem" height="0.5625rem" border-radius="0.3125rem" background-color=p.statusDot animation=(p.statusPulse ? "lsStatusPulse 2s infinite" : "none")
           else
             box margin-left="-0.125rem" flex-shrink=0 rotate=(p.expanded ? "90deg" : "0deg") transition="rotate 150ms ease"
               LegacyIcon(name="chevron-right", size=14, color="light-dark(#71717bb3, #818181b3)")
@@ -355,7 +364,7 @@ component LegacyThread
   derive revealed = (over or inside) and not t.running
   derive surface = isOpen ? "light-dark(#ffffff, #f1f3f71c)" : t.selected ? "light-dark(#ffffff, #f1f3f712)" : over ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000"
   view
-    row id=`legacy-row-${t.id}` width="100%" height="2rem" position="relative" hover=hover testId=`thread-row-${t.id}`
+    row id=`legacy-row-${t.id}` width="100%" height="2rem" position="relative" hover=hover -exact-layout-transition=(reduced ? "none" : "180ms ease-out") -exact-exit-animation=(reduced ? "none" : "lsRowOut 180ms ease-out") testId=`thread-row-${t.id}`
       when t.renaming
         row width="100%" height="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" align-items="center" border-radius="0.375rem" background-color=surface
           LegacyRenameField(t=t, local=local, run=run)
@@ -364,7 +373,7 @@ component LegacyThread
           row flex=1 min-width=0 gap="0.375rem" align-items="center"
             // handlePrClick: the pull request beside the thread, on the Pull Requests page, or as a link (legacy-sidebar-links.ts).
             when t.prIcon != ""
-              Tip(label=(t.prPending ? "" : t.prTooltip), side="top", align="start", offset=4)
+              Tip(label=(t.prPending ? "" : t.prTooltip), side="top", align="start", offset=16)
                 button cursor="pointer" press=run("legacy-pr", t.id, page) dblclick=nested focus=within(true) blur=within(false) aria-label=t.prTooltip testId=`thread-pr-${t.id}` padding=0 border-radius="0.25rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
                   when t.prPending
                     LegacyIcon(name="git-pull-request", size=12, color="light-dark(#71717b, #818181)")
@@ -374,16 +383,19 @@ component LegacyThread
               row gap="0.25rem" align-items="center" flex-shrink=0 role="img" aria-label=t.statusLabel testId=`thread-status-${t.id}`
                 box width="0.375rem" height="0.375rem" border-radius="0.1875rem" background-color=t.statusDot animation=(t.statusPulse ? "lsStatusPulse 2s infinite" : "none")
                 text t.statusLabel font-size="0.625rem" line-height="0.875rem" color=t.statusColor white-space="nowrap"
-            text t.title testId=`thread-title-${t.id}` flex=1 min-width=0 font-size="0.875rem" line-height="1.25rem" font-weight=(isOpen ? 500 : 400) color=(highlighted or over ? "light-dark(#27272a, #f3f3f3)" : "light-dark(#71717bcc, #818181cc)") line-clamp=1 text-align="left"
+            // The title's own tooltip (its full text), as the reference's TooltipTrigger around the title span.
+            LegacyTitleTip(label=t.title)
+              text t.title testId=`thread-title-${t.id}` flex=1 min-width=0 font-size="0.875rem" line-height="1.25rem" font-weight=(isOpen ? 500 : 400) color=(highlighted or over ? "light-dark(#27272a, #f3f3f3)" : "light-dark(#71717bcc, #818181cc)") line-clamp=1 text-align="left"
           row margin-left="auto" gap="0.375rem" align-items="center" flex-shrink=0
             // handleOpenDiscoveredPort: the first server a terminal of this thread listens on, in a Browser tab beside it.
             when t.portLabel != ""
-              Tip(label=t.portTip, side="top", align="center", offset=4)
+              Tip(label=t.portTip, side="top", align="center", offset=16)
                 button cursor="pointer" press=run("legacy-port", t.id, "") dblclick=nested focus=within(true) blur=within(false) aria-label=t.portLabel testId=`thread-port-${t.id}` padding=0 border-radius="0.25rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
                   LegacyIcon(name="globe-2", size=12, color="light-dark(#007a55, #00d492)")
             when t.worktree
-              box flex-shrink=0 display="flex" role="img" aria-label=t.worktreeLabel testId=`thread-worktree-${t.id}`
-                SidebarIcon(name="folder-git-2", size=12, color="light-dark(#71717b66, #81818166)")
+              Tip(label=t.worktreeLabel, side="top", align="center", offset=16)
+                box flex-shrink=0 display="flex" role="img" aria-label=t.worktreeLabel testId=`thread-worktree-${t.id}`
+                  SidebarIcon(name="folder-git-2", size=12, color="light-dark(#71717b66, #81818166)")
             when t.terminalCount > 0
               TerminalProcessIndicator(label="Terminal process running", tooltip="Terminal process running", size=12, reduced=reduced, id=`sidebar-terminal-status-${t.id}`)
             row min-width="3rem" justify-content="flex-end" align-items="center" gap="0.25rem" opacity=(revealed or confirming ? 0 : 1)
@@ -404,6 +416,20 @@ component LegacyThread
               Tip(label=(legacy.confirmArchive ? "" : "Archive"), side="top", align="center", offset=28)
                 button cursor="pointer" press=archive focus=within(true) blur=within(false) aria-label=`Archive ${t.title}` testId=`thread-archive-${t.id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
                   LegacyIcon(name="archive", size=14, color="light-dark(#71717b, #818181)")
+
+// A tooltip around a truncating text: unlike Tip's box it grows and shrinks with the row, so the text still clamps.
+component LegacyTitleTip
+  props
+    label: string
+  slot
+  state over = false
+  action setOver(value: bool)
+    over = value
+  view
+    box position="relative" hover=setOver flex=1 min-width=0 display="flex" flex-direction="row" align-items="center"
+      children
+      when label != ""
+        TipBubble(label=label, side="top", align="start", offset=24, inset=0, shown=over)
 
 component LegacyRenameField
   props

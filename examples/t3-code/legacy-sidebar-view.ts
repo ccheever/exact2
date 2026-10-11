@@ -18,7 +18,8 @@ import { sidebarPrefs, sidebarSession } from './sidebar-state';
 import { terminalProcessCount, shortcutLabel, type SidebarHelpers } from './sidebar-view';
 import { currentPullRequestLink } from './shell-pr';
 import { lifecycle, lifecycleIcon, shortName, providerOfUrl } from './r5-panels-pr';
-import { portLabels, rowPorts } from './legacy-sidebar-links';
+import { portLabels, rowPorts } from './legacy-sidebar-ports';
+import { formatWorktreePathForDisplay } from './worktree-cleanup';
 import { DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT, orderItemsByPreferredIds, relativeTimeLabel, resolveProjectExpanded, resolveProjectStatusIndicator,
   resolveAdjacentThreadId, resolveThreadStatusPill, sortProjectsForSidebar, sortThreads, type LegacyMember, type ProjectSortOrder, type StatusPill, type ThreadSortOrder } from './legacy-sidebar-model';
 
@@ -177,7 +178,8 @@ function threadRow(client: T3Client, thread: Obj, now: number, jump: string): Le
     prIcon: link ? (snapshot ? lifecycleIcon(state) : 'git-pull-request-arrow') : '', prState: state,
     prTooltip: link ? (snapshot ? `${shortName(providerOfUrl(str(link.url)))} #${Number(link.number) || 0} - ${stateLabel}: ${str(snapshot.title)}` : `PR #${Number(link.number) || 0}, status pending`) : '',
     prPending: !!link && !snapshot, ...portLabels(rowPorts(client, id)),
-    worktree: worktree !== '', worktreeLabel: worktree ? (branch ? `Worktree: ${worktree} (${branch})` : `Worktree: ${worktree}`) : '',
+    // ThreadWorktreeIndicator: the worktree's display name (its last segment), then the branch.
+    worktree: worktree !== '', worktreeLabel: worktree ? (branch ? `Worktree: ${formatWorktreePathForDisplay(worktree)} (${branch})` : `Worktree: ${formatWorktreePathForDisplay(worktree)}`) : '',
     remoteMachine: remote ? (remote === 'desktop' ? 'monitor' : remote) : '', remoteLabel: remote ? str(thread.fleetEnvironmentLabel, 'Remote') : '',
     age: relativeTimeLabel(thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt, now), jump,
   };

@@ -16,7 +16,8 @@ import { applyDeviceSetting } from './settings-core';
 import { archive, deleteThreads, markUnread, remember, rename } from './sidebar-commands';
 import { buildMultiSelectThreadContextMenuItems, clampSidebarThreadPreviewCount, legacyProjectMenuItems, legacyThreadMenuItems, memberActionLabel, resolveProjectExpanded } from './legacy-sidebar-model';
 import { emptyDialog, expansionKeys, legacyGroups, legacySession, previewCount, sortedGroups, type LegacyGroup } from './legacy-sidebar-view';
-import { openBranchDraft, openRowPort, openRowPullRequest, rowThread } from './legacy-sidebar-links'; // legacy-sidebar-full LS-1, LS-2, LS-5
+import { openBranchDraft, openRowPullRequest, rowThread } from './legacy-sidebar-links'; // legacy-sidebar-full LS-1, LS-5
+import { openRowPort } from './legacy-sidebar-ports'; // legacy-sidebar-full LS-2
 import { archiveBackground, backgroundProjectThreads, backgroundRef, backgroundThreadPath, focusBackground, forgetBackgroundDrafts, isBackground, markUnreadBackground,
   openBackgroundDraft, renameBackground, writeBackgroundProject } from './legacy-sidebar-fleet'; // legacy-sidebar-full LS-6
 import { letGo } from './let-go';
@@ -221,7 +222,7 @@ async function projectMenu(client: T3Client, native: Native, key: string): Promi
   else if (action === 'delete') {
     // handleRemoveProject: a project with threads asks for "Delete anyway" first.
     const count = memberThreads(client, member.id).length;
-    if (count > 0) pushToast(client, { kind: 'warning', title: 'Project is not empty', description: 'Delete all threads in this project before removing it.', stacked: true,
+    if (count > 0) pushToast(client, { kind: 'warning', title: 'Project is not empty', description: 'Delete all threads in this project before removing it.', stacked: true, actionVariant: 'destructive',
       action: { label: 'Delete anyway', op: 'sidebar:legacy-remove-anyway', id: member.id }, closeOnAction: true });
     else openRemoval(client, member.id);
   }

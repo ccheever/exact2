@@ -1,9 +1,8 @@
 // The legacy sidebar row's links (T3 Code 1e2ecbd975; MIT, see LICENSE-T3): the pull request glyph
 // (LegacySidebar.tsx handlePrClick over lib/openPullRequestLink.ts useOpenPrLink and
-// useOpenChangeRequestLink), the discovered-port button (handleOpenDiscoveredPort over
-// portDiscoveryState.ts useThreadDiscoveredPorts and components/preview/openDiscoveredPort.ts), and
-// "New thread on <branch>" (handleThreadContextMenu over hooks/useHandleNewThread.ts with the
-// thread's branch, worktree and mode). Each targets its row's thread, wherever it lives.
+// useOpenChangeRequestLink) and "New thread on <branch>" (handleThreadContextMenu over
+// hooks/useHandleNewThread.ts with the thread's branch, worktree and mode); the discovered-port
+// button is legacy-sidebar-ports.ts. Each targets its row's thread, wherever it lives.
 import { obj, str, type Obj } from './domain';
 import type { T3Client } from './client';
 import type { Native } from './protocol';
@@ -16,14 +15,10 @@ import { openPullRequestIn } from './r5-panels-surfaces';
 import { prTarget } from './r5-panels-pr';
 import { currentPullRequestLink } from './shell-pr';
 import { findProjectForChangeRequest, parseChangeRequestUrl } from './palette-linkpr';
-import { openInSystemBrowser, openLink, openUrlInPreview } from './browser-links';
-import { browserHistory } from './browser-history';
-import { navigationNow } from './browser-navigation';
-import { SIDEBAR_DISCOVERED_SERVERS_KEY, discoveredServers, environmentHostname, preparedConnection, resolveDiscoveredServerUrl, watchDiscoveredServers, type DiscoveredLocalServer } from './browser-targets';
+import { openInSystemBrowser, openLink } from './browser-links';
 import { patchDraftContext } from './composer-controls-branch';
 import { fleet, focusFleetThread, parseFleetThreadId, type EnvironmentFleet } from './settings-b-fleet';
 import { sidebarSession } from './sidebar-state';
-import { legacyEnabled } from './legacy-sidebar-view';
 
 interface Navigator { openSelected?(native: Native, id: string): Promise<void>; openDraft?(native: Native, projectId: string): Promise<void> }
 const failure = (error: unknown, fallback: string) => error instanceof Error && error.message ? error.message : fallback;
@@ -117,40 +112,6 @@ function pageSelection(client: T3Client, url: string, source: EnvironmentFleet =
       ...(environment.focused ? {} : { environmentId: environment.environmentId }) });
   }
   return '';
-}
-
-// ── Discovered ports (useThreadDiscoveredPorts: the environment's servers that a terminal of the thread opened) ──
-/** The focused environment's servers whose terminal belongs to this thread, in the stream's order. */
-export function rowPorts(client: T3Client, id: string): DiscoveredLocalServer[] {
-  const ref = parseFleetThreadId(id);
-  if (ref && ref.environmentId !== client.environmentId) return [];
-  const threadId = ref?.threadId ?? id;
-  return discoveredServers(client, SIDEBAR_DISCOVERED_SERVERS_KEY).servers.filter(server => server.terminal?.threadId === threadId);
-}
-/** The button's label and tooltip ("Open localhost:5173", "Open localhost:5173 (+1)"); empty without a port. */
-export function portLabels(ports: readonly DiscoveredLocalServer[]): { portLabel: string; portTip: string } {
-  const first = ports[0];
-  if (!first) return { portLabel: '', portTip: '' };
-  return { portLabel: `Open localhost:${first.port}`, portTip: `Open localhost:${first.port}${ports.length > 1 ? ` (+${ports.length - 1})` : ''}` };
-}
-/** The sidebar's own stream (no configured URLs), live while the legacy sidebar shows the focused environment's rows. */
-export async function watchRowPorts(client: T3Client, native: Native): Promise<void> {
-  const wanted = legacyEnabled(client) && client.local.sidebarOpen !== false && client.connection === 'connected';
-  await watchDiscoveredServers(client, native, wanted, [], SIDEBAR_DISCOVERED_SERVERS_KEY);
-}
-/** handleOpenDiscoveredPort: go to the thread, then open its first port beside it (openDiscoveredPort), recorded in its history. */
-export async function openRowPort(client: T3Client, native: Native, id: string): Promise<string> {
-  const row = rowThread(client, id), port = rowPorts(client, id)[0];
-  if (!row || !port) return '';
-  const result = await goTo(client, native, id, row.ref);
-  try {
-    await openUrlInPreview(client, native, row.ref, resolveDiscoveredServerUrl(row.ref.environmentId, port.url, preparedConnection(client)));
-    browserHistory(client.local).recordVisitForThread(row.ref, port.url, navigationNow(client), environmentHostname(client));
-  } catch (error) {
-    if (letGo(error)) throw error;
-    pushToast(client, { kind: 'error', title: 'Unable to open preview', description: failure(error, 'The preview could not be opened.'), stacked: true });
-  }
-  return result;
 }
 
 // ── "New thread on <branch>" (explicit branch carry-over) ─────────────────────────────────────

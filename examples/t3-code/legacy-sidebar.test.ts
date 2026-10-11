@@ -279,7 +279,7 @@ describe('legacy projection (LegacySidebar.tsx SidebarProjectItem)', () => {
       thread('run', { projectId: 'p1', latestRunId: 'r', activeRunId: 'r', status: 'running' })]);
     sidebarSession(client).selection = ['run'];
     const rows = legacySidebarSnapshot(client, NOW, { projectIdentity: identity }).projects.find(project => project.name === 'Alpha')!.threads;
-    expect(rows.find(row => row.id === 'pr')).toMatchObject({ prIcon: 'git-pull-request-arrow', prState: 'open', prTooltip: 'PR #7 - Open: Ship it', worktree: true, worktreeLabel: 'Worktree: /wt/pr (feat)', running: false });
+    expect(rows.find(row => row.id === 'pr')).toMatchObject({ prIcon: 'git-pull-request-arrow', prState: 'open', prTooltip: 'PR #7 - Open: Ship it', worktree: true, worktreeLabel: 'Worktree: pr (feat)', running: false }); // ThreadWorktreeIndicator: the path's display name
     expect(rows.find(row => row.id === 'run')).toMatchObject({ running: true, selected: true, statusLabel: 'Working', label: 'Thread run, Working' });
   });
 });

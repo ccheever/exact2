@@ -24,7 +24,8 @@ import { menuAnchor, rowKeyMenu, withMenuAnchor } from './r12-sidebar-keys';
 import { legacyCommand, legacyLocal } from './legacy-sidebar-commands'; // legacy-sidebar: the "Sidebar (legacy)" gestures
 import { legacyEnabled, legacyProjectOrder, threadSortOrder } from './legacy-sidebar-view';
 import { backgroundWorktreePlan, isBackground, removeBackground } from './legacy-sidebar-fleet'; // legacy-sidebar-full LS-6
-import { openBranchDraft, watchRowPorts } from './legacy-sidebar-links'; // legacy-sidebar-full LS-2, LS-5
+import { openBranchDraft } from './legacy-sidebar-links'; // legacy-sidebar-full LS-5
+import { openPendingPort, watchRowPorts } from './legacy-sidebar-ports'; // legacy-sidebar-full LS-2
 import { closeThreadTerminals, detachThreadSessions, removeOrphanedWorktree, setWorktreePrompt, worktreePlan, worktreePrompt, type WorktreePrompt } from './worktree-cleanup'; // thread-commands-and-keys: G5
 import { deleteSelectedThreadEntries, getFallbackThreadIdAfterDelete } from './sidebar-delete-logic';
 import { mostRecentProjectId } from './pages-home';
@@ -356,6 +357,7 @@ export async function sidebarRefreshed(client: T3Client, nativeHandle: Native): 
   scheduleProviderPill(client, wall(client), delay => { void nativeHandle.later({ op: 'sidebarNotify', delay }).catch(() => undefined); });
   await syncFavicons(client, nativeHandle);
   await watchRowPorts(client, nativeHandle); // legacy-sidebar-full LS-2: the legacy rows' discovered ports
+  await openPendingPort(client, nativeHandle); // a background row's port, once its thread is open here
 }
 /** After a thread opens: the server visit lands at once for an unseen completion. */
 export function sidebarOpened(client: T3Client, nativeHandle: Native): void { visitOpenThread(client, nativeHandle); }

@@ -19,7 +19,7 @@ import { draftContext } from './composer-controls-branch';
 import { draftFiles } from './composer-editor-files';
 import { browserHistory } from './browser-history';
 import { legacyGroups, legacySession, legacySidebarSnapshot } from './legacy-sidebar-view';
-import { portLabels, rowPorts, watchRowPorts } from './legacy-sidebar-links';
+import { fleetPortsEvent, fleetPortsPass, openPendingPort, portLabels, rowPorts, watchRowPorts } from './legacy-sidebar-ports';
 import { takeRowDrops } from './legacy-sidebar-drop';
 
 const at = (minute: number) => `2026-03-09T10:${String(minute).padStart(2, '0')}:00.000Z`;
@@ -177,6 +177,79 @@ describe('LS-2: the discovered-port button (useThreadDiscoveredPorts, openDiscov
   });
 });
 
+describe('LS-2 on a background environment: its own stream, and its thread opens before the tab', () => {
+  const server = (port: number, threadId: string) => ({ host: '127.0.0.1', port, url: `http://localhost:${port}/`, processName: 'node', pid: 7, terminal: { threadId, terminalId: 't' } });
+  test('the fleet subscribes while the legacy sidebar shows rows; a background row shows its own ports', async () => {
+    const { client, native } = rig();
+    const entry = background([thread('t9', { projectId: 'r1' })]);
+    await watchRowPorts(client, native);
+    const calls: Obj[] = [];
+    await fleetPortsPass(async request => { calls.push(request); return { id: 'sub-7' }; }, entry);
+    expect(calls).toEqual([{ op: 'subscribe', key: SIDEBAR_DISCOVERED_SERVERS_KEY, method: 'subscribeDiscoveredLocalServers', payload: {} }]);
+    expect(fleetPortsEvent(entry, { key: SIDEBAR_DISCOVERED_SERVERS_KEY, generation: 3, subscriptionId: 'sub-7', value: { servers: [server(3000, 't9'), server(3001, 'other')] } })).toBe(true);
+    expect(fleetPortsEvent(entry, { key: 'shell', generation: 3 })).toBe(false);
+    expect(portLabels(rowPorts(client, 'fleet:env-remote:t9'))).toEqual({ portLabel: 'Open localhost:3000', portTip: 'Open localhost:3000' });
+    expect(legacySidebarSnapshot(client, Date.parse(at(30)), { projectIdentity: identity }).projects.flatMap(project => project.threads).find(row => row.id === 'fleet:env-remote:t9'))
+      .toMatchObject({ portLabel: 'Open localhost:3000', remoteLabel: 'Studio' });
+    client.local.sidebarOpen = false;
+    await watchRowPorts(client, native);
+    await fleetPortsPass(async request => { calls.push(request); return {}; }, entry);
+    expect(calls.at(-1)).toEqual({ op: 'unsubscribe', key: SIDEBAR_DISCOVERED_SERVERS_KEY });
+    expect(rowPorts(client, 'fleet:env-remote:t9')).toEqual([]);
+  });
+  test('the button focuses the background environment, and the port opens once its thread is open there', async () => {
+    const { client, native, ops, rpcs } = rig();
+    const entry = background([thread('t9', { projectId: 'r1' })]);
+    await watchRowPorts(client, native);
+    await fleetPortsPass(async () => ({ id: 'sub-7' }), entry);
+    fleetPortsEvent(entry, { key: SIDEBAR_DISCOVERED_SERVERS_KEY, generation: 3, subscriptionId: 'sub-7', value: { servers: [server(3000, 't9')] } });
+    expect(await sidebarCommand(client, native, files, 'legacy-port', 'fleet:env-remote:t9', '')).toBe('sidebar:opened');
+    expect(opsOf(ops, 'connect').at(-1)).toMatchObject({ origin: 'http://studio.local:3773' });
+    expect(rpcs.some(call => call.method === 'preview.open')).toBe(false);
+    client.environmentId = 'env-remote'; client.threadId = 'other';
+    await openPendingPort(client, native);
+    expect(rpcs.some(call => call.method === 'preview.open')).toBe(false); // the environment holds; another thread is open: dropped
+    client.environmentId = 'local'; client.threadId = 'thread-1'; // back where the window was, Studio in the background again
+    const again = background([thread('t9', { projectId: 'r1' })]);
+    await fleetPortsPass(async () => ({ id: 'sub-8' }), again);
+    fleetPortsEvent(again, { key: SIDEBAR_DISCOVERED_SERVERS_KEY, generation: 3, subscriptionId: 'sub-8', value: { servers: [server(3000, 't9')] } });
+    expect(await sidebarCommand(client, native, files, 'legacy-port', 'fleet:env-remote:t9', '')).toBe('sidebar:opened');
+    client.environmentId = 'env-remote'; client.threadId = 't9';
+    await openPendingPort(client, native);
+    expect(rpcs.find(call => call.method === 'preview.open')?.payload).toMatchObject({ threadId: 't9' });
+  });
+});
+
+describe('LS-7 (found while building): the row\'s tooltips', () => {
+  const view = readFileSync(new URL('./legacy-sidebar.contract', import.meta.url), 'utf8');
+  test('the title, the worktree glyph, the collapsed project\'s status and the controls carry the reference\'s tooltips', () => {
+    expect(view).toContain('LegacyTitleTip(label=t.title)');
+    expect(view).toContain('Tip(label=t.worktreeLabel, side="top"');
+    expect(view).toContain('Tip(label=p.statusLabel, side="top"');
+    expect(view).toContain('Tip(label=(t.prPending ? "" : t.prTooltip)');
+    expect(view).toContain('Tip(label=t.portTip');
+  });
+  test('the worktree tooltip names the worktree by its last segment (formatWorktreePathForDisplay), then the branch', () => {
+    const { client } = rig({ threads: [thread('thread-1'), thread('wt', { worktreePath: '/work/.t3/worktrees/app-feature', branch: 'feature/x' }), thread('plain', { worktreePath: '/work/.t3/worktrees/solo' })] });
+    const rows = legacySidebarSnapshot(client, Date.parse(at(30)), { projectIdentity: identity }).projects[0]!.threads;
+    expect(rows.find(row => row.id === 'wt')?.worktreeLabel).toBe('Worktree: app-feature (feature/x)');
+    expect(rows.find(row => row.id === 'plain')?.worktreeLabel).toBe('Worktree: solo');
+  });
+});
+
+describe('LS-8 (found while building): list motion and the destructive "Delete anyway"', () => {
+  const view = readFileSync(new URL('./legacy-sidebar.contract', import.meta.url), 'utf8');
+  test('autoAnimate (180 ms ease-out, none under reduced motion): project and thread rows slide and a leaving row fades', () => {
+    expect(view).toContain('keyframes lsRowOut\n  from opacity=1 scale=1\n  to opacity=0 scale=0.98');
+    const motion = '-exact-layout-transition=(reduced ? "none" : "180ms ease-out") -exact-exit-animation=(reduced ? "none" : "lsRowOut 180ms ease-out")';
+    expect(view.split(motion).length - 1).toBe(2);
+  });
+  test('the "Project is not empty" toast\'s Delete anyway is the destructive button', () => {
+    const toastView = readFileSync(new URL('./shell-toast.contract', import.meta.url), 'utf8');
+    expect(toastView).toContain('background-color=(toast.actionDestructive ? "#dc2626" : "light-dark(#1b4ed8, #346bf1)")');
+  });
+});
+
 describe('LS-3: files dropped on a row (consumePendingFileDrop, addDroppedFiles)', () => {
   test('once the dropped-on thread is open, its queued files join its composer: images to the shelf, files as chips', async () => {
     const queued = { rowDrops: ['thread-9', 'fleet:local:thread-2'] };
@@ -276,7 +349,7 @@ describe('LS-6: a background environment\'s rows act on that environment', () =>
     expect(fleetRequests(ops).map(request => [request.method, request.payload.type, request.payload.projectId, request.payload.title])).toEqual([['projects.mutate', 'project.update', 'r1', 'Solo 2']]);
     expect(legacySession(client).dialog.kind).toBe('');
     await sidebarCommand(client, native, files, 'legacy-project-menu', key, '');
-    expect(toasts(client).at(-1)).toMatchObject({ title: 'Project is not empty', action: { label: 'Delete anyway', op: 'sidebar:legacy-remove-anyway', id: 'fleet:env-remote:r1' } });
+    expect(toasts(client).at(-1)).toMatchObject({ title: 'Project is not empty', actionVariant: 'destructive', action: { label: 'Delete anyway', op: 'sidebar:legacy-remove-anyway', id: 'fleet:env-remote:r1' } });
     await sidebarCommand(client, native, files, 'legacy-remove-anyway', 'fleet:env-remote:r1', '');
     expect(legacySidebarSnapshot(client, Date.parse(at(30)), { projectIdentity: identity }).dialogTitle).toBe('Remove project "solo" and delete its 1 thread?');
     client.local.drafts['env-remote:t9'] = 'kept text';

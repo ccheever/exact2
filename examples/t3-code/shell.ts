@@ -33,7 +33,7 @@ import { activationOpen } from './desktop-activation'; // app-activation: a `t3 
 
 export type ShellToastView = {
   id: number; kind: string; title: string; description: string; icon: string; iconColor: string; provider: string;
-  actionLabel: string; actionOp: string; actionId: string; actionValue: string; actionOutline: boolean;
+  actionLabel: string; actionOp: string; actionId: string; actionValue: string; actionOutline: boolean; actionDestructive: boolean;
   secondaryLabel: string; secondaryOp: string; secondaryId: string; secondaryValue: string; secondaryGhost: boolean;
   stacked: boolean; copyText: string; copied: boolean; index: number;
   /** browser-surface part 3: the additional action, and each button's "Copied!" state (2 s after its copy). */
@@ -152,7 +152,7 @@ export function toastViews(queue: Toast[], copied: ReadonlySet<number> = new Set
       id: toast.id, kind: toast.kind, title: toast.title, description: toast.description,
       icon: provider || leading === 'none' ? '' : glyph || kindGlyph, iconColor: provider || leading === 'none' ? '' : glyph ? TONES[tone ?? ''] ?? kindColor : kindColor, provider,
       actionLabel: label(action), actionOp: action?.op ?? '', actionId: action?.id ?? '', actionValue: action?.value ?? '',
-      actionOutline: toast.actionVariant === 'outline',
+      actionOutline: toast.actionVariant === 'outline', actionDestructive: toast.actionVariant === 'destructive',
       secondaryLabel: label(secondary), secondaryOp: secondary?.op ?? '', secondaryId: secondary?.id ?? '', secondaryValue: secondary?.value ?? '', secondaryGhost: toast.secondaryVariant === 'ghost',
       stacked: toast.stacked === true && !!action, copyText: toast.kind === 'error' && !toast.hideCopy ? toast.description : '', copied: copied.has(toast.id), index,
       extraLabel: label(extra), extraOp: extra?.op ?? '', extraId: extra?.id ?? '', extraValue: extra?.value ?? '', actionDone: done(action), secondaryDone: done(secondary), extraDone: done(extra),

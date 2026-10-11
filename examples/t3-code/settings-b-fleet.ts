@@ -24,6 +24,7 @@ import { automationFleetEvent } from './browser-automation';
 import { codexHandoffEvent } from './codex-handoff-events'; // managed-codex-chatgpt: the primary's handoff stream
 import { providerSetupEvent } from './provider-setup';
 import { fleetSetupHost } from './codex-fleet-host'; // managed-codex-chatgpt: a background computer's Codex setup streams
+import { fleetPortsEvent, fleetPortsPass } from './legacy-sidebar-ports'; // legacy-sidebar-full LS-2: a background environment's discovered ports
 
 export type FleetPhase = 'available' | 'connecting' | 'reconnecting' | 'connected' | 'error' | 'unsupported';
 export interface FleetEntry {
@@ -162,6 +163,7 @@ export class EnvironmentFleet {
     await this.watchTerminals(remote, entry);
     await liveFleetPass(request => this.call(remote, entry, request), entry); // live-streams.ts: scheduled tasks and clones
     await keepAliveFleetPass(request => this.call(remote, entry, request), entry); // keep-alive.ts: running threads' detail streams, the primary's lifecycle
+    await fleetPortsPass(request => this.call(remote, entry, request), entry); // legacy-sidebar-ports.ts: the legacy rows' discovered ports
   }
 
   private async call(remote: Native, entry: FleetEntry, request: Obj): Promise<Obj> {
@@ -201,6 +203,7 @@ export class EnvironmentFleet {
         if (seq <= entry.lastEvent) continue;
         through = Math.max(through, seq);
         if (liveFleetEvent(entry, event)) { this.revision++; continue; } // live-streams.ts
+        if (fleetPortsEvent(entry, event)) { this.revision++; continue; } // legacy-sidebar-ports.ts
         if (keepAliveFleetEvent(entry, event)) { this.revision++; continue; } // keep-alive.ts
         if (automationFleetEvent(entry, event)) { this.revision++; continue; } // browser-automation.ts: this environment's previewAutomation host
         if (usageFleetEvent(entry, event)) { this.revision++; continue; } // usage-replies.ts: the Usage page's detached requests
