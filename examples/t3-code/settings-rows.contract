@@ -171,7 +171,7 @@ component CoreSections
           else
             row min-height="1.75rem" align-items="center" justify-content="space-between" padding-left="1rem" padding-right="1rem"
               // settings-headings: SettingsSection's title is an `<h2>`, SettingsRow's an `<h3>` (settingsLayout.tsx).
-              text section.title font-size="0.875rem" line-height="1.25rem" color=pal.heading role="heading" aria-level=2
+              text section.title font-size="0.875rem" font-weight=400 line-height="1.25rem" color=pal.heading role="heading" aria-level=2
               when section.id == "typography"
                 row gap="0.5rem" align-items="center"
                   text "Advanced" font-size="0.875rem" line-height="1.25rem" color=pal.muted

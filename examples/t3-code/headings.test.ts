@@ -41,7 +41,7 @@ test('the device tools section title is an h3 and the import menu label is no he
 // are in the task record (20261010-settings-headings.md); these are the clone's views that draw them.
 test('Settings section titles are h2 and row titles h3, as the reference', () => {
   // General and Appearance (CoreSections, CoreRowView); the Project page's Model row is a CoreRowView too.
-  expect(line('settings-rows.contract', 'text section.title font-size="0.875rem" line-height="1.25rem" color=pal.heading role=')).toContain('role="heading" aria-level=2');
+  expect(line('settings-rows.contract', 'text section.title font-size="0.875rem" font-weight=400 line-height="1.25rem" color=pal.heading role=')).toContain('role="heading" aria-level=2');
   expect(line('settings-rows.contract', 'SettingsSrHeading(title=section.title')).toContain('level=2');
   expect(line('settings-rows.contract', 'text row.title font-size="0.875rem" font-weight=500')).toContain('role="heading" aria-level=3');
   expect(line('settings-rows.contract', 'text "Version"')).toContain('role="heading" aria-level=3 aria-label=`Version ${row.value}`');
@@ -58,4 +58,40 @@ test('Settings section titles are h2 and row titles h3, as the reference', () =>
   expect(line('connections.contract', 'text "No saved remote environments"')).not.toContain('role="heading"');
   // The sr-only heading draws nothing and takes no space.
   expect(line('settings-kit.contract', 'text title role="heading" aria-level=level')).toContain('position="absolute" width=1 height=1 overflow="hidden" opacity=0');
+});
+
+// adopt-main-fixes-r9: main `a6a49a015` (LLP 1116 D7) gives a `text role="heading"` its text style's emphasized weight,
+// bold (700) for a title (levels 1-3), where until now an unwritten weight was the title's own regular (400); a written
+// `font-weight` still wins. The reference's headings say their weight (settingsLayout.tsx's SettingsSection title and
+// ThemeSettings.tsx's "Color scheme" / "Themes" are `font-normal`), so every drawn clone heading writes one, on its
+// line or in its `style` class; the visually hidden ones (`opacity=0`) draw nothing.
+test('every drawn text heading writes its font-weight (main\'s D7 bolds an unsaid one)', () => {
+  const all = views();
+  const weighted = new Set<string>();
+  for (const { lines } of all) lines.forEach((l, i) => {
+    const style = /^style (\w+)/.exec(l);
+    if (style && /\bfont-weight=/.test(lines[i + 1] ?? '')) weighted.add(style[1]!);
+  });
+  const unweighted: string[] = [];
+  let texts = 0;
+  for (const { name, lines } of all) lines.forEach((l, i) => {
+    if (!/^\s*text\b.*\brole="heading"/.test(l) || /\bopacity=0\b/.test(l)) return;
+    texts++;
+    const cls = /\bclass=(\w+)/.exec(l)?.[1];
+    // a text whose runs write their weight (markdown's ChatRuns) is weighted by its children
+    const runs = /^\s*ChatRuns\(.*\bweight=\d+/.test(lines[i + 1] ?? '');
+    if (!/\bfont-weight=/.test(l) && !(cls && weighted.has(cls)) && !runs) unweighted.push(`${name}:${i + 1}`);
+  });
+  expect(texts).toBeGreaterThan(100);
+  expect(unweighted).toEqual([]);
+  // The seven that relied on the old regular weight now say it, as the reference's `font-normal`.
+  for (const [file, needle] of [
+    ['providers.contract', 'text editor.title font-size="0.875rem" font-weight=400'],
+    ['settings-appearance.contract', 'text "Color scheme" font-size="0.875rem" font-weight=400'],
+    ['settings-appearance.contract', 'text "Themes" font-size="0.875rem" font-weight=400'],
+    ['settings-archive.contract', 'text group.title font-size="0.875rem" font-weight=400'],
+    ['settings-rows.contract', 'text section.title font-size="0.875rem" font-weight=400'],
+    ['settings-scheduled.contract', 'text "Scheduled tasks" font-size="0.875rem" font-weight=400'],
+    ['settings-licenses.contract', 'text "Third-party notices" font-size="0.875rem" font-weight=400'],
+  ] as const) expect(line(file, needle)).toContain('role="heading"');
 });

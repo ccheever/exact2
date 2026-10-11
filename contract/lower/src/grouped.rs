@@ -637,6 +637,73 @@ fn row(node: &Node, separated: bool) -> Node {
             }
         }
     }
+    // A `column` row keeps its direction (LLP 1116 D2): its children stack
+    // as written, from the text's margin, centred in the cell's height, and
+    // a subtitle cell's 15 above and below (52 high for one line). One or two
+    // texts are the subtitle cell's lines, which the kernel reads as one;
+    // anything else is the author's own layout.
+    if column_row(tag, attrs) {
+        let stack = text_lines(children).is_some_and(|(low, high)| low >= 1 && high <= 2);
+        let mut rows = context;
+        rows.extend([
+            s("display", "flex", span),
+            s("flex-direction", "column", span),
+            s("justify-content", "center", span),
+            n("gap", if stack { 0.0 } else { 8.0 }, span),
+            n("min-height", 22.0, span),
+            n("margin-left", 16.0, span),
+            n("padding-right", 16.0, span),
+            n("padding-top", 15.0, span),
+            n("padding-bottom", 15.0, span),
+            n(
+                "border-bottom-width",
+                if separated { 1.0 } else { 0.0 },
+                span,
+            ),
+            s("border-bottom-style", "solid", span),
+            s("border-bottom-color", SEPARATOR, span),
+            n("margin-bottom", if separated { -1.0 } else { 0.0 }, span),
+            n("font-size", 17.0, span),
+            attr("color", tint(LABEL), span),
+            s("text-align", "left", span),
+        ]);
+        rows.extend(attrs.iter().cloned());
+        let Node::Element {
+            positional,
+            instance,
+            ..
+        } = node
+        else {
+            unreachable!()
+        };
+        return Node::Element {
+            tag: tag.clone(),
+            positional: positional.clone(),
+            attrs: rows,
+            children: if stack {
+                stack_lines(children, attrs)
+            } else {
+                children.clone()
+            },
+            span,
+            instance: *instance,
+        };
+    }
+    let stack = text_stack(children);
+    // A stack of lines in the row (an author's `column` that is not the
+    // subtitle cell) keeps the cell's margins, as a hand-built cell pins its
+    // content to its content view's: the subtitle cell's 15 above and below,
+    // as a `column` row has them. On the stack, not the row, so a taller part
+    // beside it (an avatar with its own margins) sets the height as before;
+    // a row whose author wrote its vertical padding has said the space.
+    // Without them its first line touched the card and its last the separator.
+    let lines = !stack
+        && !attrs.iter().any(|a| {
+            matches!(
+                a.name.as_str(),
+                "padding" | "padding-top" | "padding-bottom"
+            )
+        });
     let sheet = vec![
         s("display", "flex", span),
         s("flex-direction", "row", span),
@@ -663,7 +730,6 @@ fn row(node: &Node, separated: bool) -> Node {
         s("text-align", "left", span),
     ];
     let mut texts = Count::Known(0);
-    let stack = text_stack(children);
     // Positions among the shown parts: a part written `display="none"` is
     // not the leading or the trailing one (D4).
     let shown: Vec<&Node> = children.iter().filter(|c| !hidden(c)).collect();
@@ -682,6 +748,7 @@ fn row(node: &Node, separated: bool) -> Node {
                 i,
                 last,
                 stack,
+                lines,
                 tint: &tint,
             };
             part(child, at, &mut texts)
@@ -719,6 +786,8 @@ struct Place<'a> {
     last: usize,
     /// Whether a `column` here is the row's text stack (`text_stack`).
     stack: bool,
+    /// Whether a stack of lines here takes the cell's margins (`stacks`).
+    lines: bool,
     tint: &'a dyn Fn(&str) -> Expr,
 }
 
@@ -744,6 +813,7 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
         i,
         last,
         stack,
+        lines,
         tint,
     } = at;
     if let Node::When {
@@ -883,6 +953,18 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
             )
         }
         ("column", _) if stack => subtitle(child),
+        _ if !stack && stacks(child) => {
+            let margins = if lines {
+                vec![n("margin-top", 15.0, at), n("margin-bottom", 15.0, at)]
+            } else {
+                Vec::new()
+            };
+            // A control's lines are its label, in its own colour.
+            match tag.as_str() {
+                "button" | "link" => with(child, margins),
+                _ => stack_of_lines(child, margins),
+            }
+        }
         _ => child.clone(),
     }
 }
@@ -935,22 +1017,76 @@ fn text_stack(children: &[Node]) -> bool {
             rest = before;
         }
     }
-    // One or two texts, a `when` showing one of them included.
-    fn lines(nodes: &[Node]) -> Option<(usize, usize)> {
-        nodes.iter().try_fold((0, 0), |(low, high), c| match c {
-            Node::Element { tag, .. } if tag == "text" && hidden(c) => Some((low, high)),
-            Node::Element { tag, .. } if tag == "text" => Some((low + 1, high + 1)),
-            Node::When {
-                then, otherwise, ..
-            } => {
-                let (a, b) = (lines(then)?, lines(otherwise)?);
-                Some((low + a.0.min(b.0), high + a.1.max(b.1)))
-            }
-            _ => None,
-        })
-    }
     matches!(rest, [Node::Element { tag, children, .. }]
-        if tag == "column" && lines(children).is_some_and(|(low, high)| low >= 1 && high <= 2))
+        if tag == "column" && text_lines(children).is_some_and(|(low, high)| low >= 1 && high <= 2))
+}
+
+/// How many texts `nodes` show, fewest and most, a `when` showing one of
+/// them included; `None` when anything else is among them.
+fn text_lines(nodes: &[Node]) -> Option<(usize, usize)> {
+    nodes.iter().try_fold((0, 0), |(low, high), c| match c {
+        Node::Element { tag, .. } if tag == "text" && hidden(c) => Some((low, high)),
+        Node::Element { tag, .. } if tag == "text" => Some((low + 1, high + 1)),
+        Node::When {
+            then, otherwise, ..
+        } => {
+            let (a, b) = (text_lines(then)?, text_lines(otherwise)?);
+            Some((low + a.0.min(b.0), high + a.1.max(b.1)))
+        }
+        _ => None,
+    })
+}
+
+/// Whether a row lays out as a column: a `column`, or a row whose authored
+/// `flex-direction` is a literal column; a `button`'s parts stay a row.
+fn column_row(tag: &str, attrs: &[Attr]) -> bool {
+    match attrs.iter().rev().find(|a| a.name == "flex-direction") {
+        Some(a) => matches!(&a.value, Expr::Str(v, _) if v.starts_with("column")),
+        None => tag == "column",
+    }
+}
+
+/// Whether a row's part is lines stacked in the row: a shown element that
+/// lays out as a column around two parts or more (a column with nothing in
+/// it is a box, as a cover's placeholder is). `part` reads a `when` through.
+fn stacks(node: &Node) -> bool {
+    matches!(node, Node::Element { tag, attrs, children, .. }
+        if !hidden(node) && column_row(tag, attrs) && children.iter().filter(|c| !hidden(c)).count() >= 2)
+}
+
+/// A stack of lines in a row that is not the subtitle cell, with `sheet`
+/// (its margins): its texts are drawn as the subtitle cell draws its lines
+/// (LLP 1116.000 D3.2), the first a title in the row's size and colour, a
+/// later one 15 points in the secondary colour. It is presentation left
+/// unsaid, which is the platform's (LLP 1115): a text's own `font`,
+/// `font-size` or `color` replaces the row it names, as the author's rows
+/// replace the sheet's, and so does the stack's own (`stack_lines`).
+fn stack_of_lines(node: &Node, sheet: Vec<Attr>) -> Node {
+    let Node::Element {
+        attrs, children, ..
+    } = node
+    else {
+        return node.clone();
+    };
+    let lines = stack_lines(children, attrs);
+    match with(node, sheet) {
+        Node::Element {
+            tag,
+            positional,
+            attrs,
+            span,
+            instance,
+            ..
+        } => Node::Element {
+            tag,
+            positional,
+            attrs,
+            children: lines,
+            span,
+            instance,
+        },
+        other => other,
+    }
 }
 
 /// A title over a subtitle: UIKit's subtitle cell, 15 above and below, the
@@ -968,10 +1104,45 @@ fn subtitle(node: &Node) -> Node {
         return node.clone();
     };
     let at = *span;
+    let parts = stack_lines(children, attrs);
+    let mut rows = vec![
+        n("flex-grow", 1.0, at),
+        n("min-width", 0.0, at),
+        n("padding-top", 15.0, at),
+        n("padding-bottom", 15.0, at),
+    ];
+    rows.extend(attrs.iter().cloned());
+    Node::Element {
+        tag: tag.clone(),
+        positional: positional.clone(),
+        attrs: rows,
+        children: parts,
+        span: at,
+        instance: *instance,
+    }
+}
+
+/// A subtitle stack's lines: the title in the row's size and colour, the
+/// second line 15 points in the secondary colour. A size or colour the
+/// stack's author wrote (`own`, its rows) reaches its lines, which the
+/// sheet's would otherwise replace; a class or a style may say either.
+fn stack_lines(children: &[Node], own: &[Attr]) -> Vec<Node> {
+    let says = |names: &[&str]| {
+        own.iter().any(|a| {
+            names.contains(&a.name.as_str())
+                || matches!(a.name.as_str(), "class" | "className" | "style")
+        })
+    };
+    let (size, colour) = (!says(&["font", "font-size"]), !says(&["color"]));
+    let keep = move |a: &Attr| match a.name.strip_prefix(MARK) {
+        Some("font-size") => size,
+        Some("color") => colour,
+        _ => true,
+    };
     // The second line, whether written or shown by a condition: a text
     // after the first shown one, chosen by the condition where the arms
     // differ (as `part` counts a row's texts).
-    fn line(c: &Node, texts: &mut Count) -> Node {
+    fn line(c: &Node, texts: &mut Count, keep: &dyn Fn(&Attr) -> bool) -> Node {
         match c {
             Node::When {
                 tag,
@@ -982,9 +1153,9 @@ fn subtitle(node: &Node) -> Node {
             } => {
                 let start = Count::Known(texts.low());
                 *texts = start.clone();
-                let then = then.iter().map(|n| line(n, texts)).collect();
+                let then = then.iter().map(|n| line(n, texts, keep)).collect();
                 let after = std::mem::replace(texts, start);
-                let otherwise = otherwise.iter().map(|n| line(n, texts)).collect();
+                let otherwise = otherwise.iter().map(|n| line(n, texts, keep)).collect();
                 *texts = match (after, texts.clone()) {
                     (Count::Known(a), Count::Known(b)) if a == b => Count::Known(a),
                     (Count::Known(a), Count::Known(b)) => Count::Cond(cond.clone(), a, b),
@@ -1006,7 +1177,7 @@ fn subtitle(node: &Node) -> Node {
                 let choose = |c: &Expr, a: Expr, b: Expr| {
                     Expr::Ternary(Box::new(c.clone()), Box::new(a), Box::new(b), at)
                 };
-                let (sheet, next) = match texts.clone() {
+                let (mut sheet, next) = match texts.clone() {
                     Count::Known(0) => (Vec::new(), Count::Known(1)),
                     Count::Known(count) => (
                         vec![n("font-size", 15.0, at), s("color", SECONDARY, at)],
@@ -1021,26 +1192,15 @@ fn subtitle(node: &Node) -> Node {
                     ),
                 };
                 *texts = next;
+                sheet.retain(keep);
                 with(c, sheet)
             }
             other => other.clone(),
         }
     }
     let mut texts = Count::Known(0);
-    let parts = children.iter().map(|c| line(c, &mut texts)).collect();
-    let mut rows = vec![
-        n("flex-grow", 1.0, at),
-        n("min-width", 0.0, at),
-        n("padding-top", 15.0, at),
-        n("padding-bottom", 15.0, at),
-    ];
-    rows.extend(attrs.iter().cloned());
-    Node::Element {
-        tag: tag.clone(),
-        positional: positional.clone(),
-        attrs: rows,
-        children: parts,
-        span: at,
-        instance: *instance,
-    }
+    children
+        .iter()
+        .map(|c| line(c, &mut texts, &keep))
+        .collect()
 }

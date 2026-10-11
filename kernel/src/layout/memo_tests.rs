@@ -447,3 +447,70 @@ fn rows_lay_out_the_same_with_the_memo_off() {
     list.run(8, 40);
     assert_eq!(list.k.row_layout_memo_counts(), (0, 0));
 }
+
+#[test]
+fn a_replayed_row_s_columns_are_cut_by_its_recorded_height_bounds() {
+    // Rows alike but for their ids: the first is recorded, the rest replayed
+    let mut k = Kernel::with_monospace();
+    let mut ops = vec![
+        Op::CreateView {
+            id: 1,
+            node_type: NodeType::List,
+        },
+        style(1, &[(StyleId::Width, n(400.0))]),
+    ];
+    let mut rows = Vec::new();
+    for row in 0..3 {
+        let [wrapper, columns] = [100 + row * 10, 101 + row * 10];
+        let blocks: Vec<ViewId> = (102 + row * 10..106 + row * 10).collect();
+        for &id in [wrapper, columns].iter().chain(&blocks) {
+            ops.push(Op::CreateView {
+                id,
+                node_type: NodeType::View,
+            });
+        }
+        ops.extend([
+            style(wrapper, &flex("column")),
+            style(wrapper, &[(StyleId::Height, n(80.0))]),
+            style(
+                columns,
+                &[
+                    (StyleId::ColumnCount, n(2.0)),
+                    (StyleId::ColumnGap, n(0.0)),
+                    (StyleId::ColumnFill, t("auto")),
+                    (StyleId::MaxHeight, StyleValue::Percent(50.0)),
+                ],
+            ),
+            Op::SetChildren {
+                id: wrapper,
+                children: vec![columns],
+            },
+            Op::SetChildren {
+                id: columns,
+                children: blocks.clone(),
+            },
+        ]);
+        ops.extend(
+            blocks
+                .iter()
+                .map(|&id| style(id, &[(StyleId::Height, n(20.0))])),
+        );
+        rows.push(wrapper);
+    }
+    ops.extend([
+        Op::SetChildren {
+            id: 1,
+            children: rows,
+        },
+        Op::AttachRoot { id: 1 },
+    ]);
+    k.apply(0, 1, &ops).unwrap();
+    k.compute_layout(1, OFFER).unwrap();
+    let (hits, _) = k.row_layout_memo_counts();
+    assert!(hits > 0, "no row was replayed");
+    // 50% of the row's 80 points caps the columns at two 20-point blocks
+    for row in 0..3 {
+        let third = k.node(104 + row * 10).unwrap().frame;
+        assert_eq!((third.x, third.y), (200.0, row as f32 * 80.0), "row {row}");
+    }
+}

@@ -477,14 +477,14 @@ browserCheck(`interaction documents stay readable, then replay edits and actions
 
 // LLP 1069.011.001 D5/D6/D16: the shipped shell isolates button layout,
 // truncates only the requested titles, and keeps authored disabled colours.
-for (const concern of ['defaults', 'nowrap', 'clamp', 'disabled accent', 'disabled plain accent', 'disabled glass accent', 'disabled clear-glass accent']) browserCheck(`native button ${concern}`, async () => {
+for (const concern of ['defaults', 'nowrap', 'clamp', 'floor', 'disabled accent', 'disabled plain accent', 'disabled glass accent', 'disabled clear-glass accent']) browserCheck(`native button ${concern}`, async () => {
   const shell = readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8');
   const button = (id, style = '', extra = '') => `<button id="${id}" data-native data-button-style="${id === 'plain-accent' ? 'plain' : id === 'glass-accent' ? 'glass' : id === 'clear-glass-accent' ? 'clear-glass' : 'filled'}" style="display:grid;width:120px;${style}" ${extra}><span data-exact-text>A native title long enough to wrap onto several lines</span></button>`;
-  const html = shell.replace('<div id="exact-root"></div>', `<div id="exact-root"><div style="white-space:nowrap;text-align:end">${button('wrap')}${button('nowrap', 'white-space:nowrap;')}${button('clamp', '--exact-button-clamp:2;--exact-button-title-display:-webkit-box;')}${button('authored', '--exact-accent:#ff0000;', 'disabled')}${button('align', 'text-align:end;')}${button('plain-accent', '--exact-accent:#ff0000;', 'disabled')}${button('default-off', '', 'disabled')}${button('glass-accent', '--exact-accent:#ff0000;', 'disabled')}${button('clear-glass-accent', '--exact-accent:#ff0000;', 'disabled')}</div></div>`).replace('<script type="module" src="./glue.js"></script>', '');
+  const html = shell.replace('<div id="exact-root"></div>', `<div id="exact-root"><div style="white-space:nowrap;text-align:end">${button('wrap')}${button('nowrap', 'white-space:nowrap;--exact-button-title-min:0px;')}${button('clamp', '--exact-button-clamp:2;--exact-button-title-display:-webkit-box;')}${button('authored', '--exact-accent:#ff0000;', 'disabled')}${button('align', 'text-align:end;')}${button('plain-accent', '--exact-accent:#ff0000;', 'disabled')}${button('default-off', '', 'disabled')}${button('glass-accent', '--exact-accent:#ff0000;', 'disabled')}${button('clear-glass-accent', '--exact-accent:#ff0000;', 'disabled')}</div><div style="display:flex;width:40px">${button('floor', 'width:auto;flex:1 1 0;')}</div></div>`).replace('<script type="module" src="./glue.js"></script>', '');
   await withDocument('/', async tab => {
     const page = await tab(true);
     await page.until("document.readyState === 'complete'", 'native fixture');
-    const facts = await page(`(() => { const read = id => { const b=document.getElementById(id),t=b.firstElementChild,s=getComputedStyle(b),c=getComputedStyle(t); return {whiteSpace:s.whiteSpace,align:s.textAlign,display:c.display,height:t.getBoundingClientRect().height,width:t.clientWidth,scroll:t.scrollWidth,ellipsis:c.textOverflow,background:s.backgroundColor,color:s.color}; }; return Object.fromEntries(['wrap','nowrap','clamp','authored','default-off','align','plain-accent','glass-accent','clear-glass-accent'].map(id=>[id,read(id)])); })()`);
+    const facts = await page(`(() => { const read = id => { const b=document.getElementById(id),t=b.firstElementChild,s=getComputedStyle(b),c=getComputedStyle(t); return {whiteSpace:s.whiteSpace,align:s.textAlign,display:c.display,height:t.getBoundingClientRect().height,width:t.clientWidth,scroll:t.scrollWidth,ellipsis:c.textOverflow,background:s.backgroundColor,color:s.color}; }; return Object.fromEntries(['wrap','nowrap','clamp','authored','default-off','align','plain-accent','glass-accent','clear-glass-accent','floor'].map(id=>[id,read(id)])); })()`);
     if (concern === 'defaults') {
       expect(facts.wrap.whiteSpace).toBe('normal');
       expect(facts.wrap.align).toBe('center');
@@ -502,6 +502,12 @@ for (const concern of ['defaults', 'nowrap', 'clamp', 'disabled accent', 'disabl
       expect(facts.nowrap.scroll).toBeGreaterThan(facts.nowrap.width);
       expect(facts.nowrap.ellipsis).toBe('ellipsis');
     }
+    // LLP 1116 D1: a wrapping title keeps its min-content floor in a squeezed
+    // row, so no word is cut to an ellipsis.
+    if (concern === 'floor') {
+      expect(facts.floor.width).toBeGreaterThan(40);
+      expect(facts.floor.scroll).toBeLessThanOrEqual(facts.floor.width);
+    }
     if (concern === 'disabled glass accent') expect(facts['glass-accent'].background).toBe('color(srgb 1 0 0 / 0.45)');
     if (concern === 'disabled clear-glass accent') expect(facts['clear-glass-accent'].background).toBe('color(srgb 1 0 0 / 0.45)');
     if (concern === 'disabled plain accent') expect(facts['plain-accent'].color).toBe('rgb(255, 0, 0)');
@@ -512,6 +518,43 @@ for (const concern of ['defaults', 'nowrap', 'clamp', 'disabled accent', 'disabl
   }, {html});
 });
 
+// LLP 1116.001 D1: a date, time or local date-time control takes the text
+// field's look (a 1 px line, 8 px corners, the field's background, 36 px
+// tall at the body size) in light and dark, as a border box the kernel
+// models; the author's rows win, and `appearance: none` (no marker) is bare.
+browserCheck('date and time controls take the field look', async () => {
+  const shell = readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8');
+  const field = (id, type, extra = '') => `<input id="${id}" type="${type}" ${extra}>`;
+  const html = shell.replace('<div id="exact-root"></div>', `<div id="exact-root"><div style="width:300px">${
+    field('date', 'date', 'data-exact-field')}${field('time', 'time', 'data-exact-field value="14:30"')}${
+    field('local', 'datetime-local', 'data-exact-field')}${field('off', 'date', 'data-exact-field disabled')}${
+    field('authored', 'date', 'data-exact-field style="border:2px solid rgb(255, 0, 0);padding:3px;border-radius:0;box-sizing:content-box;width:200px"')}${
+    field('bare', 'date', 'style="appearance:none"')}<input id="text" data-native><div style="color-scheme:dark">${
+    field('dark', 'date', 'data-exact-field')}<input id="dark-text" data-native></div></div></div>`).replace('<script type="module" src="./glue.js"></script>', '');
+  await withDocument('/', async tab => {
+    const page = await tab(true);
+    await page.until("document.readyState === 'complete'", 'field fixture');
+    const facts = await page(`(() => Object.fromEntries(['date','time','local','off','authored','bare','text','dark','dark-text'].map(id => { const e = document.getElementById(id), s = getComputedStyle(e), r = e.getBoundingClientRect(); return [id, {width: r.width, height: r.height, border: s.borderTopWidth + ' ' + s.borderTopStyle + ' ' + s.borderTopColor, radius: s.borderTopLeftRadius, background: s.backgroundColor, sizing: s.boxSizing, appearance: s.appearance, color: s.color}]; })))()`);
+    for (const id of ['date', 'time', 'local']) {
+      expect(facts[id].height).toBe(36);
+      expect(facts[id].sizing).toBe('border-box');
+      expect(facts[id].appearance).toBe('auto');
+      expect(facts[id].border).toBe(facts.text.border);
+      expect(facts[id].radius).toBe(facts.text.radius);
+      expect(facts[id].background).toBe(facts.text.background);
+    }
+    expect(facts.date.border).toBe('1px solid rgb(199, 199, 204)');
+    expect(facts.dark.border).toBe(facts['dark-text'].border);
+    expect(facts.dark.background).toBe(facts['dark-text'].background);
+    expect(facts.dark.background).not.toBe(facts.date.background);
+    expect(facts.off.background).not.toBe(facts.date.background);
+    expect(facts.authored.border).toBe('2px solid rgb(255, 0, 0)');
+    expect(facts.authored.radius).toBe('0px');
+    expect(facts.authored.width).toBe(210);
+    expect(facts.bare.border).toBe('0px none rgb(0, 0, 0)');
+    expect(facts.bare.sizing).toBe('content-box');
+  }, {html});
+});
 
 test('native button WebKit allowance ends at exactly 6.00 px', () => {
   const known = JSON.parse(readFileSync(resolve(ROOT, 'host/web-js/conformance/known-webkit.json'), 'utf8'));

@@ -208,6 +208,14 @@ pub trait LayoutPartialTree: TraversePartialTree {
         let _ = (node_id, position);
     }
 
+    /// EXACT PATCH 30: a multi-column container's `min-height` and `max-height` as its final
+    /// layout resolved them, border box, `None` where it has none: its caller cuts its columns
+    /// by them, and only the layout knows whether a percentage had a definite basis.
+    #[inline(always)]
+    fn set_multicol_bounds(&mut self, node_id: NodeId, min: Option<f32>, max: Option<f32>) {
+        let _ = (node_id, min, max);
+    }
+
     /// How many absolutely positioned descendants `node_id` is the containing block of that
     /// are not its children: each one's parent, and every box between, is `Static`.
     #[inline(always)]
