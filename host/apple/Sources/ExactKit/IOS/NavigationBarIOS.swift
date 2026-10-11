@@ -887,7 +887,10 @@ extension NavigationHost {
                 let safe = c.view.safeAreaInsets, env = presenter.insets
                 let top = c.collapseScroll == nil ? max(0, safe.top - env.top) : 0
                 // A scroller at the bottom edge goes under it (`reachBottom`).
-                let bottom = whole && c.edgeScroll == nil ? max(0, safe.bottom - env.bottom) : 0
+                // Only what the route reaches of the bottom bars is covered:
+                // none once the keyboard ends it above them (`ownerFrame`).
+                let reached = c.node.convert(c.node.bounds, to: c.view).maxY - (c.view.bounds.height - safe.bottom)
+                let bottom = whole && c.edgeScroll == nil ? max(0, min(safe.bottom, reached) - env.bottom) : 0
                 edges = .init(top: top, right: whole ? max(0, safe.right - env.right) : 0,
                               bottom: bottom, left: whole ? max(0, safe.left - env.left) : 0)
             } else if case .edges(let e)? = covers[c.node.id] {

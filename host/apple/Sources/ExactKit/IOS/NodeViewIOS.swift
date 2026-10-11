@@ -450,7 +450,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         // the next field (or, at the last, puts the keyboard away); Done,
         // Go, Search and Send put the keyboard away.
         switch props["enterKeyHint"] {
-        case "next": if presenter?.moveFocus(backward: false, fields: true) != true { textField.resignFirstResponder() }
+        case "next": if presenter?.focusNextField(after: self) != true { textField.resignFirstResponder() }
         case "done", "go", "search", "send": textField.resignFirstResponder()
         default: break
         }
