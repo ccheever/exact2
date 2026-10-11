@@ -71,7 +71,7 @@ enum T3MobileNavigation {
 // @ref llp/1109.005-composer-and-transcript.decision.md#settings-ownership
 // GAP 009: no pre-presentation modal-wrapper hook; keep Exact's pageSheet style.
 // Pinned Stack.tsx: Model uses one full-height detent; compact New Task
-// uses 92% of UIKit's maximum detent. Exact owns presentation style and pops.
+// and compact Settings use 92% of UIKit's maximum detent. Exact owns presentation style and pops.
 final class T3MobileSheets: NSObject, UINavigationControllerDelegate {
     private final class Entry {
         weak var route: ExactRoute?
@@ -90,7 +90,7 @@ final class T3MobileSheets: NSObject, UINavigationControllerDelegate {
 
     func configure(_ route: ExactRoute) {
         let marker = route.data[.mobileFormSheet] ?? ""
-        guard marker == "composer" || marker == "new-task" else {
+        guard marker == "composer" || marker == "new-task" || marker == "settings" else {
             entries.removeValue(forKey: route.key)
             return
         }
@@ -128,8 +128,8 @@ final class T3MobileSheets: NSObject, UINavigationControllerDelegate {
               controller.modalPresentationStyle == .pageSheet || controller.modalPresentationStyle == .formSheet,
               entry.configuredController !== controller,
               let sheet = controller.sheetPresentationController else { return }
-        if entry.marker == "new-task" {
-            sheet.detents = [.custom(identifier: .init("t3-new-task")) { context in
+        if entry.marker == "new-task" || entry.marker == "settings" {
+            sheet.detents = [.custom(identifier: .init("t3-\(entry.marker)")) { context in
                 context.maximumDetentValue * 0.92
             }]
         } else {

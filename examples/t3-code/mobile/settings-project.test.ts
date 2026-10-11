@@ -88,3 +88,27 @@ test('Project overview scope is bound to its own visit without replacing Back or
   expect(f.calls.some(call=>call.method==='projects.mutate'||call.op==='writePreferences')).toBe(false);
  } finally {mobileClient.shellLoaded=oldLoaded;mobileClient.config=oldConfig;entry.config=oldEntryConfig;}
 });
+
+
+test('compact Settings owns only its root toolbar while a child keeps the current scope and visit', () => {
+ const oldSaved=fleet.saved;
+ try {
+ transport();mobileClient.config={projectScope:true};for(const entry of fleet.entries.values())entry.config={projectScope:true};
+ fleet.saved=['a','b'].map(environmentId=>({environmentId,origin:`https://${environmentId}.test`}));
+ const rows=['a','b'].map(environmentId=>({environmentId,label:environmentId.toUpperCase(),state:'connected',url:`https://${environmentId}.test`,machine:'laptop'}));
+ const prepare=(compact:boolean,visit:string,selection='')=>answer('settingsRoot',['{}','light',rows,0,'settings-root',selection,0,visit,compact]);
+ const regular=prepare(false,'child-1'), compact=prepare(true,'child-1');
+ const regularHeader=obj(JSON.parse(regular.header)), compactHeader=obj(JSON.parse(compact.header));
+ expect(compactHeader).toEqual({...regularHeader,compactRoot:true});
+ expect(regularHeader).toMatchObject({routeKey:'settings-root',close:true,back:false,compactRoot:false});
+ expect(compact.projectHeader).toBe(regular.projectHeader);
+ expect(obj(JSON.parse(compact.projectHeader))).toMatchObject({routeKey:'child-1',close:false,back:false});
+ expect(obj(JSON.parse(compact.projectHeader)).compactRoot).toBeUndefined();
+ const selection=answer('settingsScopeEvent',[JSON.stringify({kind:'environment',value:'b'}),'{}','',rows]);
+ expect(selection.close).toBe(false);
+ const next=prepare(true,'child-2',selection.selection);
+ expect(obj(JSON.parse(next.header))).toMatchObject({routeKey:'settings-root',compactRoot:true,all:false});
+ expect(obj(JSON.parse(next.projectHeader))).toMatchObject({routeKey:'child-2',close:false,back:false,all:false});
+ expect(obj(JSON.parse(next.serverScope)).environmentIds).toEqual(['a']);
+ } finally {fleet.saved=oldSaved;}
+});
