@@ -1,0 +1,39 @@
+#!/bin/zsh
+# dialog-trap-and-progress-value, review round 1: one agent drive, the same ops before and after. Content search (⌘⇧F):
+# Tab from the field, Shift+Tab from the field, Tab from "Use regular expression"; then whether New task (Settings ›
+# Scheduled Tasks) and Model prices (Usage › environment menu) open, with the New task trap if it does.
+# Usage: drive.sh <before|after> <worktree>. Output: drive-<which>.jsonl in this folder.
+D=${0:A:h}; WHICH=$1; WT=$2; shift 2; EXTRA=("$@")
+LANE=dialog-trap-and-progress-value; [ "$WHICH" = before ] && LANE=dialog-trap-and-progress-value-before
+S=$D/shots; mkdir -p $S
+r() { print -rl -- "clock +600 real" "state" "tree" "layout" "screenshot $S/$WHICH-$1.png window"; }
+ops=(
+  "clock +20000 real" "clock +5000 real"
+  # C. Content search: the field, then the three toggles (Base UI Toggles, native buttons, Tab stops in the reference).
+  "type t3-code key Meta+Shift+F" "clock +1500 real" ${(f)"$(r content-open)"}
+  "type palette-input key Tab" ${(f)"$(r content-tab)"}
+  "type palette-input key Shift+Tab" ${(f)"$(r content-shift-tab)"}
+  "type palette-regex key Tab" ${(f)"$(r content-tab-regex)"}
+  "type palette-input key Escape" "clock +1000 real" "type palette-input key Escape" "clock +1000 real"
+  # P. Model prices (Usage › the environment menu), on Cost: its trap, Tab from the X and Shift+Tab from the first stop.
+  "tap open-usage" "clock +3000 real" "tap usage-metric-cost" "clock +2000 real" "tap usage-environment" "clock +1200 real" ${(f)"$(r prices-menu)"}
+  "tap usage-model-prices" "clock +2500 real" ${(f)"$(r prices-open)"}
+  "type usage-prices-dialog-close key Tab" ${(f)"$(r prices-tab-x)"}
+  "type usage-prices-apply key Shift+Tab" ${(f)"$(r prices-shift-tab-first)"}
+  "tap usage-prices-dialog-close" "clock +1000 real"
+  # On Limits the same item opens nothing (the first drive's base run): pages-usage.ts presents the prices only off Limits.
+  "tap usage-metric-limits" "clock +2000 real" "tap usage-environment" "clock +1200 real" "tap usage-model-prices" "clock +2500 real" ${(f)"$(r prices-limits)"}
+  "type t3-code key Escape" "clock +1000 real"
+  # N. New task: the provider-update toast covers its button at 1280×840 (the first drive's tap landed on the toast), so
+  # the keyboard presses it; then Shift+Tab from Runs on, Tab from the X, Tab from Create task.
+  "tap connection-settings" "clock +1500 real" "tap settings-scheduled-tasks" "clock +2500 real"
+  "type new-scheduled-task key Space" "clock +3000 real" ${(f)"$(r newtask-open)"}
+  "type task-environment key Shift+Tab" ${(f)"$(r newtask-shift-tab-first)"}
+  "type close-scheduled-task key Tab" ${(f)"$(r newtask-tab-x)"}
+  "type save-scheduled-task key Tab" ${(f)"$(r newtask-tab-save)"}
+  "logs"
+  ${EXTRA[@]}
+)
+cd $D
+EXACT_ROOT=$WT /Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit/clone-drive.sh $LANE 16140 "${ops[@]}" > drive-$WHICH.jsonl 2> drive-$WHICH.err
+echo "exit $?"
