@@ -148,13 +148,33 @@ const listening = (origin, ms = 1000) => new Promise((done) => {
  * builds' tests failed as data mismatches with no `snapback4 dev` running). An app whose data is a Snapback client
  * (it mounts snapback4/ts) cannot open a partition that never synced, so every test would fail: the run is refused,
  * naming the origin. Any other app is told, and runs (its tests may be of the error path). */
+const mountsSnapback = (app) => Object.values(app.manifest.typescript?.sources ?? {}).some((path) => /(^|\/)snapback4\/ts\/?$/.test(path));
 export async function backendPreflight(app, dist, say = console.error) {
   const down = [];
   for (const origin of loopbackOrigins(dist)) if (!(await listening(origin))) down.push(origin);
   if (!down.length) return;
   const what = `no backend at ${down.join(', ')}: nothing listens there, and app.ts fetches it (a net.fetch grant)`;
-  if (!Object.values(app.manifest.typescript?.sources ?? {}).some((path) => /(^|\/)snapback4\/ts\/?$/.test(path))) return say(`note: ${what}; a test that loads from it fails`);
+  if (!mountsSnapback(app)) return say(`note: ${what}; a test that loads from it fails`);
   throw new Error(`${what}. The app's Snapback client cannot open data that has never synced, so every test would fail. Start the server first, from the backend's directory (\`npx snapback4 dev --port ${new URL(down[0]).port || 80}\`, seeded if the tests read seeded rows), then run the tests again.`);
+}
+/** A `snapback4 dev` server's commit head (`seq` of `GET /changes`), asked as its first declared persona; null for
+ * any other backend (no `/dev/status`: `serve`, a server of another kind), one not reached, or a refused ask. The
+ * tests of a run share that server and every write before the run (sb4 farm wave 7, E1: six builds read a rerun's
+ * or an earlier test's rows as an app bug), so a failed test says how many commits it began with. Advice only. */
+export async function backendHead(origin, ms = 1000) {
+  const get = async (path, headers) => { const r = await fetch(origin + path, { headers, signal: AbortSignal.timeout(ms) }); return r.ok ? r.json() : null; };
+  try {
+    const status = await get('/dev/status');
+    if (typeof status?.storeId !== 'string') return null;
+    const changes = await get('/changes?since=0', { 'x-snapback-persona': status.personas?.[0] ?? 'exact' });
+    return Number.isInteger(changes?.seq) ? changes.seq : null;
+  } catch { return null; }
+}
+/** The note a failed test gets when the backend held commits as it began: from before the run, from earlier tests. */
+export function sharedBackendNote(origin, before, earlier) {
+  const n = (k) => `${k} commit${k === 1 ? '' : 's'}`;
+  const from = [before ? `${n(before)} from before this run (a seed, or an earlier run on this server)` : '', earlier ? `${n(earlier)} from earlier tests in this run` : ''].filter(Boolean).join(' and ');
+  return `the backend at ${origin} held ${from} when this test began: every test and every run on that server sees those rows, so a count, a position or a "taken" refusal can be theirs. Give each test its own rows (a code or name only it uses, asserted newest first or through its own reply), or each test file its own empty server (snapback4/README.md, "Tests share the server")`;
 }
 const alive = pid => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
 /** The stores of authored-test runs that are gone (`<storage>.r<pid>-<tag>.t<n>`, the pid no longer running):
@@ -254,6 +274,9 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
   if (host === 'web' && !url) await backendPreflight(resolveApp(app), resolve(webDist ?? defaultWebDist()));
   // A fetch prefix outside every grant fails nothing (sb4 farm wave 4, lane 070: an origin moved in app.ts only).
   const granted = host === 'web' && !url ? fetchOrigins(resolve(webDist ?? defaultWebDist())) : [];
+  // The Snapback dev servers the tests share, and each one's head before the first test (`backendHead`).
+  const shared = host === 'web' && !url && mountsSnapback(resolveApp(app)) ? loopbackOrigins(resolve(webDist ?? defaultWebDist())) : [];
+  const atStart = await Promise.all(shared.map((o) => backendHead(o)));
   // Cargo owns target selection and freshness, including CARGO_TARGET_DIR.
   const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'test', resolve(file)], { cwd: root, encoding: 'utf8' });
   if (c.status !== 0) throw new Error(c.stderr?.trim() || c.error?.message || 'contract test compiler failed');
@@ -283,6 +306,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     // Advice beside the verdict, never a failure: a `fail fetch` armed before the app's data first loaded (app farm
     // round 2: six builds read the failed first load as a broken app; a client that must sync once cannot open offline).
     const notes = [], shots = []; // `shots`: the paths of the test's own `screenshot` steps (verify --shots copies them)
+    const heads = await Promise.all(shared.map((o) => backendHead(o)));
     for (const st of granted.length ? t.steps : []) if ((st.op === 'fail-fetch' || st.op === 'pass-fetch') && !granted.some((o) => o.startsWith(st.prefix) || st.prefix.startsWith(o))) notes.push(`line ${st.line}: \`${st.op.replace('-', ' ')} ${JSON.stringify(st.prefix)}\` names no origin app.ts fetches (its net.fetch grants: ${granted.join(', ')}), so it changes nothing`);
     const early = (st) => notes.push(`line ${st.line}: \`fail fetch ${JSON.stringify(st.prefix)}\` is armed before the app has loaded its data, so every first load to it fails; a client that must sync once before it works offline (Snapback4's) cannot open its data at all. To test going offline after a load, put \`clock data\` before it; a launch with no network is what it tests as written`);
     for (const st of t.steps) {
@@ -528,6 +552,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       // A window the test closed took its session (on macOS, the app) with it: nothing is left to close but the carrier.
       await s.close().catch((e) => { if (closedAt == null) throw e; });
     }
+    if (failures.length) shared.forEach((o, i) => { if (heads[i] > 0 && atStart[i] != null) notes.push(sharedBackendNote(o, atStart[i], heads[i] - atStart[i])); });
     results.push({ name: t.name, failures, notes, ...(shots.length ? { shots } : {}), ...(end ? { end } : {}), ...(end?.keep ? { store } : {}) });
     if (base && !end?.keep) rmSync(resolve(base, store), { recursive: true, force: true });
   }

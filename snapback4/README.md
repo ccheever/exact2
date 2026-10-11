@@ -247,7 +247,7 @@ export const answer: Answer = (source, args, store, storage, native) =>
 and `epoch now` dates them as the server does; `test web` asks the origin
 before it starts, and refuses to run with nothing listening there). Each test
 opens the app fresh, but the server keeps what earlier tests wrote, so each
-test creates what it asserts on. A `--memory` server starts empty: rows the
+test creates what it asserts on (["Tests share the server"](#tests-share-the-server)). A `--memory` server starts empty: rows the
 app cannot write itself (an `owners` or `staff` table a rule reads) go in
 before the run, as the system, with `POST <origin>/seed` and a body such as
 `[{"table":"owners","row":{"id":"o1","person":"dev:alice"}}]` (`snapback4
@@ -289,6 +289,71 @@ The app is `bun <this checkout>/scripts/exact.mjs new app`, run in the
 backend's directory, then wired by the setup block above (both mounts, and
 the device). Built that way and tested as written against 0.4.16
 (2026-10-11): both tests pass, and pass again on the data a first run leaves.
+
+### Tests share the server
+
+Each test opens the app on a device of its own, but every test of a run, and
+every run, talks to the one `snapback4 dev` at the origin, which keeps what
+each wrote. A later test sees an earlier test's rows and a second run sees
+the first's: a total is off, a `unique` code answers `CODE_TAKEN`, a position
+holds another test's row. A failed test whose server already held commits
+when it began says so in a note, counting those from before the run and
+those from earlier tests in it. Two ways out, which combine:
+
+- **Each test owns its rows.** It writes a code or name no other test uses
+  and asserts on that: newest first (`note-0` in a `last … by byTime` list),
+  or through its own reply (the guestbook's `notice`, a derive of the reply's
+  id). Never a total of a shared table, or "the list is empty". The
+  guestbook's tests are of this kind, so they pass again on what a first run
+  leaves.
+- **Each test file gets its own empty server.** Put a test that counts, or
+  needs a table empty, in a file of its own (`tests/*.test.contract`), and
+  run each file against a fresh `--memory` server, seeded first, with an
+  app verb. `test-fresh.mjs` in the app's directory (the backend's above it,
+  as the setup block has it):
+
+```js
+// `bun exact.mjs test-fresh [file …]`: each test file against its own empty
+// `snapback4 dev --memory`, seeded from ../fixtures/seed.json when there is one.
+import { spawn, spawnSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import { once } from 'node:events';
+import { createInterface } from 'node:readline';
+import { resolve } from 'node:path';
+
+const port = 4400;                                    // app.ts's origin's port
+const files = process.argv.slice(2), seed = '../fixtures/seed.json';
+let failed = 0;
+for (const file of files.length ? files : ['app.test.contract']) {
+  const dev = spawn(resolve('../node_modules/.bin/snapback4'), ['dev', '--port', String(port), '--memory', '--no-watch'], { cwd: '..', stdio: ['ignore', 'pipe', 'ignore'] });
+  try {
+    const url = await new Promise((ready, refused) => {
+      createInterface({ input: dev.stdout }).once('line', (line) => ready(line.trim()));
+      dev.once('error', refused).once('exit', (code) => refused(new Error(`snapback4 dev exited ${code}: is another server on port ${port}?`)));
+    });
+    if (existsSync(seed)) {
+      const reply = await (await fetch(`${url}/seed`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: readFileSync(seed) })).json();
+      if (reply.seeded === undefined) throw new Error(`seed refused: ${JSON.stringify(reply)}`);
+    }
+    if (spawnSync(process.execPath, ['exact.mjs', 'test', 'web', file], { stdio: 'inherit' }).status !== 0) failed++;
+  } finally {
+    if (dev.pid && dev.exitCode === null) { dev.kill('SIGTERM'); await once(dev, 'exit'); }
+  }
+}
+process.exit(failed ? 1 : 0);
+```
+
+  Name it in `app.json`, `"commands": { "test-fresh": ["bun",
+  "test-fresh.mjs"] }`, and run `bun exact.mjs test-fresh
+  tests/*.test.contract` with no other server on that port (it starts its
+  own, one a file). A file costs a server and a browser, about four seconds.
+  Tried on a scratch app against 0.4.22 (2026-10-12): three files that each
+  assert a total of one, run twice, all pass; in one file on one server the
+  second test fails, and a rerun fails all three.
+
+`test web` has no reset between the tests of a file: Snapback has no door
+that empties a server, and a hook would be a new `test web` flag
+(QUEUE.md).
 
 ### Ports: the Snapback origin and the page's own
 
