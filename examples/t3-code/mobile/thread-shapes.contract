@@ -52,6 +52,7 @@ shape ThreadActivity
   hasAnswer: bool
   answerHistory: list<ThreadAnswerHistory>
   nativeWorkRow: string
+  nativeWorkImage: bool
   nativeWorkDetail: bool
   nativeCommandDetail: bool
 use HtmlRenderSnapshot from "./html-render.contract"

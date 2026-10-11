@@ -24,8 +24,14 @@ component ThreadToolRow
           retry-run=activity.retryRunId retry-disabled=activity.retryDisabled press=retryPreparation width="100%" min-width=0 testId=`thread-work-${activity.id}`
       else
         when activity.nativeWorkRow != ""
-          t3-work-row configuration=activity.nativeWorkRow row-muted=colors.muted row-icon=colors.iconSubtle row-subtle=colors.subtle press=toggleDetail
-            height=28 min-width=0 aria-label=activity.label aria-expanded=activity.expanded testId=`thread-work-${activity.id}`
+          when activity.nativeWorkImage
+            column position="relative" height=28 min-width=0
+              t3-work-row configuration=activity.nativeWorkRow row-has-image=true row-muted=colors.muted row-icon=colors.iconSubtle row-subtle=colors.subtle press=toggleDetail
+                height=28 width="100%" min-width=0 aria-label=activity.label aria-expanded=activity.expanded testId=`thread-work-${activity.id}`
+              image activity.iconURL position="absolute" left=5.25 top=7 width=14 height=14 object-fit="contain" pointer-events="none" aria-hidden=true
+          else
+            t3-work-row configuration=activity.nativeWorkRow row-muted=colors.muted row-icon=colors.iconSubtle row-subtle=colors.subtle press=toggleDetail
+              height=28 min-width=0 aria-label=activity.label aria-expanded=activity.expanded testId=`thread-work-${activity.id}`
         else
           button press=toggleDetail
             disabled=(not activity.expandable) padding-left=1.75 padding-right=1.75 padding-top=0 padding-bottom=0 text-align="left" border-radius=7

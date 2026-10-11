@@ -192,7 +192,8 @@ test('web search headers copy original patterns and results without changing det
   expect(JSON.stringify(client.projection)).toBe(before);
   for (const dark of [false, true]) {
     const image = mobileThreadActivity({ ...props, iconLight: 'https://example.com/light.png', iconDark: 'https://example.com/dark.png' }, web, client, now, dark, '', 'visit');
-    expect(image.nativeWorkRow).toBe(''); expect(image.iconURL).toBe(`https://example.com/${dark ? 'dark' : 'light'}.png`);
+    expect(image.nativeWorkImage).toBe(true); expect(image.iconURL).toBe(`https://example.com/${dark ? 'dark' : 'light'}.png`);
+    expect(JSON.parse(image.nativeWorkRow).copyText).toBe(expected);
   }
   const titled = projected({ type: 'web_search', title: '  searched docs  ', patterns: ['Searched docs'] });
   const titledCopy = JSON.parse(mobileThreadActivity(props, titled, clientFor([titled]), now, false, '', 'visit').nativeWorkRow).copyText;
@@ -238,7 +239,8 @@ test('file search headers copy original results without taking command detail ow
   expect(JSON.stringify(client.projection)).toBe(before);
   for (const dark of [false, true]) {
     const image = mobileThreadActivity({ ...props, iconLight: 'https://example.com/light.png', iconDark: 'https://example.com/dark.png' }, file, client, now, dark, '', 'visit');
-    expect(image.nativeWorkRow).toBe(''); expect(image.iconURL).toBe(`https://example.com/${dark ? 'dark' : 'light'}.png`);
+    expect(image.nativeWorkImage).toBe(true); expect(image.iconURL).toBe(`https://example.com/${dark ? 'dark' : 'light'}.png`);
+    expect(JSON.parse(image.nativeWorkRow).copyText).toBe(expected);
   }
   const titled = projected({ type: 'file_search', title: '  exact search  ', pattern: 'Exact search' });
   const titledCopy = JSON.parse(mobileThreadActivity(props, titled, clientFor([titled]), now, false, '', 'visit').nativeWorkRow).copyText;
@@ -355,18 +357,92 @@ test('read header Copy preserves relative paths and existing collection bounds',
   expect(JSON.parse(mobileThreadActivity(activity, empty, clientFor([empty]), now, false, '', 'visit').nativeWorkRow).copyText).toBe('Read file');
 });
 
-test('read header Copy leaves titled, image and other dynamic rows on their existing path', () => {
+test('read header Copy leaves titled and other dynamic rows on their existing path', () => {
   for (const fields of [{ toolName: 'Read', title: 'Read source' }, { toolName: 'unknown', kind: 'read' },
     { toolName: 'unknown', viewedImagePath: '/repo/image.png' }, { toolName: 'Skill', input: { skill: 'full-send' } },
     { toolName: 'cua_repl.js', input: { title: 'Read source' } }, { toolName: 'mcp__t3-code__t3_thread_read' },
     { type: 'notification', toolName: 'Read' }]) {
     const row = projected({ type: 'dynamic_tool', input: { file_path: '/repo/a.ts' }, ...fields });
-    expect(mobileThreadActivity(activity, row, clientFor([row]), now, false, '', 'visit').nativeWorkRow).toBe('');
+    expect(mobileThreadActivity(activity, row, clientFor([row]), now, false, '', 'visit')).toMatchObject({ nativeWorkRow: '', nativeWorkImage: false });
   }
   const row = projected({ type: 'dynamic_tool', toolName: 'Read', input: { file_path: '/repo/a.ts' } });
   for (const dark of [false, true]) {
     const image = mobileThreadActivity({ ...activity, iconLight: 'https://example.com/light.png', iconDark: 'https://example.com/dark.png' }, row, clientFor([row]), now, dark, '', 'visit');
-    expect(image.nativeWorkRow).toBe(''); expect(image.iconURL).toBe(`https://example.com/${dark ? 'dark' : 'light'}.png`);
+    expect(image.nativeWorkImage).toBe(true); expect(image.iconURL).toBe(`https://example.com/${dark ? 'dark' : 'light'}.png`);
+    expect(JSON.parse(image.nativeWorkRow).copyText).toBe('Read /repo/a.ts\n/repo/a.ts');
+  }
+});
+
+test('image work headers preserve theme fallbacks and all symbol-header Copy bytes', () => {
+  const sources = [
+    { iconLight: 'https://example.com/light.png', iconDark: 'https://example.com/dark.png' },
+    { iconLight: 'https://example.com/light.png' }, { iconDark: 'https://example.com/dark.png' },
+    { iconLight: '', iconDark: 'https://example.com/dark.png' },
+    { iconLight: 'https://example.com/light.png', iconDark: '' }, {},
+  ];
+  for (const item of [{ type: 'file_search', title: '  find source  ', pattern: '  needle  ', results: [{ fileName: 'main.ts', line: 2, preview: 'needle' }] },
+    { type: 'web_search', title: '  find docs  ', patterns: ['', '  needle  '], results: [{ title: 'Docs', url: 'https://example.com' }] },
+    { type: 'dynamic_tool', toolName: 'Read', input: { file_path: './main.ts' } }]) {
+    const row = projected(item), client = clientFor([row]);
+    for (const dark of [false, true]) for (const source of sources) {
+      const props = { ...activity, detailOpen: false }, plain = mobileThreadActivity(props, row, client, now, dark, '', 'visit');
+      const image = mobileThreadActivity({ ...props, ...source }, row, client, now, dark, '', 'visit');
+      const url = dark ? source.iconDark ?? source.iconLight ?? '' : source.iconLight ?? source.iconDark ?? '';
+      expect(image).toMatchObject({ iconURL: url, nativeWorkImage: url !== '', nativeWorkDetail: false, nativeCommandDetail: false });
+      expect(JSON.parse(image.nativeWorkRow)).toEqual(JSON.parse(plain.nativeWorkRow));
+      expect(plain.nativeWorkImage).toBe(false);
+    }
+  }
+});
+
+test('image work headers retain disclosure, original content and route ownership', async () => {
+  for (const item of [{ type: 'file_search', pattern: 'old', results: [{ fileName: 'old.ts' }] },
+    { type: 'web_search', patterns: ['old'], results: [{ url: 'https://example.com/old' }] },
+    { type: 'dynamic_tool', toolName: 'Read', input: { file_path: 'old.ts' }, outputOmitted: true }]) {
+    const row = projected(item), client = clientFor([row]), before = JSON.stringify(client.projection), requests: Obj[] = [];
+    client.local.drafts[client.draftKey] = '  ';
+    client.rpc = async (_native, method, payload) => {
+      requests.push({ method, ...payload });
+      return { item: { ...obj(row.item), input: { file_path: 'fetched.ts' }, outputOmitted: false, output: 'Fetched body' } };
+    };
+    const collapsed = mobileThreadActivity({ ...activity, detailOpen: false, iconLight: 'https://example.com/light.png' }, row, client, now, false, '', 'visit');
+    const initial = JSON.parse(collapsed.nativeWorkRow);
+    expect(collapsed).toMatchObject({ nativeWorkImage: true, expandable: true, expanded: false, body: item.type === 'dynamic_tool' ? 'old.ts' : '', output: '' });
+    await chatLocal(client, native, 'item-detail', activity.id, 'open');
+    const didFetch = await refreshNextOpenTurnItemDetail(client, native, now);
+    const expanded = mobileThreadActivity({ ...activity, iconLight: 'https://example.com/light.png' }, row, client, now, false, '', 'visit');
+    expect(didFetch).toBe(item.type === 'dynamic_tool');
+    expect(expanded).toMatchObject({ nativeWorkImage: true, expanded: true, nativeWorkDetail: false, nativeCommandDetail: false });
+    expect(JSON.parse(expanded.nativeWorkRow)).toEqual({ ...initial, expanded: true });
+    if (item.type === 'dynamic_tool') expect(expanded).toMatchObject({ body: 'old.ts', output: 'Fetched body' });
+    await chatLocal(client, native, 'item-detail', activity.id, 'closed');
+    expect(mobileThreadActivity({ ...activity, detailOpen: false, iconLight: 'https://example.com/light.png' }, row, client, now, false, '', 'visit').expanded).toBe(false);
+    expect(JSON.parse(mobileThreadActivity({ ...activity, iconLight: 'https://example.com/light.png' }, row, client, now, false, '', 'other-visit').nativeWorkRow).owner).not.toBe(initial.owner);
+    client.generation++;
+    const next = JSON.parse(mobileThreadActivity({ ...activity, iconLight: 'https://example.com/light.png' }, row, client, now, false, '', 'visit').nativeWorkRow);
+    expect(next.owner).not.toBe(initial.owner); expect(next.copyText).toBe(initial.copyText);
+    const changed = { ...row, item: { ...obj(row.item), title: item.type === 'dynamic_tool' ? null : 'new title', pattern: 'new', patterns: ['new'], input: { file_path: 'new.ts' } } };
+    // A same-row update keeps the owner but supplies new Copy content, which cancels a native hold.
+    const revised = JSON.parse(mobileThreadActivity(activity, changed, client, now, false, '', 'visit').nativeWorkRow);
+    expect(revised.owner).toBe(next.owner); expect(revised.copyText).not.toBe(initial.copyText);
+    const otherRow = JSON.parse(mobileThreadActivity({ ...activity, id: '["source","other"]' },
+      { ...row, sourceItemId: 'other' }, client, now, false, '', 'visit').nativeWorkRow);
+    expect(otherRow.owner).not.toBe(next.owner);
+    expect(requests).toHaveLength(item.type === 'dynamic_tool' ? 1 : 0);
+    expect(client.draft).toBe('  '); expect(client.threadId).toBe('thread'); expect(JSON.stringify(client.projection)).toBe(before);
+  }
+});
+
+test('image composition does not widen existing command, Fork or generic dynamic headers', () => {
+  for (const item of [{ type: 'command_execution', input: 'pwd' }, { type: 'fork', targetThreadId: 'child' },
+    { type: 'dynamic_tool', toolName: 'Read', title: 'Read source', input: { file_path: 'main.ts' } },
+    { type: 'dynamic_tool', toolName: 'mcp__t3-code__preview_open', input: {} }]) {
+    const row = projected(item), client = clientFor([row]);
+    const plain = mobileThreadActivity(activity, row, client, now, false, '', 'visit');
+    const image = mobileThreadActivity({ ...activity, iconLight: 'https://example.com/light.png' }, row, client, now, false, '', 'visit');
+    expect(image.nativeWorkImage).toBe(false); expect(image.nativeWorkRow).toBe(plain.nativeWorkRow);
+    expect(image.nativeCommandDetail).toBe(plain.nativeCommandDetail); expect(image.nativeWorkDetail).toBe(plain.nativeWorkDetail);
+    expect(image.iconURL).toBe('https://example.com/light.png');
   }
 });
 

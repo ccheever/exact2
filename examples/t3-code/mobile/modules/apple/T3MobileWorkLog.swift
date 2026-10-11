@@ -120,6 +120,7 @@ private final class T3WorkRow: ExactNativeInstance, T3CopiedWorkRow {
         config = next
         button.label.text = next.label; button.label.textColor = muted
         button.icon.image = UIImage(systemName: next.symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 14, weight: .medium))
+        button.icon.isHidden = props["row-has-image"] == "true"
         button.icon.tintColor = iconColor
         button.chevron.image = UIImage(systemName: next.expanded ? "chevron.up" : "chevron.down",
             withConfiguration: UIImage.SymbolConfiguration(pointSize: 11, weight: .regular))
