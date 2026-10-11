@@ -170,6 +170,12 @@ inside a link ([reply-links](.exact/implementation/20261005-t3code-macos-parity/
 rows ([unverified-real-input-rows](.exact/implementation/20261005-t3code-macos-parity/tasks/closed/20261011-unverified-real-input-rows.md), #426), checked in `realinput-1011a`.
 The rows below are what stays.
 
+2026-10-11, after `realinput-1011a`: the user asked to fix four of them. In progress:
+[dialog-initial-focus-and-model-prices](.exact/implementation/20261005-t3code-macos-parity/tasks/20261011-dialog-initial-focus-and-model-prices.md) (the dialogs that open
+with nothing focused, and `QUEUE.md`'s two Model prices rows) and
+[search-key-and-timeline-commit-title](.exact/implementation/20261005-t3code-macos-parity/tasks/20261011-search-key-and-timeline-commit-title.md) (⌘⇧F, and the
+Timeline commit title in "Found, not in scope"). Their real-input rows go to one short session after them.
+
 | Where | Clone | Reference | Source |
 | --- | --- | --- | --- |
 | Split view, an added run's empty side | Diagonal stripes every 10 pt | Every 8 px | X83, main `issues/20261011-repeating-hatch-across-list-rows.md` (#430); [files-gutter-parity](.exact/implementation/20261005-t3code-macos-parity/tasks/closed/20261011-files-gutter-parity.md) FG-3 |
