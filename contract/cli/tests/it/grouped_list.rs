@@ -911,10 +911,8 @@ fn a_destructive_rows_conditional_title_leaves_its_colour_unsaid() {
 /// label colour, bound or not.
 #[test]
 fn a_disabled_row_is_the_tertiary_labels_grey() {
-    let grey = ColorValue::LightDark(
-        Color::rgba(0x3c, 0x3c, 0x43, 0x4d),
-        Color::rgba(0xeb, 0xeb, 0xf5, 0x4d),
-    );
+    // The tertiary label is a role since the sheet named its colours (KRN-01).
+    let grey = ColorValue::Role(exact_kernel::style::roles::role("-exact-tertiary-label").unwrap());
     let red = ColorValue::LightDark(
         Color::rgba(0xff, 0x38, 0x3c, 255),
         Color::rgba(0xff, 0x42, 0x45, 255),
