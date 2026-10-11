@@ -24,6 +24,11 @@ architecture or implementation plan. Android remains deferred by
 [`rules/DEFERRED.md`](../rules/DEFERRED.md). Writing this research does not move it
 onto the doing-list. No working-set document is displaced for this survey.
 
+> **Since (2026-10-11).** Android was admitted on 2026-10-07 (`rules/DEFERRED.md`
+> §Surfaces), and §3.3's Canvas host is built. "Exact's CSS defaults and behavior remain
+> the parity target" now holds for layout and names only (LLP 1115); what an Android app
+> shows and feels when the author says nothing is LLP 1115.001.
+
 External sources were checked on 2026-10-02. Local source observations refer to
 the working checkout at HEAD `e953a2aafde09a345ef0779b6531a54061104911`, with
 unrelated staged and unstaged changes. No Android implementation was built or

@@ -838,7 +838,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     func applyPlaceholder(_ f: NSTextField) {
         let text = props["placeholder"] ?? ""
-        let font = f.font ?? NSFont.systemFont(ofSize: 17)
+        let font = f.font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
         if text.isEmpty {
             f.placeholderAttributedString = nil
             f.placeholderString = nil
