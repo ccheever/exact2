@@ -645,8 +645,14 @@ final class MenuHost {
             return eligible(source) && live(pop) && source.window != nil
         }
         guard openable() else { return false }
+        // A `dialog` is presented here only as the confirmation, which its
+        // Cancel or a tap outside always dismisses, so one that may be closed
+        // only by a close request or by its app is not shown. The compiler
+        // implies `closedby="any"` for an alertdialog and refuses another
+        // literal (LLP 1115 D6): what reaches this is a `dialog` without that
+        // role, or a `closedby` known only at run time.
         if isDialog(pop) && pop.props["closedby"] != "any" {
-            presenter?.session?.log("dialog refused: native confirmation currently requires closedby=any")
+            presenter?.session?.log("dialog \(pop.props["id"] ?? "?") refused: closedby is \(pop.props["closedby"] ?? "closerequest"), and iOS presents a dialog only as its confirmation, which Cancel or a tap outside dismisses (closedby=\"any\", implied by role=\"alertdialog\")")
             return false
         }
         // Session.press applies its batch synchronously. Both invoker actions

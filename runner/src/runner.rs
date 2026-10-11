@@ -13,6 +13,7 @@ mod control;
 mod event;
 pub mod faults;
 mod field;
+pub mod foresee;
 pub use field::{FieldSelection, SelectionDirection};
 mod host_kinds;
 mod pointer;
@@ -61,6 +62,7 @@ mod lists;
 mod media_session;
 mod page;
 mod perf;
+pub mod persist;
 mod query;
 mod queue;
 pub use queue::QUEUE_BOUND;
@@ -460,7 +462,7 @@ pub struct Runner<D: DataSource> {
     awaiting: Vec<bool>,
     /// Whether fresh answers of store-reading resources are kept for the
     /// next boot: only for a source that may not be ready at boot.
-    keeps_answers: bool,
+    keeping: kept::Keeping,
     poisoned: bool,
     /// Evaluate every site on every update (the incremental update's
     /// reference; `set_full_evaluation`).
@@ -607,7 +609,7 @@ impl<D: DataSource> Runner<D> {
         Carried {
             router: self.carry_router(),
             data_revision: self.data.revision().map(str::to_owned),
-            keeps_answers: self.keeps_answers,
+            keeps_answers: self.keeping.on,
             slots: self
                 .plan
                 .slots
@@ -658,7 +660,6 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     #[allow(clippy::too_many_arguments)] // the host boot facts
     fn boot_inner(
         links: RunnerLinks,
@@ -666,7 +667,7 @@ impl<D: DataSource> Runner<D> {
         mut data: D,
         kernel: Kernel,
         seed: Seed<'_>,
-        snapshot: Vec<(String, String)>,
+        snapshot: Vec<(String, Vec<u8>)>,
         delivery: crate::delivery::Delivery,
         // @ref LLP 1039 D2 — the layout size before settlement.
         viewport: crate::Viewport,
@@ -855,7 +856,7 @@ impl<D: DataSource> Runner<D> {
             store_readers,
             stale: Vec::new(),
             awaiting: Vec::new(),
-            keeps_answers: false,
+            keeping: Default::default(),
             delivery,
             viewport,
             page: Default::default(),
@@ -927,7 +928,7 @@ impl<D: DataSource> Runner<D> {
         // empty-store placeholder is the fallback (settlement); either way
         // the resource is asked again at `data_ready`.
         let ready = runner.data.ready();
-        runner.keeps_answers = !private && (!ready || carried.is_some_and(|c| c.keeps_answers));
+        runner.keeping.on = !private && (!ready || carried.is_some_and(|c| c.keeps_answers));
         runner.stale = vec![false; runner.plan.resources.len()];
         runner.entropy_readers = vec![false; runner.plan.resources.len()];
         runner.awaiting = vec![false; runner.plan.resources.len()];
@@ -1030,6 +1031,7 @@ impl<D: DataSource> Runner<D> {
         runner.publish_surfaces(surfaces);
         let line = lines::boot(carried.is_some(), runner.kernel.live_count(), receipt.epoch);
         runner.log(line);
+        runner.persist_boot();
         if let Some(spec) = carried.and_then(|c| c.faults.as_deref()) {
             runner.faults = faults::Faults::parse(spec).unwrap_or_default();
         }
@@ -1243,8 +1245,7 @@ impl<D: DataSource> Runner<D> {
             .collect()
     }
 
-    /// A resource's answer by name: what its source answered, without the
-    /// writes laid over it.
+    /// A resource's answer by name: what its source answered, without the writes laid over it.
     pub fn resource(&self, name: &str) -> Option<&Value> {
         self.plan
             .resources

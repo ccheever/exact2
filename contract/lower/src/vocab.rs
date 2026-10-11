@@ -46,6 +46,22 @@ pub const CONTEXTUAL: &[(&str, &str)] = &[
     ),
 ];
 
+/// What a tag means beyond its node, where the hosts make more of it than
+/// the web: `contract vocab <tag>` prints it under the tag.
+pub const TAG_NOTES: &[(&str, &str)] = &[(
+    "header",
+    // @ref LLP 1116.003 D2.2 — NavigationBarIOS.swift's `HeaderShape`.
+    "on iOS a route's `header` is its navigation bar when it is the route's first child, is shown, and holds exactly one heading (`text role=\"heading\"`, or a `text` with `aria-level`); a stack has a bar when its first route's header is one. The heading is the title, large at `aria-level=1`, else inline; buttons that press or open a popover are the bar's items, leading before the heading and trailing after it; the first text after the heading is the subtitle; one `input type=\"search\"` is the bar's search field and one `role=\"tablist\"` its segmented title; the root's `navigationBack` control is the system Back button. The rest of the header is hidden (warning `lower-header-unplaced`). A header with no heading or with two is no bar: the route shows no title and no Back button, and the header is drawn in the page as written (warning `lower-header-no-bar`). docs/recipes/navigation-stack.md",
+)];
+
+/// A tag's note, if it has one ([`TAG_NOTES`]).
+pub fn tag_note(name: &str) -> Option<&'static str> {
+    TAG_NOTES
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, note)| *note)
+}
+
 /// The open set of tags: a hyphenated name is a native module.
 pub const MODULE_NOTE: &str = "a hyphenated tag (`map-view`) is a native module, admitted when app.json's `modules` declares it; its other attributes are the module's props";
 

@@ -354,7 +354,7 @@ impl<D: DataSource> Host<D> {
     pub fn boot_stored(
         plan_bytes: &[u8],
         data: D,
-        snapshot: Vec<(String, String)>,
+        snapshot: Vec<(String, Vec<u8>)>,
         viewport: exact_runner::Viewport,
         launch: &str,
     ) -> Result<(Host<D>, String), HostError> {
@@ -390,7 +390,7 @@ impl<D: DataSource> Host<D> {
         plan_bytes: &[u8],
         data: D,
         carried: Option<&Carried>,
-        snapshot: Vec<(String, String)>,
+        snapshot: Vec<(String, Vec<u8>)>,
         compat: Option<&str>,
         viewport: exact_runner::Viewport,
         launch: &str,
@@ -414,7 +414,7 @@ impl<D: DataSource> Host<D> {
         plan_bytes: &[u8],
         data: D,
         carried: Option<&Carried>,
-        snapshot: Vec<(String, String)>,
+        snapshot: Vec<(String, Vec<u8>)>,
         compat: Option<&str>,
         viewport: exact_runner::Viewport,
         launch: &str,

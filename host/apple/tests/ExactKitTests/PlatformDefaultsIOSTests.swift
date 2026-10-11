@@ -113,5 +113,61 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(p.views[4]?.scroll).scrollsToTop, "a nested scroller")
         XCTAssertFalse(p.viewport.scrollsToTop, "the viewport, which does not scroll")
     }
+
+    /// LLP 1116 D2: iOS has no square checkbox. A plain checkbox is the
+    /// checklist mark, as Reminders and Notes draw it: an empty circle at the
+    /// body text's size that fills with a checkmark in the accent colour,
+    /// read by VoiceOver as Safari reads a checkbox (a button, checked or
+    /// unchecked). A radio keeps Safari's 16 points.
+    func testACheckboxIsTheChecklistMark() throws {
+        let p = presenter([
+            ["op": "create", "id": 1, "kind": "view", "props": ["id": "n1"]],
+            ["op": "create", "id": 2, "kind": "control", "props": ["type": "checkbox", "checked": "false", "accessibilityLabel": "Milk", "testId": "milk"],
+             "handlers": ["input", "change"], "style": ["accent_color": [255, 0, 0, 255]]],
+            ["op": "create", "id": 3, "kind": "control", "props": ["type": "radio", "name": "r", "value": "a", "checked": "false"], "style": [:]],
+            ["op": "children", "id": 1, "ids": [2, 3]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0],
+            ["op": "frame", "id": 2, "x": 10.0, "y": 10.0, "w": 40.0, "h": 40.0],
+            ["op": "frame", "id": 3, "x": 60.0, "y": 10.0, "w": 16.0, "h": 16.0],
+        ])
+        let box = try XCTUnwrap(p.controls.controls[2] as? ExactCheckbox)
+        XCTAssertFalse(box is ExactRadio)
+        let size = box.intrinsicContentSize
+        XCTAssertGreaterThan(size.width, 18, "the body text's mark, not Safari's 16-point box")
+        XCTAssertEqual(size.width, size.height, accuracy: 1.5, "a circle's square")
+        XCTAssertEqual(try XCTUnwrap(p.controls.controls[3]).intrinsicContentSize, CGSize(width: 16, height: 16))
+        XCTAssertTrue(box.accessibilityTraits.contains(.button))
+        XCTAssertEqual(box.accessibilityValue, "unchecked")
+        // The mark as drawn: (alpha, red, green, blue) at a point given as a
+        // fraction of its box.
+        func drawn() -> (CGFloat, CGFloat) -> [Int] {
+            let format = UIGraphicsImageRendererFormat(); format.scale = 1
+            let image = UIGraphicsImageRenderer(bounds: box.bounds, format: format).image { _ in box.draw(box.bounds) }
+            let cg = try! XCTUnwrap(image.cgImage)
+            let (w, h) = (cg.width, cg.height)
+            var data = [UInt8](repeating: 0, count: w * h * 4)
+            let ctx = CGContext(data: &data, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+            return { fx, fy in
+                let i = (min(h - 1, Int(fy * CGFloat(h))) * w + min(w - 1, Int(fx * CGFloat(w)))) * 4
+                return [Int(data[i + 3]), Int(data[i]), Int(data[i + 1]), Int(data[i + 2])]
+            }
+        }
+        let off = drawn()
+        XCTAssertEqual(off(0.5, 0.5)[0], 0, "off: an empty circle")
+        XCTAssertTrue(stride(from: 0.0, to: 0.3, by: 0.02).contains { off(0.5, $0)[0] > 20 }, "its ring (the tertiary label colour, translucent), above the middle")
+        XCTAssertEqual(off(0.12, 0.12)[0], 0, "a circle: nothing in the corner a rounded square fills")
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["checked": "true"]]]))
+        XCTAssertTrue(box.isOn)
+        XCTAssertEqual(box.accessibilityValue, "checked")
+        let on = drawn()
+        let fill = on(0.5, 0.22)
+        XCTAssertGreaterThan(fill[0], 200, "on: filled, \(fill)")
+        XCTAssertGreaterThan(fill[1], 200, "in the accent: \(fill)")
+        XCTAssertLessThan(fill[2], 60, "in the accent: \(fill)")
+        XCTAssertEqual(on(0.12, 0.12)[0], 0, "still a circle")
+    }
 }
 #endif

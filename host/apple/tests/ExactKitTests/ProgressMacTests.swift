@@ -55,6 +55,44 @@ final class ProgressMacTests: XCTestCase {
         XCTAssertNotEqual(small.accessibilityLabel(), "Loading", "a cleared label is cleared")
     }
 
+    /// LLP 1116 D8: with a `value`, a `progress` is AppKit's determinate bar
+    /// across its content box, small in HTML's 16-point box and regular from
+    /// 20, from 0 to `max` (1 unsaid), named by `aria-label`, its words
+    /// `aria-valuetext`; a click passes through it. Its value taken away, it
+    /// is the spinner again.
+    func testAValuedProgressIsAppKitsBar() throws {
+        func bar(_ id: Int, _ props: [String: String], h: Double, y: Double) -> [[String: Any]] {
+            [["op": "create", "id": id, "kind": "control",
+              "props": ["type": "progress", "accessibilityRole": "progressbar"].merging(props) { $1 }, "handlers": [], "style": [:]],
+             ["op": "frame", "id": id, "x": 0.0, "y": y, "w": 160.0, "h": h]]
+        }
+        let p = presenter(box(1) + bar(2, ["value": "3", "max": "8", "testId": "water", "accessibilityLabel": "Water"], h: 16, y: 0)
+                          + bar(3, ["value": "0.5"], h: 24, y: 40) + [["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]]])
+        let water = try XCTUnwrap(p.controls.bars[2])
+        XCTAssertEqual(water.style, .bar)
+        XCTAssertFalse(water.isIndeterminate)
+        XCTAssertEqual(water.controlSize, .small)
+        XCTAssertEqual([water.minValue, water.doubleValue, water.maxValue], [0, 3, 8])
+        XCTAssertEqual(water.frame, NSRect(x: 0, y: 2, width: 160, height: 12), "across its box, centred")
+        XCTAssertNil(p.controls.spinners[2])
+        XCTAssertEqual(water.accessibilityLabel(), "Water")
+        XCTAssertEqual(water.accessibilityIdentifier(), "water")
+        XCTAssertEqual(water.accessibilityRole(), .progressIndicator)
+        let tall = try XCTUnwrap(p.controls.bars[3])
+        XCTAssertEqual(tall.controlSize, .regular)
+        XCTAssertEqual([tall.doubleValue, tall.maxValue], [0.5, 1])
+        XCTAssertNil(water.hitTest(NSPoint(x: 8, y: 8)))
+        let seen = try XCTUnwrap(p.controls.observation(try XCTUnwrap(p.views[2])))
+        XCTAssertEqual(seen["style"] as? String, "bar")
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["value": "9", "accessibilityValueText": "8 glasses"]]]))
+        XCTAssertEqual(water.doubleValue, 8, "past max: max")
+        XCTAssertEqual(water.accessibilityValueDescription(), "8 glasses")
+        p.apply(wireBatch([["op": "props", "id": 2, "clear": ["value"]]]))
+        XCTAssertNil(p.controls.bars[2])
+        XCTAssertNil(water.superview)
+        XCTAssertNotNil(p.controls.spinners[2], "no value: the spinner")
+    }
+
     func testItStopsWhenHiddenOrRemoved() throws {
         try XCTSkipIf(ExactEnv.agentFreezes, "the agent's frozen clock holds every spinner")
         let p = presenter(box(1) + progress(2) + [["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]])

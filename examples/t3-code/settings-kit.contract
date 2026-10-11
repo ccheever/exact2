@@ -180,9 +180,8 @@ component SkMenuItem
 
 // settings-headings: a heading VoiceOver reads and nothing draws, as Tailwind's `sr-only` (1px, clipped, out of
 // flow): SettingsSection's `hideTitle` `<h2 className="sr-only">` (Appearance's "Colors & themes", the Project page's
-// "Project", Scheduled Tasks' environment). General's Legacy features uses one too: there the reference's trigger, a
-// button, holds the `<h2>` (SettingsPanels.tsx LegacyFeaturesSection), but the Mac host makes a button a leaf
-// (NodeViewMac `accessibilityChildren`), so the heading sits beside the button (EXACT2-GAPS.md).
+// "Project", Scheduled Tasks' environment). (General's Legacy features holds its `<h2>` inside its trigger, a drawn
+// heading in the button, since main #451 keeps a heading inside a Mac button: adopt-main-fixes-r10 RT-2.)
 component SettingsSrHeading
   props
     title: string

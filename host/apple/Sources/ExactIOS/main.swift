@@ -122,8 +122,10 @@ func agentReady() {
 
 /// The one screen: the view fills the controller's view; the plan boots at
 /// the view's first layout (`ExactView.fit`).
-/// The build's launch colour (the manifest's `launch`), else white.
-let launchColor = UIColor(named: "ExactLaunch") ?? .white
+/// The build's launch colour (the manifest's `launch`); unset, the
+/// platform's background, as the system's own launch screen then is and
+/// the view under it (`ExactView`): never a fixed white (LLP 1115 D2).
+let launchColor = UIColor(named: "ExactLaunch") ?? .platformBackground
 
 final class Controller: UIViewController {
     #if os(tvOS)
@@ -162,6 +164,12 @@ func printSmoke() {
 final class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         ExactEnv.stamp("didFinishLaunching")
+        // EXACT_PLAN naming a local bake with its module (LLP 1116.003) is the
+        // launch generation: the view's first layout boots it fresh, as a
+        // build that baked it would, nothing carried from the embedded plan.
+        if let path = environment["EXACT_PLAN"], ExactDevelopmentPlan(path).hasModule {
+            planRefusal = ExactDevelopmentPlan(path).installInitial(on: exact)
+        }
         session = exact.makeSession(delegate: adapter, label: "main")
         // The one session owns its window and the process (LLP 1075.003.000.001 §2.1.1).
         session.hatchesOwnWindow = true
@@ -232,10 +240,8 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         // EXACT_PLAN=<file> boots that plan instead of the one baked into the
         // library — any compiled contract, no rebuild (smokes, fixtures).
         // The view boots the session at its first layout; a file plan is
-        // booted here first, at the screen's size the view will take.
-        if let path = environment["EXACT_PLAN"], ExactDevelopmentPlan(path).hasModule {
-            DispatchQueue.main.async { ExactDevelopmentPlan(path).apply(to: exact) }
-        }
+        // booted here first, at the screen's size the view will take (one
+        // with its module was installed as the launch generation instead).
         if let path = environment["EXACT_PLAN"] ?? devPlanPath, !ExactDevelopmentPlan(path).hasModule, let bytes = FileManager.default.contents(atPath: path) {
             planRefusal = ExactIOS.session.boot(plan: bytes, size: ws.coordinateSpace.bounds.inset(by: w.safeAreaInsets).size).error
         }

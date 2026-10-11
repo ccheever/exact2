@@ -32,6 +32,7 @@ mod fields;
 mod fonts;
 mod grouped;
 mod handlers;
+mod identity;
 mod keyframes;
 mod lint;
 mod media;
@@ -49,15 +50,18 @@ pub mod tags;
 mod timers;
 mod values;
 pub mod vocab;
+mod warnings;
 
 pub use dataset::{data_words, hatch_words};
 pub use error::LowerError;
 pub(crate) use error::{err, err_one};
 pub use fields::Profile;
+pub use identity::compiler_identity;
 pub use lint::lint;
 use lint::{unknown_attr, unknown_tag};
 pub use native::{is_module_tag, module_tags};
 pub use sites::{ButtonSite, Declared, NodeSite, Origin, Sites};
+pub use warnings::{warnings, MAX_WARNINGS};
 
 use contract_analyze::Analysis;
 use contract_syntax::{Attr, Expr, File, FnDecl, Node, Owner, Span};
@@ -71,17 +75,6 @@ use exact_plan::{
 };
 use std::collections::BTreeMap;
 use std::path::Path;
-
-/// The compiler identity a plan carries: the crate version folded with the
-/// configuration digest (there is no configuration yet).
-pub fn compiler_identity() -> u64 {
-    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    for b in concat!("contract-lower ", env!("CARGO_PKG_VERSION")).bytes() {
-        h ^= b as u64;
-        h = h.wrapping_mul(0x0100_0000_01b3);
-    }
-    h
-}
 
 pub(crate) struct Lowerer<'a> {
     pub b: PlanBuilder,
@@ -299,6 +292,7 @@ fn lower_with_sites(
     for (i, s) in root.states.iter().enumerate() {
         let ty = l.ty_id(&root_types.slots[i])?;
         let id = l.b.slot(&s.name, ty, placeholder);
+        l.b.set_slot_persist(id, root.persists(&s.name));
         l.slots.push(id);
     }
     l.declare_routes(file);
@@ -681,6 +675,7 @@ impl<'a> Lowerer<'a> {
                     svg::coerce_lengths(tag, svg::in_svg(self.svg_depth > 0, parent_tag), expanded);
                 let expanded = lengths.as_deref().unwrap_or(expanded);
                 self.check_svg(tag, parent_tag, expanded, *span)?;
+                shorthands::check_text_box(tag, parent_tag, expanded)?;
                 // @ref LLP 1034 §8 — an inline run paints in its paragraph's
                 // scheme: no host gives a run an appearance of its own.
                 if tag == "text" && parent_tag == Some("text") {
@@ -773,6 +768,9 @@ impl<'a> Lowerer<'a> {
                     !self.may_hold_absolute(children),
                 )?;
                 let expanded = relative.as_deref().unwrap_or(expanded);
+                let first = parent_tag.is_none() && arm.is_none() && order == 0;
+                let back = self.nav_place.unnamed(first, expanded, *span);
+                let expanded = back.as_deref().unwrap_or(expanded);
                 values::check_glass_group(&t, expanded)?;
                 let has =
                     |names: &[&str]| expanded.iter().any(|a| names.contains(&a.name.as_str()));
@@ -805,7 +803,7 @@ impl<'a> Lowerer<'a> {
                         || !has(&["navigationKey"])
                         || !has(&["navigationBack"]))
                 {
-                    return err("lower-navigate-root", "`navigate` belongs to the navigation root (navigationKey and navigationBack)", *span);
+                    return err("lower-navigate-root", "`navigate` belongs to the navigation root (the first root, with navigationKey)", *span);
                 }
                 let mut bindings: Vec<BindingsRow> = Vec::new();
                 let mut handlers: Vec<(EventKind, exact_plan::ActionsId, Vec<Code>)> = Vec::new();
@@ -827,9 +825,9 @@ impl<'a> Lowerer<'a> {
                 self.link_run_color(tag, parent_tag, expanded, &mut bindings);
                 self.heading_style(tag, expanded, scope, locals, &mut bindings)?;
                 // @ref LLP 1069.001 (amended 2026-10-07) — an indeterminate
-                // `progress` is busy, as ARIA's `aria-busy`: a bool, which a
-                // fixed prop (text) cannot be.
-                if tag == "progress" {
+                // `progress` (no `value`, LLP 1116 D8) is busy, as ARIA's
+                // `aria-busy`: a bool, which a fixed prop (text) cannot be.
+                if tag == "progress" && !expanded.iter().any(|a| a.name == "value") {
                     bindings.push(BindingsRow {
                         kind: BindingKind::Prop,
                         id: exact_kernel::PropId::AccessibilityBusy as u16,
@@ -1265,6 +1263,11 @@ impl<'a> Lowerer<'a> {
                 ),
                 a.span,
             );
+        }
+        if let Some(why) = shorthands::text_box_trim_refusal(&a.name, tag, module)
+            .or_else(|| fields::outline_refusal(&a.name, tag, control))
+        {
+            return err("lower-attr-tag", why, a.span);
         }
         if a.name == "alt" && tag != "image" {
             return err(

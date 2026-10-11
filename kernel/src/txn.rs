@@ -632,10 +632,12 @@ pub(crate) fn apply_document(
                     }
                     arena.flags_mut(slot).insert(NodeFlags::PROPS_DIRTY);
                     view_box_changed(arena, layout, slot, *prop, &mut receipt);
+                    // A first `value` makes a `progress` the bar (LLP 1116 D8).
                     if matches!(
                         prop,
                         PropId::Type | PropId::AccessibilityRole | PropId::Href
-                    ) {
+                    ) || (*prop == PropId::Value && old.is_none())
+                    {
                         if let Some(node) = arena.taffy(slot) {
                             layout.restyle(arena, slot, node);
                         }
@@ -665,7 +667,7 @@ pub(crate) fn apply_document(
                         view_box_changed(arena, layout, slot, *prop, &mut receipt);
                         if matches!(
                             prop,
-                            PropId::Type | PropId::AccessibilityRole | PropId::Href
+                            PropId::Type | PropId::AccessibilityRole | PropId::Href | PropId::Value
                         ) {
                             if let Some(node) = arena.taffy(slot) {
                                 layout.restyle(arena, slot, node);

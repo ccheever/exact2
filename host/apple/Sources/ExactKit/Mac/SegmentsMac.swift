@@ -103,8 +103,14 @@ final class SegmentHost {
         for id in Array(decisions.keys) where !live.contains(id) { decisions.removeValue(forKey: id) }
         for owner in owners {
             let tabs = tabs(in: owner)
-            // Authored tabs a segment cannot show stay as authored (LLP 1035.001 D10).
-            let unshown = tabs.first { $0.segmentFace == nil }
+            // Authored tabs a segment cannot show stay as authored (LLP 1035.001 D10);
+            // AppKit gives a title segment no label of its own, so a title its
+            // `aria-label` disagrees with is one (iOS labels it, LLP 1116 D6).
+            let unshown = tabs.first { tab in
+                guard let face = tab.segmentFace else { return true }
+                if case .title(let title) = face { return title != tab.accessibleName }
+                return false
+            }
             if tabs.count <= 1 || unshown != nil {
                 restore(owner: owner.id)
                 decide(owner, unshown.map { "kept as authored: tab #\($0.id) is not one image or its label alone, which a segment cannot show" } ?? "kept as authored: fewer than two pressable tabs")
