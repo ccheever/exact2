@@ -19,6 +19,11 @@ the platform's answer wins. On iPhone the reference is a screen built by hand wi
 SwiftUI following Apple's Human Interface Guidelines, on the same iOS version (James's "no
 tells"); on the Mac, AppKit; each platform likewise. Not Chrome.
 
+> **Amended (Charlie, 2026-10-11; LLP 1115.000 D12.3).** A person's accessibility settings
+> come before the author where a hand-built app would apply them: Bold Text weights the
+> system font even under an authored weight. The order is the person's accessibility
+> settings, then the author, then the platform, then CSS's default.
+
 This replaces "the web is the standard" as the top rule. The web stays what the author writes
 (the vocabulary, the layout model) and where the author works (the dev loop); it stops being
 what the user sees.
