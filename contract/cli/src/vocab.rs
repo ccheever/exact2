@@ -179,6 +179,9 @@ fn one_text(name: &str) -> bool {
     };
     if let Some(t) = tags::tag(name) {
         println!("{name}: tag, {}", tag_text(&t));
+        if let Some(note) = vocab::tag_note(name) {
+            println!("  {note}");
+        }
     }
     if let Some(a) = tags::attr(name) {
         println!("{name}: {} attribute", kind(&a));
@@ -389,14 +392,18 @@ fn row_json(row: StyleId) -> Value {
 }
 
 fn tag_json(name: &str, t: &Tag) -> Value {
-    json!({
+    let mut doc = json!({
         "name": name,
         "node": t.node_type.name(),
         "family": family(t),
         "fixedStyles": t.fixed_styles.iter().map(|(row, v)| json!({"row": row.name(), "value": v})).collect::<Vec<_>>(),
         "fixedProps": t.fixed_props.iter().map(|(p, v)| json!({"prop": p.name(), "value": v})).collect::<Vec<_>>(),
         "positional": t.positional.map(PropId::name),
-    })
+    });
+    if let Some(note) = vocab::tag_note(name) {
+        doc["note"] = note.into();
+    }
+    doc
 }
 
 fn attr_json(name: &str, a: &AttrTarget) -> Value {

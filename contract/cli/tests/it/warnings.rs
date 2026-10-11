@@ -82,9 +82,8 @@ fn what_the_bar_places_or_the_compiler_cannot_see_is_not_warned() {
         "  text \"List\" role=\"heading\" aria-level=1\n  text \"sub\"\n  when q != \"\"\n    text q\n  each x in [\"a\"] key=x\n    text x\n  text \"c\" role=(q == \"\" ? \"note\" : \"status\")",
         // Shown on no host, or over the page when opened.
         "  text \"List\" role=\"heading\" aria-level=1\n  text \"sub\"\n  text \"hidden\" display=\"none\"\n  button popovertarget=\"m\"\n    text \"More\"\n  column id=\"m\" popover=\"auto\" role=\"menu\"\n    text \"Sort\"\n    button press=go popovertarget=\"m\" popovertargetaction=\"hide\" role=\"menuitem\"\n      text \"Go\"",
-        // No heading, or two: the bar takes nothing and the header is shown.
-        "  text \"one\"\n  image \"symbol:heart\"",
-        "  text \"A\" role=\"heading\" aria-level=1\n  text \"B\" role=\"heading\" aria-level=2\n  image \"symbol:heart\"",
+        // A heading under a `when` may be the one: the benefit.
+        "  when q != \"\"\n    text q role=\"heading\"\n  text \"sub\"",
     ] {
         assert_eq!(warned(&route(header)), [], "{header}");
     }
@@ -95,6 +94,42 @@ fn what_the_bar_places_or_the_compiler_cannot_see_is_not_warned() {
             "          text \"first\"\n          header display=\"flex\"\n",
         );
     assert_eq!(warned(&src), []);
+}
+
+const NO_BAR: &str = "lower-header-no-bar";
+
+#[test]
+fn a_header_with_no_heading_or_two_is_named_as_no_bar() {
+    // No heading, or two: on iOS the route has no bar, its header drawn as
+    // written; nothing in it is called unplaced (LLP 1116.003 D2.2).
+    let none = route("  text \"one\"\n  button press=go testId=\"add\"\n    text \"Add\"");
+    assert_eq!(warned(&none), [(NO_BAR.to_string(), 11)]);
+    let (_, warnings) = contract::compile_warned(&none);
+    assert!(
+        warnings[0].message.contains("holds no heading")
+            && warnings[0].message.contains("no Back button")
+            && warnings[0].message.contains("one `text role=\"heading\"`"),
+        "{warnings:?}"
+    );
+    let two = route("  text \"A\" role=\"heading\" aria-level=1\n  text \"B\" role=\"heading\" aria-level=2\n  image \"symbol:heart\"");
+    assert_eq!(warned(&two), [(NO_BAR.to_string(), 11)]);
+    let (_, warnings) = contract::compile_warned(&two);
+    assert!(
+        warnings[0].message.contains("holds 2 headings")
+            && warnings[0].message.contains("make the others plain `text`"),
+        "{warnings:?}"
+    );
+    // A route that opens with `when`, as workout-log's did: each branch's
+    // header is the route's first child while its branch is taken.
+    let branched = route("  text \"List\" role=\"heading\" aria-level=1").replace(
+        "          header display=\"flex\"\n            text \"List\" role=\"heading\" aria-level=1\n",
+        "          when q == \"\"\n            header\n              text \"Sheet\"\n          else\n            header\n              text \"List\" role=\"heading\" aria-level=1\n              image \"symbol:heart\"\n",
+    );
+    assert_eq!(
+        warned(&branched),
+        [(NO_BAR.to_string(), 12), (UNPLACED.to_string(), 17)],
+        "{branched}"
+    );
 }
 
 /// A root tab bar: tabs that name their panels, as polls and chat-rooms

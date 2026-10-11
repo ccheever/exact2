@@ -331,33 +331,6 @@ package final class Presenter {
         viewport.verticalScrollIndicatorInsets = indicators
     }
 
-    /// Scroll a node into the part of the viewport the keyboard leaves —
-    /// the browser's rule for a focused field — through every scroll
-    /// container above it, each moving only as far as it must, never past
-    /// its edges. Animated by whatever animation block this runs inside.
-    func reveal(_ node: NodeView?) {
-        guard let node, node.window != nil else { return }
-        var v: UIView? = node.superview
-        while let cur = v {
-            var target = cur as? ScrollView
-            if let waiting = cur as? NodeView, waiting.scrollDormant { waiting.needScroll(); target = waiting.scroll }
-            if let sv = target {
-                // The node's box in the container's content space, with a
-                // little air; the visible part of that space.
-                let r = node.convert(node.bounds, to: sv).insetBy(dx: 0, dy: -8)
-                let visible = sv.bounds.inset(by: sv.adjustedContentInset)
-                var o = sv.contentOffset
-                if r.maxY > visible.maxY { o.y += r.maxY - visible.maxY } else if r.minY < visible.minY { o.y -= visible.minY - r.minY }
-                if r.maxX > visible.maxX { o.x += r.maxX - visible.maxX } else if r.minX < visible.minX { o.x -= visible.minX - r.minX }
-                let i = sv.adjustedContentInset
-                o.y = min(max(o.y, -i.top), max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height))
-                o.x = min(max(o.x, -i.left), max(-i.left, sv.contentSize.width + i.right - sv.bounds.width))
-                if o != sv.contentOffset { sv.contentOffset = o }
-            }
-            v = cur.superview
-        }
-    }
-
     /// The viewport's size in points: what the kernel lays out under.
     var viewportSize: CGSize { viewport.bounds.size }
     /// The first root's frame size, zero before the first batch.
