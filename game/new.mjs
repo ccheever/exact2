@@ -373,28 +373,27 @@ const BEGIN = '<!-- exact:begin (exact new writes this block; bun exact.mjs upda
 
 /** What an agent in the app's directory can't discover (LLP 1086 D1): where
  * the guides are, the app's commands, and the loop. Paths are from the app to
- * this checkout, so \`update\` follows a checkout that moved. */
+ * this checkout, so \`update\` follows a checkout that moved. The authoring
+ * diary's instructions are \`feedback status\`'s to print, for a project that
+ * keeps one (LLP 1116 D3), so a project that doesn't never carries them. */
 function agentNotes(dir, name, {game = false} = {}) {
   const doc = file => pathFrom(dir, resolve(ROOT, 'docs', file));
+  const sdk = file => pathFrom(dir, resolve(ROOT, file));
   if (game) return gameNotes(dir, name, doc);
   return `${BEGIN}
 # ${name}: an Exact app
 
-The view is \`app.contract\` (Contract), its data is \`app.ts\` (TypeScript), and
-\`app.json\` is the manifest (its \`$schema\` gives an editor every key). The app uses
-the exact2 checkout at \`${pathFrom(dir, ROOT)}\` by path (\`EXACT2\` overrides it).
+The view is \`app.contract\` (Contract), its data \`app.ts\` (TypeScript), its tests
+\`app.test.contract\`; \`app.json\` is the manifest (its \`$schema\` gives an editor every
+key). The app uses the exact2 checkout at \`${pathFrom(dir, ROOT)}\` by path (\`EXACT2\`
+overrides it).
 
-Read before writing code: ${doc('start-here.md')}. It is the only required
-reading (LLP 1115 D7): the workflow, Contract in one pass, the native patterns as
-copyable snippets, the data module, tests, and the pitfalls that cost the most.
+Read before writing code: ${doc('start-here.md')}, the only required reading (LLP 1115
+D7). After it, look things up: the recipe for the question in ${doc('recipes')} (start-here
+lists them), \`bun exact.mjs contract vocab <name>\` for a tag or property, and the long
+guides beside start-here by section only, never front to back.
 
-The rest is lookup only, by the section start-here's last table names, or by grep;
-do not read these front to back:
-
-- ${doc('contract-for-agents.md')}: the full working guide.
-- ${doc('agent-pitfalls.md')}: verified footguns, symptom → cause → fix.
-- ${doc('contract-for-humans.md')}: explanations and complete examples, including the data module.
-- ${doc('contract-grammar.md')}: exact forms, built-in functions, events.
+${DIARY_LINE}
 
 Commands, from this directory:
 
@@ -404,72 +403,38 @@ Commands, from this directory:
 | \`bun exact.mjs contract build app.contract --json\` | compile; \`[]\` or every diagnostic with its range |
 | \`bun exact.mjs contract vocab [name]\` | the tags, attributes and CSS properties Contract accepts |
 | \`bun exact.mjs web\` | the web dev loop, at the URL it prints (8765 unless another loop holds it) |
-| \`bun exact.mjs test web\` | build the web app if needed, then run \`app.test.contract\` (also \`macos\`, \`ios\`) |
-| \`bun exact.mjs agent web --storage s1 tree "tap <id>" "screenshot out.png"\` | drive the app as a person would; \`--storage <name>\` gives its storage sources a scratch store (without it their writes are refused; \`logs\` has the detail) |
-| \`bun exact.mjs agent ios tree "tap <testId>" "screenshot s.png"\` | the same on an iOS simulator; drive by \`testId\`, never by coordinates |
+| \`bun exact.mjs test web\` | build the web app if needed, then run \`app.test.contract\` or the files named (also \`macos\`, \`ios\`, \`linux\`) |
+| \`bun exact.mjs agent web --storage s1 tree "tap <id>" "screenshot .exact/a.png"\` | drive the app as a person would; without \`--storage <name>\` its storage calls are refused |
+| \`bun exact.mjs agent ios --chrome platform …\` | the same on an iOS simulator, with UIKit's bars; drive by \`testId\`, never by coordinates |
 | \`bun exact.mjs mac --run\`, \`bun exact.mjs ios --run\` | build and launch natively |
-| \`bun exact.mjs linux\`, then \`test linux\` or \`agent linux …\` | build the Linux host and drive it headless (any machine, no display); \`bun exact.mjs android\` builds the same host for Android (LLP 1107) |
-| \`bun exact.mjs hatch <word>\` | an access hatch: a stub for each target the app builds, and its \`app.json\` entry (\`--app\`, \`--window\` for those scopes) |
-| \`bun exact.mjs update\` | after exact2 moves or changes its patches; it rewrites \`exact.mjs\` |
-| app.json \`"commands": {"verify": ["bun", "verify.mjs"]}\` | the app's own verbs: \`bun exact.mjs verify web\` runs \`bun verify.mjs web\` here; \`update\` keeps them |
+| \`bun exact.mjs linux\`, \`bun exact.mjs android\` | the Linux host, driven headless by \`test linux\` and \`agent linux …\`; the same host for Android |
+| \`bun exact.mjs web-build\` | the web build alone (\`test web\` and \`agent web\` run it first) |
+| \`bun exact.mjs hatch <word>\` | an access hatch: native code for what Contract can't say (${doc('reference.md')}, "Access hatches") |
+| \`bun exact.mjs update\` | after exact2 moves or changes its patches; it rewrites \`exact.mjs\` and this block |
+| app.json \`"commands": {"verify": ["bun", "verify.mjs"]}\` | the app's own verbs: \`bun exact.mjs verify web\` runs \`bun verify.mjs web\` here |
 
-Keep drive scripts, evidence, logs and runtime files in \`.exact/\` (git-ignored):
-no build, watcher or freshness check reads it. Anything else in this folder is a
-source: changing it makes the driver refuse to drive until the app is rebuilt.
+Keep drive scripts, evidence and logs in \`.exact/\` (git-ignored). Anything else in this
+folder is a source: changing it makes the driver refuse to drive until the app is rebuilt.
 
-The loop: generate the types, edit, \`contract build --json\` until it prints \`[]\`,
-\`test web\`, look at it with \`agent web … screenshot\`, then the native hosts.
 Before the first native TypeScript build on a machine, run the one-time installer
-\`bun ${pathFrom(dir, resolve(ROOT, 'scripts/exact.mjs'))} setup\`; it installs the pinned
-host bundle and the iOS/tvOS bundles this Mac builds.
-\`bun ${pathFrom(dir, resolve(ROOT, 'scripts/exact.mjs'))} setup --check\` only checks and
-names anything this machine is missing. Cargo builds themselves are forced offline for Hermes.
+\`bun ${sdk('scripts/exact.mjs')} setup\` (\`setup --check\` only names what is missing).
+Cargo builds are forced offline for Hermes.
 
-Build it native and write less style (LLP 1115): say what a thing is (a \`header\`
-with its heading and buttons, a \`tablist\`, a \`dialog role="alertdialog"\`) and leave
-colours, fonts and control metrics to the platform; a hand-built lookalike of a
-system control is a bug. start-here has the forms; the recipe app to copy from is
-${pathFrom(dir, resolve(ROOT, 'apps/shelf/app.contract'))} (and its \`app.ts\`,
-\`app.test.contract\`). \`bun ${pathFrom(dir, resolve(ROOT, 'scripts/no-tells.mjs'))} .\`
-lists every literal colour, font size and weight the app's \`.contract\` files
-still write. Drive by \`testId\`, never by screen coordinates. Match a reference's
-structure, controls and hierarchy, not its pixels.
-
-Access hatches, for what only the platform's own object can do: mark a node
-\`hatch="word"\` and the app's native code (Swift in \`modules/apple\`, the page
-module in \`modules/web/index.js\`) is handed the view or element Exact built,
-at defined moments. \`bun exact.mjs hatch <word>\` writes the stubs. A hatch
-configures what Exact made; it changes Contract state only by acting on an
-authored node, as a person would: \`click()\`, \`focus()\`, \`blur()\`, and
-\`input(text)\` for a field's whole value. It reads state only through
-\`data-*\` words the Contract puts on the node. The app must work without it:
-\`EXACT_HATCHES=off\` (\`?hatches=off\` on the web) runs a development build
-with no hatch connected. Make a hatch say what it does, so the agent can see
-it: \`diagnostics.log/count/measure/publish\` show in \`logs\`, \`state\`
-(\`state.hatches\`) and \`agent … "perf hatches"\`; \`owns(view, "what")\` puts
-what it added in \`tree\` under its node, and \`parts\` names a control it drew
-so \`tap <testId>/<part>\` can reach it as a real click.
-
-A backend: an app that keeps shared, server-authoritative data (accounts,
-other people's rows, offline writes that sync) uses Snapback 4 through this
-checkout's first-party client, never hand-written HTTP: read
-${pathFrom(dir, resolve(ROOT, 'snapback4/README.md'))} before any data code. It
-mounts \`${pathFrom(dir, resolve(ROOT, 'snapback4/ts'))}\` in \`app.json\`'s
-\`typescript.sources\` and gives \`app.ts\` a local-first device
-(\`Snapback.open\`, \`read\`, \`write\`, \`sync\`, \`outcome\`).
-
-Contract libraries: \`use Card from "@scope/ui"\` reads an installed package's
-\`.contract\` files (\`bun add @scope/ui\`, or \`"@me/ui": "file:../ui"\` in
-\`package.json\` for a local one), and \`use Activity from "exact:motion"\` a
-built-in. Each file sees only the names its \`use\` lines list.
+Say what a thing is and leave colours, fonts and control metrics to the platform (LLP
+1115); \`bun ${sdk('scripts/no-tells.mjs')} .\` lists the literal ones left. Shared server
+data: your own server (${doc('recipes/rest-backend.md')}) or Snapback 4's client
+(${sdk('snapback4/README.md')}). Contract libraries: \`use Card from "@scope/ui"\` after
+\`bun add\`, or \`use Activity from "exact:motion"\`.
 
 Generated, so don't edit: the \`[patch.crates-io]\` table in \`Cargo.toml\`,
 \`rust-toolchain.toml\`, \`.cargo/config.toml\`, \`exact.mjs\`, and this block.
-
-${readFileSync(resolve(ROOT, 'docs/diary.md'), 'utf8').replace(/^#/gm, '##').trimEnd()}
 ${END}
 `;
 }
+
+/** The one line that stands for the authoring diary (docs/diary.md): \`feedback
+ * status\` prints the instructions when the project keeps a diary. */
+const DIARY_LINE = 'Run `bun exact.mjs feedback status` first; it prints what to keep.';
 
 /** A game's notes: the app's, for a world in Rust under Contract's menus. */
 function gameNotes(dir, name, doc) {
@@ -518,7 +483,7 @@ change \`Options\` or the scene, before the first \`prove\`.
 
 Generated, so don't edit: \`exact.mjs\` and this block.
 
-${readFileSync(resolve(ROOT, 'docs/diary.md'), 'utf8').replace(/^#/gm, '##').trimEnd()}
+${DIARY_LINE}
 ${END}
 `;
 }
