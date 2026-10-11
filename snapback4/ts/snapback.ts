@@ -242,6 +242,13 @@ export class Snapback {
     }
   }
 
+  /** One partition open at a time, chosen by a key: the persona or sign-in
+   * switch (see `Switcher`). `options` names each key's partition; give each
+   * its own `name`. */
+  static switcher<K extends string = string>(options: (key: K) => SwitchedOptions): Switcher<K> {
+    return switcher(options);
+  }
+
   /** Whether this client can still be used: not closed, and its device has
    * not given up (the web's, when even rebuilding from the disk failed). An
    * app replaces an unusable client by opening the partition again: the new
@@ -503,3 +510,71 @@ export class Snapback {
 }
 
 export const openSnapback = (options: Options) => Snapback.open(options);
+
+/** What a switcher opens for a key: `Options` less the dispatcher's
+ * `storage` and `native`, which `use` passes. */
+export type SwitchedOptions = Omit<Options, 'storage' | 'native'>;
+
+/** One partition open at a time, chosen by a key (a persona, a signed-in
+ * principal): what `Snapback.switcher` returns. */
+export interface Switcher<K extends string = string> {
+  /** Run `work` on the key's client. A key other than the current one first
+   * lets the current one go: its work in flight finishes, then its partition
+   * closes (what it keeps stays for its next open), then the key's opens. An
+   * open that fails (`code: 'bake'` at build time, `E_OFFLINE`) rejects this
+   * call and is tried again by the next; a client whose device gave up
+   * (`usable` false) is reopened. */
+  use<T>(key: K, storage: Options['storage'], native: Options['native'], work: (db: Snapback) => Promise<T>): Promise<T>;
+  /** Let the current client go, once its work in flight is done (a sign-out). */
+  close(): Promise<void>;
+  /** The key now in use, or null. */
+  readonly key: K | null;
+}
+
+/** A switcher: the persona or sign-in switch every app with more than one
+ * viewer needs (natively the module holds one partition, so the old one must
+ * close before the new one opens, and only once its work is done). `options`
+ * names each key's partition; give each its own `name`.
+ *
+ *   const personas = Snapback.switcher((persona: string) => ({ app: appId, name: `inbox-${persona}`,
+ *     origin, viewer: `dev:${persona}`, headers: () => ({ 'x-snapback-persona': persona }) }));
+ *   // in a source: personas.use(persona, storage, native, async db => { await db.sync(); … })
+ */
+function switcher<K extends string = string>(options: (key: K) => SwitchedOptions): Switcher<K> {
+  type Held = { key: K; opening: Promise<Snapback>; client?: Snapback; busy: Set<Promise<unknown>> };
+  let current: Held | null = null;
+  // Clients are let go one after another, and the next open waits for the last.
+  let released: Promise<void> = Promise.resolve();
+  const release = (held: Held | null): Promise<void> => {
+    if (!held) return released;
+    const before = released;
+    released = (async () => {
+      await before;
+      await Promise.allSettled([...held.busy]);
+      await (await held.opening.catch(() => null))?.close();
+    })().catch(() => undefined);
+    return released;
+  };
+  return {
+    get key() { return current?.key ?? null; },
+    use(key, storage, native, work) {
+      if (current?.key !== key || current.client?.usable === false) {
+        const opening = release(current).then(() => Snapback.open({ ...options(key), storage, native }));
+        const entry: Held = { key, opening, busy: new Set() };
+        current = entry;
+        opening.then(client => { entry.client = client; }, () => { if (current === entry) current = null; });
+      }
+      const held = current!;
+      const run = held.opening.then(work);
+      held.busy.add(run);
+      const done = () => { held.busy.delete(run); };
+      run.then(done, done);
+      return run;
+    },
+    close() {
+      const held = current;
+      current = null;
+      return release(held);
+    },
+  };
+}

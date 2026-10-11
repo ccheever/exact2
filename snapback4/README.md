@@ -13,7 +13,7 @@ is handed to whoever drives it. Pinned to Snapback4 **0.4.16**
 | `client/` (`exact-snapback4-client`) | the protocol: `Client` (`read`, `write`, `sync` → `Step::Fetch`/`deliver` → `Step::Done`, `changes`/`changed`, `refresh`/`refreshed`, `outcome`, `status`), the JSON `dispatch`, partition binding |
 | `src/` (`exact-snapback4`) | the native device under the app's grants and directories: `Module` (an Exact `NativeModule` or `DataSource`), and `host_request`/`host_reply` for a Rust source's `Answer::Later` |
 | `web/` (`exact-snapback4-web`) | the same client as wasm over the device's memory store; `web/build.mjs` builds it with its wasm-bindgen glue |
-| `ts/` | the TypeScript driver an app's `app.ts` imports: `Snapback.open`, `read`/`readAll`, `write`, `sync`, `poll`, `refreshSession`, `outcome`, `status` |
+| `ts/` | the TypeScript driver an app's `app.ts` imports: `Snapback.open`, `Snapback.switcher` (one persona's partition at a time), `read`/`readAll`, `write`, `sync`, `poll`, `refreshSession`, `outcome`, `status` |
 
 ## From TypeScript
 
@@ -181,7 +181,7 @@ component Guestbook
 `app.ts`:
 
 ```ts
-import type { Answer, NativeModule, Result, Sources, Storage } from './app.contract.d.ts';
+import type { Answer, Result, Sources } from './app.contract.d.ts';
 import { Snapback } from './snapback4/snapback.ts';
 
 export const appId = 'com.example.guestbook';
@@ -190,36 +190,15 @@ export const grants = `net.fetch ${origin}\nsqlite.open app:/data`;
 
 // One partition open at a time (natively the module holds one): switching
 // persona waits for the other persona's work in flight, then closes its
-// partition (what it keeps stays for its next open).
-type Held = { persona: string; opening: Promise<Snapback>; busy: Set<Promise<unknown>> };
-let current: Held | null = null;
-function using<T>(persona: string, storage: Storage, native: NativeModule | null | undefined, work: (db: Snapback) => Promise<T>): Promise<T> {
-  if (current?.persona !== persona) {
-    const previous = current;
-    const opening = (async () => {
-      if (previous) {
-        await Promise.allSettled([...previous.busy]);
-        await (await previous.opening.catch(() => null))?.close();
-      }
-      return Snapback.open({ app: appId, name: `guestbook-${persona}`, origin, viewer: `dev:${persona}`,
-        headers: () => ({ 'x-snapback-persona': persona }), storage, native });
-    })();
-    const entry: Held = { persona, opening, busy: new Set() };
-    current = entry;
-    opening.catch(() => { if (current === entry) current = null; });
-  }
-  const held = current!;
-  const run = held.opening.then(work);
-  held.busy.add(run);
-  run.then(() => held.busy.delete(run), () => held.busy.delete(run));
-  return run;
-}
+// partition (what it keeps stays for its next open), then opens this one's.
+const personas = Snapback.switcher((persona: string) => ({ app: appId, name: `guestbook-${persona}`, origin,
+  viewer: `dev:${persona}`, headers: () => ({ 'x-snapback-persona': persona }) }));
 
 type Row = { id: string; author: string; body: string; pending?: boolean };
 
 // Results are keyed by source name: `Result<'notes'>`, `Result<'post'>`.
 const sources: Sources = {
-  notes: ([persona, now], _store, storage, native): Promise<Result<'notes'>> => using(persona, storage, native, async db => {
+  notes: ([persona, now], _store, storage, native): Promise<Result<'notes'>> => personas.use(persona, storage, native, async db => {
     const round = await db.sync();                      // offline is fine once synced
     const read = await db.read<Row[]>('recent', {}, now);
     if (read.denied) throw new Error(`${read.denied.code}: ${read.denied.message}`);
@@ -235,7 +214,7 @@ const sources: Sources = {
     if ((error as { code?: string }).code === 'bake') return { online: false, message: 'Connecting…', latest: '', sending: 0, notes: [] };
     throw error;                                        // the view shows it through failure(board)
   }),
-  post: ([persona, body, now], _store, storage, native): Promise<Result<'post'>> => using(persona, storage, native, async db => {
+  post: ([persona, body, now], _store, storage, native): Promise<Result<'post'>> => personas.use(persona, storage, native, async db => {
     const written = await db.write('post', { body }, now);
     if (written.state === 'failed') return { ok: false, message: `Refused: ${written.why.code}`, id: '' };
     await db.sync();
@@ -325,6 +304,17 @@ const renewed = await db.refreshSession(now);          // near expiresAt: keep r
   personas (or a sign-out and a sign-in) need two names, such as
   `inbox-${persona}`, each covered by the `sqlite.open` grant; opening a name
   already open for another viewer refuses with `E_PARTITION_VIEWER`.
+- **Switching persona or account: `Snapback.switcher`.** ``const personas =
+  Snapback.switcher(persona => ({ app, name: `inbox-${persona}`, origin,
+  viewer, headers }))`` (`Options` less `storage` and `native`), then in each
+  source `personas.use(persona, storage, native, async db => …)`, as the
+  guestbook does. A new key
+  waits for the old one's work in flight, closes its partition (what it keeps
+  stays for its next open), then opens its own, on every host. An open that
+  fails (`code: 'bake'`, `E_OFFLINE`) rejects that call and is tried again by
+  the next; a client whose device gave up is reopened. `personas.close()` lets
+  the current one go (a sign-out); `personas.key` is the key in use. Work that
+  never settles (a fetch with no timeout) holds the switch.
 - **What the device answers.** A query whose tables are all synced is read
   from the partition, offline included. A query that reads an `online only`
   table or view is answered by the server (`POST /q/<name>`), marked
@@ -388,7 +378,7 @@ impl exact_js::NativeModule for Snapback {
 
 The native module holds one partition at a time: an app that switches
 persona closes the one client, once its work in flight is done, before
-opening the other's (the guestbook's `using` does), or the open is refused.
+opening the other's (`Snapback.switcher` does), or the open is refused.
 
 Every exchange names itself (`fetch.exchange`); deliver its reply with that
 name. A reply for a round that was cancelled, or a client since reopened, is
