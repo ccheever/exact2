@@ -7,6 +7,9 @@
 import UIKit
 
 final class ExactRadio: ExactCheckbox {
+    /// Safari's 16-point radio, whatever size the checkbox's mark is.
+    override var intrinsicContentSize: CGSize { CGSize(width: 16, height: 16) }
+
     /// A tap moves nothing here: the host hears it (`radioTapped`), and
     /// checks it and unchecks the rest of its group.
     override func activated() {}
