@@ -309,8 +309,10 @@ pub fn tag(name: &str) -> Option<Tag> {
         },
         // @ref LLP 1069.001 (amended 2026-10-07) — HTML's `progress` with no
         // `value`, indeterminate: the platform's activity indicator, a
-        // measured leaf (20 × 20 until sized). ARIA's role is `progressbar`;
-        // the lowering adds `aria-busy` (`Lowerer::progress_rows`).
+        // measured leaf (20 × 20 until sized); the lowering adds `aria-busy`.
+        // @ref LLP 1116 D8 — with a `value` (and `max`, strings as a
+        // range's), the determinate bar, sized by HTML's UA sheet. ARIA's
+        // role is `progressbar` either way.
         "progress" => Tag {
             node_type: NodeType::Control,
             fixed_styles: &[],
@@ -580,7 +582,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // The viewport meta's `interactive-widget`, read from the first root
         // (LLP 1008 §9): `resizes-content` shrinks the layout viewport to a
         // software keyboard's top, so what is pinned to the bottom rises with
-        // it; the default, `resizes-visual`, insets the viewport instead.
+        // it, iOS's default (LLP 1116 D2); `resizes-visual`, the web's
+        // default and iOS's opt-out, insets the viewport instead.
         "interactive-widget" => AttrTarget::Prop(p("interactiveWidget")),
         "value" => AttrTarget::Prop(p("value")),
         "estimated-item-height" => AttrTarget::Prop(p("estimatedItemHeight")),
@@ -651,6 +654,12 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "aria-required" => AttrTarget::Prop(p("accessibilityRequired")),
         "aria-haspopup" => AttrTarget::Prop(p("accessibilityHasPopup")),
         "aria-current" => AttrTarget::Prop(p("accessibilityCurrent")), // Depot: a nav link's page
+        // @ref LLP 1116 D8 — a range role's value (`progressbar`, `slider`,
+        // `meter`, …), numbers written as HTML writes them (`aria_values`).
+        "aria-valuenow" => AttrTarget::Prop(p("accessibilityValueNow")),
+        "aria-valuemin" => AttrTarget::Prop(p("accessibilityValueMin")),
+        "aria-valuemax" => AttrTarget::Prop(p("accessibilityValueMax")),
+        "aria-valuetext" => AttrTarget::Prop(p("accessibilityValueText")),
         // SVG 2 attributes CSS cannot set (LLP 1055 D1/D2), by their SVG names.
         "viewBox" => AttrTarget::Prop(p("viewBox")),
         "preserveAspectRatio" => AttrTarget::Prop(p("preserveAspectRatio")),
@@ -792,6 +801,11 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "alignSelf" => "align-self",
         "boxSizing" => "box-sizing",
         "fit" | "objectFit" => "object-fit",
+        // UIKit's, SwiftUI's and React Native's shrink-to-fit (LLP 1116.001 D1.4).
+        "adjustsFontSizeToFitWidth"
+        | "adjustsFontSizeToFit"
+        | "minimumScaleFactor"
+        | "minimumFontScale" => "-exact-fit",
         "justify" | "justifyContent" => "justify-content",
         "overflowX" => "overflow-x",
         "overflowY" => "overflow-y",
@@ -1270,7 +1284,10 @@ impl crate::Lowerer<'_> {
     /// @ref LLP 1115 D3 — a heading is the platform's text style for its
     /// level, as a hand-built screen's would be: 1 `title1`, 2 `title2`, 3
     /// `title3`, 4 and on `headline` (ARIA's default level is 2), at the
-    /// style's size for the root font size and its weight. A level chosen
+    /// style's size for the root font size and its emphasized weight (LLP
+    /// 1116 D7): bold for a title, whose own weight is regular, as Apple's
+    /// emphasized title styles and the web's headings are; `headline`'s own
+    /// semibold. A level chosen
     /// between literals (`aria-level=(top ? 1 : 2)`) chooses between their
     /// styles; any other computed level is 2's. Pushed before the author's
     /// rows, so a written `font-size` or `font-weight` wins; an inherited one
@@ -1298,10 +1315,9 @@ impl crate::Lowerer<'_> {
                 _ => "title2",
             };
             let id = exact_kernel::style::relative::text_style(&format!("-exact-{name}"));
-            (
-                name,
-                exact_kernel::TEXT_STYLES[usize::from(id.expect("a schema text style"))].weight,
-            )
+            let weight =
+                exact_kernel::TEXT_STYLES[usize::from(id.expect("a schema text style"))].weight;
+            (name, if weight == 400 { 700 } else { weight })
         };
         // The level's literal leaves, each mapped; `None` when one is computed.
         fn leaves(e: &Expr, f: &dyn Fn(f64) -> Expr) -> Option<Expr> {

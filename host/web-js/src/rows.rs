@@ -216,6 +216,12 @@ impl Em<'_> {
                 let _ = write!(self.out, "{press}();");
                 one("--exact-press-haptic", Some("v=>v==null||v===\"none\"?null:v".into()))
             }
+            // @ref LLP 1116.001 D1.4 — what navigation.js `fitText` reads, inline.
+            StyleId::Fit => {
+                let fit = self.uses.rt("fitTexts");
+                let _ = write!(self.out, "{fit}();");
+                one("--exact-fit", Some("v=>v===\"shrink\"?v:null".into()))
+            }
             // The feedback's factor, and `scale` as its product (css.rs), on
             // a node whose own `scale` does not also compose through it.
             StyleId::PressScale => {
@@ -491,6 +497,8 @@ pub(super) fn presence_decls(css: &mut String) -> String {
             // D14), which input-glue.js reads from the element's own style.
             "--exact-press:",
             "--exact-press-haptic:",
+            // A fitted text's (LLP 1116.001 D1.4), which navigation.js finds by it.
+            "--exact-fit:",
         ]
         .iter()
         .any(|p| decl.starts_with(p))

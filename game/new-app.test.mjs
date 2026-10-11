@@ -6,7 +6,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { outsideWorkspaceProblems, pathFrom, readManifest } from '../scripts/app.mjs';
-import { createApp, createGame } from './new.mjs';
+import { applyPattern, createApp, createGame, patternFiles, patterns } from './new.mjs';
 
 test('a new outside app passes the checks every run makes, and a drifted one is told what to paste', () => {
   const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
@@ -16,32 +16,41 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     assert.deepEqual(outsideWorkspaceProblems(dir), []);
     assert.ok(existsSync(resolve(dir, 'app.test.contract')));
     assert.deepEqual(readFileSync(resolve(dir, '.cargo/config.toml')), readFileSync(resolve(import.meta.dir, '../.cargo/config.toml')));
-    // The diary instructions travel in full inside the generated block, and .exact/ stays local.
+    // The diary is one line that sends the agent to `feedback status`, which prints its
+    // instructions (LLP 1116 D3); the notes stay small, and .exact/ stays local.
     const agents = () => readFileSync(resolve(dir, 'AGENTS.md'), 'utf8');
-    assert.match(agents(), /<!-- exact:begin[^]*## The authoring diary[^]*### Needed[^]*<!-- exact:end -->/);
+    assert.match(agents(), /<!-- exact:begin[^]*Run `bun exact\.mjs feedback status` first; it prints what to keep\.[^]*<!-- exact:end -->/);
+    assert.doesNotMatch(agents(), /## The authoring diary|### Needed/);
+    assert.ok(Buffer.byteLength(agents()) <= 3 * 1024 + 512, `AGENTS.md is ${Buffer.byteLength(agents())} bytes`); // 3 KB, and long temp-dir paths (LLP 1116.001 D4)
     assert.match(agents(), /one-time installer[^]*exact\.mjs[^]*setup[^]*forced offline for Hermes/);
     assert.match(readFileSync(resolve(dir, '.gitignore'), 'utf8'), /^\/\.exact\/$/m);
     // Execute the generated dispatcher against fake SDK entry points: cwd may
     // be anywhere, but the source and test file must still name this app.
     const sdk = resolve(parent, 'sdk');
-    for (const file of ['host/web/build.mjs', 'scripts/agent.mjs', 'scripts/exact.mjs']) {
+    for (const file of ['host/web/build.mjs', 'scripts/agent.mjs', 'scripts/agent-build.mjs', 'scripts/exact.mjs']) {
       mkdirSync(resolve(sdk, file, '..'), { recursive: true });
       writeFileSync(resolve(sdk, file), 'console.log(JSON.stringify({args:process.argv.slice(2),app:process.env.EXACT_APP_DIR,offline:process.env.HERMES_LEAN_SYS_OFFLINE}));');
     }
     const testArgs = host => [host, '--app', 'field-log', '--test', resolve(realpathSync(dir), 'app.test.contract')];
-    for (const [command, args] of [
+    // A drive builds first (LLP 1116.002 D4): web-build, or agent-build for ios and macos, its output on
+    // stderr so stdout stays the drive's; a phone's build stays explicit.
+    const webBuild = ['field-log'], ios = ['ios', '--app', 'field-log'];
+    for (const [command, args, built = null] of [
       [['web-build'], ['field-log']],
-      [['test'], testArgs('web')],
-      [['test', 'web'], testArgs('web')],
-      [['test', 'ios'], testArgs('ios')],
-      [['test', 'macos', '--size', '800x600'], [...testArgs('macos'), '--size', '800x600']],
-      [['agent', 'web', 'tree', 'type title a title with spaces'], ['web', '--app', 'field-log', 'tree', 'type title a title with spaces']],
-      [['agent', 'ios', 'state'], ['ios', '--app', 'field-log', 'state']],
+      [['test'], testArgs('web'), webBuild],
+      [['test', 'web'], testArgs('web'), webBuild],
+      [['test', 'ios'], testArgs('ios'), ios],
+      [['test', 'macos', '--size', '800x600'], [...testArgs('macos'), '--size', '800x600'], ['macos', '--app', 'field-log']],
+      [['agent', 'web', 'tree', 'type title a title with spaces'], ['web', '--app', 'field-log', 'tree', 'type title a title with spaces'], webBuild],
+      [['agent', 'ios', 'state'], ['ios', '--app', 'field-log', 'state'], ios],
+      [['agent', 'ios', '--sim', 'lane', 'tree'], ['ios', '--app', 'field-log', '--sim', 'lane', 'tree'], [...ios, '--sim', 'lane']],
+      [['agent', 'ios', '--device', 'tree'], ['ios', '--app', 'field-log', '--device', 'tree']],
       [['contract', 'build', 'app.contract', '--json'], ['contract', 'build', 'app.contract', '--json']],
     ]) {
       const result = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), ...command], { cwd: parent, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
       assert.equal(result.status, 0, result.stderr);
       assert.deepEqual(JSON.parse(result.stdout), { args, app: realpathSync(dir), offline: '1' });
+      assert.deepEqual(result.stderr.trim() ? JSON.parse(result.stderr).args : null, built, `${command.join(' ')} builds first`);
     }
     // chat F19, calendar F13: the files named, from the current directory (a glob too), each run in turn.
     mkdirSync(resolve(dir, 'tests'));
@@ -59,8 +68,11 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     writeFileSync(resolve(sdk, 'scripts/agent.mjs'), 'process.exit(7);');
     const refused = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'test', 'ios'], { cwd: parent, env: { ...process.env, EXACT2: sdk } });
     assert.equal(refused.status, 7, 'a failed app test fails the generated command');
+    writeFileSync(resolve(sdk, 'scripts/agent-build.mjs'), 'process.exit(5);');
+    const unbuilt = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'agent', 'macos', 'tree'], { cwd: parent, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
+    assert.deepEqual([unbuilt.status, unbuilt.stdout], [5, ''], 'a failed build fails the drive, which never starts');
     const logged = readFileSync(resolve(dir, '.exact/commands.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
-    assert.deepEqual(logged.map(c => [c.verb, c.exit]).slice(-2), [['test ios', 2], ['test ios', 7]], 'each command is logged, without its arguments, a glob that matched nothing too');
+    assert.deepEqual(logged.map(c => [c.verb, c.exit]).slice(-3), [['test ios', 2], ['test ios', 7], ['agent macos', 5]], 'each command is logged, without its arguments, a glob that matched nothing and a failed build too');
     assert.ok(logged.some(c => c.verb === 'contract' && c.exit === 0), 'the contract command is logged too');
     const manifest = readFileSync(resolve(dir, 'Cargo.toml'), 'utf8');
     writeFileSync(resolve(dir, 'Cargo.toml'), manifest.replace(/^taffy = .*\n/m, ''));
@@ -76,7 +88,7 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     writeFileSync(resolve(dir, 'AGENTS.md'), '# Mine\n\n<!-- exact diary: old -->\nstale\n<!-- /exact diary -->\n\nAfter.\n');
     writeFileSync(resolve(dir, '.gitignore'), '/target/');
     assert.match(createApp(dir, { update: true }), /\.gitignore, AGENTS\.md, exact2 paths in web\/Cargo\.toml/);
-    assert.match(agents(), /^# Mine\n\nAfter\.\n\n<!-- exact:begin[^]*## The authoring diary[^]*<!-- exact:end -->\n$/);
+    assert.match(agents(), /^# Mine\n\nAfter\.\n\n<!-- exact:begin[^]*feedback status[^]*<!-- exact:end -->\n$/);
     assert.ok(!agents().includes('stale'));
     assert.equal(readFileSync(resolve(dir, '.gitignore'), 'utf8'), '/target/\n/.exact/\n');
     assert.deepEqual(outsideWorkspaceProblems(dir), []);
@@ -273,11 +285,15 @@ test('a new app tells its agent where the guides are, and update keeps what the 
     const dir = resolve(parent, 'field-log');
     createApp(dir);
     const notes = readFileSync(resolve(dir, 'AGENTS.md'), 'utf8');
-    for (const guide of ['start-here.md', 'contract-for-agents.md', 'agent-pitfalls.md', 'contract-for-humans.md', 'contract-grammar.md']) {
+    // The one required read and the recipes; the long guides are start-here's to name (LLP 1116 D3).
+    for (const guide of ['start-here.md', 'recipes', 'recipes/rest-backend.md', 'reference.md']) {
       assert.ok(notes.includes(resolve(root, 'docs', guide)), guide);
       assert.ok(existsSync(resolve(root, 'docs', guide)), guide);
     }
-    assert.match(notes, /bun exact\.mjs contract types app\.contract -o app\.contract\.d\.ts/);
+    // The patterns, the recipes and `--help`, and nothing start-here says (LLP 1116.001 D4).
+    assert.match(notes, /`bun exact\.mjs pattern` lists them \(`one-screen`, `list-detail`,\s+`tabs`, `dashboard`, `rest`\)/);
+    assert.match(notes, /bun exact\.mjs <verb> --help/);
+    assert.doesNotMatch(notes, /contract types|no-tells|\.exact\//);
     assert.ok(lstatSync(resolve(dir, 'CLAUDE.md')).isSymbolicLink());
     assert.equal(readFileSync(resolve(dir, 'CLAUDE.md'), 'utf8'), notes);
     const manifest = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
@@ -338,6 +354,46 @@ test('update names the app by its crates, not its folder', () => {
     const commands = readFileSync(resolve(moved, 'exact.mjs'), 'utf8');
     assert.match(commands, /'todo-list-apple'/);
     assert.doesNotMatch(commands, /'todo-apple'/);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+// LLP 1116.001 D3: a pattern replaces the template's three files with the app's own id and name; a file the
+// author edited is refused unless forced; rest brings its server, test runner and command, which go with it.
+test('a pattern replaces the template, refuses an edited file unless forced, and takes its extras with it', () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-pattern-'));
+  try {
+    const dir = resolve(parent, 'field-log');
+    createApp(dir);
+    assert.deepEqual(patterns().map(p => p.name), ['one-screen', 'list-detail', 'tabs', 'dashboard', 'rest']);
+    for (const { line } of patterns()) assert.ok(line.length > 20 && line.length <= 92 && !line.startsWith('//'), line);
+    const read = (file) => readFileSync(resolve(dir, file), 'utf8');
+    const { said } = applyPattern(dir, 'list-detail');
+    assert.match(said, /^list-detail: wrote app\.contract, app\.ts, app\.test\.contract as Field Log \(com\.example\.field-log\)$/);
+    assert.match(read('app.ts'), /^export const appId = 'com\.example\.field-log';$/m);
+    assert.match(read('app.contract'), /^\/\/ Field Log: a list that pushes a detail/);
+    assert.match(read('app.contract'), /text "Field Log" role="heading" aria-level=1/);
+    assert.doesNotMatch(read('app.contract') + read('app.ts'), /Starter|com\.example\.starter/);
+    // Untouched, it gives way to another pattern; edited, it is refused, named, and nothing is written.
+    applyPattern(dir, 'tabs');
+    writeFileSync(resolve(dir, 'app.ts'), `${read('app.ts')}// mine\n`);
+    const before = read('app.contract');
+    assert.throws(() => applyPattern(dir, 'dashboard'), /^Error: pattern: app\.ts was edited \(not what exact new or a pattern wrote\); --force replaces it$/);
+    assert.equal(read('app.contract'), before);
+    applyPattern(dir, 'dashboard', { force: true });
+    assert.doesNotMatch(read('app.ts'), /\/\/ mine/);
+    assert.throws(() => applyPattern(dir, 'nope'), /no pattern nope; there are one-screen, list-detail/);
+    // rest: its server and test runner, and the command that runs them; another pattern takes them away again.
+    assert.match(applyPattern(dir, 'rest').next, /bun exact\.mjs api-test web$/);
+    assert.ok(existsSync(resolve(dir, 'server.ts')) && existsSync(resolve(dir, 'test.mjs')));
+    assert.deepEqual(JSON.parse(read('app.json')).commands, { 'api-test': ['bun', 'test.mjs'] });
+    assert.equal(JSON.parse(read('app.json')).app.id, 'com.example.field-log');
+    assert.match(applyPattern(dir, 'one-screen').said, /removed server\.ts, test\.mjs$/);
+    assert.ok(!existsSync(resolve(dir, 'server.ts')) && JSON.parse(read('app.json')).commands === undefined);
+    // A name with a quote stays one Contract string.
+    const quoted = patternFiles('one-screen', { id: 'com.example.q', title: 'Say "Hi" $5' }).files['app.contract'];
+    assert.match(quoted, /text "Say \\"Hi\\" \\\$5" role="heading"/);
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }

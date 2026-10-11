@@ -70,6 +70,26 @@ extension CollectionHost {
             measurements: [], focus: nil, interaction: nil,
             padding: [Double(node.number("padding_top")), Double(node.number("padding_bottom"))])
     }
+    /// The insets UIKit adjusts the list's port by, at its start edges. A
+    /// safe area its frame changed reaches the scroll view in a layout
+    /// pass, which is taken now, inside the batch that moved it.
+    func portInsets(_ id: UInt32) -> [Double]? {
+        guard let node = presenter?.views[id], let scroll = node.scroll else { return nil }
+        node.layoutIfNeeded()
+        return [Double(scroll.adjustedContentInset.top), Double(scroll.adjustedContentInset.left)]
+    }
+    /// The port back at `top` (`geometry`'s offset), within what it can
+    /// reach, unless the reader or a smooth correction is moving it.
+    func keepStart(_ id: UInt32, at top: Double) {
+        guard let node = presenter?.views[id], let scroll = node.scroll, !animating.contains(id),
+              !scroll.isTracking, !scroll.isDragging, !scroll.isDecelerating else { return }
+        let content = node.contentBox(), i = scroll.adjustedContentInset
+        var target = scroll.contentOffset
+        if entries[id]?.snapshot.horizontal ?? false { target.x = CGFloat(top) + content.minX - i.left }
+        else { target.y = CGFloat(top) + content.minY - i.top }
+        target = Self.reachable(target, in: scroll)
+        if scroll.contentOffset != target { scroll.setContentOffset(target, animated: false) }
+    }
     /// A row wrapper's size across the list: a vertical list's row width,
     /// a row list's item height.
     func crossSize(_ id: UInt32, horizontal: Bool) -> Double? {
@@ -134,7 +154,7 @@ extension CollectionHost {
             if scroll.contentSize.width != width { scroll.contentSize.width = width }
         } else {
             let bottom = node.bounds.height - content.maxY
-            let height = max(scroll.bounds.height, max(CGFloat(extent) + content.minY + bottom, node.content.height))
+            let height = max(node.scrollFloor(scroll), max(CGFloat(extent) + content.minY + bottom, node.content.height))
             if scroll.contentSize.height != height { scroll.contentSize.height = height }
         }
     }

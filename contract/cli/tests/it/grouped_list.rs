@@ -3,7 +3,7 @@
 //! kernel reads its sections and rows as a native list draws them. Bare row
 //! fixtures exercise LLP 1104's default in the grouped-list context.
 
-use exact_kernel::{Accessory, GroupedRow, Kernel, Offer, PropId};
+use exact_kernel::{Accessory, Color, GroupedRow, Kernel, Offer, PropId, StyleMask};
 use exact_runner::{DataError, DataSource, Runner, Value};
 
 struct NoData;
@@ -408,6 +408,175 @@ fn round_three_shapes() {
     assert!(
         size(&r) < title,
         "with `New` shown, `Notifications` is the 15-pt second line"
+    );
+}
+
+#[test]
+fn a_column_row_keeps_its_direction() {
+    // LLP 1116 D2: a `column` straight in a section stacks its children, as
+    // it does anywhere else (two bake-off apps saw one laid out as a strip):
+    // two texts are the subtitle cell; a form of its own is the author's.
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    column testId=\"pair\"\n      text \"Title\" testId=\"t1\"\n      text \"Detail\" testId=\"t2\"\n    column testId=\"form\"\n      text \"How did you feel?\" testId=\"q\"\n      row testId=\"choices\"\n        button press=go\n          text \"A\"\n      text \"Okay\" testId=\"answer\"\n    column testId=\"one\"\n      text \"Alone\"");
+    let k = r.kernel();
+    let frame = |t: &str| k.node(id(&r, t)).unwrap().frame;
+    let rows = &k.grouped_list(id(&r, "list")).unwrap().sections[0].rows;
+    assert_eq!(
+        (
+            rows[0].title.as_deref(),
+            rows[0].secondary.as_deref(),
+            rows[0].subtitle,
+            rows[0].custom
+        ),
+        (Some("Title"), Some("Detail"), true, false),
+        "two texts in a column are the subtitle cell, as in a `button`'s column"
+    );
+    assert!(
+        rows[1].custom,
+        "a column of anything else is its own layout"
+    );
+    let (t1, t2) = (frame("t1"), frame("t2"));
+    assert!(
+        t2.y >= t1.y + t1.height,
+        "the second line under the first: {t1:?} {t2:?}"
+    );
+    assert_eq!(t1.x, t2.x, "both at the text's margin");
+    assert!(t2.height < t1.height, "the 15-pt second line");
+    let (q, choices, answer) = (frame("q"), frame("choices"), frame("answer"));
+    assert!(
+        choices.y >= q.y + q.height && answer.y >= choices.y + choices.height,
+        "stacked: {q:?} {choices:?} {answer:?}"
+    );
+    assert_eq!(
+        frame("form").x,
+        32.0,
+        "16 into the card, as a row without an icon"
+    );
+    assert_eq!(
+        frame("one").height,
+        53.0,
+        "one line: a cell's 52 and its separator"
+    );
+    let own = boot("list appearance=\"auto\" flex=1\n  section\n    column flex-direction=\"row\" testId=\"strip\"\n      text \"A\" testId=\"a\"\n      text \"B\" testId=\"b\"");
+    let k = own.kernel();
+    let (a, b) = (
+        k.node(id(&own, "a")).unwrap().frame,
+        k.node(id(&own, "b")).unwrap().frame,
+    );
+    assert_eq!(a.y, b.y, "the author's `flex-direction` stands");
+}
+
+#[test]
+fn a_row_holding_its_own_stack_keeps_the_cells_margins() {
+    // Two bake-off apps (team-kanban's cards, household-list's items): a
+    // `row` around a `column` of a title, a second line and a row of
+    // buttons had no space above or below, so its title touched the card
+    // and its buttons the separator, on every host. A hand-built cell keeps
+    // its content inside the content view's margins: 15 above and below, as
+    // a `column` row has them.
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    row testId=\"card\"\n      column flex=1 min-width=0 gap=8 testId=\"stack\"\n        text \"Ada task one\" testId=\"title\"\n        text \"Ada\" testId=\"by\"\n        row gap=8 testId=\"actions\"\n          button press=go\n            text \"To Doing\"\n          button press=go\n            text \"Delete\"\n    row testId=\"item\"\n      input type=\"checkbox\" checked=on input=flip\n      when on\n        column flex=1 min-width=0 testId=\"lines\"\n          text \"Milk\"\n          text \"Added by Alice\"\n          text \"Checked by Bob\"\n      button press=go\n        text \"Delete\"\n    row testId=\"one\"\n      text \"No cards yet.\"\n    row testId=\"field\"\n      input value=\"\" placeholder=\"Card title\" flex=1\n      button press=go\n        text \"Add\"\n    row testId=\"pair\"\n      column\n        text \"Title\"\n        text \"Detail\"\n    row testId=\"cover\"\n      column width=44 height=66\n      text \"Untitled\"\n    button press=go testId=\"profile\"\n      row width=56 height=56 margin-top=10 margin-bottom=10\n      column\n        text \"Maya Chen\"\n        text \"+1 415 555 0134\"");
+    let k = r.kernel();
+    let frame = |t: &str| k.node(id(&r, t)).unwrap().frame;
+    let rows = &k.grouped_list(id(&r, "list")).unwrap().sections[0].rows;
+    assert!(rows[0].custom && rows[1].custom, "custom and carried");
+    let (card, title, actions) = (frame("card"), frame("title"), frame("actions"));
+    assert_eq!(title.y - card.y, 15.0, "the title 15 under the card's top");
+    assert_eq!(
+        card.y + card.height - 1.0 - (actions.y + actions.height),
+        15.0,
+        "the buttons 15 over the separator: {card:?} {actions:?}"
+    );
+    assert_eq!(title.x, 32.0, "16 into the card, as before");
+    let (item, lines) = (frame("item"), frame("lines"));
+    assert_eq!(
+        lines.y - item.y,
+        15.0,
+        "a column beside controls, shown by a condition, too"
+    );
+    assert_eq!(
+        item.height,
+        lines.height + 31.0,
+        "15 above, 15 below, and the separator"
+    );
+    assert_eq!(
+        frame("one").height,
+        53.0,
+        "one text: a cell's 52 and its separator"
+    );
+    assert_eq!(
+        frame("field").height,
+        53.0,
+        "a row of controls keeps the cell's 52"
+    );
+    assert!(
+        rows[4].subtitle && frame("pair").height < 70.0,
+        "the subtitle cell's padding is its column's, not its row's too"
+    );
+    assert_eq!(
+        frame("cover").height,
+        67.0,
+        "an empty column is a box (a cover's placeholder), not lines"
+    );
+    assert_eq!(
+        frame("profile").height,
+        77.0,
+        "the stack's margins are its own: a taller avatar with its own sets the height"
+    );
+    // The author's padding replaces the sheet's, a shorthand included.
+    let own = boot("list appearance=\"auto\" flex=1\n  section\n    row padding-top=8 padding-bottom=8 testId=\"tight\"\n      column testId=\"in\"\n        text \"A\"\n        text \"B\"\n        text \"C\"\n    row padding=40 testId=\"loose\"\n      column testId=\"in2\"\n        text \"A\"\n        text \"B\"\n        text \"C\"");
+    let k = own.kernel();
+    let frame = |t: &str| k.node(id(&own, t)).unwrap().frame;
+    assert!((frame("in").y - frame("tight").y - 8.0).abs() < 0.01);
+    assert!((frame("in2").y - frame("loose").y - 40.0).abs() < 0.01);
+}
+
+#[test]
+fn a_stack_of_lines_takes_the_subtitle_cells_text_styles() {
+    // LLP 1116.000 D3.2: household-list's items (a title, who added it, who
+    // checked it) drew three lines alike. A stack of lines in a row is drawn
+    // as the subtitle cell draws its two: the first text the title, a later
+    // one 15 points in the secondary colour. What the author wrote wins,
+    // row by row, on the text or on the stack its texts inherit from.
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go\n      column\n        text \"Privacy\" testId=\"cell-title\"\n        text \"Screen lock\" testId=\"cell-detail\"\n    row\n      input type=\"checkbox\" checked=on input=flip\n      column flex=1 min-width=0\n        text \"Milk\" testId=\"title\"\n        text \"Added by Alice\" testId=\"by\"\n        when on\n          text \"Checked by Bob\" testId=\"checked\"\n      button press=go\n        text \"Delete\" testId=\"delete\"\n    row\n      column flex=1 min-width=0 gap=8\n        text \"Ship it\" testId=\"card\"\n        text \"Ada\" font=\"-exact-footnote\" color=\"#123456\" testId=\"authored\"\n        text \"Late\" color=\"#ff0000\" testId=\"red\"\n        text \"Big\" font-size=20 testId=\"big\"\n        row gap=8\n          button press=go\n            text \"To Doing\" testId=\"move\"\n    row padding-top=8 padding-bottom=8\n      column color=\"#00ff00\" font-size=13\n        text \"A\" testId=\"own-a\"\n        text \"B\" testId=\"own-b\"\n        text \"C\" testId=\"own-c\"\n    row\n      column color=\"#00ff00\"\n        text \"Title\"\n        text \"Detail\" testId=\"cell-own\"");
+    let k = r.kernel();
+    let hex = |h: &str| Color::parse_hex(h).unwrap();
+    let look = |t: &str| {
+        let s = k.node(id(&r, t)).unwrap().computed_style(StyleMask::ALL);
+        (
+            s.font_size,
+            s.text_color.resolve(false),
+            s.text_color.resolve(true),
+        )
+    };
+    let (title, detail) = (look("cell-title"), look("cell-detail"));
+    assert_eq!(
+        (title.0, detail.0),
+        (17.0, 15.0),
+        "the subtitle cell's own lines"
+    );
+    assert_eq!(look("title"), title, "the first text is the title");
+    assert_eq!(look("by"), detail, "a later one the subtitle's line");
+    assert_eq!(look("checked"), detail, "one shown by a condition too");
+    assert_eq!(look("card"), title, "beside a row of buttons");
+    assert_ne!(look("delete"), detail, "a control's label is its own");
+    assert_ne!(look("move"), detail, "and a button's in the stack");
+    let authored = look("authored");
+    assert!(authored.0 < 15.0, "an authored font wins: {authored:?}");
+    assert_eq!(authored.1, hex("#123456"), "an authored colour wins");
+    let red = look("red");
+    assert_eq!((red.0, red.1), (15.0, hex("#ff0000")), "row by row");
+    let big = look("big");
+    assert_eq!((big.0, big.1, big.2), (20.0, detail.1, detail.2));
+    // The stack's own rows reach its lines; a row with its own padding keeps
+    // the styles (only its margins are the author's).
+    for t in ["own-a", "own-b", "own-c"] {
+        let own = look(t);
+        assert_eq!((own.0, own.1), (13.0, hex("#00ff00")), "{t}");
+    }
+    let own = look("cell-own");
+    assert_eq!(
+        (own.0, own.1),
+        (15.0, hex("#00ff00")),
+        "the subtitle cell's too"
     );
 }
 

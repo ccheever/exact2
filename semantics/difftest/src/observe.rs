@@ -107,6 +107,19 @@ fn find(r: &Runner<Oracle>, test_id: &str) -> Option<ViewId> {
     })
 }
 
+/// Boot `plan` against `oracle`, on the device store the oracle holds.
+fn boot(plan: Plan, oracle: Oracle) -> Result<Runner<Oracle>, exact_runner::RunnerError> {
+    let snapshot = oracle.snapshot();
+    Runner::boot_stored(
+        plan,
+        oracle,
+        Kernel::with_monospace(),
+        snapshot,
+        Default::default(),
+        "/",
+    )
+}
+
 /// The state, commands and view lines of one configuration.
 fn state(r: &mut Runner<Oracle>, plan: &Plan, out: &mut Vec<String>) {
     for (i, row) in plan.slots.iter().enumerate() {
@@ -118,6 +131,12 @@ fn state(r: &mut Runner<Oracle>, plan: &Plan, out: &mut Vec<String>) {
         if let Some(v) = r.slot(name) {
             out.push(format!("slot {name} {}", value(v)));
         }
+    }
+    // What the store keeps for each persisted state (LLP 1116 D5).
+    for row in plan.slots.iter().filter(|s| s.persist) {
+        let name = plan.str(row.name);
+        let kept = r.persisted(name).map_or("-".to_string(), |v| value(&v));
+        out.push(format!("store {name} {kept}"));
     }
     for d in &plan.derives {
         let name = plan.str(d.name);
@@ -165,13 +184,7 @@ fn state(r: &mut Runner<Oracle>, plan: &Plan, out: &mut Vec<String>) {
 pub fn run(plan: Plan, oracle: Oracle, events: &[Event]) -> (Vec<String>, Option<Oracle>) {
     let mut out = vec!["== boot".to_string()];
     let kept = oracle.handle();
-    let mut r = match Runner::boot(
-        plan.clone(),
-        oracle,
-        Kernel::with_monospace(),
-        Default::default(),
-        "/",
-    ) {
+    let mut r = match boot(plan.clone(), oracle) {
         Ok(r) => r,
         Err(e) => {
             out.push("outcome refused".into());
@@ -245,14 +258,7 @@ pub fn run(plan: Plan, oracle: Oracle, events: &[Event]) -> (Vec<String>, Option
 /// the same boot and delivery as [`run`]: where a step's target or a
 /// differing view line was declared (`contract::SourceMap::node`).
 pub fn site(plan: Plan, oracle: Oracle, events: &[Event], test_id: &str) -> Option<usize> {
-    let mut r = Runner::boot(
-        plan,
-        oracle,
-        Kernel::with_monospace(),
-        Default::default(),
-        "/",
-    )
-    .ok()?;
+    let mut r = boot(plan, oracle).ok()?;
     for e in events {
         let _ = match e {
             Event::Tap(t) => find(&r, t).map(|v| deliver(&mut r, v, HostEvent::Press)),

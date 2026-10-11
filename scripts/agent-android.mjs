@@ -24,6 +24,7 @@ import { homedir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
 import { HOST_DEV, linuxBuild, resolveApp } from './app.mjs';
 import { hermesAndroidBundle } from './hermes-android.mjs';
+import { guardFlags } from './help.mjs';
 
 export const ANDROID_TARGET = 'aarch64-linux-android';
 /** The oldest Android the binary runs on (the NDK's clang wrapper names it). */
@@ -117,7 +118,7 @@ export function androidDeploy(app, bin, env) {
 }
 
 if (import.meta.main) {
-  const [verb, name] = process.argv.slice(2);
+  const [verb, name] = guardFlags('android', process.argv.slice(2));
   if (verb !== 'build' || !name) {
     console.error('usage: bun scripts/agent-android.mjs build <app>   (then: bun scripts/agent.mjs android --app <app> …)');
     process.exit(2);

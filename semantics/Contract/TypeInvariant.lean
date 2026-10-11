@@ -376,7 +376,7 @@ theorem boot_slotsOK {p : Program} {o} (hp : SlotTyped p) : SlotsOK p (boot p o)
       · exact hb x w hx
       · refine ⟨isSlot_of_state ha, .inl ?_⟩
         rw [slotTy_state hp.names ha]
-        simpa using hconf
+        exact restore_conforms (by simpa using hconf)
   -- During the late initializers.
   let I₂ : List StateDecl → List (String × Value) → Prop := fun rest slots =>
     (∀ a ∈ rest, a ∈ p.states) ∧ ∀ x w, (x, w) ∈ slots → BootOK p (lateNames rest) x w

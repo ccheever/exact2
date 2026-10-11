@@ -327,8 +327,14 @@ final class MenuHost: NSObject {
             if event.type == .keyUp { escapeHeld = false }
             return true
         }
-        guard let owner = focusOwner(window), let viewport = presenter?.viewport,
-              owner === viewport || owner.isDescendant(of: viewport) else { return false }
+        // The focus in this session's viewport, or in no view (the window
+        // itself, after `blur()`) when this session hears the window's keys:
+        // the web's close request reaches an auto popover with BODY focused,
+        // and of several sessions in the window one takes it.
+        guard let viewport = presenter?.viewport else { return false }
+        if let owner = focusOwner(window) {
+            guard owner === viewport || owner.isDescendant(of: viewport) else { return false }
+        } else if presenter?.session?.view?.ownsShortcutFocus() == false { return false }
         guard let last = entries.last, (window.firstResponder as? NSTextInputClient)?.hasMarkedText() != true else { return false }
         if event.type == .keyDown, !event.isARepeat {
             escapeHeld = true

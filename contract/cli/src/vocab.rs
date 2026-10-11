@@ -1,10 +1,15 @@
-//! `contract vocab [--json] [<name>]` — what the compiler admits: every tag,
+//! `contract vocab [--json] [<name> …]` — what the compiler admits: every tag,
 //! every attribute by kind (a style's rows with codec, values and default; a
 //! prop's type; a handler), the renamed spellings, and the rules no lookup
-//! lists, and the host commands an action states. @ref LLP 1086 D3. The
-//! list is `contract_lower::vocab`'s, which keeps only what the live lookups
-//! admit; the commands are `contract_syntax::HOST_COMMANDS`.
+//! lists, the host commands an action states, and the standard functions:
+//! each one's signature, rules and example (LLP 1116.000 D5). @ref LLP 1086
+//! D3. The list is `contract_lower::vocab`'s, which keeps only what the live
+//! lookups admit; the commands are `contract_syntax::HOST_COMMANDS`; the
+//! functions are `contract::functions`', the roster's signatures beside the
+//! grammar's tables. Several names are one call, each entry in turn (LLP
+//! 1116.001 D4.3), so a build's lookups are one step.
 
+use contract::functions::{self, Function};
 use contract_lower::tags::{self, AttrTarget, Tag};
 use contract_lower::vocab;
 use contract_syntax::HOST_COMMANDS;
@@ -12,11 +17,11 @@ use exact_kernel::{PropId, StyleId};
 use serde_json::{json, Value};
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: contract vocab [--json] [<name>]";
+const USAGE: &str = "usage: contract vocab [--json] [<name> …]";
 
 pub fn run(args: &[String]) -> ExitCode {
     let mut json = false;
-    let mut name = None;
+    let mut names = Vec::new();
     for arg in args {
         match arg.as_str() {
             "--help" | "-h" => {
@@ -24,93 +29,293 @@ pub fn run(args: &[String]) -> ExitCode {
                 return ExitCode::SUCCESS;
             }
             "--json" => json = true,
-            _ if !arg.starts_with('-') && name.is_none() => name = Some(arg.as_str()),
+            // A vendor-prefixed name (`-exact-fit`, `-webkit-line-clamp`) is a name, not a flag.
+            _ if !arg.starts_with('-') || (arg.len() > 2 && !arg.starts_with("--")) => {
+                names.push(arg.as_str())
+            }
             _ => {
                 eprintln!("{USAGE}");
                 return ExitCode::from(2);
             }
         }
     }
-    match name {
-        None if json => {
+    match names.as_slice() {
+        [] if json => {
             println!("{:#}", everything());
             ExitCode::SUCCESS
         }
-        None => {
+        [] => {
             print!("{}", listing());
             ExitCode::SUCCESS
         }
-        Some(name) => one(name, json),
+        [name] if json => {
+            let (doc, known) = one_json(name);
+            println!("{doc:#}");
+            exit(known)
+        }
+        // Several names: each entry in order, a refusal in its place, and exit 1
+        // when any name is unknown (LLP 1116.001 D4.3). JSON is an array of the
+        // entries one name prints.
+        _ if json => {
+            let (docs, known): (Vec<Value>, Vec<bool>) = names.iter().map(|n| one_json(n)).unzip();
+            println!("{:#}", Value::Array(docs));
+            exit(known.iter().all(|k| *k))
+        }
+        _ => {
+            let mut known = true;
+            for (i, name) in names.iter().enumerate() {
+                if i > 0 {
+                    println!();
+                }
+                known &= one_text(name);
+            }
+            exit(known)
+        }
     }
 }
 
-/// One name: its tag and attribute entries (`input` is both), an open set's
-/// rule, or the compiler's refusal with exit 1.
-fn one(name: &str, json: bool) -> ExitCode {
+/// Exit 0 when every name was known, else 1.
+fn exit(known: bool) -> ExitCode {
+    if known {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    }
+}
+
+/// One name's entries, for its text and its JSON: its tag and attribute
+/// (`input` is both), the style attributes it is a value of (`tabular-nums`),
+/// an open set's rule, a host command, its function (`filter` is an attribute
+/// and a function); `None` when nothing admits it.
+struct Entry {
+    tag: Option<Value>,
+    attr: Option<Value>,
+    value_of: Vec<&'static str>,
+    open: Option<&'static str>,
+    command: Option<String>,
+    function: Option<Function>,
+}
+
+fn entry(name: &str) -> Option<Entry> {
     let tag = tags::tag(name).map(|t| tag_json(name, &t));
     let attr = tags::attr(name).map(|a| attr_json(name, &a));
-    let open = vocab::open_set(name).filter(|_| tag.is_none() && attr.is_none());
+    let value_of: Vec<&'static str> = vocab::attrs()
+        .into_iter()
+        .filter(|(n, a)| rows_of(n, a).iter().any(|r| r.enum_names().contains(&name)))
+        .map(|(n, _)| n)
+        .collect();
+    let open =
+        vocab::open_set(name).filter(|_| tag.is_none() && attr.is_none() && value_of.is_empty());
     let command = HOST_COMMANDS.contains(&name).then(|| command_text(name));
-    if tag.is_none() && attr.is_none() && open.is_none() && command.is_none() {
-        let refusal = vocab::refusal(name);
-        if json {
-            println!("{:#}", json!({ "name": name, "refused": refusal }));
+    let function = functions::function(name);
+    let known = tag.is_some()
+        || attr.is_some()
+        || !value_of.is_empty()
+        || open.is_some()
+        || command.is_some()
+        || function.is_some();
+    known.then_some(Entry {
+        tag,
+        attr,
+        value_of,
+        open,
+        command,
+        function,
+    })
+}
+
+/// The compiler's refusal of a name nothing admits.
+fn refusal(name: &str) -> String {
+    idiom(name).unwrap_or_else(|| refused(name))
+}
+
+/// One name as JSON, and whether it was known.
+fn one_json(name: &str) -> (Value, bool) {
+    let Some(Entry {
+        tag,
+        attr,
+        value_of,
+        open,
+        command,
+        function,
+    }) = entry(name)
+    else {
+        return (json!({ "name": name, "refused": refusal(name) }), false);
+    };
+    let mut doc = json!({ "name": name });
+    if let Some(tag) = tag {
+        doc["tag"] = tag;
+    }
+    if let Some(attr) = attr {
+        doc["attribute"] = attr;
+    }
+    if !value_of.is_empty() {
+        doc["valueOf"] = value_of.into();
+    }
+    if let Some(open) = open {
+        doc["note"] = open.into();
+    }
+    if let Some(command) = command {
+        doc["command"] = command.into();
+    }
+    if let Some(f) = &function {
+        doc["function"] = function_json(f);
+    }
+    (doc, true)
+}
+
+/// One name as text, printed (a refusal on stderr), and whether it was known.
+fn one_text(name: &str) -> bool {
+    let Some(Entry {
+        value_of,
+        open,
+        command,
+        function,
+        ..
+    }) = entry(name)
+    else {
+        eprintln!("{}", refusal(name));
+        return false;
+    };
+    if let Some(t) = tags::tag(name) {
+        println!("{name}: tag, {}", tag_text(&t));
+    }
+    if let Some(a) = tags::attr(name) {
+        println!("{name}: {} attribute", kind(&a));
+        for line in attr_detail(name, &a) {
+            println!("  {line}");
+        }
+        if let Some(only) = only_on(name) {
+            println!("  only on {only}");
+        }
+        if name == "markup" {
+            println!("  \"markdown\" or \"none\" (the default): a `text` reads its string as Markdown, a `textarea` edits it (LLP 1045)");
+        }
+        if name == "resize" {
+            println!("  given an action, the element resize event: ResizeObserver's, after layout, with the content box's width and height and its `DOMRectReadOnly`");
+        }
+        if name == "title" {
+            println!("  on `head`, the document's title; elsewhere HTML's advisory text, the platform's tooltip (prop title, str)");
+        }
+        if name == "-exact-fit" {
+            println!("  on a `text`: \"shrink\" draws a line too wide for its box smaller until it fits, down to half its size, as UIKit's adjustsFontSizeToFitWidth (a timer's readout at the largest text size); with `white-space=\"nowrap\"` the whole line fits, else its longest word (LLP 1116.001 D1.4)");
+        }
+    }
+    if !value_of.is_empty() {
+        let of: Vec<String> = value_of.iter().map(|n| format!("`{n}`")).collect();
+        println!(
+            "{name}: a value of {} (`contract vocab {}` lists the others)",
+            of.join(", "),
+            value_of[0]
+        );
+    }
+    if let Some(open) = open {
+        // A hyphenated name is usually a CSS property Contract lacks (r26 t1 read
+        // `outline-width` as a module): say that first.
+        if open == vocab::MODULE_NOTE {
+            println!("{name}: not a built-in tag or attribute, so a built-in tag refuses an attribute of that name; {open}");
         } else {
-            eprintln!("{refusal}");
-        }
-        return ExitCode::from(1);
-    }
-    if json {
-        let mut doc = json!({ "name": name });
-        if let Some(tag) = tag {
-            doc["tag"] = tag;
-        }
-        if let Some(attr) = attr {
-            doc["attribute"] = attr;
-        }
-        if let Some(open) = open {
-            doc["note"] = open.into();
-        }
-        if let Some(command) = command {
-            doc["command"] = command.into();
-        }
-        println!("{doc:#}");
-    } else {
-        if let Some(t) = tags::tag(name) {
-            println!("{name}: tag, {}", tag_text(&t));
-        }
-        if let Some(a) = tags::attr(name) {
-            println!("{name}: {} attribute", kind(&a));
-            for line in attr_detail(name, &a) {
-                println!("  {line}");
-            }
-            if let Some(only) = only_on(name) {
-                println!("  only on {only}");
-            }
-            if name == "markup" {
-                println!("  \"markdown\" or \"none\" (the default): a `text` reads its string as Markdown, a `textarea` edits it (LLP 1045)");
-            }
-            if name == "resize" {
-                println!("  given an action, the element resize event: ResizeObserver's, after layout, with the content box's width and height and its `DOMRectReadOnly`");
-            }
-            if name == "title" {
-                println!("  on `head`, the document's title; elsewhere HTML's advisory text, the platform's tooltip (prop title, str)");
-            }
-        }
-        if let Some(open) = open {
-            // A hyphenated name is usually a CSS property Contract lacks (r26 t1 read
-            // `outline-width` as a module): say that first.
-            if open == vocab::MODULE_NOTE {
-                println!("{name}: not a built-in tag or attribute, so a built-in tag refuses an attribute of that name; {open}");
-            } else {
-                println!("{name}: {open}");
-            }
-        }
-        if let Some(command) = command {
-            println!("{name}: {command}");
+            println!("{name}: {open}");
         }
     }
-    ExitCode::SUCCESS
+    if let Some(command) = command {
+        println!("{name}: {command}");
+    }
+    if let Some(f) = &function {
+        print!("{}", function_text(f));
+    }
+    true
+}
+
+/// Why the compiler refuses a name the web has (`sort`, `now`, `padStart`),
+/// with what to write instead; `None` for any other.
+fn idiom(name: &str) -> Option<String> {
+    if name == "now" {
+        return Some(contract_syntax::idioms::NOW_REFUSED.into());
+    }
+    contract_syntax::idioms::refusal(name)
+}
+
+/// A name nothing admits: the lookups' hints, and a function one edit away.
+fn refused(name: &str) -> String {
+    let refusal = vocab::refusal(name);
+    let head = format!("`{name}` is not a tag or an attribute");
+    let hints = refusal.strip_prefix(&head).unwrap_or(&refusal);
+    let mut out = format!("`{name}` is not a tag, an attribute or a standard function{hints}");
+    if let Some(near) = functions::functions()
+        .into_iter()
+        .find(|f| one_edit(name, &f.name))
+    {
+        out += &format!("; did you mean the function `{}`?", near.name);
+    }
+    out
+}
+
+/// Whether two names differ by one insertion, deletion, substitution or
+/// swap of neighbours, or by case alone.
+fn one_edit(a: &str, b: &str) -> bool {
+    let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+    if a == b {
+        return false;
+    }
+    if a.len() == b.len() && a.iter().zip(&b).all(|(x, y)| x.eq_ignore_ascii_case(y)) {
+        return true;
+    }
+    let prefix = a.iter().zip(&b).take_while(|(x, y)| x == y).count();
+    let (ra, rb) = (&a[prefix..], &b[prefix..]);
+    match ra.len() as isize - rb.len() as isize {
+        0 => {
+            ra[1..] == rb[1..]
+                || (ra.len() >= 2 && ra[0] == rb[1] && ra[1] == rb[0] && ra[2..] == rb[2..])
+        }
+        1 => ra[1..] == *rb,
+        -1 => *ra == rb[1..],
+        _ => false,
+    }
+}
+
+fn function_json(f: &Function) -> Value {
+    let mut doc = json!({
+        "name": f.name,
+        "kind": if f.signature.is_some() { "standard function" } else { "intrinsic" },
+        "signature": f.signature,
+        "rules": f.rows.iter().map(|r| json!({"call": r.call, "rule": r.rule, "example": r.example})).collect::<Vec<_>>(),
+    });
+    if let Some(note) = idiom(&f.name) {
+        doc["note"] = note.into();
+    }
+    if routed(f) {
+        doc["routes"] = true.into();
+    }
+    doc
+}
+
+/// Whether the function exists only in an app with a `routes` declaration.
+fn routed(f: &Function) -> bool {
+    exact_plan::Stdlib::from_name(&f.name).is_some_and(contract_types::routes::needs_routes)
+}
+
+/// A function's entry: its signature, each row's call and rule, and its
+/// example, then what the web's function of that name becomes.
+fn function_text(f: &Function) -> String {
+    let mut out = match &f.signature {
+        Some(signature) => format!("{}: standard function\n  signature: {signature}\n", f.name),
+        None => format!("{}: compiler intrinsic\n", f.name),
+    };
+    for row in &f.rows {
+        out += &format!("  {}: {}\n", row.call, row.rule);
+        if !row.example.is_empty() {
+            out += &format!("    example: {}\n", row.example);
+        }
+    }
+    if routed(f) {
+        out += "  only in an app with a `routes` declaration\n";
+    }
+    if let Some(note) = idiom(&f.name) {
+        out += &format!("  the web's `{}`: {note}\n", f.name);
+    }
+    out += "  docs/contract-grammar.md#standard-functions-and-intrinsics\n";
+    out
 }
 
 /// A host command: an action statement, never a value.
@@ -226,6 +431,7 @@ fn everything() -> Value {
         "head": tags::HEAD_FIELDS,
         "contextual": vocab::CONTEXTUAL.iter().map(|(n, on)| json!({"name": n, "only": on})).collect::<Vec<_>>(),
         "commands": HOST_COMMANDS,
+        "functions": functions::functions().iter().map(function_json).collect::<Vec<_>>(),
         "notes": { "modules": vocab::MODULE_NOTE, "data": vocab::DATA_NOTE },
     })
 }
@@ -406,6 +612,19 @@ fn listing() -> String {
         HOST_COMMANDS.len()
     );
     wrapped(&mut out, HOST_COMMANDS.iter().map(|c| c.to_string()));
+    let (mut standard, intrinsic): (Vec<Function>, Vec<Function>) = functions::functions()
+        .into_iter()
+        .partition(|f| f.signature.is_some());
+    standard.sort_by_key(|f| f.name.to_lowercase());
+    out += &format!(
+        "\nstandard functions ({}): the roster's signature; `contract vocab <name>` gives its rules and an example\n",
+        standard.len()
+    );
+    for f in &standard {
+        out += &format!("  {}\n", f.signature.as_deref().unwrap_or_default());
+    }
+    out += "\ncompiler intrinsics:\n";
+    wrapped(&mut out, intrinsic.into_iter().map(|f| f.name));
     out += &format!(
         "\nopen sets:\n  {}\n  {}\n",
         vocab::MODULE_NOTE,
