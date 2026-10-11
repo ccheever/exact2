@@ -393,7 +393,7 @@ export function pointerGap(host, browser, opts) {
 
 /** The CLI `type` line. Key, copy and cut stay whitespace-split.
  * Typed text and a paste's text keep their tail: real newlines stay, and `\\n` `\\t` `\\r`
- * `\\\\` decode, as does a JSON string around the tail. `hello for 100`
+ * `\\\\` decode, as does a JSON string around the tail; single quotes around it are taken off. `hello for 100`
  * stays text (notes: a newline was flattened to a space). */
 export function typeCommand(line) {
   const body = String(line).trim().replace(/^type(?:\s+|$)/, '');
@@ -412,6 +412,9 @@ function decodeTypeText(text) {
   if (text.length >= 2 && text.startsWith('"') && text.endsWith('"')) {
     try { return JSON.parse(text); } catch { /* a quote in the text, not a JSON string */ }
   }
+  // Single quotes around the whole text are a shell's, and are taken off as a shell would (app farm wave 2:
+  // `"type room-draft 'Test Den'"` typed the quotes). Text that means them is written as JSON: `"'Den'"`.
+  if (text.length >= 2 && text.startsWith("'") && text.endsWith("'")) return text.slice(1, -1);
   return text.replace(/\\([ntr\\])/g, (_, c) => ({ n: '\n', t: '\t', r: '\r', '\\': '\\' }[c]));
 }
 
