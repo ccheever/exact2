@@ -94,6 +94,16 @@ second T3 server of the same release on 16403 with its own environment id, its o
   environment's threads; an environment switched off or removed, or a thread its synchronized shell no longer lists,
   loses them. The mounted threads' sessions stay retained natively (`terminalRetain`), each on its own environment.
 
+## Review fixes (2026-10-12)
+
+An independent review of PR #460 found one should-fix problem and no blocking one:
+
+| Finding | Fix | Proof |
+| --- | --- | --- |
+| `T3TerminalSessions.swift`: `streamTransport` was set before the attach opened and never cleared when the stream ended (lost or failed) or `opened` returned "Disconnected", so `state.presentation.terminalSessions[].via` could say "focused" or "background" for a session that was not attached (diagnostics only; `attached` was right) | Cleared in the `ended` path, the failed `opened` path and `drop()`; `via` now names only the transport a stream is opening or open on | [via-review.txt](https://raw.githubusercontent.com/ccheever/exact2/45acb87176a74f7cec5ad764f9da087c5f7c57f3/terminal-drawer-unthreaded/via-review.txt): `TerminalStreamTests.testSessionsGoToTheirOwnEnvironmentsServerAcrossAFocusChange` asserts that after the focus moves to B, A's ended stream reports `via` "" and B's "focused". The pre-fix file fails it (`("Optional("focused")") is not equal to ("Optional("")")`), the fix passes it |
+
+No UI changed (the field is agent-visible state only), so the images stand; the text before/after is the assertion above.
+
 ## Acceptance results
 
 | Row | Result | Proof |
@@ -128,8 +138,9 @@ server, open its thread, ⌘J, type a command, open a thread of This machine and
 - `macos/tests/transport` `TerminalStreamTests.testSessionsGoToTheirOwnEnvironmentsServerAcrossAFocusChange` (AppKit,
   two loopback servers as environments A and B): B's session is not attached or written on A's server and waits; B's
   background transport attaches, writes and resizes it on B; after the focus moves to B, A's session is never attached
-  on B and attaches on A's background transport. A mutation that puts every session on the focused transport (the
-  base's rule) fails it on 12 assertions. The transport tests that used `env-a` on the `fixture` loopback server now use
+  on B and attaches on A's background transport, and A's ended stream reports no `via` (review fix). A mutation that
+  puts every session on the focused transport (the base's rule) fails it on 12 assertions; the file before the review
+  fix fails the `via` assertion. The transport tests that used `env-a` on the `fixture` loopback server now use
   `fixture`, and wait for the route before a resize.
 
 ## Not done / not verified
@@ -138,22 +149,25 @@ None.
 
 ## Checks
 
-On `db2f5c8bb`, after merging `origin/feat(example)/t3-code` (no new commits; still `6db5cadea`):
+On the review-fix head (`b0a723335` merged with `origin/feat(example)/t3-code` at `fe0e39c91` in `f8b75bc3e`, plus this
+record), 2026-10-12:
 
 | Check | Exit | Note |
 | --- | --- | --- |
-| `bun test examples/t3-code --timeout 60000` | 0 | 4656 pass, 1 skip, 0 fail (312 files) |
+| `bun test examples/t3-code --timeout 60000` | 0 | 4664 pass, 1 skip, 0 fail (312 files) |
 | strict `tsc` (README command) | 0 | |
 | `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | `app.contract` 1,398 lines (unchanged) |
 | `cargo test -p t3-code-macos --lib` | 0 | 21 passed |
-| AppKit `macos/tests/transport`, `terminal`, `fleet` (README recipe) | 0 | 63 / 38 (1 opt-in skip) / 9 tests, 0 failures |
+| AppKit `macos/tests/transport`, `terminal`, `fleet` (README recipe) | 0 | 63 (2 opt-in live skips) / 38 (1 opt-in skip) / 9 tests, 0 failures; run on `b0a723335` before the merge, whose inputs (`modules/apple`, `macos/tests`, `ExactNativeModule.swift`, `data-keys.mjs`, `app.json`) the merge did not change |
 | `git add -A && bun scripts/caps.mjs` | 0 | all budgets within cap |
 | `cargo build --all-targets --keep-going` | 0 | |
-| `cargo test --lib --bins --tests --no-fail-fast` | 0 | 3,679 passed, 0 failed |
+| `cargo test --lib --bins --tests --no-fail-fast` | 101 | 3,744 passed, 1 failed: `contract` `button_migration::every_app_corpus_and_example_compiles_and_the_button_migration_is_complete` on `apps/color-gallery/app.contract:269` ("styled default button needs appearance=\"none\""). Not this task: the feature branch's tip has the same `apps/`, `contract/` and `.contract` files (this branch changes none), and main fixed it in `45940782c` ("a native button's accent-color asks for no migration"), which `feat(example)/t3-code` has not adopted yet |
 | `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | |
 | `cargo fmt --all -- --check` | 0 | |
 | `bun scripts/boot.mjs` | 0 | |
-| `host/apple/build.mjs t3-code-macos --bundle` | 0 | once, before the live drive (`9321f6518`'s app code) |
+| `host/apple/build.mjs t3-code-macos --bundle` | 0 | once, before the live drive (`9321f6518`'s app code); not rebuilt for the review fix, which changes only the agent-visible `via` field that the AppKit test drives |
+
+Earlier, on `db2f5c8bb` (first delivery): the same checks all exited 0 (Bun 4656 pass, cargo test 3,679 passed).
 
 ## Delivery
 
@@ -161,4 +175,5 @@ Draft PR [#460](https://github.com/ccheever/exact2/pull/460) into `feat(example)
 
 ## Next action
 
-The coordinator's review and merge. No real-input rows.
+The coordinator's review and merge (the review's one should-fix finding is fixed). No real-input rows. The one red
+`cargo test` is the feature branch's, cleared when it adopts main's `45940782c`.
