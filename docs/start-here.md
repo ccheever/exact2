@@ -13,11 +13,11 @@ The only required reading; the rest is lookup, listed last (LLP 1115 D7).
    mode are the platform's. A colour or size names a role (`-exact-secondary-label`,
    `font="-exact-footnote"`, `-exact-system-red`); a lookalike of a system control is a
    bug (`bun <exact2>/scripts/no-tells.mjs .` lists literals). The one colour you write
-   is the accent, on the root: a role (`accent-color="-exact-system-indigo"`) or one
-   `light-dark(light, dark)` pair, which controls, tabs, progress, links and
+   is the accent, on the root: any system colour (`accent-color="-exact-system-teal"`) or
+   one `light-dark(light, dark)` pair, which controls, tabs, progress, links and
    `exact:content` follow. Others are unsaid or roles (`-exact-label`,
-   `-exact-secondary-grouped-background`): a hex on text, a page or a card stays put in
-   dark mode while the platform's text and controls change (four apps broke).
+   `-exact-secondary-grouped-background`): a hex on text, page or card stays put in
+   dark mode as the platform's text and controls change (four apps broke).
 4. **Design your content:** a summary leading the main screen, rows with a hierarchy,
    bars where numbers compare, an empty state that says what to do; inset-grouped is
    for settings and forms. `exact:content` draws these ([content-design](recipes/content-design.md)).

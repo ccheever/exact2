@@ -13,6 +13,7 @@ import { Cdp, assertWebDistApp, browserDiagnosticNoise } from '../../../scripts/
 import { chromium, refuseStale, webChanges } from '../../../scripts/agent-launch.mjs';
 import { hermesBundle, hermesTarget, resolveApp } from '../../../scripts/app.mjs';
 import { jsTargetBuild, serveStatic } from '../serve.mjs';
+import { decodePng } from '../../../scripts/png.mjs';
 
 const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
 const dist = resolve(process.env.EXACT_WEB_DIST ?? resolve(ROOT, 'host/web/dist'));
@@ -553,6 +554,44 @@ browserCheck('date and time controls take the field look', async () => {
     expect(facts.authored.width).toBe(210);
     expect(facts.bare.border).toBe('0px none rgb(0, 0, 0)');
     expect(facts.bare.sizing).toBe('content-box');
+  }, {html});
+});
+
+// LLP 1116.003: a determinate progress is the platform's bar, as UIKit draws
+// its own and Linux paints it: a 4 px capsule centred across its box, the
+// accent's over a track of the system fill, the same fill whatever the
+// accent, in light and dark. Chrome's own takes its track by contrast with
+// the accent (near black under teal in light, near white under indigo in
+// dark). An authored background is the box's, under the track, as on iOS.
+browserCheck('a determinate progress is the accent over the system fill in light and dark', async () => {
+  const shell = readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8');
+  // As both targets write a role's accent: `accent-color` and the custom property beside it.
+  const accent = (role, pair) => `accent-color:var(--exact-${role}, ${pair});--exact-accent:var(--exact-${role}, ${pair});`;
+  const teal = accent('system-teal', 'light-dark(#30b0c7, #40c8e0)'), indigo = accent('system-indigo', 'light-dark(#5856d6, #5e5ce6)');
+  const bar = (id, style) => `<progress id="${id}" value="0.25" max="1" style="width:160px;margin:8px;${style}"></progress>`;
+  const html = shell.replace('<div id="exact-root"></div>', `<div id="exact-root"><div style="color-scheme:light;background:#fff;padding:8px">${
+    bar('teal-light', teal)}${bar('indigo-light', indigo)}${bar('authored', teal + 'background-color:rgb(255, 0, 0)')}</div><div style="color-scheme:dark;background:#000;padding:8px">${
+    bar('teal-dark', teal)}${bar('indigo-dark', indigo)}</div></div>`).replace('<script type="module" src="./glue.js"></script>', '');
+  await withDocument('/', async tab => {
+    const page = await tab(true);
+    await page.until("document.readyState === 'complete'", 'progress fixture');
+    await page(settled);
+    const boxes = await page(`(() => Object.fromEntries([...document.querySelectorAll('progress')].map(e => { const r = e.getBoundingClientRect(); return [e.id, [r.x, r.y, r.width, r.height]]; })))()`);
+    const { data } = await page.call('Page.captureScreenshot', { format: 'png' });
+    const shot = decodePng(Buffer.from(data, 'base64'));
+    const at = (id, dx, dy) => { const [x, y] = boxes[id], i = (Math.round(y + dy) * shot.width + Math.round(x + dx)) * 4; return [...shot.data.slice(i, i + 3)]; };
+    const near = (seen, want, what) => expect(seen.every((c, i) => Math.abs(c - want[i]) <= 3), `${what}: ${seen} for ${want}`).toBe(true);
+    for (const id of Object.keys(boxes)) expect(boxes[id].slice(2)).toEqual([160, 16]);
+    // The fill over white (#78788033) and over black (#7878805c).
+    for (const id of ['teal-light', 'indigo-light']) { near(at(id, 120, 8), [228, 228, 230], `${id} track`); near(at(id, 120, 2), [255, 255, 255], `${id} above its track`); }
+    for (const id of ['teal-dark', 'indigo-dark']) { near(at(id, 120, 8), [43, 43, 46], `${id} track`); near(at(id, 120, 2), [0, 0, 0], `${id} above its track`); }
+    near(at('teal-light', 20, 8), [0x30, 0xb0, 0xc7], 'teal bar in light');
+    near(at('indigo-light', 20, 8), [0x58, 0x56, 0xd6], 'indigo bar in light');
+    near(at('teal-dark', 20, 8), [0x40, 0xc8, 0xe0], 'teal bar in dark');
+    near(at('indigo-dark', 20, 8), [0x5e, 0x5c, 0xe6], 'indigo bar in dark');
+    near(at('authored', 120, 2), [255, 0, 0], 'the authored background is the box');
+    near(at('authored', 120, 8), [228, 24, 26], 'the track over it');
+    near(at('authored', 20, 8), [0x30, 0xb0, 0xc7], 'the bar over it');
   }, {html});
 });
 
