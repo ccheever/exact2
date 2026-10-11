@@ -8,7 +8,7 @@ repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-progress-native-bars
 pr_url: https://github.com/ccheever/exact2/pull/462
-verified_commit: ca333b0f0
+verified_commit: 201311707
 ---
 
 # Progress bars say their value: main's determinate `progress` and ARIA range values
@@ -116,7 +116,7 @@ the reference's `<progress>` 4 px high in its own colours (green on grey in the 
 
 ## Review round 1 (2026-10-12)
 
-An independent review of #462 found two should-fix problems; both are fixed on `37ad3353f`.
+An independent review of #462 found two should-fix problems; both are fixed on `37ad3353f` and `201311707`.
 
 1. **The provider accent picker, the second counterpart of color-picker.tsx** (`settings-b-accent.contract`
    ProviderAccentPicker, markup from the initial clone `b0a14280a`): its plane was a `role="group"` with no stops, no
@@ -128,7 +128,11 @@ An independent review of #462 found two should-fix problems; both are fixed on `
    focus lands on "Accent color saturation"); the hue is a `role="slider"` "Accent color hue" with `aria-valuemin=0
    aria-valuemax=360 aria-valuenow=round(h)` and a Tab stop. The keys are color-picker.tsx's (stops: arrows 2 %, Shift
    10 %, Home/End; hue: arrows 1°, Shift 10°, wrapping), a drag focuses its control (the reference's pointerdown), and a
-   keyboard focus draws the ring and the plane's "Saturation N%"/"Brightness N%" label (focus-visible). Each key
+   keyboard focus draws the ring and the plane's "Saturation N%"/"Brightness N%" label (focus-visible): an opening by
+   Enter or Space on the trigger shows it on the first stop, an opening by a press does not, as Chrome's focus-visible
+   after Base UI's initial focus. The trigger hears its keys only (`201311707`): a `pointerdown` on it, the first
+   version's, kept a press there from the window's outside-press count that closes the Usage page's pinned popover
+   (`usage-pooled.test.ts` lists every pointer taker and failed on it). Each key
    commits its colour, as the reference commits each change; a colour the window drops because a command is pending
    (`providerAccent` takes none while `commandPending`) is sent when that command lands, through a busy tracker beside
    the trigger (2 wide while busy, its `resize` back to 1 sends the colour the picker reached; the theme picker's
@@ -141,9 +145,12 @@ An independent review of #462 found two should-fix problems; both are fixed on `
    `aria-describedby={instructionsId}`. On macOS the stop's AXHelp is that text (`Accessibility.swift`
    `accessibleDescription`); in the reference it is the slider's description.
 
-Live drive (agent mode, 1280×840, once): before on `t3-code-evidence-base` at `6db5cadea` (lane
-`progress-native-bars-before`), after on this branch's bundle built from `37ad3353f` (lane `progress-native-bars`),
-reference T3 Code 1e2ecbd975 (lane `progress-native-bars`, CDP `Accessibility.getFullAXTree`). Opened, the clone's
+Live drive (agent mode, 1280×840): before on `t3-code-evidence-base` at `6db5cadea` (lane
+`progress-native-bars-before`), after on this branch's bundle (lane `progress-native-bars`), reference T3 Code
+1e2ecbd975 (lane `progress-native-bars`, CDP `Accessibility.getFullAXTree`). The after side ran on `37ad3353f`'s bundle
+and, once more (the one retry), on `201311707`'s after the trigger fix, from the same state (the lane's accent reset to
+none), with the same results plus the keyboard opening: Enter on the trigger focuses "Accent color saturation" with the
+ring and "Saturation 94%", as the reference's. Opened, the clone's
 picker reads as the reference's: the group, "Accent color saturation" 84.26 (focused), "Accent color brightness"
 92.16, both with the instructions as their help, "Accent color hue" 221; after Shift+→, Tab, Shift+↓, Tab, → both read
 94.26, 82.16 and 222, both draw the "Brightness 82%" label and the ring, and both saved `#0c47d2` (the lane's
@@ -159,8 +166,8 @@ the theme picker's sliders in round 0.
 | --- | --- | --- |
 | PB-1 | pass (out-of-process AX read, the client API VoiceOver uses; agent `tree`; reference over CDP): before, the Antigravity and context window bars are `AXBusyIndicator`s named "Antigravity download, 30%" / "Context window usage, 42%" with value 0; after, `AXProgressIndicator` "Antigravity download" value 0.3 of 0–1 and "Context window usage" value 42 (95) of 0–100, as the reference's `progressbar` 13680000 of 0–45600000 and 42 (95) of 0–100; the Usage WindowBar an `AXImage` named with its figures before and after (the reference's `role="img"`). Measured on a one-file probe per side (each bar's lines copied from the source, literals for the data) on the clone's own binaries: the lane can show neither bar live (a runtime download is a provider install, token usage a provider turn) | [pb1-bars-light.png](https://raw.githubusercontent.com/ccheever/exact2/0536f61abd7a4201708b1c75cca7f1734d0b7e06/progress-native-bars/pb1-bars-light.png), [pb1-bars-dark.png](https://raw.githubusercontent.com/ccheever/exact2/7af60a7844fef6a01978b7eb65602d96ba3d0f3f/progress-native-bars/pb1-bars-dark.png), [pnb-record.txt](https://raw.githubusercontent.com/ccheever/exact2/17071586f2ff54291ff630e3add36de44a984dbd/progress-native-bars/pnb-record.txt), [probe-before.contract.txt](https://raw.githubusercontent.com/ccheever/exact2/b11b04adc0d11ced8d9ace4e2ef5d89de4854398/progress-native-bars/probe-before.contract.txt), [probe-after.contract.txt](https://raw.githubusercontent.com/ccheever/exact2/a57b609cce832bfebe562be06457b7b2ef3dc1e1/progress-native-bars/probe-after.contract.txt) |
 | PB-2 | pass (live agent drive, before and after, the same ops; out-of-process AX read; reference over CDP): before, the picker's stops and hue slider are no AX element (only the plane's group); after, three `AXSlider`s, "Background saturation" 10 of 0–100 ("10%"), "Background brightness" 0 of 0–100 ("0%"), "Background hue" 1 of 0–360 after Shift+→, Tab, Shift+↓, →, as the reference's sliders; the picker looks the same; `progress-value.contract` gone; `EXACT2-GAPS.md` X49, X55 | [pb2-picker.png](https://raw.githubusercontent.com/ccheever/exact2/03ab66c39466f63759789070d50b6f91a8fa0d74/progress-native-bars/pb2-picker.png), [pnb-record.txt](https://raw.githubusercontent.com/ccheever/exact2/17071586f2ff54291ff630e3add36de44a984dbd/progress-native-bars/pnb-record.txt), [drive.sh.txt](https://raw.githubusercontent.com/ccheever/exact2/7413690b335128a8a1a4fa6c046fb0174d1b2ae7/progress-native-bars/drive.sh.txt) |
-| R1-1 provider accent picker | pass (live agent drive before/after, the same opening; reference over CDP): before, two `AXGroup`s ("Accent color saturation and brightness", "Accent color hue 221"), no stop; after, the group with `AXSlider` "Accent color saturation" 84.26 (focused on open) and "Accent color brightness" 92.16, and `AXSlider` "Accent color hue" 221, as the reference's sliders (84.26, 92.16, 221; its focus on saturation); after Shift+→, Tab, Shift+↓, Tab, → the clone and the reference both read 94.26, 82.16, 222 and saved `#0c47d2` | [r1-accent-open.png](https://raw.githubusercontent.com/ccheever/exact2/ce009a040c11cbfa4b12469b8182d72ca13d9a35/progress-native-bars/r1-accent-open.png), [r1-accent-keys.png](https://raw.githubusercontent.com/ccheever/exact2/b145217072200f3550e8e354525e10856e80c458/progress-native-bars/r1-accent-keys.png), [r1-record.txt](https://raw.githubusercontent.com/ccheever/exact2/7149fb092be95a9690897c2c6ba74aacc92f4e82/progress-native-bars/r1-record.txt), [r1-drive.sh.txt](https://raw.githubusercontent.com/ccheever/exact2/686fb4dc00b90306e4fdcb7e61c0ac818e8caf0f/progress-native-bars/r1-drive.sh.txt) |
-| R1-2 the stops' description | pass (same drive): after, the theme picker's and the accent picker's four stops carry the instructions as their help ("Use arrow keys to adjust the focused value. …"), as the reference's sliders' description; before, none | [r1-theme-described.png](https://raw.githubusercontent.com/ccheever/exact2/b34a12e5c1157047fe183f95002608caab67a0ae/progress-native-bars/r1-theme-described.png), [r1-record.txt](https://raw.githubusercontent.com/ccheever/exact2/7149fb092be95a9690897c2c6ba74aacc92f4e82/progress-native-bars/r1-record.txt) |
+| R1-1 provider accent picker | pass (live agent drive before/after, the same opening; reference over CDP): before, two `AXGroup`s ("Accent color saturation and brightness", "Accent color hue 221"), no stop; after, the group with `AXSlider` "Accent color saturation" 84.26 (focused on open) and "Accent color brightness" 92.16, and `AXSlider` "Accent color hue" 221, as the reference's sliders (84.26, 92.16, 221; its focus on saturation); after Shift+→, Tab, Shift+↓, Tab, → the clone and the reference both read 94.26, 82.16, 222 and saved `#0c47d2`; opened by Enter on the trigger, both focus saturation with the ring and "Saturation 94%" | [r1-accent-open.png](https://raw.githubusercontent.com/ccheever/exact2/ab4dfb1fabe5f1fc39e94d70499543e6e3d61161/progress-native-bars/r1-accent-open.png), [r1-accent-keys.png](https://raw.githubusercontent.com/ccheever/exact2/375db47f5fc4cab9981872dd2dcb6395aadd218e/progress-native-bars/r1-accent-keys.png), [r1-accent-keyopen.png](https://raw.githubusercontent.com/ccheever/exact2/6de26c6d23ec099b81853f3c13cbdbc16ebb422a/progress-native-bars/r1-accent-keyopen.png), [r1-record.txt](https://raw.githubusercontent.com/ccheever/exact2/7f1601bf6953eda4717171fadb79af752de87988/progress-native-bars/r1-record.txt), [r1-drive.sh.txt](https://raw.githubusercontent.com/ccheever/exact2/fb4af11b737323a7935f41bc2c014d027801ac0e/progress-native-bars/r1-drive.sh.txt) |
+| R1-2 the stops' description | pass (same drive): after, the theme picker's and the accent picker's four stops carry the instructions as their help ("Use arrow keys to adjust the focused value. …"), as the reference's sliders' description; before, none | [r1-theme-described.png](https://raw.githubusercontent.com/ccheever/exact2/a8c1ad03f1046e953b0c4c5dc6b7acab3dfa8796/progress-native-bars/r1-theme-described.png), [r1-record.txt](https://raw.githubusercontent.com/ccheever/exact2/7f1601bf6953eda4717171fadb79af752de87988/progress-native-bars/r1-record.txt) |
 | VoiceOver on the bars and sliders | implemented, not verified (real input is the coordinator's session): Real-input batch steps below | — |
 
 Drives (agent mode, 1280×840): before on `t3-code-evidence-base` at `6db5cadea` (lane `progress-native-bars-before`),
@@ -214,7 +221,27 @@ send a message. Turn VoiceOver on (⌘F5) only for these steps and off after.
 
 ## Checks
 
-Once each, on `ca333b0f0` (this branch with the adoption branch's head `213149fe7`, which has not moved; #458 is open,
+Review round 1, once each on `201311707` (round 0's base unchanged: `origin/feat(example)/t3-code` is still `6db5cadea`,
+#458's head still `213149fe7`, so nothing to merge):
+
+| Check | Exit | Note |
+| --- | --- | --- |
+| `bun test examples/t3-code --timeout 60000` | 0 | 4661 pass, 1 skip, 0 fail (311 files); on `37ad3353f` it failed 1, `usage-pooled.test.ts`'s pointer takers (the trigger's `pointerdown`), fixed by `201311707` |
+| strict `tsc` on `app.ts` (README command) | 0 | clean |
+| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | `app.contract` 1,398 lines (unchanged); `settings-b-accent.contract` 178 |
+| `cargo test -p t3-code-macos --lib`, AppKit binaries | not run | no Rust and no Swift changed |
+| `git add -A && bun scripts/caps.mjs` | 0 | all budgets within cap |
+| `cargo build --all-targets --keep-going` | 0 | |
+| `cargo test --lib --bins --tests --no-fail-fast` | 101 | 3,744 passed, 1 failed: the same `button_migration::every_app_corpus_and_example_compiles_and_the_button_migration_is_complete` on main's `apps/color-gallery/app.contract:269`, the sweep's only failure (nothing in `examples/t3-code`) |
+| `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | |
+| `cargo fmt --all -- --check` | 0 | |
+| `bun scripts/caps.mjs` | 0 | |
+| `bun scripts/boot.mjs` | 0 | |
+
+The bundle was built for each after drive (`host/apple/build.mjs t3-code-macos --bundle`, exit 0: `37ad3353f`, then
+`201311707`).
+
+Round 0, once each, on `ca333b0f0` (this branch with the adoption branch's head `213149fe7`, which has not moved; #458 is open,
 so nothing else to merge; `origin/feat(example)/t3-code` is still `6db5cadea`):
 
 | Check | Exit | Note |
@@ -236,7 +263,11 @@ final head keeps) before the one live drive.
 
 ## Not done / not verified
 
-- VoiceOver hearing the bars and the sliders: real input is the coordinator's session (Real-input batch steps 1–3).
+- VoiceOver hearing the bars and the sliders: real input is the coordinator's session (Real-input batch steps 1–3, 1a).
+- The accent sliders' AXMinValue/AXMaxValue on macOS: not read this round. The out-of-process reader reached no window
+  (`windows: 0`), so the drive read the AppKit accessibility objects in process (`tree --ax`: role, name, value, help,
+  focus), which does not report the bounds. The bounds are the markup's (`progress-native-bars.test.ts`) and the same
+  host path served them for the theme picker's identical sliders out of process in round 0 (0–100, 0–360).
 
 ## Delivery
 
@@ -245,4 +276,5 @@ it).
 
 ## Next action
 
-The coordinator reviews #462 after #458 lands, then runs the real-input steps in the verification session.
+The coordinator reviews #462 (review round 1 fixed) after #458 lands, then runs the real-input steps in the
+verification session.
