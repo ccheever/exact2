@@ -1,0 +1,91 @@
+Repeating hatch across a list's rows: reproduction record (2026-10-11)
+
+Revision: main 2b5e4a7dc01c2328a3407ab3b8744a4a6fbbe6d6 (worktree from origin/main, bun 1.4.2, macOS 26.6.2 Apple Silicon).
+Command, per file: bun scripts/exact.mjs contract build <file>.contract
+
+---- repeating.contract
+// A: CSS's own hatch, 45° stripes 2px wide every 8px (5.657px along the gradient line).
+component Hatch
+  view
+    column width=320 height=200 background-color="#fcfcfc" background-image="repeating-linear-gradient(-45deg, transparent 0 4.243px, #e6e6e6 4.243px 5.657px)"
+
+---- length-stops.contract
+// B: the same stripes as a plain linear-gradient with length stop positions.
+component Hatch
+  view
+    column width=320 height=200 background-color="#fcfcfc" background-image="linear-gradient(-45deg, transparent 0px 4.243px, #e6e6e6 4.243px 5.657px)"
+
+---- local.contract
+// C: a scroller whose background scrolls with its rows, so one pattern runs under all of them.
+component Rows
+  view
+    list virtualized=true height=200 width=320 background-color="#fcfcfc" background-image="linear-gradient(-45deg, #fcfcfc 0%, #e6e6e6 100%)" background-attachment="local"
+      each n in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16] key=n
+        row height=20
+          text `row ${n}`
+
+---- svg-rows.contract
+// D: today's way: an SVG pattern per row of a virtualized list. Each row's pattern starts at the row's own top.
+component Rows
+  view
+    list virtualized=true height=200 width=320 background-color="#fcfcfc"
+      each n in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] key=n
+        row height=20 position="relative"
+          svg position="absolute" left=0 top=0 width="100%" height="100%" aria-hidden=true
+            defs
+              pattern id="stripes" patternUnits="userSpaceOnUse" width=8 height=8
+                polygon points="3,0 5,0 0,5 0,3" fill="#e6e6e6"
+                polygon points="8,3 8,5 5,8 3,8" fill="#e6e6e6"
+            rect x=0 y=0 width="100%" height="100%" fill="url(#stripes)"
+
+---- results
+== repeating.contract
+repeating.contract:4:60 [lower-attr-value] `background-image="repeating-linear-gradient(-45deg, transparent 0 4.243px, #e6e6e6 4.243px 5.657px)"`: repeating-linear-gradient() is not implemented; a gradient paints once
+exit 1
+== length-stops.contract
+length-stops.contract:4:60 [lower-attr-value] `background-image="linear-gradient(-45deg, transparent 0px 4.243px, #e6e6e6 4.243px 5.657px)"`: a stop's position is a percentage; lengths are not implemented
+exit 1
+== local.contract
+local.contract:4:144 [lower-attr-value] `background-attachment="local"` is not a valid `background-attachment`: expected one of "scroll", "fixed"
+exit 1
+== svg-rows.contract
+svg-rows.contract: 0 slots, 0 derives, 0 resources, 0 actions, 8 nodes, 1 regions, 1344 bytes
+exit 0
+
+---- Chrome (the oracle): hatch-chrome.html, Google Chrome 155.0.8059.39 headless:
+chrome --headless --disable-gpu --hide-scrollbars --force-device-scale-factor=2 --window-size=540,240 --virtual-time-budget=1000 --screenshot=hatch-chrome.png file://.../hatch-chrome.html
+A: each 20px row paints its own 8px repeating-linear-gradient (what a per-row SVG pattern gives too): the stripes break at every row edge (20 is not a multiple of 8).
+B: the scroller paints one repeating-linear-gradient with background-attachment: local, rows transparent, scrollTop 13: the stripes run unbroken across rows (row 3 is two lines) and move with them.
+
+<!doctype html>
+<meta charset="utf-8">
+<style>
+  body { margin: 0; padding: 12px; font: 12px -apple-system, sans-serif; background: #fff; color: #111; display: flex; gap: 24px; }
+  figure { margin: 0; width: 240px; }
+  figcaption { height: 44px; }
+  .scroller { height: 160px; width: 240px; overflow-y: scroll; border: 1px solid #ccc; background-color: #fcfcfc; }
+  .row { height: 20px; line-height: 20px; padding-left: 6px; font: 12px ui-monospace, monospace; }
+  .row.wrap { height: 40px; }
+  .hatch { background-image: repeating-linear-gradient(-45deg, transparent 0 4.243px, #e6e6e6 4.243px 5.657px); }
+  .local { background-image: repeating-linear-gradient(-45deg, transparent 0 4.243px, #e6e6e6 4.243px 5.657px); background-attachment: local; }
+</style>
+<figure>
+  <figcaption>A. Each 20px row paints its own 8px stripes (as a per-row SVG pattern does): broken at every row edge</figcaption>
+  <div class="scroller" id="a"></div>
+</figure>
+<figure>
+  <figcaption>B. One pattern under the rows: the scroller's <code>background-attachment: local</code>, scrolled 13px</figcaption>
+  <div class="scroller local" id="b"></div>
+</figure>
+<script>
+  for (const [id, cls] of [["a", "row hatch"], ["b", "row"]]) {
+    const el = document.getElementById(id);
+    for (let n = 1; n <= 16; n++) {
+      const r = document.createElement("div");
+      r.className = cls + (n === 3 ? " wrap" : "");
+      r.textContent = n === 3 ? "row 3 (two lines)" : `row ${n}`;
+      el.appendChild(r);
+    }
+  }
+  document.getElementById("b").scrollTop = 13;
+</script>
