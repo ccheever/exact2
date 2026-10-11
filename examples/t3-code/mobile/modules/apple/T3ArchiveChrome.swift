@@ -3,7 +3,7 @@
 // Pinned365aa87982 ArchivedThreadsHeader, ScreenHeader and RNS mail-search toolbar patch.
 import UIKit
 
-/// Archive-only navigation adornments. Exact owns routes; the root owns query/filter state.
+/// Archive-only navigation adornments. Native editing owns text; the root owns filtering.
 final class T3ArchiveChrome {
     private final class RouteRef { weak var value: ExactRoute?; init(_ value: ExactRoute) { self.value = value } }
     private final class PortRef { weak var value: T3ArchiveChromePort?; init(_ value: T3ArchiveChromePort) { self.value = value } }
@@ -32,12 +32,13 @@ private final class T3ArchiveChromeOverlay: UIView {
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? { let hit = super.hitTest(point, with: event); return hit === self ? nil : hit }
 }
 private final class T3ArchiveSearchDelegate: NSObject, UISearchResultsUpdating, UISearchBarDelegate, UITextFieldDelegate {
-    var changed: ((String) -> Void)?
-    var editing: ((Bool) -> Void)?
-    func updateSearchResults(for searchController: UISearchController) { changed?(searchController.searchBar.text ?? "") }
-    func searchBarCancelButtonClicked(_ searchBar: UISearchBar) { changed?("") }
-    func textFieldDidBeginEditing(_ textField: UITextField) { editing?(true) }
-    func textFieldDidEndEditing(_ textField: UITextField) { editing?(false) }
+    var changed: ((UISearchBar, String) -> Void)?
+    var cleared: ((UISearchBar) -> Void)?
+    var editing: ((UITextField, Bool) -> Void)?
+    func updateSearchResults(for searchController: UISearchController) { changed?(searchController.searchBar, searchController.searchBar.text ?? "") }
+    func searchBarCancelButtonClicked(_ searchBar: UISearchBar) { cleared?(searchBar) }
+    func textFieldDidBeginEditing(_ textField: UITextField) { editing?(textField, true) }
+    func textFieldDidEndEditing(_ textField: UITextField) { editing?(textField, false) }
 }
 private final class T3ArchiveChromePort: ExactNativeInstance {
     private weak var owner: T3ArchiveChrome?
@@ -46,6 +47,7 @@ private final class T3ArchiveChromePort: ExactNativeInstance {
     private let delegate = T3ArchiveSearchDelegate()
     private var config: T3ArchiveChromeConfig?
     private var key = ""
+    private var query = ""
     private var mode = ""
     private var alive = true
     private var settingQuery = false
@@ -67,19 +69,37 @@ private final class T3ArchiveChromePort: ExactNativeInstance {
         self.owner = owner; super.init(events: events)
         root.backgroundColor = .clear
         root.resized = { [weak self] in self?.updateWidth() }
-        delegate.changed = { [weak self] value in guard let self, !self.settingQuery else { return }; self.emit("search", value) }
-        delegate.editing = { [weak self] active in self?.editing(active) }
+        delegate.changed = { [weak self] bar, value in
+            guard let self, self.searchController?.searchBar === bar else { return }; self.searchChanged(value)
+        }
+        delegate.cleared = { [weak self] bar in
+            guard let self, self.searchController?.searchBar === bar, self.alive, !self.settingQuery, self.route?.isLive == true else { return }
+            self.replaceQuery(""); self.emit("search", "")
+        }
+        delegate.editing = { [weak self] field, active in
+            guard let self, self.field === field, self.alive, self.route?.isLive == true else { return }; self.editing(active)
+        }
     }
     override func setProps(_ props: [String: String]) throws {
         guard let data = props["configuration"]?.data(using: .utf8), let next = try? JSONDecoder().decode(T3ArchiveChromeConfig.self, from: data),
               !next.routeKey.isEmpty, ["newest", "oldest"].contains(next.sortOrder) else { throw ExactNativeRefusal("Archive chrome needs a route and valid configuration.") }
-        if key != next.routeKey { detach(); owner?.unbind(self, key: key); key = next.routeKey }
+        if key != next.routeKey { detach(); owner?.unbind(self, key: key); key = next.routeKey; query = next.query }
         config = next; owner?.bind(self, key: key); refresh()
     }
     fileprivate func attach(_ route: ExactRoute) { if self.route !== route { detach(); self.route = route }; refresh() }
     private func emit(_ kind: String, _ value: String) {
         guard alive, route?.isLive == true, let data = try? JSONSerialization.data(withJSONObject: ["routeKey": key, "kind": kind, "value": value]) else { return }
         events.change(String(decoding: data, as: UTF8.self))
+    }
+    private func searchChanged(_ value: String) {
+        guard alive, !settingQuery, route?.isLive == true else { return }
+        query = value; emit("search", value)
+    }
+    private func replaceQuery(_ value: String) {
+        query = value; settingQuery = true
+        if field?.text != value { field?.text = value }
+        if searchController?.searchBar.text != value { searchController?.searchBar.text = value }
+        settingQuery = false
     }
     private func menu() -> UIMenu {
         guard let config else { return UIMenu() }
@@ -100,6 +120,8 @@ private final class T3ArchiveChromePort: ExactNativeInstance {
         if mode != nextMode {
             removeSearch(); mode = nextMode
             if glass { if #available(iOS 26.0, *) { makeGlass() } } else { makeHeader(route) }
+            // Like pinned iOS ScreenHeader, routine root echoes never control native text.
+            replaceQuery(query)
         }
         if !glass {
             let item = UIBarButtonItem(image: UIImage(systemName: config.filterIcon), menu: menu())
@@ -107,10 +129,7 @@ private final class T3ArchiveChromePort: ExactNativeInstance {
             installedRight = [item]; route.controller.navigationItem.rightBarButtonItems = installedRight
         }
         filter?.setImage(UIImage(systemName: config.filterIcon), for: .normal); filter?.menu = menu()
-        settingQuery = true
-        if field?.text != config.query { field?.text = config.query }
-        if searchController?.searchBar.text != config.query { searchController?.searchBar.text = config.query }
-        settingQuery = false; updateWidth()
+        updateWidth()
     }
     private func makeHeader(_ route: ExactRoute) {
         let search = UISearchController(searchResultsController: nil)
@@ -147,7 +166,9 @@ private final class T3ArchiveChromePort: ExactNativeInstance {
         field.borderStyle = .none; field.textColor = .label; field.tintColor = .label
         field.autocapitalizationType = .none; field.autocorrectionType = .no; field.spellCheckingType = .no
         field.accessibilityIdentifier = "archive-search-text"; field.delegate = delegate
-        field.addAction(UIAction { [weak self] _ in guard let self else { return }; self.emit("search", self.field?.text ?? "") }, for: .editingChanged)
+        field.addAction(UIAction { [weak self, weak field] _ in
+            guard let self, let field, self.field === field else { return }; self.searchChanged(field.text ?? "")
+        }, for: .editingChanged)
         glass.contentView.addSubview(field); self.field = field
         let leading = glass.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 56)
         let trailing = glass.trailingAnchor.constraint(equalTo: bar.trailingAnchor)
@@ -189,11 +210,8 @@ private final class T3ArchiveChromePort: ExactNativeInstance {
     override func agentInput(_ input: ExactNativeInput) throws {
         switch input {
         case .text(let text):
-            guard route?.isLive == true else { throw ExactNativeRefusal("Archive search is not attached.") }
-            if let field { field.text = text }
-            else if let searchController { settingQuery = true; searchController.searchBar.text = text; settingQuery = false }
-            else { throw ExactNativeRefusal("Archive search is not attached.") }
-            emit("search", text)
+            guard alive, route?.isLive == true, field != nil || searchController != nil else { throw ExactNativeRefusal("Archive search is not attached.") }
+            replaceQuery(text); emit("search", text)
         case .key(let key, let phase):
             guard key == "Escape" || key == "Enter" else { throw ExactNativeRefusal("Archive search accepts Escape or Enter.") }
             if phase != "up" { focusTarget?.resignFirstResponder() }
