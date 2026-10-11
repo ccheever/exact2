@@ -1,9 +1,9 @@
 ---
 name: 20261011-reply-links-reference-behavior
 plan: 20261005-t3code-macos-parity
-implementation: in-progress
-verification: pending
-delivery: none
+implementation: implemented
+verification: verified-with-unverified-rows
+delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-reply-links-reference-behavior
@@ -52,10 +52,141 @@ ContextMenu key (or VoiceOver's show menu) on a focused …").
 
 ## Reference
 
-- RL-4: `apps/web/src/components/ChatMarkdown.tsx` (`handleMarkdownFragmentClick`, the anchor's `onClick`),
-  `apps/web/src/main.tsx` (`createHashHistory` in Electron), `apps/web/src/routes/_chat.index.tsx` (`IndexDraftLanding`:
-  `sortScopedProjectsForSidebar(projects, threads, "updated_at")[0]`, `handleNewThread(…, { replace: true })`).
-- RL-5: the same anchor in a table cell; `apps/desktop/src/window/DesktopWindow.ts` (`setWindowOpenHandler`,
-  `parseSafeExternalUrl`).
-- RL-6: `apps/desktop/src/window/DesktopWindow.ts` `installContextMenu`, `apps/desktop/src/electron/ElectronMenu.ts`
-  `popupTemplate`.
+Measured 2026-10-12 on the reference (lane reply-links-reference-behavior: the pinned 1e2ecbd975 in Electron, backend
+16620, CDP 16621, its main process's inspector 16623, 1280×840; the lane's fixture reply, [fixture-text.txt](https://raw.githubusercontent.com/ccheever/exact2/028d7d177966fcf272a2a054011db74fea44a0dc/reply-links-reference-behavior/fixture-text.txt):
+reply-links' prose links plus a table whose cells hold a mailto, an irc, a fragment and a web link). The main process's
+`shell.openExternal`, `openExternal` permission requests, `will-navigate`, `did-navigate-in-page`, `did-create-window`,
+the page's `context-menu` params and `Menu.prototype.popup` (its items, options and the pointer) were recorded:
+[RL-reference.txt](https://raw.githubusercontent.com/ccheever/exact2/7f6f6ded49718e1f75932f3807573c454ef90054/reply-links-reference-behavior/RL-reference.txt).
+
+- RL-4: a click on "notes" of `[the notes](#notes)` (`apps/web/src/components/ChatMarkdown.tsx`
+  `handleMarkdownFragmentClick`: no element has that id, so the click goes on) sets `t3code://app/#notes`; the hash
+  router (`apps/web/src/main.tsx` `createHashHistory`) reads it as the index route, whose `IndexDraftLanding`
+  (`routes/_chat.index.tsx`: `sortScopedProjectsForSidebar(projects, threads, "updated_at")[0]`, `handleNewThread(…,
+  { replace: true })`) replaces it with `#/draft/<id>` of the most recently active project ("work"), the composer focused
+  (`document.activeElement` is "Message"). A table cell's `[the summary](#summary)` does the same. A click with ⌘, ⌥, ⇧
+  or ⌃ the handler leaves alone, and the shell denies the window it asks for (`setWindowOpenHandler`; read from source).
+- RL-5: clicks on a cell's `[the list](mailto:…)` and `[the room](irc://…)`: nothing (no `openExternal`, no permission
+  request, no navigation, no window); a cell's web link: `shell.openExternal https://example.com/e`.
+- RL-6: CDP's ContextMenu key on each focused mailto, irc, xmpp and fragment link: Chromium raises `context-menu`
+  (`menuSourceType: "keyboard"`) at the anchor's middle and `installContextMenu`
+  (`apps/desktop/src/window/DesktopWindow.ts`) pops Cut, Copy, Paste (disabled with nothing selected), Select All, no
+  Copy Link (`parseSafeExternalUrl` refuses the URL). `popupTemplate` (`apps/desktop/src/electron/ElectronMenu.ts`)
+  passes no position, so Electron places that menu at the mouse pointer, not at the link (see Decision needed).
+
+## Cause and fix
+
+- **RL-4** (`browser-links.ts` `openFragmentLink`, `app.contract` `fragmentChanged` / `fragmentOpened`,
+  `markdown.contract` FlowRuns): `openLinkFromUi` returned nothing for a fragment. A Markdown link's fragment now reads
+  the click's modifiers (`composerSendIntent`, as a web link does): with one held it opens nothing; with none it opens
+  the draft of the most recently active project (`client.openDraft(mostRecentProjectId(shell))`, the clone's index
+  landing, as the sidebar's last-thread delete does) and answers `sidebar:new-thread`. The window sends a fragment's
+  `chatlocal:link-open` on its own mutation, whose completion does what `commandCompleted` does for a new thread: the
+  utility page closes, the timeline jump and draft owner reset, the composer takes the focus (a call to `command` or a
+  send of `changed` from `chatLocal` was refused by the compiler's `analyze-send-twice` and `analyze-call-stale-read`:
+  `pageKey` and `save` reach both). In FlowRuns a fragment link's later words and code spans were prose with no press
+  (only the link node's first word opened anything); they are now the web link's pressable box (`pressLink`: a web or
+  fragment link), with `tabindex=-1` for a fragment's so the `<a>` stays one Tab stop (a web link's boxes keep theirs, as
+  before). A mailto, irc or xmpp link's later words stay prose: their click opens nothing either way.
+- **RL-5** (`markdown.contract` ChatRuns): a table cell's runs are inline runs of one text node (`TableCell` →
+  `ChatRuns`); a web link's run had the link's press and menu, any other link's only its `href`, so a click went to the
+  host's own link following (`exact: refused to open irc://…`; a mailto URL to the mail app). The two branches are now one
+  for every link run with a destination (press `linkOpen`, menu `linkMenu`), and an emptied anchor keeps a branch with
+  neither, so no handler site is added. A cell's mailto, irc or xmpp link opens nothing, its fragment link leaves for the
+  draft (RL-4), its web link is unchanged. Its right-click is still the tail's shell menu (an inline run's `contextmenu`
+  never runs on macOS, X77), which has no Copy Link for a URL the shell refuses, as the reference's.
+- **RL-6** (`modules/apple/T3TextContextMenu.swift` `shellMenuForLastClick` / `focusMenu`): ExactKit raises the focused
+  link node's `contextmenu` for the ContextMenu key (`MouseEventsMac.swift` `contextMenuKey`), its handler asks the
+  module for the shell's menu (`shellMenu`), and `shellMenu` answered only a fresh page click (reply-links review R1-4).
+  With no such click it now opens the shell's menu for the focused page node of a visible window (not a text input, whose
+  menu is its right-click's): read-only Cut, Copy (enabled while page text is selected), Paste, Select All, no Copy Link
+  for a URL the shell refuses, at the node's middle. VoiceOver's show menu reaches no node on the host: `NodeView`
+  answers no `AXShowMenu` and AppKit's `NSView` default performs nothing ([probe](https://raw.githubusercontent.com/ccheever/exact2/c838acad2f1032855738ec15598a80086a992cdf/reply-links-reference-behavior/X84-show-menu-probe.txt)), so no `contextmenu`
+  runs; recorded as `EXACT2-GAPS.md` X84 (new, not filed: for the coordinator).
+- **Plan size** (RL-4 and RL-5's contract changes together): 28,864,485 bytes on the tip (`fe0e39c91`'s sources),
+  28,903,392 after (+38,907; the +308,280 bytes the reply-links record measured for a separate press on a cell's run is not
+  spent: the merged branch adds no handler site).
+
+## Acceptance results
+
+| Row | Result | Proof |
+| --- | --- | --- |
+| RL-4 | pass (reference, Bun, agent drive): before, a click on "notes" of "the notes" left the thread up (the later word has no press) and a cell's "the summary" was refused by the host (`exact: refused to open #summary`); after, both leave for "work / New thread" ("What should we build in work?") with the composer focused (`fragmentChanged`, `linkOpen` presses in the log), as the reference's `#/draft/…`; a modified click opens nothing (Bun) | [prose](https://raw.githubusercontent.com/ccheever/exact2/548ff623a4ab1e00aed20e783eb6dc4252cf8732/reply-links-reference-behavior/RL4-fragment-in-prose.png), [table cell](https://raw.githubusercontent.com/ccheever/exact2/7103638e1321d2156bce0611bb44a6067bda19af/reply-links-reference-behavior/RL4-fragment-in-table-cell.png), [drive](https://raw.githubusercontent.com/ccheever/exact2/e7b9ba2ad4e38e7e3ea9d7dc5e3a6b57fa1b9704/reply-links-reference-behavior/RL-drive-before-after.txt), [reference](https://raw.githubusercontent.com/ccheever/exact2/7f6f6ded49718e1f75932f3807573c454ef90054/reply-links-reference-behavior/RL-reference.txt) |
+| RL-5 | pass (reference, Bun, agent drive, plan): before, a click on the cell's irc link went to the host (`exact: refused to open irc://irc.example.test/t3`; the mailto one would reach the mail app, not clicked on the tip); after, both are the link's press (`linkOpen`) and nothing opens (no host line, no opened URL), as the reference. Plan +38,907 bytes for RL-4 and RL-5 together (accepted ceiling +308 KB) | [drive](https://raw.githubusercontent.com/ccheever/exact2/e7b9ba2ad4e38e7e3ea9d7dc5e3a6b57fa1b9704/reply-links-reference-behavior/RL-drive-before-after.txt), [fixture](https://raw.githubusercontent.com/ccheever/exact2/67b7935f6c4023c6b26bcabb3f03ef8afefd1cbe/reply-links-reference-behavior/RL5-RL6-fixture-reply.png), [reference](https://raw.githubusercontent.com/ccheever/exact2/7f6f6ded49718e1f75932f3807573c454ef90054/reply-links-reference-behavior/RL-reference.txt) |
+| RL-6 | partial. The ContextMenu key: pass (reference, AppKit, agent drive): before, the key on the focused "the team", "the channel", "chat" and "the notes" ran their `contextmenu` and opened no menu; after, each opens the shell's Cut, Copy (disabled), Paste (disabled), Select All with no Copy Link (`t3.textmenu:`), as the reference; the AppKit test puts it at the link's middle (6 of its assertions fail on the tip's module). VoiceOver's show menu: blocked by the host (X84, new) | [drive](https://raw.githubusercontent.com/ccheever/exact2/e7b9ba2ad4e38e7e3ea9d7dc5e3a6b57fa1b9704/reply-links-reference-behavior/RL-drive-before-after.txt), [AppKit](https://raw.githubusercontent.com/ccheever/exact2/718d89fa32e199dd9b2cd7cdb243a1b0ae24707a/reply-links-reference-behavior/RL6-appkit.txt), [reference](https://raw.githubusercontent.com/ccheever/exact2/7f6f6ded49718e1f75932f3807573c454ef90054/reply-links-reference-behavior/RL-reference.txt), [X84 probe](https://raw.githubusercontent.com/ccheever/exact2/c838acad2f1032855738ec15598a80086a992cdf/reply-links-reference-behavior/X84-show-menu-probe.txt) |
+| RL-4..RL-6 under real keys and pointer | open: real-input steps 1–4 below | — |
+
+Drives: one per build, the same steps ([drive.sh](https://raw.githubusercontent.com/ccheever/exact2/aaba5ca7c6c7c4b69e480080bc147b5cec51aec8/reply-links-reference-behavior/drive.sh.txt)): before on the evidence worktree at `6db5cadea`, after
+on this branch's bundle (`306ba87f1`'s app code; built once). The cell's mailto link was clicked on the after build only.
+
+## Real-input batch steps
+
+Launch this branch's bundle as a lane copy (its own bundle id, the lane home outside any git checkout) on a lane whose
+fixture reply holds the links (`sqlite3 <lane>/userdata/statev2.sqlite "update orchestration_v2_projection_turn_items set
+payload_json = json_set(payload_json, '$.text', cast(readfile('fixture-text.txt') as text)) where turn_item_id =
+'fixture-markdown'"`, [fixture-text.txt](https://raw.githubusercontent.com/ccheever/exact2/028d7d177966fcf272a2a054011db74fea44a0dc/reply-links-reference-behavior/fixture-text.txt)); the Verification fixture thread open. Never send a message.
+
+1. **RL-4.** Click the word "notes" of "the notes": the window shows "work / New thread" (or the lane's most recently
+   active project), "What should we build in …?", the caret in the composer. Reopen the thread; click "the" of "the
+   notes": the same. Reopen; ⌘-click "notes": nothing (the thread stays). Click the table's "the summary": the draft.
+2. **RL-5.** Click the table's "the list" (mailto): no Mail window, the clone stays in front, no toast. Click "the
+   room" (irc): nothing. Click "the site": it opens where Settings › "Open links in" says.
+3. **RL-6, ContextMenu key** (a keyboard with a ContextMenu key, such as a PC keyboard; a Mac keyboard has none: skip and
+   say so). Tab to "the team" (or click it: it opens nothing and takes the focus); press the ContextMenu key: Cut, Copy,
+   Paste (disabled), Select All, no Copy Link, at the link. The same on "the notes". Note where the reference's menu opens
+   for the same key (at the pointer, by its source).
+4. **RL-6, VoiceOver** (⌘F5 on, off afterwards). Move the VoiceOver cursor to "the team"; VO-⇧-M: expected nothing in the
+   clone (X84). The same in the reference T3 Code (Alpha) lane window: record whether its shell menu opens.
+
+## Tests
+
+- `browser-links.test.ts`: a fragment link leaves for the most recently active project's draft ("work"), answering
+  `sidebar:new-thread`, under either "Open links in" value, for prose's and a cell's fragment; ⌘, ⌥, ⇧, ⌃ or ⌘⇧ held
+  opens nothing; the mailto/irc/ircs/xmpp row keeps the thread.
+- `reply-links-reference-behavior.test.ts` (new, 2): the window sends a fragment open on `fragmentChanged` and its
+  completion closes the utility page, resets the jump and draft owner and focuses the composer, as `commandCompleted`'s
+  new-thread handling; `chatlocal:link-open` end to end through the client.
+- `external-link-menu.test.ts`: ChatRuns gives every link run with a destination the link's press and menu in one branch
+  (an emptied anchor neither); FlowRuns' later-word box covers fragment links (`pressLink`) with `tabindex=-1` for them.
+- `macos/tests/contextmenu/reply-links.swift` (+2): the ContextMenu key on a focused link opens the shell's menu at its
+  middle (Copy enabled with page text selected); nothing with no focused page node, the page itself or a text input
+  focused; a fresh right-click still answers at the click.
+
+## Checks
+
+Pending: run once on the final head (below).
+
+## Not done / not verified
+
+- RL-6 under VoiceOver: blocked by the host, X84 (`NodeView` answers no `AXShowMenu`; new, not filed: the coordinator
+  files it). The clone's change answers a show-menu `contextmenu` as soon as the host raises one.
+- A table cell's link takes no keyboard focus (an inline run; the host's key-view loop lists nodes), so the ContextMenu
+  key cannot reach it; the reference's anchor in a cell is Tab-reachable where Chromium Tabs to links. Not compared
+  further; recorded here.
+- Real-input steps 1–4: the coordinator's session.
+
+## Decision needed
+
+- RL-6's menu position. The reference's shell pops its menu with no position, so Electron places it at the mouse
+  pointer, wherever that is, though Chromium reports the focused link's middle. The clone opens it at the focused link
+  (the specification's "at the link", and where ExactKit's ContextMenu key and the module's own keyboard menus put it).
+  Keep it at the link, or follow the pointer as Electron does (one line in `T3TextContextMenu.focusMenu`)?
+
+## Seen while building, not a finding row
+
+- A table cell's link is underlined and has no favicon in the clone; the reference's has the favicon (web links) and no
+  underline (already in X77's notes).
+- A cell holding a code span draws its runs with `CellRuns`, whose link runs have no `href` at all (plain text, not
+  link-coloured): `` | [`x` mail](mailto:…) | `` reads as prose there.
+- The ContextMenu key on a focused web link: the reference opens its app link menu at the link (the renderer passes the
+  keyboard event's point: `x: 414, y: 216` for "the x docs", RL-reference.txt); the clone opens the same items through
+  `T3ContextMenu`, which places a request with no `anchor: "focus"` at the pointer (`external-link-menu.ts` sends none). A
+  web link's row, not RL-6's; not built.
+
+## Delivery
+
+Draft PR into `feat(example)/t3-code` (link in the frontmatter once opened).
+
+## Next action
+
+The coordinator: review the draft PR; answer "Decision needed"; file X84; run real-input steps 1–4 in the next session.
