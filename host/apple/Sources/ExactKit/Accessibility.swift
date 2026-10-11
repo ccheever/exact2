@@ -436,8 +436,9 @@ extension Presenter {
             // `focus(id)` keeps it.
             func touchFocused(_ view: UIView) -> Bool { (view as? NodeView).map { $0.isButton && $0.focusedByTouch } == true }
             func hasFocus(_ view: UIView) -> Bool { (view.isFirstResponder && (view as? NodeView)?.canvasInput == nil && !touchFocused(view) && !(view is ExactView)) || view.subviews.contains(where: hasFocus) }
+            guard let window = node.window else { continue }
             autofocusProcessed.insert(ObjectIdentifier(node))
-            guard let window = node.window, !hasFocus(window) else { continue }
+            guard !hasFocus(window) else { continue }
             let target: UIResponder = node.textArea ?? node.field ?? node
             node.focusedByTouch = false // the app's focus now, as Tab's and focus(id)'s
             _ = target.becomeFirstResponder()
