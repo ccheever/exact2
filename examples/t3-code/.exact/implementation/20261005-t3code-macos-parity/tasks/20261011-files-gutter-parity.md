@@ -96,7 +96,8 @@ mouse events, light and dark ([reference-cdp.txt](https://raw.githubusercontent.
   window root, and the Diff panel, the pull request surface's Code tab and the Files preview all close the details.
 - Plan (`contract build` of `app.contract`): base 109,609 nodes, 28,585,446 bytes; FG-1..FG-3 +23 nodes, +19,001 bytes;
   FG-4 +38,250 bytes and no node (measured as the build with and without FG-4's Contract lines: the `press` reports in
-  `DiffCell` and `R4CodeRow` and the two routes; its data side costs no plan). #413's try was +777 KB. Final: see Checks.
+  `DiffCell` and `R4CodeRow` and the two routes; its data side costs no plan). #413's try was +777 KB. Final (with the
+  release's `blur()`): 109,632 nodes, 28,642,531 bytes, +57,085 against the base. No Rust or Swift changed.
 
 ## Acceptance results
 
@@ -117,7 +118,17 @@ mouse events, light and dark ([reference-cdp.txt](https://raw.githubusercontent.
   Files gutter, `diffReview` (number, Shift, "+", `press`; not `to`/`end`) and `prCodeLocal`, and the routes.
 - Updated: `diff-file-comments.test.ts` (the range by a drag), `diff-gutter-selection-followups.test.ts` (GS-2 reads the
   new cell and number), `realinput-1010f-followups.test.ts` (the `press` route).
+- `usage-pooled.test.ts`: the Files number and "+" join the list of nodes that take the pointer (the Usage page covers the
+  right panel, so its popover is never on screen with them).
 - Before (the feature tip's sources with the new file): 1 pass, 16 fail; after: 18 pass.
+
+Checks on `7274e5772` (the branch merged with `feat(example)/t3-code`, already up to date; all exit 0): `bun test
+examples/t3-code --timeout 60000` 4471 pass / 1 skip / 0 fail (306 files); strict tsc; `contract build` of `app.contract`
+(1398 lines; 109,632 nodes, 28,642,531 bytes); caps; the five checks (cargo build, cargo test 3679 pass / 0 fail / 34
+ignored, clippy, fmt, caps, boot). No Rust or Swift changed, so `cargo test -p t3-code-macos --lib` and the AppKit binaries
+were not run. The first full Bun run, on `7cbe0429b`, failed one test (`usage-pooled.test.ts`'s list of pointer takers,
+which the Files gutter now joins); `7274e5772` adds them. The bundle for the live drive was built from `31f17a3c6` (the
+code; the record and that test only after it).
 
 ## Attempts and evidence
 
