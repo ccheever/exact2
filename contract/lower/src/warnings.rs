@@ -19,6 +19,8 @@ use exact_kernel::StyleId;
 use exact_plan::Stdlib;
 use std::collections::BTreeSet;
 
+mod roles;
+
 /// At most this many warnings from one compile, before the colours that
 /// stay one scheme: those name every site, each in a short line, since a
 /// repair of the first twenty would only show the next (rules/RULES.md,
@@ -33,11 +35,22 @@ pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
     // a `navigationKey`) encloses it: an element with a `navigationKey`
     // inside one is a route.
     let mut stack: Vec<(&Node, bool)> = root.view.iter().rev().map(|n| (n, false)).collect();
+    let mut seen = BTreeSet::new();
     while let Some((node, in_root)) = stack.pop() {
         let (children, in_root): (Vec<&Node>, bool) = match node {
             Node::Element {
-                attrs, children, ..
+                tag,
+                attrs,
+                children,
+                ..
             } => {
+                // A component used twice is inlined twice: one line for its source.
+                let span = node.span();
+                let fresh = seen.insert((span.source_id, span.line, span.col, span.end_col));
+                let button = (tag == "button")
+                    .then(|| roles::unlabelled_button(attrs, children, span))
+                    .flatten();
+                out.extend(button.filter(|_| fresh));
                 let keyed = has(attrs, "navigationKey");
                 if in_root && keyed && !has(attrs, "navigationBack") {
                     route_header(children, &mut out);

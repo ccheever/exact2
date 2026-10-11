@@ -411,3 +411,84 @@ fn a_field_the_copy_left_alone_is_not_named() {
     let src = "shape Ack\n  ok: bool\nshape Item\n  id: string\n  n: number\ncomponent App\n  mutation saved as shape Ack\n  state item = Item(id=\"x\", n=0)\n  state shown = \"\"\n  action go\n    item = Item(item, n=item.n + 1)\n    send saved = keep(item.id)\n    shown = `${item.n}`\n  view\n    button \"go\" press=go\n";
     assert_eq!(warned(src), [(REREAD.to_string(), 13)]);
 }
+
+const UNLABELLED: &str = "lower-button-unlabelled";
+
+/// One screen of buttons, its view's lines at 6 on, with a `Pill`
+/// component whose button is filled through its slot.
+fn buttons(view: &str) -> String {
+    let view: String = view.lines().map(|l| format!("      {l}\n")).collect();
+    format!(
+        "component App\n  state label = \"Add\"\n  action go\n    label = \"x\"\n  view\n    column\n{view}component Pill\n  slot\n  view\n    button width=44 height=44\n      children\n"
+    )
+}
+
+#[test]
+fn a_button_with_nothing_to_say_is_named_with_its_repair() {
+    // water-tracker's +500 ml button: no child, blank on every host.
+    let blank = buttons("button press=go testId=\"add-500\" flex=1");
+    assert_eq!(warned(&blank), [(UNLABELLED.to_string(), 7)]);
+    let (_, warnings) = contract::compile_warned(&blank);
+    assert!(
+        warnings[0]
+            .message
+            .contains("holds no text and no `aria-label`")
+            && warnings[0].message.contains("Put its words in it")
+            && warnings[0].message.contains("docs/recipes/symbols.md"),
+        "{warnings:?}"
+    );
+    // A symbol with no name is drawn and read as nothing; a swatch, an
+    // empty text and an `svg` of shapes say nothing either.
+    let symbol = buttons("button press=go appearance=\"none\"\n  image \"symbol:add\"");
+    assert_eq!(warned(&symbol), [(UNLABELLED.to_string(), 7)]);
+    let (_, warnings) = contract::compile_warned(&symbol);
+    assert!(
+        warnings[0]
+            .message
+            .contains("shows only an image with no name")
+            && warnings[0]
+                .message
+                .contains("`aria-label=\"Add\"` on the button"),
+        "{warnings:?}"
+    );
+    for view in [
+        "button press=go\n  row\n    view width=10 height=10 background-color=\"-exact-system-red\"",
+        "button press=go aria-label=\"\"\n  text \"\"",
+        "button press=go\n  svg viewBox=\"0 0 10 10\" width=10 height=10\n    circle cx=5 cy=5 r=4",
+        "button press=go\n  when label == \"\"\n    image \"symbol:add\"",
+    ] {
+        assert_eq!(
+            warned(&buttons(view)),
+            [(UNLABELLED.to_string(), 7)],
+            "{view}"
+        );
+    }
+    // A component used twice is one line, at its button; an empty slot
+    // fill leaves it blank.
+    let pills = buttons("Pill()\nPill()");
+    assert_eq!(warned(&pills), [(UNLABELLED.to_string(), 12)]);
+}
+
+#[test]
+fn a_button_with_words_a_name_or_a_doubt_is_not_named() {
+    for view in [
+        "button press=go\n  text \"Add\"",
+        // A text of any expression, through a `when` or an `each`.
+        "button press=go\n  text label",
+        "button press=go\n  when label == \"\"\n    text \"Add\"\n  else\n    image \"symbol:add\"",
+        "button press=go\n  each w in [\"a\"] key=w\n    text w",
+        // An icon button named, by itself or by its image.
+        "button press=go aria-label=\"Add\"\n  image \"symbol:add\"",
+        "button press=go aria-label=label\n  image \"symbol:add\"",
+        "button press=go aria-labelledby=\"caption\" width=44 height=44",
+        "button press=go\n  image \"symbol:add\" alt=\"Add\"",
+        "button press=go\n  svg viewBox=\"0 0 10 10\" width=10 height=10 aria-label=\"Add\"\n    circle cx=5 cy=5 r=4",
+        // A bare box keeps its words; one hidden from VoiceOver is no button to it.
+        "button appearance=\"none\" press=go\n  row\n    text \"Add\"",
+        "button press=go aria-hidden=true position=\"absolute\" inset=0",
+        // Filled through a slot.
+        "Pill()\n  text \"Add\"",
+    ] {
+        assert_eq!(warned(&buttons(view)), [], "{view}");
+    }
+}
