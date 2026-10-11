@@ -100,7 +100,20 @@ const appTs = resolve(appDir, 'app.ts');
 // `./<name>/…` from the app's own modules resolves into that directory in
 // every load this build makes (the module read below, the server and page
 // bundles), as the type check's capture lays it out.
-const tsMounts = Object.entries(manifest.typescript?.sources ?? {}).map(([name, path]) => [name, realpathSync(resolve(appDir, path))]);
+// A mount is relative to the app's directory, where app.json is; one that is not there is named with the directory it
+// was resolved from, and this checkout's Snapback driver offered when that is what it names (app farm wave 1: five
+// builds miscounted the `../`, and one built the device's wasm outside the app).
+function mountDir(name, path) {
+  try { return realpathSync(resolve(appDir, path)); } catch (e) {
+    const driver = /(^|\/)snapback4\/ts\/?$/.test(path) ? `; this checkout's Snapback driver is "${relative(appDir, resolve(root, 'snapback4/ts'))}" from there` : '';
+    console.error(`error: app.json typescript.sources.${name}: "${path}" is resolved from the app's directory, ${appDir}, to ${resolve(appDir, path)}, which ${e.code === 'ENOENT' ? 'does not exist' : `cannot be read (${e.code ?? e.message})`}${driver}`);
+    process.exit(1);
+  }
+}
+const tsMounts = Object.entries(manifest.typescript?.sources ?? {}).map(([name, path]) => [name, mountDir(name, path)]);
+if (tsMounts.some(([, dir]) => dir === realpathSync(resolve(root, 'snapback4/ts'))) && !existsSync(resolve(appDir, 'assets/snapback4.wasm'))) {
+  console.error(`warning: the app mounts Snapback's driver, and assets/snapback4.wasm, the device it loads by default, is missing (the page will fail with HTTP 404 for /assets/snapback4.wasm). From the app's directory: node ${resolve(root, 'snapback4/web/build.mjs')} assets/snapback4.wasm`);
+}
 // As the bake refuses them (js/bake/src/lib.rs `mounts`): a file reachable
 // through two mounts would have two places in the layout.
 for (const [i, [a, aDir]] of tsMounts.entries()) for (const [b, bDir] of tsMounts.slice(i + 1)) {
@@ -222,7 +235,7 @@ async function typecheck() {
   // This build's own output may sit inside the app (`--out <app>/web-out`):
   // it is no source, and the stage is inside it (review r4a 2).
   const output = realpathSync(out);
-  const mounts = Object.entries(manifest.typescript?.sources ?? {}).map(([name, path]) => [name, realpathSync(resolve(appDir, path))]);
+  const mounts = Object.entries(manifest.typescript?.sources ?? {}).map(([name, path]) => [name, mountDir(name, path)]);
   const capture = (from, to, top) => {
     for (const entry of readdirSync(from, { withFileTypes: true })) {
       const name = entry.name, path = resolve(from, name);

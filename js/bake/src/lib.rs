@@ -565,7 +565,13 @@ fn mounts(root: &Path) -> Result<Vec<(String, PathBuf)>, String> {
         let dir = root
             .join(path)
             .canonicalize()
-            .map_err(|e| format!("typescript.sources.{name}: {path}: {e}"))?;
+            // Relative to the app's directory, where app.json is: say which (app farm wave 1, five builds).
+            .map_err(|e| {
+                format!(
+                    "typescript.sources.{name}: {path}, resolved from the app's directory {}: {e}",
+                    root.display()
+                )
+            })?;
         let app = root.canonicalize().map_err(|e| e.to_string())?;
         if !dir.is_dir() || dir.starts_with(&app) || app.starts_with(&dir) {
             return Err(format!(

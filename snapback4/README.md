@@ -19,23 +19,37 @@ is handed to whoever drives it. Pinned to Snapback4 **0.4.16**
 
 ### Mount it and build the wasm
 
-Mount the driver in the app's `app.json` (the path is relative to the app,
-which the native bake requires: it refuses an absolute one; an app made by
-`exact new` outside this checkout names this checkout's `snapback4/ts`
-relative to itself), and build the wasm and its glue, which every
-host's bake type-checks, before a build:
+Two steps, both from the app's directory (the one holding `app.json`). An
+app made by `exact new` has both, with this checkout's paths filled in, in its
+`AGENTS.md`.
 
-```json
-"typescript": { "sources": { "snapback4": "../exact2/snapback4/ts" } }
-```
+1. Mount the driver in `app.json`. The path is relative to the app's
+   directory, never absolute (the native bake refuses one), and it counts
+   the `../` from there: for an app at `~/work/lane/app` beside a checkout at
+   `~/work/exact2` it is `../../exact2/snapback4/ts`. Run in the app's
+   directory, `bun -e "console.log(require('path').relative('.',
+   '<exact2>/snapback4/ts'))"` prints it.
 
-```sh
-node ../exact2/snapback4/web/build.mjs assets/snapback4.wasm   # the web; no argument writes only the glue
-```
+   ```json
+   "typescript": { "sources": { "snapback4": "../../exact2/snapback4/ts" } }
+   ```
 
-The first build compiles the client for a few minutes; later ones take
-seconds. The web host serves `assets/snapback4.wasm` at
-`/assets/snapback4.wasm`, the driver's default. It is pinned to Snapback4
+   A path that is not there fails the web build with the directory it was
+   resolved from, the full path, and this checkout's path from the app.
+
+2. Build the device the page loads into the app's `assets/` (the output path
+   is from the current directory), and its glue, which every host's bake
+   type-checks:
+
+   ```sh
+   node <exact2>/snapback4/web/build.mjs assets/snapback4.wasm   # no argument writes only the glue
+   ```
+
+   The first build compiles the client for a few minutes; later ones take
+   seconds. The web host serves `assets/snapback4.wasm` at
+   `/assets/snapback4.wasm`, the driver's default (`Snapback.open`'s `wasm`
+   names another). A web build of an app that mounts the driver without it
+   says so, with this command. It is pinned to Snapback4
 0.4.16: install that version of `snapback4` for the server.
 
 ### Time
@@ -238,7 +252,10 @@ export const answer: Answer = (source, args, store, storage, native) =>
 ```
 
 `app.test.contract` (run `bunx snapback4 dev` first; the tests talk to it,
-and `epoch now` dates them as the server does). A `select` is driven with
+and `epoch now` dates them as the server does; `test web` asks the origin
+before it starts, and refuses to run with nothing listening there). Each test
+opens the app fresh, but the server keeps what earlier tests wrote, so each
+test creates what it asserts on. A `select` is driven with
 `type`; the offline test proves delivery after `pass fetch`, not only that
 the write was kept:
 
