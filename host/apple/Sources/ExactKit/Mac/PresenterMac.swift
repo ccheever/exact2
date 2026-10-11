@@ -36,6 +36,7 @@ package final class Presenter {
     func propsChanged(_ view: NodeView) {
         chrome.note(view.id, props: view.props)
         if view.disabled { view.showFieldFocus(false) }
+        view.syncDisabledLook()
         // HTML's `title`: the platform's tooltip (studio diary R24).
         // An icon-only button's help tag is its label (LLP 1115 wave 1), as
         // a toolbar item's is; settled once the batch has mounted its face.
@@ -1126,7 +1127,7 @@ package final class Presenter {
                 case "layout": v.layoutOffset = CGPoint(x: x, y: CGFloat(op.y)); v.layoutScale = CGPoint(x: CGFloat(op.w), y: CGFloat(op.h)); v.applyTransform(); v.applySurface()
                 case "scale": v.scale = x; v.applyTransform()
                 case "rotate": v.rotate = x; v.applyTransform()
-                case "opacity": v.alphaValue = x
+                case "opacity": v.presentedAlpha = x; v.alphaValue = v.disabledShown ? x * NodeView.disabledOpacity : x
                 case "flight": presentFlight(id, x)
                 default: break
                 }

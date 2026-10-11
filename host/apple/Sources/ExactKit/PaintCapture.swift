@@ -104,7 +104,15 @@ extension Capture {
             let replacements = Set((owner?.subviews ?? []).compactMap { ($0 as? NodeView)?.boxFilter?.picture }.map(ObjectIdentifier.init))
             // Own contents and decorations first: shadow casters, fills,
             // text rasters, Canvas 2D pictures. Each view branch is below.
-            for sub in source.sublayers ?? [] where !childSet.contains(ObjectIdentifier(sub)) && !replacements.contains(ObjectIdentifier(sub)) {
+            let own = (source.sublayers ?? []).filter { !childSet.contains(ObjectIdentifier($0)) && !replacements.contains(ObjectIdentifier($0)) }
+            #if os(macOS)
+            // A decoration the Mac raises over the node's own views (a
+            // press's wash, PressLookMac.swift) is painted after them.
+            let raised = own.filter { $0.zPosition >= 1 }
+            #else
+            let raised: [CALayer] = []
+            #endif
+            for sub in own where !raised.contains(where: { $0 === sub }) {
                 layer.addSublayer(copy(sub))
             }
             #if os(macOS)
@@ -127,6 +135,7 @@ extension Capture {
                     layer.addSublayer(copy(filter.picture))
                 } else { layer.addSublayer(copy(child)) }
             }
+            for sub in raised { layer.addSublayer(copy(sub)) }
             return layer
         }
         return copy(root)
