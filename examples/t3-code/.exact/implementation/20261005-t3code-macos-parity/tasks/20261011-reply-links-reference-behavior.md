@@ -7,8 +7,8 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-reply-links-reference-behavior
-pr_url:
-verified_commit:
+pr_url: https://github.com/ccheever/exact2/pull/474
+verified_commit: b23693933
 ---
 
 # Reply links as the reference has them: a fragment leaves the thread, a table cell's mailto opens nothing, the ContextMenu key's shell menu
@@ -154,7 +154,26 @@ payload_json = json_set(payload_json, '$.text', cast(readfile('fixture-text.txt'
 
 ## Checks
 
-Pending: run once on the final head (below).
+Once, 2026-10-12, on `ec0b0a6b7` (`origin/feat(example)/t3-code` was `fe0e39c91`, this branch's base, with no newer
+commits when fetched before the checks), except the Bun suite's passing run, on `b23693933`, which changes one source
+test and this record only:
+
+| Check | Exit | Note |
+| --- | --- | --- |
+| `bun test examples/t3-code --timeout 60000` | 0 | 4664 pass, 1 skip, 0 fail (312 files). The first run, 1: `audit-wave-followups.test.ts` FU-3 pins `chatLocal`'s send chain, which gained the fragment's arm; the test now names it (`b23693933`) |
+| strict `tsc` (README command) | 0 | |
+| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | `app.contract` 1,413 lines; plan 28,903,392 bytes (tip 28,864,485: +38,907) |
+| `cargo test -p t3-code-macos --lib` | 0 | 21 passed (no Rust changed) |
+| AppKit `macos/tests/contextmenu` (README recipe) | 0 | 60 run, 0 failed (2 new); the same tests against the tip's module: 6 failed (RL6-appkit.txt) |
+| `git add -A && bun scripts/caps.mjs` | 0 | all budgets within cap |
+| `cargo build --all-targets --keep-going` | 0 | |
+| `cargo test --lib --bins --tests --no-fail-fast` | 101 | 3,744 passed, 1 failed, 36 ignored: `button_migration::every_app_corpus_and_example_compiles_and_the_button_migration_is_complete` on main's `apps/color-gallery/app.contract:269`, inherited (adopt-main-fixes-r9 AD-1, progress-native-bars); nothing this branch touches |
+| `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | |
+| `cargo fmt --all -- --check` | 0 | |
+| `bun scripts/boot.mjs` | 0 | |
+
+`host/apple/build.mjs t3-code-macos --bundle` 0, once, before the live drive (`306ba87f1`'s app code; the code has not
+changed since).
 
 ## Not done / not verified
 
@@ -185,7 +204,7 @@ Pending: run once on the final head (below).
 
 ## Delivery
 
-Draft PR into `feat(example)/t3-code` (link in the frontmatter once opened).
+Draft PR [#474](https://github.com/ccheever/exact2/pull/474) into `feat(example)/t3-code`.
 
 ## Next action
 
