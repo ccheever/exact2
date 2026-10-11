@@ -72,9 +72,9 @@ open class BenchActivity(private val key: String) : ExactActivity() {
 begun to boot, the view is not made yet), with the call that scrolls the feed by a distance in pixels. The `Drive` it
 returns is told when the first content has been drawn. The default returns null.
 
-Without a driver the activity no longer does what `Driver` did: show over the keyguard and turn the screen on (the
-shell's manifest still asks for both), keep the screen on, ask for a 120 Hz display mode, and call
-`reportFullyDrawn()`.
+Without a driver the activity no longer does what `Driver` did: show over the keyguard, turn the screen on, keep the
+screen on, ask for a 120 Hz display mode, and call `reportFullyDrawn()`. The shell's manifest asks for none of them
+either, so a benchmark that runs on a locked phone declares them in its own.
 
 ## Still the benchmark's
 
@@ -84,7 +84,8 @@ The cut was the smallest one. Left in the reader:
   and `scenario`, `freeze`, `start`, `kinds` and `live`, with the `BENCH_*` variables they set (`Native.start` takes
   `live`);
 - `startPitchDp`, the tag view (`tag=1`) and the coverage counters (`cover=1`);
-- storage in the device-protected context, so that an app runs on a phone that has not been unlocked;
+- storage in the device-protected context, which let an app run on a phone that had not been unlocked. The shell is
+  no longer direct-boot aware, so nothing here needs it; an app's files are still kept there;
 - one scroller, "the feed", which a driver's `scroll` moves;
 - comments that speak of the benchmark's apps and its measurements.
 
@@ -96,8 +97,7 @@ The cut was the smallest one. Left in the reader:
 - **No agent carrier** for the APK (`--reader`, LLP 1107 §4.4).
 - **No check builds any of it.** Gradle is in none of the five checks or the async lane, and nothing builds
   `exact-linux` for the Android target.
-- **The shell is a development build**: signed with the debug key, shown over the keyguard, direct-boot aware, with
-  no icon. Its one activity turns keys and the bottom inset on for every app, and gives none a native module
+- **The shell is a development build**: signed with the debug key, with no icon. Its one activity turns keys and the bottom inset on for every app, and gives none a native module
   (LLP 1024) or a video player, which the benchmark's apps passed from an activity of their own.
 - **An app's GPU module** (LLP 1009) is not built or packaged, as the benchmark's `build.sh` did for its apps.
   Caltrain's sky was not tried.

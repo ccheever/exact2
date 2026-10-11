@@ -1,9 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- A development shell, as the benchmark's apps were: it shows over the keyguard, turns the screen on and is
-         direct-boot aware, because the phones it is driven on stay PIN-locked. A shipping app wants none of the three. -->
-    <application android:label="${appName}" android:theme="@style/ExactLaunch" android:hardwareAccelerated="true" android:directBootAware="true">
+    <!-- An app, not the benchmark's harness (LLP 1115.001 §3): it does not show over the keyguard, turn the screen on
+         or run before the phone's first unlock. It still signs with the debug key and has no icon. -->
+    <application android:label="${appName}" android:theme="@style/ExactLaunch" android:hardwareAccelerated="true">
         <profileable android:shell="true" />
-        <activity android:name=".MainActivity" android:exported="true" android:directBootAware="true" android:showWhenLocked="true" android:turnScreenOn="true"
+        <activity android:name=".MainActivity" android:exported="true"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
