@@ -5,6 +5,7 @@
 import names, { types } from './names.js';
 import { pieces, pageHistory, Head, navigateRoot, Tasks, journal } from './rt.js';
 import * as perf from './perf.js';
+import { observe } from './check.js';
 import { faultOp, faultsJson, setFaultLog } from '../web/faults.js';
 import { environment, navigation, unselected, guestOutline, guestTap, guestType, viewBox, foldEnv, preferFold, typedControl, typeControl, reveal, animationClocks, pageReporter } from './navigation.js';
 // A runtime value as the runner's typed JSON: records by field name.
@@ -196,6 +197,18 @@ export function install(exact) {
         if (t >= timing.endTime && timing.endTime !== Infinity) a.finish(); else { a.pause(); a.currentTime = t; }
       }
       if (sync) exact.synced?.();
+    },
+    // A picture shows a transition where it ends (LLP 1116.003 D8): each one under way is held a hair before its end
+    // (still running, so no event fires) for a screenshot or a check; the next request's seek puts it back on the clock.
+    hold() {
+      let n = 0;
+      for (const a of timed()) {
+        const t = a.effect?.getComputedTiming();
+        if (!t || held.has(a) || !(t.activeDuration > 0) || t.activeDuration === Infinity) continue;
+        const at = a.currentTime ?? 0, end = t.delay + t.activeDuration;
+        if (at >= t.delay && at < end - 0.5) { a.currentTime = end - 0.5; n++; }
+      }
+      return n;
     },
     settle() {
       let to = Math.max(exact.clock.now, exact.settleAt?.() ?? 0);
@@ -400,6 +413,13 @@ export function install(exact) {
         return { clock: exact.clock.now, ...(inflight > 0 ? { inflight } : {}), ...(background > 0 ? { background } : {}) };
       }
       case 'tags': return tags();
+      // `screenshot` and `check` (LLP 1116.003 D8): transitions under way shown where they end, for this picture only.
+      case 'picture': return { moving: anim.hold(), ...tags() };
+      case 'check': {
+        // `all()` names every view (ids are given as the tree reads them) and marks the ones an unselected route holds.
+        const moving = anim.hold(), off = new Set(all().filter(n => n.inactive).map(n => views.get(n.id)));
+        return { ...observe(views, el => off.has(el)), moving, ...tags() };
+      }
       // @ref LLP 1080.002 D4 — the ids `tree` gives, where CDP's DOM snapshot reads them, and the document's nonce.
       case 'axStamp': {
         all(); for (const [i, el] of views) if (el.isConnected && el.getAttribute('data-agent-view') !== String(i)) el.setAttribute('data-agent-view', i);

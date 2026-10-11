@@ -1,6 +1,6 @@
 //! Style rows → CSS declarations.
 //!
-//! @ref `rules/RULES.md` §Scope (the web is the standard: a row's CSS name is
+//! @ref LLP 1115 §2 (names stay CSS: a row's CSS name is
 //! the row's name with `-` for `_`, and its value the CSS value; the few rows
 //! that are not one CSS property each are listed here by hand)
 //! @ref LLP 1002 D2 (`transition` as CSS; a spring is the one declared

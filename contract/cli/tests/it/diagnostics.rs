@@ -719,7 +719,7 @@ fn an_imported_writes_clause_is_refused_at_its_token_and_symbols_show_the_inferr
     let unused =
         "use Toggle from \"./lib/toggle.contract\"\ncomponent App\n  view\n    text \"unused\"\n";
     let root = app.write("app.contract", used);
-    let source = "component Toggle\n  state enabled = false\n  state clicks = 0\n  state touched = false\n  state idle = 0\n  action choose()WRITES\n    if enabled\n      clicks = clicks + 1\n    else\n      enabled = true\n    match some(clicks)\n      case some(value)\n        touched = true\n        clicks = value + 1\n      case none\n        touched = false\n  view\n    button press=choose\n      text \"Choose\"\n";
+    let source = "component Toggle\n  state enabled = false\n  state clicks = 0\n  state touched = false\n  state idle = 0\n  action choose()WRITES\n    if enabled\n      clicks = clicks + 1\n    else\n      enabled = true\n    match some(idle)\n      case some(value)\n        touched = true\n        clicks = value + 1\n      case none\n        touched = false\n  view\n    button press=choose\n      text \"Choose\"\n";
     for root_source in [used, unused] {
         app.write("app.contract", root_source);
         let path = app

@@ -8,8 +8,10 @@
 // flag the script does not take is refused, naming the ones it does, before
 // anything builds or starts. Builders replay these texts in context: keep each
 // short, and never name a flag its script does not parse (help.test.mjs checks).
+// A verb with `more` (LLP 1116.003 D5) shows what a first build needs; `--help all`
+// adds its other flags and `bodyAll`'s lines (the ports, the rarer forms).
 //
-//   bun scripts/help.mjs [<verb>]      a verb's help, or the index
+//   bun scripts/help.mjs [<verb>] [all]      a verb's help, or the index
 
 /** A flag's spec is its name, then its argument if it takes one (`--port <n>`); one row may hold
  * several, joined by " · ". */
@@ -37,14 +39,18 @@ const DRIVE = [
   ['--open <file> · --json', 'macOS: a document on its command line · replies as JSON lines'],
 ];
 const TEST_IGNORES = ['--timing <v>', '--world <file>', '--open <file>', '--json'];
+// The drive flags a first build reaches for; `--help all` shows the rest.
+const DRIVE_FIRST = ['--storage', '--size', '--chrome', '--epoch', '--sim'];
+const naming = (names, keep) => ([row]) => specs(row).some((spec) => names.includes(name(spec))) === keep;
 const DRIVE_INTERNAL = ['--app <name>', '--session <label>'];
 const NATIVE_PORTS = 'iOS simulator: a Unix socket; --device: a free TCP port; macOS, Linux, Android: stdio.';
 
 // host/apple/build.mjs's flags, which `ios` and `mac` both run: each documents its own, and takes the rest.
-const APPLE = ['--ios', '--tvos', '--device', '--run', '--host', '--embed', '--bundle', '--distribution', '--unsigned', '--test',
+const APPLE = ['--ios', '--tvos', '--device', '--run', '--prebuild', '--host', '--embed', '--bundle', '--distribution', '--unsigned', '--test',
   '--archive <out.ipa>', '--sim <udid|name>', '--phone <udid|name>', '--url <url>', '--optimize <speed|size>', '--link <plan>'];
 const appleRest = (documented) => APPLE.filter((spec) => !documented.some(([row]) => specs(row).some((d) => name(d) === name(spec))));
 const OPTIMIZE = ['--optimize speed|size', 'the Rust archive\'s (default speed, or app.json host.ios|macos.optimize)'];
+const PREBUILD = ['--prebuild', 'start the build apart from this shell and return; its log: .exact/<ios|macos>-build.log'];
 
 export const HELP = {
   web: {
@@ -53,17 +59,20 @@ export const HELP = {
     flags: [
       ['--port <n>', 'listen on <n>, refused if taken (default 8765, else the first free port to 8864)'],
       ['--lan', 'bind every interface, so a phone on this network opens the printed LAN URL'],
+    ],
+    more: [
       ['--allow-host <name>', 'also answer to this host name (a tunnel\'s); repeatable'],
       ['--wasm', 'the resident wasm loop (a game\'s always): a plan restarts in place, state carried'],
     ],
     internal: ['--app <name>', '--serve-as <port>'],
-    body: `Ports    one HTTP port on 127.0.0.1 (--lan: every interface), printed with the URL. A native
-         client opening <url>__dev/open starts the producers on a second, loopback-only port.
-Runs     in the foreground until ^C. test web and agent web do not need it: they build and
-         serve their own copy. To keep it while you work:
+    body: `Runs     in the foreground until ^C, printing its URL. test web and agent web build and
+         serve their own copy, so they do not need it. To keep it while you work:
            bun exact.mjs web > .exact/web.log 2>&1 &      # $! is its PID; kill <PID> stops it
-         The server stops with that process however it ends. If your tool's shell ends
-         background jobs when the command returns, use the tool's own background mode.`,
+         If your tool's shell ends background jobs when the command returns, use the
+         tool's own background mode.`,
+    bodyAll: `Ports    one HTTP port on 127.0.0.1 (--lan: every interface), printed with the URL. A native
+         client opening <url>__dev/open starts the producers on a second, loopback-only port.
+         The server stops with its process however it ends.`,
     example: 'bun exact.mjs web --port 9000      # then open http://127.0.0.1:9000/',
   },
   'web-build': {
@@ -81,52 +90,56 @@ Ports    none. Runs to completion: exit 0 when it built. test web and agent web 
   test: {
     line: 'run app.test.contract (or the files named) on a host: web by default',
     usage: 'bun exact.mjs test [web|ios|macos|linux|android] [<file.test.contract>|<glob>]… [flags]',
-    flags: [
+    flags: DRIVE.filter(naming(['--size', '--sim'], true)),
+    more: [
       ['--test <file>', 'a test file, as a bare path or glob is (from the current directory)'],
       ['--storage <name>', 'the base of each test\'s own store name (default test)'],
-      ...DRIVE.filter(([row]) => !specs(row).some((spec) => ['--storage', ...TEST_IGNORES.map(name)].includes(name(spec)))),
+      ...DRIVE.filter(naming(['--storage', '--size', '--sim', ...TEST_IGNORES.map(name)], false)),
     ],
     internal: [...TEST_IGNORES, ...DRIVE_INTERNAL],
     body: `web builds the app first (web-build); ios and macos build first when the build is missing or
-older than its sources, saying so on stderr (a phone's: ios --device). Each test launches the
-app fresh with its own store, after its first data has landed; its leading lines (size, epoch,
-fail fetch …) override flags.
-Ports    none to choose. web: headless Chrome over a pipe; the page on 127.0.0.1, each test at a
-         port fixed by its own store's name (20000-47999).
-         ${NATIVE_PORTS}
+older than its sources, saying so on stderr. Each test launches the app fresh with its own
+store, after its first data has landed; its leading lines (size, epoch, fail fetch …)
+override flags.
 Runs     to completion, exit 1 when a test fails; nothing is left running.
 Lines    tap, type, expect text|tree|state, clock data|settle|+<ms>, reload, fail|pass fetch:
          docs/recipes/tests.md; all: docs/contract-grammar.md "Authored tests".`,
+    bodyAll: `A phone's build is ios --device's.
+Ports    none to choose. web: headless Chrome over a pipe; the page on 127.0.0.1, each test at a
+         port fixed by its own store's name (20000-47999).
+         ${NATIVE_PORTS}`,
     example: 'bun exact.mjs test ios tests/*.test.contract --size 390x844',
   },
   agent: {
     line: 'drive the app as a person would: tree, tap, type, state, screenshot, clock … on a host',
     usage: 'bun exact.mjs agent [web|ios|macos|linux|android] [flags] <op> [<op> …]',
-    flags: DRIVE,
+    flags: DRIVE.filter(naming(DRIVE_FIRST, true)),
+    more: DRIVE.filter(naming(DRIVE_FIRST, false)),
     internal: ['--test <file>', ...DRIVE_INTERNAL],
-    body: `Launches the app (web builds it first; ios and macos when missing or stale, saying so on
-stderr), runs each op, one quoted argument each, on the agent's clock, prints each reply and
-closes it. Without --storage, storage is refused.
+    body: `Launches the app (building it first when missing or stale, saying so on stderr), runs each
+op, one quoted argument each, on the agent's clock, prints each reply and closes it. Without
+--storage, storage is refused.
 Ops      a target is a testId, else a view's exact text or label
   tree [<target>] · tree --ax · state [<path>] · logs · layout [<target>]
   tap <target> [contextmenu|dblclick|hover|drag <dx> <dy>|…]
   type <target> <text> · type <target> key <Name>   (a select, date or checkbox: its value)
   clock data · clock settle · clock +<ms> [real]    land what is in flight · end transitions
-  screenshot <file.png> [window]                    window: with the platform's bars
+  check [dark|both] · screenshot <file.png> [window]  what is wrong, in text, before a picture · window: bars
   prefer <feature> <value> · perf [<target>] · resize <w>x<h> · close · fail|pass fetch <prefix>
-  trace <file>      a saved development trace; every form: docs/contract-for-agents.md
-                    "Inspection and testing", or agent web with no op
+Runs     to completion; each drive launches the app anew (--storage keeps its data).`,
+    bodyAll: `Trace    trace <file> reads a saved development trace. Every op's forms: docs/contract-for-agents.md
+         "Inspection and testing", or agent web with no op.
 Ports    none to choose. web: headless Chrome over a pipe; the page on 127.0.0.1 at a free port, or
          with --storage one fixed by app and store (20000-47999; "in use": another drive has it).
-         ${NATIVE_PORTS}
-Runs     to completion; each drive launches the app anew (--storage keeps its data).`,
+         ${NATIVE_PORTS}`,
     example: 'bun exact.mjs agent web --storage s1 "clock data" tree "tap add" "screenshot .exact/a.png"',
   },
   ios: {
     line: 'build for an iOS simulator and install it (--run launches it)',
-    usage: 'bun exact.mjs ios [--run] [--sim <udid|name>] [--device [--phone <udid|name>]] [--url <url>]',
+    usage: 'bun exact.mjs ios [--run|--prebuild] [--sim <udid|name>] [--device [--phone <udid|name>]] [--url <url>]',
     flags: [
       ['--run', 'also launch it (in Simulator.app, or on the phone); returns once launched'],
+      PREBUILD,
       ['--sim <udid|name>', 'which simulator (else EXACT_SIM, a booted iPhone, or the newest iPhone Pro)'],
       ['--device', 'a connected iPhone, signed with a development profile on this Mac'],
       ['--phone <udid|name>', 'which phone, with --device'],
@@ -139,16 +152,18 @@ Runs     to completion; each drive launches the app anew (--storage keeps its da
     get internal() { return appleRest(this.flags); },
     body: `The first build takes minutes, later ones a minute or two; several booted simulators are
 refused, not guessed (set EXACT_SIM). test ios and agent ios run it first themselves when
-the build is missing or older than its sources.
-Ports    none. Runs to completion (--run too). Start a long build in the background with &
-         and keep editing; its PID ($!) stops it.`,
+the build is missing or older than its sources; an edit to only app.contract or what app.ts
+imports runs its new plan on the existing build instead, in about a second.
+Ports    none. Runs to completion (--run too); --prebuild returns at once, the build going on
+         apart from this shell (its pid printed; test and agent wait for it).`,
     example: 'bun exact.mjs ios --run',
   },
   mac: {
     line: 'build the macOS app (--run launches it here)',
-    usage: 'bun exact.mjs mac [--run] [--bundle] [--url <url>] [--optimize speed|size]',
+    usage: 'bun exact.mjs mac [--run|--prebuild] [--bundle] [--url <url>] [--optimize speed|size]',
     flags: [
       ['--run', 'launch it when built, in the foreground (its log here) until it quits'],
+      PREBUILD,
       ['--bundle', 'also assemble the .app bundle'],
       ['--url <url>', 'with --run or --bundle: connect it to that dev server (web\'s URL) for live reload'],
       OPTIMIZE,
@@ -297,13 +312,19 @@ Ports    none. Runs to completion.`,
   },
 };
 
-/** A verb's whole help text. */
-export function helpText(verb) {
+/** A verb's help text: what a first build needs, or with `all` every flag and form. */
+export function helpText(verb, { all = false } = {}) {
   const entry = HELP[verb];
   if (!entry) return null;
-  const width = Math.min(22, Math.max(0, ...entry.flags.map(([row]) => row.length)));
-  const flags = entry.flags.map(([row, what]) => `  ${row.padEnd(width)}  ${what}`).join('\n');
-  return [entry.usage, `  ${entry.line}`, '', ...(flags ? [flags, ''] : []), entry.body, `Example  ${entry.example}`].join('\n');
+  const rows = all ? [...entry.flags, ...(entry.more ?? [])] : entry.flags;
+  const width = Math.min(22, Math.max(0, ...rows.map(([row]) => row.length)));
+  const flags = rows.map(([row, what]) => `  ${row.padEnd(width)}  ${what}`).join('\n');
+  const body = all && entry.bodyAll ? `${entry.body}\n${entry.bodyAll}` : entry.body;
+  const hidden = (entry.more ?? []).flatMap(([row]) => specs(row).map(name));
+  const more = !all && (hidden.length || entry.bodyAll)
+    ? [`More     bun exact.mjs ${verb} --help all: every flag (${hidden.slice(0, 4).join(', ')}${hidden.length > 4 ? ' …' : ''}), the ports`]
+    : [];
+  return [entry.usage, `  ${entry.line}`, '', ...(flags ? [flags, ''] : []), body, `Example  ${entry.example}`, ...more].join('\n');
 }
 
 /** The index: each verb of an app's exact.mjs, then the app's own (app.json `commands`). */
@@ -315,29 +336,33 @@ export function indexText({ verbs = Object.keys(HELP).filter((v) => v !== 'new')
     '',
     ...names.map((verb) => `  ${verb.padEnd(width)}  ${line(verb)}`),
     '',
-    'bun exact.mjs <verb> --help: its flags, the ports it opens, whether it stays in the foreground,',
-    'and an example. Read that, not exact2\'s scripts.',
+    'bun exact.mjs <verb> --help: what a first build needs, whether it stays in the foreground, and',
+    'an example; --help all: every flag and the ports it opens. Read that, not exact2\'s scripts.',
   ].join('\n');
 }
 
-/** What the generated exact.mjs prints for `help [verb]`, no verb, or a verb's `--help`; the exit code. */
-export function printHelp(verb, { verbs, own = {} } = {}) {
+/** What the generated exact.mjs prints for `help [verb]`, no verb, or a verb's `--help`; the exit code.
+ * `all` among the command's arguments (`agent --help all`, `help agent all`) asks for the whole text. */
+export function printHelp(verb, { verbs, own = {}, all = process.argv.slice(2).includes('all') } = {}) {
   if (!verb) return console.log(indexText({ verbs, own })), 0;
   if (own[verb] && !HELP[verb]) return console.log(`${verb}: this app's own command (app.json commands): ${own[verb].join(' ')}\nIts arguments follow as given; run in the app's directory.`), 0;
-  const text = (!verbs || verbs.includes(verb)) && helpText(verb);
+  const text = (!verbs || verbs.includes(verb)) && helpText(verb, { all });
   if (text) return console.log(text), 0;
   console.error(`no verb ${verb}\n\n${indexText({ verbs, own })}`);
   return 2;
 }
 
+/** The flags a verb's help documents, `--help all`'s included. */
+const documented = (verb) => [...HELP[verb].flags, ...(HELP[verb].more ?? [])];
+
 /** Every flag a verb's script takes, documented or not, by name: whether it takes a value. */
-export const knownFlags = (verb) => new Map([...HELP[verb].flags.flatMap(([row]) => specs(row)), ...(HELP[verb].internal ?? [])].map((spec) => [name(spec), takesValue(spec)]));
+export const knownFlags = (verb) => new Map([...documented(verb).flatMap(([row]) => specs(row)), ...(HELP[verb].internal ?? [])].map((spec) => [name(spec), takesValue(spec)]));
 
 /** A dispatched script's first call. `--help`/`-h` prints `verb`'s help and exits 0; a flag the
  * verb's script does not take is refused with the ones it does, exit 2. With `parsed`, `argv` is
  * what the script's own parser left, so every flag still in it is unknown (agent.mjs). */
 export function guardFlags(verb, argv, { parsed = false, say = console.log, fail = console.error, exit = process.exit } = {}) {
-  if (argv.includes('--help') || argv.includes('-h')) { say(helpText(verb)); return exit(0); }
+  if (argv.includes('--help') || argv.includes('-h')) { say(helpText(verb, { all: argv.includes('all') })); return exit(0); }
   const entry = HELP[verb], known = knownFlags(verb);
   const unknown = [];
   for (let i = 0; i < argv.length; i++) {
@@ -346,9 +371,9 @@ export function guardFlags(verb, argv, { parsed = false, say = console.log, fail
     unknown.push(argv[i]);
   }
   if (!unknown.length) return argv;
-  const takes = entry.flags.flatMap(([row]) => specs(row).map(name)).join(', ');
+  const takes = documented(verb).flatMap(([row]) => specs(row).map(name)).join(', ');
   fail(`${verb}: unknown flag ${unknown.join(', ')}. ${takes ? `It takes ${takes} (--help says what each takes and does).` : 'It takes no flags.'}`);
   return exit(2);
 }
 
-if (import.meta.main) process.exit(printHelp(process.argv[2] ?? ''));
+if (import.meta.main) process.exit(printHelp(process.argv[2] ?? '', { all: process.argv[3] === 'all' }));

@@ -611,9 +611,13 @@ pub(super) fn attributes(
                 attrs.push((name.clone(), value.clone()));
                 css.push_str("touch-action:none;");
             }
-            // A select's value is its options' (`element_extras`).
+            // A select's value is its options' (`element_extras`); a
+            // `<progress>`'s is its attribute, without which it is
+            // indeterminate (LLP 1116 D8).
             "value" => match element {
-                "input" | "button" | "option" => attrs.push((name.clone(), value.clone())),
+                "input" | "button" | "option" | "progress" => {
+                    attrs.push((name.clone(), value.clone()))
+                }
                 "textarea" => content = Some(value.clone()),
                 _ => {}
             },

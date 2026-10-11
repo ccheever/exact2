@@ -464,6 +464,20 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         return true
     }
 
+    /// Where a finger aimed at tab `node` lands, for a segment a control
+    /// draws (LLP 1080.000 D4; r5 weather): the control, and the segment's
+    /// box in it — its segment view's, else an equal share. Nil for a node no
+    /// segmented control draws (a tab bar's items are UIKit's private views).
+    func drawn(_ node: NodeView) -> (control: UIControl, segment: CGRect)? {
+        guard let entry = members.first(where: { $0.value.contains(node.id) }), let control = controls[entry.key],
+              let index = entry.value.firstIndex(of: node.id), control.numberOfSegments == entry.value.count else { return nil }
+        let views = control.segmentViews
+        if views.count == control.numberOfSegments { return (control, views[index].convert(views[index].bounds, to: control)) }
+        let share = control.bounds.width / CGFloat(entry.value.count)
+        let slot = control.effectiveUserInterfaceLayoutDirection == .rightToLeft ? entry.value.count - 1 - index : index
+        return (control, CGRect(x: share * CGFloat(slot), y: 0, width: share, height: control.bounds.height))
+    }
+
     func observation(_ node: NodeView) -> [String: Any]? {
         if let entry = members.first(where: { $0.value.contains(node.id) }), let bar = bars[entry.key],
            let index = entry.value.firstIndex(of: node.id) {

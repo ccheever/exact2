@@ -13,6 +13,7 @@ import { Cdp, assertWebDistApp, browserDiagnosticNoise } from '../../../scripts/
 import { chromium, refuseStale, webChanges } from '../../../scripts/agent-launch.mjs';
 import { hermesBundle, hermesTarget, resolveApp } from '../../../scripts/app.mjs';
 import { jsTargetBuild, serveStatic } from '../serve.mjs';
+import { decodePng } from '../../../scripts/png.mjs';
 
 const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
 const dist = resolve(process.env.EXACT_WEB_DIST ?? resolve(ROOT, 'host/web/dist'));
@@ -518,6 +519,68 @@ for (const concern of ['defaults', 'nowrap', 'clamp', 'floor', 'disabled accent'
   }, {html});
 });
 
+// LLP 1116.003 D3.1: the ink on an accent fill is white until white falls
+// under 3:1 against the accent as the scheme resolves it, then black: a pale
+// dark-scheme accent (event-rsvp's, recipe-finder's) takes black there; the
+// unsaid accent and the destructive red keep white; an authored colour wins.
+browserCheck('the ink on an accent fill is chosen for contrast in each scheme', async () => {
+  const shell = readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8');
+  const cases = {
+    pale: ['bordered-prominent', '--exact-accent:light-dark(#6652c5, #b5a4ff);'],
+    salmon: ['filled', '--exact-accent:light-dark(#b74e2e, #f49d7d);'],
+    teal: ['prominent-glass', '--exact-accent:light-dark(#16766c, #74d6c5);'],
+    unsaid: ['bordered-prominent', ''],
+    blue: ['filled', '--exact-accent:light-dark(#007aff, #0a84ff);'],
+    destructive: ['bordered-prominent', '', 'data-destructive="true"'],
+    authored: ['bordered-prominent', '--exact-accent:#b5a4ff;color:rgb(255, 0, 0);'],
+    disabled: ['bordered-prominent', '--exact-accent:#b5a4ff;', 'disabled'],
+  };
+  const buttons = scheme => Object.entries(cases).map(([id, [look, style, extra = '']]) =>
+    `<button id="${scheme}-${id}" data-native data-button-style="${look}" style="display:grid;${style}" ${extra}><span data-exact-text>Going</span></button>`).join('');
+  const html = shell.replace('<div id="exact-root"></div>', `<div id="exact-root"><div style="color-scheme:light">${buttons('light')}</div><div style="color-scheme:dark">${buttons('dark')}</div><span id="gray" style="color:GrayText"></span></div>`).replace('<script type="module" src="./glue.js"></script>', '');
+  await withDocument('/', async tab => {
+    const page = await tab(true);
+    await page.until("document.readyState === 'complete'", 'accent fill fixture');
+    const ink = await page(`(() => { const x = document.createElement('canvas').getContext('2d', {willReadFrequently: true});
+      const rgb = e => { x.clearRect(0, 0, 1, 1); x.fillStyle = getComputedStyle(e).color; x.fillRect(0, 0, 1, 1); const [r, g, b] = x.getImageData(0, 0, 1, 1).data; return r + ',' + g + ',' + b; };
+      return Object.fromEntries([...document.querySelectorAll('button, #gray')].map(e => [e.id, rgb(e)])); })()`);
+    const [white, black] = ['255,255,255', '0,0,0'];
+    expect(ink['light-pale']).toBe(white);
+    expect(ink['dark-pale']).toBe(black);
+    expect(ink['light-salmon']).toBe(white);
+    expect(ink['dark-salmon']).toBe(black);
+    expect(ink['light-teal']).toBe(white);
+    expect(ink['dark-teal']).toBe(black);
+    for (const scheme of ['light', 'dark']) {
+      expect(ink[`${scheme}-unsaid`]).toBe(white);
+      expect(ink[`${scheme}-blue`]).toBe(white);
+      expect(ink[`${scheme}-destructive`]).toBe(white);
+      expect(ink[`${scheme}-authored`]).toBe('255,0,0');
+      expect(ink[`${scheme}-disabled`]).toBe(ink.gray);
+    }
+  }, {html});
+});
+
+// LLP 1116.003 D3.2: a symbol that names no tint is the nearest authored
+// accent, as `AccentColor` is (LLP 1116.001 D2) and UIKit's inherited tint
+// is: event-rsvp's calendar under `light-dark(#6652c5, #b5a4ff)` drew the
+// browser's blue. Both targets' symbol sheets; an authored tint still wins.
+for (const sheet of ['host/web/glue.js', 'host/web-js/symbols.js']) browserCheck(`an untinted symbol is the nearest accent (${sheet})`, async () => {
+  const style = readFileSync(resolve(ROOT, sheet), 'utf8').match(/'(@property --exact-tint[^']*)'/)[1];
+  const shell = readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8');
+  const img = (id, css = '') => `<img id="${id}" data-symbol-path="M0 0h16v16H0Z" style="width:16px;height:16px;${css}">`;
+  const html = shell.replace('<div id="exact-root"></div>', `<style>${style}</style><div id="exact-root"><div style="--exact-accent:light-dark(#6652c5, #b5a4ff)"><div style="color-scheme:light">${img('light')}</div><div style="color-scheme:dark">${img('dark')}</div>${img('authored', '--exact-tint:rgb(255, 0, 0)')}</div>${img('unsaid')}<span id="system" style="color:AccentColor"></span></div>`).replace('<script type="module" src="./glue.js"></script>', '');
+  await withDocument('/', async tab => {
+    const page = await tab(true);
+    await page.until("document.readyState === 'complete'", 'symbol fixture');
+    const tint = await page(`(() => Object.fromEntries(['light', 'dark', 'authored', 'unsaid'].map(id => [id, getComputedStyle(document.getElementById(id)).backgroundColor]).concat([['system', getComputedStyle(document.getElementById('system')).color]])))()`);
+    expect(tint.light).toBe('rgb(102, 82, 197)');
+    expect(tint.dark).toBe('rgb(181, 164, 255)');
+    expect(tint.authored).toBe('rgb(255, 0, 0)');
+    expect(tint.unsaid).toBe(tint.system);
+  }, {html});
+});
+
 // LLP 1116.001 D1: a date, time or local date-time control takes the text
 // field's look (a 1 px line, 8 px corners, the field's background, 36 px
 // tall at the body size) in light and dark, as a border box the kernel
@@ -553,6 +616,44 @@ browserCheck('date and time controls take the field look', async () => {
     expect(facts.authored.width).toBe(210);
     expect(facts.bare.border).toBe('0px none rgb(0, 0, 0)');
     expect(facts.bare.sizing).toBe('content-box');
+  }, {html});
+});
+
+// LLP 1116.003: a determinate progress is the platform's bar, as UIKit draws
+// its own and Linux paints it: a 4 px capsule centred across its box, the
+// accent's over a track of the system fill, the same fill whatever the
+// accent, in light and dark. Chrome's own takes its track by contrast with
+// the accent (near black under teal in light, near white under indigo in
+// dark). An authored background is the box's, under the track, as on iOS.
+browserCheck('a determinate progress is the accent over the system fill in light and dark', async () => {
+  const shell = readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8');
+  // As both targets write a role's accent: `accent-color` and the custom property beside it.
+  const accent = (role, pair) => `accent-color:var(--exact-${role}, ${pair});--exact-accent:var(--exact-${role}, ${pair});`;
+  const teal = accent('system-teal', 'light-dark(#30b0c7, #40c8e0)'), indigo = accent('system-indigo', 'light-dark(#5856d6, #5e5ce6)');
+  const bar = (id, style) => `<progress id="${id}" value="0.25" max="1" style="width:160px;margin:8px;${style}"></progress>`;
+  const html = shell.replace('<div id="exact-root"></div>', `<div id="exact-root"><div style="color-scheme:light;background:#fff;padding:8px">${
+    bar('teal-light', teal)}${bar('indigo-light', indigo)}${bar('authored', teal + 'background-color:rgb(255, 0, 0)')}</div><div style="color-scheme:dark;background:#000;padding:8px">${
+    bar('teal-dark', teal)}${bar('indigo-dark', indigo)}</div></div>`).replace('<script type="module" src="./glue.js"></script>', '');
+  await withDocument('/', async tab => {
+    const page = await tab(true);
+    await page.until("document.readyState === 'complete'", 'progress fixture');
+    await page(settled);
+    const boxes = await page(`(() => Object.fromEntries([...document.querySelectorAll('progress')].map(e => { const r = e.getBoundingClientRect(); return [e.id, [r.x, r.y, r.width, r.height]]; })))()`);
+    const { data } = await page.call('Page.captureScreenshot', { format: 'png' });
+    const shot = decodePng(Buffer.from(data, 'base64'));
+    const at = (id, dx, dy) => { const [x, y] = boxes[id], i = (Math.round(y + dy) * shot.width + Math.round(x + dx)) * 4; return [...shot.data.slice(i, i + 3)]; };
+    const near = (seen, want, what) => expect(seen.every((c, i) => Math.abs(c - want[i]) <= 3), `${what}: ${seen} for ${want}`).toBe(true);
+    for (const id of Object.keys(boxes)) expect(boxes[id].slice(2)).toEqual([160, 16]);
+    // The fill over white (#78788033) and over black (#7878805c).
+    for (const id of ['teal-light', 'indigo-light']) { near(at(id, 120, 8), [228, 228, 230], `${id} track`); near(at(id, 120, 2), [255, 255, 255], `${id} above its track`); }
+    for (const id of ['teal-dark', 'indigo-dark']) { near(at(id, 120, 8), [43, 43, 46], `${id} track`); near(at(id, 120, 2), [0, 0, 0], `${id} above its track`); }
+    near(at('teal-light', 20, 8), [0x30, 0xb0, 0xc7], 'teal bar in light');
+    near(at('indigo-light', 20, 8), [0x58, 0x56, 0xd6], 'indigo bar in light');
+    near(at('teal-dark', 20, 8), [0x40, 0xc8, 0xe0], 'teal bar in dark');
+    near(at('indigo-dark', 20, 8), [0x5e, 0x5c, 0xe6], 'indigo bar in dark');
+    near(at('authored', 120, 2), [255, 0, 0], 'the authored background is the box');
+    near(at('authored', 120, 8), [228, 24, 26], 'the track over it');
+    near(at('authored', 20, 8), [0x30, 0xb0, 0xc7], 'the bar over it');
   }, {html});
 });
 

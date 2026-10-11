@@ -45,7 +45,10 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     weak var ghostParent: NodeView?
     let firstDraw: () -> Void
     let kind: String
-    var inlineText: [InlineText] = []
+    var inlineText: [InlineText] = [] { didSet { inlineAccessibility = nil } }
+    /// Its runs' elements, kept until the runs change, and what else made
+    /// them (`textAccessibilityChildren`).
+    var inlineAccessibility: (key: String?, elements: [NSAccessibilityElement])?
     var inlinePressed: UInt32?
     /// An SVG element a click in this `svg` went down on (LLP 1055.000 D17).
     var svgPressed: UInt32?
@@ -340,6 +343,26 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if handlers.contains("hover") { presenter?.hover(self, false) }
     }
     /// A control is a leaf, as UIKit makes one: VoiceOver reads its name.
+    /// The exception is a descendant with a role of its own, which stays its
+    /// child as on the web (`controlAccessibilityChildren`). An image or a
+    /// range is a leaf.
+    package override func accessibilityChildren() -> [Any]? {
+        if props["accessibilityElementsHidden"] == "true" { return [] }
+        if actsAsButton { return controlAccessibilityChildren() }
+        return props["accessibilityRole"] == "img" || rangeRole != nil ? nil : textAccessibilityChildren() ?? super.accessibilityChildren()
+    }
+    /// A control's descendants with a role of their own, as the web keeps
+    /// them: Chrome's `<button><h2>` is button › heading (X74). Nil when it
+    /// holds only text and images, so it stays a leaf read once by its name.
+    private func controlAccessibilityChildren() -> [Any]? {
+        let named: Set<NSAccessibility.Role> = [.staticText, .image]
+        let children: [Any] = super.accessibilityChildren() ?? []
+        let own = children.filter { child in
+            let role = (child as? NSView)?.accessibilityRole() ?? (child as? NSAccessibilityElement)?.accessibilityRole()
+            return role.map { !named.contains($0) } ?? false
+        }
+        return own.isEmpty ? nil : own
+    }
     package override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
         super.accessibilityAttributeNames() + (["AXLanguage"] + Self.ariaAttributes.filter { ariaAttribute($0) != nil }).map { .init(rawValue: $0) }
     }
@@ -354,67 +377,6 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// web's does (onboarding F16: a checkbox's visible label stayed exposed).
     package override func isAccessibilityElement() -> Bool {
         accessibilityExposed && props["accessibilityElementsHidden"] != "true" && super.isAccessibilityElement()
-    }
-    package override func accessibilityChildren() -> [Any]? {
-        if props["accessibilityElementsHidden"] == "true" { return [] }
-        return actsAsButton || props["accessibilityRole"] == "img" || rangeRole != nil ? nil : textAccessibilityChildren() ?? super.accessibilityChildren()
-    }
-    /// What VoiceOver reaches, as the web's accessibility tree and iOS's
-    /// traits have it: a pressable is a button — a link, checkbox, radio or
-    /// switch when its role says so — a labelled image (or `role="img"`,
-    /// an svg's) an image, and a `group` or `radiogroup` a group of its
-    /// children. Headings are paragraphs (`updateTextAccessibility`); names
-    /// come from `syncAccessibility`.
-    func updateRoleAccessibility() {
-        let role = props["accessibilityRole"]
-        if actsAsButton {
-            setAccessibilityElement(true)
-            if let checked = checkedRole { setAccessibilityChecked(checked.role, checked.checked) }
-            else { setAccessibilityToggle(pressedState, else: role == "link" ? .link : .button) }
-            setAccessibilitySelected(props["accessibilitySelected"] == "true")
-            if let expanded = props["accessibilityExpanded"] { setAccessibilityExpanded(expanded == "true") }
-        } else if kind == "image" || role == "img" {
-            let labelled = authoredLabel != nil
-            setAccessibilityElement(labelled)
-            setAccessibilityRole(labelled ? .image : nil)
-        } else if role == "group" || role == "radiogroup" {
-            setAccessibilityElement(true)
-            setAccessibilityRole(role == "radiogroup" ? .radioGroup : .group)
-            if accessibilitySubrole() != nil { setAccessibilitySubrole(nil) }
-        } else if let subrole = groupSubrole.map(NSAccessibility.Subrole.init(rawValue:)) {
-            // A live-region or dialog role as WebKit serves it (Core-AAM): a
-            // group whose subrole is the role, named only by its author, a
-            // paragraph's words its children (`textAccessibilityChildren`).
-            setAccessibilityElement(true)
-            if accessibilityRole() != .group { setAccessibilityRole(.group) }
-            if accessibilitySubrole() != subrole { setAccessibilitySubrole(subrole) }
-            if isParagraph, accessibilityValue() != nil { setAccessibilityValue(nil); setAccessibilityLabel(props["accessibilityLabel"]) }
-        } else if let range = rangeRole {
-            // A range role is one element, its value between its bounds and
-            // its `aria-valuetext` the description, as WebKit serves a drawn
-            // one (LLP 1116 D8). Only a change is written: each posts.
-            let axRole: NSAccessibility.Role = ["slider": .slider, "meter": .levelIndicator, "scrollbar": .scrollBar, "spinbutton": .incrementor][range] ?? .progressIndicator
-            setAccessibilityElement(true)
-            if accessibilityRole() != axRole { setAccessibilityRole(axRole) }
-            let n = rangeNumbers
-            let now = n.map { NSNumber(value: $0.now) }, low = n.map { NSNumber(value: $0.min) }, high = n.map { NSNumber(value: $0.max) }
-            if (accessibilityValue() as? NSNumber) != now { setAccessibilityValue(now) }
-            if (accessibilityMinValue() as? NSNumber) != low { setAccessibilityMinValue(low) }
-            if (accessibilityMaxValue() as? NSNumber) != high { setAccessibilityMaxValue(high) }
-            let text = props["accessibilityValueText"].flatMap { $0.isEmpty ? nil : $0 }
-            if accessibilityValueDescription() != text { setAccessibilityValueDescription(text) }
-        } else if !isParagraph, super.isAccessibilityElement() {
-            // None of these roles now (one removed at runtime): a plain view
-            // again, as a new one is, without the role's subrole or values.
-            // A paragraph is reset by `updateTextAccessibility`.
-            setAccessibilityElement(false)
-            setAccessibilityRole(nil)
-            if accessibilitySubrole() != nil { setAccessibilitySubrole(nil) }
-            if accessibilityValue() != nil { setAccessibilityValue(nil) }
-            if accessibilityMinValue() != nil { setAccessibilityMinValue(nil) }
-            if accessibilityMaxValue() != nil { setAccessibilityMaxValue(nil) }
-            if accessibilityValueDescription() != nil { setAccessibilityValueDescription(nil) }
-        }
     }
     /// Where an image source resolves, as a page resolves `src`: an `http(s)`
     /// URL as is; a relative path under the asset root (`EXACT_ASSETS`, else
@@ -858,7 +820,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     func applyPlaceholder(_ f: NSTextField) {
         let text = props["placeholder"] ?? ""
-        let font = f.font ?? NSFont.systemFont(ofSize: 17)
+        let font = f.font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
         if text.isEmpty {
             f.placeholderAttributedString = nil
             f.placeholderString = nil
