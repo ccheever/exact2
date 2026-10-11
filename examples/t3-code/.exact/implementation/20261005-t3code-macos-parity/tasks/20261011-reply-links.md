@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-reply-links
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/434
 verified_commit: null
 ---
 
@@ -144,6 +144,21 @@ Verification fixture thread open. Never send a message.
   pops the shell's menu for that click once (no Copy Link for a mailto URL; Copy with page text selected; nothing for no
   click or a stale one; the template's Copy Link for a safe URL). `main.swift` runs the suite. On the tip's module the
   suite does not compile (no `shellMenuForLastClick`).
+
+## Checks
+
+On the code head `1cc7f3391` (`origin/feat(example)/t3-code` `0292f4364` merged: already up to date; all exit 0): `bun test
+examples/t3-code --timeout 60000` 4454 pass / 1 skip / 0 fail (305 files); strict `tsc`; `contract build` of `app.contract`
+(1397 lines; 110,029 nodes, 28,708,013 bytes); `cargo test -p t3-code-macos --lib` 19 pass; AppKit `contextmenu` 57 run / 0
+failed (4 new); `git add -A && bun scripts/caps.mjs`; the five checks: `cargo build --all-targets --keep-going`, `cargo test
+--lib --bins --tests --no-fail-fast` (3679 passed, 0 failed, 34 ignored), `cargo clippy --all-targets --keep-going -- -D
+warnings`, `cargo fmt --all -- --check`, `bun scripts/caps.mjs`, `bun scripts/boot.mjs`. The commit after it adds only this
+record's PR link.
+
+## Not done / not verified
+
+- Real-input steps 1–4 above: the coordinator's session.
+- RL-2's click: Decision needed below.
 
 ## Seen while building, not a finding row
 
