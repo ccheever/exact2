@@ -94,7 +94,7 @@ Records: `.exact/implementation/20261005-t3code-macos-parity/` (`plan.md` "Statu
      - #292 (partial): `T3MenuTurn` stays until #292 closes;
    - once PR #239 (kmagiera) has merged: X44's ACP registry SVG icons on Apple.
 5. Held:
-   - `provider-sign-in-verification-followup`: its X49 row waits for main fix of #279 (bucket 4: approved, no fix in progress). The Cursor row is closed (the user has no Cursor Pro account).
+   - `provider-sign-in-verification-followup` was closed on 2026-10-11 (the user's decision); its unverified rows are in "Known differences".
    - `installed-font-picker` waits for X48 ([#318](https://github.com/ccheever/exact2/issues/318), bucket 5: design pending, no owner selection).
    - Every other issue's workaround stays as the issues README's mapping table says.
    - #99 goes to `main` after round 7 and the cleanup the user scheduled for the end.
@@ -159,6 +159,9 @@ the ones a person sees in a session are repeated here.
 | A code span inside a reply's web link | Not pressable (drawing it pressable grows the plan by 763 KB) | Part of the link | #419's build |
 | The thread's Diff panel, a gutter press | An open skill chip's details stay open | An outside press closes them | X71; handing the press on grew the plan by 777 KB (#413) |
 | Dialogs, Shift+Tab before the first stop (and Tab past the last) | The focus leaves the dialog for the page behind (the import wizard, `realinput-1010h` (c)) | Base UI's focus trap wraps inside | X53, [#282](https://github.com/ccheever/exact2/issues/282), partial in main #327 |
+| Progress bars (provider install, usage) to VoiceOver | A drawn bar with `role="progressbar"`; the percentage is only in `aria-description`, not a range value | A `progress` element whose value assistive technology reads | X49, main `issues/20261009-aria-range-accessibility-values.md` (open); [provider-sign-in-verification-followup](.exact/implementation/20261005-t3code-macos-parity/tasks/closed/20261008-provider-sign-in-verification-followup.md), closed |
+| Provider sign-in, not verified with a real account | Gemini CLI (ACP) "Log in with Google": Google refused the client for this account; Cursor: no Pro account (a free account gets `403 plan_required`). Antigravity's Google sign-in, real Sign out and Codex's Change account passed (2026-10-08) | — | The same record |
+| Not compared | The subscription trace (subscriptions, unsubscriptions, refresh calls) and reference pixel pairs for #238's matrix: no oracle or trace tooling (decision of 2026-10-06) | — | The same record |
 | Real input, not verified | #261's reaction pill tooltip; #307's Usage popover email tooltip and the press on its padding; #311's PR-link card, commit link and the Code tab's age, viewed-error, short/withheld and viewed-here tips; #346's muted tab indicator (AppKit-tested); RG-3's spelling guesses under an English input source | — | "Next real-input batch" above; tests and agent drives cover them |
 
 ### Found, not in scope
