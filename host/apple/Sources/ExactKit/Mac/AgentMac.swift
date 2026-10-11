@@ -1058,7 +1058,7 @@ extension Agent {
     }
     /// The agent's system appearance, the whole process's; `nil` follows the
     /// Mac. Under the agent it is set at launch (`launchAppearance`): its
-    /// first reader is a session's first boot, before the window draws.
+    /// first reader is the first `ExactView`, before it reads an appearance.
     nonisolated(unsafe) static var systemAppearance: NSAppearance? = ExactEnv.agentMode ? launchAppearance() : nil
     /// Light, as `prefer` would set it, never the machine's (LLP 1069.007 D2),
     /// and the app's while it follows the system: so the first boot tells
