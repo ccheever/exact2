@@ -30,3 +30,14 @@ test('the provider setup status lines are status nodes; the Codex account descri
   expect(codex).toHaveLength(2);
   for (const line of codex) expect(line).not.toContain('role=');
 });
+
+// The Settings surface is a route in the reference (SettingsSidebarNav's navigation "Settings" and the page), not a
+// dialog; since #457 a `role="dialog"` box is AXApplicationDialog, so the clone's Settings row writes none.
+// The pull request link preview is Base UI's PreviewCard popup, which has no role either.
+test('the Settings surface and the pull request link preview are no dialogs', () => {
+  for (const [file, needle] of [['app-settings.contract', 'testId="settings-dialog"'], ['pages-pr-links.contract', 'testId="pull-request-link-preview"']]) {
+    const found = lines(file!, needle!);
+    expect(found).toHaveLength(1);
+    expect(found[0]).not.toContain('role=');
+  }
+});
