@@ -25,6 +25,16 @@ export function newTaskFileEndpointIdentity(environmentId: string, client: T3Cli
 /** Native is scoped to this awaited read only. Nothing retains its endpoint handle. */
 export async function readStandaloneNewTaskFile(environmentId: string, cwd: string, path: string,
   native: Native, client: T3Client, background: EnvironmentFleet, check: () => void): Promise<Obj> {
+  return withStandaloneNewTaskFile(environmentId, native, client, background, check, async call => {
+    const result = await call({ op: 'request', method: 'projects.readFile', payload: { cwd, relativePath: path } });
+    return { contents: str(result.contents), truncated: result.truncated === true };
+  });
+}
+
+/** Workspace file operations share the read's captured endpoint and grant checks. */
+export async function withStandaloneNewTaskFile<T>(environmentId: string, native: Native, client: T3Client,
+  background: EnvironmentFleet, check: () => void,
+  operation: (call: (input: Obj) => Promise<Obj>, origin: string) => Promise<T>): Promise<T> {
   native.watch('t3.status'); native.watch('t3.fleet');
   const saved = await savedList(native); check();
   const source = environmentSources(client, saved, background.entries).find(source => source.environmentId === environmentId);
@@ -55,6 +65,5 @@ export async function readStandaloneNewTaskFile(environmentId: string, cwd: stri
   };
   const session = await call({ op: 'http', path: '/api/auth/session' });
   if (!mobileSessionGrants(session, 'filesystem:read')) throw new ClientError('This connection cannot read host files.');
-  const result = await call({ op: 'request', method: 'projects.readFile', payload: { cwd, relativePath: path } });
-  return { contents: str(result.contents), truncated: result.truncated === true };
+  return operation(call, origin);
 }

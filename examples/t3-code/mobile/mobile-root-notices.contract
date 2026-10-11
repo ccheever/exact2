@@ -3,6 +3,7 @@
 use Change, InformationChange, SettingsWrite, AutomationChange from "./app-shapes.contract"
 use VoiceResult from "./voice-controls.contract"
 use FileTreeResult from "./file-tree.contract"
+use FileActionResult from "./file-view.contract"
 
 fn changeNoticeMessage(reply: option<Change>): string = match reply {
   case some(result) => result.message,
@@ -14,6 +15,10 @@ fn voiceNoticeMessage(reply: option<VoiceResult>): string = match reply {
 }
 fn filesNoticeMessage(reply: option<FileTreeResult>): string = match reply {
   case some(result) => result.message,
+  case none => ""
+}
+fn fileNoticeMessage(reply: option<FileActionResult>, owner: string): string = match reply {
+  case some(result) => result.owner == owner ? result.message : "",
   case none => ""
 }
 fn informationNoticeMessage(reply: option<InformationChange>, route: string): string = match reply {

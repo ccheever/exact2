@@ -148,6 +148,12 @@ export function mobileRoutingRows(sources: ReturnType<typeof environmentSources>
 let snapshotReadStarted = 0, snapshotReadPublished = 0;
 let snapshotMetadata = { nativeAvailable: false, focusedStatus: {} as Obj, focusedGeneration: -1,
   focusedOrigin: '', focusedEnvironmentId: '', preferencesText: '{}', routingReady: false };
+/** Existing status read's facts are usable only by their matching live client. */
+export function mobileFocusedConnectionFacts(client: T3Client = mobileClient): Obj {
+  return client === mobileClient && snapshotMetadata.focusedGeneration === client.generation
+    && snapshotMetadata.focusedOrigin === client.origin && snapshotMetadata.focusedEnvironmentId === client.environmentId
+    ? snapshotMetadata.focusedStatus : {};
+}
 /** The stable root resource owns each native read/drain invocation. */
 export async function mobileSnapshotRead(nativeInput: Native | null | undefined, suppliedStorage: Files, now = 0) {
   const reading = ++snapshotReadStarted;

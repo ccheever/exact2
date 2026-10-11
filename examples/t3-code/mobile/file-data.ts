@@ -17,7 +17,9 @@ export interface FileTreeSnapshot { owner: string; revision: number; title: stri
   rows: FileTreeItem[]; loading: boolean; error: string; truncated: boolean; emptyTitle: string; emptyDetail: string }
 export interface FileSnapshot { owner: string; revision: number; path: string; title: string; subtitle: string;
   loading: boolean; error: string; contents: string; copyContents: string; rows: ReviewRow[]; truncated: boolean; notice: string;
-  markdown: boolean; initialRowId: string }
+  markdown: boolean; initialRowId: string; svg: boolean; svgSource: string; svgRetry: string; svgFailure: string;
+  svgSharing: boolean; svgCanRead: boolean; svgShareAction: string; svgShareMessage: string; svgShareReceipt: string; fullPath: string; relativePath: string; svgPhase: string; svgTitle: string;
+  svgDetail: string; svgTrace: string; svgTraceCopy: string; svgRetrying: boolean; svgRetryAllowed: boolean; svgSymbol: string }
 type ReadLane = 'tree' | 'file';
 interface Access { owner: string; allowed: boolean; permissionError: string; revocation: number;
   tree: { checking: boolean; error: string; serial: number }; file: { checking: boolean; error: string; serial: number } }
@@ -154,12 +156,23 @@ export function mobileFilePresentation(input: { owner: string; revision: number;
     rows: read && !read.error ? lines.map((text, at) => ({ ...reviewRow(`source-line:${at}`, 'line'), path, text: text.replace(/\t/g, '    '),
       oldNumber: '', newNumber: String(at + 1), lineIndex: at, change: 'context', selected: at === target, tokens: tokens[at] ?? [] })) : [],
     truncated: read?.truncated === true, notice: read?.truncated ? 'Preview limited to the first 1 MB of a truncated file.' : '',
-    markdown: /\.(?:md|mdx)$/i.test(path.split(/[?#]/, 1)[0] ?? ''), initialRowId: target >= 0 ? `source-line:${target}` : '' };
+    markdown: /\.(?:md|mdx)$/i.test(path.split(/[?#]/, 1)[0] ?? ''), initialRowId: target >= 0 ? `source-line:${target}` : '',
+    svg: false, svgSource: '', svgRetry: '', svgFailure: '', svgSharing: false, svgCanRead: false, svgShareAction: '', svgShareMessage: '', svgShareReceipt: '', fullPath: '', relativePath: '',
+    svgPhase: '', svgTitle: '', svgDetail: '', svgTrace: '', svgTraceCopy: '', svgRetrying: false, svgRetryAllowed: false, svgSymbol: '' };
 }
 /** Pinned ThreadFilesRouteScreen: modes belong to one path; clipboard keeps raw host text. */
 export function mobileFileMenu(data: FileSnapshot, preview: boolean, wrap: boolean, routeId: string, preferenceReady: boolean) {
   const actions: { id: string; title: string; icon: string; selected?: boolean; inline?: boolean; disabled?: boolean; eventValue?: string; copyValue?: string }[] = [];
   if (!data.path || !data.owner) return { configuration: JSON.stringify({ identifier: '', actions }) };
+  if (data.svg) {
+    const event = (operation: string) => JSON.stringify({ identifier: data.owner, operation });
+    actions.push({ id: 'copy-full-path', title: 'Copy full path', icon: 'doc.on.doc', copyValue: data.fullPath });
+    if (data.relativePath) actions.push({ id: 'copy-relative-path', title: 'Copy relative path', icon: 'doc.on.doc', copyValue: data.relativePath });
+    actions.push({ id: 'share', title: data.svgSharing ? 'Opening share sheet…' : 'Save or share', icon: 'square.and.arrow.up',
+      disabled: data.svgSharing || !data.svgCanRead, eventValue: data.svgShareAction },
+      { id: 'refresh', title: 'Refresh', icon: 'arrow.clockwise', eventValue: event('refresh') });
+    return { configuration: JSON.stringify({ identifier: JSON.stringify([data.owner, routeId, data.path]), title: data.fullPath, actions }) };
+  }
   if (data.markdown) actions.push(
     { id: 'preview', title: 'Preview', icon: 'eye', inline: true, selected: preview, eventValue: 'preview' },
     { id: 'source', title: 'Source', icon: 'doc.text', inline: true, selected: !preview, eventValue: 'source' });

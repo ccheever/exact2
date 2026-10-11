@@ -135,6 +135,9 @@ final class T3MobileDocumentMenu: ExactNativeInstance {
 
 private final class T3MobileHTMLNavigation: NSObject, WKNavigationDelegate {
     weak var owner: T3MobileDocumentHTML?
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) { owner?.started(webView, navigation: navigation) }
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { owner?.finished(webView, navigation: navigation) }
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { owner?.terminated(webView) }
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         owner?.webView(webView, didFail: navigation, withError: error)
     }
@@ -146,9 +149,19 @@ private final class T3MobileHTMLNavigation: NSObject, WKNavigationDelegate {
         owner.webView(webView, decidePolicyFor: response, decisionHandler: decisionHandler)
     }
 }
+private final class T3MobileHTMLContainer: UIView {
+    var arrange: (() -> Void)?
+    override func layoutSubviews() { super.layoutSubviews(); arrange?() }
+}
 final class T3MobileDocumentHTML: ExactNativeInstance {
     private let navigation = T3MobileHTMLNavigation()
-    private let root = UIView()
+    private let root = T3MobileHTMLContainer()
+    private let progress = UIProgressView(progressViewStyle: .bar)
+    private let spinner = UIActivityIndicatorView(style: .medium)
+    private let failure = UILabel()
+    private var progressObservation: NSKeyValueObservation?
+    private var workspaceSvg = false
+    private var activeNavigation: WKNavigation?
     private var web: WKWebView
     private let files: T3MobileMediaFiles
     private let audioSession: T3MobileAudioSession
@@ -165,6 +178,11 @@ final class T3MobileDocumentHTML: ExactNativeInstance {
         web = WKWebView(frame: .zero, configuration: configuration)
         files = T3MobileMediaFiles(dataRoot: dataRoot)
         super.init(events: events)
+        failure.numberOfLines = 0; failure.font = .systemFont(ofSize: 12); failure.textColor = .secondaryLabel
+        failure.backgroundColor = .secondarySystemBackground
+        failure.isHidden = true; progress.isHidden = true; spinner.hidesWhenStopped = true
+        root.addSubview(failure); root.addSubview(progress); root.addSubview(spinner)
+        root.arrange = { [weak self] in self?.arrange() }
         attachWeb()
         audioSession.hold(audioOwner)
     }
@@ -176,10 +194,20 @@ final class T3MobileDocumentHTML: ExactNativeInstance {
         web.scrollView.contentInsetAdjustmentBehavior = .never
         web.frame = root.bounds; web.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         root.addSubview(web)
+        root.bringSubviewToFront(failure); root.bringSubviewToFront(progress); root.bringSubviewToFront(spinner)
+        let observed = web
+        progressObservation = web.observe(\.estimatedProgress, options: [.new]) { [weak self, weak observed] _, _ in
+            guard let self, let observed, self.alive, self.workspaceSvg, self.web === observed else { return }
+            self.progress.progress = Float(observed.estimatedProgress)
+            self.progress.isHidden = observed.estimatedProgress <= 0 || observed.estimatedProgress >= 1
+        }
+        arrange()
     }
     override func setProps(_ props: [String: String]) throws {
-        let source = try T3MobileMediaSource(props["media-source"] ?? "")
+        let raw = props["media-source"] ?? "", source = try T3MobileMediaSource(raw)
         guard source.identifier != identifier else { return }
+        workspaceSvg = (try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])?["workspaceSvg"] as? Bool == true
+        failure.text = nil; failure.isHidden = true; progress.isHidden = true; spinner.stopAnimating()
         opening?.cancel()
         let retired = web, retiredOwner = audioOwner, session = audioSession
         audioOwner = UUID(); audioSession.hold(audioOwner)
@@ -189,14 +217,14 @@ final class T3MobileDocumentHTML: ExactNativeInstance {
         let configuration = WKWebViewConfiguration(); configuration.websiteDataStore = .nonPersistent()
         web = WKWebView(frame: root.bounds, configuration: configuration); attachWeb()
         identifier = source.identifier
-        if let url = source.url { web.load(URLRequest(url: url)); return }
+        if let url = source.url { activeNavigation = web.load(URLRequest(url: url)); return }
         opening = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
                 let file = try await files.prepare(source)
                 guard alive, !Task.isCancelled, identifier == source.identifier else { T3MobileMediaFiles.release(file); return }
                 lease = file
-                web.loadFileURL(file, allowingReadAccessTo: file.deletingLastPathComponent())
+                activeNavigation = web.loadFileURL(file, allowingReadAccessTo: file.deletingLastPathComponent())
             } catch {
                 guard alive, !Task.isCancelled, identifier == source.identifier,
                       let value = try? JSONSerialization.data(withJSONObject: ["identifier": source.identifier, "message": error.localizedDescription]) else { return }
@@ -205,14 +233,40 @@ final class T3MobileDocumentHTML: ExactNativeInstance {
         }
     }
     private func failed(_ message: String) {
+        guard alive else { return }
+        if workspaceSvg {
+            spinner.stopAnimating(); progress.isHidden = true
+            failure.text = "Preview failed\n" + message; failure.isHidden = false; arrange(); return
+        }
         guard alive, let value = try? JSONSerialization.data(withJSONObject: ["identifier": identifier, "message": message]) else { return }
         events.change(String(decoding: value, as: UTF8.self))
     }
+    private func arrange() {
+        let height: CGFloat = workspaceSvg && !failure.isHidden ? min(100, failure.sizeThatFits(CGSize(width: max(1, root.bounds.width - 32), height: 100)).height + 16) : 0
+        failure.frame = CGRect(x: 16, y: 0, width: max(0, root.bounds.width - 32), height: height)
+        web.frame = CGRect(x: 0, y: height, width: root.bounds.width, height: max(0, root.bounds.height - height))
+        progress.frame = CGRect(x: 0, y: 0, width: root.bounds.width, height: 2)
+        spinner.center = CGPoint(x: root.bounds.midX, y: root.bounds.midY)
+    }
+    fileprivate func started(_ sender: WKWebView, navigation: WKNavigation?) {
+        guard alive, workspaceSvg, sender === web else { return }
+        activeNavigation = navigation
+        failure.text = nil; failure.isHidden = true; progress.progress = 0.05; progress.isHidden = false
+        spinner.startAnimating(); arrange()
+    }
+    fileprivate func finished(_ sender: WKWebView, navigation: WKNavigation?) {
+        guard alive, workspaceSvg, sender === web, navigation === activeNavigation else { return }
+        spinner.stopAnimating(); progress.isHidden = true
+    }
+    fileprivate func terminated(_ sender: WKWebView) {
+        guard alive, workspaceSvg, sender === web else { return }
+        failed("The file could not be rendered.")
+    }
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        if webView === web, (error as NSError).code != NSURLErrorCancelled { failed(error.localizedDescription) }
+        if alive, webView === web, !workspaceSvg || navigation === activeNavigation, (error as NSError).code != NSURLErrorCancelled { failed(error.localizedDescription) }
     }
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        if webView === web, (error as NSError).code != NSURLErrorCancelled { failed(error.localizedDescription) }
+        if alive, webView === web, !workspaceSvg || navigation === activeNavigation, (error as NSError).code != NSURLErrorCancelled { failed(error.localizedDescription) }
     }
     func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse, decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
         guard webView === web, alive else { decisionHandler(.cancel); return }
@@ -222,6 +276,7 @@ final class T3MobileDocumentHTML: ExactNativeInstance {
         } else { decisionHandler(.allow) }
     }
     override func destroy() {
+        root.arrange = nil; progressObservation = nil
         web.navigationDelegate = nil
         guard alive else { return }; alive = false; web.removeFromSuperview()
         opening?.cancel(); opening = nil; web.stopLoading()

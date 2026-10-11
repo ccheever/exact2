@@ -7,6 +7,7 @@ import { obj, type Obj } from './shared/domain';
 import { EnvironmentFleet, environmentKey, type FleetEntry } from './shared/settings-b-fleet';
 import { mobileNewTaskFileRead, mobileNewTaskFileSnapshot } from './new-task-file';
 import { mobileNewTaskFlowView, mobileNewTaskFlowAction, mobileNewTaskFlowOwns, mobileNewTaskFileRouteCurrent } from './new-task-flow';
+import { workspaceSvgSnapshot, workspaceSvgPrepare, workspaceSvgObserve, workspaceSvgAction } from './workspace-svg';
 
 function fixture(target = 'focused', independent = false) {
   const client = independent ? new MobileDraftClient() : new T3Client(), background = new EnvironmentFleet(), calls: Obj[] = [];
@@ -42,6 +43,66 @@ function deferredNative(f: ReturnType<typeof fixture>, at: string) {
   } };
   return { native, pending, release: (value: unknown) => release(value) };
 }
+
+test.each(['focused', 'remote'])('standalone SVG signs on its captured %s endpoint without a text read', async target => {
+  const f = fixture(target), path = 'images/icon.svg#draft', location = f.location.replace('src%2Fa.ts', encodeURIComponent(path));
+  const flow = f.view(location), visit = { path, location, visit: 'file', flowOwner: flow.owner };
+  workspaceSvgObserve([{ id: 'file', name: 'newTaskFile', url: location, params: { filePath: path } }], f.client);
+  const native: Native = { ...f.native, async later(input) {
+    const request = obj(input); f.calls.push(request);
+    return request.method === 'assets.createUrl' ? { ok: true, generation: request.fleet ? 19 : 7, value: { relativeUrl: '/svg?signed' } } : f.response(request);
+  } };
+  const data = (await workspaceSvgPrepare(visit, native, false, false, f.client, f.background))!;
+  expect(data).toMatchObject({ svg: true, fullPath: path, relativePath: '', rows: [], loading: false, error: '' });
+  expect(f.calls.map(call => call.method || call.op)).toEqual(['environments', 'http', 'assets.createUrl']);
+  const request = f.calls.at(-1)!;
+  expect(request.payload).toEqual({ resource: { _tag: 'draft-workspace-file', cwd: '/explicit', path } });
+  if (target === 'remote') expect(request).toMatchObject({ fleet: f.entry.key, generation: 19 });
+  else expect(request).toMatchObject({ generation: 7 });
+  expect(JSON.parse(data.svgSource).url).toBe(`https://${target === 'remote' ? 'remote' : 'focused'}.test/svg?signed`);
+});
+
+test.each(['generation', 'origin', 'phase', 'route', 'disabled'])('standalone SVG rejects a late signature after endpoint %s changes', async change => {
+  const f = fixture('remote'), path = 'icon.svg', location = f.location.replace('src%2Fa.ts', path), flow = f.view(location);
+  const visit = { path, location, visit: 'file', flowOwner: flow.owner };
+  workspaceSvgObserve([{ id: 'file', name: 'newTaskFile', url: location, params: { filePath: path } }], f.client);
+  const delayed = deferredNative(f, 'assets.createUrl');
+  const pending = workspaceSvgPrepare(visit, delayed.native, false, false, f.client, f.background);
+  await delayed.pending;
+  if (change === 'generation') f.entry.generation++;
+  if (change === 'origin') f.entry.origin = 'https://other.test';
+  if (change === 'phase') f.entry.phase = 'reconnecting';
+  if (change === 'route') f.entry.activeRouteId = 'other';
+  if (change === 'disabled') f.background.saved[1]!.enabled = false;
+  delayed.release({ ok: true, generation: 19, value: { relativeUrl: '/stale.svg' } });
+  await expect(pending).rejects.toMatchObject({ kind: 'superseded' });
+  expect(workspaceSvgSnapshot(visit, false, f.client, f.background)?.svgSource).toBe('');
+});
+
+test('missing background SVG target never retries the unrelated focused environment', async () => {
+  const f = fixture('remote'), path = 'icon.svg', location = f.location.replace('src%2Fa.ts', path), flow = f.view(location);
+  workspaceSvgObserve([{ id: 'file', name: 'newTaskFile', url: location, params: { filePath: path } }], f.client);
+  f.background.entries.clear(); f.background.saved = f.background.saved.filter(row => row.environmentId !== 'remote');
+  const visit = { path, location, visit: 'file', flowOwner: flow.owner }, data = (await workspaceSvgPrepare(visit, f.native, false, false, f.client, f.background))!;
+  const result = await workspaceSvgAction(data.svgRetry, { owner: data.owner, visit: 'file', location }, f.native, f.client, f.background);
+  expect(result.message).toContain('Connect to this workspace');
+  expect(f.calls.some(call => call.op === 'retry')).toBe(false);
+});
+
+test('SVG trace copy is live-owner checked and uses the existing clipboard and selection feedback', async () => {
+  const f = fixture('remote'), path = 'icon.svg', location = f.location.replace('src%2Fa.ts', path), flow = f.view(location);
+  workspaceSvgObserve([{ id: 'file', name: 'newTaskFile', url: location, params: { filePath: path } }], f.client);
+  f.entry.traceId = 'trace-123'; f.entry.phase = 'error';
+  const visit = { path, location, visit: 'file', flowOwner: flow.owner }, data = workspaceSvgSnapshot(visit, false, f.client, f.background)!;
+  const admission = { owner: data.owner, visit: 'file', location };
+  expect((await workspaceSvgAction(data.svgTraceCopy, admission, f.native, f.client, f.background)).message).toBe('');
+  expect(f.calls.filter(call => call.op === 'copyText')).toEqual([{ op: 'copyText', text: 'trace-123' }]);
+  expect(f.calls.find(call => call.op === 'mobileHomeHaptic')).toMatchObject({ kind: 'selection' });
+  const before = f.calls.length;
+  workspaceSvgObserve([{ id: 'home', name: 'home', url: '/', params: {} }], f.client);
+  await workspaceSvgAction(data.svgTraceCopy, admission, f.native, f.client, f.background);
+  expect(f.calls).toHaveLength(before);
+});
 
 test('standalone focused file needs no project, thread, shell or preferences and keeps a stable owner', async () => {
   const f = fixture();
@@ -199,4 +260,25 @@ test('runtime abandonment leaves no cached contents or spinner', async () => {
   const native: Native = { ...f.native, async later() { throw { name: 'FetchError', kind: 'Aborted' }; } };
   await expect(f.read(native)).rejects.toMatchObject({ kind: 'superseded' });
   expect(f.snapshot()).toMatchObject({ loading: false, error: '', contents: '' });
+});
+
+
+test.each(['focused', 'remote'])('standalone SVG %s subtitle keeps explicit project bytes and the ordinary fallback', target => {
+  for (const projectName of ['  Named Project  ', '', '   ', undefined]) {
+    for (const selected of [true, false]) {
+      const f = fixture(target), path = 'images/icon.svg';
+      if (selected) {
+        f.client.projectId = 'selected'; f.client.shell.projects = [{ id: 'selected', title: 'Focused Project', workspaceRoot: '/selected' }];
+      }
+      const params = new URLSearchParams(f.location.split('?')[1]);
+      if (projectName === undefined) params.delete('projectName'); else params.set('projectName', projectName);
+      const location = '/new/draft/files/' + encodeURIComponent(path) + '?' + params.toString(), flow = f.view(location);
+      const visit = { path, location, visit: 'file', flowOwner: flow.owner };
+      workspaceSvgObserve([{ id: 'file', name: 'newTaskFile', url: location, params: { filePath: path } }], f.client);
+      const expected = (projectName?.trim() ? projectName : selected ? 'Focused Project' : 'Files') + ' · images';
+      expect(workspaceSvgSnapshot(visit, false, f.client, f.background)!.subtitle).toBe(expected);
+      expect(mobileNewTaskFileSnapshot(path, location, 'file', flow.owner, false, f.client, f.background).subtitle).toBe(expected);
+      expect(f.calls).toHaveLength(0);
+    }
+  }
 });
