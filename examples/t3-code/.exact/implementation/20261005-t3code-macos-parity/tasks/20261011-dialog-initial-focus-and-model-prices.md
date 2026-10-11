@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-dialog-initial-focus-and-model-prices
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/438
 verified_commit: null
 ---
 
@@ -124,6 +124,16 @@ focusmap.py, compose.py, limits-bench.ts and the reference scripts](https://raw.
   targets; the import wizard and profile removal keep #409's task); DF-1's three targets.
 - `usage-pooled.test.ts` "Model prices on every metric": opens on Limits, Cost and Tokens and closes on each.
 - `pages-usage-r3.test.ts` "Model prices draws its X, + and chevron in the drawn appearance's colour".
+
+## Checks
+
+On `ed96be038` (the code and this record before its PR link; `origin/feat(example)/t3-code` merged, already up to
+date): `bun test examples/t3-code --timeout 60000` exit 0 (4593 pass, 1 skip, 0 fail, 309 files); strict `tsc` (README
+command) exit 0; `bun scripts/exact.mjs contract build examples/t3-code/app.contract` exit 0; `git add -A && bun
+scripts/caps.mjs` exit 0; `cargo build --all-targets --keep-going` exit 0; `cargo test --lib --bins --tests
+--no-fail-fast` exit 0 (3679 passed, 0 failed, 34 ignored); `cargo clippy --all-targets --keep-going -- -D warnings`
+exit 0; `cargo fmt --all -- --check` exit 0; `bun scripts/boot.mjs` exit 0. No Rust or Swift changed, so no
+`t3-code-macos` or AppKit run. `app.contract`: 1,398 lines.
 
 ## Real-input batch steps
 
