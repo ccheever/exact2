@@ -25,7 +25,6 @@ shape PrThreadComment
   initial: string
   authorTip: string
   age: string
-  ageTip: string
   bodyId: string
   raw: string
   canEdit: bool
@@ -185,8 +184,9 @@ component PrdThreadComment
           row align-items="center" gap="0.375rem" min-width=0
             PrAvatar(avatar=comment.avatar, initial=comment.initial, size=16)
             text comment.author font-size="0.75rem" line-height="1rem" font-weight=500 color=ptInk() white-space="nowrap"
-        LayerTip(label=comment.ageTip, side="top", align="start", tipId=`pull-request-thread-age-tip-${comment.id}`)
-          text comment.age font-size="0.75rem" line-height="1rem" color=ptMuted() white-space="nowrap"
+        // The age has no tip: ReviewThreadCard's `<span>{formatRelativeTimeLabel(comment.createdAt)}</span>` (the full date
+        // is the Summary tab's, PullRequestSummaryTab's CommentMeta). unverified-real-input-rows UV-1.
+        text comment.age font-size="0.75rem" line-height="1rem" color=ptMuted() white-space="nowrap" testId=`pull-request-thread-age-${comment.id}`
         PrdReactionBar(pills=comment.reactions, reacted=comment.reacted, canReact=canReact, choices=choices, subject=comment.id, pickerId=`pr-code-react-${comment.id}`, act=act)
       column margin-top="0.25rem" min-width=0
         PrdWords(bodyId=comment.bodyId, emptyText="", collapse=false, canEdit=comment.canEdit, pencil=true, hovered=over, open=open, previewing=previewing, draft=draft, saving=comment.saving, allowEmpty=false, label="Edit comment", placeholder="", previewId=`pr-preview:comment:${comment.id}`, pencilLabel="Edit comment", frameId=`pr-code-comment-body-${comment.id}`, testId=`pr-code-comment-${comment.id}`, still=still, documents=documents, code=code, env=env, local=local, begin=begin, edit=edit, preview=preview, save=save, cancel=cancel)
