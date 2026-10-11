@@ -619,7 +619,7 @@ roster. Compiler-owned router names exist only with a `routes` declaration.
 The platform answers the controls and the chrome; the app's own content is the
 author's to design (LLP 1116.000 D3): a summary at the top, bars where numbers
 compare, rows with a hierarchy, an empty state that says what to do.
-`exact:content` is a built-in library of eight components that draw it with
+`exact:content` is a built-in library of nine components that draw it with
 nothing but roles (`-exact-secondary-background`, `-exact-secondary-label`,
 `AccentColor`, the system hues, the text styles, symbols, the determinate
 `progress`), so dark mode, Dynamic Type and the tint come with them:
@@ -664,6 +664,7 @@ component Water
 | `DoneMark` | `caption: string`, `done: bool` | a filled check in the system green, or an empty circle in grey, with `caption` (short: a weekday; `""` for none) under it; one image to a reader, named by its caption and state ("Mon, done") |
 | `EmptyState` | `symbol: string`, `title: string`, `message: string`; a slot | a centred symbol, the title as a heading, the message; the nodes indented under the use (your `button`) under them |
 | `RowText` | `title: string`, `detail: string`, `value: option<string>` | a title, a secondary line under it (`""` for none) and a trailing value in tabular figures: a grouped list `row`'s content, or any list's |
+| `Badge` | `label: string`, `tint: option<string>` | a status in a word ("Full", "Cancelled") in a capsule, the caption style semibold, keeping its own size beside a title; `none` the neutral grey, `some("AccentColor")`, or a system hue under dark ink (white on indigo); read as its text |
 | `RoundButton` | `label: string`, `tint: option<string>`, `press: action`, `disabled: bool`, `testId: string` | the platform's own button as an 80-point circle (the Clock's Start, Stop, Lap): filled with `tint` (a role: `"AccentColor"`, `"-exact-system-green"`), ink the host picks for contrast; `none` is the neutral grey with the label's ink |
 | `AnswerTile` | `label: string`, `status: string`, `press: action`, `testId: string` | a full-width tile for one answer, the label in the headline style; `status` `"idle"` (a neutral fill), `"selected"` (the accent's outline and check), `"correct"` (the system green, dark ink, a check), `"wrong"` (the system red, white ink, a cross) or `"dimmed"`; told and dimmed tiles are disabled; a reader hears "Quito, correct" |
 

@@ -3,7 +3,7 @@
 // `-exact-secondary-background`, `AccentColor`, the system hues), its text
 // styles, its symbols and its determinate `progress`, so dark mode, Dynamic
 // Type and the tint come with them. Opt in by name: `use SummaryCard,
-// StatBar, RingProgress, DoneMark, EmptyState, RowText, RoundButton,
+// StatBar, RingProgress, DoneMark, EmptyState, RowText, Badge, RoundButton,
 // AnswerTile from "exact:content"`. They draw content, never chrome. Two are
 // controls that are the content (LLP 1116.003 D4): `RoundButton` and
 // `AnswerTile` take a `press` action, `disabled` where it applies and a
@@ -145,6 +145,31 @@ component RowText
         case some(v)
           text v color="-exact-secondary-label" font-variant-numeric="tabular-nums" flex-shrink=0
         case none
+
+// A status in a word, as "Full", "Cancelled" or "Locked": the label in a
+// capsule, in the caption style (semibold), so a state reads as text, never
+// as a colour alone. `tint` is its fill: `none` the neutral grey, the accent
+// (`some("AccentColor")`) under the ink the platform pairs with it, or a
+// state's hue (`some("-exact-system-orange")` for Full, the system red for
+// Cancelled, green for Open) under dark ink, which reads on every system hue
+// but indigo (white there), in either scheme. It keeps its own size: centred
+// in a row, beside a title that gives way (`flex=1 min-width=0`), and at the
+// start of a column.
+component Badge
+  props
+    label: string
+    tint: option<string>
+  derive fill = match tint { case some(t) => t, case none => "-exact-tertiary-fill" }
+  view
+    row flex-shrink=0 align-items="center"
+      when fill == "AccentColor" or fill == "-exact-tertiary-fill"
+        row padding="2px 8px" border-radius=999 background-color=fill
+          text label font="-exact-caption1" font-weight=600 white-space="nowrap"
+            color=(fill == "AccentColor" ? "AccentColorText" : "-exact-label")
+      else
+        row padding="2px 8px" border-radius=999 background-color=fill
+          color-scheme=(fill == "-exact-system-indigo" ? "dark" : "light")
+          text label font="-exact-caption1" font-weight=600 white-space="nowrap" color="-exact-label"
 
 // A large round button, as the Clock's Start, Stop and Lap: the platform's
 // own button drawn as an 80-point circle, so its press, focus and disabled

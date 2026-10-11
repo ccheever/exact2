@@ -1,5 +1,5 @@
 // Run by `bun exact.mjs api-test web`: one server, empty, for the whole run.
-test "an item is added for everyone; a refusal and a lost server are said in words, in place"
+test "an item is added for everyone; a refusal and a lost server are said in words, in place; a locked one can't be deleted"
   expect text "items-empty" == "Nothing yet. Tap + to add the first item."
   tap "add-item"
   clock settle
@@ -48,3 +48,9 @@ test "an item is added for everyone; a refusal and a lost server are said in wor
   clock data
   expect state lib.items.0 .title == "Eggs"
   expect tree missing "item-1"
+  tap "item-2"
+  clock settle
+  type "lock-item" "true"
+  clock data
+  expect state lib.items.0 .locked == true
+  expect text "delete-reason" == "Unlock this item to delete it."

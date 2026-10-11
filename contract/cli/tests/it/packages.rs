@@ -677,3 +677,98 @@ component App
     }
     assert_eq!(tile("Quito").style.text_color, named("-exact-label"));
 }
+
+/// LLP 1116.004 D9: a status is a `Badge`, not coloured text: its label in a
+/// capsule that keeps its own size at the start of a column and centred in a
+/// row, never stretched; its ink legible on its fill in either scheme (dark
+/// on a system hue, white on indigo, the platform's own on the accent and on
+/// the neutral grey); and a reader hears its text.
+#[test]
+fn exact_content_draws_a_status_badge() {
+    use exact_kernel::style::roles::role;
+    use exact_kernel::{ColorValue, NodeType, Offer, PropId};
+    let dir = Dir::new("content-badge");
+    let root = dir.write(
+        "app.contract",
+        r#"use Badge from "exact:content"
+component App
+  view
+    column testId="root" width=400 height=400
+      column testId="col" width=300
+        Badge(label="Locked", tint=none)
+      row testId="row" width=380 height=60 gap=8
+        text "Garden party" flex=1 min-width=0
+        Badge(label="Full", tint=some("-exact-system-orange"))
+        Badge(label="New", tint=some("AccentColor"))
+        Badge(label="Indigo", tint=some("-exact-system-indigo"))
+"#,
+    );
+    let plan = contract::bake(contract::compile_path(&root).unwrap(), NoData).unwrap();
+    let mut r = exact_runner::Runner::boot(
+        plan,
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let k = r.kernel_mut();
+    let at = |k: &exact_kernel::Kernel, t: &str| k.node_by_key(k.find_by_test_id(t)[0]).unwrap().id;
+    let top = at(k, "root");
+    k.compute_layout(top, Offer::definite(400.0, 400.0))
+        .unwrap();
+    let k = r.kernel();
+    let named = |n: &str| ColorValue::Role(role(n).unwrap());
+    // Each capsule (the node right over a text) and its text.
+    let capsules = |t: &str| -> Vec<(exact_kernel::NodeRef<'_>, exact_kernel::NodeRef<'_>)> {
+        under(k, at(k, t))
+            .into_iter()
+            .filter_map(|c| {
+                let only = c.children();
+                let text = k.node(*only.first()?).unwrap();
+                (only.len() == 1 && text.node_type == NodeType::Text).then_some((c, text))
+            })
+            .collect()
+    };
+    let col = capsules("col");
+    let (locked, label) = &col[0];
+    assert_eq!(label.props.str(PropId::Text), Some("Locked"));
+    assert!(
+        locked.frame.width < 150.0 && locked.frame.x == 0.0,
+        "its own width, at the column's start: {:?}",
+        locked.frame
+    );
+    assert_eq!(
+        locked.style.background_color,
+        Some(named("-exact-tertiary-fill"))
+    );
+    assert_eq!(
+        locked.color_scheme_dark(),
+        None,
+        "the grey follows the scheme"
+    );
+    assert_eq!(label.style.text_color, named("-exact-label"));
+    let row = capsules("row");
+    let words: Vec<&str> = row
+        .iter()
+        .map(|(_, t)| t.props.str(PropId::Text).unwrap())
+        .collect();
+    assert_eq!(words, ["Full", "New", "Indigo"]);
+    for (c, _) in &row {
+        assert!(
+            c.frame.height < 40.0 && c.frame.y > 0.0,
+            "centred in the row's height, not stretched: {:?}",
+            c.frame
+        );
+    }
+    let (full, new, indigo) = (&row[0], &row[1], &row[2]);
+    assert_eq!(
+        full.0.color_scheme_dark(),
+        Some(false),
+        "dark ink on orange"
+    );
+    assert_eq!(full.1.style.text_color, named("-exact-label"));
+    assert_eq!(indigo.0.color_scheme_dark(), Some(true), "white on indigo");
+    assert_eq!(new.0.color_scheme_dark(), None);
+    assert_eq!(new.1.style.text_color, named("AccentColorText"));
+}
