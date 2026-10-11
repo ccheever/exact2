@@ -150,8 +150,11 @@ package final class TextSelection {
     }
 
     private func selectable(_ node: NodeView) -> Bool { node.textSelectable }
-    func begin(_ node: NodeView, event: NSEvent) {
+    /// A press on `node`: `clicks` 2 selects the word under it and 3 its
+    /// paragraph, as the event's own count does when `clicks` is nil.
+    func begin(_ node: NodeView, event: NSEvent, clicks: Int? = nil) {
         guard selectable(node) else { clear(); return }
+        let clicks = clicks ?? event.clickCount
         gesture += 1; motion = 0; pendingBegin = false; deferredDrag = nil; deferredEnd = nil
         let point = node.local(event.locationInWindow)
         if let reader = node.readerParagraph, reader.offset(at: point, node: node) == nil {
@@ -161,24 +164,42 @@ package final class TextSelection {
                 guard let self, let node, self.gesture == current else { return }
                 self.pendingBegin = false
                 guard let index else { self.clear(); return }
-                self.begin(node, event: event, index: index)
+                self.begin(node, clicks: clicks, index: index)
                 let drag = self.deferredDrag, end = self.deferredEnd
                 self.deferredDrag = nil; self.deferredEnd = nil
                 if let drag { self.drag(drag) }
                 if let end { self.end(end.0, event: end.1) }
             }
-        } else { begin(node, event: event, index: index(node, at: point)) }
+        } else { begin(node, clicks: clicks, index: index(node, at: point)) }
     }
 
-    private func begin(_ node: NodeView, event: NSEvent, index: Int) {
+    /// A secondary click that no authored `contextmenu` takes (X76): on
+    /// text outside the selection it selects the word under the pointer,
+    /// the one a double click selects, and takes the focus as that click
+    /// does, as Chrome and an `NSTextView` do on a Mac before their menu
+    /// opens. Inside the selection, its ends included (Chrome's
+    /// `FrameSelection::Contains`), it keeps it; text the reader cannot
+    /// select keeps whatever is selected.
+    func secondaryClick(_ node: NodeView, event: NSEvent) {
+        guard selectable(node) else { return }
+        let point = node.local(event.locationInWindow)
+        if let selected = range(node), selected.length > 0 {
+            let at = node.readerParagraph == nil ? index(node, at: point) : node.readerParagraph?.offset(at: point, node: node)
+            guard let at, at < selected.location || at > NSMaxRange(selected) else { return }
+        }
+        node.window?.makeFirstResponder(node)
+        begin(node, event: event, clicks: 2)
+    }
+
+    private func begin(_ node: NodeView, clicks: Int, index: Int) {
         list = nil; logicalAnchor = nil; logicalFocus = nil; allListText = false
         anchor = node; focus = node
         anchorIndex = index
         focusIndex = anchorIndex
         dragged = false
-        if event.clickCount >= 3 {
+        if clicks >= 3 {
             anchorIndex = 0; focusIndex = length(node); dragged = true
-        } else if event.clickCount == 2 {
+        } else if clicks == 2 {
             let text = node.paragraphSpec().runs.map(\.text).joined() as NSString
             if text.length > 0 {
                 let at = min(anchorIndex, text.length - 1)
@@ -423,14 +444,25 @@ extension NodeView {
     private static let chromeRoles: Set<String> = ["toolbar", "tablist", "menubar", "menu", "listbox", "tree"]
 }
 
-/// A secondary click on selected text with no authored `contextmenu` is
-/// the menu an `NSTextView` shows for read-only text (LLP 1115 D8): Look Up
-/// the selection, Copy (the `copy` event first, as ⌘C), Speech, and the Services that take text, which
-/// AppKit adds itself to a contextual menu whose responder can send them
-/// (`validRequestor`). Anywhere else there is no menu, as before.
+/// A secondary click on selectable text with no authored `contextmenu` or
+/// `contextPopover` here or above is the menu an `NSTextView` shows for
+/// read-only text (LLP 1115 D8): on a word outside the selection it first
+/// selects the word, as Chrome and AppKit do on a Mac (X76); then Look Up
+/// the selection, Copy (the `copy` event first, as ⌘C), Speech, and the
+/// Services that take text, which AppKit adds itself to a contextual menu
+/// whose responder can send them (`validRequestor`). An authored handler
+/// above, or on the run under the pointer, hears the click instead and
+/// nothing is selected, as in Chrome, which selects only for its own menu.
+/// Anywhere else there is no menu, as before, and under the agent none:
+/// AppKit's tracking of it would hold the agent's click.
 extension NodeView: NSServicesMenuRequestor {
     package override func menu(for event: NSEvent) -> NSMenu? {
-        guard isParagraph, let selection = presenter?.selection, let range = selection.range(self), range.length > 0 else { return super.menu(for: event) }
+        guard isParagraph, let selection = presenter?.selection, !contextMenuAuthored,
+              inlineTarget(at: local(event.locationInWindow), handler: "contextmenu") == nil else { return super.menu(for: event) }
+        if event.type == .rightMouseDown || (event.type == .leftMouseDown && event.modifierFlags.contains(.control)) {
+            selection.secondaryClick(self, event: event)
+        }
+        guard !ExactEnv.agentMode, let range = selection.range(self), range.length > 0 else { return super.menu(for: event) }
         let text = selection.selectedText()
         guard !text.isEmpty else { return super.menu(for: event) }
         _ = Self.servicesRegistered
@@ -474,6 +506,19 @@ extension NodeView: NSServicesMenuRequestor {
         guard types.contains(.string), let text = presenter?.selection.selectedText(), !text.isEmpty else { return false }
         pboard.clearContents()
         return pboard.setString(text, forType: .string)
+    }
+    /// Whether a node from here up runs an authored `contextmenu` or
+    /// `contextPopover` for a secondary click, as `dispatchContextMenu` does
+    /// on the event's way up the responder chain.
+    private var contextMenuAuthored: Bool {
+        guard let presenter else { return false }
+        var next: NSView? = self
+        while let view = next {
+            next = view.superview
+            guard let node = view as? NodeView, presenter.views[node.id] === node, !node.disabled, !node.inert else { continue }
+            if node.handlers.contains("contextmenu") || node.props["contextPopover"]?.isEmpty == false { return true }
+        }
+        return false
     }
 }
 
