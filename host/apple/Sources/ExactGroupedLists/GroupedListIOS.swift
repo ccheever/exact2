@@ -739,7 +739,9 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         c.image = row.symbol.flatMap { UIImage(systemName: $0) }
         // The symbol's tint as the sheet draws it (D7): the author's over the
         // sheet's own, each side of a light-dark() pair for its appearance.
-        if let value = symbolView(of: id)?.style["tint_color"] {
+        // The accent (`AccentColor`, the sheet's own) is UIKit's: the cell's
+        // tint, which an authored accent-color sets (LLP 1116.004 D2).
+        if let symbol = symbolView(of: id), let value = symbol.style["tint_color"], !symbol.followsTint("tint_color") {
             c.imageProperties.tintColor = UIColor { traits in
                 value.channels(dark: traits.userInterfaceStyle == .dark).map(TextEngine.color) ?? .tintColor
             }

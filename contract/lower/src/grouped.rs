@@ -20,7 +20,12 @@ const LABEL: &str = "light-dark(#000000, #ffffff)";
 const SECONDARY: &str = "light-dark(#3c3c4399, #ebebf599)";
 const TERTIARY: &str = "light-dark(#3c3c434d, #ebebf54d)";
 const SEPARATOR: &str = "light-dark(#3c3c431f, #54545880)";
-const ACCENT: &str = "light-dark(#0088ff, #0091ff)";
+/// The accent a leading symbol and a checkmark take: the platform's tint,
+/// which follows the nearest authored `accent-color` (LLP 1116.001 D2), as a
+/// list cell's image and checkmark take the view's `tintColor` in UIKit
+/// (LLP 1116.004 D2: polls' teal accent drew its vote's checkmark in
+/// iOS 27's blue, `#0088ff`, which this was).
+const ACCENT: &str = "AccentColor";
 const RED: &str = "light-dark(#ff383c, #ff4245)";
 
 /// The gap UIKit leaves where a section has no header or no footer.

@@ -217,6 +217,11 @@ a hidden image before the symbol, a chevron after it, and both appearances.
 - A footer's and a cell's texts keep their line feeds where their
   `white-space` keeps them (`pre-line`, `pre-wrap`, `pre`), and are collapsed
   as the web collapses them otherwise (unit-converter).
+- The sheet's accent, a leading symbol's and a checkmark's tint, is
+  `AccentColor`, not iOS 27's measured blue: it follows the nearest
+  `accent-color` (LLP 1116.001 D2), as a list cell's image and checkmark
+  follow UIKit's `tintColor`. A standard row's symbol in that accent sets no
+  tint of its own on iOS, so the cell's applies (polls).
 
 ## 6.2 A section without its card (2026-10-04, Signal Clone)
 

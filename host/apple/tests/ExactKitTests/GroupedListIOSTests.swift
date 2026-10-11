@@ -369,6 +369,25 @@ final class GroupedListIOSTests: XCTestCase {
         XCTAssertEqual(try rgb(.dark), [1, 0, 0, 1])
     }
 
+    /// LLP 1116.004 D2 (polls, round 6): the sheet's accent is `AccentColor`,
+    /// the platform's tint, and a symbol that follows it is UIKit's: the cell
+    /// tints it with its own `tintColor`, which the root's accent sets. The
+    /// sheet's fixed blue had drawn a vote's checkmark blue under a teal accent.
+    func testASymbolInTheAccentTakesTheCellsTint() throws {
+        let p = presenter { self.model() }
+        p.apply(wireBatch([
+            ["op": "create", "id": 31, "kind": "image", "props": ["imageSource": "symbol:sf/person.circle"],
+             "style": ["tint_color": ["sys": "@tint", "c": [[0, 136, 255, 255], [0, 145, 255, 255]]]]],
+            ["op": "create", "id": 33, "kind": "text", "props": ["text": "Profile"], "style": [:]],
+            ["op": "children", "id": 10, "ids": [31, 33]],
+        ]))
+        let c = try XCTUnwrap(try cell(p, 10).contentConfiguration as? UIListContentConfiguration)
+        XCTAssertNil(c.imageProperties.tintColor, "the accent is the cell's tint, not a colour of its own")
+        window.tintColor = .systemTeal
+        let light = UITraitCollection(userInterfaceStyle: .light)
+        XCTAssertEqual(try cell(p, 10).tintColor.resolvedColor(with: light), UIColor.systemTeal.resolvedColor(with: light), "which the app's accent sets")
+    }
+
     /// Outside a batch (a sheet's dismissal replaying geometry, a subtree's
     /// appearance), the projections sync on the next turn with no batch to
     /// carry them (LLP 1079's amendment of 2026-10-04): the collection takes

@@ -914,3 +914,37 @@ fn a_line_feed_in_a_footer_or_title_follows_its_white_space() {
         Some("Title\nsecond")
     );
 }
+
+/// LLP 1116.004 D2 (polls, round 6): the sheet tints a row's leading symbol
+/// and its checkmark with the accent, `AccentColor`, which follows the
+/// nearest `accent-color` as a list cell's image and checkmark follow UIKit's
+/// `tintColor`; it had written iOS 27's blue, so a teal app's checkmark was
+/// blue. The chevron keeps its tertiary grey.
+#[test]
+fn the_sheets_symbol_and_checkmark_take_the_accent() {
+    let r = boot(&SETTINGS.replace("    button press=go testId=\"dark\"\n      text \"Dark\"\n      when dark\n        image \"symbol:checkmark\"",
+        "    button press=go testId=\"dark\"\n      text \"Dark\"\n      image \"symbol:checkmark\" testId=\"check\"\n    row\n      image \"symbol:sf/star\" -exact-tint-color=\"AccentColor\" testId=\"accent\"\n      text \"Accent\""));
+    let k = r.kernel();
+    let tint = |t: &str| {
+        k.node(id(&r, t))
+            .unwrap()
+            .computed_style(StyleMask::ALL)
+            .tint_color
+    };
+    let accent = tint("accent");
+    assert!(accent.is_some());
+    assert_eq!(tint("check"), accent, "the checkmark: the accent");
+    let profile = k.node(id(&r, "profile")).unwrap();
+    let symbol = k.node(profile.children()[0]).unwrap();
+    assert_eq!(
+        symbol.computed_style(StyleMask::ALL).tint_color,
+        accent,
+        "the leading symbol: the accent"
+    );
+    let chevron = k.node(*profile.children().last().unwrap()).unwrap();
+    assert_ne!(
+        chevron.computed_style(StyleMask::ALL).tint_color,
+        accent,
+        "the chevron: grey"
+    );
+}
