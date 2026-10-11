@@ -161,16 +161,16 @@ test('a plan-only edit runs its bake on the existing build; any other edit, or a
     };
     build();
     const said = [], builds = [], bakes = [];
-    let baked = { ...module }, bakeFails = null;
+    let baked = { ...module }, bakeFails = null, bakeSays = '', buildSays = '';
     const bake = async (a, into) => {
       bakes.push(into);
       if (bakeFails) return { code: 1, output: bakeFails };
       mkdirSync(into);
       for (const [file, text] of [['app.plan', 'plan two'], ['app.hbc', 'bytecode'], ['app.module.json', JSON.stringify(baked)]]) writeFileSync(resolve(into, file), text);
-      return { code: 0, output: '' };
+      return { code: 0, output: bakeSays };
     };
     const drive = (code = 0) => buildFirst('ios', app, { say: line => said.push(line), wait: () => {}, bake,
-      build: async args => (builds.push(args), { code, output: '' }) });
+      build: async args => (builds.push(args), { code, output: buildSays }) });
     const reset = () => { said.length = builds.length = bakes.length = 0; };
     const kept = () => planOverride('ios', app, nativeBuild('ios', app));
 
@@ -193,12 +193,16 @@ test('a plan-only edit runs its bake on the existing build; any other edit, or a
     assert.equal(await drive(), 0);
     assert.deepEqual([said, builds, bakes, kept()], [[], [], [], null]);
 
-    // A contract edit: baked and kept beside the build, in one line, and no build; the driver runs it.
-    write('app.contract', 'component App\n  view\n    text "hello again"\n');
+    // A contract edit: baked and kept beside the build, in one line, and no build; the driver runs it. The
+    // compiler's warnings the bake said follow it, one line each (LLP 1116.004 D7).
+    write('app.contract', 'component App\n  view\n    text "hello again" color="#336699"\n');
     stamp('app.contract', 20);
+    const warning = 'app.contract:3:31 warning [lower-colour-one-scheme] `#336699` on `color` stays the same in dark mode';
+    bakeSays = `${warning}\n{"version":1}\n`;
     assert.throws(() => refuseBuild('ios', nativeBuild('ios', app), app), /ios build is stale/, 'before the bake, the driver refuses as before');
     assert.equal(await drive(), 0);
-    assert.deepEqual([said, builds, bakes.length], [['iOS: app.contract changed; running the new plan on the existing build (no native rebuild)'], [], 1]);
+    assert.deepEqual([said, builds, bakes.length], [['iOS: app.contract changed; running the new plan on the existing build (no native rebuild)', warning], [], 1]);
+    bakeSays = '';
     assert.deepEqual(kept(), { plan: resolve(overrideDir('ios', app), 'app.plan'), dir: overrideDir('ios', app) });
     assert.equal(readFileSync(kept().plan, 'utf8'), 'plan two');
     assert.ok(!existsSync(bakes[0]), 'the bake is staged, then moved beside the build');
@@ -226,11 +230,14 @@ test('a plan-only edit runs its bake on the existing build; any other edit, or a
     assert.deepEqual(nativeBuild('ios', app).changed.map(p => resolve(p)), [resolve(dir, 'app.contract')]);
     assert.equal(kept(), null, 'kept for another build: never run as fresh');
 
-    // Anything else edited is built, and what was kept goes with it.
+    // Anything else edited is built, and what was kept goes with it; the warnings Cargo said for the bake's
+    // build script follow, in the compiler's own form.
     reset();
     stamp('app.json', 60);
+    buildSays = `   Compiling plan-log-apple v0.1.0\nwarning: plan-log-apple@0.1.0: ${warning}\nhost/apple: built\n`;
     assert.equal(await drive(), 0);
-    assert.deepEqual([bakes.length, builds.length], [0, 1]);
+    buildSays = '';
+    assert.deepEqual([bakes.length, builds.length, said.slice(1)], [0, 1, [warning]]);
     assert.match(said[0], /^building for iOS: the build is older than its sources \((app\.contract, app\.json|app\.json, app\.contract) changed\); its log: /);
     assert.ok(!existsSync(overrideDir('ios', app)));
 

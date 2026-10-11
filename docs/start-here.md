@@ -36,15 +36,13 @@ Start from the nearest pattern: it compiles and passes its tests.
 
 | `bun exact.mjs …` | What it does |
 | --- | --- |
-| `contract build app.contract --json` | `[]` or each diagnostic with its fix, after every edit; it rewrites the types `app.ts` imports. |
-| `test web`, `test ios` | Builds if stale, then runs `app.test.contract`. |
-| `agent web --storage s1 "clock data" tree "tap add" "screenshot .exact/a.png"` | Drives the app as a person would; look at every screenshot. iOS with its bars: [ios-driving](recipes/ios-driving.md). |
+| `contract build app.contract --json` | `[]` or each diagnostic with its fix; it rewrites the types `app.ts` imports. Builds print the warnings. |
+| `verify`, `verify ios` | Builds if stale, runs `app.test.contract` (`test web` alone), then `check` light and dark at phone and desktop widths, in one report. A clean `verify` is done. |
+| `agent web --storage s1 "clock data" "tap add" "check both"` | Drives the app as a person would: another screen, a write; a screenshot at milestones. iOS with its bars: [ios-driving](recipes/ios-driving.md). |
 | `web`, `ios --run` | The dev loop (it prints its URL, rebuilds on save); a simulator. |
 
-Edit and check on the web host (about a second a build); drive iOS at milestones,
-several checks a build: one in dark mode (`"prefer prefers-color-scheme dark"` first),
-one after a write. Drive by `testId`; keep scratch files in `.exact/` (any other new
-file is a source, and makes the build stale).
+Run `verify` after each edit, `verify ios` at milestones. Drive by `testId`; keep
+scratch files in `.exact/` (any other new file is a source, and makes the build stale).
 
 ## One screen: the view, its data, its test
 
@@ -185,8 +183,8 @@ with: [tests](recipes/tests.md).
 3. **A `header` holds a heading, one text after it (the bar's subtitle) and buttons**
    (or a search field, a `tablist`); anything else isn't in the iOS bar.
 4. **A drive without `--storage <name>`** refuses storage, so the app looks empty.
-5. **Trusting green tests.** They pass on a layout that spills off the screen, and on
-   the virtual clock. Look at screenshots and drive each write once on the real clock.
+5. **Trusting green tests.** They pass on the virtual clock: drive each write once on
+   the real clock. `verify` checks the first screen; `"check both"` in a drive, others.
 
 ## Look it up
 

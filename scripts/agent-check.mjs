@@ -170,8 +170,9 @@ export function report(runs, nodes, host) {
   return out.join('\n');
 }
 
-/** `check [light|dark|both]` on a session: the host's observation and a capture under each scheme asked, judged; the scheme is put back. */
-export async function checkOp(s, args = []) {
+/** `check [light|dark|both]` on a session: the host's observation and a capture under each scheme asked, judged; the scheme is put back.
+ *  `shots(viewport, scheme)` names a file to keep each capture in (verify's), else they go with the check. */
+export async function checkOp(s, args = [], { shots } = {}) {
   const word = args[0] ?? 'current';
   if (!['current', 'light', 'dark', 'both'].includes(word) || args.length > 1) throw new Error('check [light|dark|both]: the presented screen, judged in text; `check dark` under prefers-color-scheme dark, `check both` under each');
   if (!['web', 'ios', 'host-ios'].includes(s.host)) throw new Error(`check: the web and iOS hosts carry it, not ${s.host}`);
@@ -184,10 +185,10 @@ export async function checkOp(s, args = []) {
     for (const scheme of asked) {
       let obs = first;
       if (scheme !== first.scheme || preferred) { await s.prefer({ 'prefers-color-scheme': scheme }); preferred = scheme; obs = await s.op({ op: 'check' }); }
-      const path = resolve(dir, `${scheme}.png`);
+      const path = shots?.(obs.viewport, scheme) ?? resolve(dir, `${scheme}.png`);
       await s.carrier.screenshot(path, obs.capture?.window === true); // iOS observes in the window's points: a sheet is not in the viewport's picture
       const png = decodePng(readFileSync(path));
-      runs.push({ scheme: obs.scheme, asked: scheme, target: obs.target, findings: judge(obs, png, { host: s.host === 'web' ? 'web' : 'ios' }) });
+      runs.push({ scheme: obs.scheme, asked: scheme, target: obs.target, viewport: obs.viewport, findings: judge(obs, png, { host: s.host === 'web' ? 'web' : 'ios' }) });
     }
   } finally {
     if (preferred && preferred !== first.scheme) await s.prefer({ 'prefers-color-scheme': first.scheme }).catch(() => {});

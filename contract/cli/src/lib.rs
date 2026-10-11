@@ -572,13 +572,25 @@ pub type Warned = (
 /// [`contract_lower::MAX_WARNINGS`], whether lowering then succeeded or
 /// refused. A file the type checker refuses has none.
 pub fn compile_path_all_warned(path: &Path, mapped: bool) -> Warned {
+    compile_path_all_warned_with(path, mapped, false)
+}
+
+/// [`compile_path_all`], surface arguments checked, with the warnings beside
+/// the result as [`compile_path_all_warned`] gives them: what a build (the
+/// web's, a bake) prints, so they reach whoever ran it and not only
+/// `contract build` (LLP 1116.004 D7).
+pub fn compile_path_all_with_warnings(path: &Path, mapped: bool) -> Warned {
+    compile_path_all_warned_with(path, mapped, true)
+}
+
+fn compile_path_all_warned_with(path: &Path, mapped: bool, surfaces: bool) -> Warned {
     let mut warned = Vec::new();
     let result = read_source(path).map_err(|e| vec![e]).and_then(|src| {
         compile_path_warned(
             path,
             &src,
             mapped,
-            false,
+            surfaces,
             contract_lower::Profile::Web,
             Some(&mut warned),
         )
