@@ -385,7 +385,7 @@ extension NavigationHost {
     /// `setTabBarHidden` (iOS 18), as Signal hides its tab bar for the chat
     /// list's multi-select.
     func followTablist(_ routes: [RouteController], in nav: UINavigationController) {
-        guard !ExactEnv.authoredChrome, let key = container?.props["navigationKey"],
+        guard !ExactEnv.authoredChrome, let key = selectedKey,
               let list = adoptedTablist.flatMap({ presenter.views[$0] }) ?? container.flatMap({ NavigationTabs.of($0, presenter)?.tablist })
         else { return }
         let hidden = list.style["display"]?.string == "none"
@@ -457,7 +457,7 @@ extension NavigationHost {
     /// A transition settled (`didShow`): the root, if it is on top now,
     /// reconciles the bar with its tablist.
     func settleTablist(_ nav: UINavigationController) {
-        guard !ExactEnv.authoredChrome, let key = container?.props["navigationKey"],
+        guard !ExactEnv.authoredChrome, let key = selectedKey,
               let root = nav.viewControllers.first as? RouteController, root.key == key, nav.topViewController === root,
               let list = adoptedTablist.flatMap({ presenter.views[$0] }) ?? container.flatMap({ NavigationTabs.of($0, presenter)?.tablist })
         else { return }

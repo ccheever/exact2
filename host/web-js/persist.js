@@ -1,14 +1,15 @@
 // Persisted state (LLP 1116 D5): `state … persist` kept in the page's
-// `localStorage` under "exact.state.<name>", as the runner keeps it
+// `localStorage` under "exact.state.<name>" (a development build's own
+// prefix, rt.js `Kept`, LLP 1116.004 D8), as the runner keeps it
 // (runner/src/runner/persist.rs): JSON text, a number as JSON's (non-finite
 // ones as "NaN", "Infinity", "-Infinity", -0 as `-0`), an option as `null`
 // or its value, a list as an array. Read as the slot is made, before the
 // first commit; after every commit that stands the store holds each
 // persisted slot's value. Types are the emitter's `type_json`: "n", "s",
 // "b", ["?", t], ["[", t].
-import { After, say } from './rt.js';
+import { After, Kept as kept, say } from './rt.js';
 
-const LIMIT = 16384, KEY = 'exact.state.', Kept = [];
+const LIMIT = 16384, KEY = kept('state'), Kept = [];
 const NONFINITE = { NaN: NaN, Infinity: Infinity, '-Infinity': -Infinity };
 const bytes = text => new TextEncoder().encode(text).length;
 const name = t => typeof t === 'string' ? { n: 'number', s: 'string', b: 'bool' }[t] : `${t[0] === '?' ? 'option' : 'list'}<${name(t[1])}>`;

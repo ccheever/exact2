@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { spawnSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { capturedLockDrift, gameDefaults, gameShells } from './app/shells.mjs';
@@ -173,10 +174,16 @@ fn main() {
   };
 }
 
+/** A new app's identity (LLP 1116.004 D8): its name and six random hex digits,
+ * `com.example.notes-3f9a2c`, so two apps of one name (a bake-off's rounds, a
+ * copy beside the first) never share a store on a device or a web origin. An
+ * existing app keeps the id it has: `update` and `pattern` read it from app.json. */
+export const newAppId = (name, random = randomBytes(3).toString('hex')) => `com.example.${name}-${random}`;
+
 /** The three files \`exact new\` writes for the app itself: the view, its data
  * module and its tests. \`exact.mjs pattern\` replaces them, and reads them
  * to tell an untouched file from one the author edited (LLP 1116.001 D3). */
-export function appSources(name, title) {
+export function appSources(name, title, id = `com.example.${name}`) {
   return {
     'app.contract': `// ${title}: the view. app.ts answers what it asks for. Colours, fonts,
 // sizes and the safe area are left unsaid, so each platform supplies its own:
@@ -213,7 +220,7 @@ test "the header's button likes it"
 `,
     'app.ts': `import type { Answer, Result, Sources } from './app.contract.d.ts';
 
-export const appId = 'com.example.${name}';
+export const appId = '${id}';
 export const grants = '';
 
 const sources: Sources = {
@@ -271,7 +278,7 @@ export function applyPattern(dir, pattern, { force = false } = {}) {
   // The template's name is its crates', as `update` reads it: a renamed folder keeps it.
   const name = ['web', 'apple', 'linux'].map(kind => resolve(dir, kind, 'Cargo.toml')).filter(existsSync)
     .map(path => String(Bun.TOML.parse(readFileSync(path, 'utf8')).package?.name ?? '').match(/^(.+)-(?:web|apple|linux)$/)?.[1]).find(Boolean) ?? basename(dir);
-  const template = appSources(name, name.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' '));
+  const template = appSources(name, name.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' '), id);
   const others = known.filter(p => p !== pattern).map(p => patternFiles(p, { id, title }));
   const untouched = (path, text) => text === template[path] || others.some(o => o.files[path] === text);
   const { files, keys } = patternFiles(pattern, { id, title });
@@ -315,7 +322,7 @@ export function patternList() {
 
 function writeApp(dir, name) {
   for (const host of ['apple', 'linux', 'web']) mkdirSync(resolve(dir, host));
-  const title = name.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
+  const title = name.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' '), id = newAppId(name);
   const exact2 = pathFrom(dir, ROOT);
   const dep = (host, path) => `{ path = ${JSON.stringify(pathFrom(resolve(dir, host), resolve(ROOT, path)))} }`;
   const files = {
@@ -344,12 +351,12 @@ ${patchLines(dir).join('\n')}
     'AGENTS.md': agentNotes(dir, name),
     'app.json': JSON.stringify({
       $schema: pathFrom(dir, resolve(ROOT, 'scripts/app.schema.json')),
-      name: title, short_name: title, id: `com.example.${name}`, start_url: '/', display: 'standalone',
-      app: { id: `com.example.${name}`, name: title },
+      name: title, short_name: title, id, start_url: '/', display: 'standalone',
+      app: { id, name: title },
       host: { ios: { minimumOS: '17.0', deviceFamily: ['iphone', 'ipad'] }, macos: { minimumOS: '14.0', window: { width: 900, height: 700 } }, web: {} },
       deploy: { store: { web: '0', macos: '0', ios: '0', linux: '0' } },
     }, null, 2) + '\n',
-    ...appSources(name, title),
+    ...appSources(name, title, id),
     'apple/Cargo.toml': `[package]
 name = "${name}-apple"
 version.workspace = true

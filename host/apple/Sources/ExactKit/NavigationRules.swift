@@ -25,6 +25,16 @@ enum NavigationRules {
         return 0..<(index + 1)
     }
 
+    /// D1, when the root's key matches no route: the stack is left alone,
+    /// less the routes that have left the tree. The deepest route of the
+    /// stack last shown (`shown`, its keys through its selected route) that
+    /// is still declared in one of the stacks is the selected one, so a
+    /// closed sheet or a popped screen never leaves the route beneath it
+    /// covered. `nil` when none is (nothing shown yet): nothing changes.
+    static func survivor(of shown: [String], declared: [[String]]) -> String? {
+        shown.last { key in declared.contains { $0.contains(key) } }
+    }
+
     /// D4: presentation boundaries split the selected prefix into retained
     /// owners. A later push stays in the most recent presentation's stack.
     static func segments(presentations: [String?]) -> [Range<Int>] {

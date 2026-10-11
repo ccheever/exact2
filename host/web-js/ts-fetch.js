@@ -92,7 +92,11 @@ function stream(input, init, redirect) {
 // explicit date, UTC arithmetic and an explicit timestamp's formatting work.
 const refuse = api => { throw new Error(`${api} is unavailable in data sources; pass time or a random seed as an argument`); };
 const noTimers = api => () => { throw new Error(`${api} is unavailable in data sources: there are no timers; pass time as an argument`); };
-const NativeDate = globalThis.Date, NativeMath = globalThis.Math, NativeIntl = globalThis.Intl, construct = Reflect.construct;
+// The engine's own, read through the prototypes a page's fake clock keeps
+// (Playwright's `clock.install`, sinon: a Date and DateTimeFormat whose
+// prototype is or inherits the real one, with no `format` accessor of its own):
+// a guard over the fake would find no getter and the page would not start.
+const NativeDate = globalThis.Date.prototype.constructor, NativeMath = globalThis.Math, NativeIntl = globalThis.Intl, construct = Reflect.construct;
 // A function, not a Proxy of the page's Date: its instances' prototype says
 // `constructor` is this one, so `new (new Date(0).constructor)()` refuses too.
 function GuardedDate(...args) {
@@ -110,7 +114,9 @@ const GuardedMath = Object.freeze(Object.create(Object.getPrototypeOf(NativeMath
     : Object.getOwnPropertyDescriptor(NativeMath, k)]))));
 // Intl.DateTimeFormat defaults an omitted date to the clock: its `format` and
 // `formatToParts` refuse one, through any alias the app can reach.
-const NativeFormat = NativeIntl.DateTimeFormat, nativeFormat = Object.getOwnPropertyDescriptor(NativeFormat.prototype, 'format').get;
+let formatProto = NativeIntl.DateTimeFormat.prototype;
+while (!Object.getOwnPropertyDescriptor(formatProto, 'format')?.get) formatProto = Object.getPrototypeOf(formatProto);
+const NativeFormat = formatProto.constructor, nativeFormat = Object.getOwnPropertyDescriptor(formatProto, 'format').get;
 const nativeParts = NativeFormat.prototype.formatToParts, formats = new WeakMap();
 function DateTimeFormat(locales, options) { return construct(NativeFormat, [locales, options], new.target ?? DateTimeFormat); }
 DateTimeFormat.prototype = Object.create(NativeFormat.prototype, {
