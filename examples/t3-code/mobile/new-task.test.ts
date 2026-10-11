@@ -13,7 +13,7 @@ import type { Native, Files } from './shared/protocol';
 import { EnvironmentFleet } from './shared/settings-b-fleet';
 import { draftContext } from './shared/composer-controls-branch';
 import { mobileComposerTarget } from './composer-target';
-import { mobileComposerSettingsAction } from './composer-settings';
+import { mobileComposerSettings, mobileComposerSettingsAction } from './composer-settings';
 import { mobileNewTaskFlowView as view, mobileNewTaskFlowAction as act, mobileNewTaskFlowOwns as owns, mobileNewTaskRoute } from './new-task-flow';
 
 async function fixture() {
@@ -88,6 +88,29 @@ test('settings preparation retains presentation owner without admitting stale or
   }
   expect(f.client.local.drafts['env:new:a']).toBe('A original');
   expect(f.client.local.drafts['env:new:b']).toBe('B original'); expect(writes).toBe(0);
+});
+
+test('prepared New Task unchanged Done remains a write-free dismissal after disconnect', async () => {
+  const f = await fixture(), chooser = f.snapshot('/new');
+  await f.action(chooser.owner, 'project', '["env","a"]');
+  const draft = f.snapshot('/new/draft', 'draft'), contentOwner = draft.draftOwner;
+  const opening = f.snapshot('/new/draft/settings', 'model');
+  expect(await f.action(opening.owner, 'prepare', '', '', 'model')).toMatchObject({ message: '' });
+  expect(f.snapshot('/new/draft/settings', 'model')).toMatchObject({ ready: true, draftOwner: contentOwner });
+  f.client.connection = 'disconnected'; f.client.scopes = [];
+  expect(f.snapshot('/new/draft/settings', 'model', 'flow', false)).toMatchObject({ ready: true, draftOwner: contentOwner });
+  expect(owns(opening.owner, 'model', f.client)).toBe(true);
+  const draftText = f.client.draft;
+  const calls = f.calls.length; let fileCalls = 0;
+  f.files.fs.mkdir = async () => { fileCalls++; };
+  f.files.fs.readFile = async () => { fileCalls++; throw new Error('No read is needed'); };
+  f.files.fs.atomicWriteFile = async () => { fileCalls++; };
+  expect(mobileComposerSettings('', '', false, f.client)).toMatchObject({ open: true, canEdit: false, canSave: true, saveLabel: 'Done' });
+  expect(await mobileComposerSettingsAction('save', '', '', f.native, f.files, f.client)).toMatchObject({ closed: true, message: '' });
+  expect(mobileComposerSettings('', '', false, f.client).open).toBe(false);
+  expect(f.client.draft).toBe(draftText);
+  expect(f.client.local.drafts['env:new:a']).toBe('A original'); expect(f.client.local.drafts['env:new:b']).toBe('B original');
+  expect(f.calls).toHaveLength(calls); expect(fileCalls).toBe(0);
 });
 
 test('presentation owner disappears when selected draft proof is lost', async () => {
