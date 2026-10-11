@@ -19,7 +19,7 @@ import { fileIconToken } from './timeline-files';
 import { visiblePullRequests } from './shell-pr';
 import { filesView, filesLocal, ensureFile, ensureTree, reconcileFiles, emptyFiles, pendingPaths, type FilesView } from './r4-surfaces-files';
 import { prsView, prsLocal, prsCommand, emptyPrs, type PrsView } from './r4-surfaces-prs';
-import { deviceView, deviceLocal, deviceCommand, deviceReady, watchDevice, emptyDevice, deviceStateOf, type DeviceView } from './r4-surfaces-device';
+import { deviceView, deviceLocal, deviceCommand, deviceReady, watchDevice, emptyDevice, deviceHidden, deviceStateOf, type DeviceView } from './r4-surfaces-device';
 // lane r6-media: opening a device, its workspace and the floating player (r6-media-device.ts).
 import { r6DeviceView, r6DeviceMini, r6DeviceLocal, r6DeviceCommand, emptyMini, deviceTab, floatMiniDevice, type R6DeviceMini } from './r6-media-device';
 import { threadDevices, visibleMini } from './r12-threads-device'; // lane r12-threads
@@ -319,7 +319,9 @@ export async function panelView(client: T3Client, native: Native | null | undefi
   const live = native?.available ? native : null;
   const files = live && open && (active.kind === 'files' || active.kind === 'file') ? await filesView(client, live, active, now) : (crumbsHidden(client), emptyFiles());
   const deviceSetup = store.deviceSetup !== '' && store.deviceSetup === panelKey(client);
-  const device = live && (deviceSetup || (open && active.kind === 'device')) ? await deviceView(client, live) : emptyDevice();
+  const deviceShown = !!live && open && active.kind === 'device';
+  if (!deviceShown) deviceHidden(client); // DevicePanel lists the devices each time it shows (r4-surfaces-device.ts deviceView)
+  const device = live && (deviceSetup || deviceShown) ? await deviceView(client, live, deviceShown) : emptyDevice();
   if (live && open && active.kind === 'device' && !deviceSetup) device.r6 = await r6DeviceView(client, live, deviceStateOf(client) ?? {}, device.loaded, panelKey(client));
   const prs = open && active.kind === 'pull-requests' ? prsView(client, now) : emptyPrs();
   const r5 = await r5Views(client, live, active, open, now);
