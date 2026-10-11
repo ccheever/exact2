@@ -167,13 +167,13 @@ one Tab stop, the clone's three.
 
 ## Checks
 
-All on `24de5e33a` (this branch; `origin/feat(example)/t3-code` had nothing new to merge), each once, every exit 0:
+All on `2d013aeb0` (review round 1; `origin/feat(example)/t3-code` had nothing new to merge), each once, every exit 0:
 
 | Check | Exit | Result |
 | --- | --- | --- |
-| `bun test examples/t3-code --timeout 60000` | 0 | 4510 pass, 1 skip, 0 fail (307 files) |
+| `bun test examples/t3-code --timeout 60000` | 0 | 4514 pass, 1 skip, 0 fail (307 files) |
 | strict `tsc` on `app.ts` (README command) | 0 | clean |
-| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | 6032 slots, 8127 actions, 109730 nodes; `app.contract` 1397 lines (unchanged) |
+| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | 6032 slots, 8227 actions, 109730 nodes; `app.contract` 1397 lines (unchanged) |
 | `git add -A && bun scripts/caps.mjs` | 0 | all budgets within cap |
 | `cargo build --all-targets --keep-going` | 0 | |
 | `cargo test --lib --bins --tests --no-fail-fast` | 0 | 3679 passed, 0 failed (95 binaries) |
@@ -182,8 +182,9 @@ All on `24de5e33a` (this branch; `origin/feat(example)/t3-code` had nothing new 
 | `bun scripts/caps.mjs` | 0 | |
 | `bun scripts/boot.mjs` | 0 | |
 
-No Rust or Swift changed, so no `cargo test -p t3-code-macos` or AppKit binary ran. The bundle was built once
-(`host/apple/build.mjs t3-code-macos --bundle`, exit 0) before the one live drive, which passed on its first run.
+No Rust or Swift changed, so no `cargo test -p t3-code-macos` or AppKit binary ran. The bundle was rebuilt once for
+review round 1 (`host/apple/build.mjs t3-code-macos --bundle`, exit 0) before its one live drive, which passed on its
+first run. (The first round's checks, on `24de5e33a`, were the same: 4510 pass.)
 
 ## Real-input batch steps
 
@@ -210,4 +211,4 @@ after each dialog opens; the ring shows where the focus is.
 
 ## Next action
 
-Coordinator: review PR https://github.com/ccheever/exact2/pull/431 and run the real-input steps above in the final session.
+Coordinator: review PR https://github.com/ccheever/exact2/pull/431 (review round 1 fixed, `2d013aeb0`) and run the real-input steps above in the final session. Model prices on the Limits view and the prices dialog's undrawn X and + are in QUEUE.md, not this task's.
