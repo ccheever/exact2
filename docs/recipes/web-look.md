@@ -28,8 +28,8 @@ text `-exact-label`) or unsaid: a hex stays the same in dark mode while the cont
   role="alertdialog"`; `list appearance="auto" listStyle="inset-grouped"` of `section`s
   for settings.
 - **Use a wide window:** a phone's column centred on a desktop is "a stretched phone UI".
-  `resource viewport = exactViewport() as shape Viewport` (`width: number`), `derive wide
-  = viewport.width >= 720`, and `when wide` chooses the composition. A list beside its
-  detail, which a phone pushes, is `pattern list-detail`'s (its `wide`, the `when wide`
-  column): the selection is the router's, so it survives a resize, and the selected row
-  is the accent, not a painted box. Cards that wrap: [responsive-columns](responsive-columns.md).
+  A root tab bar is a sidebar there, and a list whose rows push (the `forward-chevron`)
+  sits beside its detail, with nothing to write ([tabs](tabs.md), [navigation-stack](navigation-stack.md)).
+  For another composition, `resource viewport = exactViewport() as shape Viewport`
+  (`width: number`), `derive wide = viewport.width >= 900`, and `when wide` chooses it.
+  Cards that wrap: [responsive-columns](responsive-columns.md).

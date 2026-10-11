@@ -292,6 +292,9 @@ fn one_text(name: &str, shown: &mut Vec<&'static str>) -> bool {
         if name == "title" {
             println!("  on `head`, the document's title; elsewhere HTML's advisory text, the platform's tooltip (prop title, str)");
         }
+        if name == "navigationSplit" {
+            println!("  on a stack's root route (LLP 1116.004 D1.2). A wide window (900 px and up on the web) shows a stack whose root route is a list whose rows push beside its top, as a split view does, with nothing to write: a row pushes when it draws the disclosure, an `image \"symbol:forward-chevron\"` in a `button` or `link` (the chevron an iOS list draws). The list is a 320-wide column, its chevrons hidden and the row whose press pushed the detail marked; the top route is the detail beside it (a detail a row pushed has no Back), a `navigationPresentation=\"modal\"` route stays a sheet, and a phone pushes. The router is unchanged: a push from a row while a detail shows stacks it, so `replace` there to swap the detail. \"none\" keeps the stack pushed; a number is the column's width and splits a list the rule does not find. A root `tablist` left as the tabs recipe places it is a sidebar on the same window. docs/recipes/navigation-stack.md");
+        }
         if name == "-exact-fit" {
             println!("  on a `text`: \"shrink\" draws a line too wide for its box smaller until it fits, down to half its size, as UIKit's adjustsFontSizeToFitWidth (a timer's readout at the largest text size); with `white-space=\"nowrap\"` the whole line fits, else its longest word (LLP 1116.001 D1.4)");
         }

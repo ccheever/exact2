@@ -213,3 +213,9 @@ test "add validates, saves, refuses a repeat, opens and deletes after asking"
   ([after-a-write](after-a-write.md)).
 - In tests, `clock settle` after every push, sheet or alert, and `clock data` before
   reading what a save wrote. Swipe to delete and long-press menus: [list-rows](list-rows.md).
+- A wide window (900 px and up on the web) shows the list beside its detail with nothing
+  to write, as a split view does: its rows push, because they draw the disclosure (the
+  `forward-chevron`). A sheet stays a sheet; a phone pushes. A row pressed while a detail
+  shows pushes another, so to swap the detail instead, `open` replaces when one is shown:
+  `nav = top(nav).name == "note" ? replace(nav, path("note", id)) : push(nav, path("note", id))`.
+  `navigationSplit="none"` on the list's route keeps it pushed; `contract vocab navigationSplit`.

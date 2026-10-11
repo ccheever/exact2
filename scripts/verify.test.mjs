@@ -72,6 +72,13 @@ test('check\'s text splits by scheme, counting what its own cap left out', () =>
   assert.equal(light.lines.length, 12);
   assert.equal(light.hidden, 1);
   assert.deepEqual([dark.lines, dark.hidden], [[], 0]);
+  // Advice (LLP 1116.004 D1.3) is kept apart, never a finding: a check with only advice is clean.
+  const [wide] = groups('check web · light: no findings (text fits)\n  advice   tabs: a bottom tab bar 1280 px wide');
+  assert.deepEqual([wide.lines, wide.advice], [[], ['  advice   tabs: a bottom tab bar 1280 px wide']]);
+  const r = report({ host: 'web', built: { ms: 1000, said: [], warnings: [] }, compiler: [], tested: { passed: 1, failed: 0, results: [] },
+    checks: [{ size: [1280, 900], scheme: 'light', lines: [], hidden: 0, advice: wide.advice }], shots: [], ms: 2000 });
+  assert.equal(r.lines.at(-1), 'verify: clean in 2.0 s');
+  assert.ok(r.lines.includes('  advice   tabs: a bottom tab bar 1280 px wide'));
 });
 
 // A new app, built and driven as a builder would: clean; a failing test fails it; a finding does not; a

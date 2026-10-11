@@ -88,7 +88,7 @@ async function checkAt(host, app, size, store, shots) {
     const r = await checkOp(s, ['both'], { shots: shot });
     return groups(r.text).map((g, i) => {
       const run = r.check[i] ?? {}, vp = run.viewport ?? { w: size?.[0], h: size?.[1] };
-      return { size: [vp.w, vp.h], scheme: run.scheme, asked: run.asked, shot: shot(vp, run.asked ?? run.scheme), findings: run.findings ?? [], lines: [...failed, ...g.lines], hidden: g.hidden };
+      return { size: [vp.w, vp.h], scheme: run.scheme, asked: run.asked, shot: shot(vp, run.asked ?? run.scheme), findings: run.findings ?? [], lines: [...failed, ...g.lines], hidden: g.hidden, advice: g.advice };
     });
   } finally {
     await s.close();
@@ -96,14 +96,16 @@ async function checkAt(host, app, size, store, shots) {
   }
 }
 
-/** check's text by scheme: each header's finding lines, and how many its "… and N more" left out. */
+/** check's text by scheme: each header's finding lines, how many its "… and N more" left out, and its advice
+ * (LLP 1116.004 D1.3), which is never a finding. */
 export function groups(text) {
   const out = [];
   for (const line of String(text ?? '').split('\n')) {
-    if (/^check /.test(line)) { out.push({ head: line, lines: [], hidden: 0 }); continue; }
+    if (/^check /.test(line)) { out.push({ head: line, lines: [], hidden: 0, advice: [] }); continue; }
     const g = out.at(-1), more = line.match(/^\s+… and (\d+) more/);
     if (!g || !line.trim()) continue;
     if (more) g.hidden += Number(more[1]);
+    else if (/^\s+advice\s/.test(line)) g.advice.push(line);
     else g.lines.push(line);
   }
   return out;
@@ -161,6 +163,7 @@ export function report({ host, built, compiler = [], tested, checks, shots, ms, 
     out.push(`check ${[...new Set(runs.map((r) => r.size.join('x')))].join(', ')} · ${[...new Set(runs.map((r) => r.asked ?? r.scheme))].join(', ')}${kept}: ${count ? plural(count, 'finding') : 'no findings'}`);
     out.push(...shown.slice(0, SHOWN));
     if (count > SHOWN) out.push(`  … and ${count - Math.min(SHOWN, shown.length)} more (verify --json lists them all)`);
+    out.push(...new Set(runs.flatMap((r) => r.advice ?? [])));
     findings += count;
   }
   if (shots.length) {

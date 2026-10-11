@@ -1432,6 +1432,9 @@ impl<'a> Lowerer<'a> {
                 let value = if prop == exact_kernel::PropId::GlassGroup {
                     glass = values::glass_group(&a.value)?;
                     &glass
+                } else if let Some(width) = values::split_width(prop, &a.value) {
+                    glass = width;
+                    &glass
                 } else {
                     &a.value
                 };

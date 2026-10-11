@@ -532,6 +532,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "navigationSource" | "sharedElement" => AttrTarget::Prop(p(name)),
         // @ref LLP 1075.003 §3.5 — the route's content scroll view, by HTML id.
         "navigationScroll" => AttrTarget::Prop(p("navigationScroll")),
+        // @ref LLP 1116.004 D1.2 — a wide window's split: "none", or the list column's width.
+        "navigationSplit" => AttrTarget::Prop(p("navigationSplit")),
         // @ref LLP 1075.003.000 — the node the app's native code receives.
         "hatch" => AttrTarget::Prop(p("hatch")),
         "closedby" => AttrTarget::Prop(p("closedby")),
