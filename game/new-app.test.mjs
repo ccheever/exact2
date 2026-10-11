@@ -21,7 +21,7 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     const agents = () => readFileSync(resolve(dir, 'AGENTS.md'), 'utf8');
     assert.match(agents(), /<!-- exact:begin[^]*Run `bun exact\.mjs feedback status` first; it prints what to keep\.[^]*<!-- exact:end -->/);
     assert.doesNotMatch(agents(), /## The authoring diary|### Needed/);
-    assert.ok(Buffer.byteLength(agents()) <= 5 * 1024 + 512, `AGENTS.md is ${Buffer.byteLength(agents())} bytes`);
+    assert.ok(Buffer.byteLength(agents()) <= 3 * 1024 + 512, `AGENTS.md is ${Buffer.byteLength(agents())} bytes`); // 3 KB, and long temp-dir paths (LLP 1116.001 D4)
     assert.match(agents(), /one-time installer[^]*exact\.mjs[^]*setup[^]*forced offline for Hermes/);
     assert.match(readFileSync(resolve(dir, '.gitignore'), 'utf8'), /^\/\.exact\/$/m);
     // Execute the generated dispatcher against fake SDK entry points: cwd may
@@ -281,7 +281,10 @@ test('a new app tells its agent where the guides are, and update keeps what the 
       assert.ok(notes.includes(resolve(root, 'docs', guide)), guide);
       assert.ok(existsSync(resolve(root, 'docs', guide)), guide);
     }
-    assert.match(notes, /bun exact\.mjs contract types app\.contract -o app\.contract\.d\.ts/);
+    // The patterns, the recipes and `--help`, and nothing start-here says (LLP 1116.001 D4).
+    assert.match(notes, /`bun exact\.mjs pattern` lists them \(`one-screen`, `list-detail`,\s+`tabs`, `dashboard`, `rest`\)/);
+    assert.match(notes, /bun exact\.mjs <verb> --help/);
+    assert.doesNotMatch(notes, /contract types|no-tells|\.exact\//);
     assert.ok(lstatSync(resolve(dir, 'CLAUDE.md')).isSymbolicLink());
     assert.equal(readFileSync(resolve(dir, 'CLAUDE.md'), 'utf8'), notes);
     const manifest = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
