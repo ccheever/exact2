@@ -2,8 +2,8 @@
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 let last = null;
 let refused = new WeakMap();
-// The tabpanels each root last hid or showed: one it stops naming shows again.
-let managed = new WeakMap();
+// The tabpanels each root last hid or showed (one it stops naming shows again); the keys of the stack it last showed.
+let managed = new WeakMap(), shown = new WeakMap();
 let written = [], gone = new Set(), cursor = 0, first = null, originIndex = null;
 let echo = null, pop = null, draining = false;
 const queue = [];
@@ -261,22 +261,22 @@ export const navigation = {
   },
   project(root, log) {
     for (const nav of root.querySelectorAll("[navigationBack]")) {
-      const key = nav.getAttribute("navigationKey");
+      let key = nav.getAttribute("navigationKey");
       const panels = panelsOf(nav);
       for (const panel of managed.get(nav) ?? []) {
         if (!panels.includes(panel)) { panel.style.visibility = ""; panel.inert = !!panel.authoredInert; }
       }
       managed.set(nav, panels);
       const stacks = panels.length ? panels.map(routesIn) : [routesIn(nav)];
+      const declared = k => stacks.some(routes => routes.some(route => route.getAttribute("navigationKey") === k));
+      if (!declared(key)) {
+        if (refused.get(nav) !== key) { refused.set(nav, key); log(`navigationKey "${key}" matches no route among the root's children or those of the tabpanels its tablist names; the stack is unchanged`); }
+        // @ref LLP 1035.001 D1 — left alone, less the routes that left the tree: the deepest of the stack last shown
+        // still declared is selected, so a closed sheet or a popped screen never leaves the route beneath it inert.
+        key = (shown.get(nav) ?? []).findLast(declared);
+        if (key === undefined) continue;
+      } else refused.delete(nav);
       const at = stacks.findIndex(routes => routes.some(route => route.getAttribute("navigationKey") === key));
-      if (at < 0) {
-        if (refused.get(nav) !== key) {
-          refused.set(nav, key);
-          log(`navigationKey "${key}" matches no route among the root's children or those of the tabpanels its tablist names; the stack is unchanged`);
-        }
-        continue;
-      }
-      refused.delete(nav);
       // Every tab but the selected one stays mounted, hidden and inert.
       for (const [index, panel] of panels.entries()) {
         const active = index === at;
@@ -287,6 +287,7 @@ export const navigation = {
       for (const [stack, routes] of stacks.entries()) {
         // The selected stack shows the route the root names; another keeps its top laid out.
         const selected = stack === at ? routes.findIndex(route => route.getAttribute("navigationKey") === key) : routes.length - 1;
+        if (stack === at) shown.set(nav, routes.slice(0, selected + 1).map(route => route.getAttribute("navigationKey")));
         const modal = routes[selected]?.getAttribute("navigationPresentation") === "modal";
         for (const [index, route] of routes.entries()) {
           const active = index === selected;
@@ -686,7 +687,6 @@ export function focusController({ready, elements, inert}) {
     } finally {pointerTarget = previous;}
   }};
 }
-
 
 // The focus, blur, selectText and setSelectionRange commands a batch carried, run once every
 // node and value in it is committed (a focus handler may dispatch an action).

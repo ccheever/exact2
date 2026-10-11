@@ -184,6 +184,15 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// The root key last journaled as matching no route, so a refusal is one
     /// line, not one per batch (LLP 1035.001 D6).
     private var refusedKey: String?
+    /// The keys of the stack last shown, through its selected route, and the
+    /// route selected in the root's place while its key matches none (D1).
+    private var shownKeys: [String] = [], fallbackKey: String?
+    /// The key of the selected route: the root's, or while the root's
+    /// matches no route, the route left selected of the stack last shown.
+    var selectedKey: String? {
+        guard let key = container?.props["navigationKey"] else { return nil }
+        return key == refusedKey ? fallbackKey ?? key : key
+    }
 
     init(presenter: Presenter) { self.presenter = presenter }
 
@@ -279,18 +288,25 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             return nil
         }
         // D1: the stack is the prefix through the route the root names; a
-        // key that names none leaves the stack alone, and says so once.
+        // key that names none leaves the stack alone, less the routes that
+        // left the tree (a closed sheet's), and says so once.
         let rootKey = root.props["navigationKey"] ?? ""
         let keys = { (routes: [NodeView]) in routes.map { $0.props["navigationKey"] ?? "" } }
-        guard let at = stacks.firstIndex(where: { NavigationRules.stack(routeKeys: keys($0), selected: rootKey) != nil }),
-              let range = NavigationRules.stack(routeKeys: keys(stacks[at]), selected: rootKey) else {
+        var selecting = rootKey
+        if !stacks.contains(where: { keys($0).contains(rootKey) }) {
             if refusedKey != rootKey {
                 refusedKey = rootKey
                 presenter.session?.log("navigationKey \"\(rootKey)\" matches no route among the root's children or those of the tabpanels its tablist names; the stack is unchanged")
             }
-            return nil
+            guard let survivor = NavigationRules.survivor(of: shownKeys, declared: stacks.map(keys)) else { fallbackKey = nil; return nil }
+            selecting = survivor
+        } else {
+            refusedKey = nil
         }
-        refusedKey = nil
+        fallbackKey = selecting == rootKey ? nil : selecting
+        guard let at = stacks.firstIndex(where: { NavigationRules.stack(routeKeys: keys($0), selected: selecting) != nil }),
+              let range = NavigationRules.stack(routeKeys: keys(stacks[at]), selected: selecting) else { return nil }
+        shownKeys = Array(keys(stacks[at])[range])
         selectedRouteCount = stacks[at].count
         let wanted = stacks.enumerated().map { index, routes in
             (index == at ? Array(routes[range]) : routes).map { node -> RouteController in
@@ -677,7 +693,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     func invokeBack(from source: NodeView) {
         guard presenter.session?.view?.window != nil,
               presenter.views[source.id] === source, routeIDs.contains(source.id),
-              source.props["navigationKey"] == container?.props["navigationKey"] else { return }
+              source.props["navigationKey"] == selectedKey else { return }
         goBack()
     }
 
@@ -716,7 +732,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     }
 
     func isInactiveRoute(containing view: UIView) -> Bool {
-        guard let selected = container?.props["navigationKey"],
+        guard let selected = selectedKey,
               let key = routeKey(containing: view) else { return false }
         return key != selected
     }
@@ -731,7 +747,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     }
 
     private var selectedRoute: NodeView? {
-        guard let key = container?.props["navigationKey"] else { return nil }
+        guard let key = selectedKey else { return nil }
         return routeIDs.compactMap({ presenter.views[$0] }).first(where: { $0.props["navigationKey"] == key })
     }
 
@@ -971,7 +987,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         // UIKit's own back button (a shown bar, LLP 1075.003 §3.7) pops with
         // no gesture: the route the root names has left the native stack,
         // which Exact never does itself. It is a completed pop from that route.
-        let rootKey = container?.props["navigationKey"] ?? ""
+        let rootKey = selectedKey ?? ""
         // A modal route is the root of its own presented stack, which no bar
         // pops: one not presented yet (a sheet over a sheet that waits for the
         // one under it, both pushed at once) is not this stack's popped route.
@@ -1019,6 +1035,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         primaryNavigation = nil
         container = nil
         logicalChildren = [:]
+        shownKeys = []; fallbackKey = nil
         refitForBars()
         controllers.removeAll()
         routeIDs = []

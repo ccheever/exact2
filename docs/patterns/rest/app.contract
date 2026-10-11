@@ -83,6 +83,8 @@ component App
 
   view
     // Wide, the list and the selected item are one screen, side by side; a phone pushes it.
+    // The root names "items" whenever the list is on top, the list route's own key: keep the
+    // two together (or key every route `${e.id}` under a root of `${top(nav).id}`).
     main navigationKey=(top(nav).name == "items" or (wide and top(nav).name == "item") ? "items" : `${top(nav).id}`)
       navigationBack="back" navigate=follow testId="app" width="100%" height="100%" accent-color="-exact-system-indigo"
       each e in stack(nav) key=e.id

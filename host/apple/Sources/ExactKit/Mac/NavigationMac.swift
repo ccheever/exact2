@@ -8,6 +8,8 @@ final class NavigationHost {
     private var gates: [UInt32: [Bool]] = [:]
     /// The tabpanels a root last hid or showed: one it stops naming shows again.
     private var panels: Set<UInt32> = []
+    /// Each root's stack as last shown, its keys through its selected route.
+    private var shown: [UInt32: [String]] = [:]
     /// The ops that can change what hides or disables a node: a frame, a
     /// paint or a presentation value (every frame of an animation) cannot,
     /// and each write posts an accessibility notification.
@@ -16,14 +18,14 @@ final class NavigationHost {
     /// LLP 1080.001 D3: a route or tabpanel this host hid (the web's
     /// hide-and-inert rule), which it inerts with it.
     func hides(_ node: NodeView) -> Bool { node.routeInert && (panels.contains(node.id) || node.props["navigationKey"] != nil) }
-    func reset() { refused.removeAll(); gates.removeAll(); panels.removeAll() }
+    func reset() { refused.removeAll(); gates.removeAll(); panels.removeAll(); shown.removeAll() }
 
     func sync(_ batch: Batch, reparented: Set<UInt32> = []) {
         var touched = Set<UInt32>()
         var subtrees = reparented
         for op in batch.ops {
             if let id = op.nodeID {
-                if op.op == .destroy { gates.removeValue(forKey: id); refused.removeValue(forKey: id) }
+                if op.op == .destroy { gates.removeValue(forKey: id); refused.removeValue(forKey: id); shown.removeValue(forKey: id) }
                 else if Self.gating.contains(op.op) { touched.insert(id) }
             }
             // A children op names retained siblings too. Only changed ancestry
@@ -40,22 +42,34 @@ final class NavigationHost {
         }
         var managed = Set<UInt32>()
         for nav in presenter.carrying("navigationBack") {
-            let key = nav.props["navigationKey"] ?? ""
             // @ref LLP 1075.003 §3.7 — with tabs, each panel is a stack.
             let tabs = NavigationTabs.of(nav, presenter)
-            let (found, stacks) = tabs?.stacks(selecting: key) ?? {
-                let routes = NavigationTabs.routes(in: nav)
-                return (routes.contains { $0.props["navigationKey"] == key } ? 0 : nil, [routes])
-            }()
-            guard let at = found else {
+            let locate = { (key: String) -> (at: Int?, stacks: [[NodeView]]) in
+                tabs?.stacks(selecting: key) ?? {
+                    let routes = NavigationTabs.routes(in: nav)
+                    return (routes.contains { $0.props["navigationKey"] == key } ? 0 : nil, [routes])
+                }()
+            }
+            var key = nav.props["navigationKey"] ?? ""
+            var (found, stacks) = locate(key)
+            if found == nil {
                 if refused[nav.id] != key {
                     refused[nav.id] = key
                     presenter.session?.log("navigationKey \"\(key)\" matches no route among the root's children or those of the tabpanels its tablist names; the stack is unchanged")
                 }
+                // D1: left alone, less the routes that left the tree (a closed sheet's).
+                let declared = stacks.map { $0.map { $0.props["navigationKey"] ?? "" } }
+                if let survivor = NavigationRules.survivor(of: shown[nav.id] ?? [], declared: declared) {
+                    key = survivor
+                    (found, stacks) = locate(key)
+                }
+            } else {
+                refused.removeValue(forKey: nav.id)
+            }
+            guard let at = found else {
                 managed.formUnion((tabs?.panels ?? []).map(\.id))
                 continue
             }
-            refused.removeValue(forKey: nav.id)
             for (index, panel) in (tabs?.panels ?? []).enumerated() {
                 gate(panel, hidden: index != at, inert: index != at)
                 managed.insert(panel.id)
@@ -64,6 +78,7 @@ final class NavigationHost {
                 // The selected stack shows the route the root names; another
                 // keeps its top laid out under its hidden panel.
                 let selected = stack == at ? routes.firstIndex { $0.props["navigationKey"] == key } ?? 0 : routes.count - 1
+                if stack == at { shown[nav.id] = routes.prefix(selected + 1).map { $0.props["navigationKey"] ?? "" } }
                 let modal = routes.indices.contains(selected) && routes[selected].props["navigationPresentation"] == "modal"
                 for (index, route) in routes.enumerated() {
                     gate(route, hidden: index != selected && !(modal && index == selected - 1), inert: index != selected)
