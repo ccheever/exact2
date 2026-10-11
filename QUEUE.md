@@ -920,10 +920,11 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
   the default paved path for substantial app logic) — LLP 1027 is that design; the
   `ibex2::host` half above stands as landed.
 
-- The dev menu (Apple hosts) is on by default — EXACT_DEV_MENU=0 is the only off
-  switch, and "Quit Exact"/"Exact" are hardcoded names. Before any build of
-  weird-castle goes to someone who isn't developing it, decide the release gating
-  (and take the app's name from the bundle).
+- The dev menu on iOS is on in every build — EXACT_DEV_MENU=0 is the only off
+  switch. (The Mac's follows the build since LLP 1115.000 D7.8: a release build has
+  no Develop menu, `DevMenu.develops`.) A distributed iOS build's testers open it for
+  the build's info and release notes, so decide what a release build shows there
+  before one of weird-castle goes to someone who isn't testing it.
 
 - The serial runtime owner + env()/keyboard lane is parked on `parked/runtime-owner`
   (2583be3, base 17350d0 — pre-fonts) and the main worktree is clean of it. LLP 1022

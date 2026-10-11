@@ -803,6 +803,45 @@ final class MacShortcutTests: XCTestCase {
         XCTAssertTrue(field.responds(to: #selector(NSTextView.toggleAutomaticQuoteSubstitution(_:))))
     }
 
+    /// LLP 1115.000 D7.8: a release build has no Develop menu, and so takes
+    /// none of its chords (Reload ⌘R, Open Project… ⌘O, App Info… ⌘D, Save
+    /// Trace ⌥⌘T); a development build's bar is as it was.
+    func testOnlyADevelopmentBuildsBarHasDevelopAndItsChords() {
+        let presenter = Presenter()
+        let window = window(presenter)
+        defer { window.close() }
+        let previous = (NSApp.servicesMenu, NSApp.windowsMenu, NSApp.helpMenu)
+        defer { NSApp.servicesMenu = previous.0; NSApp.windowsMenu = previous.1; NSApp.helpMenu = previous.2 }
+        let titles = { (bar: NSMenu) in Array(bar.items.compactMap { $0.submenu?.title }.dropFirst()) }
+        func items(_ menu: NSMenu) -> [NSMenuItem] { menu.items.flatMap { [$0] + ($0.submenu.map(items) ?? []) } }
+        let shipped = DevMenu.makeMenu(shortcuts: presenter.shortcuts, documents: false, develop: false)
+        XCTAssertEqual(titles(shipped), ["File", "Edit", "View", "Go", "Window", "Help"])
+        XCTAssertFalse(items(shipped).contains { $0.target === DevMenu.target }, "no development command is in a shipped bar")
+        for key in ["r", "o", "d", "t"] {
+            XCTAssertFalse(items(shipped).contains { $0.keyEquivalent == key && $0.keyEquivalentModifierMask.contains(.command) }, "⌘\(key) is not taken")
+        }
+        let development = DevMenu.makeMenu(shortcuts: presenter.shortcuts, documents: false, develop: true)
+        XCTAssertEqual(titles(development), ["File", "Edit", "View", "Go", "Window", "Develop", "Help"])
+        let develop = development.items.first { $0.submenu?.title == "Develop" }!.submenu!
+        XCTAssertEqual(develop.items.map(\.title), ["Reload", "Open Project…", "App Info…", "Save Trace"])
+        XCTAssertEqual(develop.items.map(\.keyEquivalent), ["r", "o", "d", "t"])
+        XCTAssertEqual(develop.items.map(\.keyEquivalentModifierMask), [.command, .command, .command, [.command, .option]])
+        // Which build is which: production trust, or `build.mjs`'s stamp of a
+        // production or distributed build (`exact release`); an unstamped
+        // host, as this test's, is a development one. The environment
+        // overrides either.
+        XCTAssertTrue(DevMenu.develops(kind: "debug", production: false, override: nil))
+        XCTAssertTrue(DevMenu.develops(kind: nil, production: false, override: nil))
+        for kind in ["release", "archive"] {
+            XCTAssertFalse(DevMenu.develops(kind: kind, production: false, override: nil), "\(kind): a shipped app has no Develop menu")
+        }
+        XCTAssertFalse(DevMenu.develops(kind: "debug", production: true, override: nil))
+        XCTAssertFalse(DevMenu.develops(kind: nil, production: true, override: nil))
+        XCTAssertTrue(DevMenu.develops(kind: "release", production: true, override: "1"))
+        XCTAssertFalse(DevMenu.develops(kind: "debug", production: false, override: "0"))
+        XCTAssertEqual(DevMenu.enabled, ExactEnv.environment["EXACT_DEV_MENU"] != "0", "the tests' host is a development build")
+    }
+
     func testShortcutsRespectDisabledInertHiddenRepeatedAndWindowOwnership() {
         let presenter = Presenter()
         let window = window(presenter)
