@@ -100,7 +100,7 @@ component SettingsInformation
               when length(data.licenses) == 0
                 text data.licenseMessage padding-top=42 padding-bottom=42 text-align="center" font-size=roles.body.size color=colors.muted
               each item in data.licenses key=item.id
-                button press=navigate("settingsOpenSourceLicense", item.id) padding=0 aria-label=`${item.name}, ${item.metadata}` testId=`license-${item.id}`
+                button press=navigate("settingsOpenSourceLicense", item.id) retainFocus=true padding=0 aria-label=`${item.name}, ${item.metadata}` testId=`license-${item.id}`
                   row gap=10.5 padding-left=17.5 padding-right=17.5 padding-top=14 padding-bottom=14 border-bottom-width=1 border-bottom-style="solid" border-bottom-color=colors.border background-color=colors.grouped align-items="flex-start"
                     column flex=1 min-width=0 gap=3.5
                       text item.name font-size=roles.body.size font-weight=500 color=colors.foreground line-clamp=2
