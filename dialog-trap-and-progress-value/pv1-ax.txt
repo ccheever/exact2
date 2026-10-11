@@ -1,0 +1,24 @@
+dialog-trap-and-progress-value PV-1: what macOS accessibility reads for the clone's drawn progress bar, before and after.
+A one-file probe (pv-probe.contract) draws both markups, one under the other, on the clone's own macOS host binary
+(agent mode, `tree --ax`: AppKit's accessibility attributes, the ones VoiceOver reads).
+  'Before' = the Antigravity bar as the clone drew it at eb9752918: a box with role="progressbar",
+             aria-label "Antigravity download", aria-description "30%".
+  'After'  = this branch: that box aria-hidden, and ProgressValue (progress-value.contract, copied verbatim) beside it.
+
+On the evidence base's binary (eb9752918):
+    text | name='Before' | AppKit role=AXStaticText | testId=None | states={}
+    text | name='After' | AppKit role=AXStaticText | testId=None | states={}
+    progressbar | name='Antigravity download, 30%' | AppKit role=AXBusyIndicator | testId=provider-runtime-progress-value-after | states={'busy': True}
+
+On this branch's binary:
+    text | name='Before' | AppKit role=AXStaticText | testId=None | states={}
+    text | name='After' | AppKit role=AXStaticText | testId=None | states={}
+    progressbar | name='Antigravity download, 30%' | AppKit role=AXBusyIndicator | testId=provider-runtime-progress-value-after | states={'busy': True}
+
+Before: the drawn box is no accessibility element at all (only the 'Before' caption is listed): macOS exposes no progressbar
+role on a drawn box (EXACT2-GAPS X55), so its label and description reach nothing.
+After: one element, AppKit's busy indicator (agent role progressbar), named "Antigravity download, 30%".
+The reference's <progress value max> is a progress indicator carrying its value (VoiceOver: "Antigravity download, 30 percent");
+the clone's carries the name and the percentage in its name, as a busy indicator with no AXValue (Contract carries no
+range value, X49). VoiceOver itself is a real-input step for the coordinator's session.
+The context window bar (composer-controls.contract) uses the same component: "Context window usage, 42%".
