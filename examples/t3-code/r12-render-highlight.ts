@@ -15,7 +15,7 @@
 // A text that extends a recently tokenized one (a streaming code block, the same file again)
 // resumes from the last unchanged line's state.
 
-import { colorOf, grammarId, styleOf, tokenizeLine, type LineState } from './r12-render-textmate';
+import { colorOf, grammarId, grammarWork, styleOf, tokenizeLineWithin, unicodeText, type LineState } from './r12-render-textmate';
 import { FILE_TYPES } from './r12-render-filetypes';
 import type { Cls, Token } from './timeline-highlight';
 
@@ -26,6 +26,17 @@ export const SHIKI_MAX_CHARS = 1_000_000;
 export const SLICE_BUDGET_CHARS = 2_500;
 /** A text nobody asked for again within this many turns is dropped (about five seconds of slices). */
 const STALE_TURNS = 300;
+/** code-highlighting-languages: grammars Hermes runs well under TypeScript's 70,000 characters a second,
+ *  with the weight each of their characters takes in the slice budget. Measured over the grammar samples
+ *  and real files (task record code-highlighting-languages): cpp 37,000 a second; every other grammar
+ *  52,000 (javascript) or more. */
+export const SLOW_LANGUAGES: Record<string, number> = { cpp: 2 };
+/** The same for a line with a character outside ASCII, whose regexes run in their Unicode \b forms:
+ *  most grammars take about twice as long there (the default, 2); these more (the same measurement,
+ *  each sample with Korean text on every line). */
+export const UNICODE_SLOW_LANGUAGES: Record<string, number> = {
+  asm: 7, d: 6, 'fortran-fixed-form': 6, 'fortran-free-form': 5, surrealql: 4, codeql: 3, cpp: 3, llvm: 3, swift: 3, 'system-verilog': 3,
+};
 
 /** Each pierre-light / pierre-dark foreground pair the themes define, as its synColor class. */
 export const CLASS_OF_PAIR: Record<string, Cls> = {
@@ -121,8 +132,16 @@ function advance(job: Job, budget: { left: number }): boolean {
   let state: LineState = job.states.length ? job.states[job.states.length - 1]! : null;
   for (let index = job.states.length; index < job.lines.length; index++) {
     if (budget.left <= 0) return false;
-    budget.left -= job.lines[index]!.length + 1;
-    const result = tokenizeLine(job.lines[index]!, job.lang, state);
+    // code-highlighting-languages: a slow grammar's characters, and a line outside ASCII (Unicode \b
+    // forms), count more; the line's one-time work (chunks parsed, regexes compiled on first use) is
+    // charged too, and a line whose compiles would pass what is left stops and goes on next turn.
+    const line = job.lines[index]!;
+    const cost = (line.length + 1) * (unicodeText(line) ? UNICODE_SLOW_LANGUAGES[job.lang] ?? 2 : SLOW_LANGUAGES[job.lang] ?? 1);
+    const before = grammarWork();
+    const result = tokenizeLineWithin(line, job.lang, state, budget.left - cost);
+    budget.left -= grammarWork() - before;
+    if (!result) { budget.left = Math.min(budget.left, 0); return false; }
+    budget.left -= cost;
     state = result.state;
     const runs: Token[] = [];
     for (const piece of result.pieces) {

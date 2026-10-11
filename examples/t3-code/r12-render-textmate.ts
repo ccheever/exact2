@@ -14,8 +14,9 @@ import { GRAMMAR_CHUNKS, GRAMMAR_INDEX } from './r12-render-grammar';
 
 /** A converted regex: source, flags, hidden captures, capture transfers, clip-search strategy
  *  (oniguruma-to-es's EmulatedRegExp options), a back-reference marker, or four \A/\G variants
- *  (in the data a variant equal to an earlier one is that one's index; load() resolves it). */
-interface Rx { s: string; f: string; h?: number[]; t?: [number, number[]][]; c?: 1; b?: 1; v?: Rx[]; re?: RegExp }
+ *  (in the data a variant equal to an earlier one is that one's index; load() resolves it), and
+ *  `u`, its form with Oniguruma's Unicode \b where that differs from the ASCII one (see exec). */
+interface Rx { s: string; f: string; h?: number[]; t?: [number, number[]][]; c?: 1; b?: 1; v?: Rx[]; u?: Rx; re?: RegExp }
 interface Capture { n?: number; c?: number; r?: number }
 type Captures = Record<string, Capture>;
 interface Rule { i?: number; n?: number; c?: number; m?: number; mc?: Captures; b?: number; bc?: Captures; e?: number; ec?: Captures; w?: number; wc?: Captures; l?: 1; p?: number[] }
@@ -32,12 +33,22 @@ const own = (table: object, key: string) => Object.prototype.hasOwnProperty.call
 /** The loaded rules, scope names and regexes, by their global ids (holes until their chunk loads). */
 const RULES: Rule[] = [], NAMES: string[] = [], REGEXES: Rx[] = [];
 const loadedChunks = new Set<number>();
+/** The one-time work done so far (chunks parsed, regexes compiled), in the slicer's unit: characters
+ *  tokenized at TypeScript's speed in Hermes (about 70,000 a second). Hermes compiles cpp's regexes,
+ *  the costliest ASCII ones here, at about 0.4 µs a source character, so a regex costs one unit per 30
+ *  of its characters, and four more per Unicode property (a Unicode \b form has four classes of four,
+ *  each built when compiled: asm's 280 compile in about 430 ms); a chunk parses at one unit per 400
+ *  characters. */
+let work = 0;
+export const grammarWork = (): number => work;
 /** Parses one grammar's chunk into the tables. */
 function load(chunk: number): void {
   if (loadedChunks.has(chunk)) return;
   loadedChunks.add(chunk);
   const [ruleAt, nameAt, regexAt] = index().chunks[chunk]!;
-  const data = JSON.parse(GRAMMAR_CHUNKS[chunk]!()) as { r: Rule[]; n: string[]; x: (Rx & { v?: (Rx | number)[] })[] };
+  const text = GRAMMAR_CHUNKS[chunk]!();
+  work += text.length / 400;
+  const data = JSON.parse(text) as { r: Rule[]; n: string[]; x: (Rx & { v?: (Rx | number)[] })[] };
   data.r.forEach((one, at) => { RULES[ruleAt + at] = one; });
   data.n.forEach((one, at) => { NAMES[nameAt + at] = one; });
   data.x.forEach((one, at) => {
@@ -67,12 +78,30 @@ export function grammarId(lang: string): string {
 // ── Regexes ─────────────────────────────────────────────────────────────────────────────────
 interface Match { start: number; end: number; indices: ([number, number] | undefined)[] }
 /** The entry's RegExp, compiled once and kept on the entry (back-reference variants are fresh entries). */
-const compile = (rx: Rx): RegExp => rx.re ??= new RegExp(rx.s, rx.f + 'dg');
+/** While a line runs under a limit (tokenizeLineWithin): the work when it began, how many regexes it
+ *  has compiled, and how much one-time work it may do. */
+let lineWork = 0, lineCompiled = 0, workLimit = Infinity;
+const OVER_LIMIT = new Error('over the line\'s work limit');
+function compile(rx: Rx): RegExp {
+  if (!rx.re) {
+    const cost = 1 + rx.s.length / 30 + 4 * (rx.s.split('\\p{').length - 1);
+    // A line stops before a compile that would pass its limit (once it has compiled one, so each try progresses).
+    if (lineCompiled > 0 && work - lineWork + cost > workLimit) throw OVER_LIMIT;
+    work += cost;
+    lineCompiled++;
+    rx.re = new RegExp(rx.s, rx.f + 'dg');
+  }
+  return rx.re;
+}
 function variant(index: number, allowA: boolean, allowG: boolean): Rx {
   const rx = REGEXES[index]!;
   return rx.v ? rx.v[(allowA ? 2 : 0) + (allowG ? 1 : 0)]! : rx;
 }
-function exec(rx: Rx, line: string, from: number): Match | null {
+/** Whether the line being tokenized has a character outside ASCII: only there does Oniguruma's
+ *  Unicode \b differ from the faster ASCII one (code-highlighting-languages). */
+let unicodeLine = false;
+function exec(given: Rx, line: string, from: number): Match | null {
+  const rx = unicodeLine && given.u ? given.u : given;
   const re = compile(rx);
   // clip_search: the regex sees the line from `from` on (its \G became ^), offsets added back.
   const offset = rx.c && from ? from : 0, text = offset ? line.slice(offset) : line;
@@ -102,7 +131,7 @@ function resolveBackrefs(rx: Rx, line: string, begin: Match): Rx {
   const swap = (one: Rx): Rx => ({ s: one.s.replace(/[\ue000-\ue0ff]/g, mark => {
     const at = begin.indices[mark.charCodeAt(0) - 0xe000];
     return at ? escapeRx(line.slice(at[0], at[1])) : '';
-  }), f: one.f, ...(one.h ? { h: one.h } : {}), ...(one.t ? { t: one.t } : {}), ...(one.c ? { c: one.c } : {}) });
+  }), f: one.f, ...(one.h ? { h: one.h } : {}), ...(one.t ? { t: one.t } : {}), ...(one.c ? { c: one.c } : {}), ...(one.u ? { u: swap(one.u) } : {}) });
   return rx.v ? { s: '', f: '', v: rx.v.map(swap) } : swap(rx);
 }
 
@@ -469,10 +498,13 @@ export const colorOf = (scopes: string[], name: 'light' | 'dark'): string => sty
 
 /** The tokenizer's state between lines (opaque); null before the first line. */
 export type LineState = Frame | null;
+/** Whether a line has a character outside ASCII (its regexes then run in their Unicode \b forms). */
+export const unicodeText = (text: string): boolean => /[^\x00-\x7f]/.test(text);
 /** One line (without its "\n") after `state`: its scoped pieces and the state after it. */
 export function tokenizeLine(text: string, lang: string, state: LineState): { pieces: Piece[]; state: Frame } {
   const first = state === null;
   rootLang = lang;
+  unicodeLine = unicodeText(text);
   let frame: Frame;
   if (state === null) {
     const root = index().roots[lang]!, top = ruleOf(root);
@@ -487,6 +519,18 @@ export function tokenizeLine(text: string, lang: string, state: LineState): { pi
   const out = new Output(line, text.length);
   frame = tokenizeString(line, first, 0, frame, out, true);
   return { pieces: out.pieces, state: frame };
+}
+
+/** code-highlighting-languages: tokenizeLine, or null when the line's one-time work (regexes compiled
+ *  on first use) would pass `limit` units: the regexes compiled so far stay compiled and the line is
+ *  tokenized again from its start later (a line leaves no other trace: `state` is only read). So a line
+ *  that first meets a big list (asm's 280 Unicode forms, about 430 ms) spreads it over turns. */
+export function tokenizeLineWithin(text: string, lang: string, state: LineState, limit: number): { pieces: Piece[]; state: Frame } | null {
+  lineWork = work; lineCompiled = 0; workLimit = limit;
+  try { return tokenizeLine(text, lang, state); } catch (error) {
+    if (error === OVER_LIMIT) return null;
+    throw error;
+  } finally { workLimit = Infinity; }
 }
 
 /** The scoped pieces of `code` in a language this table holds (one piece per run, "\n" included). */

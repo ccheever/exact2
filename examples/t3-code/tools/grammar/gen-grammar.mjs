@@ -42,6 +42,11 @@ const ENGINE = {
   global: true, hasIndices: true, target: 'ES2018',
   rules: { allowOrphanBackrefs: true, asciiWordBoundaries: true, captureGroup: true, recursionLimit: 5, singleline: true },
 };
+// code-highlighting-languages: Shiki's JavaScript engine reads \b as ASCII; the reference runs
+// Oniguruma, whose \b is Unicode (`__밑줄__과` is no emphasis there, `2π` is one number). On a line
+// of ASCII characters the two agree, and the ASCII form is several times faster in Hermes, so a
+// regex whose Unicode form differs carries it as `u`, which the engine uses on lines with other characters.
+const UNICODE_ENGINE = { ...ENGINE, rules: { ...ENGINE.rules, asciiWordBoundaries: false } };
 
 // ── vscode-textmate's RegExpSource: \z rewritten, \A / \G noted, back-references noted ─────────
 function regExpSource(source) {
@@ -108,39 +113,39 @@ const PLACEHOLDER = 0xf0000;
 const PARSE = { rules: { captureGroup: true, singleline: true }, skipBackrefValidation: true };
 const needsV = error => /requires min target ES2024/.test(String(error?.message));
 /** The converted (JavaScript, `u` mode) pattern of one AST node standing alone. */
-function alone(node) {
+function alone(node, engine) {
   const ast = parse('a', PARSE);
   ast.body[0].body[0] = node;
-  return toRegExpDetails(generateOniguruma(ast).pattern, ENGINE).pattern;
+  return toRegExpDetails(generateOniguruma(ast).pattern, engine).pattern;
 }
 /** The converted pattern of a class with these elements, or null when it needs the `v` flag. */
-function plainClass(negate, body) {
-  try { return alone({ type: 'CharacterClass', kind: 'union', negate, body }); } catch (error) { if (needsV(error)) return null; throw error; }
+function plainClass(negate, body, engine) {
+  try { return alone({ type: 'CharacterClass', kind: 'union', negate, body }, engine); } catch (error) { if (needsV(error)) return null; throw error; }
 }
 /** A JavaScript pattern matching the one character a class (or class element) matches. */
-function classMatcher(node) {
-  if (node.type === 'CharacterSet') return alone(node);
-  if (node.type !== 'CharacterClass') return plainClass(false, [node]);
+function classMatcher(node, engine) {
+  if (node.type === 'CharacterSet') return alone(node, engine);
+  if (node.type !== 'CharacterClass') return plainClass(false, [node], engine);
   if (node.kind === 'intersection') {
-    const [first, ...rest] = node.body.map(classMatcher);
+    const [first, ...rest] = node.body.map(kid => classMatcher(kid, engine));
     const core = rest.map(operand => `(?=${operand})`).join('') + first;
     return node.negate ? `(?:(?!${core})[\\s\\S])` : `(?:${core})`;
   }
-  const plain = plainClass(node.negate, node.body);
+  const plain = plainClass(node.negate, node.body, engine);
   if (plain !== null) return plain;
-  const parts = node.body.map(classMatcher);
+  const parts = node.body.map(kid => classMatcher(kid, engine));
   const any = parts.length === 1 ? parts[0] : `(?:${parts.join('|')})`;
   return node.negate ? `(?:(?!${any})[\\s\\S])` : any;
 }
 /** toRegExpDetails, with the classes that need the `v` flag rewritten (see above) when the plain conversion refuses them. */
-function convertDetails(source) {
-  try { return toRegExpDetails(source, ENGINE); } catch (error) { if (!needsV(error)) throw error; }
+function convertDetails(source, engine) {
+  try { return toRegExpDetails(source, engine); } catch (error) { if (!needsV(error)) throw error; }
   // The rewrite converts each class alone, outside any flag group: refuse a pattern where that would change its meaning.
   if (/\(\?[imx-]*[ix][imx-]*[:)]/.test(source)) throw new Error(`a class to rewrite under a flag group in ${JSON.stringify(source)}`);
   const ast = parse(source, PARSE), fragments = [];
   const replace = node => {
-    if (node?.type !== 'CharacterClass' || (node.kind !== 'intersection' && plainClass(node.negate, node.body) !== null)) return null;
-    fragments.push(classMatcher(node));
+    if (node?.type !== 'CharacterClass' || (node.kind !== 'intersection' && plainClass(node.negate, node.body, engine) !== null)) return null;
+    fragments.push(classMatcher(node, engine));
     return { type: 'Character', value: PLACEHOLDER + fragments.length - 1 };
   };
   const walk = node => {
@@ -151,7 +156,7 @@ function convertDetails(source) {
     }
   };
   walk(ast);
-  const details = toRegExpDetails(generateOniguruma(ast).pattern, ENGINE);
+  const details = toRegExpDetails(generateOniguruma(ast).pattern, engine);
   let pattern = details.pattern;
   fragments.forEach((fragment, index) => {
     const code = PLACEHOLDER + index, forms = [String.fromCodePoint(code), `\\u{${code.toString(16).toUpperCase()}}`, `\\u{${code.toString(16)}}`];
@@ -162,9 +167,17 @@ function convertDetails(source) {
   return { ...details, pattern };
 }
 
-/** One converted pattern as the data stores it: source, flags (without d/g), EmulatedRegExp options. */
+/** One converted pattern as the data stores it: source, flags (without d/g), EmulatedRegExp options,
+ *  and its Unicode-\b form `u` when that differs. */
 function convert(source) {
-  const details = convertDetails(source);
+  const ascii = convertWith(source, ENGINE);
+  if (!/\\[bB]/.test(source)) return ascii;
+  const unicode = convertWith(source, UNICODE_ENGINE);
+  if (JSON.stringify(unicode) !== JSON.stringify(ascii)) ascii.u = unicode;
+  return ascii;
+}
+function convertWith(source, engine) {
+  const details = convertDetails(source, engine);
   if (details.flags.includes('v')) throw new Error(`v flag in ${JSON.stringify(source)}`);
   const entry = { s: hermesRewrite(details.pattern), f: details.flags.replace(/[dg]/g, '') };
   const options = details.options ?? {};
