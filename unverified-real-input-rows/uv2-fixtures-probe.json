@@ -1,0 +1,23 @@
+{
+ "detail132.viewedFiles": "environment",
+ "detail168.viewedFiles": "host",
+ "filesViewed115": {
+  "error": "PullRequestOperationError: GitHub CLI command failed."
+ },
+ "filesViewed169": {
+  "files": 500,
+  "truncated": true
+ },
+ "diff169": {
+  "files": 100,
+  "truncated": true,
+  "omitted": [
+   {
+    "path": "data/catalog.csv",
+    "additions": 40001,
+    "deletions": 0
+   }
+  ],
+  "next": true
+ }
+}
