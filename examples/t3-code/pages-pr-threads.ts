@@ -16,7 +16,6 @@ import type { Native } from './protocol';
 import { pushToast } from './toast';
 import { letGo } from './let-go';
 import { relativeLabel } from './pages-prs';
-import { fullDate } from './pages-pr-summary';
 import { visibleBody } from './pages-pr-logic';
 import { canEditPullRequestComment } from './pages-pr-writes-logic';
 import { reactionPills, type WriteReference } from './pages-pr-writes';
@@ -37,7 +36,7 @@ export type ThreadState = {
 export const emptyThreadState = (): ThreadState => ({ pending: false, pages: new Map(), loading: new Set(), replied: new Map(), saving: '', saved: new Map() });
 
 export type PrThreadComment = {
-  id: string; author: string; avatar: string; initial: string; authorTip: string; age: string; ageTip: string; bodyId: string;
+  id: string; author: string; avatar: string; initial: string; authorTip: string; age: string; bodyId: string;
   raw: string; canEdit: boolean; saving: boolean; savedSerial: number; reactions: PrReactionPill[]; reacted: string[];
 };
 export type PrThreadCard = {
@@ -83,7 +82,7 @@ export function presentThreads(client: object, state: ThreadState, reference: Wr
         const pills = reactionPills(client, reference, commentId, comment.reactions);
         return {
           id: commentId, author: login, avatar: str(actor.avatarUrl), initial: login.slice(0, 1).toUpperCase(), authorTip: named(actor),
-          age: relativeLabel(comment.createdAt, now), ageTip: fullDate(str(comment.createdAt)), bodyId: body === null ? '' : `pr-thread-comment:${commentId}`, raw: str(comment.body),
+          age: relativeLabel(comment.createdAt, now), bodyId: body === null ? '' : `pr-thread-comment:${commentId}`, raw: str(comment.body),
           // A conversation on a line is made of review comments, whatever the host filed them as.
           canEdit: canEditPullRequestComment(detail, { author: comment.author, kind: 'review-comment' }), saving: state.saving === commentId, savedSerial: state.saved.get(commentId) ?? 0,
           reactions: pills.pills, reacted: pills.reacted,

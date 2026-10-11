@@ -27,7 +27,6 @@ shape PrTimelineCard
   title: string
   stateLabel: string
   age: string
-  ageTip: string
   path: string
   url: string
   bodyId: string
@@ -52,7 +51,6 @@ shape PrTimelineRow
   hasActor: bool
   label: string
   age: string
-  ageTip: string
   path: string
   url: string
   bodyId: string
@@ -179,8 +177,7 @@ component PrdTimelineRow
             text row.headline font-size="0.75rem" line-height="1rem" font-weight=600 color=(over ? "light-dark(#1b4ed8, #346bf1)" : prtInk()) white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
             row margin-top="0.25rem" flex-wrap="wrap" align-items="center" gap="0.5rem"
               text row.sha font-family="ui-monospace" font-size="0.625rem" line-height="0.875rem" color=prtMuted()
-              Tip(label=row.ageTip, side="top", align="start", offset=18)
-                text row.age font-size="0.625rem" line-height="0.875rem" color=prtMuted()
+              text row.age font-size="0.625rem" line-height="0.875rem" color=prtMuted()
           when row.additions != ""
             row margin-left="auto" flex-shrink=0 align-items="baseline" gap="0.25rem"
               text row.additions font-family="ui-monospace" font-size="0.625rem" line-height="0.875rem" color="light-dark(#009966, #00d492)"
@@ -193,8 +190,7 @@ component PrdTimelineRow
             when row.hasActor
               text row.author font-size="0.75rem" line-height="1rem" font-weight=600 color=prtInk()
             text row.label font-size="0.75rem" line-height="1rem" font-weight=600 color=prtInk()
-          Tip(label=row.ageTip, side="top", align="start", offset=18)
-            text row.age margin-top="0.125rem" font-size="0.6875rem" line-height="1rem" color=prtMuted()
+          text row.age margin-top="0.125rem" font-size="0.6875rem" line-height="1rem" color=prtMuted()
 
 // The rail's marker: the actor's face where there is one (dimmed on a closed section), else the
 // event's glyph; centred on its row, or pinned by the name where the row grows with a body.
@@ -287,8 +283,9 @@ component PrdConversationCard
             when card.stateLabel != ""
               text card.stateLabel font-size="0.625rem" line-height="0.875rem" font-weight=500 color=prtMuted()
           row margin-top="0.25rem" flex-wrap="wrap" align-items="center" gap="0.375rem"
-            Tip(label=card.ageTip, side="top", align="start", offset=18)
-              text card.age font-size="0.6875rem" line-height="1rem" color=prtMuted()
+            // No age on the Timeline has a tip (`<span>{formatRelativeTimeLabel(event.at)}</span>`; only the Summary's carries the full
+            // date). unverified-real-input-rows UV-1.
+            text card.age font-size="0.6875rem" line-height="1rem" color=prtMuted()
             when card.path != ""
               text "·" font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b80, #81818180)" aria-hidden=true
               row min-width=0 align-items="center" gap="0.25rem"
@@ -330,8 +327,7 @@ component PrdVerdictRow
             Tip(label=(row.stale ? row.staleLabel : ""), side="top", align="start", offset=18)
               text row.outcomeLabel text-transform="lowercase" font-size="0.75rem" line-height="1rem" font-weight=500 color=(row.stale ? prtMuted() : prtTone(row.outcome)) opacity=(row.stale ? 0.7 : 1) aria-label=(row.stale ? `${row.outcomeLabel}, before the latest commits` : row.outcomeLabel) testId=`pull-request-timeline-verdict-word-${row.key}`
           row margin-top="0.125rem" flex-wrap="wrap" align-items="center" gap="0.375rem"
-            Tip(label=row.ageTip, side="top", align="start", offset=18)
-              text row.age font-size="0.6875rem" line-height="1rem" color=prtMuted()
+            text row.age font-size="0.6875rem" line-height="1rem" color=prtMuted()
             when row.path != ""
               text "·" font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b80, #81818180)" aria-hidden=true
               text row.path font-size="0.6875rem" line-height="1rem" color=prtMuted() white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
