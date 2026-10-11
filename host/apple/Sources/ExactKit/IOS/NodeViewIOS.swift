@@ -425,7 +425,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     }
     /// A text field's Enter as a key (its characters are its `input`, the
     /// Enter commits its `change`); the editing goes on, as on the web.
-    package func textFieldShouldBeginEditing(_ textField: UITextField) -> Bool { !disabled && !inert }
+    package func textFieldShouldBeginEditing(_ textField: UITextField) -> Bool { applyPadBar(); return !disabled && !inert }
     package func textViewShouldBeginEditing(_ textView: UITextView) -> Bool { !disabled && !inert }
 
     package func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
@@ -1157,6 +1157,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             case "search": f.keyboardType = .webSearch
             default: f.keyboardType = .default
             }
+            applyPadBar() // a pad's missing keys its field asks for: ±, Done (LLP 1116.003 D7)
             // HTML's `enterkeyhint` labels the return key (feed F25); UIKit
             // has no `previous`, which keeps the default.
             switch props["enterKeyHint"] {

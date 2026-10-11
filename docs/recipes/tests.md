@@ -45,6 +45,21 @@ bun exact.mjs agent web --storage real1 --epoch now "clock +1500 real" state "sc
 ```
 
 The second drive on the same `--storage` is the relaunch: `reload` is a test line, not a
-drive's op; `state` lists what is `pending` or `failed`. iOS: `agent ios --chrome
-platform`, `"screenshot … window"` ([ios-driving](ios-driving.md)). One drive in dark
-mode: `"prefer prefers-color-scheme dark"` first.
+drive's op; `state` lists what is `pending` or `failed`, and each `clock +N real` waits N ms
+of real time. Before a screenshot, `"check both"` names in text what a look would find
+(clipped text, covered controls, small targets, overflow, low contrast, a card that does
+not show) in each scheme. iOS: `agent ios --chrome platform`, `"screenshot … window"`
+([ios-driving](ios-driving.md)).
+
+A second user's write, seen through the app's own polling: the drive in the background,
+the write through the server with the other persona's token once its first `state` is out:
+
+```sh
+bun exact.mjs agent web --json --storage live "clock data" state "clock +3000 real" "clock +5000" "clock data" state > .exact/live.jsonl &
+until grep -q '"slots"' .exact/live.jsonl; do sleep 0.2; done
+curl -s -X POST localhost:6410/cards -H 'authorization: Bearer bob' -H 'content-type: application/json' -d '{"title":"From Bob"}'
+wait; tail -n 1 .exact/live.jsonl    # the last state holds Bob's card
+```
+
+`clock +5000` fires the app's poll (make it longer than the poll's interval) and `clock
+data` lands its reply; `agent ios` is the same.
