@@ -651,6 +651,12 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "aria-required" => AttrTarget::Prop(p("accessibilityRequired")),
         "aria-haspopup" => AttrTarget::Prop(p("accessibilityHasPopup")),
         "aria-current" => AttrTarget::Prop(p("accessibilityCurrent")), // Depot: a nav link's page
+        // @ref LLP 1116 D8 — a range role's value (`progressbar`, `slider`,
+        // `meter`, …), numbers written as HTML writes them (`aria_values`).
+        "aria-valuenow" => AttrTarget::Prop(p("accessibilityValueNow")),
+        "aria-valuemin" => AttrTarget::Prop(p("accessibilityValueMin")),
+        "aria-valuemax" => AttrTarget::Prop(p("accessibilityValueMax")),
+        "aria-valuetext" => AttrTarget::Prop(p("accessibilityValueText")),
         // SVG 2 attributes CSS cannot set (LLP 1055 D1/D2), by their SVG names.
         "viewBox" => AttrTarget::Prop(p("viewBox")),
         "preserveAspectRatio" => AttrTarget::Prop(p("preserveAspectRatio")),

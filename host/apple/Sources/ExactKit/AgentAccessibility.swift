@@ -397,6 +397,8 @@ extension Presenter {
         // Nor a progress trait: a `progress`'s indicator (LLP 1069.001,
         // amended 2026-10-07) is ARIA's busy `progressbar` by its class.
         if obj is UIActivityIndicatorView, forced == nil { e["role"] = "progressbar"; states["busy"] = true }
+        // A drawn range role says its role by ARIA's (LLP 1116 D8).
+        if let node = obj as? NodeView, forced == nil, let range = node.rangeRole { e["role"] = range }
         e["interactive"] = forced == nil && (o.accessibilityRespondsToUserInteraction || editable || names.contains("button") || names.contains("link") || names.contains("adjustable"))
         if let actions = o.accessibilityCustomActions, !actions.isEmpty { e["actions"] = actions.prefix(16).compactMap { cut($0.name) } }
         native["role"] = names
@@ -432,7 +434,8 @@ extension Presenter {
         let mapped = ["AXButton": "button", "AXLink": "link", "AXHeading": "heading", "AXTextField": "textbox", "AXTextArea": "textbox",
                       "AXCheckBox": f.subrole == "AXSwitch" ? "switch" : "checkbox", "AXRadioButton": "radio", "AXRadioGroup": "radiogroup",
                       "AXSlider": "slider", "AXPopUpButton": "combobox", "AXStaticText": "text", "AXGroup": "group", "AXImage": "image", "AXList": "list",
-                      "AXBusyIndicator": "progressbar", "AXProgressIndicator": "progressbar"][r]
+                      "AXBusyIndicator": "progressbar", "AXProgressIndicator": "progressbar",
+                      "AXLevelIndicator": "meter", "AXScrollBar": "scrollbar", "AXIncrementor": "spinbutton"][r]
         e["role"] = forced ?? mapped ?? r
         if r == "AXHeading", let level = f.value as? Int { states["level"] = level }
         // A spinning indicator is AppKit's busy one (LLP 1069.001, amended 2026-10-07).

@@ -337,8 +337,9 @@ pub(crate) fn tag(kind: &str, t: Tag) -> Tag {
 
 /// A range's `value`, `min`, `max` and `step` as HTML's strings: a number
 /// literal is written as one, a bound number through `toString` (LLP
-/// 1069.001 D4: the props are strings on the wire, typed per control).
-/// `None` when nothing needs rewriting.
+/// 1069.001 D4: the props are strings on the wire, typed per control); so
+/// too a determinate `progress`'s `value` and `max`, and ARIA's range
+/// values on any element (LLP 1116 D8). `None` when nothing needs rewriting.
 pub(crate) fn range_attrs(
     tag: &str,
     control: Option<&str>,
@@ -354,10 +355,13 @@ pub(crate) fn range_attrs(
     let names: &[&str] = match control {
         Some("range") => &["value", "min", "max", "step"],
         None if number => &["min", "max", "step"],
-        _ => return None,
+        None if tag == "progress" => &["value", "max"],
+        _ => &[],
     };
+    let aria = ["aria-valuenow", "aria-valuemin", "aria-valuemax"];
     let numeric = |a: &contract_syntax::Attr| {
-        names.contains(&a.name.as_str()) && !matches!(a.value, Expr::Str(..))
+        (names.contains(&a.name.as_str()) || aria.contains(&a.name.as_str()))
+            && !matches!(a.value, Expr::Str(..))
     };
     if !attrs.iter().any(numeric) {
         return None;

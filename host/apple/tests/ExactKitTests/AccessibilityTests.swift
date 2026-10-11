@@ -233,6 +233,37 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertNil(button.accessibilityValue())
         withExtendedLifetime(w) {}
     }
+    /// LLP 1116 D8: a drawn `role="progressbar"` is AppKit's progress
+    /// indicator (#278), its value `aria-valuenow` between `aria-valuemin`
+    /// and `aria-valuemax` (ARIA's 0 and 100 where unsaid), `aria-valuetext`
+    /// its description, and its children unread.
+    func testARangeRoleIsOneElementWithItsValue() {
+        let (p, w, _, _) = fixture()
+        let bar = NodeView(id: 20, kind: "view", presenter: p)
+        bar.frame = NSRect(x: 0, y: 100, width: 200, height: 8)
+        p.root.addSubview(bar); p.views[bar.id] = bar
+        let fill = NodeView(id: 21, kind: "view", presenter: p)
+        fill.frame = NSRect(x: 0, y: 0, width: 60, height: 8)
+        bar.addSubview(fill); p.views[fill.id] = fill
+        bar.applyProps(set: ["accessibilityRole": "progressbar", "accessibilityValueNow": "30", "accessibilityLabel": "Download"], clear: [])
+        XCTAssertTrue(bar.isAccessibilityElement())
+        XCTAssertEqual(bar.accessibilityRole(), .progressIndicator)
+        XCTAssertEqual(bar.accessibilityLabel(), "Download")
+        XCTAssertEqual(bar.accessibilityValue() as? NSNumber, 30)
+        XCTAssertEqual(bar.accessibilityMinValue() as? NSNumber, 0)
+        XCTAssertEqual(bar.accessibilityMaxValue() as? NSNumber, 100)
+        XCTAssertNil(bar.accessibilityChildren(), "its children are presentational")
+        bar.applyProps(set: ["accessibilityValueNow": "2", "accessibilityValueMax": "8", "accessibilityValueText": "2 of 8 glasses"], clear: [])
+        XCTAssertEqual(bar.accessibilityValue() as? NSNumber, 2)
+        XCTAssertEqual(bar.accessibilityMaxValue() as? NSNumber, 8)
+        XCTAssertEqual(bar.accessibilityValueDescription(), "2 of 8 glasses")
+        bar.applyProps(set: [:], clear: ["accessibilityValueText"])
+        XCTAssertNil(bar.accessibilityValueDescription())
+        XCTAssertEqual(bar.rangeValueText, "25%", "what UIKit speaks")
+        bar.applyProps(set: ["accessibilityRole": "slider"], clear: [])
+        XCTAssertEqual(bar.accessibilityRole(), .slider)
+        withExtendedLifetime(w) {}
+    }
     /// The agent's name follows the web's accname: a non-empty label names
     /// any node (a status text); an empty one names nothing, so a button
     /// falls back to its content.

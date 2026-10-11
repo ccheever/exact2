@@ -964,7 +964,13 @@ one, as a radiogroup names itself by its visible heading) wins over `aria-label`
 this one) and `aria-description` are its description. `aria-invalid`,
 `aria-required`, `aria-haspopup` and `aria-current` (a navigation link's
 `"page"`, a wizard's `"step"`) take their ARIA words or a bool; UIKit has no
-property for those four, so iOS exposes none of them.
+property for those four, so iOS exposes none of them. A drawn range —
+`role="progressbar"`, `"slider"`, `"meter"`, `"scrollbar"` or `"spinbutton"` —
+takes `aria-valuenow`, `aria-valuemin` and `aria-valuemax` (numbers; ARIA's 0
+and 100 where a bound is unsaid) and `aria-valuetext`: it is one element, its
+children unread, and its value is the platform's (UIKit's `accessibilityValue`
+as a percentage, "30%", or the text; AppKit's value, minimum and maximum, the
+text its description). A `progress` or `input type="range"` says its own value.
 Leave font sizes, colours and control metrics unsaid and the platform supplies them;
 what you set on a node wins.
 

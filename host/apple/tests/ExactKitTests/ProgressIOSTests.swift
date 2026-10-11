@@ -64,6 +64,24 @@ final class ProgressIOSTests: XCTestCase {
         XCTAssertNotEqual(medium.accessibilityLabel, "Loading", "a cleared label is cleared")
     }
 
+    /// LLP 1116 D8: a drawn `role="progressbar"` box is one element whose
+    /// value is the percentage UIKit's own progress view speaks, or its
+    /// `aria-valuetext`; its fill is not a second element.
+    func testADrawnProgressbarSpeaksItsValue() throws {
+        let p = presenter(box(1) + [["op": "create", "id": 2, "kind": "view", "handlers": [], "style": [:],
+                                     "props": ["accessibilityRole": "progressbar", "accessibilityValueNow": "30", "accessibilityLabel": "Download"]],
+                                    ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 200.0, "h": 8.0]]
+                          + [["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]])
+        let bar = try XCTUnwrap(p.views[2])
+        XCTAssertTrue(bar.isAccessibilityElement)
+        XCTAssertEqual(bar.accessibilityLabel, "Download")
+        XCTAssertEqual(bar.accessibilityValue, "30%")
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["accessibilityValueNow": "2", "accessibilityValueMax": "8"]]]))
+        XCTAssertEqual(bar.accessibilityValue, "25%")
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["accessibilityValueText": "2 of 8 glasses"]]]))
+        XCTAssertEqual(bar.accessibilityValue, "2 of 8 glasses")
+    }
+
     func testItStopsWhenHiddenOrRemoved() throws {
         try XCTSkipIf(ExactEnv.agentFreezes, "the agent's frozen clock holds every indicator")
         let p = presenter(box(1) + progress(2) + [["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]])
