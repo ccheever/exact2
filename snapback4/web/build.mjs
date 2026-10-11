@@ -5,10 +5,11 @@
 // never committed). With no output it writes only the glue, which every
 // host's bake type-checks. Runs under Node or Bun, and from an app's build.rs. Size first (profile `wasm`), then `wasm-opt -Oz` when
 // binaryen is on PATH or in Exact's cache and it transfers smaller. Files are rewritten only when their bytes change.
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { delimiter, dirname, resolve } from 'node:path';
+import { delimiter, dirname, resolve, sep } from 'node:path';
+import { createInterface } from 'node:readline';
 import { gzipSync } from 'node:zlib';
 
 const out = process.argv[2];
@@ -31,9 +32,35 @@ const target = resolve(process.env.SNAPBACK4_TARGET_DIR ?? resolve(workspace, 't
 const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
   !/^(CARGO_(?!HOME$)|RUST(FLAGS|DOCFLAGS|C|C_WRAPPER|C_WORKSPACE_WRAPPER|UP_TOOLCHAIN)$|TARGET$|HOST$|OUT_DIR$|PROFILE$|OPT_LEVEL$|DEBUG$|NUM_JOBS$|SDKROOT$|DEVELOPER_DIR$|\w+_DEPLOYMENT_TARGET$|(TARGET_|HOST_)?(CC|CXX|AR|RANLIB|CFLAGS|CXXFLAGS|CPPFLAGS|LDFLAGS|ARFLAGS)(_[\w-]+)?$)/.test(key)));
 env.CARGO_TARGET_DIR = target;
+// A package id, as cargo writes it: `name 1.0 (source)`, `source#name@1.0`, or
+// `path+file:///…/name#1.0`.
+const packageName = id => /^([\w-]+) \d/.exec(id)?.[1] ?? /#([\w-]+)@/.exec(id)?.[1] ?? /\/([\w-]+)#[\d.]+$/.exec(id)?.[1] ?? 'a dependency';
 // A build script's stdout is cargo's instruction channel: report on stderr.
-const cargo = spawnSync('cargo', ['build', '-p', 'exact-snapback4-web', '--profile', 'wasm', '--target', 'wasm32-unknown-unknown', '--locked'],
-  { cwd: workspace, stdio: ['ignore', 2, 'inherit'], env });
+// Rust's diagnostics come as JSON and are shown here: every error, and this
+// workspace's warnings; a dependency's warnings (Snapback's own crates, when
+// built from a path) are counted, not shown: they are upstream's, and printed
+// whole they buried the result (app farm wave 2: seven builds, ~30 each).
+const cargo = await new Promise(done => {
+  const child = spawn('cargo', ['build', '-p', 'exact-snapback4-web', '--profile', 'wasm', '--target', 'wasm32-unknown-unknown', '--locked',
+    `--message-format=${process.stderr.isTTY ? 'json-diagnostic-rendered-ansi' : 'json'}`], { cwd: workspace, stdio: ['ignore', 'pipe', 'inherit'], env });
+  const hidden = new Map();
+  createInterface({ input: child.stdout }).on('line', line => {
+    let message;
+    try { message = JSON.parse(line); } catch { return void process.stderr.write(line + '\n'); }
+    if (message.reason !== 'compiler-message' || !message.message?.rendered) return;
+    const ours = typeof message.manifest_path === 'string' && message.manifest_path.startsWith(workspace + sep);
+    if (message.message.level.startsWith('error') || ours) return void process.stderr.write(message.message.rendered);
+    if (message.message.level !== 'warning') return;
+    const name = packageName(message.package_id ?? '');
+    hidden.set(name, (hidden.get(name) ?? 0) + 1);
+  });
+  child.on('error', error => done({ status: 1, error }));
+  child.on('close', status => {
+    if (hidden.size) console.error(`snapback4 web: not shown, ${[...hidden].map(([name, n]) => `${n} warning${n === 1 ? '' : 's'} in ${name}`).join(', ')}: a dependency's, not yours to fix (\`cargo build -p exact-snapback4-web --target wasm32-unknown-unknown\` in ${workspace} shows them)`);
+    done({ status });
+  });
+});
+if (cargo.error) console.error(`snapback4 web: ${cargo.error.code === 'ENOENT' ? 'cargo not on PATH (install Rust: https://rustup.rs)' : cargo.error.message}`);
 if (cargo.status !== 0) process.exit(cargo.status ?? 1);
 const compiled = resolve(target, 'wasm32-unknown-unknown/wasm/exact_snapback4_web.wasm');
 const glue = resolve(target, 'snapback4-web-bindgen');
