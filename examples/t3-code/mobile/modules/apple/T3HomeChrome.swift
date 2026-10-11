@@ -204,7 +204,7 @@ private final class T3HomeChromeView: ExactNativeInstance {
             let filter = UIBarButtonItem(image: UIImage(systemName: config.sidebarFilterIcon), menu: menu())
             filter.accessibilityLabel = "Filter threads"; filter.accessibilityIdentifier = "home-filter"
             // UIKit orders rightBarButtonItems from the trailing edge inward.
-            installedRight = [settings, filter]
+            installedRight = [filter, settings]
         } else { installedRight = [settings] }
         item.rightBarButtonItems = installedRight
         if !glass && config.layout == "compact" {
