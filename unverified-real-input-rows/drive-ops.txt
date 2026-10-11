@@ -1,0 +1,120 @@
+clock +15000 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-unverified-real-input-rows/target/uv/shots/after/00-start.png window
+type welcome-pairing-link <pairing link>
+clock +500 real
+tap welcome-pair
+clock +12000 real
+tap welcome-continue
+clock +4000 real
+tap welcome-agents-continue
+clock +6000 real
+tap welcome-skip-import
+clock +4000 real
+tap Dismiss
+clock +1000 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-unverified-real-input-rows/target/uv/shots/after/01-paired-draft.png window
+tap toggle-right-panel
+clock +2000 real
+tap surface-browser
+clock +3000 real
+type browser-url http://127.0.0.1:17165/a
+type browser-url key Enter
+clock +4000 real
+tap browser-page mouse
+clock +3000 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-unverified-real-input-rows/target/uv/shots/after/uv4-1-playing.png window
+tree panel-tab-strip
+tap panel-tab-browser:tab_1 contextmenu
+clock +1200 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-unverified-real-input-rows/target/uv/shots/after/uv4-2-tab-menu.png window
+tap tab-menu-toggle-mute
+clock +2000 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-unverified-real-input-rows/target/uv/shots/after/uv4-3-muted.png window
+tree panel-tab-strip
+tap panel-add-surface
+clock +1000 real
+tap add-surface-browser
+clock +3000 real
+type browser-url http://127.0.0.1:17165/b
+type browser-url key Enter
+clock +4000 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-unverified-real-input-rows/target/uv/shots/after/uv4-4-second-tab.png window
+tree panel-tab-strip
+clock +3000 real
+tree panel-tab-strip
+tap tab-browser:tab_1
+clock +3000 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-unverified-real-input-rows/target/uv/shots/after/uv4-5-first-again.png window
+tree panel-tab-strip
+clock +2000 real
+tree panel-tab-strip
+tap open-pull-requests
+clock +6000 real
+type pull-requests-search #168
+clock +6000 real
+tap pr-row-168
+clock +6000 real
+tap pull-request-tab-code
+clock +15000 real
+tap pull-request-code-orphans-toggle
+clock +1500 real
+tap pull-request-thread-author-tip-PRRC_kwDOU_luzM77Tefg hover
+clock +1000 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-unverified-real-input-rows/target/uv/shots/after/uv1-1-author.png window
+tap pull-request-thread-age-PRRC_kwDOU_luzM77Tefg hover
+clock +1500 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-unverified-real-input-rows/target/uv/shots/after/uv1-2-age.png window
+tree
+tap pull-request-tab-timeline
+clock +5000 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-unverified-real-input-rows/target/uv/shots/after/uv1-3-timeline.png window
+tree pull-request-timeline
+type pull-requests-search #115
+clock +6000 real
+tap pr-row-115
+clock +6000 real
+tap pull-request-tab-code
+clock +15000 real
+tap pull-request-code-viewed-error-tip hover
+clock +1000 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-unverified-real-input-rows/target/uv/shots/after/uv2-1-viewed-error.png window
+tree
+type pull-requests-search #132
+clock +6000 real
+tap pr-row-132
+clock +6000 real
+tap pull-request-tab-code
+clock +15000 real
+tap pull-request-code-viewed-here-tip hover
+clock +1000 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-unverified-real-input-rows/target/uv/shots/after/uv2-2-viewed-here.png window
+tree
+tap pull-request-tab-summary
+clock +5000 real
+tap c46352e hover
+clock +1000 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-unverified-real-input-rows/target/uv/shots/after/uv3-1-commit-on.png window
+tree
+tap pull-requests-search hover
+clock +1000 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-unverified-real-input-rows/target/uv/shots/after/uv3-2-commit-away.png window
+tap c46352e
+clock +2000 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-unverified-real-input-rows/target/uv/shots/after/uv3-3-commit-click.png window
+logs
+type pull-requests-search #169
+clock +6000 real
+tap pr-row-169
+clock +6000 real
+tap pull-request-tab-code
+clock +25000 real
+tap pull-request-code-viewed-short-tip hover
+clock +1000 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-unverified-real-input-rows/target/uv/shots/after/uv2-3-viewed-short.png window
+tree
+tap pull-request-code-withheld-tip hover
+clock +1000 real
+screenshot /Users/daehyeonmun/orca/workspaces/exact2/t3-code-unverified-real-input-rows/target/uv/shots/after/uv2-4-withheld.png window
+tree
+logs
+state
