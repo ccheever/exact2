@@ -297,7 +297,7 @@ impl<D: DataSource> Host<D> {
         width: f32,
         height: f32,
         carried: Option<&Carried>,
-        snapshot: Vec<(String, String)>,
+        snapshot: Vec<(String, Vec<u8>)>,
         secrets: Option<Platform>,
     ) -> Result<(Host<D>, String), HostError> {
         let (mut host, batch) = Host::boot_stored_after_decode(
@@ -331,7 +331,7 @@ impl<D: DataSource> Host<D> {
         measurer: Box<dyn TextMeasurer>,
         viewport: exact_runner::Viewport,
         carried: Option<&Carried>,
-        snapshot: Vec<(String, String)>,
+        snapshot: Vec<(String, Vec<u8>)>,
         secrets: Option<Box<dyn crate::store::KeptStore>>,
         compat: Option<&str>,
         delivery: Option<&'static crate::delivery::Hooks>,
@@ -369,7 +369,7 @@ impl<D: DataSource> Host<D> {
         measurer: Box<dyn TextMeasurer>,
         viewport: exact_runner::Viewport,
         carried: Option<&Carried>,
-        snapshot: Vec<(String, String)>,
+        snapshot: Vec<(String, Vec<u8>)>,
         secrets: Option<Box<dyn crate::store::KeptStore>>,
         compat: Option<&str>,
         delivery: Option<&'static crate::delivery::Hooks>,

@@ -110,7 +110,7 @@ fn a_two_megabyte_body_from_a_file_arrives_byte_for_byte_and_its_step_is_quick()
     // The budget a source's step has on every host (js/src/lib.rs).
     m.set_budget_ms(100.0);
     m.activate().unwrap();
-    let mut s = Store::new(super::storage::GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(super::storage::GRANTS, Vec::<(String, Vec<u8>)>::new());
     let bytes = photo();
     std::fs::write(root.0.join("data/photo.jpg"), &bytes).unwrap();
     let a = args("upload", "app:/data/photo.jpg");
@@ -156,7 +156,7 @@ fn a_body_from_fetch_refuses_is_a_type_error_before_any_request() {
     let root = Root::new();
     let mut m = root.module();
     m.activate().unwrap();
-    let mut s = Store::new(super::storage::GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(super::storage::GRANTS, Vec::<(String, Vec<u8>)>::new());
     let refused = super::storage::call(&mut m, &mut s, "upload-refusals", "");
     assert_eq!(
         refused.lines().collect::<Vec<_>>(),
@@ -182,7 +182,7 @@ fn the_host_refuses_a_file_it_may_not_or_cannot_send_before_sending() {
     let root = Root::new();
     let mut m = root.module();
     m.activate().unwrap();
-    let mut s = Store::new(super::storage::GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(super::storage::GRANTS, Vec::<(String, Vec<u8>)>::new());
     std::fs::create_dir_all(root.0.join("tmp")).unwrap();
     std::fs::write(root.0.join("tmp/secret.jpg"), b"secret").unwrap();
     // A sparse file one byte over the bound: nothing is read to refuse it.

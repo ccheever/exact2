@@ -36,7 +36,7 @@ fn named_agent_storage_keeps_a_secret_across_a_relaunch() {
     let app = "test.exact.keep";
     let write = |name: &str, value: Option<&str>| exact_runner::StoreWrite {
         name: name.into(),
-        value: value.map(str::to_string),
+        value: value.map(|v| v.as_bytes().to_vec()),
     };
     assert!(persist_store_writes(app, &[write("platformer.best", Some("22050"))]).is_empty());
     assert!(persist_store_writes(app, &[write("exact.kept.score", Some("9"))]).is_empty());
@@ -185,7 +185,7 @@ fn an_app_keeps_a_secret_across_a_relaunch_outside_the_agent() {
     let app = "test.exact.session";
     let write = |name: &str, value: Option<&str>| exact_runner::StoreWrite {
         name: name.into(),
-        value: value.map(str::to_string),
+        value: value.map(|v| v.as_bytes().to_vec()),
     };
     assert!(persist_store_writes(app, &[write("supabase.session", Some("{\"t\":1}"))]).is_empty());
     assert!(persist_store_writes(app, &[write("exact.kept.items", Some("[]"))]).is_empty());
