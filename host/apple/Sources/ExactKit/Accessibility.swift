@@ -213,16 +213,18 @@ enum SegmentFace: Equatable { case image(NodeView), symbol(String), title(String
 extension NodeView {
     /// How this tab shows as a segment, or nil when a segment cannot show
     /// what was authored: exactly one image child is the segment's image;
-    /// text alone, whose words are its accessible name, is its title. An
-    /// icon beside a label, a badge, or any other node keeps the authored
-    /// rendering — the web's, where a role never changes what is drawn.
+    /// text alone is its title — the visible words, with an `aria-label`
+    /// that says more (`Temp`, named `Temperature`) its accessibility label
+    /// (LLP 1116 D6). An icon beside a label, a badge, or any other node
+    /// keeps the authored rendering — the web's, where a role never changes
+    /// what is drawn.
     var segmentFace: SegmentFace? {
         // A native button's face, not views (LLP 1069.011.000 D4): a symbol
-        // alone (named by its label), or a title its label agrees with.
+        // alone (named by its label), or a title.
         if isNativeButton {
             guard let face, face.fits else { return nil }
             if let symbol = face.symbol, face.title == nil { return .symbol(symbol) }
-            if let title = face.title, face.symbol == nil, (props["accessibilityLabel"] ?? title) == title { return .title(title) }
+            if let title = face.title, face.symbol == nil { return .title(title) }
             return nil
         }
         let children = container.subviews.compactMap { $0 as? NodeView }

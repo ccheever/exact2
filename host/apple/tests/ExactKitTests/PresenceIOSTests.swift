@@ -227,6 +227,44 @@ final class PresenceIOSTests: XCTestCase {
         }
     }
 
+    /// LLP 1116 D6: a text tab whose `aria-label` says more than its words
+    /// (`Temp`, named `Temperature`) keeps the native segmented control —
+    /// the words its title, the label its segment's accessibility label —
+    /// where it fell back to the authored pills (unit-converter). LLP 1116
+    /// D2: each segment, and a tab bar's item, carries its tab's `testId`.
+    func testASegmentsAriaLabelIsItsAccessibilityLabelAndItsTestIdItsIdentifier() throws {
+        let p = tabBarFixture()
+        defer { p.reset() }
+        let owner = try XCTUnwrap(p.views[10])
+        let bar = try XCTUnwrap(owner.subviews.first { $0 is UITabBar } as? UITabBar)
+        p.apply(wireBatch([
+            ["op": "props", "id": 11, "set": ["testId": "tab-home"]],
+            ["op": "props", "id": 12, "set": ["testId": "tab-saved"]],
+        ]))
+        XCTAssertEqual(bar.items?.map(\.accessibilityIdentifier), ["tab-home", "tab-saved"], "a tab bar item's identifier is its tab's testId")
+        XCTAssertEqual(bar.items?.map(\.title), ["Home", "Saved"])
+        p.apply(wireBatch([
+            ["op": "props", "id": 10, "set": ["testId": "units"]],
+            ["op": "props", "id": 12, "set": ["accessibilityLabel": "Saved items"]],
+            ["op": "children", "id": 11, "ids": [14]],
+            ["op": "children", "id": 12, "ids": [16]],
+        ]))
+        let control = try XCTUnwrap(p.segments.control(of: 10) as? LabelledSegmentedControl, "still the native control")
+        XCTAssertTrue(try XCTUnwrap(p.views[12]).isHidden, "the authored pill is not drawn")
+        XCTAssertEqual([control.titleForSegment(at: 0), control.titleForSegment(at: 1)], ["Home", "Saved"], "the words are the titles")
+        XCTAssertEqual(control.accessibilityIdentifier, "units")
+        control.frame = CGRect(x: 0, y: 0, width: 300, height: 32)
+        control.layoutIfNeeded()
+        let segments = control.segmentViews
+        XCTAssertEqual(segments.count, 2)
+        XCTAssertEqual(segments.last?.accessibilityLabel, "Saved items", "the aria-label is the segment's name")
+        XCTAssertEqual(segments.map(\.accessibilityIdentifier), ["tab-home", "tab-saved"])
+        // The label taken away: the segment's name is its words again.
+        p.apply(wireBatch([["op": "props", "id": 12, "set": [:], "clear": ["accessibilityLabel"]]]))
+        control.layoutIfNeeded()
+        XCTAssertNotEqual(control.segmentViews.last?.accessibilityLabel, "Saved items")
+    }
+
     func testResetRestoresTabBarMembersAndDropsTheProjection() throws {
         let p = tabBarFixture()
         let owner = try XCTUnwrap(p.views[10])

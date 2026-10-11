@@ -27,6 +27,9 @@ struct HatchSource: Equatable {
 struct HeaderShape: Equatable {
     struct Item: Equatable {
         let id: UInt32, title: String, symbol: String?, label: String?, disabled: Bool
+        /// The button's `testId`: the item's `accessibilityIdentifier`, so
+        /// XCUITest and Maestro address it as any other node (LLP 1116 D2).
+        let testId: String?
         /// A face drawn from the button's one filled box (an avatar or a
         /// badge: a shape holding a text or a symbol), when the button has
         /// one: the item's image, in the box's own colours and corners.
@@ -61,6 +64,7 @@ struct HeaderShape: Equatable {
                 walk(button)
             }
             id = button.id
+            testId = button.props["testId"]
             badge = button.isNativeButton ? nil : BadgeFace(button)
             menu = button.props["popovertargetaction"] == "hide" ? nil : button.props["popovertarget"]
             self.symbol = symbol
@@ -80,7 +84,7 @@ struct HeaderShape: Equatable {
             }
         }
         /// Everything a bar item is made from.
-        var source: String { "\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(prominent):\(badge?.source ?? ""):\(menu ?? ""):\(tint ?? [])" }
+        var source: String { "\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(prominent):\(badge?.source ?? ""):\(menu ?? ""):\(tint ?? []):\(testId ?? "")" }
     }
     let header: NodeView
     let title: String
@@ -286,7 +290,7 @@ final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate
 /// The header's tablist as a route's title view (§9.8), kept beside the
 /// controller rather than in it.
 final class TitleSegments: NSObject {
-    let control = UISegmentedControl()
+    let control = LabelledSegmentedControl()
     /// What it was last sized for: its titles and the traits that size text.
     private(set) var sized: (titles: [String], traits: [AnyHashable])?
     let press: SegmentPress
@@ -526,7 +530,12 @@ extension NavigationHost {
         c.titleSegments = segments
         let control = segments.control
         segments.press.tabs = tabs.map(\.id)
-        let titles = tabs.map(\.accessibleName)
+        // A tab's words are its segment's title, an `aria-label` that says
+        // otherwise its label (LLP 1116 D6), as in the content's segments.
+        let titles = tabs.map { tab in
+            if case .title(let words)? = tab.segmentFace { return words }
+            return tab.accessibleName
+        }
         if control.numberOfSegments != titles.count {
             control.removeAllSegments()
             segments.press.settled = UISegmentedControl.noSegment
@@ -540,6 +549,8 @@ extension NavigationHost {
         if control.selectedSegmentIndex != selected, !pending { control.selectedSegmentIndex = selected }
         if control.selectedSegmentIndex == selected { segments.press.settled = selected }
         control.accessibilityIdentifier = list?.props["testId"]
+        control.segmentLabels = tabs.map(SegmentHost.segmentLabel)
+        control.segmentIDs = tabs.map { $0.props["testId"] }
         segments.fit(titles)
         if c.navigationItem.titleView !== control { c.navigationItem.titleView = control }
     }
@@ -569,7 +580,9 @@ extension NavigationHost {
         // The Contract's value wins unless the reader is typing it.
         let value = field.props["value"] ?? ""
         if !bar.isFirstResponder, bar.text != value { bar.text = value }
-        bar.accessibilityIdentifier = field.props["testId"]
+        // The field itself, which XCUITest finds as a search field and a
+        // person types in, carries the test id (LLP 1116 D2).
+        if bar.searchTextField.accessibilityIdentifier != field.props["testId"] { bar.searchTextField.accessibilityIdentifier = field.props["testId"] }
         #endif
     }
 
@@ -652,6 +665,7 @@ extension NavigationHost {
                 ?? UIBarButtonItem(title: i.title, style: .plain, target: press, action: action)
         }
         item.accessibilityLabel = i.label ?? (i.title.isEmpty ? nil : i.title)
+        item.accessibilityIdentifier = i.testId
         item.isEnabled = !i.disabled
         // The authored `color` of a plain item's face; a prominent item's
         // tint is its fill, which `color` is not.

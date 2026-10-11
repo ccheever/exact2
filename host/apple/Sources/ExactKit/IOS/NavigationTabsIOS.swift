@@ -239,14 +239,17 @@ extension NavigationHost {
     /// and a handle to it stay good.
     private func syncItems(_ tabs: NavigationTabs, navs: [UINavigationController]) {
         let faces = tabs.tabs.map(TabFace.init)
-        let signature = faces.map { "\($0.base ?? "")|\($0.title)|\($0.disabled)|\($0.badge ?? "")" }
+        // A tab's test id is its item's identifier, which XCUITest and
+        // Maestro address it by (LLP 1116 D2); without one, its symbol or title.
+        let ids = zip(tabs.tabs, faces).map { tab, face in tab.props["testId"] ?? face.base ?? face.title }
+        let signature = zip(faces, ids).map { face, id in "\(id)|\(face.base ?? "")|\(face.title)|\(face.disabled)|\(face.badge ?? "")" }
         for (index, (nav, face)) in zip(navs, faces).enumerated() where !tabItems.indices.contains(index) || tabItems[index] != signature[index] {
             let item: UITabBarItem = nav.tabBarItem
             let image = face.base.flatMap { UIImage(systemName: $0) }
             item.title = face.title
             item.image = image
             item.selectedImage = face.base.flatMap { UIImage(systemName: $0 + ".fill") } ?? image
-            item.accessibilityIdentifier = face.base ?? face.title
+            item.accessibilityIdentifier = ids[index]
             item.isEnabled = !face.disabled
             // An authored badge, or one it just lost; a badge a hatch set on
             // a tab that never authored one is left alone.

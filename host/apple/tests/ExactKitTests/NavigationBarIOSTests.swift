@@ -301,6 +301,25 @@ final class NavigationBarIOSTests: XCTestCase {
         XCTAssertEqual(backs(session), 0, "nothing named, nothing pressed")
     }
 
+    /// LLP 1116 D2: a bar item's, the search field's, a title segment's and
+    /// a tab bar item's `accessibilityIdentifier` is its authored `testId`,
+    /// so XCUITest and Maestro address them as any other node.
+    func testBarItemsTheSearchFieldSegmentsAndTabsCarryTheirTestIds() throws {
+        let session = try fixture("bar-test-ids", module: false)
+        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        let top = try XCTUnwrap(nav.topViewController)
+        let items = (top.navigationItem.leftBarButtonItems ?? []) + (top.navigationItem.rightBarButtonItems ?? [])
+        XCTAssertEqual(Set(items.compactMap(\.accessibilityIdentifier)), ["badge-item", "menu-item", "compose-home"])
+        XCTAssertEqual(top.navigationItem.searchController?.searchBar.searchTextField.accessibilityIdentifier, "header-search")
+        let control = try XCTUnwrap(top.navigationItem.titleView as? LabelledSegmentedControl)
+        XCTAssertEqual(control.accessibilityIdentifier, "header-segments")
+        control.layoutIfNeeded()
+        XCTAssertEqual(control.segmentViews.map(\.accessibilityIdentifier), ["segment-all", "segment-missed"])
+        XCTAssertEqual(control.segmentViews.map(\.accessibilityLabel), [nil, nil], "no name of their own: UIKit's, their words")
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        XCTAssertEqual(tabs.viewControllers?.map(\.tabBarItem.accessibilityIdentifier), ["tab-home", "tab-second"])
+    }
+
     /// LLP 1115 D5 with no `navigate` handler on the root: the button and
     /// the edge swipe still go, and a completed pop is the runner's own
     /// `back` (`host back` in the journal), with nothing dispatched.
