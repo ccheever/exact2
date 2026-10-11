@@ -1895,7 +1895,9 @@ move, with the finger still down, before the hold. Under `--touch platform` the
 lift is scripted, so the reads run inside the hold and `during` needs one
 (`hold 300 during "state"`). `tap <target> drag to <other> [at <x> <y>]`
 ends the drag on another node (refused by name when it is not mounted or off
-screen); a drag that should autoscroll a list or a board is `drag dx dy hold ms`.
+screen); a drag that should autoscroll a list or a board is `drag dx dy hold ms`. On iOS
+without `--touch platform` a drag scrolls the scroll or list it starts on with the
+finger, no fling; any other drag there is refused, naming the flag.
 During a reorder `state.reorder` reads `{ item, from, to, before, phase,
 ending }`; a grouped grip also takes `type <grip> key Space` and the arrows. `clock +N` moves the virtual clock without
 waiting for a store's or the network's reply on real time (unless a timer fires
