@@ -52,16 +52,22 @@ fn error(id: &str, message: String, file: Option<&str>) -> contract::CompileErro
 }
 
 fn report(error: &contract::CompileError, json: bool, code: u8) -> ExitCode {
-    report_all(std::slice::from_ref(error), json, code)
+    report_all(std::slice::from_ref(error), &[], json, code)
 }
 
-/// Every diagnostic: one JSON array, or each on its own lines.
-fn report_all(errors: &[contract::CompileError], json: bool, code: u8) -> ExitCode {
+/// Every diagnostic, the refusals and then the warnings (LLP 1116 D6): one
+/// JSON array, or each on its own lines.
+fn report_all(
+    errors: &[contract::CompileError],
+    warnings: &[contract::CompileError],
+    json: bool,
+    code: u8,
+) -> ExitCode {
     if json {
-        let all: Vec<String> = errors.iter().map(|e| e.to_json()).collect();
+        let all: Vec<String> = errors.iter().chain(warnings).map(|e| e.to_json()).collect();
         println!("[{}]", all.join(","));
     } else {
-        for error in errors {
+        for error in errors.iter().chain(warnings) {
             eprintln!("{error}");
         }
     }
@@ -102,19 +108,20 @@ pub(super) fn run(args: &[String]) -> ExitCode {
             .cloned()
             .collect(),
     };
-    let compiled = contract::compile_path_all_unchecked(Path::new(input), true);
+    // Warnings never fail the build; they follow its refusals (LLP 1116 D6).
+    let (compiled, warnings) = contract::compile_path_all_warned(Path::new(input), true);
     if let Ok(s) = &surfaces {
         if s.newer.is_some() {
             crate::surface_warnings(s);
         }
     }
     let (plan, map) = match compiled {
-        Ok(_) if !refused.is_empty() => return report_all(&refused, json, 1),
+        Ok(_) if !refused.is_empty() => return report_all(&refused, &warnings, json, 1),
         Ok(compiled) => compiled,
         Err(mut errors) => {
             errors.extend(refused);
             errors.truncate(contract::MAX_DIAGNOSTICS);
-            return report_all(&errors, json, 1);
+            return report_all(&errors, &warnings, json, 1);
         }
     };
     let bytes = plan.encode();
@@ -134,8 +141,9 @@ pub(super) fn run(args: &[String]) -> ExitCode {
         }
     }
     if json {
-        // A complete JSON value even on success; no prose on either stream.
-        println!("[]");
+        // A complete JSON value even on success, the warnings its only
+        // entries; no prose on either stream.
+        return report_all(&[], &warnings, true, 0);
     } else {
         println!(
             "{input}: {} slots, {} derives, {} resources, {} actions, {} nodes, {} regions, {} bytes",
@@ -161,6 +169,9 @@ pub(super) fn run(args: &[String]) -> ExitCode {
                     top.join(", ")
                 );
             }
+        }
+        for warning in &warnings {
+            eprintln!("{warning}");
         }
     }
     ExitCode::SUCCESS

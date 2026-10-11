@@ -44,12 +44,13 @@
         ],
         "severity": "error",
         "pattern": {
-          "regexp": "^(.+?):(\\d+):(\\d+) \\[([a-z0-9-]+)\\] (.*)$",
+          "regexp": "^(.+?):(\\d+):(\\d+) (?:(warning) )?\\[([a-z0-9-]+)\\] (.*)$",
           "file": 1,
           "line": 2,
           "column": 3,
-          "code": 4,
-          "message": 5
+          "severity": 4,
+          "code": 5,
+          "message": 6
         }
       }
     ]
