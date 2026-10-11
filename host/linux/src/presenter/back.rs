@@ -26,7 +26,8 @@
 //! the top layer (an open menu, dialog or sheet closes: D6 step 2), which
 //! this presenter does not have yet (D10): it attaches at the head of
 //! [`Presenter::system_back`]. [`Presenter::back_goes`] is what the shell's
-//! back callback will be enabled by, once the host can tell the shell (D5).
+//! back callback is enabled by: the presenter tells the shell whenever it
+//! changes (`requests.rs`, D5), so Back at the first screen is the system's.
 use super::*;
 
 /// How Back goes from the selected route.

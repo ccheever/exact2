@@ -158,6 +158,8 @@ mod picture;
 mod reader;
 #[path = "canvas/refine.rs"]
 mod refine;
+#[path = "canvas/requests.rs"]
+mod requests;
 #[path = "canvas/scroll.rs"]
 mod scroll;
 #[path = "canvas/shadow.rs"]
@@ -1123,6 +1125,8 @@ impl<D: DataSource + Default> CanvasHost<D> {
         if let Some(e) = device::configured().and_then(|d| p.set_device(&d)) {
             eprintln!("exact: device: {e}");
         }
+        // The reader takes what the presenter asks of the platform (D5).
+        p.serve_requests();
         if let Some(palette) = &palette {
             p.set_palette(palette);
         }

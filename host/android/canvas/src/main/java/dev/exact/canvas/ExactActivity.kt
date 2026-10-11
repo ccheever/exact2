@@ -65,12 +65,8 @@ open class ExactActivity : Activity() {
         // exact2's thread, made before the assets are checked: it loads exact2's library meanwhile.
         owner()
         installAssets(File(storage, "app"))
-        // System Back goes where the app's routes send it ([Native.back], LLP 1115.001 D6); with nowhere to go it
-        // leaves the app. The callback is always on: enabling it only while Back has somewhere to go, which gives
-        // the system's own leave animation and its predictive preview, waits for the host to be able to say so.
-        onBackInvokedDispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT) {
-            if (Exact.back()) view.invalidate() else finish()
-        }
+        // What the host asks of the platform (LLP 1115.001 D5), acted on here, on the main thread.
+        requests = Requests(this).also { it.back = { goes -> takeBack(goes) } }
         // No background of its own: the window's shows behind the page, the launch theme's surface until the host says
         // the page's ([chrome]).
         root = FrameLayout(this)
@@ -82,6 +78,21 @@ open class ExactActivity : Activity() {
             if (r - l != or - ol || b - t != ob - ot) root.rootWindowInsets?.let { window(it) }
         }
         setContentView(root)
+    }
+
+    private lateinit var requests: Requests
+
+    /** System Back goes where the app's routes send it ([Native.back], LLP 1115.001 D6). The callback is registered
+     * only while the host says Back has somewhere to go in the app ([Requests.back]): at the first screen there is
+     * none, so Back is the system's own, which leaves the app with its own animation. A Back that arrives and the
+     * app does not take (it had somewhere to go a moment ago) finishes the activity, as it always did. */
+    private val backCallback = android.window.OnBackInvokedCallback { if (Exact.back()) view.invalidate() else finish() }
+    private var takesBack = false
+    private fun takeBack(on: Boolean) {
+        if (on == takesBack) return
+        takesBack = on
+        if (on) onBackInvokedDispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, backCallback)
+        else onBackInvokedDispatcher.unregisterOnBackInvokedCallback(backCallback)
     }
 
     /** Where exact2 keeps the app's files, and the APK's assets are copied: the app's own files directory, which
@@ -131,6 +142,7 @@ open class ExactActivity : Activity() {
         val live = intent.getStringExtra("live").let { it == "1" || it == "true" }
         if (owner != null) {
             owner.chrome = { c -> chrome(c) }
+            owner.asked = { r -> requests.perform(r) }
             owner.configure(device)
             owner.colors(colors)
             owner.window(size.first, size.second, density, edges)
@@ -157,8 +169,9 @@ open class ExactActivity : Activity() {
         view.booting = booting
         view.window = size
         view.chrome = { c -> chrome(c) }
+        view.asked = { r -> requests.perform(r) }
         view.owner = owner
-        owner?.editingChanged = { view.keys?.focusChanged() }
+        requests.view = view
         Exact.answered = { view.onPublished() }
         if (input) view.keys = Keys(view)
         val elements = Natives(this, File(storage, "app"), modules, video)
@@ -307,7 +320,14 @@ open class ExactActivity : Activity() {
         super.onStop()
     }
 
+    /** In front again: a share sheet that was up and chose nothing was dismissed ([Requests.resumed]). */
+    override fun onResume() {
+        super.onResume()
+        requests.resumed()
+    }
+
     override fun onDestroy() {
+        requests.destroy()
         release()
         super.onDestroy()
     }
@@ -324,7 +344,7 @@ open class ExactActivity : Activity() {
         natives = null
         if (!reads()) return
         Exact.reader = null
-        Exact.owner?.let { it.published = {}; it.editingChanged = {}; it.chrome = {} }
+        Exact.owner?.let { it.published = {}; it.asked = {}; it.chrome = {} }
         Exact.answered = {}
     }
 

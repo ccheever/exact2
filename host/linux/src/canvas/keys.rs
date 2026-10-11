@@ -1,21 +1,23 @@
-//! Keys, the text focus and system Back for the Canvas host's reader
-//! (Android). The reader's view takes the window's key events (a hardware
-//! keyboard's, the IME's committed text sent as keys, a driver's injected
-//! ones) and hands them here; they go where the display's keyboard goes on
-//! Linux ([`Presenter::key`]): the focused node, as a keydown and then its
-//! default action (a character typed into a field, Backspace, Enter).
+//! Keys and system Back for the Canvas host's reader (Android). The
+//! reader's view takes the window's key events (a hardware keyboard's, the
+//! IME's committed text sent as keys, a driver's injected ones) and hands
+//! them here; they go where the display's keyboard goes on Linux
+//! ([`Presenter::key`]): the focused node, as a keydown and then its default
+//! action (a character typed into a field, Backspace, Enter).
 //!
 //! While an editable field holds the focus the reader shows the platform's
-//! software keyboard ([`CanvasHost::editing`]). System Back goes where the
-//! presenter's order sends it (LLP 1115.001 D6,
-//! [`crate::presenter::Presenter::system_back`]): the navigation root's
-//! authored Back control, else its `navigate`, else the runner's own `back`;
-//! or it answers that nothing took it, and the activity finishes.
+//! software keyboard: the presenter tells it so, as a request
+//! (`requests.rs`, LLP 1115.001 D5). System Back goes where the presenter's order sends it
+//! (LLP 1115.001 D6, [`crate::presenter::Presenter::system_back`]): the
+//! navigation root's authored Back control, else its `navigate`, else the
+//! runner's own `back`. The reader takes Back only while the presenter says
+//! it has somewhere to go, so at the first screen the system's own Back
+//! leaves the app; a Back that arrives and is not taken finishes the
+//! activity, as it did.
 //!
 //! @ref LLP 1076 §3.3 (Exact plus Android Canvas)
 
 use super::CanvasHost;
-use exact_kernel::{NodeType, PropId};
 use exact_runner::DataSource;
 
 impl<D: DataSource + Default> CanvasHost<D> {
@@ -25,27 +27,6 @@ impl<D: DataSource + Default> CanvasHost<D> {
         let now = self.now();
         self.p.key(ch, backspace, now);
         self.force = true;
-    }
-
-    /// Whether an editable text field (`input`, `textarea`) holds the focus.
-    pub fn editing(&self) -> bool {
-        self.p
-            .focus
-            .and_then(|id| self.p.host().kernel().node(id))
-            .is_some_and(|n| {
-                n.node_type == NodeType::TextInput
-                    && n.props.bool(PropId::Editable) != Some(false)
-                    && n.props.bool(PropId::Disabled) != Some(true)
-            })
-    }
-
-    /// Whether the focused field is a `textarea` (the keyboard offers a
-    /// newline rather than a submit).
-    pub fn multiline(&self) -> bool {
-        self.p
-            .focus
-            .and_then(|id| self.p.host().kernel().node(id))
-            .is_some_and(|n| n.props.str(PropId::SemanticTag) == Some("textarea"))
     }
 
     /// System Back, in the presenter's order (LLP 1115.001 D6). Whether the

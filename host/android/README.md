@@ -11,7 +11,7 @@ the stream or those calls, so both sides are built from one commit.
 
 | | |
 |---|---|
-| `canvas/` | the reader, an Android library, package `dev.exact.canvas`: `ExactActivity`, `ExactView`, `Native`, `Player` (the replay), `Owner` (exact2 on a thread of its own), `Layers`, `Natives` (hosted views), `Keys`, `Scrolling`, `Device` and `Palette` (what the device says) |
+| `canvas/` | the reader, an Android library, package `dev.exact.canvas`: `ExactActivity`, `ExactView`, `Native`, `Player` (the replay), `Owner` (exact2 on a thread of its own), `Layers`, `Natives` (hosted views), `Keys`, `Scrolling`, `Device` and `Palette` (what the device says), `Requests` (what exact2 asks of it) |
 | `app/` | the shell: one activity over the reader, packaging the app that `-Papp=<name>` names |
 | `gradlew`, `gradle/` | the Gradle wrapper (9.8.0), committed. Its jar is Gradle's own (sha256 `238e777f…`, as services.gradle.org publishes it) and the distribution's sha256 is pinned in `gradle-wrapper.properties` |
 
@@ -204,6 +204,64 @@ The controls' shapes are still the desktop painter's (D9).
 the bars' icons set for it. On Android 12 and 13 the platform has no `surface` to name in a theme, and the launch
 window is the device theme's own day or night background (`?android:attr/colorBackground`).
 
+## The channel out (LLP 1115.001 D5)
+
+Every other call here goes from the reader into exact2. What an app asks of the platform goes the other way, and all
+of it takes one channel: exact2's presenter **queues a request and wakes the reader**, the reader **takes the queue
+and acts on the main thread**, and a request that has an answer is **answered or cancelled later by its id**. No
+capability has a call of its own.
+
+- **The wake** is the one the reader already waits on: the first descriptor of `Native.fds()` (the executor's, which
+  a data source's replies also wake). A request does not wait for a paint: a haptic changes no pixel, and a frame may
+  carry no stream. Whoever holds the host (`Owner` on exact2's thread, else `ExactView` on the main thread) calls
+  `Native.requests()` after every turn and whenever that descriptor wakes it, and hands the words to the main thread
+  (`Owner.asked`, `ExactView.asked`), where `Requests.perform` acts on them.
+- **The words** (`Native.requests(): IntArray?`, null when nothing is asked). For each request: its kind, its id, the
+  count of words that follow, then those words. A string is its count of bytes and then its UTF-8 padded to whole
+  words, low byte first, as the op stream writes one. A reader skips a kind it does not know by its count. Ids start
+  at 1 and are never reused.
+- **An answer** is `Native.answer(id, String?)` on exact2's thread (`Exact.answer`): the answer's text, or null when
+  the request was cancelled. An id that waits for no answer changes nothing. When a reader is made again, exact2
+  cancels what the last one was asked and never answered, and tells the new one the state again (kinds 5 and 6).
+
+| Kind | Request | Words after the count | What the reader does | Answer |
+|---|---|---|---|---|
+| 1 | open a link that leaves the app | a string: an absolute `http`, `https`, `mailto` or `tel` URL (exact2 lets no other scheme through) | `ACTION_VIEW` for the web, `ACTION_SENDTO` for `mailto:`, `ACTION_DIAL` for `tel:`. No Custom Tab, which is a library's | none |
+| 2 | a haptic (`haptic()`, a pressable's `-exact-press-haptic`) | one word: 1 `selection`, 2 `impact-light`, 3 `impact-medium` (and `impact`), 4 `impact-heavy`, 5 `impact-soft`, 6 `impact-rigid`, 7 `success`, 8 `warning`, 9 `error` | `View.performHapticFeedback` | none |
+| 3 | `copyText` | a string | the clipboard (`ClipboardManager`) | none |
+| 4 | `share` | one word saying which of the three the app gave (bit 0 the title, 1 the text, 2 the URL), then three strings: title, text, URL | the Sharesheet (`ACTION_SEND` in a chooser) | `shared`, `dismissed`, or why it could not be shown; exact2 journals `share: shared`, `share: dismissed` or `share: refused: …` |
+| 5 | whether Back has somewhere to go in the app (D6) | one word: 1 or 0 | registers its `OnBackInvokedCallback` while it has, and unregisters it while it has not, so Back at the first screen is the system's own and leaves with its animation | none |
+| 6 | the software keyboard | one word: 0 hidden, 1 shown for an `input`, 3 for a `textarea` | `Keys.show` | none |
+
+Kinds 5 and 6 are statements of the app's state, told when it changes and anew to a reader made again; exact2 reads
+them as the queue is taken (`Presenter::tell_shell`), Back only after a commit, and neither during a scroll's own
+frames.
+
+**Haptics.** Android names occasions, not strengths. Under its constants are a texture tick, a tick, a click, a
+heavy click and a double click, and Exact's names choose by those: `selection` is `SEGMENT_TICK` (Android 14;
+`CLOCK_TICK` below), `impact-light` `CONTEXT_CLICK`, `impact-medium` `VIRTUAL_KEY`, `impact-heavy` `LONG_PRESS`,
+`impact-soft` `TEXT_HANDLE_MOVE`, `success` `CONFIRM`, `error` `REJECT`. Android has nothing for two of them:
+`impact-rigid` is the click `impact-medium` is, and `warning` is `REJECT`, as `error` is. The system plays a haptic or
+not by the person's touch feedback setting.
+
+**The Sharesheet's answer** is as much as Android tells. The sheet says what was chosen to a sender it is handed
+(a target; from Android 15 also its own actions, such as Copy): that is `shared`, though nothing says the share was
+finished in the app chosen. A dismissal is not told: when the activity is in front again and the sheet has said
+nothing for half a second, the answer is `dismissed`.
+
+**Adding a kind.** In exact2: a variant of `presenter::Request` with the next number, its words in `encode`, and
+where it is asked (`Presenter::request`, which wakes the reader); with an answer, a `Waiting` variant and its arm in
+`answer_request`. Here: its number and its arm in `Requests.perform`, and `Exact.answer` when it has one. Write the
+row above. What layout needs while it runs (a field's metrics, D8) is not a request: a queue taken after the frame is
+too late for it.
+
+**Not on it yet:** notifications and the pickers (`showNotification`, `showPicker`, `saveFile`, the document
+pickers) are still refused, and the journal then says the channel does not carry them yet. Accessibility events and
+the top layer's windows (D10, D13) will take it too.
+
+`x_log_requests=1` at launch (exact2's `EXACT_LOG_REQUESTS`) logs each request as exact2 queues it and as the reader
+acts on it, with what `performHapticFeedback` returned: a haptic and a clipboard write show nowhere else.
+
 ## Still the benchmark's
 
 The cut was the smallest one. Left in the reader:
@@ -218,9 +276,10 @@ The cut was the smallest one. Left in the reader:
 
 ## Not done
 
-- **Most of LLP 1115.001.** Text arrives one key at a time, the Rust calls nothing on the platform, and there is no
-  accessibility. What is built of it:
-  - *The device's colours* (D4, colours only): the section above. The type ramp is not reported yet.
+- **Most of LLP 1115.001.** Text arrives one key at a time, the controls have the desktop painter's shapes, a
+  dialog or a menu is refused, and there is no accessibility. What is built of it:
+  - *The device's colours* (D4, colours only) and *the channel out* (D5): the two sections above. The type ramp
+    is not reported yet.
   - *A finger scrolls* (D7.1 to D7.3): the section above, with what is not built of it.
   - *An authored swipe yields the system's edges* (D7.5): a swipe row's own gesture does not start from the sides
     the system's Back gesture starts from, by the system-gesture insets `Native.window` tells, in place of the fixed
@@ -236,9 +295,10 @@ The cut was the smallest one. Left in the reader:
     the screen is a finger's. The layout direction, the 12 or 24-hour clock and bold text cross too and change
     nothing yet: exact2 has no door for them.
   - *Back, in order* (D6, `Native.back`): from the navigation root's selected route, the Back control the root names,
-    else the root's `navigate`, else the runner's own `back`; with nowhere to go back to, the activity finishes. The
-    back callback is always enabled, so there is no predictive preview, and no top layer closes first (there is
-    none yet).
+    else the root's `navigate`, else the runner's own `back`. The reader takes Back only while exact2 says it has
+    somewhere to go (a request, above), so at the first screen Back is the system's own and leaves the app with
+    its animation. A pop has no predictive preview (routes have no transition yet), and no top layer closes first
+    (there is none yet).
   - *A finger is a finger* (D7.4, D7.6). Each touch says what touched (`Native.touch`'s tool type), so a finger is a
     `touch` pointer to the app, hovers nothing, and leaves no focus ring on the button it presses (a text field keeps
     its own focus ring). The system's touch slop, told with the settings, is how far a touch moves before it is a

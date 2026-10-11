@@ -15,12 +15,14 @@
 // says how any of it scrolls: the slop, the fling, the ends and the
 // indicator are the platform's.
 //
-// The third button opens the device's colours (LLP 1115.001 D4): a text in
-// each label role and a card in each background role, by the roles' names
-// and no colour of the app's own, then the controls whose accent is the
-// platform's. One screen shows a host's whole palette. Its last button
-// authors an `accent-color` over the page, the one colour written here,
-// which must win over the platform's.
+// The third button opens the device's colours (LLP 1115.001 D4, D5): a text
+// in each label role and a card in each background role, by the roles'
+// names and no colour of the app's own, then the controls whose accent is
+// the platform's, a link of each kind that leaves the app, and a button for
+// each thing an app asks of the platform (a haptic, the clipboard, the
+// share sheet, a link). One screen shows a host's whole palette. Its last
+// button authors an `accent-color` over the page, the one colour written
+// here, which must win over the platform's.
 routes nav
   home "/"
     next "/next"
@@ -33,6 +35,7 @@ component Unsaid
   state target = 60
   state top = 0
   state authored = false
+  state said = "Nothing asked yet"
   derive ten = split("0 1 2 3 4 5 6 7 8 9", " ")
   derive forty = concat(concat(ten, ten), concat(ten, ten))
   derive cards = map(concat(ten, ten), (x, i) => i)
@@ -44,6 +47,20 @@ component Unsaid
     nav = push(nav, "/rows")
   action openColours
     nav = push(nav, "/colours")
+  action buzz
+    haptic("success")
+    said = "Asked for a haptic: success"
+  action thump
+    said = "Pressed, with a press haptic"
+  action copy
+    copyText("Copied from Unsaid")
+    said = "Copied: Copied from Unsaid"
+  action send
+    share(title="Unsaid", text="Shared from Unsaid", url="https://example.com/unsaid")
+    said = "Asked for the share sheet"
+  action browse
+    openURL("https://example.com/")
+    said = "Asked to open example.com"
   action author
     authored = not authored
   action rename(value)
@@ -103,10 +120,28 @@ component Unsaid
                 input type="checkbox" role="switch" checked=true aria-label="On" testId="switch"
                 input type="range" min=0 max=100 value=60 aria-label="A range" width=90 testId="range"
                 progress value=60 max=100 width=60 testId="progress"
-                button "Filled" appearance="auto" buttonStyle="filled" press=author testId="filled"
+                button "Filled" appearance="auto" buttonStyle="filled" press=buzz testId="filled"
+              row display="flex" flex-wrap="wrap" column-gap=20 testId="links"
+                link href="https://example.com/" testId="link-web"
+                  text "example.com"
+                link href="mailto:someone@example.com" testId="link-mail"
+                  text "Mail someone"
+                link href="tel:+15550100" testId="link-phone"
+                  text "Call 555 0100"
               row display="flex" flex-wrap="wrap" gap=8 testId="asks"
+                button press=buzz testId="haptic"
+                  text "Haptic"
+                button press=thump -exact-press-haptic="impact-heavy" testId="press-haptic"
+                  text "Press haptic"
+                button press=copy testId="copy"
+                  text "Copy"
+                button press=send testId="share"
+                  text "Share"
+                button press=browse testId="open-url"
+                  text "openURL"
                 button press=author testId="author"
                   text (authored ? "The platform's accent" : "Author an accent")
+              text said testId="said"
           when e.name == "next"
             text "The next page" role="heading" aria-level=1 testId="next-heading"
             text "It has no Back control. The system's Back returns to the first page, and from there it leaves the app." testId="next-paragraph"
