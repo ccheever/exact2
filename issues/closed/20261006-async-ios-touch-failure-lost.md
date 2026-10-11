@@ -1,6 +1,7 @@
 # Preserve failures for every skipped conditional async check
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Retained skipped conditional failures and checked the full coalesced Apple range; async state tests pass in scripts/deploy-paths.test.mjs.
 **Systems:** async lane, failure attribution
 **Author:** Codex (GPT-6), for Charlie Cheever
 **Date:** 2026-10-06
