@@ -652,7 +652,6 @@ enum T3BrowserHostError: Error {
     case overlayTimeout(Int)
     case navigationTimeout(readiness: String, ms: Int)
     case viewportTimeout(Int)
-    case recordingNotActive
     case notEditable(kind: String, length: Int?)
     case operation(String)
 
@@ -662,7 +661,7 @@ enum T3BrowserHostError: Error {
         case .targetUnavailable: return "PreviewAutomationTabNotFoundError"
         case .overlayTimeout, .navigationTimeout, .viewportTimeout: return "PreviewAutomationTimeoutError"
         case .notEditable: return "PreviewAutomationTargetNotEditableError"
-        case .recordingNotActive, .operation: return "PreviewAutomationExecutionError"
+        case .operation: return "PreviewAutomationExecutionError"
         }
     }
 
@@ -685,9 +684,6 @@ enum T3BrowserHostError: Error {
         case .viewportTimeout(let ms):
             detail["tabId"] = tab; detail["timeoutMs"] = ms
             message = "Preview viewport for request \(context.requestId) on environment \(context.environmentId) thread \(context.threadId) tab \(tab) was not rendered within \(ms)ms."
-        case .recordingNotActive:
-            detail["tabId"] = context.tabId ?? NSNull()
-            message = "Preview automation request \(context.requestId) found no active recording for tab \(tab) on environment \(context.environmentId) thread \(context.threadId)."
         case .notEditable(let kind, let length):
             detail["operation"] = context.operation; detail["tabId"] = context.tabId ?? NSNull(); detail["selectorKind"] = kind
             if let length { detail["selectorLength"] = length }
