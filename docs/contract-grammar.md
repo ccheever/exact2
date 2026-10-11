@@ -1262,6 +1262,11 @@ with Tab, and back to the one before with Shift-Tab. Under the agent the setting
 drive's, off unless it says `prefer keyboard-navigation true` (`state.focus.keyboardNavigation`
 reads it); a `type <id> key Tab` after that walks every control.
 
+A new Mac window puts the caret in its first stop, as AppKit does: with Keyboard
+navigation off the first text field, and with no stop nothing. An `autofocus` you wrote
+elsewhere wins, and a window whose first stop is in a `canvas` that takes input opens
+with nothing focused. The web and iOS focus nothing on load unless `autofocus` says so.
+
 ## Host commands
 
 The current command name inventory is:

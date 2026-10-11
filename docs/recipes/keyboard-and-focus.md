@@ -87,7 +87,9 @@ test "Return in the add field adds and keeps typing"
   focus on Enter): call it where the typing is finished, as `searched` does.
   `blur("search")` takes the focus from that field only.
 - **`focus("id")`** moves the focus to a field by its `id`, from an action; a sheet's
-  first field takes `autofocus=true` instead.
+  first field takes `autofocus=true` instead. On the Mac a new window opens with the
+  caret in its first text field, as AppKit's windows do (its `focus=` runs then);
+  `autofocus=true` on another control starts there instead.
 - **`focus=` and `blur=`** on a field say when it is being edited. Keep Cancel while
   there is a query too: on the web, pressing it blurs the field first. On the Mac a
   click on a button leaves the focus in the field, as AppKit's buttons do, so say

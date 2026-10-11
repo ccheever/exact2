@@ -119,6 +119,36 @@ extension Presenter {
         } else if back { window.selectPreviousKeyView(view) } else { window.selectNextKeyView(view) }
     }
 
+    /// The view a new window's caret goes to (LLP 1115.000 D7.5): the first
+    /// stop of the loop, which with Keyboard Navigation off is the first
+    /// text field (or box that takes keys of its own) and with it on the
+    /// first control. Nil when there is none, and when it is a canvas that
+    /// takes input or a node painted through a canvas: a caret there would
+    /// be in the canvas's first frame (the readback fixture, LLP 1014), so
+    /// such a window opens with nothing focused, as every window used to.
+    var initialKeyView: NSView? {
+        flushKeyViewLoop()
+        guard let first = viewport.nextValidKeyView, let node = keyTarget(first) else { return nil }
+        if node.kind == "canvas" || node.inputCanvas != nil || node.canvasAbove != nil { return nil }
+        return first
+    }
+
+    /// A new window puts the caret in its first key view, as AppKit does a
+    /// window's `initialFirstResponder`, where the window's owner asked for
+    /// it (`ExactView.focusesFirstKeyView`; an embedder's window is its own
+    /// to decide). Once, when the launch `autofocus` runs, the turn after
+    /// the first frame, so no field editor stands before the first pixel.
+    /// What the author wrote wins: an `autofocus` took the focus just before
+    /// this, and whatever holds it by now keeps it.
+    func focusInitialKeyView() {
+        guard let view = session?.view, view.focusesFirstKeyView, let window = view.window else { return }
+        view.focusesFirstKeyView = false
+        let current = window.firstResponder
+        guard current == nil || current === window || current === window.contentView || current === viewport || current === view,
+              let first = initialKeyView else { return }
+        window.makeFirstResponder(first)
+    }
+
     /// A Tab stop (LLP 1088 D7.3; LLP 1115.000 D7.2): an explicit `tabindex`
     /// ≥ 0, a text field, or what is one by kind under the Keyboard
     /// Navigation setting (`NodeView.tabStop`); an explicit negative never,
