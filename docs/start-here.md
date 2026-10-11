@@ -1,8 +1,8 @@
 # Start here: building an app with Exact
 
 The only required reading (LLP 1115 D7). The rest is lookup: a short [recipe](recipes/)
-per question (listed at the end), `bun exact.mjs contract vocab <name>` for any tag or
-property, and the long guides by section only for what no recipe covers.
+per question (listed at the end), `bun exact.mjs contract vocab <name>` for any tag,
+property or function, and the long guides by section only for what no recipe covers.
 
 ## The idea
 
@@ -11,14 +11,17 @@ property, and the long guides by section only for what no recipe covers.
 2. **Ship the platform.** Say what a thing *is* (a `header` with a heading and buttons,
    a `tablist`, a `dialog role="alertdialog"`) and each host draws its own control: on
    iOS the navigation bar, the tab bar, the system alert.
-3. **Leave colours, fonts and metrics unsaid**, so dark mode, Dynamic Type and the tint
-   come with the platform. To say one, name a role: `color="-exact-secondary-label"`,
-   `font="-exact-footnote"`, `AccentColor`, `-exact-system-red`. A hand-built lookalike
-   of a system control (a painted switch, buttons drawn as a tab bar, a title in a big
-   `font-size`) is a bug; `bun <exact2>/scripts/no-tells.mjs .` lists literal values.
-4. **Deliberate design is allowed.** The platform answers what you omit; the few things
-   an app designs (a timer's big readout, a chart, a progress ring) may set their size
-   and colour. Changing digits take `font-variant-numeric="tabular-nums"`.
+3. **The platform answers what you omit:** controls, bars, navigation, the type ramp,
+   control colours, dark mode. To say a colour or size, name a role
+   (`color="-exact-secondary-label"`, `font="-exact-footnote"`, `-exact-system-red`). A
+   lookalike of a system control (a painted switch, a title in a big `font-size`) is a
+   bug; `bun <exact2>/scripts/no-tells.mjs .` lists literal values.
+4. **Your content is yours to design:** a summary leading the main screen (today's
+   total, the score), rows with a hierarchy (a `-exact-headline` title over
+   `-exact-secondary-label` details), colour that means something, bars where numbers
+   compare (`progress`), an empty state that says what to do. A content screen is not a
+   settings list; inset-grouped is for settings and forms. `exact:content` draws these
+   parts ([content-design](recipes/content-design.md)).
 
 ## The workflow
 
@@ -58,8 +61,9 @@ shape Item
 shape Items
   items: list<Item>
 
-shape Ack
+shape Reply
   ok: bool
+  error: string
 
 shape Time
   epochAtZero: number
@@ -70,15 +74,19 @@ component Groceries
   state draft = ""
   resource time = exactTime() as shape Time
   resource groceries = loadItems() as shape Items else empty()
-  mutation saved as shape Ack queue refreshes groceries
+  mutation added as shape Reply refreshes groceries then afterAdd
+  mutation saved as shape Reply queue refreshes groceries
   derive left = length(filter(groceries.items, i => not i.done))
+  derive addError = match added { case some(r) => r.error, case none => "" }
 
   action edit(v: string)
     draft = v
   action add
     let title = trim(draft)
     if title != ""
-      send saved = addItem(title, time.epochAtZero + performanceNow())
+      send added = addItem(title, time.epochAtZero + performanceNow())
+  action afterAdd
+    if addError == ""
       draft = ""
   action toggle(id: string, done: bool)
     send saved = setDone(id, done)
@@ -97,6 +105,8 @@ component Groceries
               row
                 input appearance="none" value=draft input=edit submit=add placeholder="Add an item"
                   aria-label="New item" enterkeyhint="done" testId="draft" flex=1 min-width=0
+              footer
+                text (pending(added) ? "" : addError) testId="add-error"
             section
               each i in groceries.items key=i.id
                 row
@@ -120,8 +130,12 @@ component Groceries
   case none => … }`. No truthiness. A record copy is `Shape(old, field=value)`.
   Events pass captured arguments, then the payload (`change=toggle(i.id)` gets the bool).
 - **Data.** A `resource` is a reactive read (`pending(x)`, `failed(x)`); a `mutation` a
-  write, which `queue` keeps in order and `refreshes` follows with a read. Only the
-  root declares them; child components take `props`.
+  write, which `queue` keeps in order, `refreshes` follows with a read and `then` with
+  an action once its reply lands. Only the root declares them; child components take `props`.
+- **After a write**, clear the field or close the form in the `then` action, only on an
+  ok reply; a refusal (`ok: false` and words) keeps the text and shows under the field
+  ([after-a-write](recipes/after-a-write.md)). A one-field add stays on the list; a
+  form of more fields is a sheet ([navigation-stack](recipes/navigation-stack.md)).
 
 **The data module** answers each source with exactly its declared shape (an extra field
 fails the resource). It reaches only what its `grants` name, one line each (`fs.write
@@ -149,13 +163,15 @@ async function load(storage: Storage): Promise<Item[]> {
 async function save(storage: Storage, next: Item[]): Promise<Result<'addItem'>> {
   items = next;
   await storage.fs.atomicWriteFile(FILE, new TextEncoder().encode(JSON.stringify(next)));
-  return { ok: true };
+  return { ok: true, error: '' };
 }
 
 const sources: Sources = {
   loadItems: async (_args, _store, storage) => ({ items: await load(storage) }),
   addItem: async ([title, at], _store, storage) => {
     const all = await load(storage), id = String(Math.max(0, ...all.map((i) => Number(i.id))) + 1);
+    const same = all.find((i) => i.title.toLowerCase() === title.toLowerCase());
+    if (same) return { ok: false, error: `${same.title} is already on the list.` }; // a refusal is a reply too
     return save(storage, [...all, { id, title, done: false, addedAt: at }]);
   },
   setDone: async ([id, done], _store, storage) => save(storage, (await load(storage)).map((i) => (i.id === id ? { ...i, done } : i))),
@@ -167,12 +183,17 @@ export const answer: Answer = (source, args, store, storage, native) => sources[
 storage, after the first data has landed:
 
 ```contract-test
-test "an item is added, checked off and kept"
+test "an item is added, a repeat refused, checked off and kept"
   expect text "left" == "Nothing on the list."
   type "draft" "Milk"
   tap "add"
   clock data
   expect text "left" == "1 item left"
+  type "draft" "milk"
+  tap "add"
+  clock data
+  expect text "add-error" == "Milk is already on the list."
+  expect text "draft" == "milk"
   tap "done-1"
   clock data
   reload
@@ -191,8 +212,9 @@ same storage. Every form, and the real-clock drive before calling it done: [test
    `buttonStyle="bordered"` or `"bordered-prominent"`.
 2. **`width="100%"` with padding overflows** (`content-box`, as in CSS). Drop the width;
    give a `flex=1` field `min-width=0`.
-3. **Text in a `header` besides its heading and buttons** isn't in the iOS bar. Put a
-   count or status in the content, and errors in words, never raw codes.
+3. **A `header` holds a heading, one text after it and buttons** (and a search field
+   or a `tablist`). That text is the iOS bar's subtitle (a count, a status); anything
+   else isn't in the bar. Errors are words, never raw codes.
 4. **A drive without `--storage <name>`** refuses storage, so the app looks empty.
 5. **Trusting green tests.** They pass on a layout that spills off the screen, and on
    the virtual clock. Look at screenshots, iOS with `--chrome platform` and
@@ -202,19 +224,21 @@ same storage. Every form, and the real-clock drive before calling it done: [test
 
 - Another screen, a sheet with Cancel and Save, a confirmation: [navigation-stack](recipes/navigation-stack.md).
 - Tabs, when the app has at least two: [tabs](recipes/tabs.md).
+- A main screen that isn't a settings list: [content-design](recipes/content-design.md).
 - A form or settings screen, pickers, switches, validation: [grouped-form](recipes/grouped-form.md).
+- After a write: clear or close on an ok reply, a refusal in words: [after-a-write](recipes/after-a-write.md).
+- The keyboard: Return that submits, `blur()`, the next field: [keyboard-and-focus](recipes/keyboard-and-focus.md).
 - A number field: `inputmode="decimal"` gives the iPhone's number pad: [number-field](recipes/number-field.md).
 - A big number: its `font-size` with `font-variant-numeric="tabular-nums"`: [numeric-readout](recipes/numeric-readout.md).
-- Money, `$1,481.47`: `formatNumber(dollars, "currency", "USD")` ([money](recipes/money.md)).
-- Dates, day keys, "today": [dates-and-days](recipes/dates-and-days.md).
+- Money, `$1,481.47`: `formatNumber(dollars, "currency", "USD")` ([money](recipes/money.md)); dates, day keys, "today": [dates-and-days](recipes/dates-and-days.md).
+- Ticking, start and stop, a countdown (`task … every`): [timers](recipes/timers.md).
 - Time that outlives a launch: store `time.epochAtZero + performanceNow()`; `performanceNow()` restarts at 0 on every launch: [timer-that-survives-relaunch](recipes/timer-that-survives-relaunch.md).
 - Randomness: a seed from `crypto.getRandomValues` in a source: [random-and-shuffle](recipes/random-and-shuffle.md).
 - A chat that stays at the newest message: `scrollFollowEnd=true`: [chat-thread](recipes/chat-thread.md).
 - Icons: `image "symbol:add"` (a role), any SF Symbol as `symbol:sf/<name>`: [symbols](recipes/symbols.md).
-- A remembered setting: [persisted-setting](recipes/persisted-setting.md).
+- A remembered setting: [persisted-setting](recipes/persisted-setting.md); a collection in a file or SQLite, and its grants: [files-and-grants](recipes/files-and-grants.md).
 - The network: [fetch-loading-error](recipes/fetch-loading-error.md); your own server: [rest-backend](recipes/rest-backend.md).
-- Columns that wrap on a phone: [responsive-columns](recipes/responsive-columns.md).
-- How it looks on the web: [web-look](recipes/web-look.md).
+- Columns that wrap on a phone: [responsive-columns](recipes/responsive-columns.md); the web, and list and detail side by side when wide: [web-look](recipes/web-look.md).
 
 ## Look it up, when no recipe covers it
 
@@ -222,9 +246,9 @@ same storage. Every form, and the real-clock drive before calling it done: [test
 | --- | --- |
 | Is a tag, attribute or property accepted | `bun exact.mjs contract vocab <name>` |
 | Every test step and drive operation | [tests](recipes/tests.md); [grammar: authored tests](contract-grammar.md#authored-tests) |
-| Every standard function | [grammar: standard functions](contract-grammar.md#standard-functions-and-intrinsics) |
+| Every standard function; one function's rules | [functions](recipes/functions.md); `bun exact.mjs contract vocab <name>` |
 | Any other declaration or its semantics | [contract-for-agents](contract-for-agents.md), by its contents |
 | Compiles but lays out or behaves wrong | [agent-pitfalls](agent-pitfalls.md), by section |
-| Data module globals, storage, grants, SQLite | [reference](reference.md#what-a-data-module-can-use); [human guide](contract-for-humans.md#writing-the-data-module) |
+| Data module globals, storage, grants, SQLite | [files-and-grants](recipes/files-and-grants.md); [reference](reference.md#what-a-data-module-can-use) |
 | Native code for what Contract can't say | [reference: access hatches](reference.md#access-hatches) |
 | A whole iPhone app with tabs and tests | [`apps/shelf`](../apps/shelf/app.contract) |

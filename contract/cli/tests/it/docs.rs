@@ -44,7 +44,8 @@ pub(crate) fn documents() -> Vec<PathBuf> {
 
 /// The fenced blocks of every document, in order. A heading outside a fence
 /// ends a section, so a `ts` block never pairs with an earlier section's
-/// Contract.
+/// Contract. A `ts` block after a split app's marked blocks pairs with the
+/// app they assemble, not with the last fragment.
 pub(crate) fn blocks() -> Vec<Block> {
     let mut out = Vec::new();
     for doc in documents() {
@@ -57,11 +58,13 @@ pub(crate) fn blocks() -> Vec<Block> {
         let mut contract: Option<String> = None;
         let mut marker: Option<String> = None;
         let mut pending: Option<String> = None;
+        let mut split: Vec<(String, String)> = Vec::new();
+        let mut after_split = false;
         for (index, line) in text.lines().enumerate() {
             match &mut open {
                 Some((start, info, body)) => {
                     if line.trim() == "```" {
-                        let block = Block {
+                        let mut block = Block {
                             doc: shown.clone(),
                             line: *start,
                             info: std::mem::take(info),
@@ -69,8 +72,19 @@ pub(crate) fn blocks() -> Vec<Block> {
                             contract: contract.clone(),
                             check: pending.take(),
                         };
+                        if block.info == "ts" && after_split {
+                            let parts: Vec<(&str, &str)> = split
+                                .iter()
+                                .map(|(c, b)| (c.as_str(), b.as_str()))
+                                .collect();
+                            block.contract = Some(assemble(&parts).0);
+                        }
                         if block.info == "contract" {
                             contract = Some(block.body.clone());
+                            after_split = block.check.is_some();
+                            if let Some(check) = &block.check {
+                                split.push((check.clone(), block.body.clone()));
+                            }
                         }
                         out.push(block);
                         open = None;
@@ -91,6 +105,7 @@ pub(crate) fn blocks() -> Vec<Block> {
                             .map(|m| m.trim().to_string());
                         if line.starts_with('#') {
                             contract = None;
+                            after_split = false;
                         }
                     }
                 }
@@ -179,43 +194,13 @@ fn every_split_app_in_the_guides_compiles_assembled() {
     );
     let mut failures = Vec::new();
     for (doc, list) in &docs {
-        let mut app = String::new();
-        for b in list.iter().filter(|b| b.check.as_deref() == Some("app")) {
-            app.push_str(&b.body);
-        }
-        let mut filled = std::collections::HashSet::new();
-        for b in list {
-            let check = b.check.as_deref().unwrap_or("");
-            let known = check == "app"
-                || check == "file"
-                || check
-                    .strip_prefix("route ")
-                    .is_some_and(|n| !n.trim().is_empty());
-            if !known {
-                failures.push(format!(
-                    "{}: unknown check marker `{check}` (use `app`, `file` or `route <name>`)",
-                    b.at()
-                ));
-                continue;
-            }
-            if let Some(name) = check.strip_prefix("route ") {
-                let name = name.trim();
-                if !filled.insert(name.to_string()) {
-                    failures.push(format!("{}: route `{name}` is filled twice", b.at()));
-                    continue;
-                }
-                match fill_route(&app, name, &b.body) {
-                    Some(filled) => app = filled,
-                    None => failures.push(format!(
-                        "{}: no `when e.name == \"{name}\"` placeholder in the app blocks",
-                        b.at()
-                    )),
-                }
-            }
-        }
-        for b in list.iter().filter(|b| b.check.as_deref() == Some("file")) {
-            app.push('\n');
-            app.push_str(&b.body);
+        let parts: Vec<(&str, &str)> = list
+            .iter()
+            .map(|b| (b.check.as_deref().unwrap_or(""), b.body.as_str()))
+            .collect();
+        let (app, wrong) = assemble(&parts);
+        for (i, why) in wrong {
+            failures.push(format!("{}: {why}", list[i].at()));
         }
         if let Err(all) = contract::compile_path_source_all(&path, &app, false) {
             let lines: Vec<&str> = app.lines().collect();
@@ -269,6 +254,51 @@ fn the_recipes_and_start_here_say_no_literal_colour_size_or_weight() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+/// The app a guide's marked blocks make, in order: the `app` blocks, each
+/// `route <name>` block in place of its placeholder, each `file` block
+/// appended; and what is wrong with a part, by its index.
+pub(crate) fn assemble(parts: &[(&str, &str)]) -> (String, Vec<(usize, String)>) {
+    let mut wrong = Vec::new();
+    let mut app = String::new();
+    for (_, body) in parts.iter().filter(|(check, _)| *check == "app") {
+        app.push_str(body);
+    }
+    let mut filled = std::collections::HashSet::new();
+    for (i, (check, body)) in parts.iter().enumerate() {
+        let known = *check == "app"
+            || *check == "file"
+            || check
+                .strip_prefix("route ")
+                .is_some_and(|n| !n.trim().is_empty());
+        if !known {
+            wrong.push((
+                i,
+                format!("unknown check marker `{check}` (use `app`, `file` or `route <name>`)"),
+            ));
+            continue;
+        }
+        if let Some(name) = check.strip_prefix("route ") {
+            let name = name.trim();
+            if !filled.insert(name.to_string()) {
+                wrong.push((i, format!("route `{name}` is filled twice")));
+                continue;
+            }
+            match fill_route(&app, name, body) {
+                Some(filled) => app = filled,
+                None => wrong.push((
+                    i,
+                    format!("no `when e.name == \"{name}\"` placeholder in the app blocks"),
+                )),
+            }
+        }
+    }
+    for (_, body) in parts.iter().filter(|(check, _)| *check == "file") {
+        app.push('\n');
+        app.push_str(body);
+    }
+    (app, wrong)
 }
 
 /// The app with the route's block in place of the lines under

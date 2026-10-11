@@ -3,7 +3,7 @@
 A list that pushes a detail screen, a sheet with Cancel and Save, and a confirmation.
 On iOS each route's `header` is its navigation bar, a pushed route gets the system Back
 button and edge swipe, a sheet swipes down, and the alert is `UIAlertController`. The
-four blocks below are one app; each route block fills its `when` in the first.
+contract blocks below are one app; each route block fills its `when` in the first.
 
 <!-- check: app -->
 ```contract
@@ -19,16 +19,20 @@ shape Note
 shape Notes
   notes: list<Note>
 
-shape Ack
+shape Reply
   ok: bool
+  error: string
 
 component App
   state draft = ""
   state submitted = false
   state aimed = ""
   resource lib = loadNotes() as shape Notes else empty()
-  mutation changed as shape Ack queue refreshes lib
+  mutation added as shape Reply refreshes lib then afterSave
+  mutation removed as shape Reply refreshes lib
   derive titleError = trim(draft) == "" ? "Enter a title." : ""
+  derive saveError = match added { case some(r) => r.error, case none => "" }
+  derive formError = not submitted ? "" : titleError != "" ? titleError : pending(added) ? "" : saveError
 
   action open(id: string)
     nav = push(nav, path("note", id))
@@ -44,8 +48,10 @@ component App
     draft = v
   action save
     submitted = true
-    if titleError == ""
-      send changed = addNote(trim(draft))
+    if titleError == "" and not pending(added)
+      send added = addNote(trim(draft))
+  action afterSave
+    if saveError == "" and top(nav).name == "add"
       nav = back(nav)
   action askRemove(id: string)
     aimed = id
@@ -53,7 +59,7 @@ component App
   action remove
     if top(nav).name == "note"
       nav = back(nav)
-    send changed = removeNote(aimed)
+    send removed = removeNote(aimed)
 
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow testId="app" width="100%" height="100%"
@@ -128,11 +134,33 @@ column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="
       row
         input appearance="none" value=draft input=edit placeholder="Title" aria-label="Title" autofocus=true testId="add-title" flex=1
       footer
-        text (submitted ? titleError : "") testId="error-title"
+        text formError testId="error-title"
+```
+
+The data module refuses a second note of the same title, in words the sheet shows:
+
+```ts
+import type { Answer, Result, Sources } from './app.contract.d.ts';
+
+export const appId = 'com.example.notes'; // exact new writes this line
+export const grants = '';
+
+let notes: Result<'loadNotes'>['notes'] = [], next = 1;
+const sources: Sources = {
+  loadNotes: () => ({ notes }),
+  addNote: ([title]) => {
+    const same = notes.find((n) => n.title.toLowerCase() === title.toLowerCase());
+    if (same) return { ok: false, error: `There’s already a note called ${same.title}.` };
+    notes = [...notes, { id: String(next++), title }];
+    return { ok: true, error: '' };
+  },
+  removeNote: ([id]) => { notes = notes.filter((n) => n.id !== id); return { ok: true, error: '' }; },
+};
+export const answer: Answer = (source, args, store, storage, native) => sources[source](args, store, storage, native);
 ```
 
 ```contract-test
-test "add validates, saves, opens and deletes after asking"
+test "add validates, saves, refuses a repeat, opens and deletes after asking"
   tap "add-note"
   clock settle
   tap "add-save"
@@ -141,6 +169,14 @@ test "add validates, saves, opens and deletes after asking"
   tap "add-save"
   clock settle
   clock data
+  tap "add-note"
+  clock settle
+  type "add-title" "milk"
+  tap "add-save"
+  clock data
+  expect text "error-title" == "There’s already a note called Milk."
+  tap "add-cancel"
+  clock settle
   tap "Milk"
   clock settle
   expect text "detail-title" == "Milk"
@@ -159,6 +195,8 @@ test "add validates, saves, opens and deletes after asking"
   with no `press`). Open it from an action with `showModal("remove")`. For a modal you
   lay out yourself, use `role="dialog" aria-modal=true`.
 - Show a validation error only after the first Save (`submitted`), in the section's
-  footer, whose text is always the system's grey.
+  footer, whose text is always the system's grey. The sheet closes in `then`, only when
+  the save's reply is ok: a refusal keeps the sheet, its text and the reason
+  ([after-a-write](after-a-write.md)).
 - In tests, `clock settle` after every push, sheet or alert, and `clock data` before
   reading what a save wrote. Swipe to delete and long-press menus: [list-rows](list-rows.md).
