@@ -1,0 +1,35 @@
+reply-links: a reply's links, right-click menu and left click, before / after / reference (2026-10-11)
+
+Fixture reply (the lanes' turn item fixture-markdown; fixture-text.txt):
+  Write to [the team](mailto:team@example.test), join [the channel](irc://irc.example.test/t3), [chat](xmpp:team@example.test) or read [the notes](#notes).
+  Code inside: [the `x` docs](https://example.com/c) and [`y` docs](https://example.com/d).
+
+Before: the evidence worktree at eb9752918 (the feature tip's code), agent drive runs/before (drive.sh before).
+After: this branch's bundle (a56f127ff), agent drive runs/after (drive.sh after), the same steps.
+Reference: T3 Code 1e2ecbd975 in Electron on lane reply-links (CDP 17121, its main process's inspector on 17123): the
+main process's shell.openExternal replaced by a recorder, the session's `openExternal` permission requests recorded and
+denied, will-navigate / did-navigate-in-page / did-create-window recorded, Menu.prototype.popup recorded instead of shown
+(main-eval.mjs, hook.js, hook-menu.js); clicks and right-clicks are Playwright's over CDP.
+
+Under the agent the shell's menu is logged as `t3.textmenu:`, the app's own menu as `t3.contextmenu:`; the host's own
+link following logs `exact: refused to open <url>` for a scheme it refuses (it hands http, https and mailto to NSWorkspace).
+No mailto link was ever left-clicked in a clone drive.
+
+| Link | Right-click: before | after | reference |
+| the team (mailto) | shell: Cut (disabled), Copy (disabled), Paste (disabled), Select All | the same, through the link node's contextmenu -> shellMenu | shell: Cut (disabled), Copy, Paste (disabled), Select All (no Copy Link) |
+| "team" (its 2nd word) | shell, as above | shell, as above (no handler) | as above |
+| the channel (irc) | shell, as above | shell, as above (link node -> shellMenu) | shell, as above |
+| chat (xmpp) | shell, as above | shell, as above (link node -> shellMenu) | shell, as above |
+| the notes (#notes) | shell, as above (plain prose) | shell, as above (link node -> shellMenu) | shell, as above |
+| code `x` in "the `x` docs" | shell, as above (a plain code box) | app: Open in integrated browser, Open in system browser, Copy Link | app: Open in integrated browser, Open in system browser, Copy Link |
+| code `y` that starts "`y` docs" | shell, as above (a plain code box) | app: Open in integrated browser, Open in system browser, Copy Link | app: Open in integrated browser, Open in system browser, Copy Link |
+(The reference's Copy is enabled because Chromium selects the word under a right-click: the known S1 difference.)
+
+| Link | Left click: before | after | reference |
+| the team (mailto) | not clicked; the host follows the text's href (as irc below), and hands mailto to NSWorkspace: the mail app | press view (linkOpen) -> openLinkFromUi: nothing | not prevented; `_blank` -> setWindowOpenHandler denies (parseSafeExternalUrl): nothing (no openExternal, no openExternal permission request, no navigation) |
+| the channel (irc), "the" | `exact: refused to open irc://irc.example.test/t3` (the host followed the href) | press view 845 (linkOpen): nothing | nothing (as mailto) |
+| the channel (irc), "channel" | `exact: refused to open irc://irc.example.test/t3` | nothing (no href, no handler) | nothing |
+| chat (xmpp) | `exact: refused to open xmpp:team@example.test` | press view 849 (linkOpen): nothing | nothing (as mailto) |
+| the notes (#notes) | nothing (plain prose) | press view 854 (linkOpen): nothing; the thread stays | the hash router reads #notes as a route: popstate, hashchange, did-navigate-in-page t3code://app/#notes, then the app lands on the new-thread draft t3code://app/#/draft/cdd16052-... (RL2-fragment-click.png) |
+| code `x` | nothing | opened https://example.com/c (recorded: opened-urls.txt) | shell.openExternal https://example.com/c ("Open links in": system browser) |
+| code `y` | nothing | opened https://example.com/d (recorded) | shell.openExternal https://example.com/d |
