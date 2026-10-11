@@ -70,6 +70,29 @@ macro_rules! canvas_jni {
                 }
             }
 
+            /// Whether a host runs in this process: a reader that starts
+            /// again adopts it (LLP 1115.001 D15.1) and boots no second one.
+            static RUNNING: std::sync::atomic::AtomicBool =
+                std::sync::atomic::AtomicBool::new(false);
+            /// The size and scale a reader asked `startAsync` for while a
+            /// host ran: what `adopt` adopts it at.
+            static ADOPT: std::sync::Mutex<Option<(u32, u32, f32)>> = std::sync::Mutex::new(None);
+
+            /// The host on this thread, adopted by a new reader at `size`
+            /// and `scale` (`CanvasHost::adopt`): what this thread kept of
+            /// the last reader's streams goes with it. False when no host
+            /// runs here.
+            fn adopt_running(size: (u32, u32), scale: f32) -> bool {
+                if with(|h| h.adopt(size, scale)).is_none() {
+                    return false;
+                }
+                LAST.with(|l| l.borrow_mut().clear());
+                MOVE.with(|m| m.borrow_mut().clear());
+                DRAWN.with(|d| *d.borrow_mut() = None);
+                PRIMED.with(|p| *p.borrow_mut() = None);
+                true
+            }
+
             #[no_mangle]
             pub unsafe extern "system" fn Java_dev_exact_canvas_Native_start(
                 env: *mut JNIEnv,
@@ -82,6 +105,12 @@ macro_rules! canvas_jni {
             ) -> jboolean {
                 static LOG: std::sync::Once = std::sync::Once::new();
                 LOG.call_once($crate::android::redirect_stdio);
+                // The activity was made again in this process: its reader
+                // adopts the host that runs. Nothing boots, and the
+                // environment, which other threads read by now, is left alone.
+                if adopt_running((width as u32, height as u32), scale) {
+                    return JNI_TRUE;
+                }
                 let dir = string(env, dir);
                 std::env::set_var("HOME", &dir);
                 std::env::set_var("XDG_DATA_HOME", format!("{dir}/data"));
@@ -92,6 +121,7 @@ macro_rules! canvas_jni {
                 match Host::boot(PLAN, COMPAT, (width as u32, height as u32), scale) {
                     Ok(h) => {
                         HOST.with(|slot| *slot.borrow_mut() = Some(h));
+                        RUNNING.store(true, std::sync::atomic::Ordering::Release);
                         $crate::android::release_library_pages_after(RELEASE_AFTER);
                         JNI_TRUE
                     }
@@ -131,6 +161,13 @@ macro_rules! canvas_jni {
             ) {
                 static LOG: std::sync::Once = std::sync::Once::new();
                 LOG.call_once($crate::android::redirect_stdio);
+                // A host runs already (the activity was made again): nothing
+                // boots, and `adopt` adopts that one at this size.
+                if RUNNING.load(std::sync::atomic::Ordering::Acquire) {
+                    *ADOPT.lock().unwrap_or_else(|e| e.into_inner()) =
+                        Some((width as u32, height as u32, scale));
+                    return;
+                }
                 // The environment is set here, before any other thread reads it.
                 let dir = string(env, dir);
                 std::env::set_var("HOME", &dir);
@@ -163,6 +200,10 @@ macro_rules! canvas_jni {
                 _env: *mut JNIEnv,
                 _class: jclass,
             ) -> jboolean {
+                let again = ADOPT.lock().unwrap_or_else(|e| e.into_inner()).take();
+                if let Some((width, height, scale)) = again {
+                    return flag(adopt_running((width, height), scale));
+                }
                 let mut slot = BOOTED.lock().unwrap_or_else(|e| e.into_inner());
                 while slot.is_none() {
                     slot = READY.wait(slot).unwrap_or_else(|e| e.into_inner());
@@ -171,6 +212,7 @@ macro_rules! canvas_jni {
                     Ok(Booted(mut h, first)) => {
                         h.set_borrowed(false);
                         HOST.with(|s| *s.borrow_mut() = Some(h));
+                        RUNNING.store(true, std::sync::atomic::Ordering::Release);
                         PRIMED.with(|p| *p.borrow_mut() = first);
                         $crate::android::release_library_pages_after(RELEASE_AFTER);
                         JNI_TRUE
@@ -182,15 +224,17 @@ macro_rules! canvas_jni {
                 }
             }
 
-            /// The view's size in pixels, when it is not the size `start` was given.
+            /// The view's size in pixels and the display's pixels a point,
+            /// when either is not what `start` was given.
             #[no_mangle]
             pub unsafe extern "system" fn Java_dev_exact_canvas_Native_resize(
                 _env: *mut JNIEnv,
                 _class: jclass,
                 width: jint,
                 height: jint,
+                scale: jfloat,
             ) {
-                with(|h| h.resize((width as u32, height as u32)));
+                with(|h| h.resize((width as u32, height as u32), scale));
             }
 
             /// A new op stream as a direct ByteBuffer over Rust memory (valid until

@@ -146,6 +146,8 @@ mod layer;
 pub use jni_sys;
 #[path = "canvas/picture.rs"]
 mod picture;
+#[path = "canvas/reader.rs"]
+mod reader;
 #[path = "canvas/refine.rs"]
 mod refine;
 #[path = "canvas/shadow.rs"]
@@ -1466,20 +1468,6 @@ impl<D: DataSource + Default> CanvasHost<D> {
     /// A picture announced by `IMAGE_DEF`, once (premultiplied RGBA rows).
     pub fn image(id: u32) -> Option<Picture> {
         image(id)
-    }
-
-    /// The view is `size` pixels after all (the reader booted at the size it
-    /// expected).
-    pub fn resize(&mut self, size: (u32, u32)) {
-        let viewport = (size.0 as f32 / self.scale, size.1 as f32 / self.scale);
-        if viewport == self.viewport {
-            return;
-        }
-        self.viewport = viewport;
-        if let Some(e) = self.p.resize(viewport.0, viewport.1) {
-            eprintln!("exact: resize: {e}");
-        }
-        self.force = true;
     }
 }
 

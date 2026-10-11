@@ -41,6 +41,7 @@ mod commands;
 mod contact;
 mod control;
 mod delivery;
+mod device;
 mod display_frame;
 mod events;
 mod field;

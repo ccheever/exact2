@@ -91,9 +91,12 @@ The cut was the smallest one. Left in the reader:
 
 ## Not done
 
-- **Nothing in LLP 1115.001 after this step.** A finger does not scroll, text arrives one key at a time, insets pad
-  the view once, the theme is light, no setting of the device reaches the app, the Rust calls nothing on the
-  platform, and there is no lifecycle and no accessibility.
+- **Most of LLP 1115.001.** A finger does not scroll, text arrives one key at a time, insets pad the view once, the
+  theme is light, no setting of the device reaches the app, the Rust calls nothing on the platform, and there is no
+  accessibility. Of the lifecycle (D15) the first two parts are built: the manifest declares the configuration changes
+  the host takes in place, an activity made again adopts the host that runs (`Native.start` on a thread that has
+  one), and the host does no frame work while the activity is stopped. Nothing is saved for a process the system
+  kills (D15.3).
 - **No agent carrier** for the APK (`--reader`, LLP 1107 §4.4).
 - **No check builds any of it.** Gradle is in none of the five checks or the async lane, and nothing builds
   `exact-linux` for the Android target.

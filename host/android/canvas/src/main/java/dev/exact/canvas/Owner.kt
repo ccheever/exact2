@@ -19,7 +19,11 @@ import java.util.concurrent.atomic.AtomicBoolean
  * translates the feed's group on the main thread at once (as a compositor scrolls) and reaches exact2 after, so a long
  * collection pass delays rows by a frame or two but never holds a frame (owner=0: exact2 on the main thread).
  */
-internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, priority: Int, intent: (String) -> String?, private val published: () -> Unit) {
+internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, priority: Int, intent: (String) -> String?) {
+    /** Called on the main thread when a stream was published: the view that reads this owner now. The owner outlives
+     * an activity (its thread holds the host, which is the process's), so each activity's view takes it in turn. */
+    @Volatile var published: () -> Unit = {}
+
     /** boost=0: input does not raise the clocks, to compare. Otherwise the exact and main threads are an ADPF hint
      * session (made at the first input), told of a workload increase as each press, release or key arrives: an idle
      * phone meets a tap at its lowest clocks (a Pixel 10 Pro XL's exact thread at 400-650 MHz: the release's commit and
@@ -120,7 +124,12 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
         }
     }
 
-    /** Boot at the size the view is expected to have; [done] on the main thread with whether it booted. */
+    /** Whether the host's wake descriptors are watched: once, however many readers boot it. */
+    private var watching = false
+
+    /** Boot at the size the view is expected to have; [done] on the main thread with whether it booted. An activity
+     * made again in this process (LLP 1115.001 D15.1) calls this for its own view: [Native.start] then adopts the host
+     * that runs on this thread, which paints everything again for the new reader, and starts no second one. */
     fun boot(width: Int, height: Int, scale: Float, dir: String, live: Boolean, done: (Boolean) -> Unit) {
         handler.post {
             android.os.Trace.beginSection("exact boot")
@@ -128,13 +137,19 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
             val ok = Native.start(width, height, scale, dir, live)
             android.os.Trace.endSection()
             if (ok) {
-                val queue = thread.looper.queue
-                for (fd in Native.fds()) {
-                    if (fd < 0) continue
-                    val pfd = ParcelFileDescriptor.fromFd(fd)
-                    queue.addOnFileDescriptorEventListener(pfd.fileDescriptor, MessageQueue.OnFileDescriptorEventListener.EVENT_INPUT) { _, _ ->
-                        if (Native.poll()) produce() else schedule()
-                        MessageQueue.OnFileDescriptorEventListener.EVENT_INPUT
+                // What was published or scrolled for the reader before this one is not this one's.
+                queue.clear(); made.clear(); seq = 0
+                synchronized(lock) { owedDy = 0f; owedSeq = 0 }
+                if (!watching) {
+                    watching = true
+                    val wakes = thread.looper.queue
+                    for (fd in Native.fds()) {
+                        if (fd < 0) continue
+                        val pfd = ParcelFileDescriptor.fromFd(fd)
+                        wakes.addOnFileDescriptorEventListener(pfd.fileDescriptor, MessageQueue.OnFileDescriptorEventListener.EVENT_INPUT) { _, _ ->
+                            if (Native.poll()) produce() else schedule()
+                            MessageQueue.OnFileDescriptorEventListener.EVENT_INPUT
+                        }
                     }
                 }
                 produce()
@@ -143,7 +158,24 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
         }
     }
 
-    fun resize(width: Int, height: Int) = call { Native.resize(width, height) }
+    /** The view is this size after all, or the display's density changed. */
+    fun resize(width: Int, height: Int, scale: Float) = call { Native.resize(width, height, scale) }
+
+    /** Whether the activity is started. While it is stopped the host does no frame work (LLP 1115.001 D15.2): no
+     * turn at a vsync, no timer, no stream. Replies are still drained as they arrive ([Native.poll]), so what they
+     * change is in the frame drawn when the activity starts again. */
+    private var running = true
+
+    /** The activity stopped ([on] false) or started again. */
+    fun running(on: Boolean) {
+        handler.post {
+            if (on == running) return@post
+            running = on
+            if (on) { produce(); return@post }
+            choreographer?.removeFrameCallback(turn); turnPosted = false
+            handler.removeCallbacks(timer); handler.removeCallbacks(refiner); handler.removeCallbacks(settle)
+        }
+    }
 
     /** A scroll of [dy] px, the main thread's [seq]th. */
     fun scroll(dy: Float, seq: Int) {
@@ -249,6 +281,7 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
 
     /** exact2's next stream, if it has one: copied, queued, and the main thread told. */
     private fun produce() {
+        if (!running) return
         android.os.Trace.beginSection("exact native frame")
         val fresh = Native.frame()
         android.os.Trace.endSection()
@@ -280,6 +313,7 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
     }
 
     private fun schedule() {
+        if (!running) return
         if (Native.animating() && !turnPosted) { turnPosted = true; choreographer?.postFrameCallback(turn) }
         var due = Native.nextDue()
         // A moved paint is owed a paint once scrolling pauses: each step pushes this back.
@@ -301,7 +335,12 @@ private const val AHEAD_US = 1500
 
 /** Calls the reader makes outside [ExactView]'s own (keys, Back, GPU surfaces): to the [Owner] when there is one. */
 internal object Exact {
+    /** The process's owner, from the first activity that made one on: an activity made again takes it. */
     var owner: Owner? = null
+    /** Whether an activity has set this process up for a host (its environment is written, its host may run). */
+    var live = false
+    /** The activity whose view reads the host now. */
+    var reader: java.lang.ref.WeakReference<ExactActivity>? = null
 
     /** Main thread, when an answer was published in time (the reader draws it this frame). */
     var answered: () -> Unit = {}

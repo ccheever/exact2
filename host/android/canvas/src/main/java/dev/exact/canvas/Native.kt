@@ -6,13 +6,18 @@ import java.nio.ByteBuffer
 /** exact2 on the main thread: layout, shaping and the paint walk, recorded as Canvas ops. */
 object Native {
     init { System.loadLibrary("exactcanvas") }
+    /** Boot the app's host on the calling thread; whether it booted. Where a host already runs on this thread (the
+     * activity was made again in this process, LLP 1115.001 D15.1) nothing boots: that host is adopted at this size
+     * and scale, and paints everything again for the reader that calls, which has none of the last one's rows, faces
+     * or pictures. */
     @JvmStatic external fun start(width: Int, height: Int, scale: Float, dir: String, live: Boolean): Boolean
-    /** [start] on a thread of its own, at the size the view is expected to have; [adopt] takes the host. */
+    /** [start] on a thread of its own, at the size the view is expected to have; [adopt] takes the host. Where a host
+     * already runs in this process nothing boots, and [adopt] adopts that one as [start] does. */
     @JvmStatic external fun startAsync(width: Int, height: Int, scale: Float, dir: String, live: Boolean)
     /** Wait for [startAsync]'s host and run it on this thread from now on; whether it booted. */
     @JvmStatic external fun adopt(): Boolean
-    /** The view is this size after all. */
-    @JvmStatic external fun resize(width: Int, height: Int)
+    /** The view is this size after all, at this many pixels a point (the display's density, which may change). */
+    @JvmStatic external fun resize(width: Int, height: Int, scale: Float)
     @JvmStatic external fun frame(): ByteBuffer?
     @JvmStatic external fun poll(): Boolean
     @JvmStatic external fun animating(): Boolean
