@@ -12,7 +12,10 @@ The only required reading (LLP 1115 D7); the rest is lookup, listed at the end.
 3. **Leave the rest unsaid:** controls, bars, the type ramp, control colours and dark
    mode are the platform's. A colour or size names a role (`-exact-secondary-label`,
    `font="-exact-footnote"`, `-exact-system-red`); a lookalike of a system control is a
-   bug (`bun <exact2>/scripts/no-tells.mjs .` lists literals).
+   bug (`bun <exact2>/scripts/no-tells.mjs .` lists literals). Pick the app's accent
+   once, `accent-color="-exact-system-teal"` on the root: every control, selected tab,
+   progress, link and `exact:content` part follows it on every host, and destructive
+   and status colours keep their meaning.
 4. **Design your content:** a summary leading the main screen, rows with a hierarchy,
    bars where numbers compare, an empty state that says what to do; inset-grouped is
    for settings and forms. `exact:content` draws these ([content-design](recipes/content-design.md)).
