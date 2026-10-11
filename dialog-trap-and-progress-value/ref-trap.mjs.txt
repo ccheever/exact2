@@ -1,0 +1,142 @@
+// dialog-trap-and-progress-value: Tab past the last stop and Shift+Tab before the first in the reference's dialogs (Base UI's
+// focus trap), the same scenarios as the clone's drive.sh. Lane fixture browsers only (copied from the import-wizard lane);
+// Firefox imports only (no Keychain read). Usage: node ref-trap.mjs <cdpPort> <out.json> <shotDir>. Never closes the browser.
+import { createRequire } from 'node:module';
+import fs from 'node:fs';
+const require = createRequire('/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/src-1e2ecbd975/apps/desktop/package.json');
+const { chromium } = require('playwright-core');
+const [port, outFile, shots] = process.argv.slice(2);
+const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+const page = browser.contexts().flatMap((c) => c.pages()).find((p) => !p.url().startsWith('devtools://') && !p.url().startsWith('data:'));
+await page.setViewportSize({ width: 1280, height: 840 });
+const log = [];
+const state = async (label, shot) => {
+  const s = await page.evaluate(() => {
+    const a = document.activeElement;
+    const popups = [...document.querySelectorAll('[data-slot=dialog-popup],[data-slot=alert-dialog-popup],[data-slot=command-dialog-popup]')];
+    const dialog = popups.find((d) => d.contains(a)) ?? popups.at(-1) ?? null;
+    const describe = (e) => {
+      if (!e) return null;
+      if (e === document.body) return 'BODY';
+      if (popups.includes(e)) return `${e.nodeName}[role=${e.getAttribute('role')}] (the popup itself)`;
+      const label = e.getAttribute('aria-label') ?? e.getAttribute('placeholder');
+      const text = (e.innerText ?? e.value ?? '').replace(/\s+/g, ' ').trim().slice(0, 40);
+      return `${e.nodeName}${label ? `[${label}]` : ''}${text ? ` "${text}"` : ''}`;
+    };
+    const r = a && a !== document.body ? a.getBoundingClientRect() : null;
+    return { active: describe(a), insideDialog: dialog ? dialog.contains(a) : null, dialog: dialog?.querySelector('h2')?.innerText ?? dialog?.getAttribute('aria-label') ?? null,
+      rect: r ? { x: r.x, y: r.y, w: r.width, h: r.height } : null };
+  });
+  log.push({ label, ...s });
+  console.log(JSON.stringify({ label, ...s }));
+  if (shot && shots) await page.screenshot({ path: `${shots}/ref-${shot}.png` });
+};
+const click = async (locator) => { const b = await locator.first().boundingBox(); await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2); };
+const popup = () => page.locator('[data-slot=dialog-popup],[data-slot=alert-dialog-popup]').last();
+const key = async (k) => { await page.keyboard.press(k); await page.waitForTimeout(250); };
+const escape = async () => { await page.keyboard.press('Escape'); await page.waitForTimeout(700); };
+const openSource = async (name) => {
+  await click(page.getByRole('button', { name: 'Add profile' }));
+  await page.waitForTimeout(700);
+  await click(page.getByRole('menuitem', { name }));
+  await page.waitForTimeout(1500);
+};
+
+// G. The command palette: Tab and Shift+Tab from its field.
+await page.keyboard.press('Meta+K');
+await page.waitForTimeout(1200);
+await state('palette: open');
+await key('Tab');
+await state('palette: Tab from the field', 'palette-tab');
+await page.locator('[role=dialog] input').first().focus();
+await key('Shift+Tab');
+await state('palette: Shift+Tab from the field', 'palette-shift-tab');
+await escape();
+
+await page.goto(new URL('#/settings/integrations', page.url()).href);
+await page.waitForTimeout(2500);
+// A1. Brave is running: the quit step; Cancel holds the focus as it opens.
+await openSource('Brave');
+await state('quit: open');
+await key('Shift+Tab');
+await state('quit: Shift+Tab from Cancel', 'quit-shift-tab-cancel');
+await popup().getByRole('button', { name: 'Close' }).focus();
+await key('Tab');
+await state('quit: Tab from the X', 'quit-tab-x');
+await escape();
+// A2. Chrome: Configure; the first tile holds the focus as it opens.
+await openSource('Chrome');
+await state('configure: open');
+await key('Shift+Tab');
+await state('configure: Shift+Tab from the first tile', 'configure-shift-tab-first');
+await popup().getByRole('button', { name: 'Close' }).focus();
+await key('Tab');
+await state('configure: Tab from the X', 'configure-tab-x');
+await escape();
+// A3. Import the fixture's Firefox, then Remove “Firefox”?.
+await openSource('Firefox');
+await click(popup().getByRole('button', { name: 'Import', exact: true }));
+await page.waitForTimeout(3500);
+await click(popup().getByRole('button', { name: 'Done', exact: true }));
+await page.waitForTimeout(1200);
+await click(page.getByRole('button', { name: 'Firefox options' }));
+await page.waitForTimeout(700);
+await click(page.getByRole('menuitem', { name: /Remove profile/ }));
+await page.waitForTimeout(1200);
+await state('remove: open');
+await key('Shift+Tab');
+await state('remove: Shift+Tab from Cancel', 'remove-shift-tab-cancel');
+await popup().getByRole('button', { name: 'Remove profile' }).focus();
+await key('Tab');
+await state('remove: Tab from Remove profile', 'remove-tab-confirm');
+await escape();
+// A4. Add host.
+await page.getByRole('button', { name: 'Add host' }).click();
+await page.waitForTimeout(1200);
+await state('host: open');
+await popup().getByRole('textbox').first().focus();
+await key('Shift+Tab');
+await state('host: Shift+Tab from Name', 'host-shift-tab-name');
+await popup().getByRole('button', { name: 'Close' }).focus();
+await key('Tab');
+await state('host: Tab from the X', 'host-tab-x');
+await escape();
+
+await page.goto(new URL('#/settings/providers', page.url()).href);
+await page.waitForTimeout(2500);
+// B1. Add provider: Tab from the X.
+await page.getByRole('button', { name: 'Add provider' }).click();
+await page.waitForTimeout(1200);
+await state('provider: open');
+await popup().getByRole('button', { name: 'Close' }).last().focus();
+await key('Tab');
+await state('provider: Tab from the X', 'provider-tab-x');
+await escape();
+// B2. Add hub.
+await page.getByRole('button', { name: 'Add hub' }).click();
+await page.waitForTimeout(1200);
+await state('hub: open');
+await page.locator('#usage-source-url').focus();
+await key('Shift+Tab');
+await state('hub: Shift+Tab from Hub URL', 'hub-shift-tab-url');
+await popup().getByRole('button', { name: 'Cancel' }).focus();
+await key('Tab');
+await state('hub: Tab from Cancel', 'hub-tab-cancel');
+await escape();
+
+await page.goto(new URL('#/settings/appearance', page.url()).href);
+await page.waitForTimeout(2500);
+// D1. Add theme.
+await page.getByRole('button', { name: 'Add theme' }).click();
+await page.waitForTimeout(1500);
+await state('theme: open');
+await popup().getByRole('textbox').first().focus();
+await key('Shift+Tab');
+await state('theme: Shift+Tab from the search field', 'theme-shift-tab-query');
+await popup().getByRole('button', { name: 'Close' }).last().focus();
+await key('Tab');
+await state('theme: Tab from the X', 'theme-tab-x');
+await escape();
+
+fs.writeFileSync(outFile, JSON.stringify(log, null, 2));
+process.exit(0);
