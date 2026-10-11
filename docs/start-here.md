@@ -55,9 +55,6 @@ shape Item
   title: string
   done: bool
 
-shape Items
-  items: list<Item>
-
 shape Reply
   ok: bool
   error: string
@@ -66,10 +63,10 @@ fn leftText(n: number): string = n == 1 ? "1 item left" : `${n} items left`
 
 component Groceries
   state draft = ""
-  resource groceries = loadItems() as shape Items else empty()
+  resource groceries = loadItems() as shape list<Item> else empty()
   mutation added as shape Reply refreshes groceries then afterAdd
   mutation saved as shape Reply queue refreshes groceries
-  derive left = length(filter(groceries.items, i => not i.done))
+  derive left = length(filter(groceries, i => not i.done))
   derive addError = match added { case some(r) => r.error, case none => "" }
 
   action edit(v: string)
@@ -86,20 +83,21 @@ component Groceries
   view
     list id="items" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0 testId="app"
       section
-        row gap=8
-          input appearance="none" value=draft input=edit submit=add placeholder="Add an item"
-            aria-label="New item" enterkeyhint="done" testId="draft" flex=1 min-width=0
+        row gap=8 align-items="center"
+          column flex=1 min-width=0 gap=4
+            input appearance="none" value=draft input=edit submit=add placeholder="Add an item"
+              aria-label="New item" enterkeyhint="done" testId="draft"
+            when addError != "" and not pending(added)
+              text addError font="-exact-footnote" color="-exact-system-red" testId="add-error"
           button press=add disabled=(trim(draft) == "") testId="add"
             text "Add"
-        footer
-          text (pending(added) ? "" : addError) testId="add-error"
       section
-        each i in groceries.items key=i.id
+        each i in groceries key=i.id
           row
             input type="checkbox" checked=i.done change=toggle(i.id) aria-label=i.title testId=`done-${i.id}`
             text i.title flex=1
         footer
-          text (length(groceries.items) == 0 ? "Nothing on the list." : leftText(left)) testId="left"
+          text (length(groceries) == 0 ? "Nothing on the list." : leftText(left)) testId="left"
 ```
 
 - **Syntax.** Indent with spaces; attributes continue on deeper lines. Quote units
@@ -113,13 +111,13 @@ component Groceries
   write, which `queue` keeps in order, `refreshes` follows with a read and `then` with
   an action. Only the root declares them; children take `props`.
 - **After a write**, `then` clears the field only on an ok reply; a refusal keeps the
-  text and says why under it ([after-a-write](recipes/after-a-write.md)). A form of
-  more fields is a sheet.
+  text and says what to do, in red under it ([after-a-write](recipes/after-a-write.md)).
+  A form of more fields is a sheet.
 
 **The data module** answers each source with exactly its declared shape (an extra field
 fails it), reaches only what its `grants` name, and answers a failed fetch as data
 ([fetch-loading-error](recipes/fetch-loading-error.md)). The clock and randomness are
-refused there: time comes in as an argument. `console.log` shows in the agent's `logs`.
+refused there; time comes as an argument.
 
 ```ts
 import type { Answer, Result, Sources, Storage } from './app.contract.d.ts';
@@ -127,7 +125,7 @@ import type { Answer, Result, Sources, Storage } from './app.contract.d.ts';
 export const appId = 'com.example.groceries';
 export const grants = 'fs.read app:/data/items.json\nfs.write app:/data/items.json';
 
-type Item = Result<'loadItems'>['items'][number];
+type Item = Result<'loadItems'>[number];
 const FILE = 'app:/data/items.json';
 const load = (storage: Storage): Promise<Item[]> => storage.fs.readFile(FILE).then(
   (bytes) => JSON.parse(new TextDecoder().decode(bytes)),
@@ -138,7 +136,7 @@ const save = async (storage: Storage, items: Item[]) => {
 };
 
 const sources: Sources = {
-  loadItems: async (_args, _store, storage) => ({ items: await load(storage) }),
+  loadItems: (_args, _store, storage) => load(storage),
   addItem: async ([title], _store, storage) => {
     const all = await load(storage), same = all.find((i) => i.title.toLowerCase() === title.toLowerCase());
     if (same) return { ok: false, error: `${same.title} is already on the list.` }; // a refusal is a reply too
@@ -165,7 +163,7 @@ test "an item is added, a repeat refused, checked off and kept"
   tap "done-1"
   clock data
   reload
-  expect state groceries.items.0 .done == true
+  expect state groceries.0 .done == true
   expect text "left" == "0 items left"
 ```
 

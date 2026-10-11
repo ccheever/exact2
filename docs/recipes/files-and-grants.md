@@ -37,10 +37,11 @@ component Journal
     list appearance="auto" listStyle="inset-grouped" height="100%" testId="app"
       section
         row
-          input appearance="none" value=draft input=edit submit=add placeholder="Today I…"
-            aria-label="New entry" enterkeyhint="done" testId="draft" flex=1 min-width=0
-        footer
-          text (pending(added) ? "" : addError) testId="error"
+          column flex=1 min-width=0 gap=4
+            input appearance="none" value=draft input=edit submit=add placeholder="Today I…"
+              aria-label="New entry" enterkeyhint="done" testId="draft"
+            when addError != "" and not pending(added)
+              text addError font="-exact-footnote" color="-exact-system-red" testId="error"
       section
         each e in entries key=e.id
           row

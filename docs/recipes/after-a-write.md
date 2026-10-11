@@ -29,13 +29,14 @@ component TagList
   view
     list appearance="auto" listStyle="inset-grouped" height="100%" testId="app"
       section
-        row gap=8
-          input appearance="none" value=draft input=edit submit=add placeholder="New tag"
-            aria-label="New tag" enterkeyhint="done" testId="draft" flex=1 min-width=0
+        row gap=8 align-items="center"
+          column flex=1 min-width=0 gap=4
+            input appearance="none" value=draft input=edit submit=add placeholder="New tag"
+              aria-label="New tag" enterkeyhint="done" testId="draft"
+            when addError != "" and not pending(added)
+              text addError font="-exact-footnote" color="-exact-system-red" testId="add-error"
           button press=add disabled=(trim(draft) == "" or pending(added)) testId="add"
             text "Add"
-        footer
-          text (pending(added) ? "Adding…" : addError) testId="add-error"
       section
         each t in tags key=t.id
           row
@@ -53,7 +54,7 @@ const sources: Sources = {
   loadTags: () => tags,
   addTag: ([name]) => {
     const same = tags.find((t) => t.name.toLowerCase() === name.toLowerCase());
-    if (same) return { ok: false, error: `There’s already a tag called ${same.name}.` }; // a refusal is a reply
+    if (same) return { ok: false, error: `There’s already a tag called ${same.name}. Try another name.` }; // a refusal is a reply
     tags.push({ id: String(tags.length + 1), name });
     return { ok: true, error: '' };
   },
@@ -69,12 +70,12 @@ test "a refused add keeps the text and says why; the next attempt clears it"
   type "draft" "work"
   type "draft" key "Enter"
   clock data
-  expect text "add-error" == "There’s already a tag called Work."
+  expect text "add-error" == "There’s already a tag called Work. Try another name."
   expect text "draft" == "work"
   type "draft" "Home"
   tap "add"
   clock data
-  expect text "add-error" == ""
+  expect tree missing "add-error"
 ```
 
 - **Clear in `then`.** `then afterAdd` runs once each reply lands, as its own commit,
@@ -83,8 +84,9 @@ test "a refused add keeps the text and says why; the next attempt clears it"
   data module can name: a rule, a server's 4xx, a lost connection ([rest-backend](rest-backend.md)).
   A throw brings no answer: `then` doesn't run and nothing is said (`failure()` is for
   resources only).
-- **Where they edit**: the field's section footer, or the sheet's form. It hides while
-  `pending(added)`, so the next attempt starts clean.
+- **Where they type**: under the field, in its row, in `-exact-system-red` and words
+  that say what to do (a section `footer` is always grey on iOS, and a row of text alone
+  drops its colour). It hides while `pending(added)`, so the next attempt starts clean.
 - **One at a time.** `not pending(added)` stops a second Enter: a newer send replaces
   the first's reply, not its work, so both would be saved.
 - **Closing a form** is the same `then`: `if saveError == "" and top(nav).name == "add"`,

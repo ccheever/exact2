@@ -17,7 +17,7 @@ test "add, check off, and keep it across a relaunch"
   expect text "left" == "1 item left"
   tap "done-1"
   clock data
-  expect state groceries.items.0 .done == true
+  expect state groceries.0 .done == true
   expect state left == 0
   reload
   expect text "left" == "0 items left"
@@ -27,7 +27,7 @@ test "Enter adds too; a repeat is refused and keeps its text"
   type "draft" "Eggs"
   type "draft" key "Enter"
   clock data
-  expect state groceries.items.0 .title == "Eggs"
+  expect state groceries.0 .title == "Eggs"
   expect state draft == ""
   type "draft" "eggs"
   type "draft" key "Enter"

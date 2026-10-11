@@ -59,6 +59,7 @@ component Shared
   resource items = loadItems() as shape Items else empty(ok=true)
   mutation added as shape Reply refreshes items then afterAdd
   derive addError = match added { case some(r) => r.error, case none => "" }
+  derive listError = pending(added) ? "" : addError != "" ? addError : items.error
   task poll mount
     every(4000, pull)
   action pull
@@ -81,10 +82,11 @@ component Shared
           list id="list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
             section
               row
-                input appearance="none" value=draft input=edit submit=add placeholder="Add an item"
-                  aria-label="New item" testId="draft" flex=1
-              footer
-                text (pending(added) ? "" : addError != "" ? addError : items.error) testId="error"
+                column flex=1 min-width=0 gap=4
+                  input appearance="none" value=draft input=edit submit=add placeholder="Add an item"
+                    aria-label="New item" testId="draft"
+                  when listError != ""
+                    text listError font="-exact-footnote" color="-exact-system-red" testId="error"
             section
               each i in items.items key=i.id
                 row
@@ -110,7 +112,7 @@ async function call(path: string, init: RequestInit = {}): Promise<Answered> {
     return { ok: false, error: typeof body.error === 'string' ? body.error : 'The server had a problem. Try again.' };
   } catch (e) {
     if ((e as { code?: string }).code === 'bake') throw e; // no server at build
-    return { ok: false, error: 'Can’t reach the server.' }; // the field keeps an unsent add
+    return { ok: false, error: 'Can’t reach the server. Check that it’s running, then try again.' }; // the field keeps an unsent add
   }
 }
 
@@ -144,7 +146,7 @@ test "an item is added for everyone; a refusal and a lost server are said in wor
   type "draft" "Eggs"
   type "draft" key "Enter"
   clock data
-  expect text "error" == "Can’t reach the server."
+  expect text "error" == "Can’t reach the server. Check that it’s running, then try again."
   expect text "draft" == "Eggs"
   pass fetch "http://127.0.0.1:8787"
   type "draft" key "Enter"
