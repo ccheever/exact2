@@ -8,7 +8,6 @@ import type { T3Client } from './client';
 import type { Native } from './protocol';
 import { letGo } from './let-go';
 import { pushToast } from './toast';
-import { activeRef } from './terminal-drawer-view';
 import { scopedThreadKey, type ScopedThreadRef } from './terminal-ui-state';
 import { surfaceStore, type PanelState } from './r4-surfaces-panel';
 import { openPullRequestIn } from './r5-panels-surfaces';
@@ -64,7 +63,7 @@ async function modifierHeld(client: T3Client, native: Native): Promise<boolean> 
 }
 
 /**
- * handlePrClick (openPullRequestsInRightPanel = a thread or draft route): ⌘ or Ctrl leaves the link to the system
+ * handlePrClick (openPullRequestsInRightPanel = a thread's route): ⌘ or Ctrl leaves the link to the system
  * browser; beside a thread, a pull request a project of the thread's environment reads opens in that thread's right
  * panel and the thread opens; on another page, one an environment reads opens on the Pull Requests page; otherwise it
  * is an ordinary link, which follows "Open links in" ("Unable to open pull request link" if that fails).
@@ -78,7 +77,8 @@ export async function openRowPullRequest(client: T3Client, native: Native, id: s
     pushToast(client, { kind: 'error', title: 'Unable to open pull request link', description: failure(error, 'An error occurred.'), stacked: true });
   };
   if (await modifierHeld(client, native)) { try { await openInSystemBrowser(native, url); } catch (error) { linkFailed(error); } return ''; }
-  const besideThread = page === '' && activeRef(client) !== null;
+  // routeThreadRef (resolveActiveThreadRouteRef): a server thread's route, or a draft once it was sent; an unsent draft is none.
+  const besideThread = page === '' && client.threadId !== '';
   if (besideThread) {
     const target = prTarget(row.reads as unknown as T3Client, url);
     if (target) {

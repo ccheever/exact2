@@ -100,11 +100,15 @@ describe('LS-1: the pull request glyph (handlePrClick)', () => {
     expect(client.diffOpen).toBe(false);
     expect(surfaceStore(client).panels.get('local:thread-2')?.visible).toBe(true);
   });
-  test('with no thread route (the Pull Requests page), it opens on the Pull Requests page', async () => {
-    const { client, native } = rig();
+  test('with no thread route (the Pull Requests page, an unsent draft), it opens on the Pull Requests page', async () => {
+    const { client, native, opened } = rig();
     const result = await sidebarCommand(client, native, files, 'legacy-pr', 'thread-2', 'pull-requests');
     expect(result.startsWith('sidebar:pr-page:')).toBe(true);
     expect(JSON.parse(result.slice(16))).toEqual({ projectId: 'p1', host: 'github.com', repository: 'acme/app', number: 7 });
+    client.threadId = ''; // resolveActiveThreadRouteRef: a draft route has no thread until it is sent
+    expect((await sidebarCommand(client, native, files, 'legacy-pr', 'thread-2', '')).startsWith('sidebar:pr-page:')).toBe(true);
+    expect(opened).toEqual([]);
+    expect(surfaceStore(client).panels.get('local:thread-2')).toBeUndefined();
   });
   test('⌘ or Ctrl leaves it to the system browser; a link no project reads follows "Open links in"', async () => {
     const held = rig({ modifiers: { command: true } });
