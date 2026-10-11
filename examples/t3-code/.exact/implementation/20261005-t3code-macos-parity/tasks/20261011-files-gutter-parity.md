@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-files-gutter-parity
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/427
 verified_commit: null
 ---
 
@@ -161,6 +161,10 @@ The clone's packaged or development build (a lane home and port), the fixture th
   `mouseDown`/`mouseDragged` path a hand takes).
 - The reference's skill chip details (FG-4) could not be opened in this lane (no provider, so no skill in its `$` menu);
   the row is checked against the reference's source (Base UI Popover's outside press).
+
+## Delivery
+
+Draft PR [#427](https://github.com/ccheever/exact2/pull/427) into `feat(example)/t3-code`.
 
 ## Next action
 
