@@ -1,0 +1,22 @@
+// dialog-trap-and-progress-value review: does the reference open Model prices from the Usage page's Limits view?
+// Usage: node ref-limits.mjs <cdpPort> <shotDir>. Never closes the browser.
+import { createRequire } from 'node:module';
+const require = createRequire('/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/src-1e2ecbd975/apps/desktop/package.json');
+const { chromium } = require('playwright-core');
+const [port, shots] = process.argv.slice(2);
+const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+const page = browser.contexts().flatMap((c) => c.pages()).find((p) => !p.url().startsWith('devtools://') && !p.url().startsWith('data:'));
+await page.setViewportSize({ width: 1280, height: 840 });
+await page.goto(new URL('#/usage', page.url()).href);
+await page.waitForTimeout(2500);
+await page.getByRole('button', { name: 'Limits', exact: true }).first().click();
+await page.waitForTimeout(1000);
+await page.locator('.group\\/usage-environment').first().click();
+await page.waitForTimeout(800);
+await page.getByRole('menuitem', { name: 'Model prices' }).click();
+await page.waitForTimeout(1500);
+const open = await page.locator('[data-slot=dialog-popup]').filter({ hasText: 'Custom model prices' }).count();
+console.log(JSON.stringify({ label: 'Limits view: Model prices', dialogOpen: open > 0 }));
+await page.screenshot({ path: `${shots}/ref-prices-limits.png` });
+await page.keyboard.press('Escape');
+process.exit(0);
