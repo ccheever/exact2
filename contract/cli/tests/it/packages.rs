@@ -237,3 +237,163 @@ fn a_file_install_of_linked_files_is_the_library_where_its_files_are() {
         other => panic!("{other:?}"),
     }
 }
+
+struct NoData;
+impl exact_runner::DataSource for NoData {
+    fn query(
+        &mut self,
+        source: &str,
+        _: &[exact_runner::Value],
+    ) -> Result<exact_runner::Value, exact_runner::DataError> {
+        Err(exact_runner::DataError::UnknownSource(source.into()))
+    }
+}
+
+/// Every node under `root`, depth first, as the kernel holds them.
+fn under(k: &exact_kernel::Kernel, root: u32) -> Vec<exact_kernel::NodeRef<'_>> {
+    let mut out = Vec::new();
+    let mut stack = vec![root];
+    while let Some(id) = stack.pop() {
+        let node = k.node(id).unwrap();
+        stack.extend(node.children().into_iter().rev());
+        out.push(node);
+    }
+    out
+}
+
+/// LLP 1116.000 D3: `exact:content` draws an app's content with the
+/// platform's roles, and arranges itself for a phone and a wide window.
+#[test]
+fn exact_content_draws_a_hero_bars_an_empty_state_and_rows() {
+    use exact_kernel::{NodeType, Offer, PropId};
+    let dir = Dir::new("content");
+    let root = dir.write(
+        "app.contract",
+        r#"use SummaryCard, StatBar, EmptyState, RowText from "exact:content"
+component App
+  action go
+    let x = 1
+  view
+    column testId="root" width=900 height=2000
+      column testId="narrow" width=300
+        SummaryCard(label="Today", value="1,250 ml", detail="of 2,000 ml", progress=some(0.625), symbol=some("symbol:activity"))
+      column testId="wide" width=800
+        SummaryCard(label="Week", value="9,800 ml", detail="of 14,000 ml", progress=none, symbol=none)
+      column testId="bars" width=400
+        StatBar(label="Monday", value="1,800 ml", fraction=0.25, tint=some("-exact-system-green"))
+        StatBar(label="Over", value="3,000 ml", fraction=1.5, tint=none)
+      column testId="empty"
+        EmptyState(symbol="symbol:calendar", title="Nothing yet", message="Log a glass.")
+          button "Log a glass" press=go testId="first"
+      column testId="bare"
+        EmptyState(symbol="symbol:calendar", title="Bare", message="No action.")
+      column testId="rows"
+        RowText(title="Monday", detail="Oct 5", value=some("1,800 ml"))
+        RowText(title="Tuesday", detail="", value=none)
+"#,
+    );
+    let plan = contract::bake(contract::compile_path(&root).unwrap(), NoData).unwrap();
+    let mut r = exact_runner::Runner::boot(
+        plan,
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let k = r.kernel_mut();
+    let at = |k: &exact_kernel::Kernel, t: &str| k.node_by_key(k.find_by_test_id(t)[0]).unwrap().id;
+    let top = at(k, "root");
+    k.compute_layout(top, Offer::definite(900.0, 2000.0))
+        .unwrap();
+    let k = r.kernel();
+    let text = |n: &exact_kernel::NodeRef<'_>| n.props.str(PropId::Text).unwrap_or("").to_owned();
+    let find = |t: &str, s: &str| {
+        under(k, at(k, t))
+            .into_iter()
+            .find(|n| n.node_type == NodeType::Text && text(n) == s)
+            .unwrap_or_else(|| panic!("no text {s:?} under {t}"))
+    };
+    let count = |t: &str, ty: NodeType| {
+        under(k, at(k, t))
+            .iter()
+            .filter(|n| n.node_type == ty)
+            .count()
+    };
+    let bars = |t: &str| {
+        under(k, at(k, t))
+            .iter()
+            .filter(|n| n.props.str(PropId::AccessibilityRole) == Some("progressbar"))
+            .count()
+    };
+    // The detail sits under the number on a phone, beside it on a wide window.
+    let (value, detail) = (
+        find("narrow", "1,250 ml").frame,
+        find("narrow", "of 2,000 ml").frame,
+    );
+    assert!(
+        detail.y >= value.y + value.height,
+        "under: {value:?} {detail:?}"
+    );
+    let (value, detail) = (
+        find("wide", "9,800 ml").frame,
+        find("wide", "of 14,000 ml").frame,
+    );
+    assert!(
+        detail.x >= value.x + value.width && detail.y < value.y + value.height,
+        "beside: {value:?} {detail:?}"
+    );
+    assert_eq!(
+        find("narrow", "1,250 ml")
+            .props
+            .str(PropId::AccessibilityLabel),
+        Some("Today, 1,250 ml")
+    );
+    // The fraction is the platform's determinate progress; `none` draws none.
+    assert_eq!(bars("narrow"), 1);
+    assert_eq!(bars("wide"), 0);
+    assert_eq!(count("narrow", NodeType::Image), 1);
+    assert_eq!(count("wide", NodeType::Image), 0);
+    // A bar is one meter to a reader, its fill the fraction of its track,
+    // held to the track.
+    let meters: Vec<_> = under(k, at(k, "bars"))
+        .into_iter()
+        .filter(|n| n.props.str(PropId::AccessibilityRole) == Some("meter"))
+        .collect();
+    assert_eq!(meters.len(), 2);
+    assert_eq!(
+        meters[0].props.str(PropId::AccessibilityLabel),
+        Some("Monday")
+    );
+    assert_eq!(
+        meters[0].props.str(PropId::AccessibilityValueText),
+        Some("1,800 ml")
+    );
+    for (meter, share) in meters.iter().zip([0.25, 1.0]) {
+        let track = k.node(*meter.children().last().unwrap()).unwrap();
+        let fill = k.node(track.children()[0]).unwrap();
+        assert!(
+            (fill.frame.width - track.frame.width * share).abs() < 0.5,
+            "{share}: {:?} {:?}",
+            fill.frame,
+            track.frame
+        );
+    }
+    // The empty state's action is the author's own control, in its slot.
+    assert!(!k.find_by_test_id("first").is_empty());
+    assert_eq!(
+        find("empty", "Nothing yet")
+            .props
+            .str(PropId::AccessibilityRole),
+        Some("heading")
+    );
+    assert_eq!(count("bare", NodeType::Pressable), 0);
+    // A row's detail and trailing value show only when given.
+    find("rows", "Oct 5");
+    find("rows", "1,800 ml");
+    assert_eq!(
+        count("rows", NodeType::Text),
+        4,
+        "Monday, Oct 5, 1,800 ml, Tuesday"
+    );
+}

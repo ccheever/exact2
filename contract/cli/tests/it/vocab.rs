@@ -145,3 +145,185 @@ fn the_host_commands_are_listed_and_answer_by_name() {
         .iter()
         .any(|c| c == "setScheme"));
 }
+
+/// LLP 1116.000 D5: one function's entry is its roster signature, the
+/// grammar's rows for it and their examples.
+#[test]
+fn a_function_shows_its_signature_rules_and_example() {
+    let out = stdout(&vocab(&["formatNumber"]));
+    assert!(out.starts_with("formatNumber: standard function\n  signature: formatNumber(number, \"compact\" | \"decimal\" | \"currency\" | \"percent\"[, \"USD\" | "), "{out}");
+    assert!(out.contains("Intl.NumberFormat(\"en-US\")"), "{out}");
+    assert!(
+        out.contains("example: `formatNumber(1481.47, \"currency\", \"USD\")` is `\"$1,481.47\"`"),
+        "{out}"
+    );
+    let slice = stdout(&vocab(&["slice"]));
+    assert!(
+        slice.contains("  signature: slice(any, number[, number]) -> any\n"),
+        "{slice}"
+    );
+    assert_eq!(
+        slice.matches("example:").count(),
+        2,
+        "text and list: {slice}"
+    );
+    let now = stdout(&vocab(&["performanceNow"]));
+    assert!(
+        now.contains("performanceNow() -> number") && now.contains("epochAtZero"),
+        "{now}"
+    );
+    let push = stdout(&vocab(&["push"]));
+    assert!(
+        push.contains("only in an app with a `routes` declaration"),
+        "{push}"
+    );
+    assert!(
+        push.contains("the web's `push`: a list is a value"),
+        "{push}"
+    );
+    let path = stdout(&vocab(&["path"]));
+    assert!(
+        path.contains("path: compiler intrinsic\n"),
+        "the tag, then the intrinsic: {path}"
+    );
+}
+
+#[test]
+fn a_name_that_is_an_attribute_and_a_function_shows_both() {
+    let out = stdout(&vocab(&["filter"]));
+    assert!(out.contains("filter: style attribute"), "{out}");
+    assert!(
+        out.contains("filter: standard function\n  signature: filter(any, any) -> any"),
+        "{out}"
+    );
+}
+
+#[test]
+fn a_function_the_web_has_and_contract_refuses_says_what_to_write() {
+    for (name, says) in [
+        ("sort", "compute it in the data source"),
+        ("sortBy", "compute it in the data source"),
+        ("pow", "`x * x` is a square"),
+        ("now", "performanceNow()"),
+        ("padStart", "pad in the data module"),
+    ] {
+        let output = vocab(&[name]);
+        assert_eq!(output.status.code(), Some(1), "{name}: {output:?}");
+        let err = String::from_utf8(output.stderr).unwrap();
+        assert!(err.contains(says), "{name}: {err}");
+    }
+    let output = vocab(&["formatNumbr"]);
+    let err = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        err.contains("did you mean the function `formatNumber`?"),
+        "{err}"
+    );
+}
+
+#[test]
+fn the_functions_are_listed_and_in_the_json() {
+    let all = stdout(&vocab(&[]));
+    let count = exact_plan::Stdlib::ALL.len();
+    assert!(
+        all.contains(&format!("standard functions ({count})")),
+        "{all}"
+    );
+    assert!(
+        all.contains("  split(string, string) -> list<string>\n"),
+        "{all}"
+    );
+    assert!(
+        all.contains("compiler intrinsics:\n  pending, failed, failure, path"),
+        "{all}"
+    );
+    let doc: Value = serde_json::from_str(&stdout(&vocab(&["--json"]))).unwrap();
+    assert_eq!(
+        doc["functions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|f| f["kind"] == "standard function")
+            .count(),
+        count
+    );
+    let one: Value = serde_json::from_str(&stdout(&vocab(&["--json", "formatDate"]))).unwrap();
+    assert_eq!(one["function"]["kind"], "standard function");
+    assert!(one["function"]["rules"][0]["example"]
+        .as_str()
+        .unwrap()
+        .contains("Sep 21, 2026"));
+}
+
+/// The grammar's table is the roster's: every standard function has a row
+/// and every row an example, and every example written `` `call` is
+/// `value` `` is true when a view evaluates it.
+#[test]
+fn every_function_has_rows_and_every_written_example_holds() {
+    let functions = contract::functions::functions();
+    let mut missing = Vec::new();
+    let mut examples = Vec::new();
+    for f in &functions {
+        if f.rows.is_empty() {
+            missing.push(format!("{}: no row", f.name));
+        }
+        for row in &f.rows {
+            if row.example.is_empty() {
+                missing.push(format!("{}: no example", row.call));
+            }
+            let parts: Vec<&str> = row.example.split('`').collect();
+            if let [_, call, " is ", value, ""] = parts.as_slice() {
+                if !examples.iter().any(|(c, _)| c == call) {
+                    examples.push((call.to_string(), value.to_string()));
+                }
+            }
+        }
+    }
+    assert!(missing.is_empty(), "{missing:#?}");
+    assert!(examples.len() > 40, "{examples:?}");
+    let views: String = examples
+        .iter()
+        .enumerate()
+        .map(|(i, (call, value))| {
+            format!(
+                "      text (({call}) == ({value}) ? \"holds\" : \"differs\") testId=\"e{i}\"\n"
+            )
+        })
+        .collect();
+    let src = format!(
+        "routes nav\n  home \"/\"\n  item \"/item/:id\"\n\ncomponent App\n  view\n    main\n{views}"
+    );
+    let plan = contract::compile(&src).unwrap_or_else(|e| panic!("{e}\n{src}"));
+    struct NoData;
+    impl exact_runner::DataSource for NoData {
+        fn query(
+            &mut self,
+            source: &str,
+            _: &[exact_runner::Value],
+        ) -> Result<exact_runner::Value, exact_runner::DataError> {
+            Err(exact_runner::DataError::UnknownSource(source.into()))
+        }
+    }
+    let r = exact_runner::Runner::boot(
+        plan,
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let k = r.kernel();
+    let wrong: Vec<String> = examples
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| {
+            let key = k.find_by_test_id(&format!("e{i}"))[0];
+            k.node_by_key(key)
+                .unwrap()
+                .props
+                .str(exact_kernel::PropId::Text)
+                != Some("holds")
+        })
+        .map(|(_, (call, value))| format!("{call} is not {value}"))
+        .collect();
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}

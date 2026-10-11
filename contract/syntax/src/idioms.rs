@@ -58,8 +58,8 @@ pub fn refusal(name: &str) -> Option<String> {
                 "`{name}` is refused (LLP 1017.003: lists have `map`, `filter`, `join`, `concat`, `slice`, `includes` and `indexOf`): write {instead}, or compute it in the data source and hand the view the result"
             )
         }
-        "reduce" | "reduceRight" | "findLast" | "sort" | "toSorted" | "flatMap" | "flat"
-        | "forEach" | "reverse" | "toReversed" => format!(
+        "reduce" | "reduceRight" | "findLast" | "sort" | "sortBy" | "toSorted" | "flatMap"
+        | "flat" | "forEach" | "reverse" | "toReversed" => format!(
             "`{name}` is refused (LLP 1017.003: lists have `map`, `filter`, `join`, `concat`, `slice`, `includes` and `indexOf`); compute it in the data source and hand the view the result, as the crypto port keeps `lo` and `hi` beside its series"
         ),
         // @ref LLP 1088 D7.4 — the web's string and list spellings an agent
@@ -72,6 +72,10 @@ pub fn refusal(name: &str) -> Option<String> {
         ),
         "padStart" | "padEnd" => format!(
             "`{name}` is not in Contract (LLP 1088 D2 defers it): pad in the data module, or align with CSS (`text-align`, a fixed `width`)"
+        ),
+        // Round 2's builders looked for `pow` (LLP 1116.000 D5).
+        "pow" | "sqrt" | "abs" => format!(
+            "`{name}` is not in Contract: `x * x` is a square and `max(x, -x)` a magnitude; compute other maths in the data source and hand the view the result"
         ),
         "toUpperCase" => "display casing is CSS: `text-transform=\"uppercase\"`; Contract has no `toUpperCase` (LLP 1088 D2)".into(),
         "Number" | "parseInt" | "parseFloat" => format!(
