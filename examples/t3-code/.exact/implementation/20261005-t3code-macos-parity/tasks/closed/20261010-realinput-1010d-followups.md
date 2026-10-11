@@ -166,7 +166,7 @@ areas, Copy Link, Copy Image, fields, the Browser panel) is [shell-context-menu]
 
 **Real-input results (realinput-1010f).** The steps ran in `realinput-1010f` on the bundle of `d057787cb` (lane
 ri1010f-1, the lane's fake ACP agent) ([notes](https://raw.githubusercontent.com/ccheever/exact2/2f3a80555ea176b202a0e652e92c2dcbf790b352/realinput-1010f/F0-1010f-notes.txt)). New rows went to
-[realinput-1010f-followups](../20261010-realinput-1010f-followups.md).
+[realinput-1010f-followups](20261010-realinput-1010f-followups.md).
 
 - RD-1 passed: one 8-step move onto the dot and a 1 s rest showed the pill (3 of 3). On Pop its tooltip showed after the
   delay and the pill stayed. Onto the page, or a quick exit from the dot, hid it
@@ -188,4 +188,4 @@ ri1010f-1, the lane's fake ACP agent) ([notes](https://raw.githubusercontent.com
 ## Next action
 
 Closed after `realinput-1010f`. RD-4's Services item is RF-1 and RD-2's drag offset is RF-2 in
-[realinput-1010f-followups](../20261010-realinput-1010f-followups.md).
+[realinput-1010f-followups](20261010-realinput-1010f-followups.md).

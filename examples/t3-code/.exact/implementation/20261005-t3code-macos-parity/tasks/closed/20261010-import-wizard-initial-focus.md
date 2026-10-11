@@ -8,7 +8,7 @@ repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-import-wizard-initial-focus
 pr_url: https://github.com/ccheever/exact2/pull/409
-verified_commit: null
+verified_commit: 408eab1ad
 ---
 
 # The browser import wizard's initial focus
@@ -21,7 +21,7 @@ cookies"). `BrowserImportWizard.tsx:145-146` is a Base UI `Dialog` / `DialogPopu
 (`ui/dialog.tsx` `DialogPopup`). Base UI focuses only when the dialog opens, not when a step changes. The clone focuses
 Import (`browser-profiles.contract`, `BiButton(buttonId="browser-import-run", … first=true)`, `autofocus=first`). Its
 other steps each autofocus a button ("I’ve quit it", Cancel on Full Disk Access, Done, Close), and `autofocus` applies
-again at every step change. Found by [realinput-1010e-followups](closed/20261010-realinput-1010e-followups.md) RE-4 (#406).
+again at every step change. Found by [realinput-1010e-followups](20261010-realinput-1010e-followups.md) RE-4 (#406).
 
 ## Steps
 
@@ -166,7 +166,8 @@ sources, not driven).
 
 ## Not done / not verified
 
-- Focus ring under real keys: real-input step 1 (the screen was locked; the agent's window is never key).
+- Focus ring under real keys: ran in `realinput-1010h` (Real-input results); all pass but (c)'s Shift+Tab, which is the
+  focus trap below.
 - Base UI's focus trap (Tab past the last stop and Shift+Tab before the first wrap inside the reference's dialogs; in the
   clone they leave the wizard and the confirm, before this change as after): EXACT2-GAPS X53,
   [#282](https://github.com/ccheever/exact2/issues/282), approved, waits for the main fix (partial in main PR #327).
@@ -192,13 +193,8 @@ An independent review of PR #409 found four should-fix problems:
 
 ## Decision needed
 
-- X79 (Tab from a focused box that is no Tab stop goes nowhere on macOS): reproduce it in a one-file app on main and
-  file it, or keep it declared without an issue (the workaround leaves no visible difference). The coordinator's call
-  under the framework-fix workflow.
-
-## Delivery
-
-Draft PR [#409](https://github.com/ccheever/exact2/pull/409) into `feat(example)/t3-code`.
+None. X79 (Tab from a focused box that is no Tab stop goes nowhere on macOS) was reproduced on main and filed (main PR
+#411).
 
 ## Delivery
 
@@ -207,6 +203,18 @@ items: focus moves only when the focused element was removed, as Base UI's resto
 Not done list; the gap's number). The Tab gap is X79 (renumbered from X78 at merge); the coordinator reproduces it on
 main and files it under the standing rule. The record stays open for real-input step 1 (focus rings and Tab).
 
+## Real-input results
+
+`realinput-1010h` (2026-10-11, the last real-input session by the user's decision; the bundle of `408eab1ad` in lane copies ri1010h-1 and ri1010h-2, real keys and pointer; the input source was 2-Set Korean and was left so, so text went in by paste). Notes: [00-1010h-notes.txt](https://raw.githubusercontent.com/ccheever/exact2/7102c03c8286911606342d14bda00cec33d3883d/realinput-1010h/00-1010h-notes.txt).
+
+| Sub-step | Result | Evidence |
+| --- | --- | --- |
+| (a) | Pass: by click, "Personal" focused with no ring; Tab rings "Work" | [image](https://raw.githubusercontent.com/ccheever/exact2/7102c03c8286911606342d14bda00cec33d3883d/realinput-1010h/IW-a-chrome-click-then-tab.png) |
+| (b) | Pass: Return on Add profile opened the menu already on Chrome; Return rings "Personal"; Escape rings Add profile | [image](https://raw.githubusercontent.com/ccheever/exact2/7102c03c8286911606342d14bda00cec33d3883d/realinput-1010h/IW-b-keys-chrome-then-escape.png) |
+| (c) | Partial: Cancel focused with no ring; no ring after "I've quit it"; Tab rings Cancel; "I've quit it" with Tab at once keeps the ring on the X through the check. Shift+Tab from Cancel left the dialog for the Settings page behind it ("Add host", then "Built-in default…"). That is Base UI's focus trap the clone lacks (X53, [#282](https://github.com/ccheever/exact2/issues/282), Not done below); the step assumed the wrap | [rings](https://raw.githubusercontent.com/ccheever/exact2/7102c03c8286911606342d14bda00cec33d3883d/realinput-1010h/IW-c-1to4-brave-dialog-rings.png), [Tab at once](https://raw.githubusercontent.com/ccheever/exact2/7102c03c8286911606342d14bda00cec33d3883d/realinput-1010h/IW-c-5-quit-then-tab-at-once.png) |
+| (d) | Pass: "Couldn't import" with no ring; Tab: Close, Try again, the X | [image](https://raw.githubusercontent.com/ccheever/exact2/7102c03c8286911606342d14bda00cec33d3883d/realinput-1010h/IW-d-couldnt-import-tab-order.png) |
+| (e) | Pass: Remove profile and data focuses Cancel; Escape rings the profile's "…" | [image](https://raw.githubusercontent.com/ccheever/exact2/7102c03c8286911606342d14bda00cec33d3883d/realinput-1010h/IW-e-remove-dialog-then-escape.png) |
+
 ## Next action
 
-Real-input step 1 joins the next session. Close this record after it.
+None. Closed after `realinput-1010h`; the focus trap stays with X53 (STATUS "Known differences").

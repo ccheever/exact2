@@ -161,7 +161,7 @@ code; the record only after it). The first round's checks ran on `694fd0d33` wit
 
 Merged on 2026-10-11 as `f427a9a27` (#417, squash) after an independent review and its repair round (five should-fix
 items). No real-input rows. The copy across diff rows is X81 (main #418). Observations carried on: the Files surface's
-'+' and line drag, and split view's flat empty side, are [files-gutter-parity](../20261011-files-gutter-parity.md); the
+'+' and line drag, and split view's flat empty side, are [files-gutter-parity](20261011-files-gutter-parity.md) (stopped by the user); the
 live colour-scheme switch that leaves some texts light is checked against main separately.
 
 ## Next action

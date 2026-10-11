@@ -15,7 +15,7 @@ verified_commit: 2489c7c27434bd7e795c4f5559782111601967ee
 
 ## Outcome
 
-[realinput-1010f-followups](../20261010-realinput-1010f-followups.md) RF-3 (#413) gave the diff gutter its line drag. While
+[realinput-1010f-followups](20261010-realinput-1010f-followups.md) RF-3 (#413) gave the diff gutter its line drag. While
 comparing it with T3 Code (`1e2ecbd975`) over CDP, the build saw two visual differences it did not change:
 
 1. Selected lines (a click on a line number, or a drag across numbers) are amber in the clone and blue in the reference.

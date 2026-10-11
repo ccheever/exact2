@@ -2,13 +2,13 @@
 name: 20261010-realinput-1010f-followups
 plan: 20261005-t3code-macos-parity
 implementation: implemented
-verification: verified-with-unverified-rows
+verification: passed
 delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-realinput-1010f-followups
 pr_url: https://github.com/ccheever/exact2/pull/413
-verified_commit: null
+verified_commit: 408eab1ad
 ---
 
 # Findings of the real-input session realinput-1010f
@@ -34,7 +34,7 @@ with the reference first; a row that matches it closes as such. Session notes:
 ## Scope and exclusions
 
 Included: RF-1 to RF-5. Excluded: RD-4's "links show no menu at all", which is
-[shell-context-menu](closed/20261010-shell-context-menu.md) (#407, in review: Copy Link and the app's link menu). Where a row's
+[shell-context-menu](20261010-shell-context-menu.md) (#407, in review: Copy Link and the app's link menu). Where a row's
 cause is in the framework (RF-5 may be a host tracking area that keeps a stale rect after a press; RF-3 may be the host's
 drag delivery to a gutter), record it in `EXACT2-GAPS.md` with a one-file repro and leave the framework alone; the main
 issue is filed separately.
@@ -206,8 +206,7 @@ t3-code-macos --lib` and the AppKit binaries were not run again. The bundle for 
 
 ## Not done / not verified
 
-- RF-1, RF-3, RF-4 and RF-5 under real input: open until steps 1–4 run (agent mode pops no menu, moves no real pointer,
-  and its hover is a hit test).
+- RF-1, RF-3, RF-4 and RF-5 under real input: passed in `realinput-1010h` (Real-input results).
 - Declared, not built (EXACT2-GAPS): in the thread's Diff panel a press on the gutter leaves a skill chip's details open
   (the reference's outside press closes them): a node that hears `pointerdown` keeps the press from its ancestors (X71,
   main `issues/20261010-pointer-events-reach-ancestors.md`), and handing the press on grew the plan by 777 KB. The "+"
@@ -226,6 +225,19 @@ items: the '+' press on the drag's queued send with the same range; Pierre's `pl
 change). X80 (hover during a drag, main #414) stays a host gap, but no longer shows in the clone: the '+' follows the
 selection, not hover. The record stays open for real-input steps 1–4.
 
+## Real-input results
+
+`realinput-1010h` (2026-10-11, the last real-input session by the user's decision; the bundle of `408eab1ad` in lane copies ri1010h-1 and ri1010h-2, real keys and pointer; the input source was 2-Set Korean and was left so, so text went in by paste). Notes: [00-1010h-notes.txt](https://raw.githubusercontent.com/ccheever/exact2/7102c03c8286911606342d14bda00cec33d3883d/realinput-1010h/00-1010h-notes.txt). Every step passed.
+
+| Step | Result | Evidence |
+| --- | --- | --- |
+| 1, RF-1 | Pass: the timeline selection's menu is Cut (dimmed), Copy, Paste (dimmed), Select All and nothing after; the composer's with a word selected, the same | [timeline](https://raw.githubusercontent.com/ccheever/exact2/7102c03c8286911606342d14bda00cec33d3883d/realinput-1010h/RF1-a-timeline-selection-menu.png), [composer](https://raw.githubusercontent.com/ccheever/exact2/7102c03c8286911606342d14bda00cec33d3883d/realinput-1010h/RF1-b-composer-selection-menu.png) |
+| 2 (a)–(c), RF-3 | Pass: a click on line 3's number opens the draft on line 3; a drag from the number or the "+" paints lines 3 to added 5 as it moves, the "+" follows the bottom line, and the draft opens under added 5 (`docs/usage.md:5`) | [click](https://raw.githubusercontent.com/ccheever/exact2/7102c03c8286911606342d14bda00cec33d3883d/realinput-1010h/RF3-a-click-line3-number.png), [drag frames](https://raw.githubusercontent.com/ccheever/exact2/7102c03c8286911606342d14bda00cec33d3883d/realinput-1010h/RF3-b-drag-number-3-to-5-frames.png), [draft](https://raw.githubusercontent.com/ccheever/exact2/7102c03c8286911606342d14bda00cec33d3883d/realinput-1010h/RF3-b-end-draft-line5.png), [from the +](https://raw.githubusercontent.com/ccheever/exact2/7102c03c8286911606342d14bda00cec33d3883d/realinput-1010h/RF3-c-drag-from-plus-frames.png) |
+| 2 (d), RF-3 | Pass: in the thread's Diff panel lines 2–4 stay selected with no draft, the "+" only on line 4, none on a hovered line 7; that "+" opens "Comment on lines 2 to 4" | [selection](https://raw.githubusercontent.com/ccheever/exact2/7102c03c8286911606342d14bda00cec33d3883d/realinput-1010h/RF3-d-1-after-drag-away-then-hover7.png), [draft](https://raw.githubusercontent.com/ccheever/exact2/7102c03c8286911606342d14bda00cec33d3883d/realinput-1010h/RF3-d-2-plus-line4-draft-2-4.png) |
+| 3, RF-4 | Pass: one trash click removes the pending card and badge 1; GitHub shows no pending review | [image](https://raw.githubusercontent.com/ccheever/exact2/7102c03c8286911606342d14bda00cec33d3883d/realinput-1010h/RF4-pending-then-trash.png) |
+| 4, RF-5 | Pass: the (i)'s popover opens on rest after a press on Cost, stays open through six 1–2 pt moves and closes on leaving; no bad state, so no trace | [image](https://raw.githubusercontent.com/ccheever/exact2/7102c03c8286911606342d14bda00cec33d3883d/realinput-1010h/RF5-open-then-left.png) |
+
 ## Next action
 
-Real-input steps 1–4 join the next session. Close this record after it.
+None. Closed after `realinput-1010h`. The two observations above went to their own tasks (diff-gutter-visuals, #416) and
+the skill chip's outside press stays declared (STATUS "Known differences").
