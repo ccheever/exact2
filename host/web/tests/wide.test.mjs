@@ -1,7 +1,9 @@
 // LLP 1116.004 D1 in a real browser at a phone's width (390) and a desktop's (1280): the shell's stylesheet and the
 // navigation glue's projection (navigation.js, which both web targets run) over nodes as the hosts write them. A root
 // tab bar whose placement is unsaid is a sidebar on a wide window and a bar on a phone; an arrangement the app wrote
-// stays its own; a resize changes nothing else.
+// stays its own. A stack whose root route is a list whose rows push shows that route beside its top on a wide window
+// (the list live, its disclosure gone, the row whose press pushed the detail marked, no Back in the detail) and pushes
+// on a phone; `navigationSplit` opts out or names the width; a sheet stays a sheet; a resize changes nothing else.
 import { test, expect } from 'bun:test';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -103,4 +105,38 @@ check('an arrangement the app wrote stays its own on a wide window', async () =>
       expect(await evaluate(`document.getElementById('nav').hasAttribute('data-exact-sidebar')`)).toBe(false);
     });
   }
+}, 60000);
+
+check('a list whose rows push is beside its detail on a wide window, and pushes on a phone', () => inChrome(page(tabs(BAR)), async (evaluate, size) => {
+  // Wide, nothing chosen: the list is a 320-wide column, its disclosure gone; the rest of the stack's width is empty.
+  await evaluate(`select('1')`);
+  expect(await evaluate(`[document.getElementById('r1').getAttribute('data-exact-split'), box('r1'), getComputedStyle(document.querySelector('#r1 img')).display, shown('r1')]`))
+    .toEqual(['list', [240, 0, 320, 800], 'none', true]);
+  // A row's press pushes its detail: both show, the list live and the row marked; the detail has no Back.
+  await evaluate(`document.getElementById('r1-bo').click(); push('2', '/people/bo')`);
+  expect(await evaluate(`[shown('r1'), shown('r2'), box('r2'), document.getElementById('r2').getAttribute('data-exact-split'), document.getElementById('r1-bo').hasAttribute('data-exact-split-row'), back('r2'), off()]`))
+    .toEqual([true, true, [560, 0, 720, 800], 'detail', true, false, ['p2', 'r3']]);
+  // A sheet stays a sheet over both: the whole stack's width, the list and the detail inert beneath it.
+  await evaluate(`push('3', '/people/bo/edit')`);
+  expect(await evaluate(`[box('r3'), document.getElementById('r3').hasAttribute('data-exact-split'), shown('r1'), shown('r2'), document.getElementById('r1').hasAttribute('data-exact-covered'), off()]`))
+    .toEqual([[240, 0, 1040, 800], false, false, false, true, ['p2', 'r1', 'r2']]);
+  // A phone: the pushed stack, the list hidden and inert, the detail the whole width with Back; then wide again.
+  await evaluate(`select('2')`);
+  await size(390);
+  expect(await evaluate(`[shown('r1'), shown('r2'), box('r2')[2], box('r2')[3] + box('bar')[3], document.getElementById('r1').hasAttribute('data-exact-split'), back('r2'), getComputedStyle(document.querySelector('#r1 img')).display, off()]`))
+    .toEqual([false, true, 390, 800, false, true, 'block', ['p2', 'r1', 'r3']]);
+  await size(1280);
+  expect(await evaluate(`[shown('r1'), shown('r2'), box('r1')[2], document.getElementById('r1-bo').hasAttribute('data-exact-split-row')]`)).toEqual([true, true, 320, true]);
+  // The other tab's list draws no disclosure: it pushes, unsplit.
+  expect(await evaluate(`document.getElementById('t1').hasAttribute('data-exact-split')`)).toBe(false);
+}), 30000);
+
+check('navigationSplit opts a stack out, or names the width of a list the rule does not find', async () => {
+  const stack = (extra, rows) => `<main id="nav" navigationKey="2" navigationBack="back" style="width:100%;height:100%;position:relative">${list('r1', 1, rows, extra)}${detail('r2', 2)}</main>`;
+  await inChrome(page(stack('navigationSplit="none"', true)), async (evaluate) => {
+    expect(await evaluate(`[shown('r1'), document.getElementById('r1').hasAttribute('data-exact-split'), box('r2')]`)).toEqual([false, false, [0, 0, 1280, 800]]);
+  });
+  await inChrome(page(stack('navigationSplit="280"', false)), async (evaluate) => {
+    expect(await evaluate(`[shown('r1'), box('r1'), box('r2'), back('r2')]`)).toEqual([true, [0, 0, 280, 800], [280, 0, 1000, 800], false]);
+  });
 }, 60000);

@@ -29,17 +29,33 @@ const stacksOf = nav => { const panels = panelsOf(nav); return panels.length ? p
 // @ref LLP 1116.004 D1 — a wide window adapts what the app left unsaid, in the projection alone (the router, the history
 // and each route's state are unchanged; a resize across WIDE projects again). A root tablist placed as the tabs recipe
 // writes it (a horizontal bar, a direct child of the root's flex column, in flow) is a sidebar (`data-exact-sidebar`; the
-// shell's rules draw it); one the app arranged (vertical, positioned, in a route) stays its own.
-const WIDE = "(min-width: 900px)", wide = () => !!globalThis.matchMedia?.(WIDE).matches;
+// shell's rules draw it); one the app arranged (vertical, positioned, in a route) stays its own. A stack whose root route
+// is a list whose rows push (a pressable row drawing the disclosure, `symbol:forward-chevron`, as the iOS grouped list
+// reads it) shows that route as a column beside its top (`data-exact-split`), as UISplitViewController does, marking the
+// row whose press pushed the detail shown; a sheet stays a sheet. `navigationSplit` on the root route opts out ("none")
+// or names the column's width (320 unsaid), and splits a list the rule does not find.
+const WIDE = "(min-width: 900px)", wide = () => !!globalThis.matchMedia?.(WIDE).matches, splitRoots = new WeakSet(), rowOf = new WeakMap();
+const sheet = route => ["modal", "fullscreen"].includes(route?.getAttribute("navigationPresentation"));
+const DISCLOSURE = ':is(button, a[href], [data-exact-on~="press"]) img:is([data-symbol-source="symbol:forward-chevron"], [data-symbol-source="symbol:sf/chevron.forward"], [data-symbol-source="symbol:sf/chevron.right"])';
+let pressedRow = null; // [the row a press reached in a list column, when, the location then]
+/** The width of the column a stack's root route is beside its top on this window; 0 where the stack does not split. A
+ * list that loses its last row keeps its column. */
+function splitOf([r]) {
+  const said = r?.getAttribute("navigationSplit");
+  if (!r || said === "none" || !wide() || sheet(r) || !/^(absolute|fixed)$/.test(getComputedStyle(r).position) || (said == null && !splitRoots.has(r) && !r.querySelector(DISCLOSURE))) return 0;
+  splitRoots.add(r); return parseFloat(said) > 0 ? parseFloat(said) : 320;
+}
 /** Whether a root's tablist is a bar whose placement the app left unsaid, read while the root is not yet a sidebar. */
 const unsaidBar = (nav, list) => list?.parentElement === nav && list.getAttribute("aria-orientation") !== "vertical" && (nav.hasAttribute("data-exact-sidebar")
   || (([n, l]) => /flex/.test(n.display) && n.flexDirection.startsWith("column") && /^(static|relative)$/.test(l.position) && l.flexDirection.startsWith("row"))([getComputedStyle(nav), getComputedStyle(list)]));
-/** What a navigation root leaves unselected, by `project`'s rule read from attributes: every tabpanel but the one
- * holding the selected route, and that stack's other routes (the runner's `unselected`; the agent's `inactive`). */
+/** What a navigation root leaves unselected, by `project`'s rule read from attributes: every tabpanel but the one holding
+ * the selected route, and that stack's other routes but a list column beside it no sheet covers (the runner's
+ * `unselected`; the agent's `inactive`). */
 export function unselected(nav) {
   const key = nav.getAttribute("navigationKey"), panels = panelsOf(nav), stacks = panels.length ? panels.map(routesIn) : [routesIn(nav)];
-  const at = stacks.findIndex(routes => routes.some(r => r.getAttribute("navigationKey") === key));
-  return at < 0 ? [] : [...panels.filter((_, i) => i !== at), ...stacks[at].filter(r => r.getAttribute("navigationKey") !== key)];
+  const at = stacks.findIndex(routes => routes.some(r => r.getAttribute("navigationKey") === key)), routes = stacks[at] ?? [], top = routes.find(r => r.getAttribute("navigationKey") === key);
+  const beside = routes[0]?.getAttribute("data-exact-split") === "list" && !sheet(top) ? routes[0] : top;
+  return at < 0 ? [] : [...panels.filter((_, i) => i !== at), ...routes.filter(r => r !== top && r !== beside)];
 }
 const routesOf = nav => stacksOf(nav).find(routes => routes.some(r => r.getAttribute("navigationKey") === nav.getAttribute("navigationKey"))) ?? [];
 const selectedRoute = nav => routesOf(nav).find(r => r.getAttribute("navigationKey") === nav.getAttribute("navigationKey"));
@@ -72,11 +88,12 @@ const backControl = (nav, route = selectedRoute(nav), name = nav.getAttribute("n
 // route beneath's title while it is short, else "Back".
 const BACK = `<style>button{all:unset;display:inline-flex;align-items:center;gap:2px;flex:none;vertical-align:middle;margin-inline:-6px 6px;padding:4px 8px 4px 4px;border-radius:8px;color:var(--exact-accent,AccentColor);cursor:pointer;white-space:nowrap;-webkit-user-select:none;user-select:none}button[hidden],span[hidden]{display:none}button:focus-visible{outline:2px solid var(--exact-accent,AccentColor);outline-offset:1px}button:active>*{opacity:.5}@media (hover:hover){button:hover{background-color:light-dark(#7676801f,#7676803d)}}svg{width:.75em;height:1.25em;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}button:dir(rtl) svg{scale:-1 1}</style><button part="back" type="button"><svg viewBox="6 3 11 18" aria-hidden="true"><path d="M15 5 8 12l7 7"/></svg><span></span></button><slot></slot>`;
 const headerOf = route => [...(route?.children ?? [])].find(child => child.localName === "header");
-function appBarBack(nav, routes, index) {
+function appBarBack(nav, routes, index, split = false) {
   const route = routes[index], header = headerOf(route);
   if (!header) return;
   let button = header.shadowRoot?.querySelector('button[part="back"]');
-  const pushed = index > 0 && !["modal", "fullscreen"].includes(route.getAttribute("navigationPresentation")), control = pushed ? backControl(nav, route) : null;
+  // In a split, a detail its list's row pushed has none: the list beside it is its way back (LLP 1116.004 D1).
+  const pushed = index > 0 && !sheet(route) && !(split && (index === 1 || rowOf.has(route))), control = pushed ? backControl(nav, route) : null;
   // Until the page is interactive the glue disables every control itself (`aria-busy`): not the author's.
   if (!pushed || header.contains(control) || (control?.matches(":disabled") && !nav.closest('[aria-busy="true"]'))) {
     if (button) button.hidden = true;
@@ -216,7 +233,8 @@ export const navigation = {
   /** `dispatch(location)` is false when no `navigate` handler heard it; `back(id)` is the runner's own `back` from visit `id`. */
   connect(hostRoot, dispatch, journal, back = null) {
     root = hostRoot; navigate = dispatch; log = journal; hostBack = back;
-    // A resize across WIDE projects again.
+    // A row a press reaches in a list column (`project` marks it once its detail shows), and a resize across WIDE.
+    root.addEventListener("click", event => { const row = event.target.closest?.('[data-exact-split="list"] :is(button, a[href], [data-exact-on~="press"])'); if (row) pressedRow = [row, performance.now(), last?.url]; }, true);
     globalThis.matchMedia?.(WIDE).addEventListener?.("change", () => navigation.project(root, log));
     addEventListener("popstate", event => {
       if (!last) return;
@@ -297,16 +315,27 @@ export const navigation = {
       for (const [stack, routes] of stacks.entries()) {
         // The selected stack shows the route the root names; another keeps its top laid out.
         const selected = stack === at ? routes.findIndex(route => route.getAttribute("navigationKey") === key) : routes.length - 1;
-        const modal = routes[selected]?.getAttribute("navigationPresentation") === "modal";
+        const modal = routes[selected]?.getAttribute("navigationPresentation") === "modal", split = splitOf(routes), live = split && !sheet(routes[selected]);
+        // A split's detail shown is the top, or the route a sheet covers; its row is the one whose press pushed it, or
+        // pushed a route beneath it in its column.
+        const detail = split ? routes.findLastIndex((r, i) => i > 0 && i <= selected && !sheet(r)) : -1;
+        if (detail > 0 && detail === selected && pressedRow && last?.url !== pressedRow[2] && routes[0].contains(pressedRow[0]) && performance.now() - pressedRow[1] < 2000) { rowOf.set(routes[detail], pressedRow[0]); pressedRow = null; }
         for (const [index, route] of routes.entries()) {
-          const active = index === selected;
+          const active = index === selected || (live && index === 0);
           if (!active && route.contains(document.activeElement)) document.activeElement.blur();
-          const covered = modal && index === selected - 1;
+          const covered = modal && (index === selected - 1 || (split > 0 && index === 0));
           route.style.visibility = active || covered ? "" : "hidden";
           route.toggleAttribute("data-exact-covered", covered);
           route.inert = !active || !!route.authoredInert;
-          appBarBack(nav, routes, index);
+          const column = !split ? null : index === 0 ? "list" : sheet(route) ? null : "detail";
+          if (route.getAttribute("data-exact-split") !== column) column ? route.setAttribute("data-exact-split", column) : route.removeAttribute("data-exact-split");
+          route.style.setProperty("--exact-split", column ? `${split}px` : "");
+          appBarBack(nav, routes, index, split > 0);
         }
+        let row = null;
+        for (let i = detail; i > 0 && !row; i--) row = rowOf.get(routes[i])?.isConnected ? rowOf.get(routes[i]) : null;
+        for (const el of split ? routes[0].querySelectorAll("[data-exact-split-row]") : []) if (el !== row) el.removeAttribute("data-exact-split-row");
+        row?.setAttribute("data-exact-split-row", "");
       }
     }
     // The page module's container hatches, when it has them (LLP 1075.003.000 §3.7).

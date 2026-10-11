@@ -1,8 +1,9 @@
 // Starter: a list that pushes a detail, a sheet to add, an alert to delete, kept in a file.
 // The items are app.ts's (app:/data/items.json). A phone pushes the detail; a wide window
-// shows the list and the detail side by side. A smaller app deletes what it doesn't need:
-// the wide split (`viewport`, `wide`, the `when wide` column), the delete (`askRemove`,
-// `remove`, the dialog), or the notes (the shape's field, the sheet's and detail's sections).
+// shows the list beside it by itself, because a row draws the disclosure chevron
+// (`contract vocab navigationSplit`). A smaller app deletes what it doesn't need: the
+// delete (`askRemove`, `remove`, the dialog), or the notes (the shape's field, the sheet's
+// and the detail's sections).
 routes nav
   items "/"
     item "/item/:id"
@@ -17,9 +18,6 @@ shape Reply
   ok: bool
   error: string
 
-shape Viewport
-  width: number
-
 fn titleOf(items: list<Item>, id: string): string = match first(filter(items, i => i.id == id)) { case some(i) => i.title, case none => "" }
 
 component App
@@ -27,16 +25,14 @@ component App
   state draftNotes = ""
   state submitted = false
   resource lib = loadItems() as shape list<Item> else empty()
-  resource viewport = exactViewport() as shape Viewport
   mutation added as shape Reply refreshes lib then afterSave
   mutation removed as shape Reply refreshes lib
-  derive wide = viewport.width >= 720
   derive selected = match at(filter(stack(nav), e => e.name == "item"), -1) { case some(e) => e.params.id, case none => "" }
   derive saveError = match added { case some(r) => r.error, case none => "" }
   // Said after the first Save, in red under the field; the next attempt clears it.
   derive formError = not submitted ? "" : trim(draftTitle) == "" ? "Enter a title." : pending(added) ? "" : saveError
 
-  // A phone pushes the item; a wide window replaces the one beside the list.
+  // An item shown beside the list (a wide window) is replaced by the next one opened.
   action open(id: string)
     nav = selected == "" ? push(nav, path("item", id)) : replace(nav, path("item", id))
   action openAdd
@@ -68,46 +64,44 @@ component App
     nav = back(nav)
 
   view
-    // Wide, the list and the selected item are one screen, side by side; a phone pushes it.
-    main navigationKey=(top(nav).name == "items" or (wide and top(nav).name == "item") ? "items" : `${top(nav).id}`)
-      navigationBack="back" navigate=follow testId="app" width="100%" height="100%" accent-color="-exact-system-indigo"
+    main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow testId="app" width="100%" height="100%"
+      accent-color="-exact-system-indigo"
       each e in stack(nav) key=e.id
         when e.name == "items"
-          column navigationKey="items" navigationScroll="items-list" position="absolute" inset=0
+          column navigationKey=`${e.id}` navigationScroll="items-list" position="absolute" inset=0
+            display="flex" flex-direction="column"
             header display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
               text "Starter" role="heading" aria-level=1
               button press=openAdd aria-label="Add Item" testId="add-item"
                 image "symbol:add"
-            row flex=1 min-height=0
-              list id="items-list" appearance="auto" listStyle="inset-grouped" flex=1 min-width=0
-                section
-                  // A title over its notes; a phone's rows push (the chevron), wide the selected is the accent.
-                  each it in lib key=it.id
-                    button press=open(it.id) aria-current=(wide and it.id == selected) testId=`item-${it.id}`
-                      column flex=1 min-width=0 gap=2 padding-top=4 padding-bottom=4
-                        text it.title color=(wide and it.id == selected ? "AccentColor" : "-exact-label")
-                        when it.notes != ""
-                          text it.notes font="-exact-subheadline" color="-exact-secondary-label" line-clamp=1
-                      when not wide
-                        image "symbol:forward-chevron"
-                  footer
-                    text (length(lib) == 0 ? "Nothing yet. Tap + to add the first item." : "") testId="items-empty"
-              when wide
-                column flex=2 min-width=0 background-color="-exact-grouped-background" border-left="1px solid -exact-separator"
-                  when selected == ""
-                    text "Choose an item." color="-exact-secondary-label" padding=24
-                  else
-                    text titleOf(lib, selected) role="heading" aria-level=2 padding="20px 32px 0" testId="detail-title"
-                    list id="detail" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
-                      each it in filter(lib, x => x.id == selected) key=it.id
-                        ItemSections(item=it, askRemove=askRemove)
-        when e.name == "item" and not wide
+            list id="items-list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+              section
+                // A title over its notes; the chevron says the row pushes.
+                each it in lib key=it.id
+                  button press=open(it.id) testId=`item-${it.id}`
+                    column flex=1 min-width=0 gap=2 padding-top=4 padding-bottom=4
+                      text it.title
+                      when it.notes != ""
+                        text it.notes font="-exact-subheadline" color="-exact-secondary-label" line-clamp=1
+                    image "symbol:forward-chevron"
+                footer
+                  text (length(lib) == 0 ? "Nothing yet. Tap + to add the first item." : "") testId="items-empty"
+        when e.name == "item"
           column navigationKey=`${e.id}` navigationScroll="item-detail" position="absolute" inset=0
+            display="flex" flex-direction="column"
             header display="flex" align-items="center" padding="8px 16px"
-              text titleOf(lib, e.params.id) role="heading" aria-level=2
+              text titleOf(lib, e.params.id) role="heading" aria-level=2 testId="detail-title"
             list id="item-detail" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
               each it in filter(lib, x => x.id == e.params.id) key=it.id
-                ItemSections(item=it, askRemove=askRemove)
+                section
+                  header
+                    text "Notes"
+                  row padding-top=10 padding-bottom=10
+                    text (it.notes == "" ? "No notes." : it.notes) flex=1 min-width=0
+                      color=(it.notes == "" ? "-exact-secondary-label" : "-exact-label") testId="detail-notes"
+                section
+                  button press=askRemove destructive=true testId="delete-item"
+                    text "Delete Item"
         when e.name == "add"
           column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="add-form" position="absolute" inset=0
             header display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
@@ -137,19 +131,3 @@ component App
           text "Delete"
         button commandfor="remove" command="close" testId="remove-cancel"
           text "Cancel"
-
-// One item: its notes, and Delete, which asks first.
-component ItemSections
-  props
-    item: Item
-    askRemove: action
-  view
-    section
-      header
-        text "Notes"
-      row padding-top=10 padding-bottom=10
-        text (item.notes == "" ? "No notes." : item.notes) flex=1 min-width=0
-          color=(item.notes == "" ? "-exact-secondary-label" : "-exact-label") testId="detail-notes"
-    section
-      button press=askRemove destructive=true testId="delete-item"
-        text "Delete Item"

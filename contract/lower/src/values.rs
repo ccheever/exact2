@@ -17,6 +17,17 @@ fn literal_text(e: &Expr) -> String {
     }
 }
 
+/// `navigationSplit`'s column width written as a number: its text, as the
+/// prop carries it (LLP 1116.004 D1.2).
+pub(crate) fn split_width(prop: PropId, e: &Expr) -> Option<Expr> {
+    match e {
+        Expr::Number(n, span) if prop == PropId::NavigationSplit => {
+            Some(Expr::Str(n.to_string(), *span))
+        }
+        _ => None,
+    }
+}
+
 /// `glassGroup`'s value to compile (LLP 1053.000.000 D1, 1053.000.000.000
 /// D1): each literal spacing, at the top and in every arm of a choice, is 0 to
 /// 10,000 points; `"auto"` is rewritten to the reserved `-1`; any other string
@@ -961,6 +972,16 @@ pub(crate) fn check_prop_value(
                 );
             }
         }
+    }
+    // @ref LLP 1116.004 D1.2 — a stack's split on a wide window: off, or the list column's width.
+    if prop == PropId::NavigationSplit
+        && matches!(value, Expr::Str(s, _) if s != "none" && !s.parse::<f64>().is_ok_and(|w| w.is_finite() && w > 0.0))
+    {
+        return err(
+            "lower-attr-value",
+            "`navigationSplit` takes \"none\" (the stack pushes on a wide window too) or the list column's width, a positive number",
+            span,
+        );
     }
     if prop == PropId::FocusGuide && matches!(value, Expr::Str(s, _) if s != "auto") {
         return err("lower-attr-value", "`focusGuide` takes \"auto\"", span);
