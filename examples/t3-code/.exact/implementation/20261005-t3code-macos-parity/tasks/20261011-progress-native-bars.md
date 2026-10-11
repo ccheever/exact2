@@ -3,12 +3,12 @@ name: 20261011-progress-native-bars
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified-with-unverified-rows
-delivery: none
+delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-progress-native-bars
-pr_url:
-verified_commit:
+pr_url: https://github.com/ccheever/exact2/pull/462
+verified_commit: ca333b0f0
 ---
 
 # Progress bars say their value: main's determinate `progress` and ARIA range values
@@ -154,6 +154,37 @@ send a message. Turn VoiceOver on (⌘F5) only for these steps and off after.
   2 fail; the context bar back to `aria-hidden`: 1 fail).
 - `progress-value.test.ts` deleted with its contract; `provider-setup.test.ts` drops `progressPercent`.
 
+## Checks
+
+Once each, on `ca333b0f0` (this branch with the adoption branch's head `213149fe7`, which has not moved; #458 is open,
+so nothing else to merge; `origin/feat(example)/t3-code` is still `6db5cadea`):
+
+| Check | Exit | Note |
+| --- | --- | --- |
+| `bun test examples/t3-code --timeout 60000` | 0 | 4657 pass, 1 skip, 0 fail (311 files) |
+| strict `tsc` on `app.ts` (README command) | 0 | clean |
+| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | `app.contract` 1,398 lines (unchanged) |
+| `cargo test -p t3-code-macos --lib`, AppKit binaries | not run | no Rust and no Swift changed |
+| `git add -A && bun scripts/caps.mjs` | 0 | all budgets within cap |
+| `cargo build --all-targets --keep-going` | 0 | |
+| `cargo test --lib --bins --tests --no-fail-fast` | 101 | 3,744 passed, 1 failed: `contract --test it` `button_migration::every_app_corpus_and_example_compiles_and_the_button_migration_is_complete` on main's `apps/color-gallery/app.contract:269` ("styled default button needs appearance=\"none\""), inherited from main through #458 (its record: "the gate is red from main's color-gallery"); nothing in `examples/t3-code` |
+| `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | |
+| `cargo fmt --all -- --check` | 0 | |
+| `bun scripts/caps.mjs` | 0 | |
+| `bun scripts/boot.mjs` | 0 | |
+
+The bundle was built once (`host/apple/build.mjs t3-code-macos --bundle`, exit 0, from `a69744d5b`'s app code, which the
+final head keeps) before the one live drive.
+
+## Not done / not verified
+
+- VoiceOver hearing the bars and the sliders: real input is the coordinator's session (Real-input batch steps 1–3).
+
+## Delivery
+
+Draft PR [#462](https://github.com/ccheever/exact2/pull/462) into `feat(example)/t3-code`, stacked on #458 (merge after
+it).
+
 ## Next action
 
-Final checks on the final head, then the draft PR.
+The coordinator reviews #462 after #458 lands, then runs the real-input steps in the verification session.
