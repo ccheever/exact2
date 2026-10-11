@@ -286,6 +286,12 @@ impl GroupedRow {
         self.title = text_of(title);
         let slot = if self.destructive { DESTRUCTIVE } else { TITLE };
         self.title_look = TextLook::of(title, slot);
+        // A destructive row's title that is the first line only under a
+        // condition: the sheet writes it the label colour there, not its red
+        // (`stack_lines`), and that is still the sheet's, so still unsaid.
+        if self.destructive && self.title_look.color.is_some_and(|c| LABEL.is(c)) {
+            self.title_look.color = None;
+        }
         self.secondary = second.and_then(text_of);
         let slot = if subtitle { SUBTITLE } else { VALUE };
         self.secondary_look = second.map(|n| TextLook::of(n, slot)).unwrap_or_default();

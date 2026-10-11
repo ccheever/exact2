@@ -888,3 +888,19 @@ fn an_authored_colour_and_font_reach_the_platforms_texts_and_unsaid_ones_stay_it
         )
     );
 }
+
+/// A destructive row's title keeps the platform's red where it is the first
+/// line only under a condition: the sheet cannot write its red there and
+/// writes the label colour, which is still the sheet's and not the author's.
+#[test]
+fn a_destructive_rows_conditional_title_leaves_its_colour_unsaid() {
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go destructive=true\n      column\n        when dark\n          text \"Sure?\"\n        text \"Delete\"");
+    let list = r.kernel().grouped_list(id(&r, "list")).unwrap();
+    let row = &list.sections[0].rows[0];
+    assert!(row.destructive);
+    assert_eq!(row.title.as_deref(), Some("Delete"));
+    assert_eq!(
+        row.title_look.color, None,
+        "the sheet's label colour is unsaid"
+    );
+}
