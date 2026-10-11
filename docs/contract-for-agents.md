@@ -199,7 +199,7 @@ compile complete examples, parse authored tests, and check local links.
 | Form | Placement | Meaning |
 | --- | --- | --- |
 | `use A, B as C from "./file.contract"` | File | Names from another file; nothing unnamed comes along (LLP 1091); `contract fmt --uses app.contract` writes the lines `contract-use-missing` names |
-| `use Card from "@acme/ui"` / `use Activity from "exact:motion"` | File | A package's names (from `node_modules`), or a built-in's |
+| `use Card from "@acme/ui"` / `use Activity from "exact:motion"` | File | A package's names (from `node_modules`), or a built-in's: `exact:motion`, `exact:content` ([content components](#content-components-exactcontent)) |
 | `shape Name` | File | Finite record with typed fields |
 | `fn name(arg: T): U = expr` | File | Effect-free, nonrecursive expression function |
 | `style Name` | File | Literal style attributes |
@@ -609,6 +609,61 @@ render-function props.
 Imports resolve local `.contract` declarations, with cycle and app-boundary
 checks. Paths begin with `./` and cannot contain `..` segments. They do not load app logic or expand the available built-in function
 roster. Compiler-owned router names exist only with a `routes` declaration.
+
+### Content components: `exact:content`
+
+The platform answers the controls and the chrome; the app's own content is the
+author's to design (LLP 1116.000 D3): a summary at the top, bars where numbers
+compare, rows with a hierarchy, an empty state that says what to do.
+`exact:content` is a built-in library of four components that draw it with
+nothing but roles (`-exact-secondary-background`, `-exact-secondary-label`,
+`AccentColor`, the system hues, the text styles, symbols, the determinate
+`progress`), so dark mode, Dynamic Type and the tint come with them:
+
+```contract
+use SummaryCard, StatBar, EmptyState, RowText from "exact:content"
+
+shape Day
+  key: string
+  name: string
+  ml: number
+
+fn ml(n: number): string = `${formatNumber(n, "decimal")} ml`
+
+component Water
+  state total = 750
+  state days = [Day(key="mon", name="Monday", ml=1800), Day(key="tue", name="Tuesday", ml=2250)]
+  action drink
+    total = total + 250
+  view
+    scroll height="100%"
+      column gap=16 padding=16
+        SummaryCard(label="Today", value=ml(total), detail="of 2,000 ml", progress=some(total / 2000), symbol=some("symbol:activity"))
+        each d in days key=d.key
+          StatBar(label=d.name, value=ml(d.ml), fraction=d.ml / 2000, tint=(d.ml >= 2000 ? some("-exact-system-green") : none))
+        when total == 0
+          EmptyState(symbol="symbol:calendar", title="No water yet", message="Each glass you log adds to today.")
+            button "Log a glass" press=drink buttonStyle="bordered-prominent"
+        each d in days key=d.key
+          RowText(title=d.name, detail="", value=some(ml(d.ml)))
+```
+
+| Component | Props | Draws |
+| --- | --- | --- |
+| `SummaryCard` | `label: string`, `value: string`, `detail: string`, `progress: option<number>`, `symbol: option<string>` | a card: the symbol and label, the value large in tabular figures, the detail beside it where the card is wide and under it where it is narrow, the fraction as `progress` |
+| `StatBar` | `label: string`, `value: string`, `fraction: number`, `tint: option<string>` | the label and value over a bar `fraction` (held to 0–1) of the width, in `tint` (a colour role), the accent for `none`; one `meter` to a reader |
+| `EmptyState` | `symbol: string`, `title: string`, `message: string`; a slot | a centred symbol, the title as a heading, the message; the nodes indented under the use (your `button`) under them |
+| `RowText` | `title: string`, `detail: string`, `value: option<string>` | a title, a secondary line under it (`""` for none) and a trailing value in tabular figures: a grouped list `row`'s content, or any list's |
+
+- Props have no defaults: pass `none` for an option. A symbol is an `image` source:
+  a role (`"symbol:calendar"`) draws on every host, `"symbol:sf/<name>"` on Apple only.
+- They draw no control and no chrome. An action is your own `button`, beside a card
+  or indented under `EmptyState`. Inset-grouped lists are for settings and forms; a
+  content screen is a `scroll` of these.
+- Each fills its container's width; arrange them with CSS. In a `flex-wrap="wrap"`
+  row, `flex="1 1 320px"` puts a card beside the bars on a wide window and stacks
+  them on a phone.
+- The source is `contract/lib/content.contract`. To change one, copy it into the app.
 
 ## Data requests and side effects
 

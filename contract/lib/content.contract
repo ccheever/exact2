@@ -1,0 +1,94 @@
+// `exact:content` (LLP 1116.000 D3): an app's own content, drawn well with
+// nothing but the platform's roles: its colours (`-exact-secondary-label`,
+// `-exact-secondary-background`, `AccentColor`, the system hues), its text
+// styles, its symbols and its determinate `progress`, so dark mode, Dynamic
+// Type and the tint come with them. Opt in by name:
+// `use SummaryCard, StatBar, EmptyState, RowText from "exact:content"`.
+// They draw content, never a control or chrome: an action is the author's own
+// `button`, indented under `EmptyState`. Props have no defaults: pass `none`
+// for an option.
+
+// A hero at the top of a screen: what it counts, the number in tabular
+// figures (it does not jitter as it changes), a line about it, and,
+// optionally, a fraction drawn as the platform's determinate progress and a
+// symbol (`"symbol:<role>"` or `"symbol:sf/<name>"`). The detail sits beside
+// the number where the card is wide enough, under it where it is not.
+component SummaryCard
+  props
+    label: string
+    value: string
+    detail: string
+    progress: option<number>
+    symbol: option<string>
+  view
+    column gap=4 padding=20 border-radius=16 background-color="-exact-secondary-background" min-width=0
+      row align-items="center" gap=6 min-width=0
+        match symbol
+          case some(s)
+            image s width=20 height=20 object-fit="contain" flex-shrink=0 aria-hidden=true
+              -exact-tint-color="AccentColor"
+          case none
+        text label font="-exact-headline" flex=1 min-width=0 aria-hidden=true
+      row flex-wrap="wrap" align-items="baseline" column-gap=10 min-width=0
+        text value font-size="2.75rem" font-variant-numeric="tabular-nums" aria-label=`${label}, ${value}`
+        text detail font="-exact-subheadline" color="-exact-secondary-label" font-variant-numeric="tabular-nums"
+      match progress
+        case some(p)
+          progress value=p max=1 width="100%" margin-top=12 aria-label=label
+        case none
+
+// A labelled comparative bar: the label and its value on one line, and under
+// them a bar `fraction` (0 to 1) of the width, in `tint` (a colour role such
+// as `"-exact-system-green"`), the accent when `none`. Stack several for a
+// breakdown; each reads as one line to VoiceOver.
+component StatBar
+  props
+    label: string
+    value: string
+    fraction: number
+    tint: option<string>
+  view
+    column gap=6 min-width=0 role="meter" aria-label=label aria-valuetext=value
+      aria-valuenow=`${min(1, max(0, fraction))}` aria-valuemin="0" aria-valuemax="1"
+      row align-items="baseline" gap=8 min-width=0
+        text label flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+        text value color="-exact-secondary-label" font-variant-numeric="tabular-nums" flex-shrink=0
+      view height=8 border-radius=4 background-color="-exact-tertiary-fill" overflow="hidden"
+        view width=`${min(1, max(0, fraction)) * 100}%` height="100%" border-radius=4
+          background-color=(match tint { case some(t) => t, case none => "AccentColor" })
+
+// What a screen with nothing to show says: a symbol, a title, a line saying
+// what to do. An action is the author's `button`, indented under the use.
+component EmptyState
+  props
+    symbol: string
+    title: string
+    message: string
+  slot
+  view
+    column align-items="center" gap=8 padding="48px 24px" text-align="center" min-width=0
+      image symbol width=48 height=48 object-fit="contain" margin-bottom=8 aria-hidden=true
+        -exact-tint-color="-exact-secondary-label"
+      text title role="heading" aria-level=2
+      text message color="-exact-secondary-label" max-width=360
+      row flex-wrap="wrap" justify-content="center" gap=8 margin-top=8
+        children
+
+// A row's content: a title, a secondary line under it (`""` for none) and an
+// optional trailing value in tabular figures. In a grouped list's `row`, or
+// anywhere a list of records is drawn.
+component RowText
+  props
+    title: string
+    detail: string
+    value: option<string>
+  view
+    row flex=1 min-width=0 align-items="center" gap=12 padding-top=10 padding-bottom=10
+      column flex=1 min-width=0 gap=2
+        text title white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+        when detail != ""
+          text detail font="-exact-subheadline" color="-exact-secondary-label"
+      match value
+        case some(v)
+          text v color="-exact-secondary-label" font-variant-numeric="tabular-nums" flex-shrink=0
+        case none

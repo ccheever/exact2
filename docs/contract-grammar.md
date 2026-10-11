@@ -135,7 +135,7 @@ line, so a `state sound` is a slot. Sounds are app-wide, as fonts are.
 
 A `use` specifier is a relative path (`./` or `../`) to a `.contract` file that
 stays inside the using file's root — the app directory, or the package it
-belongs to (`contract-use-path`); an `exact:` built-in (`exact:motion`;
+belongs to (`contract-use-path`); an `exact:` built-in (`exact:motion`, `exact:content`;
 `contract-use-builtin`); or a package name, `name[/sub]` or
 `@scope/name[/sub]`, found in the nearest `node_modules` above the using file
 and mapped through its `package.json` `exports` (a string, or the `contract` or
