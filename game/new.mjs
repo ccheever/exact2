@@ -458,6 +458,7 @@ exact_web::host!(
   ${run} pattern      start from a working app: ${patterns().map(p => p.name).join(', ')}
   ${run} web          the web dev loop
   ${run} test web     build, then run app.test.contract, or the files named (web, ios or macos)
+  ${run} verify       build, the tests, then check light and dark at two widths: done when clean
   ${run} agent web tree  inspect or drive the app
   ${run} ios --run    build and launch on an iOS simulator
   ${run} mac --run    build and launch on this Mac
@@ -507,7 +508,7 @@ Beyond start-here's commands:
 | \`bun exact.mjs mac --run\`, \`linux\`, \`android\` | the Mac app; the Linux host (Android's too), driven headless by \`test linux\` and \`agent linux …\` |
 | \`bun exact.mjs hatch <word>\` | native code for what Contract can't say (${doc('reference.md')}, "Access hatches") |
 | \`bun exact.mjs update\` | after exact2 moves or changes its patches; it rewrites \`exact.mjs\` and this block |
-| app.json \`"commands": {"verify": ["bun", "verify.mjs"]}\` | the app's own verbs: \`bun exact.mjs verify web\` runs \`bun verify.mjs web\` here |
+| app.json \`"commands": {"seed": ["bun", "seed.mjs"]}\` | the app's own verbs: \`bun exact.mjs seed web\` runs \`bun seed.mjs web\` here |
 
 Before the first native TypeScript build on a machine, run the one-time installer
 \`bun ${sdk('scripts/exact.mjs')} setup\` (\`setup --check\` only names what is missing).
@@ -652,12 +653,14 @@ import { relative, resolve } from 'node:path';
 
 const EXACT2 = resolve(import.meta.dir, process.env.EXACT2 ?? ${JSON.stringify(pathFrom(dir, ROOT))});
 const [verb, ...rest] = process.argv.slice(2);
-const host = (verb === 'test' || verb === 'agent') && rest[0] && !rest[0].startsWith('-') ? rest.shift() : 'web';
+const host = (verb === 'test' || verb === 'agent' || verb === 'verify') && rest[0] && !rest[0].startsWith('-') ? rest.shift() : 'web';
 const verbs = {
   web: ['host/web/dev.mjs', '--app', '${name}'],
   'web-build': ['host/web/build.mjs', '${name}'],
   test: ['scripts/agent.mjs', host, '--app', '${name}'],
-  agent: ['scripts/agent.mjs', host, '--app', '${name}'],
+  agent: ['scripts/agent.mjs', host, '--app', '${name}'],${game ? '' : `
+  // Builds itself, so not below (LLP 1116.004 D7): one report of the build, the tests and check.
+  verify: ['scripts/verify.mjs', host, '--app', '${name}'],`}
   ios: ['host/apple/build.mjs', '--ios', '${name}-apple'],
   mac: ['host/apple/build.mjs', '${name}-apple'],
   linux: ['scripts/build-linux.mjs', '${name}'],
@@ -674,7 +677,7 @@ const verbs = {
   prove: ['game/prove.mjs', import.meta.dir],` : ''}
 };
 // The app's own verbs (paint, minesweeper, ledger: a regenerated file dropped the ones added here): app.json's
-// \`commands\`, each a command as argv (\`"verify": ["bun", "verify.mjs"]\`), run in this directory with the
+// \`commands\`, each a command as argv (\`"seed": ["bun", "seed.mjs"]\`), run in this directory with the
 // arguments after the verb. A game's app.json is optional.
 const manifest = resolve(import.meta.dir, 'app.json');
 const own = (existsSync(manifest) ? JSON.parse(readFileSync(manifest, 'utf8')).commands : null) ?? {};
@@ -718,7 +721,7 @@ const started = Date.now();
 const log = exit => { if (verb !== 'feedback') try {
   const exact2 = spawnSync('git', ['-C', EXACT2, 'rev-parse', '--short=9', 'HEAD'], { encoding: 'utf8' }).stdout?.trim() || null;
   mkdirSync(resolve(import.meta.dir, '.exact'), { recursive: true });
-  appendFileSync(resolve(import.meta.dir, '.exact/commands.jsonl'), JSON.stringify({ at: new Date(started).toISOString(), exact2, verb: verb === 'test' || verb === 'agent' ? \`\${verb} \${host}\` : verb, exit, ms: Date.now() - started }) + '\\n');
+  appendFileSync(resolve(import.meta.dir, '.exact/commands.jsonl'), JSON.stringify({ at: new Date(started).toISOString(), exact2, verb: ['test', 'agent', 'verify'].includes(verb) ? \`\${verb} \${host}\` : verb, exit, ms: Date.now() - started }) + '\\n');
 } catch {} return exit; };
 // The web build is about a second when nothing changed, so a web drive builds
 // first rather than refusing a stale build. An ios or macos drive builds first

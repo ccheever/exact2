@@ -134,6 +134,25 @@ Ports    none to choose. web: headless Chrome over a pipe; the page on 127.0.0.1
          ${NATIVE_PORTS}`,
     example: 'bun exact.mjs agent web --storage s1 "clock data" tree "tap add" "screenshot .exact/a.png"',
   },
+  verify: {
+    line: 'build if stale, run app.test.contract, then check the screen light and dark at two widths',
+    usage: 'bun exact.mjs verify [web|ios] [--sim <udid|name>] [--json]',
+    flags: [
+      ['--sim <udid|name>', 'iOS: which simulator (else EXACT_SIM, a booted iPhone, or the newest iPhone Pro)'],
+      ['--json', 'the report as one JSON object'],
+    ],
+    internal: ['--app <name>'],
+    body: `web launches at 390x844 and 1280x900, ios at the simulator's own size with UIKit's bars
+(an edit to only app.contract or app.ts runs its new plan, no native rebuild), each on a
+fresh scratch store, and runs check light and dark on the screen it opens to. One short
+report: the build if it built, the tests, check's findings (each once), then "verify:
+clean" or "verify: N problems". A clean verify is done. One screenshot per width and
+scheme goes to .exact/verify/, for milestones; nothing needs to read them.
+Runs     to completion: exit 1 when the build, a test or a launch fails; check's findings are
+         counted, never fail it. Another screen: agent … "tap x" "check both".
+Ports    none to choose: test's and agent's (headless Chrome over a pipe; a simulator's socket).`,
+    example: 'bun exact.mjs verify            # bun exact.mjs verify ios at a milestone',
+  },
   ios: {
     line: 'build for an iOS simulator and install it (--run launches it)',
     usage: 'bun exact.mjs ios [--run|--prebuild] [--sim <udid|name>] [--device [--phone <udid|name>]] [--url <url>]',

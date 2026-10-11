@@ -1,9 +1,10 @@
 # Recipe: driving iOS
 
-Edit and check on the web host (`test web`, `agent web`: about a second a build), and
-drive iOS at milestones: one drive in dark mode, one after a write. `test ios` and
-`agent ios` build first when the build is missing or older than its sources, and say so
-in one line; its log is `.exact/ios-build.log`. The first build takes minutes, later
+Edit and check on the web host (`verify`: seconds), and run `verify ios` at milestones:
+the tests, then `check` light and dark with UIKit's bars. A clean `verify ios` is done;
+take a screenshot only at milestones. `verify ios`, `test ios` and `agent ios` build
+first when the build is missing or older than its sources, and say so in one line; its
+log is `.exact/ios-build.log`. The first build takes minutes, later
 ones a minute or two, so start the first early with `--prebuild`: it returns at once,
 the build going on apart from the shell, and a drive started meanwhile waits for it.
 
@@ -18,8 +19,7 @@ once (a real build) and drive it.
 
 ```sh
 bun exact.mjs ios --prebuild                   # the first build, apart from this shell
-bun exact.mjs test ios
-bun exact.mjs agent ios --storage s1 --chrome platform "clock data" "check both"
+bun exact.mjs verify ios                       # the tests, then check light and dark
 bun exact.mjs agent ios --storage s1 --chrome platform "prefer prefers-color-scheme dark" \
   "clock data" "screenshot .exact/ios-dark.png window"
 bun exact.mjs agent ios --storage s1 --chrome platform "tap add-item" "clock settle" \

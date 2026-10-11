@@ -140,21 +140,21 @@ test('the app\'s own verbs live in app.json, so update keeps them', () => {
     mkdirSync(resolve(sdk, 'scripts'), { recursive: true });
     writeFileSync(resolve(sdk, 'scripts/agent.mjs'), '');
     const manifest = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
-    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest, commands: { verify: ['bun', 'verify.mjs', '--quick'] } }, null, 2));
-    writeFileSync(resolve(dir, 'verify.mjs'), 'console.log(JSON.stringify({cwd:process.cwd(),args:process.argv.slice(2),app:process.env.EXACT_APP_DIR,exact2:process.env.EXACT2})); process.exit(3);');
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest, commands: { seed: ['bun', 'seed.mjs', '--quick'] } }, null, 2));
+    writeFileSync(resolve(dir, 'seed.mjs'), 'console.log(JSON.stringify({cwd:process.cwd(),args:process.argv.slice(2),app:process.env.EXACT_APP_DIR,exact2:process.env.EXACT2})); process.exit(3);');
     readManifest(dir, 'field-log');
     const exact = (...args) => spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), ...args], { cwd: parent, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
     createApp(dir, { update: true });
-    const verified = exact('verify', 'web');
-    assert.equal(verified.status, 3, verified.stderr);
-    assert.deepEqual(JSON.parse(verified.stdout), { cwd: realpathSync(dir), args: ['--quick', 'web'], app: realpathSync(dir), exact2: sdk });
-    assert.match(exact('nope').stderr, /Usage: bun exact\.mjs <web\|[^>]*\|verify>/);
-    assert.deepEqual(JSON.parse(readFileSync(resolve(dir, '.exact/commands.jsonl'), 'utf8').trim().split('\n')[0]).verb, 'verify');
+    const seeded = exact('seed', 'web');
+    assert.equal(seeded.status, 3, seeded.stderr);
+    assert.deepEqual(JSON.parse(seeded.stdout), { cwd: realpathSync(dir), args: ['--quick', 'web'], app: realpathSync(dir), exact2: sdk });
+    assert.match(exact('nope').stderr, /Usage: bun exact\.mjs <web\|[^>]*\|seed>/);
+    assert.deepEqual(JSON.parse(readFileSync(resolve(dir, '.exact/commands.jsonl'), 'utf8').trim().split('\n')[0]).verb, 'seed');
     // A built-in verb's name is the generated file's, and an empty command is no command.
-    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest, commands: { test: ['bun', 'verify.mjs'] } }, null, 2));
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest, commands: { test: ['bun', 'seed.mjs'] } }, null, 2));
     assert.match(exact('test').stderr, /commands\.test: test is one of exact\.mjs's own verbs/);
-    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest, commands: { verify: [] } }, null, 2));
-    assert.throws(() => readManifest(dir, 'field-log'), /commands\.verify: fewer than 1 items/);
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest, commands: { seed: [] } }, null, 2));
+    assert.throws(() => readManifest(dir, 'field-log'), /commands\.seed: fewer than 1 items/);
   } finally { rmSync(parent, { recursive: true, force: true }); }
 }, 60_000); // Two offline Cargo resolutions.
 
