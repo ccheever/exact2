@@ -304,6 +304,65 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertEqual(bar.accessibilityRole(), .slider)
         withExtendedLifetime(w) {}
     }
+    private final class Opened: ExactSessionDelegate {
+        var urls: [String] = []
+        func exactSession(_ session: ExactSession, command name: String, args: [Any]) {
+            if name == "openURL" { urls += args.compactMap { $0 as? String } }
+        }
+    }
+    /// X78: a link carries its URL, as an `NSTextView` link run and a SwiftUI
+    /// `Link` do. A `link` node's `AXURL` is its `href`. A paragraph's `href`
+    /// run is one element from one ask to the next, and a hit test returns
+    /// it (one made per ask is invalid to another process, VoiceOver's);
+    /// new runs make a new one. Pressing either opens its URL.
+    func testALinkCarriesItsURLAndAnInlineLinkIsOneElementWhileItsRunsLast() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "link-url")
+        defer { session.destroy() }
+        let opened = Opened()
+        session.delegate = opened
+        let p = session.presenter
+        p.viewport.frame = NSRect(x: 0, y: 0, width: 400, height: 200)
+        let w = NSWindow(contentRect: p.viewport.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        w.isReleasedWhenClosed = false
+        w.contentView = p.viewport
+        defer { w.close() }
+        func runs(_ href: String) -> [String: Any] {
+            func run(_ id: Int, _ props: [String: String]) -> [String: Any] { ["id": id, "parent": 3, "paint": true, "props": props, "style": ["font_size": 18.0]] }
+            return ["op": "paragraph", "id": 3, "runs": [run(4, ["text": "Visit the "]), run(5, ["text": "site", "href": href]), run(6, ["text": " today"])]]
+        }
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "button", "props": ["accessibilityRole": "link", "href": "https://example.com/link-node", "text": "Example link"]],
+            ["op": "create", "id": 3, "kind": "text", "style": ["font_size": 18.0]],
+            runs("https://example.com/inline-run"),
+            ["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 400, "h": 200],
+            ["op": "frame", "id": 2, "x": 16, "y": 16, "w": 140, "h": 28],
+            ["op": "frame", "id": 3, "x": 16, "y": 56, "w": 300, "h": 28],
+        ]))
+        p.viewport.layoutSubtreeIfNeeded()
+        let link = try XCTUnwrap(p.views[2]), paragraph = try XCTUnwrap(p.views[3])
+        XCTAssertEqual(link.accessibilityRole(), .link)
+        XCTAssertEqual(link.accessibilityURL(), URL(string: "https://example.com/link-node"))
+        let run = try XCTUnwrap(paragraph.accessibilityChildren()?.first as? NSAccessibilityElement)
+        XCTAssertEqual(paragraph.accessibilityChildren()?.count, 1)
+        XCTAssertTrue(paragraph.accessibilityChildren()?.first as AnyObject === run, "the same element at the next ask")
+        XCTAssertEqual(run.accessibilityRole(), .link)
+        XCTAssertEqual(run.accessibilityLabel(), "site")
+        XCTAssertEqual(run.accessibilityURL(), URL(string: "https://example.com/inline-run"))
+        let frame = run.accessibilityFrame()
+        XCTAssertFalse(frame.isEmpty)
+        XCTAssertTrue(paragraph.accessibilityHitTest(NSPoint(x: frame.midX, y: frame.midY)) as AnyObject === run, "a hit test over the run returns it")
+        XCTAssertTrue(link.accessibilityPerformPress())
+        XCTAssertTrue(run.accessibilityPerformPress())
+        XCTAssertEqual(opened.urls, ["https://example.com/link-node", "https://example.com/inline-run"])
+        p.apply(wireBatch([runs("https://example.com/moved")]))
+        let moved = try XCTUnwrap(paragraph.accessibilityChildren()?.first as? NSAccessibilityElement)
+        XCTAssertFalse(moved === run, "new runs, a new element")
+        XCTAssertEqual(moved.accessibilityURL(), URL(string: "https://example.com/moved"))
+        XCTAssertTrue(paragraph.accessibilityChildren()?.first as AnyObject === moved)
+    }
     /// The agent's name follows the web's accname: a non-empty label names
     /// any node (a status text); an empty one names nothing, so a button
     /// falls back to its content.
