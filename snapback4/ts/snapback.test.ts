@@ -110,6 +110,18 @@ mutation close(t: tickets):
   row = tickets[t] ! else NOT_FOUND
   update tickets[row.id] { status: 'closed' }
   return null
+
+table photos:
+  owner: principal
+  photo: image <=1000000
+  read <- .owner = viewer
+  insert <- .owner = viewer
+  update <- deny
+  delete <- .owner = viewer
+  sync to .owner last 100 by .id
+
+mutation addPhoto(photo: image <=1000000):
+  return insert photos { owner: viewer, photo }
 `;
 
 const scratch = mkdtempSync(join(tmpdir(), 'exact-snapback4-ts-'));
@@ -800,6 +812,40 @@ test('Snapback.switcher waits for the other persona\'s write in flight before cl
   await personas.close();
   expect(open).toBeUndefined();
   expect(personas.key).toBe(null);
+}, 60_000);
+
+test('upload sends bytes to /assets and download writes the asset to an app file, under the row\'s read rule', async () => {
+  const png = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='), c => c.charCodeAt(0));
+  const files = new Map<string, Uint8Array>();
+  const withFiles = (persona: string, dir: string, at = origin) => Snapback.open({
+    app: 'test.exact.snapback4', name: `photos-${persona}`, origin: at, viewer: `dev:${persona}`,
+    headers: () => ({ 'x-snapback-persona': persona }), wasm: `file://${wasm}`,
+    storage: { ...storage(dir), fs: { async writeFile(path: string, data: Uint8Array) { files.set(path, data); } } },
+  });
+  const alice = await withFiles('alice', join(scratch, 'photos-alice'));
+  const sent = await alice.upload(png);
+  if (!sent.ok) throw new Error(sent.why.message);
+  expect([sent.asset.type, sent.asset.bytes, sent.asset.width, sent.asset.height]).toEqual(['image/png', png.byteLength, 1, 1]);
+  const refused = await alice.upload(new TextEncoder().encode('not a picture'));
+  expect(refused.ok ? null : refused.why.code).toBe('E_ASSET_TYPE');
+  // Placed by a mutation, read back as its row's facts, then fetched as the row's reader.
+  const placed = await alice.send('addPhoto', { photo: { id: sent.asset.id } }, Date.now());
+  expect(placed.state).toBe('sent');
+  const shown = await alice.download(sent.asset.id);
+  expect(shown).toEqual({ ok: true, path: `app:/cache/snapback4-photos-alice-${sent.asset.id}.png`, type: 'image/png', bytes: png.byteLength });
+  expect([...files.get(`app:/cache/snapback4-photos-alice-${sent.asset.id}.png`)!]).toEqual([...png]);
+  expect((await alice.download(sent.asset.id, 'app:/tmp/one.png')).ok).toBe(true);
+  // Another viewer cannot read the row, so the bytes are not there for them.
+  const bob = await withFiles('bob', join(scratch, 'photos-bob'));
+  const hidden = await bob.download(sent.asset.id);
+  expect(hidden.ok ? null : hidden.why.code).toBe('E_ASSET_UNKNOWN');
+  await bob.close();
+  await alice.close();
+  // Unreached: offline, and nothing kept.
+  const away = await withFiles('alice', join(scratch, 'photos-away'), 'http://127.0.0.1:9');
+  const lost = await away.upload(png);
+  expect(lost.ok ? null : lost.why.code).toBe('E_OFFLINE');
+  await away.close();
 }, 60_000);
 
 test('at bake (a native module that is not available) open refuses with code bake and calls nothing', async () => {

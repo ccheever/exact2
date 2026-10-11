@@ -13,7 +13,7 @@ is handed to whoever drives it. Pinned to Snapback4 **0.4.16**
 | `client/` (`exact-snapback4-client`) | the protocol: `Client` (`read`, `write`, `sync` → `Step::Fetch`/`deliver` → `Step::Done`, `changes`/`changed`, `refresh`/`refreshed`, `outcome`, `status`), the JSON `dispatch`, partition binding |
 | `src/` (`exact-snapback4`) | the native device under the app's grants and directories: `Module` (an Exact `NativeModule` or `DataSource`), and `host_request`/`host_reply` for a Rust source's `Answer::Later` |
 | `web/` (`exact-snapback4-web`) | the same client as wasm over the device's memory store; `web/build.mjs` builds it with its wasm-bindgen glue |
-| `ts/` | the TypeScript driver an app's `app.ts` imports: `Snapback.open`, `Snapback.switcher` (one persona's partition at a time), `read`/`readAll`, `write`, `sync`, `poll`, `refreshSession`, `outcome`, `status` |
+| `ts/` | the TypeScript driver an app's `app.ts` imports: `Snapback.open`, `Snapback.switcher` (one persona's partition at a time), `read`/`readAll`, `write`, `sync`, `poll`, `refreshSession`, `outcome`, `status`, `upload`/`download` |
 
 ## From TypeScript
 
@@ -528,6 +528,45 @@ const renewed = await db.refreshSession(now);          // near expiresAt: keep r
   it names: name every one the write changes (`refreshes board, feed`), or a
   second view of the same rows stays as it was until its next refresh.
 
+### Photos and video: upload and download
+
+A Snapback `image <=N` or `video <=N` column holds an asset: the bytes are
+uploaded first, and the mutation takes `{ id }`. `db.upload` and
+`db.download` are the two routes (`POST /assets`, `GET /assets/<id>`), sent
+with the client's `headers`, so a persona or a bearer session decides as it
+does for a query:
+
+```ts
+export const grants = `net.fetch ${origin}\nsqlite.open app:/data\nfs.read app:/tmp\nfs.write app:/cache`;
+
+// A source given the picked file's path (`picked(files: list<Picked>)`, `f.path`):
+const sent = await db.upload(path);                    // the host sends the file; or bytes
+if (!sent.ok) return { message: `Upload refused: ${sent.why.code}` };   // E_ASSET_TYPE, E_ASSET_TOO_LARGE, E_OFFLINE …
+const fate = await db.send(api.addPhoto, { photo: { id: sent.asset.id } }, now);
+// Showing one: the bytes into an app file, whose path an `image` or `video` shows.
+const got = await db.download(row.photo.id);           // app:/cache/snapback4-<name>-<id>.png, or download(id, path)
+if (got.ok) shown = got.path; else why = got.why.code; // E_ASSET_UNKNOWN: missing, or the row's read rule hides it
+```
+
+- `upload(path)` sends an app file (`exactBodyFrom`: the bytes never enter
+  JavaScript, at most 64 MiB, under `fs.read`); `upload(bytes)` sends bytes.
+  `asset` is what the server sniffed: `id`, `type`, `bytes`, `width`,
+  `height`, `duration`. The server takes JPEG, PNG, WebP and MP4 only
+  (`snapback4 guide assets`); a PDF is refused `E_ASSET_TYPE`.
+- Both are online only and never retried here (a data module has no
+  timers): offline is `E_OFFLINE` with nothing kept, so keep the picked
+  path and ask again. A write naming an uploaded `{ id }` made offline
+  queues unpredicted, and the server judges it.
+- `download` writes through the dispatcher's `storage.fs` (pass it, as
+  `use` does), to `app:/cache` unless given a path, and keeps nothing for
+  you: no retention cap, no purge when the row goes. A `once` asset's
+  download spends its one view: give it an `app:/tmp` path.
+- In a test, `tap` the button whose action calls `showPicker`, then `pick
+  "<input testId>" "<file>"` (the file relative to the test file).
+- Tried on a scratch app against 0.4.22 under `test web` (2026-10-12): a
+  picked PNG uploads, is placed, shows from its app file, and another
+  persona's download is `E_ASSET_UNKNOWN`. Not yet driven natively.
+
 On the web the partition is the wasm device, persisted through Exact SQLite
 after every call, one call at a time; a failed save rebuilds the device from
 the disk and keeps what the server said. A second tab finds its database
@@ -583,7 +622,9 @@ snapback4/ts`, and clippy for `exact-snapback4-web` with `--target
 wasm32-unknown-unknown`.
 
 What the TypeScript client of Snapback itself does that this one does not
-yet: media and assets (LLP 1108), native jobs on the device, Following
+yet: kept media (LLP 1108: upload facts on the device, so an offline write
+naming an upload predicts; a retained, purged cache; `once` assets shown
+from memory), native jobs on the device, Following
 feeds, ephemeral reads and writes (a write that touches an ephemeral table
 is refused at once with `E_CLIENT_UNSUPPORTED`, never queued), search state, the online fallback fenced by
 intersecting predictions (here a read the device cannot vouch for asks the

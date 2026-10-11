@@ -107,6 +107,29 @@ export interface Status {
 /** The device: one JSON call in, `{ok}` or `{denied}` out; a host failure throws. */
 export interface Device { call(request: Request): Promise<Request>; close?(): Promise<boolean | void>; healthy?(): boolean }
 
+/** What the server established about an uploaded file (`POST /assets`):
+ * pass `{ id }` as an `image` or `video` argument. */
+export interface Asset { id: string; type: string; bytes: number; width?: number | null; height?: number | null; duration?: number | null }
+/** `upload`'s answer: the asset, or why not (`E_ASSET_TYPE`,
+ * `E_ASSET_TOO_LARGE`, `E_ASSET_BOUNDS`, `E_RATE_LIMIT`, `E_OFFLINE`, …). */
+export type Uploaded = { ok: true; asset: Asset } | { ok: false; why: Refusal };
+/** `download`'s answer: the app file holding the bytes (an `image` or
+ * `video` source), or why not (`E_ASSET_UNKNOWN`: missing, or hidden by its
+ * row's read rule; `E_ASSET_VIEWED`; `E_OFFLINE`). */
+export type Downloaded = { ok: true; path: string; type: string; bytes: number } | { ok: false; why: Refusal };
+
+const EXTENSIONS: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'video/mp4': 'mp4' };
+
+/** A fetch that rejected: unreached is `E_OFFLINE`; Exact's own refusal
+ * before sending (`exactBodyFrom` naming a missing or ungranted file) is
+ * `E_CLIENT`. */
+function unreached(error: unknown): Refusal {
+  const kind = (error as { kind?: string } | null)?.kind, message = error instanceof Error ? error.message : String(error);
+  return kind === 'Refused' || kind === 'Unsupported'
+    ? { code: 'E_CLIENT', family: 'client', message }
+    : { code: 'E_OFFLINE', family: 'transport', retryable: true, message: `the server was not reached: ${message}` };
+}
+
 /** Exact's native module, when the app links `exact_snapback4::Module`. */
 export interface NativeModule {
   call(request: Request): unknown;
@@ -127,8 +150,8 @@ export interface Options {
   /** Credentials for each request: `{authorization: 'Bearer …'}`, or in development `{'x-snapback-persona': 'alice'}`. */
   headers?: () => Record<string, string>;
   /** The dispatcher's `storage`, Exact's own (the web persists the partition
-   * there); only its `sqlite` is used. */
-  storage: { readonly sqlite: { open(path: string): Promise<unknown> } };
+   * there); its `sqlite`, and its `fs` for `download`. */
+  storage: { readonly sqlite: { open(path: string): Promise<unknown> }; readonly fs?: { writeFile(path: string, data: Uint8Array): Promise<void> } };
   /** The dispatcher's `native`; absent on the web. */
   native?: NativeModule | null;
   /** Where the web's wasm is served (default `/assets/snapback4.wasm`). */
@@ -564,6 +587,52 @@ export class Snapback {
   /** Forget refusals the app has shown: these ids, or all of them. */
   async dismiss(ids?: string[]): Promise<void> {
     ok(await this.call(ids ? { op: 'dismiss', ids } : { op: 'dismiss' }));
+  }
+
+  /** Upload a file's bytes (`POST /assets`, under this client's `headers`):
+   * an app file by path (the picked `app:/tmp/picked/…`; the host sends it,
+   * under `fs.read`, and the bytes never enter JavaScript) or bytes. Online
+   * only, as in Snapback: offline it answers `E_OFFLINE` and nothing is
+   * kept, so keep the path and ask again. Never retried here (a data module
+   * has no timers): `E_RATE_LIMIT` is the app's to ask again. Then pass
+   * `{ id: asset.id }` to the mutation; a write naming it offline queues
+   * unpredicted, and the server judges it. */
+  async upload(file: string | ArrayBuffer | ArrayBufferView): Promise<Uploaded> {
+    if (this.closed) throw new Error('Snapback4: this client is closed');
+    const headers = { ...(this.options.headers?.() ?? {}), 'content-type': 'application/octet-stream' };
+    const init: RequestInit & { exactBodyFrom?: string } = typeof file === 'string'
+      ? { method: 'POST', headers, exactBodyFrom: file }
+      // A copy: the bytes sent are these, whatever the caller does with its buffer meanwhile.
+      : { method: 'POST', headers, body: Uint8Array.from(ArrayBuffer.isView(file) ? new Uint8Array(file.buffer, file.byteOffset, file.byteLength) : new Uint8Array(file)) };
+    let response: Response;
+    try { response = await fetch(`${this.options.origin}/assets`, init); } catch (error) { return { ok: false, why: unreached(error) }; }
+    const body = await response.json().catch(() => null) as { asset?: Asset; denied?: Refusal } | null;
+    if (response.ok && body?.asset?.id) return { ok: true, asset: body.asset };
+    return { ok: false, why: body?.denied ?? { code: 'E_SERVER', family: 'transport', retryable: response.status >= 500, message: `the server answered the upload with HTTP ${response.status}` } };
+  }
+
+  /** Download an asset (`GET /assets/<id>`, under this client's `headers`,
+   * so its row's read rule decides) into an app file, and answer its path
+   * for an `image` or `video`: by default
+   * `app:/cache/snapback4-<name>-<id>.<jpg|png|webp|mp4>` (grant `fs.write
+   * app:/cache`). Online only, and nothing is purged here: the file stays
+   * until the app removes it, so give a `once` asset (one view per
+   * principal, which this download spends) a path under `app:/tmp`. */
+  async download(id: string, path?: string): Promise<Downloaded> {
+    if (this.closed) throw new Error('Snapback4: this client is closed');
+    const fs = this.options.storage?.fs;
+    if (!fs) return { ok: false, why: { code: 'E_CLIENT', family: 'client', message: 'download writes an app file: pass the dispatcher\'s `storage`, and grant fs.write for the path' } };
+    let response: Response;
+    try { response = await fetch(`${this.options.origin}/assets/${encodeURIComponent(id)}`, { headers: this.options.headers?.() ?? {} }); } catch (error) { return { ok: false, why: unreached(error) }; }
+    if (!response.ok) {
+      const body = await response.json().catch(() => null) as { denied?: Refusal } | null;
+      return { ok: false, why: body?.denied ?? { code: 'E_SERVER', family: 'transport', retryable: response.status >= 500, message: `the server answered asset ${id} with HTTP ${response.status}` } };
+    }
+    const type = (response.headers.get('content-type') ?? '').split(';')[0].trim();
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    const file = path ?? `app:/cache/snapback4-${this.options.name}-${id}.${EXTENSIONS[type] ?? 'bin'}`;
+    try { await fs.writeFile(file, bytes); } catch (error) { return { ok: false, why: { code: 'E_CLIENT', family: 'client', message: `could not write ${file}: ${error instanceof Error ? error.message : String(error)}` } }; }
+    return { ok: true, path: file, type, bytes: bytes.byteLength };
   }
 
   private async exchange(fetchRequest: Request): Promise<Request> {
