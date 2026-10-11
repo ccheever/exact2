@@ -1,4 +1,4 @@
-package dev.exact.bench.exactcanvas
+package dev.exact.canvas
 
 import android.content.Context
 import android.text.InputType

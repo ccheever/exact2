@@ -1,4 +1,4 @@
-package dev.exact.bench.exactcanvas
+package dev.exact.canvas
 
 import java.nio.IntBuffer
 

@@ -1,4 +1,4 @@
-package dev.exact.bench.exactcanvas
+package dev.exact.canvas
 
 import android.app.Activity
 import android.content.Context
