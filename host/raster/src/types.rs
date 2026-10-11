@@ -18,10 +18,27 @@ pub const MAX_SOURCE_PIXELS: u64 = 64 * 1024 * 1024;
 /// Apple's `RasterInput.dataLimit` and the web hosts' `DATA_LIMIT` are this.
 pub const MAX_DATA_URL_BYTES: usize = 1024 * 1024;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct PixelSize {
     pub width: u32,
     pub height: u32,
+}
+
+/// The part of a picture a key's pixels are, when they are not all of it: a
+/// picture decoded at `full` and cut to the key's `pixels` from (`x`, `y`).
+/// The default (a zero `full`) is the whole picture. A different part of one
+/// source at one size is a different key: nothing is served the wrong part.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct Crop {
+    pub x: u32,
+    pub y: u32,
+    pub full: PixelSize,
+}
+impl Crop {
+    /// Whether the key's pixels are the whole picture.
+    pub fn whole(&self) -> bool {
+        self.full.width == 0
+    }
 }
 
 /// The storage a decode produces (LLP 1100 D7). Every adapter applies EXIF
@@ -59,6 +76,8 @@ pub struct RasterKey {
     pub generation: u64,
     pub pixels: PixelSize,
     pub variant: u32,
+    /// Which part of the picture `pixels` are ([`Crop`]).
+    pub crop: Crop,
 }
 
 /// A native view identity including its incarnation; cancellation is exact.

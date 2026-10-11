@@ -125,6 +125,13 @@ or `min()`, `max()` and `clamp()` over px, insets and viewport lengths
 (`clamp(15px, env(safe-area-inset-bottom), 60px)`; LLP 1001 §2). Anything else
 is `lower-attr-value`, with the kernel's reason.
 
+`-exact-fit="shrink"` on a `text` (CSS has no such property; LLP 1116.001 D1.4) draws
+a line too wide for its content box at the scale that fits: its whole line under
+`white-space="nowrap"`, else its longest word. It shrinks down to half its size, and
+a display size (more than twice the root font size) down to the root size; below that
+it overflows, as UIKit's `adjustsFontSizeToFitWidth` truncates. The kernel picks the
+scale and every host draws at it; `"none"`, the default, never shrinks.
+
 A `sound` names a WAV under the app's `assets/` (LLP 1096 D1): 16-bit integer
 or 32-bit float PCM (or `WAVE_FORMAT_EXTENSIBLE` naming one), one or two
 channels, 8–96 kHz, at most 10 s. The compiler reads its header and refuses
@@ -135,7 +142,7 @@ line, so a `state sound` is a slot. Sounds are app-wide, as fonts are.
 
 A `use` specifier is a relative path (`./` or `../`) to a `.contract` file that
 stays inside the using file's root — the app directory, or the package it
-belongs to (`contract-use-path`); an `exact:` built-in (`exact:motion`;
+belongs to (`contract-use-path`); an `exact:` built-in (`exact:motion`, `exact:content`;
 `contract-use-builtin`); or a package name, `name[/sub]` or
 `@scope/name[/sub]`, found in the nearest `node_modules` above the using file
 and mapped through its `package.json` `exports` (a string, or the `contract` or
@@ -174,7 +181,8 @@ section       = "props" block(field)
               | "inject" block(field)
               | "provide" block(provider)
               | "slot" NL
-              | ( "state" | "derive" ) IDENT "=" expr NL
+              | "state" IDENT "=" expr [ "persist" ] NL
+              | "derive" IDENT "=" expr NL
               | resource | mutation | action | task
               | "view" block(node) ;
 provider      = FIELD [ "=" expr ] NL ;
@@ -493,59 +501,65 @@ An app's `fn` of one of these names shadows it in every expression of the app, a
 JavaScript function declared over a global does: a name the inventory gains later
 never breaks an app that declared it first.
 
-| Call | Result / restriction |
-| --- | --- |
-| `performanceNow()` | Milliseconds on the runner's clock since boot (the driver's clock under the agent, from 0), as the web's `performance.now()`, not `Date.now()`: the date is `time.epochAtZero + performanceNow()`, with `resource time = exactTime() as shape T` declared. `now()` is refused (`type-now-renamed`, LLP 1109 D1) with both repairs. A read does not schedule a render, and a derive that reads it is not read again as time passes (when it is depends on the host's clock), so a value that follows the clock comes from a timer: keep the time in state that a `task … every` action writes |
-| `formatTime(ms, offsetMinutes, "short")` | String; fixed offset east of UTC, en-US formatting (`exactTime().utcOffset` is the zone's offset now, answered again when it changes) |
-| `formatDate(ms, offsetMinutes, "medium" or "month-year" or "iso")` | String; format is a literal choice, not an expression containing `or`. `"iso"` is `YYYY-MM-DD`: the date at that wall time, which is `toISOString`'s date part at a whole-minute offset (a fractional offset's sub-millisecond wall time is not clipped again, as no style's is) (LLP 1102 §3.4); every style prints `""` outside years 1–9999 |
-| `formatNumber(n, "compact")` | String; admitted deterministic compact format |
-| `toFixed(n, digits)` | String; JavaScript's `Number.prototype.toFixed`: the binary value rounded (`toFixed(1.005, 2)` is `"1.00"`), a tie away from zero, `-0.001` at 2 is `"-0.00"`, `1e21` and up as `toString` prints; one declared difference: `NaN` and the infinities print `""` (LLP 1054.000.003 D7). `digits` is a whole-number literal 0–100 (LLP 1102 §3.2) |
-| `formatDecimal(units, digits)` | String; an integer count of a smallest unit as a decimal, exactly: `formatDecimal(1234, 2)` is `"12.34"`, `formatDecimal(-5, 2)` is `"-0.05"`, `-0` is `"0.00"`; a count that is not an integer, or not finite, is `""`, so money is a count of cents, or `formatDecimal(round(price * 100), 2)` for a price of at most two decimals under a trillion. `digits` is a whole-number literal 0–20 (LLP 1102 §3.2) |
-| `length(value)` | Number; list item count or string UTF-16 code-unit count |
-| `isEmpty(value)` | Boolean; empty string or list |
-| `toString(value)` | String; number, boolean, or string conversion |
-| `floor(n)` | Number |
-| `ceil(n)` | Number; `Math.ceil` |
-| `round(n)` | Number; JavaScript's `Math.round`: a half rounds up (`round(2.5)` is 3, `round(-2.5)` is -2), not away from zero. Two decimals is `round(v * 100) / 100` |
-| `parseNumber(text)` | `option<number>`; `some` for a decimal numeral in the text, trimmed as `trim` does: an optional sign, digits with an optional fraction or a fraction alone, an optional exponent (`" 12.5 "`, `"-3"`, `".5"`, `"1e3"`), the nearest double as `Number()` reads it; `none` for anything else (`""`, `"12px"`, `"0x1F"`, `"1_000"`, `"Infinity"`), past the largest finite, or a nonzero numeral that rounds to zero (LLP 1102 §3.1) |
-| `calendarDiff(from, to, "years" or "months")` | `option<number>`; whole years or months from one `YYYY-MM-DD` date to another, counted as an age is: a period completes when `to`'s month and day reach `from`'s (months compare the day), so a Feb 29 start completes a year on Mar 1 of a common year and a Jan 31 start a month on Mar 1, as Temporal's `PlainDate.until` counts with `largestUnit` `"years"` or `"months"`. When `to` is earlier, the count back, negated; `none` when either is not a real date (LLP 1102 §3.4) |
-| `max(a, b)` | Number |
-| `min(a, b)` | Number |
-| `includes(text, substring)` | Boolean, case-sensitive literal substring |
-| `includes(list<T>, item)` | Boolean; `T` a string, number or bool, compared by SameValueZero (`NaN` is found, `-0` is `0`) |
-| `startsWith(text, prefix)` | Boolean, case-sensitive |
-| `endsWith(text, suffix)` | Boolean, case-sensitive |
-| `trim(text)` | String, JavaScript whitespace/line-terminator trimming |
-| `slice(text, start, end?)` | String; JavaScript's `slice` over UTF-16 code units: fractions truncate, NaN is 0, a negative index counts from the end, an omitted `end` is the end; a cut surrogate half is U+FFFD |
-| `slice(list<T>, start, end?)` | `list<T>`; the items, the indices clamped as text's are |
-| `concat(list<T>, list<T>)` | `list<T>`; both lists' items in order (`[...xs, x]` is `concat(xs, [x])`) |
-| `indexOf(text, substring)` | Number; the first match's position in UTF-16 code units, `-1` for none, `0` for `""` |
-| `indexOf(list<T>, item)` | Number; `T` a string, number or bool, compared by `===` (`NaN` is never found, `-0` is `0`); `-1` for none |
-| `split(text, separator)` | `list<string>`; the pieces between the separator's matches, left to right; `""` splits into UTF-16 code units (a cut surrogate half is U+FFFD), and `split("", "")` is `[]` |
-| `replaceAll(text, find, with)` | String; every match of the string `find`, left to right; `$$`, `$&`, `` $` ``, `$'` in `with` (`$1` is literal); an empty `find` inserts at every code-unit boundary; no regular expressions |
-| `toLowerCase(text)` | String; Unicode's default lowercase, final sigma kept, no locale (the web core links the case tables by use) |
-| `first(list<T>)` | `option<T>` |
-| `at(list<T>, index)` | `option<T>`; truncates index toward zero, negative from end |
-| `map(list<T>, callback)` | `list<U>`; callback returns one value |
-| `filter(list<T>, callback)` | `list<T>`; callback returns boolean |
-| `join(list<string/number/bool>, separator)` | String; primitive item printing |
-| `encodeURIComponent(text)` | String |
-| `encodeRouteSegment(text)` | String; routing's checked segment encoding |
-| `open(router, location)` | Router |
-| `push(router, location)` | Router; same top URL does not add a visit |
-| `replace(router, location)` | Router |
-| `back(router)` | Router |
-| `select(router, tabName)` | Router |
-| `go(router, location)` | Router |
-| `stack(router)` | `list<Entry>` |
-| `top(router)` | `Entry` |
-| `depth(router)` | Number |
-| `params(router, parameterName)` | `list<string>`: that parameter's non-empty values over the selected stack, bottom first, duplicates kept (one entry's own value is `entry.params.<name>`, `""` where its route does not bind it; the name must be a parameter of some route) |
-| `searchParam(entry, name)` | String |
-| `t("key", name=value, …)` | Localized string; validates tables/placeholders |
-| `frame(id)` | `Geometry`, actions only; last layout where the viewer sees it, as `getBoundingClientRect`: in the viewport, every scroll offset and transform applied |
-| `measure("id")` | `Geometry`, actions only; literal id, height-auto measurement |
-| `elementFromPoint(x, y)` | `option<string>`, actions only; the `id` of the front-most of `frame`'s boxes at the viewport point, or of its nearest ancestor with one (DOM's `elementFromPoint(x, y)?.closest("[id]")?.id`): ancestors' overflow clips apply, `pointer-events: none` and hidden boxes are passed over |
+`contract vocab <name>` prints one function's entry from these tables (its rows and
+examples) beside the roster's signature, so what a row says here is what `vocab`
+says. Every roster function has a row and an example, and each example written
+`` `call` is `value` `` holds: a contract test evaluates them.
+
+| Call | Result / restriction | Example |
+| --- | --- | --- |
+| `performanceNow()` | Milliseconds on the runner's clock since this launch of the app (it restarts at 0 on every launch; the driver's clock under the agent, from 0), as the web's `performance.now()`, not `Date.now()`: the date is `time.epochAtZero + performanceNow()`, with `resource time = exactTime() as shape T` declared, and that sum is what anything stored or sent takes ([timer recipe](recipes/timer-that-survives-relaunch.md)). `now()` is refused (`type-now-renamed`, LLP 1109 D1) with both repairs. A read does not schedule a render, and a derive that reads it is not read again as time passes (when it is depends on the host's clock), so a value that follows the clock comes from a timer: keep the time in state that a `task … every` action writes | `performanceNow() - startedAt`, in a timer's action, is the milliseconds since `startedAt` |
+| `formatTime(ms, offsetMinutes, "short")` | String; fixed offset east of UTC, en-US formatting (`exactTime().utcOffset` is the zone's offset now, answered again when it changes) | `formatTime(1790000000000, 0, "short")` is `"2:13 PM"` |
+| `formatDate(ms, offsetMinutes, "medium" or "month-year" or "iso")` | String; format is a literal choice, not an expression containing `or`. `"iso"` is `YYYY-MM-DD`: the date at that wall time, which is `toISOString`'s date part at a whole-minute offset (a fractional offset's sub-millisecond wall time is not clipped again, as no style's is) (LLP 1102 §3.4); every style prints `""` outside years 1–9999 | `formatDate(1790000000000, 0, "medium")` is `"Sep 21, 2026"` |
+| `formatNumber(n, "compact")` | String; admitted deterministic compact format (`1.2K`) | `formatNumber(1249, "compact")` is `"1.2K"` |
+| `formatNumber(n, "decimal")`, `formatNumber(n, "percent")`, `formatNumber(n, "currency", "USD")` | String; `Intl.NumberFormat("en-US")`'s deterministic forms (LLP 1116 D8): `"decimal"` is grouped with at most three fraction digits (`1,234.567`), `"percent"` multiplies by 100 with none (`0.256` is `26%`), `"currency"` takes an ISO 4217 code literal and prints its symbol and fraction digits (`$1,481.47`, `-$5.00`, `¥1,235`, `CHF 5.00`; the codes are USD, EUR, GBP, JPY, CNY, INR, CAD, AUD, NZD, HKD, SGD, CHF, SEK, NOK, DKK, PLN, MXN, BRL, KRW, ZAR, TWD, ILS, PHP and VND). Each rounds the value's shortest decimal digits half away from zero, as `Intl` does (`1.005` is `$1.01`, where `toFixed` says `1.00`), and signs a negative zero (`-0`); `NaN` and the infinities print `""`. The code is written with `"currency"` only (`type-format-style`) | `formatNumber(1481.47, "currency", "USD")` is `"$1,481.47"` |
+| `toFixed(n, digits)` | String; JavaScript's `Number.prototype.toFixed`: the binary value rounded (`toFixed(1.005, 2)` is `"1.00"`), a tie away from zero, `-0.001` at 2 is `"-0.00"`, `1e21` and up as `toString` prints; one declared difference: `NaN` and the infinities print `""` (LLP 1054.000.003 D7). `digits` is a whole-number literal 0–100 (LLP 1102 §3.2) | `toFixed(3.14159, 2)` is `"3.14"` |
+| `formatDecimal(units, digits)` | String; an integer count of a smallest unit as a decimal, exactly: `formatDecimal(1234, 2)` is `"12.34"`, `formatDecimal(-5, 2)` is `"-0.05"`, `-0` is `"0.00"`; a count that is not an integer, or not finite, is `""`, so money is a count of cents, or `formatDecimal(round(price * 100), 2)` for a price of at most two decimals under a trillion. `digits` is a whole-number literal 0–20 (LLP 1102 §3.2) | `formatDecimal(1234, 2)` is `"12.34"` |
+| `length(value)` | Number; list item count or string UTF-16 code-unit count | `length([4, 5, 6])` is `3` |
+| `isEmpty(value)` | Boolean; empty string or list | `isEmpty("")` is `true` |
+| `toString(value)` | String; number, boolean, or string conversion | `toString(42)` is `"42"` |
+| `floor(n)` | Number | `floor(2.7)` is `2` |
+| `ceil(n)` | Number; `Math.ceil` | `ceil(2.1)` is `3` |
+| `round(n)` | Number; JavaScript's `Math.round`: a half rounds up (`round(2.5)` is 3, `round(-2.5)` is -2), not away from zero. Two decimals is `round(v * 100) / 100` | `round(2.5)` is `3` |
+| `parseNumber(text)` | `option<number>`; `some` for a decimal numeral in the text, trimmed as `trim` does: an optional sign, digits with an optional fraction or a fraction alone, an optional exponent (`" 12.5 "`, `"-3"`, `".5"`, `"1e3"`), the nearest double as `Number()` reads it; `none` for anything else (`""`, `"12px"`, `"0x1F"`, `"1_000"`, `"Infinity"`), past the largest finite, or a nonzero numeral that rounds to zero (LLP 1102 §3.1) | `parseNumber(" 12.5 ")` is `some(12.5)` |
+| `calendarDiff(from, to, "years" or "months")` | `option<number>`; whole years or months from one `YYYY-MM-DD` date to another, counted as an age is: a period completes when `to`'s month and day reach `from`'s (months compare the day), so a Feb 29 start completes a year on Mar 1 of a common year and a Jan 31 start a month on Mar 1, as Temporal's `PlainDate.until` counts with `largestUnit` `"years"` or `"months"`. When `to` is earlier, the count back, negated; `none` when either is not a real date (LLP 1102 §3.4) | `calendarDiff("1990-05-10", "2026-05-09", "years")` is `some(35)` |
+| `max(a, b)` | Number | `max(3, 7)` is `7` |
+| `min(a, b)` | Number | `min(3, 7)` is `3` |
+| `includes(text, substring)` | Boolean, case-sensitive literal substring | `includes("grocery", "roc")` is `true` |
+| `includes(list<T>, item)` | Boolean; `T` a string, number or bool, compared by SameValueZero (`NaN` is found, `-0` is `0`) | `includes(["a", "b"], "b")` is `true` |
+| `startsWith(text, prefix)` | Boolean, case-sensitive | `startsWith("/settings", "/")` is `true` |
+| `endsWith(text, suffix)` | Boolean, case-sensitive | `endsWith("photo.png", ".png")` is `true` |
+| `trim(text)` | String, JavaScript whitespace/line-terminator trimming | `trim("  milk ")` is `"milk"` |
+| `slice(text, start, end?)` | String; JavaScript's `slice` over UTF-16 code units: fractions truncate, NaN is 0, a negative index counts from the end, an omitted `end` is the end; a cut surrogate half is U+FFFD | `slice("Tuesday", 0, 3)` is `"Tue"` |
+| `slice(list<T>, start, end?)` | `list<T>`; the items, the indices clamped as text's are | `slice([1, 2, 3, 4], 1)` is `[2, 3, 4]` |
+| `concat(list<T>, list<T>)` | `list<T>`; both lists' items in order (`[...xs, x]` is `concat(xs, [x])`) | `concat([1, 2], [3])` is `[1, 2, 3]` |
+| `indexOf(text, substring)` | Number; the first match's position in UTF-16 code units, `-1` for none, `0` for `""` | `indexOf("a,b", ",")` is `1` |
+| `indexOf(list<T>, item)` | Number; `T` a string, number or bool, compared by `===` (`NaN` is never found, `-0` is `0`); `-1` for none | `indexOf(["a", "b"], "c")` is `-1` |
+| `split(text, separator)` | `list<string>`; the pieces between the separator's matches, left to right; `""` splits into UTF-16 code units (a cut surrogate half is U+FFFD), and `split("", "")` is `[]` | `split("a,b,c", ",")` is `["a", "b", "c"]` |
+| `replaceAll(text, find, with)` | String; every match of the string `find`, left to right; `$$`, `$&`, `` $` ``, `$'` in `with` (`$1` is literal); an empty `find` inserts at every code-unit boundary; no regular expressions | `replaceAll("a-b-c", "-", " ")` is `"a b c"` |
+| `toLowerCase(text)` | String; Unicode's default lowercase, final sigma kept, no locale (the web core links the case tables by use) | `toLowerCase("Milk")` is `"milk"` |
+| `first(list<T>)` | `option<T>` | `first([4, 5])` is `some(4)` |
+| `at(list<T>, index)` | `option<T>`; truncates index toward zero, negative from end | `at([4, 5, 6], -1)` is `some(6)` |
+| `map(list<T>, callback)` | `list<U>`; callback returns one value | `map([1, 2], x => x * 10)` is `[10, 20]` |
+| `filter(list<T>, callback)` | `list<T>`; callback returns boolean | `filter([1, 2, 3], x => x > 1)` is `[2, 3]` |
+| `join(list<string/number/bool>, separator)` | String; primitive item printing | `join(["a", "b"], ", ")` is `"a, b"` |
+| `encodeURIComponent(text)` | String | `encodeURIComponent("a b&c")` is `"a%20b%26c"` |
+| `encodeRouteSegment(text)` | String; routing's checked segment encoding | `encodeRouteSegment("a b")` is `"a%20b"` |
+| `open(router, location)` | Router | `top(open(nav, "/item/7")).name` is `"item"` |
+| `push(router, location)` | Router; same top URL does not add a visit | `depth(push(nav, "/item/7"))` is `2` |
+| `replace(router, location)` | Router | `depth(replace(nav, "/item/7"))` is `1` |
+| `back(router)` | Router | `depth(back(push(nav, "/item/7")))` is `1` |
+| `select(router, tabName)` | Router | `nav = select(nav, "search")`, in an action, shows the `search` tab |
+| `go(router, location)` | Router | `top(go(nav, "/item/7")).name` is `"item"` |
+| `stack(router)` | `list<Entry>` | `length(stack(push(nav, "/item/7")))` is `2` |
+| `top(router)` | `Entry` | `top(nav).name` is `"home"` |
+| `depth(router)` | Number | `depth(nav)` is `1` |
+| `params(router, parameterName)` | `list<string>`: that parameter's non-empty values over the selected stack, bottom first, duplicates kept (one entry's own value is `entry.params.<name>`, `""` where its route does not bind it; the name must be a parameter of some route) | `params(push(nav, "/item/7"), "id")` is `["7"]` |
+| `searchParam(entry, name)` | String | `searchParam(top(push(nav, "/item/7?tab=notes")), "tab")` is `"notes"` |
+| `t("key", name=value, …)` | Localized string; validates tables/placeholders | `t("greeting", name=user.name)` is the `greeting` string of the app's locale with `{name}` filled |
+| `frame(id)` | `Geometry`, actions only; last layout where the viewer sees it, as `getBoundingClientRect`: in the viewport, every scroll offset and transform applied | `frame("card").height`, in an action, is the card's height as drawn |
+| `measure("id")` | `Geometry`, actions only; literal id, height-auto measurement | `measure("note").height`, in an action, is the note's natural height |
+| `elementFromPoint(x, y)` | `option<string>`, actions only; the `id` of the front-most of `frame`'s boxes at the viewport point, or of its nearest ancestor with one (DOM's `elementFromPoint(x, y)?.closest("[id]")?.id`): ancestors' overflow clips apply, `pointer-events: none` and hidden boxes are passed over | `elementFromPoint(x, y)`, in a pointer action, is `some("card-3")` over that card |
 
 The router functions (`open` through `searchParam`) and `encodeRouteSegment`
 exist only in an app with a `routes` declaration.
@@ -569,16 +583,16 @@ list they build is bounded as any built value is.
 
 Compiler intrinsics and special forms additionally include:
 
-| Form | Meaning |
-| --- | --- |
-| `pending(resourceOrMutationName)` | Boolean; request is in flight |
-| `failed(resourceName)` | Boolean; current resource request failed without an answer |
-| `failure(resourceName)` | `option<Failure>`: `none` until the current request fails without an answer, then `some({ code, message })` (LLP 1109 D3); `code` is one of the closed vocabulary below, the same on every host; `message` is what the agent's `state.failed` shows, and says more and differs by host |
-| `path("routeName", args…)` | Checked encoded route location |
-| `empty(field=constant, …)` | Resource placeholder's zero record with overrides |
-| `some(expr)` | Construct an option |
-| `DeclaredShape(field=value, …)` | Construct a record |
-| `DeclaredShape(base, field=value, …)` | Copy a record |
+| Form | Meaning | Example |
+| --- | --- | --- |
+| `pending(resourceOrMutationName)` | Boolean; request is in flight | `pending(saved)` is `true` from `send saved = …` until its reply |
+| `failed(resourceName)` | Boolean; current resource request failed without an answer | `failed(weather)` is `true` once the weather request fails |
+| `failure(resourceName)` | `option<Failure>`: `none` until the current request fails without an answer, then `some({ code, message })` (LLP 1109 D3); `code` is one of the closed vocabulary below, the same on every host; `message` is what the agent's `state.failed` shows, and says more and differs by host | `match failure(weather)` with `case some(f)` reads `f.code`, `"offline"` with no connection |
+| `path("routeName", args…)` | Checked encoded route location | `path("item", "7")` is `"/item/7"` |
+| `empty(field=constant, …)` | Resource placeholder's zero record with overrides | `resource days = loadDays() as shape Days else empty()` shows `Days`' zero until the answer |
+| `some(expr)` | Construct an option | `some(3)` is an `option<number>` holding 3 |
+| `DeclaredShape(field=value, …)` | Construct a record | `Day(key="mon", ml=0)` is a `Day` |
+| `DeclaredShape(base, field=value, …)` | Copy a record | `Day(d, ml=d.ml + 250)` is `d` with `ml` changed |
 
 `failure(x).code` is exactly one of six words, by what reached the runner
 (`runner/src/failure.rs`):
@@ -651,7 +665,10 @@ top-right, bottom-right, bottom-left; no `/` elliptical radii).
 CSS hyphens are part of the authored name. `testId` and admitted host-specific
 props retain their declared spelling.
 
-A `button` is Chrome's `<button>` with Exact's reset ([LLP
+A `button` is the platform's own control by default ([LLP
+1104](../llp/1104-the-platforms-controls-by-default.rfc.md) D1). Your bare box
+(`appearance="none"`, or a button given a background, border, radius or rich
+children) lays out as Chrome's `<button>` does with Exact's reset ([LLP
 1001](../llp/1001-kernel-v1.spec.md) §1): a block that shrinks to fit, whose
 content is centred in its height (safely: content taller than the button
 starts at the top) and whose text is `text-align: center`. `align-items`,
@@ -675,8 +692,11 @@ such a link in the page (it replaces the app) and `target="_blank"` opens a
 path in a new one; natively `target` changes nothing, an app having no
 other tab. `mailto:` and `tel:` links go to their handlers everywhere.
 
-`button appearance="auto"` selects a native control; the literal switch is
-resolved after class merging. Default/`none` keeps the authored pressable.
+An unset `appearance` is `auto`: the platform's button, unless a background,
+border, radius, rich children or a row the native control cannot carry makes it
+your bare box. `appearance="auto"` written out asks for the platform's button and
+refuses what it cannot carry; `appearance="none"` asks for your box. The literal
+switch is resolved after class merging.
 Native face content, styles, transitions/keyframes, and enclosing contexts have
 an explicit allowlist in [`controls.rs`](../contract/lower/src/controls.rs).
 `buttonStyle` is a styleable host-policy prop whose complete vocabulary is the
@@ -832,7 +852,8 @@ recognizer wins ([LLP 1057.001](../llp/1057.001-gesture-precedence-and-pinch.spe
 The compiler validates arity and
 available payload types; tags and hosts constrain where events make sense.
 `navigate` belongs on the first root element, outside any region, which must
-also carry `navigationKey` and `navigationBack`. Transform geometry/release
+also carry `navigationKey` (the navigation root; its `navigationBack`, naming the
+Back control, is optional). Transform geometry/release
 bindings are required as a pair. See
 [`handler_arity`](../contract/analyze/src/lib.rs) and the corresponding corpus/tests.
 
@@ -964,7 +985,22 @@ action mark(para: string, s: Selection)
 text para.body selectionchange=mark(para.id)
 ```
 
-### Activity: `progress`
+### Progress: `progress`
+
+`progress value=… max=…` is HTML's determinate progress bar, each platform's
+own: `UIProgressView` (`.default`) on iOS, tinted by `accent-color` (UIKit's
+tint where none is said); a determinate `NSProgressIndicator` bar on macOS
+(small, regular where the box holds its 20 points; AppKit gives it no tint);
+the browser's `<progress>` on the web; and on Linux a painted bar, a 4-pixel
+track filled with the accent. `max` is 1 unless said (a number above 0), and
+`value` is held to 0 and `max`, as HTML holds it; both take numbers, bound or
+literal. Its box is HTML's: `10em` by `1em` (160 × 16 at 16 px), specified
+sizes, so a flex column or grid does not stretch it; write `width="100%"` for a
+full-width bar. The bar is centred in the box at its own thickness. Its role is
+`progressbar`, its value the platform's (UIKit's "25%", AppKit's value of its
+maximum, the DOM's attributes); name it with `aria-label`, and `aria-valuetext`
+gives the words a reader speaks instead. A change of value eases on iOS, except
+under the agent's clock.
 
 `progress` with no `value` is HTML's indeterminate progress, shown as the
 platform's activity indicator: `UIActivityIndicatorView` on iOS (`.medium`,
@@ -978,10 +1014,12 @@ system's colour, as AppKit gives a spinner no tint. Its role is `progressbar`,
 busy (`aria-busy`); name it with `aria-label`. It turns while it shows, and
 stops where it is hidden or gone; under the agent's held clock it shows one
 still frame (on the web, the frame at the agent's time, as every CSS animation;
-Linux paints one still frame always). `value` (a determinate bar) and `max` (that
-bar's) are refused for now, and so are children and `type`.
+Linux paints one still frame always). A `max` with no `value` is refused (it is
+the bar's), and so are children, `type`, and `aria-valuenow`, `aria-valuemin`
+and `aria-valuemax` (`value` and `max` are its range).
 
 ```text
+progress value=glasses max=8 width="100%" aria-label="Water today"
 progress aria-label="Loading"
 progress width=37 height=37 color="#1083fe" aria-label="Loading posts"
 ```
@@ -1280,6 +1318,13 @@ Syntax is only the first layer. In particular:
 - A state's initializer reads only props, injects and the states above it; a
   resource, derive, mutation, action or later state it names is
   `type-initializer-scope` (LLP 1088 D4).
+- `persist` (LLP 1116 D5) keeps a root state across launches under its name: a
+  stored value of its type replaces the initializer's before the first frame,
+  and after each commit that stands the store holds the state's value. Only a
+  number, string or bool, or an option or list of one, at most 16 KB as JSON;
+  a record, a list of records or a state holding an action is
+  `type-persist-type` (keep app data in a source), a child's state
+  `type-persist-child`, a derive `syntax-persist-derive`.
 - An action sends one mutation at most once on any path: a second send forgets
   the first's reply (LLP 1016 D5), so it is `analyze-send-twice` — unless the
   mutation is `queue`, whose sends each wait their turn (LLP 1092 D6). Exclusive
@@ -1292,7 +1337,11 @@ Syntax is only the first layer. In particular:
   value, and neither body shows it. Pass the value as an argument, from a `let`
   bound before the write for the old value or the assigned expression for the
   new one. A derive, a resource and `pending(m)` read settled values and are not
-  refused; the same walk's exclusive paths are separate.
+  refused; the same walk's exclusive paths are separate. The same read in the
+  frame that assigned the slot is the warning `analyze-read-after-assign`
+  (LLP 1116.003 D6), unless the paths that assigned it exclude the read or decide
+  the condition it is in (`if phase == 1` … `phase = 2`, then `if phase == 2`),
+  or a record copy left the field it reads unchanged (`s = S(s, f=…)`, then `s.g`).
   `pending`/`failed` operate on declarations, not arbitrary values.
 - View roots cannot be conditional/repeated regions. Tags, attributes, and
   children must fit their lowering rules. Class application is not a CSS cascade.

@@ -164,7 +164,7 @@ extension NodeView {
         if pressed { pressFollows(inside: touches.first.map(pressInside) ?? false) } else { super.touchesMoved(touches, with: event) }
     }
     package override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "up", source: self, event: event) == true { finishPointerPress(); return }
+        if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "up", source: self, event: event) == true { return }
         guard !disabled else { pressed = false; inlinePressed = nil; linkPressed = nil; svgPressed = nil; return }
         if let target = svgPressed {
             svgPressed = nil
@@ -185,15 +185,14 @@ extension NodeView {
         // it lowers the keyboard, and under `resizes-content` that moves this
         // control (a composer's toolbar) out from under the finger at once.
         let inside = pressed && (touches.first.map(pressInside) ?? false)
-        // A press under `retainFocus` leaves the editor its focus, as macOS's
-        // mouseDown does: every pressable can take the focus now.
-        if canBecomeFirstResponder, !isFirstResponder, presenter?.contextRetainsFocus(self) != true { takeTouchFocus() }
+        // The press's target settles the focus, its hit resolved, from the
+        // node the touch landed in; a touch that presses nothing settles it
+        // where it landed (`focusForPress`).
+        let touched = Self.innermost(touches.first?.view ?? self) ?? self
+        if pressed || (touched === self && !pressesAnAncestor) { touched.focusForPress(target: pressed ? self : nil) }
         guard pressed else { return super.touchesEnded(touches, with: event) }
         pressed = false
-        // A pressed node that did not take the focus: the field being edited
-        // loses it, as a click on a button blurs a page's input.
-        if !isFirstResponder && presenter?.contextRetainsFocus(self) != true { presenter?.viewport.endEditing(true) }
-        if inside, presenter?.views[id] === self { presenter?.press(id, held: KeyCodes.held(event?.modifierFlags ?? [])); finishPointerPress() }
+        if inside, presenter?.views[id] === self { presenter?.press(id, held: KeyCodes.held(event?.modifierFlags ?? [])) }
     }
     package override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
         inlinePressed = nil; linkPressed = nil; svgPressed = nil
@@ -239,6 +238,41 @@ extension NodeView {
     }
     package override func accessibilityActivate() -> Bool {
         activate(at: convert(CGPoint(x: bounds.midX, y: bounds.midY), to: nil)) != nil
+    }
+}
+extension NodeView {
+    /// A press's one focus decision, before any of its callbacks, walking from the node it landed in (this one)
+    /// up to its target, or the whole way with none: the innermost node that asked for focus takes it, as a click
+    /// focuses the nearest focusable ancestor; with none, the text editing under way ends, as a click on a button
+    /// blurs a page's input, and any other focus stays, as UIKit's buttons leave the first responder. Under
+    /// `retainFocus`, or past a disabled node, the press changes nothing.
+    func focusForPress(target: NodeView?) {
+        guard let presenter, !presenter.contextRetainsFocus(self) else { return }
+        var at: UIView? = self
+        while let view = at, view !== presenter.viewport {
+            if let node = view as? NodeView {
+                if node.disabled { return }
+                if node.focusesOnPress {
+                    if !node.isFirstResponder { node.takeTouchFocus() }
+                    return
+                }
+                if node === target { break }
+            }
+            at = view.superview
+        }
+        if presenter.hasKeyboardEditor { presenter.viewport.endEditing(true) }
+    }
+    /// A finger's touch bubbling from this node reaches a node it pressed
+    private var pressesAnAncestor: Bool {
+        var at = superview
+        while let view = at { if (view as? NodeView)?.pressed == true { return true }; at = view.superview }
+        return false
+    }
+    /// The node a touch landed in: its view, or that view's nearest node
+    static func innermost(_ view: UIView) -> NodeView? {
+        var at: UIView? = view
+        while let candidate = at { if let node = candidate as? NodeView { return node }; at = candidate.superview }
+        return nil
     }
 }
 #endif

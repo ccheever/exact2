@@ -91,8 +91,10 @@ package final class Presenter {
     /// Heavy leaves held mid-fling (LLP 1068 §5.1).
     lazy var leaves = HeavyLeaves(self)
     lazy var flats = FlatLeaves(self)
+    /// The native swipe rows (LLP 1008 §9), a grouped list's included.
+    package lazy var swipeActions = SwipeActionsHost(self)
+    lazy var accent = AppAccent(self)
     /// The native menu arm (LLP 1021 D3).
-    lazy var swipeActions = SwipeActionsHost(self)
     lazy var menus = MenuHost(presenter: self)
     lazy var keyboardToolbars = KeyboardToolbars(self)
     lazy var segments = SegmentHost(self)
@@ -128,11 +130,19 @@ package final class Presenter {
     /// last batch; `onViewportFit` fires when it changes.
     private(set) var viewportFit: String?
     var onViewportFit: (() -> Void)?
-    /// The first root's `interactiveWidget` prop: `resizes-content` ends the
-    /// layout viewport at the keyboard's top (the controller lays out again,
-    /// inside the keyboard's animation, so every frame that moves moves with
-    /// it); anything else is the default, `resizes-visual` — the inset below.
+    /// The first root's `interactiveWidget` prop, as written (`keyboardPolicy`
+    /// is what applies).
     private(set) var interactiveWidget: String?
+    /// The keyboard's policy (LLP 1116 D2): `resizes-content` unless the root
+    /// says otherwise, as a hand-built app avoids the keyboard — the layout
+    /// viewport ends at the keyboard's top (the controller lays out again,
+    /// inside the keyboard's animation, so every frame that moves moves with
+    /// it), so a scroller ends above the keys and the focused field is
+    /// revealed in what is left, as UIKit's keyboard layout guide and
+    /// SwiftUI's keyboard safe area do. The root opts out with the web's
+    /// default, `resizes-visual` (the inset below: the page pans, nothing is
+    /// laid out), or with `overlays-content` (nothing moves).
+    var keyboardPolicy: String { interactiveWidget ?? "resizes-content" }
     /// The keyboard's top edge in the window while one is shown, else nil.
     private(set) var keyboardTop: CGFloat?
     /// The controller's: frame the viewport again (`Controller.fit`).
@@ -151,12 +161,12 @@ package final class Presenter {
     /// before that, a 27.1 device's fold is unknown (LLP 1078 D7).
     var hingeReported = false
     /// The keyboard's inset on the viewport: the points of the screen's
-    /// viewport a software keyboard covers. By default the web's visual
-    /// viewport — the layout viewport does not change; the viewport insets
-    /// its content by this and reveals the field being edited, in the
-    /// keyboard's own animation. Under `resizes-content` the controller
-    /// sets it, measured against the viewport it would frame without a
-    /// keyboard.
+    /// viewport a software keyboard covers. Under `resizes-content` (the
+    /// default) the controller sets it, measured against the viewport it
+    /// would frame without a keyboard. Under `resizes-visual`, the web's
+    /// visual viewport — the layout viewport does not change; the viewport
+    /// insets its content by this and reveals the field being edited, in the
+    /// keyboard's own animation.
     var keyboardInset: CGFloat = 0
 
     var hasKeyboardEditor: Bool {
@@ -257,9 +267,7 @@ package final class Presenter {
     /// The last no-duration keyboard change, waiting to be applied.
     private var keyboardDebounce: DispatchWorkItem?
     var hasPendingKeyboardResize: Bool { keyboardDebounce != nil }
-    /// Apply a waiting no-duration keyboard change now: a stack change that
-    /// waited for the viewport a leaving keyboard frees must not start
-    /// before it (NavigationHost.sync).
+    /// Apply a pending keyboard change before a back swipe fixes its route frames.
     func flushKeyboardResize() {
         guard let work = keyboardDebounce else { return }
         keyboardDebounce = nil
@@ -274,8 +282,8 @@ package final class Presenter {
     }
 
     /// The keyboard's top edge (nil: hidden) takes effect: the viewport is
-    /// inset by the overlap (`resizes-visual`, the default) or laid out to
-    /// end there (`resizes-content`, the controller's `fit`), the field
+    /// laid out to end there (`resizes-content`, the default: the
+    /// controller's `fit`) or inset by the overlap (`resizes-visual`), the field
     /// being edited revealed after — inside an animation with the keyboard's
     /// own duration and curve, so the frames the batch sets are Core
     /// Animation moves in the keyboard's transaction, never a frame behind.
@@ -290,9 +298,9 @@ package final class Presenter {
         guard let window = viewport.window, let parent = viewport.superview else { return }
         keyboardTop = top
         let change = {
-            if self.interactiveWidget == "resizes-content" {
+            if self.keyboardPolicy == "resizes-content" {
                 self.onKeyboardResize?()
-            } else if self.interactiveWidget == "overlays-content" {
+            } else if self.keyboardPolicy == "overlays-content" {
                 let frame = parent.convert(self.viewport.frame, to: window)
                 let overlap = top.map { min(max(0, frame.maxY - max($0, frame.minY)), frame.height) } ?? 0
                 self.keyboardInset = overlap
@@ -322,33 +330,6 @@ package final class Presenter {
         viewport.verticalScrollIndicatorInsets = indicators
     }
 
-    /// Scroll a node into the part of the viewport the keyboard leaves —
-    /// the browser's rule for a focused field — through every scroll
-    /// container above it, each moving only as far as it must, never past
-    /// its edges. Animated by whatever animation block this runs inside.
-    func reveal(_ node: NodeView?) {
-        guard let node, node.window != nil else { return }
-        var v: UIView? = node.superview
-        while let cur = v {
-            var target = cur as? ScrollView
-            if let waiting = cur as? NodeView, waiting.scrollDormant { waiting.needScroll(); target = waiting.scroll }
-            if let sv = target {
-                // The node's box in the container's content space, with a
-                // little air; the visible part of that space.
-                let r = node.convert(node.bounds, to: sv).insetBy(dx: 0, dy: -8)
-                let visible = sv.bounds.inset(by: sv.adjustedContentInset)
-                var o = sv.contentOffset
-                if r.maxY > visible.maxY { o.y += r.maxY - visible.maxY } else if r.minY < visible.minY { o.y -= visible.minY - r.minY }
-                if r.maxX > visible.maxX { o.x += r.maxX - visible.maxX } else if r.minX < visible.minX { o.x -= visible.minX - r.minX }
-                let i = sv.adjustedContentInset
-                o.y = min(max(o.y, -i.top), max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height))
-                o.x = min(max(o.x, -i.left), max(-i.left, sv.contentSize.width + i.right - sv.bounds.width))
-                if o != sv.contentOffset { sv.contentOffset = o }
-            }
-            v = cur.superview
-        }
-    }
-
     /// The viewport's size in points: what the kernel lays out under.
     var viewportSize: CGSize { viewport.bounds.size }
     /// The first root's frame size, zero before the first batch.
@@ -375,6 +356,7 @@ package final class Presenter {
         collections.reset()
         autofocusProcessed.removeAll()
         segments.reset()
+        accent.release()
         groupedLists?.reset()
         controls.reset()
         fieldSelections.reset()
@@ -610,7 +592,7 @@ package final class Presenter {
         scrollPump.settle()
         textRasters.settleVisible(textViews.values.filter { textIsVisible($0) })
     }
-    func requestTextPublication() { scrollPump.requestText() }
+    package func requestTextPublication() { scrollPump.requestText() }
     var onSubmit: ((UInt32) -> Void)?
     var onLoad: ((UInt32) -> Void)?
     var onMessage: ((UInt32, String) -> Void)?
@@ -900,7 +882,7 @@ package final class Presenter {
             case .surface:
                 if let v = views[id] { session?.canvases.surface(view: v, name: op.payload["name"] as? String ?? "", values: op.payload["values"] ?? []) }
             case .canvas2d: if let v = views[id] { canvas2d.apply(id, op.payload, layer: v.layer) }
-            case .svg: if let v = views[id] { svg.scene(id, op.payload, layer: v.layer, dark: v.drawsDark, clock: session?.clock, limit: v.style["dynamic_range_limit"]?.string) }
+            case .svg: if let v = views[id] { svg.scene(id, op.payload, layer: v.layer, dark: v.drawsDark, clock: session?.clock, limit: v.style["dynamic_range_limit"]?.string, tint: v.viewTint) }
             case .animations:
                 if flats.isFlat(id) { flats.promote(id) }
                 svg.animations(id, op.payload, layer: views[id]?.layer, clock: session?.clock)
@@ -941,7 +923,7 @@ package final class Presenter {
                 if let gone, !modals.retainsRemovedView(gone) { gone.removeFromSuperview() }
             case .roots:
                 root.subviews.forEach { $0.removeFromSuperview() }
-                for r in op.ids.compactMap({ views[UInt32($0)] }) { root.addSubview(r) }
+                accent.attach(op.ids.compactMap { views[UInt32($0)] }) { for r in $0 { root.addSubview(r) } }
             case .frame, .content:
                 if flats.isFlat(id) {
                     if kind == .frame { flats.frame(id, CGRect(x: op.x, y: op.y, width: op.w, height: op.h)) }
@@ -993,9 +975,6 @@ package final class Presenter {
         }
         pendingScrolls = pendingScrolls.filter { views[$0]?.pendingScrollTop != nil || views[$0]?.pendingScrollLeft != nil }
         if !flights.isEmpty { flightsBatchApplied() }
-        // A batch that only builds, moves or drops a list's rows changes no
-        // route, header or bar: the projection would come out the same.
-        if !rowsOnly || navigation.syncOwed { navigation.sync(batch) }
         #if os(tvOS)
         menuKey.sync()
         playPauseKey.sync()
@@ -1017,7 +996,12 @@ package final class Presenter {
         // dimmed, deaf to a finger); judge it again where it shows, in its cell.
         if groupedLists?.carriesRows == true { segments.sync() }
         positionContexts()
-        syncAccessibility(changed: changed)
+        // Finish controls and frames before UIKit synchronously lays out the destination.
+        afterBatch { [weak self] in
+            guard let self else { return }
+            if !rowsOnly || navigation.syncOwed { navigation.sync(batch) }
+            syncAccessibility(changed: changed)
+        }
         #if os(iOS)
         syncScrollsToTop()
         #endif
@@ -1092,9 +1076,14 @@ package final class Presenter {
         // Replayed outside a batch (a sheet's dismissal completing): carried
         // rows go back to their authored parents first, as before a batch,
         // so the new box is theirs; the projections remount on the next turn.
+        // Inside one they went back as it began, unless a list laid out in the
+        // batch carried one again: a box replayed then (a sheet closing, LLP
+        // 1116.002 D2) is the row's too, which `restore` would otherwise undo.
         if !applying {
             groupedLists?.prepare()
             requestProjectionSync()
+        } else if groupedLists?.carriesRows == true {
+            groupedLists?.prepare()
         }
         let id = op.id
         guard let v = views[id] else { return }
@@ -1313,9 +1302,9 @@ package final class Presenter {
     }
 
     /// The page's canvas colour — behind the document and into the safe
-    /// areas the layout keeps out of — is the first root's background, as
-    /// Safari paints the root element's background under the status bar
-    /// and the home indicator; white when the root sets none.
+    /// areas the layout keeps out of — is the first root's background, as a
+    /// view controller's view carries its own under the status bar and the
+    /// home indicator; `systemBackground` when it sets none (LLP 1115 D2).
     var onCanvasColor: ((UIColor) -> Void)?
     /// The head's title (LLP 1048.003 D1), for the app adapter that owns the
     /// scene; an embedded view never claims it.

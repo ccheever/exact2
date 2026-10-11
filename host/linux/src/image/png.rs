@@ -1,7 +1,7 @@
 //! PNG row sampling. The caller reserves `cost` before constructing a decoder.
 //! Natural dimensions never depend on the sampled raster's resolution.
 use exact_raster::{
-    DecodeCost, Metadata, PixelSize, Refusal, MAX_ENCODED_BYTES, MAX_HEADER_BYTES,
+    Crop, DecodeCost, Metadata, PixelSize, Refusal, MAX_ENCODED_BYTES, MAX_HEADER_BYTES,
     MAX_SOURCE_PIXELS, SESSION_BYTES,
 };
 use std::io::{BufReader, Read, Seek, SeekFrom};
@@ -157,6 +157,9 @@ pub(super) struct DecodePlan {
     /// The picture's pixels, as cached and charged.
     pub pixels: PixelSize,
     pub cost: DecodeCost,
+    /// The part of the picture `pixels` are, when not all of it
+    /// ([`DecodePlan::part`]).
+    pub crop: Crop,
 }
 impl DecodePlan {
     /// Whether the platform's decoder decodes this (JPEG, GIF, WebP).
@@ -237,7 +240,65 @@ impl DecodePlan {
                 height: pixels.1,
             },
             cost,
+            crop: Crop::default(),
         })
+    }
+    /// This plan cut to `pixels` of it from (`x`, `y`): the same decode,
+    /// which keeps only that part (what a box that clips the picture
+    /// shows). The scratch is the whole decode's; the output is the part.
+    pub fn part(self, x: u32, y: u32, pixels: (u32, u32)) -> Result<Self, Refusal> {
+        let full = self.pixels;
+        if !self.crop.whole()
+            || pixels.0 == 0
+            || pixels.1 == 0
+            || x.checked_add(pixels.0).is_none_or(|r| r > full.width)
+            || y.checked_add(pixels.1).is_none_or(|b| b > full.height)
+        {
+            return Err(Refusal::InvalidDimensions);
+        }
+        if (pixels.0, pixels.1) == (full.width, full.height) {
+            return Ok(self);
+        }
+        let cost = DecodeCost::checked(
+            u64::from(pixels.0) * 4,
+            pixels.1,
+            self.cost.scratch_bytes,
+            0,
+        )?;
+        Ok(Self {
+            pixels: PixelSize {
+                width: pixels.0,
+                height: pixels.1,
+            },
+            cost,
+            crop: Crop { x, y, full },
+            ..self
+        })
+    }
+    /// The plan a key names: its pixels, of the whole picture or a part.
+    pub fn of_key(header: Header, key: &exact_raster::RasterKey) -> Result<Self, Refusal> {
+        if key.crop.whole() {
+            return Self::new(header, (key.pixels.width, key.pixels.height));
+        }
+        let full = Self::new(header, (key.crop.full.width, key.crop.full.height))?;
+        // The whole decode's size is the planner's own, not any size at all.
+        if full.pixels != key.crop.full {
+            return Err(Refusal::InvalidDimensions);
+        }
+        full.part(
+            key.crop.x,
+            key.crop.y,
+            (key.pixels.width, key.pixels.height),
+        )
+    }
+    /// The size the picture is decoded at: `pixels`, or the whole a part is
+    /// cut from.
+    pub fn full(self) -> PixelSize {
+        if self.crop.whole() {
+            self.pixels
+        } else {
+            self.crop.full
+        }
     }
     pub fn natural(self) -> (u32, u32) {
         (
@@ -348,14 +409,18 @@ pub(super) fn decode_rows<R: Read + Seek>(
             }
             // Each destination selects one source pixel, including odd/final
             // Adam7 passes. Only the small output and one source row exist.
-            let oy = (u64::from(y) * u64::from(plan.pixels.height) / u64::from(h)) as u32;
-            for oy in oy.saturating_sub(1)..(oy + 2).min(plan.pixels.height) {
-                let sy = sample(oy, plan.pixels.height, h);
-                if sy != y {
+            // A part of the picture (`DecodePlan::part`) is the same
+            // samples of the whole decode, the ones inside it.
+            let (full, part) = (plan.full(), plan.crop);
+            let oy = (u64::from(y) * u64::from(full.height) / u64::from(h)) as u32;
+            for oy in oy.saturating_sub(1)..(oy + 2).min(full.height) {
+                let sy = sample(oy, full.height, h);
+                if sy != y || oy < part.y || oy - part.y >= plan.pixels.height {
                     continue;
                 }
+                let oy = oy - part.y;
                 for ox in 0..plan.pixels.width {
-                    let sx = sample(ox, plan.pixels.width, w);
+                    let sx = sample(ox + part.x, full.width, w);
                     if sx < x0 || !(sx - x0).is_multiple_of(dx) {
                         continue;
                     }

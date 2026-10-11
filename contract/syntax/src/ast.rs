@@ -633,6 +633,8 @@ pub struct Component {
     pub slot: bool,
     /// `state` declarations.
     pub states: Vec<Binding>,
+    /// The states that say `persist` (LLP 1116 D5), in declaration order.
+    pub persist: Vec<Persist>,
     /// `derive` declarations.
     pub derives: Vec<Binding>,
     /// `resource` declarations.
@@ -661,6 +663,23 @@ impl Component {
             .collect::<Vec<_>>()
             .join(", ");
         format!("`{}` needs {missing}", self.name)
+    }
+}
+
+/// `state name = expr persist` (LLP 1116 D5): a root state the host keeps
+/// across launches; the state's name, and where `persist` is written.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Persist {
+    /// The state's name.
+    pub name: String,
+    /// Where `persist` is written.
+    pub span: Span,
+}
+
+impl Component {
+    /// Whether the state `name` says `persist`.
+    pub fn persists(&self, name: &str) -> bool {
+        self.persist.iter().any(|p| p.name == name)
     }
 }
 

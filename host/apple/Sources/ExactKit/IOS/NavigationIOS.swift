@@ -19,6 +19,9 @@ final class RouteController: UIViewController {
     weak var ownedScroll: NodeView?
     /// The scroller a large title collapses with (LLP 1075.003 Stage 3).
     weak var collapseScroll: NodeView?
+    /// The scroller that is the route's last in-flow child, which reaches
+    /// the screen's bottom edge (LLP 1116 D2).
+    weak var edgeScroll: NodeView?
     /// The targets of the bar items projected from its header.
     var barPresses: [BarPress] = []
     /// The header's search field as UIKit's search controller (§9.6).
@@ -37,32 +40,70 @@ final class RouteController: UIViewController {
         super.viewSafeAreaInsetsDidChange()
         host?.coversChanged()
     }
+    override func viewIsAppearing(_ animated: Bool) {
+        super.viewIsAppearing(animated)
+        // UIKit has attached and sized the real destination. Finish its
+        // content and focus here, before the transition's first frame.
+        host?.presenter.afterBatch { [weak self] in
+            guard let host = self?.host else { return }
+            host.coversChanged()
+            host.presenter.syncAccessibility()
+            host.presenter.paintVisibleText()
+        }
+    }
+
     override func loadView() {
         view = UIView()
-        // The sheet supplies its surface behind transparent authored corners.
-        // Dimming belongs outside that surface, to UIKit's presentation.
-        // A dynamic colour: the route's own background resolved for the
-        // controller's current appearance, re-resolved by UIKit when it
-        // changes (a route loaded before its window has a trait collection
-        // would otherwise keep the light colour in dark mode). A route
-        // without one shows the system background, not white.
+        paintBackdrop()
+        view.addSubview(node)
+    }
+
+    /// The backdrop's colours last written, light and dark.
+    private var backdropKey: [[Double]?]?
+    /// The controller's view paints what shows behind the route. The sheet
+    /// supplies its surface behind transparent authored corners; dimming
+    /// belongs outside that surface, to UIKit's presentation. Otherwise a
+    /// dynamic colour: the route's backdrop (`backdrop`) resolved for the
+    /// controller's current appearance, re-resolved by UIKit when it changes
+    /// (a route loaded before its window has a trait collection would
+    /// otherwise keep the light colour in dark mode), and written again when
+    /// a batch changes it. A route under no background shows the system
+    /// background, not white.
+    func paintBackdrop() {
+        guard isViewLoaded else { return }
+        let modal = node.props["navigationPresentation"] == "modal"
+        let key = modal ? nil : [backdrop(dark: false), backdrop(dark: true)]
+        guard view.backgroundColor == nil || key != backdropKey else { return }
+        backdropKey = key
         #if os(tvOS)
         // tvOS has no system backgrounds; white stands in, as the viewport's.
-        view.backgroundColor = node.props["navigationPresentation"] == "modal"
-            ? .white
-            : UIColor { [weak node] traits in
-                node?.channels("background_color", dark: traits.userInterfaceStyle == .dark).map { TextEngine.color($0) } ?? .white
-            }
+        let system = UIColor.white
         #else
         // A sheet's surface is the platform's (LLP 1115 D2): the route
         // paints its own background, if any, over it.
-        view.backgroundColor = node.props["navigationPresentation"] == "modal"
-            ? .systemBackground
-            : UIColor { [weak node] traits in
-                node?.channels("background_color", dark: traits.userInterfaceStyle == .dark).map { TextEngine.color($0) } ?? .systemBackground
-            }
+        let system = UIColor.systemBackground
         #endif
-        view.addSubview(node)
+        view.backgroundColor = modal ? system : UIColor { [weak self] traits in
+            self?.backdrop(dark: traits.userInterfaceStyle == .dark).map { TextEngine.color($0) } ?? system
+        }
+    }
+
+    /// What shows behind the route where it paints nothing: its own
+    /// background, else the nearest one its logical ancestors paint — its
+    /// tabpanel's, then the boxes up to the root — as the web shows them
+    /// through a transparent route (LLP 1116 D2: a root's
+    /// `-exact-grouped-background` under every screen).
+    func backdrop(dark: Bool) -> [Double]? {
+        let painted = { (n: NodeView) in n.channels("background_color", dark: dark).flatMap { $0.count < 4 || $0[3] > 0 ? $0 : nil } }
+        if let own = painted(node) { return own }
+        guard let host, let root = host.container else { return nil }
+        var next: UIView? = host.logicalParent(of: node)
+        while let v = next {
+            if let n = v as? NodeView, let colour = painted(n) { return colour }
+            if v === root { break }
+            next = v.superview
+        }
+        return nil
     }
     func mount() {
         loadViewIfNeeded()
@@ -157,6 +198,13 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     private var refusedKey: String?
 
     init(presenter: Presenter) { self.presenter = presenter }
+
+    /// The node a route is a child of in the tree, where UIKit holds its
+    /// view elsewhere: the root or, with tabs, its tabpanel.
+    func logicalParent(of route: NodeView) -> NodeView? {
+        guard let owner = logicalChildren.first(where: { $0.value.contains(route.id) })?.key else { return nil }
+        return owner == container?.id ? container : presenter.views[owner]
+    }
 
     /// Logical child-list edits leave declared, retained routes inside their
     /// controllers; newly added or no-longer-declared nodes use normal mounting.
@@ -362,47 +410,6 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         // Mount the destination under a departing presentation before starting
         // dismissal, so its editor can accept the batch's focus handoff.
         let owners = [primaryNavigation].compactMap { $0 } + presentedNavigations
-        // A press that changes a stack with the keyboard up resigns the editor
-        // inside this batch, and the viewport grows only once the batch ends
-        // (Presenter.applyKeyboard), in a resize batch of its own. UIKit fixes
-        // the routes' frames as its transition starts, so the route a pop
-        // revealed was laid out only down to the keyboard's top until the
-        // transition ended: a list's top half, then the rest. The change
-        // waits one turn, for that growth (a swipe drops the keyboard first:
-        // dropKeyboard).
-        // Only the change UIKit animates (the top stack's, with no
-        // presentation opening or closing in the same batch) waits: a
-        // closing sheet's cleanup and the focus it hands over stay in order.
-        let top = owners.count - 1
-        let animatedChange = top >= 0 && top <= common && mounted.count == boundaries.count && !unanimated
-            && owners[top].view.window != nil
-            && !owners[top].viewControllers.elementsEqual(wanted[parts[top]], by: { $0 === $1 })
-        // A presentation opening or closing meanwhile supersedes a wait
-        // already begun: its cleanup and focus handoff go now.
-        if (awaitingKeyboardViewport && mounted.count == boundaries.count) || NavigationRules.waitsForKeyboardViewport(
-            applying: presenter.applying, keyboardShown: presenter.keyboardTop != nil,
-            editing: presenter.hasKeyboardEditor, agentFreezes: ExactEnv.agentFreezes, stackChanges: animatedChange) {
-            pendingSync = true
-            if !awaitingKeyboardViewport {
-                awaitingKeyboardViewport = true
-                DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
-                    // A no-duration hide waits 80 ms to be applied; apply it
-                    // now, while the resize batch's own sync still waits.
-                    presenter.flushKeyboardResize()
-                    awaitingKeyboardViewport = false
-                    guard pendingSync, !changing, !presenter.modals.inTransition else { return }
-                    pendingSync = false
-                    sync(Batch(ops: [], timers: false, motion: false, clock: nil, error: nil))
-                    // The batches that ran meanwhile reconciled autofocus
-                    // with the destination still out of the window. Retry it
-                    // once the transition is over: a keyboard rising as it
-                    // starts would shrink the viewport under frozen frames.
-                    if changing { autofocusOwed = true } else { presenter.syncAccessibility() }
-                }
-            }
-            return
-        }
         for index in 0...common where index < owners.count {
             let nav = owners[index], stack = Array(wanted[parts[index]])
             prepareRoutes(stack, in: nav)
@@ -448,7 +455,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
                                      preceding: preceding, owner: owner)
         }
         if let top = modalNavigation ?? primaryOwner {
-            top.view.frame = root.bounds
+            top.view.frame = ownerFrame(top, in: root)
             if top === primaryOwner { placeOwner() } else { root.bringSubviewToFront(top.view) }
             top.view.layoutIfNeeded()
         }
@@ -509,11 +516,13 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         refitForBars()
     }
 
-    /// A route's safe area moved: report its cover once this turn is done.
+    /// UIKit changed a route's safe area: lay out its content in this call.
     func coversChanged() {
-        guard !coversPending else { return }
+        // sync reports the final containment below; intermediate safe areas
+        // belong to the controller the route is leaving.
+        guard !syncing, !coversPending else { return }
         coversPending = true
-        DispatchQueue.main.async { [weak self] in
+        presenter.afterBatch { [weak self] in
             guard let self else { return }
             coversPending = false
             reportCovers()
@@ -588,7 +597,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
 
     /// Focus waits through controller installation as well as UIKit's push/pop.
     /// `clock settle` observes the asynchronous part under platform timing.
-    var defersFocus: Bool { changing || syncing || mounting || awaitingKeyboardViewport }
+    var defersFocus: Bool { changing || syncing || mounting }
     var inTransition: Bool { defersFocus || pendingSync }
     /// How the last transition ended — `completed` (the Back control was
     /// pressed), `cancelled` (an interactive pop returned), `idle` (a
@@ -606,13 +615,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// A back swipe began with the keyboard up and put it away (see willShow):
     /// its hide is real, and the viewport follows it.
     private var keyboardDropped = false
-    /// A stack change waits a turn for the viewport a leaving keyboard
-    /// frees (see sync).
-    private var awaitingKeyboardViewport = false
     /// The editor a back swipe put away, focused again if the swipe cancels.
     private weak var droppedEditor: UIView?
-    /// Autofocus to retry when the transition a keyboard waited for ends.
-    private var autofocusOwed = false
     /// A cancelled swipe's editor is focused again as didShow settles.
     private var restoresEditor = false
 
@@ -819,7 +823,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// Whether a pop may still begin after dropKeyboard: the blur it caused
     /// was delivered at once and may have changed the route or its Back.
     private var popStillMayBegin: Bool {
-        let may = !changing && !presenter.modals.inTransition && !awaitingKeyboardViewport
+        let may = !changing && !presenter.modals.inTransition
             && (navigation?.viewControllers.count ?? 0) > 1 && back != nil
         // Refused with no transition begun: nothing will reach didShow, so
         // the editor the swipe put away comes back here.
@@ -904,7 +908,6 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             // left a band of it unpainted, or a cancelled pop the source).
             presenter.paintVisibleText()
             presenter.flushPendingFocus()
-            if autofocusOwed { autofocusOwed = false; presenter.syncAccessibility() }
             // After the owed sync above: the blur's own batch arrived during
             // the swipe and left one.
             if restoresEditor { restoresEditor = false; restoreDroppedEditor() } else { droppedEditor = nil }
@@ -992,7 +995,6 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         interactiveTransition = false
         keyboardDropped = false
         droppedEditor = nil
-        autofocusOwed = false
         lastTransition = "idle"
         if clearFocus { presenter.cancelPendingFocus() }
     }

@@ -100,7 +100,9 @@ extension NodeView {
     /// `pointerdown` (LLP 1005 §3): the primary button down on the innermost
     /// enabled node from here up that hears `pointerdown`, `pointerup` or
     /// `pointermove`; it is held until the button comes up, wherever that is,
-    /// and its drags are that node's moves (LLP 1056 §3 stage 3).
+    /// and its drags are that node's moves (LLP 1056 §3 stage 3). Up the
+    /// authored tree: a press in an open popover reaches its ancestors,
+    /// though its view is in the top layer.
     func pointerPressed(_ event: NSEvent?) {
         presenter?.focusByPointer = true
         presenter?.flushHoverMove()
@@ -113,7 +115,7 @@ extension NodeView {
                 if node.handlers.contains("pointerdown") { presenter.pointer(node.id, .down, node.pointerSample(event)) }
                 return
             }
-            next = view.superview
+            next = presenter.menus.parent(of: view)
         }
     }
     /// `pointerup` for the node the button went down on.

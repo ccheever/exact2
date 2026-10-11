@@ -182,7 +182,7 @@ impl Dimension {
 
     /// This length plus `points`, resolved under `env`: what a host's
     /// covered edge adds to an authored padding (LLP 1075.003 §3.5).
-    fn plus(self, env: &Env, points: f32) -> Dimension {
+    pub(crate) fn plus(self, env: &Env, points: f32) -> Dimension {
         match self.resolve(env) {
             Dimension::Auto => Dimension::Points(points),
             Dimension::Points(v) => Dimension::Points(v + points),
@@ -219,7 +219,7 @@ impl Dimension {
 
     /// Rows that do not admit `auto` (padding) lower it to zero; the decoder
     /// already refuses `auto` there, so this arm is unreachable from the wire.
-    fn to_lp(self, env: &Env) -> taffy::style::LengthPercentage {
+    pub(crate) fn to_lp(self, env: &Env) -> taffy::style::LengthPercentage {
         match self.resolve(env) {
             Dimension::Auto => length(0.0_f32),
             Dimension::Points(v) => length(v),
@@ -1363,7 +1363,9 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     // and `none`. With native appearance Chrome additionally ignores its
     // padding; with `none` the authored padding remains in that border box.
     // A select's native UA default is border-box unless the author overrides
-    // it. Other controls keep the reset's content-box semantics.
+    // it, and the web page's field look makes a date, time or local date-time
+    // control one too (LLP 1116.001 D1). Other controls keep the reset's
+    // content-box semantics.
     match crate::ControlKind::of(arena.node_type(slot), arena.props(slot)) {
         Some(crate::ControlKind::Checkbox | crate::ControlKind::Switch) => {
             s.box_sizing = taffy::style::BoxSizing::BorderBox;
@@ -1376,12 +1378,18 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
                 };
             }
         }
-        Some(crate::ControlKind::Select)
-            if arena.style(slot).appearance == crate::Appearance::Auto
-                && !arena.style(slot).mask.has(StyleId::BoxSizing) =>
+        Some(
+            crate::ControlKind::Select
+            | crate::ControlKind::Date
+            | crate::ControlKind::Time
+            | crate::ControlKind::DateTimeLocal,
+        ) if arena.style(slot).appearance == crate::Appearance::Auto
+            && !arena.style(slot).mask.has(StyleId::BoxSizing) =>
         {
             s.box_sizing = taffy::style::BoxSizing::BorderBox;
         }
+        // HTML's UA sheet sizes a determinate `progress` (LLP 1116 D8).
+        Some(crate::ControlKind::ProgressBar) => crate::control::progress_box(arena, slot, &mut s),
         _ => {}
     }
     let direction = arena.computed_source(slot, StyleId::Direction).direction;
@@ -1430,22 +1438,8 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
             s.min_size.height = length(height);
         }
     }
-    // @ref LLP 1075.003 §3.5 — a native container's bars add to the padding
-    // of the route they cover; a box a bar replaces takes no space.
-    match arena.cover(slot) {
-        Some(crate::kernel::HostCover::Whole) => s.display = taffy::style::Display::None,
-        Some(crate::kernel::HostCover::Edges([top, right, bottom, left])) => {
-            let (style, env) = (arena.style(slot), arena.env());
-            let top = top + crate::kernel::header_inset(arena, slot, top);
-            s.padding = taffy::geometry::Rect {
-                top: style.padding_top.plus(env, top).to_lp(env),
-                right: style.padding_right.plus(env, right).to_lp(env),
-                bottom: style.padding_bottom.plus(env, bottom).to_lp(env),
-                left: style.padding_left.plus(env, left).to_lp(env),
-            };
-        }
-        None => {}
-    }
+    // @ref LLP 1075.003 §3.5 — what a native container covers of the box.
+    crate::kernel::apply_cover(arena, slot, &mut s);
     // @ref LLP 1074 T1 — a root is the containing block of every absolutely
     // positioned box no positioned ancestor holds, on every host: a static
     // root is `relative` (its insets apply, as on the web's root element).

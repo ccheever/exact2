@@ -259,6 +259,17 @@ component ColorGallery
             TransitionRow(label="HDR, 1× to 4×", moved=moved, from=one, to=four)
           when host == "web"
             text "The HDR row is not on the web: no browser draws rec2100 colors yet." class=Note padding-top=6
+          text "Accent" class=Section
+          text "The app's accent (on Apple, its catalog's AccentColor), a box's accent-color, one control's own, then auto: the app's again. Nested radii are concentric." class=Legend
+          button "App accent" buttonStyle="filled" press=choose(limit) testId="accent-app" align-self="flex-start"
+          column border-width=1 border-style="solid" border-color="-exact-separator" corner-shape="-exact-continuous" padding=12 row-gap=10 border-radius=32 accent-color="#0a84ff" testId="accent-blue"
+            button "Box: blue" buttonStyle="filled" press=choose(limit) align-self="flex-start"
+            column border-width=1 border-style="solid" border-color="-exact-separator" corner-shape="-exact-continuous" padding=12 row-gap=10 border-radius=20
+              row column-gap=8
+                button "Own: green" buttonStyle="filled" accent-color="#34c759" press=choose(limit) testId="accent-green"
+                button "Inherited" buttonStyle="filled" press=choose(limit)
+              column border-width=1 border-style="solid" border-color="-exact-separator" corner-shape="-exact-continuous" padding=12 row-gap=10 border-radius=8 accent-color="auto"
+                button "auto: the app's" buttonStyle="filled" press=choose(limit) testId="accent-auto" align-self="flex-start"
 
 component LimitControl
   props

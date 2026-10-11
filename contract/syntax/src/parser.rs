@@ -652,6 +652,7 @@ impl Parser {
             provides: Vec::new(),
             slot: false,
             states: Vec::new(),
+            persist: Vec::new(),
             derives: Vec::new(),
             resources: Vec::new(),
             mutations: Vec::new(),
@@ -741,6 +742,12 @@ impl Parser {
                             let expr = self.expr()?;
                             let none = matches!(expr, Expr::None(_));
                             self.type_annotation(&w, &name, if none { "as none" } else { "as" })?;
+                            if let Some(span) = self.persist_word(&w, &name)? {
+                                c.persist.push(Persist {
+                                    name: name.clone(),
+                                    span,
+                                });
+                            }
                             self.newline()?;
                             let b = Binding {
                                 name,

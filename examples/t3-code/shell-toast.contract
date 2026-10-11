@@ -28,7 +28,9 @@ component ToastStack
     hover: action
     act: action
   view
-    column position="absolute" top=(top - 0.375 * rem) right=(right - 0.375 * rem) width=(width + 0.375 * rem) z-index=100 role="region" aria-label="Notifications" testId="toast-region" hover=hover
+    // Base UI's Toast.Viewport: a polite live region named Notifications (role="region", aria-live="polite"); each toast
+    // is a dialog (Toast.Root), AXApplicationDialog since main #457 (adopt-main-fixes-r10 RT-6).
+    column position="absolute" top=(top - 0.375 * rem) right=(right - 0.375 * rem) width=(width + 0.375 * rem) z-index=100 role="region" aria-live="polite" aria-label="Notifications" testId="toast-region" hover=hover
       when expanded
         column width="100%" gap="0.375rem"
           each toast in toasts key=toast.id

@@ -1,7 +1,8 @@
 //! The Canvas host's JNI, once for every app (LLP 1076): an app's library is
 //! its plan, its data source and `exact_linux::canvas_jni!(Data)`, which
-//! defines `dev.exact.bench.exactcanvas.Native`'s methods over a
-//! [`super::CanvasHost`] that lives on the thread that called `start`.
+//! defines `dev.exact.canvas.Native`'s methods (the reader's class,
+//! `host/android/canvas`) over a [`super::CanvasHost`] that lives on the
+//! thread that called `start`.
 //!
 //! The reader may call `start` from a thread of its own as soon as the
 //! process starts (at the size it expects the view to be, `resize` if it
@@ -70,7 +71,7 @@ macro_rules! canvas_jni {
             }
 
             #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_start(
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_start(
                 env: *mut JNIEnv,
                 _class: jclass,
                 width: jint,
@@ -119,7 +120,7 @@ macro_rules! canvas_jni {
             /// `start`, on a thread of its own: the host boots and paints its first
             /// frame while the reader sets up; `adopt` takes it.
             #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_startAsync(
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_startAsync(
                 env: *mut JNIEnv,
                 _class: jclass,
                 width: jint,
@@ -158,7 +159,7 @@ macro_rules! canvas_jni {
 
             /// Take the host `startAsync` booted, waiting for it; whether it booted.
             #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_adopt(
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_adopt(
                 _env: *mut JNIEnv,
                 _class: jclass,
             ) -> jboolean {
@@ -183,7 +184,7 @@ macro_rules! canvas_jni {
 
             /// The view's size in pixels, when it is not the size `start` was given.
             #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_resize(
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_resize(
                 _env: *mut JNIEnv,
                 _class: jclass,
                 width: jint,
@@ -195,7 +196,7 @@ macro_rules! canvas_jni {
             /// A new op stream as a direct ByteBuffer over Rust memory (valid until
             /// the next call), or null when nothing changed.
             #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_frame(
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_frame(
                 env: *mut JNIEnv,
                 _class: jclass,
             ) -> jobject {
@@ -241,7 +242,7 @@ macro_rules! canvas_jni {
             /// list, the scrolled list leading toward `velocity` (px/s). Bit 0: a
             /// paint is wanted; bit 1: rows are left for another slice.
             #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_refine(
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_refine(
                 _env: *mut JNIEnv,
                 _class: jclass,
                 limit: jint,
@@ -260,7 +261,7 @@ macro_rules! canvas_jni {
 
             /// Whether a moved paint owes a paint once scrolling pauses.
             #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_owed(
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_owed(
                 _env: *mut JNIEnv,
                 _class: jclass,
             ) -> jboolean {
@@ -268,7 +269,7 @@ macro_rules! canvas_jni {
             }
 
             #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_animating(
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_animating(
                 _env: *mut JNIEnv,
                 _class: jclass,
             ) -> jboolean {
@@ -276,7 +277,7 @@ macro_rules! canvas_jni {
             }
 
             #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_nextDue(
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_nextDue(
                 _env: *mut JNIEnv,
                 _class: jclass,
             ) -> jdouble {
@@ -284,7 +285,7 @@ macro_rules! canvas_jni {
             }
 
             #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_fds(
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_fds(
                 env: *mut JNIEnv,
                 _class: jclass,
             ) -> jintArray {
@@ -295,7 +296,7 @@ macro_rules! canvas_jni {
             }
 
             #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_scroll(
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_scroll(
                 _env: *mut JNIEnv,
                 _class: jclass,
                 dy: jfloat,
@@ -304,7 +305,7 @@ macro_rules! canvas_jni {
             }
 
             #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_touch(
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_touch(
                 _env: *mut JNIEnv,
                 _class: jclass,
                 action: jint,
@@ -314,8 +315,19 @@ macro_rules! canvas_jni {
                 with(|h| h.touch(action, x, y));
             }
 
+            /// One slice of laying out what the touch that is down would
+            /// open (`CanvasHost::ahead`); whether more is left.
             #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_poll(
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_ahead(
+                _env: *mut JNIEnv,
+                _class: jclass,
+                budget_us: jint,
+            ) -> jboolean {
+                flag(with(|h| h.ahead(budget_us.max(0) as u32)).unwrap_or(false))
+            }
+
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_poll(
                 _env: *mut JNIEnv,
                 _class: jclass,
             ) -> jboolean {
@@ -324,7 +336,7 @@ macro_rules! canvas_jni {
 
             /// Picture `id` (IMAGE_DEF) into an ARGB_8888 bitmap of its size.
             #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_copyImage(
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_copyImage(
                 env: *mut JNIEnv,
                 _class: jclass,
                 id: jint,
@@ -335,7 +347,7 @@ macro_rules! canvas_jni {
 
             /// Picture `id` into a GPU buffer the reader wraps as a hardware bitmap.
             #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_copyImageToBuffer(
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_copyImageToBuffer(
                 env: *mut JNIEnv,
                 _class: jclass,
                 id: jint,
@@ -347,7 +359,7 @@ macro_rules! canvas_jni {
             /// The reader wraps a picture's own GPU buffer (`imageBuffer`): from
             /// now on platform-decoded pictures are decoded into one.
             #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_hardwarePictures(
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_hardwarePictures(
                 _env: *mut JNIEnv,
                 _class: jclass,
                 on: jboolean,
@@ -358,7 +370,7 @@ macro_rules! canvas_jni {
             /// Picture `id`'s own GPU buffer as a `HardwareBuffer` to wrap, or
             /// null when its pixels are on the heap (copy them instead).
             #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_imageBuffer(
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_imageBuffer(
                 env: *mut JNIEnv,
                 _class: jclass,
                 id: jint,
@@ -369,7 +381,7 @@ macro_rules! canvas_jni {
             /// A GPU canvas's window (op 28, kind 3); the window to pass back to
             /// `detachSurface`, or 0.
             #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_attachSurface(
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_attachSurface(
                 env: *mut JNIEnv,
                 _class: jclass,
                 view: jint,
@@ -390,7 +402,7 @@ macro_rules! canvas_jni {
             /// A GPU canvas without a window: it renders into buffers the
             /// reader draws itself (`canvasFrame`, `canvasBuffer`).
             #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_attachBuffers(
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_attachBuffers(
                 _env: *mut JNIEnv,
                 _class: jclass,
                 view: jint,
@@ -405,7 +417,7 @@ macro_rules! canvas_jni {
             /// serial (32); -1 before the first, -2 when this device has no
             /// buffers for it (give it a window).
             #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_canvasFrame(
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_canvasFrame(
                 _env: *mut JNIEnv,
                 _class: jclass,
                 view: jint,
@@ -415,7 +427,7 @@ macro_rules! canvas_jni {
 
             /// That frame's buffer as a `HardwareBuffer` to wrap, or null.
             #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_canvasBuffer(
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_canvasBuffer(
                 env: *mut JNIEnv,
                 _class: jclass,
                 view: jint,
@@ -425,7 +437,7 @@ macro_rules! canvas_jni {
 
             /// The canvas's window is going: no more presenting into it.
             #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_detachSurface(
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_detachSurface(
                 _env: *mut JNIEnv,
                 _class: jclass,
                 view: jint,
@@ -438,7 +450,7 @@ macro_rules! canvas_jni {
             /// A key typed at the focused field: `code` a Unicode scalar, or 0
             /// with `backspace` set; `'\n'` is Enter.
             #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_key(
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_key(
                 _env: *mut JNIEnv,
                 _class: jclass,
                 code: jint,
@@ -450,7 +462,7 @@ macro_rules! canvas_jni {
 
             /// Whether an editable field holds the focus (1), a textarea (3), or none (0).
             #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_editing(
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_editing(
                 _env: *mut JNIEnv,
                 _class: jclass,
             ) -> jint {
@@ -470,7 +482,7 @@ macro_rules! canvas_jni {
             /// a reader on its own thread makes them before the stream that draws
             /// them reaches its main thread.
             #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_pendingPictures(
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_pendingPictures(
                 env: *mut JNIEnv,
                 _class: jclass,
             ) -> jintArray {
@@ -493,7 +505,7 @@ macro_rules! canvas_jni {
             /// Run the calling thread on the cores outside the slowest cluster
             /// (a reader's own exact2 thread); whether it was set.
             #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_fastCores(
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_fastCores(
                 _env: *mut JNIEnv,
                 _class: jclass,
             ) -> jboolean {
@@ -507,7 +519,7 @@ macro_rules! canvas_jni {
             /// An ADPF hint session over `tids` (this process's threads) with
             /// `target_ns` as their work's target; whether there is one.
             #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_hintSession(
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_hintSession(
                 env: *mut JNIEnv,
                 _class: jclass,
                 tids: jintArray,
@@ -526,7 +538,7 @@ macro_rules! canvas_jni {
             /// Input arrived: the hint session's threads are about to work
             /// (`hintSession`); whether a hint was sent.
             #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_inputHint(
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_inputHint(
                 _env: *mut JNIEnv,
                 _class: jclass,
             ) -> jboolean {
@@ -540,7 +552,7 @@ macro_rules! canvas_jni {
             /// Run thread `tid` on the calling thread's CPU until it widens its
             /// own mask (`fastCores`); whether it was set.
             #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_colocate(
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_colocate(
                 _env: *mut JNIEnv,
                 _class: jclass,
                 tid: jint,
@@ -554,7 +566,7 @@ macro_rules! canvas_jni {
 
             /// Thread `tid` on the fast cores only (`fast`), or anywhere again.
             #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_fastThread(
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_fastThread(
                 _env: *mut JNIEnv,
                 _class: jclass,
                 tid: jint,
@@ -565,7 +577,7 @@ macro_rules! canvas_jni {
 
             /// The scroller `scroll` moves (its group's id in the stream), or 0.
             #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_feed(
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_feed(
                 _env: *mut JNIEnv,
                 _class: jclass,
             ) -> jint {
@@ -574,7 +586,7 @@ macro_rules! canvas_jni {
 
             /// System Back: whether the app took it.
             #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_back(
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_back(
                 _env: *mut JNIEnv,
                 _class: jclass,
             ) -> jboolean {

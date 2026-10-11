@@ -351,6 +351,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "caltrain-android"
+version = "0.1.0"
+dependencies = [
+ "caltrain-data",
+ "contract",
+ "exact-bake",
+ "exact-linux",
+]
+
+[[package]]
 name = "caltrain-apple"
 version = "0.1.0"
 dependencies = [
@@ -688,6 +698,7 @@ dependencies = [
  "contract-analyze",
  "contract-syntax",
  "contract-types",
+ "exact-color",
  "exact-kernel",
  "exact-motion",
  "exact-num",
