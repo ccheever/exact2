@@ -642,7 +642,10 @@ extension NavigationHost {
             v.style["display"]?.string != "none" && !["absolute", "fixed"].contains(v.style["position_type"]?.string ?? "")
         }
         let last = c.node.container.subviews.last { ($0 as? NodeView).map(flowing) == true } as? NodeView
-        let target = presenter.viewportFit != "cover" && last?.scroll != nil ? last : nil
+        // One that scrolls vertically: UIKit's bottom inset would let a
+        // sideways carousel scroll up and down.
+        let vertical = ["scroll", "auto"].contains(last?.style["overflow_y"]?.string ?? "")
+        let target = presenter.viewportFit != "cover" && last?.scroll != nil && vertical ? last : nil
         guard c.edgeScroll !== target else { return }
         if let old = c.edgeScroll, let sv = old.scroll, old !== c.collapseScroll { sv.contentInsetAdjustmentBehavior = .never }
         c.edgeScroll = target
