@@ -1,0 +1,23 @@
+files-gutter-parity.test.ts against the feature tip's sources (eb9752918; its two new imports made optional, the base lacks them):
+(fail) FG-1: the Files preview's "+" is Pierre's utility button at the number's right edge > a 20pt #009fff square, radius 4, its plus in the surface's colour, at the reference's x [0.24ms]
+(fail) FG-1: the Files preview's "+" is Pierre's utility button at the number's right edge > it is drawn on the selection's bottom line while one is held, else on the hovered line [0.06ms]
+(fail) FG-1: the Files preview's "+" is Pierre's utility button at the number's right edge > the number takes no pointer and no text selection, so a press in the middle of it selects (it no longer lands on the "+") [0.05ms]
+(fail) FG-2: a drag over the numbers selects lines, and the draft opens at the end of any line selection > the row is named by its id; the gutter cell and the "+" hold the pointer and report the line under it [0.05ms]
+(fail) FG-2: a drag over the numbers selects lines, and the draft opens at the end of any line selection > a click on a number selects its line and opens the draft under it at the release [0.86ms]
+(fail) FG-2: a drag over the numbers selects lines, and the draft opens at the end of any line selection > a drag 1 → 3 paints its lines as it goes, the "+" on the bottom line, and opens the draft at the release [0.23ms]
+(fail) FG-2: a drag over the numbers selects lines, and the draft opens at the end of any line selection > a drag upwards keeps its anchor; the draft goes under the range's last line [0.11ms]
+(fail) FG-2: a drag over the numbers selects lines, and the draft opens at the end of any line selection > a "+" press while the gesture is in flight is its release (one draft) [0.11ms]
+(fail) FG-2: a drag over the numbers selects lines, and the draft opens at the end of any line selection > the old press-only ops are gone [0.11ms]
+(fail) FG-3: split view's empty side is hatched > the gutter part is flat and the code part carries the stripes in the reference's colours, the row the code surface [0.09ms]
+(fail) FG-3: split view's empty side is hatched > 45° stripes rising to the right: the reference's share of the surface and phase, a period that divides the line [0.12ms]
+(fail) FG-4: a press on a gutter closes a skill chip's details > closeChipFromPress closes the newest open press, and nothing when none is open [0.09ms]
+(fail) FG-4: a press on a gutter closes a skill chip's details > the Files gutter: a press that starts a drag and one while the draft is open close it; its moves and release do not [0.08ms]
+(fail) FG-4: a press on a gutter closes a skill chip's details > the thread's Diff panel: a number, a "+" and a press that starts no drag [0.63ms]
+(fail) FG-4: a press on a gutter closes a skill chip's details > the pull request surface's Code tab beside the composer [0.41ms]
+(fail) FG-4: a press on a gutter closes a skill chip's details > every gutter reports its primary presses on the queued sends the drags take [0.07ms]
+ 1 pass
+ 16 fail
+
+files-gutter-parity.test.ts on this branch:
+ 18 pass
+ 0 fail
