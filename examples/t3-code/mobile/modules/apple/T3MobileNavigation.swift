@@ -36,6 +36,18 @@ enum T3MobileNavigation {
             item.compactAppearance = browserAppearance(bar.compactAppearance ?? bar.standardAppearance)
             item.compactScrollEdgeAppearance = browserAppearance(bar.compactScrollEdgeAppearance ?? bar.standardAppearance)
         }
+        // The model root owns its title appearance; child routes keep their own defaults.
+        if route.element("model-settings-title") != nil, let bar = route.navigation?.controller.navigationBar {
+            func modelAppearance(_ existing: UINavigationBarAppearance?) -> UINavigationBarAppearance {
+                let result = existing?.copy() as? UINavigationBarAppearance ?? UINavigationBarAppearance()
+                result.titleTextAttributes[.font] = UIFont.systemFont(ofSize: 17, weight: .bold)
+                return result
+            }
+            item.standardAppearance = modelAppearance(bar.standardAppearance)
+            item.scrollEdgeAppearance = modelAppearance(bar.scrollEdgeAppearance ?? bar.standardAppearance)
+            item.compactAppearance = modelAppearance(bar.compactAppearance ?? bar.standardAppearance)
+            item.compactScrollEdgeAppearance = modelAppearance(bar.compactScrollEdgeAppearance ?? bar.standardAppearance)
+        }
         if route.element("new-task-cancel") != nil {
             item.hidesBackButton = true
             item.leftItemsSupplementBackButton = false
