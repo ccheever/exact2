@@ -44,40 +44,72 @@ extension Agent {
             }
             return false
         }
-        /// Whether a scroller holding `v` could move it out from under `hit`: one that `hit` does not move with,
-        /// with room to scroll toward the side the cover is not on.
-        func reachable(_ v: UIView, hit: UIView?, above: Bool) -> Bool {
+        /// Whether `hit` moves with `sv`'s content: inside it, in a node or a cell, and not stuck in place. A
+        /// scroller's own views (its edge effect, its indicators) stay where the scroller is.
+        func movesWith(_ hit: UIView, _ sv: UIScrollView) -> Bool {
+            guard hit.isDescendant(of: sv), !pinned(hit, upTo: sv) else { return false }
+            var at: UIView? = hit
+            while let cur = at, cur !== sv {
+                if cur is NodeView || cur is UICollectionReusableView { return true }
+                at = cur.superview
+            }
+            return false
+        }
+        /// Whether a scroller holding `v` could move it `by` points away from the side `above` names: one `hit`
+        /// does not move with, with that much room to scroll.
+        func reachable(_ v: UIView, hit: UIView?, above: Bool, by: CGFloat = 0) -> Bool {
             var at = v.superview
             while let cur = at {
-                if let sv = cur as? UIScrollView, sv.isScrollEnabled, !sv.isHidden, !(hit.map { $0.isDescendant(of: sv) && !pinned($0, upTo: sv) } ?? false) {
+                if let sv = cur as? UIScrollView, sv.isScrollEnabled, !sv.isHidden, !(hit.map { movesWith($0, sv) } ?? false) {
                     let i = sv.adjustedContentInset, minY = -i.top, maxY = max(minY, sv.contentSize.height + i.bottom - sv.bounds.height)
-                    if above ? sv.contentOffset.y > minY + 0.5 : sv.contentOffset.y < maxY - 0.5 { return true }
+                    let room = max(0.5, by)
+                    if above ? sv.contentOffset.y > minY + room : sv.contentOffset.y < maxY - room { return true }
                 }
                 at = cur.superview
             }
             return false
         }
+        /// The part of the screen `v` can show in: each scroller holding it cuts its content at its edges.
+        func shown(_ v: UIView) -> CGRect {
+            var r = port, at = v.superview
+            while let cur = at {
+                if let sv = cur as? UIScrollView, sv.clipsToBounds { r = r.intersection(sv.convert(sv.bounds, to: nil)) }
+                at = cur.superview
+            }
+            return r
+        }
         /// What lies over the middle of `v` (box `b` in the window) at rest, if anything else does.
         func cover(_ v: UIView, _ b: CGRect) -> [String: Any]? {
-            // Past the screen's top or bottom where nothing scrolls it in: a column taller than the screen.
-            if b.midY >= port.maxY || b.midY < port.minY {
-                let up = b.midY < port.minY
-                return reachable(v, hit: nil, above: up) ? nil : ["kind": "offscreen", "name": up ? "the top of the screen" : "the bottom of the screen"]
+            // Past the screen's top or bottom, or its scroller's, where nothing scrolls it in: a column taller than
+            // the screen, a row past a scroller's end. Whatever is over that point covers nothing the scroller cut
+            // away: a row past a tab's scroller, under the tab bar the agent paints there, was one (LLP 1116.003).
+            let seen = shown(v)
+            if seen.isNull || b.midY >= seen.maxY || b.midY < seen.minY {
+                let up = seen.isNull ? b.midY < port.midY : b.midY < seen.minY
+                let screen = seen.isNull || b.midY >= port.maxY || b.midY < port.minY
+                return reachable(v, hit: nil, above: up) ? nil : ["kind": "offscreen", "name": "the \(up ? "top" : "bottom") of \(screen ? "the screen" : "its scroller")"]
             }
             let p = CGPoint(x: min(max(b.midX, port.minX + 1), port.maxX - 1), y: min(max(b.midY, port.minY + 1), port.maxY - 1))
             if let top = keyboard, p.y >= top {
                 return reachable(v, hit: nil, above: false) ? nil : ["kind": "keyboard", "name": "the software keyboard"]
             }
             guard let hit = win.hitTest(p, with: nil), hit !== v, !hit.isDescendant(of: v), !v.isDescendant(of: hit) else { return nil }
-            let hb = hit.convert(hit.bounds, to: nil)
-            if reachable(v, hit: hit, above: hb.midY < p.y) { return nil }
-            var owner: UIView? = hit, bar: String? = nil
+            var owner: UIView? = hit, bar: UIView? = nil
             while let cur = owner, !(cur is NodeView) {
-                if Agent.isBar(cur) { bar = String(describing: Swift.type(of: cur)) }
+                if Agent.isBar(cur) { bar = cur }
                 owner = cur.superview
             }
+            // The cover whole — a bar, the node the hit is part of, or a scroller's own view (its edge effect) —
+            // is over the shown part's top half or its bottom half, and a scroller clears it by carrying the middle
+            // past its far edge. The hit alone misjudged a navigation bar, whose title lies below the middle of a
+            // row under the bar, as covering the row from below.
+            let own = (owner as? NodeView)?.scroll.map { hit.isDescendant(of: $0) } ?? false
+            let whole: UIView = bar ?? (own ? hit : owner ?? hit)
+            let cb = whole.convert(whole.bounds, to: nil), above = cb.midY < seen.midY
+            if reachable(v, hit: hit, above: above, by: above ? cb.maxY - p.y : p.y - cb.minY) { return nil }
             let sheet = presenter.modals.coordinateView.map { hit.isDescendant(of: $0) && !v.isDescendant(of: $0) } ?? false
-            var c: [String: Any] = ["kind": bar != nil ? "bar" : sheet ? "sheet" : "node", "name": bar ?? String(describing: Swift.type(of: hit))]
+            let barName = bar.map { String(describing: Swift.type(of: $0)) }
+            var c: [String: Any] = ["kind": barName != nil ? "bar" : sheet ? "sheet" : "node", "name": barName ?? String(describing: Swift.type(of: hit))]
             if bar == nil, let n = owner as? NodeView { c["by"] = Int(n.id) }
             return c
         }
