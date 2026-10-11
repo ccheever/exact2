@@ -465,6 +465,8 @@ component MobileRouteContent
           SettingsHeader(configuration=scheduledHeader.configuration, event=settingsHeaderEvent)
     else when routeName == "settingsThreads"
       SettingsThreadPreferences(data=threadPreferences, colors=settingsData.root.colors, roles=settingsData.root.roles, bottom=settingsData.root.bottom, busy=threadPreferencesChangedPending, change=threadPreferenceChange, preference=changePreference)
+      when focused
+        SettingsHeader(configuration=settingsData.projectHeader, event=settingsHeaderEvent)
     else when routeName == "settingsProjectOverview"
       SettingsProjectOverview(data=projectOverview, colors=settingsData.root.colors, roles=settingsData.root.roles, bottom=settingsData.root.bottom, busy=projectRenamedPending, savedRevision=projectSavedRevision, save=renameProject)
       when focused
