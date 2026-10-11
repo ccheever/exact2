@@ -44,6 +44,7 @@ import { closeFilesystemReader } from './filesystem.mjs';
 import { builtAppMatches, jsTargetBuild } from '../host/web/serve.mjs';
 import { signingOrder } from '../host/apple/assets.mjs';
 import { chromium } from './agent-launch.mjs';
+import { guardFlags, helpText } from './help.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const APPLICATIONS = resolve(homedir(), 'Applications');
@@ -828,11 +829,12 @@ function main(argv) {
   if (!verb || verb === '--help' || verb === '-h' || verb === 'help') return console.log(USAGE);
   if (verb === 'setup') return setup({check: name === '--check'});
   if (verb === 'list') return list();
-  if (verb === 'contract') return process.exit(contract(argv.slice(1)));
-  if (verb === 'hatch') return hatch(argv.slice(1));
+  // The compiler parses its own flags; its help is printed here, so asking compiles nothing (LLP 1116 D4).
+  if (verb === 'contract') return process.exit(argv.includes('--help') || argv.includes('-h') ? (console.log(helpText('contract')), 0) : contract(argv.slice(1)));
+  if (verb === 'hatch') return hatch(guardFlags('hatch', argv.slice(1)));
   if (verb === 'new') {
     // Flags may come before the path: `exact new --game ./my-game`.
-    const args = argv.slice(1), path = args.find(arg => !arg.startsWith('--'));
+    const args = guardFlags(argv.includes('--update') ? 'update' : 'new', argv.slice(1)), path = args.find(arg => !arg.startsWith('--'));
     return newApp(path, {update: args.includes('--update'), game: args.includes('--game'), assets: args.includes('--assets')});
   }
   if (!['run', 'install', 'uninstall', 'release'].includes(verb)) { console.error(`exact: no verb ${verb}\n\n${USAGE}`); process.exit(2); }

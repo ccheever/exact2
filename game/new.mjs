@@ -364,7 +364,8 @@ exact_web::host!(
   ${run} agent web tree  inspect or drive the app
   ${run} ios --run    build and launch on an iOS simulator
   ${run} mac --run    build and launch on this Mac
-  ${run} linux        build the Linux host (then test linux / agent linux, headless anywhere)${deferred ? `
+  ${run} linux        build the Linux host (then test linux / agent linux, headless anywhere)
+  ${run} help         every verb; ${run} <verb> --help gives its flags, ports and an example${deferred ? `
 Cargo.lock is still exact2's: this machine's Cargo cache lacks some of its crates, so the
 first build resolves it, fetching them once (it needs the network then, not now).` : ''}`;
 }
@@ -400,6 +401,7 @@ Commands, from this directory:
 
 | | |
 |---|---|
+| \`bun exact.mjs <verb> --help\`, \`bun exact.mjs help\` | a verb's flags, the ports it opens, whether it stays in the foreground, and an example; the verbs. Read these, not exact2's scripts |
 | \`bun exact.mjs contract types app.contract -o app.contract.d.ts\` | the types \`app.ts\` imports; rerun after changing a source's signature |
 | \`bun exact.mjs contract build app.contract --json\` | compile; \`[]\` or every diagnostic with its range |
 | \`bun exact.mjs contract vocab [name]\` | the tags, attributes and CSS properties Contract accepts |
@@ -497,6 +499,7 @@ Commands, from this directory:
 
 | | |
 |---|---|
+| \`bun exact.mjs <verb> --help\`, \`bun exact.mjs help\` | a verb's flags, the ports it opens, whether it stays in the foreground, and an example; the verbs |
 | \`bun exact.mjs test-rust\` | the hostless Rust tests (\`logic/tests\`) and the determinism lints |
 | \`bun exact.mjs contract build app.contract --json\` | compile; \`[]\` or every diagnostic with its range |
 | \`bun exact.mjs web\` | the web dev loop, at the URL it prints (a game builds the wasm target) |
@@ -625,8 +628,16 @@ if (clash) {
   console.error(\`app.json commands.\${clash}: \${clash} is one of exact.mjs's own verbs; give the app's another name\`);
   process.exit(2);
 }
+// Help (LLP 1116 D4): \`--help\` or \`-h\` among a verb's arguments, \`help [<verb>]\` or no verb prints exact2's own
+// text (its scripts/help.mjs) and starts nothing. An app's own verb gets its arguments as given.
+const asked = !verb || ['help', '--help', '-h'].includes(verb) ? rest.find((a) => !a.startsWith('-')) ?? '' : verbs[verb] && (rest.includes('--help') || rest.includes('-h')) ? verb : null;
+if (asked !== null) {
+  const help = await import(resolve(EXACT2, 'scripts/help.mjs')).catch(() => null);
+  if (!help) { console.error(\`no exact2 at \${EXACT2}: EXACT2 names the checkout\`); process.exit(1); }
+  process.exit(help.printHelp(asked, { verbs: Object.keys(verbs), own }));
+}
 if (!verbs[verb] && !own[verb]) {
-  console.error(\`Usage: bun exact.mjs <\${[...Object.keys(verbs), ...Object.keys(own)].join('|')}> [arguments for that script]\`);
+  console.error(\`Usage: bun exact.mjs <\${[...Object.keys(verbs), ...Object.keys(own)].join('|')}> [arguments for that script]\\nbun exact.mjs help says what each does.\`);
   process.exit(2);
 }
 // The automatic build reports on stderr, so a drive's stdout stays its reply (\`--json\`).
@@ -667,7 +678,12 @@ for (let i = verb === 'test' ? 0 : rest.length; i < rest.length;) {
   if (!found.length) { console.error(\`no test file matches \${named}\`); process.exit(log(2)); }
   tests.push(...found);
 }
-if (drivesWeb) { const built = await run(verbs['web-build'], [], [0, 2, 2]); if (built) process.exit(log(built)); }
+if (drivesWeb) {
+  // A flag the drive does not take is refused before the build, not after it (exact2's scripts/help.mjs).
+  (await import(resolve(EXACT2, 'scripts/help.mjs')).catch(() => null))?.guardFlags(verb, rest);
+  const built = await run(verbs['web-build'], [], [0, 2, 2]);
+  if (built) process.exit(log(built));
+}
 if (own[verb]) { const [command, ...args] = own[verb]; process.exit(log(await spawned(command === 'bun' ? process.execPath : command, [...args, ...rest], 'inherit', import.meta.dir))); }
 if (verb !== 'test') process.exit(log(await run(verbs[verb], rest)));
 let failed = 0;
