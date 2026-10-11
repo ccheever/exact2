@@ -114,7 +114,9 @@ export function mobileComposerSettings(query = '', filter = '', showLegacy = fal
   const runtime = available.some(mode => mode.mode === client.runtimeMode) ? client.runtimeMode : available[0]?.mode ?? client.runtimeMode;
   const runtimes = available.map((mode, index) => ({ id: mode.mode, label: mode.label, description: mode.description, selected: mode.mode === runtime, disabled: !canEdit, last: index === available.length - 1 }));
   const candidate = state.pending && entries.find(entry => entry.provider.instanceId === state.pending!.instanceId && entry.model.slug === state.pending!.model);
-  return { revision: client.revision, open: state.open, busy: state.busy, canEdit, canSave: canEdit && (!state.pending || !!candidate && !candidate.unavailable && !selectionReason(client, candidate.provider, candidate.model)),
+  const canSave = state.open && !state.busy && !client.busy && !client.pending && state.applied === applied(client)
+    && (!state.pending || canEdit && !!candidate && !candidate.unavailable && !selectionReason(client, candidate.provider, candidate.model));
+  return { revision: client.revision, open: state.open, busy: state.busy, canEdit, canSave,
     saveLabel: state.pending ? 'Save' : 'Done', query, filter, showLegacy, hasLegacy: entries.some(entry => entry.model.isLegacy === true),
     empty: models.length ? '' : needle ? 'No matching models' : 'No models available', pending: !!state.pending, models, filters, options, runtimes,
     runtimeLabel: runtimes.find(row => row.selected)?.label ?? '', error: state.error, environmentId: client.environmentId, threadId: client.threadId };
@@ -132,6 +134,14 @@ export async function mobileComposerSettingsAction(kind: string, id: string, val
     if (kind === 'cancel') { state.open = false; state.pending = null; return result('', true); }
     if (kind === 'toggle-provider') { if (!state.expanded.delete(id)) state.expanded.add(id); return result(); }
     if (kind === 'favorite') { const response = await command('favorite-model', id, value); state.error = response.message; return result(response.message); }
+    if (kind === 'save') {
+      if (!state.open) throw new ClientError('The settings session changed. Reopen settings.');
+      if (state.owner !== owner(client) || state.applied !== applied(client)) throw new ClientError('The draft or model changed while settings were open. Reopen settings.');
+      if (!state.pending) {
+        if (client.busy || client.pending) throw new ClientError('Wait for the current settings change to finish.');
+        state.open = false; return result('', true);
+      }
+    }
     if (!editable(client)) throw new ClientError('Wait for a writable connection to synchronize before changing settings.');
     if (kind === 'pick') {
       const entry = catalog(client).find(entry => entry.provider.instanceId === id && entry.model.slug === value);
@@ -152,8 +162,6 @@ export async function mobileComposerSettingsAction(kind: string, id: string, val
     }
     state.busy = true;
     if (kind === 'save') {
-      if (!state.open) throw new ClientError('The settings session changed. Reopen settings.');
-      if (state.owner !== owner(client) || state.applied !== applied(client)) throw new ClientError('The draft or model changed while settings were open. Reopen settings.');
       if (state.pending) {
         const pending = state.pending, entry = catalog(client).find(entry => entry.provider.instanceId === pending.instanceId && entry.model.slug === pending.model);
         if (!entry || entry.unavailable) throw new ClientError('Set up this provider on web or desktop, or select another model.');

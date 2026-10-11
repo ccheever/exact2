@@ -32,6 +32,51 @@ const settings = (f: ReturnType<typeof fixture>, kind: string, id = '', value = 
 const task = (f: ReturnType<typeof fixture>, kind: string, id = '', value = '') => mobileNewTaskAction(kind, id, value, f.native, f.storage, f.client);
 
 describe('mobile staged model/settings ownership', () => {
+  for (const connection of ['read-only', 'disconnected']) {
+    test(`unchanged existing-thread Done closes without writes while ${connection}`, async () => {
+      const f = fixture(); f.client.threadId = 'thread';
+      f.client.local.drafts[f.client.draftKey] = 'Keep this draft';
+      await settings(f, 'open');
+      if (connection === 'read-only') f.client.scopes = [];
+      else f.client.connection = 'disconnected';
+      let fileCalls = 0;
+      f.storage.fs.mkdir = async () => { fileCalls++; };
+      f.storage.fs.readFile = async () => { fileCalls++; return new ArrayBuffer(0); };
+      f.storage.fs.atomicWriteFile = async () => { fileCalls++; };
+      const before = mobileComposerSettings('', '', false, f.client);
+      const result = await settings(f, 'save');
+      expect({ canSave: before.canSave, canEdit: before.canEdit, label: before.saveLabel, result })
+        .toMatchObject({ canSave: true, canEdit: false, label: 'Done', result: { closed: true, message: '' } });
+      expect(mobileComposerSettings('', '', false, f.client).open).toBe(false);
+      expect(f.client.modelId).toBe('a'); expect(f.client.draft).toBe('Keep this draft');
+      expect(f.calls).toHaveLength(0); expect(fileCalls).toBe(0);
+    });
+    test(`pending Save stays staged without writes after becoming ${connection}`, async () => {
+      const f = fixture(); await settings(f, 'open'); await settings(f, 'pick', 'provider', 'b');
+      if (connection === 'read-only') f.client.scopes = [];
+      else f.client.connection = 'disconnected';
+      expect(mobileComposerSettings('', '', false, f.client)).toMatchObject({ canSave: false, pending: true, saveLabel: 'Save' });
+      expect(await settings(f, 'save')).toMatchObject({ closed: false, message: expect.stringContaining('writable') });
+      expect(mobileComposerSettings('', '', false, f.client)).toMatchObject({ open: true, pending: true, saveLabel: 'Save' });
+      expect(f.client.modelId).toBe('a'); expect(f.calls).toHaveLength(0);
+    });
+  }
+  for (const blocked of ['unopened', 'generation', 'draft', 'applied', 'busy', 'pending']) {
+    test(`unchanged Done preserves the ${blocked} fence`, async () => {
+      const f = fixture();
+      if (blocked !== 'unopened') await settings(f, 'open');
+      if (blocked === 'generation') f.client.generation++;
+      if (blocked === 'draft') f.client.projectId = 'p2';
+      if (blocked === 'applied') f.client.modelId = 'b';
+      if (blocked === 'busy') f.client.busy = true;
+      if (blocked === 'pending') f.client.local.pending[f.client.environmentId] = { method: 'orchestration.dispatchCommand', payload: {}, description: 'Pending', threadId: '', text: '', uncertain: true };
+      f.client.scopes = [];
+      expect(mobileComposerSettings('', '', false, f.client).canSave).toBe(false);
+      expect(await settings(f, 'save')).toMatchObject({ closed: false, message: expect.stringContaining(
+        blocked === 'applied' ? 'model changed' : blocked === 'busy' || blocked === 'pending' ? 'current settings change' : 'session changed') });
+      expect(f.calls).toHaveLength(0);
+    });
+  }
   test('search, disclosure and Cancel do not change applied selection; repeated pick preserves pending options', async () => {
     const f = fixture(); await settings(f, 'open');
     expect(mobileComposerSettings('Model B', '', false, f.client).models.filter(row => row.kind === 'model')).toHaveLength(1);
