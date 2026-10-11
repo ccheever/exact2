@@ -275,6 +275,7 @@ Phase 1 probes the chrome across fonts from 11 to 34pt, two families and constra
   - **The box:** `box-sizing` is the UA's, content-box for fields and border-box for buttons (D5).
   - **The authored rows** arrive as inline style, as today.
 - **Button looks:** `buttonStyle`'s web looks (`index.html:62-76`) are 1069.011.001's to change in its step 3. Its D5, for one, lifts line 62's `nowrap`. `bordered`, the default, is the UA button: line 62's `revert` rows already give it the UA's padding, border and font.
+  > **Amended by LLP 1116 D1 (2026-10-10).** `bordered` is no longer the UA button, and a native field no longer keeps the UA's chrome: the page draws a neutral-fill button and a 36 px field with a 1 px line and 8 px corners over the revert (LLP 1116 §4). The marker, the revert and the authored rows' precedence stand.
 - **The size gap:** the cause of the tiny native button is unmeasured. Phase 1 traces it first, with the JS target and the wasm oracle side by side, and fixes it before any app's buttons turn native.
 - **Sizes are the browser's.** Conformance compares the JS target against the wasm oracle in Chrome, and both pages ship this stylesheet. So §4 also compares them with a plain page of the same elements and no Exact stylesheet.
 

@@ -5,6 +5,10 @@
 <base href="/">
 <title>Exact</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- LLP 1116 D8: the page's icon, so a browser never asks for /favicon.ico.
+     Both web builds put the app's first manifest icon here; this neutral
+     square is the icon of an app that declares none. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3.5' fill='%238e8e93'/%3E%3C/svg%3E">
 <!-- Fetched in parallel with glue.js: its import, and the wasm it fetches
      (`fetch` is cors/same-origin; so is `crossorigin` here, same URL). -->
 <link rel="modulepreload" href="./navigation.js">
@@ -53,7 +57,10 @@
   #exact-root [data-exact-text] a[data-view] { display: inline; }
   /* A text node with a heading level is an <h1>–<h6> for the accessibility
      tree; its box is a bare div's, so the UA's heading margins, size and
-     weight go. The node's own style rows, inline, still win. */
+     weight go. A heading's look is its own style rows, which lowering writes
+     from its level: the platform's text style at its emphasized weight, bold
+     for a title (LLP 1115 D3; LLP 1116 D7), the same rows on every host. They
+     win here, inline or as the JS target's classes, as an author's do. */
   h1, h2, h3, h4, h5, h6 { margin: 0; font-size: inherit; font-weight: inherit; }
   #exact-root button:not([data-native]):focus-visible,
   #exact-root input:not([data-native]):focus-visible,
@@ -67,10 +74,17 @@
   input[type="checkbox"], input[type="radio"] { box-sizing: border-box; }
   /* LLP 1104 D4: native buttons inherit the page's typography. Face fields
      use grid areas so a subtitle remains under its title beside a symbol.
-     The empty gap is a real space glyph, D3's declared web approximation. */
-  #exact-root button[data-button-style] { appearance: auto; box-sizing: border-box; cursor: default; white-space: normal; text-align: center; letter-spacing: inherit; word-spacing: normal; text-transform: none; text-shadow: none; font-variant: normal; font-size: var(--exact-control-font-size, inherit); border-radius: var(--exact-control-radius, revert); align-items: center; justify-content: var(--exact-button-align, center); gap: 0; row-gap: 0 !important; column-gap: 0 !important; grid-template-areas: "title" "subtitle"; grid-template-columns: minmax(0,auto); overflow: hidden; -webkit-user-select: none; user-select: none;
-    --exact-control-font-size: initial; --exact-control-radius: initial; --exact-button-align: initial; --exact-button-clamp: initial; --exact-button-title-display: initial; --exact-button-accent-fill: initial; --exact-button-row-gap: initial; --exact-button-column-gap: initial; --exact-button-row-space: " "; --exact-button-column-space: " "; --exact-button-space: var(--exact-button-column-space); --exact-button-leading-areas: initial; --exact-button-leading-subtitle-areas: initial; --exact-button-trailing-areas: initial; --exact-button-trailing-subtitle-areas: initial; --exact-button-columns: initial; --exact-button-space-width: initial; --exact-button-space-height: initial; }
-  #exact-root button[data-button-style]:has(> img) { grid-template-areas: var(--exact-button-leading-areas, "image space title"); grid-template-columns: var(--exact-button-columns, auto auto minmax(0,auto)); }
+     The empty gap is a real space glyph, D3's declared web approximation.
+     LLP 1116 D1: every style has one shape, 8 px corners (a `capsule` corner
+     style still rounds fully), `.5em 1em` and weight 500. The title column
+     keeps its min-content floor, so a narrow row overflows rather than
+     cutting "End session" to "E… s…"; only a title the author keeps to one
+     line (`white-space`, which writes --exact-button-title-min: 0px)
+     truncates. `overflow: clip` clips without making the box a scroll
+     container, whose automatic minimum size would be 0. */
+  #exact-root button[data-button-style] { appearance: auto; box-sizing: border-box; cursor: default; white-space: normal; text-align: center; letter-spacing: inherit; word-spacing: normal; text-transform: none; text-shadow: none; font-variant: normal; font-size: var(--exact-control-font-size, inherit); font-weight: 500; border: none; border-radius: var(--exact-control-radius, 8px); padding: .5em 1em; align-items: center; justify-content: var(--exact-button-align, center); gap: 0; row-gap: 0 !important; column-gap: 0 !important; grid-template-areas: "title" "subtitle"; grid-template-columns: minmax(var(--exact-button-title-min, min-content), auto); overflow: clip; -webkit-user-select: none; user-select: none;
+    --exact-control-font-size: initial; --exact-control-radius: initial; --exact-button-align: initial; --exact-button-clamp: initial; --exact-button-title-display: initial; --exact-button-title-min: initial; --exact-button-accent-fill: initial; --exact-button-row-gap: initial; --exact-button-column-gap: initial; --exact-button-row-space: " "; --exact-button-column-space: " "; --exact-button-space: var(--exact-button-column-space); --exact-button-leading-areas: initial; --exact-button-leading-subtitle-areas: initial; --exact-button-trailing-areas: initial; --exact-button-trailing-subtitle-areas: initial; --exact-button-columns: initial; --exact-button-space-width: initial; --exact-button-space-height: initial; }
+  #exact-root button[data-button-style]:has(> img) { grid-template-areas: var(--exact-button-leading-areas, "image space title"); grid-template-columns: var(--exact-button-columns, auto auto minmax(var(--exact-button-title-min, min-content), auto)); }
   #exact-root button[data-button-style]:has(> [data-exact-text] ~ img) { grid-template-areas: var(--exact-button-trailing-areas, "title space image"); }
   #exact-root button[data-button-style]:has(> img):has(> [data-exact-text] ~ [data-exact-text]) { grid-template-areas: var(--exact-button-leading-subtitle-areas, "image space title" "image space subtitle"); }
   #exact-root button[data-button-style]:has(> [data-exact-text] ~ [data-exact-text] ~ img) { grid-template-areas: var(--exact-button-trailing-subtitle-areas, "title space image" "subtitle space image"); }
@@ -80,17 +94,81 @@
   #exact-root button[data-button-style] > [data-exact-text] ~ [data-exact-text] { grid-area: subtitle; font-size: .8em; color: color-mix(in srgb, currentColor 70%, transparent); }
   #exact-root button[data-button-style] > img { grid-area: image; --exact-tint: currentColor; --exact-symbol-size-authored: 0; --exact-symbol-weight-authored: 0; width: 1em; height: 1em; }
   button[data-button-style][data-pressed] > * { opacity: .5; }
-  #exact-root button:is([data-button-style="plain"], [data-button-style="borderless"], [data-button-style="tinted"], [data-button-style="bordered-tinted"], [data-button-style="filled"], [data-button-style="bordered-prominent"], [data-button-style$="glass"]) { appearance: none; border: none; border-radius: var(--exact-control-radius, revert); padding: .4375em .75em; }
   #exact-root button:is([data-button-style="plain"], [data-button-style="borderless"]) { background: none; color: var(--exact-accent, AccentColor); }
   #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"]) { background: color-mix(in srgb, var(--exact-accent, AccentColor) 15%, transparent); color: var(--exact-accent, AccentColor); }
   #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"]) { background: var(--exact-accent, AccentColor); --exact-button-accent-fill: var(--exact-accent); color: #fff; }
   #exact-root button:is([data-button-style="glass"], [data-button-style="prominent-glass"]) { backdrop-filter: blur(20px) saturate(150%) !important; background: light-dark(#ffffffb3, #262629b3); color: CanvasText; box-shadow: 0 8px 24px #0000000d, inset 0 0 1px light-dark(#ffffffcc, #ffffff33); }
   #exact-root button:is([data-button-style="clear-glass"], [data-button-style="prominent-clear-glass"]) { backdrop-filter: blur(10px) saturate(120%) !important; background: light-dark(#ffffff26, #ffffff1a); color: CanvasText; box-shadow: inset 0 0 1px light-dark(#ffffffcc, #ffffff33); }
   #exact-root button:is([data-button-style="prominent-glass"], [data-button-style="prominent-clear-glass"]) { background: color-mix(in srgb, var(--exact-accent, AccentColor) 85%, transparent); --exact-button-accent-fill: color-mix(in srgb, var(--exact-accent) 85%, transparent); color: #fff; }
+  /* LLP 1116 D1: `bordered` and `gray`, the unsaid button, as Apple draws
+     them: a neutral fill under the accent's ink, darker under the pointer
+     and while pressed (when the face also dims, as above). `destructive` is
+     the system red as the button's accent, so each style draws it: red ink,
+     a red tint, a red fill. An accent-color on the button still wins. */
+  #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]) { background: light-dark(#7676801f, #7676803d); color: light-dark(var(--exact-accent, AccentColor), color-mix(in srgb, var(--exact-accent, AccentColor) 80%, #fff)); }
+  @media (hover: hover) {
+    #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]):not([role="tab"], :disabled):hover { background-color: light-dark(#7676802e, #7676804d); }
+    #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"]):not(:disabled):hover { background-color: color-mix(in srgb, var(--exact-accent, AccentColor) 22%, transparent); }
+    #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"]):not(:disabled):hover { background-color: color-mix(in srgb, var(--exact-accent, AccentColor), #000 10%); }
+  }
+  #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]):not([role="tab"])[data-pressed] { background-color: light-dark(#7676803d, #7676805c); }
+  #exact-root button[data-button-style][data-destructive="true"] { --exact-accent: light-dark(#ff3b30, #ff453a); }
+  /* A content `tablist` of native tabs is a segmented control: a track, the
+     selected tab raised in it. The root tab bar (tabs that name the panel
+     they show, `aria-controls`) is a bar with a top separator, its selected
+     tab in the accent. */
+  :where(#exact-root [role="tablist"]:has(> button[data-button-style][role="tab"]):not(:has(> [aria-controls]))) { background-color: light-dark(#7676801f, #7676803d); border-radius: 9px; padding: 2px; }
+  #exact-root [role="tablist"] > button[role="tab"]:is([data-button-style="bordered"], [data-button-style="gray"]) { background: none; border-radius: 7px; padding: .375em .75em; }
+  #exact-root [role="tablist"] > button[role="tab"]:is([data-button-style="bordered"], [data-button-style="gray"]):enabled { color: CanvasText; }
+  #exact-root [role="tablist"] > button[role="tab"]:not([aria-controls]):is([data-button-style="bordered"], [data-button-style="gray"])[aria-selected="true"] { background: light-dark(#fff, #636366); box-shadow: 0 3px 8px #0000001f, 0 3px 1px #0000000a; }
+  :where(#exact-root [role="tablist"]:has(> [role="tab"][aria-controls])) { background-color: light-dark(#f9f9f9eb, #1d1d1feb); box-shadow: 0 -.5px 0 light-dark(#3c3c434a, #54545899); }
+  #exact-root [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]) { border-radius: 0; }
+  #exact-root [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]):enabled { color: light-dark(#8e8e93, #98989d); }
+  #exact-root [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]):enabled[aria-selected="true"] { color: var(--exact-accent, AccentColor); }
   /* Disabled UA ink, while inline author colours and symbol tint still win. */
   #exact-root button[data-button-style]:disabled { color: GrayText; }
   #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"], [data-button-style$="glass"]):disabled { background-color: var(--exact-button-accent-fill, color-mix(in srgb, var(--exact-accent, AccentColor) 45%, transparent)); }
   #exact-root button:is([data-button-style="plain"], [data-button-style="borderless"], [data-button-style="tinted"], [data-button-style="bordered-tinted"]):disabled { color: var(--exact-accent, GrayText); }
+  /* LLP 1116 D1: the rest of what an author leaves unsaid, as a well-made web
+     app draws it (LLP 1115 §3, amended). Each rule is `:where()`, or sits
+     under one #exact-root to override the reset above it, so the author's
+     rows win: the wasm page writes them inline, and the JS target's classes
+     sit under #exact-root#exact-root.
+     A route's `header` is an app bar: a material over what scrolls under it
+     (a `scroll document` page), a bottom separator, a minimum height. */
+  :where(#exact-root [navigationkey] > header) { position: sticky; top: 0; min-height: 32px; padding: 6px 16px; background-color: light-dark(#f9f9f9eb, #1d1d1feb); backdrop-filter: saturate(180%) blur(20px); box-shadow: 0 .5px 0 light-dark(#3c3c434a, #54545899); }
+  /* A dialog is a card over a dimmed page. An alert (`role="alertdialog"`) is
+     the system's: a fixed width, its title (the label, which assistive
+     technology already reads) over its message, its actions side by side. */
+  :where(#exact-root dialog) { border: none; border-radius: 14px; background-color: light-dark(#fff, #2c2c2e); color: CanvasText; box-shadow: 0 10px 40px #0000004d, 0 0 0 .5px #0000001f; }
+  :where(#exact-root dialog)::backdrop { background-color: #00000066; }
+  :where(#exact-root dialog[role="alertdialog"]) { box-sizing: border-box; width: min(300px, calc(100vw - 32px)); padding: 20px 16px 16px; display: flex; flex-wrap: wrap; gap: 8px; text-align: center; }
+  :where(#exact-root dialog[role="alertdialog"][aria-label])::before { content: attr(aria-label) / ""; flex-basis: 100%; font-weight: 600; font-size: 1.0625em; }
+  :where(#exact-root dialog[role="alertdialog"] > :not(button)) { flex-basis: 100%; font-size: .9375em; }
+  :where(#exact-root dialog[role="alertdialog"] > :not(button):has(+ button)) { margin-bottom: 8px; }
+  #exact-root dialog[role="alertdialog"] > button { flex: 1 1 0; }
+  /* Fields and `select` at a tap size (36 px at the body size) with one look:
+     a 1 px line, 8 px corners, the field's own background. A select's height
+     is its line height, so an authored padding adds to it as to the UA's and
+     its box keeps the recorded rules (kernel/tests/it/browser_controls.rs);
+     its chevron is drawn in its ink. */
+  #exact-root input[data-native], #exact-root textarea[data-native] { border: 1px solid light-dark(#c7c7cc, #48484a); border-radius: 8px; padding: .5em .75em; background-color: light-dark(#fff, #1c1c1e); }
+  #exact-root input[data-native]:disabled, #exact-root textarea[data-native]:disabled { background-color: light-dark(#f2f2f7, #2c2c2e); }
+  #exact-root select:not([multiple]) { appearance: none; font: inherit; letter-spacing: inherit; color: inherit; line-height: 2.125; padding: 0 2em 0 .75em; border: 1px solid light-dark(#c7c7cc, #48484a); border-radius: 8px; background: linear-gradient(45deg, #0000 50%, currentColor 50%) right calc(.75em + 4px) center / 4px 4px no-repeat, linear-gradient(135deg, currentColor 50%, #0000 50%) right .75em center / 4px 4px no-repeat, light-dark(#fff, #1c1c1e); }
+  #exact-root select:not([multiple]):disabled { color: GrayText; }
+  /* A switch where the browser draws none (LLP 1069.001 D1, amended by LLP
+     1116 D1): a track and a thumb in WebKit's box, 38 × 22, which Linux
+     paints too; a browser that styles its own (`::thumb`) keeps it. The box
+     is a block pseudo-element's, so the input shrinks to it and stretches
+     past it as a native control does (the recorded cases, Chrome, Firefox and
+     WebKit alike), and its padding draws nothing, as a native checkbox's.
+     `appearance: none` on the node hands it to the author (no marker). */
+  @supports not selector(::thumb) {
+    #exact-root input[data-exact-switch] { appearance: none; display: inline-block; vertical-align: top; padding: 0 !important; border-radius: 11px; }
+    #exact-root input[data-exact-switch]::before { content: ""; display: block; width: 38px; height: 22px; border-radius: 11px; background: radial-gradient(circle closest-side, #fff 8.5px, #fff0 9.25px) 0 0 / 22px 22px no-repeat, radial-gradient(circle closest-side, #00000038 7px, #0000 11px) 0 1px / 22px 22px no-repeat light-dark(#78788029, #78788052); transition: background-position .2s, background-color .2s; }
+    #exact-root input[data-exact-switch]:checked::before { background-color: var(--exact-accent, AccentColor); background-position: 16px 0, 16px 1px; }
+    #exact-root input[data-exact-switch]:disabled::before { opacity: .5; }
+  }
   /* An indeterminate progress (LLP 1069.001, amended 2026-10-07): HTML's draws a bar, so the page draws the
      platform's spinner instead, the one deliberate divergence from the web's own control: an arc fading to `color`
      in a circle at the shorter side of the content box, centred, a turn a second (UIActivityIndicatorView's period).

@@ -71,6 +71,10 @@ own on the web). This LLP extends it rather than inventing a second mechanism:
   would be a tell (press feedback, keyboard dismissal, scroll-to-top, back navigation).
 - **The web host** keeps resolving roles to the browser's own values, so the web build still
   looks like a well-made web page, which is the web platform's native.
+  > **Amended by LLP 1116 D1 (2026-10-10).** The web host resolves roles to a designed default
+  > look that a web developer would not notice as unstyled (LLP 1116 §4): the browser's bare
+  > button, checkbox switch, plain header and bordered dialog are tells on the web, so the
+  > platform's answer there is a carefully built web app's.
 
 ## 4. What it costs
 

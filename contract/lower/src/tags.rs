@@ -1279,7 +1279,10 @@ impl crate::Lowerer<'_> {
     /// @ref LLP 1115 D3 — a heading is the platform's text style for its
     /// level, as a hand-built screen's would be: 1 `title1`, 2 `title2`, 3
     /// `title3`, 4 and on `headline` (ARIA's default level is 2), at the
-    /// style's size for the root font size and its weight. A level chosen
+    /// style's size for the root font size and its emphasized weight (LLP
+    /// 1116 D7): bold for a title, whose own weight is regular, as Apple's
+    /// emphasized title styles and the web's headings are; `headline`'s own
+    /// semibold. A level chosen
     /// between literals (`aria-level=(top ? 1 : 2)`) chooses between their
     /// styles; any other computed level is 2's. Pushed before the author's
     /// rows, so a written `font-size` or `font-weight` wins; an inherited one
@@ -1307,10 +1310,9 @@ impl crate::Lowerer<'_> {
                 _ => "title2",
             };
             let id = exact_kernel::style::relative::text_style(&format!("-exact-{name}"));
-            (
-                name,
-                exact_kernel::TEXT_STYLES[usize::from(id.expect("a schema text style"))].weight,
-            )
+            let weight =
+                exact_kernel::TEXT_STYLES[usize::from(id.expect("a schema text style"))].weight;
+            (name, if weight == 400 { 700 } else { weight })
         };
         // The level's literal leaves, each mapped; `None` when one is computed.
         fn leaves(e: &Expr, f: &dyn Fn(f64) -> Expr) -> Option<Expr> {
