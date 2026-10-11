@@ -65,8 +65,7 @@ fn cell_markdown(runs: &[markdown_parse::Run]) -> String {
         if run.bold && !run.code {
             text = format!("**{text}**");
         }
-        if !run.href.is_empty() && run.href != NO_HREF && skill_source.is_none() {
-            let href = run.href.strip_prefix(FILE_LINK).unwrap_or(&run.href);
+        if let Some(href) = cell_link(&run.href).filter(|_| skill_source.is_none()) {
             text = format!("[{text}]({href})");
         }
         out.push_str(&text);
@@ -75,6 +74,19 @@ fn cell_markdown(runs: &[markdown_parse::Run]) -> String {
         .collect::<Vec<_>>()
         .join(" ")
         .replace('|', "\\|")
+}
+/// The destination a cell's link copies with: serializeAnchor keeps only an http(s) URL (`if (!/^https?:\/\//i.test(href))
+/// return content;`), so a mailto, irc, xmpp or fragment link copies its text (reply-links review); a file link copies its
+/// source (the chip's `data-markdown-copy`), and a context or citation reference its link, as before.
+fn cell_link(href: &str) -> Option<&str> {
+    if let Some(path) = href.strip_prefix(FILE_LINK) {
+        return Some(path);
+    }
+    let lower = href.to_ascii_lowercase();
+    ["http://", "https://", "t3-context://", "t3-citation://"]
+        .iter()
+        .any(|prefix| lower.starts_with(prefix))
+        .then_some(href)
 }
 fn cell_plain(runs: &[markdown_parse::Run]) -> String {
     runs.iter()

@@ -228,6 +228,24 @@ describe('links from the UI (chatlocal:link-open)', () => {
     await openLinkFromUi(client, refused, 'external', 'https://example.test/tables');
     expect(toasts(client).at(-1)).toMatchObject({ title: 'Unable to open link' });
   });
+  it('a mailto, irc, xmpp or fragment link in a reply opens nothing, the setting and ⌘ aside (reply-links RL-1, RL-2)', async () => {
+    // The reference (measured 2026-10-11, its main process's shell.openExternal and openExternal permission hooked): the
+    // anchor's click is not prevented, its `_blank` reaches setWindowOpenHandler, which opens only safe external URLs
+    // (parseSafeExternalUrl: http(s) and remote editor links), and nothing opens.
+    for (const [preference, modifiers] of [['app', ''], ['system', ''], ['app', 'meta']] as const) {
+      const { client, rpcs, ops, native } = linkClient({ preference, modifiers });
+      for (const url of ['mailto:team@example.test', 'irc://irc.example.test/t3', 'ircs://irc.example.test/t3', 'xmpp:team@example.test', '#notes']) {
+        await chatLocal(client, native, 'link-open', 'link', url);
+      }
+      expect(ops).toEqual([]);
+      expect(rpcs).toEqual([]);
+      expect(toasts(client)).toEqual([]);
+    }
+    // A web link still follows the setting.
+    const { client, ops, native } = linkClient({ preference: 'system' });
+    await chatLocal(client, native, 'link-open', 'link', 'https://example.com/c');
+    expect(external(ops)).toEqual(['https://example.com/c']);
+  });
   it('a link the system browser could not open says so', async () => {
     const { client } = linkClient({ preference: 'system' });
     const native: Native = { available: true, watch() {}, async later(request) { return obj(request).op === 'composerSendIntent' ? { ok: true, generation: 0, value: {} } : { ok: true, generation: 0, value: { opened: false } }; } };
