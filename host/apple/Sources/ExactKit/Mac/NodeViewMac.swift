@@ -45,7 +45,9 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     weak var ghostParent: NodeView?
     let firstDraw: () -> Void
     let kind: String
-    var inlineText: [InlineText] = []
+    var inlineText: [InlineText] = [] { didSet { inlineAccessibility = nil } }
+    /// Its runs' elements, kept until the runs change (`textAccessibilityChildren`).
+    var inlineAccessibility: [NSAccessibilityElement]?
     var inlinePressed: UInt32?
     /// An SVG element a click in this `svg` went down on (LLP 1055.000 D17).
     var svgPressed: UInt32?
@@ -371,6 +373,9 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             setAccessibilityElement(true)
             if let checked = checkedRole { setAccessibilityChecked(checked.role, checked.checked) }
             else { setAccessibilityToggle(pressedState, else: role == "link" ? .link : .button) }
+            // A link's `AXURL` is its `href`, as a run's is (X78).
+            let url = role == "link" ? props["href"].flatMap { URL(string: $0) } : nil
+            if accessibilityURL() != url { setAccessibilityURL(url) }
             setAccessibilitySelected(props["accessibilitySelected"] == "true")
             if let expanded = props["accessibilityExpanded"] { setAccessibilityExpanded(expanded == "true") }
         } else if kind == "image" || role == "img" {

@@ -85,13 +85,16 @@ extension NodeView {
         return paragraph.selectionRects(NSRange(location: lo, length: hi - lo), align: spec.align, in: contentBox(), dirty: bounds)
     }
     func textAccessibilityChildren() -> [Any]? {
-        let interactive = inlineText.filter { !$0.run(dark: drawsDark).hidden && (!($0.props["href"] ?? "").isEmpty || !$0.handlers.isEmpty || $0.props["accessibilityLabel"] != nil) }
-        guard !interactive.isEmpty else { return nil }
-        let text = paragraphText as NSString
-        let children: [Any] = interactive.map { InlineAccessibility(owner: self, run: $0, text: text) }
         #if os(macOS)
-        return children
+        // Made at the first ask and kept until the runs change (`inlineText`):
+        // an element made per ask is invalid to another process, VoiceOver
+        // included, as it is in a hand-built view (X78).
+        let children: [NSAccessibilityElement] = inlineAccessibility ?? inlineElements()
+        inlineAccessibility = children
+        return children.isEmpty ? nil : children
         #else
+        let children: [Any] = inlineElements()
+        guard !children.isEmpty else { return nil }
         let paragraph = UIAccessibilityElement(accessibilityContainer: self)
         paragraph.accessibilityLabel = props["accessibilityLabel"] ?? visibleParagraphText
         paragraph.accessibilityLanguage = presenter?.documentLanguage
@@ -99,6 +102,12 @@ extension NodeView {
         paragraph.accessibilityFrameInContainerSpace = contentBox()
         return [paragraph] + children
         #endif
+    }
+    private func inlineElements() -> [InlineAccessibility] {
+        let interactive = inlineText.filter { !$0.run(dark: drawsDark).hidden && (!($0.props["href"] ?? "").isEmpty || !$0.handlers.isEmpty || $0.props["accessibilityLabel"] != nil) }
+        guard !interactive.isEmpty else { return [] }
+        let text = paragraphText as NSString
+        return interactive.map { InlineAccessibility(owner: self, run: $0, text: text) }
     }
 }
 
