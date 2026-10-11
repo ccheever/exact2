@@ -96,7 +96,7 @@ extension Agent {
         }
         for controller in nav.allNavigations where nav.stacks[ObjectIdentifier(controller)]?.showsBar == true {
             for case let route as RouteController in controller.viewControllers {
-                if let header = HeaderShape(route: route.node, back: nil)?.header, v === header || v.isDescendant(of: header) {
+                if let header = HeaderShape.bar(of: route.node)?.header, v === header || v.isDescendant(of: header) {
                     return "is in the authored header \(shown) UIKit's navigation bar"
                 }
             }

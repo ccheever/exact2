@@ -243,6 +243,27 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertNil(NavigationRules.back(control: nil, declared: false, hearsNavigate: true, beneath: { nil }), "a stack's root")
     }
 
+    /// LLP 1115.000 D5.2, D5.3: a route's bar is its own. Its header when
+    /// that is the bar's; the system Back alone on any other pushed route;
+    /// none on a stack's first route with no such header, and none wherever
+    /// the route says so, which is the only way a pushed route has none.
+    func testARoutesBarIsItsHeaderElseTheSystemBackAloneUnlessItSaysNone() {
+        typealias Bar = NavigationRules.Bar
+        for pushed in [false, true] {
+            XCTAssertEqual(NavigationRules.bar(asked: nil, header: true, pushed: pushed), Bar.header, "a header that is the bar's, whatever is beneath")
+            XCTAssertEqual(NavigationRules.bar(asked: "auto", header: true, pushed: pushed), Bar.header)
+            for header in [false, true] {
+                XCTAssertEqual(NavigationRules.bar(asked: "none", header: header, pushed: pushed), Bar.hidden, "no bar is what the route says")
+            }
+        }
+        XCTAssertEqual(NavigationRules.bar(asked: nil, header: false, pushed: true), Bar.back, "pushed, with no bar of its own: Back alone")
+        XCTAssertEqual(NavigationRules.bar(asked: "", header: false, pushed: true), Bar.back, "an unset word is no request")
+        XCTAssertEqual(NavigationRules.bar(asked: nil, header: false, pushed: false), Bar.hidden, "a stack's first route has nothing to go back to")
+        // tvOS's bar has no Back button to show alone; a header is still its bar.
+        XCTAssertEqual(NavigationRules.bar(asked: nil, header: false, pushed: true, backButton: false), Bar.hidden)
+        XCTAssertEqual(NavigationRules.bar(asked: nil, header: true, pushed: true, backButton: false), Bar.header)
+    }
+
     /// D1: an interactive pop needs a stack to pop, no transition, no sheet,
     /// a Back control, and no context preview.
     func testWhenAPopMayBegin() {

@@ -1497,6 +1497,12 @@
       "name": "accessibilityValueMax",
       "kind": "str",
       "_comment": "@ref LLP 1116 D8: ARIA's `aria-valuemax`, as `accessibilityValueNow`."
+    },
+    {
+      "id": 259,
+      "name": "navigationBar",
+      "kind": "str",
+      "_comment": "@ref LLP 1115.000 D5.2: a route's say over the platform's navigation bar, `none` (a full-bleed screen: no bar, and the edge swipe still pops) or `auto` (the default: the route's header as the bar, else the system Back alone on a pushed route). iOS reads it; hosts with no bar of their own ignore it."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",

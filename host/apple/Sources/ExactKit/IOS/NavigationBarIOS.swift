@@ -9,8 +9,11 @@
 #if os(iOS) || os(tvOS)
 import UIKit
 
-/// What a route's bar item is projected from. A change projects it again.
+/// What a route's bar item is projected from: what it shows of the bar
+/// (its header, the system Back alone, nothing) and that header's parts. A
+/// change projects it again.
 struct BarSource: Equatable {
+    let bar: NavigationRules.Bar
     let header: UInt32?, title: String, level: Int, leading: [String], trailing: [String], group: String, canGoBack: Bool
 }
 
@@ -441,7 +444,7 @@ extension NavigationHost {
         }
         // Hidden for a first route that shows none, before UIKit shows it;
         // `showBar` follows every route from `willShow` on.
-        let shows = barShows(nav) && first.map { HeaderShape(route: $0, back: nil).flatMap(HeaderShape.shown) != nil } ?? false
+        let shows = barShows(nav) && first.map { bar(of: $0, pushed: false) != .hidden } ?? false
         nav.setNavigationBarHidden(!shows, animated: false)
         return nav
     }
@@ -476,15 +479,22 @@ extension NavigationHost {
         #endif
         projectBack(routes, in: nav)
         followTablist(routes, in: nav)
+        let stackShows = barShows(nav)
+        let back = container?.props["navigationBack"]
         for (index, c) in routes.enumerated() {
-            let shows = barShows(nav)
-            let back = container?.props["navigationBack"]
-            // A route with no header, or a hidden one, has no bar (§9.10).
-            let shape = shows ? HeaderShape(route: c.node, back: back, backIsUIKits: index > 0).flatMap(HeaderShape.shown) : nil
+            // The bar is each route's (LLP 1115.000 D5.2, D5.3): its header,
+            // the system Back alone on a pushed route with none of its own
+            // (no header, a hidden one, one that is not a bar's), or no bar
+            // where the route says so or has nothing to go back to.
+            c.pushed = index > 0
+            let shape = stackShows ? HeaderShape.bar(of: c.node, back: back, backIsUIKits: index > 0) : nil
+            let bar = stackShows ? NavigationRules.bar(asked: c.node.props["navigationBar"], header: shape != nil, pushed: index > 0,
+                                                       backButton: Self.barHasBackButton) : .hidden
+            let shows = bar != .hidden
             let canGoBack = index > 0 && canInvokeBack
             let scroll = contentScroll(of: c)
             let dataset = c.node.props["dataset"]
-            let source = BarSource(header: shape?.header.id, title: shape?.title ?? "", level: shape?.level ?? 0, leading: shape?.leading.map(\.source) ?? [],
+            let source = BarSource(bar: bar, header: shape?.header.id, title: shape?.title ?? "", level: shape?.level ?? 0, leading: shape?.leading.map(\.source) ?? [],
                                    trailing: shape?.trailing.map(\.source) ?? [], group: shape?.group?.source ?? "", canGoBack: canGoBack)
             // The hatch runs again after anything Exact wrote to the item (the
             // Back control the route above gives it, too) and when the route
@@ -515,7 +525,10 @@ extension NavigationHost {
     }
 
     /// Write the defaults an authored header gives a navigation item, and
-    /// lift the header out of the route's layout while the bar shows it.
+    /// lift the header out of the route's layout while the bar shows it. A
+    /// route that shows the bar with no header of the bar's (`shape` nil)
+    /// is left UIKit's Back button alone: no title and no items, the
+    /// button's title read from the route beneath, as UIKit reads it.
     private func project(_ shape: HeaderShape?, into c: RouteController, canGoBack: Bool, shows: Bool) {
         let item = c.navigationItem
         if let lifted = c.lifted, lifted !== shape?.header {

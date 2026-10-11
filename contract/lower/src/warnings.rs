@@ -54,7 +54,10 @@ pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
                 out.extend(button.filter(|_| fresh));
                 out.extend(roles::dialog_role(tag, attrs, span).filter(|_| fresh));
                 let keyed = has(attrs, "navigationKey");
-                if in_root && keyed && !has(attrs, "navigationBack") {
+                // A route that says it has no bar (LLP 1115.000 D5.2) draws
+                // its header as written: nothing of it is the bar's to drop.
+                let no_bar = literal(attrs, "navigationBar") == Some("none");
+                if in_root && keyed && !has(attrs, "navigationBack") && !no_bar {
                     route_header(children, &mut out);
                 }
                 if literal(attrs, "role") == Some("tablist") {
@@ -250,6 +253,14 @@ struct Bar {
     unplaced: Vec<(Span, String)>,
 }
 
+/// What iOS makes of a route whose `header` is not the bar (LLP 1115.000
+/// D5.2), in `lower-header-no-bar`'s words.
+const NOT_THE_BAR: &str = "the header is drawn in the page as written, and the bar has no title: a pushed route's holds the system Back button alone, above the header, and a stack's first route has no bar.";
+
+/// The other repair `lower-header-no-bar` names: the route's own chrome.
+const OR_NO_BAR: &str =
+    "; or, if this screen draws its own chrome, say `navigationBar=\"none\"` on the route";
+
 /// `lower-header-unplaced`: a node in a route's first `header` that the
 /// iOS navigation bar does not place (LLP 1075.003 §9.10, LLP 1116 D6). The
 /// bar takes one heading as its title, the first text after it as the
@@ -282,9 +293,9 @@ fn route_header(children: &[Node], out: &mut Vec<LowerError>) {
             out.push(LowerError {
                 id: "lower-header-no-bar",
                 message: if bar.headings == 0 {
-                    "this route's `header` holds no heading, so on iOS it is not the navigation bar: the route shows no bar (no title, no Back button) and the header is drawn in the page as written. Give it one `text role=\"heading\"` (`aria-level=1` for a large title) — its buttons become the bar's items (docs/recipes/navigation-stack.md)".to_string()
+                    format!("this route's `header` holds no heading, so on iOS it is not the navigation bar: {NOT_THE_BAR} Give it one `text role=\"heading\"` (`aria-level=1` for a large title) — its buttons become the bar's items{OR_NO_BAR} (docs/recipes/navigation-stack.md)")
                 } else {
-                    format!("this route's `header` holds {} headings, so on iOS it is not the navigation bar: the route shows no bar (no title, no Back button) and the header is drawn in the page as written. Keep one `text role=\"heading\"` and make the others plain `text` (the first text after the heading is the bar's subtitle), or move them below the `header` (docs/recipes/navigation-stack.md)", bar.headings)
+                    format!("this route's `header` holds {} headings, so on iOS it is not the navigation bar: {NOT_THE_BAR} Keep one `text role=\"heading\"` and make the others plain `text` (the first text after the heading is the bar's subtitle), or move them below the `header`{OR_NO_BAR} (docs/recipes/navigation-stack.md)", bar.headings)
                 },
                 span: header.span(),
             });

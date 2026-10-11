@@ -100,17 +100,29 @@ const NO_BAR: &str = "lower-header-no-bar";
 
 #[test]
 fn a_header_with_no_heading_or_two_is_named_as_no_bar() {
-    // No heading, or two: on iOS the route has no bar, its header drawn as
-    // written; nothing in it is called unplaced (LLP 1116.003 D2.2).
+    // No heading, or two: on iOS the header is no bar and is drawn as
+    // written; nothing in it is called unplaced (LLP 1116.003 D2.2). The
+    // bar it leaves is the system Back alone on a pushed route (LLP
+    // 1115.000 D5.2), and the message names the way to have none.
     let none = route("  text \"one\"\n  button press=go testId=\"add\"\n    text \"Add\"");
     assert_eq!(warned(&none), [(NO_BAR.to_string(), 11)]);
     let (_, warnings) = contract::compile_warned(&none);
     assert!(
         warnings[0].message.contains("holds no heading")
-            && warnings[0].message.contains("no Back button")
-            && warnings[0].message.contains("one `text role=\"heading\"`"),
+            && warnings[0]
+                .message
+                .contains("holds the system Back button alone")
+            && warnings[0].message.contains("one `text role=\"heading\"`")
+            && warnings[0].message.contains("`navigationBar=\"none\"`"),
         "{warnings:?}"
     );
+    // A route that says it has no bar draws its header as written: nothing
+    // to warn of, whatever the header holds.
+    let said = none.replace(
+        "column navigationKey=`${e.id}`",
+        "column navigationKey=`${e.id}` navigationBar=\"none\"",
+    );
+    assert_eq!(warned(&said), []);
     let two = route("  text \"A\" role=\"heading\" aria-level=1\n  text \"B\" role=\"heading\" aria-level=2\n  image \"symbol:heart\"");
     assert_eq!(warned(&two), [(NO_BAR.to_string(), 11)]);
     let (_, warnings) = contract::compile_warned(&two);

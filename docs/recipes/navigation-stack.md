@@ -8,10 +8,13 @@ contract blocks below are one app; each route block fills its `when` in the firs
 A `header` is the bar when it is the route's first child and holds exactly one heading
 (`text role="heading"`): the heading is the title (large at `aria-level=1`), buttons
 before it lead and after it trail, the first text after it is the subtitle, and the rest
-of the header is hidden. With no heading or two the route has no bar, no title and no
-Back button, and the header draws in the page. Each route's bar is its own: a stack
-whose first route has none still shows a later route's. `contract vocab header` states
-it whole, and the compiler warns (`lower-header-no-bar`, `lower-header-unplaced`).
+of the header is hidden. With no heading or two the header is no bar and draws in the
+page. Each route's bar is its own: a stack whose first route has none still shows a
+later route's, and a pushed route with no bar of its own (no header, or one that is no
+bar) gets a bar holding the system Back button alone. A full-bleed screen that draws
+its own way back says `navigationBar="none"` on its route: no bar, and the edge swipe
+still goes back. `contract vocab header` states it whole, and the compiler warns
+(`lower-header-no-bar`, `lower-header-unplaced`).
 
 <!-- check: app -->
 ```contract

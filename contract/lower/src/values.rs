@@ -1107,6 +1107,16 @@ pub(crate) fn check_prop_value(
             span,
         );
     }
+    // @ref LLP 1115.000 D5.2 — no bar is something a route says, in one word.
+    if prop == PropId::NavigationBar
+        && matches!(value, Expr::Str(s, _) if !matches!(s.as_str(), "none" | "auto"))
+    {
+        return err(
+            "lower-attr-value",
+            "`navigationBar` takes \"none\" (this route shows no navigation bar: a full-bleed screen that draws its own way back) or \"auto\" (the platform's bar, the default)",
+            span,
+        );
+    }
     if prop == PropId::FocusGuide && matches!(value, Expr::Str(s, _) if s != "auto") {
         return err("lower-attr-value", "`focusGuide` takes \"auto\"", span);
     }

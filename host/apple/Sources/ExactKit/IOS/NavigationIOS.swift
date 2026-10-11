@@ -14,6 +14,10 @@ final class RouteController: UIViewController {
     /// lifted into the bar; the content scroll view a hatch was handed.
     var projectedSource: BarSource?, projected: HatchSource?, backSource: String?
     var hatched = false
+    /// Whether a route of its stack is beneath it, to go back to: written
+    /// as the stack's routes are prepared, before UIKit shows any of them
+    /// (`NavigationRules.bar`).
+    var pushed = false
     weak var lifted: NodeView?
     weak var host: NavigationHost?
     weak var ownedScroll: NodeView?
