@@ -1251,6 +1251,17 @@ an `href` (the web's `<a>`, which `disabled` does not touch). Tab and Shift-Tab 
 and wrap on the web, macOS, iPadOS's hardware keyboard and Linux; tvOS's remote skips a
 negative value and keeps UIKit's geometric order.
 
+On the Mac which elements are stops by kind follows the person's Keyboard navigation
+setting (System Settings ▸ Keyboard), as in every Mac app. Off, the default, Tab moves
+between text fields and what takes keys of its own (a box that is no button with
+`focus`, `blur` or `key` handlers, a canvas that takes input): a `button`, a pressable
+box and a radio group are passed over. On, Tab reaches every control. A `tabindex` you
+write wins either way: `0` or more is always a stop, a negative one never. A button that
+`focus(id)` or `autofocus` reached while it is no stop still goes on to the next stop
+with Tab, and back to the one before with Shift-Tab. Under the agent the setting is the
+drive's, off unless it says `prefer keyboard-navigation true` (`state.focus.keyboardNavigation`
+reads it); a `type <id> key Tab` after that walks every control.
+
 ## Host commands
 
 The current command name inventory is:

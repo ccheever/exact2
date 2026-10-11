@@ -1231,72 +1231,13 @@ package final class Presenter {
         }
     }
 
-    /// The same editing descendant takes explicit, sequential and modal focus.
-    func keyView(of v: NodeView) -> NSView {
-        if v.kind == "native", let target = session?.natives.focusTarget(v) { return target }
-        if v.isNativeButton, let button = controls.controls[v.id] as? NativeButtonMac { return button }
-        return v.textArea ?? v.field ?? v
-    }
-
-    /// Sequential focus after a batch: tree order, then `tabIndex` > 0, as
-    /// HTML. `autorecalculatesKeyViewLoop` stays false so nothing is focused
-    /// at launch (LLP 1014); Tab from the viewport still reaches the first
-    /// tabbable. Hidden popover rows stay out (their container is hidden).
-    /// Whether a batch changed what the key-view loop is built from.
+    /// The key-view loop (KeyViewLoopMac.swift): whether a batch changed
+    /// what it is built from, the Keyboard Navigation setting it was built
+    /// for, and for each view that can hold the focus and is no stop, the
+    /// stop before it (where Shift-Tab goes).
     var keyViewLoopStale = false
-
-    /// Rebuild the key-view loop if a batch left it stale: called for each
-    /// key event before AppKit reads `nextKeyView` (the view's monitor, and
-    /// the agent's `type`, which sends to the window directly).
-    func flushKeyViewLoop() {
-        guard keyViewLoopStale else { return }
-        keyViewLoopStale = false
-        syncKeyViewLoop()
-    }
-
-    func syncKeyViewLoop() {
-        var listed: [NodeView] = []
-        // A paragraph selected by a click is where Tab starts from, as on the
-        // web: it points on to the next stop after it, and no stop to it.
-        var starts: [(NodeView, Int)] = []
-        func walk(_ v: NodeView) {
-            if v.inert || v.isHidden { return }
-            if Self.tabbable(v) { listed.append(v) } else if v.isParagraph { starts.append((v, listed.count)) }
-            for child in v.container.subviews.compactMap({ $0 as? NodeView }) { walk(child) }
-            for popover in menus.following(v) { walk(popover) }
-        }
-        if let dialog = dialogs.active { walk(dialog) }
-        else { for r in root.subviews.compactMap({ $0 as? NodeView }) { walk(r) } }
-        let tabbable = listed.enumerated().sorted { a, b in
-            let ia = a.element.tabOrder, ib = b.element.tabOrder
-            let pa = ia > 0 ? ia : Int.max, pb = ib > 0 ? ib : Int.max
-            if pa != pb { return pa < pb }
-            return a.offset < b.offset
-        }.map(\.element)
-        // First, so the loop's own links below decide each stop's previous.
-        for (paragraph, next) in starts {
-            paragraph.nextKeyView = tabbable.isEmpty ? nil : keyView(of: next < listed.count ? listed[next] : tabbable[0])
-        }
-        if tabbable.isEmpty {
-            viewport.nextKeyView = nil
-            return
-        }
-        for (i, v) in tabbable.enumerated() {
-            keyView(of: v).nextKeyView = keyView(of: tabbable[(i + 1) % tabbable.count])
-        }
-        viewport.nextKeyView = keyView(of: tabbable[0])
-    }
-
-    /// A Tab stop (LLP 1088 D7.3): an explicit `tabindex` ≥ 0 or what is
-    /// one by kind; an explicit negative never, though it still takes a click.
-    static func tabbable(_ v: NodeView) -> Bool {
-        if v.formDisabled || v.cssVisibilityHidden { return false }
-        if let index = v.explicitTabIndex, index < 0 { return false }
-        if v.field != nil || v.textArea != nil { return true }
-        if v.kind == "native", v.presenter?.session?.natives.focusTarget(v) != nil { return true }
-        if v.isButton || v.kind == "toggle" || v.pressable { return true }
-        return v.canBecomeKeyView
-    }
+    var keyViewLoopMode: Bool?
+    let keyViewBefore = NSMapTable<NSView, NSView>.weakToWeakObjects()
 
     /// An op touched a node (LLP 1014 D4 a): every canvas it is painted
     /// through captures again at the end of the batch — the canvas above

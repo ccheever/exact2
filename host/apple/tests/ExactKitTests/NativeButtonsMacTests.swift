@@ -12,6 +12,8 @@ final class NativeButtonsMacTests: XCTestCase {
     private var window: NSWindow!
 
     override func tearDown() { window?.close(); window = nil }
+    /// Tab reaches the buttons here: Keyboard Navigation on (LLP 1115.000 D7.2).
+    override func setUp() { super.setUp(); keyboardNavigation(true) }
 
     private func presenter(_ ops: [[String: Any]], faces: [UInt32: ButtonFace]) -> Presenter {
         _ = NSApplication.shared

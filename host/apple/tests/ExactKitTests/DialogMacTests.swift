@@ -6,6 +6,8 @@ import XCTest
 final class DialogMacTests: XCTestCase {
     private var window: NSWindow!
     override func tearDown() { window?.close(); window = nil }
+    /// These cases walk a dialog's Tab through its buttons: Keyboard Navigation on (LLP 1115.000 D7.2).
+    override func setUp() { super.setUp(); keyboardNavigation(true) }
 
     private func fixture() -> Presenter {
         _ = NSApplication.shared

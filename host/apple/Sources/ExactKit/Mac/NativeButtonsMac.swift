@@ -32,13 +32,15 @@ final class NativeButtonMac: NSButton {
     var isGlass = false
     /// The look drawn, its name in the table's macOS column.
     var drawn = "push"
-    // @ref LLP 1104 D6 — independent of AppKit's Keyboard navigation setting.
+    // @ref LLP 1104 D6; LLP 1115.000 D7.2 — it takes the focus an action or
+    // `autofocus` gives it whatever Keyboard Navigation says, and is a Tab
+    // stop as that setting has an `NSButton` (`NodeView.tabStop`).
     override var acceptsFirstResponder: Bool {
         guard let owner else { return false }
         return !refusesFirstResponder && isEnabled && !owner.formDisabled && !owner.inert
             && !isHiddenOrHasHiddenAncestor && !owner.cssVisibilityHidden
     }
-    override var canBecomeKeyView: Bool { acceptsFirstResponder && owner?.tabbable == true }
+    override var canBecomeKeyView: Bool { acceptsFirstResponder && owner?.tabStop == true }
     /// A click gives the button the focus only where its author wrote a
     /// `tabindex` (LLP 1115.000 D7.1: what the author writes wins, as on iOS,
     /// where a touch focuses no other button), and not under `retainFocus`.
@@ -61,9 +63,7 @@ final class NativeButtonMac: NSButton {
         guard acceptsFirstResponder, let owner else { return }
         let name = NodeView.keyName(event)
         if name == "Tab", event.modifierFlags.intersection([.command, .control, .option]).isEmpty, let window {
-            owner.presenter?.flushKeyViewLoop()
-            if event.modifierFlags.contains(.shift) { window.selectPreviousKeyView(self) }
-            else { window.selectNextKeyView(self) }
+            owner.presenter?.tab(from: self, back: event.modifierFlags.contains(.shift), in: window)
             return
         }
         // Space presses the focused control. Return is the default button's

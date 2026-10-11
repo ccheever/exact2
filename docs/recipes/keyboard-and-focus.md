@@ -92,6 +92,9 @@ test "Return in the add field adds and keeps typing"
   there is a query too: on the web, pressing it blurs the field first. On the Mac a
   click on a button leaves the focus in the field, as AppKit's buttons do, so say
   `blur()` or `focus("id")` in the action when the press should move it.
+- **Tab** moves between the fields. On the Mac it reaches the buttons too only where the
+  person has turned Keyboard navigation on in System Settings, as in every Mac app; a
+  `tabindex=0` you write makes a control a stop whatever the setting.
 - **On scroll:** `keyboardDismissMode="interactive"` on the `list` or `scroll` lets a drag
   pull the keyboard down, as Messages does; `"on-drag"` puts it away as the drag starts;
   without it the keyboard stays, as UIKit's default. A composer that rides above the

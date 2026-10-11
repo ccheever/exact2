@@ -115,7 +115,8 @@ extension Agent {
     /// and the routes as the props declare them — macOS projects nothing
     /// natively, so the stack is the rule's prefix and the phase is idle.
     func stateSections() -> [String: Any] {
-        var focus: [String: Any] = ["logical": NSNull(), "editor": NSNull(), "responder": NSNull(), "pending": NSNull()]
+        // `keyboardNavigation`: the mode Tab is in (LLP 1115.000 D7.2), the drive's (`prefer keyboard-navigation`), never the machine's.
+        var focus: [String: Any] = ["logical": NSNull(), "editor": NSNull(), "responder": NSNull(), "pending": NSNull(), "keyboardNavigation": KeyboardNavigation.on]
         let responder = presenter.viewport.window?.firstResponder
         if let node = presenter.views.values.filter({ n in
             session.natives.ownsFocus(n) || presenter.keyTarget(responder) === n

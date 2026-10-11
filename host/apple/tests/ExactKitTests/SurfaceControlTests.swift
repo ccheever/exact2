@@ -99,6 +99,7 @@ final class SurfaceControlTests: XCTestCase {
         withExtendedLifetime(window) {}
     }
     func testR15PointerButtonReturnsSpaceToCanvasAndKeyboardKeepsFocus() {
+        keyboardNavigation(true) // Tab reaches the button below (LLP 1115.000 D7.2)
         let (s, canvas, button) = fixture(); defer { s.destroy() }
         button.props.removeValue(forKey:"action"); button.handlers.insert("press")
         let window=NSWindow(contentRect:NSRect(x:0,y:0,width:400,height:200),styleMask:[.borderless],backing:.buffered,defer:false)

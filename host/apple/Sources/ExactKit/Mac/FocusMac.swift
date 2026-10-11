@@ -23,10 +23,10 @@ extension NodeView {
         return kind == "button" || isNativeButton || canvases?.wantsInput(id) == true || pressable || !handlers.isDisjoint(with: Self.focusEvents)
             || reorderKeys || radioTabStop // a grouped grip takes the keys (LLP 1094 D9); a radio group one stop (x2apps survey #2)
     }
-    /// Sequential focus follows the web: a button is in the loop even when
-    /// macOS "Keyboard navigation" is off (that setting would otherwise
-    /// skip every non-field).
-    package override var canBecomeKeyView: Bool { acceptsFirstResponder && tabbable }
+    /// Sequential focus honours macOS "Keyboard navigation" (LLP 1115.000
+    /// D7.2; `tabStop`, KeyViewLoopMac.swift): off, a button is no key view,
+    /// as an `NSButton` is none; a `tabindex` the author wrote still decides.
+    package override var canBecomeKeyView: Bool { acceptsFirstResponder && tabStop }
     package override func becomeFirstResponder() -> Bool {
         guard !formDisabled else { return false }
         let ok = super.becomeFirstResponder()
@@ -67,10 +67,7 @@ extension NodeView {
     /// `retainFocus`, on it or above it, still keeps the focus where it was.
     /// An `autofocus` and an action's `focus()` move it to any of them.
     var takesClickFocus: Bool {
-        guard acceptsFirstResponder, !retainsFocus else { return false }
-        if explicitTabIndex != nil { return true }
-        if isButton || isRadio { return false }
-        return canvases?.wantsInput(id) == true || !handlers.isDisjoint(with: Self.focusEvents)
+        acceptsFirstResponder && !retainsFocus && (explicitTabIndex != nil || takesKeysOfItsOwn)
     }
     /// How AppKit is told: before it hands a view the mouse-down, its window
     /// makes that view first responder when it accepts first responder and

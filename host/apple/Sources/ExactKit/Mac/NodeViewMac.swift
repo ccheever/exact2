@@ -229,12 +229,9 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             }
         }
         let name = NodeView.keyName(event)
-        // Sequential focus from every stop, as on the web: AppKit moves on from
-        // a non-text view only with macOS "Keyboard navigation" on, while
-        // Exact's loop holds buttons and native editors either way.
+        // Sequential focus from here, a stop or not (KeyViewLoopMac.swift): which views are stops follows macOS "Keyboard navigation" (LLP 1115.000 D7.2).
         if name == "Tab", event.modifierFlags.intersection([.command, .control, .option]).isEmpty, let window {
-            presenter?.flushKeyViewLoop()
-            if event.modifierFlags.contains(.shift) { window.selectPreviousKeyView(self) } else { window.selectNextKeyView(self) }
+            presenter?.tab(from: self, back: event.modifierFlags.contains(.shift), in: window)
             return
         }
         if reorderKey(name) || presenter?.controls.radioKey(self, name, held: KeyCodes.held(event.modifierFlags)) == true { return }

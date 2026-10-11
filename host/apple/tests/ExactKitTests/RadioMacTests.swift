@@ -17,6 +17,8 @@ final class RadioMacTests: XCTestCase {
     private var heard: [String] = []
 
     override func tearDown() { window?.close(); window = nil }
+    /// A radio group is one Tab stop where Tab reaches controls: Keyboard Navigation on (LLP 1115.000 D7.2).
+    override func setUp() { super.setUp(); keyboardNavigation(true) }
 
     private static let values: [UInt32: String] = [2: "red", 3: "green", 4: "gray", 5: "blue"]
 
