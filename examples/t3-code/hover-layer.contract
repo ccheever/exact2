@@ -112,13 +112,15 @@ component HoverLayer
 // keeps the original placement when no fallback fits.
 fn hoverFlip(side: string, other: string, room: number, otherRoom: number, need: number): string = need <= room or (need > otherRoom and room >= otherRoom) ? side : other
 
-// TooltipPopup (CnTooltip's look): the words, max-w-80, taking no pointer.
+// TooltipPopup (CnTooltip's look): the words, max-w-80 wrap-anywhere, taking no pointer. A word wider than the bubble (a
+// commit link's URL) breaks inside the bubble, as the reference's does, instead of running past it and the window
+// (unverified-real-input-rows UV-3).
 component HoverText
   props
     tip: HoverTip
   view
     column max-width="20rem" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" pointer-events="none" role="tooltip" testId=tip.testId
-      text tip.text font-size="0.75rem" line-height="1rem" white-space="pre-wrap" color="light-dark(#27272a, #f5f5f5)"
+      text tip.text font-size="0.75rem" line-height="1rem" white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#27272a, #f5f5f5)"
 
 // AccessScopeSummary's PopoverPopup (side top, align start, tooltipStyle, w-max max-w-80): "Granted
 // scopes", then each scope in mono, after the trigger's 250 ms delay.
