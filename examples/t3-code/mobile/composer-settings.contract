@@ -76,12 +76,13 @@ component ComposerChoices
     choose: action
     colors: ComposerColors
   view
-    list flex=1 min-height=0 padding-left=14 padding-right=14 background-color=colors.sheet
-      each choice in rows key=choice.id
-        button press=choose(choice.id) disabled=choice.disabled text-align="left" role="radio" aria-checked=choice.selected
-          min-height=49 padding-left=14 padding-right=14 padding-top=10.5 padding-bottom=10.5 background-color=colors.groupedCard
-          border-bottom-width=(choice.last ? 0 : 1) border-bottom-style="solid" border-bottom-color=colors.borderSubtle
-          row align-items="center" gap=10.5
+    list flex=1 min-height=0 padding-left=16 padding-right=16 padding-top=16 background-color=colors.sheet
+      column min-width=0 align-items="stretch" border-radius=14 overflow="hidden" background-color=colors.groupedCard
+        each choice in rows key=choice.id
+          button press=choose(choice.id) disabled=choice.disabled text-align="left" role="radio" aria-checked=choice.selected
+            display="flex" align-items="center" gap=10.5 box-sizing="border-box" min-width=0
+            min-height=49 padding-left=14 padding-right=14 padding-top=10.5 padding-bottom=10.5 background-color=colors.groupedCard
+            border-bottom-width=(choice.last ? 0 : 1) border-bottom-style="solid" border-bottom-color=colors.borderSubtle
             column flex=1 min-width=0 gap=1.75
               text choice.label font-size=16 line-height="23px" font-weight=500 color=colors.foreground
               when length(choice.description) > 0
