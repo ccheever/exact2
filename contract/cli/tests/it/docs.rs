@@ -1,7 +1,8 @@
 //! Every example in the guides compiles (LLP 1086 D10): each fenced
-//! `contract` block in `docs/*.md` and `README.md` compiles with no
-//! diagnostics, and each `contract-test` block parses. A deliberately
-//! partial block is fenced `text`. Every failure is reported in one run.
+//! `contract` block in `docs/*.md`, the recipes (`docs/recipes/*.md`, LLP
+//! 1116 D3) and `README.md` compiles with no diagnostics, and each
+//! `contract-test` block parses. A deliberately partial block is fenced
+//! `text`. Every failure is reported in one run.
 
 use std::path::{Path, PathBuf};
 
@@ -26,11 +27,13 @@ impl Block {
     }
 }
 
-/// `README.md` and every `docs/*.md`, by path from the repo root.
+/// `README.md`, every `docs/*.md` and every recipe (`docs/recipes/*.md`),
+/// by path from the repo root.
 pub(crate) fn documents() -> Vec<PathBuf> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let mut docs: Vec<PathBuf> = std::fs::read_dir(root.join("docs"))
-        .unwrap()
+    let mut docs: Vec<PathBuf> = ["docs", "docs/recipes"]
+        .iter()
+        .flat_map(|dir| std::fs::read_dir(root.join(dir)).unwrap())
         .map(|entry| entry.unwrap().path())
         .filter(|path| path.extension().is_some_and(|ext| ext == "md"))
         .collect();
@@ -151,8 +154,8 @@ fn every_contract_example_in_the_guides_compiles_and_every_test_parses() {
 }
 
 /// Blocks marked `<!-- check: app -->`, `<!-- check: route <name> -->` and
-/// `<!-- check: file -->` are one app split across a guide (LLP 1115 D7,
-/// docs/start-here.md): the `app` blocks in order, each `route` block in
+/// `<!-- check: file -->` are one app split across a guide (LLP 1115 D7;
+/// docs/recipes/navigation-stack.md): the `app` blocks in order, each `route` block in
 /// place of the placeholder under `when e.name == "<name>"`, and each `file`
 /// block appended. The assembled app compiles with no diagnostics.
 #[test]
@@ -172,7 +175,7 @@ fn every_split_app_in_the_guides_compiles_assembled() {
     }
     assert!(
         !docs.is_empty(),
-        "no split apps found (docs/start-here.md has one)"
+        "no split apps found (docs/recipes/navigation-stack.md has one)"
     );
     let mut failures = Vec::new();
     for (doc, list) in &docs {
@@ -238,6 +241,33 @@ fn every_split_app_in_the_guides_compiles_assembled() {
         "{} failures in assembled guide apps:\n{}",
         failures.len(),
         failures.join("\n")
+    );
+}
+
+/// A recipe builders copy carries no tells (LLP 1116 D3 §6.5): `no-tells`
+/// passes over every recipe's `contract` blocks and start-here's.
+#[test]
+#[ignore = "async lane: launches Bun for scripts/no-tells.mjs; bun scripts/async.mjs runs it"]
+fn the_recipes_and_start_here_say_no_literal_colour_size_or_weight() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let guides: Vec<PathBuf> = documents()
+        .into_iter()
+        .filter(|doc| {
+            doc.parent().is_some_and(|dir| dir.ends_with("recipes"))
+                || doc.ends_with("start-here.md")
+        })
+        .collect();
+    assert!(guides.len() > 1, "no recipes found under docs/recipes");
+    let output = std::process::Command::new("bun")
+        .arg(root.join("scripts/no-tells.mjs"))
+        .args(&guides)
+        .output()
+        .expect("bun runs scripts/no-tells.mjs");
+    assert!(
+        output.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
     );
 }
 

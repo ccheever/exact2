@@ -3,7 +3,10 @@
  * no-tells — an app's `.contract` files say no colour, font size or font weight
  * of their own (LLP 1115, "Write the web, ship the platform").
  *
- *   bun scripts/no-tells.mjs <app name | app directory | file.contract …>
+ *   bun scripts/no-tells.mjs <app name | app directory | file.contract | guide.md …>
+ *
+ * A Markdown file is read for its fenced `contract` blocks, as the recipes are
+ * (docs/recipes, LLP 1116 D3: a recipe builders copy carries no tells).
  *
  * A literal colour (`#8e8e93`, `rgb(…)`, `hsl(…)`, `red`) on a colour property, or
  * a literal `font-size`/`font-weight`, is a value copied from one platform's
@@ -14,8 +17,10 @@
  * (`font="-exact-footnote"`, `font-size="-exact-caption1"`). Layout (sizes,
  * padding, gaps, radii) is CSS and the author's, and is not looked at.
  *
- * A line that must keep one (a brand colour the platform has no role for) ends
- * with `// no-tells: <why>`. Exit 0 when there is nothing to say, 1 with every
+ * A numeric readout is design, not a tell (LLP 1116 D3): a literal `font-size` on
+ * a node that also sets `font-variant-numeric="tabular-nums"` (a timer's or a
+ * total's big number) is not flagged. A line that must keep one (a brand colour
+ * the platform has no role for) ends with `// no-tells: <why>`. Exit 0 when there is nothing to say, 1 with every
  * finding, 2 on a bad invocation. `apps/shelf` is held to it by its
  * `app.test.ts`.
  */
@@ -104,9 +109,26 @@ function colourIn(literal) {
   return named ?? null;
 }
 
+/** Each line's node, as the index of the line that starts it: a node's attributes
+ * continue on deeper lines that start with `name=`, and a `style` block's rows
+ * belong to it the same way. */
+function nodeHeads(lines) {
+  const heads = [];
+  let head = 0, depth = -1;
+  lines.forEach((line, i) => {
+    const indent = line.length - line.trimStart().length;
+    if (i > 0 && indent > depth && /^-?[a-zA-Z][\w-]*=(?!=)/.test(line.trim())) heads.push(head);
+    else { head = i; depth = indent; heads.push(i); }
+  });
+  return heads;
+}
+
 /** Every tell in one `.contract` source: `{ line, column, property, value, kind }`. */
 export function tellsIn(source) {
   const text = uncomment(source), lines = source.split('\n'), found = [];
+  // The nodes that are numeric readouts: their literal `font-size` is design.
+  const heads = nodeHeads(text.split('\n'));
+  const readouts = new Set(text.split('\n').flatMap((line, i) => /(^|\s)font-variant-numeric=["`]?tabular-nums\b/.test(line) ? [heads[i]] : []));
   const lineStarts = [0];
   for (let i = 0; i < text.length; i++) if (text[i] === '\n') lineStarts.push(i + 1);
   const locate = offset => { let l = 0; while (l + 1 < lineStarts.length && lineStarts[l + 1] <= offset) l++; return [l + 1, offset - lineStarts[l] + 1]; };
@@ -114,6 +136,7 @@ export function tellsIn(source) {
     const [line, column] = locate(at);
     if (/\/\/\s*no-tells:\s*\S/.test(lines[line - 1] ?? '')) continue;
     const property = name.toLowerCase();
+    if (property === 'font-size' && readouts.has(heads[line - 1])) continue;
     if (property === 'font-size' || property === 'font-weight' || property === 'font') {
       const words = literals(value);
       const computed = !words.length && value !== '';
@@ -130,7 +153,8 @@ export function tellsIn(source) {
 }
 
 /** The `.contract` files an argument names: an app (by name under apps/ or by
- * directory, recursively, skipping node_modules and build output) or files. */
+ * directory, recursively, skipping node_modules and build output) or files
+ * (a Markdown file stands for its `contract` blocks). */
 export function contractFiles(target) {
   const dir = existsSync(target) ? resolve(target) : resolve(ROOT, 'apps', target);
   if (!existsSync(dir)) throw new Error(`no app or file ${target}`);
@@ -148,9 +172,23 @@ export function contractFiles(target) {
   return out.sort();
 }
 
-/** Every tell in an app's (or a file's) Contract, each with its file. */
+/** A Markdown document's fenced `contract` blocks, each with the line before its body. */
+function contractBlocks(text) {
+  const blocks = [];
+  let open = null;
+  text.split('\n').forEach((line, i) => {
+    if (open) { if (line.trim() === '```') { blocks.push(open); open = null; } else open.lines.push(line); }
+    else if (line.startsWith('```')) open = line.slice(3).trim() === 'contract' ? { at: i + 1, lines: [] } : { skip: true, lines: [] };
+  });
+  return blocks.filter(b => !b.skip).map(b => ({ at: b.at, source: b.lines.join('\n') }));
+}
+
+/** Every tell in an app's (or a file's) Contract, each with its file; a Markdown
+ * file's lines are the document's. */
 export function tells(target) {
-  return contractFiles(target).flatMap(file => tellsIn(readFileSync(file, 'utf8')).map(t => ({ file, ...t })));
+  return contractFiles(target).flatMap(file => file.endsWith('.md')
+    ? contractBlocks(readFileSync(file, 'utf8')).flatMap(b => tellsIn(b.source).map(t => ({ file, ...t, line: t.line + b.at })))
+    : tellsIn(readFileSync(file, 'utf8')).map(t => ({ file, ...t })));
 }
 
 export const ADVICE = `These are tells (LLP 1115, "Write the web, ship the platform"): values one platform's
@@ -183,5 +221,5 @@ if (import.meta.main) {
     process.exit(1);
   }
   const files = targets.flatMap(contractFiles).length;
-  console.log(`no-tells: ${files} .contract file${files === 1 ? '' : 's'}, no literal colour, font size or weight`);
+  console.log(`no-tells: ${files} file${files === 1 ? '' : 's'} of Contract, no literal colour, font size or weight`);
 }

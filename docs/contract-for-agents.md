@@ -1,8 +1,8 @@
 # Contract: a complete working guide for agents
 
 > **Lookup reference; start at [start-here.md](start-here.md).** Building an app needs
-> only that page. Open this guide at the section its last table names, or grep it;
-> don't read it front to back.
+> only that page, and a [recipe](recipes/) answers most questions after it. Open this
+> guide at a section for what no recipe covers, or grep it; don't read it front to back.
 
 Use this guide to author, change, inspect, and verify a current Exact application.
 It covers the language implemented on `main` on 2026-10-02. Use the [human guide](contract-for-humans.md)
@@ -1420,9 +1420,11 @@ a loop from mutations: a `then` cannot send its own mutation
 (`analyze-then-self-send`). For a purely visual loop, use a CSS `animation`
 instead.
 
-`performanceNow()` is the runner's clock in milliseconds since boot (the driver's clock under
-the agent, from 0), as the web's `performance.now()`, not a date: a deadline of
-`performanceNow() + ms` sent to a server is in 1970. For the date, read the reserved
+`performanceNow()` is the runner's clock in milliseconds since this launch of the app (it
+restarts at 0 on every launch; the driver's clock under the agent, from 0), as the web's
+`performance.now()`, not a date: a deadline of `performanceNow() + ms` sent to a server is
+in 1970, and one stored is meaningless after a relaunch. Anything stored or sent takes
+`time.epochAtZero + performanceNow()` ([timer recipe](recipes/timer-that-survives-relaunch.md)). For the date, read the reserved
 `exactTime` source and add `time.epochAtZero + performanceNow()`. There is no
 `now()`: it is refused (`type-now-renamed`) with those two repairs. Its fields, which a shape declares as it reads them:
 `epochAtZero` (Unix milliseconds when `performanceNow()` read zero), `utcOffset` (minutes east

@@ -16,9 +16,12 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     assert.deepEqual(outsideWorkspaceProblems(dir), []);
     assert.ok(existsSync(resolve(dir, 'app.test.contract')));
     assert.deepEqual(readFileSync(resolve(dir, '.cargo/config.toml')), readFileSync(resolve(import.meta.dir, '../.cargo/config.toml')));
-    // The diary instructions travel in full inside the generated block, and .exact/ stays local.
+    // The diary is one line that sends the agent to `feedback status`, which prints its
+    // instructions (LLP 1116 D3); the notes stay small, and .exact/ stays local.
     const agents = () => readFileSync(resolve(dir, 'AGENTS.md'), 'utf8');
-    assert.match(agents(), /<!-- exact:begin[^]*## The authoring diary[^]*### Needed[^]*<!-- exact:end -->/);
+    assert.match(agents(), /<!-- exact:begin[^]*Run `bun exact\.mjs feedback status` first; it prints what to keep\.[^]*<!-- exact:end -->/);
+    assert.doesNotMatch(agents(), /## The authoring diary|### Needed/);
+    assert.ok(Buffer.byteLength(agents()) <= 5 * 1024 + 512, `AGENTS.md is ${Buffer.byteLength(agents())} bytes`);
     assert.match(agents(), /one-time installer[^]*exact\.mjs[^]*setup[^]*forced offline for Hermes/);
     assert.match(readFileSync(resolve(dir, '.gitignore'), 'utf8'), /^\/\.exact\/$/m);
     // Execute the generated dispatcher against fake SDK entry points: cwd may
@@ -76,7 +79,7 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     writeFileSync(resolve(dir, 'AGENTS.md'), '# Mine\n\n<!-- exact diary: old -->\nstale\n<!-- /exact diary -->\n\nAfter.\n');
     writeFileSync(resolve(dir, '.gitignore'), '/target/');
     assert.match(createApp(dir, { update: true }), /\.gitignore, AGENTS\.md, exact2 paths in web\/Cargo\.toml/);
-    assert.match(agents(), /^# Mine\n\nAfter\.\n\n<!-- exact:begin[^]*## The authoring diary[^]*<!-- exact:end -->\n$/);
+    assert.match(agents(), /^# Mine\n\nAfter\.\n\n<!-- exact:begin[^]*feedback status[^]*<!-- exact:end -->\n$/);
     assert.ok(!agents().includes('stale'));
     assert.equal(readFileSync(resolve(dir, '.gitignore'), 'utf8'), '/target/\n/.exact/\n');
     assert.deepEqual(outsideWorkspaceProblems(dir), []);
@@ -273,7 +276,8 @@ test('a new app tells its agent where the guides are, and update keeps what the 
     const dir = resolve(parent, 'field-log');
     createApp(dir);
     const notes = readFileSync(resolve(dir, 'AGENTS.md'), 'utf8');
-    for (const guide of ['start-here.md', 'contract-for-agents.md', 'agent-pitfalls.md', 'contract-for-humans.md', 'contract-grammar.md']) {
+    // The one required read and the recipes; the long guides are start-here's to name (LLP 1116 D3).
+    for (const guide of ['start-here.md', 'recipes', 'recipes/rest-backend.md', 'reference.md']) {
       assert.ok(notes.includes(resolve(root, 'docs', guide)), guide);
       assert.ok(existsSync(resolve(root, 'docs', guide)), guide);
     }
