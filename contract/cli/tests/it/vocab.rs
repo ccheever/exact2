@@ -427,3 +427,23 @@ fn a_content_part_says_its_props_and_what_it_draws() {
     let json: Value = serde_json::from_str(&stdout(&vocab(&["--json", "AnswerTile"]))).unwrap();
     assert_eq!(json["part"]["props"][1], "status: string");
 }
+
+/// LLP 1116.004 D4: "1 cards" in two or three apps a round. A concept no
+/// tag, attribute or function names answers with its idiom and where it is
+/// shown, as text and as JSON, and the listing names it.
+#[test]
+fn plural_answers_with_the_idiom_that_chooses_the_noun() {
+    let out = stdout(&vocab(&["plural"]));
+    assert!(
+        out.starts_with("plural: an idiom")
+            && out.contains("`${n} ${n == 1 ? \"item\" : \"items\"} left`")
+            && out.contains("docs/recipes/functions.md"),
+        "{out}"
+    );
+    let doc: Value = serde_json::from_str(&stdout(&vocab(&["--json", "plural"]))).unwrap();
+    assert_eq!(doc["concept"]["see"], "docs/recipes/functions.md", "{doc}");
+    assert!(doc["concept"]["lines"][0]
+        .as_str()
+        .is_some_and(|l| l.contains("n == 1 ?")));
+    assert!(stdout(&vocab(&[])).contains("idioms, by what you want"));
+}

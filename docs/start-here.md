@@ -62,7 +62,7 @@ shape Reply
   ok: bool
   error: string
 
-fn leftText(n: number): string = n == 1 ? "1 item left" : `${n} items left`
+fn leftText(n: number): string = `${n} ${n == 1 ? "item" : "items"} left`
 
 component Groceries
   state draft = ""

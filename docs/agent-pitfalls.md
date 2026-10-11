@@ -285,17 +285,20 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 - **VoiceOver reads the screen behind a full-screen overlay.** A call screen
   or menu drawn as a root child above the bars hides the chat list from sight,
   not from VoiceOver: it still reached the rows and the native tab bar behind.
-  Fix: `role="dialog" aria-modal=true` on the overlay's root (LLP 1080.003); on
-  iOS its siblings, the tab container and its bars among them, are then skipped
-  while it shows. (Signal Clone, build 13.) Not `role="alertdialog"` on content
-  you lay out: see the next entry.
+  Fix: a route with `navigationPresentation="fullscreen"`, which UIKit presents
+  over the bars with the page under it inert; or `aria-modal=true` on the overlay's
+  root (LLP 1080.003), so on iOS its siblings, the tab container and its bars among
+  them, are skipped while it shows. (Signal Clone, build 13.) Not `role="dialog"`
+  on the box, which gets no dialog behaviour (`lower-dialog-role`), nor
+  `role="alertdialog"` on content you lay out: see the next entry.
 - **`role="alertdialog"` refuses a dialog laid out in a `column`.**
   `lower-alertdialog: … a `column` row is not text, an action or the cancel`.
   Cause: an `alertdialog` popover or `dialog` is a native confirmation (LLP
   1021, LLP 1115 D6: iOS's alert or sheet, macOS's menu), whose rows can only be text, buttons that
-  close it, and one cancel. Fix: give a modal you lay out yourself `role="dialog"
-  aria-modal=true`; keep `alertdialog` for a flat list of text and buttons.
-  (x2apps onboarding's Delete account?, 2026-10-04.)
+  close it, and one cancel. Fix: a modal you lay out yourself is a sheet, a route
+  with `navigationPresentation="modal"` (recipes/navigation-stack.md); keep
+  `alertdialog` for a flat list of text and buttons. (x2apps onboarding's Delete
+  account?, 2026-10-04.)
 - **`tabIndex` on a module tag is refused.** `` `paint-surface` has no attribute
   `tabIndex`; `tabIndex` is spelled `tabindex` here ``. Cause: HTML's
   `tabindex` is now an attribute on every element and module tag's box (LLP

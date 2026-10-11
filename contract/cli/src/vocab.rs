@@ -1,8 +1,9 @@
 //! `contract vocab [--json] [<name> …]` — what the compiler admits: every tag,
 //! every attribute by kind (a style's rows with codec, values and default; a
 //! prop's type; a handler), the renamed spellings, and the rules no lookup
-//! lists, the host commands an action states, and the standard functions:
-//! each one's signature, rules and example (LLP 1116.000 D5). @ref LLP 1086
+//! lists, the host commands an action states, the standard functions:
+//! each one's signature, rules and example (LLP 1116.000 D5), and the
+//! idioms a builder looks up by what they want (`plural`, LLP 1116.004 D4). @ref LLP 1086
 //! D3. The list is `contract_lower::vocab`'s, which keeps only what the live
 //! lookups admit; the commands are `contract_syntax::HOST_COMMANDS`; the
 //! functions are `contract::functions`', the roster's signatures beside the
@@ -95,7 +96,27 @@ struct Entry {
     command: Option<String>,
     function: Option<Function>,
     part: Option<Part>,
+    concept: Option<&'static Concept>,
 }
+
+/// What a builder looks up by what they want, which no tag, attribute or
+/// function names (`plural`): the idiom in a few lines, and where it is
+/// shown whole (LLP 1116.004 D4).
+struct Concept {
+    name: &'static str,
+    lines: &'static [&'static str],
+    see: &'static str,
+}
+
+const CONCEPTS: &[Concept] = &[Concept {
+    name: "plural",
+    lines: &[
+        "a count chooses its noun by the number: `${n} ${n == 1 ? \"item\" : \"items\"} left` reads \"1 item left\", \"0 items left\", \"3 items left\"",
+        "a `fn` keeps one wording for every count: fn items(n: number): string = `${n} ${n == 1 ? \"item\" : \"items\"}`",
+        "an irregular noun is both words written out (`n == 1 ? \"person\" : \"people\"`); Contract has no `Intl.PluralRules`",
+    ],
+    see: "docs/recipes/functions.md",
+}];
 
 /// A component of a built-in library (`exact:content`'s `RoundButton`), read
 /// from its source: its props, and the comment above it (LLP 1116.003 D4).
@@ -150,13 +171,15 @@ fn entry(name: &str) -> Option<Entry> {
     let command = HOST_COMMANDS.contains(&name).then(|| command_text(name));
     let function = functions::function(name);
     let part = part(name);
+    let concept = CONCEPTS.iter().find(|c| c.name == name);
     let known = tag.is_some()
         || attr.is_some()
         || !value_of.is_empty()
         || open.is_some()
         || command.is_some()
         || function.is_some()
-        || part.is_some();
+        || part.is_some()
+        || concept.is_some();
     known.then_some(Entry {
         tag,
         attr,
@@ -165,6 +188,7 @@ fn entry(name: &str) -> Option<Entry> {
         command,
         function,
         part,
+        concept,
     })
 }
 
@@ -183,6 +207,7 @@ fn one_json(name: &str) -> (Value, bool) {
         command,
         function,
         part,
+        concept,
     }) = entry(name)
     else {
         return (json!({ "name": name, "refused": refusal(name) }), false);
@@ -209,6 +234,9 @@ fn one_json(name: &str) -> (Value, bool) {
     if let Some(p) = part {
         doc["part"] = json!({ "module": p.module, "props": p.props, "about": p.about });
     }
+    if let Some(c) = concept {
+        doc["concept"] = json!({ "lines": c.lines, "see": c.see });
+    }
     (doc, true)
 }
 
@@ -220,12 +248,20 @@ fn one_text(name: &str) -> bool {
         command,
         function,
         part,
+        concept,
         ..
     }) = entry(name)
     else {
         eprintln!("{}", refusal(name));
         return false;
     };
+    if let Some(c) = concept {
+        println!("{name}: an idiom (no tag, attribute or function of that name)");
+        for line in c.lines {
+            println!("  {line}");
+        }
+        println!("  {}", c.see);
+    }
     if let Some(p) = part {
         println!(
             "{name}: a part of `{}` (`use {name} from \"{}\"`)",
@@ -497,6 +533,7 @@ fn everything() -> Value {
         "commands": HOST_COMMANDS,
         "functions": functions::functions().iter().map(function_json).collect::<Vec<_>>(),
         "notes": { "modules": vocab::MODULE_NOTE, "data": vocab::DATA_NOTE },
+        "concepts": CONCEPTS.iter().map(|c| json!({"name": c.name, "lines": c.lines, "see": c.see})).collect::<Vec<_>>(),
     })
 }
 
@@ -694,5 +731,7 @@ fn listing() -> String {
         vocab::MODULE_NOTE,
         vocab::DATA_NOTE
     );
+    out += "\nidioms, by what you want (`contract vocab <name>`):\n";
+    wrapped(&mut out, CONCEPTS.iter().map(|c| c.name.to_string()));
     out
 }
