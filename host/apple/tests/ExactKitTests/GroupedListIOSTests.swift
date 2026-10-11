@@ -298,6 +298,47 @@ final class GroupedListIOSTests: XCTestCase {
         XCTAssertFalse(host(p).projects(row))
     }
 
+    /// A carried row of stacked lines keeps the cell's margins (team-kanban's
+    /// cards and household-list's items, 2026-10-10, whose titles touched the
+    /// card and buttons the separator): the sheet keeps the stack 15 under the
+    /// row's top and 15 over its separator, as a hand-built cell pinned to its
+    /// content view's margins has it, and the cell shows the row so, as tall
+    /// as the row less the separator it draws instead.
+    func testACarriedStackKeepsTheCellsMargins() throws {
+        let p = presenter { self.model(custom: true) }
+        let text = { (id: Int, text: String) -> [String: Any] in
+            ["op": "create", "id": id, "kind": "text", "props": ["text": text], "style": ["text_color": [0, 0, 0, 255]]]
+        }
+        // The kernel's boxes for `row` > `column gap=8` of a title, a second
+        // line and a row of buttons: 15, 22, 8, 20, 8, 34, 15 and the separator.
+        p.apply(wireBatch([
+            ["op": "create", "id": 44, "kind": "view", "props": [:], "style": [:]],
+            text(40, "Ada task one"), text(41, "Ada"),
+            ["op": "create", "id": 42, "kind": "view", "props": [:], "style": [:]],
+            ["op": "create", "id": 43, "kind": "button", "props": ["testId": "move"], "handlers": ["press"], "style": [:]],
+            ["op": "children", "id": 42, "ids": [43]], ["op": "children", "id": 44, "ids": [40, 41, 42]],
+            ["op": "children", "id": 21, "ids": [44]],
+            ["op": "frame", "id": 21, "x": 16.0, "y": 52.0, "w": 354.0, "h": 123.0],
+            ["op": "frame", "id": 44, "x": 0.0, "y": 15.0, "w": 338.0, "h": 92.0],
+            ["op": "frame", "id": 40, "x": 0.0, "y": 0.0, "w": 120.0, "h": 22.0],
+            ["op": "frame", "id": 41, "x": 0.0, "y": 30.0, "w": 40.0, "h": 20.0],
+            ["op": "frame", "id": 42, "x": 0.0, "y": 58.0, "w": 200.0, "h": 34.0],
+            ["op": "frame", "id": 43, "x": 0.0, "y": 0.0, "w": 100.0, "h": 34.0],
+        ]))
+        let cell = try cell(p, 21)
+        let row = try XCTUnwrap(p.views[21])
+        XCTAssertTrue(row.superview === cell.contentView, "carried")
+        XCTAssertEqual(cell.bounds.height, 122, accuracy: 0.5, "the row less the separator the cell draws")
+        let first = try XCTUnwrap(p.views[40]), last = try XCTUnwrap(p.views[42])
+        let (top, bottom) = (first.convert(first.bounds, to: cell), last.convert(last.bounds, to: cell))
+        let margins = cell.contentView.directionalLayoutMargins
+        XCTAssertGreaterThanOrEqual(top.minY, 15, "the first line 15 under the card's top: \(top)")
+        XCTAssertGreaterThanOrEqual(cell.bounds.height - bottom.maxY, 15, "the buttons 15 over the separator: \(bottom) in \(cell.bounds)")
+        XCTAssertGreaterThanOrEqual(top.minX, 16, "the text's margin")
+        XCTAssertGreaterThanOrEqual(top.minY, margins.top, "at least UIKit's own content margin")
+        XCTAssertGreaterThanOrEqual(cell.bounds.height - bottom.maxY, margins.bottom, "at least UIKit's own content margin")
+    }
+
     /// The symbol's tint is the sheet's (D7), the author's over its own: the
     /// shown symbol the model named, each side of a light-dark() pair for its
     /// appearance, and a row whose tint changes is configured again.

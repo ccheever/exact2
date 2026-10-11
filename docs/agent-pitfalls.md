@@ -289,10 +289,11 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   card.** Cause: the sheet gives a custom row (a `row` that is not a title/value row)
   its padding, and `padding="12px 0"` replaces all four sides, so the row's content
   starts and ends at the card's edge; a `row`'s children are a flex row, so a `column`
-  or a bar inside takes no width either. Fix: write `padding-top`/`padding-bottom` only,
-  and put the content in a `column flex=1` (`apps/shelf`'s Progress and Yearly Goal
-  rows), or make the row itself a `column`, which stacks its children (LLP 1116 D2).
-  (Shelf recipe, 2026-10-10.)
+  or a bar inside takes no width either. Fix: put the content in a `column flex=1`
+  (`apps/shelf`'s Progress and Yearly Goal rows), which the sheet keeps 15 from the
+  card and the separator, or make the row itself a `column`, which stacks its children
+  (LLP 1116 D2); to choose that space write the row's `padding-top`/`padding-bottom`
+  only, which replaces the column's. (Shelf recipe, 2026-10-10.)
 - **A text field or `textarea` in a grouped-list row draws a rounded box inside the
   card.** Cause: a native field keeps its own border wherever it is (`UITextField`'s
   rounded rect); a settings-style form's fields have none. Fix: `appearance="none"` on

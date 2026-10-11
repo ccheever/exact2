@@ -217,6 +217,14 @@ extension NodeView {
     /// top is the bar's bottom, whatever its height (UIKit keeps the offset
     /// plus that inset fixed while the title collapses) — else 0.
     func scrollTopInset(_ sv: UIScrollView) -> CGFloat { scrollOrigin > 0 ? sv.adjustedContentInset.top : 0 }
+    /// The least content height UIKit takes: the box, or for a scroller
+    /// UIKit insets, the port between the insets the kernel lays its content
+    /// out in (LLP 1116.000 D1.2), so a page shorter than that port does not
+    /// scroll by the bar and the home indicator, as a table view's does not.
+    func scrollFloor(_ sv: UIScrollView) -> CGFloat {
+        guard case .inset(let top, let bottom)? = presenter?.navigation.covers[id] else { return sv.bounds.height }
+        return max(0, sv.bounds.height - top - bottom)
+    }
 }
 extension UIColor {
     /// LLP 1115 D2: what an unset background is, the platform's —

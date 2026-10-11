@@ -850,6 +850,17 @@ extension NavigationHost {
                     if node.scrollCollapsed == 0 || inset < node.scrollCollapsed { node.scrollCollapsed = inset }
                 }
             }
+            // A scroller UIKit insets lays its content out between those
+            // insets (LLP 1116.000 D1.2): content that fills its height rests
+            // under the bar and above the home indicator, and scrolling
+            // content still passes under both. A large title's inset is its
+            // widest, at rest (CSS scrollTop 0).
+            for node in [c.collapseScroll, c.edgeScroll].compactMap({ $0 }) where node.scroll != nil {
+                if settled, c.viewIfLoaded?.window != nil, let safe = node.scroll?.safeAreaInsets {
+                    let top = max(safe.top, node === c.collapseScroll ? node.scrollOrigin : 0)
+                    if top > 0 || safe.bottom > 0 { wanted[node.id] = .inset(top: top, bottom: safe.bottom) }
+                } else if case .inset? = covers[node.id] { wanted[node.id] = covers[node.id] }
+            }
             if settled, c.viewIfLoaded?.window != nil {
                 let safe = c.view.safeAreaInsets, env = presenter.insets
                 let top = c.collapseScroll == nil ? max(0, safe.top - env.top) : 0

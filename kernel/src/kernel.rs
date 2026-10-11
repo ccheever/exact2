@@ -31,7 +31,9 @@ mod sticky;
 mod trim;
 
 pub use cover::HostCover;
-pub(crate) use cover::{children_changed as cover_children_changed, header_inset};
+pub(crate) use cover::{
+    apply as apply_cover, children_changed as cover_children_changed, published_extent,
+};
 pub use sticky::StickyConstraint;
 
 /// How many receipts the kernel retains for late readers.
