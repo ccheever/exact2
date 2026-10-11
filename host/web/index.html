@@ -47,13 +47,20 @@
   /* A determinate progress is HTML's (LLP 1116 D8): the browser draws it and its UA sheet sizes it (`10em` by `1em`,
      border-box), as the kernel does; a block, as every node is, where the UA's is an inline-block. */
   progress { display: block; }
-  /* A link is a bare node too: the UA's link colour, underline and pointer
-     go, as a button's control styling does. A \`link\` is block-level like any
-     node and inherits its colour; a run with an \`href\` stays inline in its
-     paragraph, and its colour is the compiler's unsaid \`LinkText\` row,
-     inline, so the browser's own link colour (LLP 1115 §3). Markdown's own
-     links (never views) keep the UA's look. */
-  #exact-root a[data-view] { color: inherit; text-decoration: none; cursor: default; display: block; }
+  /* A link is a bare node too: the UA's underline goes, as a button's control
+     styling does. A \`link\` is block-level like any node; a run with an
+     \`href\` stays inline in its paragraph, and its colour is the compiler's
+     unsaid \`LinkText\` row, inline, so the browser's own link colour (LLP
+     1115 §3). LLP 1116.000 D4: a block \`link\` of text (a \`tel:\` or
+     \`mailto:\` value, a "Learn more") is in the accent, as the plain button
+     and the tab bar are (the tint, iOS's \`LinkText\`); one holding a row or
+     column, or given a \`role\` or a \`buttonStyle\`, is the author's row or
+     button and inherits. Both are \`:where()\`, so an authored colour wins.
+     Every link points, as on any web page. Markdown's own links (never
+     views) keep the UA's look. */
+  #exact-root a[data-view] { text-decoration: none; cursor: pointer; display: block; }
+  :where(#exact-root a[data-view]) { color: inherit; }
+  :where(#exact-root a[data-view][href]:not([role], [data-button-style], [data-exact-text] a):not(:has(> :not([data-exact-text], img)))) { color: var(--exact-accent, AccentColor); }
   #exact-root [data-exact-text] a[data-view] { display: inline; }
   /* A text node with a heading level is an <h1>–<h6> for the accessibility
      tree; its box is a bare div's, so the UA's heading margins, size and
