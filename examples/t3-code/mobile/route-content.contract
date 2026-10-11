@@ -346,7 +346,7 @@ component MobileRouteContent
     when routeName == "home" and workspace.emptyWorkspaceDetail
       column position=(layout.liquidGlass ? "absolute" : "relative") top=0 left=0 right=0 height=(layout.liquidGlass ? (layout.windowHeight > 0 ? layout.windowHeight : viewport.height) : "auto") flex=1 align-items="center" justify-content="center" padding-left=35 padding-right=35 box-sizing="border-box"
         column flex="none" max-width=360 align-items="center" gap=10.5
-          t3-symbol symbol-name="sidebar.left" point-size=34 symbol-tint=homeLook.iconSubtle width=34 height=34
+          image "symbol:sf/sidebar.left" font-size=17 font-weight=400 object-fit="contain" -exact-symbol-rendering="hierarchical" -exact-tint-color=homeLook.iconSubtle width=34 height=34 aria-hidden=true
           text "Select a thread" text-align="center" font-size=21 line-height="28px" font-weight=700
           text "Choose a thread from the sidebar or start a new task." text-align="center" color=homeLook.muted font-size=16 line-height="23px"
           button press=openNewTask border-radius=9999 margin-top=7 padding-left=17.5 padding-right=17.5 padding-top=10.5 padding-bottom=10.5 background-color=homeLook.primary
