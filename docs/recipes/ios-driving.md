@@ -1,14 +1,23 @@
 # Recipe: driving iOS
 
 Edit and check on the web host (`test web`, `agent web`: about a second a build), and
-drive iOS at milestones, several checks to a native build: one drive in dark mode, one
-after a write. `test ios` and `agent ios` build first when the build is missing or older
-than its sources, and say so in one line; its log is `.exact/ios-build.log`. The first
-build takes minutes, later ones a minute or two, so start the first early, in the
-background; a drive started meanwhile waits for it.
+drive iOS at milestones: one drive in dark mode, one after a write. `test ios` and
+`agent ios` build first when the build is missing or older than its sources, and say so
+in one line; its log is `.exact/ios-build.log`. The first build takes minutes, later
+ones a minute or two, so start the first early with `--prebuild`: it returns at once,
+the build going on apart from the shell, and a drive started meanwhile waits for it.
+
+An edit to only `app.contract` (or another `.contract`) or what `app.ts` imports reaches
+iOS in seconds, with no native rebuild: the drive bakes the new plan and runs it on the
+build you have, as that build would have baked it ("iOS: app.contract changed; running
+the new plan on the existing build"). A bake error fails the drive as a build would,
+its log `.exact/ios-plan.log`. Anything else (`app.json`, assets, fonts, Rust, new
+grants in `app.ts`) still rebuilds; a file `app.ts` never imports, such as a backend
+under `server/`, rebuilds nothing. Before calling the app done, run `bun exact.mjs ios`
+once (a real build) and drive it.
 
 ```sh
-bun exact.mjs ios > .exact/ios.log 2>&1 &      # the first build; $! is its PID
+bun exact.mjs ios --prebuild                   # the first build, apart from this shell
 bun exact.mjs test ios
 bun exact.mjs agent ios --storage s1 --chrome platform "prefer prefers-color-scheme dark" \
   "clock data" "screenshot .exact/ios-dark.png window"

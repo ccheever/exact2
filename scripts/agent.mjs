@@ -25,7 +25,7 @@ export { Cdp } from './agent-launch.mjs';
 import { sourceMapReaders, identifyInspectedNode, identifyLayoutNodes, render, perfOp, partTap, readTrace, renderTrace, layoutArgs, tapRefusal, worldView, phoneTrace } from './agent-inspect.mjs';
 import { LAUNCH_MEDIA, preferGroups, preferOp, preferWeb } from './agent-prefer.mjs';
 import { guardFlags } from './help.mjs';
-import { nativeBuild, refuseBuild } from './agent-build.mjs';
+import { nativeBuild, planOverride, refuseBuild } from './agent-build.mjs';
 import { axTree } from './agent-ax.mjs';
 export { sourceMapReader, identifyInspectedNode, render, tapRefusal, worldView } from './agent-inspect.mjs';
 import { spawn, spawnSync } from 'node:child_process';
@@ -580,8 +580,9 @@ async function openStdio({ host, plan, world, size, app, env: extra = {}, sessio
   const deviceBundle = artifacts?.bundle;
   const bin = windows ? (process.env.EXACT_WINDOWS_BIN ?? resolve(a.dir, 'dist-windows', `${executableName(a)}.exe`))
     : android ? (process.env.EXACT_ANDROID_BIN ?? androidBinary(a)) : linux ? (process.env.EXACT_LINUX_BIN ?? linuxBinary(a)) : (process.env.EXACT_MAC_BIN ?? appleRunBinary(a, sample));
-  // The macOS build by its own record (agent-build.mjs, which an app's exact.mjs runs first to build it).
-  if (!portable && !device && !process.env.EXACT_MAC_BIN) refuseBuild('macos', nativeBuild('macos', a, { sample }), a, { sample });
+  // The macOS build by its own record (agent-build.mjs, which an app's exact.mjs runs first to build it, or bakes its plan-only edit).
+  const macBuild = !portable && !device && !process.env.EXACT_MAC_BIN ? nativeBuild('macos', a, { sample }) : null, macPlan = macBuild && !plan && !sample ? planOverride('macos', a, macBuild) : null;
+  if (macPlan) plan = macPlan.plan; else if (macBuild) refuseBuild('macos', macBuild, a, { sample });
   if (!existsSync(device ? deviceBundle : bin)) throw new Error(device ? 'run bun host/apple/build.mjs --device first' : windows ? 'run bun host/windows/build.mjs first' : android ? `run bun scripts/agent-android.mjs build ${a.name} first` : linux ? `run ${linuxBuild(a).join(' ')} first` : `EXACT_MAC_BIN names no file: ${bin}`);
   if (!portable) assertAppleIdentity(a, device ? resolve(deviceBundle, artifacts.executable) : bin);
   if (windows && process.env.EXACT_WINDOWS_BIN) unchecked('windows', 'EXACT_WINDOWS_BIN');
@@ -659,7 +660,7 @@ async function openStdio({ host, plan, world, size, app, env: extra = {}, sessio
       throw new Error(why);
     });
     return {
-      host, boot: ready.boot, hostLines, gpuMs: () => null, sessions: ready.sessions ?? null, state,
+      host, boot: ready.boot, hostLines, gpuMs: () => null, sessions: ready.sessions ?? null, state, plan,
       ask, reveal: (id) => ask({ op: 'reveal', id }),
       async input(id, kind, opts) {
         if (kind === 'key') {
@@ -703,7 +704,9 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
   const a = resolveApp(app);
   const built = nativeBuild('ios', a, { sample: hostFixture }), bundle = built.built;
   const id = hostFixture ? `${a.id}.host` : a.id;
-  refuseBuild('ios', built, a, { sample: hostFixture }); // an app's exact.mjs builds first instead (agent-build.mjs)
+  // An app's exact.mjs builds first instead, or bakes a plan-only edit to run on this build (agent-build.mjs, LLP 1116.003).
+  const override = plan || hostFixture ? null : planOverride('ios', a, built);
+  if (override) plan = override.plan; else refuseBuild('ios', built, a, { sample: hostFixture });
   const dev = simulator();
   return exclusiveIOS(dev.udid, id, () => openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, hostFixture, touch, onProcess }));
 }
@@ -773,7 +776,7 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
     });
     let canvasContact = false;
     return {
-      host: hostFixture ? 'host-ios' : 'ios', boot: ready.boot, hostLines, gpuMs: () => null, sessions: ready.sessions ?? null, state,
+      host: hostFixture ? 'host-ios' : 'ios', boot: ready.boot, hostLines, gpuMs: () => null, sessions: ready.sessions ?? null, state, plan,
       touches, touch,
       ask, reveal: (id) => ask({ op: 'reveal', id }),
       async input(id, kind, opts) {
@@ -892,7 +895,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     : host === 'windows' ? await openStdio({ host: 'windows', plan, size: size ?? VIEWPORT, env, app, onProcess })
     : host === 'ios' ? await openIOS({ plan, env, app, size, touch, onProcess })
     : await openWeb({ browser, plan, world, size, url, app, webDist, onProcess, reuse, storage, fresh: env?.EXACT_AGENT_STORAGE_FRESH === '1', facts, env, mediaClock, lineHeight });
-  const mapLocator = plan ?? (url && /^https?:\/\//i.test(url) ? url : env?.EXACT_DEV_PLAN ?? process.env.EXACT_DEV_PLAN)
+  const mapLocator = plan ?? carrier.plan ?? (url && /^https?:\/\//i.test(url) ? url : env?.EXACT_DEV_PLAN ?? process.env.EXACT_DEV_PLAN)
     // The dist the carrier serves — an app outside the repo's own (shop F2), never Caltrain's by default.
     ?? (carrier.host === 'web' ? resolve(webDist ?? defaultWebDist(), 'app.plan') : null);
   // Without a plan of the drive's own, a native host runs its bake's: the maps a development bake left (LLP 1012.001.000 D6).

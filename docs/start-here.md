@@ -27,7 +27,7 @@ The only required reading; the rest is lookup, listed last (LLP 1115 D7).
 ```sh
 bun <exact2>/scripts/exact.mjs new ~/groceries && cd ~/groceries
 bun exact.mjs pattern      # lists the starting apps; `pattern list-detail` writes one
-bun exact.mjs ios          # in the background: the first iOS build takes minutes
+bun exact.mjs ios --prebuild  # the first iOS build: minutes, in the background
 ```
 
 Start from the nearest pattern (`new` wrote `one-screen`) and change it: it compiles

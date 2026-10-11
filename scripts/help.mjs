@@ -41,10 +41,11 @@ const DRIVE_INTERNAL = ['--app <name>', '--session <label>'];
 const NATIVE_PORTS = 'iOS simulator: a Unix socket; --device: a free TCP port; macOS, Linux, Android: stdio.';
 
 // host/apple/build.mjs's flags, which `ios` and `mac` both run: each documents its own, and takes the rest.
-const APPLE = ['--ios', '--tvos', '--device', '--run', '--host', '--embed', '--bundle', '--distribution', '--unsigned', '--test',
+const APPLE = ['--ios', '--tvos', '--device', '--run', '--prebuild', '--host', '--embed', '--bundle', '--distribution', '--unsigned', '--test',
   '--archive <out.ipa>', '--sim <udid|name>', '--phone <udid|name>', '--url <url>', '--optimize <speed|size>', '--link <plan>'];
 const appleRest = (documented) => APPLE.filter((spec) => !documented.some(([row]) => specs(row).some((d) => name(d) === name(spec))));
 const OPTIMIZE = ['--optimize speed|size', 'the Rust archive\'s (default speed, or app.json host.ios|macos.optimize)'];
+const PREBUILD = ['--prebuild', 'start the build apart from this shell and return; its log: .exact/<ios|macos>-build.log'];
 
 export const HELP = {
   web: {
@@ -124,9 +125,10 @@ Runs     to completion; each drive launches the app anew (--storage keeps its da
   },
   ios: {
     line: 'build for an iOS simulator and install it (--run launches it)',
-    usage: 'bun exact.mjs ios [--run] [--sim <udid|name>] [--device [--phone <udid|name>]] [--url <url>]',
+    usage: 'bun exact.mjs ios [--run|--prebuild] [--sim <udid|name>] [--device [--phone <udid|name>]] [--url <url>]',
     flags: [
       ['--run', 'also launch it (in Simulator.app, or on the phone); returns once launched'],
+      PREBUILD,
       ['--sim <udid|name>', 'which simulator (else EXACT_SIM, a booted iPhone, or the newest iPhone Pro)'],
       ['--device', 'a connected iPhone, signed with a development profile on this Mac'],
       ['--phone <udid|name>', 'which phone, with --device'],
@@ -139,16 +141,18 @@ Runs     to completion; each drive launches the app anew (--storage keeps its da
     get internal() { return appleRest(this.flags); },
     body: `The first build takes minutes, later ones a minute or two; several booted simulators are
 refused, not guessed (set EXACT_SIM). test ios and agent ios run it first themselves when
-the build is missing or older than its sources.
-Ports    none. Runs to completion (--run too). Start a long build in the background with &
-         and keep editing; its PID ($!) stops it.`,
+the build is missing or older than its sources; an edit to only app.contract or what app.ts
+imports runs its new plan on the existing build instead, in about a second.
+Ports    none. Runs to completion (--run too); --prebuild returns at once, the build going on
+         apart from this shell (its pid printed; test and agent wait for it).`,
     example: 'bun exact.mjs ios --run',
   },
   mac: {
     line: 'build the macOS app (--run launches it here)',
-    usage: 'bun exact.mjs mac [--run] [--bundle] [--url <url>] [--optimize speed|size]',
+    usage: 'bun exact.mjs mac [--run|--prebuild] [--bundle] [--url <url>] [--optimize speed|size]',
     flags: [
       ['--run', 'launch it when built, in the foreground (its log here) until it quits'],
+      PREBUILD,
       ['--bundle', 'also assemble the .app bundle'],
       ['--url <url>', 'with --run or --bundle: connect it to that dev server (web\'s URL) for live reload'],
       OPTIMIZE,
