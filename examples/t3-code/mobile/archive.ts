@@ -12,6 +12,7 @@ import { machineKind } from './shared/connections';
 import { letGo, letGoAware } from './shared/let-go';
 import { liveEnvironments, type LiveEnvironment } from './shared/live-streams';
 import { bridgeReply, ClientError, type Native, type Files } from './shared/protocol';
+import { subagentTitle } from './shared/timeline-events';
 import { EnvironmentFleet, fleet } from './shared/settings-b-fleet';
 import { mobileProjectFaviconTarget, type MobileProjectFaviconTarget } from './mobile-project-favicon';
 import { mobileCacheCatalogIdentity } from './mobile-client-cache-catalog';
@@ -41,8 +42,13 @@ export function projectMobileArchive(snapshots: ArchiveSnapshot[], now: number, 
     if (environmentId && source.environmentId !== environmentId) continue;
     for (const project of source.shell.projects) {
       const groupMatches = !query || [project.title, project.workspaceRoot, source.label].some(matches);
-      const threads = source.shell.threads.filter(thread => thread.projectId === project.id && thread.archivedAt != null
-        && (groupMatches || matches(thread.title) || matches(thread.branch)))
+      // Pinned models.ts scopes the subagent display title before matching or sorting.
+      const threads = source.shell.threads.filter(thread => thread.projectId === project.id && thread.archivedAt != null)
+        .map(thread => {
+          const title = obj(thread.lineage).relationshipToParent === 'subagent' ? subagentTitle(str(thread.title)) : str(thread.title);
+          return title === thread.title ? thread : { ...thread, title };
+        })
+        .filter(thread => groupMatches || matches(thread.title) || matches(thread.branch))
         .sort((a, b) => direction * (stamp(a) - stamp(b)) || compare(str(a.title), str(b.title)) || compare(str(a.id), str(b.id)));
       if (threads.length) groups.push({ source, project, threads, key: `${source.environmentId}:${str(project.id)}` });
     }
