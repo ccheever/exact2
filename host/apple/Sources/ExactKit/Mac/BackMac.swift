@@ -1,6 +1,6 @@
 // The Mac's ways back from a pushed route (LLP 1115.000 D5.1; LLP 1115 D5,
 // "Back is always there"): Go ▸ Back ⌘[ in the menu bar (DevMenuMac.swift),
-// a navigational toolbar item while a route is pushed (ToolbarMac.swift),
+// a navigational toolbar item, disabled at a stack's root (ToolbarMac.swift),
 // and the trackpad's swipe (`BackSwipe`, below). Each goes the way iOS's
 // Back button and edge swipe go (`NavigationRules.back`): an authored Back
 // control is what they press, and a route that declares none goes back by
@@ -39,12 +39,22 @@ extension NavigationHost {
         return route.props["navigationKey"].flatMap { UInt64($0) } != nil || !backControls(in: route, of: root).isEmpty
     }
 
-    /// Whether the window's toolbar shows the chevron: Back is offered, and
-    /// the route did not ask for a screen with no bar (`navigationBar="none"`,
-    /// LLP 1115.000 D5.2). The author hid the bar, not the way back: Go ▸
-    /// Back, ⌘[ and the swipe go from such a route as from any other.
+    /// Whether the app has a navigation stack: its navigation root is
+    /// mounted (lowering gives the first root with a `navigationKey` a
+    /// `navigationBack`, named or empty).
+    var hasStack: Bool { !presenter.carrying("navigationBack").isEmpty }
+
+    /// Whether the window's toolbar shows the chevron: the selected route,
+    /// pushed or the first of its stack, did not ask for a screen with no
+    /// bar (`navigationBar="none"`, LLP 1115.000 D5.2). At the root of a
+    /// stack it is there and disabled (`canGoBack`), as Finder's and
+    /// Safari's is, so the title bar is the same on every route. The author
+    /// hid the bar, not the way back: Go ▸ Back, ⌘[ and the swipe go from a
+    /// route with no bar as from any other.
     var backInToolbar: Bool {
-        backOffered && pushedRoute?.route.props["navigationBar"] != "none"
+        guard hasStack else { return false }
+        guard let selection, selection.stack.indices.contains(selection.at) else { return true }
+        return presenter.views[selection.stack[selection.at]]?.props["navigationBar"] != "none"
     }
 
     /// How Back goes from the selected route, resolved at use as iOS's is

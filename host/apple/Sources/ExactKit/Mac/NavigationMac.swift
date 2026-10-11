@@ -22,7 +22,11 @@ final class NavigationHost {
     /// and that route's place in it, as of the last batch: what the
     /// platform's Back leaves (BackMac.swift).
     private(set) var selection: (root: UInt32, stack: [UInt32], at: Int)?
-    func reset() { refused.removeAll(); gates.removeAll(); panels.removeAll(); shown.removeAll(); selection = nil }
+    /// Whether a route mounted under that root, in any of its stacks, shows
+    /// the platform's bar (does not say `navigationBar="none"`): what gives
+    /// the window its toolbar (ToolbarMac.swift).
+    private(set) var barRoute = false
+    func reset() { refused.removeAll(); gates.removeAll(); panels.removeAll(); shown.removeAll(); selection = nil; barRoute = false }
 
     func sync(_ batch: Batch, reparented: Set<UInt32> = []) {
         var touched = Set<UInt32>()
@@ -47,6 +51,7 @@ final class NavigationHost {
         var managed = Set<UInt32>()
         let roots = presenter.carrying("navigationBack")
         selection = nil
+        barRoute = false
         for nav in roots {
             // @ref LLP 1075.003 §3.7 — with tabs, each panel is a stack.
             let tabs = NavigationTabs.of(nav, presenter)
@@ -86,6 +91,7 @@ final class NavigationHost {
                 let selected = stack == at ? routes.firstIndex { $0.props["navigationKey"] == key } ?? 0 : routes.count - 1
                 if stack == at { shown[nav.id] = routes.prefix(selected + 1).map { $0.props["navigationKey"] ?? "" } }
                 if stack == at, nav === roots.first { selection = (nav.id, routes.map(\.id), selected) }
+                if nav === roots.first, routes.contains(where: { $0.props["navigationBar"] != "none" }) { barRoute = true }
                 let modal = routes.indices.contains(selected) && routes[selected].props["navigationPresentation"] == "modal"
                 for (index, route) in routes.enumerated() {
                     gate(route, hidden: index != selected && !(modal && index == selected - 1), inert: index != selected)

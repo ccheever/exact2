@@ -1,10 +1,17 @@
 // @ref LLP 1031 D5/D12; LLP 1001 §10 — window-owned presentation of
 // Contract commands, not an embedded NativeView or a second action registry.
-// And the platform's Back (LLP 1115.000 D5.1): while a route is pushed the
-// toolbar leads with a navigational back chevron, in the toolbar the author
-// declared or, with none, in one that holds only it and goes at the root.
-// A route that asks for no bar (`navigationBar="none"`, D5.2) gets no
-// chevron. The route's header and title stay in the content.
+// And the platform's Back (LLP 1115.000 D5.1): the window of an app with a
+// navigation stack leads its toolbar with a navigational back chevron, in
+// the toolbar the author declared or, with none, in one that holds only it.
+// It is there at a stack's root too, disabled, as Finder's and Safari's is:
+// a toolbar that came with each push and went with each pop made the title
+// bar 8 points taller and moved the content every time. A route that asks
+// for no bar (`navigationBar="none"`, D5.2) gets no chevron and the toolbar
+// stays, empty, at the same height. An app with no stack, or one whose
+// every mounted route asks for no bar, gets no toolbar; one comes with the
+// first route that shows a bar and then stays (`heldForBack`), so the title
+// bar's height changes at most that once. The route's header and title
+// stay in the content.
 #if os(macOS)
 import AppKit
 
@@ -33,6 +40,9 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         item.autovalidates = true
         return item
     }()
+    /// The toolbar is installed for the stack's Back: kept through routes
+    /// that ask for no bar, until the stack or the toolbar goes.
+    private var heldForBack = false
     private(set) var projected = false
     private var savedAccessibilityHidden = false
     private var syncing = false
@@ -115,15 +125,33 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         let hadToolbar = toolbar != nil
         let old = toolbar
         toolbar = nil
+        let content = contentSize
         if let window, let old, window.toolbar === old {
             window.toolbar = nil
             if window.title == appliedTitle { window.title = savedTitle }
         }
         items.removeAll(); symbols.removeAll(); order.removeAll(); owner = nil; heading = nil
+        heldForBack = false
         // The app's items and delegate were for that toolbar; the next one's
         // hatch says its own.
         hatched = false; appItems.removeAll(); appDelegate = nil
-        if hadToolbar { onChange?() }
+        if hadToolbar { onChange?(); keepContent(content) }
+    }
+
+    /// The content keeps its size as the toolbar comes or goes: only the
+    /// title bar changes, the window's top edge where it was. AppKit sizes
+    /// the window for a toolbar by the toolbar's whole height, the title bar
+    /// it merges with included, so the content came out 32 points taller
+    /// with one and as much shorter without (measured on macOS 27.0, unified
+    /// and compact alike, on screen or not). A full-screen window's frame is
+    /// the screen's.
+    private var contentSize: NSSize? {
+        guard let window, !window.styleMask.contains(.fullScreen) else { return nil }
+        return window.contentView?.frame.size
+    }
+    private func keepContent(_ size: NSSize?) {
+        guard let size, let window, let now = window.contentView?.frame.size, now != size else { return }
+        window.setContentSize(size)
     }
 
     /// The `toolbar` hatch for the installed toolbar, once (at a cold launch,
@@ -255,11 +283,15 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         prepare()
         guard let window, presenter.root.window === window else { reset(); return }
         let declared = declaration(in: window)
-        // Back while a route is pushed, the author's toolbar or not, unless
-        // the route asked for no bar (`navigationBar="none"`). AppKit asks
-        // whether it goes now (`validateToolbarItem`), as it does a menu.
-        let back = presenter.navigation.backInToolbar
-        guard declared != nil || back else { reset(); return }
+        // Back for an app with a stack, the author's toolbar or not: the
+        // toolbar from the first route that shows a bar, the item on every
+        // route that does not ask for none (`navigationBar="none"`). AppKit
+        // asks whether it goes now (`validateToolbarItem`), as it does a
+        // menu: at a stack's root it does not, and the item is disabled.
+        let navigation = presenter.navigation
+        let held = navigation.hasStack && (heldForBack || navigation.barRoute)
+        let back = held && navigation.backInToolbar
+        guard declared != nil || held else { reset(); return }
         // A host that takes its toolbar back wins. Never overwrite it on a tick.
         guard window.toolbar == nil || window.toolbar === toolbar else { refuse("window owner installed another toolbar"); return }
         if declared == nil { items.removeAll(); symbols.removeAll() }
@@ -275,6 +307,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             toolbar = value
         }
         guard let toolbar else { return }
+        heldForBack = held
         let live = Set(buttons.map(\.id))
         for id in Array(items.keys) where !live.contains(id) { items.removeValue(forKey: id); symbols.removeValue(forKey: id) }
         for node in buttons {
@@ -320,10 +353,15 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             if let old = toolbar.items.firstIndex(where: { $0.itemIdentifier == identifier }) { toolbar.removeItem(at: old) }
             toolbar.insertItem(withItemIdentifier: identifier, at: index)
         }
+        // Shown as it will answer, without waiting for AppKit's next validation.
+        if back, backItem.isEnabled != navigation.canGoBack { backItem.isEnabled = navigation.canGoBack }
         appliedTitle = heading.map(text) ?? savedTitle
         if window.title != appliedTitle { window.title = appliedTitle }
-        if window.toolbar !== toolbar { window.toolbar = toolbar }
+        let content = contentSize, attaching = window.toolbar !== toolbar
+        if attaching { window.toolbar = toolbar }
         if installing { onChange?() }
+        // After the window's owner has styled the toolbar (`onChange`).
+        if attaching { keepContent(content) }
         hatchToolbar()
         // Hide only the authored rendering. Its logical nodes/actions survive.
         guard let next = declared?.owner else { return }
