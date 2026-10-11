@@ -1,6 +1,7 @@
 // The standalone Mac menu bar: standard application and window commands,
 // with app-declared shortcuts in File, Edit, View, Go and Settings by their
-// chords (ShortcutsMac.swift; studio diary R16). File — New Window ⌘N
+// chords (ShortcutsMac.swift; studio diary R16). Go — Back ⌘[ from a pushed
+// route (LLP 1115.000 D5.1, BackMac.swift). File — New Window ⌘N
 // exists under `launch_handler` `navigate-new` (LLP 1069.010 D4), Open… ⌘O
 // when the app declares documents it opens (LLP 1033);
 // Edit always (the field editor's command keys — ⌘A/X/C/V/Z — are menu
@@ -90,6 +91,7 @@ final class RecentMenu: NSObject, NSMenuDelegate {
 public enum DevMenu {
     static let target = DevMenuTarget()
     static let editTarget = EditMenuTarget()
+    static let goTarget = GoMenuTarget()
     /// Whether a build has the Develop menu and its chords (LLP 1115.000
     /// D7.8): a development build does, a release build does not, as a
     /// shipped Mac app has no such menu. A release build is one baked with
@@ -196,6 +198,11 @@ public enum DevMenu {
         fullScreen.keyEquivalentModifierMask = [.command, .control]
         bar.addItem(withTitle: "View", action: nil, keyEquivalent: "").submenu = view
         let go = ShortcutMenu(title: "Go")
+        // Back ⌘[, first, as Finder's and Safari's is (LLP 1115.000 D5.1):
+        // the way back from a pushed route in the key window. The app's own
+        // ⌘[ command stands in for it, and an app with no navigation has
+        // no Go menu (`ShortcutHost.sync`).
+        go.addItem(withTitle: "Back", action: #selector(GoMenuTarget.back(_:)), keyEquivalent: "[").target = goTarget
         bar.addItem(withTitle: "Go", action: nil, keyEquivalent: "").submenu = go
         let window = NSMenu(title: "Window")
         window.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")

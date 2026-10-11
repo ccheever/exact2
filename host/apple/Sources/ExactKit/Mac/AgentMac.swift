@@ -139,6 +139,8 @@ extension Agent {
                 navigation["closedby"] = selected.props["closedby"] ?? NSNull()
             }
         }
+        // The platform's Back (LLP 1115.000 D5.1): how it goes now, or null.
+        navigation["back"] = presenter.navigation.backObservation
         // @ref LLP 1038 D11 — last op, never inferred from route props.
         navigation["url"] = session.routerOp?["url"] ?? NSNull()
         navigation["popover"] = presenter.menus.observation ?? NSNull()

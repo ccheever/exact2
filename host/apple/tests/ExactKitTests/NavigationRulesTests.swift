@@ -661,8 +661,13 @@ final class MacShortcutTests: XCTestCase {
         let new = file.items.first { $0.keyEquivalent == "n" }!
         XCTAssertEqual(app.items[2].title, "Settings…")
         XCTAssertEqual(app.items[2].keyEquivalent, ",")
-        XCTAssertEqual(go.items.map(\.title), ["Back", "Home"])
-        XCTAssertEqual(go.items[1].state, .on)
+        // The app's own ⌘[ Back stands in for the host's (LLP 1115.000 D5.1),
+        // which keeps its place, hidden and without the chord.
+        let shown = { go.items.filter { !$0.isHidden } }
+        XCTAssertEqual(shown().map(\.title), ["Back", "Home"])
+        XCTAssertTrue(shown()[0].target is ShortcutHost)
+        XCTAssertEqual(go.items.filter { $0.target is GoMenuTarget }.map(\.keyEquivalent), [""])
+        XCTAssertEqual(shown()[1].state, .on)
         XCTAssertFalse(file.items.contains { $0.keyEquivalent == "," || $0.keyEquivalent == "[" })
         XCTAssertNotNil(app.items.first { $0.action == #selector(NSApplication.hideOtherApplications(_:)) })
         XCTAssertNotNil(bar.items.first { $0.submenu?.title == "Window" })
@@ -675,7 +680,7 @@ final class MacShortcutTests: XCTestCase {
         home.props["inert"] = "true"
         presenter.shortcuts.sync()
         XCTAssertFalse(new.isEnabled)
-        XCTAssertFalse(go.items[1].isEnabled)
+        XCTAssertFalse(shown()[1].isEnabled)
         compose.removeFromSuperview()
         presenter.views.removeValue(forKey: compose.id)
         presenter.shortcuts.sync()
