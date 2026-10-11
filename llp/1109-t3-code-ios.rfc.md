@@ -16,6 +16,13 @@ authorizes these design documents. The app must match the upstream routes and
 showcase scenes in both appearances, with measured performance against the same
 upstream release build. Android and changes to Exact itself are outside this task.
 
+[confirmed] On 2026-10-10 the user resumed the clone goal and added final
+TestFlight delivery. After functional and visual acceptance, build the native
+iOS app and use EAS Submit to upload that identified archive. Verify Apple
+processing and TestFlight availability before claiming delivery. This authorizes
+the beta upload, not a public App Store release. The release remains pending;
+resuming the overall goal does not reopen separately stopped correction targets.
+
 ## Architecture
 
 [observed] `js/bake/src/lib.rs` reads `app.contract` from the app directory.

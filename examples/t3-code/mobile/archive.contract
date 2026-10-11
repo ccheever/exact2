@@ -48,6 +48,25 @@ shape ArchiveEnvironment
   id: string
   label: string
 
+shape ArchiveScope
+  key: string
+  presentation: string
+
+shape ArchiveReceipt
+  environmentId: string
+  identity: string
+  revision: string
+  origin: string
+  generation: number
+  focused: bool
+  producer: number
+  granted: bool
+
+shape ArchiveRead
+  serial: number
+  receipts: list<ArchiveReceipt>
+  error: string
+
 shape ArchiveData
   items: list<ArchiveItem>
   environments: list<ArchiveEnvironment>

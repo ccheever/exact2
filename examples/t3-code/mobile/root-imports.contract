@@ -34,7 +34,7 @@ use MediaPreviewSnapshot from "./media-preview.contract"
 use ComposerAttachmentsSnapshot from "./composer-attachment-shapes.contract"
 use SettingsChoicesData, MobilePreferencesResource from "./settings.contract"
 use SettingsAppearance, SettingsAppearanceData from "./settings-appearance.contract"
-use ArchiveData, ArchiveColors from "./archive.contract"
+use ArchiveData, ArchiveColors, ArchiveScope, ArchiveRead from "./archive.contract"
 use AgentActivityData, AgentActivityColors from "./agent-activity.contract"
 use EnvironmentDetailData from "./environment-detail.contract" // @ref llp/1109.003-pairing-and-transport.decision.md#decision
 use NewTaskFlowSnapshot, NewTaskFlowResult from "./new-task-flow.contract"

@@ -70,7 +70,7 @@ import { mobileShelves, mobileToggleShelf, mobileHomeView } from './home-state';
 import { mobileThreadLocalColors, mobileTheme, mobileHomeColors, mobileThreadColors, mobileComposerColors, mobileArchiveColors, mobileAgentColors } from './design';
 import { mobilePreferencesResource, mobileSavePreference, mobileApplyAppearance, normalizeMobilePreferences, resolveMobileAppearance } from './settings-preferences';
 import { settingsAppearanceView, settingsChoices } from './settings-appearance';
-import { mobileArchive, mobileArchiveCommand } from './archive';
+import { mobileArchiveCommand, mobileArchiveRead, mobileArchiveScope, mobileArchiveView } from './archive';
 import { mobileAgentActivity } from './agent-activity';
 import { mobileComposerSettings, mobileComposerSettingsAction } from './composer-settings';
 import { mobileNewTask, mobileNewTaskChooser, mobileNewTaskPrepare, mobileNewTaskCachedPrepare } from './new-task';
@@ -587,10 +587,9 @@ const sources: Sources = {
     const native = sourceNative('agentColors', args, nativeInput);
     return mobileAgentColors(String(args[0] ?? 'light'), String(args[1] ?? 't3-code'));
   },
-  archiveView: (args, _store, storage, nativeInput) => {
-    const native = sourceNative('archiveView', args, nativeInput);
-    return mobileArchive(Number(args[0]), String(args[1] ?? ''), String(args[2] ?? ''), String(args[3] ?? 'newest'), args[4] === true ? native : null);
-  },
+  archiveScope: () => mobileArchiveScope(),
+  archiveRead: (args, _store, _storage, nativeInput) => mobileArchiveRead(String(args[0] ?? ''), String(args[1] ?? ''), sourceNative('archiveRead', args, nativeInput)),
+  archiveView: args => mobileArchiveView(Number(args[0]), String(args[1] ?? ''), String(args[2] ?? ''), String(args[3] ?? 'newest'), args[4] === true, args[5]),
   archiveAction: (args, _store, storage, nativeInput) => {
     const native = sourceNative('archiveAction', args, nativeInput);
     return mobileArchiveCommand(String(args[0] ?? ''), String(args[1] ?? ''), String(args[2] ?? ''), String(args[3] ?? ''), native, storage);
