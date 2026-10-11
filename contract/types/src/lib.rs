@@ -27,6 +27,7 @@ mod geometry;
 mod lists;
 mod literals;
 mod media;
+mod persist;
 /// Router declaration checking and compile-time path expansion (LLP 1038 D2/D3).
 pub mod placeholder;
 mod posts;
@@ -1289,6 +1290,7 @@ fn check_with_sites(
         });
     }
     check_root(file, &mut types, &expanded, &mut sink);
+    persist::check(file, &types, &expanded, &mut sink);
     // What lowering lowers: each caller's names renamed apart from what its
     // callees read, after the checks spoke in the author's (LLP 1089 D7).
     contract_syntax::hygiene(&mut expanded, file);

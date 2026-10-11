@@ -638,9 +638,15 @@ impl Batch {
 
     /// `{"op":"store","tier":"secret","name":…,"value":…|null}` — a secret
     /// the app kept or forgot (LLP 1018 D1), for the page to persist after
-    /// the commit (`localStorage` under `exact.secret.<name>`).
+    /// the commit (`localStorage` under `exact.secret.<name>`); `"plain"`
+    /// for a persisted state (LLP 1116 D5), kept under its own name.
     pub fn store(&mut self, w: &exact_runner::StoreWrite) {
-        let mut s = String::from("{\"op\":\"store\",\"tier\":\"secret\",\"name\":");
+        let tier = if w.name.starts_with(exact_runner::Store::STATE) {
+            "plain"
+        } else {
+            "secret"
+        };
+        let mut s = format!("{{\"op\":\"store\",\"tier\":\"{tier}\",\"name\":");
         quote(&w.name, &mut s);
         s.push_str(",\"value\":");
         match &w.value {

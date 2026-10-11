@@ -130,6 +130,11 @@
           "name": "late",
           "codec": "bool",
           "_comment": "@ref LLP 1017.000 (child state): a root slot holding the state of a child used outside every region; its init runs once at the boot render, after boot settlement (so it may read derives and resources), not with the other root slots before it. Always false when owner is set."
+        },
+        {
+          "name": "persist",
+          "codec": "bool",
+          "_comment": "@ref LLP 1116 D5 (`state ... persist`): a root slot the host keeps across launches. Boot takes the store's value under `exact.state.<name>` where it decodes to the slot's type (else the initializer's value stands, and the mismatch is journaled); after every commit that stands the store holds the slot's value. Only a root slot (no owner, not late) of a number, string or bool, or an option or list of those."
         }
       ]
     },

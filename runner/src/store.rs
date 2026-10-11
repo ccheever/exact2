@@ -265,8 +265,20 @@ impl Store {
     /// a read or a revision.
     pub const KEPT: &'static str = "exact.kept.";
 
+    /// The runner's persisted states (LLP 1116 D5): `state … persist`'s
+    /// value lives under this prefix and the state's name, as JSON text,
+    /// owned by the runner as a kept answer is. A host keeps these in the
+    /// platform's preference store, never its secret store.
+    pub const STATE: &'static str = "exact.state.";
+
     fn is_kept(name: &str) -> bool {
-        name.starts_with(Store::KEPT)
+        Store::runner_owned(name)
+    }
+
+    /// Whether `name` is the runner's own — a kept answer or a persisted
+    /// state — which no grant reaches.
+    pub fn runner_owned(name: &str) -> bool {
+        name.starts_with(Store::KEPT) || name.starts_with(Store::STATE)
     }
 
     /// A kept answer, by the runner (uncounted, ungated).

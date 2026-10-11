@@ -98,8 +98,9 @@ structs! {
     StyleDecl { name, attrs, span }
     ShapeDecl { name, fields, span }
     Field { name, ty, span }
-    Component { name, props, injects, provides, slot, states, derives, resources, mutations,
-        actions, tasks, view, span }
+    Component { name, props, injects, provides, slot, states, persist, derives, resources,
+        mutations, actions, tasks, view, span }
+    Persist { name, span }
     Binding { name, expr, span }
     ResourceDecl { name, source, args, identity, shape, placeholder, span }
     Placeholder { source, args, span }

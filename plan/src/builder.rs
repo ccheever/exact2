@@ -324,6 +324,7 @@ impl PlanBuilder {
             init,
             owner: None,
             late: false,
+            persist: false,
         });
         SlotsId(self.plan.slots.len() as u32 - 1)
     }
@@ -738,6 +739,11 @@ impl PlanBuilder {
     /// settlement: a child's state used outside every region.
     pub fn set_slot_late(&mut self, id: SlotsId) {
         self.plan.slots[id.0 as usize].late = true;
+    }
+
+    /// Mark a root slot persisted (LLP 1116 D5), or not.
+    pub fn set_slot_persist(&mut self, id: SlotsId, persist: bool) {
+        self.plan.slots[id.0 as usize].persist = persist;
     }
 
     /// Replace a derive's body.

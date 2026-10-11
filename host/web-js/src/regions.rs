@@ -163,17 +163,27 @@ pub(super) fn root_slot(
     let init = code::expression(plan, plan.code(r.init), top, uses)
         .map_err(|e| format!("slot {}: {e}", plan.str(r.name)))?;
     let ty = serde_json::to_string(&type_code(plan, r.ty)).unwrap();
+    // A persisted slot starts from the store's value where it fits, and is
+    // kept after each commit (LLP 1116 D5, persist.js).
+    let quoted = serde_json::to_string(plan.str(r.name)).unwrap();
+    let init = if r.persist {
+        format!("$stored({quoted},{init},{})", type_json(plan, r.ty))
+    } else {
+        init
+    };
     if dev_reload {
         let _ = write!(
             body,
-            "const s_{i}=$devSig({},{init},{ty},{});",
-            serde_json::to_string(plan.str(r.name)).unwrap(),
+            "const s_{i}=$devSig({quoted},{init},{ty},{});",
             type_json(plan, r.ty)
         );
     } else {
         let sig = uses.rt("sig");
         let name = string_name(plan, r);
         let _ = write!(body, "const s_{i}={sig}({init},{ty}{name});");
+    }
+    if r.persist {
+        let _ = write!(body, "$keep(s_{i},{quoted},{});", type_json(plan, r.ty));
     }
     Ok(())
 }

@@ -237,6 +237,7 @@ fn expand_with_sites(
         provides: source.provides.clone(),
         slot: source.slot,
         states: source.states.clone(),
+        persist: source.persist.clone(),
         derives: source.derives.clone(),
         resources: source.resources.clone(),
         mutations: source.mutations.clone(),

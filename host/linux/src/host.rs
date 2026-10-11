@@ -1488,10 +1488,6 @@ impl<D: DataSource> Host<D> {
     }
 }
 
-/// The kv scope the runner's kept answers live in, beside secrets
-/// (LLP 1027 D4). The same scope Apple's store writes.
-const KEPT: &str = "exact.kept";
-
 #[cfg(test)]
 #[path = "host_tests.rs"]
 mod tests;

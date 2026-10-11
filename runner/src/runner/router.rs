@@ -600,6 +600,7 @@ impl<D: DataSource> Runner<D> {
             .and_then(|c| c.slots.iter().find(|(n, _)| n == name))
             .map(|(_, v)| v.clone())
             .filter(|v| v.conforms(&self.plan, row.ty));
+        let carried = kept.is_some();
         let v = match kept {
             Some(v) => v,
             None => self.eval(row.init, &[], &[])?,
@@ -607,7 +608,13 @@ impl<D: DataSource> Runner<D> {
         if !v.conforms(&self.plan, row.ty) {
             return Err(RunnerError::SlotType { slot: name.into() });
         }
-        self.slots[i] = v;
+        // A persisted slot takes the store's value over its initializer's
+        // (LLP 1116 D5); a carried value is this session's and wins.
+        self.slots[i] = if carried {
+            v
+        } else {
+            self.restore_persisted(i, v)
+        };
         Ok(())
     }
 

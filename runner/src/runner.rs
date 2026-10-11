@@ -61,6 +61,7 @@ mod lists;
 mod media_session;
 mod page;
 mod perf;
+pub mod persist;
 mod query;
 mod queue;
 pub use queue::QUEUE_BOUND;
@@ -658,7 +659,6 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     #[allow(clippy::too_many_arguments)] // the host boot facts
     fn boot_inner(
         links: RunnerLinks,
@@ -1030,6 +1030,7 @@ impl<D: DataSource> Runner<D> {
         runner.publish_surfaces(surfaces);
         let line = lines::boot(carried.is_some(), runner.kernel.live_count(), receipt.epoch);
         runner.log(line);
+        runner.persist_boot();
         if let Some(spec) = carried.and_then(|c| c.faults.as_deref()) {
             runner.faults = faults::Faults::parse(spec).unwrap_or_default();
         }

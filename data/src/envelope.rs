@@ -17,13 +17,14 @@ fn unavailable(message: impl Into<String>) -> DataError {
 }
 
 /// A module's scoped snapshot of the committed store: its own `secret.keep`
-/// names, never the runner's kept answers (LLP 1027.002 D3, change 1).
+/// names, never the runner's kept answers or persisted states (LLP
+/// 1027.002 D3, change 1; LLP 1116 D5).
 pub fn snapshot(store: &Store, grants: &str) -> Vec<(String, String)> {
     let granted = Store::new(grants, []).granted().to_vec();
     store
         .snapshot()
         .into_iter()
-        .filter(|(name, _)| !name.starts_with(Store::KEPT) && granted.iter().any(|g| g == name))
+        .filter(|(name, _)| !Store::runner_owned(name) && granted.iter().any(|g| g == name))
         .collect()
 }
 
