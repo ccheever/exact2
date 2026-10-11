@@ -106,7 +106,7 @@ Object.defineProperties(GuardedDate, {
   name: { value: 'Date' }, [Symbol.hasInstance]: { value: v => v instanceof NativeDate },
 });
 const GuardedMath = Object.freeze(Object.create(Object.getPrototypeOf(NativeMath), Object.fromEntries(Reflect.ownKeys(NativeMath).map(k => [k,
-  k === 'random' ? { value: () => { throw new Error('Math.random() is unavailable in data sources; pass time or a random seed as an argument, or use crypto.getRandomValues'); } }
+  k === 'random' ? { value: () => { throw new Error('Math.random() is unavailable in data sources; seed from crypto.getRandomValues in a source (docs/recipes/random-and-shuffle.md), or pass a seed as an argument'); } }
     : Object.getOwnPropertyDescriptor(NativeMath, k)]))));
 // Intl.DateTimeFormat defaults an omitted date to the clock: its `format` and
 // `formatToParts` refuse one, through any alias the app can reach.
