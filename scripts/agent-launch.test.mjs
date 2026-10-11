@@ -103,6 +103,20 @@ test('a web test run asks the backend its app fetches first', async () => {
   } finally { server.close(); rmSync(dist, { recursive: true, force: true }); }
 });
 
+// A mutation's refused reply is named with why, from either runner's line (sb4 farm wave 6, E3); a resource's is not.
+test("a mutation whose reply was refused is named with the field its shape lacks", async () => {
+  const { refusedReplies } = await import('./agent-test.mjs');
+  const why = '`post` answered outside its shape: field `seq` is not in the shape';
+  expect([...refusedReplies([
+    `t=12 refused reply posted; wall 3 ms: ${why}`,
+    `t=12 request 5 (posted) failed and is no longer pending: it ends unsent: ${why}`, // the web runtime
+    'request 7 (saved) failed and is no longer pending: it is not retried: `save` answered outside its shape: field `id` is missing', // the runner
+    'request 8 (board) failed and is no longer pending: it keeps its last value: E_OFFLINE', // a resource: `state.failed` says it
+    { not: 'a line' },
+  ])]).toEqual([['posted', why], ['saved', '`save` answered outside its shape: field `id` is missing']]);
+  expect(refusedReplies(undefined).size).toBe(0);
+});
+
 // A named port a page just let go of is asked again for a moment; one held for good is refused.
 test('a named port still held is asked again, then refused', async () => {
   const { listenOn } = await import('./agent-launch.mjs');

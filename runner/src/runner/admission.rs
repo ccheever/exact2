@@ -150,6 +150,9 @@ impl<D: DataSource> Runner<D> {
         self.forgot = true;
         self.sync_pending_flags();
         let name = self.target_name(target);
+        // Why, on the line the test runner quotes for a mutation (which has
+        // no `state.failed`): sb4 farm wave 6, E3.
+        let reason = why.message.clone();
         let mut again = Vec::new();
         let next = match target {
             Target::Resource(i) => {
@@ -171,7 +174,8 @@ impl<D: DataSource> Runner<D> {
                 "it is not retried"
             }
         };
-        let what = format!("request {ticket} ({name}) failed and is no longer pending: {next}");
+        let what =
+            format!("request {ticket} ({name}) failed and is no longer pending: {next}: {reason}");
         self.log(what.clone());
         if ask_again {
             self.log(super::lines::asked_again(ticket, &name));

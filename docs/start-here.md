@@ -129,8 +129,9 @@ component Groceries
 - **Refreshes.** Include every resource the write changes (`refreshes groceries, counts`).
 
 **The data module** answers each source with exactly its declared shape (an extra field
-fails it), reaches only what its `grants` name, and answers a failed fetch as data. The
-clock and randomness are refused there; time is an argument.
+fails a resource or voids a mutation’s reply; its slot keeps its old value), reaches only what its `grants` name, and answers a failed fetch as data
+([fetch-loading-error](recipes/fetch-loading-error.md)). The clock and randomness are
+refused there; time comes as an argument.
 
 ```ts
 import type { Answer, Result, Sources, Storage } from './app.contract.d.ts';
@@ -241,3 +242,6 @@ Start `snapback4 dev` in the backend directory, seeded if the tests read seeded 
 A server’s minted ids are unique, not ordered. Sort by time; tests can reach
 rows by text or a position-based testId (`each t, i in tasks key=t.id`,
 ``testId=`task-${i}` ``).
+
+Type the function returning a mutation’s reply (`Promise<Result<'post'>>`):
+the build names an extra field, and a failing test names a refused reply.

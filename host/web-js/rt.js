@@ -450,7 +450,7 @@ function reply(t, name, source, held, f, next, gone) {
       catch (e) { throw e instanceof Failed ? e : new Failed(String(e?.message ?? e), failureCode(e)); }
       f(p, o);
     }, `${o.more ? "message" : "reply"} ${name}; wall ${t.elapsed} ms`) !== false || !(Refused instanceof Failed || !t.r) || !held()) return; // a mutation's reply is spent whatever refused it
-    say(`request ${t.id} (${name}) failed and is no longer pending: ${next}`);
+    say(`request ${t.id} (${name}) failed and is no longer pending: ${next}: ${Refused?.message ?? Refused}`); // why, on the line a test failure quotes (sb4 farm wave 6, E3: a mutation's refused reply named nowhere)
     gone(Refused.message, Refused.code); recommit(() => { if (t.r) again(t); }, "a failed request");
   };
 }

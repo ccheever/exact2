@@ -197,13 +197,17 @@ const personas = Snapback.switcher((persona: string) => ({ app: appId, name: `gu
 
 type Row = { id: string; author: string; body: string; pending?: boolean };
 
-// Results are keyed by source name: `Result<'notes'>`, `Result<'post'>`.
+// Results are keyed by source name: `Result<'notes'>`, `Result<'post'>`. Put
+// the type on the callback `use` runs, where the object is returned: there an
+// undeclared field fails the build (TS2353 names it); on the outer arrow, a
+// callback's literal is never checked for extra fields.
 const sources: Sources = {
-  notes: ([persona, now], _store, storage, native): Promise<Result<'notes'>> => personas.use(persona, storage, native, async db => {
+  notes: ([persona, now], _store, storage, native) => personas.use(persona, storage, native, async (db): Promise<Result<'notes'>> => {
     const round = await db.sync();                      // offline is fine once synced
     const read = await db.read<Row[]>('recent', {}, now);
     if (read.denied) throw refused(read.denied);        // failure(board): `offline`, or `error` with "CODE: message"
-    // Project each row onto the shape: an answer's extra fields are refused.
+    // Project each row onto the shape: an answer's extra fields are refused
+    // (a row spread, `{ ...row }`, keeps every field the type check cannot see).
     const notes = (read.data ?? []).map(row => ({ id: row.id, author: row.author, body: row.body, pending: row.pending === true }));
     return { online: round.ok, message: round.ok ? '' : 'Offline: showing what this device keeps',
       latest: notes.length ? `${notes[0].author}: ${notes[0].body}` : '',
@@ -212,7 +216,7 @@ const sources: Sources = {
   // At build (bake) there is no storage or native module: `use` rejects with
   // code 'bake', and a resource whose source lets it through shows its
   // `else empty(…)` until the app runs and asks again. No catch is needed.
-  post: ([persona, body, now], _store, storage, native): Promise<Result<'post'>> => personas.use(persona, storage, native, async db => {
+  post: ([persona, body, now], _store, storage, native) => personas.use(persona, storage, native, async (db): Promise<Result<'post'>> => {
     // Write, sync, and the write's fate in one call: `sent` with the mutation's
     // result (here the new row's id), `failed` with the refusal's code, or
     // `pending` when the round did not reach the server (kept; sent later).
@@ -370,7 +374,12 @@ const renewed = await db.refreshSession(now);          // near expiresAt: keep r
   shape's own field. The driver's own refusals are thrown the same way:
   `readAll` throws a page's (where `read` answers `denied`), and a first
   read that cannot reach the server throws `E_OFFLINE`. A mutation's
-  refusal is not a failure: it is the outcome's `why`.
+  refusal is not a failure: it is the outcome's `why`. A mutation source's
+  answer outside its shape (a field the shape does not declare) is refused
+  too: the slot keeps what it had and its `then` never runs. A failing
+  `test web` expect and an `agent` drive name it (``mutation posted's reply
+  was refused: `post` answered outside its shape: field `seq` is not in
+  the shape``), and the type on `use`'s callback stops it at build.
 - **Typing a helper.** `db` in `personas.use(…, async db => …)` is a
   `Snapback`: annotate a helper's parameter as that (`import { Snapback,
   type Outcome } from './snapback4/snapback.ts'`), never `any` or a

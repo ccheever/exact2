@@ -166,6 +166,19 @@ export function sweepTestStores(base, storage) {
   const ours = new RegExp(`^${storage.replace(/[.]/g, '\\.')}\\.r(\\d+)-[0-9a-z]+\\.t\\d+$`);
   for (const name of names) { const m = name.match(ours); if (m && !alive(Number(m[1]))) rmSync(resolve(base, name), { recursive: true, force: true }); }
 }
+/** Each mutation whose reply was refused, and why, from the journal line both runners write when they let its request
+ * go (`request N (name) failed and is no longer pending: <it ends unsent | it is not retried>: <why>`). A mutation has no
+ * `state.failed`: its slot keeps what it had and its `then` never runs, so this is the only place the reason is said
+ * (sb4 farm wave 6, E3: an answer's undeclared field voided a reply, 25 minutes with nothing naming the field). */
+export function refusedReplies(lines) {
+  const refused = new Map();
+  for (const l of Array.isArray(lines) ? lines : []) {
+    const m = (typeof l === 'string' ? l : JSON.stringify(l)).match(/request \d+ \(([^)]+)\) failed and is no longer pending: (?:it ends unsent|it is not retried): (.*)$/);
+    if (m) refused.set(m[1], m[2]);
+  }
+  return refused;
+}
+const replyNote = (name, why) => `mutation ${name}'s reply was refused: ${why}; its slot keeps what it had and its \`then\` does not run`;
 /** The notes a CLI drive writes on stderr beside its replies, each once (LLP 1102 §3.17; app farm round 1, where a
  * shape refusal lived only in `logs` and an early `tree` showed an empty list): a drive with no scratch store whose
  * source was refused storage; a resource that failed, and why; a read taken while the app's data is in flight. Call it
@@ -176,7 +189,7 @@ export function driveNotes(s, { host, storage }) {
   const INPUTS = ['tap', 'type', 'clock'], READS = ['tree', 'screenshot', 'layout'];
   const said = new Set(), note = (key, text) => { if (!said.has(key)) { said.add(key); console.error(`note: ${text}`); } };
   const bounded = (p, ms) => Promise.race([p.catch(() => null), new Promise((done) => setTimeout(() => done(null), ms))]);
-  let peek = 0, probes = 0, clocked = false;
+  let peek = 0, probes = 0, clocked = false, replies = 0;
   return async (op) => {
     const end = op === 'end', early = READS.includes(op) && !clocked && !said.has('early');
     if (op === 'clock') clocked = true;
@@ -189,6 +202,9 @@ export function driveNotes(s, { host, storage }) {
           if (j.lines.some((l) => /unavailable in agent mode/.test(typeof l === 'string' ? l : JSON.stringify(l)))) note('storage', 'a data source was refused storage: this drive names no scratch store, so writes do nothing; pass --storage <name> (docs/agent-pitfalls.md)');
         }
       }
+      const j = await bounded(s.op({ op: 'logs', since: replies }), 3000);
+      if (Array.isArray(j?.lines)) replies = j.next;
+      for (const [name, why] of refusedReplies(j?.lines)) note(`reply ${name} ${why}`, replyNote(name, why));
       const state = await bounded(s.state(), 3000);
       for (const [name, why] of Object.entries(state?.failed ?? {})) note(`failed ${name} ${why}`, `resource ${name} failed: ${why}; it shows its placeholder or last value, and \`failed(${name})\` is true (\`state\` lists it under \`failed\`)`);
       const pending = (state?.pending ?? []).filter((p) => !p.device).map((p) => p.name);
@@ -339,10 +355,12 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     const delivered = (r) => { if (r?.error || r?.delivery === 'unsupported') throw new Error(r.error ?? r.reason ?? 'the host does not support this input'); if (r?.landError) throw new Error(`the input was delivered; landing what it started failed: ${r.landError}`); if (r?.closed) closedAt = current; };
     // With no input since the clock last moved, a request still in flight (the boot's own, or one a jump
     // left on real time) is named: the expect read the value before its reply (workout F1).
-    // A resource that failed is named first, with why (app farm round 1: a shape refusal read as a timing problem).
+    // A resource that failed is named first, with why (app farm round 1: a shape refusal read as a timing problem), then a
+    // mutation whose reply was refused (sb4 farm wave 6, E3: the same refusal, with no `state.failed` to show it).
     const fail = async (message) => {
       const state = await s.state().catch(() => ({}));
-      const failed = Object.entries(state.failed ?? {}).map(([name, why]) => ` (resource ${name} failed: ${why}; it shows its placeholder or last value)`).join('');
+      const failed = Object.entries(state.failed ?? {}).map(([name, why]) => ` (resource ${name} failed: ${why}; it shows its placeholder or last value)`).join('')
+        + [...refusedReplies((await s.op({ op: 'logs', since: 0 }).catch(() => null))?.lines)].map(([name, why]) => ` (${replyNote(name, why)})`).join('');
       if (unpolled != null) return failures.push(`${message}${failed} (line ${unpolled} wrote to the server, and the clock has not moved past the app's next read since: \`clock +<its poll's ms>\`, then \`clock data\`)`);
       if (input != null) return failures.push(`${message}${failed} (the clock has not moved since line ${input}'s input: a reply, a mutation's \`then\` or a transition lands at \`clock settle\`; a timer fires when the clock reaches its time, \`clock +N\`)`);
       const pending = (state.pending ?? []).filter((p) => !p.device).map((p) => p.name);
