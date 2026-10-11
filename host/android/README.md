@@ -113,7 +113,9 @@ The cut was the smallest one. Left in the reader:
     drag. One pointer still: a second finger cancels the touch.
   - *The lifecycle's first two parts* (D15): the manifest declares the configuration changes the host takes in
     place, an activity made again adopts the host that runs (`Native.start` on a thread that has one), and the host
-    does no frame work while the activity is stopped. Nothing is saved for a process the system kills (D15.3).
+    does no frame work while the activity is stopped. Android discards a stopped window's display lists, the reader's
+    kept rows among them, so a start after a stop makes the reader again (`ExactActivity.read`) and the host paints
+    everything for it; hosted views are made again with it. Nothing is saved for a process the system kills (D15.3).
 - **No agent carrier** for the APK (`--reader`, LLP 1107 §4.4).
 - **No check builds any of it.** Gradle is in none of the five checks or the async lane, and nothing builds
   `exact-linux` for the Android target.

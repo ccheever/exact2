@@ -180,10 +180,11 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
      * no timer, no layer sampled; the first frame after it starts again shows what changed meanwhile. */
     private var running = true
 
-    /** The activity stopped ([on] false) or started again. */
-    fun running(on: Boolean) {
+    /** The activity stopped ([on] false) or started again. The host is told only by the view that reads it
+     * ([host]): the view of an activity that was replaced stops itself and leaves the host to its successor. */
+    fun running(on: Boolean, host: Boolean = true) {
         // The owner first, whatever this view believes: it may have been stopped under the view before this one.
-        owner?.running(on)
+        if (host) owner?.running(on)
         if (on == running) return
         running = on
         if (on) {
@@ -291,6 +292,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
     private val releaseWait = (context as Activity).intent.getStringExtra("wait")?.toLongOrNull() ?: Exact.WAIT_MS
     override fun onDetachedFromWindow() {
         warmer.destroy()
+        worker.shutdown()
         val queue = Looper.getMainLooper().queue
         for (pfd in wakes) { queue.removeOnFileDescriptorEventListener(pfd.fileDescriptor); pfd.close() }
         wakes.clear()

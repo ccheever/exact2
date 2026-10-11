@@ -33,9 +33,9 @@ open class ExactActivity : Activity() {
     /** The app has text fields: keys and the software keyboard reach it ([Keys]). */
     protected open val input = false
     /**
-     * The seam a driver attaches at ([Drive]); the default attaches none. Called once, in [onCreate], when the host
-     * has begun to boot and before the view is made: a driver sets the window up and reads its own launch extras
-     * here. [scroll] moves the app's feed by a distance in pixels ([ExactView.scrollBy]) and may be called once
+     * The seam a driver attaches at ([Drive]); the default attaches none. Called once, as the activity is made, when
+     * the host has begun to boot and before the view is made: a driver sets the window up and reads its own launch
+     * extras here. [scroll] moves the app's feed by a distance in pixels ([ExactView.scrollBy]) and may be called once
      * [onCreate] has returned.
      */
     protected open fun drive(scroll: (Float) -> Unit): Drive? = null
@@ -62,20 +62,55 @@ open class ExactActivity : Activity() {
         if (intent.getStringExtra("splashfade") != "1") splashScreen.setOnExitAnimationListener { it.remove() }
         if (!again) environment()
         edgeToEdge()
-        // owner=0: exact2 on the main thread (booting on its own thread first unless asyncboot=0). Otherwise exact2
-        // lives on a thread of its own from boot on ([Owner]), started here so it loads exact2's library while the
-        // assets are checked.
-        val owned = intent.getStringExtra("owner") != "0"
-        val owner: Owner? = if (owned) {
-            // exactprio=display: exact2's thread above the main thread (THREAD_PRIORITY_DISPLAY), to compare.
-            val priority = if (intent.getStringExtra("exactprio") == "display") android.os.Process.THREAD_PRIORITY_DISPLAY
-                else android.os.Process.THREAD_PRIORITY_DEFAULT
-            // The process's one owner: its thread holds the host, which an activity made again adopts.
-            (Exact.owner ?: Owner(intent.getStringExtra("hwbuf") != "0", intent.getStringExtra("fast") != "0", priority, intent::getStringExtra).also { Exact.owner = it })
-                .also { it.published = { view.onPublished() } }
-        } else null
-        val storage = createDeviceProtectedStorageContext().filesDir
+        // exact2's thread, made before the assets are checked: it loads exact2's library meanwhile.
+        owner()
         installAssets(File(storage, "app"))
+        // System Back goes where the app's routes send it ([Native.back], LLP 1115.001 D6); with nowhere to go it
+        // leaves the app. The callback is always on: enabling it only while Back has somewhere to go, which gives
+        // the system's own leave animation and its predictive preview, waits for the host to be able to say so.
+        onBackInvokedDispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT) {
+            if (Exact.back()) view.invalidate() else finish()
+        }
+        // No background of its own: the window's shows behind the page, the launch theme's surface until the host says
+        // the page's ([chrome]).
+        root = FrameLayout(this)
+        read()
+        // The raw insets go to the host whenever they change, and the window's size when it does; nothing is padded
+        // here (D3.3).
+        root.setOnApplyWindowInsetsListener { _, insets -> window(insets); insets }
+        root.addOnLayoutChangeListener { _, l, t, r, b, ol, ot, or, ob ->
+            if (r - l != or - ol || b - t != ob - ot) root.rootWindowInsets?.let { window(it) }
+        }
+        setContentView(root)
+    }
+
+    /** Where exact2 keeps the app's files, and the APK's assets are copied. */
+    private val storage: File by lazy { createDeviceProtectedStorageContext().filesDir }
+    /** A driver was asked for, once ([drive]), and told of the first content once, whatever view draws it again. */
+    private var driven = false
+    private var ready = false
+
+    /** exact2's own thread ([Owner]), the process's one: its thread holds the host, which a reader made again adopts.
+     * Null with owner=0: exact2 on the main thread (booting on its own thread first unless asyncboot=0), to compare. */
+    private fun owner(): Owner? {
+        if (intent.getStringExtra("owner") == "0") return null
+        // exactprio=display: exact2's thread above the main thread (THREAD_PRIORITY_DISPLAY), to compare.
+        val priority = if (intent.getStringExtra("exactprio") == "display") android.os.Process.THREAD_PRIORITY_DISPLAY
+            else android.os.Process.THREAD_PRIORITY_DEFAULT
+        return Exact.owner ?: Owner(intent.getStringExtra("hwbuf") != "0", intent.getStringExtra("fast") != "0", priority, intent::getStringExtra).also { Exact.owner = it }
+    }
+
+    /**
+     * Make this activity's reader, the view that replays the host's streams with the hosted views under it, and give
+     * it the host: booted now, or adopted where one runs already ([Native.start]). Called when the activity is made,
+     * and again each time it starts after a stop (LLP 1115.001 D15.2): Android discards a stopped window's display
+     * lists, the rows and pictures the reader kept among them, so the reader that comes back holds nothing the host
+     * sent it. A new one adopts the host, which paints everything again for it; the app is as it was.
+     */
+    private fun read() {
+        natives?.destroyAll()
+        root.removeAllViews()
+        val owner = owner()?.also { it.published = { view.onPublished() } }
         // The device's settings, told before the host boots: its first frame is laid out and painted with them.
         val device = Device.read(this).also { told = it }
         // The window as it is now, with the system's raw insets (D3.3): told before the host boots too, so the page is
@@ -83,7 +118,7 @@ open class ExactActivity : Activity() {
         val metrics = windowManager.currentWindowMetrics
         val size = metrics.bounds.width() to metrics.bounds.height()
         val density = resources.displayMetrics.density
-        val edges = edges(metrics.windowInsets)
+        val edges = edges(root.rootWindowInsets ?: metrics.windowInsets)
         toldWindow = Triple(size, density, edges.toList())
         // asyncboot=0: boot when the view is laid out, on the main thread, to compare. Otherwise now, on a thread that
         // also loads the library: exact2 loads, boots and paints its first frame while Android sets the activity up,
@@ -104,9 +139,10 @@ open class ExactActivity : Activity() {
             }, "exact-load").apply { priority = Thread.MAX_PRIORITY }.start()
             booting = true
         } else { device.tell(); Native.window(size.first, size.second, density, edges) }
-        driver = drive { dy -> view.scrollBy(dy) }
-        view = ExactView(this, intent.getStringExtra("live").let { it == "1" || it == "true" }) {
-            run {
+        if (!driven) { driven = true; driver = drive { dy -> view.scrollBy(dy) } }
+        view = ExactView(this, live) {
+            if (!ready) {
+                ready = true
                 // `start=N` for an app whose rows have one pitch: scrolled there before the driver starts.
                 val start = intent.getStringExtra("start")?.toIntOrNull() ?: 0
                 if (start > 0 && startPitchDp > 0f) view.scrollBy(start * startPitchDp * resources.displayMetrics.density)
@@ -120,16 +156,6 @@ open class ExactActivity : Activity() {
         owner?.editingChanged = { view.keys?.focusChanged() }
         Exact.answered = { view.onPublished() }
         if (input) view.keys = Keys(view)
-        // System Back goes where the app's routes send it ([Native.back], LLP 1115.001 D6); with nowhere to go it
-        // leaves the app. The callback is always on: enabling it only while Back has somewhere to go, which gives
-        // the system's own leave animation and its predictive preview, waits for the host to be able to say so.
-        onBackInvokedDispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT) {
-            if (Exact.back()) view.invalidate() else finish()
-        }
-        // No background of its own: the window's shows behind the page, the launch theme's surface until the host says
-        // the page's ([chrome]).
-        val root = FrameLayout(this)
-        this.root = root
         val elements = Natives(this, File(storage, "app"), modules, video)
         natives = elements
         view.natives = elements
@@ -144,13 +170,6 @@ open class ExactActivity : Activity() {
             })
         } else root.addView(ticker, FrameLayout.LayoutParams(1, 1))
         view.ticker = ticker
-        // The raw insets go to the host whenever they change, and the window's size when it does; nothing is padded
-        // here (D3.3).
-        root.setOnApplyWindowInsetsListener { _, insets -> window(insets); insets }
-        root.addOnLayoutChangeListener { _, l, t, r, b, ol, ot, or, ob ->
-            if (r - l != or - ol || b - t != ob - ot) root.rootWindowInsets?.let { window(it) }
-        }
-        setContentView(root)
     }
 
     private lateinit var root: FrameLayout
@@ -192,6 +211,7 @@ open class ExactActivity : Activity() {
     /** Tell the host the window, whole, when its size, the display's density or any inset is not what it was last
      * told (LLP 1115.001 D3.3). The host answers with where the page is ([chrome]). */
     private fun window(insets: android.view.WindowInsets) {
+        if (!reads()) return
         val size = if (root.width > 0 && root.height > 0) root.width to root.height
             else windowManager.currentWindowMetrics.bounds.let { it.width() to it.height() }
         val density = resources.displayMetrics.density
@@ -227,6 +247,7 @@ open class ExactActivity : Activity() {
     /** Read the device's settings and tell the host, whole, when any is not what it was last told (LLP 1115.001
      * D3.1). */
     private fun configure() {
+        if (!reads()) return
         val now = Device.read(this)
         if (now == told) return
         told = now
@@ -250,9 +271,14 @@ open class ExactActivity : Activity() {
         root.rootWindowInsets?.let { window(it) }
     }
 
-    /** The host does its frame work only while the activity is started (LLP 1115.001 D15.2). */
+    /** The activity was stopped since its reader was made: Android discarded what that reader kept. */
+    private var stopped = false
+
+    /** The host does its frame work only while the activity is started (LLP 1115.001 D15.2), and a start after a
+     * stop makes the reader again ([read]). */
     override fun onStart() {
         super.onStart()
+        if (stopped) { stopped = false; read() }
         contentResolver.registerContentObserver(android.provider.Settings.Global.getUriFor(android.provider.Settings.Global.ANIMATOR_DURATION_SCALE), false, settings)
         contentResolver.registerContentObserver(android.provider.Settings.System.getUriFor(android.provider.Settings.System.TIME_12_24), false, settings)
         // What changed while the activity was stopped and is no configuration change.
@@ -261,7 +287,8 @@ open class ExactActivity : Activity() {
     }
 
     override fun onStop() {
-        view.running(false)
+        stopped = true
+        view.running(false, reads())
         contentResolver.unregisterContentObserver(settings)
         super.onStop()
     }
@@ -271,12 +298,17 @@ open class ExactActivity : Activity() {
         super.onDestroy()
     }
 
+    /** Whether this activity's view is the one that reads the host. An activity that was replaced before it stopped
+     * (Android starts its successor first) is not, and must tell the host nothing: its window, its settings and its
+     * stop are no longer the app's. */
+    private fun reads() = Exact.reader?.get() === this
+
     /** This activity's reader lets go of the host: its hosted views and their surfaces go, and the owner stops
      * telling its view. Once: at [onDestroy], or sooner when the activity that replaces it is made first. */
     private fun release() {
         natives?.destroyAll()
         natives = null
-        if (Exact.reader?.get() !== this) return
+        if (!reads()) return
         Exact.reader = null
         Exact.owner?.let { it.published = {}; it.editingChanged = {}; it.chrome = {} }
         Exact.answered = {}
