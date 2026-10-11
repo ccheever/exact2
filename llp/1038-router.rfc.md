@@ -575,6 +575,18 @@ the address bar must change. Values, verbs and URLs are identical on every
 platform; an app that wants different routing on one platform branches its
 own actions, and nothing here encourages it.
 
+**Amended 2026-10-11 (LLP 1116.004 D1, decided under LLP 1116's standing
+instruction).** Where the app leaves placement unsaid, a wide window's
+presentation is the platform's default: a root tablist placed as a bar (the
+tabs recipe's, a direct child of the root's column) is a sidebar, and a stack
+whose root route is a list whose rows push (they draw the disclosure) shows
+that route beside its top, as a split view does. Written placement stays the
+app's choice: a vertical or positioned tablist is its rail, a `viewport`
+branch its composition, and `navigationSplit` opts a stack out or sizes its
+column. Either way it is still one value, presented: the router never learns
+the window, and a resize changes only the projection. Built on the web
+(900 px and up); the iPad and Mac presenters are queued.
+
 ## 5. Interview, as it would read
 
 ```
