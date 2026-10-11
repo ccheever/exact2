@@ -615,7 +615,7 @@ test('a body read from a file is bounded by the deadline, and a socket refuses o
 // rejection unhandled (Astra, post-landing).
 test('a pre-aborted exactBodyFrom fetch rejects once, reads nothing, and leaves nothing unhandled', async () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-ts-fetch-abort-'));
-  writeFileSync(resolve(dir, 'ts-fetch.js'), readFileSync(resolve(ROOT, 'host/web-js/ts-fetch.js'), 'utf8'));
+  for (const name of ['ts-fetch.js', 'ts-body-from.js']) cpSync(resolve(ROOT, 'host/web-js', name), resolve(dir, name));
   writeFileSync(resolve(dir, 'admission.js'), '' + realHelpers + 'export class FetchError extends Error { constructor(kind, message) { super(message); this.kind = kind; } } export const coversPath = () => { globalThis.bodyReads = (globalThis.bodyReads ?? 0) + 1; return true; }; export const fetchWith = async () => { globalThis.sentBodies = (globalThis.sentBodies ?? 0) + 1; return new Response(); }; export const overlaying = { on: false }; export const inOverlay = api => new Error(api);\n');
   writeFileSync(resolve(dir, 'admission-data.js'), 'export const tsGrantSet = {};\n');
   const unhandled = [];
@@ -630,12 +630,54 @@ test('a pre-aborted exactBodyFrom fetch rejects once, reads nothing, and leaves 
   } finally { process.off('unhandledRejection', listen); rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('an exactBodyFrom fetch captures its options before loading the file-body module', async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-ts-fetch-options-'));
+  for (const name of ['ts-fetch.js', 'ts-body-from.js']) cpSync(resolve(ROOT, 'host/web-js', name), resolve(dir, name));
+  writeFileSync(resolve(dir, 'admission.js'), `${realHelpers}export class FetchError extends Error { constructor(kind, message) { super(message); this.kind = kind; } } export const coversPath = () => true; export const fetchWith = async (set, input, init) => { globalThis.uploads.push({ method: init.method, path: await init.body.text(), timeout: init.exactTimeout }); return new Response(); }; export const overlaying = { on: false }; export const inOverlay = api => new Error(api);\n`);
+  writeFileSync(resolve(dir, 'admission-data.js'), 'export const tsGrantSet = {};\n'); writeFileSync(resolve(dir, 'storage-fs.js'), 'export const requestBody = async (app, grants, path) => new Blob([path]);\n');
+  globalThis.uploads = [];
+  try {
+    const { fetch: appFetch } = await import(pathToFileURL(resolve(dir, 'ts-fetch.js')).href);
+    const options = Object.defineProperty({ method: 'POST', exactTimeout: 5000 }, 'exactBodyFrom', { value: 'app:/data/a', writable: true });
+    const first = appFetch('https://x.test/up', options);
+    options.method = 'PUT'; options.exactBodyFrom = 'app:/data/b'; options.exactTimeout = 1000;
+    const second = appFetch('https://x.test/up', options);
+    await Promise.all([first, second]);
+    const uploads = Object.fromEntries(globalThis.uploads.map(({ method, path, timeout }) => [path, { method, timeout }]));
+    expect(uploads).toMatchObject({ 'app:/data/a': { method: 'POST' }, 'app:/data/b': { method: 'PUT' } });
+    expect(uploads['app:/data/a'].timeout).toBeGreaterThan(uploads['app:/data/b'].timeout);
+  } finally { delete globalThis.uploads; rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('an exactBodyFrom fetch times out and aborts while its module is loading', async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-ts-fetch-load-'));
+  cpSync(resolve(ROOT, 'host/web-js/ts-fetch.js'), resolve(dir, 'ts-fetch.js'));
+  writeFileSync(resolve(dir, 'ts-body-from.js'), 'await globalThis.bodyImportGate;\n' + readFileSync(resolve(ROOT, 'host/web-js/ts-body-from.js'), 'utf8'));
+  writeFileSync(resolve(dir, 'admission.js'), `${realHelpers}export class FetchError extends Error { constructor(kind, message) { super(message); this.kind = kind; } } export const coversPath = () => true; export const fetchWith = async () => { globalThis.sentBodies++; return new Response(); }; export const overlaying = { on: false }; export const inOverlay = api => new Error(api);\n`);
+  writeFileSync(resolve(dir, 'admission-data.js'), 'export const tsGrantSet = {};\n');
+  let release, timed, aborted;
+  globalThis.bodyImportGate = new Promise(resolveGate => { release = resolveGate; }); globalThis.sentBodies = 0;
+  try {
+    const { fetch: appFetch } = await import(pathToFileURL(resolve(dir, 'ts-fetch.js')).href);
+    timed = appFetch('https://x.test/up', { method: 'POST', exactBodyFrom: 'app:/data/a', exactTimeout: 10 }).catch(e => e);
+    const controller = new AbortController(); aborted = appFetch('https://x.test/up', { method: 'POST', exactBodyFrom: 'app:/data/b', signal: controller.signal }).catch(e => e);
+    controller.abort(new Error('stopped'));
+    const guard = promise => Promise.race([promise, new Promise(resolveGuard => setTimeout(() => resolveGuard(new Error('still pending')), 100))]);
+    const [timeout, abort] = await Promise.all([guard(timed), guard(aborted)]);
+    expect([timeout.kind, timeout.message, abort.message, globalThis.sentBodies]).toEqual(['Timeout', 'the request timed out after 10 ms', 'stopped', 0]);
+  } finally {
+    release(); await Promise.allSettled([timed, aborted].filter(Boolean));
+    delete globalThis.bodyImportGate; delete globalThis.sentBodies; rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // A TypeScript source's redirect mode on the JS target is checked and taken as
 // `fetch` is called: an invalid one rejects as a TypeError before a file is read
 // or a stream registered, and a later change to the options is not the request's.
 test('the JS target checks and takes the redirect mode once, as fetch is called', async () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-ts-fetch-redirect-'));
   writeFileSync(resolve(dir, 'ts-fetch.js'), readFileSync(resolve(ROOT, 'host/web-js/ts-fetch.js'), 'utf8'));
+  writeFileSync(resolve(dir, 'ts-body-from.js'), readFileSync(resolve(ROOT, 'host/web-js/ts-body-from.js'), 'utf8'));
   writeFileSync(resolve(dir, 'admission.js'), `${realHelpers}export class FetchError extends Error { constructor(kind, message) { super(message); this.kind = kind; } } export const coversPath = () => { globalThis.redirectReads = (globalThis.redirectReads ?? 0) + 1; return true; }; export const fetchWith = async (set, input, init, expires, redirect) => { globalThis.redirectSent = redirect; return new Response(); }; export const overlaying = { on: false }; export const inOverlay = api => new Error(api);\n`);
   writeFileSync(resolve(dir, 'admission-data.js'), 'export const tsGrantSet = {};\n');
   writeFileSync(resolve(dir, 'storage-fs.js'), 'export const requestBody = async () => new Blob([\'x\']);\n');
@@ -939,7 +981,7 @@ export function answer(name, args, store, storage) {
   writeFileSync(resolve(dir, 'admission.js'), readFileSync(resolve(ROOT, 'host/web-js/admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'").replaceAll("'../web/faults.js'", "'./faults.js'"));
   writeFileSync(resolve(dir, 'admission-data.js'), `import {createGrantSet} from './admission.js';export const tsGrantSet=createGrantSet(${JSON.stringify(normalized('fs.read app:/data'))});\n`);
   for (const name of ['grant-admission.js', 'faults.js', 'navigation.js', 'storage-environment.js', 'http-body.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
-  for (const name of ['ts-fetch.js', 'ts-stream.js', 'shape.js']) cpSync(resolve(ROOT, 'host/web-js', name), resolve(dir, name));
+  for (const name of ['ts-fetch.js', 'ts-stream.js', 'ts-body-from.js', 'shape.js']) cpSync(resolve(ROOT, 'host/web-js', name), resolve(dir, name));
   try {
     const ts = await import(`${pathToFileURL(resolve(dir, 'ts-data.js')).href}?shape=${Date.now()}`), data = { q: [] };
     ts.install(data);
