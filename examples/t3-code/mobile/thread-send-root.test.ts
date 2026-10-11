@@ -1,3 +1,5 @@
+import { mobileNative } from './client';
+import { reviewFileAccess } from './review-owner';
 // @ref llp/1109.005-composer-and-transcript.decision.md#ordinary-send-handoff-and-pending-feed
 import {expect,test} from 'bun:test';
 import {createHash} from 'node:crypto';
@@ -11,6 +13,7 @@ import { queuedEditState, queuedEditSetNotice, queuedEditNoticeOwner, mobileQueu
 import {mobileComposerTarget} from './composer-target';
 import {mobileDraftChanged} from './draft';
 import {mobileOutboxSnapshot,type MobileOutboxThreadTarget} from './mobile-outbox';
+import {mobileThreadLocalUsageOpen} from './thread-send-local-commands';
 import type {ThreadSendTransferClaim} from './thread-send-transfer-model';
 import type {ThreadSendRecord} from './thread-send-admission';
 import {mobileOutboxTransferCanonical as canonical} from './mobile-outbox-transfer-model';
@@ -394,4 +397,85 @@ test('a rich admission cannot authorize the plain composer after route retiremen
  mobileEditorSnapshot(f.client,{...mounted.route,active:false},'',mounted.presentation,now);
  expect(view(f).canSend).toBe(false);expect((await run(f,'send')).accepted).toBe(false);expect(f.claim()).toBeNull();
  f.input.editorAdmission='';expect(view(f).canSend).toBe(true);
+});
+
+async function sessionUsage(f:Fixture) {
+ f.client.connection='connected';f.client.threadId='';f.client.shellLoaded=true;
+ let failure=false;
+ const native=mobileNative({available:true,watch(){},async later(input){
+  const r=obj(input),generation=f.client.generation;
+  if(r.path==='/api/auth/session')return failure?{ok:false,generation,error:{kind:'auth',message:'Session expired',uncertain:false}}
+   :{ok:true,generation,value:{authenticated:true,scopes:['orchestration:read','orchestration:operate'],permissions:['orchestration:read','orchestration:operate','providers:manage']}};
+  if(r.method==='server.getConfig')return {ok:true,generation,value:{providers:[],environment:{environmentId:f.client.environmentId,orchestrationProtocolVersion:2,capabilities:{serverResolvedCommandContext:true}}}};
+  if(r.op==='subscribe')return {ok:true,generation,value:{id:'session-sub'}};
+  throw Error(`Unexpected session fixture request ${r.op}`);
+ }}, f.client);
+ await f.client.synchronize(native);
+ const show=()=>{f.client.threadId='thread';f.client.projectId='project';usage(f);
+  expect(mobileThreadLocalUsageOpen(f.client,{scope:f.scope,usageKey:`${f.client.environmentId}:thread:provider::`,instanceId:'provider',config:f.client.config,now}).opened).toBe(true)};
+ show();return {native,show,fail(){failure=true},succeed(){failure=false}};
+}
+
+test('current session failure disables the real reset row and rejects its action without dispatch',async()=>{
+ for(const duringConfirmation of [false,true]){
+  const f=await fixture(),session=await sessionUsage(f),row=view(f).dock.accounts[0]!;
+  expect(row.resetDisabled).toBe(false);session.fail();
+  if(duringConfirmation)f.intercept(async r=>{if(r.op==='mobileScheduledConfirm')await expect(f.client.http(session.native,'/api/auth/session')).rejects.toThrow('Session expired')});
+  else await expect(f.client.synchronize(session.native)).rejects.toThrow('Session expired');
+  if(duringConfirmation)await expect(run(f,'reset-credit',row.resetKey,row.resetInput)).rejects.toHaveProperty('kind','superseded');
+  else expect((await run(f,'reset-credit',row.resetKey,row.resetInput)).accepted).toBe(false);
+  expect(view(f).dock.accounts[0]?.resetDisabled).toBe(true);
+  expect(f.requests.some(r=>r.method==='provider.consumeResetCredit')).toBe(false);
+  expect(f.requests.filter(r=>r.op==='mobileScheduledConfirm')).toHaveLength(duringConfirmation?1:0);
+ }
+});
+
+test('an older delivered auth continuation cannot reenable reset after a newer session failure',async()=>{
+ const f=await fixture(),session=await sessionUsage(f),row=view(f).dock.accounts[0]!;
+ const http=f.client.http.bind(f.client);let first=true;
+ // Hold the caller's continuation after the real session read has resolved.
+ // This forces the narrow window between http completion and shared scope assignment.
+ f.client.http=async(...args)=>{const result=await http(...args);
+  if(first&&args[1]==='/api/auth/session'){first=false;session.fail();await expect(http(session.native,'/api/auth/session')).rejects.toThrow('Session expired')}
+  return result;
+ };
+ f.client.threadId='';await f.client.synchronize(session.native);f.client.http=http;session.show();
+ expect(f.client.scopes.includes('providers:manage')).toBe(false);
+ expect(f.client.sessionHasScope('providers:manage')).toBe(false);
+ expect(view(f).dock.accounts[0]?.resetDisabled).toBe(true);
+ expect((await run(f,'reset-credit',row.resetKey,row.resetInput)).accepted).toBe(false);
+ expect(f.requests.some(r=>r.op==='mobileScheduledConfirm'||r.method==='provider.consumeResetCredit')).toBe(false);
+});
+
+test('the real reset row retains cached allowance while auth is pending and loses it only on failure',async()=>{
+ const f=await fixture();await sessionUsage(f);const pending=gate(),entered=gate();
+ const native=mobileNative({available:true,watch(){},async later(){entered.resolve();await pending.promise;return {ok:false,generation:f.client.generation,error:{kind:'auth',message:'Session expired'}}}},f.client);
+ const reading=f.client.http(native,'/api/auth/session');await entered.promise;
+ expect(view(f).dock.accounts[0]?.resetDisabled).toBe(false);
+ pending.resolve();await expect(reading).rejects.toThrow('Session expired');
+ expect(view(f).dock.accounts[0]?.resetDisabled).toBe(true);
+});
+
+test('ordinary narrower direct auth and failure recovery keep the real reset row and dispatch denied',async()=>{
+ for(const failFirst of [false,true]){
+  const f=await fixture(),session=await sessionUsage(f),row=view(f).dock.accounts[0]!;
+  if(failFirst){session.fail();await expect(f.client.http(session.native,'/api/auth/session')).rejects.toThrow('Session expired')}
+  const native=mobileNative({available:true,watch(){},async later(){return {ok:true,generation:f.client.generation,value:{authenticated:true,
+   scopes:['orchestration:read','orchestration:operate'],permissions:['orchestration:read']}}}},f.client);
+  expect(await reviewFileAccess(f.client,native)).toBe(false);
+  expect(f.client.scopes).toEqual(['orchestration:read']);
+  expect(view(f).dock.accounts[0]?.resetDisabled).toBe(true);
+  expect((await run(f,'reset-credit',row.resetKey,row.resetInput)).accepted).toBe(false);
+  expect(f.requests.some(r=>r.op==='mobileScheduledConfirm'||r.method==='provider.consumeResetCredit')).toBe(false);
+ }
+});
+
+test('a newer narrow session during confirmation prevents the actual reset dispatch',async()=>{
+ const f=await fixture(),session=await sessionUsage(f),row=view(f).dock.accounts[0]!;
+ const native=mobileNative({available:true,watch(){},async later(){return {ok:true,generation:f.client.generation,value:{authenticated:true,permissions:['orchestration:read']}}}},f.client);
+ f.intercept(async request=>{if(request.op==='mobileScheduledConfirm')await reviewFileAccess(f.client,native)});
+ await expect(run(f,'reset-credit',row.resetKey,row.resetInput)).rejects.toHaveProperty('kind','superseded');
+ expect(view(f).dock.accounts[0]?.resetDisabled).toBe(true);
+ expect(f.requests.filter(request=>request.op==='mobileScheduledConfirm')).toHaveLength(1);
+ expect(f.requests.some(request=>request.method==='provider.consumeResetCredit')).toBe(false);
 });
