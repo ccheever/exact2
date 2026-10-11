@@ -1,0 +1,186 @@
+files-gutter-parity: the reference (T3 Code 1e2ecbd975, "T3 Code (Alpha)" 0.0.45 in production mode) over CDP, lane
+files-gutter-parity (backend 17100, CDP 17101), 1280x840, Playwright mouse events in the page. The Files surface is the
+fixture thread's right panel (Add panel surface > Files > fixture.txt, two lines, a one-digit gutter at x 741, 33.3 wide);
+split view is the Diff surface's Changes (Cargo.lock, 14 added lines, a four-digit gutter, 56.8 wide).
+
+=== FG-1: the Files preview's "+" ([data-utility-button]) on a hovered line (ref-fg12.mjs light, ref-fg1-dark.mjs dark)
+light: x 764.47 (cell left + 23.47) y 100 w 20 h 20, background #009fff, radius 4px, opacity 1; svg 16x16 at +2,+2, colour #ffffff
+dark:  x 764.47 y 100 w 20 h 20, background #009fff; svg colour #111111
+number cell [data-column-number]: x 741 w 33.3, padding-left 15.65px, padding-right 7.83px (1ch), user-select none;
+  colour #565656 light / #9f9f9f dark on #ffffff / #111111
+
+=== FG-2: gestures on the Files numbers (ref-fg12.mjs, ref-fg2-dark.mjs)
+click in the middle of number 1 (x 757.6): held: nothing painted yet; released: line 1 selected ("single", cell #d5e6ff,
+  number #20649e) and the draft open under it (textarea "Add a comment…" focused); Cancel clears both
+drag over the numbers 1 -> 2: held: lines 1 ("first") and 2 ("last") selected, the "+" on line 2 (y 120), no draft;
+  released: the same selection and the draft under line 2 (focused)
+press on the "+" of line 2 and release: held: nothing painted; released: line 2 selected and the draft under it
+dark drag 1 -> 2: held 1 first / 2 last; released: the same and one draft
+window.getSelection() stays "" in every step
+
+=== FG-3: split view's empty side (ref-fg3.mjs, Cargo.lock, Split diff view)
+[data-gutter-buffer=buffer] x 741 w 56.8 h 280 (14 rows): flat #f8f8f8 light / #131313 dark, no image
+[data-content-buffer] x 797.8 w 208.2 h 280: background transparent over the code surface #fcfcfc / #0a0a0a, with
+  background-image repeating-linear-gradient(-45deg, transparent, transparent 4.242px, <buffer> 4.242px, <buffer> 5.656px),
+  background-size 8px 8px, background-position 5px 0px, background-origin border-box, repeat;
+  <buffer> = --diffs-bg-buffer = #e6e6e6 light / #1d1d1d dark (lab 91.1 / 10.5)
+  One element spans the 14 rows (grid-row: span 14), so the stripes run unbroken over the run; they rise to the right ("/").
+
+=== FG-4: a skill chip in the reference's composer
+Not reachable in this lane: typing "$" in the composer lists "No skills found. Try / to browse provider commands." (no
+provider signed in), so no skill chip is made. The reference's ContextChipPopover is a Base UI Popover, which dismisses
+on any outside press (the diff gutter included).
+
+=== scripts
+--- ref-fg12.mjs
+// files-gutter-parity FG-1/FG-2: the reference's Files surface (FilePreviewPanel's File over @pierre/diffs), fixture.txt.
+// Reads the number cells, the "+" ([data-utility-button]) on a hovered line, light and dark; then a click on number 1 and a
+// drag over numbers 1 -> 2: the selection and whether the draft is open while held and after the release.
+// Usage: node ref-fg12.mjs <cdpPort> <shotPrefix>
+import { open, log } from './ref-lib.mjs';
+const [port, shot] = process.argv.slice(2);
+const page = await open(port);
+const tree = page.getByRole('treeitem', { name: 'fixture.txt' });
+if (await tree.count()) { await tree.first().click(); await page.waitForTimeout(3000); }
+const read = () => page.evaluate(() => {
+  const cv = document.createElement('canvas'); cv.width = cv.height = 1; const cx = cv.getContext('2d', { willReadFrequently: true });
+  const hex = (c) => { if (!c || c === 'rgba(0, 0, 0, 0)') return c; cx.clearRect(0, 0, 1, 1); cx.fillStyle = '#000'; cx.fillStyle = c; cx.fillRect(0, 0, 1, 1); const d = cx.getImageData(0, 0, 1, 1).data; return '#' + [d[0], d[1], d[2]].map(v => v.toString(16).padStart(2, '0')).join('') + (d[3] < 255 ? d[3].toString(16).padStart(2, '0') : ''); };
+  const box = (el) => { const r = el.getBoundingClientRect(); return { x: +r.x.toFixed(1), y: +r.y.toFixed(1), w: +r.width.toFixed(1), h: +r.height.toFixed(1) }; };
+  const out = { rows: [], plus: [], drafts: [], selection: getSelection().toString() };
+  for (const c of document.querySelectorAll('diffs-container')) {
+    const root = c.shadowRoot; if (!root) continue;
+    for (const el of root.querySelectorAll('[data-column-number]')) {
+      const r = el.getBoundingClientRect(); if (r.width === 0) continue;
+      const s = getComputedStyle(el);
+      out.rows.push({ n: el.getAttribute('data-column-number'), sel: el.getAttribute('data-selected-line'), ...box(el), bg: hex(s.backgroundColor), color: hex(s.color), pl: s.paddingLeft, pr: s.paddingRight, us: s.userSelect, cursor: s.cursor });
+    }
+    for (const b of root.querySelectorAll('[data-utility-button]')) {
+      const s = getComputedStyle(b); const r = b.getBoundingClientRect(); if (r.width === 0) continue;
+      const svg = b.querySelector('svg'); const sv = svg ? getComputedStyle(svg) : null;
+      out.plus.push({ ...box(b), bg: hex(s.backgroundColor), color: hex(s.color), radius: s.borderRadius, opacity: s.opacity, visibility: s.visibility, svg: svg ? { ...box(svg), color: hex(sv.color), fill: sv.fill } : null, parent: b.parentElement?.getAttribute('data-column-number') ?? b.parentElement?.tagName });
+    }
+  }
+  for (const t of document.querySelectorAll('textarea')) { const r = t.getBoundingClientRect(); if (r.width > 0) out.drafts.push({ ph: t.placeholder, ...box(t) }); }
+  const label = [...document.querySelectorAll('*')].filter(e => e.children.length === 0 && /^Comment on line|^Line|^Lines/.test((e.textContent || '').trim())).map(e => e.textContent.trim());
+  out.labels = label.slice(0, 5);
+  return out;
+});
+const cancel = async () => { const b = page.getByRole('button', { name: 'Cancel', exact: true }); if (await b.count()) { await b.first().click(); await page.waitForTimeout(600); } };
+let g = (await read()).rows;
+log({ phase: 'open', rows: g });
+const one = g.find(e => e.n === '1'), two = g.find(e => e.n === '2');
+// hover line 1's code: the "+" shows
+await page.mouse.move(one.x + one.w + 60, one.y + 10); await page.waitForTimeout(600);
+for (const scheme of ['light', 'dark']) { await page.emulateMedia({ colorScheme: scheme }); await page.waitForTimeout(900); log({ phase: 'hover', scheme, ...(await read()) }); await page.screenshot({ path: `${shot}-hover-${scheme}.png` }); }
+await page.emulateMedia({ colorScheme: 'light' }); await page.waitForTimeout(600);
+// a click in the middle of number 1
+await page.mouse.move(one.x + one.w / 2, one.y + 10); await page.waitForTimeout(300);
+await page.mouse.down(); await page.waitForTimeout(250); log({ phase: 'click-held', ...(await read()) });
+await page.mouse.up(); await page.waitForTimeout(900); log({ phase: 'click-released', ...(await read()) }); await page.screenshot({ path: `${shot}-click.png` });
+await cancel(); log({ phase: 'cancelled', ...(await read()) });
+// a drag over the numbers 1 -> 2
+await page.mouse.move(one.x + one.w - 8, one.y + 10); await page.waitForTimeout(300); await page.mouse.down();
+for (let i = 1; i <= 6; i++) { await page.mouse.move(one.x + one.w - 8, one.y + 10 + (two.y - one.y) * i / 6); await page.waitForTimeout(40); }
+await page.waitForTimeout(400); log({ phase: 'drag-held', ...(await read()) }); await page.screenshot({ path: `${shot}-drag-held.png` });
+await page.mouse.up(); await page.waitForTimeout(900); log({ phase: 'drag-released', ...(await read()) }); await page.screenshot({ path: `${shot}-drag-released.png` });
+await cancel();
+// a press on the "+" of line 2 (hovered) and a drag up to 1
+await page.mouse.move(two.x + two.w + 60, two.y + 10); await page.waitForTimeout(500);
+const plus = (await read()).plus[0]; log({ phase: 'plus-on-2', plus });
+if (plus) {
+  await page.mouse.move(plus.x + plus.w / 2, plus.y + plus.h / 2); await page.waitForTimeout(300); await page.mouse.down(); await page.waitForTimeout(200);
+  log({ phase: 'plus-held', ...(await read()) });
+  await page.mouse.up(); await page.waitForTimeout(900); log({ phase: 'plus-released', ...(await read()) }); await page.screenshot({ path: `${shot}-plus.png` });
+  await cancel();
+}
+process.exit(0);
+--- ref-fg1-dark.mjs
+// files-gutter-parity FG-1: the Files surface's "+" on a hovered line, dark from the start. Usage: node ref-fg1-dark.mjs <cdpPort> <shot>
+import { open, log } from './ref-lib.mjs';
+const [port, shot] = process.argv.slice(2);
+const page = await open(port);
+await page.emulateMedia({ colorScheme: 'dark' }); await page.waitForTimeout(1500);
+const read = () => page.evaluate(() => {
+  const cv = document.createElement('canvas'); cv.width = cv.height = 1; const cx = cv.getContext('2d', { willReadFrequently: true });
+  const hex = (c) => { if (!c || c === 'rgba(0, 0, 0, 0)') return c; cx.clearRect(0, 0, 1, 1); cx.fillStyle = '#000'; cx.fillStyle = c; cx.fillRect(0, 0, 1, 1); const d = cx.getImageData(0, 0, 1, 1).data; return '#' + [d[0], d[1], d[2]].map(v => v.toString(16).padStart(2, '0')).join(''); };
+  const out = { rows: [], plus: [] };
+  for (const c of document.querySelectorAll('diffs-container')) { const root = c.shadowRoot; if (!root) continue;
+    for (const el of root.querySelectorAll('[data-column-number]')) { const r = el.getBoundingClientRect(); if (r.width) out.rows.push({ n: el.getAttribute('data-column-number'), x: r.x, y: r.y, w: r.width }); }
+    for (const b of root.querySelectorAll('[data-utility-button]')) { const r = b.getBoundingClientRect(); if (!r.width) continue; const s = getComputedStyle(b), svg = b.querySelector('svg'); out.plus.push({ x: r.x, y: r.y, w: r.width, h: r.height, bg: hex(s.backgroundColor), color: hex(s.color), svgColor: svg ? hex(getComputedStyle(svg).color) : null }); } }
+  return out; });
+const g = (await read()).rows, one = g.find(e => e.n === '1');
+await page.mouse.move(one.x + one.w + 80, one.y + 10); await page.waitForTimeout(300);
+await page.mouse.move(one.x + one.w + 60, one.y + 10); await page.waitForTimeout(700);
+log({ scheme: 'dark', ...(await read()) });
+await page.screenshot({ path: shot });
+await page.emulateMedia({ colorScheme: 'light' }); await page.waitForTimeout(500);
+process.exit(0);
+--- ref-fg2-dark.mjs
+// files-gutter-parity FG-2, dark from the start: a drag over the Files numbers 1 -> 2, held and released. Usage: node ref-fg2-dark.mjs <cdpPort> <shotPrefix>
+import { open, log } from './ref-lib.mjs';
+const [port, shot] = process.argv.slice(2);
+const page = await open(port);
+await page.emulateMedia({ colorScheme: 'dark' }); await page.waitForTimeout(1500);
+const rows = () => page.evaluate(() => { const out = []; for (const c of document.querySelectorAll('diffs-container')) { const root = c.shadowRoot; if (!root) continue; for (const el of root.querySelectorAll('[data-column-number]')) { const r = el.getBoundingClientRect(); if (r.width) out.push({ n: el.getAttribute('data-column-number'), sel: el.getAttribute('data-selected-line'), x: r.x, y: r.y, w: r.width }); } } return out; });
+const g = await rows(), one = g.find(e => e.n === '1'), two = g.find(e => e.n === '2');
+await page.mouse.move(one.x + one.w / 2, one.y + 10); await page.waitForTimeout(300); await page.mouse.down();
+for (let i = 1; i <= 6; i++) { await page.mouse.move(one.x + one.w / 2, one.y + 10 + (two.y - one.y) * i / 6); await page.waitForTimeout(40); }
+await page.waitForTimeout(400); log({ held: await rows() }); await page.screenshot({ path: `${shot}-held.png` });
+await page.mouse.up(); await page.waitForTimeout(900); log({ released: await rows(), draft: await page.locator('textarea').count() }); await page.screenshot({ path: `${shot}-released.png` });
+const b = page.getByRole('button', { name: 'Cancel', exact: true }); if (await b.count()) { await b.first().click(); await page.waitForTimeout(600); }
+await page.emulateMedia({ colorScheme: 'light' }); await page.waitForTimeout(500);
+process.exit(0);
+--- ref-fg3.mjs
+// files-gutter-parity FG-3: the split view's empty side in the reference's Diff panel (DiffPanel over @pierre/diffs).
+// Opens the fixture thread's Changes, expands <file>, switches to split, reads the buffers' computed styles, light and dark.
+// Usage: node ref-fg3.mjs <cdpPort> <file> <shotPrefix>
+import { open, log } from './ref-lib.mjs';
+const [port, name, shot] = process.argv.slice(2);
+const page = await open(port);
+const closeFiles = page.getByRole('button', { name: 'Close Files', exact: true });
+const expand = page.getByRole('button', { name: `Expand ${name}`, exact: true });
+if (await expand.count()) { await expand.first().click(); await page.waitForTimeout(3000); }
+const at = await page.evaluate((f) => { const hits = []; const walk = (root) => { for (const el of root.querySelectorAll('*')) { if (el.children.length === 0 && (el.textContent || '').trim() === f) { const r = el.getBoundingClientRect(); if (r.width > 0) hits.push({ x: r.x, y: r.y, h: r.height }); } if (el.shadowRoot) walk(el.shadowRoot); } }; walk(document); return hits.find(h => h.y > 90); }, name);
+log({ at });
+const numbers = () => page.evaluate(() => { let n = 0; for (const c of document.querySelectorAll('diffs-container')) { const root = c.shadowRoot; if (root) n += root.querySelectorAll('[data-column-number]').length; } return n; });
+const split = page.getByRole('button', { name: 'Split diff view', exact: true });
+log({ splitCount: await split.count() });
+if (await split.count()) { await split.click(); await page.waitForTimeout(2500); }
+const read = () => page.evaluate(() => {
+  const cv = document.createElement('canvas'); cv.width = cv.height = 1; const cx = cv.getContext('2d', { willReadFrequently: true });
+  const hex = (c) => { if (!c || c === 'rgba(0, 0, 0, 0)') return c; cx.clearRect(0, 0, 1, 1); cx.fillStyle = '#000'; cx.fillStyle = c; cx.fillRect(0, 0, 1, 1); const d = cx.getImageData(0, 0, 1, 1).data; return '#' + [d[0], d[1], d[2]].map(v => v.toString(16).padStart(2, '0')).join('') + (d[3] < 255 ? d[3].toString(16).padStart(2, '0') : ''); };
+  const box = (el) => { const r = el.getBoundingClientRect(); return { x: +r.x.toFixed(1), y: +r.y.toFixed(1), w: +r.width.toFixed(1), h: +r.height.toFixed(1) }; };
+  const out = [];
+  for (const c of document.querySelectorAll('diffs-container')) {
+    const root = c.shadowRoot; if (!root) continue;
+    const els = [...root.querySelectorAll('[data-content-buffer], [data-gutter-buffer]')].slice(0, 6);
+    for (const el of els) {
+      const s = getComputedStyle(el);
+      const host = el.closest('[data-code], code, pre');
+      out.push({ attrs: [...el.attributes].map(a => `${a.name}=${a.value}`).join(' ').slice(0, 160), ...box(el), bg: hex(s.backgroundColor), img: s.backgroundImage, size: s.backgroundSize, pos: s.backgroundPosition, origin: s.backgroundOrigin, repeat: s.backgroundRepeat, bufferVar: s.getPropertyValue('--diffs-bg-buffer').trim(), lineBg: s.getPropertyValue('--diffs-line-bg').trim().slice(0, 80), parentBg: hex(getComputedStyle(el.parentElement).backgroundColor), codeBg: host ? hex(getComputedStyle(host).backgroundColor) : null });
+    }
+    // the first buffer's resolved stripe colour
+    const probe = document.createElement('div'); probe.style.background = 'var(--diffs-bg-buffer)'; root.querySelector('[data-content-buffer]')?.appendChild(probe);
+    out.push({ probeBg: hex(getComputedStyle(probe).backgroundColor) }); probe.remove();
+  }
+  return out;
+});
+for (const scheme of ['light', 'dark']) {
+  await page.emulateMedia({ colorScheme: scheme }); await page.waitForTimeout(1500);
+  log({ scheme, buffers: await read() });
+  await page.screenshot({ path: `${shot}-${scheme}.png` });
+}
+await page.emulateMedia({ colorScheme: 'light' });
+process.exit(0);
+--- ref-fg12.jsonl (raw)
+{"phase":"open","rows":[{"n":"1","sel":null,"x":741,"y":100,"w":33.3,"h":20,"bg":"#ffffff","color":"#565656","pl":"15.6533px","pr":"7.82666px","us":"none","cursor":"pointer"},{"n":"2","sel":null,"x":741,"y":120,"w":33.3,"h":20,"bg":"#ffffff","color":"#565656","pl":"15.6533px","pr":"7.82666px","us":"none","cursor":"pointer"}]}
+{"phase":"hover","scheme":"light","rows":[{"n":"1","sel":null,"x":741,"y":100,"w":33.3,"h":20,"bg":"#ffffff","color":"#565656","pl":"15.6533px","pr":"7.82666px","us":"none","cursor":"pointer"},{"n":"2","sel":null,"x":741,"y":120,"w":33.3,"h":20,"bg":"#ffffff","color":"#565656","pl":"15.6533px","pr":"7.82666px","us":"none","cursor":"pointer"}],"plus":[{"x":764.5,"y":100,"w":20,"h":20,"bg":"#009fff","color":"#ffffff","radius":"4px","opacity":"1","visibility":"visible","svg":{"x":766.5,"y":102,"w":16,"h":16,"color":"#ffffff","fill":"color(srgb 0.998933 0.998951 0.998953)"},"parent":"DIV"}],"drafts":[],"selection":"","labels":[]}
+{"phase":"hover","scheme":"dark","rows":[{"n":"1","sel":null,"x":741,"y":100,"w":33.3,"h":20,"bg":"#111111","color":"#9f9f9f","pl":"15.6533px","pr":"7.82666px","us":"none","cursor":"pointer"},{"n":"2","sel":null,"x":741,"y":120,"w":33.3,"h":20,"bg":"#111111","color":"#9f9f9f","pl":"15.6533px","pr":"7.82666px","us":"none","cursor":"pointer"}],"plus":[],"drafts":[],"selection":"","labels":[]}
+{"phase":"click-held","rows":[{"n":"1","sel":null,"x":741,"y":100,"w":33.3,"h":20,"bg":"#ffffff","color":"#565656","pl":"15.6533px","pr":"7.82666px","us":"none","cursor":"pointer"},{"n":"2","sel":null,"x":741,"y":120,"w":33.3,"h":20,"bg":"#ffffff","color":"#565656","pl":"15.6533px","pr":"7.82666px","us":"none","cursor":"pointer"}],"plus":[{"x":764.5,"y":100,"w":20,"h":20,"bg":"#009fff","color":"#ffffff","radius":"4px","opacity":"1","visibility":"visible","svg":{"x":766.5,"y":102,"w":16,"h":16,"color":"#ffffff","fill":"color(srgb 0.998933 0.998951 0.998953)"},"parent":"DIV"}],"drafts":[],"selection":"","labels":[]}
+{"phase":"click-released","rows":[{"n":"1","sel":"single","x":741,"y":100,"w":33.3,"h":20,"bg":"#d5e6ff","color":"#20649e","pl":"15.6533px","pr":"7.82666px","us":"none","cursor":"auto"},{"n":"2","sel":null,"x":741,"y":246,"w":33.3,"h":20,"bg":"#ffffff","color":"#565656","pl":"15.6533px","pr":"7.82666px","us":"none","cursor":"auto"}],"plus":[],"drafts":[{"ph":"Add a comment…","x":787.3,"y":133,"w":223.7,"h":66}],"selection":"","labels":[]}
+{"phase":"cancelled","rows":[{"n":"1","sel":null,"x":741,"y":100,"w":33.3,"h":20,"bg":"#ffffff","color":"#565656","pl":"15.6533px","pr":"7.82666px","us":"none","cursor":"pointer"},{"n":"2","sel":null,"x":741,"y":120,"w":33.3,"h":20,"bg":"#ffffff","color":"#565656","pl":"15.6533px","pr":"7.82666px","us":"none","cursor":"pointer"}],"plus":[],"drafts":[],"selection":"","labels":[]}
+{"phase":"drag-held","rows":[{"n":"1","sel":"first","x":741,"y":100,"w":33.3,"h":20,"bg":"#d5e6ff","color":"#20649e","pl":"15.6533px","pr":"7.82666px","us":"none","cursor":"pointer"},{"n":"2","sel":"last","x":741,"y":120,"w":33.3,"h":20,"bg":"#d5e6ff","color":"#20649e","pl":"15.6533px","pr":"7.82666px","us":"none","cursor":"pointer"}],"plus":[{"x":764.5,"y":120,"w":20,"h":20,"bg":"#009fff","color":"#ffffff","radius":"4px","opacity":"1","visibility":"visible","svg":{"x":766.5,"y":122,"w":16,"h":16,"color":"#ffffff","fill":"color(srgb 0.998933 0.998951 0.998953)"},"parent":"DIV"}],"drafts":[],"selection":"","labels":[]}
+{"phase":"drag-released","rows":[{"n":"1","sel":"first","x":741,"y":100,"w":33.3,"h":20,"bg":"#d5e6ff","color":"#20649e","pl":"15.6533px","pr":"7.82666px","us":"none","cursor":"auto"},{"n":"2","sel":"last","x":741,"y":120,"w":33.3,"h":20,"bg":"#d5e6ff","color":"#20649e","pl":"15.6533px","pr":"7.82666px","us":"none","cursor":"auto"}],"plus":[],"drafts":[{"ph":"Add a comment…","x":787.3,"y":153,"w":223.7,"h":66}],"selection":"","labels":[]}
+{"phase":"plus-on-2","plus":{"x":764.5,"y":120,"w":20,"h":20,"bg":"#009fff","color":"#ffffff","radius":"4px","opacity":"1","visibility":"visible","svg":{"x":766.5,"y":122,"w":16,"h":16,"color":"#ffffff","fill":"color(srgb 0.998933 0.998951 0.998953)"},"parent":"DIV"}}
+{"phase":"plus-held","rows":[{"n":"1","sel":null,"x":741,"y":100,"w":33.3,"h":20,"bg":"#ffffff","color":"#565656","pl":"15.6533px","pr":"7.82666px","us":"none","cursor":"pointer"},{"n":"2","sel":null,"x":741,"y":120,"w":33.3,"h":20,"bg":"#ffffff","color":"#565656","pl":"15.6533px","pr":"7.82666px","us":"none","cursor":"pointer"}],"plus":[{"x":764.5,"y":120,"w":20,"h":20,"bg":"#009fff","color":"#ffffff","radius":"4px","opacity":"1","visibility":"visible","svg":{"x":766.5,"y":122,"w":16,"h":16,"color":"#ffffff","fill":"color(srgb 0.998933 0.998951 0.998953)"},"parent":"DIV"}],"drafts":[],"selection":"","labels":[]}
+{"phase":"plus-released","rows":[{"n":"1","sel":null,"x":741,"y":100,"w":33.3,"h":20,"bg":"#ffffff","color":"#565656","pl":"15.6533px","pr":"7.82666px","us":"none","cursor":"auto"},{"n":"2","sel":"single","x":741,"y":120,"w":33.3,"h":20,"bg":"#d5e6ff","color":"#20649e","pl":"15.6533px","pr":"7.82666px","us":"none","cursor":"auto"}],"plus":[],"drafts":[{"ph":"Add a comment…","x":787.3,"y":153,"w":223.7,"h":66}],"selection":"","labels":[]}
