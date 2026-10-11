@@ -91,6 +91,7 @@ shape ThreadApproval
   id: string
   title: string
   detail: string
+  warning: string
   disabled: bool
   reason: string
   options: list<ThreadApprovalOption>

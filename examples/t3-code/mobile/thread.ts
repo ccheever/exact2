@@ -38,7 +38,7 @@ export interface ThreadRow { id: string; kind: string; title: string; body: stri
   expanded: boolean; toggleOp: string; toggleId: string; failed: boolean; live: boolean; activities: ThreadActivity[];
   htmlRender: HtmlRenderSnapshot; media: ThreadMedia[]; first: boolean; last: boolean; canFork: boolean; forkKey: string; forkBusy: boolean; }
 export interface ThreadApprovalOption { id: string; label: string; tone: string; warning: string }
-export interface ThreadApproval { id: string; title: string; detail: string; disabled: boolean; reason: string; options: ThreadApprovalOption[] }
+export interface ThreadApproval { id: string; title: string; detail: string; warning: string; disabled: boolean; reason: string; options: ThreadApprovalOption[] }
 export interface ThreadComposerState { editing: boolean; saving: boolean; canCancel: boolean; editNotice: string; editNoticeDismissKey: string; editPendingId: string; canRetryEdit: boolean; contentOwner: string; draft: string; placeholder: string; canSend: boolean; canStop: boolean; showStop: boolean;
   canOperate: boolean; showReadOnlyNotice: boolean; sendLabel: string; sendSymbol: string; blockedReason: string; modelLabel: string; providerDriver: string;
   providerIconURL: string; modelUnavailable: boolean; running: boolean; queueCount: number; }
@@ -153,6 +153,7 @@ export function mobileThread(now: number, dark = false, client: T3Client = mobil
       const options = Array.isArray(item?.options) ? arr(item.options) : [
         { decision: 'accept', label: 'Allow once' }, { decision: 'acceptForSession', label: 'Allow session' }, { decision: 'decline', label: 'Decline' }];
       return { id: approval.id, title: approval.appName || str(item?.requestKind, str(request?.kind)), detail: approval.detail,
+        warning: str(options.find(option => option.warning)?.warning),
         disabled: !approval.canRespond || approval.responding, reason: approval.responseReason,
         options: options.map(option => ({ id: str(option.decision), label: str(option.label), warning: str(option.warning),
           tone: option.decision === 'accept' ? 'primary' : option.decision === 'decline' ? 'danger' : 'secondary' })) };
