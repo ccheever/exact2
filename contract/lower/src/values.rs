@@ -464,6 +464,20 @@ pub(crate) fn check_position_area(attrs: &[Attr]) -> Result<(), LowerError> {
     )
 }
 
+impl crate::Lowerer<'_> {
+    /// `check_style_value` with this lowering's shapes.
+    pub(crate) fn check_style(
+        &self,
+        a: &Attr,
+        rows: &[StyleId],
+        ty: &Ty,
+        fonts: &[FontUse],
+        scope: &Scope,
+    ) -> Result<(), LowerError> {
+        check_style_value(a, rows, ty, fonts, scope, &self.types.shapes)
+    }
+}
+
 pub(crate) fn check_style_value(
     a: &Attr,
     rows: &[StyleId],
