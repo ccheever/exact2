@@ -968,7 +968,8 @@ lists any literal colour, font size or weight an app's `.contract` files still w
 `contract vocab <name>` lists each one's props. A route does not scroll by
 itself: its content goes in a `scroll`, `list` or `overflow-y="auto"` box, which
 `navigationScroll` names for the bar ("Routes and web documents"). A sheet's swipe down and a pushed screen's edge swipe press the
-route's enabled control whose `id` is the root's `navigationBack`. A route with no such
+route's enabled control whose `id` is the root's `navigationBack`, which is optional: a
+root with a `navigationKey` alone is the navigation root and names no control. A route with no such
 control still has the platform's back button, edge swipe and swipe down (and the
 browser's Back): they go back through the root's `navigate` handler with the location
 beneath (`nav = go(nav, url)` pops to it), or, with no handler, the runner pops the

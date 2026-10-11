@@ -832,7 +832,8 @@ recognizer wins ([LLP 1057.001](../llp/1057.001-gesture-precedence-and-pinch.spe
 The compiler validates arity and
 available payload types; tags and hosts constrain where events make sense.
 `navigate` belongs on the first root element, outside any region, which must
-also carry `navigationKey` and `navigationBack`. Transform geometry/release
+also carry `navigationKey` (the navigation root; its `navigationBack`, naming the
+Back control, is optional). Transform geometry/release
 bindings are required as a pair. See
 [`handler_arity`](../contract/analyze/src/lib.rs) and the corresponding corpus/tests.
 

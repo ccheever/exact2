@@ -193,6 +193,34 @@ pub(crate) enum NavPlace {
 }
 
 impl NavPlace {
+    /// @ref LLP 1116 D6, LLP 1115 D5 — the first root carrying a
+    /// `navigationKey` is the navigation root with or without
+    /// `navigationBack`. One that names no Back control is given the empty
+    /// name, which no element's `id` carries: every host and the runner
+    /// find the root by that attribute, and the platform's Back from a
+    /// route is then the root's `navigate`, else the router's own `back`.
+    pub(crate) fn unnamed(
+        &self,
+        first_root: bool,
+        attrs: &[Attr],
+        span: Span,
+    ) -> Option<Vec<Attr>> {
+        let has = |name: &str| attrs.iter().any(|a| a.name == name);
+        (first_root
+            && matches!(self, NavPlace::Outside)
+            && has("navigationKey")
+            && !has("navigationBack"))
+        .then(|| {
+            let mut attrs = attrs.to_vec();
+            attrs.push(Attr {
+                name: "navigationBack".into(),
+                value: Expr::Str(String::new(), span),
+                span,
+            });
+            attrs
+        })
+    }
+
     /// The place of `tag`'s children, or the refusal of a route `tag` that
     /// no host would find here.
     pub(crate) fn enter(
@@ -225,7 +253,7 @@ impl NavPlace {
             };
             return err(
                 "lower-route-place",
-                format!("this `{tag}` has a `navigationKey` but sits at `{shown} > {tag}`; the hosts find a route only as a child of the navigation root (the element with `navigationBack`) or of a `role=\"tabpanel\"` in it, so this one is never shown. Move the wrapper's layout onto the route or inside it (docs/contract-for-agents.md, \"Tabs and stacks\")"),
+                format!("this `{tag}` has a `navigationKey` but sits at `{shown} > {tag}`; the hosts find a route only as a child of the navigation root (the first root with a `navigationKey`) or of a `role=\"tabpanel\"` in it, so this one is never shown. Move the wrapper's layout onto the route or inside it (docs/contract-for-agents.md, \"Tabs and stacks\")"),
                 span,
             );
         }

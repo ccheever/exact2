@@ -773,6 +773,9 @@ impl<'a> Lowerer<'a> {
                     !self.may_hold_absolute(children),
                 )?;
                 let expanded = relative.as_deref().unwrap_or(expanded);
+                let first = parent_tag.is_none() && arm.is_none() && order == 0;
+                let back = self.nav_place.unnamed(first, expanded, *span);
+                let expanded = back.as_deref().unwrap_or(expanded);
                 values::check_glass_group(&t, expanded)?;
                 let has =
                     |names: &[&str]| expanded.iter().any(|a| names.contains(&a.name.as_str()));
@@ -805,7 +808,7 @@ impl<'a> Lowerer<'a> {
                         || !has(&["navigationKey"])
                         || !has(&["navigationBack"]))
                 {
-                    return err("lower-navigate-root", "`navigate` belongs to the navigation root (navigationKey and navigationBack)", *span);
+                    return err("lower-navigate-root", "`navigate` belongs to the navigation root (the first root, with navigationKey)", *span);
                 }
                 let mut bindings: Vec<BindingsRow> = Vec::new();
                 let mut handlers: Vec<(EventKind, exact_plan::ActionsId, Vec<Code>)> = Vec::new();
