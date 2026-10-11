@@ -877,3 +877,40 @@ fn an_authored_colour_and_font_reach_the_platforms_texts_and_unsaid_ones_stay_it
         (TextLook::default(), TextLook::default())
     );
 }
+
+/// LLP 1116.004 D2 (unit-converter, round 6): a text's line feed is what
+/// its `white-space` makes it on the web: a space under `normal`, which
+/// collapses it, and a line break under `pre-line`, which UIKit's footer and
+/// cell then draw as two lines.
+#[test]
+fn a_line_feed_in_a_footer_or_title_follows_its_white_space() {
+    let r = boot(
+        "list appearance=\"auto\" testId=\"list\" flex=1
+  section
+    row
+      text `Title\\nsecond` white-space=\"pre-line\"
+    footer
+      text `1 m = 3.28084 ft\\nResults rounded.`
+  section
+    row
+      text \"Plain\"
+    footer
+      text `1 m = 3.28084 ft  \\n  Results rounded.` white-space=\"pre-line\"
+",
+    );
+    let list = r.kernel().grouped_list(id(&r, "list")).unwrap();
+    assert_eq!(
+        list.sections[0].footer.as_deref(),
+        Some("1 m = 3.28084 ft Results rounded."),
+        "normal: one line, as the web draws it"
+    );
+    assert_eq!(
+        list.sections[1].footer.as_deref(),
+        Some("1 m = 3.28084 ft\nResults rounded."),
+        "pre-line: two lines, the spaces around the break gone"
+    );
+    assert_eq!(
+        list.sections[0].rows[0].title.as_deref(),
+        Some("Title\nsecond")
+    );
+}

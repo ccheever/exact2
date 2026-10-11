@@ -214,6 +214,9 @@ a hidden image before the symbol, a chevron after it, and both appearances.
 - Where a list's box meets an edge of a viewport the safe area keeps short of
   the screen's, its background goes on to the screen's edge, under the home
   indicator or the status bar (`GroupedListView.hem`; chat-rooms).
+- A footer's and a cell's texts keep their line feeds where their
+  `white-space` keeps them (`pre-line`, `pre-wrap`, `pre`), and are collapsed
+  as the web collapses them otherwise (unit-converter).
 
 ## 6.2 A section without its card (2026-10-04, Signal Clone)
 
