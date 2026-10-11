@@ -14,7 +14,7 @@ component Water
   view
     column align-items="center" gap=4 padding=24
       text `${ml}` font-size="4.5rem" font-variant-numeric="tabular-nums" -exact-fit="shrink" white-space="nowrap"
-        aria-label=`${ml} of ${goal} millilitres` testId="total"
+        aria-label=`${ml} of ${goal} ml` testId="total"
       text `of ${goal} ml today` color="-exact-secondary-label"
       row gap=12 margin-top=16
         button press=drink(250) buttonStyle="bordered-prominent" testId="add-250"

@@ -538,3 +538,95 @@ fn a_dialog_a_popover_and_a_modal_route_are_not_named() {
     let sheet = "routes nav\n  home \"/\"\n    add \"/add\"\ncomponent App\n  action back\n    nav = back(nav)\n  view\n    main navigationKey=`${top(nav).id}` navigationBack=\"back\" width=\"100%\" height=\"100%\"\n      each e in stack(nav) key=e.id\n        column navigationKey=`${e.id}` navigationPresentation=(e.name == \"add\" ? \"modal\" : \"push\") role=\"dialog\" position=\"absolute\" inset=0\n          text e.name\n";
     assert_eq!(warned(sheet), []);
 }
+
+const COUNT_PLURAL: &str = "lower-count-plural";
+
+/// One screen over a count and a name, its view's lines at 9 on, with a
+/// `fn` on line 1 for the cases that need one.
+fn counted(view: &str, function: &str) -> String {
+    let view: String = view.lines().map(|l| format!("      {l}\n")).collect();
+    format!(
+        "{function}\nshape Event\n  going: number\n  capacity: number\ncomponent App\n  state known = 1\n  state total = 3\n  state name = \"Ada\"\n  state events = [Event(going=3, capacity=4)]\n  view\n    column\n{view}"
+    )
+}
+
+#[test]
+fn a_count_before_a_plural_noun_is_named_with_its_repair() {
+    // flashcards' and event-rsvp's round-6 lines: the noun fixed, the count
+    // free to be 1, under a choice made on something else.
+    let cards = counted(
+        "text (known == total ? \"You worked through every card.\" : `${total - known} cards to keep practicing next time.`)",
+        "",
+    );
+    assert_eq!(warned(&cards), [(COUNT_PLURAL.to_string(), 12)]);
+    let (_, warnings) = contract::compile_warned(&cards);
+    assert!(
+        warnings[0]
+            .message
+            .starts_with("this count reads \"1 cards\" when it is 1")
+            && warnings[0]
+                .message
+                .contains("`${n} ${n == 1 ? \"card\" : \"cards\"}`")
+            && warnings[0].message.contains("`contract vocab plural`"),
+        "{warnings:?}"
+    );
+    let spots = counted(
+        "each e in events key=e.going\n  text (e.going >= e.capacity ? \"Full · no spots left\" : `${e.going} going · ${e.capacity - e.going} spots left`)",
+        "",
+    );
+    assert_eq!(warned(&spots), [(COUNT_PLURAL.to_string(), 13)]);
+    // An irregular plural, a `length`, a derive, a `fn`'s parameter, an
+    // action's message.
+    for (view, function) in [
+        ("text `${total} people`", ""),
+        ("text `${length(events)} events`", ""),
+        (
+            "text daysText(total)",
+            "fn daysText(d: number): string = `${d} days`",
+        ),
+    ] {
+        let src = counted(view, function);
+        assert_eq!(warned(&src).len(), 1, "{src}");
+        assert_eq!(warned(&src)[0].0, COUNT_PLURAL, "{src}");
+    }
+    let (_, warnings) = contract::compile_warned(&counted("text `${total} people`", ""));
+    assert!(
+        warnings[0]
+            .message
+            .contains("`${n} ${n == 1 ? \"person\" : \"people\"}`"),
+        "{warnings:?}"
+    );
+    let toast = counted("text name", "").replace(
+        "  view\n",
+        "  action add\n    let n = total + 1\n    name = `${n} entries saved`\n  view\n",
+    );
+    assert_eq!(warned(&toast), [(COUNT_PLURAL.to_string(), 12)]);
+}
+
+#[test]
+fn a_chosen_noun_a_string_a_unit_or_a_total_is_not_named() {
+    for (view, function) in [
+        // The noun chosen by the number, in the template or around it.
+        (
+            "text `${total} ${total == 1 ? \"card\" : \"cards\"} left`",
+            "",
+        ),
+        ("text (total == 1 ? \"1 card\" : `${total} cards`)", ""),
+        ("text (total != 1 ? `${total} cards` : \"1 card\")", ""),
+        ("when total > 1\n  text `${total} cards`", ""),
+        (
+            "text cardsText(total)",
+            "fn cardsText(n: number): string = n == 1 ? \"1 card\" : `${n} cards`",
+        ),
+        // A string, a unit's abbreviation, a percent, a word that is no
+        // plural, a total after `of`.
+        ("text `${name} votes`", ""),
+        ("text `${total} lbs · ${total} ms · ${total} kg`", ""),
+        ("text `${total}% done`", ""),
+        ("text `${total} plus tax, ${total} was`", ""),
+        ("text `${known} of ${total} cards`", ""),
+    ] {
+        let src = counted(view, function);
+        assert_eq!(warned(&src), [], "{src}");
+    }
+}

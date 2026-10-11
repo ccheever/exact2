@@ -66,7 +66,8 @@ test "find, some, every and count are compositions"
 ```
 
 - A count chooses its noun by the number, so it never reads "1 books":
-  `${n} ${n == 1 ? "book" : "books"}` (`Intl.PluralRules` is this choice).
+  `${n} ${n == 1 ? "book" : "books"}` (`Intl.PluralRules` is this choice); the
+  compiler warns of a number before a fixed plural (`lower-count-plural`).
 - `find` is `first(filter(…))`, `some` is `includes(map(…), true)`, `every` is
   `not includes(map(…), false)`, `findIndex` is `indexOf(map(…), true)`.
 - Sorting, grouping, sums and other maths (`sort`, `reduce`, `pow`, `abs`) happen in the

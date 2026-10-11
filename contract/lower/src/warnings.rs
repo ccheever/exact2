@@ -19,6 +19,7 @@ use exact_kernel::StyleId;
 use exact_plan::Stdlib;
 use std::collections::BTreeSet;
 
+mod counts;
 mod roles;
 
 /// At most this many warnings from one compile, before the colours that
@@ -71,6 +72,7 @@ pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
         };
         stack.extend(children.into_iter().rev().map(|n| (n, in_root)));
     }
+    out.extend(counts::count_plural(checked));
     performance_now(root, &checked.file.fns, &mut out);
     out.extend(
         contract_analyze::read_after_assign(checked)
