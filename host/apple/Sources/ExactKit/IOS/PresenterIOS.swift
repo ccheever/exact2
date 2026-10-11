@@ -267,9 +267,7 @@ package final class Presenter {
     /// The last no-duration keyboard change, waiting to be applied.
     private var keyboardDebounce: DispatchWorkItem?
     var hasPendingKeyboardResize: Bool { keyboardDebounce != nil }
-    /// Apply a waiting no-duration keyboard change now: a stack change that
-    /// waited for the viewport a leaving keyboard frees must not start
-    /// before it (NavigationHost.sync).
+    /// Apply a pending keyboard change before a back swipe fixes its route frames.
     func flushKeyboardResize() {
         guard let work = keyboardDebounce else { return }
         keyboardDebounce = nil
@@ -1004,9 +1002,6 @@ package final class Presenter {
         }
         pendingScrolls = pendingScrolls.filter { views[$0]?.pendingScrollTop != nil || views[$0]?.pendingScrollLeft != nil }
         if !flights.isEmpty { flightsBatchApplied() }
-        // A batch that only builds, moves or drops a list's rows changes no
-        // route, header or bar: the projection would come out the same.
-        if !rowsOnly || navigation.syncOwed { navigation.sync(batch) }
         #if os(tvOS)
         menuKey.sync()
         playPauseKey.sync()
@@ -1028,7 +1023,12 @@ package final class Presenter {
         // dimmed, deaf to a finger); judge it again where it shows, in its cell.
         if groupedLists?.carriesRows == true { segments.sync() }
         positionContexts()
-        syncAccessibility(changed: changed)
+        // Finish controls and frames before UIKit synchronously lays out the destination.
+        afterBatch { [weak self] in
+            guard let self else { return }
+            if !rowsOnly || navigation.syncOwed { navigation.sync(batch) }
+            syncAccessibility(changed: changed)
+        }
         #if os(iOS)
         syncScrollsToTop()
         #endif
