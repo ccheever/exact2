@@ -726,10 +726,11 @@ component T3Code
   action command(op: string, id: string, value: string, n: number)
     if op == "chatlocal:item-detail"
       send timelineDisclosureChanged = command(op, id, value, n)
-    else if op == "diffreview" and (startsWith(id, "drag:") or startsWith(id, "gutter:") or startsWith(id, "comment:") or id == "to" or id == "end")
+    else if op == "diffreview" and (startsWith(id, "drag:") or startsWith(id, "gutter:") or startsWith(id, "comment:") or id == "to" or id == "end" or id == "press")
       // realinput-1010f RF-3: a gutter drag sends at its press, on each line and at its release; a click's press and
       // release come within a few ms, so they queue on their own send (a later send on one mutation would replace the
-      // press before it ran, and `changed` takes one command at a time). The "+"'s press queues behind its drag.
+      // press before it ran, and `changed` takes one command at a time). The "+"'s press queues behind its drag, and a
+      // press that starts no drag (`press`, files-gutter-parity FG-4) with them.
       send lineDragChanged = command(op, id, value, n)
     else
       if endsWith(op, ":focus-in") or endsWith(op, ":focus-out")

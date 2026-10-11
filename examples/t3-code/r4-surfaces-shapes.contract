@@ -71,6 +71,9 @@ shape R4CodeLine
   kind: string
   line: number
   selected: bool
+  // files-gutter-parity: while the file has a selection (`pinned`) its "+" is on the bottom line only (`pin`).
+  pin: bool
+  pinned: bool
   entry: string
   text: string
   label: string

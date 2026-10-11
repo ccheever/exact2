@@ -127,7 +127,7 @@ component PrdCode
     local(`pr-code-${op}`, ref, value)
   // DiffRow's commands (diff.contract): a hidden range's, and the gutter's drags (their own queued send, app.contract).
   action rowCommand(op: string, id: string, value: string, n: number)
-    if startsWith(id, "drag:") or startsWith(id, "gutter:") or id == "to" or id == "end"
+    if startsWith(id, "drag:") or startsWith(id, "gutter:") or id == "to" or id == "end" or id == "press"
       local("pr-code-drag", ref, `${op}|${id}|${n}|${value}`)
     else
       local("pr-code-row", ref, `${op}|${id}|${n}|${value}`)
