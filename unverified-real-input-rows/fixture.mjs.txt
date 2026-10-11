@@ -1,0 +1,128 @@
+#!/usr/bin/env bun
+// unverified-real-input-rows: the fixtures for UV-1..UV-3 on the real-GitHub lane (examples/t3-code/tools/github-lane).
+// Not committed. Run from anywhere with Bun 1.4.2:
+//
+//   bun fixture.mjs start [--port P]  the lane's primary server on P (default 17163) behind proxy.mjs on P+1, its gh
+//                                       the fault wrapper (gh-fault.sh: #115's viewed read fails), #132's replies read
+//                                       viewedFiles "environment" (viewed-here); writes pairing-url (the proxy's origin,
+//                                       single use, 15 min; never printed)
+//   bun fixture.mjs pair               a fresh pairing-url for the running server
+//   bun fixture.mjs seed               GitHub writes in the sandbox only: the docs/notes-archive pull request (510 notes and
+//                                       a 40,000-line data/catalog.csv: more files than the viewed read walks, and a patch
+//                                       GitHub withholds) and a comment on #132 naming c46352e by its full SHA; writes seeded.json
+//   bun fixture.mjs unseed             closes that pull request, deletes its branch and the comment (seeded.json)
+//   bun fixture.mjs stop               stops the proxy and the server (their recorded pids only)
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { spawn } from 'node:child_process';
+
+const here = import.meta.dir;
+const worktree = join(here, '../..');
+process.env.T3_GITHUB_LANE_SHARED ||= '/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ui-parity/github-lane';
+process.env.T3_GITHUB_LANE ||= join(worktree, 'target/github-lane');
+process.env.T3_GITHUB_LANE_GH = join(here, 'gh-fault.sh');
+const G = join(worktree, 'examples/t3-code/tools/github-lane');
+const lane = await import(join(G, 'lane.mjs'));
+const lib = await import(join(G, 'lib.mjs'));
+const paths = lib.lanePaths();
+const flag = process.argv.indexOf('--port');
+const port = flag > 0 ? Number(process.argv[flag + 1]) : 17163;
+const sandbox = lib.readSandbox(paths);
+const repo = sandbox.repo;
+const seededFile = join(here, 'seeded.json');
+const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+
+function writePairing() {
+  const token = lane.pairingToken('primary');
+  writeFileSync(join(here, 'pairing-url'), `http://127.0.0.1:${port + 1}/pair#token=${token}\n`, { mode: 0o600 });
+}
+
+async function start() {
+  writeFileSync(join(here, 'viewed-fault'), '115\n');
+  writeFileSync(join(here, 'viewed-here'), '132\n');
+  lib.setup(paths);
+  const started = await lane.start('primary', port);
+  console.log(JSON.stringify({ server: started }));
+  console.log(JSON.stringify({ project: await lane.addProject('primary') }));
+  const proxyPid = existsSync(join(here, 'proxy.pid')) ? Number(readFileSync(join(here, 'proxy.pid'), 'utf8')) : 0;
+  if (!proxyPid || !alive(proxyPid)) {
+    const child = spawn(process.execPath, [join(here, 'proxy.mjs'), String(port + 1), String(port)], { stdio: 'ignore', detached: true });
+    child.unref();
+    for (let i = 0; i < 50 && !(existsSync(join(here, 'proxy.pid')) && Number(readFileSync(join(here, 'proxy.pid'), 'utf8')) === child.pid); i++) await Bun.sleep(100);
+    console.log(JSON.stringify({ proxy: child.pid, port: port + 1 }));
+  }
+  writePairing();
+  console.log(`pairing URL (the proxy's origin) written to ${join(here, 'pairing-url')}`);
+}
+
+function stop() {
+  const proxyPid = existsSync(join(here, 'proxy.pid')) ? Number(readFileSync(join(here, 'proxy.pid'), 'utf8')) : 0;
+  if (proxyPid && alive(proxyPid)) process.kill(proxyPid, 'SIGTERM');
+  rmSync(join(here, 'proxy.pid'), { force: true });
+  console.log(JSON.stringify({ proxy: proxyPid || null, server: lane.stop('primary') }));
+}
+
+const gitP = (args, opts = {}) => lib.git(paths, 'primary', args, opts);
+const apiP = (args, opts) => lib.api(paths, 'primary', args, opts);
+
+function seed() {
+  const prior = existsSync(seededFile) ? JSON.parse(readFileSync(seededFile, 'utf8')) : {};
+  const out = { ...prior };
+  if (!out.pullRequest) {
+    const work = join(here, 'work');
+    rmSync(work, { recursive: true, force: true });
+    gitP(['clone', '--quiet', '--depth', '1', `https://github.com/${repo}.git`, work]);
+    gitP(['checkout', '-q', '-b', 'docs/notes-archive'], { cwd: work });
+    mkdirSync(join(work, 'notes'), { recursive: true });
+    mkdirSync(join(work, 'data'), { recursive: true });
+    for (let i = 1; i <= 510; i++) {
+      const n = String(i).padStart(3, '0');
+      writeFileSync(join(work, 'notes', `note-${n}.md`), `# Note ${n}\n\nKept from the weekly review, item ${i}.\n`);
+    }
+    const rows = ['id,name,shelf,count'];
+    for (let i = 1; i <= 40000; i++) rows.push(`${i},item ${String(i).padStart(5, '0')},shelf ${(i % 97) + 1},${(i * 7919) % 1000}`);
+    writeFileSync(join(work, 'data', 'catalog.csv'), rows.join('\n') + '\n');
+    gitP(['add', '-A'], { cwd: work });
+    gitP(['commit', '-q', '-m', 'Archive the weekly notes and the catalog'], { cwd: work });
+    gitP(['push', '-q', 'origin', 'docs/notes-archive'], { cwd: work });
+    const created = apiP(['-X', 'POST', `repos/${repo}/pulls`, '-f', 'title=Archive the weekly notes', '-f', 'head=docs/notes-archive', '-f', 'base=main',
+      '-f', 'body=Moves the weekly notes into one folder and adds the catalog export.'], { allowFail: false });
+    out.pullRequest = created.body.number;
+    rmSync(work, { recursive: true, force: true });
+  }
+  if (!out.comment) {
+    const sha = sandbox.base.c1;
+    const created = apiP(['-X', 'POST', `repos/${repo}/issues/132/comments`, '-f', `body=The wording here goes back to ${sha}, before #115 changed it.`], { allowFail: false });
+    out.comment = { id: created.body.id, on: 132, sha };
+  }
+  writeFileSync(seededFile, JSON.stringify(out, null, 2) + '\n');
+  // What GitHub reports for the new pull request: files, and the files whose patch it withheld.
+  const files = [];
+  for (let page = 1; page <= 6; page++) {
+    const { body } = apiP([`repos/${repo}/pulls/${out.pullRequest}/files?per_page=100&page=${page}`]);
+    if (!Array.isArray(body) || body.length === 0) break;
+    files.push(...body);
+  }
+  const withheld = files.filter((file) => !file.patch && file.additions + file.deletions > 0).map((file) => `${file.filename} (+${file.additions} -${file.deletions})`);
+  console.log(JSON.stringify({ ...out, files: files.length, firstFile: files[0]?.filename, withheld }));
+}
+
+function unseed() {
+  if (!existsSync(seededFile)) { console.log('nothing seeded'); return; }
+  const seeded = JSON.parse(readFileSync(seededFile, 'utf8'));
+  if (seeded.comment) apiP(['-X', 'DELETE', `repos/${repo}/issues/comments/${seeded.comment.id}`]);
+  if (seeded.pullRequest) {
+    apiP(['-X', 'PATCH', `repos/${repo}/pulls/${seeded.pullRequest}`, '-f', 'state=closed']);
+    apiP(['-X', 'DELETE', `repos/${repo}/git/refs/heads/docs/notes-archive`]);
+  }
+  rmSync(seededFile, { force: true });
+  console.log(JSON.stringify({ removed: seeded }));
+}
+
+const command = process.argv[2];
+if (command === 'start') await start();
+else if (command === 'pair') writePairing();
+else if (command === 'stop') stop();
+else if (command === 'seed') seed();
+else if (command === 'unseed') unseed();
+else { console.log(readFileSync(import.meta.path, 'utf8').split('\n').slice(1, 16).join('\n')); process.exitCode = command ? 2 : 0; }
