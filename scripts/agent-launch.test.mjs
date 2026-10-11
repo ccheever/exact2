@@ -4,7 +4,7 @@ import { test, expect } from 'bun:test';
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
-import { chromium, launchFacts, launchEnvironment, parseFlags } from './agent-launch.mjs';
+import { chromium, launchFacts, launchEnvironment, parseFlags, webPort } from './agent-launch.mjs';
 import { timeReporter } from '../host/web/navigation.js';
 
 // LLP 1107 D1: `--reader` is a flag of the drive, said to the Android carrier as the variable it reads
@@ -54,3 +54,13 @@ test('Windows browser discovery accepts an installed Chrome and explicit executa
     expect(chromium({CHROME:resolve(dir, 'missing.exe')}, 'win32').unavailable).toBeTruthy();
   } finally { rmSync(dir, {recursive:true, force:true}); }
 });
+// App farm wave 1 (21 builds): a builder on a shared machine keeps every listener in its assigned range.
+test('a web drive takes its port from --port, else EXACT_PORT, and refuses anything but a port', () => {
+  expect(parseFlags(['web', '--port', '50821', 'tree']).flags.port).toBe('50821');
+  expect(webPort('50821', {EXACT_PORT: '50822'})).toBe(50821);
+  expect(webPort(undefined, {EXACT_PORT: '50822'})).toBe(50822);
+  expect(webPort(undefined, {})).toBe(null);
+  expect(() => webPort('99999', {})).toThrow('--port 99999: a port number');
+  expect(() => webPort(undefined, {EXACT_PORT: 'x'})).toThrow('EXACT_PORT x: a port number');
+});
+

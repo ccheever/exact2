@@ -207,7 +207,7 @@ const LAUNCH = { epoch: 'epoch', 'time-zone': 'timeZone', locale: 'locale', seed
  * again on its route and storage at that date, LLP 1116.010 D6; `typed`: the ids the test typed since its last other input, a draft; `touched`: every id it typed) runs on each test's session after its last step, unless the window closed; what it returns is the result's `end` (`{ error }` if it threw), and an
  * `end.keep` keeps the test's store for a later launch (the result's `store`), which the caller then removes.
  */
-export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch, failFetch, storage = 'test', touch = 'agent', chrome: bars = 'agent', scale, atEnd } = {}) {
+export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch, failFetch, storage = 'test', touch = 'agent', chrome: bars = 'agent', scale, atEnd, port } = {}) {
   const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
   // Cargo owns target selection and freshness, including CARGO_TARGET_DIR.
   const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'test', resolve(file)], { cwd: root, encoding: 'utf8' });
@@ -264,7 +264,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     // (every `clock +N`, settle and timer), as the runner reports it; whole milliseconds, which every host takes.
     const first = facts.epoch; // the test's launch date, which a `reload` moves `facts.epoch` on from
     const reached = async () => { const { clock } = await s.op({ op: 'tags' }).catch(() => ({})); return facts.epoch + Math.floor(Number.isFinite(clock) ? clock : s.now); };
-    const launch = (environment) => open({ host, browser, plan, ...facts, env: environment, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars, scale });
+    const launch = (environment) => open({ host, browser, plan, ...facts, env: environment, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars, scale, port });
     let s = await launch(fresh);
     // The app's data lands before the first step, as `clock data` lands it: activation and every request in flight,
     // the clock unmoved and no timer fired (habits, pomodoro, kanban: a store opened at launch raced the first step).
@@ -289,7 +289,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       const failFetch = now.faults ? faultSpecOf(now.faults) : undefined;
       facts.epoch = await reached();
       if (s.host === 'web') { await s.carrier.reset({ keep: true, failFetch, epoch: facts.epoch }); s.now = 0; s.logCursor = 0; s.notes = notes; return; }
-      await s.close(); s = await open({ host, browser, plan, ...facts, failFetch: failFetch ?? facts.failFetch, env, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars, scale }); s.notes = notes;
+      await s.close(); s = await open({ host, browser, plan, ...facts, failFetch: failFetch ?? facts.failFetch, env, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars, scale, port }); s.notes = notes;
     };
     // The clock stands still between steps: what an input started (a reply,
     // a mutation's `then`, a timer, a transition) lands at a clock step. A

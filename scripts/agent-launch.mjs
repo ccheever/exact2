@@ -167,6 +167,18 @@ export function netOptions(environment = process.env) {
   return { launch: { proxy: { server: `http://${environment.EXACT_NET_PROXY}`, bypass: '127.0.0.1,localhost' } }, context: { ignoreHTTPSErrors: true } };
 }
 
+/** The one port a web drive's page is served on, `--port <n>` else `EXACT_PORT`, or null for the default (a free port;
+ * a named store's from its hash). Builders on a shared machine must keep every listener in an assigned range (app farm
+ * wave 1: 21 builds could not). A test run serves its tests on it one at a time. A named store's data is its origin's,
+ * so drive one store on one port. */
+export function webPort(flag, env = process.env) {
+  const given = flag ?? env.EXACT_PORT;
+  if (given === undefined || given === '') return null;
+  const port = Number(given);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`${flag === undefined ? 'EXACT_PORT' : '--port'} ${given}: a port number, 1–65535`);
+  return port;
+}
+
 /** One browser lookup for the agent and its tests: an explicit override,
  * otherwise the platform's ordinary Chromium installation. A bare CHROME
  * name is resolved through PATH before a test decides whether to skip. */
@@ -213,6 +225,7 @@ export function parseFlags(argv) {
     else if (argv[i] === '--phone') flags.phone = argv[++i];
     else if (argv[i] === '--sim') flags.sim = argv[++i];
     else if (argv[i] === '--storage') flags.storage = argv[++i];
+    else if (argv[i] === '--port') flags.port = argv[++i];
     // A driver fault armed before the app's first data load (LLP 1103 D3): every fetch whose URL starts with it fails.
     else if (argv[i] === '--fail-fetch') flags.failFetch = [flags.failFetch, argv[++i]].filter(Boolean).join('\n');
     else rest.push(argv[i]);

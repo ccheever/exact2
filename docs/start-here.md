@@ -47,6 +47,11 @@ bun exact.mjs ios --prebuild  # the first iOS build: minutes, in the background
 want checked or captured is a test's end; a drive takes any others (`resize`, `prefer …`, `screenshot`).
 Keep scratch files in `.exact/` (any other new file makes the build stale).
 
+**Ports.** `--port <n>` on `web`, `test web` and `agent web`, or `EXACT_PORT=<n>`,
+serves on that port; a held port is refused. Otherwise each picks a free port and
+prints its URL. A native client starts a second loop on `n+1`. A storage store
+keeps its data per port, so drive one store on one port.
+
 ## One screen: the view, its data, its test
 
 `app.contract` is the view, `app.ts` its data module, `app.test.contract` its tests. A

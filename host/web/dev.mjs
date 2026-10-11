@@ -65,9 +65,12 @@ async function freePort(from, host) {
   console.error(`ports ${from}–${from + 99} are all in use; --port <n> picks another`);
   process.exit(1);
 }
-// An explicit --port is kept (and fails loudly if taken); the default moves to a free one.
-const port = argv.includes('--port') || argv.includes('--serve-as') ? Number(arg('--port', 8765)) : await freePort(8765, lan ? '0.0.0.0' : '127.0.0.1');
-if (port !== 8765 && !argv.includes('--port') && !argv.includes('--serve-as')) console.log(`port 8765 is in use; serving on ${port} (--port picks one)`);
+// An explicit --port (or EXACT_PORT: one variable for every listener the app's commands start) is kept, and fails
+// loudly if taken; the default moves to a free one.
+const named = argv.includes('--port') ? arg('--port') : process.env.EXACT_PORT || null;
+if (named != null && !(Number.isInteger(Number(named)) && Number(named) >= 1 && Number(named) <= 65535)) { console.error(`${argv.includes('--port') ? '--port' : 'EXACT_PORT'} ${named}: a port number, 1–65535`); process.exit(2); }
+const port = named != null || argv.includes('--serve-as') ? Number(named ?? 8765) : await freePort(8765, lan ? '0.0.0.0' : '127.0.0.1');
+if (port !== 8765 && named == null && !argv.includes('--serve-as')) console.log(`port 8765 is in use; serving on ${port} (--port <n> or EXACT_PORT picks one)`);
 // `--serve-as <port>` (internal): the resident loop's producers behind the
 // JS loop on that port (host/web-js/dev.mjs forwards a native client's
 // requests here): its names are that port's, and it listens on loopback.
@@ -85,7 +88,7 @@ const source = resolve(app.dir, 'app.contract');
 // A game (LLP 1071 §8: its runtime is on wasm), and `--wasm` (the loop a
 // native client opening the dev URL reads), run the resident wasm loop below.
 if (!argv.includes('--wasm') && servedAs == null && app.manifest.game === undefined) {
-  await (await import('../web-js/dev.mjs')).devJs({ app, dist, port, host, origins, gate, lan, allowHosts });
+  await (await import('../web-js/dev.mjs')).devJs({ app, dist, port, host, origins, gate, lan, allowHosts, residentPort: named != null ? port + 1 : 0 });
 }
 // Behind the JS loop (`--serve-as`) an app's resident loop is its producers
 // alone: nothing loads its page, so its builds are the web crate's bake

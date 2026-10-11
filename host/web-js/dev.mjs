@@ -68,7 +68,7 @@ function build(app, dist) {
 }
 
 /** Build `app` on the JS target and serve it with reload, until the process ends. */
-export async function devJs({ app, dist, port, host, origins, gate, lan, allowHosts = [] }) {
+export async function devJs({ app, dist, port, host, origins, gate, lan, allowHosts = [], residentPort = 0 }) {
   const budget = /\|\s*Dev restart[^|]*\|\s*([^|\n]+)/.exec(readFileSync(resolve(root, 'rules/RULES.md'), 'utf8'))?.[1].trim() ?? '?';
   const t0 = Date.now();
   // A first build that fails (a refusal or a compile error) serves its
@@ -252,7 +252,8 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error)
   // the pages it serves name this URL). Its wasm build is internal.
   let resident = null, residentChild = null;
   const residentLoop = () => resident ??= new Promise((ok, fail) => {
-    const probe = createServer().listen(0, '127.0.0.1', () => {
+    // A named port's next one (an assigned range holds both), else a free one.
+    const probe = createServer().once('error', (e) => { resident = null; fail(new Error(`the resident loop's port ${residentPort}: ${e.code ?? e.message}`)); }).listen(residentPort, '127.0.0.1', () => {
       const internal = probe.address().port;
       probe.close(() => {
         console.log(`native client: starting the resident loop's producers (loopback :${internal})`);

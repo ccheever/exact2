@@ -66,7 +66,7 @@ async function assertDist(dist, app) {
   if (!await builtAppMatches(dist, app)) throw staleError(`web dist is not a complete build for selected app ${app.id}; stale receipt ${resolve(dist, '.exact-build.json')}; run ${webBuildCommand(app, dist)}`);
 }
 
-async function files({ plan, pageURL, app, webDist }) {
+async function files({ plan, pageURL, app, webDist, port }) {
   const selected = resolveApp(app), dist = resolve(webDist ?? defaultWebDist());
   if (!pageURL) {
     await assertDist(dist, selected);
@@ -90,7 +90,10 @@ async function files({ plan, pageURL, app, webDist }) {
     if (js) return serveBuildTree(served, req, res);
     serveStatic(dist, req, res);
   });
-  await new Promise(ok => server.listen(0, '127.0.0.1', ok));
+  // `--port`/EXACT_PORT (agent-launch.mjs `webPort`), else a free one.
+  await new Promise((ok, fail) => { server.once('error', fail); server.listen(port ?? 0, '127.0.0.1', ok); }).catch((e) => {
+    throw e.code === 'EADDRINUSE' ? new Error(`port ${port} (--port or EXACT_PORT) is in use: another drive or program holds it; name another`) : e;
+  });
   return { js, server, planBuild, url: pageURL ?? `http://127.0.0.1:${server.address().port}/` };
 }
 
@@ -214,11 +217,11 @@ export function poolBrowsers() {
 
 /** Open Firefox or WebKit through Playwright. The page still owns Exact's
  * deterministic runner/motion clock; Playwright carries only browser IO. */
-export async function openPlaywrightWeb({ browser: name, plan, world, size, url: pageURL, app, webDist, onProcess, reuse, storage, facts: givenFacts, parity = '' }) {
+export async function openPlaywrightWeb({ browser: name, plan, world, size, url: pageURL, app, webDist, onProcess, reuse, storage, facts: givenFacts, parity = '', port = null }) {
   if (!['firefox', 'webkit'].includes(name)) throw new Error(`browser: chrome, firefox or webkit, not ${name}`);
   const facts = givenFacts ?? launchFacts({});
   if (reuse) await reuse.close(); // Chrome reuse is intentionally not crossed with another engine.
-  const hosted = await files({ plan, pageURL, app, webDist });
+  const hosted = await files({ plan, pageURL, app, webDist, port });
   let browserServer, browser, context, page, poolKey;
   // Only Chrome keeps a named store's profile between drives (agent.mjs `openWeb`); here it is this drive's own.
   const hostLines = storage === undefined ? [] : [`${name}: --storage ${storage} is this drive's own profile, emptied when it ends; Chrome keeps a store between drives`];
