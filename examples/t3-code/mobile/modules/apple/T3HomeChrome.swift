@@ -339,7 +339,10 @@ private final class T3HomeChromeView: ExactNativeInstance {
         guard let config, let route else { return }
         let title = T3ChromeTitle(config: config, status: statusShown, action: { [weak self] in self?.emit("environments") })
         title.alpha = animated ? 0 : 1
-        title.availableWidth = max(0, route.controller.view.bounds.width - 64 - 44 * (config.layout == "sidebar" ? 2 : 1))
+        let routeWidth = route.controller.view.bounds.width
+        if routeWidth > 0 {
+            title.availableWidth = max(0, routeWidth - 64 - 44 * (config.layout == "sidebar" ? 2 : 1))
+        }
         installedTitle = title
         route.controller.navigationItem.titleView = title
         if animated { UIView.animate(withDuration: 0.25) { title.alpha = 1 } }
