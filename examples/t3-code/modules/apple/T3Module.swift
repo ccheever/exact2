@@ -18,6 +18,7 @@ final class T3Module: ExactModule {
     private let frames: T3ComposerFrames // Popover anchors in window space (T3ComposerFrames.swift).
     private let scrollEnds: R5ComposerScroll // r5-composer: ref lists' next-page signal (R5ComposerScroll.swift).
     let attach: T3ComposerAttach // Attach files: picked images become PNG drafts (T3ComposerAttach.swift).
+    let rowDrop: T3RowDrop // legacy-sidebar-full LS-3: files dropped on a legacy sidebar row (T3RowDrop.swift).
     private let video: T3ComposerVideo // A shelf video's expanded preview (T3ComposerVideo.swift).
     private let media: R6MediaPreview // lane r6-media: attachment PDF and HTML bodies (R6MediaPreview.swift).
     let devices: R6DeviceStreams // lane r6-media: device screens, input and screenshots (R6DeviceStream.swift).
@@ -64,6 +65,7 @@ final class T3Module: ExactModule {
         frames = T3ComposerFrames(changed: changed)
         scrollEnds = R5ComposerScroll(changed: changed)
         attach = T3ComposerAttach(dataRoot: T3Storage.dataRoot(agent: context.agent, contextData: context.data), agent: context.agent)
+        rowDrop = T3RowDrop(attach: attach, changed: changed)
         video = T3ComposerVideo(dataRoot: T3Storage.dataRoot(agent: context.agent, contextData: context.data), muted: context.agent)
         media = R6MediaPreview(agent: context.agent)
         let credentials = T3Credentials(persistent: !context.agent), saved = T3SavedEnvironments(persistent: !context.agent)
@@ -108,7 +110,7 @@ final class T3Module: ExactModule {
                 DispatchQueue.main.async {
                     var result = response
                     var value = result["value"] as? [String: Any] ?? [:]
-                    value["presentation"] = (self?.timeline.status ?? [:]).merging(self?.composer.status ?? [:]) { first, _ in first }.merging(self?.intent.status ?? [:]) { first, _ in first }.merging(self?.frames.status ?? [:]) { first, _ in first }.merging(self?.scrollEnds.status ?? [:]) { first, _ in first }.merging(self?.sidebar.status ?? [:]) { first, _ in first }.merging(self?.media.status ?? [:]) { first, _ in first }.merging(self?.devices.status ?? [:]) { first, _ in first }.merging(self?.chrome.status ?? [:]) { first, _ in first }.merging(T3Terminals.shared.status) { first, _ in first }.merging(self?.browserSessions.status ?? [:]) { first, _ in first }.merging(self?.browserAutomation.status ?? [:]) { first, _ in first }
+                    value["presentation"] = (self?.timeline.status ?? [:]).merging(self?.composer.status ?? [:]) { first, _ in first }.merging(self?.intent.status ?? [:]) { first, _ in first }.merging(self?.frames.status ?? [:]) { first, _ in first }.merging(self?.scrollEnds.status ?? [:]) { first, _ in first }.merging(self?.sidebar.status ?? [:]) { first, _ in first }.merging(self?.media.status ?? [:]) { first, _ in first }.merging(self?.devices.status ?? [:]) { first, _ in first }.merging(self?.chrome.status ?? [:]) { first, _ in first }.merging(T3Terminals.shared.status) { first, _ in first }.merging(self?.browserSessions.status ?? [:]) { first, _ in first }.merging(self?.browserAutomation.status ?? [:]) { first, _ in first }.merging(self?.rowDrop.status ?? [:]) { first, _ in first }
                     var turned: [String: Any] = value["presentation"] as? [String: Any] ?? [:]
                     let turnStatus: [String: Any] = self?.turns.status ?? [:]
                     for (key, entry) in turnStatus { turned[key] = entry }
@@ -126,6 +128,7 @@ final class T3Module: ExactModule {
         composer.install(element); promptPreview.install(element); chrome.install(element); timeline.install(element); menus.install(element); turns.install(element); video.install(element); media.install(element); devices.install(element)
         launcher.install(element); measure.install(element); r9.install(element); r10.install(element)
         T3FileEditor.install(element) // the Files editor takes the focus its press began (T3PanelsNative.swift, lane r5-panels)
+        rowDrop.install(element) // legacy-sidebar-full LS-3: a legacy row's file drop target
         activationElement(element) // `t3 app`: the window whose closing fails its requests (T3Module+Activation.swift)
         if element.hatch == .t3Composer { snapShot.setComposer(key: ObjectIdentifier(element), owner: element.data[.snapshotOwner] ?? "", view: element.view, focus: { [weak element] in element?.focus() }) }
         if element.hatch == .t3SnapshotTile, let view = element.view { snapShot.installTile(id: element.data[.snapshotId] ?? "", view: view) }
@@ -135,10 +138,11 @@ final class T3Module: ExactModule {
         panelTabs.remove(element); toolIcons.remove(element); timelineTips.remove(element)
         frames.remove(element); scrollEnds.remove(element)
         composer.remove(element); promptPreview.remove(element); launcher.remove(element); measure.remove(element); r9.remove(element); timeline.remove(element); turns.remove(element); video.remove(element); media.remove(element); devices.remove(element)
+        rowDrop.remove(element)
         if element.hatch == .t3SnapshotTile, let view = element.view { snapShot.removeTile(view: view) }
         if element.hatch == .t3Composer { snapShot.removeComposer(key: ObjectIdentifier(element)) }
     }
-    override func destroy() { detachAppControl(); activity.destroy(); panelTabs.destroy(); toolIcons.destroy(); timelineTips.destroy(); r10.destroy(); r9.destroy(); textMenu.destroy(); sidebar.destroy(); notifications.destroy(); snapShot.destroy(); composer.destroy(); promptPreview.destroy(); video.destroy(); media.destroy(); devices.destroy(); intent.destroy(); frames.destroy(); scrollEnds.destroy(); chrome.destroy(); menus.destroy(); timeline.destroy(); turns.destroy(); transport.destroy(); fleet.destroy(); ssh.destroy(); browserSessions.sync([]); T3LocalBackend.shared.detach(self) } // detachAppControl first: the window's request fails at once (renderer-unavailable), and the control lets go of the backend before the last module stops it
+    override func destroy() { detachAppControl(); activity.destroy(); rowDrop.destroy(); panelTabs.destroy(); toolIcons.destroy(); timelineTips.destroy(); r10.destroy(); r9.destroy(); textMenu.destroy(); sidebar.destroy(); notifications.destroy(); snapShot.destroy(); composer.destroy(); promptPreview.destroy(); video.destroy(); media.destroy(); devices.destroy(); intent.destroy(); frames.destroy(); scrollEnds.destroy(); chrome.destroy(); menus.destroy(); timeline.destroy(); turns.destroy(); transport.destroy(); fleet.destroy(); ssh.destroy(); browserSessions.sync([]); T3LocalBackend.shared.detach(self) } // detachAppControl first: the window's request fails at once (renderer-unavailable), and the control lets go of the backend before the last module stops it
 }
 
 let exactModule: ExactModule.Type = T3Module.self

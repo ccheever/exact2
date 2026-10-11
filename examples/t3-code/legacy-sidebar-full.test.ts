@@ -1,0 +1,326 @@
+// legacy-sidebar-full (U22): the legacy sidebar's remaining reference behaviour (T3 Code 1e2ecbd975, MIT, see
+// LICENSE-T3): LS-1 a row's pull request link (handlePrClick, useOpenPrLink), LS-2 the discovered-port button
+// (useThreadDiscoveredPorts, openDiscoveredPort), LS-3 files dropped on a row (sidebarPendingFileDropStore and
+// ChatView's consumePendingFileDrop), LS-4 Archive and New thread in the tab order (group-focus-within), LS-5
+// "New thread on <branch>" (handleNewThread with the branch), LS-6 a background environment's project and thread
+// actions and environmentGrouping.test.ts's physical dedupe cases.
+import { afterEach, describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { T3Client } from './client';
+import type { Obj } from './domain';
+import type { Files, Native } from './protocol';
+import { toasts } from './toast';
+import { fleet, type FleetEntry } from './settings-b-fleet';
+import { sidebarPrefs, sidebarSession } from './sidebar-state';
+import { sidebarCommand, sidebarLocal } from './sidebar-commands';
+import { surfaceStore } from './r4-surfaces-panel';
+import { SIDEBAR_DISCOVERED_SERVERS_KEY, discoveredServersEvent } from './browser-targets';
+import { draftContext } from './composer-controls-branch';
+import { draftFiles } from './composer-editor-files';
+import { browserHistory } from './browser-history';
+import { legacyGroups, legacySession, legacySidebarSnapshot } from './legacy-sidebar-view';
+import { portLabels, rowPorts, watchRowPorts } from './legacy-sidebar-links';
+import { takeRowDrops } from './legacy-sidebar-drop';
+
+const at = (minute: number) => `2026-03-09T10:${String(minute).padStart(2, '0')}:00.000Z`;
+const files: Files = { fs: { async mkdir() {}, async atomicWriteFile() {}, async readFile() { return new ArrayBuffer(0); } } };
+const identity = (name: string) => ({ projectMark: name.slice(0, 2), projectInk: 'ink', projectSurface: 'surface' });
+const obj = (value: unknown): Obj => (value && typeof value === 'object' ? value as Obj : {});
+const thread = (id: string, extra: Obj = {}): Obj => ({ id, projectId: 'p1', title: `Thread ${id}`, status: 'idle', latestRunId: null, activeProviderThreadId: null,
+  pendingRuntimeRequest: null, createdAt: at(0), updatedAt: at(0), archivedAt: null, settledOverride: null, lineage: { relationshipToParent: null }, ...extra });
+const repo = { provider: 'github', canonicalKey: 'github.com/acme/app', displayName: 'acme/app' };
+const PR = 'https://github.com/acme/app/pull/7';
+const linked = (url = PR) => [{ host: 'github.com', repository: 'acme/app', number: 7, url, source: 'manual', linkedAt: at(1), stack: null,
+  snapshot: { state: 'open', title: 'Ship it', headBranch: 'feat', baseBranch: 'main', isDraft: false, updatedAt: at(1), syncedAt: at(1) } }];
+
+interface Rig { client: T3Client; native: Native; ops: Obj[]; rpcs: { method: string; payload: Obj }[]; opened: string[]; drafts: string[] }
+/** A real client on `local` (thread-1 open unless said), its server answering preview and dispatch calls, its module recording ops. */
+function rig(options: { threads?: Obj[]; projects?: Obj[]; threadId?: string; modifiers?: Obj; picks?: string[]; settings?: Obj; failOpen?: boolean; caps?: Obj; presentation?: Obj; editorApplies?: boolean } = {}): Rig {
+  const client = new T3Client(), ops: Obj[] = [], rpcs: { method: string; payload: Obj }[] = [], opened: string[] = [], drafts: string[] = [], picks = [...(options.picks ?? [])];
+  let ids = 0;
+  Object.assign(client, { loaded: true, connection: 'connected', origin: 'http://127.0.0.1:16562', configLive: true, shellLive: true, threadLive: true, scopes: ['orchestration:operate'], presentation: options.presentation ?? {} });
+  client.environmentId = 'local'; client.threadId = options.threadId ?? 'thread-1'; client.projectId = 'p1';
+  client.shell = { projects: options.projects ?? [{ id: 'p1', title: 'App', workspaceRoot: '/work/app', repositoryIdentity: repo, createdAt: at(0), updatedAt: at(0) }], threads: options.threads ?? [thread('thread-1'), thread('thread-2', { pullRequests: linked() })], sequence: 1 };
+  client.config = { environment: { label: 'This Mac', capabilities: { pullRequests: true, threadPullRequests: true, threadVisitedTracking: true, serverResolvedCommandContext: true, ...(options.caps ?? {}) } }, settings: {}, providers: [], keybindings: [] };
+  client.local.clientSettings = { ...client.local.clientSettings, legacySidebarEnabled: true, browserLinkTarget: 'system', confirmThreadDelete: true, ...(options.settings ?? {}) } as typeof client.local.clientSettings;
+  client.request = async (_native, method, payload) => {
+    rpcs.push({ method, payload });
+    if (method === 'preview.list') return { sessions: [], serverEpoch: 'epoch-1', revision: 1 };
+    if (method === 'preview.open') {
+      if (options.failOpen) throw new Error('The preview server refused.');
+      return { threadId: String(payload.threadId), tabId: 'tab-1', navStatus: { _tag: 'Loading', url: String(payload.url), title: '' }, canGoBack: false, canGoForward: false, updatedAt: at(2) };
+    }
+    return {};
+  };
+  Object.assign(client, {
+    async openSelected(_native: Native, id: string) { opened.push(id); client.threadId = id; },
+    async openDraft(_native: Native, projectId: string) { drafts.push(projectId); client.threadId = ''; client.projectId = projectId; },
+    adoptStatus(value: Obj) { ops.push({ op: 'adopted', value }); },
+  });
+  const native: Native = { available: true, watch() {}, async later(request) {
+    const op = obj(request); ops.push(op);
+    if (op.op === 'sidebarModifiers') return { ok: true, generation: Number(op.generation ?? 0), value: options.modifiers ?? {} };
+    if (op.op === 'sidebarMenu') return { ok: true, generation: Number(op.generation ?? 0), value: { id: picks.shift() ?? null } };
+    if (op.op === 'ids') return { ok: true, generation: 0, value: Array.from({ length: Number(op.count) }, () => `00000000-0000-4000-8000-${String(ids++).padStart(12, '0')}`) };
+    if (op.op === 'editorInsert') return { ok: true, generation: 0, value: { applied: options.editorApplies === true } };
+    if (op.op === 'subscribe') return { ok: true, generation: Number(op.generation ?? 0), value: { id: `sub-${ops.length}` } };
+    const generation = op.fleet ? 3 : Number(op.generation ?? 0);
+    return { ok: true, generation, value: op.op === 'connect' ? { state: 'connecting' } : {} };
+  } };
+  return { client, native, ops, rpcs, opened, drafts };
+}
+const opsOf = (ops: Obj[], name: string) => ops.filter(op => op.op === name);
+const fleetRequests = (ops: Obj[]) => ops.filter(op => op.fleet === 'remote' && op.op === 'request').map(op => ({ method: op.method, payload: obj(op.payload) }));
+
+/** A background environment the fleet keeps connected: Studio, with the shared repository and a solo project. */
+function background(threads: Obj[] = [], projects?: Obj[]): FleetEntry {
+  const entry = { key: 'remote', origin: 'http://studio.local:3773', environmentId: 'env-remote', phase: 'connected', message: '', traceId: '', generation: 3, synchronized: 3, lastEvent: 0,
+    subscriptions: {}, config: { environment: { label: 'Studio', capabilities: { threadVisitedTracking: true } }, settings: {} },
+    shell: { projects: projects ?? [{ id: 'r1', title: 'solo', workspaceRoot: '/srv/solo', createdAt: at(0), updatedAt: at(0) }], threads, sequence: 1 }, scopes: [], error: '', requested: false } as unknown as FleetEntry;
+  fleet.entries.set('remote', entry);
+  return entry;
+}
+afterEach(() => { fleet.entries.clear(); });
+
+describe('LS-1: the pull request glyph (handlePrClick)', () => {
+  test('beside an open thread, a pull request its environment reads opens in that thread\'s right panel, and the thread opens', async () => {
+    const { client, native, opened } = rig();
+    expect(await sidebarCommand(client, native, files, 'legacy-pr', 'thread-2', '')).toBe('sidebar:opened');
+    expect(opened).toEqual(['thread-2']);
+    const panel = surfaceStore(client).panels.get('local:thread-2')!;
+    expect(panel).toMatchObject({ visible: true, active: 'pull-request:p1:github.com:acme%2Fapp:7' });
+    expect(panel.surfaces.map(surface => [surface.kind, surface.pr?.number])).toEqual([['pull-request', 7]]);
+    expect(sidebarSession(client)).toMatchObject({ selection: [], anchor: 'thread-2' });
+  });
+  test('the open thread\'s own glyph opens the panel in place', async () => {
+    const { client, native, opened } = rig({ threadId: 'thread-2' });
+    client.diffOpen = true;
+    expect(await sidebarCommand(client, native, files, 'legacy-pr', 'thread-2', '')).toBe('');
+    expect(opened).toEqual([]);
+    expect(client.diffOpen).toBe(false);
+    expect(surfaceStore(client).panels.get('local:thread-2')?.visible).toBe(true);
+  });
+  test('with no thread route (the Pull Requests page), it opens on the Pull Requests page', async () => {
+    const { client, native } = rig();
+    const result = await sidebarCommand(client, native, files, 'legacy-pr', 'thread-2', 'pull-requests');
+    expect(result.startsWith('sidebar:pr-page:')).toBe(true);
+    expect(JSON.parse(result.slice(16))).toEqual({ projectId: 'p1', host: 'github.com', repository: 'acme/app', number: 7 });
+  });
+  test('⌘ or Ctrl leaves it to the system browser; a link no project reads follows "Open links in"', async () => {
+    const held = rig({ modifiers: { command: true } });
+    expect(await sidebarCommand(held.client, held.native, files, 'legacy-pr', 'thread-2', '')).toBe('');
+    expect(opsOf(held.ops, 'remoteEditorsOpen').map(op => op.url)).toEqual([PR]);
+    expect(surfaceStore(held.client).panels.get('local:thread-2')).toBeUndefined();
+    const elsewhere = 'https://github.com/other/repo/pull/3';
+    const system = rig({ threads: [thread('thread-1'), thread('thread-2', { pullRequests: linked(elsewhere) })], caps: { threadPullRequests: false } });
+    expect(await sidebarCommand(system.client, system.native, files, 'legacy-pr', 'thread-2', '')).toBe('');
+    expect(opsOf(system.ops, 'remoteEditorsOpen').map(op => op.url)).toEqual([elsewhere]);
+    expect(system.opened).toEqual([]);
+    const app = rig({ threads: [thread('thread-1'), thread('thread-2', { pullRequests: linked(elsewhere) })], caps: { threadPullRequests: false }, settings: { browserLinkTarget: 'app' } });
+    expect(await sidebarCommand(app.client, app.native, files, 'legacy-pr', 'thread-2', '')).toBe('');
+    expect(app.rpcs.find(call => call.method === 'preview.open')?.payload).toMatchObject({ threadId: 'thread-2', url: elsewhere });
+    expect(surfaceStore(app.client).panels.get('local:thread-2')?.visible).toBe(true);
+    expect(app.opened).toEqual([], 'an ordinary link does not navigate (openedInRightPanel is false)');
+  });
+  test('the row is a button labelled with the status tooltip; a pending link keeps its "status pending" label', () => {
+    const { client } = rig({ threads: [thread('thread-1'), thread('thread-2', { pullRequests: linked() }), thread('thread-3', { pullRequests: [{ ...linked()[0], snapshot: null }] })] });
+    const rows = legacySidebarSnapshot(client, Date.parse(at(30)), { projectIdentity: identity }).projects[0]!.threads;
+    expect(rows.find(row => row.id === 'thread-2')).toMatchObject({ prTooltip: 'PR #7 - Open: Ship it', prPending: false });
+    expect(rows.find(row => row.id === 'thread-3')).toMatchObject({ prTooltip: 'PR #7, status pending', prPending: true });
+    const view = readFileSync(new URL('./legacy-sidebar.contract', import.meta.url), 'utf8');
+    expect(view).toContain('button cursor="pointer" press=run("legacy-pr", t.id, page) dblclick=nested');
+  });
+});
+
+describe('LS-2: the discovered-port button (useThreadDiscoveredPorts, openDiscoveredPort)', () => {
+  const server = (port: number, threadId: string | null) => ({ host: '127.0.0.1', port, url: `http://localhost:${port}/`, processName: 'vite', pid: 42, terminal: threadId ? { threadId, terminalId: 'term-1' } : null });
+  test('the sidebar keeps its own stream (no configured URLs) while the legacy sidebar shows', async () => {
+    const { client, native, ops } = rig();
+    await watchRowPorts(client, native);
+    expect(opsOf(ops, 'subscribe').map(op => [op.key, op.method, op.payload])).toEqual([[SIDEBAR_DISCOVERED_SERVERS_KEY, 'subscribeDiscoveredLocalServers', {}]]);
+    client.local.clientSettings = { ...client.local.clientSettings, legacySidebarEnabled: false } as typeof client.local.clientSettings;
+    await watchRowPorts(client, native);
+    expect(opsOf(ops, 'unsubscribe').map(op => op.key)).toEqual([SIDEBAR_DISCOVERED_SERVERS_KEY]);
+  });
+  test('a thread\'s ports are the servers its terminals opened; the label names the first and the tooltip counts the rest', async () => {
+    const { client, native, ops } = rig();
+    await watchRowPorts(client, native);
+    const subscriptionId = String(opsOf(ops, 'subscribe')[0]!.id ?? '');
+    void subscriptionId;
+    discoveredServersEvent(client, { key: SIDEBAR_DISCOVERED_SERVERS_KEY, subscriptionId: 'sub-1', value: { servers: [server(5173, 'thread-2'), server(8080, 'thread-2'), server(3000, null), server(4000, 'thread-1')] } });
+    expect(rowPorts(client, 'thread-2').map(port => port.port)).toEqual([5173, 8080]);
+    expect(portLabels(rowPorts(client, 'thread-2'))).toEqual({ portLabel: 'Open localhost:5173', portTip: 'Open localhost:5173 (+1)' });
+    expect(portLabels(rowPorts(client, 'thread-1'))).toEqual({ portLabel: 'Open localhost:4000', portTip: 'Open localhost:4000' });
+    expect(portLabels([])).toEqual({ portLabel: '', portTip: '' });
+    const rows = legacySidebarSnapshot(client, Date.parse(at(30)), { projectIdentity: identity }).projects[0]!.threads;
+    expect(rows.find(row => row.id === 'thread-2')).toMatchObject({ portLabel: 'Open localhost:5173', portTip: 'Open localhost:5173 (+1)' });
+  });
+  test('the button goes to the thread and opens its first port beside it, recorded in its history', async () => {
+    const { client, native, ops, rpcs, opened } = rig();
+    await watchRowPorts(client, native);
+    discoveredServersEvent(client, { key: SIDEBAR_DISCOVERED_SERVERS_KEY, subscriptionId: 'sub-1', value: { servers: [server(5173, 'thread-2')] } });
+    void ops;
+    expect(await sidebarCommand(client, native, files, 'legacy-port', 'thread-2', '')).toBe('sidebar:opened');
+    expect(opened).toEqual(['thread-2']);
+    expect(rpcs.find(call => call.method === 'preview.open')?.payload).toMatchObject({ threadId: 'thread-2', url: 'http://localhost:5173/' });
+    expect(surfaceStore(client).panels.get('local:thread-2')).toMatchObject({ visible: true, active: 'browser:tab-1' });
+    // recordVisitForThread: a thread with no registered project keeps the visit pending (browser-history.ts), as the reference does.
+    const pending = (browserHistory(client.local) as unknown as { state: { pendingVisitsByThreadKey: Record<string, { url: string }[]> } }).state.pendingVisitsByThreadKey['local:thread-2'];
+    expect(pending?.map(visit => visit.url)).toEqual(['http://localhost:5173/']);
+  });
+  test('a preview that cannot open says so', async () => {
+    const { client, native } = rig({ failOpen: true, threadId: 'thread-2' });
+    await watchRowPorts(client, native);
+    discoveredServersEvent(client, { key: SIDEBAR_DISCOVERED_SERVERS_KEY, subscriptionId: 'sub-1', value: { servers: [server(5173, 'thread-2')] } });
+    expect(await sidebarCommand(client, native, files, 'legacy-port', 'thread-2', '')).toBe('');
+    expect(toasts(client).at(-1)).toMatchObject({ kind: 'error', title: 'Unable to open preview', description: 'The preview server refused.' });
+  });
+});
+
+describe('LS-3: files dropped on a row (consumePendingFileDrop, addDroppedFiles)', () => {
+  test('once the dropped-on thread is open, its queued files join its composer: images to the shelf, files as chips', async () => {
+    const queued = { rowDrops: ['thread-9', 'fleet:local:thread-2'] };
+    const { client, native, ops } = rig({ threadId: 'thread-2', presentation: queued });
+    const staged = [{ kind: 'file', id: '11111111-1111-4111-8111-111111111111', name: 'notes.txt', sizeBytes: 5, mimeType: 'text/plain' },
+      { kind: 'image', id: '22222222-2222-4222-8222-222222222222', name: 'shot.png', sizeBytes: 64 }, { kind: 'unsupported-image', name: 'raw.tiff', sizeBytes: 9 }];
+    native.later = (original => async (request: unknown) => obj(request).op === 'rowDropTake' ? (ops.push(obj(request)), { ok: true, generation: Number(obj(request).generation ?? 0), value: { files: staged } }) : original(request))(native.later.bind(native));
+    expect(await takeRowDrops(client, native)).toBe(true);
+    expect(opsOf(ops, 'rowDropTake')[0]).toMatchObject({ keys: ['thread-2', 'fleet:local:thread-2'] });
+    expect(draftFiles(client.local).map(file => [file.name, file.draftKey])).toEqual([['notes.txt', 'local:thread-2']]);
+    expect(client.local.snapshotDrafts['local:thread-2']?.map(image => image.name)).toEqual(['shot.png']);
+    expect(opsOf(ops, 'editorInsert')[0]).toMatchObject({ owner: client.snapshotOwner });
+    expect(client.local.drafts['local:thread-2']).toContain('notes.txt', 'another thread\'s editor refused the chips: they join the stored draft');
+    expect(client.error).toBe("'raw.tiff' is not a supported image type. Attach GIF, HEIC, HEIF, JPEG, PNG, or WebP images.");
+  });
+  test('nothing queued for the open thread asks the module nothing', async () => {
+    const { client, native, ops } = rig({ threadId: 'thread-1', presentation: { rowDrops: ['thread-2'] } });
+    expect(await takeRowDrops(client, native)).toBe(false);
+    expect(opsOf(ops, 'rowDropTake')).toEqual([]);
+  });
+  test('each legacy row\'s button carries the drop target hatch and its thread key', () => {
+    const view = readFileSync(new URL('./legacy-sidebar.contract', import.meta.url), 'utf8');
+    expect(view).toContain('hatch="t3-row-drop" data-thread-key=t.id');
+    const manifest = JSON.parse(readFileSync(new URL('./app.json', import.meta.url), 'utf8'));
+    expect(manifest.hatches).toContain('t3-row-drop');
+    expect(manifest.data).toContain('thread-key');
+  });
+});
+
+describe('LS-4: Archive and New thread in the tab order (group-focus-within)', () => {
+  const view = readFileSync(new URL('./legacy-sidebar.contract', import.meta.url), 'utf8');
+  const thread = view.slice(view.indexOf('component LegacyThread'), view.indexOf('component LegacyRenameField'));
+  const project = view.slice(view.indexOf('component LegacyProject'), view.indexOf('// SidebarThreadRow'));
+  test('Archive stays mounted (opacity 0, no pointer) and shows on hover or while the focus is in the row', () => {
+    expect(thread).toContain('derive revealed = (over or inside) and not t.running');
+    expect(thread).toContain('when not t.running\n            box position="absolute" right="0.125rem" top="0.25rem" opacity=(revealed ? 1 : 0) pointer-events=(revealed ? "auto" : "none")');
+    expect(thread).not.toContain('when over and not t.running');
+    for (const target of ['press=open(t.id, "click")', 'press=run("legacy-pr"', 'press=run("legacy-port"', 'press=archive']) {
+      const at = thread.indexOf(target);
+      expect(at).toBeGreaterThan(0);
+      expect(thread.slice(at, thread.indexOf('\n', at))).toContain('focus=within(true) blur=within(false)');
+    }
+    expect(thread).toContain('opacity=(revealed or confirming ? 0 : 1)'); // the meta hides the same way
+  });
+  test('Confirm takes the focus; leaving it ends the confirmation; the tooltip shows only without confirmation', () => {
+    expect(thread).toContain('press=confirmArchive focus=within(true) blur=confirmLeft autofocus=true');
+    expect(thread).toContain('Tip(label=(legacy.confirmArchive ? "" : "Archive")');
+  });
+  test('the project\'s New thread stays mounted and crossfades with the environment badge', () => {
+    expect(project).toContain('derive revealed = over or inside');
+    expect(project).toContain('opacity=(revealed ? 1 : 0) pointer-events=(revealed ? "auto" : "none")');
+    expect(project).toContain('opacity=(revealed ? 0 : 1) pointer-events="none" role="img" aria-label=p.remoteLabel');
+    expect(project).not.toContain('when over\n          box position="absolute" right="0.125rem"');
+  });
+});
+
+describe('LS-5: "New thread on <branch>" carries the branch (handleNewThread with branch, worktreePath, envMode)', () => {
+  test('a worktree thread\'s draft reuses its worktree; a plain one takes its branch on the local checkout', async () => {
+    const { client, native, drafts } = rig({ threads: [thread('thread-1'), thread('wt', { branch: 'feature/x', worktreePath: '/work/.t3/wt' }), thread('local', { branch: 'fix/y' })], picks: ['new-thread-on-branch', 'new-thread-on-branch'] });
+    expect(await sidebarCommand(client, native, files, 'legacy-thread-menu', 'wt', '')).toBe('sidebar:new-thread');
+    expect(drafts).toEqual(['p1']);
+    expect(draftContext(client)).toEqual({ envMode: 'worktree', branch: 'feature/x', worktreePath: '/work/.t3/wt' });
+    expect(await sidebarCommand(client, native, files, 'legacy-thread-menu', 'local', '')).toBe('sidebar:new-thread');
+    expect(draftContext(client)).toEqual({ envMode: 'local', branch: 'fix/y', worktreePath: '' });
+  });
+});
+
+describe('LS-6: a background environment\'s rows act on that environment', () => {
+  test('environmentGrouping.test.ts: stale rows of one checkout keep the fresher, with its identity, and their threads join it', () => {
+    const shared = { canonicalKey: 'github.com/example/shared-repo' };
+    const dup = rig({ threads: [], projects: [
+      { id: 'project-primary', title: 'shared-repo', workspaceRoot: '/tmp/shared-repo', repositoryIdentity: shared, updatedAt: '2026-01-02T00:00:00.000Z', createdAt: at(0) },
+      { id: 'project-duplicate', title: 'shared-repo', workspaceRoot: '/tmp/shared-repo/', repositoryIdentity: shared, updatedAt: '2026-01-01T00:00:00.000Z', createdAt: at(0) }] });
+    background([], [{ id: 'project-remote', title: 'shared-repo', workspaceRoot: '/tmp/shared-repo', repositoryIdentity: shared, createdAt: at(0), updatedAt: at(0) }]);
+    const groups = legacyGroups(dup.client);
+    expect(groups.map(group => [group.key, group.members.map(member => member.id)])).toEqual([['github.com/example/shared-repo', ['project-primary', 'fleet:env-remote:project-remote']]]);
+    fleet.entries.clear();
+    const stale = rig({ threads: [thread('old', { projectId: 'project-stale' })], projects: [
+      { id: 'project-stale', title: 'shared-repo', workspaceRoot: '/tmp/shared-repo/', repositoryIdentity: null, updatedAt: '2026-01-01T00:00:00.000Z', createdAt: at(0) },
+      { id: 'project-canonical', title: 'shared-repo', workspaceRoot: '/tmp/shared-repo', repositoryIdentity: shared, updatedAt: '2026-01-02T00:00:00.000Z', createdAt: at(0) }] });
+    const [group] = legacyGroups(stale.client);
+    expect(group).toMatchObject({ key: 'github.com/example/shared-repo' });
+    expect(group!.members.map(member => [member.id, member.aliases])).toEqual([['project-canonical', ['project-stale', 'project-canonical']]]);
+    expect(legacySidebarSnapshot(stale.client, Date.parse(at(30)), { projectIdentity: identity }).projects[0]!.threads.map(row => row.id)).toEqual(['old']);
+    const fresher = rig({ threads: [], projects: [
+      { id: 'project-canonical', title: 'shared-repo', workspaceRoot: '/tmp/shared-repo', repositoryIdentity: null, updatedAt: '2026-01-02T00:00:00.000Z', createdAt: at(0) },
+      { id: 'project-stale', title: 'shared-repo', workspaceRoot: '/tmp/shared-repo/', repositoryIdentity: shared, updatedAt: '2026-01-01T00:00:00.000Z', createdAt: at(0) }] });
+    expect(legacyGroups(fresher.client).map(entry => [entry.key, entry.members.map(member => member.id)])).toEqual([['github.com/example/shared-repo', ['project-canonical']]]);
+  });
+  test('Rename, Remove (with "Project is not empty") and New thread on a background project go to its environment', async () => {
+    const { client, native, ops } = rig({ picks: ['rename:env-remote:/srv/solo', 'delete:env-remote:/srv/solo'] });
+    background([thread('t9', { projectId: 'r1' })]);
+    const key = 'env-remote:/srv/solo';
+    await sidebarCommand(client, native, files, 'legacy-project-menu', key, '');
+    expect(legacySidebarSnapshot(client, Date.parse(at(30)), { projectIdentity: identity })).toMatchObject({ dialog: 'rename-project', dialogTarget: 'fleet:env-remote:r1', dialogDetail: 'Environment: Studio' });
+    await sidebarCommand(client, native, files, 'legacy-rename-project', 'fleet:env-remote:r1', 'Solo 2');
+    expect(fleetRequests(ops).map(request => [request.method, request.payload.type, request.payload.projectId, request.payload.title])).toEqual([['projects.mutate', 'project.update', 'r1', 'Solo 2']]);
+    expect(legacySession(client).dialog.kind).toBe('');
+    await sidebarCommand(client, native, files, 'legacy-project-menu', key, '');
+    expect(toasts(client).at(-1)).toMatchObject({ title: 'Project is not empty', action: { label: 'Delete anyway', op: 'sidebar:legacy-remove-anyway', id: 'fleet:env-remote:r1' } });
+    await sidebarCommand(client, native, files, 'legacy-remove-anyway', 'fleet:env-remote:r1', '');
+    expect(legacySidebarSnapshot(client, Date.parse(at(30)), { projectIdentity: identity }).dialogTitle).toBe('Remove project "solo" and delete its 1 thread?');
+    client.local.drafts['env-remote:t9'] = 'kept text';
+    await sidebarCommand(client, native, files, 'legacy-dialog-confirm', '', '');
+    expect(fleetRequests(ops).at(-1)).toMatchObject({ method: 'projects.mutate', payload: { type: 'project.delete', projectId: 'r1', force: true } });
+    expect(client.local.drafts['env-remote:t9']).toBeUndefined();
+    background([]);
+    expect(await sidebarCommand(client, native, files, 'legacy-new-thread', key, '')).toBe('sidebar:new-thread');
+    expect(opsOf(ops, 'fleetStop').map(op => op.fleet)).toEqual(['remote']);
+    expect(opsOf(ops, 'connect').at(-1)).toMatchObject({ origin: 'http://studio.local:3773', credential: '' });
+    expect(client.local.selections['env-remote']).toEqual({ projectId: 'r1', threadId: '' });
+    expect(opsOf(ops, 'adopted')).toHaveLength(1);
+  });
+  test('a background thread\'s menu: mark unread, copy path and id, rename, archive with undo, and delete with its worktree question', async () => {
+    const { client, native, ops } = rig({ picks: ['mark-unread', 'copy-path', 'copy-thread-id', 'rename', 'delete'] });
+    background([thread('t9', { projectId: 'r1', worktreePath: '/srv/.t3/wt-9', branch: 'feat' })]);
+    const id = 'fleet:env-remote:t9';
+    for (let round = 0; round < 3; round++) await sidebarCommand(client, native, files, 'legacy-thread-menu', id, '');
+    expect(fleetRequests(ops).map(request => [request.payload.type, request.payload.threadId])).toEqual([['thread.mark-unread', 't9']]);
+    expect(opsOf(ops, 'copyText').map(op => op.text)).toEqual(['/srv/.t3/wt-9', 't9']);
+    await sidebarCommand(client, native, files, 'legacy-thread-menu', id, '');
+    expect(sidebarSession(client)).toMatchObject({ renameId: id, renameTitle: 'Thread t9' });
+    await sidebarCommand(client, native, files, 'legacy-rename', id, ' Renamed ');
+    expect(fleetRequests(ops).at(-1)!.payload).toMatchObject({ type: 'thread.metadata.update', threadId: 't9', title: 'Renamed' });
+    await sidebarCommand(client, native, files, 'legacy-archive', id, '');
+    expect(fleetRequests(ops).at(-1)!.payload).toMatchObject({ type: 'thread.archive', threadId: 't9' });
+    expect(sidebarSession(client).undo).toMatchObject({ action: 'Archived', threadIds: [id] });
+    await sidebarCommand(client, native, files, 'undo', '', '', Date.parse(at(1)));
+    await sidebarCommand(client, native, files, 'legacy-thread-menu', id, '');
+    expect(sidebarSession(client).dialog).toEqual({ kind: 'delete', threadIds: [id], title: 'Thread t9' });
+    await sidebarCommand(client, native, files, 'dialog-confirm', '', '');
+    expect(sidebarSession(client).dialog).toMatchObject({ kind: 'delete-worktree', threadIds: [id], title: 'wt-9' });
+    await sidebarCommand(client, native, files, 'dialog-confirm', '', '');
+    expect(fleetRequests(ops).slice(-4).map(request => [request.method, request.payload.type ?? request.payload.path ?? ''])).toEqual([
+      ['terminal.close', ''], ['orchestration.dispatchCommand', 'thread.delete'], ['vcs.removeWorktree', '/srv/.t3/wt-9'], ['vcs.refreshStatus', '']]);
+  });
+  test('dblclick renames a background row; Project settings on a background project focuses its environment first', async () => {
+    const { client, native, ops } = rig({ picks: ['project-settings'] });
+    background([thread('t9', { projectId: 'r1' })]);
+    await sidebarLocal(client, native, 'legacy-rename-start', 'fleet:env-remote:t9', '');
+    expect(sidebarSession(client)).toMatchObject({ renameId: 'fleet:env-remote:t9', renameTitle: 'Thread t9' });
+    expect(await sidebarCommand(client, native, files, 'legacy-project-menu', 'env-remote:/srv/solo', '')).toBe('sidebar:navigate');
+    expect(opsOf(ops, 'connect')).toHaveLength(1);
+    expect(sidebarSession(client).navigate).toEqual({ kind: 'project-settings', projectId: 'r1' });
+    void sidebarPrefs;
+  });
+});

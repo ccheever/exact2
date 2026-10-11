@@ -18,6 +18,8 @@ shape LegacyThreadRow
   prState: string
   prTooltip: string
   prPending: bool
+  portLabel: string
+  portTip: string
   worktree: bool
   worktreeLabel: string
   remoteMachine: string

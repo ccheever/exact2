@@ -12,6 +12,10 @@ extension T3Module {
             if op == "sidebarMenu" { T3MenuTurn.run(work) } else { DispatchQueue.main.async(execute: work) }
             return
         }
+        if request["op"] as? String == "rowDropTake" { // legacy-sidebar-full LS-3: the open thread's dropped files (T3RowDrop.swift)
+            DispatchQueue.main.async { [weak self] in reply.send(self?.rowDrop.take(request) ?? ["ok": false, "generation": 0, "error": ["kind": "Sidebar", "message": "The app is closing.", "uncertain": false]]) }
+            return
+        }
         if let op = request["op"] as? String, op.hasPrefix("notify") {
             DispatchQueue.main.async { [weak self] in self?.notifications.perform(request) { reply.send($0) } }
             return
