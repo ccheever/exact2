@@ -101,6 +101,10 @@
   #exact-root button[data-button-style] > [data-exact-text] ~ [data-exact-text] { grid-area: subtitle; font-size: .8em; color: color-mix(in srgb, currentColor 70%, transparent); }
   #exact-root button[data-button-style] > img { grid-area: image; --exact-tint: currentColor; --exact-symbol-size-authored: 0; --exact-symbol-weight-authored: 0; width: 1em; height: 1em; }
   button[data-button-style][data-pressed] > * { opacity: .5; }
+  /* LLP 1116.003 D4: a native button taller than its face (a round button's
+     80 by 80) centres the face, as UIKit and a browser's own button do; the
+     grid's empty subtitle row no longer takes half the height. */
+  #exact-root button[data-button-style] { align-content: center; }
   #exact-root button:is([data-button-style="plain"], [data-button-style="borderless"]) { background: none; color: var(--exact-accent, AccentColor); }
   #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"]) { background: color-mix(in srgb, var(--exact-accent, AccentColor) 15%, transparent); color: var(--exact-accent, AccentColor); }
   #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"]) { background: var(--exact-accent, AccentColor); --exact-button-accent-fill: var(--exact-accent); color: #fff; }

@@ -617,7 +617,7 @@ roster. Compiler-owned router names exist only with a `routes` declaration.
 The platform answers the controls and the chrome; the app's own content is the
 author's to design (LLP 1116.000 D3): a summary at the top, bars where numbers
 compare, rows with a hierarchy, an empty state that says what to do.
-`exact:content` is a built-in library of six components that draw it with
+`exact:content` is a built-in library of eight components that draw it with
 nothing but roles (`-exact-secondary-background`, `-exact-secondary-label`,
 `AccentColor`, the system hues, the text styles, symbols, the determinate
 `progress`), so dark mode, Dynamic Type and the tint come with them:
@@ -662,6 +662,8 @@ component Water
 | `DoneMark` | `caption: string`, `done: bool` | a filled check in the system green, or an empty circle in grey, with `caption` (short: a weekday; `""` for none) under it; one image to a reader, named by its caption and state ("Mon, done") |
 | `EmptyState` | `symbol: string`, `title: string`, `message: string`; a slot | a centred symbol, the title as a heading, the message; the nodes indented under the use (your `button`) under them |
 | `RowText` | `title: string`, `detail: string`, `value: option<string>` | a title, a secondary line under it (`""` for none) and a trailing value in tabular figures: a grouped list `row`'s content, or any list's |
+| `RoundButton` | `label: string`, `tint: option<string>`, `press: action`, `disabled: bool`, `testId: string` | the platform's own button as an 80-point circle (the Clock's Start, Stop, Lap): filled with `tint` (a role: `"AccentColor"`, `"-exact-system-green"`), ink the host picks for contrast; `none` is the neutral grey with the label's ink |
+| `AnswerTile` | `label: string`, `status: string`, `press: action`, `testId: string` | a full-width tile for one answer, the label in the headline style; `status` `"idle"` (a neutral fill), `"selected"` (the accent's outline and check), `"correct"` (the system green, dark ink, a check), `"wrong"` (the system red, white ink, a cross) or `"dimmed"`; told and dimmed tiles are disabled; a reader hears "Quito, correct" |
 
 - Props have no defaults: pass `none` for an option. A symbol is an `image` source:
   a role (`"symbol:calendar"`) draws on every host, `"symbol:sf/<name>"` on Apple only.
@@ -672,8 +674,10 @@ component Water
   `progress` at 1) the system green, done against not done green against grey. A
   `tint` overrides it: a budget gone over passes `some("-exact-system-red")`, a
   breakdown whose bars are shares rather than goals passes `some("AccentColor")`.
-- They draw no control and no chrome. An action is your own `button`, beside a card
-  or indented under `EmptyState`. Inset-grouped lists are for settings and forms; a
+- They draw no chrome, and two controls: `RoundButton` and `AnswerTile`, the
+  emphasis a timer's or a quiz's screen needs, which paint on a `button` would
+  make your own box. Any other action is your own `button`, beside a card or
+  indented under `EmptyState`. Inset-grouped lists are for settings and forms; a
   content screen is a `scroll` of these.
 - Each fills its container's width; arrange them with CSS. In a `flex-wrap="wrap"`
   row, `flex="1 1 320px"` puts a card beside the bars on a wide window and stacks

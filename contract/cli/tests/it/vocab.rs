@@ -384,3 +384,24 @@ fn several_names_print_in_order_and_one_unknown_exits_1() {
     let one: Value = serde_json::from_str(&stdout(&vocab(&["--json", "ellipsis"]))).unwrap();
     assert_eq!(one["valueOf"][0], "text-overflow");
 }
+
+/// LLP 1116.003 D4: a built-in library's part answers too, with its props
+/// and what it draws, read from its source.
+#[test]
+fn a_content_part_says_its_props_and_what_it_draws() {
+    let out = stdout(&vocab(&["RoundButton", "DoneMark"]));
+    assert!(
+        out.contains(
+            "RoundButton: a part of `exact:content` (`use RoundButton from \"exact:content\"`)"
+        ),
+        "{out}"
+    );
+    assert!(
+        out.contains("props label: string, tint: option<string>, press: action, disabled: bool, testId: string"),
+        "{out}"
+    );
+    assert!(out.contains("80-point circle"), "{out}");
+    assert!(out.contains("props caption: string, done: bool"), "{out}");
+    let json: Value = serde_json::from_str(&stdout(&vocab(&["--json", "AnswerTile"]))).unwrap();
+    assert_eq!(json["part"]["props"][1], "status: string");
+}

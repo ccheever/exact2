@@ -94,6 +94,47 @@ struct Entry {
     open: Option<&'static str>,
     command: Option<String>,
     function: Option<Function>,
+    part: Option<Part>,
+}
+
+/// A component of a built-in library (`exact:content`'s `RoundButton`), read
+/// from its source: its props, and the comment above it (LLP 1116.003 D4).
+struct Part {
+    module: &'static str,
+    props: Vec<String>,
+    about: String,
+}
+
+const PARTS: &[(&str, &str)] = &[("exact:content", include_str!("../../lib/content.contract"))];
+
+fn part(name: &str) -> Option<Part> {
+    PARTS.iter().find_map(|(module, source)| {
+        let lines: Vec<&str> = source.lines().collect();
+        let at = lines
+            .iter()
+            .position(|l| l.strip_prefix("component ") == Some(name))?;
+        let first = lines[..at]
+            .iter()
+            .rposition(|l| !l.starts_with("//"))
+            .map_or(0, |i| i + 1);
+        let about: Vec<&str> = lines[first..at]
+            .iter()
+            .map(|l| l.trim_start_matches('/').trim())
+            .collect();
+        let mut props = Vec::new();
+        let mut rest = lines[at + 1..].iter().skip_while(|l| l.trim() != "props");
+        if rest.next().is_some() {
+            props = rest
+                .take_while(|l| l.starts_with("    "))
+                .map(|l| l.trim().to_owned())
+                .collect();
+        }
+        Some(Part {
+            module,
+            props,
+            about: about.join(" "),
+        })
+    })
 }
 
 fn entry(name: &str) -> Option<Entry> {
@@ -108,12 +149,14 @@ fn entry(name: &str) -> Option<Entry> {
         vocab::open_set(name).filter(|_| tag.is_none() && attr.is_none() && value_of.is_empty());
     let command = HOST_COMMANDS.contains(&name).then(|| command_text(name));
     let function = functions::function(name);
+    let part = part(name);
     let known = tag.is_some()
         || attr.is_some()
         || !value_of.is_empty()
         || open.is_some()
         || command.is_some()
-        || function.is_some();
+        || function.is_some()
+        || part.is_some();
     known.then_some(Entry {
         tag,
         attr,
@@ -121,6 +164,7 @@ fn entry(name: &str) -> Option<Entry> {
         open,
         command,
         function,
+        part,
     })
 }
 
@@ -138,6 +182,7 @@ fn one_json(name: &str) -> (Value, bool) {
         open,
         command,
         function,
+        part,
     }) = entry(name)
     else {
         return (json!({ "name": name, "refused": refusal(name) }), false);
@@ -161,6 +206,9 @@ fn one_json(name: &str) -> (Value, bool) {
     if let Some(f) = &function {
         doc["function"] = function_json(f);
     }
+    if let Some(p) = part {
+        doc["part"] = json!({ "module": p.module, "props": p.props, "about": p.about });
+    }
     (doc, true)
 }
 
@@ -171,12 +219,21 @@ fn one_text(name: &str) -> bool {
         open,
         command,
         function,
+        part,
         ..
     }) = entry(name)
     else {
         eprintln!("{}", refusal(name));
         return false;
     };
+    if let Some(p) = part {
+        println!(
+            "{name}: a part of `{}` (`use {name} from \"{}\"`)",
+            p.module, p.module
+        );
+        println!("  props {}", p.props.join(", "));
+        println!("  {}", p.about);
+    }
     if let Some(t) = tags::tag(name) {
         println!("{name}: tag, {}", tag_text(&t));
     }

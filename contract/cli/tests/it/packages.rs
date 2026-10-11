@@ -562,3 +562,118 @@ component App
         ]
     );
 }
+
+/// LLP 1116.003 D4: emphasis is a part. `RoundButton` is the platform's own
+/// button as an 80-point circle, filled with its `tint` (the neutral grey
+/// for `none`); `AnswerTile` is a tile whose status is its fill, legible in
+/// both schemes: the green under dark ink, the red under white, whatever the
+/// app's scheme. Both pass their press, `disabled` and `testId` through.
+#[test]
+fn exact_content_draws_round_buttons_and_answer_tiles() {
+    use exact_kernel::style::roles::role;
+    use exact_kernel::{ColorValue, NodeType, Offer, PropId, PropValue};
+    let dir = Dir::new("content-controls");
+    let root = dir.write(
+        "app.contract",
+        r#"use RoundButton, AnswerTile from "exact:content"
+component App
+  state n = 0
+  state picked = ""
+  action add(k: number)
+    n = n + k
+  action pick(a: string)
+    picked = a
+  view
+    column testId="root" width=400 height=900
+      row justify-content="space-between"
+        RoundButton(label="Lap", tint=none, press=add(1), disabled=false, testId="lap")
+        RoundButton(label="Start", tint=some("-exact-system-green"), press=add(10), disabled=false, testId="start")
+        RoundButton(label="Reset", tint=none, press=add(100), disabled=true, testId="reset")
+      each a in ["Lima", "Quito", "Bogota", "Caracas"] key=a
+        AnswerTile(label=a, status=(picked == "" ? (a == "Caracas" ? "selected" : "idle") : a == "Quito" ? "correct" : a == picked ? "wrong" : "dimmed"), press=pick(a), testId=a)
+"#,
+    );
+    let plan = contract::bake(contract::compile_path(&root).unwrap(), NoData).unwrap();
+    let mut r = exact_runner::Runner::boot(
+        plan,
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let at = |k: &exact_kernel::Kernel, t: &str| k.node_by_key(k.find_by_test_id(t)[0]).unwrap().id;
+    let layout = |r: &mut exact_runner::Runner<NoData>| {
+        let k = r.kernel_mut();
+        let top = at(k, "root");
+        k.compute_layout(top, Offer::definite(400.0, 900.0))
+            .unwrap();
+    };
+    layout(&mut r);
+    let named = |n: &str| ColorValue::Role(role(n).unwrap());
+    let k = r.kernel();
+    // The platform's own button, a circle 80 across, filled with the tint
+    // or the neutral grey.
+    for (id, style, accent) in [
+        ("lap", "gray", None),
+        ("start", "filled", Some(named("-exact-system-green"))),
+    ] {
+        let b = k.node(at(k, id)).unwrap();
+        assert_eq!(b.node_type, NodeType::Control, "{id}");
+        assert_eq!(
+            b.props.get(PropId::ButtonStyle),
+            Some(&PropValue::Str(style.into())),
+            "{id}"
+        );
+        assert_eq!(b.style.accent_color, accent, "{id}");
+        assert_eq!((b.frame.width, b.frame.height), (80.0, 80.0), "{id}");
+    }
+    let reset = k.node(at(k, "reset")).unwrap();
+    assert_eq!(reset.props.bool(PropId::Disabled), Some(true));
+    // Its press is the author's action, with its captured arguments.
+    let (lap, start) = (at(k, "lap"), at(k, "start"));
+    r.dispatch(lap, exact_runner::Event::Press).unwrap();
+    r.dispatch(start, exact_runner::Event::Press).unwrap();
+    assert_eq!(r.slot("n"), Some(&exact_runner::Value::Number(11.0)));
+    // Untold: a neutral fill, a target over 44 points; the selected one
+    // carries the accent's outline and says so.
+    let k = r.kernel();
+    let lima = k.node(at(k, "Lima")).unwrap();
+    assert_eq!(
+        lima.style.background_color,
+        Some(named("-exact-tertiary-fill"))
+    );
+    assert!(lima.frame.height >= 44.0, "{:?}", lima.frame);
+    assert_ne!(lima.props.bool(PropId::Disabled), Some(true));
+    let caracas = k.node(at(k, "Caracas")).unwrap();
+    assert_eq!(
+        caracas.props.str(PropId::AccessibilityLabel),
+        Some("Caracas, selected")
+    );
+    let bogota = at(k, "Bogota");
+    r.dispatch(bogota, exact_runner::Event::Press).unwrap();
+    assert_eq!(r.slot("picked").and_then(|v| v.as_str()), Some("Bogota"));
+    layout(&mut r);
+    // Told: green under a light scheme (dark ink), red under a dark one
+    // (white ink), the rest dimmed; none of them presses again.
+    let k = r.kernel();
+    let tile = |t: &str| k.node(at(k, t)).unwrap();
+    let told = [
+        (
+            "Quito",
+            "-exact-system-green",
+            Some(false),
+            "Quito, correct",
+        ),
+        ("Bogota", "-exact-system-red", Some(true), "Bogota, wrong"),
+        ("Lima", "-exact-tertiary-fill", None, "Lima"),
+    ];
+    for (t, fill, dark, name) in told {
+        let n = tile(t);
+        assert_eq!(n.style.background_color, Some(named(fill)), "{t}");
+        assert_eq!(n.color_scheme_dark(), dark, "{t}");
+        assert_eq!(n.props.str(PropId::AccessibilityLabel), Some(name), "{t}");
+        assert_eq!(n.props.bool(PropId::Disabled), Some(true), "{t}");
+    }
+    assert_eq!(tile("Quito").style.text_color, named("-exact-label"));
+}

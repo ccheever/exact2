@@ -3,8 +3,12 @@
 // `-exact-secondary-background`, `AccentColor`, the system hues), its text
 // styles, its symbols and its determinate `progress`, so dark mode, Dynamic
 // Type and the tint come with them. Opt in by name: `use SummaryCard,
-// StatBar, RingProgress, DoneMark, EmptyState, RowText from "exact:content"`.
-// They draw content, never a control or chrome: an action is the author's own
+// StatBar, RingProgress, DoneMark, EmptyState, RowText, RoundButton,
+// AnswerTile from "exact:content"`. They draw content, never chrome. Two are
+// controls that are the content (LLP 1116.003 D4): `RoundButton` and
+// `AnswerTile` take a `press` action, `disabled` where it applies and a
+// `testId`, and keep a button's semantics, a target over 44 points and
+// legible ink in both schemes; any other action is the author's own
 // `button`, indented under `EmptyState`. Props have no defaults: pass `none`
 // for an option. A state is a second colour (LLP 1116.001 D2): progress
 // short of its goal is the accent, a goal met (a `fraction` of 1 or more) the
@@ -141,3 +145,65 @@ component RowText
         case some(v)
           text v color="-exact-secondary-label" font-variant-numeric="tabular-nums" flex-shrink=0
         case none
+
+// A large round button, as the Clock's Start, Stop and Lap: the platform's
+// own button drawn as an 80-point circle, so its press, focus and disabled
+// look are the platform's. `tint` is its fill: `none` the neutral grey with
+// the label's ink (Lap, Reset), or a colour role: the accent
+// (`some("AccentColor")`) or a state (`-exact-system-green` to start,
+// `-exact-system-red` to stop), whose ink the host chooses for contrast, as
+// on any filled button. Two sit at the ends of a `row
+// justify-content="space-between"` under the readout.
+component RoundButton
+  props
+    label: string
+    tint: option<string>
+    press: action
+    disabled: bool
+    testId: string
+  view
+    match tint
+      case some(t)
+        button press=press disabled=disabled testId=testId buttonStyle="filled"
+          accent-color=(t == "AccentColor" ? "inherit" : t)
+          -exact-corner-style="capsule" width=80 height=80 padding="0 6px" flex-shrink=0
+          text label white-space="nowrap"
+      case none
+        button press=press disabled=disabled testId=testId buttonStyle="gray"
+          color=(disabled ? "-exact-tertiary-label" : "-exact-label")
+          -exact-corner-style="capsule" width=80 height=80 padding="0 6px" flex-shrink=0
+          text label white-space="nowrap"
+
+// One answer of a quiz or a poll: a tile as wide as its column, the label at
+// its start in the headline style. `status` is one of five: "idle" (a
+// neutral fill), "selected" (the accent's outline and check: chosen, not yet
+// told), "correct" (the system green and a check), "wrong" (the system red
+// and a cross) or "dimmed" (the rest, once told). The green takes dark ink
+// and the red white, in either scheme, and a mark beside the label says
+// what the colour says. Told and dimmed tiles are disabled. A reader hears
+// the label and its status ("Paris, correct").
+component AnswerTile
+  props
+    label: string
+    status: string
+    press: action
+    testId: string
+  view
+    when status == "correct" or status == "wrong"
+      button appearance="none" press=press disabled=true testId=testId aria-label=`${label}, ${status}`
+        display="flex" align-items="center" gap=12 padding="14px 16px" border-radius=12
+        border="2px solid transparent" color="-exact-label" color-scheme=(status == "correct" ? "light" : "dark")
+        background-color=(status == "correct" ? "-exact-system-green" : "-exact-system-red")
+        text label flex=1 min-width=0 font="-exact-headline" text-align="start" aria-hidden=true
+        image (status == "correct" ? "symbol:checkmark" : "symbol:close") width=22 height=22
+          object-fit="contain" flex-shrink=0 aria-hidden=true -exact-tint-color="-exact-label"
+    else
+      button appearance="none" press=press disabled=(status == "dimmed") testId=testId
+        aria-label=(status == "selected" ? `${label}, selected` : label)
+        display="flex" align-items="center" gap=12 padding="14px 16px" border-radius=12
+        border=(status == "selected" ? "2px solid AccentColor" : "2px solid transparent")
+        background-color="-exact-tertiary-fill" color=(status == "dimmed" ? "-exact-secondary-label" : "-exact-label")
+        text label flex=1 min-width=0 font="-exact-headline" text-align="start" aria-hidden=true
+        when status == "selected"
+          image "symbol:select-fill" width=22 height=22 object-fit="contain" flex-shrink=0
+            aria-hidden=true -exact-tint-color="AccentColor"
