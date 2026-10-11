@@ -32,6 +32,7 @@ shape SettingsScopeEvent
   close: bool
 shape MobileLayout
   displayScale: number
+  windowHeight: number
   safeTop: number
   safeBottom: number
   liquidGlass: bool

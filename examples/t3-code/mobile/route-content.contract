@@ -344,12 +344,13 @@ component MobileRouteContent
     when focused and not threadData.queued and threadHeaderConfiguration != "" and (routeName == "thread" or routeName == "threadReview" or (routeName == "threadFiles" and workspace.fileInspectorSupported and filesData.error == ""))
       t3-thread-header configuration=threadHeaderConfiguration change=threadHeaderAction width=0 height=0 aria-hidden=true
     when routeName == "home" and workspace.emptyWorkspaceDetail
-      column flex=1 align-items="center" justify-content="center" padding=40 gap=12
-        t3-symbol symbol-name="sidebar.left" point-size=34 symbol-tint=homeLook.iconSubtle width=34 height=34
-        text "Select a thread" font-size=20 font-weight=700
-        text "Choose a thread from the sidebar or start a new task." text-align="center" color=homeLook.muted max-width=360
-        button press=openNewTask border-radius=9999 padding=12 background-color=homeLook.primary
-          text "New Task" color=homeLook.primaryForeground font-weight=700
+      column position=(layout.liquidGlass ? "absolute" : "relative") top=0 left=0 right=0 height=(layout.liquidGlass ? (layout.windowHeight > 0 ? layout.windowHeight : viewport.height) : "auto") flex=1 align-items="center" justify-content="center" padding-left=35 padding-right=35 box-sizing="border-box"
+        column flex="none" max-width=360 align-items="center" gap=10.5
+          t3-symbol symbol-name="sidebar.left" point-size=34 symbol-tint=homeLook.iconSubtle width=34 height=34
+          text "Select a thread" text-align="center" font-size=21 line-height="28px" font-weight=700
+          text "Choose a thread from the sidebar or start a new task." text-align="center" color=homeLook.muted font-size=16 line-height="23px"
+          button press=openNewTask border-radius=9999 margin-top=7 padding-left=17.5 padding-right=17.5 padding-top=10.5 padding-bottom=10.5 background-color=homeLook.primary
+            text "New Task" color=homeLook.primaryForeground font-size=16 line-height="23px" font-weight=700
     else when routeName == "homeArrange"
       HomeArrangement(requestRoute=routeId, data=home.arrangement, colors=HomeArrangementColors(screen=look.screen, foreground=homeLook.foreground, muted=homeLook.muted, primaryText=homeLook.primaryText, borderSubtle=homeLook.borderSubtle), safeTop=0, safeBottom=0, drop=homeArrangeDrop, close=back)
     else when routeName == "home"
