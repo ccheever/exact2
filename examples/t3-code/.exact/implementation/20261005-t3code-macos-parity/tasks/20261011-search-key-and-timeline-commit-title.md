@@ -49,9 +49,10 @@ scope").
 
 ## Reference
 
-- SK: `packages/shared/src/keybindings.ts` DEFAULT_KEYBINDINGS (85 rules; the clone's `keybindingDefaults` is the same
-  list): `mod+shift+f` `projectSearch.toggle` `when: "!terminalFocus"`, opened from anywhere in a thread
-  (CommandPalette.tsx). The renderer sees the key before Electron's menu.
+- SK: `packages/shared/src/keybindings.ts` DEFAULT_KEYBINDINGS (78 rules: 60 literal plus the 9 thread-jump and 9
+  model-picker-jump rules; the clone's `keybindingDefaults` is the same list of 78): `mod+shift+f`
+  `projectSearch.toggle` `when: "!terminalFocus"`, opened from anywhere in a thread (CommandPalette.tsx). The renderer
+  sees the key before Electron's menu.
 - TC-1: `PullRequestTimelineTab.tsx` CommitEvent: the whole row is a `<button>` whose title is `text-foreground` at rest
   and `group-hover:text-primary`. The lane server's own build of the web client in headless Chrome (PR #168, sandbox
   `daehyeonmun2021/playground`): the title at rest `oklab(0.274 …)` light / `oklab(0.97 0 0)` dark, under the pointer
@@ -70,14 +71,28 @@ the window server routes there never arrives as a keyDown. Spotlight's "Search W
 but is not in the Services menu, and Services key equivalents run after the clone's monitor and menu anyway (a bundled
 probe: ⇧⌘L's service ran only after the monitor and the window's `performKeyEquivalent`). No clone change; the
 real-input steps below confirm whether the key reaches the process and whether the reference loses it too. Record:
-[sk-record.txt](https://raw.githubusercontent.com/ccheever/exact2/fd60e224177735cdc00c9d68a821046681234006/search-key-and-timeline-commit-title/sk-record.txt).
+[sk-record.txt](https://raw.githubusercontent.com/ccheever/exact2/929c8e609688683ab3f465bc2a751b229896f5ee/search-key-and-timeline-commit-title/sk-record.txt).
 
-**SK-2.** Of the reference's bindings, the app's path loses none: every ⌘ chord goes through the same monitor →
-`ShortcutHost.perform` → its dispatch button (or a visible button) → the hidden menu item. Before the app, on this Mac:
+**SK-2.** Of the reference's bindings, the app's path loses none. A ⌘ chord goes through the window's local key
+monitors, the key window's `performKeyEquivalent`, then the main menu: the host's session monitor presses the button
+whose declared chord matches the typed characters (`ShortcutHost.perform`), and the host's hidden menu item for the
+chord presses it for the rest. A shifted punctuation chord takes the second way: ⇧⌘[ types "{", which the session's
+match misses, and AppKit's menu matches the item's "[" with ⇧⌘ (a scratch probe: ⇧⌘[, ⇧⌘], ⇧⌘1 and ⇧⌘F each fired
+their hidden item through `NSApp.sendEvent`). Before the app, on this Mac:
 ⇧⌘F (symbolic hot key 157, above); ⇧⌘3 / ⇧⌘4 (`usage.period.month` / `.quarter`, Usage page only) are the screenshot
 hot keys 28-31, disabled here but enabled on a stock Mac, where every app loses them; ⇧⌘A, ⇧⌘M, ⇧⌘L are Services key
 equivalents (Terminal's man page index and man page, Safari's Search With Google) that come after the app's monitor and
-menu, so they are kept. The guard test fails if a reference ⌘ binding of an open thread loses its dispatch button.
+menu, so they are kept. Two guards, committed: the Bun test fails if a reference ⌘ binding of an open thread loses its
+dispatch button; the AppKit test `macos/tests/real-key-chords` (README recipe) sends each of the 45 distinct reference ⌘
+chords that hold in an open thread as the window server does (a CGEvent-backed key through `NSApplication.sendEvent`),
+from the composer and with nothing focused, past the clone's real key monitors (T3Menus, T3Composer and its launcher,
+R9Input, R10Connect, T3Sidebar, T3TextContextMenu, T3ComposerIntent, T3Timeline, RightPanelTabsInput,
+T3ActivityReporter), the composer's text view and the clone's menu bar (`T3Menus.augment`, `R8KeysMenus.arrange`) over
+a stand-in of the host's bar and command items, and fails if one does not reach the host's monitor and its menu item,
+or types into the composer, or moves the focus. ⌘Z is Edit › Undo's (r8-keys drives it); ⌘B in the rich text composer
+is its bold, as the reference's `AppSidebarLayout.tsx` leaves Mod+B to the rich text composer, and with rich text off
+reaches sidebar.toggle's item. The Bun test checks the AppKit test's chord list against `keybindingDefaults`. Two
+mutations (T3Menus' monitor swallowing ⇧⌘F; R8KeysMenus leaving the hidden "[" items no key equivalent) make it fail.
 
 **TC-1.** The macOS host's raster pump. A wide text (over 16,384 device pixels) is rastered; `updateLayer` asks
 `TextRasterizer.ensure` with `urgent` only while the text is on screen, a worker's raster made while it was off screen
@@ -96,8 +111,8 @@ compiler (not portable to iOS and Linux).
 
 | Row | Result | Proof |
 | --- | --- | --- |
-| SK-1 | in-app path pass, cause outside the app: before and after (the same key code) ⇧⌘F through `NSApplication.sendEvent` opens the project search from the window, the composer and after DT-7's sequence; the real key's loss traced to the system's enabled symbolic hot key 157 (⇧⌘F). Under real keys: open, step 1 | [sk-record.txt](https://raw.githubusercontent.com/ccheever/exact2/fd60e224177735cdc00c9d68a821046681234006/search-key-and-timeline-commit-title/sk-record.txt) |
-| SK-2 | pass: every reference binding listed against the app's path and this Mac's hot keys and Services; none lost in the app; guard test (4 pass) | [sk-record.txt](https://raw.githubusercontent.com/ccheever/exact2/fd60e224177735cdc00c9d68a821046681234006/search-key-and-timeline-commit-title/sk-record.txt) |
+| SK-1 | in-app path pass, cause outside the app: before and after (the same key code) ⇧⌘F through `NSApplication.sendEvent` opens the project search from the window, the composer and after DT-7's sequence; the real key's loss traced to the system's enabled symbolic hot key 157 (⇧⌘F). Under real keys: open, step 1 | [sk-record.txt](https://raw.githubusercontent.com/ccheever/exact2/929c8e609688683ab3f465bc2a751b229896f5ee/search-key-and-timeline-commit-title/sk-record.txt) |
+| SK-2 | pass: every reference binding listed against the app's path and this Mac's hot keys and Services; none lost in the app. Bun guard (5 pass). AppKit guard `macos/tests/real-key-chords` (3 tests, 45 chords × 2 focuses through `NSApplication.sendEvent`): after, pass with the app active and its window key and pass with the screen locked; before (the same test against the feature tip's modules), pass; two mutations fail it | [sk-record.txt](https://raw.githubusercontent.com/ccheever/exact2/929c8e609688683ab3f465bc2a751b229896f5ee/search-key-and-timeline-commit-title/sk-record.txt) |
 | TC-1 | pass (agent drive, `screenshot … window`, light and dark, reference): before, every commit title blank at rest and drawn only after hover; after, drawn at rest in the ink colour, blue under the pointer, as the reference; a mouse click on the title and on the row's middle opens the Code tab on that commit | [light](https://raw.githubusercontent.com/ccheever/exact2/f1a0fff3b8840975e292d53ac7704604e426ecd8/search-key-and-timeline-commit-title/tc1-light.png), [dark](https://raw.githubusercontent.com/ccheever/exact2/5bc3bc8bc7bbaf99b5a1b45efc9b13628f157534/search-key-and-timeline-commit-title/tc1-dark.png), [press](https://raw.githubusercontent.com/ccheever/exact2/e65626aeeb9a9dd653ed3bc54a4a01ba0bbb683a/search-key-and-timeline-commit-title/tc1-after-press.png) |
 | SK-1 and TC-1 under real keys and pointer | open: real-input steps 1-4 | — |
 
@@ -124,31 +139,42 @@ Launch this branch's bundle as a lane copy (its own bundle id, the lane home out
 
 ## Tests
 
-- `search-key-and-timeline-commit-title.test.ts` (4): SK-2, every ⌘ binding of the reference's defaults that holds in an
+- `search-key-and-timeline-commit-title.test.ts` (5): SK-2, every ⌘ binding of the reference's defaults that holds in an
   open thread keeps its dispatch button and chord, with nothing focused and from the composer (23 asserted; commands a
   visible control or the composer answers, and those needing a terminal, preview, model picker, Usage page, history or
-  Undo notice, are named in the file); SK-1, ⇧⌘F is `projectSearch.toggle`'s one button from the composer, with nothing
-  focused and with the palette open; TC-1, the commit row's button is last in the row, over it, holds no text, and the
-  title keeps the reference tones, its texts `aria-hidden`.
+  Undo notice, are named in the file); the AppKit guard's chord list equals the reference's 45 ⌘ chords of an open
+  thread; SK-1, ⇧⌘F is `projectSearch.toggle`'s one button from the composer, with nothing focused and with the palette
+  open; TC-1, the commit row's button is last in the row, over it, holds no text, and the title keeps the reference
+  tones, its texts `aria-hidden`.
+- `macos/tests/real-key-chords` (AppKit, 3): every reference ⌘ chord of an open thread through
+  `NSApplication.sendEvent` reaches the host's monitor and command item from the composer and with nothing focused,
+  nothing typed, the focus kept; ⌘B is the rich text composer's bold and, with rich text off, sidebar.toggle's. Builds
+  and runs with the README's AppKit recipe (it runs NSApplication's own event loop and activates when the session
+  allows; on a locked screen it says so and the key window's `performKeyEquivalent` is off the path).
 
 ## Checks
 
+Review round 2 (the final head: the AppKit guard, the Bun list check, the record's counts, X82's workaround column and
+a contract comment):
+
 | Check | Exit | Note |
 | --- | --- | --- |
-| `bun test examples/t3-code --timeout 60000` | 1, then 0 | the first run's one failure was `help-tags.test.ts`: the new overlay button had an `aria-label` and no text, so AppKit would show its label as a help tag; `title=""` added; rerun 4543 pass, 1 skip, 0 fail (310 files) |
+| `bun test examples/t3-code --timeout 60000` | 0 | 4544 pass, 1 skip, 0 fail (310 files) |
 | strict `tsc` (README command) | 0 | |
-| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | after the `title=""` change too; `app.contract` 1,398 lines |
-| `cargo test -p t3-code-macos --lib`, AppKit binaries | not run | no Rust or Swift changed (the diagnostic Swift never reached a commit) |
+| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | `app.contract` 1,398 lines |
+| AppKit `macos/tests/real-key-chords` (README recipe) | 0 | 3 run, 0 failed: the app active and its window key, and again with the screen locked; the same test against the feature tip's modules, 0; two mutations, 1 (`sk-record.txt`) |
+| `cargo test -p t3-code-macos --lib`, other AppKit binaries | not run | no Rust and no module Swift changed |
 | `git add -A && bun scripts/caps.mjs` | 0 | all budgets within cap |
 | `cargo build --all-targets --keep-going` | 0 | |
 | `cargo test --lib --bins --tests --no-fail-fast` | 0 | 3,679 passed, 0 failed |
 | `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | |
 | `cargo fmt --all -- --check` | 0 | |
 | `bun scripts/boot.mjs` | 0 | |
-| `host/apple/build.mjs t3-code-macos --bundle` | 0 | once, before the live drive (the app code of `91ccd8abb`); `title=""` came after it |
 
-The five Cargo/boot checks ran on `034a87fb9`; the final head adds only the overlay button's `title=""`, its test line
-and this record (`examples/t3-code` is outside the Cargo default members).
+Round 1: `bun test` 1, then 0 (the first run's one failure was `help-tags.test.ts`: the new overlay button had an
+`aria-label` and no text, so AppKit would show its label as a help tag; `title=""` added); `host/apple/build.mjs
+t3-code-macos --bundle` 0, once, before the live drive (the app code of `91ccd8abb`; `title=""` came after it). Round 2
+changed no UI (the contract change is a comment), so the live drive and its images stand.
 
 ## Not done / not verified
 

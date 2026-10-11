@@ -3,8 +3,10 @@
 // the button whose `aria-keyshortcuts` matches, and the host files it as a menu key equivalent), so a reference binding
 // without its button is a key a real keyboard loses. Every ⌘ binding of the reference's defaults (packages/shared/src/
 // keybindings.ts DEFAULT_KEYBINDINGS, keybindingDefaults here) that holds in an open thread keeps its button and chord,
-// from the composer and with nothing focused. SK-1's ⇧⌘F did reach its button through NSApplication.sendEvent; what
-// took the real key is outside the app (the task record). TC-1: below.
+// from the composer and with nothing focused. The AppKit half, macos/tests/real-key-chords, sends each of them through
+// NSApplication.sendEvent (a real key's path) past the app's own monitors, text view and menu bar to the host's monitor
+// and menu item. SK-1's ⇧⌘F did reach its button that way; what took the real key is outside the app (the task
+// record). TC-1: below.
 import { describe, expect, test } from 'bun:test';
 import { T3Client } from './client';
 import { keyboardDispatch, type DispatchContext } from './keyboard-dispatch';
@@ -51,6 +53,17 @@ describe('SK-2: every reference ⌘ binding of an open thread keeps its dispatch
       expect(missing.map(rule => `${rule.key} ${rule.command}`)).toEqual([]);
     });
   }
+  // macos/tests/real-key-chords sends every such chord through NSApplication.sendEvent past the app's own key monitors
+  // and menu bar to the host's monitor and menu item: its list is every ⌘ rule that holds in an open thread, the
+  // composer's own send chords aside.
+  test('the AppKit guard sends every reference ⌘ chord of an open thread', async () => {
+    const source = await Bun.file(new URL('./macos/tests/real-key-chords/main.swift', import.meta.url)).text();
+    const list = source.match(/let referenceChords = \[([\s\S]*?)\]\n/)![1];
+    const swift = [...list.matchAll(/"([^"]+)"/g)].map(match => match[1]);
+    const reference = [...new Set(keybindingDefaults.filter(rule => rule.key.includes('mod+') && !needsSurface(rule.when)).map(rule => rule.key))];
+    expect(reference.length).toBe(45);
+    expect([...swift].sort()).toEqual([...reference].sort());
+  });
   test('SK-1: ⇧⌘F is projectSearch.toggle\'s button from the composer, with nothing focused and with the palette open', () => {
     for (const context of [thread, { ...thread, composerFocus: true, editableFocus: true }, { ...thread, paletteOpen: true, paletteMode: 'command' }]) {
       expect(keyboardDispatch(client(), [], '', '', context).filter(item => item.chord === 'Meta+Shift+f')).toEqual([expect.objectContaining({ command: 'projectSearch.toggle', kind: 'palette', target: 'content' })]);
