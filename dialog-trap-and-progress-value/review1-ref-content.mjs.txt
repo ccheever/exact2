@@ -1,0 +1,49 @@
+// dialog-trap-and-progress-value review: the reference's content search (ProjectContentSearchDialog), Tab from the field,
+// Shift+Tab from the field, Tab from "Use regular expression". Usage: node ref-content.mjs <cdpPort> <out.json> <shotDir>.
+// Never closes the browser.
+import { createRequire } from 'node:module';
+import fs from 'node:fs';
+const require = createRequire('/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/src-1e2ecbd975/apps/desktop/package.json');
+const { chromium } = require('playwright-core');
+const [port, outFile, shots] = process.argv.slice(2);
+const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+const page = browser.contexts().flatMap((c) => c.pages()).find((p) => !p.url().startsWith('devtools://') && !p.url().startsWith('data:'));
+await page.setViewportSize({ width: 1280, height: 840 });
+const log = [];
+const state = async (label, shot) => {
+  const s = await page.evaluate(() => {
+    const a = document.activeElement;
+    const dialog = document.querySelector('[data-testid=project-content-search]')?.closest('[role=dialog]') ?? null;
+    const describe = (e) => {
+      if (!e) return null;
+      if (e === document.body) return 'BODY';
+      const label = e.getAttribute('aria-label') ?? e.getAttribute('placeholder');
+      const text = (e.innerText ?? e.value ?? '').replace(/\s+/g, ' ').trim().slice(0, 40);
+      return `${e.nodeName}${e.getAttribute('role') ? `[role=${e.getAttribute('role')}]` : ''}${label ? `[${label}]` : ''}${text ? ` "${text}"` : ''}`;
+    };
+    return { active: describe(a), insideDialog: dialog ? dialog.contains(a) : null, dialog: dialog?.getAttribute('aria-label') ?? null };
+  });
+  log.push({ label, ...s });
+  console.log(JSON.stringify({ label, ...s }));
+  if (shot && shots) await page.screenshot({ path: `${shots}/ref-${shot}.png` });
+};
+const key = async (k) => { await page.keyboard.press(k); await page.waitForTimeout(300); };
+const nav = page.getByRole('navigation', { name: 'Threads' });
+const threads = await nav.getByRole('button').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label') ?? e.innerText).filter(Boolean));
+console.log(JSON.stringify({ threads }));
+const work = nav.getByRole('button', { name: /work/i }).first();
+if (await work.count()) { await work.click(); await page.waitForTimeout(1500); }
+await page.keyboard.press('Meta+Shift+F');
+await page.waitForTimeout(1500);
+await state('content search: open');
+await key('Tab');
+await state('content search: Tab from the field', 'content-tab');
+await page.locator('[data-testid=project-content-search] input').first().focus();
+await key('Shift+Tab');
+await state('content search: Shift+Tab from the field', 'content-shift-tab');
+await page.getByRole('button', { name: 'Use regular expression' }).focus();
+await key('Tab');
+await state('content search: Tab from Use regular expression', 'content-tab-regex');
+await page.keyboard.press('Escape');
+fs.writeFileSync(outFile, JSON.stringify(log, null, 1));
+process.exit(0);
