@@ -1,6 +1,7 @@
 # Stream and bound harness file reads before building tool output
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** File reads stream bounded lines and results with cancellation, retain sniffed bytes without seeking, and preserve a lone trailing carriage return; large-line, offset, Unicode, binary, FIFO, and line-ending regressions pass. A FIFO writer that keeps its descriptor open can still block the sniff or later reads, including cancellation.
 **Systems:** Harness data, Harness tools
 **Author:** Codex (GPT-6), for Charlie Cheever
 **Date:** 2026-10-06

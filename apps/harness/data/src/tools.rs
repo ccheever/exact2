@@ -5,8 +5,10 @@
 use crate::highlight::expand_tabs;
 use crate::state::{Line, Run};
 use serde_json::{json, Value as Json};
+use std::collections::HashSet;
+use std::io::{BufRead, Read, Seek, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 /// Lines of output a tool entry shows; the rest are counted in `more`.
@@ -124,45 +126,99 @@ fn resolve(path: &str) -> PathBuf {
 }
 
 /// The edit a write or edit call would make: the file's text before and after.
-fn change(name: &str, input: &Json) -> Result<(String, String), String> {
-    let path = resolve(arg(input, "path"));
-    match name {
-        "write_file" => {
-            let before = std::fs::read_to_string(&path).unwrap_or_default();
-            Ok((before, arg(input, "content").to_string()))
+pub struct Prepared {
+    path: PathBuf,
+    target: PathBuf,
+    /// The previewed file's (device, inode), so a file swapped in with the
+    /// same bytes is refused, not written.
+    identity: Option<(u64, u64)>,
+    before: Option<Vec<u8>>,
+    after: Vec<u8>,
+}
+
+#[cfg(unix)]
+fn identity(meta: &std::fs::Metadata) -> Option<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    Some((meta.dev(), meta.ino()))
+}
+
+#[cfg(not(unix))]
+fn identity(_: &std::fs::Metadata) -> Option<(u64, u64)> {
+    None
+}
+
+fn target(path: &Path) -> Result<PathBuf, String> {
+    if path.exists() {
+        return path.canonicalize().map_err(|e| e.to_string());
+    }
+    let parent = path.parent().ok_or("file has no parent")?;
+    if parent == path {
+        return Err("file has no parent".into());
+    }
+    Ok(target(parent)?.join(path.file_name().ok_or("file has no name")?))
+}
+
+fn contents(path: &Path) -> Result<Option<Vec<u8>>, String> {
+    match std::fs::read(path) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            match std::fs::symlink_metadata(path) {
+                Ok(_) => Err(format!("cannot read {}: {e}", path.display())),
+                Err(missing) if missing.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                Err(other) => Err(format!("cannot inspect {}: {other}", path.display())),
+            }
         }
+        Err(e) => Err(format!("cannot read {}: {e}", path.display())),
+    }
+}
+
+fn prepare(name: &str, input: &Json) -> Result<Prepared, String> {
+    let path = resolve(arg(input, "path"));
+    let target = target(&path)?;
+    let before = contents(&path)?;
+    let after = match name {
+        "write_file" => arg(input, "content").as_bytes().to_vec(),
         "edit_file" => {
-            let before = std::fs::read_to_string(&path)
+            let bytes = before
+                .as_ref()
+                .ok_or_else(|| format!("cannot read {}: file is absent", path.display()))?;
+            let text = std::str::from_utf8(bytes)
                 .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
             let old = arg(input, "old");
             if old.is_empty() {
                 return Err("`old` is empty".into());
             }
-            match before.matches(old).count() {
+            match text.matches(old).count() {
                 0 => Err(format!("`old` not found in {}", path.display())),
-                1 => {
-                    let after = before.replacen(old, arg(input, "new"), 1);
-                    Ok((before, after))
-                }
+                1 => Ok(text.replacen(old, arg(input, "new"), 1).into_bytes()),
                 n => Err(format!("`old` occurs {n} times; give more context")),
-            }
+            }?
         }
-        _ => Err(format!("{name} makes no edit")),
-    }
+        _ => return Err(format!("{name} makes no edit")),
+    };
+    let identity = std::fs::metadata(&target).ok().and_then(|m| identity(&m));
+    Ok(Prepared {
+        path,
+        target,
+        identity,
+        before,
+        after,
+    })
 }
 
 /// What an approval shows: its summary and lines (the command, or the diff).
-pub fn preview(name: &str, input: &Json) -> (String, Vec<Line>) {
+pub fn preview(name: &str, input: &Json) -> (String, Vec<Line>, Option<Result<Prepared, String>>) {
     match name {
         "bash" => {
             let command = arg(input, "command");
-            (
+            let (summary, lines) = (
                 format!("Run `{}`?", short(command, 60)),
                 command
                     .lines()
                     .map(|l| Line::plain(expand_tabs(l, 8)))
                     .collect(),
-            )
+            );
+            (summary, lines, None)
         }
         "write_file" | "edit_file" => {
             let verb = if name == "write_file" {
@@ -171,12 +227,24 @@ pub fn preview(name: &str, input: &Json) -> (String, Vec<Line>) {
                 "Edit"
             };
             let summary = format!("{verb} {}?", arg(input, "path"));
-            match change(name, input) {
-                Ok((before, after)) => (summary, diff(&before, &after)),
-                Err(e) => (summary, vec![Line::plain(e)]),
+            match prepare(name, input) {
+                Ok(edit) => {
+                    let before =
+                        String::from_utf8_lossy(edit.before.as_deref().unwrap_or_default());
+                    let after = String::from_utf8_lossy(&edit.after);
+                    let lines = if before == after && edit.before.as_ref() != Some(&edit.after) {
+                        vec![Line::plain(
+                            "(the bytes change, though the text reads the same: the file is not UTF-8)",
+                        )]
+                    } else {
+                        diff(&before, &after)
+                    };
+                    (summary, lines, Some(Ok(edit)))
+                }
+                Err(e) => (summary, vec![Line::plain(&e)], Some(Err(e))),
             }
         }
-        other => (format!("Run {other}?"), vec![]),
+        other => (format!("Run {other}?"), vec![], None),
     }
 }
 
@@ -188,6 +256,10 @@ pub struct Done {
 }
 
 impl Done {
+    pub fn error(text: impl Into<String>) -> Done {
+        Done::err(text)
+    }
+
     fn ok(text: String) -> Done {
         Done {
             lines: output_lines(&text),
@@ -245,63 +317,264 @@ pub fn run(name: &str, input: &Json, cancel: &AtomicBool) -> Done {
         return Done::err(format!("invalid JSON arguments: {why}"));
     }
     match name {
-        "read_file" => read_file(input),
+        "read_file" => read_file(input, cancel),
         "list_dir" => list_dir(arg(input, "path")),
-        "grep" => grep(arg(input, "pattern"), arg(input, "path")),
+        "grep" => grep(arg(input, "pattern"), arg(input, "path"), cancel),
         "bash" => bash(arg(input, "command"), cancel),
-        "write_file" | "edit_file" => match change(name, input) {
-            Ok((before, after)) => {
-                let path = resolve(arg(input, "path"));
-                if let Some(parent) = path.parent() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
-                match std::fs::write(&path, &after) {
-                    Ok(()) => Done {
-                        text: format!(
-                            "{} {}",
-                            if name == "write_file" {
-                                "Wrote"
-                            } else {
-                                "Edited"
-                            },
-                            path.display()
-                        ),
-                        lines: diff(&before, &after),
-                        is_error: false,
-                    },
-                    Err(e) => Done::err(format!("cannot write {}: {e}", path.display())),
-                }
-            }
+        "write_file" | "edit_file" => match prepare(name, input) {
+            Ok(edit) => run_prepared(name, &edit, cancel),
             Err(e) => Done::err(e),
         },
         other => Done::err(format!("no tool named {other}")),
     }
 }
 
-fn read_file(input: &Json) -> Done {
+static TEMP_ID: AtomicU64 = AtomicU64::new(0);
+
+/// Apply exactly the edit shown for approval, if its target and bytes still match.
+pub fn run_prepared(name: &str, edit: &Prepared, cancel: &AtomicBool) -> Done {
+    if cancel.load(Ordering::SeqCst) {
+        return Done::err("cancelled");
+    }
+    let changed = "file changed since approval; ask again";
+    if target(&edit.path).ok().as_ref() != Some(&edit.target)
+        || contents(&edit.path).ok().as_ref() != Some(&edit.before)
+    {
+        return Done::err(changed);
+    }
+    let parent = edit.target.parent().expect("file target has a parent");
+    if let Err(e) = std::fs::create_dir_all(parent) {
+        return Done::err(format!("cannot create {}: {e}", parent.display()));
+    }
+    if target(&edit.path).ok().as_ref() != Some(&edit.target)
+        || contents(&edit.path).ok().as_ref() != Some(&edit.before)
+    {
+        return Done::err(changed);
+    }
+    if edit.before.is_some() {
+        let applied = (|| -> std::io::Result<()> {
+            let mut file = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&edit.target)?;
+            let mut current = Vec::new();
+            file.read_to_end(&mut current)?;
+            if Some(&current) != edit.before.as_ref()
+                || target(&edit.path).ok().as_ref() != Some(&edit.target)
+                || identity(&file.metadata()?) != edit.identity
+            {
+                return Err(std::io::Error::other(changed));
+            }
+            if cancel.load(Ordering::SeqCst) {
+                return Err(std::io::Error::other("cancelled"));
+            }
+            file.rewind()?;
+            file.write_all(&edit.after)?;
+            file.set_len(edit.after.len() as u64)?;
+            file.sync_all()
+        })();
+        if let Err(e) = applied {
+            return Done::err(format!("cannot write {}: {e}", edit.path.display()));
+        }
+        return completed_edit(name, edit);
+    }
+    let mut temp = None;
+    for _ in 0..16 {
+        let path = parent.join(format!(
+            ".exact-write-{}-{}",
+            std::process::id(),
+            TEMP_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(file) => {
+                temp = Some((path, file));
+                break;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Done::err(format!("cannot write {}: {e}", edit.path.display())),
+        }
+    }
+    let Some((path, mut file)) = temp else {
+        return Done::err("cannot create temporary file");
+    };
+    let written = (|| -> std::io::Result<()> {
+        file.write_all(&edit.after)?;
+        file.sync_all()?;
+        if cancel.load(Ordering::SeqCst) {
+            return Err(std::io::Error::other("cancelled"));
+        }
+        if target(&edit.path).ok().as_ref() != Some(&edit.target)
+            || contents(&edit.path).ok().as_ref() != Some(&edit.before)
+        {
+            return Err(std::io::Error::other(changed));
+        }
+        publish_new_file(&path, &edit.target, &edit.after)
+    })();
+    if let Err(e) = written {
+        let _ = std::fs::remove_file(path);
+        return Done::err(format!("cannot write {}: {e}", edit.path.display()));
+    }
+    completed_edit(name, edit)
+}
+
+fn publish_new_file(temp: &Path, target: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    publish_new_file_with(temp, target, bytes, |from, to| std::fs::hard_link(from, to))
+}
+
+fn publish_new_file_with(
+    temp: &Path,
+    target: &Path,
+    bytes: &[u8],
+    link: impl FnOnce(&Path, &Path) -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    match link(temp, target) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::Unsupported => {
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(target)?;
+            if let Err(e) = file.write_all(bytes).and_then(|()| file.sync_all()) {
+                let _ = std::fs::remove_file(target);
+                return Err(e);
+            }
+        }
+        Err(e) => return Err(e),
+    }
+    std::fs::remove_file(temp)
+}
+
+fn completed_edit(name: &str, edit: &Prepared) -> Done {
+    let before = String::from_utf8_lossy(edit.before.as_deref().unwrap_or_default());
+    let after = String::from_utf8_lossy(&edit.after);
+    Done {
+        text: format!(
+            "{} {}",
+            if name == "write_file" {
+                "Wrote"
+            } else {
+                "Edited"
+            },
+            edit.path.display()
+        ),
+        lines: diff(&before, &after),
+        is_error: false,
+    }
+}
+
+fn read_file(input: &Json, cancel: &AtomicBool) -> Done {
+    if cancel.load(Ordering::SeqCst) {
+        return Done::err("cancelled");
+    }
     let path = resolve(arg(input, "path"));
-    let bytes = match std::fs::read(&path) {
-        Ok(b) => b,
+    let mut file = match std::fs::File::open(&path) {
+        Ok(f) => f,
         Err(e) => return Done::err(format!("cannot read {}: {e}", path.display())),
     };
-    if bytes.iter().take(8000).any(|&b| b == 0) {
+    let mut prefix = Vec::new();
+    if let Err(e) = Read::by_ref(&mut file).take(8000).read_to_end(&mut prefix) {
+        return Done::err(format!("cannot read {}: {e}", path.display()));
+    }
+    if prefix.contains(&0) {
         return Done::err(format!("{} is a binary file", path.display()));
     }
-    let text = String::from_utf8_lossy(&bytes);
     let offset = input["offset"].as_u64().unwrap_or(1).max(1) as usize;
     let limit = input["limit"].as_u64().unwrap_or(2000) as usize;
+    let mut reader = std::io::BufReader::new(std::io::Cursor::new(prefix).chain(file));
     let mut model = String::new();
     let mut shown = Vec::new();
-    for (n, line) in text.lines().enumerate().skip(offset - 1).take(limit) {
-        model.push_str(&format!("{:>6}\t{line}\n", n + 1));
-        shown.push(line);
+    let mut transcript_bytes = 0;
+    let mut line = Vec::new();
+    let mut line_no = 1usize;
+    let mut line_started = false;
+    let mut line_truncated = false;
+    let mut output_truncated = false;
+    loop {
+        if cancel.load(Ordering::SeqCst) {
+            return Done::err("cancelled");
+        }
+        let chunk = match reader.fill_buf() {
+            Ok(b) => b,
+            Err(e) => return Done::err(format!("cannot read {}: {e}", path.display())),
+        };
+        if chunk.is_empty() {
+            break;
+        }
+        let size = chunk.len();
+        for part in chunk.split_inclusive(|&b| b == b'\n') {
+            let ended = part.last() == Some(&b'\n');
+            let bytes = if ended { &part[..part.len() - 1] } else { part };
+            line_started = true;
+            if line_no >= offset && line_no - offset < limit {
+                let keep = bytes.len().min(8000usize.saturating_sub(line.len()));
+                line.extend_from_slice(&bytes[..keep]);
+                line_truncated |= keep < bytes.len();
+            }
+            if ended {
+                if line_no >= offset && line_no - offset < limit {
+                    let text = String::from_utf8_lossy(line.strip_suffix(b"\r").unwrap_or(&line));
+                    let marker = if line_truncated {
+                        " [line truncated]"
+                    } else {
+                        ""
+                    };
+                    let numbered = format!("{:>6}\t{text}{marker}\n", line_no);
+                    let display = clean_line(&format!("{text}{marker}"));
+                    if model.len() + numbered.len() > RESULT_CAP
+                        || transcript_bytes + display.len() > RESULT_CAP
+                    {
+                        output_truncated = true;
+                        break;
+                    }
+                    transcript_bytes += display.len();
+                    model.push_str(&numbered);
+                    shown.push(Line::plain(display));
+                }
+                line.clear();
+                line_truncated = false;
+                line_started = false;
+                line_no += 1;
+            }
+        }
+        reader.consume(size);
+        if output_truncated || line_no >= offset.saturating_add(limit) {
+            break;
+        }
     }
-    let mut done = Done::ok(model);
-    done.lines = shown.iter().map(|l| Line::plain(clean_line(l))).collect();
-    if done.lines.is_empty() {
-        done.lines.push(Line::plain("(empty)"));
+    if line_started && line_no >= offset && line_no - offset < limit && !output_truncated {
+        let text = String::from_utf8_lossy(&line);
+        let marker = if line_truncated {
+            " [line truncated]"
+        } else {
+            ""
+        };
+        let numbered = format!("{:>6}\t{text}{marker}\n", line_no);
+        let display = clean_line(&format!("{text}{marker}"));
+        if model.len() + numbered.len() <= RESULT_CAP
+            && transcript_bytes + display.len() <= RESULT_CAP
+        {
+            model.push_str(&numbered);
+            shown.push(Line::plain(display));
+        } else {
+            output_truncated = true;
+        }
     }
-    done
+    if output_truncated {
+        model.push_str("[output truncated]");
+        shown.push(Line::plain("[output truncated]"));
+    }
+    if shown.is_empty() {
+        shown.push(Line::plain("(empty)"));
+    }
+    Done {
+        text: model,
+        lines: shown,
+        is_error: false,
+    }
 }
 
 fn list_dir(path: &str) -> Done {
@@ -329,54 +602,151 @@ fn list_dir(path: &str) -> Done {
 
 const SKIP: [&str; 3] = [".git", "target", "node_modules"];
 const GREP_CAP: usize = 200;
+const GREP_WORK_CAP: usize = 20_000;
+const GREP_BYTES_CAP: u64 = 32_000_000;
 
-fn grep(pattern: &str, path: &str) -> Done {
+fn read_grep_bytes(
+    reader: &mut impl Read,
+    limit: u64,
+    bytes_read: &mut u64,
+    cancel: &AtomicBool,
+) -> std::io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    let mut reader = reader.take(limit);
+    let mut chunk = [0u8; 8192];
+    loop {
+        if cancel.load(Ordering::SeqCst) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "cancelled",
+            ));
+        }
+        let n = reader.read(&mut chunk)?;
+        if n == 0 {
+            break;
+        }
+        *bytes_read += n as u64;
+        bytes.extend_from_slice(&chunk[..n]);
+    }
+    Ok(bytes)
+}
+
+fn grep(pattern: &str, path: &str, cancel: &AtomicBool) -> Done {
+    grep_with_cap(pattern, path, cancel, GREP_WORK_CAP)
+}
+
+fn grep_with_cap(pattern: &str, path: &str, cancel: &AtomicBool, work_cap: usize) -> Done {
     if pattern.is_empty() {
         return Done::err("empty pattern");
+    }
+    if cancel.load(Ordering::SeqCst) {
+        return Done::err("cancelled");
     }
     let root = resolve(if path.is_empty() { "." } else { path });
     let base = std::env::current_dir().unwrap_or_default();
     let mut hits = Vec::new();
     let mut stack = vec![root];
+    let mut discovered = 1;
+    let mut directories = HashSet::new();
+    let mut bytes_read = 0u64;
+    let mut partial = false;
     while let Some(p) = stack.pop() {
+        if cancel.load(Ordering::SeqCst) {
+            return Done::err("cancelled");
+        }
         if hits.len() >= GREP_CAP {
             break;
         }
-        if p.is_dir() {
+        let Ok(meta) = p.metadata() else {
+            continue;
+        };
+        if meta.is_dir() {
+            #[cfg(unix)]
+            let identity = {
+                use std::os::unix::fs::MetadataExt;
+                (meta.dev(), meta.ino())
+            };
+            #[cfg(not(unix))]
+            let identity = p.canonicalize().unwrap_or_else(|_| p.clone());
+            if !directories.insert(identity) {
+                continue;
+            }
             let Ok(read) = std::fs::read_dir(&p) else {
                 continue;
             };
-            let mut children: Vec<PathBuf> = read
-                .filter_map(|e| e.ok())
-                .filter(|e| !SKIP.contains(&e.file_name().to_string_lossy().as_ref()))
-                .map(|e| e.path())
-                .collect();
+            let mut children = Vec::new();
+            for entry in read {
+                if cancel.load(Ordering::SeqCst) {
+                    return Done::err("cancelled");
+                }
+                let Ok(e) = entry else { continue };
+                if SKIP.contains(&e.file_name().to_string_lossy().as_ref()) {
+                    continue;
+                }
+                if discovered >= work_cap {
+                    partial = true;
+                    break;
+                }
+                discovered += 1;
+                children.push(e.path());
+            }
             children.sort();
             children.reverse();
             stack.extend(children);
             continue;
         }
-        let Ok(meta) = p.metadata() else { continue };
-        if meta.len() > 2_000_000 {
+        if !meta.is_file() || meta.len() > 2_000_000 {
             continue;
         }
-        let Ok(bytes) = std::fs::read(&p) else {
+        if bytes_read >= GREP_BYTES_CAP {
+            partial = true;
+            break;
+        }
+        let Ok(mut file) = std::fs::File::open(&p) else {
             continue;
         };
+        let allowance = (GREP_BYTES_CAP - bytes_read).min(2_000_000);
+        // One byte past the allowance tells a file cut short from one read whole.
+        let Ok(mut bytes) = read_grep_bytes(&mut file, allowance + 1, &mut bytes_read, cancel)
+        else {
+            if cancel.load(Ordering::SeqCst) {
+                return Done::err("cancelled");
+            }
+            continue;
+        };
+        if bytes.len() as u64 > allowance {
+            bytes.truncate(allowance as usize);
+            partial = true;
+        }
         if bytes.iter().take(8000).any(|&b| b == 0) {
             continue;
         }
         let text = String::from_utf8_lossy(&bytes);
         let shown = p.strip_prefix(&base).unwrap_or(&p).display().to_string();
         for (n, line) in text.lines().enumerate() {
+            if cancel.load(Ordering::SeqCst) {
+                return Done::err("cancelled");
+            }
             if line.contains(pattern) {
-                hits.push(format!("{shown}:{}: {}", n + 1, line.trim()));
+                let excerpt: String = line.trim().chars().take(8000).collect();
+                hits.push(format!("{shown}:{}: {excerpt}", n + 1));
                 if hits.len() >= GREP_CAP {
                     hits.push(format!("[stopped at {GREP_CAP} matches]"));
                     break;
                 }
             }
         }
+        if bytes_read >= GREP_BYTES_CAP {
+            break;
+        }
+    }
+    if partial {
+        hits.insert(
+            0,
+            format!(
+                "[search stopped after {discovered} entries or {bytes_read} bytes; partial result]"
+            ),
+        );
     }
     if hits.is_empty() {
         return Done::ok("no matches".into());
@@ -551,6 +921,391 @@ pub fn diff(before: &str, after: &str) -> Vec<Line> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::Ordering;
+
+    fn test_dir(name: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "exact-harness-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&path).unwrap();
+        path
+    }
+
+    #[test]
+    fn approved_write_rejects_changed_file() {
+        let dir = test_dir("approval");
+        let path = dir.join("note.txt");
+        std::fs::write(&path, "approved-before\n").unwrap();
+        let input = json!({"path": path, "content": "approved-after\n"});
+        let (_, _, edit) = preview("write_file", &input);
+        std::fs::write(&path, "concurrent-edit\n").unwrap();
+        let done = run_prepared(
+            "write_file",
+            &edit.unwrap().unwrap(),
+            &AtomicBool::new(false),
+        );
+        assert!(done.is_error, "approved a stale diff");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "concurrent-edit\n");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn approved_edits_apply_only_to_the_previewed_target() {
+        let dir = test_dir("approved-target");
+        let path = dir.join("note.txt");
+        std::fs::write(&path, "old\n").unwrap();
+        let input = json!({"path":path, "old":"old", "new":"new"});
+        let (_, _, edit) = preview("edit_file", &input);
+        let done = run_prepared(
+            "edit_file",
+            &edit.unwrap().unwrap(),
+            &AtomicBool::new(false),
+        );
+        assert!(!done.is_error, "{}", done.text);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "new\n");
+
+        let fresh = dir.join("fresh.txt");
+        let input = json!({"path":fresh, "content":"approved\n"});
+        let (_, _, edit) = preview("write_file", &input);
+        std::fs::write(&fresh, "appeared\n").unwrap();
+        let done = run_prepared(
+            "write_file",
+            &edit.unwrap().unwrap(),
+            &AtomicBool::new(false),
+        );
+        assert!(done.is_error);
+        assert_eq!(std::fs::read_to_string(&fresh).unwrap(), "appeared\n");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn new_file_publication_refuses_an_existing_destination() {
+        let dir = test_dir("publish-collision");
+        let temp = dir.join("temp.txt");
+        let target = dir.join("target.txt");
+        std::fs::write(&temp, "approved\n").unwrap();
+        std::fs::write(&target, "concurrent\n").unwrap();
+        let result = publish_new_file(&temp, &target, b"approved\n");
+        assert!(result.is_err(), "publication replaced a concurrent file");
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "concurrent\n");
+        std::fs::remove_file(&target).unwrap();
+        publish_new_file(&temp, &target, b"approved\n").unwrap();
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "approved\n");
+        assert!(!temp.exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn new_file_publication_falls_back_when_links_are_unsupported() {
+        let dir = test_dir("publish-no-links");
+        let temp = dir.join("temp.txt");
+        let target = dir.join("target.txt");
+        std::fs::write(&temp, "approved\n").unwrap();
+        let unsupported = |_: &Path, _: &Path| Err(std::io::ErrorKind::Unsupported.into());
+        publish_new_file_with(&temp, &target, b"approved\n", unsupported).unwrap();
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "approved\n");
+        assert!(!temp.exists());
+        std::fs::write(&temp, "approved again\n").unwrap();
+        let unsupported = |_: &Path, _: &Path| Err(std::io::ErrorKind::Unsupported.into());
+        assert!(publish_new_file_with(&temp, &target, b"approved again\n", unsupported).is_err());
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "approved\n");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn approved_write_rejects_a_redirected_link() {
+        let dir = test_dir("approval-link");
+        let first = dir.join("first.txt");
+        let second = dir.join("second.txt");
+        let link = dir.join("link.txt");
+        std::fs::write(&first, "same\n").unwrap();
+        std::fs::write(&second, "same\n").unwrap();
+        std::os::unix::fs::symlink(&first, &link).unwrap();
+        let input = json!({"path":link, "content":"changed\n"});
+        let (_, _, edit) = preview("write_file", &input);
+        std::fs::remove_file(&link).unwrap();
+        std::os::unix::fs::symlink(&second, &link).unwrap();
+        let done = run_prepared(
+            "write_file",
+            &edit.unwrap().unwrap(),
+            &AtomicBool::new(false),
+        );
+        assert!(done.is_error);
+        assert_eq!(std::fs::read_to_string(&first).unwrap(), "same\n");
+        assert_eq!(std::fs::read_to_string(&second).unwrap(), "same\n");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn approved_edit_preserves_existing_file_identity() {
+        use std::os::unix::fs::MetadataExt;
+        let dir = test_dir("metadata");
+        let path = dir.join("note.txt");
+        std::fs::write(&path, "old\n").unwrap();
+        let before = std::fs::metadata(&path).unwrap().ino();
+        let (_, _, edit) = preview("edit_file", &json!({"path":path, "old":"old", "new":"new"}));
+        let done = run_prepared(
+            "edit_file",
+            &edit.unwrap().unwrap(),
+            &AtomicBool::new(false),
+        );
+        assert!(!done.is_error, "{}", done.text);
+        assert_eq!(std::fs::metadata(&path).unwrap().ino(), before);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "new\n");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn approved_edit_refuses_a_swapped_file_with_the_same_bytes() {
+        let dir = test_dir("identity-swap");
+        let path = dir.join("a.txt");
+        let other = dir.join("b.txt");
+        std::fs::write(&path, "same\n").unwrap();
+        std::fs::write(&other, "same\n").unwrap();
+        let (_, _, edit) = preview(
+            "edit_file",
+            &json!({"path":path, "old":"same", "new":"new"}),
+        );
+        std::fs::remove_file(&path).unwrap();
+        std::fs::hard_link(&other, &path).unwrap();
+        let done = run_prepared(
+            "edit_file",
+            &edit.unwrap().unwrap(),
+            &AtomicBool::new(false),
+        );
+        assert!(done.is_error, "{}", done.text);
+        assert_eq!(std::fs::read_to_string(&other).unwrap(), "same\n");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn preview_shows_a_byte_change_that_reads_as_the_same_text() {
+        let dir = test_dir("lossy-preview");
+        let path = dir.join("note.txt");
+        std::fs::write(&path, [0xFFu8]).unwrap();
+        let (_, lines, _) = preview("write_file", &json!({"path":path, "content":"\u{fffd}"}));
+        let shown: Vec<String> = lines.iter().map(|l| l.text()).collect();
+        assert!(shown.iter().any(|l| l.contains("not UTF-8")), "{shown:?}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn grep_reads_a_file_exactly_at_its_allowance_completely() {
+        let dir = test_dir("grep-exact-allowance");
+        std::fs::write(dir.join("big.txt"), "a".repeat(2_000_000)).unwrap();
+        std::fs::write(dir.join("small.txt"), "needle\n").unwrap();
+        let done = grep_with_cap(
+            "needle",
+            dir.to_str().unwrap(),
+            &AtomicBool::new(false),
+            100,
+        );
+        assert!(done.text.contains("needle"), "{}", done.text);
+        assert!(!done.text.contains("partial result"), "{}", done.text);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn preview_retains_preparation_error_for_execution() {
+        let dir = test_dir("prepare-error");
+        let path = dir.join("note.txt");
+        std::fs::write(&path, "old old\n").unwrap();
+        let (_, lines, prepared) =
+            preview("edit_file", &json!({"path":path, "old":"old", "new":"new"}));
+        assert!(lines[0].text().contains("occurs 2 times"));
+        match prepared.expect("preparation error was discarded") {
+            Err(error) => assert!(error.contains("occurs 2 times"), "{error}"),
+            Ok(_) => panic!("ambiguous edit was prepared"),
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn grep_skips_directory_links_and_obeys_cancellation() {
+        let dir = test_dir("grep");
+        std::fs::write(dir.join("one.txt"), "needle\n").unwrap();
+        std::os::unix::fs::symlink(&dir, dir.join("left")).unwrap();
+        std::os::unix::fs::symlink(&dir, dir.join("right")).unwrap();
+        let input = json!({"pattern":"needle", "path":dir});
+        let cancelled = AtomicBool::new(true);
+        let stopped = run("grep", &input, &cancelled);
+        assert!(stopped.text.contains("cancelled"));
+        cancelled.store(false, Ordering::SeqCst);
+        let found = run("grep", &input, &cancelled);
+        assert_eq!(found.text.lines().count(), 1, "{}", found.text);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn grep_follows_file_links_and_a_linked_search_root() {
+        let dir = test_dir("grep-links");
+        let real = dir.join("real.txt");
+        let link = dir.join("link.txt");
+        std::fs::write(&real, "needle\n").unwrap();
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let found = run(
+            "grep",
+            &json!({"pattern":"needle", "path":link}),
+            &AtomicBool::new(false),
+        );
+        assert!(found.text.contains("link.txt:1:"), "{}", found.text);
+        let linked_dir = dir.join("linked-dir");
+        std::os::unix::fs::symlink(&dir, &linked_dir).unwrap();
+        let found = run(
+            "grep",
+            &json!({"pattern":"needle", "path":linked_dir}),
+            &AtomicBool::new(false),
+        );
+        assert!(found.text.contains("needle"), "{}", found.text);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn grep_caps_all_discovered_entries() {
+        let dir = test_dir("grep-budget");
+        let nested = dir.join("a");
+        std::fs::create_dir(&nested).unwrap();
+        for n in 0..5 {
+            std::fs::write(dir.join(format!("z{n}.txt")), "none\n").unwrap();
+            std::fs::write(nested.join(format!("n{n}.txt")), "none\n").unwrap();
+        }
+        let done = grep_with_cap("needle", dir.to_str().unwrap(), &AtomicBool::new(false), 8);
+        assert!(
+            done.text.contains("[search stopped after 8 entries"),
+            "{}",
+            done.text
+        );
+        let done = grep_with_cap("none", dir.to_str().unwrap(), &AtomicBool::new(false), 8);
+        assert!(done.text.contains("z0.txt:1: none"), "{}", done.text);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn grep_partial_notice_survives_result_cap() {
+        let dir = test_dir("grep-partial-cap");
+        for n in 0..16 {
+            std::fs::write(
+                dir.join(format!("{n:02}.txt")),
+                format!("needle{}\n", "x".repeat(8_000)),
+            )
+            .unwrap();
+        }
+        let done = grep_with_cap("needle", dir.to_str().unwrap(), &AtomicBool::new(false), 16);
+        assert!(
+            done.text.starts_with("[search stopped"),
+            "{}",
+            done.text.chars().take(100).collect::<String>()
+        );
+        assert!(done.text.contains("partial result]"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn grep_reads_only_the_remaining_byte_budget() {
+        struct CountingReader {
+            read: usize,
+        }
+        impl Read for CountingReader {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                let n = buf.len().min(256usize.saturating_sub(self.read));
+                self.read += n;
+                buf[..n].fill(b'x');
+                Ok(n)
+            }
+        }
+        let mut reader = CountingReader { read: 0 };
+        let mut charged = 0;
+        let bytes =
+            read_grep_bytes(&mut reader, 128, &mut charged, &AtomicBool::new(false)).unwrap();
+        assert_eq!(bytes.len(), 128);
+        assert_eq!(reader.read, 128);
+        assert_eq!(charged, 128);
+    }
+
+    #[test]
+    fn read_file_bounds_a_long_line_and_obeys_cancellation() {
+        let dir = test_dir("read");
+        let path = dir.join("large.txt");
+        std::fs::write(&path, "x".repeat(2_000_000)).unwrap();
+        let input = json!({"path":path, "limit":1});
+        let cancelled = run("read_file", &input, &AtomicBool::new(true));
+        assert!(cancelled.text.contains("cancelled"));
+        let done = run("read_file", &input, &AtomicBool::new(false));
+        assert!(done.text.len() <= RESULT_CAP + 32);
+        assert!(done.lines[0].text().len() <= RESULT_CAP);
+        assert!(done.text.contains("truncated"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn read_file_preserves_offset_and_unicode_and_sniffs_binary() {
+        let dir = test_dir("read-lines");
+        let path = dir.join("text.txt");
+        std::fs::write(&path, "first\r\nαβ\nthird\n").unwrap();
+        let done = run(
+            "read_file",
+            &json!({"path":path,"offset":2,"limit":1}),
+            &AtomicBool::new(false),
+        );
+        assert_eq!(done.text, "     2\tαβ\n");
+        assert_eq!(done.lines[0].text(), "αβ");
+        std::fs::write(&path, b"a\0b").unwrap();
+        let done = run(
+            "read_file",
+            &json!({"path":path,"limit":1}),
+            &AtomicBool::new(false),
+        );
+        assert!(done.is_error && done.text.contains("binary file"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn read_file_preserves_lone_carriage_return_at_eof() {
+        let dir = test_dir("read-cr-eof");
+        let path = dir.join("text.txt");
+        std::fs::write(&path, b"hello\r\nworld\r").unwrap();
+        let done = run("read_file", &json!({"path":path}), &AtomicBool::new(false));
+        assert_eq!(done.text, "     1\thello\n     2\tworld\r\n");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn read_file_accepts_non_seekable_input_after_binary_sniff() {
+        let dir = test_dir("read-fifo");
+        let path = dir.join("input.fifo");
+        assert!(std::process::Command::new("mkfifo")
+            .arg(&path)
+            .status()
+            .unwrap()
+            .success());
+        let writer_path = path.clone();
+        let writer = std::thread::spawn(move || {
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .open(writer_path)
+                .unwrap();
+            file.write_all(&vec![b'a'; 8_100]).unwrap();
+            file.write_all(b"\nhello\n").unwrap();
+        });
+        let done = run(
+            "read_file",
+            &json!({"path":path,"offset":2,"limit":1}),
+            &AtomicBool::new(false),
+        );
+        writer.join().unwrap();
+        assert_eq!(done.text, "     2\thello\n");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn diff_marks_changes_with_context() {

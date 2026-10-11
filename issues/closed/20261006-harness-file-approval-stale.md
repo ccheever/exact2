@@ -1,6 +1,7 @@
 # Bind harness file approval to the file contents shown in its preview
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Approved writes and edits retain previewed targets and bytes; new files publish exclusively, with an exclusive-create fallback where links are unsupported; tests cover stale files, links, metadata, collisions, and the fallback. The previewed file's identity (device and inode) is checked too, so a swapped-in file with the same bytes is refused; a byte change that reads as the same text says so in the preview.
 **Systems:** Harness data, Harness approvals, Filesystem tools
 **Author:** Codex (GPT-6), for Charlie Cheever
 **Date:** 2026-10-06
