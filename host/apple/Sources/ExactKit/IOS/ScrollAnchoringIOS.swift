@@ -4,6 +4,24 @@
 #if os(iOS) || os(tvOS)
 import UIKit
 
+extension ScrollAnchoring.Changes {
+    /// Transforms arrive as presentation ops, outside the style dictionary.
+    /// UIKit includes them in converted bounds, so the spec's transform
+    /// suppression must be recorded before the view's value changes.
+    mutating func notePresentation(_ op: BatchOp, on view: NodeView) {
+        let changed: Bool
+        switch op.property {
+        case "translate":
+            changed = view.translatePx != CGPoint(x: op.x, y: op.y)
+                || view.translatePercent != CGPoint(x: op.w, y: op.h)
+        case "scale": changed = view.scale != CGFloat(op.x)
+        case "rotate": changed = view.rotate != CGFloat(op.x)
+        default: return
+        }
+        if changed { layout.insert(view.id) }
+    }
+}
+
 extension NodeView {
     func captureScrollAnchor(_ sv: UIScrollView) {
         // No anchor at the start (spec §2.2): content inserted on top shows.
