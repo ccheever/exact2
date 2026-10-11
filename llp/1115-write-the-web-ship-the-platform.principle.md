@@ -201,7 +201,9 @@ which read as "on every host" where it was iOS and the web:
 - Ten items of Appendix A are in neither list above. LLP 1115.000 §1 names them and gives
   each a decision.
 
-What is left, on every host, is LLP 1115.000 (and LLP 1115.001 for Android).
+What is left, on every host, is LLP 1115.000 (and LLP 1115.001 for Android). Since this
+note, LLP 1115.000's wave 1 has landed D5 and D6's alert on macOS, and LLP 1115.001's first
+slice has begun Android's; each document's "as built" says what holds.
 
 **Later, needs an owner.** A plain `button`'s default style on iOS (bordered → plain; changes
 every app), checkbox on iOS (switch or checkmark), plain-list separators and highlight, Mac
