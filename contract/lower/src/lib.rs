@@ -824,9 +824,9 @@ impl<'a> Lowerer<'a> {
                 self.link_run_color(tag, parent_tag, expanded, &mut bindings);
                 self.heading_style(tag, expanded, scope, locals, &mut bindings)?;
                 // @ref LLP 1069.001 (amended 2026-10-07) — an indeterminate
-                // `progress` is busy, as ARIA's `aria-busy`: a bool, which a
-                // fixed prop (text) cannot be.
-                if tag == "progress" {
+                // `progress` (no `value`, LLP 1116 D8) is busy, as ARIA's
+                // `aria-busy`: a bool, which a fixed prop (text) cannot be.
+                if tag == "progress" && !expanded.iter().any(|a| a.name == "value") {
                     bindings.push(BindingsRow {
                         kind: BindingKind::Prop,
                         id: exact_kernel::PropId::AccessibilityBusy as u16,

@@ -1473,6 +1473,24 @@
       "name": "statusBarAnimation",
       "kind": "str",
       "_comment": "@ref LLP 1105 D1: `none` (default) or `fade`, the change to this node's `statusBarStyle`."
+    },
+    {
+      "id": 256,
+      "name": "accessibilityValueNow",
+      "kind": "str",
+      "_comment": "@ref LLP 1116 D8: ARIA's `aria-valuenow`, a range role's current value (`progressbar`, `slider`, `meter`, `scrollbar`, `spinbutton`), a number as HTML writes it. With `aria-valuemin` and `aria-valuemax` (ARIA's defaults 0 and 100) it is the value each platform's accessibility hears: the DOM's attribute, UIKit's `accessibilityValue` as a percentage, AppKit's value with its minimum and maximum. `aria-valuetext` (`accessibilityValueText`) is spoken instead where it is set."
+    },
+    {
+      "id": 257,
+      "name": "accessibilityValueMin",
+      "kind": "str",
+      "_comment": "@ref LLP 1116 D8: ARIA's `aria-valuemin`, as `accessibilityValueNow`."
+    },
+    {
+      "id": 258,
+      "name": "accessibilityValueMax",
+      "kind": "str",
+      "_comment": "@ref LLP 1116 D8: ARIA's `aria-valuemax`, as `accessibilityValueNow`."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",

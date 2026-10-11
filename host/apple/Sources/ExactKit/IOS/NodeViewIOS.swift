@@ -1183,6 +1183,10 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             // `role="img"` (an svg's) is one labelled image, as on the web (habits F16).
             isAccessibilityElement = authoredLabel != nil
             if authoredLabel != nil { accessibilityTraits.insert(.image) } else { accessibilityTraits.remove(.image) }
+        } else if rangeRole != nil {
+            // A range role is one element and its value (LLP 1116 D8).
+            isAccessibilityElement = true
+            accessibilityValue = rangeValueText
         }
         if kind == "image", let src = props["imageSource"], src != imageSource { loadImage(src) }
         if kind == "image", props["imageSource"] == nil, imageSource != nil {

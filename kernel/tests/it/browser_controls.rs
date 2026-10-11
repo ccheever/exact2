@@ -297,6 +297,133 @@ fn controls_without_a_host_intrinsic_use_chromes_bare_defaults() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+/// A determinate `progress` (`value` set) in each placement, its host
+/// reporting a size of its own (UIKit's bar is 4 points tall).
+fn progress_laid_out(context: Context, variant: Variant) -> Kernel {
+    let mut root = rows(context.root());
+    root.push((StyleId::Width, n(400.0)));
+    let item = rows(&context.item(variant.css()));
+    let mut ops = vec![
+        Op::CreateView {
+            id: 1,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id: 1,
+            patch: Box::new(props(&root)),
+        },
+        Op::CreateView {
+            id: 2,
+            node_type: NodeType::Control,
+        },
+        Op::SetStyle {
+            id: 2,
+            patch: Box::new(props(&item)),
+        },
+    ];
+    for (prop, value) in [(PropId::Type, "progress"), (PropId::Value, "0.5")] {
+        ops.push(Op::SetProp {
+            id: 2,
+            prop,
+            value: PropValue::Str(value.into()),
+        });
+    }
+    ops.extend([
+        Op::SetChildren {
+            id: 1,
+            children: vec![2],
+        },
+        Op::AttachRoot { id: 1 },
+    ]);
+    let mut kernel = Kernel::with_monospace();
+    kernel.apply(0, 1, &ops).unwrap();
+    kernel.set_intrinsic_size(2, Some((300.0, 4.0))).unwrap();
+    kernel
+        .compute_layout(1, Offer::definite(800.0, 600.0))
+        .unwrap();
+    kernel
+}
+
+/// LLP 1116 D8: a determinate `progress` is Chrome's `<progress>` box in
+/// every placement. Its UA sheet's `width: 10em; height: 1em; box-sizing:
+/// border-box` are specified sizes, so a flex column or a grid keeps them
+/// where it stretches a range, and a host's own size does not move them.
+#[test]
+fn a_determinate_progress_is_chromes_ua_box_in_every_placement() {
+    let mut failures = Vec::new();
+    for context in Context::ALL {
+        for variant in Variant::ALL {
+            let kernel = progress_laid_out(context, variant);
+            let (width, height) = PROGRESS[context as usize][variant as usize];
+            failures.extend(mismatches(
+                &format!("progress {} {}", context.name(), variant.name()),
+                &kernel,
+                &[(2, [0.0, 0.0, width, height])],
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// The bar's `em`s follow its font size, and a `value` given or taken makes
+/// a `progress` the bar or the 20 × 20 activity indicator again.
+#[test]
+fn a_progress_bar_follows_its_font_size_and_its_value() {
+    let ops = [
+        Op::CreateView {
+            id: 1,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id: 1,
+            patch: Box::new(props(&rows("width:400px"))),
+        },
+        Op::CreateView {
+            id: 2,
+            node_type: NodeType::Control,
+        },
+        Op::SetProp {
+            id: 2,
+            prop: PropId::Type,
+            value: PropValue::Str("progress".into()),
+        },
+        Op::SetChildren {
+            id: 1,
+            children: vec![2],
+        },
+        Op::AttachRoot { id: 1 },
+    ];
+    let mut kernel = Kernel::with_monospace();
+    kernel.apply(0, 1, &ops).unwrap();
+    let size = |k: &mut Kernel| {
+        k.compute_layout(1, Offer::definite(800.0, 600.0)).unwrap();
+        let f = k.node(2).unwrap().frame;
+        (f.width, f.height)
+    };
+    assert_eq!(size(&mut kernel), (20.0, 20.0), "no value: the indicator");
+    let value = |v: &str| Op::SetProp {
+        id: 2,
+        prop: PropId::Value,
+        value: PropValue::Str(v.into()),
+    };
+    kernel.apply(1, 2, &[value("0.25")]).unwrap();
+    assert_eq!(size(&mut kernel), (160.0, 16.0), "a value: the bar");
+    kernel.apply(2, 3, &[value("0.5")]).unwrap();
+    assert_eq!(size(&mut kernel), (160.0, 16.0));
+    let font = Op::SetStyle {
+        id: 1,
+        patch: Box::new(props(&rows("width:400px;font-size:20px"))),
+    };
+    kernel.apply(3, 4, &[font]).unwrap();
+    assert_eq!(size(&mut kernel), (200.0, 20.0), "10em by 1em");
+    let clear = Op::ClearProp {
+        id: 2,
+        prop: PropId::Value,
+    };
+    kernel.apply(4, 5, &[clear]).unwrap();
+    assert_eq!(size(&mut kernel), (20.0, 20.0));
+}
+
 #[test]
 fn an_auto_width_control_at_the_document_root_shrinks_to_its_intrinsic() {
     let ops = [
@@ -768,6 +895,18 @@ const DATETIME_LOCAL: [[(f32, f32); 10]; 6] = [
     [(400.0, 21.0), (300.0, 21.0), (300.0, 21.0), (400.0, 200.0), (320.0, 41.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 21.0), (300.0, 21.0)],
     [(240.0, 21.0), (300.0, 21.0), (240.0, 21.0), (240.0, 120.0), (320.0, 41.0), (240.0, 40.0), (240.0, 40.0), (240.0, 10.0), (240.0, 21.0), (240.0, 21.0)],
     [(400.0, 21.0), (300.0, 21.0), (300.0, 21.0), (400.0, 200.0), (320.0, 41.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 21.0), (300.0, 21.0)],
+];
+// `<progress value=0.5>` (no `max`), recorded the same way from Chrome
+// 154.0 (macOS, headless) on 2026-10-10 (LLP 1116 D8): every context the
+// same, as its UA width and height are specified, not intrinsic.
+#[rustfmt::skip]
+const PROGRESS: [[(f32, f32); 10]; 6] = [
+    [(160.0, 16.0), (300.0, 16.0), (160.0, 20.0), (160.0, 16.0), (300.0, 20.0), (160.0, 40.0), (160.0, 40.0), (160.0, 10.0), (160.0, 16.0), (160.0, 16.0)],
+    [(160.0, 16.0), (300.0, 16.0), (160.0, 20.0), (160.0, 16.0), (300.0, 20.0), (160.0, 40.0), (160.0, 40.0), (160.0, 10.0), (160.0, 16.0), (160.0, 16.0)],
+    [(160.0, 16.0), (300.0, 16.0), (160.0, 20.0), (160.0, 16.0), (300.0, 20.0), (160.0, 40.0), (160.0, 40.0), (160.0, 10.0), (160.0, 16.0), (160.0, 16.0)],
+    [(160.0, 16.0), (300.0, 16.0), (160.0, 20.0), (160.0, 16.0), (300.0, 20.0), (160.0, 40.0), (160.0, 40.0), (160.0, 10.0), (160.0, 16.0), (160.0, 16.0)],
+    [(160.0, 16.0), (300.0, 16.0), (160.0, 20.0), (160.0, 16.0), (300.0, 20.0), (160.0, 40.0), (160.0, 40.0), (160.0, 10.0), (160.0, 16.0), (160.0, 16.0)],
+    [(160.0, 16.0), (300.0, 16.0), (160.0, 20.0), (160.0, 16.0), (300.0, 20.0), (160.0, 40.0), (160.0, 40.0), (160.0, 10.0), (160.0, 16.0), (160.0, 16.0)],
 ];
 #[rustfmt::skip]
 const SELECT: [[(f32, f32); 10]; 6] = [

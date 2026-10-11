@@ -112,6 +112,8 @@ final class ControlHost: NSObject {
     /// Each `progress`'s activity indicator (ProgressIOS.swift): a view,
     /// not a control, so beside `controls`.
     var spinners: [UInt32: UIActivityIndicatorView] = [:]
+    /// Each determinate `progress`'s bar (LLP 1116 D8), beside them.
+    var bars: [UInt32: UIProgressView] = [:]
     /// Each native button's face as the runner last gave it. A face is the
     /// control's viewless contents, which change only in a batch that says
     /// so (`Batch.controls`), and its own props, which change only in a
@@ -327,6 +329,8 @@ final class ControlHost: NSObject {
         controls.removeAll()
         for spinner in spinners.values { spinner.removeFromSuperview() }
         spinners.removeAll()
+        for bar in bars.values { bar.removeFromSuperview() }
+        bars.removeAll()
         reported.removeAll()
         kinds.removeAll()
         menus.removeAll()

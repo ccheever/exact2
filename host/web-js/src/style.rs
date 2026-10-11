@@ -72,9 +72,19 @@ pub fn can_be(plan: &Plan, code: &[u8], used: &dyn Fn(&str) -> bool) -> bool {
 
 /// Props whose presence decides the element's tag: a dynamic one is given a
 /// sample value when the tag is computed (the live host fixes the tag from
-/// the value at creation; the JS target from its presence).
-fn decides_tag(p: PropId) -> bool {
+/// the value at creation; the JS target from its presence). A `progress`'s
+/// `value` is one: with it HTML's `<progress>` bar, without it the drawn
+/// ring (LLP 1116 D8).
+fn decides_tag(plan: &Plan, node: &exact_plan::NodesRow, p: PropId) -> bool {
     matches!(p, PropId::Href | PropId::SemanticTag)
+        || p == PropId::Value
+            && node.bindings.iter().any(|b| {
+                let row = plan.binding(b);
+                row.kind == BindingKind::Prop
+                    && row.id == PropId::Type as u16
+                    && literal(plan, plan.code(row.expr))
+                        .is_some_and(|v| v.as_str() == Some("progress"))
+            })
 }
 
 fn sample(kind: PropKind) -> PropValue {
@@ -145,7 +155,7 @@ pub fn project(
                 }
                 (BindingKind::Prop, None) => {
                     let prop = PropId::from_wire(row.id).ok_or("unknown prop")?;
-                    if decides_tag(prop) {
+                    if decides_tag(plan, node, prop) {
                         ops.push(Op::SetProp {
                             id: view(i),
                             prop,
@@ -237,7 +247,9 @@ pub fn project(
         for b in node.bindings.iter() {
             let row = plan.binding(b);
             if row.kind == BindingKind::Prop && literal(plan, plan.code(row.expr)).is_none() {
-                if let Some(prop) = PropId::from_wire(row.id).filter(|p| decides_tag(*p)) {
+                if let Some(prop) =
+                    PropId::from_wire(row.id).filter(|p| decides_tag(plan, node, *p))
+                {
                     if let Ok(name) = prop_name(NodeType::from_wire(node.node_type).unwrap(), prop)
                     {
                         parts.props.remove(&name);

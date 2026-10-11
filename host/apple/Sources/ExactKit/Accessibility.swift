@@ -83,6 +83,28 @@ extension NodeView {
         }
     }
     static let ariaAttributes = ["AXInvalid", "AXHasPopup", "AXPopupValue", "AXARIACurrent"]
+    /// ARIA's range roles (LLP 1116 D8): a value is `aria-valuenow` between
+    /// `aria-valuemin` and `aria-valuemax`, and the children are
+    /// presentational, so the node is one element. A control's own view
+    /// (a `progress`'s indicator) says its role and value itself.
+    static let rangeRoles: Set<String> = ["progressbar", "slider", "meter", "scrollbar", "spinbutton"]
+    var rangeRole: String? { kind == "control" ? nil : props["accessibilityRole"].flatMap { Self.rangeRoles.contains($0) ? $0 : nil } }
+    /// A range role's numbers, ARIA's 0 and 100 where a bound is unsaid;
+    /// nil with no readable `aria-valuenow` or another role.
+    var rangeNumbers: (now: Double, min: Double, max: Double)? {
+        let number = { (key: String) in self.props[key].flatMap { Double($0.trimmingCharacters(in: .whitespaces)) }.flatMap { $0.isFinite ? $0 : nil } }
+        guard rangeRole != nil, let now = number("accessibilityValueNow") else { return nil }
+        return (now, number("accessibilityValueMin") ?? 0, number("accessibilityValueMax") ?? 100)
+    }
+    /// What the platform speaks for a range role: `aria-valuetext`, else
+    /// its value as a percentage of its bounds, as UIKit's progress view and
+    /// slider speak theirs ("30%"); nil with neither.
+    var rangeValueText: String? {
+        if rangeRole != nil, let text = props["accessibilityValueText"], !text.isEmpty { return text }
+        guard let n = rangeNumbers else { return nil }
+        let fraction = n.max > n.min ? (Swift.min(Swift.max(n.now, n.min), n.max) - n.min) / (n.max - n.min) : 0
+        return NumberFormatter.localizedString(from: NSNumber(value: fraction), number: .percent)
+    }
     var accessibilityVisible: Bool {
         guard paragraphOwner.window != nil, !inert, accessibilityExposed else { return false }
         #if os(macOS)
