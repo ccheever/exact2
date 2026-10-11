@@ -183,7 +183,7 @@ describe('ST-3: the Automations icon buttons show the reference tooltips', () =>
   test('each button hands its frame to the window layer as a 600 ms top tooltip on hover and keyboard focus', async () => {
     const button = await component('thread-automations.contract', 'AutomationButton');
     expect(button).toContain('  inject\n    rem: number\n    hoverTipAt: action');
-    expect(button).toContain('hoverTipAt(hoverTipAtFrame(testKey, "tooltip", tip, [], "top", "center", frame(testKey), (floor(length(tip) / 48) + 1) * rem + 0.625 * rem, `${testKey}-tooltip`), "trigger", on)');
+    expect(button).toContain('hoverTipAt(hoverTipAtFrame(testKey, "tooltip", tip, [], "top", align, frame(testKey), (floor(length(tip) / 48) + 1) * rem + 0.625 * rem, `${testKey}-tooltip`), "trigger", on)');
     expect(button).toContain('action hover(over: bool)\n    hovered = over\n    show(over)');
     expect(button).toContain('button id=testKey press=press hover=hover focus=show(true) blur=show(false) disabled=disabled aria-label=label testId=testKey');
     // No AppKit help tag beside the drawn tooltip.
@@ -194,8 +194,14 @@ describe('ST-3: the Automations icon buttons show the reference tooltips', () =>
   });
   test('the words are the reference TooltipPopups: Manage scheduled tasks, Edit automation, Run now', async () => {
     const section = await component('thread-automations.contract', 'ThreadAutomationsSection');
-    const tips = [...section.matchAll(/AutomationButton\(icon="([\w-]+)", label=[^,]+, tip="([^"]+)"/g)].map(match => [match[1], match[2]]);
-    expect(tips).toEqual([['settings-2', 'Manage scheduled tasks'], ['pencil', 'Edit automation'], ['play', 'Run now']]);
+    const tips = [...section.matchAll(/AutomationButton\(icon="([\w-]+)", label=[^,]+, tip="([^"]+)", align="(\w+)"/g)].map(match => [match[1], match[2], match[3]]);
+    // Manage sits at the panel's right edge: its tooltip ends at the button's right edge, where Base UI's shift keeps it
+    // inside the window (the layer has no shift, X17 #112); the row buttons' tooltips fit centred.
+    expect(tips).toEqual([['settings-2', 'Manage scheduled tasks', 'end'], ['pencil', 'Edit automation', 'center'], ['play', 'Run now', 'center']]);
+    // The layer's end placement: a 22.5rem row ending at the trigger's right edge, its bubble at the row's end.
+    const layer = await component('hover-layer.contract', 'HoverLayer');
+    expect(layer).toContain('derive left = tip.align == "start" ? tip.x : (tip.align == "end" ? tip.x + tip.width - 22.5 * rem : tip.x + tip.width / 2 - 11.25 * rem)');
+    expect(layer).toContain('derive justify = tip.align == "start" ? "flex-start" : (tip.align == "end" ? "flex-end" : "center")');
   });
 });
 
