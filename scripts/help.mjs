@@ -115,16 +115,15 @@ Ports    none to choose. web: headless Chrome over a pipe; the page on 127.0.0.1
     flags: DRIVE.filter(naming(DRIVE_FIRST, true)),
     more: DRIVE.filter(naming(DRIVE_FIRST, false)),
     internal: ['--test <file>', ...DRIVE_INTERNAL],
-    body: `Launches the app (web builds it first; ios and macos when missing or stale, saying so on
-stderr), runs each op, one quoted argument each, on the agent's clock, prints each reply and
-closes it. Without --storage, storage is refused.
+    body: `Launches the app (building it first when missing or stale, saying so on stderr), runs each
+op, one quoted argument each, on the agent's clock, prints each reply and closes it. Without
+--storage, storage is refused.
 Ops      a target is a testId, else a view's exact text or label
   tree [<target>] · tree --ax · state [<path>] · logs · layout [<target>]
   tap <target> [contextmenu|dblclick|hover|drag <dx> <dy>|…]
   type <target> <text> · type <target> key <Name>   (a select, date or checkbox: its value)
   clock data · clock settle · clock +<ms> [real]    land what is in flight · end transitions
-  check [dark|both]                                 what is wrong with the screen, in text: before a screenshot
-  screenshot <file.png> [window]                    window: with the platform's bars
+  check [dark|both] · screenshot <file.png> [window]  what is wrong, in text, before a picture · window: bars
   prefer <feature> <value> · perf [<target>] · resize <w>x<h> · close · fail|pass fetch <prefix>
 Runs     to completion; each drive launches the app anew (--storage keeps its data).`,
     bodyAll: `Trace    trace <file> reads a saved development trace. Every op's forms: docs/contract-for-agents.md
