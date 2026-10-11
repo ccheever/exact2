@@ -260,6 +260,43 @@ final class NativeFieldsMacTests: XCTestCase {
             XCTAssertFalse(node.fieldFocused)
         }
     }
+    /// LLP 1104 D6: `outline: none` takes every ring off a focused field,
+    /// Exact's and AppKit's, native or bare, single-line or not, while the
+    /// field still takes the focus; unset, the ring is back at once.
+    func testOutlineNoneDrawsNoRingOnAFocusedField() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "exact-field-outline")
+        defer { session.destroy() }
+        func ring(_ node: NodeView) -> CALayer? { node.layer?.sublayers?.first { $0.name == "exact.fieldFocus" } }
+        for kind in ["textarea", "input"] {
+            for bare in [false, true] {
+                let what = "\(bare ? "bare" : "native") \(kind)"
+                let node = NodeView(id: 1, kind: kind, presenter: session.presenter)
+                node.frame = NSRect(x: 0, y: 0, width: 240, height: kind == "input" ? 40 : 100)
+                node.wantsLayer = true
+                let kept: NodeStyle = bare ? ["appearance": .string("none")] : [:]
+                var quiet = kept
+                quiet["outline_style"] = .string("none")
+                node.applyStyle(quiet)
+                let editor: NSView = try XCTUnwrap(node.textArea ?? node.field)
+                let window = NSWindow(contentRect: node.bounds, styleMask: [.titled], backing: .buffered, defer: false)
+                window.isReleasedWhenClosed = false
+                defer { window.close() }
+                window.contentView = node
+                XCTAssertTrue(window.makeFirstResponder(editor), "\(what) takes the focus")
+                XCTAssertNil(ring(node), "\(what): no Exact ring above the editor")
+                XCTAssertFalse(node.fieldFocused, "\(what): no Exact ring on its border")
+                XCTAssertEqual(editor.focusRingType, .none, "\(what): no AppKit ring")
+                XCTAssertEqual(node.textAreaScroll?.focusRingType ?? .none, .none, "\(what): no ring on the scroll view")
+                node.applyStyle(kept)
+                XCTAssertEqual(ring(node) != nil || node.fieldFocused || editor.focusRingType == .default, true, "\(what) keeps a ring without it")
+                XCTAssertNotEqual(editor.focusRingType, .none)
+                node.applyStyle(quiet)
+                XCTAssertNil(ring(node))
+                XCTAssertFalse(node.fieldFocused)
+            }
+        }
+    }
     func testBareFieldsRingFollowsTheWholeAuthoredBoxAndClearsOnBlur() throws {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession(label: "bare-field-ring")

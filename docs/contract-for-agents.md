@@ -2275,6 +2275,14 @@ is a literal, resolved from the class then the field's own attribute; to
 switch it, write `when` with two fields. Excluded input types and the Markdown
 editor keep the bare text-input box or their existing specialised control.
 
+A focused field shows the platform's ring: the OS's on a native field, Exact's
+on a bare one (LLP 1104 D6). `outline="none"` (or `outline-style="none"`)
+takes it off on every host, for a field whose focus you draw yourself, such as
+a ring on the card around a composer: draw that from the field's `focus` and
+`blur` handlers, since a field with no visible focus fails WCAG 2.4.7. Tab
+still reaches the field and its accessibility is unchanged. Only `none` is
+admitted, and only on a text field or a `textarea`.
+
 `textarea rows=3` sets its preferred height in lines (default 2); explicit CSS
 height and `field-sizing="content"` override it. `maxlength=80` on text inputs
 and textareas limits user edits in UTF-16 units; authored `value` updates are
