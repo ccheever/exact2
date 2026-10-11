@@ -490,23 +490,33 @@ component MobileRouteContent
           button press=chooseNewProject
             text "Choose project"
     else when routeName == "threadModel" or routeName == "newTaskModel"
-      row gap=14 padding=14
-        input value=modelQuery input=editModelQuery placeholder="Search models" flex=1 min-width=0 aria-label="Search models"
-        each menuOwner in [`${routeId}:${modelFilterOwner}`] key=menuOwner
-          button popovertarget=`${menuOwner}:filters` aria-label="filter"
-            t3-symbol symbol-name=(modelData.filter != "" or modelLegacy ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease") point-size=20 symbol-tint=composerLook.icon width=20 height=20
-          column id=`${menuOwner}:filters` popover="auto" role="menu" aria-label="Model filters" position="absolute" top=0 left=0 min-width=240 padding=7 border-radius=12 background-color=composerLook.groupedCard
-            button popovertarget=`${menuOwner}:providers` role="menuitem" padding=10.5 display="flex" gap=10.5 align-items="center" text-align="left"
-              text "Provider" flex=1 font-size=16 line-height="22px" color=composerLook.foreground
-              text "›" aria-hidden=true color=composerLook.muted
-            when modelData.hasLegacy
-              button press=toggleLegacy(menuOwner, not modelLegacy) popovertarget=`${menuOwner}:filters` popovertargetaction="hide" role="menuitemcheckbox" aria-checked=modelLegacy padding=10.5 text-align="left"
-                text "Show legacy models" font-size=16 line-height="22px" color=composerLook.foreground
-            column id=`${menuOwner}:providers` popover="auto" role="menu" position="absolute" top=0 left=0 position-area="right span-bottom" min-width=240 padding=7 border-radius=12 background-color=composerLook.groupedCard
-              each choice in modelData.filters key=choice.id
-                button press=chooseModelFilter(menuOwner, choice.id) popovertarget=`${menuOwner}:filters` popovertargetaction="hide" role="menuitemradio" aria-checked=choice.selected disabled=choice.disabled padding=10.5 text-align="left"
-                  text choice.label font-size=16 line-height="22px" color=composerLook.foreground
-      ComposerSettings(data=modelData, dark=appearance.scheme == "dark", action=modelAction, openOptions=openModelOption, openRuntime=openRuntime, colors=composerLook)
+      when layout.liquidGlass
+        // The port owns only a 48pt UIKit toolbar in this route's public controller.
+        // This zero-height configuration anchor never covers the list or lifted controls.
+        when focused
+          each menuOwner in [`${routeId}:${modelFilterOwner}`] key=menuOwner
+            t3-model-search route-key=routeId owner=menuOwner visible=focused query=modelQuery configuration=modelData.searchConfiguration
+              search-foreground=composerLook.foreground search-muted=composerLook.muted
+              change=editModelQuery(menuOwner) message=chooseModelFilter(menuOwner) press=toggleLegacy(menuOwner, not modelLegacy)
+              position="absolute" width="100%" height=0 pointer-events="none" aria-hidden=true
+      else
+        row gap=14 padding=14
+          input value=modelQuery input=editModelQuery(`${routeId}:${modelFilterOwner}`) placeholder="Search models" flex=1 min-width=0 aria-label="Search models"
+          each menuOwner in [`${routeId}:${modelFilterOwner}`] key=menuOwner
+            button popovertarget=`${menuOwner}:filters` aria-label="filter"
+              t3-symbol symbol-name=(modelData.filter != "" or modelLegacy ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease") point-size=20 symbol-tint=composerLook.icon width=20 height=20
+            column id=`${menuOwner}:filters` popover="auto" role="menu" aria-label="Model filters" position="absolute" top=0 left=0 min-width=240 padding=7 border-radius=12 background-color=composerLook.groupedCard
+              button popovertarget=`${menuOwner}:providers` role="menuitem" padding=10.5 display="flex" gap=10.5 align-items="center" text-align="left"
+                text "Provider" flex=1 font-size=16 line-height="22px" color=composerLook.foreground
+                text "›" aria-hidden=true color=composerLook.muted
+              when modelData.hasLegacy
+                button press=toggleLegacy(menuOwner, not modelLegacy) popovertarget=`${menuOwner}:filters` popovertargetaction="hide" role="menuitemcheckbox" aria-checked=modelLegacy padding=10.5 text-align="left"
+                  text "Show legacy models" font-size=16 line-height="22px" color=composerLook.foreground
+              column id=`${menuOwner}:providers` popover="auto" role="menu" position="absolute" top=0 left=0 position-area="right span-bottom" min-width=240 padding=7 border-radius=12 background-color=composerLook.groupedCard
+                each choice in modelData.filters key=choice.id
+                  button press=chooseModelFilter(menuOwner, choice.id) popovertarget=`${menuOwner}:filters` popovertargetaction="hide" role="menuitemradio" aria-checked=choice.selected disabled=choice.disabled padding=10.5 text-align="left"
+                    text choice.label font-size=16 line-height="22px" color=composerLook.foreground
+      ComposerSettings(data=modelData, dark=appearance.scheme == "dark", action=modelAction, openOptions=openModelOption, openRuntime=openRuntime, colors=composerLook, bottomClearance=(layout.liquidGlass ? layout.safeBottom + 68 : 7))
     else when routeName == "threadModelOption" or routeName == "newTaskModelOption"
       match first(filter(modelData.options, option => option.id == modelOption))
         case some(option)

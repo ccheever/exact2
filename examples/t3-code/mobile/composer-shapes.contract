@@ -46,6 +46,7 @@ shape ComposerSettingsSnapshot
   filter: string
   showLegacy: bool
   hasLegacy: bool
+  searchConfiguration: string
   empty: string
   pending: bool
   models: list<ComposerCatalogRow>
