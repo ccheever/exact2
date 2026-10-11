@@ -9,11 +9,12 @@
 // lifecycle (browser-recording.ts, the client's one `BrowserRecordings`: the Capture button's own recordings, so a tab
 // the agent records shows Stop recording and a person's stop ends the agent's recording, as in the reference), and its
 // outcome goes back to the module (`browserAutomation` with `answer`), which answers `previewAutomation.respond`. The
-// work outlives the answer that started it: every module call goes through the newest answer's native.
+// work runs in the window's queued send for it (below), not in the shell's answer that saw the request.
 import type { T3Client } from './client';
 import { obj, str, type Obj } from './domain';
 import { letGo } from './let-go';
-import { captureHost, captureNativeCall } from './browser-capture';
+import { adoptCaptureNative, captureHost, captureNativeCall } from './browser-capture';
+import type { Native } from './protocol';
 import {
   RECORDING_TRANSFER_ERROR_TAGS, resolveBrowserRecordingStopTarget, uploadBrowserRecording, type BrowserRecordings, type RecordingArtifact, type RecordingUploader,
 } from './browser-recording';
@@ -103,26 +104,45 @@ function nativeDeps(client: T3Client, request: RecordingRequest): RecordingDeps 
   };
 }
 
-const started = new WeakMap<T3Client, Set<string>>();
-/** automationPrepare: each handed-over request runs once; its answer goes back to the module. */
-export function serveRecordingRequests(client: T3Client): void {
-  const requests = readRecordingRequests(client.presentation);
-  let seen = started.get(client);
-  if (!seen) { seen = new Set(); started.set(client, seen); }
+// ── The window's queued send (app.contract `automationRecording`) ───────────────────────────────
+// A native call belongs to the answer whose continuation makes it: one an answer makes after a newer one let it go is
+// refused, and one made after its answer was given waits for the next answer to settle. So the lifecycle cannot run
+// detached from the shell's answers, which come and go with every status. It runs in a send of its own: the panel
+// projects a serial that grows with each request the module hands over (`automationRecordingSerial`), the window's
+// task sends `shelllocal:surface-browser-automation-recording` on a queued mutation (no send replaces another), and that
+// send's answer runs every listed request to its end (`serveRecordingRequests`), as the Capture button's send runs its
+// own recording.
+type Served = { announced: Set<string>; serial: number; running: Map<string, Promise<void>>; done: Set<string> };
+const served = new WeakMap<T3Client, Served>();
+function servedOf(client: T3Client): Served {
+  let state = served.get(client);
+  if (!state) { state = { announced: new Set(), serial: 0, running: new Map(), done: new Set() }; served.set(client, state); }
+  return state;
+}
+/** The panel's projection (`shell.panel.automationRecording`): bumps once for each request the module newly lists. */
+export function automationRecordingSerial(client: T3Client): number {
+  const state = servedOf(client), listed = new Set(readRecordingRequests(client.presentation).map(request => request.key));
+  for (const key of listed) if (!state.announced.has(key)) { state.announced.add(key); state.serial++; }
+  for (const key of [...state.announced]) if (!listed.has(key)) state.announced.delete(key); // settled: no longer listed
+  return state.serial;
+}
+
+/** The queued send's answer: every listed request runs once, to its end, and its outcome goes to the module. */
+export async function serveRecordingRequests(client: T3Client, native: Native): Promise<void> {
+  adoptCaptureNative(client, native); // this send's answer lives until the work ends: its native carries the calls
+  const state = servedOf(client), requests = readRecordingRequests(client.presentation);
   const listed = new Set(requests.map(request => request.key));
-  for (const key of [...seen]) if (!listed.has(key)) seen.delete(key); // settled: the module no longer lists it
+  for (const key of [...state.done]) if (!listed.has(key)) state.done.delete(key);
   for (const request of requests) {
-    if (seen.has(request.key)) continue;
-    seen.add(request.key);
-    void (async () => {
+    if (state.running.has(request.key) || state.done.has(request.key)) continue;
+    state.running.set(request.key, (async () => {
       let answer: RecordingAnswer;
       try { answer = await runRecordingRequest(request, nativeDeps(client, request)); }
       catch { answer = { ok: false, error: operationError({ requestId: request.requestId, operation: request.operation, environmentId: request.environmentId, threadId: request.threadId, tabId: request.tabId }) }; }
-      // The newest answer's native: the one that saw the request may have been let go meanwhile.
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try { await captureNativeCall(client, { op: 'browserAutomation', plan: { answer: request.key, ...answer } as Obj }); return; }
-        catch (error) { if (!letGo(error)) return; }
-      }
-    })();
+      try { await captureNativeCall(client, { op: 'browserAutomation', plan: { answer: request.key, ...answer } as Obj }); }
+      catch (error) { if (letGo(error)) throw error; }
+      finally { state.running.delete(request.key); state.done.add(request.key); }
+    })());
   }
+  await Promise.all([...state.running.values()]);
 }

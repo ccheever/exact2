@@ -36,6 +36,7 @@ import { emptyNavigationView, navigationLocal, navigationNow, navigationPrepare,
 import { browserHistory } from './browser-history';
 import { environmentHostname } from './browser-targets';
 import { adoptAutomationTabs, adoptedAutomationNotes, automationOverlay, automationPrepare } from './browser-automation';
+import { serveRecordingRequests } from './browser-automation-recording';
 
 // ── Profiles (browser-profiles.ts, part 4) ─────────────────────────────────────────────────────────
 export { DEFAULT_BROWSER_PROFILE_ID };
@@ -389,6 +390,7 @@ export async function browserLocal(client: T3Client, native: Native, state: Pane
   if (op.startsWith('artifact-')) return artifactLocal(client, native, op.slice(9), id, value);
   if (op.startsWith('mini-')) return browserMiniLocal(client, native, op.slice(5), id, tabId => reopenBrowserTab(client, state, tabId));
   if (op === 'annotation-held') return annotationAttachedToDraft(client); // part 3: an annotation's ⌘Return the window could not send
+  if (op === 'automation-recording') { await serveRecordingRequests(client, native); return ''; } // the agent's recording tools (app.contract automationRecording)
   if (op === 'show') return showPreview(client, native, state); // ⇧⌘J (browser-navigation.ts)
   const surface = state.surfaces.find(entry => entry.id === browserSurfaceId(id) && entry.kind === 'browser');
   const ref = surface?.browser ? parseScopedThreadKey(surface.browser.threadKey) : null;

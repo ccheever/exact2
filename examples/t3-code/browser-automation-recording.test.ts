@@ -9,8 +9,8 @@ import {
   BrowserRecordings, PreviewAutomationRecordingDeadlineExpiredError, PreviewAutomationRecordingTooLargeError, PreviewAutomationRecordingTransferError,
   RECORDING_UPLOAD_MAX_BYTES, uploadBrowserRecording, type RecordingHost, type RecordingUploader,
 } from './browser-recording';
-import { readRecordingRequests, recordingHostError, runRecordingRequest, serveRecordingRequests, type RecordingRequest } from './browser-automation-recording';
-import { adoptCaptureNative } from './browser-capture';
+import { readFileSync } from 'node:fs';
+import { automationRecordingSerial, readRecordingRequests, recordingHostError, runRecordingRequest, serveRecordingRequests, type RecordingRequest } from './browser-automation-recording';
 import type { T3Client } from './client';
 import type { Native } from './protocol';
 
@@ -166,22 +166,41 @@ describe('uploadBrowserRecording', () => {
   });
 });
 
-describe('serveRecordingRequests', () => {
-  it('runs each handed-over request once and sends its outcome to the module through the newest native', async () => {
+describe('the window\'s send for the handed-over requests', () => {
+  const nativeLog = (log: unknown[]): Native => ({ available: true, watch() {}, later: async (value: unknown) => { log.push(value); return { ok: true, generation: 0, value: { accepted: true } }; } } as unknown as Native);
+  it('the panel\'s serial bumps once for each request the module newly lists', () => {
+    const client = { presentation: {}, local: {}, revision: 0 } as unknown as T3Client & { presentation: unknown };
+    expect(automationRecordingSerial(client)).toBe(0);
+    client.presentation = { browserAutomation: { recordings: [request('recordingStart')] } };
+    expect(automationRecordingSerial(client)).toBe(1);
+    expect(automationRecordingSerial(client)).toBe(1); // projected again: no new request
+    client.presentation = { browserAutomation: { recordings: [request('recordingStart'), request('recordingStop')] } };
+    expect(automationRecordingSerial(client)).toBe(2);
+    client.presentation = { browserAutomation: { recordings: [] } };
+    expect(automationRecordingSerial(client)).toBe(2);
+  });
+
+  it('its answer runs each listed request once, to its end, and sends the outcome to the module through its own native', async () => {
     const stop = request('recordingStop');
     const client = { presentation: { browserAutomation: { recordings: [stop] } }, local: {}, revision: 0 } as unknown as T3Client;
-    const first: unknown[] = [], newest: unknown[] = [];
-    const native = (log: unknown[]): Native => ({ available: true, watch() {}, later: async (value: unknown) => { log.push(value); return { ok: true, generation: 0, value: { accepted: true } }; } } as unknown as Native);
-    adoptCaptureNative(client, native(first));
-    serveRecordingRequests(client);
-    adoptCaptureNative(client, native(newest)); // a newer answer arrived while the stop ran
-    serveRecordingRequests(client); // listed again before the module heard back: not run twice
-    await new Promise(resolve => setTimeout(resolve, 20));
-    const answers = [...first, ...newest].filter(sent => (sent as { op?: string }).op === 'browserAutomation');
-    expect(answers).toEqual([{ op: 'browserAutomation', plan: { answer: stop.key, ok: false, error: {
+    const first: unknown[] = [], second: unknown[] = [];
+    await serveRecordingRequests(client, nativeLog(first)); // awaited: the send's answer lives until the request settled
+    await serveRecordingRequests(client, nativeLog(second)); // listed again before the module's status caught up: not run twice
+    expect(first.filter(sent => (sent as { op?: string }).op === 'browserAutomation')).toEqual([{ op: 'browserAutomation', plan: { answer: stop.key, ok: false, error: {
       _tag: 'PreviewAutomationExecutionError',
       message: 'Preview automation request preview-recordingStop found no active recording for tab tab_1 on environment env-1 thread thread-1.',
       detail: { requestId: 'preview-recordingStop', environmentId: 'env-1', threadId: 'thread-1', tabId: 'tab_1' } } } }]);
-    expect(newest).toHaveLength(1);
+    expect(second).toEqual([]);
+  });
+
+  it('is the window\'s queued send, asked whenever the panel\'s serial passes the one it handled', () => {
+    const app = readFileSync(new URL('./app.contract', import.meta.url), 'utf8').split('\n');
+    const at = (text: string) => app.findIndex(line => line.trimStart().startsWith(text));
+    expect(app[at('mutation automationRecordingServed')]).toContain('as shape Change queue refreshes data');
+    expect(app[at('task automationRecording when')]).toBe('  task automationRecording when shell.panel.automationRecording > automationRecordingHandled key=shell.panel.automationRecording');
+    expect(app.slice(at('action automationRecordingNow'), at('action automationRecordingNow') + 3).map(line => line.trim())).toEqual([
+      'action automationRecordingNow', 'automationRecordingHandled = shell.panel.automationRecording',
+      'send automationRecordingServed = command("shelllocal:surface-browser-automation-recording", "", "", 0)']);
+    expect(readFileSync(new URL('./r4-surfaces-shapes.contract', import.meta.url), 'utf8')).toContain('  automationRecording: number');
   });
 });
