@@ -7,7 +7,7 @@ import type { T3Client } from './shared/client';
 import { arr, obj, str, type Activity, type Obj } from './shared/domain';
 import { toolCallLines, turnItemNeedsDetailFetch, turnItemOutputText } from './shared/timeline-item-detail';
 import { turnItemDetailView, turnItemIsOpen } from './shared/timeline-item-fetch';
-import { projectedWorkEntry, groupAction, collectToolFilePaths } from './shared/timeline-worklog';
+import { projectedWorkEntry, groupAction, collectToolFilePaths, formatSearchToolLabel } from './shared/timeline-worklog';
 import { preparationFailureRunId, workspacePreparationRetryRunIds } from './shared/r11-upstream-retry';
 
 export interface ThreadAnswerFile { id: string; name: string; image: boolean; url: string }
@@ -32,6 +32,9 @@ function workDisplayItem(item: Obj): Obj {
   const display = { ...item };
   // Pinned toolItemForDisplay omits command output even after the detail fetch.
   if (item.type === 'command_execution') delete display.output;
+  if (item.type === 'file_search' && Array.isArray(item.results)) display.results = item.results.map(result =>
+    result !== null && typeof result === 'object' && !Array.isArray(result)
+      ? ordered(obj(result), ['fileName', 'line', 'column', 'preview']) : result);
   return ordered({ ...display, ...(Object.hasOwn(item, 'source') ? { source: ordered(source, sourceFields) } : {}),
     ...(item.nativeItemRef ? { nativeItemRef: ordered(obj(item.nativeItemRef), ['driver', 'nativeId', 'strength']) } : {}),
     ...(Object.hasOwn(item, 'failure') ? { failure: ordered(failure, ['class', 'message', 'code', 'retryable', 'resetAt']) } : {}),
@@ -39,6 +42,7 @@ function workDisplayItem(item: Obj): Obj {
     'toolNonExecutionKind', 'toolSurface', 'toolIcon', 'toolSource', 'id', 'threadId', 'runId', 'nodeId', 'providerThreadId',
     'providerTurnId', 'nativeItemRef', 'parentItemId', 'ordinal', 'status', 'title', 'startedAt', 'completedAt', 'updatedAt',
     'type', 'source', 'targetThreadId', 'failure', 'retry', 'input', 'outputOmitted', 'outputIndicatesFailure', 'exitCode',
+    ...(item.type === 'file_search' ? ['pattern', 'results'] : []),
   ]);
 }
 
@@ -98,11 +102,16 @@ export function mobileThreadActivity(activity: Activity, row: Obj | undefined, c
     activity.label, [title ? `${title.charAt(0).toUpperCase()}${title.slice(1)}` : 'Command', str(original.input),
       JSON.stringify({ visibility: row.visibility, sourceThreadId: row.sourceThreadId, sourceItemId: row.sourceItemId,
         item: workDisplayItem(original) }, null, 2)], dark, toolSymbols[activity.icon] ?? 'terminal', activity.expandable === true) : '';
+  const iconURL = dark ? activity.iconDark ?? activity.iconLight ?? '' : activity.iconLight ?? activity.iconDark ?? '';
+  const searchCopy = original.type === 'file_search' && !iconURL && row ? nativeWorkConfiguration(client, activity.id, routeKey, expanded,
+    activity.label, [title ? `${title.charAt(0).toUpperCase()}${title.slice(1)}` : formatSearchToolLabel(original) ?? 'Searched files', str(original.pattern),
+      JSON.stringify({ visibility: row.visibility, sourceThreadId: row.sourceThreadId, sourceItemId: row.sourceItemId,
+        item: workDisplayItem(original) }, null, 2)], dark, toolSymbols[activity.icon] ?? 'wrench', activity.expandable === true) : '';
   return {
     id: activity.id, nativeWorkRow: prominentError && row ? nativeWorkConfiguration(client, activity.id, routeKey, false,
       warning ? `Usage limit reached.${reset ? ` Retry after ${reset}.` : ''}` : failureSummary,
       [failureSummary, str(failure.message), JSON.stringify({ visibility: row.visibility, sourceThreadId: row.sourceThreadId,
-        sourceItemId: row.sourceItemId, item: workDisplayItem(original) }, null, 2)], dark, 'exclamationmark.circle', false) : commandCopy,
+        sourceItemId: row.sourceItemId, item: workDisplayItem(original) }, null, 2)], dark, 'exclamationmark.circle', false) : commandCopy || searchCopy,
     nativeWorkDetail: false, nativeCommandDetail: commandCopy !== '' && call !== null, reasoningBlocks: [], answerPreview: answer ? questionAnswerPreview(answer) : '',
     hasAnswer: answer !== null && hasQuestionAnswer(answer), answerHistory: expanded && answer && row ? answerHistory(answer, client, row, now) : [], label: warning ? `Usage limit reached.${reset ? ` Retry after ${reset}.` : ''}`
       : prominentError ? failureSummary : activity.reasoning && expanded ? activity.status ?? 'Thought' : activity.label,
@@ -116,6 +125,6 @@ export function mobileThreadActivity(activity: Activity, row: Obj | undefined, c
     symbol: toolSymbols[activity.icon] ?? 'wrench', timestamp: prominentError ? dateLabel(activity.timestamp) : timestamp,
     prominentError, warning, call: call !== null, retryRunId,
     retryDisabled: !client.writable || client.busy || !!client.pending,
-    iconURL: dark ? activity.iconDark ?? activity.iconLight ?? '' : activity.iconLight ?? activity.iconDark ?? '',
+    iconURL,
   };
 }
