@@ -232,11 +232,18 @@ impl Parser {
             }
             TokenKind::Eof => Ok(()),
             other => {
-                // `if filter = "all"`: a comparison was meant.
-                let hint = if matches!(other, TokenKind::Punct("=")) {
-                    "; `==` compares, and only a statement assigns"
-                } else {
-                    ""
+                // `if filter = "all"`: a comparison was meant. `x = a if c else b`:
+                // Python's conditional. `save: action(string)`: a typed action prop.
+                let before = self.pos.checked_sub(1).map(|i| &self.tokens[i].kind);
+                let hint = match other {
+                    TokenKind::Punct("=") => "; `==` compares, and only a statement assigns",
+                    TokenKind::Ident(w) if w == "if" => {
+                        "; a value chosen by a condition is `cond ? a : b`"
+                    }
+                    TokenKind::Punct("(") if matches!(before, Some(TokenKind::Ident(w)) if w == "action") => {
+                        "; an action prop is declared `action`, and what it is called with is inferred"
+                    }
+                    _ => "",
                 };
                 self.err(
                     "syntax-expected-newline",
