@@ -32,6 +32,7 @@ mod fields;
 mod fonts;
 mod grouped;
 mod handlers;
+mod identity;
 mod keyframes;
 mod lint;
 mod media;
@@ -55,6 +56,7 @@ pub use dataset::{data_words, hatch_words};
 pub use error::LowerError;
 pub(crate) use error::{err, err_one};
 pub use fields::Profile;
+pub use identity::compiler_identity;
 pub use lint::lint;
 use lint::{unknown_attr, unknown_tag};
 pub use native::{is_module_tag, module_tags};
@@ -73,17 +75,6 @@ use exact_plan::{
 };
 use std::collections::BTreeMap;
 use std::path::Path;
-
-/// The compiler identity a plan carries: the crate version folded with the
-/// configuration digest (there is no configuration yet).
-pub fn compiler_identity() -> u64 {
-    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    for b in concat!("contract-lower ", env!("CARGO_PKG_VERSION")).bytes() {
-        h ^= b as u64;
-        h = h.wrapping_mul(0x0100_0000_01b3);
-    }
-    h
-}
 
 pub(crate) struct Lowerer<'a> {
     pub b: PlanBuilder,
