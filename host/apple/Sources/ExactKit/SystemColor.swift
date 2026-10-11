@@ -148,7 +148,7 @@ package enum SystemColor {
         var color: Native?
         if Thread.isMainThread {
             #if os(iOS) || os(tvOS)
-            color = appTint ?? .systemBlue
+            color = appTint ?? defaultTint
             #else
             color = NSColor.controlAccentColor
             #endif
@@ -162,6 +162,13 @@ package enum SystemColor {
         return c
     }
 
+    #if os(iOS) || os(tvOS)
+    /// The tint of a window that sets none: the app's `AccentColor` asset
+    /// (`NSAccentColorName`) as UIKit applies it, else system blue. A window
+    /// reads nil until one is set; any view resolves it. On main.
+    static let defaultTint: UIColor = UIView().tintColor
+    #endif
+
     /// The app's tint, one for every session (LLP 1095 D9): its key
     /// window's, else its first window's, among the app's own windows at
     /// the normal level (never the keyboard's, often key), the foreground
@@ -173,7 +180,8 @@ package enum SystemColor {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         let ordered = scenes.filter { $0.activationState == .foregroundActive } + scenes.filter { $0.activationState != .foregroundActive }
         let windows = ordered.flatMap(\.windows).filter { $0.windowLevel == .normal }
-        return (windows.first(where: \.isKeyWindow) ?? windows.first)?.tintColor
+        guard let window = windows.first(where: \.isKeyWindow) ?? windows.first else { return nil }
+        return window.tintColor ?? defaultTint
         #else
         return NSColor.controlAccentColor
         #endif
@@ -186,7 +194,7 @@ package enum SystemColor {
     static func tintPair(_ color: PlatformColor?) -> [[Double]]? {
         let color = color ?? {
             #if os(iOS) || os(tvOS)
-            return .systemBlue
+            return defaultTint
             #else
             return .controlAccentColor
             #endif
