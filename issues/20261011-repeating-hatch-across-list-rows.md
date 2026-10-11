@@ -17,8 +17,9 @@ stop positions (`gradient.rs:928`: "a stop's position is a percentage; lengths a
 
 So an author cannot paint one hatch at a fixed period under a run of rows of a virtualized list. Each row can draw its
 own stripes (an SVG `pattern` builds and paints), but each row's pattern starts at its own top. Unless the period
-divides every row's height, the stripes break at every row edge; with rows that wrap to a different number of lines,
-no row knows its offset in the run, so no per-row phase fixes it. In Chrome the same rows are hatched by one pattern on
+divides every row's height, the stripes break at every row edge. A per-row phase would need each row's offset in the
+list kept current as the rows above it mount, wrap and resize; `resize=fit` hears a box's own size, not its moves, so
+with rows that wrap to different numbers of lines no phase stays right. In Chrome the same rows are hatched by one pattern on
 the scroller with `background-attachment: local` (or by one element over the run when the rows are not virtualized):
 the stripes run unbroken across rows of any height and move with them as the list scrolls.
 
