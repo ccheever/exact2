@@ -705,12 +705,6 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   `time-zone` lines in a test file) so both agree and the run stays reproducible.
   (Depot, 2026-10-05.)
 
-- **An iOS screenshot right after a tap shows a segmented control on its old
-  segment.** The tree says the new one is selected. Cause: UIKit animates the
-  selection on real time, and `clock +N` does not move it. Fix: `clock +1000 real`
-  before the screenshot (it moves the app's clock that second too, so a timer due in
-  it fires). (Authoring bench, t1-tip on iOS, 2026-10-05.)
-
 - **The same test passes on the web and fails on iOS at a date past `max`.** Cause:
   the runner refuses a date, time or datetime outside `min`/`max` (the agent says the
   date was refused) on iOS, macOS, Linux and the wasm web; the JS web target keeps the

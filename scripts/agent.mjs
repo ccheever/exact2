@@ -499,9 +499,9 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
         await frame();
         return { at: [x, y], ...(avoided ? { avoided } : {}) };
       },
-      async screenshot(path) {
-        const tags = await ask({ op: 'tags' });
-        if (tags.error) throw new Error(tags.error);
+      async screenshot(path, window = false, film = false) {
+        const tags = await ask({ op: film ? 'tags' : 'picture' }).then((r) => r.error && !film ? ask({ op: 'tags' }) : r); // a transition under way is shown where it ends, unless filmed (LLP 1116.003 D8; the wasm target has no `picture`)
+        if (tags.error) throw new Error(tags.error); delete tags.moving;
         await frame();
         // Images in the viewport finish loading first, up to 3 s: a picture
         // of grey placeholders is not the page (LLP 1054.000 R9). `clock
@@ -675,9 +675,9 @@ async function openStdio({ host, plan, world, size, app, env: extra = {}, sessio
         if (r.error) throw new Error(r.error);
         return r;
       },
-      async screenshot(path, window = false) {
+      async screenshot(path, window = false, film = false) {
         const remote = device ? `${ready.container}/tmp/exact-agent.png` : droid ? droid.shot : path;
-        const r = await ask({ op: 'screenshot', path: remote, window });
+        const r = await ask({ op: 'screenshot', path: remote, window, ...(film ? { film } : {}) });
         if (r.error) throw new Error(r.error);
         if (droid) { droid.pull(path); r.screenshot = path; }
         if (device) {
@@ -808,8 +808,8 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
         if (r.error) throw new Error(r.error);
         return r;
       },
-      async screenshot(path, window = false) {
-        const r = await ask({ op: 'screenshot', path, window });
+      async screenshot(path, window = false, film = false) {
+        const r = await ask({ op: 'screenshot', path, window, ...(film ? { film } : {}) });
         if (r.error) throw new Error(r.error);
         return r;
       },
@@ -1289,7 +1289,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       return s.op(preferOp(media, page, fold));
     },
     /** Pixels as PNG (second argument true includes the native window), or a canvas carry with `(path, target, "save")`, or film: `(path, {over, every})` (LLP 1012.001.000 D2). */
-    screenshot: async (path, target = false, form) => {
+    screenshot: async (path, target = false, form, film = false) => {
       // `screenshot shots/home.png` makes `shots/`, as a shell redirect would not but every agent expects.
       mkdirSync(dirname(resolve(path)), { recursive: true });
       if (target && typeof target === 'object') return s.film(path, target);
@@ -1306,7 +1306,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       }
       if (form !== undefined) throw new Error(`screenshot: unknown form ${form}`);
       if (typeof target === 'string') return s.op({op:'screenshot', ...await s.target(target), world:true, path:resolve(path)});
-      return s.tagged(await carrier.screenshot(resolve(path), target));
+      return s.tagged(await carrier.screenshot(resolve(path), target, film)); // settled first unless filmed (LLP 1116.003 D8)
     },
     /** Film on the agent's clock (LLP 1012.001.000 D2): a frame, `clock +every`, a frame … through `over`. A `.apng` path is an animated PNG (for a person to play); any other is one PNG of the frames in a grid (for an agent to look at). Every frame is also kept at full size beside it, `<path>.frames/<i>-<clock>ms.png`. The clock lands at the last frame. A step that fails stops the film: what was taken is written, and the error says so. */
     async film(path, { over, every }) {
@@ -1323,7 +1323,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
         try {
           if (i) await s.clock('+' + every);
           const file = resolve(dir, `${String(i).padStart(3, '0')}-${s.now}ms.png`);
-          last = await s.screenshot(file);
+          last = await s.screenshot(file, false, undefined, true);
           const image = decodePng(readFileSync(file));
           if (images.length && (image.width !== images[0].width || image.height !== images[0].height)) throw new Error(`frame ${i} is ${image.width}×${image.height}, frame 0 ${images[0].width}×${images[0].height}; film needs one size`);
           if (frames * image.width * image.height > FILM_PIXELS) throw new Error(`${frames} frames of ${image.width}×${image.height} px exceed ${FILM_PIXELS / 1e6}M pixels; take a longer every, a shorter over, or a smaller --size`);

@@ -80,7 +80,20 @@ bun exact.mjs agent ios --storage real1 --epoch now --chrome platform "type draf
   "clock +1500 real" "reload" "clock +1500 real" state "screenshot .exact/real-ios.png window"
 ```
 
-Each `clock +N real` waits N ms of real time, so the drive ends. `state` lists what is
+Each `clock +N real` waits N ms of real time, so the drive ends.
+
+A second user's write, seen through the app's own polling: the drive in the background,
+the write through the server with the other persona's token once its first `state` is out:
+
+```sh
+bun exact.mjs agent web --json --storage live "clock data" state "clock +3000 real" "clock +5000" "clock data" state > .exact/live.jsonl &
+until grep -q '"slots"' .exact/live.jsonl; do sleep 0.2; done
+curl -s -X POST localhost:6410/cards -H 'authorization: Bearer bob' -H 'content-type: application/json' -d '{"title":"From Bob"}'
+wait; tail -n 1 .exact/live.jsonl    # the last state holds Bob's card
+```
+
+`clock +5000` fires the app's poll (make it longer than the poll's interval) and `clock
+data` lands its reply; `agent ios` is the same. `state` lists what is
 `pending` or `failed`; the iOS screenshot with `--chrome platform … window` shows the
 bars a person sees ([ios-driving](ios-driving.md)). An app with a server drives it
 against the running dev server. A test has no colour scheme, so look at one drive in

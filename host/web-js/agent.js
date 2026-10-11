@@ -197,6 +197,18 @@ export function install(exact) {
       }
       if (sync) exact.synced?.();
     },
+    // A picture shows a transition where it ends (LLP 1116.003 D8): each one under way is held a hair before its end
+    // (still running, so no event fires) for a screenshot; the next request's seek puts it back on the clock.
+    hold() {
+      let n = 0;
+      for (const a of timed()) {
+        const t = a.effect?.getComputedTiming();
+        if (!t || held.has(a) || !(t.activeDuration > 0) || t.activeDuration === Infinity) continue;
+        const at = a.currentTime ?? 0, end = t.delay + t.activeDuration;
+        if (at >= t.delay && at < end - 0.5) { a.currentTime = end - 0.5; n++; }
+      }
+      return n;
+    },
     settle() {
       let to = Math.max(exact.clock.now, exact.settleAt?.() ?? 0);
       for (const a of timed()) {
@@ -400,6 +412,8 @@ export function install(exact) {
         return { clock: exact.clock.now, ...(inflight > 0 ? { inflight } : {}), ...(background > 0 ? { background } : {}) };
       }
       case 'tags': return tags();
+      // `screenshot` (LLP 1116.003 D8): transitions under way shown where they end, for this picture only.
+      case 'picture': return { moving: anim.hold(), ...tags() };
       // @ref LLP 1080.002 D4 — the ids `tree` gives, where CDP's DOM snapshot reads them, and the document's nonce.
       case 'axStamp': {
         all(); for (const [i, el] of views) if (el.isConnected && el.getAttribute('data-agent-view') !== String(i)) el.setAttribute('data-agent-view', i);

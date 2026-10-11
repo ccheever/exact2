@@ -20,7 +20,7 @@ bun exact.mjs agent ios --storage s1 --chrome platform "tap add-item" "clock set
 | --- | --- |
 | `--chrome platform` | UIKit's navigation bar, tab bar and sheets, as a person sees them. Without it the authored header and tablist paint instead; a node the bar would not show is marked in `tree`, and a `tap` or `expect` on it fails. |
 | `screenshot <file> window` | The whole screen, bars included. Without `window` a sheet is captured alone, at full width, so its type looks twice its size. |
-| `clock settle` | Ends a push's, a sheet's or an alert's transition: after opening or closing one, and before tapping inside an alert (UIKit runs an alert button's handler after the alert has gone). |
+| `clock settle` | Ends a push's, a sheet's or an alert's transition: after opening or closing one, and before tapping inside an alert (UIKit runs an alert button's handler after the alert has gone). A screenshot waits for UIKit's own motion (a segment, a switch) by itself; `screenshot x.png over 600 every 50` films it instead. |
 | `clock +1500 real` | Waits real time, for a write on the real clock; never in a test. |
 | `"prefer prefers-color-scheme dark"` | Dark mode, as the drive's first op (`simctl ui … appearance` does not reach the drive). |
 | `--timing platform` | UIKit's transitions keep their own timing (default: frozen). |
