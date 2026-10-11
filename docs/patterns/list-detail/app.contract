@@ -2,7 +2,10 @@
 // The items are app.ts's (app:/data/items.json). A phone pushes the detail; a wide window
 // shows the list and the detail side by side. A smaller app deletes what it doesn't need:
 // the wide split (`viewport`, `wide`, the `when wide` column), the delete (`askRemove`,
-// `remove`, the dialog), or the notes (the shape's field, the sheet's and detail's sections).
+// `remove`, the dialog), the notes (the shape's field, the sheet's and detail's sections),
+// or the lock (the shape's `locked`, `setLock`, the badge, the switch and Delete's reason).
+use Badge from "exact:content"
+
 routes nav
   items "/"
     item "/item/:id"
@@ -12,6 +15,7 @@ shape Item
   id: string
   title: string
   notes: string
+  locked: bool
 
 shape Reply
   ok: bool
@@ -30,6 +34,7 @@ component App
   resource viewport = exactViewport() as shape Viewport
   mutation added as shape Reply refreshes lib then afterSave
   mutation removed as shape Reply refreshes lib
+  mutation lockSaved as shape Reply refreshes lib
   derive wide = viewport.width >= 720
   derive selected = match at(filter(stack(nav), e => e.name == "item"), -1) { case some(e) => e.params.id, case none => "" }
   derive saveError = match added { case some(r) => r.error, case none => "" }
@@ -61,6 +66,8 @@ component App
   action afterSave
     if saveError == "" and top(nav).name == "add"
       nav = back(nav)
+  action setLock(on: bool)
+    send lockSaved = lockItem(selected, on)
   action askRemove
     showModal("remove")
   action remove
@@ -90,6 +97,9 @@ component App
                         text it.title color=(wide and it.id == selected ? "AccentColor" : "-exact-label")
                         when it.notes != ""
                           text it.notes font="-exact-subheadline" color="-exact-secondary-label" line-clamp=1
+                      // A status is a badge, not coloured text: `some("-exact-system-orange")` for Full.
+                      when it.locked
+                        Badge(label="Locked", tint=none)
                       when not wide
                         image "symbol:forward-chevron"
                   footer
@@ -102,14 +112,14 @@ component App
                     text titleOf(lib, selected) role="heading" aria-level=2 padding="20px 32px 0" testId="detail-title"
                     list id="detail" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
                       each it in filter(lib, x => x.id == selected) key=it.id
-                        ItemSections(item=it, askRemove=askRemove)
+                        ItemSections(item=it, setLock=setLock, askRemove=askRemove)
         when e.name == "item" and not wide
           column navigationKey=`${e.id}` navigationScroll="item-detail" position="absolute" inset=0
             header display="flex" align-items="center" padding="8px 16px"
               text titleOf(lib, e.params.id) role="heading" aria-level=2
             list id="item-detail" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
               each it in filter(lib, x => x.id == e.params.id) key=it.id
-                ItemSections(item=it, askRemove=askRemove)
+                ItemSections(item=it, setLock=setLock, askRemove=askRemove)
         when e.name == "add"
           column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="add-form" position="absolute" inset=0
             header display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
@@ -140,10 +150,11 @@ component App
         button commandfor="remove" command="close" testId="remove-cancel"
           text "Cancel"
 
-// One item: its notes, and Delete, which asks first.
+// One item: its notes, its lock, and Delete, which asks first, or says why it can't.
 component ItemSections
   props
     item: Item
+    setLock: action
     askRemove: action
   view
     section
@@ -153,5 +164,10 @@ component ItemSections
         text (item.notes == "" ? "No notes." : item.notes) flex=1 min-width=0
           color=(item.notes == "" ? "-exact-secondary-label" : "-exact-label") testId="detail-notes"
     section
-      button press=askRemove destructive=true testId="delete-item"
+      row
+        text "Locked"
+        input type="checkbox" switch checked=item.locked change=setLock aria-label="Locked" testId="lock-item"
+      button press=askRemove destructive=true disabled=item.locked testId="delete-item"
         text "Delete Item"
+      footer
+        text (item.locked ? "Unlock this item to delete it." : "") testId="delete-reason"

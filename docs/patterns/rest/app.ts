@@ -20,20 +20,16 @@ async function call(path: string, init: RequestInit = {}): Promise<Answered> {
 }
 
 let last: Result<'loadItems'>['items'] = []; // a failed poll keeps the list on screen
+const reply = (r: Answered) => (r.ok ? { ok: true, error: '' } : { ok: false, error: r.error });
 const sources: Sources = {
   loadItems: async () => {
     const r = await call('/items');
     if (!r.ok) return { ok: false, error: r.error, items: last };
-    last = (r.body as Array<{ id: number; title: string; notes: string }>).map((i) => ({ id: String(i.id), title: i.title, notes: i.notes }));
+    last = (r.body as Array<{ id: number; title: string; notes: string; locked: number }>).map((i) => ({ id: String(i.id), title: i.title, notes: i.notes, locked: i.locked === 1 }));
     return { ok: true, error: '', items: last };
   },
-  addItem: async ([title, notes]) => {
-    const r = await call('/items', { method: 'POST', body: JSON.stringify({ title, notes }) });
-    return r.ok ? { ok: true, error: '' } : { ok: false, error: r.error };
-  },
-  removeItem: async ([id]) => {
-    const r = await call(`/items/${encodeURIComponent(id)}`, { method: 'DELETE' });
-    return r.ok ? { ok: true, error: '' } : { ok: false, error: r.error };
-  },
+  addItem: async ([title, notes]) => reply(await call('/items', { method: 'POST', body: JSON.stringify({ title, notes }) })),
+  lockItem: async ([id, locked]) => reply(await call(`/items/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ locked }) })),
+  removeItem: async ([id]) => reply(await call(`/items/${encodeURIComponent(id)}`, { method: 'DELETE' })),
 };
 export const answer: Answer = (source, args, store, storage, native) => sources[source](args, store, storage, native);

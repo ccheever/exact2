@@ -10,6 +10,11 @@
   semantics, a 44-point target and legible ink in both schemes.
 - **A wide window gets a layout:** two columns or cards (`flex="1 1 320px"` in a wrapping
   row), not a phone's column centred.
+- **A status is a `Badge`, not coloured text:** "Full" or "Cancelled" in a capsule beside
+  the title, so it reads without its colour. **An action that can't be taken is disabled,
+  with its reason:** `disabled=full` and a secondary line under it ("This event is full.";
+  in a grouped list, the section's `footer`), never left enabled to refuse after the tap.
+  `pattern list-detail` shows both.
 - **Colour is a role, a system colour or the accent** (`accent-color` on the root), never
   a hex. Surfaces pair with their page: a card on a plain page is
   `-exact-secondary-background`, on a `-exact-grouped-background` page
@@ -23,6 +28,7 @@
 | `RingProgress` | `label`, `value`, `fraction`, `tint: option<string>` | one fraction as a ring around its number |
 | `StatBar` | `label`, `value`, `fraction`, `tint: option<string>` | one of several numbers that compare |
 | `RowText` | `title`, `detail` (`""` for none), `value: option<string>` | a row: title, line under it, value |
+| `Badge` | `label`, `tint: option<string>` | a status: `none` grey, `some("-exact-system-orange")` for Full |
 | `DoneMark` | `caption` (a weekday: it shows), `done` | a habit's day: check or circle |
 | `EmptyState` | `symbol`, `title`, `message`; your `button` under it | nothing yet, and the next step |
 
