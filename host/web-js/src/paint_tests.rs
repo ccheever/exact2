@@ -3,14 +3,46 @@ use exact_kernel::{NodeType, PropId, StyleId};
 use exact_plan::{builder::PlanBuilder, BindingKind, BindingsRow, Plan, Value};
 use std::collections::BTreeMap;
 
-fn bun_command(named: Option<std::ffi::OsString>) -> std::process::Command {
-    std::process::Command::new(named.unwrap_or_else(|| "bun".into()))
+fn bun_command() -> std::process::Command {
+    std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
 }
 
+#[cfg(unix)]
 #[test]
 fn bun_command_uses_the_named_binary() {
-    let pinned = std::ffi::OsString::from("/tmp/pinned/bun");
-    assert_eq!(bun_command(Some(pinned.clone())).get_program(), pinned);
+    use std::os::unix::fs::PermissionsExt;
+    let dir = std::env::temp_dir().join(format!("exact-bun-probe-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let stub = dir.join("bun");
+    let marker = dir.join("invoked");
+    std::fs::write(
+        &stub,
+        "#!/bin/sh\nprintf invoked > \"$EXACT_BUN_MARKER\"\nexec \"$EXACT_BUN_REAL\" \"$@\"\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "paint_tests::dynamic_backdrop_grammar_agrees_with_the_kernel",
+            "--nocapture",
+        ])
+        .env("BUN", &stub)
+        .env(
+            "EXACT_BUN_REAL",
+            std::env::var_os("BUN").unwrap_or_else(|| "bun".into()),
+        )
+        .env("EXACT_BUN_MARKER", &marker)
+        .output()
+        .unwrap();
+    let invoked = marker.exists();
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    assert!(invoked, "the BUN executable was not invoked");
 }
 
 #[test]
@@ -78,7 +110,7 @@ fn dynamic_backdrop_grammar_agrees_with_the_kernel() {
         Err(reason) => (css, None, Some(reason)),
     })
     .collect();
-    let output = bun_command(std::env::var_os("BUN"))
+    let output = bun_command()
         .args(["-e", "const {backdropValue}=await import('./backdrop.js');for(const [input,expected,reason] of JSON.parse(process.argv[1])){let why=null;const actual=backdropValue(input,n=>why=n);if(actual!==expected||why!==reason)throw Error(JSON.stringify({input,expected,actual,reason,why}));}"])
         .arg(serde_json::to_string(&cases).unwrap())
         .current_dir(env!("CARGO_MANIFEST_DIR"))
@@ -336,7 +368,7 @@ fn compare_cases(dir: &std::path::Path, labels: &[impl AsRef<str>]) {
         serde_json::to_string(&labels.iter().map(AsRef::as_ref).collect::<Vec<_>>()).unwrap(),
     )
     .unwrap();
-    let output = bun_command(std::env::var_os("BUN"))
+    let output = bun_command()
         .arg(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../web/tests/paint-order/compare.mjs"
@@ -602,7 +634,7 @@ fn bound_transition_stacking_matches_kernel() {
     );
     use std::io::Write;
     use std::process::Stdio;
-    let mut child = bun_command(std::env::var_os("BUN"))
+    let mut child = bun_command()
         .arg("-")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

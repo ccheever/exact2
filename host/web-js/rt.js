@@ -1152,6 +1152,7 @@ function input() {
  * active head (document.js, as runner/src/head.rs). */
 export function hd(p, fields) {
   const t = document.createElement("template");
+  t.$exactTree = true;
   if (Adopt) p.insertBefore(t, at(p)); else p.append(t);
   onEnd(head(t, fields, effect, After));
 }

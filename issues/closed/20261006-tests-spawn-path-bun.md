@@ -1,7 +1,7 @@
 # Rust tests spawn PATH bun instead of the pinned one
 
 **Status:** Closed
-**Resolution:** Rust Bun subprocess tests honor BUN; bun_command_uses_the_named_binary passes.
+**Resolution:** Rust Bun subprocess tests honor BUN, proven by a stub executable probe; with BUN unset, PATH must find pinned Bun 1.4.2 or app.mjs names the version mismatch.
 **Systems:** verification, bake, host/web
 **Severity:** P3
 **Author:** Grok, for Charlie Cheever
