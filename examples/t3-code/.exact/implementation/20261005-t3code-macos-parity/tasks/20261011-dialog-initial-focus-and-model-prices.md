@@ -178,7 +178,15 @@ focusmap.py, compose.py, limits-bench.ts and the reference scripts](https://raw.
 
 ## Checks
 
-On `ed96be038` (the code and this record before its PR link; `origin/feat(example)/t3-code` merged, already up to
+Review fix, on `a8cc80865` (the code and this record before these results; `origin/feat(example)/t3-code` is still
+`eec70ea6b`, nothing to merge): `bun test examples/t3-code --timeout 60000` exit 0 (4648 pass, 1 skip, 0 fail, 310
+files); strict `tsc` (README command) exit 0; `bun scripts/exact.mjs contract build examples/t3-code/app.contract` exit
+0; `git add -A && bun scripts/caps.mjs` exit 0; `cargo build --all-targets --keep-going` exit 0; `cargo test --lib
+--bins --tests --no-fail-fast` exit 0 (3679 passed, 0 failed, 34 ignored); `cargo clippy --all-targets --keep-going --
+-D warnings` exit 0; `cargo fmt --all -- --check` exit 0; `bun scripts/boot.mjs` exit 0; `dialog-focus.test.contract`
+through `clone-drive.sh --test` on the branch's bundle: 3 passed. No Rust or Swift changed. `app.contract`: 1,398 lines.
+
+Before the review, on `ed96be038` (the code and this record before its PR link; `origin/feat(example)/t3-code` merged, already up to
 date): `bun test examples/t3-code --timeout 60000` exit 0 (4593 pass, 1 skip, 0 fail, 309 files); strict `tsc` (README
 command) exit 0; `bun scripts/exact.mjs contract build examples/t3-code/app.contract` exit 0; `git add -A && bun
 scripts/caps.mjs` exit 0; `cargo build --all-targets --keep-going` exit 0; `cargo test --lib --bins --tests
@@ -202,4 +210,5 @@ On a lane copy of this branch's bundle, light appearance (System Settings › Ap
 
 ## Next action
 
-Coordinator: review the draft PR; run the Real-input batch steps in the final session.
+Coordinator: review the draft PR (the review's three findings are fixed: DF-3, X53's row, the run-time test); run the
+Real-input batch steps in the final session.
