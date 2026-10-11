@@ -1,8 +1,9 @@
 # Contract: a guide for humans
 
 Contract describes an application's interface, state, and interactions. Exact
-compiles it for the web and native hosts. You write the view once; CSS names and
-web behavior are the default across those hosts. Network access, persistent
+compiles it for the web and native hosts. You write the view once, in CSS's names
+and layout; what you leave unsaid (controls, colour, type, how a press or a scroll
+feels) is each platform's own (LLP 1115). Network access, persistent
 storage, and substantial computation belong in a TypeScript or Rust data module.
 
 This guide describes the implementation on `main` on 2026-10-02, including
@@ -377,7 +378,7 @@ inside parentheses. The compiler checks tags, attributes, leaf-node children,
 and handler signatures.
 
 ```text
-text "Heading" font-size=24
+text "Heading" role="heading"
 image "/assets/photo.jpg" width=120 height=80 object-fit="cover"
 Card(title="Heading", selected=selected)
 ```

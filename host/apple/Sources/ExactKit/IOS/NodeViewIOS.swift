@@ -905,9 +905,12 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             f.placeholder = nil
             return
         }
-        // D3: UIKit's semantic placeholder colour on a native field. The
-        // explicitly bare editor preserves its existing authored ink rule.
-        let ink = isNativeTextControl ? UIColor.placeholderText : (f.textColor ?? SystemColor.canvasText).withAlphaComponent(0.30)
+        // UIKit's placeholder colour, which follows Increase Contrast: on a
+        // native field (D3), and on a bare one whose `color` is not its own
+        // (LLP 1115 §2, "inherited is unsaid": a grouped list's row gives
+        // its field the label colour). A bare field that writes its own
+        // colour mutes that ink.
+        let ink = isNativeTextControl || ownColor("text_color") == nil ? UIColor.placeholderText : (f.textColor ?? SystemColor.canvasText).withAlphaComponent(0.30)
         f.attributedPlaceholder = NSAttributedString(string: text, attributes: [
             .font: font,
             .foregroundColor: ink,

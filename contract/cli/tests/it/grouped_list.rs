@@ -810,7 +810,7 @@ fn an_authored_colour_and_font_reach_the_platforms_texts_and_unsaid_ones_stay_it
     // cells. Author > platform (LLP 1115): the kernel hands a host each
     // text's own colour and font, and nothing where the sheet's stand in for
     // the platform's, which keeps its own.
-    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    header\n      text \"Measure\" font=\"-exact-footnote\"\n    row\n      text \"Title\" color=\"#ff0000\"\n      text \"Value\" font-size=20\n    button press=go destructive=true\n      text \"Delete\"\n    footer\n      text \"Enter a number.\" color=\"-exact-system-red\"\n  section\n    header\n      text \"Plain\"\n    button press=go\n      column\n        text \"Privacy\"\n        text \"Screen lock\" font-style=\"italic\"\n    row\n      text \"Name\"\n      text \"Ada\"\n    footer color=\"#00ff00\"\n      text \"Green, on the footer.\"\n  section\n    row\n      text \"Unsaid\"\n    footer\n      text \"The platform's grey.\"");
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    header\n      text \"Measure\" font=\"-exact-footnote\"\n    row\n      text \"Title\" color=\"#ff0000\"\n      text \"Value\" font-size=20\n    button press=go destructive=true\n      text \"Delete\"\n    footer\n      text \"Enter a number.\" color=\"-exact-system-red\"\n  section\n    header\n      text \"Plain\"\n    button press=go\n      column\n        text \"Privacy\"\n        text \"Screen lock\" font-style=\"italic\"\n    row\n      text \"Name\"\n      text \"Ada\"\n    footer color=\"#00ff00\"\n      text \"Green, on the footer.\"\n  section\n    row\n      text \"Unsaid\"\n    row\n      text \"Quiet\" color=\"-exact-secondary-label\"\n      text \"Loud\" color=\"-exact-label\"\n    footer\n      text \"The platform's grey.\"");
     let list = r.kernel().grouped_list(id(&r, "list")).unwrap();
     let (s0, s1, s2) = (&list.sections[0], &list.sections[1], &list.sections[2]);
     let red = s0.footer_look.color.expect("the footer's own red");
@@ -875,6 +875,33 @@ fn an_authored_colour_and_font_reach_the_platforms_texts_and_unsaid_ones_stay_it
     assert_eq!(
         (s2.rows[0].title_look, s2.footer_look),
         (TextLook::default(), TextLook::default())
+    );
+    // The sheet names a role for each text (LLP 1115 §3), which is unsaid
+    // only in its own slot: the secondary label on a title and the label
+    // colour on a value are their author's.
+    let role = |name: &str| ColorValue::Role(exact_kernel::style::roles::role(name).unwrap());
+    assert_eq!(
+        (s2.rows[1].title_look.color, s2.rows[1].secondary_look.color),
+        (
+            Some(role("-exact-secondary-label")),
+            Some(role("-exact-label"))
+        )
+    );
+}
+
+/// A destructive row's title keeps the platform's red where it is the first
+/// line only under a condition: the sheet cannot write its red there and
+/// writes the label colour, which is still the sheet's and not the author's.
+#[test]
+fn a_destructive_rows_conditional_title_leaves_its_colour_unsaid() {
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go destructive=true\n      column\n        when dark\n          text \"Sure?\"\n        text \"Delete\"");
+    let list = r.kernel().grouped_list(id(&r, "list")).unwrap();
+    let row = &list.sections[0].rows[0];
+    assert!(row.destructive);
+    assert_eq!(row.title.as_deref(), Some("Delete"));
+    assert_eq!(
+        row.title_look.color, None,
+        "the sheet's label colour is unsaid"
     );
 }
 

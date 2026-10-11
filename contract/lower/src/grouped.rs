@@ -12,20 +12,21 @@ use contract_syntax::{Attr, Expr, Node, Span};
 /// `listStyle`'s names (D2), UIKit's three list appearances.
 pub(crate) const STYLES: &[&str] = &["inset-grouped", "grouped", "plain"];
 
-/// The colours the sheet writes, iOS 27's measured system colours (§2).
+/// The colours the sheet writes, iOS 27's measured system colours (§2). The
+/// label colours are their roles (LLP 1095 D2, LLP 1115 §3), whose fallback
+/// pairs are those measurements, so a host with the platform's colours draws
+/// its own; a symbol's tint is `AccentColor`, the nearest `accent-color` or
+/// else the platform's tint. The kernel reads a text's role back as unsaid
+/// (`kernel/src/grouped.rs`, `Slot`).
 const GROUPED_BACKGROUND: &str = "light-dark(#f2f2f7, #000000)";
 const PLAIN_BACKGROUND: &str = "light-dark(#ffffff, #000000)";
 const CELL: &str = "light-dark(#ffffff, #1c1c1e)";
-const LABEL: &str = "light-dark(#000000, #ffffff)";
-const SECONDARY: &str = "light-dark(#3c3c4399, #ebebf599)";
-const TERTIARY: &str = "light-dark(#3c3c434d, #ebebf54d)";
-const SEPARATOR: &str = "light-dark(#3c3c431f, #54545880)";
-/// The accent a leading symbol and a checkmark take: the platform's tint,
-/// which follows the nearest authored `accent-color` (LLP 1116.001 D2), as a
-/// list cell's image and checkmark take the view's `tintColor` in UIKit
-/// (LLP 1116.004 D2: polls' teal accent drew its vote's checkmark in
-/// iOS 27's blue, `#0088ff`, which this was).
+const LABEL: &str = "-exact-label";
+const SECONDARY: &str = "-exact-secondary-label";
+const TERTIARY: &str = "-exact-tertiary-label";
 const ACCENT: &str = "AccentColor";
+// Not their roles yet, whose fallback pairs are older: they wait for LLP 1115.000 D3.2.
+const SEPARATOR: &str = "light-dark(#3c3c431f, #54545880)";
 const RED: &str = "light-dark(#ff383c, #ff4245)";
 
 /// The gap UIKit leaves where a section has no header or no footer.

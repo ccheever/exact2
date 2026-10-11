@@ -1,7 +1,7 @@
 //! The tag and attribute table: Contract's view vocabulary onto the kernel's.
 //!
 //! @ref LLP 1004 D2 (kernel ordinals from `exact-kernel`, never redeclared)
-//! @ref `rules/RULES.md` §Scope (the web is the standard: every row here is a
+//! @ref LLP 1115 §2 (names stay CSS: every row here is a
 //! CSS property or an HTML attribute by its CSS/HTML name)
 //! @ref LLP 1017 §8.1 (the literal CSS names, hyphens as grammar, no aliases;
 //! `testId` and explicitly declared host-policy props aside)

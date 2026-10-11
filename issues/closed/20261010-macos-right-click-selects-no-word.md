@@ -1,6 +1,7 @@
 # macOS: a right-click on unselected page text selects no word, so no text menu opens
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by #454
 **Systems:** host/apple macOS, text selection
 **Severity:** P3
 **Author:** daehyeon-mun (T3 Code clone)

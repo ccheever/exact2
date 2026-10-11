@@ -43,9 +43,10 @@ extension NodeView {
     /// native textarea takes it as a stand-in, because AppKit asks only the
     /// first responder for a ring and the text view's sits inside its clip
     /// view. A native single-line field is AppKit's own ring. Set as the
-    /// editor takes the focus, cleared as it leaves.
+    /// editor takes the focus, cleared as it leaves. `outline: none` draws
+    /// neither (`outlineNone`).
     func showFieldFocus(_ on: Bool) {
-        let show = on && !disabled && (!isNativeTextControl || textArea != nil)
+        let show = on && !disabled && !outlineNone && (!isNativeTextControl || textArea != nil)
         // A textarea's scroll view covers the node's own border, so its ring
         // is a layer above the node's subviews instead.
         guard textArea != nil else { fieldFocused = show; return }
@@ -63,6 +64,15 @@ extension NodeView {
         }
         r.zPosition = 1
         if ring == nil { layer.addSublayer(r) }
+    }
+    /// CSS `outline-style: none` on a text field (LLP 1104 D6): no ring,
+    /// Exact's or AppKit's, since the author draws the focus another way.
+    /// Tab still reaches the field, and its accessibility is unchanged.
+    var outlineNone: Bool { style["outline_style"]?.string == "none" }
+    /// Exact's ring again as the style changes, for a focused editor
+    /// whose `outline` may have.
+    func restyleFieldFocus() {
+        if field?.currentEditor() != nil || (textArea != nil && window?.firstResponder === textArea) { showFieldFocus(true) }
     }
 }
 #endif
