@@ -14,10 +14,29 @@ let route='',scope='',error='',selection='null',tab='limits',days=30,metric='cos
 let branchFetched:string|null=null;
 let account={key:'',window:'',kind:'',now:0};
 let tasks:Awaited<ReturnType<typeof mobileScheduledTasks>>={ready:false,error:'',emptyMessage:'',canCreate:false,sections:[]};
-let preparedEpoch=0;
+let preparedEpoch=0,usageVisit=0;
+type UsageRefreshOwner={visit:number;tab:string;selection:string;days:number;anchor:number};
+let usageRefresh:UsageRefreshOwner|null=null;
+const ownsUsageRefresh=(owner:UsageRefreshOwner)=>owner.visit===usageVisit&&route==='settingsUsage'&&tab===owner.tab&&selection===owner.selection&&days===owner.days&&anchor===owner.anchor;
+/** One pull stays pending through the refreshed read; changing its displayed scope retires its result. */
+async function refreshUsage(now:number,native:Native|null|undefined):Promise<string>{
+  if(route!=='settingsUsage'||usageRefresh&&ownsUsageRefresh(usageRefresh))return '';
+  const usage=mobileUsageSnapshot(selection,tab,metric);if(!usage.ready)return '';
+  if(!usage.canRefresh)return 'This connection cannot read usage diagnostics.';
+  const owner:UsageRefreshOwner={visit:usageVisit,tab,selection,days,anchor:tab==='usage'?now:anchor};
+  anchor=owner.anchor;usageRefresh=owner;
+  const current=()=>ownsUsageRefresh(owner),window=mobileUsageWindow(owner.days,owner.anchor);
+  try{
+    const result=await mobileUsageCommand(owner.tab==='limits'?'refresh-limits':'refresh-usage','','',now,native,null,{selection:owner.selection,window,current});
+    if(!current())return '';
+    await mobileUsage(owner.selection,owner.tab,JSON.stringify(window),metric,owner.anchor,native,native?.available===true,true,current);
+    return current()?result.message:'';
+  }catch(cause){if(!current()&&!letGo(cause))return '';throw cause;}
+  finally{if(usageRefresh===owner)usageRefresh=null;}
+}
 /** Native source revisions/route changes call this; local fields call only the snapshot below. */
 export async function mobileAutomationPrepare(name:string,scopeJSON:string,accountKey:string,windowId:string,windowKind:string,now:number,native:Native|null|undefined){
-  const current=++preparedEpoch,previous=route;route=name;scope=scopeJSON;error='';
+  const current=++preparedEpoch,previous=route;if(name!==route)usageVisit++;route=name;scope=scopeJSON;error='';
   try{
     if(name==='settingsScheduledTasks'){const loaded=await mobileScheduledTasks(scope,now,native);if(current===preparedEpoch)tasks=loaded;}
     else if(scheduledRoute(name)){
@@ -36,9 +55,9 @@ export async function mobileAutomationPrepare(name:string,scopeJSON:string,accou
   }catch(cause){if(letGo(cause))throw cause;if(current===preparedEpoch)error=cause instanceof Error?cause.message:'Could not load settings.';}
   return {revision:++revision};
 }
-export function mobileAutomationSnapshot(){
+export function mobileAutomationSnapshot(pending=false){
   const {taskId: _taskId, ...editor} = mobileScheduledEditor();
-  return {revision,route,error,days,tab,selection,now:anchor,scheduled:tasks,editor,usage:usageRoute(route)?mobileUsageSnapshot(selection,tab,metric):mobileUsagePresentation(null),account:mobileUsageAccount(account.key,account.window,account.kind,account.now)};
+  return {revision,route,error,days,tab,selection,now:anchor,scheduled:tasks,editor,usage:usageRoute(route)?{...mobileUsageSnapshot(selection,tab,metric),refreshing:pending&&usageRefresh!==null&&ownsUsageRefresh(usageRefresh)}:mobileUsagePresentation(null),account:mobileUsageAccount(account.key,account.window,account.kind,account.now)};
 }
 /** The root only navigates/reloads when this result explicitly says so. */
 export async function mobileAutomationCommand(op:string,id:string,value:string,extra:string,now:number,native:Native|null|undefined){
@@ -62,11 +81,11 @@ export async function mobileAutomationCommand(op:string,id:string,value:string,e
     else if(op==='branch-select'){message=mobileScheduledEdit('baseRef',value).message;closed=!message;}
     else if(op==='usage-local'){
       if(id==='metric'){metric=value==='tokens'?'tokens':'cost';}
-      else if(id==='tab'){tab=value==='usage'?'usage':'limits';refresh=true;}
-      else if(id==='days'&&[1,7,30,90].includes(Number(value))){days=Number(value);anchor=now;refresh=true;}
-    }else if(op==='usage-environments'){const result=await mobileUsageNativeSelection(selection,native);selection=result.selection;message=result.message;refresh=!message;}
+      else if(id==='tab'){if(tab!==(value==='usage'?'usage':'limits'))usageVisit++;tab=value==='usage'?'usage':'limits';refresh=true;}
+      else if(id==='days'&&[1,7,30,90].includes(Number(value))){usageVisit++;days=Number(value);anchor=now;refresh=true;}
+    }else if(op==='usage-environments'){const result=await mobileUsageNativeSelection(selection,native);if(selection!==result.selection)usageVisit++;selection=result.selection;message=result.message;refresh=!message;}
     else if(op==='usage-command'){message=(await mobileUsageCommand(id,value,extra,now,native)).message;if(id!=='open-link'){anchor=now;refresh=true;}}
-    else if(op==='usage-refresh'){message=(await mobileUsageCommand(tab==='limits'?'refresh-limits':'refresh-usage','','',now,native)).message;anchor=now;refresh=true;}
+    else if(op==='usage-refresh')message=await refreshUsage(now,native);
     else if(op==='usage-account'){account={key:id,window:value,kind:extra,now:anchor};next='settingsUsageAccount';}
     else if(op==='usage-reveal')mobileUsageReveal(id);
     else if(op==='usage-redeem'){message=(await mobileUsageNativeRedeem(id,value,now,native)).message;refresh=true;}

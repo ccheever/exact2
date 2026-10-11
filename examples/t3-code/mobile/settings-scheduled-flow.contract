@@ -64,6 +64,8 @@ component SettingsAutomation
     command("usage-local", key, value, "")
   action usage(op: string, environment: string, key: string)
     command("usage-command", op, environment, key)
+  action refreshUsage
+    command("usage-refresh", "", "", "")
   action account(key: string, window: string, kind: string)
     command("usage-account", key, window, kind)
   action reveal(key: string)
@@ -83,6 +85,6 @@ component SettingsAutomation
       else when data.route == "settingsScheduledBranch"
         SettingsScheduledBranch(data=data.editor, colors=colors, roles=roles, danger=danger, bottom=bottom, field=field, search=search, more=more)
       else when data.route == "settingsUsage"
-        SettingsUsage(data=data.usage, colors=colors, roles=roles, danger=danger, bottom=bottom, dark=dark, days=data.days, local=local, command=usage, account=account)
+        SettingsUsage(data=data.usage, colors=colors, roles=roles, danger=danger, bottom=bottom, dark=dark, days=data.days, local=local, command=usage, account=account, refresh=refreshUsage)
       else when data.route == "settingsUsageAccount"
         SettingsUsageAccount(data=data.account, colors=colors, roles=roles, danger=danger, bottom=bottom, reveal=reveal, redeem=redeem)

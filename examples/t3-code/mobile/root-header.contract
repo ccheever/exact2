@@ -57,8 +57,6 @@ component MobileRootHeader
       when routeName == "settingsUsage"
         button press=automationAction("usage-environments", "", "", "") disabled=automationBusy aria-label="Filter usage environments"
           t3-symbol symbol-name="line.3.horizontal.decrease" point-size=20 symbol-tint=iconColor width=20 height=20
-        button press=automationAction("usage-refresh", "", "", "") disabled=automationBusy aria-label="Refresh usage"
-          t3-symbol symbol-name="arrow.clockwise" point-size=20 symbol-tint=iconColor width=20 height=20
       when routeName == "threadBrowser"
         t3-preview-menu configuration=browserMenuConfiguration change=browserMenu width=38.5 height=38.5
       when inspectorAvailable and (routeName == "threadFile" or routeName == "threadReview")

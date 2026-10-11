@@ -78,6 +78,8 @@ shape MobileUsageData
   tab: string
   metric: string
   hasUsage: bool
+  canRefresh: bool
+  refreshing: bool
   emptyMessage: string
   environments: list<UsageEnvironment>
   notices: list<UsageNotice>
@@ -124,8 +126,9 @@ component SettingsUsage
     local: action
     command: action
     account: action
+    refresh: action
   view
-    scroll flex=1 min-height=0 background-color=colors.sheet id="settings-usage-scroll"
+    UsageScroll(data=data, colors=colors, refresh=refresh)
       column padding-left=17.5 padding-right=17.5 padding-top=14 padding-bottom=bottom gap=17.5 font-family="DM Sans"
         row padding=2 border-radius=7 background-color=colors.subtle
           button press=local("tab", "limits") flex=1 min-height=32 border-radius=6 background-color=(data.tab == "limits" ? colors.grouped : "transparent")
@@ -282,3 +285,17 @@ component SettingsUsageAccount
               when data.canRedeem
                 button press=redeem(data.environmentId, data.key) min-height=44 border-radius=22 background-color=colors.subtle
                   text "Use reset credit" color=colors.foreground font-size=roles.footnote.size font-weight=500
+
+component UsageScroll
+  props
+    data: MobileUsageData
+    colors: SettingsColors
+    refresh: action
+  slot
+  view
+    when data.canRefresh
+      scroll flex=1 min-height=0 background-color=colors.sheet id="settings-usage-scroll" refresh=refresh refreshing=data.refreshing
+        children
+    else
+      scroll flex=1 min-height=0 background-color=colors.sheet id="settings-usage-scroll"
+        children

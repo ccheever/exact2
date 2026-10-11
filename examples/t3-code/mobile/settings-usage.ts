@@ -5,7 +5,7 @@ import { mobileClient } from './client';
 import { arr, obj, str, type Obj } from './shared/domain';
 import { letGo } from './shared/let-go';
 import { bridgeReply, ClientError, type Native } from './shared/protocol';
-import { settingsSources, settingsEndpoint, settingsCall, settingsNative, settingsGrants, settingsAdoptConfig, type MobileSettingsEndpoint } from './settings-server-source';
+import { settingsSources, settingsEndpoint, settingsEndpointCurrent, settingsCall, settingsNative, settingsGrants, settingsAdoptConfig, type MobileSettingsEndpoint } from './settings-server-source';
 import { makeWindow, type UsageWindow } from './shared/pages-usage';
 import { collectLimitAccounts, type LimitPresentations } from './settings-usage-limits';
 import { mobileUsageConfig } from './settings-usage-types';
@@ -23,7 +23,7 @@ export function usageGrant(session:Obj):boolean {
   return scopes.includes('diagnostics:read')||obj(session.auth).serverUpdateScope===undefined&&scopes.includes('orchestration:read');
 }
 export const mobileUsageWindow=(days:number,now:number)=>makeWindow([1,7,30,90].includes(days)?days:30,now);
-interface CachedSummary { generation:number; origin:string|null; windowKey:string; summary:Obj|null; error:string; pending:Promise<void>|null }
+interface CachedSummary { generation:number; origin:string|null; windowKey:string; summary:Obj|null; error:string; pending:Promise<Obj>|null }
 const summaries=new Map<string,CachedSummary>(),refreshAfter=new Map<string,number>(),refreshes=new Map<string,Promise<void>>(),commands=new Set<string>();
 let prepared:{selection:string;tab:string;window:UsageWindow;metric:string;now:number;sources:UsageSourceView[];presentations:LimitPresentations;external:boolean;choices:{id:string;label:string;selected:boolean}[]}|null=null;
 let epoch=0;
@@ -35,14 +35,31 @@ function parseWindow(json:string):UsageWindow {
   if(value.resolution==='hour'&&(!Number.isFinite(Date.parse(str(value.sinceTime)))||!Number.isFinite(Date.parse(str(value.untilTime)))))throw new ClientError('Choose a valid hourly window.');
   return {sinceDay:str(value.sinceDay),untilDay:str(value.untilDay),timeZone:str(value.timeZone),resolution:value.resolution as 'day'|'hour',...(value.resolution==='hour'?{sinceTime:str(value.sinceTime),untilTime:str(value.untilTime)}:{})};
 }
-async function readSummary(endpoint:MobileSettingsEndpoint,window:UsageWindow,force=false) {
+async function readSummary(endpoint:MobileSettingsEndpoint,window:UsageWindow,force=false,isCurrent=()=>true) {
   const id=endpoint.source.environmentId,key=JSON.stringify(window);let cached=summaries.get(id);
   if(!cached||cached.generation!==endpoint.generation||cached.origin!==endpoint.source.origin||cached.windowKey!==key){cached={generation:endpoint.generation,origin:endpoint.source.origin,windowKey:key,summary:null,error:'',pending:null};summaries.set(id,cached);}
-  if(cached.pending){await cached.pending;return cached;}
-  if(!force&&cached.summary)return cached;
-  const entry=cached;
-  entry.pending=(async()=>{try{entry.summary=await settingsCall(endpoint,{op:'request',method:'server.getUsageSummary',payload:window});entry.error='';}catch(error){if(letGo(error))throw error;entry.error=failure(error,'Could not read usage.');}finally{entry.pending=null;}})();
-  await entry.pending;return entry;
+  if(!force&&cached.summary&&!cached.pending)return cached;
+  const entry=cached,joined=entry.pending!==null;
+  const request=()=>{
+    if(entry.pending)return entry.pending;
+    const pending=settingsCall(endpoint,{op:'request',method:'server.getUsageSummary',payload:window}).finally(()=>{if(entry.pending===pending)entry.pending=null;});
+    entry.pending=pending;return pending;
+  };
+  try{
+    let summary:Obj;
+    try{summary=await request();}
+    catch(error){
+      // A current waiter may outlive the native answer that began shared work.
+      // Retry under this caller once; its own cancellation still propagates.
+      if(!joined||!letGo(error)||!isCurrent())throw error;
+      summary=await request();
+    }
+    if(isCurrent()){
+      if(!settingsEndpointCurrent(endpoint))throw new ClientError('The connection changed. Reopen this settings page.','stale');
+      entry.summary=summary;entry.error='';
+    }
+  }catch(error){if(letGo(error))throw error;if(isCurrent())entry.error=failure(error,'Could not read usage.');}
+  return entry;
 }
 async function probe(endpoint:MobileSettingsEndpoint,now:number,automatic:boolean,afterPending=false):Promise<void> {
   const key=JSON.stringify([endpoint.source.key,endpoint.generation]),pending=refreshes.get(key);
@@ -53,39 +70,45 @@ async function probe(endpoint:MobileSettingsEndpoint,now:number,automatic:boolea
   })().finally(()=>{refreshes.delete(key);refreshAfter.set(key,now+300000);});refreshes.set(key,promise);return promise;
 }
 /** Async only at route activation, source/revision/window changes, or refresh; local metric/reveal uses snapshot. */
-export async function mobileUsage(selectionJSON:string,tab:string,windowJSON:string,metric:string,now:number,nativeInput:Native|null|undefined,externalLinksAvailable=false,active=true) {
+export async function mobileUsage(selectionJSON:string,tab:string,windowJSON:string,metric:string,now:number,nativeInput:Native|null|undefined,externalLinksAvailable=false,active=true,isCurrent=()=>true) {
   const run=++epoch;
   if(!active){prepared=null;return mobileUsagePresentation(null);}
   if(!nativeInput?.available)return mobileUsagePresentation(null);
   try{
     const selection=mobileUsageSelection(selectionJSON),window=parseWindow(windowJSON),native=settingsNative(nativeInput),all=await settingsSources(native);
+    if(!isCurrent())return mobileUsagePresentation(null,false);
     const selected=all.filter(source=>source.enabled&&(selection===null||selection.includes(source.environmentId))),presentations=new Map() as Map<string,LimitPresentations extends ReadonlyMap<string,infer V>?V:never>;
     const sources=await Promise.all(selected.map(async source=>{
       const endpoint=settingsEndpoint(source,native);let error='',summary:Obj|null=null,canRead=false,canWrite=false,canManage=false;
       if(source.phase==='connected'){
-        try{const session=await settingsCall(endpoint,{op:'http',path:'/api/auth/session'});canRead=usageGrant(session);canWrite=settingsGrants(session,'settings:write');canManage=settingsGrants(session,'providers:manage');
+        try{const session=await settingsCall(endpoint,{op:'http',path:'/api/auth/session'});if(!isCurrent())throw new ClientError('The Usage selection changed.','stale');canRead=usageGrant(session);canWrite=settingsGrants(session,'settings:write');canManage=settingsGrants(session,'providers:manage');
           if(tab==='limits')try{await probe(endpoint,now,true);}catch(cause){if(letGo(cause))throw cause;error=failure(cause,'Could not refresh limits.');}
-          if(canRead){const cached=await readSummary(endpoint,window);summary=cached.summary;error=error||cached.error;}else if(tab!=='limits')error='This connection cannot read usage diagnostics.';
+          if(!isCurrent())throw new ClientError('The Usage selection changed.','stale');
+          if(canRead){const cached=await readSummary(endpoint,window,false,isCurrent);summary=cached.summary;error=error||cached.error;}else if(tab!=='limits')error='This connection cannot read usage diagnostics.';
         }catch(cause){if(letGo(cause))throw cause;error=failure(cause,'Could not verify access.');}
         presentations.set(source.environmentId,{entry:{target:{label:source.label}},serverConfig:mobileUsageConfig(source.config)});
       }else{const cached=summaries.get(source.environmentId);summary=cached?.windowKey===JSON.stringify(window)&&cached.origin===source.origin?cached.summary:null;error=summary?'Disconnected · showing saved usage':'Waiting for connection…';}
       return {id:source.environmentId,label:source.label,connected:source.phase==='connected',summary,error,canRead,canWrite,canManage,config:source.config};
     }));
-    if(run===epoch)prepared={selection:selectionJSON,tab:tab==='usage'?'usage':'limits',window,metric:metric==='tokens'?'tokens':'cost',now,sources,presentations,external:externalLinksAvailable,choices:all.filter(source=>source.enabled).map(source=>({id:source.environmentId,label:source.label,selected:selection===null||selection.includes(source.environmentId)}))};
+    if(run!==epoch||!isCurrent())return mobileUsagePresentation(null,false);
+    prepared={selection:selectionJSON,tab:tab==='usage'?'usage':'limits',window,metric:metric==='tokens'?'tokens':'cost',now,sources,presentations,external:externalLinksAvailable,choices:all.filter(source=>source.enabled).map(source=>({id:source.environmentId,label:source.label,selected:selection===null||selection.includes(source.environmentId)}))};
     return mobileUsageSnapshot(selectionJSON,tab,metric);
-  }catch(error){if(letGo(error))throw error;return {...mobileUsagePresentation(null),error:failure(error,'Could not load usage.')};}
+  }catch(error){if(letGo(error))throw error;if(run!==epoch||!isCurrent())return mobileUsagePresentation(null,false);return {...mobileUsagePresentation(null),error:failure(error,'Could not load usage.')};}
 }
 /** No network/watch activity for a metric or email-reveal change. Scope mismatch never shows another selection. */
-export function mobileUsageSnapshot(selectionJSON:string,tab:string,metric:string){return mobileUsagePresentation(prepared?.selection===selectionJSON?{...prepared,tab:tab==='usage'?'usage':'limits',metric:metric==='tokens'?'tokens':'cost'}:null);}
-async function current(environmentId:string,native:Native,permission:'diagnostics:read'|'settings:write'|'providers:manage'|null) {
-  if(!prepared?.sources.some(source=>source.id===environmentId))throw new ClientError('Choose an environment in the current usage selection.');
+export function mobileUsageSnapshot(selectionJSON:string,tab:string,metric:string){
+  const selectedTab=tab==='usage'?'usage':'limits';
+  return prepared?.selection===selectionJSON?mobileUsagePresentation({...prepared,tab:selectedTab,metric:metric==='tokens'?'tokens':'cost'}):{...mobileUsagePresentation(null),tab:selectedTab,canRefresh:false};
+}
+async function current(environmentId:string,native:Native,permission:'diagnostics:read'|'settings:write'|'providers:manage'|null,selected=prepared) {
+  if(!selected?.sources.some(source=>source.id===environmentId))throw new ClientError('Choose an environment in the current usage selection.');
   const source=(await settingsSources(native)).find(source=>source.environmentId===environmentId&&source.enabled&&source.phase==='connected');if(!source)throw new ClientError('This environment is disconnected.');
   const endpoint=settingsEndpoint(source,native),session=await settingsCall(endpoint,{op:'http',path:'/api/auth/session'});
   if(permission&&!(permission==='diagnostics:read'?usageGrant(session):settingsGrants(session,permission)))throw new ClientError('This connection does not have permission for that action.');
   return endpoint;
 }
 /** Root confirms redeem before sending redeem-confirmed; accountKey binds displayed credit identity. */
-export async function mobileUsageCommand(op:string,environmentId:string,accountKey:string,now:number,nativeInput:Native|null|undefined,confirmedRedemption:string|null=null){
+export async function mobileUsageCommand(op:string,environmentId:string,accountKey:string,now:number,nativeInput:Native|null|undefined,confirmedRedemption:string|null=null,refresh?:{selection:string;window:UsageWindow;current:()=>boolean}){
   const key=JSON.stringify([op,environmentId,accountKey]);if(commands.has(key))return result('This usage action is already running.');commands.add(key);
   try{
     if(!prepared||!nativeInput?.available)throw new ClientError('Open Usage in the native app first.');const native=settingsNative(nativeInput);
@@ -95,10 +118,14 @@ export async function mobileUsageCommand(op:string,environmentId:string,accountK
       const reply=await bridgeReply(nativeInput,{op:'mobileOpenURL',url:url.href});if(!reply.ok||obj(reply.value).opened!==true)throw new ClientError('The usage URL was not opened.');return result();
     }
     if(op==='refresh-usage'||op==='refresh-limits'){
-      const failures=await Promise.all(prepared.sources.filter(source=>source.connected).map(async source=>{try{const endpoint=await current(source.id,native,op==='refresh-usage'?'diagnostics:read':null);
+      if(refresh&&prepared.selection!==refresh.selection)throw new ClientError('The Usage selection is still loading.','stale');
+      const selected=prepared,window=refresh?.window??selected.window,owns=refresh?.current??(()=>prepared===selected);
+      const check=()=>{if(!owns())throw new ClientError('The Usage selection changed.','stale');};
+      const failures=await Promise.all(selected.sources.filter(source=>source.connected&&(op==='refresh-limits'||source.canRead)).map(async source=>{try{
+        check();const endpoint=await current(source.id,native,op==='refresh-usage'?'diagnostics:read':null,selected);check();
         if(op==='refresh-limits')await probe(endpoint,now,false);else{let ratesError='';try{await settingsCall(endpoint,{op:'request',method:'server.refreshUsageRates',payload:{}});}catch(error){if(letGo(error))throw error;ratesError=failure(error,'Could not refresh rates.');}
-          const read=await readSummary(endpoint,prepared!.window,true);if(ratesError||read.error)throw new ClientError([ratesError,read.error].filter(Boolean).join(' '));}return '';
-      }catch(error){if(letGo(error))throw error;return `${source.label}: ${failure(error,'Could not refresh usage.')}`;}}));return result(failures.filter(Boolean).join('\n'));
+          check();const read=await readSummary(endpoint,window,true,owns);check();if(ratesError||read.error)throw new ClientError([ratesError,read.error].filter(Boolean).join(' '));}return '';
+      }catch(error){if(letGo(error))throw error;return owns()?`${source.label}: ${failure(error,'Could not refresh usage.')}`:'';}}));return result(failures.filter(Boolean).join('\n'));
     }
     if(op==='enable-cursor'){
       const source=prepared.sources.find(source=>source.id===environmentId),hasAccount=prepared.sources.some(source=>arr(source.summary?.sources).some(item=>obj(item.fingerprint).provider==='cursor'&&obj(item.fingerprint).hostId==='cursor.com'));
