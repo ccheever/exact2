@@ -87,6 +87,16 @@ extension NodeView {
     /// `status` is polite, `alert` assertive.
     static let liveRoles = ["status": "polite", "alert": "assertive"]
     var liveRole: String? { props["accessibilityRole"].flatMap { Self.liveRoles[$0] == nil ? nil : $0 } }
+    #if os(macOS)
+    /// The ARIA roles WebKit serves as AppKit's group with the role as its
+    /// subrole (Core-AAM): the live regions and the dialogs, a `dialog`
+    /// element's implicit role among them (HTML-AAM).
+    static let groupSubroles = ["status": "AXApplicationStatus", "alert": "AXApplicationAlert",
+                                "dialog": "AXApplicationDialog", "alertdialog": "AXApplicationAlertDialog"]
+    var groupSubrole: String? {
+        (props["accessibilityRole"] ?? (props["semanticTag"] == "dialog" ? "dialog" : nil)).flatMap { Self.groupSubroles[$0] }
+    }
+    #endif
     /// How a live region speaks: its `aria-live`, else its role's; nil when
     /// `off` or neither.
     var livePoliteness: String? {

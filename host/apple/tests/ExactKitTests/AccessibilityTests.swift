@@ -328,6 +328,56 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertNil(stage.accessibilitySubrole())
         withExtendedLifetime(w) {}
     }
+    /// A `dialog` element is a dialog by its implicit role, and an explicit
+    /// role wins, as HTML-AAM has them.
+    func testADialogElementIsADialogGroup() {
+        let (p, w, _, _) = fixture()
+        let dialog = NodeView(id: 44, kind: "view", presenter: p)
+        dialog.frame = NSRect(x: 0, y: 60, width: 200, height: 80)
+        p.root.addSubview(dialog); p.views[dialog.id] = dialog
+        dialog.applyProps(set: ["semanticTag": "dialog", "accessibilityLabel": "Rename"], clear: [])
+        XCTAssertTrue(dialog.isAccessibilityElement())
+        XCTAssertEqual(dialog.accessibilityRole(), .group)
+        XCTAssertEqual(dialog.accessibilitySubrole()?.rawValue, "AXApplicationDialog")
+        XCTAssertEqual(dialog.accessibilityLabel(), "Rename")
+        dialog.applyProps(set: ["accessibilityRole": "alertdialog"], clear: [])
+        XCTAssertEqual(dialog.accessibilitySubrole()?.rawValue, "AXApplicationAlertDialog")
+        withExtendedLifetime(w) {}
+    }
+    /// A role removed or changed at runtime leaves no trace of it: a box
+    /// that was a status, a dialog, a group or a range is a plain view again,
+    /// as a new one is, and a status that becomes a group has no subrole.
+    func testARemovedRoleLeavesAPlainView() {
+        let (p, w, _, _) = fixture()
+        let fresh = NodeView(id: 49, kind: "view", presenter: p)
+        let roles: [[String: String]] = [["accessibilityRole": "status"], ["accessibilityRole": "dialog", "accessibilityLabel": "Setup"],
+                                         ["accessibilityRole": "group"], ["accessibilityRole": "progressbar", "accessibilityValueNow": "30", "accessibilityValueText": "30 files"]]
+        for (i, set) in roles.enumerated() {
+            let box = NodeView(id: UInt32(50 + i), kind: "view", presenter: p)
+            box.frame = NSRect(x: 0, y: 30 * CGFloat(i), width: 200, height: 20)
+            p.root.addSubview(box); p.views[box.id] = box
+            box.applyProps(set: set, clear: [])
+            p.syncAccessibility()
+            XCTAssertTrue(box.isAccessibilityElement(), "\(set)")
+            box.applyProps(set: [:], clear: ["accessibilityRole"])
+            p.syncAccessibility()
+            XCTAssertFalse(box.isAccessibilityElement(), "\(set) removed")
+            XCTAssertTrue([nil, fresh.accessibilityRole()].contains(box.accessibilityRole()), "\(set) removed: AppKit's default role, or none")
+            XCTAssertNil(box.accessibilitySubrole(), "\(set) removed")
+            XCTAssertNil(box.accessibilityValue(), "\(set) removed")
+            XCTAssertNil(box.accessibilityValueDescription(), "\(set) removed")
+            XCTAssertNil(box.liveText, "\(set) removed")
+        }
+        let box = NodeView(id: 60, kind: "view", presenter: p)
+        p.root.addSubview(box); p.views[box.id] = box
+        box.applyProps(set: ["accessibilityRole": "status"], clear: [])
+        box.applyProps(set: ["accessibilityRole": "group"], clear: [])
+        XCTAssertEqual(box.accessibilityRole(), .group)
+        XCTAssertNil(box.accessibilitySubrole(), "a status become a group")
+        box.applyProps(set: ["accessibilityRole": "none"], clear: [])
+        XCTAssertFalse(box.isAccessibilityElement(), "role=\"none\"")
+        withExtendedLifetime(w) {}
+    }
     /// An `alert` speaks as it appears, as a browser's alert event has it,
     /// except at launch; a live region otherwise only as its text changes.
     func testAnAlertSpeaksAsItAppears() {

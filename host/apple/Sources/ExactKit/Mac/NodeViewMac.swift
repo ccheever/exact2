@@ -380,11 +380,11 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         } else if role == "group" || role == "radiogroup" {
             setAccessibilityElement(true)
             setAccessibilityRole(role == "radiogroup" ? .radioGroup : .group)
-        } else if let live = liveRole {
-            // A live-region role as WebKit serves it (Core-AAM): a group whose
-            // subrole is the role, named only by its author, a paragraph's
-            // words a child (`textAccessibilityChildren`).
-            let subrole = NSAccessibility.Subrole(rawValue: live == "alert" ? "AXApplicationAlert" : "AXApplicationStatus")
+            if accessibilitySubrole() != nil { setAccessibilitySubrole(nil) }
+        } else if let subrole = groupSubrole.map(NSAccessibility.Subrole.init(rawValue:)) {
+            // A live-region or dialog role as WebKit serves it (Core-AAM): a
+            // group whose subrole is the role, named only by its author, a
+            // paragraph's words its children (`textAccessibilityChildren`).
             setAccessibilityElement(true)
             if accessibilityRole() != .group { setAccessibilityRole(.group) }
             if accessibilitySubrole() != subrole { setAccessibilitySubrole(subrole) }
@@ -403,6 +403,17 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             if (accessibilityMaxValue() as? NSNumber) != high { setAccessibilityMaxValue(high) }
             let text = props["accessibilityValueText"].flatMap { $0.isEmpty ? nil : $0 }
             if accessibilityValueDescription() != text { setAccessibilityValueDescription(text) }
+        } else if !isParagraph, super.isAccessibilityElement() {
+            // None of these roles now (one removed at runtime): a plain view
+            // again, as a new one is, without the role's subrole or values.
+            // A paragraph is reset by `updateTextAccessibility`.
+            setAccessibilityElement(false)
+            setAccessibilityRole(nil)
+            if accessibilitySubrole() != nil { setAccessibilitySubrole(nil) }
+            if accessibilityValue() != nil { setAccessibilityValue(nil) }
+            if accessibilityMinValue() != nil { setAccessibilityMinValue(nil) }
+            if accessibilityMaxValue() != nil { setAccessibilityMaxValue(nil) }
+            if accessibilityValueDescription() != nil { setAccessibilityValueDescription(nil) }
         }
     }
     /// Where an image source resolves, as a page resolves `src`: an `http(s)`

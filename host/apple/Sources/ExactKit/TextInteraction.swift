@@ -57,8 +57,8 @@ extension NodeView {
         let label = props["accessibilityLabel"] ?? visibleParagraphText
         #if os(macOS)
         setAccessibilityElement(true)
-        // A live-region role is a group holding these words (`updateRoleAccessibility`).
-        guard liveRole == nil else { return }
+        // A live-region or dialog role is a group holding these words (`updateRoleAccessibility`).
+        guard groupSubrole == nil else { return }
         if accessibilitySubrole() != nil { setAccessibilitySubrole(nil) }
         if let level = headingLevel {
             // The heading role WebKit exposes (AppKit's constant from macOS
@@ -89,18 +89,33 @@ extension NodeView {
     }
     func textAccessibilityChildren() -> [Any]? {
         let interactive = inlineText.filter { !$0.run(dark: drawsDark).hidden && (!($0.props["href"] ?? "").isEmpty || !$0.handlers.isEmpty || $0.props["accessibilityLabel"] != nil) }
+        let text = paragraphText as NSString
         #if os(macOS)
-        // A live-region paragraph is a group whose words are a static text inside it, as WebKit's.
-        let words: [Any] = isParagraph && liveRole != nil ? [ParagraphWords(owner: self)] : []
-        guard !interactive.isEmpty || !words.isEmpty else { return nil }
+        // A paragraph whose role is a group (`updateRoleAccessibility`) holds
+        // its words as WebKit's does: a static text for each stretch between
+        // its links and the links themselves, in reading order, so no word
+        // is read twice.
+        if isParagraph, groupSubrole != nil {
+            guard !inlineText.isEmpty else { return [ParagraphWords(owner: self, text: visibleParagraphText, runs: [])] }
+            let links = Set(interactive.map(\.id))
+            var children: [Any] = [], words: [InlineText] = []
+            func stretch() {
+                let said = words.map(\.text).joined()
+                if !said.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { children.append(ParagraphWords(owner: self, text: said, runs: words)) }
+                words = []
+            }
+            for run in inlineText {
+                if links.contains(run.id) { stretch(); children.append(InlineAccessibility(owner: self, run: run, text: text)) }
+                else if run.paints, !run.run(dark: drawsDark).hidden { words.append(run) }
+            }
+            stretch()
+            return children
+        }
+        guard !interactive.isEmpty else { return nil }
+        return interactive.map { InlineAccessibility(owner: self, run: $0, text: text) }
         #else
         guard !interactive.isEmpty else { return nil }
-        #endif
-        let text = paragraphText as NSString
         let children: [Any] = interactive.map { InlineAccessibility(owner: self, run: $0, text: text) }
-        #if os(macOS)
-        return words + children
-        #else
         let paragraph = UIAccessibilityElement(accessibilityContainer: self)
         paragraph.accessibilityLabel = props["accessibilityLabel"] ?? visibleParagraphText
         paragraph.accessibilityLanguage = presenter?.documentLanguage
@@ -112,21 +127,25 @@ extension NodeView {
 }
 
 #if os(macOS)
-/// A live-region paragraph's words: the static text its group holds.
+/// Words a group-role paragraph holds: a static text of its runs `runs`
+/// between two links, or its whole text when it has no runs.
 private final class ParagraphWords: NSAccessibilityElement, AgentOwned {
     weak var owner: NodeView?
+    let runs: [UInt32]
     var agentViewId: UInt32? { owner?.id }
-    init(owner: NodeView) {
-        self.owner = owner
+    init(owner: NodeView, text: String, runs: [InlineText]) {
+        self.owner = owner; self.runs = runs.map(\.id)
         super.init()
         setAccessibilityParent(owner)
         setAccessibilityRole(.staticText)
-        setAccessibilityValue(owner.visibleParagraphText)
-        setAccessibilityLabel(owner.visibleParagraphText)
+        setAccessibilityValue(text)
+        setAccessibilityLabel(text)
     }
     override func accessibilityFrame() -> NSRect {
         guard let owner, let window = owner.window else { return .zero }
-        return window.convertToScreen(owner.convert(owner.contentBox(), to: nil))
+        guard !runs.isEmpty else { return window.convertToScreen(owner.convert(owner.contentBox(), to: nil)) }
+        let rect = runs.compactMap { owner.presenter?.inlineText($0) }.flatMap(owner.inlineRects).reduce(CGRect.null) { $0.union($1) }
+        return rect.isNull ? .zero : window.convertToScreen(owner.convert(rect, to: nil))
     }
 }
 private final class InlineAccessibility: NSAccessibilityElement, AgentOwned {
