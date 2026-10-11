@@ -2,8 +2,10 @@
 // technology, with main's LLP 1116 D8 (`progress value=… max=…`, AppKit's bar; ARIA's range values on any node, a drawn
 // `progressbar` or `slider` one AppKit element with its value, minimum and maximum). T3 Code 1e2ecbd975: the Antigravity
 // download is ProviderSetupSection.tsx's `<progress aria-label="Antigravity download" value max>`, the context window bar
-// ContextWindowMeter.tsx's drawn `role="progressbar"` with `aria-valuemin=0 aria-valuemax=100 aria-valuenow`, the colour
-// picker's stops and hue slider color-picker.tsx's range values. The Usage bars stay as the reference draws them (an
+// ContextWindowMeter.tsx's drawn `role="progressbar"` with `aria-valuemin=0 aria-valuemax=100 aria-valuenow`, the two colour
+// pickers' stops and hue sliders (the theme editor's ThemeColorPicker.tsx and the provider accent's
+// ProviderAccentColorPicker.tsx, both over color-picker.tsx) its range values, each stop described by the plane's
+// instructions. The Usage bars stay as the reference draws them (an
 // image named with its figures, a button so named, `aria-hidden` decorations). The X49/X55 workaround (an invisible busy
 // indicator named "<label>, <n>%", progress-value.contract) is gone. The AX reads are in tasks/20261011-progress-native-bars.md.
 import { describe, expect, test } from 'bun:test';
@@ -67,16 +69,41 @@ describe('the markup', () => {
     expect(lines[bar + 1]!.line).toContain('width=`${data.composer.contextPercent == "" ? "0%" : data.composer.contextPercent}`');
   });
 
-  test('colour picker: the stops and the hue slider carry the reference range values, no value in a description', async () => {
+  // color-picker.tsx ColorSaturationValuePlane's sr-only text, which each stop's aria-describedby names.
+  const instructions = 'Use arrow keys to adjust the focused value. Hold Shift for larger steps. Use Home and End for the minimum and maximum. Press Tab to move between saturation and brightness.';
+
+  test('theme colour picker: the stops and the hue slider carry the reference range values, no value in a description', async () => {
     const lines = await code('theme-color-picker.contract');
     const of = (id: string) => lines.find(row => row.line.includes(`testId=\`theme-color-\${row.id}-${id}\``))!.line;
-    expect(of('saturation')).toContain('role="slider" aria-label=`${row.label} saturation` aria-valuemin=0 aria-valuemax=100 aria-valuenow=(cs * 100) aria-valuetext=`${round(cs * 100)}%`');
-    expect(of('brightness')).toContain('role="slider" aria-label=`${row.label} brightness` aria-valuemin=0 aria-valuemax=100 aria-valuenow=(cv * 100) aria-valuetext=`${round(cv * 100)}%`');
+    expect(of('saturation')).toContain('role="slider" aria-label=`${row.label} saturation` aria-describedby=`theme-color-${row.id}-instructions` aria-valuemin=0 aria-valuemax=100 aria-valuenow=(cs * 100) aria-valuetext=`${round(cs * 100)}%`');
+    expect(of('brightness')).toContain('role="slider" aria-label=`${row.label} brightness` aria-describedby=`theme-color-${row.id}-instructions` aria-valuemin=0 aria-valuemax=100 aria-valuenow=(cv * 100) aria-valuetext=`${round(cv * 100)}%`');
     expect(of('hue')).toContain('role="slider" aria-label=`${row.label} hue` aria-valuemin=0 aria-valuemax=360 aria-valuenow=round(ch)');
     for (const id of ['saturation', 'brightness', 'hue']) expect(of(id)).not.toContain('aria-description');
+    expect(lines.find(row => row.line.includes('id=`theme-color-${row.id}-instructions`'))!.line.trim()).toStartWith(`text "${instructions}"`);
   });
 
-  test('no workaround is left: every progress element and range box says its value', async () => {
+  test('provider accent picker: the reference stops and hue slider, focusable, named without their value', async () => {
+    const lines = await code('settings-b-accent.contract');
+    const of = (id: string) => lines.find(row => row.line.includes(`testId="provider-accent-${id}"`))!;
+    const plane = of('plane'), saturation = of('saturation'), brightness = of('brightness'), hue = of('hue');
+    expect(plane.line).toContain('role="group" aria-label="Accent color saturation and brightness"');
+    // The stops are the plane's, the first autofocused (Base UI's initial focus), each a Tab stop with its keys.
+    for (const stop of [saturation, brightness]) {
+      expect(indent(stop.line)).toBe(indent(plane.line) + 2);
+      expect(stop.at).toBeGreaterThan(plane.at);
+      expect(stop.line).toContain('tabindex=0');
+      expect(stop.line).toContain('aria-describedby=`provider-accent-${editorId}-instructions`');
+    }
+    expect(saturation.line).toContain('autofocus key=axisKey("s")');
+    expect(brightness.line).toContain('key=axisKey("v")');
+    expect(saturation.line).toContain('role="slider" aria-label="Accent color saturation" aria-describedby=`provider-accent-${editorId}-instructions` aria-valuemin=0 aria-valuemax=100 aria-valuenow=(cs * 100) aria-valuetext=`${round(cs * 100)}%`');
+    expect(brightness.line).toContain('role="slider" aria-label="Accent color brightness" aria-describedby=`provider-accent-${editorId}-instructions` aria-valuemin=0 aria-valuemax=100 aria-valuenow=(cv * 100) aria-valuetext=`${round(cv * 100)}%`');
+    expect(hue.line).toContain('tabindex=0 key=hueKey');
+    expect(hue.line).toContain('role="slider" aria-label="Accent color hue" aria-valuemin=0 aria-valuemax=360 aria-valuenow=round(ch)');
+    expect(lines.find(row => row.line.includes('id=`provider-accent-${editorId}-instructions`'))!.line.trim()).toStartWith(`text "${instructions}"`);
+  });
+
+  test('no workaround is left: every progress element and range box says its value, none in its name', async () => {
     const left: string[] = [];
     for (const file of files) {
       for (const { at, line } of await code(file)) {
@@ -86,6 +113,8 @@ describe('the markup', () => {
         if (/^\s*progress(\s+[a-z-]+=|\s*$)/.test(line) && !/\bvalue=/.test(line) && !/aria-label="[^"%$]*"/.test(line)) left.push(`${where} an indeterminate progress named by a value`);
         if (/role="(progressbar|slider|meter|spinbutton)"/.test(line) && !/\baria-valuenow=/.test(line)) left.push(`${where} a range role with no aria-valuenow`);
         if (/role="(progressbar|slider|meter|spinbutton)"/.test(line) && /aria-description=/.test(line)) left.push(`${where} a range value in a description`);
+        // A value in a name (`aria-label=\`Accent color hue ${floor(ch)}\``): the value belongs in aria-valuenow.
+        if (/aria-label=`[^`]*(\$\{(floor|round)\(|%`)/.test(line)) left.push(`${where} a value in a name`);
       }
     }
     expect(left).toEqual([]);
