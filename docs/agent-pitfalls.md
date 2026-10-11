@@ -314,13 +314,6 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   a field that is a grouped-list row's content, as `apps/shelf`'s add sheet does.
   **Candidate fix:** the iOS host could drop the border of a field carried into a
   list cell. (Shelf recipe, 2026-10-10.)
-- **A section `footer`'s colour is ignored, and so is a text-only row's.** A validation
-  message written `color="-exact-system-red"` in a footer shows in the footer's grey on
-  iOS: the list reads the footer's text, not its colour; a row holding only the text is
-  a standard cell, which drops its colour and font too. Fix: the message goes in the
-  field's row, under the field: `row` > `column flex=1 min-width=0 gap=4` > the field,
-  then `when error != ""` a `text … font="-exact-footnote" color="-exact-system-red"`
-  (`docs/patterns/list-detail`). (Shelf recipe, 2026-10-10; LLP 1116.002.)
 
 ## Actions
 

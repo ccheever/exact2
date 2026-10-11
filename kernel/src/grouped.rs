@@ -6,9 +6,13 @@
 //! data; any other row is custom, and the host carries its views.
 
 use crate::control::ControlKind;
-use crate::generated::{Display, FlexDirection, NodeType, PropId};
+use crate::generated::{
+    Display, FlexDirection, FontStyle, NodeType, Overflow, PropId, StyleId, StyleMask,
+    TextOverflow, WhiteSpace,
+};
 use crate::id::ViewId;
 use crate::kernel::{Kernel, NodeRef};
+use crate::style::{Color, ColorValue};
 
 /// A grouped list as a host draws it.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -31,6 +35,10 @@ pub struct GroupedSection {
     pub header: Option<String>,
     /// Its `footer`'s text.
     pub footer: Option<String>,
+    /// How its header's text is set where its author said so.
+    pub header_look: TextLook,
+    /// How its footer's text is set where its author said so.
+    pub footer_look: TextLook,
     /// Its rows, in order.
     pub rows: Vec<GroupedRow>,
     /// Whether its rows sit on a card: false when the section's group has a
@@ -84,6 +92,133 @@ pub struct GroupedRow {
     pub destructive: bool,
     /// `disabled`.
     pub disabled: bool,
+    /// How the title is set where its author said so.
+    pub title_look: TextLook,
+    /// How the second text is set where its author said so.
+    pub secondary_look: TextLook,
+}
+
+/// How a text the platform's list draws is set where its author said so
+/// (LLP 1116.003 D7: author > platform, LLP 1115). The defaults are the
+/// platform's: every line, wrapped, in the platform's colour and font.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct TextLook {
+    /// The most lines it shows, 0 for any number: its `line-clamp`, or 1
+    /// where `white-space: nowrap` keeps it on one line.
+    pub lines: u32,
+    /// Whether a line cut short ends in "…" rather than at the edge: under
+    /// a `line-clamp`, as CSS draws one, or `text-overflow: ellipsis` in a
+    /// box that clips its overflow.
+    pub ellipsis: bool,
+    /// Its `color`, when it is not one Contract's sheet writes.
+    pub color: Option<ColorValue>,
+    /// Its font, when its size, weight, style, family or numerals are not
+    /// the sheet's.
+    pub font: Option<TextFont>,
+}
+
+/// A text's font as its computed style has it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TextFont {
+    /// `font-size` in points: a text style's already read at the root size.
+    pub size: f32,
+    /// `font-weight`.
+    pub weight: u16,
+    /// `font-style: italic`.
+    pub italic: bool,
+    /// `font-family`, by its id in the plan's catalog; 0 is the system's.
+    pub family: u16,
+    /// `font-variant-numeric`'s bits (1: `tabular-nums`).
+    pub numeric: u8,
+}
+
+/// The size and weight Contract's sheet writes for a text in a slot
+/// (`contract/lower/src/grouped.rs`, LLP 1084 §2), standing in for the
+/// platform's font there: a title, a value beside it and a header 17
+/// points (the header semibold), a subtitle line 15, a footer 13.
+#[derive(Clone, Copy)]
+struct Slot {
+    size: f32,
+    weight: u16,
+}
+const TITLE: Slot = Slot {
+    size: 17.0,
+    weight: 400,
+};
+const SUBTITLE: Slot = Slot {
+    size: 15.0,
+    weight: 400,
+};
+const HEADER: Slot = Slot {
+    size: 17.0,
+    weight: 600,
+};
+const FOOTER: Slot = Slot {
+    size: 13.0,
+    weight: 400,
+};
+
+/// The colours the sheet writes, UIKit's label, secondary label and red
+/// (LLP 1084 §2): a text in one of them left its colour unsaid, which is
+/// the platform's. Compared as the pairs Contract lowers them to, so only
+/// those exact colours match.
+const SHEET_COLORS: [ColorValue; 3] = [
+    ColorValue::LightDark(Color::rgba(0, 0, 0, 255), Color::rgba(255, 255, 255, 255)),
+    ColorValue::LightDark(
+        Color::rgba(0x3c, 0x3c, 0x43, 0x99),
+        Color::rgba(0xeb, 0xeb, 0xf5, 0x99),
+    ),
+    ColorValue::LightDark(
+        Color::rgba(0xff, 0x38, 0x3c, 255),
+        Color::rgba(0xff, 0x42, 0x45, 255),
+    ),
+];
+
+impl TextLook {
+    /// The look the text node `node` asks for in `slot`, as the web lays it
+    /// out and paints it.
+    fn of(node: &NodeRef<'_>, slot: Slot) -> TextLook {
+        let mut rows = StyleMask::EMPTY;
+        for row in [
+            StyleId::WhiteSpace,
+            StyleId::TextColor,
+            StyleId::FontSize,
+            StyleId::FontWeight,
+            StyleId::FontStyle,
+            StyleId::FontFamily,
+            StyleId::FontVariantNumeric,
+        ] {
+            rows.set(row);
+        }
+        let s = node.computed_style(rows);
+        let font = TextFont {
+            size: s.font_size,
+            weight: s.font_weight,
+            italic: s.font_style == FontStyle::Italic,
+            family: s.font_family,
+            numeric: s.font_variant_numeric,
+        };
+        let said = font.size != slot.size
+            || font.weight != slot.weight
+            || font.italic
+            || font.family != 0
+            || font.numeric != 0;
+        let mut look = TextLook {
+            color: (!SHEET_COLORS.contains(&s.text_color)).then_some(s.text_color),
+            font: said.then_some(font),
+            ..TextLook::default()
+        };
+        let clamp = node.style.line_clamp;
+        if clamp > 0 {
+            look.lines = clamp;
+            look.ellipsis = true;
+        } else if s.white_space == WhiteSpace::Nowrap {
+            look.lines = 1;
+            look.ellipsis = node.style.text_overflow == TextOverflow::Ellipsis
+                && node.style.overflow_x != Overflow::Visible;
+        }
+        look
+    }
 }
 
 /// A symbol image's Apple name: an `sf/` name as written, a role by the
@@ -112,6 +247,19 @@ fn text_of(node: &NodeRef<'_>) -> Option<String> {
     (!text.is_empty()).then_some(text)
 }
 
+impl GroupedRow {
+    /// A standard cell's title and second text, and how each is set: the
+    /// second a subtitle under the title, else a value beside it.
+    fn texts(&mut self, title: &NodeRef<'_>, second: Option<&NodeRef<'_>>, subtitle: bool) {
+        self.title = text_of(title);
+        self.title_look = TextLook::of(title, TITLE);
+        self.secondary = second.and_then(text_of);
+        let slot = if subtitle { SUBTITLE } else { TITLE };
+        self.secondary_look = second.map(|n| TextLook::of(n, slot)).unwrap_or_default();
+        self.subtitle = subtitle;
+    }
+}
+
 impl Kernel {
     /// The grouped list `view` is, as it now stands; `None` for a node
     /// without `listStyle`.
@@ -126,7 +274,11 @@ impl Kernel {
                 .filter(|c| c.style.display != Display::None)
                 .collect()
         };
-        let label = |n: &NodeRef<'_>| nodes(n).iter().find_map(text_of);
+        let label = |n: &NodeRef<'_>, slot: Slot| {
+            nodes(n)
+                .iter()
+                .find_map(|t| text_of(t).map(|text| (text, TextLook::of(t, slot))))
+        };
         let shown = nodes(&list);
         let sections = shown
             .iter()
@@ -138,8 +290,14 @@ impl Kernel {
                 };
                 for part in nodes(section) {
                     match part.props.str(PropId::SemanticTag) {
-                        Some("header") => out.header = label(&part),
-                        Some("footer") => out.footer = label(&part),
+                        Some("header") => {
+                            (out.header, out.header_look) = label(&part, HEADER)
+                                .map_or((None, TextLook::default()), |(t, l)| (Some(t), l))
+                        }
+                        Some("footer") => {
+                            (out.footer, out.footer_look) = label(&part, FOOTER)
+                                .map_or((None, TextLook::default()), |(t, l)| (Some(t), l))
+                        }
                         _ => {
                             out.card = part.style.background_color.is_none_or(|c| {
                                 c.resolve(false).a() != 0 || c.resolve(true).a() != 0
@@ -192,9 +350,7 @@ impl Kernel {
         {
             if (1..=2).contains(&parts.len()) && parts.iter().all(|p| p.node_type == NodeType::Text)
             {
-                out.title = text_of(&parts[0]);
-                out.secondary = parts.get(1).and_then(text_of);
-                out.subtitle = true;
+                out.texts(&parts[0], parts.get(1), true);
             }
             if out.title.is_none() {
                 return GroupedRow {
@@ -243,12 +399,11 @@ impl Kernel {
             }
         }
         match rest {
-            [title] if title.node_type == NodeType::Text => out.title = text_of(title),
+            [title] if title.node_type == NodeType::Text => out.texts(title, None, false),
             [title, value]
                 if title.node_type == NodeType::Text && value.node_type == NodeType::Text =>
             {
-                out.title = text_of(title);
-                out.secondary = text_of(value);
+                out.texts(title, Some(value), false)
             }
             // A `column`, as Contract's sheet styles one; a `row` or a box
             // of texts is the row's own layout.
@@ -261,9 +416,7 @@ impl Kernel {
                 if lines.iter().all(|l| l.node_type == NodeType::Text)
                     && (1..=2).contains(&lines.len())
                 {
-                    out.title = text_of(&lines[0]);
-                    out.secondary = lines.get(1).and_then(text_of);
-                    out.subtitle = true;
+                    out.texts(&lines[0], lines.get(1), true);
                 } else {
                     out.custom = true;
                 }

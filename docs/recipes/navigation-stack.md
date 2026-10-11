@@ -196,7 +196,7 @@ test "add validates, saves, refuses a repeat, opens and deletes after asking"
   with no `press`). Open it from an action with `showModal("remove")`. For a modal you
   lay out yourself, use `role="dialog" aria-modal=true`.
 - Show a validation error only after the first Save (`submitted`), in red under the
-  field, in its row (a section footer is always grey on iOS). The sheet closes in `then`, only when
+  field, in its row. The sheet closes in `then`, only when
   the save's reply is ok: a refusal keeps the sheet, its text and the reason
   ([after-a-write](after-a-write.md)).
 - In tests, `clock settle` after every push, sheet or alert, and `clock data` before
