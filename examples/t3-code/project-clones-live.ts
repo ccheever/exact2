@@ -49,7 +49,7 @@ export async function cloneToasts(client: T3Client, native: Native | null | unde
     if (!environment.connected || !cloneTracking(environment.config) || !environment.clones.value) continue;
     // The composer banner shows the same progress while that project's draft is open.
     const viewing = environment.focused && !client.threadId ? client.projectId : '';
-    syncCloneToasts(trackedFor(client, environment.environmentId), environment.clones.value, environment.environmentId, viewing, port(client), environment.focused);
+    syncCloneToasts(trackedFor(client, environment.environmentId), environment.clones.value, environment.environmentId, viewing, port(client));
   }
 }
 
