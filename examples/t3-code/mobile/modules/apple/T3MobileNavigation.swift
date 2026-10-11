@@ -23,6 +23,16 @@ enum T3MobileNavigation {
         let item = route.controller.navigationItem
         item.largeTitleDisplayMode = .never
         item.backButtonDisplayMode = .minimal
+        // NewTaskRouteScreen lets UIKit integrate its project search beside the title.
+        // Keep Exact's search owner and input delegates; only adapt this route's placement.
+        if route.isLive, route.element("new-task-project-search") != nil,
+           let search = item.searchController {
+            search.hidesNavigationBarDuringPresentation = false
+            search.obscuresBackgroundDuringPresentation = false
+            search.searchBar.autocapitalizationType = .none
+            if #available(iOS 16.0, *) { item.preferredSearchBarPlacement = .automatic }
+            if #available(iOS 26.0, *) { item.searchBarPlacementAllowsToolbarIntegration = true }
+        }
         // @ref llp/1109.010-mobile-browser-devices.decision.md#presentation-and-root-seam
         // The browser's nested source stack uses a 17-point semibold title.
         if route.element("browser-title") != nil, let bar = route.navigation?.controller.navigationBar {
