@@ -146,13 +146,13 @@ check('check advises on a bottom tab bar and an unsplit pushing list at a deskto
   const positioned = BAR.replace('style="display:flex;flex-direction:row"', 'style="display:flex;flex-direction:row;position:absolute;left:0;right:0;bottom:0"');
   const html = page(tabs(positioned).replaceAll(chevron, '')) + `<script type="module">
     import { observe } from './check.js';
-    window.advice = () => { const views = new Map([...document.querySelectorAll('#exact-root *')].map(e => [e.id || e.localName, e])); return (observe(views).advice ?? []).map(a => a.kind + ' ' + a.id + (a.pushed ? ' pushed' : '')); };
+    window.advice = () => { const views = new Map([...document.querySelectorAll('#exact-root *')].map(e => [e.id || e.localName, e])); return (observe(views).advice ?? []).map(a => a.kind + ' ' + a.id); };
   </script>`;
   return inChrome(html, async (evaluate, size) => {
     await evaluate(`select('1')`);
-    expect(await evaluate('advice()')).toEqual(['tabbar bar', 'push r1']);
+    expect(await evaluate('advice()')).toEqual(['tabbar bar']);
     await evaluate(`select('2')`);
-    expect(await evaluate('advice()')).toEqual(['tabbar bar', 'push r2 pushed']);
+    expect(await evaluate('advice()')).toEqual(['tabbar bar', 'push r2']);
     await size(390);
     expect(await evaluate('advice()')).toEqual([]);
   });

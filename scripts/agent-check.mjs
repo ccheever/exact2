@@ -162,9 +162,7 @@ function advise(a, width, nodes) {
   const who = named(a.id, nodes);
   return `  advice   ${who}: ${a.kind === 'tabbar'
     ? `a bottom tab bar ${r0(a.w)} px wide along a ${width}-px window; placed as docs/recipes/tabs.md places it (the last child of the root's flex column, unpositioned) a wide window draws it as a sidebar, or lay out a rail of your own when the window is wide`
-    : a.pushed
-      ? `the list beneath pushes this detail over the whole ${width}-px window where they would fit side by side; a row that pushes draws the disclosure (\`image "symbol:forward-chevron"\`, last in the row) and a wide window shows the list beside its detail, or set \`navigationSplit\` on the list's route (contract vocab navigationSplit)`
-      : `a list ${r0(a.w)} px wide on a ${width}-px window; if a row pushes its detail, draw the disclosure in the row (\`image "symbol:forward-chevron"\`, last) and a wide window shows the list beside the detail (contract vocab navigationSplit)`}`;
+    : `the list beneath pushed this detail over the whole ${width}-px window where they would fit side by side; a row that pushes draws the disclosure (\`image "symbol:forward-chevron"\`, last in the row) and a wide window shows the list beside its detail, or set \`navigationSplit\` on the list's route (contract vocab navigationSplit)`}`;
 }
 
 /** The text a check prints: per scheme, its findings (at most SHOWN, then a count), or one line saying there are none; then its advice. */
