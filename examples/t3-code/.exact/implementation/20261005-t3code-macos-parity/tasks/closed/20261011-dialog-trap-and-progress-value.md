@@ -2,13 +2,13 @@
 name: 20261011-dialog-trap-and-progress-value
 plan: 20261005-t3code-macos-parity
 implementation: implemented
-verification: verified-with-unverified-rows
-delivery: draft-pr
+verification: partial
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-dialog-trap-and-progress-value
 pr_url: https://github.com/ccheever/exact2/pull/431
-verified_commit: null
+verified_commit: ff1eb4ceb
 ---
 
 # Tab stays inside every dialog; progress bars tell assistive tech their value
@@ -19,7 +19,7 @@ STATUS "Known differences" rows 7 and 8 (the user asked on 2026-10-11 to fix wha
 
 | Id | Clone | Reference |
 | --- | --- | --- |
-| DT-1 | In the import wizard (Settings › Integrations › Browser profiles › Add profile › Brave, "Quit Brave to import"), Shift+Tab from Cancel leaves the dialog for the Settings page behind it ("Add host", then "Built-in default…") (`realinput-1010h`, [image](https://raw.githubusercontent.com/ccheever/exact2/7102c03c8286911606342d14bda00cec33d3883d/realinput-1010h/IW-c-1to4-brave-dialog-rings.png)). Tab past the last stop of the wizard and of the profile removal confirm leaves them too ([import-wizard-initial-focus](closed/20261010-import-wizard-initial-focus.md), Not done). Exact keeps no Tab inside `aria-modal` on macOS (X53, [#282](https://github.com/ccheever/exact2/issues/282)); most of the clone's dialogs carry their own `key` traps since [dialog-shortcut-focus](closed/20261008-dialog-shortcut-focus.md), these do not | Base UI's focus trap: Tab past the last stop goes to the first, Shift+Tab before the first goes to the last, in every Dialog and AlertDialog |
+| DT-1 | In the import wizard (Settings › Integrations › Browser profiles › Add profile › Brave, "Quit Brave to import"), Shift+Tab from Cancel leaves the dialog for the Settings page behind it ("Add host", then "Built-in default…") (`realinput-1010h`, [image](https://raw.githubusercontent.com/ccheever/exact2/7102c03c8286911606342d14bda00cec33d3883d/realinput-1010h/IW-c-1to4-brave-dialog-rings.png)). Tab past the last stop of the wizard and of the profile removal confirm leaves them too ([import-wizard-initial-focus](20261010-import-wizard-initial-focus.md), Not done). Exact keeps no Tab inside `aria-modal` on macOS (X53, [#282](https://github.com/ccheever/exact2/issues/282)); most of the clone's dialogs carry their own `key` traps since [dialog-shortcut-focus](20261008-dialog-shortcut-focus.md), these do not | Base UI's focus trap: Tab past the last stop goes to the first, Shift+Tab before the first goes to the last, in every Dialog and AlertDialog |
 | PV-1 | Progress bars (the Antigravity runtime download, and any other `role="progressbar"` box) are drawn boxes with the percentage only in `aria-description`; on macOS a drawn box's `progressbar` role is not exposed either (X55, #278) and Contract carries no value (X49, main `issues/20261009-aria-range-accessibility-values.md`, open) | `<progress>` / Radix progress with its value: VoiceOver reads "Antigravity download, 30 percent" |
 
 ## Steps
@@ -209,6 +209,34 @@ after each dialog opens; the ring shows where the focus is.
    while its runtime downloads, VO on the bar reads "Antigravity download, N%, busy indicator"; the composer's context
    window popover, "Context window usage, N%". Without either, leave the row open.
 
+## Real-input results
+
+`realinput-1011a` (2026-10-11, the final session the user asked for after this wave; the bundle of `ff1eb4ceb`, the tip after #426, #427, #431 and #434, in lane copy ri1011a-1 on port 16971, real keys and pointer; the input source was ABC, read only). Notes: [00-1011a-notes.txt](https://raw.githubusercontent.com/ccheever/exact2/29d3c8eaf3255c533c999a477164418f9ee965ae/realinput-1011a/00-1011a-notes.txt).
+
+| Step | Result | Evidence |
+| --- | --- | --- |
+| 1 | Pass: Brave, Shift+Tab from Cancel goes to the X; Tab goes Cancel → "I've quit it" → X → Cancel | [keys](https://raw.githubusercontent.com/ccheever/exact2/91524136ef591770af4dc41086dff74bb1ac6b2e/realinput-1011a/DT1-brave-keys.txt) |
+| 2 | Pass: Chrome, Shift+Tab from "Personal" goes to the X; Tab returns to "Personal" | [DT2](https://raw.githubusercontent.com/ccheever/exact2/c669dfeb2f2a10cc7d8bc325105d0d9df7f252ad/realinput-1011a/DT2-chrome-wizard-shift-tab-X.png) |
+| 3 | Pass: Remove profile and data, Shift+Tab from Cancel goes to Remove profile; Tab returns to Cancel | [DT3](https://raw.githubusercontent.com/ccheever/exact2/083a73af2ea04879757e85e4c385a7d2b7439da2/realinput-1011a/DT3-remove-dialog-shift-tab.png) |
+| 4 | Not run: two clicks on Add host opened no dialog (the lane's Device hub shows "Not installed") | [DT4](https://raw.githubusercontent.com/ccheever/exact2/123775fc8b51e5799cf95d5c11945e7d3b1aeede/realinput-1011a/DT4-add-host-no-dialog.png) |
+| 5 | Partial: Add hub passes (Shift+Tab from Hub URL and Tab from Cancel go to the X). Add provider fails: it opens with nothing focused, and four Tab/Shift+Tab presses reach neither the X nor the Provider step | [hub](https://raw.githubusercontent.com/ccheever/exact2/cd2006bc2093a469ba7e2601e5fac5e10e1688ca/realinput-1011a/DT5-add-hub-shift-tab-X.png), [provider](https://raw.githubusercontent.com/ccheever/exact2/c3767307f0cf9e509c22e05c456d27426c1fc12b/realinput-1011a/DT5-add-provider-no-focus.png) |
+| 6 | Pass, with a note: Runs on → X and Create task → X → Runs on, as the step says; the focus entered the dialog only after a click in Name | [DT6](https://raw.githubusercontent.com/ccheever/exact2/d090b1fc5fe335a981fae0dce20308daa5a6e041/realinput-1011a/DT6-new-task-shift-tab-X.png) |
+| 7 | Partial: ⌘K, Tab and Shift+Tab keep the ring on the field. ⌘⇧F opened no project search, from the composer or the timeline (`mod+shift+f` is bound to `projectSearch.toggle`) | [keys](https://raw.githubusercontent.com/ccheever/exact2/f4d5690d51737e4a76136d207d7d91c2d975f115/realinput-1011a/DT7-palette-search-keys.txt) |
+| 8 | Fail: Model prices opens with nothing focused; Tab and Shift+Tab reach neither the X nor "Apply to" | [DT8](https://raw.githubusercontent.com/ccheever/exact2/4848dce9c2fe436a7c5ded94cfaf9d2ed17ae3f7/realinput-1011a/DT8-model-prices-open.png) |
+| 9 | Not available: the lane had no runtime download and no thread with token usage | notes |
+
+The traps hold where the dialog has the focus (steps 1–3, 5's Add hub, 6). Steps 5, 6 and 8 share one difference: under a
+real key press a dialog that opens with nothing focused takes no Tab (the agent's drives focused a field first). Its cause
+was not traced (the user's decision: real-input failures go to `STATUS.md` "Known differences", not to new tasks); so do
+step 7's ⌘⇧F and the unverified steps 4 and 9.
+
+## Delivery
+
+Merged on 2026-10-11 as `4b6a268f3` (#431, squash) after an independent review and its repair. Before the
+merge the wave's four PRs (#426, #427, #431, #434) were combined on `0292f4364` with no conflict, and the Bun suite
+(4540 pass), strict tsc, the contract build (28,771,221 bytes) and caps passed on that tree, which is the merged tip's.
+
 ## Next action
 
-Coordinator: review PR https://github.com/ccheever/exact2/pull/431 (review round 1 fixed, `2d013aeb0`) and run the real-input steps above in the final session. Model prices on the Limits view and the prices dialog's undrawn X and + are in QUEUE.md, not this task's.
+None. Closed after `realinput-1011a`; what stays open is listed in `STATUS.md` "Known differences" (the user's
+decision of 2026-10-11: no new tasks from real-input failures).

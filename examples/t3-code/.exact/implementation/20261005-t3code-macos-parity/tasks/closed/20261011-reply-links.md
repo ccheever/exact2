@@ -2,13 +2,13 @@
 name: 20261011-reply-links
 plan: 20261005-t3code-macos-parity
 implementation: implemented
-verification: verified-with-unverified-rows
-delivery: draft-pr
+verification: verified
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-reply-links
 pr_url: https://github.com/ccheever/exact2/pull/434
-verified_commit: null
+verified_commit: ff1eb4ceb
 ---
 
 # Reply links that are not links: other schemes, fragments, and a code span inside a link
@@ -16,7 +16,7 @@ verified_commit: null
 ## Outcome
 
 STATUS "Known differences" rows 4 and 5 (the user asked on 2026-10-11 to fix what can be fixed now). Both were seen while
-building [realinput-1010g-followups](closed/20261010-realinput-1010g-followups.md) (#419, "Seen while building").
+building [realinput-1010g-followups](20261010-realinput-1010g-followups.md) (#419, "Seen while building").
 
 | Id | Clone | Reference (check it first) |
 | --- | --- | --- |
@@ -202,7 +202,7 @@ Before, on the code head `1cc7f3391`: the same checks, all exit 0 (4454 pass; 28
 ## Not done / not verified
 
 - Real-input steps 1–4 above: the coordinator's session (step 1 now also hovers for the pointer, review R1-1).
-- RL-2's click: Decision needed below.
+- RL-2's click: see Decision below (the clone keeps the thread).
 - The ContextMenu key on a focused mailto, irc, xmpp or fragment link opens no menu (review R1-4 ends a click the key did
   not raise, and `shellMenu` has nothing else to answer); the reference's shell opens its menu at the focused anchor. A Mac
   keyboard has no ContextMenu key and Chrome on a Mac gives Shift+F10 no default (MouseEventsMac), so it is reachable by
@@ -216,13 +216,30 @@ Before, on the code head `1cc7f3391`: the same checks, all exit 0 (4454 pass; 28
 - A table cell's fragment link is a link there too since RL-2 kept the href (review R1-2): drawn and read as a link, as the
   reference's; a click is refused by the host (`exact: refused to open #notes`), so nothing opens and the thread stays.
 
-## Decision needed
+## Decision
 
-RL-2: in the reference a click on a reply's fragment link with no target in the reply (`[the notes](#notes)`; every
-fragment in the clone, which draws no footnotes or HTML ids) sets the page's hash, which Electron's hash router reads as a
-route, so the app leaves the thread for the new-thread draft. The clone keeps the thread. Copy the reference's navigation
-(the link opens the new-thread draft), or keep the thread?
+RL-2: the clone keeps the thread. The user was asked on 2026-10-11 with keeping the thread as the
+recommendation and gave no other answer; the reference's navigation (its hash router leaves the thread for the
+new-thread draft) is listed in `STATUS.md` "Known differences" and can be taken later if wanted.
+
+## Real-input results
+
+`realinput-1011a` (2026-10-11, the final session the user asked for after this wave; the bundle of `ff1eb4ceb`, the tip after #426, #427, #431 and #434, in lane copy ri1011a-1 on port 16971, real keys and pointer; the input source was ABC, read only). Notes: [00-1011a-notes.txt](https://raw.githubusercontent.com/ccheever/exact2/29d3c8eaf3255c533c999a477164418f9ee965ae/realinput-1011a/00-1011a-notes.txt).
+
+| Step | Result | Evidence |
+| --- | --- | --- |
+| 1, RL-1 | Pass: the pointing hand on the first and last word of all four links; each click left the lane in front, opened no window and showed no toast; "the team"'s menu is Cut, Copy, Paste (disabled), Select All, no Copy Link | [hover](https://raw.githubusercontent.com/ccheever/exact2/bf9ea0e0d4adc782f2342224dc2bbb7d85faccf3/realinput-1011a/RL1-hover-cursors.txt), [clicks](https://raw.githubusercontent.com/ccheever/exact2/57e713f2cbef25c833b8ac9d3d974cb61f23bff9/realinput-1011a/RL1-RL2-clicks.txt), [menus](https://raw.githubusercontent.com/ccheever/exact2/f597d74afba8669d97834e426a31dc78dff5a051/realinput-1011a/RL1-RL2-team-and-notes-menus.png) |
+| 2, RL-2 | Pass: a click on "the notes" keeps the thread; its menu is step 1's | the same |
+| 3, RL-3 | Pass: `x`'s menu is Open in integrated browser, Open in system browser, Copy Link; Copy Link pasted `https://example.com/c`; a click on `y` ("Open links in": Your default) brought the default browser to the front (the URL handed off is not in the clone's log or trace) | [x menu](https://raw.githubusercontent.com/ccheever/exact2/8ec2792e08aadec46b3e981cf6f2c016545d8145/realinput-1011a/RL3-x-code-span-menu.png), [y click](https://raw.githubusercontent.com/ccheever/exact2/78183e86491bde868210196733d7a9c5fd1298e5/realinput-1011a/RL3-y-click.txt) |
+| 4 | Pass: six `AXLink`s, no "team", "channel", "notes" or "docs" text after any | [axwalk](https://raw.githubusercontent.com/ccheever/exact2/da78377c749390c16824a987ecfb9062e47f6da9/realinput-1011a/RL4-axwalk-links.txt) |
+
+## Delivery
+
+Merged on 2026-10-11 as `ff1eb4ceb` (#434, squash) after an independent review and its repair. Before the
+merge the wave's four PRs (#426, #427, #431, #434) were combined on `0292f4364` with no conflict, and the Bun suite
+(4540 pass), strict tsc, the contract build (28,771,221 bytes) and caps passed on that tree, which is the merged tip's.
 
 ## Next action
 
-Review the draft PR (review round 1 fixed); answer the decision; real-input steps 1–4 in the coordinator's session.
+None. Closed after `realinput-1011a`; what stays open is listed in `STATUS.md` "Known differences" (the user's
+decision of 2026-10-11: no new tasks from real-input failures).

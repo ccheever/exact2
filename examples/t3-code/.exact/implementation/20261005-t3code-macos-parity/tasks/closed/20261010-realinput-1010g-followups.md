@@ -205,6 +205,12 @@ None.
 | 3, RG-3 | Partial: no AutoFill, Services or Writing Tools on any of the four menus (the row's point). The composer's guesses for "chek" were chef, chew, cheek, whek, chez, without "check" (in `realinput-1010g` "check" came first). The guesses are `NSSpellChecker`'s, not the clone's; the input source was 2-Set Korean this time, so the list is not compared. Not re-run (the last session) | [composer](https://raw.githubusercontent.com/ccheever/exact2/7102c03c8286911606342d14bda00cec33d3883d/realinput-1010h/RG3-a-composer-spelling-menu.png), [example.com](https://raw.githubusercontent.com/ccheever/exact2/7102c03c8286911606342d14bda00cec33d3883d/realinput-1010h/RG3-b-example-word-menu.png), [fixture field](https://raw.githubusercontent.com/ccheever/exact2/7102c03c8286911606342d14bda00cec33d3883d/realinput-1010h/RG3-c-fixture-field-menu.png) |
 | 4, RG-4 | Pass: `AXLink "linked $verify"` (`AXURL` -25205 while X78 is open), no `AXStaticText "$verify"` after it | [grep](https://raw.githubusercontent.com/ccheever/exact2/7102c03c8286911606342d14bda00cec33d3883d/realinput-1010h/RG4-axwalk-linked-grep.txt), [walk](https://raw.githubusercontent.com/ccheever/exact2/7102c03c8286911606342d14bda00cec33d3883d/realinput-1010h/RG4-axwalk-full.txt) |
 
+
+`realinput-1011a` (2026-10-11, the final session after the Known-differences wave; the bundle of `ff1eb4ceb`; input
+source ABC, which the user switched to themselves): step 3 re-run for the guesses only. Pass: the composer's menu for
+"chek" reads check, chef, chew, chez, cheek, a separator, Cut, Copy, Paste, Select All, and nothing after
+([RG3](https://raw.githubusercontent.com/ccheever/exact2/16e18f054edcd4ad877abf03008cece849496fd5/realinput-1011a/RG3-composer-chek-menu.png)).
+
 ## Delivery
 
 Merged on 2026-10-11 as `408eab1ad` (#419, squash) after an independent review.

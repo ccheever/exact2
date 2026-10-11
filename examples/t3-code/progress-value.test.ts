@@ -3,7 +3,7 @@
 // `role="progressbar"` box with `aria-valuenow`; VoiceOver reads the name and the rounded percentage. Contract carries
 // no range value (X49) and macOS exposes no drawn `progressbar` (X55), so each drawn bar is `aria-hidden` and an
 // invisible indeterminate `progress` beside it carries "<name>, <n>%" (progress-value.contract). The AX read is in
-// tasks/20261011-dialog-trap-and-progress-value.md.
+// tasks/closed/20261011-dialog-trap-and-progress-value.md.
 import { describe, expect, test } from 'bun:test';
 import { providerRuntime } from './provider-install';
 import { contextMeter } from './composer-controls-view';

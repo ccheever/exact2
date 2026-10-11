@@ -101,9 +101,22 @@ Records: `.exact/implementation/20261005-t3code-macos-parity/` (`plan.md` "Statu
 
 ### Next real-input batch
 
-**Real-input sessions ended with `realinput-1010h` (the user's decision, 2026-10-11): one last session, then stop.** Rows
+**Real-input sessions ended with `realinput-1011a` (the user's decisions, 2026-10-11: `realinput-1010h` was to be the last;
+the user then asked for one more after the Known-differences wave).** Rows
 that did not run stay unverified and are listed in "Known differences" below; build observations go there too, not to new
 tasks.
+
+2026-10-11, after #426, #427, #431 and #434 merged (`realinput-1011a`, the final session; the bundle of `ff1eb4ceb` in lane
+ri1011a-1, real keys and pointer; the input source was ABC, switched by the user). 14 of 21 steps passed: the Files '+',
+click and drag (FG-1, FG-2), a Files number closing a skill chip's details (FG-4's Files half), the four reply link steps
+(RL-1..RL-3, accessibility), the dialog traps of Brave, Chrome, Remove profile, Add hub and New task, ⌘K, the four
+unverified rows (UV-1..UV-4: #311's tips and commit link, #346's muted tab) and RG-3's spelling guesses. Partial or
+failed: Add provider and Model prices open with nothing focused and take no Tab (New task took the focus only after a
+click), and ⌘⇧F opened no project search. Not run: the Diff panel's gutter and split view's stripes (the lane had no
+diff), Add device host (its hub was not installed), VoiceOver on the progress bars (no bar in the lane). All of these
+are in "Known differences". The four records are closed. Evidence: `realinput-1011a/` on t3-code-evidence
+([notes](https://raw.githubusercontent.com/ccheever/exact2/29d3c8eaf3255c533c999a477164418f9ee965ae/realinput-1011a/00-1011a-notes.txt), [FG-2 drag](https://raw.githubusercontent.com/ccheever/exact2/de510c935a3dd5c8983e004481f6222781e6235c/realinput-1011a/FG2-drag-number-1-to-2-frames.png),
+[Add provider](https://raw.githubusercontent.com/ccheever/exact2/c3767307f0cf9e509c22e05c456d27426c1fc12b/realinput-1011a/DT5-add-provider-no-focus.png), [RG-3](https://raw.githubusercontent.com/ccheever/exact2/16e18f054edcd4ad877abf03008cece849496fd5/realinput-1011a/RG3-composer-chek-menu.png)).
 
 2026-10-11, after #409, #413 and #419 merged (`realinput-1010h`, the last session; the bundle of `408eab1ad` in lanes
 ri1010h-1 and ri1010h-2, real keys and pointer; the input source was 2-Set Korean and was left so, so text went in by
@@ -150,29 +163,30 @@ The clone's known differences from T3 Code (`1e2ecbd975`) that no task will take
 observations and real-input failures are listed here, not made into tasks). Framework gaps stay in `EXACT2-GAPS.md`; only
 the ones a person sees in a session are repeated here.
 
-2026-10-11, later: the user asked to fix rows 1–8 and 11 where that can be done now. In progress:
-[files-gutter-parity](.exact/implementation/20261005-t3code-macos-parity/tasks/20261011-files-gutter-parity.md) (rows 1–3
-and 6, reopened), [reply-links](.exact/implementation/20261005-t3code-macos-parity/tasks/20261011-reply-links.md) (4–5),
-[dialog-trap-and-progress-value](.exact/implementation/20261005-t3code-macos-parity/tasks/20261011-dialog-trap-and-progress-value.md)
-(7–8) and [unverified-real-input-rows](.exact/implementation/20261005-t3code-macos-parity/tasks/20261011-unverified-real-input-rows.md)
-(11, except the rows that wait for main #327). Their real-input rows go to one session after the wave.
+2026-10-11, later: the user asked to fix the rows that could be fixed then. Fixed and merged: the Files gutter's '+' and
+drag ([files-gutter-parity](.exact/implementation/20261005-t3code-macos-parity/tasks/closed/20261011-files-gutter-parity.md), #427), reply mailto/irc/xmpp links and a code span
+inside a link ([reply-links](.exact/implementation/20261005-t3code-macos-parity/tasks/closed/20261011-reply-links.md), #434), the dialogs' focus trap
+([dialog-trap-and-progress-value](.exact/implementation/20261005-t3code-macos-parity/tasks/closed/20261011-dialog-trap-and-progress-value.md), #431) and #311's and #346's real-input
+rows ([unverified-real-input-rows](.exact/implementation/20261005-t3code-macos-parity/tasks/closed/20261011-unverified-real-input-rows.md), #426), checked in `realinput-1011a`.
+The rows below are what stays.
 
 | Where | Clone | Reference | Source |
 | --- | --- | --- | --- |
-| Files surface, the gutter's '+' | The old 16×16 `#1b4ed8` button at the cell's left (x 2–18 of a one-digit gutter), so a press on the middle of number 1 opens a draft instead of selecting | Pierre's utility button at the number's right edge, 20×20 `#009fff`, the plus in the surface colour (the diff's '+' is this way since #416) | [files-gutter-parity](.exact/implementation/20261005-t3code-macos-parity/tasks/closed/20261011-files-gutter-parity.md) FG-1, stopped |
-| Files surface, line selection | Lines are selected by press and Shift-press; a draft opens only from the '+' | A drag over the numbers selects too, and the draft opens when a line selection ends | FG-2, stopped |
-| Split view, an added run's empty side | Flat `light-dark(#e4e4e4, #222222)` | Diagonal stripes | FG-3, stopped |
-| Reply links with `mailto:`, `irc:`, `xmpp:` or a `#fragment` | Plain text: no press, not a link to accessibility | Markdown links are `<a>` elements (not compared per scheme) | #419's build |
-| A code span inside a reply's web link | Not pressable (drawing it pressable grows the plan by 763 KB) | Part of the link | #419's build |
-| The thread's Diff panel, a gutter press | An open skill chip's details stay open | An outside press closes them | X71; handing the press on grew the plan by 777 KB (#413) |
-| Dialogs, Shift+Tab before the first stop (and Tab past the last) | The focus leaves the dialog for the page behind (the import wizard, `realinput-1010h` (c)) | Base UI's focus trap wraps inside | X53, [#282](https://github.com/ccheever/exact2/issues/282), partial in main #327 |
-| Progress bars (provider install, usage) to VoiceOver | A drawn bar with `role="progressbar"`; the percentage is only in `aria-description`, not a range value | A `progress` element whose value assistive technology reads | X49, main `issues/20261009-aria-range-accessibility-values.md` (open); [provider-sign-in-verification-followup](.exact/implementation/20261005-t3code-macos-parity/tasks/closed/20261008-provider-sign-in-verification-followup.md), closed |
-| Provider sign-in, not verified with a real account | Gemini CLI (ACP) "Log in with Google": Google refused the client for this account; Cursor: no Pro account (a free account gets `403 plan_required`). Antigravity's Google sign-in, real Sign out and Codex's Change account passed (2026-10-08) | — | The same record |
+| Split view, an added run's empty side | Diagonal stripes every 10 pt | Every 8 px | X83, main `issues/20261011-repeating-hatch-across-list-rows.md` (#430); [files-gutter-parity](.exact/implementation/20261005-t3code-macos-parity/tasks/closed/20261011-files-gutter-parity.md) FG-3 |
+| A reply's `#fragment` link | A link; a click keeps the thread | The hash router leaves the thread for a new-thread draft | [reply-links](.exact/implementation/20261005-t3code-macos-parity/tasks/closed/20261011-reply-links.md) RL-2; kept by choice (the user was asked; can be taken later) |
+| A `mailto:` link in a reply's Markdown table cell | A click hands it to the mail app | Opens nothing | The same record; stopping it grows the plan by 308 KB |
+| The ContextMenu key (or VoiceOver's show menu) on a focused `mailto:`, `irc:`, `xmpp:` or `#fragment` link | No menu | The shell's menu at the link | The same record; a Mac keyboard has no ContextMenu key |
+| Dialogs that open with nothing focused (Add provider, Model prices; New task until a click) | Under real keys, Tab and Shift+Tab reach none of their stops | Base UI focuses the dialog on open, and the trap wraps | `realinput-1011a` DT-5, DT-6, DT-8; cause not traced; [dialog-trap-and-progress-value](.exact/implementation/20261005-t3code-macos-parity/tasks/closed/20261011-dialog-trap-and-progress-value.md) |
+| ⌘⇧F (project content search) | Under real keys it opened nothing, from the composer or the timeline | Opens the search | `realinput-1011a` DT-7; cause not traced |
+| Smaller Tab-order differences in dialogs | ⌘K: Tab stays on the field; Add a theme: Shift+Tab goes to the X; a `select`, time or date input is no Tab stop (X52) | The results list (a Chromium scroller); its hidden file input; Tab stops | The same record, "Known differences (after this task)" |
+| Progress bars (provider install, usage) to VoiceOver | The percentage is in a busy indicator's name ("Antigravity download, 27%"), not a progress value; not heard under VoiceOver (no bar in the lane) | A `progress` element whose value assistive technology reads | X49, X55; main `issues/20261009-aria-range-accessibility-values.md` (open); the same record PV-1 |
+| Provider sign-in, not verified with a real account | Gemini CLI (ACP) "Log in with Google": Google refused the client for this account; Cursor: no Pro account (a free account gets `403 plan_required`). Antigravity's Google sign-in, real Sign out and Codex's Change account passed (2026-10-08) | — | [provider-sign-in-verification-followup](.exact/implementation/20261005-t3code-macos-parity/tasks/closed/20261008-provider-sign-in-verification-followup.md), closed |
 | Not compared | The subscription trace (subscriptions, unsubscriptions, refresh calls) and reference pixel pairs for #238's matrix: no oracle or trace tooling (decision of 2026-10-06) | — | The same record |
-| Real input, not verified | #261's reaction pill tooltip; #307's Usage popover email tooltip and the press on its padding; #311's PR-link card, commit link and the Code tab's age, viewed-error, short/withheld and viewed-here tips; #346's muted tab indicator (AppKit-tested); RG-3's spelling guesses under an English input source | — | "Next real-input batch" above; tests and agent drives cover them |
+| Real input, not verified | #261's reaction pill tooltip, #307's Usage popover email tooltip and the press on its padding, #311's PR-link card (wait for main #327, X62); the Diff panel's gutter press closing a skill chip's details (FG-4) and split view's stripes (`realinput-1011a`'s lane had no diff); Add device host's trap (its hub was not installed) | — | Tests and agent drives cover them |
 
 ### Found, not in scope
 
 | Found by (date) | Bug | Steps | Measured |
 | --- | --- | --- | --- |
+| `realinput-1011a`, 2026-10-11 | A pull request Timeline commit title stays invisible until the pointer is over it | A PR's Timeline tab, a commit row, the pointer elsewhere | [image](https://raw.githubusercontent.com/ccheever/exact2/2610719c6267c52ddaaa45274a12a74110dadfdc/realinput-1011a/UV1-timeline-ages-no-tip.png) |
 | browser-surface-automation (#346), 2026-10-09 | While Settings › Integrations is open, the data module asks `server.getConfig`, `server.getSettings` and `device.list` again and again. The `integrations` resource (`integrationsPage`, keyed on `data.revision`) is re-asked after every answer, and the runner stays busy, so a 3-s agent wait takes 35-40 s. Pre-existing: the base `d564a5c02` has it. | Build the app; launch it on a lane (any connected environment); open Settings (`connection-settings`) › Integrations (`settings-integrations`); wait 30 s; count the lane server's `ws.rpc.server.getConfig` / `getSettings` / `device.list` spans in `userdata/logs/server.trace.ndjson*` (the trace rotates every ~10 MB). Leaving Settings stops it within seconds. | Base: 26.4/s each over 60.9 s. #346's branch: 13.0/s each over 70.2 s ([record](https://raw.githubusercontent.com/ccheever/exact2/056511fac8d7d0b99ec4df0d5906f358cc39be2e/browser-surface-automation/settings-loop.txt)). **In review:** [fix-settings-integrations-loop](.exact/implementation/20261005-t3code-macos-parity/tasks/closed/20261009-fix-settings-integrations-loop.md) (draft [#353](https://github.com/ccheever/exact2/pull/353)). Cause: each answer sent `device.list { inspectOnly }`, whose inspection the server publishes to the device-state stream the app holds; that event bumped `data.revision`, which re-asked the page. The page now reads the connection's server config and device-state stream, as the reference does. Base `c603c22d6`: 25.5/s each; branch: 0 in 30 s ([record](https://raw.githubusercontent.com/ccheever/exact2/e84540a35484258e3e15ced0fd7e15e87ce81db4/fix-settings-integrations-loop/settings-loop.txt)). | Fixed by #353 (`950e8e2e5`).

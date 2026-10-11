@@ -2,20 +2,20 @@
 name: 20261011-files-gutter-parity
 plan: 20261005-t3code-macos-parity
 implementation: done
-verification: unverified
-delivery: draft-pr
+verification: verified-with-unverified-rows
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-files-gutter-parity
 pr_url: https://github.com/ccheever/exact2/pull/427
-verified_commit: null
+verified_commit: ff1eb4ceb
 ---
 
 # The Files surface's gutter, and split view's empty side
 
 ## Outcome
 
-[diff-gutter-selection-followups](closed/20261011-diff-gutter-selection-followups.md) (#417, "Observations") saw three
+[diff-gutter-selection-followups](20261011-diff-gutter-selection-followups.md) (#417, "Observations") saw three
 differences from T3 Code (`1e2ecbd975`) outside its rows:
 
 | Id | Clone | Reference |
@@ -187,16 +187,32 @@ The clone's packaged or development build (a lane home and port), the fixture th
 
 - Under a real pointer: the steps above (the agent's drags are mouse events through `NSApplication.sendEvent`, the host's
   `mouseDown`/`mouseDragged` path a hand takes).
-- FG-3's framework gap is filed by main PR [#430](https://github.com/ccheever/exact2/pull/430), a draft until the
-  coordinator merges it (the issue file lands on main only then).
+- FG-3's framework gap is X83, filed on main by [#430](https://github.com/ccheever/exact2/pull/430) (merged `2d04f681a`).
 - The reference's skill chip details (FG-4) could not be opened in this lane (no provider, so no skill in its `$` menu);
   the row is checked against the reference's source (Base UI Popover's outside press).
 
+## Real-input results
+
+`realinput-1011a` (2026-10-11, the final session the user asked for after this wave; the bundle of `ff1eb4ceb`, the tip after #426, #427, #431 and #434, in lane copy ri1011a-1 on port 16971, real keys and pointer; the input source was ABC, read only). Notes: [00-1011a-notes.txt](https://raw.githubusercontent.com/ccheever/exact2/29d3c8eaf3255c533c999a477164418f9ee965ae/realinput-1011a/00-1011a-notes.txt).
+
+| Step | Result | Evidence |
+| --- | --- | --- |
+| 1 | Pass: hovering line 1 shows the blue '+' at the number's edge; a click on number 1 selects it and opens the draft focused (a typed letter lands in it) | [FG1](https://raw.githubusercontent.com/ccheever/exact2/311a7d83de8f6d0756ef1f3654e75a10ebba057b/realinput-1011a/FG1-hover-plus-then-click-number.png) |
+| 2 | Pass: a drag from number 1 to 2 colours both as it moves, puts the '+' on line 2 and selects no text; the release opens the focused draft "L1 to L2" | [FG2](https://raw.githubusercontent.com/ccheever/exact2/de510c935a3dd5c8983e004481f6222781e6235c/realinput-1011a/FG2-drag-number-1-to-2-frames.png) |
+| 3 | Pass: a press on line 2's '+' selects line 2 and opens its draft | [FG3](https://raw.githubusercontent.com/ccheever/exact2/4e691a1c4bb61b66757708a2d28d158aef090996/realinput-1011a/FG3-plus-press-line2-draft.png) |
+| 4 | Partial: the chip's details open and a click on a Files number closes them. The Diff panel half did not run: the lane's Diff showed "No net changes" in every scope | [FG4](https://raw.githubusercontent.com/ccheever/exact2/cf13ced15aa57a3b9ced31ccd49a8b9794b3778a/realinput-1011a/FG4-chip-open-then-files-number-click.png), [Diff](https://raw.githubusercontent.com/ccheever/exact2/c9e8864be372319a711c0992e4cc8dfc62b68e1e/realinput-1011a/FG4-FG5-diff-no-net-changes.png) |
+| 5 | Not run: no `SKILL.md` diff in the lane to split (the lane app's Appearance was to stand in for the system's) | the Diff image |
+
+FG-4's Diff gutter and FG-3's stripes stay unverified under real input (the agent drives cover them); listed in
+`STATUS.md` "Known differences".
+
 ## Delivery
 
-Draft PR [#427](https://github.com/ccheever/exact2/pull/427) into `feat(example)/t3-code`.
+Merged on 2026-10-11 as `ab908d7a1` (#427, squash) after an independent review and its repair. Before the
+merge the wave's four PRs (#426, #427, #431, #434) were combined on `0292f4364` with no conflict, and the Bun suite
+(4540 pass), strict tsc, the contract build (28,771,221 bytes) and caps passed on that tree, which is the merged tip's.
 
 ## Next action
 
-Coordinator review of the draft PR; merge main PR #430 (FG-3's framework gap) and map it in the plan's issues; the
-real-input steps go to the final session.
+None. Closed after `realinput-1011a`; what stays open is listed in `STATUS.md` "Known differences" (the user's
+decision of 2026-10-11: no new tasks from real-input failures).

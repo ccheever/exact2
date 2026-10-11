@@ -18,7 +18,7 @@ verified_commit: 917ddd3413b360e32d2d51090d41d479cbfff38d
 In T3 Code (`1e2ecbd975`) the Settings pages' section titles and some row titles are headings. On Settings › General,
 "New threads" is level 2, and Model, Permissions, Workspace and Submodules are level 3. In the clone they are plain text,
 and its Settings accessibility tree has no headings. Both builds of round 8 matched, so main did not cause this; it
-predates the round. Found by [adopt-main-fixes-r8](../closed/20261010-adopt-main-fixes-r8.md) (#402).
+predates the round. Found by [adopt-main-fixes-r8](20261010-adopt-main-fixes-r8.md) (#402).
 
 ## Steps
 
