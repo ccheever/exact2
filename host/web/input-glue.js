@@ -122,6 +122,11 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     const el = event.target;
     if (event.defaultPrevented || event.isComposing || event.metaKey || event.ctrlKey || event.altKey || !ready()) return;
     if (radioArrow(root, event) || event.repeat) return;
+    // @ref LLP 1115.000 D4.14 — Space holds a `<button>` down until its keyup,
+    // when the browser clicks it. A press it declares shows meanwhile, as under
+    // a pointer: a native button's highlight, a `-exact-press-scale`. (The
+    // unsaid dim needs nothing here: it is the browser's own `:active`.)
+    if (event.key === " " && el?.matches?.("button:enabled") && root.contains(el) && (el.hasAttribute("data-button-style") || el.style.getPropertyValue("--exact-press"))) return keyed(el);
     if (typeof el?.matches !== "function" || !root.contains(el) || !pressesByKey(el)) return;
     if (event.key !== "Enter" && !(event.key === " " && el.getAttribute("role") !== "link")) return;
     event.preventDefault();
@@ -141,7 +146,8 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   };
   // Space held on a pressable this piece presses by key shows its press (its
   // `-exact-press-scale`, else the shell's dim) until the key comes up or the
-  // focus leaves, as the browser holds a `<button>` `:active` under Space.
+  // focus leaves, as the browser holds a `<button>` `:active` under Space; so
+  // does a `<button>` whose press is declared.
   const keyed = el => {
     const up = e => {
       if (e.type === "keyup" && e.key !== " ") return;

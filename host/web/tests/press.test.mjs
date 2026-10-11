@@ -193,6 +193,21 @@ check('only the innermost pressable shows the press, and only while inside', asy
     await mouse('mouseReleased', await centre('native'));
     expect(await pressed()).toBe('');
     expect(await face()).toBe('1');
+    // The keyboard shows the same state (LLP 1115.000 D4.14): Space holds a
+    // native button's highlight, and a button's `-exact-press-scale`, until
+    // its keyup.
+    const space = (type) => call('Input.dispatchKeyEvent', { type, key: ' ', code: 'Space', windowsVirtualKeyCode: 32, ...(type === 'keyDown' ? { text: ' ' } : {}) });
+    await evaluate(`document.getElementById('native').focus()`);
+    await space('keyDown');
+    expect([await pressed(), await face(), await opacity('native')]).toEqual(['native', '0.5', '1']);
+    await space('keyUp');
+    expect([await pressed(), await face()]).toEqual(['', '1']);
+    await evaluate(`document.getElementById('button').focus()`);
+    await space('keyDown');
+    expect([await pressed(), await scale('button'), await scale('card')]).toEqual(['button', 0.5, 1]);
+    await space('keyUp');
+    expect([await pressed(), await scale('button')]).toEqual(['', 1]);
+    await evaluate(`document.activeElement.blur()`);
     // Mobile WebKit's grey tap highlight never paints over any of it.
     expect(await evaluate(`getComputedStyle(document.documentElement).getPropertyValue('-webkit-tap-highlight-color')`)).toBe('rgba(0, 0, 0, 0)');
 
