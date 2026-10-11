@@ -10,7 +10,8 @@ import XCTest
 /// below the bar and tappable, as in a UIKit table or a SwiftUI `Form`; the
 /// floating tab bar stays under the keys rather than riding above them; and
 /// Return with `enterkeyhint="next"` moves to the next field, a row the list
-/// had scrolled away included, and shows it likewise.
+/// had scrolled away included, and shows it likewise. D2.2: a grouped list
+/// taking a route's scroll's place in place is what the bar follows.
 final class KeyboardFormIOSTests: XCTestCase {
     private var window: UIWindow?
     private var session: ExactSession?
@@ -108,6 +109,31 @@ final class KeyboardFormIOSTests: XCTestCase {
         p.applyKeyboard(top: nil, duration: 0, curve: 0)
         spin(0.3)
         XCTAssertEqual(box(tabs.tabBar).minY, resting.minY, accuracy: 0.5, "the tab bar where it was before the keys")
+    }
+
+    /// LLP 1116.003 D2.2: a route's empty `scroll` giving way in place to a
+    /// grouped list (workout-log's active workout): the bar follows the list
+    /// UIKit shows, its collection view, at both edges. It was handed the
+    /// list's hidden authored scroll, in the batch before the collection view
+    /// was made, and the large title drew nothing after; the bottom edge
+    /// kept the hidden scroll for good.
+    func testTheBarFollowsAGroupedListThatReplacesTheRoutesScrollInPlace() throws {
+        let session = try fixture()
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        _ = Agent(session: session).tap(["id": Int(try node("tab-other").id)])
+        spin(0.5)
+        let nav = try XCTUnwrap(tabs.selectedViewController as? UINavigationController)
+        let route = try XCTUnwrap(nav.topViewController)
+        XCTAssertEqual(route.navigationItem.title, "Other")
+        XCTAssertEqual(route.navigationItem.largeTitleDisplayMode, .always)
+        XCTAssertTrue(route.contentScrollView(for: .top) is ScrollView, "the empty state's scroll")
+        _ = Agent(session: session).tap(["id": Int(try node("fill").id)])
+        spin(0.5)
+        XCTAssertNotNil(try? node("other-list"), "the list took the scroll's place")
+        for edge: NSDirectionalRectEdge in [.top, .bottom] {
+            let shown = route.contentScrollView(for: edge)
+            XCTAssertTrue(shown is GroupedScroller, "edge \(edge.rawValue) follows the list's collection view, not \(String(describing: shown))")
+        }
     }
 }
 #endif

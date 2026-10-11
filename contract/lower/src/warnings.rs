@@ -212,6 +212,9 @@ fn glyph_line(node: &Node) -> bool {
 #[derive(Default)]
 struct Bar {
     headings: usize,
+    /// A `when`, `each`, `match`, use or slot, or a computed role: the
+    /// headings counted may not be all.
+    doubt: bool,
     /// The heading has been passed, in document order.
     passed: bool,
     subtitle: bool,
@@ -228,8 +231,19 @@ struct Bar {
 /// subtitle (a filled box before it as the avatar), one search field, one
 /// tablist and the buttons that press or open a popover; the rest of the
 /// header is hidden with it. With no heading or with two, the bar takes
-/// nothing and the header is shown as written, so nothing is dropped.
+/// nothing and the header is shown as written, so nothing is dropped; that
+/// header is `lower-header-no-bar`'s (LLP 1116.003 D2.2). A `when` first
+/// among the route's children is read branch by branch: a branch's first
+/// node is the route's first child while it is taken.
 fn route_header(children: &[Node], out: &mut Vec<LowerError>) {
+    if let Some(Node::When {
+        then, otherwise, ..
+    }) = children.first()
+    {
+        route_header(then, out);
+        route_header(otherwise, out);
+        return;
+    }
     let Some(header @ Node::Element { tag, attrs, .. }) = children.first() else {
         return;
     };
@@ -239,6 +253,17 @@ fn route_header(children: &[Node], out: &mut Vec<LowerError>) {
     let mut bar = Bar::default();
     walk(kids(header), &mut bar);
     if bar.headings != 1 {
+        if !bar.doubt {
+            out.push(LowerError {
+                id: "lower-header-no-bar",
+                message: if bar.headings == 0 {
+                    "this route's `header` holds no heading, so on iOS it is not the navigation bar: the route shows no bar (no title, no Back button) and the header is drawn in the page as written. Give it one `text role=\"heading\"` (`aria-level=1` for a large title) — its buttons become the bar's items (docs/recipes/navigation-stack.md)".to_string()
+                } else {
+                    format!("this route's `header` holds {} headings, so on iOS it is not the navigation bar: the route shows no bar (no title, no Back button) and the header is drawn in the page as written. Keep one `text role=\"heading\"` and make the others plain `text` (the first text after the heading is the bar's subtitle), or move them below the `header` (docs/recipes/navigation-stack.md)", bar.headings)
+                },
+                span: header.span(),
+            });
+        }
         return;
     }
     for (span, what) in bar.unplaced {
@@ -256,7 +281,8 @@ fn walk(nodes: &[Node], bar: &mut Bar) {
     for node in nodes {
         let span = node.span();
         match part(node) {
-            Part::Doubt | Part::Hidden => {}
+            Part::Doubt => bar.doubt = true,
+            Part::Hidden => {}
             Part::Heading => {
                 bar.headings += 1;
                 bar.passed = true;

@@ -3,7 +3,8 @@
 // exercise's form under the first. Focused, a field and its Add button stay
 // above the keyboard, the floating tab bar under it, and Return with
 // `enterkeyhint="next"` moves on to the next field and shows it likewise
-// (KeyboardFormIOSTests).
+// (KeyboardFormIOSTests). The other tab's empty state gives way in place to
+// a grouped list, as workout-log's active workout did (LLP 1116.003 D2.2).
 routes nav
   tab log "/"
   tab other "/other"
@@ -73,9 +74,15 @@ component KeyboardForm
                       row
                         button press=add testId="bench-add" flex=1
                           text "Add Set"
-                else
+                else when added == 0
                   scroll id=`content-${e.id}` flex=1 min-height=0
-                    text "Nothing here" padding=16
+                    button press=add testId="fill"
+                      text "Fill"
+                else
+                  list id=`content-${e.id}` appearance="auto" listStyle="inset-grouped" flex=1 min-height=0 testId="other-list"
+                    section
+                      row
+                        text "Filled"
       row role="tablist" testId="tabs"
         button role="tab" aria-controls="panel-log" aria-selected=(nav.tab == "log") press=pick("log") testId="tab-log" flex=1
           image "symbol:activity"

@@ -652,10 +652,15 @@ extension NavigationHost {
         // A scroller at its start (CSS scrollTop 0) stays there as UIKit
         // begins to inset it: UIKit keeps the offset it had, a new
         // scroller's 0, which left its content's top under the bar.
-        let atStart = target?.scroll.map { $0.contentOffset.y <= 0.5 - $0.adjustedContentInset.top } ?? false
-        if let sv = target?.scroll { sv.contentInsetAdjustmentBehavior = .always }
-        c.setContentScrollView(target?.scroll, for: .top)
-        if atStart, let sv = target?.scroll { rest(sv, in: c) }
+        let attach = { [weak self, weak c, weak target] in
+            guard let self, let c, c.collapseScroll === target else { return }
+            let shown = shownScroll(target)
+            let atStart = shown.map { $0.contentOffset.y <= 0.5 - $0.adjustedContentInset.top } ?? false
+            for sv in [target?.scroll, shown].compactMap({ $0 }) { sv.contentInsetAdjustmentBehavior = .always }
+            c.setContentScrollView(shown, for: .top)
+            if atStart, let sv = shown { rest(sv, in: c) }
+        }
+        if unmountedList(target) { presenter.afterBatch(attach) } else { attach() }
         let under = shape?.level == 1 ? "collapses its title with its scroller" : "scrolls its content under the bar"
         presenter.session?.log("navigation: route \(c.key) \(target == nil ? "keeps its title still" : under)")
     }
@@ -697,12 +702,36 @@ extension NavigationHost {
         guard c.edgeScroll !== target else { return }
         if let old = c.edgeScroll, let sv = old.scroll, old !== c.collapseScroll { sv.contentInsetAdjustmentBehavior = .never }
         c.edgeScroll = target
-        if let sv = target?.scroll { sv.contentInsetAdjustmentBehavior = .always }
-        // tvOS has no bottom bar whose edge follows a scroller.
-        #if !os(tvOS)
-        c.setContentScrollView(target?.scroll, for: .bottom)
-        #endif
+        let attach = { [weak self, weak c, weak target] in
+            guard let self, let c, c.edgeScroll === target else { return }
+            let shown = shownScroll(target)
+            for sv in [target?.scroll, shown].compactMap({ $0 }) { sv.contentInsetAdjustmentBehavior = .always }
+            // tvOS has no bottom bar whose edge follows a scroller.
+            #if !os(tvOS)
+            c.setContentScrollView(shown, for: .bottom)
+            #endif
+        }
+        if unmountedList(target) { presenter.afterBatch(attach) } else { attach() }
         presenter.session?.log("navigation: route \(c.key) \(target == nil ? "keeps its content above the bottom edge" : "scrolls its content to the bottom edge")")
+    }
+
+    /// The scroller UIKit shows for a route's content node: a grouped list's
+    /// collection view, drawn in place of its hidden authored scroll (LLP
+    /// 1084 D8), else the node's own. A bar that followed the hidden one
+    /// drew no large title: workout-log's title vanished when its empty
+    /// state's `scroll` gave way to a grouped list in place (LLP 1116.003 D2.2).
+    func shownScroll(_ node: NodeView?) -> UIScrollView? {
+        guard let node else { return nil }
+        if node.kind == "list", let list = presenter.groupedLists?.scroller(for: node.id) { return list }
+        return node.scroll
+    }
+
+    /// A grouped list whose collection view this batch has not made yet
+    /// (the grouped lists sync after the routes): UIKit is handed it once it
+    /// is, never the hidden scroll beneath, which left a large title blank.
+    private func unmountedList(_ target: NodeView?) -> Bool {
+        guard let target, target.kind == "list", target.props["listStyle"] != nil, presenter.applying else { return false }
+        return shownScroll(target) === target.scroll
     }
 
     /// Whether UIKit insets this scroller (`.always`): a route's collapse or
