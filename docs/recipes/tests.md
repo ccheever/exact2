@@ -80,7 +80,9 @@ bun exact.mjs agent ios --storage real1 --epoch now --chrome platform "type draf
   "clock +1500 real" "reload" "clock +1500 real" state "screenshot .exact/real-ios.png window"
 ```
 
-Each `clock +N real` waits N ms of real time, so the drive ends.
+Each `clock +N real` waits N ms of real time, so the drive ends. Before a screenshot,
+`"check both"` names in text what a look would find (clipped text, covered controls, small
+targets, overflow, low contrast, a card that does not show) in each scheme.
 
 A second user's write, seen through the app's own polling: the drive in the background,
 the write through the server with the other persona's token once its first `state` is out:

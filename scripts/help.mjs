@@ -112,6 +112,7 @@ Ops      a target is a testId, else a view's exact text or label
   tap <target> [contextmenu|dblclick|hover|drag <dx> <dy>|…]
   type <target> <text> · type <target> key <Name>   (a select, date or checkbox: its value)
   clock data · clock settle · clock +<ms> [real]    land what is in flight · end transitions
+  check [dark|both]                                 what is wrong with the screen, in text: before a screenshot
   screenshot <file.png> [window]                    window: with the platform's bars
   prefer <feature> <value> · perf [<target>] · resize <w>x<h> · close · fail|pass fetch <prefix>
   trace <file>      a saved development trace; every form: docs/contract-for-agents.md
