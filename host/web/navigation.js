@@ -51,8 +51,53 @@ function historyURL(path) {
 }
 const stamp = (index, op) => ({ exact: index, id: op.top, url: op.url });
 
-/** The selected route's Back control (1035.001 D1: the `id` the root's `navigationBack` names), pressable or not. */
-const backControl = nav => { const route = selectedRoute(nav); return route && [...route.querySelectorAll("[id]")].find(node => node.id === nav.getAttribute("navigationBack")); };
+/** A route's Back control, the selected route's unless named (1035.001 D1: the `id` the root's `navigationBack` names), pressable or not. */
+const backControl = (nav, route = selectedRoute(nav), name = nav.getAttribute("navigationBack")) => route && name !== null ? route.querySelector(`[id="${CSS.escape(name)}"]`) : undefined;
+// @ref LLP 1116.000 D4 — a pushed route's app bar draws Back, as iOS draws
+// UIKit's system Back button (NavigationBarIOS.swift `prepareRoutes`): a
+// route above its stack's root (a tab's root has none), not itself a sheet
+// (whose Cancel is its Back), whose `header` does not already hold the
+// root's `navigationBack` control, and none when that control is disabled.
+// The button is the header's shadow root's, before its slot, so the header's
+// children stay the renderer's. Its words are the control's when one is
+// named elsewhere in the route (a symbol alone: the chevron alone), else the
+// route beneath's title while it is short, else "Back".
+const BACK = `<style>button{all:unset;display:inline-flex;align-items:center;gap:2px;flex:none;vertical-align:middle;margin-inline:-6px 6px;padding:4px 8px 4px 4px;border-radius:8px;color:var(--exact-accent,AccentColor);cursor:pointer;white-space:nowrap;-webkit-user-select:none;user-select:none}button[hidden],span[hidden]{display:none}button:focus-visible{outline:2px solid var(--exact-accent,AccentColor);outline-offset:1px}button:active>*{opacity:.5}@media (hover:hover){button:hover{background-color:light-dark(#7676801f,#7676803d)}}svg{width:.75em;height:1.25em;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}button:dir(rtl) svg{scale:-1 1}</style><button part="back" type="button"><svg viewBox="6 3 11 18" aria-hidden="true"><path d="M15 5 8 12l7 7"/></svg><span></span></button><slot></slot>`;
+const headerOf = route => [...(route?.children ?? [])].find(child => child.localName === "header");
+function appBarBack(nav, routes, index) {
+  const route = routes[index], header = headerOf(route);
+  if (!header) return;
+  let button = header.shadowRoot?.querySelector('button[part="back"]');
+  const pushed = index > 0 && !["modal", "fullscreen"].includes(route.getAttribute("navigationPresentation")), control = pushed ? backControl(nav, route) : null;
+  // Until the page is interactive the glue disables every control itself (`aria-busy`): not the author's.
+  if (!pushed || header.contains(control) || (control?.matches(":disabled") && !nav.closest('[aria-busy="true"]'))) {
+    if (button) button.hidden = true;
+    return;
+  }
+  if (!button) {
+    if (header.shadowRoot || !header.attachShadow) return; // a shadow root of someone else's
+    header.attachShadow({ mode: "open" }).innerHTML = BACK;
+    button = header.shadowRoot.querySelector("button");
+    button.addEventListener("click", event => { event.stopPropagation(); appBack(header); });
+  }
+  const title = control ? control.textContent.trim() : headerOf(routes[index - 1])?.querySelector("h1, h2, h3, h4, h5, h6, [role=heading]")?.textContent.trim() ?? "";
+  const label = control || (title && title.length <= 14) ? title : "Back", name = control ? control.getAttribute("aria-label") || label || "Back" : label === "Back" ? label : `Back to ${label}`;
+  button.hidden = false; button.lastChild.hidden = !label;
+  if (button.lastChild.textContent !== label) button.lastChild.textContent = label;
+  if (button.getAttribute("aria-label") !== name) button.setAttribute("aria-label", name);
+}
+/** The app bar's Back, pressed: the browser's Back from its route (`popped`), applied at once: the route's control
+ * pressed, else the root's `navigate` with the location beneath, else the runner's own `back` (LLP 1115 D5). The
+ * history follows the commit as it follows any Back the app takes (`commit`). */
+function appBack(header) {
+  const route = header.parentElement, nav = route?.parentElement?.closest("[navigationBack]");
+  if (!nav || route !== selectedRoute(nav)) return;
+  const routes = routesOf(nav), below = routes[routes.indexOf(route) - 1], id = Number(route.getAttribute("navigationKey"));
+  if (!below) return;
+  if (backControl(nav)) { const why = pressBack(nav); if (why) log(`app bar: Back refused: ${why}`); return; }
+  const entry = written[cursor - 1], known = cursor > first && written[cursor]?.id === id && entry?.id === Number(below.getAttribute("navigationKey"));
+  if (!known || navigate(entry.url) === false) hostBack?.(id);
+}
 /** Press the Back control; else why it was not pressed. */
 function pressBack(nav) {
   const route = selectedRoute(nav), control = backControl(nav);
@@ -249,6 +294,7 @@ export const navigation = {
           route.style.visibility = active || covered ? "" : "hidden";
           route.toggleAttribute("data-exact-covered", covered);
           route.inert = !active || !!route.authoredInert;
+          appBarBack(nav, routes, index);
         }
       }
     }
