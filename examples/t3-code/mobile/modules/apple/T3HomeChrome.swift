@@ -81,15 +81,16 @@ private final class T3ChromeOverlay: UIView {
 }
 
 private final class T3SearchDelegate: NSObject, UISearchResultsUpdating, UISearchBarDelegate {
-    var changed: ((String) -> Void)?
-    func updateSearchResults(for searchController: UISearchController) { changed?(searchController.searchBar.text ?? "") }
-    func searchBarCancelButtonClicked(_ searchBar: UISearchBar) { changed?("") }
+    var changed: ((UISearchBar, String) -> Void)?
+    var cleared: ((UISearchBar) -> Void)?
+    func updateSearchResults(for searchController: UISearchController) { changed?(searchController.searchBar, searchController.searchBar.text ?? "") }
+    func searchBarCancelButtonClicked(_ searchBar: UISearchBar) { cleared?(searchBar) }
 }
 
 private final class T3FieldDelegate: NSObject, UITextFieldDelegate {
-    var editing: ((Bool) -> Void)?
-    func textFieldDidBeginEditing(_ textField: UITextField) { editing?(true) }
-    func textFieldDidEndEditing(_ textField: UITextField) { editing?(false) }
+    var editing: ((UITextField, Bool) -> Void)?
+    func textFieldDidBeginEditing(_ textField: UITextField) { editing?(textField, true) }
+    func textFieldDidEndEditing(_ textField: UITextField) { editing?(textField, false) }
 }
 
 private final class T3HomeChromeView: ExactNativeInstance {
@@ -98,6 +99,7 @@ private final class T3HomeChromeView: ExactNativeInstance {
     private let root = T3ChromeOverlay()
     private var config: T3ChromeConfiguration?
     private var key = ""
+    private var query = ""
     private var bar: UIView?
     private var field: UISearchTextField?
     private var filter: UIButton?
@@ -128,11 +130,16 @@ private final class T3HomeChromeView: ExactNativeInstance {
         self.owner = owner
         super.init(events: events)
         root.backgroundColor = .clear
-        fieldDelegate.editing = { [weak self] active in self?.editing(active) }
+        fieldDelegate.editing = { [weak self] field, active in
+            guard let self, self.field === field, self.acceptsSearch else { return }; self.editing(active)
+        }
         root.layoutChanged = { [weak self] in self?.updateWidth() }
-        searchDelegate.changed = { [weak self] text in
-            guard let self, !self.settingQuery, !self.workspaceHidden else { return }
-            self.emit("search", text)
+        searchDelegate.changed = { [weak self] bar, text in
+            guard let self, self.searchController?.searchBar === bar else { return }; self.searchChanged(text)
+        }
+        searchDelegate.cleared = { [weak self] bar in
+            guard let self, self.searchController?.searchBar === bar, self.acceptsSearch else { return }
+            self.replaceQuery(""); self.emit("search", "")
         }
     }
     override func setProps(_ props: [String: String]) throws {
@@ -142,7 +149,7 @@ private final class T3HomeChromeView: ExactNativeInstance {
             throw ExactNativeRefusal("Home chrome needs a valid configuration and navigation route key.")
         }
         if key != next.routeKey {
-            detach(); owner?.unbind(self, key: key); key = next.routeKey
+            detach(); owner?.unbind(self, key: key); key = next.routeKey; query = next.query
         }
         config = next
         owner?.bind(self, key: key)
@@ -181,6 +188,8 @@ private final class T3HomeChromeView: ExactNativeInstance {
             attachedLayout = mode
             if glass { if #available(iOS 26.0, *) { makeGlassToolbar() } }
             else { makeHeaderSearch(route) }
+            // Native edits retain their text and caret across asynchronous root echoes.
+            replaceQuery(query)
         }
         let item = route.controller.navigationItem
         item.largeTitleDisplayMode = .never
@@ -204,10 +213,6 @@ private final class T3HomeChromeView: ExactNativeInstance {
             installedToolbar = [filter, UIBarButtonItem(systemItem: .flexibleSpace), compose]
             route.controller.setToolbarItems(installedToolbar, animated: false)
             route.controller.navigationController?.setToolbarHidden(false, animated: false)
-        }
-        if field?.text != config.query { field?.text = config.query }
-        if searchController?.searchBar.text != config.query {
-            settingQuery = true; searchController?.searchBar.text = config.query; settingQuery = false
         }
         filter?.setImage(UIImage(systemName: config.filterIcon), for: .normal)
         filter?.menu = menu()
@@ -254,7 +259,9 @@ private final class T3HomeChromeView: ExactNativeInstance {
         field.borderStyle = .none; field.textColor = .label; field.tintColor = .label
         field.autocapitalizationType = .none; field.autocorrectionType = .no; field.spellCheckingType = .no
         field.accessibilityIdentifier = "home-search-text"; field.delegate = fieldDelegate
-        field.addAction(UIAction { [weak self] _ in self?.queryChanged() }, for: .editingChanged)
+        field.addAction(UIAction { [weak self, weak field] _ in
+            guard let self, let field, self.field === field else { return }; self.searchChanged(field.text ?? "")
+        }, for: .editingChanged)
         glass.contentView.addSubview(field); self.field = field
         let leading = glass.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 56)
         let trailing = glass.trailingAnchor.constraint(equalTo: bar.trailingAnchor, constant: -56)
@@ -269,7 +276,18 @@ private final class T3HomeChromeView: ExactNativeInstance {
             field.leadingAnchor.constraint(equalTo: glass.contentView.leadingAnchor, constant: 14), field.trailingAnchor.constraint(equalTo: glass.contentView.trailingAnchor, constant: -14),
             field.centerYAnchor.constraint(equalTo: glass.contentView.centerYAnchor), field.heightAnchor.constraint(equalToConstant: 42)])
     }
-    private func queryChanged() { emit("search", field?.text ?? "") }
+    private var acceptsSearch: Bool {
+        alive && !settingQuery && route?.isLive == true && !(config?.layout == "sidebar" && workspaceHidden)
+    }
+    private func searchChanged(_ value: String) {
+        guard acceptsSearch else { return }; query = value; emit("search", value)
+    }
+    private func replaceQuery(_ value: String) {
+        query = value; settingQuery = true
+        if field?.text != value { field?.text = value }
+        if searchController?.searchBar.text != value { searchController?.searchBar.text = value }
+        settingQuery = false
+    }
     private func editing(_ active: Bool) {
         keyboardBottom?.priority = active ? .defaultHigh : .defaultLow
         restingBottom?.priority = active ? .defaultLow : .defaultHigh
@@ -320,10 +338,7 @@ private final class T3HomeChromeView: ExactNativeInstance {
         workspaceHidden = hidden
         guard config?.layout == "sidebar" else { return }
         if !hidden {
-            settingQuery = true
-            searchController?.searchBar.text = config?.query
-            field?.text = config?.query
-            settingQuery = false
+            replaceQuery(query)
             return
         }
         settingQuery = true
@@ -333,13 +348,15 @@ private final class T3HomeChromeView: ExactNativeInstance {
         settingQuery = false
     }
     private func removeSearch() {
+        settingQuery = true
+        searchController?.searchResultsUpdater = nil; searchController?.searchBar.delegate = nil
         if let searchController, route?.controller.navigationItem.searchController === searchController {
             route?.controller.navigationItem.searchController = nil
         }
-        searchController?.searchResultsUpdater = nil; searchController?.searchBar.delegate = nil
         searchController = nil; field?.delegate = nil; field?.resignFirstResponder(); field = nil
         bar?.removeFromSuperview(); bar = nil; filter = nil; compose = nil; dismiss = nil
         width = nil; keyboardBottom = nil; restingBottom = nil; glassLeading = nil; glassTrailing = nil
+        settingQuery = false
     }
     fileprivate func detach() {
         statusWork?.cancel(); statusWork = nil; statusStarted = false; statusShown = false
@@ -356,11 +373,10 @@ private final class T3HomeChromeView: ExactNativeInstance {
         route = nil; installedTitle = nil; installedRight = []; installedToolbar = []; attachedLayout = ""
     }
     override func agentInput(_ input: ExactNativeInput) throws {
+        guard acceptsSearch, field != nil || searchController != nil else { throw ExactNativeRefusal("Home search is not attached to a visible route.") }
         switch input {
         case .text(let text):
-            if let field { field.text = text; queryChanged() }
-            else if let searchController { searchController.searchBar.text = text; emit("search", text) }
-            else { throw ExactNativeRefusal("Home search is not attached to a route.") }
+            replaceQuery(text); emit("search", text)
         case .key(let key, let phase):
             guard key == "Escape" || key == "Enter" else { throw ExactNativeRefusal("Home search accepts Escape or Enter.") }
             if phase != "up" { focusTarget?.resignFirstResponder() }
