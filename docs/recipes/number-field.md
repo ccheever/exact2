@@ -23,8 +23,9 @@ component Split
     peopleText = v
   action commitPeople(v: string)
     let n = round(amount(v))
-    people = n >= 1 ? n : people
-    peopleText = n >= 1 ? `${n}` : `${people}`
+    let next = n >= 1 ? n : people
+    people = next
+    peopleText = `${next}`
 
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" testId="app" width="100%" height="100%"

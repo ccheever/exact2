@@ -58,6 +58,15 @@ pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
         stack.extend(children.into_iter().rev().map(|n| (n, in_root)));
     }
     performance_now(root, &checked.file.fns, &mut out);
+    out.extend(
+        contract_analyze::read_after_assign(checked)
+            .into_iter()
+            .map(|e| LowerError {
+                id: e.id,
+                message: e.message,
+                span: e.span,
+            }),
+    );
     out.truncate(MAX_WARNINGS);
     one_scheme(root, &checked.file.styles, &checked.file.fns, &mut out);
     out
