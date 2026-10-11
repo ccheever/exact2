@@ -521,7 +521,8 @@ fn sent(
 }
 
 /// `type-performance-now-persisted`: a value made from `performanceNow()`
-/// without `epochAtZero` added, given to a source by a `send` (LLP 1116 D6).
+/// without `epochAtZero` added, given to a source by a `send` or kept in a
+/// persisted state (LLP 1116 D6, D5).
 /// `performanceNow()` counts from 0 at each launch, so a start mark a
 /// source keeps reads as a time before the next launch began (stopwatch:
 /// laps of `0-5:0-41`). A duration, one reading less another, is kept as
@@ -532,12 +533,14 @@ fn performance_now(root: &contract_syntax::Component, fns: &[FnDecl], out: &mut 
         marks: BTreeSet::new(),
         epochs: BTreeSet::new(),
     };
-    // Settle which states and derives hold marks; each round adds a name
-    // or ends, so there are at most as many rounds as names.
+    // Settle which states and derives hold marks. Each round recomputes
+    // them from the last, so a name marked before what it subtracts was
+    // known (a duration, `performanceNow() - start`) is cleared again; the
+    // rounds are bounded by the names.
     let names = root.states.len() + root.derives.len() + 1;
-    for _ in 0..names {
-        let mut marks = clock.marks.clone();
-        let mut epochs = clock.epochs.clone();
+    for _ in 0..=names {
+        let mut marks = BTreeSet::new();
+        let mut epochs = BTreeSet::new();
         for b in root.states.iter().chain(&root.derives) {
             if clock.mark(&b.expr, &[], 4) {
                 marks.insert(b.name.clone());
@@ -557,6 +560,19 @@ fn performance_now(root: &contract_syntax::Component, fns: &[FnDecl], out: &mut 
     let mut found = Vec::new();
     for a in &root.actions {
         sent(&clock, &a.body, &mut Vec::new(), &mut found);
+    }
+    // A persisted state outlives the launch as a source's copy does (D5).
+    for s in root.states.iter().filter(|s| root.persists(&s.name)) {
+        if clock.marks.contains(&s.name) {
+            out.push(LowerError {
+                id: "type-performance-now-persisted",
+                message: format!(
+                    "the persisted state `{}` holds a time computed from `performanceNow()`, the milliseconds since this launch, which start again at 0 on every launch, so the kept value is wrong after a relaunch. Keep the wall-clock time, `time.epochAtZero + performanceNow()` (with `resource time = exactTime() as shape T` and `epochAtZero: number` in `T`), or a duration, `performanceNow() - start` (docs/recipes/timer-that-survives-relaunch.md)",
+                    s.name
+                ),
+                span: s.span,
+            });
+        }
     }
     // An action called from another is in both bodies: once per argument.
     let mut seen = BTreeSet::new();

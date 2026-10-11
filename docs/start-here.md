@@ -205,7 +205,7 @@ same storage. Every form, and the real-clock drive before calling it done: [test
 - A form or settings screen, pickers, switches, validation: [grouped-form](recipes/grouped-form.md).
 - A number field: `inputmode="decimal"` gives the iPhone's number pad: [number-field](recipes/number-field.md).
 - A big number: its `font-size` with `font-variant-numeric="tabular-nums"`: [numeric-readout](recipes/numeric-readout.md).
-- Money, `$1,481.47`: [money](recipes/money.md).
+- Money, `$1,481.47`: `formatNumber(dollars, "currency", "USD")` ([money](recipes/money.md)).
 - Dates, day keys, "today": [dates-and-days](recipes/dates-and-days.md).
 - Time that outlives a launch: store `time.epochAtZero + performanceNow()`; `performanceNow()` restarts at 0 on every launch: [timer-that-survives-relaunch](recipes/timer-that-survives-relaunch.md).
 - Randomness: a seed from `crypto.getRandomValues` in a source: [random-and-shuffle](recipes/random-and-shuffle.md).

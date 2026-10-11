@@ -192,3 +192,10 @@ fn the_wall_clock_time_and_a_duration_are_not_named() {
     let origin = stopwatch("  derive origin = time.epochAtZero\n", "origin + start");
     assert_eq!(warned(&origin), []);
 }
+
+#[test]
+fn a_launch_relative_time_in_a_persisted_state_is_named() {
+    // stopwatch's start mark, kept by `persist` instead of a source.
+    let src = "shape Time\n  epochAtZero: number\ncomponent App\n  resource time = exactTime() as shape Time\n  state start = 0 persist\n  state wall = 0 persist\n  state lap = 0 persist\n  action begin\n    start = performanceNow()\n    wall = time.epochAtZero + performanceNow()\n    lap = performanceNow() - start\n  view\n    button \"go\" press=begin\n";
+    assert_eq!(warned(src), [(PERSISTED.to_string(), 5)]);
+}

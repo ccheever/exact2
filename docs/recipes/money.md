@@ -1,18 +1,11 @@
 # Recipe: money
 
-Keep money as a whole number of cents, and format it at the edge. Contract has no
-currency formatter yet, so `money` below groups thousands by hand: `$1,481.47`, not
-`$1481.47`.
-
-<!-- formatNumber: when `formatNumber(n, "currency", "USD")` lands (LLP 1116 D8), replace
-`grouped` and `money` below with it, and `formatNumber(n, "decimal")` / `"percent"` in
-the rules. -->
+Keep money as a whole number of cents, and format it at the edge with
+`formatNumber(dollars, "currency", "USD")`: `$1,481.47`, `-$5.00`, grouped and rounded to
+the cent as `Intl.NumberFormat("en-US", {style: "currency", currency: "USD"})` prints it.
 
 ```contract
-fn pad3(n: number): string = n < 10 ? `00${n}` : n < 100 ? `0${n}` : `${n}`
-fn grouped(n: number): string = n < 1000 ? `${n}` : n < 1000000 ? `${floor(n / 1000)},${pad3(n % 1000)}` : `${floor(n / 1000000)},${pad3(floor(n / 1000) % 1000)},${pad3(n % 1000)}`
-fn dollars(cents: number): string = `$${grouped(floor(cents / 100))}.${slice(formatDecimal(cents % 100, 2), -2)}`
-fn money(cents: number): string = cents < 0 ? `−${dollars(0 - cents)}` : dollars(cents)
+fn money(cents: number): string = formatNumber(cents / 100, "currency", "USD")
 
 component Tip
   state billCents = 148147
@@ -28,6 +21,9 @@ component Tip
       row justify-content="space-between"
         text "Total"
         text money(billCents + tipCents) font-variant-numeric="tabular-nums" testId="total"
+      row justify-content="space-between"
+        text "Tip rate"
+        text formatNumber(tipPercent / 100, "percent") testId="rate"
       row role="tablist" aria-label="Tip"
         each p in [15, 18, 20] key=p
           button role="tab" aria-selected=(tipPercent == p) press=setTip(p) testId=`tip-${p}` flex=1
@@ -38,16 +34,16 @@ component Tip
 test "money is grouped and rounded to the cent"
   expect text "tip" == "$266.66"
   expect text "total" == "$1,748.13"
+  expect text "rate" == "18%"
   tap "tip-20"
   expect text "total" == "$1,777.76"
 ```
 
 - Store and send cents (`round(dollars * 100)` once, where the text is parsed): adding
   binary fractions drifts (`0.1 + 0.2`). Round each computed amount once, to a cent.
-- `formatDecimal(cents, 2)` is exact (`"1481.47"`) but ungrouped; `toFixed(n, 2)`
-  rounds a binary value (`toFixed(1.005, 2)` is `"1.00"`). Neither adds a symbol or
-  commas, so a total in a list or a readout goes through `money`.
-- `grouped` covers amounts under a billion. Another currency changes the symbol; a
-  locale's own format (`1.481,47 €`) is the data module's: `new Intl.NumberFormat(locale,
-  { style: "currency", currency: "EUR" }).format(n)` in a source.
+- `formatNumber(n, "currency", "<code>")` takes an ISO 4217 code literal (USD, EUR, GBP,
+  JPY, …; an unknown code is refused at compile time). `formatNumber(n, "decimal")` is a
+  grouped number (`1,234.5`), `formatNumber(n, "percent")` a percentage of a fraction
+  (`0.256` is `26%`). All are en-US forms; a non-finite number prints `""`.
+- `formatDecimal(cents, 2)` is the exact, ungrouped form (`"1481.47"`) for a field's value.
 - Amounts that change in place take `font-variant-numeric="tabular-nums"`.
