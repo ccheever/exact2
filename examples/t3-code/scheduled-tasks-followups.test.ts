@@ -131,6 +131,17 @@ describe('ST-1: Runs on switches a new task to another environment', () => {
     expect(dialogs).toContain('target=(restEditor == "task" ? (restSubject == "" or startsWith(restSubject, "new|") ? "new-scheduled-task" : `task-actions-${restSubject}`)');
     expect(await source('app-window.contract')).toContain('restClose=restClose, restOpen=restOpen, sbPicker=sbPicker,');
   });
+  test('the labels a Runs on change rewrites are new text nodes (X64 #316, X82: a rastered label under a button kept its old words on macOS)', async () => {
+    const editor = await component('settings-scheduled.contract', 'ScheduledEditor');
+    expect(editor).toContain('each shown in [data.environment] key=shown\n                    text shown font-size="0.875rem"');
+    expect(editor).toContain('each shown in [taskBaseLabel(baseRef, startFromOrigin, baseLocal)] key=shown\n                    text shown font-size="0.875rem"');
+    const select = await component('settings-kit.contract', 'SettingsSelect');
+    expect(select).toContain('each shown in [valueLabel] key=shown\n          text shown font-size="0.875rem"');
+    // A keyed label may mount no text for a moment, so the triggers say title="" (no AppKit help tag from aria-label).
+    expect(editor).toMatch(/aria-label="Runs on"[^\n]* title=""/);
+    expect(editor).toMatch(/aria-label="Base branch" role="combobox"[^\n]* title=""/);
+    expect(select).toMatch(/aria-label=label disabled=disabled[^\n]* title=""/);
+  });
 });
 
 describe("ST-2: Open project on another environment's clone toast", () => {
