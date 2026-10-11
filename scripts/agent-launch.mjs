@@ -400,8 +400,10 @@ export function gitIgnored(dir, keep = []) {
 // saved world, an export — and the trees a build takes files from (the bake's
 // assets and deck, a game's art and logic, a native module's scripts, the host
 // crates, fonts and strings). A build reads more than the bake captures, so the
-// rule names the outputs and leaves everything else an input.
-export const OUTPUT = /\.(png|jpe?g|gif|webp|apng|avif|bmp|log|txt|mov|mp4|webm|pdf|trace|world|csv|tsv)$/i;
+// rule names the outputs and leaves everything else an input. A local server's
+// database and its journal are written as the app runs (round 4's book-club: a
+// write-ahead log made every native drive stale; LLP 1116.002 D4).
+export const OUTPUT = /\.(png|jpe?g|gif|webp|apng|avif|bmp|log|txt|mov|mp4|webm|pdf|trace|world|csv|tsv|db|sqlite3?)(-(wal|shm|journal))?$/i;
 export const INPUT_TREE = /^(assets|deck|gpu|art|modules|fonts|strings|logic|data|web|apple|ios|macos|linux)(\/|$)/;
 // An agent's own tree (notes: shots/, tools/; platformer: drive.sh, tools/*.ops)
 // and a test file are never inputs, even when the name looks like a source.
