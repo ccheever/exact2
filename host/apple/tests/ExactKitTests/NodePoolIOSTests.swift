@@ -73,6 +73,43 @@ final class NodePoolIOSTests: XCTestCase {
         XCTAssertEqual(p.pool.count, 0)
     }
 
+    func testARetiredForwardingRowCancelsItsAncestorInsteadOfBeingReused() throws {
+        final class Contact: UITouch {
+            let target: UIView, point: CGPoint
+            init(_ target: UIView, point: CGPoint) { self.target = target; self.point = point; super.init() }
+            override var view: UIView? { target }
+            override func location(in view: UIView?) -> CGPoint { view.map { $0.convert(point, from: nil) } ?? point }
+        }
+        for releaseTouch in [false, true] {
+            let p = fixture(), row = try XCTUnwrap(p.views[10]), list = try XCTUnwrap(p.views[1])
+            list.handlers = ["press"]
+            let point = row.convert(CGPoint(x: 150, y: 22), to: nil)
+            XCTAssertTrue(window.hitTest(window.convert(point, from: nil), with: nil) === row)
+            var pressed: [UInt32] = []; p.onPress = { pressed.append($0) }
+            weak var weakTouch: Contact?
+            var retainedTouch: Contact?
+            autoreleasepool {
+                let touch = Contact(row, point: point)
+                weakTouch = touch
+                if !releaseTouch { retainedTouch = touch }
+                row.touchesBegan([touch], with: nil)
+            }
+            XCTAssertEqual(weakTouch == nil, releaseTouch, "the released case has no UITouch and no terminal callback")
+            XCTAssertFalse(row.pressed, "only the ancestor owns the press")
+            XCTAssertTrue(list.pressed)
+            p.apply(wireBatch([collections([(20, 20)])] + destroy([10, 11, 12]) + rowOps(20, y: 44, label: "Save 20")
+                + [["op": "children", "id": 1, "ids": [20]]]))
+            XCTAssertFalse(p.views[20] === row, "the unfinished forwarder is not recycled into the next row")
+            XCTAssertFalse(list.pressed, "retiring the hit cancels its ancestor even after the weak touch is gone")
+            XCTAssertNil(row.presenter)
+            if let touch = retainedTouch {
+                row.touchesEnded([touch], with: nil)
+                row.touchesCancelled([touch], with: nil)
+            }
+            XCTAssertEqual(pressed, [])
+        }
+    }
+
     func testAPropTheNewRowLacksIsGoneAndAnotherSymbolIsSet() throws {
         let p = fixture()
         let glyph = try XCTUnwrap(p.views[11])

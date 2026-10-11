@@ -18,6 +18,7 @@ struct AimedGradient {
 }
 
 final class NodeExtras {
+    var pressContact: PressContact?
     var inlinePressed: UInt32?
     /// A Markdown link pressed in this text: its target, followed on release over it.
     var linkPressed: String?
@@ -125,6 +126,7 @@ extension NodeView {
         return made
     }
     var inlinePressed: UInt32? { get { extras?.inlinePressed } set { if newValue != nil || extras != nil { more.inlinePressed = newValue } } }
+    var pressContact: PressContact? { get { extras?.pressContact } set { if newValue != nil || extras != nil { more.pressContact = newValue } } }
     var linkPressed: String? { get { extras?.linkPressed } set { if newValue != nil || extras != nil { more.linkPressed = newValue } } }
     var svgPressed: UInt32? { get { extras?.svgPressed } set { if newValue != nil || extras != nil { more.svgPressed = newValue } } }
     var clipPath: CGPath? { get { extras?.clipPath } set { if newValue != nil || extras != nil { more.clipPath = newValue } } }
