@@ -8,7 +8,7 @@
 //! ```text
 //! header (40 bytes)
 //!   0  magic        "EXNO"
-//!   4  version      u16 = 1
+//!   4  version      u16 = 2
 //!   6  header_len   u16 = 40
 //!   8  total_len    u32
 //!  12  root_id      u32   wire id of the exported root, or 0 for every root
@@ -20,7 +20,8 @@
 //!   kind u32 · offset u32 · len u32 · fnv1a32 u32
 //! sections (each 8-aligned)
 //!   NODES  (1): node_count × 32-byte rows
-//!   STYLES (2): per node, the masked patch encoding of its set rows
+//!   STYLES (2): per node, the masked patch encoding of its set rows, which
+//!               carries the written mask beside the set one (version 2)
 //!   PROPS  (3): per node, u16 count, then (u16 id, u8 kind, value)
 //! node row (32 bytes)
 //!   0  id          u32
