@@ -1,6 +1,8 @@
 // @ref llp/1109.004-home-projection.decision.md#decision
 // T3 Code 365aa87982 archivedThreadList.ts, archivedThreads.ts, useThreadListActions.ts.
 // Presentation over shared validated snapshots and per-environment RPC ownership.
+// Mobile adaptation: stable Archive IO admission and a separate pure projection;
+// warm snapshots retain no grant, handle or promise (LLP1109.009).
 import { mobileClient, mobileNative } from './client';
 import { mobileSessionGrants } from './environment-detail';
 import { mobileRelativeTime } from './home';
@@ -65,9 +67,26 @@ export function projectMobileArchive(snapshots: ArchiveSnapshot[], now: number, 
 }
 
 // View cache only: shared applyShell validates the server snapshot; no second live reducer.
-interface RetainedArchive { identity: string; revision: string; value: ArchiveSnapshot }
+interface RetainedArchive { identity: string; revision: string; serial: number; value: ArchiveSnapshot }
 const snapshots = new Map<string, RetainedArchive>();
 let readSerial = 0;
+// Scalar producer identity only: weak membership never retains a fleet entry.
+const producers = new WeakMap<object, number>();
+let producerSerial = 0;
+function producerId(owner: object) {
+  let id = producers.get(owner);
+  if (id === undefined) {
+    if (producerSerial >= Number.MAX_SAFE_INTEGER) throw new ClientError('The Archive owner cannot be identified safely. Restart the app.');
+    id = ++producerSerial; producers.set(owner, id);
+  }
+  return id;
+}
+export interface ArchiveScope { key: string; presentation: string }
+export interface ArchiveReceipt {
+  environmentId: string; identity: string; revision: string; origin: string; generation: number;
+  focused: boolean; producer: number; granted: boolean;
+}
+export interface ArchiveRead { serial: number; receipts: ArchiveReceipt[]; error: string }
 const archiveRevision = (id: string) => mobileCacheDisplayRevision(id, 'shell');
 const catalogCurrent = (id: string, identity: string) => !!identity && mobileCacheCatalogIdentity(fleet.saved, id) === identity;
 const catalogEnabled = (id: string) => fleet.saved.filter(row => row.environmentId === id).length === 1
@@ -82,6 +101,42 @@ function retainedArchive(id: string, identity: string, revision: string): Archiv
 }
 const inFlight = new Set<string>();
 const errorText = (error: unknown) => error instanceof Error ? error.message : 'The action could not be completed. Try again.';
+
+function archiveOwner(environmentId: string) {
+  const focused = mobileClient.environmentId === environmentId;
+  const entry = [...fleet.entries.values()].find(item => item.environmentId === environmentId);
+  return { focused, origin: focused ? mobileClient.origin : entry?.origin ?? '',
+    generation: focused ? mobileClient.generation : entry?.generation ?? -1,
+    producer: focused ? producerId(mobileClient) : entry ? producerId(entry) : 0,
+    connected: catalogEnabled(environmentId) && (focused ? mobileClient.ready
+      : entry?.phase === 'connected' && entry.synchronized === entry.generation) };
+}
+const archiveEnvironments = (saved: Obj[]) => [...new Map(saved.filter(item => mobileCacheCatalogIdentity(saved, str(item.environmentId))).map(item => [str(item.environmentId), {
+  id: str(item.environmentId), label: str(item.mobileLabel) || str(item.label) || str(item.environmentId) }])).values()]
+  .sort((a, b) => compare(a.label.toLocaleLowerCase(), b.label.toLocaleLowerCase()));
+
+/** No network dependency on unrelated root revisions, stream events or presentation. */
+export function mobileArchiveScope(): ArchiveScope {
+  const environments = archiveEnvironments(fleet.saved), ids = new Set(environments.map(item => item.id));
+  for (const id of snapshots.keys()) if (!ids.has(id)) snapshots.delete(id);
+  const key = environments.map(info => {
+    const identity = mobileCacheCatalogIdentity(fleet.saved, info.id), revision = archiveRevision(info.id);
+    retainedArchive(info.id, identity, revision);
+    const owner = archiveOwner(info.id);
+    return [info.id, identity, revision, catalogEnabled(info.id), owner.focused, owner.origin, owner.generation, owner.producer, owner.connected];
+  }).sort((a, b) => compare(String(a[0]), String(b[0])));
+  const presentation = environments.map(info => {
+    const config = info.id === mobileClient.environmentId ? mobileClient.config : [...fleet.entries.values()].find(entry => entry.environmentId === info.id)?.config;
+    return [info.id, info.label, machineKind(config ?? {})];
+  });
+  return { key: JSON.stringify(key), presentation: JSON.stringify(presentation) };
+}
+function receiptCurrent(receipt: ArchiveReceipt) {
+  const owner = archiveOwner(receipt.environmentId);
+  return catalogCurrent(receipt.environmentId, receipt.identity) && archiveRevision(receipt.environmentId) === receipt.revision
+    && owner.connected && owner.focused === receipt.focused && owner.origin === receipt.origin
+    && owner.generation === receipt.generation && owner.producer === receipt.producer;
+}
 
 /** Existing liveEnvironments supplies request and command IDs. Lock its native seam to this generation. */
 function archiveTransport(environmentId: string, native: Native, scopeCurrent: () => boolean = () => true): { environment: LiveEnvironment; native: Native; generation: number; current(): boolean } {
@@ -114,56 +169,80 @@ async function readArchive(environment: LiveEnvironment) {
   return applyShell(initialShell(), await environment.request('orchestration.getArchivedShellSnapshot', {}));
 }
 
-/** Root owns refresh/revision/query/filter/clock dependencies. Each saved environment keeps its own request. */
-export async function mobileArchive(now: number, query = '', selectedEnvironment = '', sortOrder = 'newest', nativeInput?: Native | null): Promise<ArchiveView> {
+/** One visit/admission/explicit refresh owns its native calls; no broad inbox watches. */
+export async function mobileArchiveRead(visit: string, admission: string, nativeInput?: Native | null): Promise<ArchiveRead> {
+  if (readSerial >= Number.MAX_SAFE_INTEGER) throw new ClientError('The Archive read cannot be identified safely. Restart the app.');
   const request = ++readSerial, readCurrent = () => request === readSerial;
-  const filtered = !!query.trim() || !!selectedEnvironment;
-  const empty = { items: [] as ArchiveItem[], environments: [] as ArchiveEnvironment[], error: '', loading: false,
-    emptyTitle: filtered ? 'No matching threads' : 'No archived threads', emptyDetail: filtered ? 'Try another search or environment.' : 'Threads you archive will appear here.' };
-  if (!nativeInput?.available) return empty;
-  const native = letGoAware(mobileNative(nativeInput)); native.watch('t3.status'); native.watch('t3.fleet');
+  const empty = { serial: request, receipts: [] as ArchiveReceipt[], error: '' };
+  if (!visit || !nativeInput?.available) return empty;
+  if (admission !== mobileArchiveScope().key) throw new ClientError('The archive request was superseded.', 'superseded');
+  const admittedOwners = new Map(archiveEnvironments(fleet.saved).map(info => [info.id, { ...archiveOwner(info.id),
+    identity: mobileCacheCatalogIdentity(fleet.saved, info.id), revision: archiveRevision(info.id) }]));
+  const native = letGoAware(mobileNative(nativeInput));
   let saved: Obj[];
   try { saved = await savedList(native); }
   catch (error) { if (letGo(error)) throw error; return { ...empty, error: 'Failed to load archived threads.' }; }
   if (!readCurrent()) throw new ClientError('The archive request was superseded.', 'superseded');
-  const environments = [...new Map(saved.filter(item => mobileCacheCatalogIdentity(saved, str(item.environmentId))).map(item => [str(item.environmentId), {
-    id: str(item.environmentId), label: str(item.mobileLabel) || str(item.label) || str(item.environmentId) }])).values()]
-    .sort((a, b) => compare(a.label.toLocaleLowerCase(), b.label.toLocaleLowerCase()));
+  const environments = archiveEnvironments(saved);
   const ids = new Set(environments.map(item => item.id));
   for (const id of snapshots.keys()) if (!ids.has(id)) snapshots.delete(id);
   const results = await Promise.all(environments.map(async info => {
     const identity = mobileCacheCatalogIdentity(saved, info.id), revision = archiveRevision(info.id);
     const owned = () => {
-      const current = readCurrent() && catalogCurrent(info.id, identity) && archiveRevision(info.id) === revision;
+      const admitted = admittedOwners.get(info.id);
+      const current = readCurrent() && admitted?.identity === identity && admitted.revision === revision
+        && catalogCurrent(info.id, identity) && archiveRevision(info.id) === revision;
       const retained = snapshots.get(info.id);
       if (!current && readCurrent() && retained?.identity === identity && retained.revision === revision) snapshots.delete(info.id);
       return current;
     };
     // This warm view has no durable archive record. Explicit cache-clear
     // eviction is an app ownership adaptation, not upstream atom invalidation.
-    const previous = retainedArchive(info.id, identity, revision);
+    retainedArchive(info.id, identity, revision);
+    const owner = admittedOwners.get(info.id) ?? { origin: '', generation: -1, focused: false, producer: 0 };
+    const receipt: ArchiveReceipt = { environmentId: info.id, identity, revision,
+      origin: owner.origin, generation: owner.generation, focused: owner.focused, producer: owner.producer, granted: false };
     try {
-      if (!owned() || saved.find(row => row.environmentId === info.id)?.enabled === false) throw new ClientError('Connect this environment to load its archived threads.');
-      const selected = archiveTransport(info.id, native, owned), shell = await readArchive(selected.environment);
+      if (!owned() || !receiptCurrent(receipt) || saved.find(row => row.environmentId === info.id)?.enabled === false) throw new ClientError('Connect this environment to load its archived threads.');
+      const selected = archiveTransport(info.id, native, () => owned() && receiptCurrent(receipt)), shell = await readArchive(selected.environment);
       let canOperate = false;
       try { canOperate = await sessionPermission(selected.native, selected.generation); } catch (error) { if (letGo(error)) throw error; }
       if (!owned() || !selected.current()) throw new ClientError('The connection changed. Refresh before continuing.', 'stale');
       const value: ArchiveSnapshot = { environmentId: info.id, label: info.label, machine: machineKind(selected.environment.config), shell, canOperate };
       // Persistent view memory never keeps a grant. Only this live invocation
       // carries the fresh session decision, rechecked after all peers settle.
-      snapshots.set(info.id, { identity, revision, value: { ...value, canOperate: false } });
-      return { value, failed: false, owned, live: selected.current };
+      snapshots.set(info.id, { identity, revision, serial: request, value: { ...value, canOperate: false } });
+      return { receipt: { ...receipt, granted: canOperate }, failed: false, owned, live: selected.current };
     } catch (error) {
       if (letGo(error)) throw error;
-      return { value: owned() && previous ? { ...previous, label: info.label, canOperate: false } : null, failed: true, owned, live: () => false };
+      return { receipt, failed: true, owned, live: () => false };
     }
   }));
   if (!readCurrent()) throw new ClientError('The archive request was superseded.', 'superseded');
-  const current = results.filter(result => result.owned());
-  const items = projectMobileArchive(current.flatMap(result => result.value ? [{ ...result.value, canOperate: result.value.canOperate && result.live() }] : []), now, query, selectedEnvironment, sortOrder);
-  return { ...empty, items, environments: environments.filter(info => catalogCurrent(info.id, mobileCacheCatalogIdentity(saved, info.id))),
+  return { ...empty, receipts: results.filter(result => result.owned()).map(result => ({ ...result.receipt, granted: result.receipt.granted && result.live() })),
     error: results.some(result => result.failed || !result.owned() || !result.live()) ? 'Failed to load archived threads.' : '' };
+}
 
+/** The resource's live receipt is separate from nongranted retained snapshots. */
+export function mobileArchiveView(now: number, query = '', selectedEnvironment = '', sortOrder = 'newest', active = false,
+  prepared: ArchiveRead = { serial: 0, receipts: [], error: '' }): ArchiveView {
+  const filtered = !!query.trim() || !!selectedEnvironment;
+  const empty = { items: [] as ArchiveItem[], environments: [] as ArchiveEnvironment[], error: '', loading: false,
+    emptyTitle: filtered ? 'No matching threads' : 'No archived threads', emptyDetail: filtered ? 'Try another search or environment.' : 'Threads you archive will appear here.' };
+  if (!active) return empty;
+  mobileArchiveScope();
+  const environments = archiveEnvironments(fleet.saved), values: ArchiveSnapshot[] = [];
+  for (const info of environments) {
+    const identity = mobileCacheCatalogIdentity(fleet.saved, info.id), revision = archiveRevision(info.id);
+    const retained = retainedArchive(info.id, identity, revision), receipt = prepared.receipts.find(row => row.environmentId === info.id);
+    if (!retained) continue;
+    const record = snapshots.get(info.id)!;
+    if (record.serial === prepared.serial && receipt && !receiptCurrent(receipt)) record.serial = 0;
+    const config = info.id === mobileClient.environmentId ? mobileClient.config : [...fleet.entries.values()].find(entry => entry.environmentId === info.id)?.config;
+    values.push({ ...retained, label: info.label, machine: machineKind(config ?? {}), canOperate: prepared.serial === readSerial && record.serial === prepared.serial
+      && receipt?.granted === true && receiptCurrent(receipt) });
+  }
+  return { ...empty, environments, error: prepared.error, items: projectMobileArchive(values, now, query, selectedEnvironment, sortOrder) };
 }
 
 /** Root confirms deletion first; permission, generation and archive membership are rechecked here. */
