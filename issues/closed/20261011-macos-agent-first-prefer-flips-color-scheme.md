@@ -1,6 +1,7 @@
 # macOS agent: the first `prefer` turns `prefers-color-scheme` light whatever it names, because the agent's light appearance is not told at launch
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by #477
 **Systems:** host/apple macOS, agent API
 **Severity:** P3
 **Author:** Daehyeon Mun (via the T3 Code clone)
