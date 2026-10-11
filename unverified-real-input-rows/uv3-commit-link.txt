@@ -1,0 +1,9 @@
+unverified-real-input-rows UV-3 (agent mode): the URLs a press recorded (T3_REMOTE_OPEN_LOG; an agent run opens nothing).
+
+AFTER:
+https://github.com/daehyeonmun2021/playground/commit/c46352e19b5d7c31b070eea56750469cdcce9e13
+BEFORE:
+https://github.com/daehyeonmun2021/playground/commit/c46352e19b5d7c31b070eea56750469cdcce9e13
+
+Fixture: target/uv/fixture.mjs seed posted issue comment 6104938893 on #132: 'The wording here goes back to c46352e19b5d7c31b070eea56750469cdcce9e13, before #115 changed it.'
+Reference (CDP): the link reads c46352e (font-mono, data-pull-request-autolink=commit), href .../commit/c46352e19b5d7c31b070eea56750469cdcce9e13, a tooltip with that URL on hover, gone away.
