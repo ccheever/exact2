@@ -3,6 +3,7 @@
 // resolution), packages/client-runtime/src/work-log/presentation.ts
 // (resolveT3McpToolPresentation: tense, failure and the PR target) and
 // packages/client-runtime/src/t3ToolSummary.ts (group summaries).
+// MCP definitions, OpenCode2 names and new summaries match pinned365aa87982a4d81cc8e0c085e8d1a40ca7daecdc.
 
 /** shared/changeRequestUrl parseChangeRequestUrl, reduced to the number a tool label names. */
 function changeRequestNumber(target: string): number | null {
@@ -27,7 +28,7 @@ export type T3SummaryAction = 'capabilities' | 'delegate' | 'task-status' | 'tas
   | 'worktree-handoff' | 'worktree-list' | 'worktree-status' | 'project-list' | 'project-read' | 'project-create'
   | 'project-update' | 'project-delete' | 'project-clone' | 'environment-read' | 'environment-update'
   | 'attachment-prepare' | 'attachment-discard' | 'attachment-send' | 'link-pr' | 'unlink-pr' | 'list-prs' | 'watch-pr'
-  | 'unwatch-pr' | 'browser' | 'device';
+  | 'unwatch-pr' | 'browser' | 'device' | 'secret-request' | 'html-preview' | 'html-render';
 export type T3ToolIcon = 't3-code' | 'browser' | 'device' | 'pull-request';
 export type PrAction = 'link-pr' | 'unlink-pr' | 'list-prs' | 'watch-pr' | 'unwatch-pr';
 export interface T3ToolDefinition { displayName: string; labels: readonly [string, string, string, string]; icon: T3ToolIcon; summaryAction: T3SummaryAction }
@@ -52,6 +53,7 @@ const TOOLS: Readonly<Record<string, T3ToolDefinition>> = {
   list_scheduled_tasks: tool(['List', 'Listing', 'Listed', 'scheduled tasks'], 'schedule-list'),
   update_scheduled_task: tool(['Update', 'Updating', 'Updated', 'a scheduled task'], 'schedule-update'),
   delete_scheduled_task: tool(['Delete', 'Deleting', 'Requested deletion of', 'a scheduled task'], 'schedule-delete'),
+  request_secret: tool(['Ask for', 'Asking for', 'Asked for', 'a secret'], 'secret-request'),
   create_threads: tool(['Create', 'Creating', 'Created', 'T3 threads'], 'thread-create'),
   t3_thread_start: tool(['Start', 'Starting', 'Started', 'a T3 thread'], 'thread-create'),
   t3_thread_list: tool(['List', 'Listing', 'Listed', 'T3 threads'], 'thread-list'),
@@ -64,10 +66,15 @@ const TOOLS: Readonly<Record<string, T3ToolDefinition>> = {
   preview_status: browser(['Get', 'Getting', 'Got', 'preview browser status']),
   preview_open: browser(['Open', 'Opening', 'Opened', 'a page in the preview browser']),
   preview_navigate: browser(['Navigate', 'Navigating', 'Navigated', 'the preview browser']),
+  preview_dialog: browser(['Respond', 'Responding', 'Responded', 'to a preview browser dialog']),
   preview_snapshot: browser(['Take a snapshot of', 'Taking a snapshot of', 'Took a snapshot of', 'the preview page'], 'Snapshot the preview page'),
   preview_click: browser(['Click', 'Clicking', 'Clicked', 'in the preview browser']),
   preview_press: browser(['Press', 'Pressing', 'Pressed', 'a key in the preview browser']),
   preview_type: browser(['Type', 'Typing', 'Typed', 'in the preview browser']),
+  preview_hover: browser(['Hover', 'Hovering', 'Hovered', 'in the preview browser']),
+  preview_select: browser(['Choose', 'Choosing', 'Chose', 'an option in the preview browser']),
+  preview_drag: browser(['Drag', 'Dragging', 'Dragged', 'in the preview browser']),
+  preview_upload: browser(['Upload', 'Uploading', 'Uploaded', 'files to the preview browser']),
   preview_scroll: browser(['Scroll', 'Scrolling', 'Scrolled', 'the preview browser']),
   preview_resize: browser(['Resize', 'Resizing', 'Resized', 'the preview browser']),
   preview_evaluate: browser(['Evaluate', 'Evaluating', 'Evaluated', 'script in the preview browser']),
@@ -112,6 +119,8 @@ const TOOLS: Readonly<Record<string, T3ToolDefinition>> = {
   t3_attachment_prepare_upload: tool(['Prepare', 'Preparing', 'Prepared', 'an attachment upload'], 'attachment-prepare'),
   t3_attachment_discard: tool(['Discard', 'Discarding', 'Discarded', 'a pending attachment'], 'attachment-discard'),
   t3_thread_send_attachments: tool(['Send', 'Sending', 'Sent', 'attachments'], 'attachment-send'),
+  html_preview: tool(['Preview', 'Previewing', 'Previewed', 'an HTML page'], 'html-preview'),
+  html_render: tool(['Render', 'Rendering', 'Rendered', 'an HTML page'], 'html-render'),
 };
 const SERVER_ALIASES = new Set(['t3-code', 't3_code', 't3code']);
 const own = (name: string) => Object.prototype.hasOwnProperty.call(TOOLS, name);
@@ -125,7 +134,14 @@ function resolveName(value: string): string | null {
   if (namespaced) return namespaced[1] ?? null;
   const prefixed = /^(?:mcp[-_]{1,2})?t3[-_ ]?code(?:__|[-_.:/ ])(.+)$/i.exec(label);
   const candidate = prefixed?.[1] ?? label;
-  return own(candidate) ? candidate : null;
+  if (own(candidate)) return candidate;
+  // OpenCode2's thread id can contain underscores; use the longest known tool suffix.
+  if (!/^t3-code-/i.test(label)) return null;
+  let longest: string | null = null;
+  for (const tool of Object.keys(TOOLS)) {
+    if (label.endsWith(`_${tool}`) && tool.length > (longest?.length ?? 0)) longest = tool;
+  }
+  return longest;
 }
 export function t3ToolDefinition(toolName: string | null | undefined): T3ToolDefinition | null {
   const name = toolName ? resolveName(toolName) : null;
@@ -241,6 +257,7 @@ export function summarizeT3ToolCalls(action: T3SummaryAction, calls: readonly T3
       case 'question-list': return phrase('Listed', 'list', `pending questions ${times}`);
       case 'question-read': return phrase('Read', 'read', count('requestId', 'pending question request'));
       case 'question-respond': return phrase('Answered', 'answer', count('requestId', 'pending question request'));
+      case 'secret-request': return phrase('Asked for', 'ask for', quantity(selected.length, 'secret'));
       case 'worktree-handoff': return phrase('Handed off to', 'hand off to', count('worktreePath', 'worktree'));
       case 'worktree-list': return phrase('Listed', 'list', `workspace branches ${times}`);
       case 'worktree-status': return phrase('Checked', 'check', `worktree status ${times}`);
@@ -270,6 +287,8 @@ export function summarizeT3ToolCalls(action: T3SummaryAction, calls: readonly T3
       case 'list-prs': return phrase('Checked', 'check', `linked pull requests${selected.length === 1 ? '' : ` ${times}`}`);
       case 'browser': return phrase('Used', 'use', `browser ${times}`);
       case 'device': return phrase('Used', 'use', `device controls ${times}`);
+      case 'html-preview': return phrase('Previewed', 'preview', quantity(selected.length, 'HTML page'));
+      case 'html-render': return phrase('Rendered', 'render', quantity(selected.length, 'HTML page'));
       case 'capabilities': return phrase('Checked', 'check', `orchestration capabilities ${times}`);
     }
   })();

@@ -3,7 +3,7 @@ import type { T3Client } from './client';
 import type { Message, Obj } from './domain';
 import { chatLocal, transcriptRows } from './timeline-presentation';
 import { dynamicToolTitle, claudeSkillInvocation, projectedWorkEntry, summarizeToolGroup, summaryIcon, summaryKind } from './timeline-worklog';
-import { summarizeT3ToolCalls, t3ToolDefinition } from './timeline-t3tools';
+import { summarizeT3ToolCalls, t3ToolDefinition, t3ToolPresentation } from './timeline-t3tools';
 import type { Native } from './protocol';
 
 const base = Date.parse('2026-10-03T00:00:00.000Z');
@@ -149,6 +149,66 @@ describe('T3 pull request tools (18b2132)', () => {
     expect(summarizeToolGroup(entries).summary).toBe('Watching 2 pull requests');
     expect(summaryIcon(summaryKind(entries))).toBe('pull-request');
     expect(summarizeT3ToolCalls('unwatch-pr', [{ input: {}, output: null, outcome: 'unfinished' }]).label).toBe('Tried to stop watching 1 pull request');
+  });
+});
+
+describe('pinned365aa MCP identities', () => {
+  test('new MCP browser names reach the existing live row presentation', () => {
+    const value = live([user('u', 0, 'go'), tool('dialog', 1, 'mcp__t3-code__preview_dialog', {}, { status: 'running' })]);
+    expect(rows(value).find(row => row.kind === 'live')).toMatchObject({ title: 'Responding to a preview browser dialog', icon: 'browser' });
+  });
+
+  test('new definitions retain the pinned labels, static names, icons and summary actions', () => {
+    const cases = [
+      ['request_secret', ['Ask for', 'Asking for', 'Asked for', 'a secret'], 'secret-request', 't3-code'],
+      ['preview_dialog', ['Respond', 'Responding', 'Responded', 'to a preview browser dialog'], 'browser', 'browser'],
+      ['preview_hover', ['Hover', 'Hovering', 'Hovered', 'in the preview browser'], 'browser', 'browser'],
+      ['preview_select', ['Choose', 'Choosing', 'Chose', 'an option in the preview browser'], 'browser', 'browser'],
+      ['preview_drag', ['Drag', 'Dragging', 'Dragged', 'in the preview browser'], 'browser', 'browser'],
+      ['preview_upload', ['Upload', 'Uploading', 'Uploaded', 'files to the preview browser'], 'browser', 'browser'],
+      ['html_preview', ['Preview', 'Previewing', 'Previewed', 'an HTML page'], 'html-preview', 't3-code'],
+      ['html_render', ['Render', 'Rendering', 'Rendered', 'an HTML page'], 'html-render', 't3-code'],
+    ] as const;
+    for (const [name, labels, summaryAction, icon] of cases) {
+      const definition = t3ToolDefinition(`t3-code.${name}`);
+      expect(definition).toEqual({ displayName: `${labels[0]} ${labels[3]}`, labels, summaryAction, icon });
+      expect(t3ToolPresentation(definition, 'inProgress')?.displayName).toBe(`${labels[1]} ${labels[3]}`);
+      expect(t3ToolPresentation(definition, 'failed')?.displayName).toBe(`Failed to ${labels[0].toLowerCase()} ${labels[3]}`);
+    }
+  });
+
+  test('new summary actions retain completion selection and failures in mixed groups', () => {
+    for (const [name, completed, unfinished] of [
+      ['request_secret', 'Asked for 1 secret', 'Tried to ask for 1 secret'],
+      ['html_preview', 'Previewed 1 HTML page', 'Tried to preview 1 HTML page'],
+      ['html_render', 'Rendered 1 HTML page', 'Tried to render 1 HTML page'],
+    ]) {
+      const done = work(tool('done', 1, name!, {}));
+      const running = work(tool('running', 2, name!, {}, { status: 'running' }));
+      const failed = work(tool('failed', 3, name!, {}, { output: { isError: true } }));
+      expect(summarizeToolGroup([done])).toEqual({ summary: completed, hasFailure: false });
+      expect(summarizeToolGroup([running])).toEqual({ summary: unfinished, hasFailure: false });
+      expect(summarizeToolGroup([failed])).toEqual({ summary: unfinished, hasFailure: true });
+      expect(summarizeToolGroup([done, running, failed])).toEqual({ summary: completed, hasFailure: true });
+    }
+    expect(summarizeToolGroup([work(tool('secret', 1, 'request_secret', {})), work(command('command', 2, 'pwd')),
+      work(tool('browser', 3, 'preview_dialog', {}))])).toEqual({
+      summary: 'Asked for 1 secret, ran 1 command, and performed 1 other action', hasFailure: false,
+    });
+  });
+
+  test('OpenCode thread-qualified tools preserve PR presentation and reject foreign suffixes', () => {
+    const name = 't3-code-thread_with_preview_dialog_watch_pull_request';
+    const value = live([user('u', 0, 'go'), tool('watch', 1, name, { number: 12 }, { status: 'running' })]);
+    expect(rows(value).find(row => row.kind === 'live')).toMatchObject({ title: 'Watching PR #12', icon: 'pull-request' });
+    for (const alias of [name, `${name} completed `, 'T3-CODE-thread_with_underscores_watch_pull_request',
+      'mcp__t3-code__watch_pull_request', 't3_code:watch_pull_request']) {
+      expect(t3ToolDefinition(alias)).toEqual(t3ToolDefinition('watch_pull_request'));
+    }
+    for (const foreign of ['mcp__other__watch_pull_request', 'mcp__t3-code-thread__watch_pull_request',
+      'other-thread_watch_pull_request', 't3-code-thread_unknown_tool', 't3-code-thread_WATCH_PULL_REQUEST']) {
+      expect(t3ToolDefinition(foreign)).toBeNull();
+    }
   });
 });
 
