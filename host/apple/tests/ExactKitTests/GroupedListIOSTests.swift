@@ -931,5 +931,57 @@ final class GroupedListIOSTests: XCTestCase {
         XCTAssertEqual((wrapped.contentConfiguration as? UIListContentConfiguration)?.secondaryTextProperties.numberOfLines, 0)
         XCTAssertGreaterThan(wrapped.bounds.height, short * 3, "unclamped, every line")
     }
+
+    /// LLP 1116.003 D7, round 5's unit-converter: its validation message, a
+    /// footer's text written `color="-exact-system-red"`, was red on the web
+    /// and the footer's grey on iOS. Author > platform (LLP 1115): a footer,
+    /// a header and a standard cell draw the colour and font their author
+    /// gave the text, a destructive row's included; what is unsaid stays
+    /// UIKit's.
+    func testAnAuthoredColourAndFontReachTheTextsUIKitDraws() throws {
+        let session = ExactApp.shared.makeSession(label: "grouped-looks")
+        defer { session.destroy() }
+        typealias Look = GroupedListModel.Look
+        let red: BatchValue = ["sys": "systemRedColor", "c": [[255, 56, 60, 255], [255, 66, 69, 255]]]
+        let p = presenter({
+            var m = self.model()
+            m.sections[0].footerLook = Look(color: red)
+            m.sections[0].headerLook = Look(font: .init(size: 13, weight: 400))
+            m.sections[0].rows[0].titleLook = Look(color: [255, 0, 0, 255], font: .init(size: 20, weight: 700))
+            m.sections[1].rows[1].titleLook = Look(color: [0, 128, 0, 255])
+            return m
+        }, on: session.presenter)
+        let l = try list(p)
+        l.collection.layoutIfNeeded()
+        let light = UITraitCollection(userInterfaceStyle: .light), dark = UITraitCollection(userInterfaceStyle: .dark)
+        func rgba(_ color: UIColor?, _ traits: UITraitCollection) -> [Int] {
+            var c: (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
+            color?.resolvedColor(with: traits).getRed(&c.0, green: &c.1, blue: &c.2, alpha: &c.3)
+            return [c.0, c.1, c.2, c.3].map { Int(($0 * 255).rounded()) }
+        }
+        func label(_ kind: String) throws -> (UICollectionViewListCell, UIListContentConfiguration) {
+            let view = try XCTUnwrap(l.collection.supplementaryView(forElementKind: kind, at: IndexPath(item: 0, section: 0)) as? UICollectionViewListCell)
+            return (view, try XCTUnwrap(view.contentConfiguration as? UIListContentConfiguration))
+        }
+        let (footer, f) = try label(UICollectionView.elementKindSectionFooter)
+        XCTAssertEqual(rgba(f.textProperties.color, light), rgba(.systemRed, light), "the footer's red, the platform's red")
+        XCTAssertEqual(rgba(f.textProperties.color, dark), rgba(.systemRed, dark), "in each appearance")
+        XCTAssertEqual(f.textProperties.font, footer.defaultContentConfiguration().textProperties.font, "its font unsaid: UIKit's")
+        let (header, h) = try label(UICollectionView.elementKindSectionHeader)
+        XCTAssertEqual(h.textProperties.font.pointSize, 13, "the header's own size")
+        XCTAssertEqual(rgba(h.textProperties.color, light), rgba(header.defaultContentConfiguration().textProperties.color, light), "its colour unsaid")
+        let profile = try XCTUnwrap(try cell(p, 10).contentConfiguration as? UIListContentConfiguration)
+        XCTAssertEqual(rgba(profile.textProperties.color, light), [255, 0, 0, 255])
+        XCTAssertEqual(profile.textProperties.font.pointSize, 20)
+        XCTAssertGreaterThanOrEqual(TextEngine.controlWeight(profile.textProperties.font), 700, "bold, as written")
+        let delete = try XCTUnwrap(try cell(p, 21).contentConfiguration as? UIListContentConfiguration)
+        XCTAssertEqual(rgba(delete.textProperties.color, light), [0, 128, 0, 255], "the author's over a destructive row's red")
+        let plain = try cell(p, 11)
+        let notes = try XCTUnwrap(plain.contentConfiguration as? UIListContentConfiguration)
+        let platform = UIListContentConfiguration.valueCell()
+        XCTAssertEqual(rgba(notes.textProperties.color, light), rgba(platform.textProperties.color, light), "a title that says nothing")
+        XCTAssertEqual(rgba(notes.secondaryTextProperties.color, light), rgba(platform.secondaryTextProperties.color, light))
+        XCTAssertEqual(notes.textProperties.font, platform.textProperties.font)
+    }
 }
 #endif

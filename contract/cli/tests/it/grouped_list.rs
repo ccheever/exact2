@@ -3,7 +3,9 @@
 //! kernel reads its sections and rows as a native list draws them. Bare row
 //! fixtures exercise LLP 1104's default in the grouped-list context.
 
-use exact_kernel::{Accessory, Color, GroupedRow, Kernel, Offer, PropId, StyleMask, TextLook};
+use exact_kernel::{
+    Accessory, Color, ColorValue, GroupedRow, Kernel, Offer, PropId, StyleMask, TextFont, TextLook,
+};
 use exact_runner::{DataError, DataSource, Runner, Value};
 
 struct NoData;
@@ -766,6 +768,7 @@ fn a_standard_cells_text_keeps_its_line_clamp() {
     let clamped = TextLook {
         lines: 1,
         ellipsis: true,
+        ..TextLook::default()
     };
     assert_eq!(
         (rows[0].subtitle, rows[0].title_look, rows[0].secondary_look),
@@ -778,7 +781,8 @@ fn a_standard_cells_text_keeps_its_line_clamp() {
         (
             TextLook {
                 lines: 2,
-                ellipsis: true
+                ellipsis: true,
+                ..TextLook::default()
             },
             clamped
         ),
@@ -789,10 +793,87 @@ fn a_standard_cells_text_keeps_its_line_clamp() {
         (
             TextLook {
                 lines: 1,
-                ellipsis: false
+                ellipsis: false,
+                ..TextLook::default()
             },
             TextLook::default()
         ),
         "a line kept whole without one is cut at the edge"
+    );
+}
+
+#[test]
+fn an_authored_colour_and_font_reach_the_platforms_texts_and_unsaid_ones_stay_its() {
+    // LLP 1116.003 D7, round 5's unit-converter: a validation message in a
+    // section footer, written `color="-exact-system-red"`, was red on the web
+    // and the footer's grey on iOS, where UIKit draws footers and standard
+    // cells. Author > platform (LLP 1115): the kernel hands a host each
+    // text's own colour and font, and nothing where the sheet's stand in for
+    // the platform's, which keeps its own.
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    header\n      text \"Measure\" font=\"-exact-footnote\"\n    row\n      text \"Title\" color=\"#ff0000\"\n      text \"Value\" font-size=20\n    button press=go destructive=true\n      text \"Delete\"\n    footer\n      text \"Enter a number.\" color=\"-exact-system-red\"\n  section\n    header\n      text \"Plain\"\n    button press=go\n      column\n        text \"Privacy\"\n        text \"Screen lock\" font-style=\"italic\"\n    row\n      text \"Name\"\n      text \"Ada\"\n    footer color=\"#00ff00\"\n      text \"Green, on the footer.\"\n  section\n    row\n      text \"Unsaid\"\n    footer\n      text \"The platform's grey.\"");
+    let list = r.kernel().grouped_list(id(&r, "list")).unwrap();
+    let (s0, s1, s2) = (&list.sections[0], &list.sections[1], &list.sections[2]);
+    let red = s0.footer_look.color.expect("the footer's own red");
+    assert!(
+        matches!(red, ColorValue::Role(_)),
+        "a platform colour crosses as itself: {red:?}"
+    );
+    assert_eq!(s0.footer_look.font, None, "its font left unsaid");
+    let header = s0.header_look.font.expect("the header's own font");
+    assert!(header.size < 17.0 && header.weight == 400, "{header:?}");
+    assert_eq!(s0.header_look.color, None);
+    let rows = &s0.rows;
+    assert_eq!(
+        rows[0].title_look.color,
+        Some(ColorValue::Fixed(Color::parse_hex("#ff0000").unwrap()))
+    );
+    assert_eq!(rows[0].title_look.font, None);
+    assert_eq!(
+        rows[0].secondary_look.color, None,
+        "the value's colour is the sheet's"
+    );
+    assert_eq!(
+        rows[0].secondary_look.font,
+        Some(TextFont {
+            size: 20.0,
+            weight: 400,
+            italic: false,
+            family: 0,
+            numeric: 0
+        })
+    );
+    assert!(rows[1].destructive);
+    assert_eq!(
+        rows[1].title_look,
+        TextLook::default(),
+        "a destructive row's red is the sheet's"
+    );
+    assert_eq!(
+        s1.header_look,
+        TextLook::default(),
+        "a header that says nothing"
+    );
+    let privacy = &s1.rows[0];
+    assert!(privacy.subtitle);
+    assert_eq!(privacy.title_look, TextLook::default());
+    assert_eq!(
+        privacy.secondary_look.font.map(|f| (f.size, f.italic)),
+        Some((15.0, true)),
+        "the subtitle line's size is the sheet's, its style the author's"
+    );
+    assert_eq!(privacy.secondary_look.color, None);
+    assert_eq!(
+        (s1.rows[1].title_look, s1.rows[1].secondary_look),
+        (TextLook::default(), TextLook::default()),
+        "a title and a value that say nothing"
+    );
+    assert_eq!(
+        s1.footer_look.color,
+        Some(ColorValue::Fixed(Color::parse_hex("#00ff00").unwrap())),
+        "a colour on the footer reaches its text"
+    );
+    assert_eq!(
+        (s2.rows[0].title_look, s2.footer_look),
+        (TextLook::default(), TextLook::default())
     );
 }
