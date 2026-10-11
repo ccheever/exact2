@@ -1,0 +1,13 @@
+unverified-real-input-rows: examples/t3-code/unverified-real-input-rows.test.ts
+
+BEFORE (the feature tip's sources at 0292f4364, the same app code as eb9752918, with this test copied in):
+(fail) UV-1: the Code tab thread card has the author tip only, as ReviewThreadCard > the author keeps its LayerTip; the age is plain text with a test id and no tip [0.64ms]
+(fail) UV-1: no age on the Timeline has a tip, as PullRequestTimelineTab > the comment cards, commits, lifecycle and verdict rows draw their age bare [0.34ms]
+(fail) UV-1: no age on the Timeline has a tip, as PullRequestTimelineTab > the rows carry the relative age and nothing for a tip [1.05ms]
+(fail) UV-3: a tip on the hover layer breaks a long word inside its bubble, as TooltipPopup (wrap-anywhere) > HoverText wraps anywhere within its 20rem bubble [0.32ms]
+ 2 pass
+ 4 fail
+
+AFTER (this branch):
+ 6 pass
+ 0 fail
