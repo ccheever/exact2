@@ -83,4 +83,5 @@ bun exact.mjs agent ios --storage real1 --epoch now --chrome platform "type draf
 Each `clock +N real` waits N ms of real time, so the drive ends. `state` lists what is
 `pending` or `failed`; the iOS screenshot with `--chrome platform … window` shows the
 bars a person sees ([ios-driving](ios-driving.md)). An app with a server drives it
-against the running dev server.
+against the running dev server. A test has no colour scheme, so look at one drive in
+dark mode too: `"prefer prefers-color-scheme dark"` as its first op.

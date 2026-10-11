@@ -27,7 +27,7 @@ The only required reading; the rest is lookup, listed last (LLP 1115 D7).
 ```sh
 bun <exact2>/scripts/exact.mjs new ~/groceries && cd ~/groceries
 bun exact.mjs pattern      # lists the starting apps; `pattern list-detail` writes one
-bun exact.mjs ios          # in the background now: the first iOS build takes minutes
+bun exact.mjs ios          # in the background: the first iOS build takes minutes
 ```
 
 Start from the nearest pattern (`new` wrote `one-screen`) and change it: it compiles
@@ -36,12 +36,14 @@ and passes its tests.
 | `bun exact.mjs …` | What it does |
 | --- | --- |
 | `contract build app.contract --json` | `[]` or each diagnostic with its fix, after every edit; it rewrites the types `app.ts` imports. |
-| `test web`, `test ios` | Builds, then runs `app.test.contract` (iOS after `bun exact.mjs ios`). |
+| `test web`, `test ios` | Builds if stale, then runs `app.test.contract`. |
 | `agent web --storage s1 "clock data" tree "tap add" "screenshot .exact/a.png"` | Drives the app as a person would; look at every screenshot. iOS with its bars: [ios-driving](recipes/ios-driving.md). |
 | `web`, `ios --run` | The dev loop (it prints its URL, rebuilds on save); a simulator. |
 
-Drive by `testId`; keep scratch files in `.exact/` (any other new file is a source, and
-makes the build stale).
+Edit and check on the web host (about a second a build); drive iOS at milestones,
+several checks a build: one in dark mode (`"prefer prefers-color-scheme dark"` first),
+one after a write. Drive by `testId`; keep scratch files in `.exact/` (any other new
+file is a source, and makes the build stale).
 
 ## One screen: the view, its data, its test
 
