@@ -1,9 +1,9 @@
 ---
 name: 20261011-legacy-sidebar-full
 plan: 20261005-t3code-macos-parity
-implementation: in-progress
+implementation: implemented
 verification: unverified
-delivery: none
+delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-legacy-sidebar-full
@@ -21,12 +21,16 @@ list. This task builds each of them so the legacy sidebar does what `LegacySideb
 
 | Id | Clone (feature tip `6db5cadea`) | Reference (check it first) |
 | --- | --- | --- |
-| LS-1 | A thread row's pull request glyph is an image: a press on it opens the thread (the row's press) | The glyph is a link (`handlePrClick`, `useOpenPrLink`): with a thread open it opens the pull request beside the clicked thread in the right panel and goes to that thread; with no thread open, on the Pull Requests page; a link no project reads follows "Open links in"; ⌘ or Ctrl opens the system browser |
+| LS-1 | A thread row's pull request glyph is an image: a press on it opens the thread (the row's press) | The glyph is a link (`handlePrClick`, `useOpenPrLink`): with a thread's route open it opens the pull request beside the clicked thread in the right panel and goes to that thread; otherwise (a page, an unsent draft) on the Pull Requests page; a link no project reads follows "Open links in"; ⌘ or Ctrl opens the system browser |
 | LS-2 | No discovered-port button (the terminal-running glyph was built later and matches `terminalStatusFromRunningIds`) | A Globe2 button "Open localhost:<port>" (tooltip "Open localhost:<port>" plus " (+N)") for a thread whose terminal serves a discovered local server: it goes to the thread and opens the port in a Browser tab beside it; a failure toasts "Unable to open preview" |
 | LS-3 | Files dropped on a row do nothing | `makeWorkspaceFileDropHandlers` on the row: a file drag rings the row (`ring-1 ring-inset ring-primary/70`); the drop queues the files for that thread (`sidebarPendingFileDropStore`), goes to the thread, and its composer adds them as dropped files (images to the shelf, other files as chips) |
 | LS-4 | Archive shows on hover only, so the keyboard never reaches it; the project row's New thread likewise | Archive and New thread stay in the tab order (opacity 0) and show on `group-focus-within` as on hover; the meta (time, jump label) and the remote badge hide the same way; with Archive confirmation on, the Confirm button takes the focus; Archive's "Archive" tooltip only without confirmation |
 | LS-5 | "New thread on <branch>" opens a plain draft in the project | The draft carries the branch: `handleNewThread(projectRef, { branch, worktreePath, envMode: worktreePath ? "worktree" : "local", startFromOrigin: false })` |
 | LS-6 | On a background environment's project, Rename, Group into..., Remove and New thread are disabled (New thread toasts "Open a thread on that environment first."), Project settings does nothing on a remote-only project; a background thread's menu, Archive and inline rename do nothing; stale duplicate project rows of one checkout are not merged (`environmentGrouping.test.ts`) | Every project and thread action targets the member's or thread's own environment (`projectEnvironment.update/delete`, `threadEnvironment.*`, `handleNewThread(scopeProjectRef(member.environmentId, …))`); Project settings opens Settings › Projects scoped to the logical project; `buildProjectGroups` keeps the freshest row of a physical checkout and its identity |
+| LS-7 (found while building) | The row's title, worktree glyph and a collapsed project's status dot have no tooltip; the worktree's label names the whole path | Each has a TooltipPopup: the title in full, `Worktree: <last segment> (<branch>)` (ThreadWorktreeIndicator, formatWorktreePathForDisplay), the status label |
+| LS-8 (found while building) | List changes do not move; "Project is not empty"'s Delete anyway is the default (blue) button | autoAnimate (`SIDEBAR_LIST_ANIMATION_OPTIONS`, 180 ms ease-out, none under reduced motion) on the project list and each thread list; the toast's `actionVariant: "destructive"` |
+
+LS-7 and LS-8 were in the first build's "Remaining differences" too; U22 is the legacy sidebar in full.
 
 ## Steps
 
@@ -68,19 +72,13 @@ list. This task builds each of them so the legacy sidebar does what `LegacySideb
   `shouldReplacePhysicalProjectWinner`, `selectProjectIdentitySource`), `apps/web/src/environmentGrouping.test.ts`
   184-325.
 
-Found while building (U22 is "the legacy sidebar in full"; the first build's "Remaining differences" listed these too):
-
-| Id | Clone | Reference |
-| --- | --- | --- |
-| LS-7 | The row's title, worktree glyph and a collapsed project's status dot have no tooltip; the worktree's label names the whole path | Each has a TooltipPopup: the title in full, `Worktree: <last segment> (<branch>)` (ThreadWorktreeIndicator, formatWorktreePathForDisplay), the status label |
-| LS-8 | List changes do not move; "Project is not empty"'s Delete anyway is the default (blue) button | autoAnimate (`SIDEBAR_LIST_ANIMATION_OPTIONS`, 180 ms ease-out, none under reduced motion) on the project list and each thread list; the toast's `actionVariant: "destructive"` |
-
 ## Cause and fix
 
 - **LS-1** (`legacy-sidebar-links.ts` `openRowPullRequest`, `legacy-sidebar.contract` LegacyThread). The glyph is a
   button nested in the row's button (its own press and double-click, so the row neither opens nor renames), labelled
-  and tooltipped with the status. A press reads the click's modifiers: ⌘ or Ctrl opens the system browser. With a thread
-  or draft route open (`routeThreadRef !== null`), `prTarget` over the row's own environment's projects and capabilities
+  and tooltipped with the status. A press reads the click's modifiers: ⌘ or Ctrl opens the system browser. With a thread's
+  route open (`routeThreadRef !== null`: a server thread, or a draft once sent, `resolveActiveThreadRouteRef`; an unsent
+  draft is none, which the reference lane confirmed), `prTarget` over the row's own environment's projects and capabilities
   finds the project; the pull request tab opens in that thread's right panel (`openPullRequestIn` on its panel by key) and
   the thread opens (`goTo`: `openSelected`, or `focusFleetThread` for a background row; the result `sidebar:opened` takes
   openThread's effects in `app.contract`). On a page, the exact project across the environments that read pull requests
@@ -119,9 +117,15 @@ Found while building (U22 is "the legacy sidebar in full"; the first build's "Re
   `legacyGroups` ports buildProjectGroups' physical dedupe: rows of one checkout keep the freshest, grouped by the
   freshest identity among them, and the stale rows' threads join the winner.
 - **LS-7**, **LS-8** (`legacy-sidebar.contract`, `legacy-sidebar-view.ts`, `toast.ts`, `shell.ts`, `shell-toast.contract`):
-  the three tooltips (the title's in `LegacyTitleTip`, which grows with the row so the title still clamps); project items
-  and thread rows carry `-exact-layout-transition` and an exit fade (`lsRowOut`), 180 ms ease-out, none under reduced
-  motion; the toast's action takes `actionVariant: 'destructive'`.
+  the three tooltips (the title's in `LegacyTitleTip`, which grows with the row so the title still clamps); project items,
+  thread lists and thread rows carry `-exact-layout-transition` and an exit fade (`lsRowOut`), and a row that arrives in a
+  shown list fades in once (`lsRowIn` while its `enter` holds: the projection tick it first appears in; not the sidebar's
+  first draw, and not a windowed row mounted again as it scrolls into view), 180 ms ease-out, none under reduced motion;
+  the toast's action takes `actionVariant: 'destructive'`. The host hovers only the nearest node with a `hover`
+  handler (`MouseChainMac` `hoverUnderPointer`), so the title's tooltip trigger kept a row unhovered when the pointer
+  entered it on the title (the first after drive: Archive stayed hidden and the press at its place opened the thread);
+  every tooltip trigger in a thread row or a project header now tells its row (`LegacyRowTip`, `LegacyTitleTip`'s
+  `relay` into `innerHover`), as group-hover holds for the whole row.
 
 ## Tests
 
@@ -131,11 +135,33 @@ Found while building (U22 is "the legacy sidebar in full"; the first build's "Re
   types, the editor owner; nothing asked when nothing is queued), LS-4 and LS-8 (the view's structure), LS-5 (worktree
   and local context), LS-6 (the dedupe cases of environmentGrouping.test.ts; background Rename, Remove with "Project is not
   empty" and Delete anyway, New thread; a background thread's menu, rename, archive with undo, delete with the worktree
-  question; double-click rename; Project settings), LS-7 (tooltips and the worktree label).
+  question; double-click rename; Project settings), LS-7 (tooltips and the worktree label; every tooltip trigger in a row
+  relays its hover to the row), LS-8 (motion attributes, the arrival flag by tick, the destructive tone).
 - `legacy-sidebar.test.ts`: the project menu has no disabled row for a background member; the worktree label.
 - `macos/tests/row-drop` (AppKit, 3): the target is AppKit's drag destination over the row while `hitTest` gives clicks
   to the row; a drag rings it, a drop reports the row's key and its files without folders; queued drops are taken per key
   in order and staged as Attach stages them.
+
+## Acceptance results
+
+| Row | Result | Proof |
+| --- | --- | --- |
+| LS-1 | pass (agent drive, Bun): a provider-less pull request link (Archive me open) opens the link and the thread stays (`opened-urls.txt`: `https://git.example.invalid/acme/app/pull/7`); with Studio branch open, Review changelog's glyph goes to Review changelog with #132 in its right panel, as the reference; on an unsent draft it opens the Pull Requests page on #132, as the reference; before, each press opened the row's thread. ⌘-click: Bun only (real-input step 5) | [link](https://raw.githubusercontent.com/ccheever/exact2/3bf40709025d06777f52d8dbf02a7c67f12472dc/legacy-sidebar-full/ls1-link.png), [beside](https://raw.githubusercontent.com/ccheever/exact2/164e2a9914885fbe0edb8d70c8ae33d82412d5ce/legacy-sidebar-full/ls1-beside.png), [page](https://raw.githubusercontent.com/ccheever/exact2/bbdcc3c93fe9b414f42dc10d9bff2b2d29dd44b1/legacy-sidebar-full/ls1-page.png) |
+| LS-2 | pass (agent drive, Bun): a server on 16565 in Dev server's terminal gives the row the globe ("Open localhost:16565"); its press opens the thread with a Browser tab on `localhost:16565`; a background environment's Dev server row shows its own globe from that environment's stream | [port](https://raw.githubusercontent.com/ccheever/exact2/316aa3d91a31edf8d7593b5f3cde92fbbf286d58/legacy-sidebar-full/ls2-port.png), [rows](https://raw.githubusercontent.com/ccheever/exact2/c019a38a9db68cd97159f70c372bf4fd6604858b/legacy-sidebar-full/ls2-row.png) |
+| LS-3 | in-app path pass (AppKit test, Bun): before, no drag destination over a row; after, the row's target takes file drags (clicks still reach the row), rings, reports the row's key and files, and the open thread's composer takes them. A real Finder drag is real-input step 1 | [ls3-record.txt](https://raw.githubusercontent.com/ccheever/exact2/55cb0b24a59d392720c2a558c9f56cd6952fd061/legacy-sidebar-full/ls3-record.txt) |
+| LS-4 | pass (agent drive, Bun): Tab from the Archive me row, with no pointer on it, shows its Archive with the focus, as the reference; before, Tab skipped it. Confirm's focus: Bun; real keys: step 2 | [tab](https://raw.githubusercontent.com/ccheever/exact2/078995f3735ee7fc99dab7603d2ca774345c4033/legacy-sidebar-full/ls4-tab.png) |
+| LS-5 | in-app path pass (text before/after of the menu's command, Bun): "New thread on feature/audit" on a worktree thread opens the draft with `{envMode: "worktree", branch: "feature/audit", worktreePath: …}`; before, a plain draft. The native menu pick is real-input step 3 | [ls56-menu-record.txt](https://raw.githubusercontent.com/ccheever/exact2/0fec515747a8be59585538c1543541a3815b7f7f/legacy-sidebar-full/ls56-menu-record.txt) |
+| LS-6 | pass (agent drive, Bun, text record): Archive on a background environment's row archives it there with the undo notice; New thread on a background project opens its draft on that environment, as the reference (before: "Open a thread on that environment first."); the background project's menu has Rename, Group into... and Remove enabled and acting there, a background thread's menu shows and acts there (text record). Native menu picks: step 4 | [archive](https://raw.githubusercontent.com/ccheever/exact2/fb1ac9bd0f10fcc5ce38f2519cc9af15f032d084/legacy-sidebar-full/ls6-archive.png), [new thread](https://raw.githubusercontent.com/ccheever/exact2/467d6e450790475dbdfa16b83b2e7686bee15aed/legacy-sidebar-full/ls6-new-thread.png), [ls56-menu-record.txt](https://raw.githubusercontent.com/ccheever/exact2/0fec515747a8be59585538c1543541a3815b7f7f/legacy-sidebar-full/ls56-menu-record.txt) |
+| LS-7 | pass (agent drive, Bun): the title's tooltip on hover (the background Dev server row); the worktree and status tooltips, Bun. The first after drive found the title's trigger took the row's hover (below); fixed, and the second drive's Archive press is the proof | [title](https://raw.githubusercontent.com/ccheever/exact2/c9d6cd5b761e6a168b09c063196fc76dd2801d6e/legacy-sidebar-full/ls7-title.png) |
+| LS-8 | in-app path pass (Bun: motion attributes, the arrival flag by tick, none under reduced motion, the destructive "Delete anyway"); the motion itself under a real archive is real-input step 7 | Bun |
+
+Drives (agent mode, 1280×840, `screenshot … window`): before on the evidence worktree (`6db5cadea`), after on this
+branch's bundle (`aef1a2d16`'s app code), the reference by CDP on its lane; the GitHub lane's primary server (16564) paired
+as a second environment through Settings › Connections. The first after drive (`fe17e8b12`) found the title tooltip's
+hover handler kept the row unhovered when the pointer entered on the title (the host hovers only the nearest node with a
+`hover`): the agent's Archive press at Archive's place opened the thread instead. Fixed in `aef1a2d16` (every tooltip
+trigger in a row tells the row, `LegacyRowTip`, `LegacyTitleTip`'s `relay`), with a Bun wiring test; the second drive
+(the brief's one retry) took every after image.
 
 ## Real-input batch steps
 
@@ -165,3 +191,49 @@ in a worktree), the GitHub lane's server paired as a second environment (Setting
    globe; hover: "Open localhost:<port>"; click: the thread opens with a Browser tab on that port.
 7. **LS-8.** Archive a row: it fades and the rows below slide up (reduced motion is checked by the agent's `prefer`,
    never System Settings).
+
+## Checks
+
+All on `aef1a2d16` (the final app code; the commits after it change only this record), after merging
+`origin/feat(example)/t3-code` (`fe0e39c91`, already contained):
+
+| Check | Exit | Note |
+| --- | --- | --- |
+| `bun test examples/t3-code --timeout 60000` | 0 | 4689 pass, 1 skip, 0 fail (312 files) |
+| strict `tsc` (README command) | 0 | |
+| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | `app.contract` 1,405 lines; 28,879,517 bytes |
+| `cargo test -p t3-code-macos --lib` | 0 | 21 passed |
+| AppKit `macos/tests/row-drop` (README recipe) | 0 | 3 run, 0 failed (`ls3-record.txt`); no Swift changed after it |
+| AppKit `macos/tests/composer` (README recipe) | 0 | 57 tests, 0 failures (the editor's owner refusal added); no Swift changed after it |
+| `git add -A && bun scripts/caps.mjs` | 0 | all budgets within cap |
+| `cargo build --all-targets --keep-going` | 0 | |
+| `cargo test --lib --bins --tests --no-fail-fast` | 101 | 3,744 passed, 1 failed, 36 ignored: `contract --test it` `button_migration`, `apps/color-gallery/app.contract:269:17` "styled default button needs appearance=\"none\"", from the feature branch (#440); this branch changes nothing outside `examples/t3-code` |
+| `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | |
+| `cargo fmt --all -- --check` | 0 | |
+| `bun scripts/boot.mjs` | 0 | |
+
+## Not done / not verified
+
+- Real-input steps 1-7 (above): a Finder file drag (LS-3), real Tab and Enter (LS-4), native menu picks (LS-5, LS-6),
+  a real pointer and ⌘-click (LS-1, LS-2), the list motion under a real archive (LS-8). The agent cannot enter a
+  native menu's tracking or start an AppKit drag session; the in-app paths are covered as listed.
+- Project settings on a project only a background environment has: the clone makes that environment the focus first,
+  then opens Settings › Projects on it; the reference opens Settings › Projects scoped to the logical project without
+  changing the focus. Blocker: the clone's Settings › Projects page reads the focused environment only (outside this
+  task's sidebar scope).
+
+## Seen while building, not a finding row
+
+- The reference's tooltips also open on keyboard focus (Base UI); the clone's `Tip` opens on hover only, app-wide.
+- The terminal glyph's tooltip (`TerminalProcessIndicator`, shared with the default sidebar) does not relay its hover to
+  the row: a pointer entering a row exactly on that 12 px glyph leaves Archive hidden until it moves off it.
+- `cargo test` fails one test from the feature branch (#440's `apps/color-gallery/app.contract:269` "styled default
+  button needs appearance=\"none\""); this branch changes nothing outside `examples/t3-code`.
+
+## Delivery
+
+Draft PR {pr} into `feat(example)/t3-code`.
+
+## Next action
+
+Review the draft PR; run real-input steps 1-7 in the coordinator's batch.
