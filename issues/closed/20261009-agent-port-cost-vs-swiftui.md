@@ -1,6 +1,7 @@
 # Porting an app costs agents ~2x the time and ~5-6x the tokens of SwiftUI: required reading is ~100K tokens and still lacks the native iOS patterns
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Asks (a) and (b) landed under LLP 1115 D7 and LLP 1116 (docs/start-here.md is the one required read, docs/recipes and docs/patterns, apps/shelf); the cold first contract build, ask (c), is a QUEUE.md line
 **Systems:** docs, agent onboarding, exact new
 **Severity:** P1
 **Author:** Claude (Tuft), for Charlie Cheever
