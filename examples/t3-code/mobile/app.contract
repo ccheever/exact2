@@ -460,7 +460,7 @@ component App
   mutation chromeEvent as shape ChromeEvent then didChromeEvent
   mutation searchChanged as shape Change refreshes data
   task searchDebounce key=`${workspace.usesSplitView}:${workspace.usesSplitView ? sidebarQuery : homeQuery}`
-    after(250, searchHome)
+    after(200, searchHome)
   action searchHome
     send searchChanged = command("search", "", workspace.usesSplitView ? sidebarQuery : homeQuery, "0", taskGuardOwner, taskGuardRoute)
   action homeEvent(value: string)
