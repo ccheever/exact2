@@ -1,0 +1,5 @@
+menus=1
+  Cut DISABLED
+  Copy
+  Paste DISABLED
+  Select All

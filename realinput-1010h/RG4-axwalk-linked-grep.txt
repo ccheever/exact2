@@ -1,0 +1,3 @@
+41:      AXLink AXDescription="linked $verify" AXURL=(err -25205) actions=AXPress
+42-      AXStaticText AXValue=" " AXDescription=" " actions=AXPress
+43-      AXStaticText AXValue="stays " AXDescription="stays " actions=AXPress

@@ -1,0 +1,138 @@
+1791685255.804791 down at=1083,643 clicks=1 hit=NodeView: responder=ExactWindow marked=false source=- key=true
+1791685255.852625 up at=1083,643 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685257.294589 down at=127,699 clicks=1 hit=NodeView: responder=ExactWindow marked=false source=- key=true
+1791685257.366688 up at=127,699 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685268.537154 down at=1237,751 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685268.6029549 up at=1237,751 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685281.166078 down at=1189,814 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685281.232399 up at=1189,814 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685282.8571858 down at=1237,751 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685282.92373 up at=1237,751 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685292.426749 down at=405,715 clicks=1 hit=NodeView: responder=ExactWindow marked=false source=- key=true
+1791685292.951427 up at=524,715 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685293.156856 settle owner=http://127.0.0.1:16990:verify-project:verify-timeline
+1791685293.157294 remember owner=http://127.0.0.1:16990:verify-project:verify-timeline row= offset=0.0 scroll=0.0 atEnd=true
+1791685293.9093251 rdown at=464,715 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685302.199314 down at=864,133 clicks=1 hit=NodeView:composer-placeholder responder=NodeView marked=false source=- key=true
+1791685302.265337 up at=864,133 clicks=1 hit=NodeView:composer-placeholder responder=NodeView marked=false source=- key=true
+1791685302.8661299 focus-bridge marked=false
+1791685305.4331899 rdown at=664,136 clicks=1 hit=TextArea:composer responder=TextArea marked=false source=com.apple.inputmethod.Korean.2SetKorean key=true
+1791685307.953733 key chars=a ignoring=ㅁ code=0 chord=a responder=TextArea composerFocused=true marked=false source=com.apple.inputmethod.Korean.2SetKorean
+1791685357.42274 down at=128,400 clicks=1 hit=NodeView:settings-connections responder=ExactWindow marked=false source=- key=true
+1791685357.489229 up at=128,400 clicks=1 hit=NodeView:settings-connections responder=NodeView marked=false source=- key=true
+1791685359.3729029 down at=1169,411 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685359.439466 up at=1169,411 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685366.989444 down at=554,359 clicks=1 hit=Field: responder=NodeView marked=false source=- key=true
+1791685368.068355 key chars=v ignoring=ㅍ code=9 chord=ㅍ responder=NSTextView composerFocused=false marked=false source=com.apple.inputmethod.Korean.2SetKorean
+1791685374.110098 down at=640,283 clicks=1 hit=NodeView: responder=NSTextView marked=false source=com.apple.inputmethod.Korean.2SetKorean key=true
+1791685374.164974 up at=640,283 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685385.802218 down at=60,20 clicks=1 hit=NodeView: responder=ExactWindow marked=false source=- key=true
+1791685385.868935 up at=60,20 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685396.4844952 down at=637,747 clicks=1 hit=Field: responder=ExactWindow marked=false source=- key=true
+1791685397.1445389 key chars=v ignoring=ㅍ code=9 chord=ㅍ responder=NSTextView composerFocused=false marked=false source=com.apple.inputmethod.Korean.2SetKorean
+1791685407.002077 down at=768,663 clicks=1 hit=NodeView:pr-row-168 responder=NSTextView marked=false source=com.apple.inputmethod.Korean.2SetKorean key=true
+1791685407.068352 up at=768,663 clicks=1 hit=NodeView:pr-row-168 responder=NodeView marked=false source=- key=true
+1791685412.540441 down at=847,629 clicks=1 hit=ExactSegmentedControl: responder=NodeView marked=false source=- key=true
+1791685421.178145 down at=1250,587 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685421.243915 up at=1250,587 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685423.766382 down at=1152,20 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685423.833085 up at=1152,20 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685429.328936 down at=1152,20 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685429.395406 up at=1152,20 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685434.9926472 down at=1152,20 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685435.058764 up at=1152,20 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685448.316319 settle owner=http://127.0.0.1:16990:verify-project:verify-timeline
+1791685449.557742 settle owner=http://127.0.0.1:16990:verify-project:verify-timeline
+1791685450.3386831 down at=1152,132 clicks=1 hit=NodeView: responder=ExactWindow marked=false source=- key=true
+1791685450.405294 up at=1152,132 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685454.9715838 settle owner=http://127.0.0.1:16990:verify-project:verify-timeline
+1791685463.7415261 down at=656,148 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685463.807776 up at=656,148 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685466.144312 settle owner=http://127.0.0.1:16990:verify-project:verify-timeline
+1791685476.035332 down at=666,550 clicks=1 hit=NodeView:diff-line-docs/usage.md-additions-3 responder=NodeView marked=false source=- key=true
+1791685476.108918 up at=666,550 clicks=1 hit=NodeView:diff-line-docs/usage.md-additions-3 responder=ExactWindow marked=false source=- key=true
+1791685492.368232 down at=791,458 clicks=1 hit=NodeView: responder=TextArea marked=false source=com.apple.inputmethod.Korean.2SetKorean key=true
+1791685492.4324589 up at=791,458 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685494.025319 down at=666,550 clicks=1 hit=NodeView:diff-line-docs/usage.md-additions-3 responder=ExactWindow marked=false source=- key=true
+1791685496.589396 up at=666,416 clicks=1 hit=NodeView:diff-line-docs/usage.md-additions-5 responder=ExactWindow marked=false source=- key=true
+1791685496.791481 settle owner=http://127.0.0.1:16990:verify-project:verify-timeline
+1791685546.942459 down at=791,149 clicks=1 hit=NodeView: responder=TextArea marked=false source=com.apple.inputmethod.Korean.2SetKorean key=true
+1791685547.0099568 up at=791,149 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685549.626574 down at=682,550 clicks=1 hit=NodeView: responder=ExactWindow marked=false source=- key=true
+1791685552.192981 up at=682,416 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685552.42377 settle owner=http://127.0.0.1:16990:verify-project:verify-timeline
+1791685571.441365 down at=791,149 clicks=1 hit=NodeView: responder=TextArea marked=false source=com.apple.inputmethod.Korean.2SetKorean key=true
+1791685571.505148 up at=791,149 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685572.6972141 down at=109,20 clicks=1 hit=NodeView:sidebar-back responder=ExactWindow marked=false source=- key=true
+1791685572.7551441 up at=109,20 clicks=1 hit=NodeView:sidebar-back responder=NodeView marked=false source=- key=true
+1791685578.712939 down at=346,814 clicks=1 hit=NodeView: responder=ExactWindow marked=false source=- key=true
+1791685578.779182 up at=346,814 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685578.807946 focus-bridge marked=false
+1791685588.5155659 down at=755,558 clicks=1 hit=NodeView: responder=TextArea marked=false source=com.apple.inputmethod.Korean.2SetKorean key=true
+1791685588.5806441 up at=755,558 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685594.429062 down at=756,462 clicks=1 hit=NodeView:hero-project-4e57c699-7d27-40ad-b55d-bd3099e9df82 responder=NodeView marked=false source=- key=true
+1791685594.487293 up at=756,462 clicks=1 hit=NodeView:hero-project-4e57c699-7d27-40ad-b55d-bd3099e9df82 responder=NodeView marked=false source=- key=true
+1791685601.939143 down at=616,453 clicks=1 hit=NodeView:composer-placeholder responder=NodeView marked=false source=- key=true
+1791685602.005014 up at=616,453 clicks=1 hit=NodeView:composer-placeholder responder=NodeView marked=false source=- key=true
+1791685602.622861 key chars=v ignoring=ㅍ code=9 chord=ㅍ responder=NodeView composerFocused=false marked=false source=-
+1791685602.6514812 focus-bridge marked=false
+1791685617.104986 focus-bridge marked=false
+1791685630.1898232 key chars=a ignoring=ㅁ code=0 chord=a responder=TextArea composerFocused=true marked=false source=com.apple.inputmethod.Korean.2SetKorean
+1791685631.262227 down at=898,404 clicks=1 hit=NodeView: responder=TextArea marked=false source=com.apple.inputmethod.Korean.2SetKorean key=true
+1791685631.32863 up at=898,404 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685639.345646 down at=757,700 clicks=1 hit=NodeView: responder=ExactWindow marked=false source=- key=true
+1791685639.4123812 up at=757,700 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685652.274723 down at=757,642 clicks=1 hit=NodeView:diff-line-src/app.ts-additions-2 responder=NodeView marked=false source=- key=true
+1791685653.68314 up at=757,602 clicks=1 hit=NodeView:diff-line-src/app.ts-additions-4 responder=ExactWindow marked=false source=- key=true
+1791685672.191012 down at=774,602 clicks=1 hit=NodeView: responder=ExactWindow marked=false source=- key=true
+1791685672.250996 up at=774,602 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685674.167066 down at=1164,510 clicks=1 hit=NodeView: responder=TextArea marked=false source=com.apple.inputmethod.Korean.2SetKorean key=true
+1791685674.2240071 up at=1164,510 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685683.8579001 down at=60,20 clicks=1 hit=NodeView: responder=ExactWindow marked=false source=- key=true
+1791685683.924656 up at=60,20 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685701.966352 down at=1152,132 clicks=1 hit=NodeView: responder=ExactWindow marked=false source=- key=true
+1791685702.032131 up at=1152,132 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685711.17658 down at=682,551 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685711.242146 up at=682,551 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685712.587916 key chars=v ignoring=ㅍ code=9 chord=ㅍ responder=TextArea composerFocused=false marked=false source=com.apple.inputmethod.Korean.2SetKorean
+1791685723.010195 down at=988,509 clicks=1 hit=NodeView: responder=ExactWindow marked=false source=- key=true
+1791685723.075104 up at=988,509 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685740.041387 down at=96,20 clicks=1 hit=NodeView:sidebar-back responder=ExactWindow marked=false source=- key=true
+1791685740.098145 up at=96,20 clicks=1 hit=NodeView:sidebar-back responder=NodeView marked=false source=- key=true
+1791685743.49015 down at=749,814 clicks=1 hit=NodeView:panel-tab-diff responder=ExactWindow marked=false source=- key=true
+1791685743.5561318 up at=749,814 clicks=1 hit=NodeView:panel-tab-diff responder=ExactWindow marked=false source=- key=true
+1791685758.531775 down at=96,20 clicks=1 hit=NodeView: responder=ExactWindow marked=false source=- key=true
+1791685758.5983639 up at=96,20 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685766.839642 down at=749,814 clicks=1 hit=NodeView: responder=ExactWindow marked=false source=- key=true
+1791685766.905788 up at=749,814 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685822.959877 down at=109,20 clicks=1 hit=NodeView:sidebar-back responder=NodeView marked=false source=- key=true
+1791685823.026369 up at=109,20 clicks=1 hit=NodeView:sidebar-back responder=NodeView marked=false source=- key=true
+1791685824.9779801 down at=127,616 clicks=1 hit=NodeView: responder=ExactWindow marked=false source=- key=true
+1791685825.035753 up at=127,616 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685844.6094809 rdown at=414,750 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685911.77454 rdown at=414,750 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791685923.740937 down at=114,764 clicks=1 hit=Field: responder=ExactWindow marked=false source=- key=true
+1791685924.421679 key chars=v ignoring=ㅍ code=9 chord=ㅍ responder=NSTextView composerFocused=false marked=false source=com.apple.inputmethod.Korean.2SetKorean
+1791685927.3412352 rdown at=74,764 clicks=1 hit=NSTextView: responder=NSTextView marked=false source=com.apple.inputmethod.Korean.2SetKorean key=true
+1791685949.663172 down at=768,116 clicks=1 hit=TextArea:composer responder=ExactWindow marked=false source=- key=true
+1791685949.687117 focus-bridge marked=false
+1791685950.321362 key chars=v ignoring=ㅍ code=9 chord=ㅍ responder=TextArea composerFocused=true marked=false source=com.apple.inputmethod.Korean.2SetKorean
+1791685951.3309832 key chars=a ignoring=ㅁ code=0 chord=a responder=TextArea composerFocused=true marked=false source=com.apple.inputmethod.Korean.2SetKorean
+1791685958.3467689 down at=95,764 clicks=1 hit=Field: responder=TextArea marked=false source=com.apple.inputmethod.Korean.2SetKorean key=true
+1791685959.157364 key chars=v ignoring=ㅍ code=9 chord=ㅍ responder=NSTextView composerFocused=false marked=false source=com.apple.inputmethod.Korean.2SetKorean
+1791685970.59059 key chars=a ignoring=ㅁ code=0 chord=a responder=NSTextView composerFocused=false marked=false source=com.apple.inputmethod.Korean.2SetKorean
+1791685972.086844 down at=768,116 clicks=1 hit=TextArea:composer responder=NSTextView marked=false source=com.apple.inputmethod.Korean.2SetKorean key=true
+1791685972.1053572 focus-bridge marked=false
+1791685972.765089 key chars=v ignoring=ㅍ code=9 chord=ㅍ responder=TextArea composerFocused=true marked=false source=com.apple.inputmethod.Korean.2SetKorean
+1791685988.879353 rdown at=472,136 clicks=1 hit=TextArea:composer responder=TextArea marked=false source=com.apple.inputmethod.Korean.2SetKorean key=true
+1791685991.1211 key chars=a ignoring=ㅁ code=0 chord=a responder=TextArea composerFocused=true marked=false source=com.apple.inputmethod.Korean.2SetKorean
+1791686009.677789 down at=964,506 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791686009.744391 up at=964,506 clicks=1 hit=NodeView: responder=NodeView marked=false source=- key=true
+1791686012.243754 down at=981,769 clicks=1 hit=Field: responder=ExactWindow marked=false source=- key=true
+1791686012.898138 key chars=a ignoring=ㅁ code=0 chord=a responder=NSTextView composerFocused=false marked=false source=com.apple.inputmethod.Korean.2SetKorean
+1791686013.262587 key chars=v ignoring=ㅍ code=9 chord=ㅍ responder=NSTextView composerFocused=false marked=false source=com.apple.inputmethod.Korean.2SetKorean
+1791686026.252137 rdown at=1144,503 clicks=1 hit=T3BrowserWebView: responder=ExactWindow marked=false source=- key=true
+1791686038.5192862 down at=981,769 clicks=1 hit=Field: responder=ExactWindow marked=false source=- key=true
+1791686039.163591 key chars=a ignoring=ㅁ code=0 chord=a responder=NSTextView composerFocused=false marked=false source=com.apple.inputmethod.Korean.2SetKorean
+1791686039.52111 key chars=v ignoring=ㅍ code=9 chord=ㅍ responder=NSTextView composerFocused=false marked=false source=com.apple.inputmethod.Korean.2SetKorean
+1791686049.793498 rdown at=824,382 clicks=1 hit=T3BrowserWebView: responder=ExactWindow marked=false source=- key=true

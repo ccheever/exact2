@@ -1,0 +1,129 @@
+AXIsProcessTrusted true
+AXWindows: ["AXWindow/AXStandardWindow AXTitle=\"T3 Code (RI1010h 1)\" actions=AXRaise"]
+AXChildren: ["AXWindow/AXStandardWindow AXTitle=\"T3 Code (RI1010h 1)\" actions=AXRaise", "AXMenuBar actions=AXCancel"]
+AXMainWindow: err 0 AXWindow/AXStandardWindow AXTitle="T3 Code (RI1010h 1)" actions=AXRaise
+AXFocusedWindow: err 0 AXWindow/AXStandardWindow AXTitle="T3 Code (RI1010h 1)" actions=AXRaise
+AXWindow/AXStandardWindow AXTitle="T3 Code (RI1010h 1)" actions=AXRaise
+  AXScrollArea actions=AXScrollLeftByPage,AXScrollRightByPage,AXScrollUpByPage,AXScrollDownByPage
+    AXButton AXDescription="Toggle sidebar" actions=AXPress
+    AXButton AXDescription="Go to threads" actions=AXPress
+    AXStaticText AXValue="Search" AXDescription="Search" actions=AXPress
+    AXTextField AXDescription="Search threads" actions=AXShowMenu,AXConfirm
+    AXButton AXDescription="Filter threads by project" actions=AXPress
+    AXButton AXDescription="Add project" actions=AXPress
+    AXButton AXDescription="New thread" actions=AXPress
+    AXScrollArea actions=AXScrollLeftByPage,AXScrollRightByPage,AXScrollUpByPage,AXScrollDownByPage
+      AXButton AXDescription="lane thread rf3d, Failed, work" actions=AXPress
+      AXButton AXDescription="Timeline verification, Verification fixture" actions=AXPress
+      AXButton AXDescription="Toggle Settled" actions=AXPress
+    AXButton AXDescription="Settings" actions=AXPress
+    AXButton AXDescription="Pull Requests" actions=AXPress
+    AXButton AXDescription="Usage" actions=AXPress
+    AXButton AXDescription="Check for updates" actions=AXPress
+    AXButton AXDescription="New thread in Verification fixture" actions=AXPress
+    AXStaticText AXValue="/" AXDescription="/" actions=AXPress
+    AXButton AXDescription="Thread actions for Timeline verification" actions=AXPress
+    AXButton AXDescription="Toggle thread details panel" actions=AXPress
+    AXScrollArea actions=AXScrollLeftByPage,AXScrollRightByPage,AXScrollUpByPage,AXScrollDownByPage
+      AXButton AXDescription="Ran 2 commands, read 1 file, and performed 8 other actions" actions=AXPress
+      AXStaticText AXValue="Known " AXDescription="Known " actions=AXPress
+      AXStaticText AXValue="$verify " AXDescription="$verify " actions=AXPress
+      AXStaticText AXValue="skill. " AXDescription="skill. " actions=AXPress
+      AXStaticText AXValue="Price " AXDescription="Price " actions=AXPress
+      AXStaticText AXValue="$5 " AXDescription="$5 " actions=AXPress
+      AXStaticText AXValue="stays " AXDescription="stays " actions=AXPress
+      AXStaticText AXValue="plain; " AXDescription="plain; " actions=AXPress
+      AXStaticText AXValue="code " AXDescription="code " actions=AXPress
+      AXStaticText AXValue="$verify" AXDescription="$verify" actions=AXPress
+      AXStaticText AXValue=" " AXDescription=" " actions=AXPress
+      AXStaticText AXValue="stays " AXDescription="stays " actions=AXPress
+      AXStaticText AXValue="plain; " AXDescription="plain; " actions=AXPress
+      AXLink AXDescription="linked $verify" AXURL=(err -25205) actions=AXPress
+      AXStaticText AXValue=" " AXDescription=" " actions=AXPress
+      AXStaticText AXValue="stays " AXDescription="stays " actions=AXPress
+      AXStaticText AXValue="a " AXDescription="a " actions=AXPress
+      AXStaticText AXValue="link." AXDescription="link." actions=AXPress
+      AXStaticText AXValue="Review " AXDescription="Review " actions=AXPress
+      AXStaticText AXValue="parser" AXDescription="parser" actions=AXPress
+      AXStaticText AXValue=", " AXDescription=", " actions=AXPress
+      AXButton AXDescription="/Users/<user>/orca/workspaces/exact2/t3-code/target/t3-ref/verify-runtime/p…" actions=AXPress
+      AXStaticText AXValue=", " AXDescription=", " actions=AXPress
+      AXStaticText AXValue="fixture.txt:3" AXDescription="fixture.txt:3" actions=AXPress
+      AXStaticText AXValue="." AXDescription="." actions=AXPress
+      AXButton AXDescription="Copy message" actions=AXPress
+      AXStaticText AXValue="10/6 1:46 AM" AXDescription="10/6 1:46 AM" actions=AXPress
+    AXScrollArea actions=AXScrollLeftByPage,AXScrollRightByPage,AXScrollUpByPage,AXScrollDownByPage
+      AXTextArea AXDescription="Message" actions=AXShowMenu
+    AXButton AXDescription="gpt-6-astra" actions=AXPress
+    AXButton AXDescription="Runtime mode" actions=AXPress
+    AXButton AXDescription="Attach files" actions=AXPress
+    AXButton AXDescription="Submit message" actions=AXPress
+    AXStaticText AXValue="No terminal sessions for this thread yet." AXDescription="No terminal sessions for this thread yet." actions=AXPress
+    AXButton AXDescription="New Terminal" actions=AXPress
+    AXScrollArea actions=AXScrollLeftByPage,AXScrollRightByPage,AXScrollUpByPage,AXScrollDownByPage
+      AXButton AXDescription="Close Menu cases" actions=AXPress
+      AXButton AXDescription="Menu cases" actions=AXPress
+      AXButton AXDescription="Add panel surface" actions=AXPress
+      AXScrollBar AXValue=0
+        AXValueIndicator AXValue=0
+        AXButton/AXIncrementArrow actions=AXPress
+        AXButton/AXDecrementArrow actions=AXPress
+        AXButton/AXIncrementPage actions=AXPress
+        AXButton/AXDecrementPage actions=AXPress
+    AXButton AXDescription="Maximize panel" actions=AXPress
+    AXCheckBox/AXToggle AXValue=0 AXDescription="Toggle terminal drawer" actions=AXPress
+    AXButton AXDescription="Toggle right panel" actions=AXPress
+    AXGroup AXDescription="Navigation" actions=AXPress
+      AXCheckBox/AXToggle AXValue=0 AXDescription="Back" actions=AXPress
+      AXCheckBox/AXToggle AXValue=0 AXDescription="Forward" actions=AXPress
+      AXCheckBox/AXToggle AXValue=0 AXDescription="Refresh" actions=AXPress
+    AXGroup actions=AXPress
+      AXTextField AXValue="http://127.0.0.1:16995/" AXDescription="Search or enter URL" actions=AXShowMenu,AXConfirm
+      AXButton AXDescription="Open in system browser" actions=AXPress
+    AXCheckBox/AXToggle AXValue=0 AXDescription="Annotate preview" actions=AXPress
+    AXCheckBox/AXToggle AXValue=0 AXDescription="Capture screenshot" actions=AXPress
+    AXCheckBox/AXToggle AXValue=0 AXDescription="Float preview over chat" actions=AXPress
+    AXButton AXDescription="Preview menu" actions=AXPress
+    AXGroup AXDescription="Browser"
+      AXGroup
+        AXScrollArea actions=AXShowMenu,AXScrollToVisible
+          AXWebArea AXDescription="Menu cases" AXURL=http://127.0.0.1:16995/ actions=AXShowMenu,AXScrollToVisible
+            AXStaticText AXValue="Plain words here" actions=AXShowMenu,AXScrollToVisible
+            AXLink AXTitle="Example link" AXURL=https://example.com/docs actions=AXPress,AXShowMenu,AXScrollToVisible
+              AXStaticText AXValue="Example link" actions=AXShowMenu,AXScrollToVisible
+            AXImage AXDescription="square" AXURL=http://127.0.0.1:16995/square.png actions=AXShowMenu,AXScrollToVisible
+            AXTextField AXValue="Field text" actions=AXPress,AXShowMenu,AXScrollToVisible
+            AXTextField actions=AXPress,AXShowMenu,AXScrollToVisible
+            AXStaticText AXValue="Own menu here" actions=AXShowMenu,AXScrollToVisible
+    AXButton AXDescription="Settings" actions=AXPress
+    AXButton AXDescription="Command Palette" actions=AXPress
+    AXButton AXDescription="Go to File" actions=AXPress
+    AXButton AXDescription="Search Project Contents" actions=AXPress
+    AXButton AXDescription="Change Theme" actions=AXPress
+    AXButton AXDescription="Open Usage" actions=AXPress
+    AXButton AXDescription="Toggle Theme Editor" actions=AXPress
+    AXButton AXDescription="New Thread" actions=AXPress
+    AXButton AXDescription="New Thread" actions=AXPress
+    AXButton AXDescription="New Local Thread" actions=AXPress
+    AXButton AXDescription="Appearance: Light" actions=AXPress
+    AXButton AXDescription="Previous Thread" actions=AXPress
+    AXButton AXDescription="Thread 1" actions=AXPress
+    AXButton AXDescription="Thread 2" actions=AXPress
+    AXButton AXDescription="Back" actions=AXPress
+    AXButton AXDescription="Forward" actions=AXPress
+    AXButton AXDescription="New Thread Without a Project" actions=AXPress
+    AXButton AXDescription="Settle Thread" actions=AXPress
+    AXButton AXDescription="Pin Thread" actions=AXPress
+    AXButton AXDescription="Open in Editor" actions=AXPress
+    AXButton AXDescription="Close Right Panel" actions=AXPress
+    AXButton AXDescription="Toggle Right Panel" actions=AXPress
+    AXButton AXDescription="Toggle Diff" actions=AXPress
+    AXButton AXDescription="Copy Thread ID" actions=AXPress
+    AXButton AXDescription="Toggle Browser" actions=AXPress
+    AXButton AXDescription="Toggle Terminal" actions=AXPress
+  AXToolbar actions=AXShowMenu
+  AXButton/AXCloseButton actions=AXPress
+  AXButton/AXFullScreenButton actions=AXPress,AXZoomWindow,AXShowMenu
+    AXGroup
+      AXGroup
+  AXButton/AXMinimizeButton actions=AXPress

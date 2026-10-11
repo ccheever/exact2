@@ -1,0 +1,41 @@
+realinput-1010h (final). Bundle target/clients/59162dd9bd2b20489cc6c0e4/.../T3 Code (Exact).app built at 408eab1ad (exit 0).
+Lane copies com.exact.t3code.macos.ri1010h-1 (rows 1-2; port 16990; GitHub lane server 16760 paired) and ri1010h-2 (row 3;
+port 16992; T3_BROWSER_IMPORT_HOME = target/t3-audit/lanes/import-wizard-initial-focus/browser-home). open -n --env,
+scratchpad homes, R9_INPUT_LOG on. Each step run once.
+Input source was 2-Set Korean at the start and was not changed: text was entered by paste (pasteboard saved and restored);
+keys (Tab, Return, Escape, arrows, space, Cmd shortcuts) were real key presses.
+
+ROW 1 RF (tasks/20261010-realinput-1010f-followups.md)
+RF-1 PASS: timeline selection menu = Cut(dim) Copy Paste(dim) Select All, nothing after; composer word selected = Cut Copy
+  Paste(dim) Select All, nothing after.
+RF-3 (a) PASS: click on new line 3's number opens "Add a comment..." on docs/usage.md:3, focused.
+RF-3 (b) PASS: slow drag from line 3's number to added 5's: lines paint as the pointer moves, "+" follows the bottom line
+  (deleted 5, then added 5), draft opens under added 5 labelled docs/usage.md:5.
+RF-3 (c) PASS: same from line 3's "+".
+RF-3 (d) PASS: thread Diff src/app.ts, numbers 2->4: lines 2-4 stay selected, no draft, "+" on line 4 only with the pointer
+  away; hover line 7: no "+"; "+" on 4 opens "Comment on lines 2 to 4".
+RF-4 PASS: pending card + badge 1; one trash click removes both; no pending review on GitHub (read back).
+RF-5 PASS: Cost clicked (focused), 30 days; (i) opens on rest; 6 moves of 1-2 pt with rests keep it open; leaving closes it.
+  No bad state, so no trace was taken.
+
+ROW 2 RG (tasks/20261010-realinput-1010g-followups.md); NSAutomaticCapitalizationEnabled = 1 (read only)
+RG-1 PASS: rested right-click = Copy Image, separator, Cut/Copy/Paste disabled, Select All; Copy Image -> Preview New from
+  Clipboard shows the small blue square (doc deleted, Preview quit); right-click without resting: the same menu.
+RG-2 PASS (text pasted, see note): field still "theme" after 2 s and after the right-click, word selected, Cut+Copy enabled,
+  nothing after Select All; Cut empties the field, composer paste gives "theme"; thread search "theme" + real space key stays
+  "theme ".
+RG-3 PARTIAL: no AutoFill/Services/Writing Tools anywhere (composer, Settings field, example.com word, fixture field).
+  But the composer's suggestions for "chek" were chef, chew, cheek, whek, chez (no "check"); the step expects check, chef,
+  chew, chez, cheek.
+RG-4 PASS: AXLink "linked $verify" AXURL err -25205, followed by AXStaticText " " and "stays ", no "$verify" text.
+
+ROW 3 import wizard focus ring (tasks/20261010-import-wizard-initial-focus.md step 1)
+(a) PASS: Chrome by click: "Personal" focused, no ring; Tab: ring on "Work".
+(b) PASS: by keys: Return on Add profile opened the menu already on Chrome (no Down needed), Return: ring on "Personal";
+  Escape: ring on Add profile.
+(c) PARTIAL: Brave: Cancel focused, no ring (pass); after "I've quit it" the dialog has focus, no ring (pass); Tab: ring on
+  Cancel (pass); Shift+Tab twice: focus left the dialog to the Settings page behind ("Add host", then "Built-in default..."),
+  no ring on the X (FAIL); "I've quit it" + Tab at once: ring on the X during "Checking Brave" and it stays when "Quit Brave
+  to import" returns (pass).
+(d) PASS: Firefox "broken" + Import: "Couldn't import" with no ring; Tab: Close; Tab: Try again; Tab: the X.
+(e) PASS: Blank profile's "..." > Remove profile and data: focus on Cancel; Escape: ring on its "..." button.

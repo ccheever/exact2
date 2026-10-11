@@ -1,0 +1,11 @@
+menus=1
+  chef
+  chew
+  cheek
+  whek
+  chez
+  ---
+  Cut
+  Copy
+  Paste DISABLED
+  Select All
