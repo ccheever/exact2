@@ -1,0 +1,84 @@
+// unverified-real-input-rows UV-2 (the viewed-here tip): a pass-through proxy in front of the GitHub lane's T3 server.
+// Everything is forwarded unchanged, except the replies to pullRequests.* requests for a pull request whose number is
+// listed in viewed-here (beside this file, one per line): there every `capabilities.viewedFiles` reads "environment",
+// as a host that keeps no viewed record (GitLab, Bitbucket, Azure DevOps, Forgejo) answers. The client pairs with this
+// proxy's origin. Logs method names and rewrites only (never payloads, tokens or tickets). Not committed.
+// Usage: bun proxy.mjs <listenPort> <upstreamPort>
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+const root = import.meta.dir;
+const [listen, upstreamPort] = process.argv.slice(2).map(Number);
+const upstream = `http://127.0.0.1:${upstreamPort}`;
+const logFile = `${root}/proxy.log`;
+const log = (value) => appendFileSync(logFile, JSON.stringify({ at: new Date().toISOString(), ...value }) + '\n');
+const hereNumbers = () => existsSync(`${root}/viewed-here`) ? new Set(readFileSync(`${root}/viewed-here`, 'utf8').split(/\s+/).filter(Boolean).map(Number)) : new Set();
+let seq = 0;
+
+/** Every `capabilities` object that names a viewed store says "environment"; returns how many it changed. */
+function rewrite(value) {
+  let changed = 0;
+  const walk = (node) => {
+    if (Array.isArray(node)) { node.forEach(walk); return; }
+    if (!node || typeof node !== 'object') return;
+    if (node.capabilities && typeof node.capabilities === 'object' && 'viewedFiles' in node.capabilities && node.capabilities.viewedFiles !== 'environment') {
+      node.capabilities.viewedFiles = 'environment'; changed += 1;
+    }
+    for (const child of Object.values(node)) walk(child);
+  };
+  walk(value);
+  return changed;
+}
+
+const server = Bun.serve({ hostname: '127.0.0.1', port: listen, idleTimeout: 120,
+  async fetch(req, srv) {
+    const u = new URL(req.url), dest = new URL(u.pathname + u.search, upstream);
+    const headers = new Headers(req.headers); headers.set('host', dest.host);
+    if (req.headers.get('upgrade')?.toLowerCase() === 'websocket') {
+      for (const name of ['host', 'connection', 'upgrade', 'sec-websocket-key', 'sec-websocket-version', 'sec-websocket-extensions']) headers.delete(name);
+      if (srv.upgrade(req, { data: { id: ++seq, url: dest.href.replace(/^http/, 'ws'), headers: Object.fromEntries(headers), queue: [], requests: new Map(), up: null } })) return;
+      return new Response('Upgrade failed', { status: 500 });
+    }
+    try {
+      const response = await fetch(dest, { method: req.method, headers, body: ['GET', 'HEAD'].includes(req.method) ? undefined : await req.arrayBuffer(), redirect: 'manual' });
+      log({ http: req.method, path: u.pathname, status: response.status });
+      const outgoing = new Headers(response.headers);
+      outgoing.delete('content-encoding'); outgoing.delete('content-length'); outgoing.delete('transfer-encoding');
+      return new Response(response.body, { status: response.status, headers: outgoing });
+    } catch { log({ http: req.method, path: u.pathname, error: 'upstream unavailable' }); return new Response('Upstream unavailable', { status: 502 }); }
+  },
+  websocket: {
+    open(ws) {
+      const up = new WebSocket(ws.data.url, { headers: ws.data.headers }); ws.data.up = up;
+      up.addEventListener('open', () => { log({ connection: ws.data.id, event: 'upstream-open' }); for (const m of ws.data.queue) up.send(m); ws.data.queue = []; });
+      up.addEventListener('message', (e) => {
+        let value; try { value = JSON.parse(e.data); } catch { ws.send(e.data); return; }
+        const frames = Array.isArray(value) ? value : [value];
+        let changed = 0;
+        const here = hereNumbers();
+        for (const frame of frames) {
+          const asked = ws.data.requests.get(String(frame.requestId ?? ''));
+          if (!asked || frame._tag !== 'Exit') continue;
+          ws.data.requests.delete(String(frame.requestId));
+          if (!asked.method.startsWith('pullRequests.') || !here.has(Number(asked.number))) continue;
+          const n = rewrite(frame.exit?.value);
+          if (n) { changed += n; log({ connection: ws.data.id, event: 'viewed-here', method: asked.method, number: asked.number, rewritten: n }); }
+        }
+        ws.send(changed ? JSON.stringify(value) : e.data);
+      });
+      up.addEventListener('close', (e) => { log({ connection: ws.data.id, event: 'upstream-close', code: e.code }); ws.close(e.code === 1006 ? 1011 : e.code); });
+      up.addEventListener('error', () => { log({ connection: ws.data.id, event: 'upstream-error' }); ws.close(1011); });
+    },
+    message(ws, message) {
+      try {
+        const value = JSON.parse(typeof message === 'string' ? message : new TextDecoder().decode(message));
+        for (const frame of Array.isArray(value) ? value : [value]) {
+          if (frame?._tag === 'Request') ws.data.requests.set(String(frame.id), { method: String(frame.tag), number: frame.payload?.number ?? frame.payload?.reference?.number ?? null });
+        }
+      } catch {}
+      if (ws.data.up?.readyState === WebSocket.OPEN) ws.data.up.send(message); else ws.data.queue.push(message);
+    },
+    close(ws, code) { log({ connection: ws.data.id, event: 'client-close', code }); ws.data.up?.close(); },
+  },
+});
+writeFileSync(`${root}/proxy.pid`, String(process.pid));
+log({ event: 'proxy-ready', port: server.port, upstreamPort });
+console.log(`viewed-here proxy ready: ${listen} -> ${upstreamPort}`);
