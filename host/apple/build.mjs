@@ -45,6 +45,7 @@ import { closeSync, copyFileSync, cpSync, existsSync, linkSync, mkdirSync, mkdte
 import { DOCUMENT_UTIS, executableName, ownDocumentType, HOST_DEV, checkModuleRoster, copyShaders, appleCargoClaims, awaitBuildOutput, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, contractLast, bakeTarget, developmentBuildEnv, developmentURLScheme, gpuModules, hermesBundle, injectedProfiles, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
 import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
 import { startSweep } from '../../scripts/sweep.mjs';
+import { guardFlags } from '../../scripts/help.mjs';
 import { writeDataKeys } from './data-keys.mjs';
 import { macTests, withoutPerformanceChecker } from './xctest.mjs';
 import { appIcon, buildInfo, iosAssets, appleAssets, appleAssetCatalogInventory, copyMacResources, signingOrder } from './assets.mjs';
@@ -1492,8 +1493,7 @@ async function test(args) {
   } finally { cargoRelease?.(); release(); }
 }
 if (process.argv[1] && resolve(process.argv[1]) === new URL(import.meta.url).pathname) {
-  const args = process.argv.slice(2);
+  const args = guardFlags(['--ios', '--device', '--tvos'].some((flag) => process.argv.includes(flag)) ? 'ios' : 'mac', process.argv.slice(2));
   useXcode();
-  const failed = (error) => { console.error(error.message); process.exitCode = 1; };
-  (args.includes('--test') ? test(args) : main(args)).catch(failed);
+  (args.includes('--test') ? test(args) : main(args)).catch((error) => { console.error(error.message); process.exitCode = 1; });
 }

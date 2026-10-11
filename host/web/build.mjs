@@ -31,9 +31,11 @@ import { authClientMetadata, checkModuleRoster, gpuModules, rustPolicy, webGpuAr
 import { buildRust, rustFiles, rustCards, rustPackage } from '../../scripts/rust.mjs';
 import { webDist, copyShaders, bakeOutput, buildBake, contractLast, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp, wasmRemapFlags, WEB_STD, WEB_TOOLCHAIN, webToolchainEnv } from '../../scripts/app.mjs';
 import { closeFilesystemReader } from '../../scripts/filesystem.mjs';
+import { guardFlags } from '../../scripts/help.mjs';
 import { BINARYEN_DOWNLOAD, splitStages, unsplitReason } from './stages.mjs';
 import { appManifestDigest, buildFileCards, copyStaticTreeIfPresent, listAssets, publicFileCards, replaceBuild, webEnvelope, moduleCards, MODULE_FILES } from './serve.mjs';
 
+guardFlags('web-build', process.argv.slice(2));
 const target = ['--js', '--wasm'].find((flag) => process.argv.includes(flag));
 // `--bake` (internal, delivery's): the web crate's bake without its wasm —
 // `cargo check` runs the build script (the baked plan, its receipt, a

@@ -22,6 +22,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameS
 import { homedir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
+import { guardFlags } from './help.mjs';
 
 export const ENDPOINT = process.env.EXACT_FEEDBACK_URL ?? 'https://exact-diaries.ccheever-0f6.workers.dev';
 const SETTINGS = () => resolve(process.env.EXACT_CONFIG_DIR ?? resolve(homedir(), '.config/exact'), 'feedback.json');
@@ -156,6 +157,6 @@ async function main([verb = 'preview', ...rest]) {
 }
 
 if (import.meta.main) {
-  try { console.log(await main(process.argv.slice(2))); }
+  try { console.log(await main(guardFlags('feedback', process.argv.slice(2)))); }
   catch (e) { console.error(`feedback: ${e.message}`); process.exit(1); }
 }
