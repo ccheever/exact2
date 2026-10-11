@@ -142,3 +142,24 @@ test('successful cleanup deduplicates the same adopted projection; failed cleanu
   client.thread = { ...thread, projection: { ...projection } }; await mobileCacheFlushDeletes(client, native);
   expect(calls).toBe(3);
 });
+
+
+test('skipped overlapping mobile refresh cannot retire the first owner cache publication', async () => {
+  const f = fixture(new MobileDraftClient(), true); await f.ready();
+  f.client.thread = null; f.client.threadSubscription = ''; f.calls.length = 0;
+  const retained = [...f.cache.entries()];
+  let enter!: () => void, finish!: () => void;
+  const entered = new Promise<void>(resolve => { enter = resolve; });
+  const paused = new Promise<void>(resolve => { finish = resolve; });
+  const original = f.native.later; let first = true;
+  f.native.later = async input => {
+    if (str(obj(input).path).endsWith('/bounded') && first) { first = false; enter(); await paused; }
+    return original(input);
+  };
+  const owner = f.client.refresh(f.native, storage); await entered;
+  await f.client.refresh(f.native, storage);
+  expect([...f.cache.entries()]).toEqual(retained); finish(); await owner;
+  expect(f.client.ready).toBe(true); expect(f.cache.size).toBe(3);
+  expect(f.calls.filter(call => call.op === 'mobileClientCache' && call.action === 'write').map(call => call.kind).sort())
+    .toEqual(['thread']);
+});

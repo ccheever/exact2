@@ -177,11 +177,17 @@ test('reconnect during a cache read hands selection to the shared live reader', 
   for (const family of ['runs', 'attempts', 'nodes', 'subagents', 'providerSessions', 'providerThreads', 'providerTurns', 'runtimeRequests',
     'messages', 'plans', 'turnItems', 'checkpointScopes', 'checkpoints', 'contextHandoffs', 'contextTransfers', 'visibleTurnItems']) projection[family] = [];
   let connected = false, liveReads = 0;
+  const wakes: Obj[] = [];
   f.native.later = async input => {
     const r = obj(input);
     if (r.op === 'devicePresentation') return { ok: true, generation: 2, value: {} };
     if (r.op === 'http') { liveReads++; return { ok: true, generation: 2, value: { snapshotSequence: 2, projection } }; }
     if (r.op === 'subscribe') return { ok: true, generation: 2, value: { id: 'live-thread-sub' } };
+    if (r.op === 'r10Wake') {
+      expect(f.client.generation).toBe(2); expect(f.client.environmentId).toBe(f.b);
+      expect(f.client.threadId).toBe('two'); expect(f.client.subscriptions.thread).toBe('live-thread-sub');
+      wakes.push(r); return { ok: true, generation: 2, value: {} };
+    }
     const value = await original(input);
     if (!connected && r.action === 'read' && r.environmentId === f.b && f.client.environmentId === f.b) {
       connected = true;
@@ -195,4 +201,5 @@ test('reconnect during a cache read hands selection to the shared live reader', 
   expect(obj(f.client.thread?.projection.thread).title).toBe('Live thread');
   expect(f.client.threadLive).toBe(true); expect(f.client.subscriptions.thread).toBe('live-thread-sub');
   expect(f.writes).toHaveLength(1);
+  expect(wakes).toEqual([{ op: 'r10Wake', topic: 't3.notify', generation: 2 }]);
 });

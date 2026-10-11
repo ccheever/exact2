@@ -129,7 +129,7 @@ export function mobileThreadComposer(client: T3Client): ThreadComposerState {
     modelUnavailable, running, queueCount: queue.queued.length };
 }
 
-/** Read after mobileSnapshot refresh; supplied time owns all duration labels. */
+/** Read after the stable snapshot reader; supplied time owns all duration labels. */
 export function mobileThread(now: number, dark = false, client: T3Client = mobileClient, routeKey = '', includeRows = true): ThreadSnapshot {
   const rows = includeRows ? mobileThreadRows(client, now, dark, routeKey) : [], loaded = !!client.thread;
   const loading = !loaded && ['connected', 'connecting', 'reconnecting'].includes(client.connection);

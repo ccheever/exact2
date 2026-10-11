@@ -170,9 +170,10 @@ test('MobileDraftClient observer preserves an actual transport error object', as
   expect(f.calls.filter(r => r.op === 'request')).toHaveLength(1); expect(f.rows.size).toBe(0);
 });
 
-test('mobileSnapshot exposes the separate favicon revision', async () => {
-  const { mobileSnapshot } = await import('./client');
-  const snapshot = await mobileSnapshot(null, { fs: { async mkdir() {}, async readFile() { return new ArrayBuffer(0); }, async atomicWriteFile() {} } });
+test('the root projection exposes the separate favicon revision', async () => {
+  const { mobileSnapshotRead, mobileSnapshotProjection } = await import('./client');
+  await mobileSnapshotRead(null, { fs: { async mkdir() {}, async readFile() { return new ArrayBuffer(0); }, async atomicWriteFile() {} } });
+  const snapshot = mobileSnapshotProjection();
   expect(snapshot.faviconRevision).toBe(mobileFaviconQueries.version);
 });
 
