@@ -46,8 +46,9 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     let firstDraw: () -> Void
     let kind: String
     var inlineText: [InlineText] = [] { didSet { inlineAccessibility = nil } }
-    /// Its runs' elements, kept until the runs change (`textAccessibilityChildren`).
-    var inlineAccessibility: [NSAccessibilityElement]?
+    /// Its runs' elements, kept until the runs change, and what else made
+    /// them (`textAccessibilityChildren`).
+    var inlineAccessibility: (key: String?, elements: [NSAccessibilityElement])?
     var inlinePressed: UInt32?
     /// An SVG element a click in this `svg` went down on (LLP 1055.000 D17).
     var svgPressed: UInt32?
@@ -376,46 +377,6 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// web's does (onboarding F16: a checkbox's visible label stayed exposed).
     package override func isAccessibilityElement() -> Bool {
         accessibilityExposed && props["accessibilityElementsHidden"] != "true" && super.isAccessibilityElement()
-    }
-    /// What VoiceOver reaches, as the web's accessibility tree and iOS's
-    /// traits have it: a pressable is a button — a link, checkbox, radio or
-    /// switch when its role says so — a labelled image (or `role="img"`,
-    /// an svg's) an image, and a `group` or `radiogroup` a group of its
-    /// children. Headings are paragraphs (`updateTextAccessibility`); names
-    /// come from `syncAccessibility`.
-    func updateRoleAccessibility() {
-        let role = props["accessibilityRole"]
-        if actsAsButton {
-            setAccessibilityElement(true)
-            if let checked = checkedRole { setAccessibilityChecked(checked.role, checked.checked) }
-            else { setAccessibilityToggle(pressedState, else: role == "link" ? .link : .button) }
-            // A link's `AXURL` is its `href`, as a run's is (X78).
-            let url = role == "link" ? props["href"].flatMap { URL(string: $0) } : nil
-            if accessibilityURL() != url { setAccessibilityURL(url) }
-            setAccessibilitySelected(props["accessibilitySelected"] == "true")
-            if let expanded = props["accessibilityExpanded"] { setAccessibilityExpanded(expanded == "true") }
-        } else if kind == "image" || role == "img" {
-            let labelled = authoredLabel != nil
-            setAccessibilityElement(labelled)
-            setAccessibilityRole(labelled ? .image : nil)
-        } else if role == "group" || role == "radiogroup" {
-            setAccessibilityElement(true)
-            setAccessibilityRole(role == "radiogroup" ? .radioGroup : .group)
-        } else if let range = rangeRole {
-            // A range role is one element, its value between its bounds and
-            // its `aria-valuetext` the description, as WebKit serves a drawn
-            // one (LLP 1116 D8). Only a change is written: each posts.
-            let axRole: NSAccessibility.Role = ["slider": .slider, "meter": .levelIndicator, "scrollbar": .scrollBar, "spinbutton": .incrementor][range] ?? .progressIndicator
-            setAccessibilityElement(true)
-            if accessibilityRole() != axRole { setAccessibilityRole(axRole) }
-            let n = rangeNumbers
-            let now = n.map { NSNumber(value: $0.now) }, low = n.map { NSNumber(value: $0.min) }, high = n.map { NSNumber(value: $0.max) }
-            if (accessibilityValue() as? NSNumber) != now { setAccessibilityValue(now) }
-            if (accessibilityMinValue() as? NSNumber) != low { setAccessibilityMinValue(low) }
-            if (accessibilityMaxValue() as? NSNumber) != high { setAccessibilityMaxValue(high) }
-            let text = props["accessibilityValueText"].flatMap { $0.isEmpty ? nil : $0 }
-            if accessibilityValueDescription() != text { setAccessibilityValueDescription(text) }
-        }
     }
     /// Where an image source resolves, as a page resolves `src`: an `http(s)`
     /// URL as is; a relative path under the asset root (`EXACT_ASSETS`, else
