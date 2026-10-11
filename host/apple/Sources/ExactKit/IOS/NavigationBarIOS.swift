@@ -99,6 +99,11 @@ struct HeaderShape: Equatable {
     /// What the heading's group holds besides it (an avatar, a subtitle) and
     /// whether pressing it does something: the item's title, richer (§9.10).
     let group: HeaderTitle?
+    /// The header's nodes the bar places (`presents`): the heading, every
+    /// item's button (the Back control's too), the search field, the
+    /// tablist when it has tabs for the segmented title, and what the title
+    /// shows of the heading's group.
+    let placed: [NodeView]
 
     /// `back` names the stack's Back control, left to UIKit's back button
     /// when there is one (`backIsUIKits`): the root of a presented stack
@@ -138,7 +143,17 @@ struct HeaderShape: Equatable {
         trailing = after
         self.search = search
         self.segments = segments
-        group = HeaderTitle(header: header, heading: headings[0], tap: tap, apart: items + [search, segments].compactMap { $0 })
+        let group = HeaderTitle(header: header, heading: headings[0], tap: tap, apart: items + [search, segments].compactMap { $0 })
+        self.group = group
+        let tablist = segments.flatMap { HeaderShape.titleTabs($0).isEmpty ? nil : $0 }
+        placed = [headings[0]] + items + [search, tablist].compactMap { $0 } + (HeaderShape.presented(group, segments: segments)?.placed ?? [])
+    }
+
+    /// The tabs of a header's tablist the segmented title shows (§9.8).
+    static func titleTabs(_ list: NodeView) -> [NodeView] {
+        list.container.subviews.compactMap { $0 as? NodeView }.filter {
+            $0.isButton && $0.props["accessibilityRole"] == "tab" && $0.handlers.contains("press")
+        }
     }
 
     static func == (a: HeaderShape, b: HeaderShape) -> Bool {
@@ -518,9 +533,7 @@ extension NavigationHost {
     /// does (LLP 1035.001 D10). The heading stays the item's title, which
     /// the back button on the next route reads.
     private func segmentedTitle(_ list: NodeView?, in c: RouteController) {
-        let tabs = list?.container.subviews.compactMap { $0 as? NodeView }.filter {
-            $0.isButton && $0.props["accessibilityRole"] == "tab" && $0.handlers.contains("press")
-        } ?? []
+        let tabs = list.map(HeaderShape.titleTabs) ?? []
         guard !tabs.isEmpty else {
             if let old = c.titleSegments?.control, c.navigationItem.titleView === old { c.navigationItem.titleView = nil }
             c.titleSegments = nil

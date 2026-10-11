@@ -233,8 +233,7 @@ extension NodeView {
         if children.contains(where: { $0.props["accessibilityElementsHidden"] == "true" }) { return nil }
         if children.count == 1, children[0].kind == "image" { return .image(children[0]) }
         let text = accessibleText
-        guard !children.isEmpty, !text.isEmpty, children.allSatisfy(\.isParagraph),
-              (props["accessibilityLabel"] ?? text) == text else { return nil }
+        guard !children.isEmpty, !text.isEmpty, children.allSatisfy(\.isParagraph) else { return nil }
         return .title(text)
     }
 }
@@ -497,11 +496,18 @@ extension Agent {
     func decorateTree(_ reply: [String: Any]) -> [String: Any] {
         var reply = reply
         let focus = (stateSections()["focus"] as? [String: Any])?["logical"] as? Int
+        #if os(iOS) || os(tvOS)
+        // A header node the navigation bar leaves out (LLP 1116 D2).
+        let unshown = presenter.navigation.unshownByBar()
+        #endif
         reply["nodes"] = (reply["nodes"] as? [[String: Any]] ?? []).map { row in
             var row = row
             if let id = row["id"] as? Int, let node = presenter.views[UInt32(id)] {
                 row["focused"] = focus == id
                 if node.props["popover"] != nil { row["open"] = presenter.menus.isOpen(node) }
+                #if os(iOS) || os(tvOS)
+                if let why = unshown[node.id] { row["unshown"] = why }
+                #endif
             }
             return row
         }

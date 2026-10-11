@@ -863,7 +863,8 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
   // `chrome: 'platform'` (opt-in; splitter rough 4, 11): UIKit's navigation bar and tab bar show as a person sees them,
   // and `screenshot <png> window` draws them, a presented sheet's too; a tap naming a tab or a header button the bars
   // stand for presses it (`native: "tab-bar-item"`, `"bar-button-item"`). The default paints the authored header and
-  // tablist, which the tree, layout and every tap address as on the web.
+  // tablist, which the tree, layout and every tap address as on the web; a header node the bar would not show is
+  // marked `unshown` in the tree, struck through in a screenshot, and fails an `expect` or a `tap` (LLP 1116 D2).
   if (!['agent', 'platform'].includes(chrome) || (chrome !== 'agent' && !['ios', 'host-ios'].includes(host))) throw new Error(`chrome: ${chrome} is iOS's (agent or platform), not ${host}'s`);
   if (chrome === 'platform') env = { ...(env ?? {}), EXACT_AGENT_CHROME: 'platform' };
   // A drive has no app storage unless it names a scratch store apart from the app's real files (`--storage <name>`), kept

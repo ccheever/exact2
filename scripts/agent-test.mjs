@@ -25,6 +25,25 @@ export function textOf(nodes, node, live = false) {
   return runs.length ? runs.join('') : node.props.value;
 }
 
+/** The node a test's target names in a tree: a covered screen's copy only when no active one carries it (shop F16). */
+const targetNode = (nodes, target) => { const matches = nodes.filter((n) => n.props.testId === target); return matches.find((m) => !m.inactive) ?? matches[0]; };
+
+/** `expect text <target> == <value>` over a `tree` reply's nodes: null when it holds, else `{ message }` — with
+ * `unshown` when the tree's text is right but the shipped app does not show the node: a header node the iOS
+ * navigation bar leaves out, which the agent's own chrome still paints (LLP 1116 D2). No clock can change that. */
+export function textExpectation(nodes, target, value) {
+  const n = targetNode(nodes, target), got = n ? textOf(nodes, n) : undefined;
+  if (got !== value) return { message: `text of "${target}" is ${n ? JSON.stringify(got) : 'absent (no view carries that testId)'}, expected ${JSON.stringify(value)}` };
+  return n.unshown ? { message: `text of "${target}" is ${JSON.stringify(got)}, but ${n.unshown}`, unshown: true } : null;
+}
+
+/** `expect tree <present|missing> <target>`, as `textExpectation`: a node present in the tree that the shipped app does not show is not present. */
+export function treeExpectation(nodes, target, present) {
+  const n = targetNode(nodes, target);
+  if (!!n !== present) return { message: `expected testId "${target}" ${present ? 'present' : 'absent'}, it was ${n ? 'present' : 'absent'}` };
+  return present && n.unshown ? { message: `testId "${target}" is in the tree, but ${n.unshown}`, unshown: true } : null;
+}
+
 // What a person activates, most direct first: a control, or a view a press or an edit acts on (2); one taking a gesture
 // or focus (1); none (0) — a `scroll` or `pointermove` handler only watches.
 const PRESSES = new Set(['press', 'change', 'input', 'submit', 'select', 'dblclick']);
@@ -319,18 +338,17 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
             case 'screenshot': await s.screenshot(st.path); break;
             case 'expect-tree': {
               const tree = await s.tree();
-              const found = tree.nodes.some((n) => n.props.testId === st.target);
+              const f = treeExpectation(tree.nodes, st.target, st.present);
               // The first step of a test that waited for data cannot see the boot's loading view (authoring bench).
               const first = !beforeData && t.steps.slice(0, t.steps.indexOf(st)).every((p) => p.op in LAUNCH || p.op === 'size');
-              if (found !== st.present) await fail(`${at}: expected testId "${st.target}" ${st.present ? 'present' : 'absent'}, it was ${found ? 'present' : 'absent'}${first && st.present ? ' (the test waited for the app\'s data before its first step; `before data`, a launch line, starts without that wait)' : ''}`);
+              if (f?.unshown) failures.push(`${at}: ${f.message}`);
+              else if (f) await fail(`${at}: ${f.message}${first && st.present ? ' (the test waited for the app\'s data before its first step; `before data`, a launch line, starts without that wait)' : ''}`);
               break;
             }
             case 'expect-text': {
-              const { nodes } = await s.tree();
-              // As a target is found: a covered screen's copy only when no active one carries it (shop F16).
-              const matches = nodes.filter((n) => n.props.testId === st.target), n = matches.find((m) => !m.inactive) ?? matches[0];
-              const got = n ? textOf(nodes, n) : undefined;
-              if (got !== st.value) await fail(`${at}: text of "${st.target}" is ${n ? JSON.stringify(got) : 'absent (no view carries that testId)'}, expected ${JSON.stringify(st.value)}`);
+              const f = textExpectation((await s.tree()).nodes, st.target, st.value);
+              if (f?.unshown) failures.push(`${at}: ${f.message}`);
+              else if (f) await fail(`${at}: ${f.message}`);
               break;
             }
             case 'expect-state': {

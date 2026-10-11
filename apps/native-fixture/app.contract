@@ -366,6 +366,12 @@ component NativeFixture
                               text "1w" font-size=12 color="#6b7280"
                     when e.name != "chat"
                       text (e.name == "home" ? "Fixture" : e.name == "detail" ? "Detail" : e.name == "rows" ? "Rows" : e.name == "sheet" ? "Sheet" : e.name == "plain" ? "Plain" : e.name == "note" ? "Note" : "Second") aria-level=(e.name == "home" or e.name == "second" ? 1 : 2) testId=`title-${e.name}` flex=1 font-weight=700 font-size=20
+                    // The heading the header holds directly: the first text
+                    // after it is the bar's subtitle; a second is not shown
+                    // on iOS, which the agent says (LLP 1116 D2).
+                    when e.name == "plain"
+                      text "No Back control" testId="subtitle-plain" font-size=12 color="#6b7280"
+                      text "Draft" testId="aside-plain" font-size=12 color="#6b7280"
                     button id="compose" press=compose aria-label="Compose" testId=`compose-${e.name}` padding=6 background-color="#e5e7eb"
                       image "symbol:compose" width=20 height=20
                 when e.name == "home"

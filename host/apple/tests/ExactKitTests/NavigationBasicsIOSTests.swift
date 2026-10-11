@@ -135,6 +135,52 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertTrue(item.titleView === hatches, "the hatch's title view is left alone")
     }
 
+    /// LLP 1116 D2 (amending LLP 1075.003 §9.10): a heading the header holds
+    /// directly takes the first text after it as its subtitle, UIKit's own
+    /// on iOS 26 (a drawn title view before). A second text is not the
+    /// bar's: the agent marks it in its tree and screenshot and refuses a
+    /// tap on it, by the rule the bar follows (`HeaderShape.presents`).
+    func testAHeadingTheHeaderHoldsDirectlyTakesTheFirstTextAfterItAsItsSubtitle() throws {
+        let session = try fixture("basics-direct-subtitle")
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        let nav = try XCTUnwrap(tabs.selectedViewController as? UINavigationController)
+        try tapNode(session, "open-plain")
+        until("Plain pushed") { nav.viewControllers.count == 2 && nav.transitionCoordinator == nil }
+        spin(0.3)
+        let plain = try XCTUnwrap(nav.topViewController as? RouteController)
+        let item = plain.navigationItem
+        XCTAssertEqual(item.title, "Plain")
+        if #available(iOS 26.0, *) {
+            XCTAssertEqual(item.subtitle, "No Back control", "UIKit's own subtitle")
+            XCTAssertNil(item.titleView, "nothing drawn: no avatar, no press")
+        } else {
+            let view = try XCTUnwrap(item.titleView as? HeaderTitleView, "a subtitle before iOS 26 is a drawn title view")
+            XCTAssertEqual(view.subtitle.text, "No Back control")
+        }
+        XCTAssertTrue(try node(session, "header-plain").isHidden, "the bar shows the header; iOS does not paint it")
+        // What the bar leaves out, as the agent reports it.
+        let unshown = session.presenter.navigation.unshownByBar()
+        let aside = try node(session, "aside-plain")
+        XCTAssertEqual(unshown[aside.id], NavigationHost.unshownReason)
+        for shown in ["header-plain", "title-plain", "subtitle-plain", "compose-plain"] {
+            XCTAssertNil(unshown[try node(session, shown).id], "\(shown) is the bar's")
+        }
+        let agent = Agent(session: session)
+        let tap = agent.tap(["id": Int(aside.id)])
+        XCTAssertTrue((tap["error"] as? String)?.contains("the iOS navigation bar does not show this node") == true, "\(tap)")
+        let rows = agent.decorateTree(["nodes": [["id": Int(aside.id)], ["id": Int(try node(session, "subtitle-plain").id)]]])["nodes"] as? [[String: Any]]
+        XCTAssertEqual(rows?.first?["unshown"] as? String, NavigationHost.unshownReason)
+        XCTAssertNil(rows?.last?["unshown"])
+        // A heading in a wrapper with a bar item (Chat's press group aside)
+        // and a box before a direct heading are not avatars: Home's badge
+        // button is an item, and its title stays UIKit's.
+        nav.popViewController(animated: false)
+        spin(0.3)
+        let home = try XCTUnwrap(nav.topViewController)
+        XCTAssertFalse(home.navigationItem.titleView is HeaderTitleView, "Home's segments keep the title view")
+        if #available(iOS 26.0, *) { XCTAssertNil(home.navigationItem.subtitle, "Home has no text after its heading") }
+    }
+
     func testARoutePushedWhileTheTablistIsHiddenHidesTheTabBar() throws {
         let session = try fixture("basics-tabbar")
         let tabs = try XCTUnwrap(session.presenter.navigation.tabController)

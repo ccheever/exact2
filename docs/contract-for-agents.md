@@ -962,7 +962,7 @@ lists any literal colour, font size or weight an app's `.contract` files still w
 | `popover="auto" role="menu"` of `button`s, opened by `popovertarget` (a row whose `popovertarget` names another menu: its submenu) | `UIMenu`, nested (LLP 1021) |
 | `dialog role="alertdialog" aria-label="Remove book?"` of a `text`, its action(s) and one Cancel | `UIAlertController(.alert)`: the label its title, the text its message (LLP 1115 D6; recipe [below](#a-confirmation)) |
 | `role="tablist"`: each tab a symbol over a label / one text or image | `UITabBar` / `UISegmentedControl`, the tablist at least its native height unless `min-height` says otherwise (LLP 1059) |
-| a route whose first child is a `header` holding one heading and its buttons | the navigation bar; a level-1 heading (`aria-level=1`) is a large title |
+| a route whose first child is a `header` holding one heading, a text after it and its buttons | the navigation bar; a level-1 heading (`aria-level=1`) is a large title, the text after it the subtitle |
 | a route with `navigationPresentation="modal"` | a sheet |
 
 `contract vocab <name>` lists each one's props. A route does not scroll by
@@ -978,6 +978,13 @@ control refuses them, as does `closedby="none"` on a sheet. On a pushed iOS
 route under the platform bar, that control's text becomes the bar's back button title
 beside the bar's own chevron (no text shows the chevron alone), so label it `Recipes`,
 not `‹ Recipes`.
+
+The bar shows a header's heading, the first text after it (its subtitle), one search
+field, one tablist and its buttons; anything else in the header is not shown on iOS.
+The agent paints the authored header by default, but marks such a node in `tree` and
+`screenshot`, and an `expect` or `tap` on it fails, saying so. A `testId` on a bar
+button, the search field, a segment or a tab is its `accessibilityIdentifier`, which
+XCUITest and Maestro address.
 
 Say what a thing is and leave how it looks unsaid: no `background-color`, `height`,
 `font-size` or `padding` on these, or the host draws your box instead of its
@@ -1014,6 +1021,16 @@ column navigationKey=`${e.id}` navigationScroll="inbox-list" position="absolute"
             text m.title
           button id=`delete-${m.id}` destructive=true press=remove(m.id) aria-label="Delete" flex-shrink=0 scroll-snap-align="start"
             image "symbol:delete"
+
+// A subtitle: the first text after the heading (UIKit's own on iOS 26).
+column navigationKey=`${e.id}` navigationScroll="list" position="absolute" inset=0 display="flex" flex-direction="column"
+  header
+    text "Shopping List" role="heading" aria-level=1
+    text `${left} items left`
+    button press=add aria-label="Add Item"
+      image "symbol:add"
+  scroll id="list" flex=1 min-height=0
+    …
 
 // A sheet's bar: Cancel is the root's navigationBack control, Done trails.
 column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="form" position="absolute" inset=0 display="flex" flex-direction="column"

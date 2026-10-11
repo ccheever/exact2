@@ -482,6 +482,11 @@ extension Agent {
     }
 
     func tap(_ req: [String: Any]) -> [String: Any] {
+        // A header node the app's navigation bar leaves out is not there to
+        // tap, whatever the agent's chrome paints (LLP 1116 D2).
+        if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)], let why = presenter.navigation.unshownByBar()[node.id] {
+            return ["error": "tap #\(id)\(node.props["testId"].map { " [\($0)]" } ?? ""): \(why)"]
+        }
         if let reply = touchForm(req) { return reply }
         if view(req)?.placedAncestor?.placementHidden == true { return ["error": "placed child is hidden"] }
         if req["phase"] == nil, req["wheel"] == nil,
@@ -1085,8 +1090,26 @@ extension Agent {
         let captured = presenter.views.values.filter { Capture.web[$0.id] != nil || $0.kind == "canvas" }
         for node in captured { node.setNeedsDisplay(); node.layer.displayIfNeeded() }
         session.natives.redrawForCapture()
+        // Header nodes the app's navigation bar leaves out, as the agent's
+        // chrome paints them: struck through in red (LLP 1116 D2).
+        let unshown = presenter.navigation.unshownByBar().keys.sorted().compactMap { presenter.views[$0] }.filter {
+            $0.window != nil && !$0.isHidden && $0.bounds.width > 0 && $0.bounds.height > 0
+        }
         let png = UIGraphicsImageRenderer(size: size, format: format).pngData { _ in
             captureView.drawHierarchy(in: CGRect(origin: .zero, size: size), afterScreenUpdates: true)
+            UIColor.systemRed.setStroke()
+            for node in unshown {
+                let r = node.convert(node.bounds, to: captureView).insetBy(dx: -1, dy: -1)
+                let outline = UIBezierPath(rect: r)
+                outline.lineWidth = 2
+                outline.setLineDash([4, 3], count: 2, phase: 0)
+                outline.stroke()
+                let strike = UIBezierPath()
+                strike.move(to: CGPoint(x: r.minX, y: r.maxY))
+                strike.addLine(to: CGPoint(x: r.maxX, y: r.minY))
+                strike.lineWidth = 1.5
+                strike.stroke()
+            }
         }
         Capture.capturing = false
         #if !targetEnvironment(simulator)
@@ -1099,6 +1122,10 @@ extension Agent {
         var r: [String: Any] = ["screenshot": path, "w": Agent.r2(size.width), "h": Agent.r2(size.height), "scale": Agent.r2(scale)]
         if req["window"] as? Bool == true { r["window"] = true }
         if loading > 0 { r["imagesPending"] = loading }
+        if !unshown.isEmpty {
+            r["unshown"] = unshown.map { n -> [String: Any] in ["id": Int(n.id), "testId": n.props["testId"] ?? NSNull()] }
+            r["unshownNote"] = "struck through in red: \(NavigationHost.unshownReason)"
+        }
         // The software keyboard is not in the capture and the app may stand above it (LLP 1102 §3.17):
         // say so, where the image alone reads as a shortened screen.
         let container = session.presenter.modals.coordinateView ?? session.view
