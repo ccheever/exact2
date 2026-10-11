@@ -14,18 +14,26 @@ const routesIn = node => [...node.children].filter(r => r.hasAttribute("navigati
 // tablist's tabs name with aria-controls, in tab order (a tablist inside a
 // route is that route's). Each tab's stack is its panel's route rows, kept
 // mounted; without tabs the stack is the root's own rows.
-const panelsOf = nav => {
-  if (!nav) return [];
-  for (const list of nav.querySelectorAll('[role="tablist"]')) {
+const tabsOf = nav => {
+  for (const list of nav?.querySelectorAll('[role="tablist"]') ?? []) {
     if (list.parentElement?.closest("[navigationKey]") !== nav) continue;
     const panels = [...list.children].filter(tab => tab.getAttribute("role") === "tab" && tab.hasAttribute("aria-controls"))
       .map(tab => nav.querySelector(`#${CSS.escape(tab.getAttribute("aria-controls"))}`))
       .filter(panel => panel?.getAttribute("role") === "tabpanel" && panel.parentElement?.closest("[navigationKey]") === nav);
-    if (panels.length) return panels;
+    if (panels.length) return [list, panels];
   }
-  return [];
+  return [null, []];
 };
+const panelsOf = nav => tabsOf(nav)[1];
 const stacksOf = nav => { const panels = panelsOf(nav); return panels.length ? panels.map(routesIn) : [nav ? routesIn(nav) : []]; };
+// @ref LLP 1116.004 D1 — a wide window adapts what the app left unsaid, in the projection alone (the router, the history
+// and each route's state are unchanged; a resize across WIDE projects again). A root tablist placed as the tabs recipe
+// writes it (a horizontal bar, a direct child of the root's flex column, in flow) is a sidebar (`data-exact-sidebar`; the
+// shell's rules draw it); one the app arranged (vertical, positioned, in a route) stays its own.
+const WIDE = "(min-width: 900px)", wide = () => !!globalThis.matchMedia?.(WIDE).matches;
+/** Whether a root's tablist is a bar whose placement the app left unsaid, read while the root is not yet a sidebar. */
+const unsaidBar = (nav, list) => list?.parentElement === nav && list.getAttribute("aria-orientation") !== "vertical" && (nav.hasAttribute("data-exact-sidebar")
+  || (([n, l]) => /flex/.test(n.display) && n.flexDirection.startsWith("column") && /^(static|relative)$/.test(l.position) && l.flexDirection.startsWith("row"))([getComputedStyle(nav), getComputedStyle(list)]));
 /** What a navigation root leaves unselected, by `project`'s rule read from attributes: every tabpanel but the one
  * holding the selected route, and that stack's other routes (the runner's `unselected`; the agent's `inactive`). */
 export function unselected(nav) {
@@ -208,6 +216,8 @@ export const navigation = {
   /** `dispatch(location)` is false when no `navigate` handler heard it; `back(id)` is the runner's own `back` from visit `id`. */
   connect(hostRoot, dispatch, journal, back = null) {
     root = hostRoot; navigate = dispatch; log = journal; hostBack = back;
+    // A resize across WIDE projects again.
+    globalThis.matchMedia?.(WIDE).addEventListener?.("change", () => navigation.project(root, log));
     addEventListener("popstate", event => {
       if (!last) return;
       const index = browserIndex();
@@ -261,8 +271,8 @@ export const navigation = {
   },
   project(root, log) {
     for (const nav of root.querySelectorAll("[navigationBack]")) {
-      const key = nav.getAttribute("navigationKey");
-      const panels = panelsOf(nav);
+      const key = nav.getAttribute("navigationKey"), [list, panels] = tabsOf(nav);
+      nav.toggleAttribute("data-exact-sidebar", wide() && unsaidBar(nav, list));
       for (const panel of managed.get(nav) ?? []) {
         if (!panels.includes(panel)) { panel.style.visibility = ""; panel.inert = !!panel.authoredInert; }
       }
@@ -561,11 +571,10 @@ function followScroll(el, enabled) {
 // link 8, quiet 16, hanging marker 32), built into spans with textContent — never HTML. Lives here because it
 // must run at boot and glue.js is at its line cap. LLP 1045 D3/D4.
 //
-// One scheme allowlist for every URL the page can navigate to: a link's
-// `href` (an authored `link`, an inline run bound to data, a Markdown link),
-// an iframe's `src`, and `openURL`. A `javascript:` URL in any of them runs
-// in this page's origin. The browser's own parser reads the scheme, with the
-// whitespace and control characters `java\tscript:` hides behind.
+// One scheme allowlist for every URL the page can navigate to: a link's `href` (an authored `link`, an inline run bound
+// to data, a Markdown link), an iframe's `src`, and `openURL`. A `javascript:` URL in any of them runs in this page's
+// origin. The browser's own parser reads the scheme, with the whitespace and control characters `java\tscript:` hides
+// behind.
 export function navigableURL(href, base = document.baseURI) {
   try {
     const url = new URL(href, base);
@@ -578,12 +587,10 @@ export function refuseURL(el, name, value) {
   console.warn(`exact: refused ${name} ${JSON.stringify(String(value).slice(0, 80))}: only http, https, mailto and tel navigate`);
   if (name === "src") el.setAttribute(name, "about:blank"); else el.removeAttribute(name);
 }
-// A list item's paragraph (indent > 0, LLP 1045 D4) is a block with the
-// item's indent as `padding-left`; its marker (flags 32) is a 40 px box
-// pulled into the gutter by the block's negative `text-indent`, the marker's
-// end at the indent (`flex-end`, overflowing leftwards as the browser's
-// outside marker does): `<ul>`/`<ol>`'s layout, the one native hosts copy
-// with a head indent. 40 is exact-markdown's `LIST_INDENT`.
+// A list item's paragraph (indent > 0, LLP 1045 D4) is a block with the item's indent as `padding-left`; its marker
+// (flags 32) is a 40 px box pulled into the gutter by the block's negative `text-indent`, the marker's end at the
+// indent (`flex-end`, overflowing leftwards as the browser's outside marker does): `<ul>`/`<ol>`'s layout, the one
+// native hosts copy with a head indent. 40 is exact-markdown's `LIST_INDENT`.
 export function renderMarkup(el, json) {
   let pieces;
   try { pieces = JSON.parse(json); } catch { pieces = []; }
@@ -622,11 +629,9 @@ export function renderMarkup(el, json) {
   }
 }
 
-// @ref LLP 1007 §6 — a page the dev server serves names its current
-// generation, and its first boot is that one, not app.wasm's older baked
-// plan (a deep link booted stale on 2026-09-22). dev.js supplies it once asked
-// (glue.js asks when the wasm is up); without it, or with none in 5 s, the
-// page boots the baked plan.
+// @ref LLP 1007 §6 — a page the dev server serves names its current generation, and its first boot is that one, not
+// app.wasm's older baked plan (a deep link booted stale on 2026-09-22). dev.js supplies it once asked (glue.js asks
+// when the wasm is up); without it, or with none in 5 s, the page boots the baked plan.
 export function devFirst() {
   if (!document.querySelector('meta[name="exact-dev-generation"]')) return null;
   const slot = globalThis.exactDevFirst ??= {};
@@ -637,10 +642,9 @@ export function devFirst() {
   });
 }
 
-// Refusals and malformed request bodies are known while their enclosing
-// batch is still applying. Deliver them on the next microtask so their
-// commits cannot re-enter `apply` halfway through that batch; in flight
-// until then, so a wait sees what their parse asks for next.
+// Refusals and malformed request bodies are known while their enclosing batch is still applying. Deliver them on the
+// next microtask so their commits cannot re-enter `apply` halfway through that batch; in flight until then, so a wait
+// sees what their parse asks for next.
 export function deferredFulfill(fulfill, inflight) {
   return (...args) => { const p = Promise.resolve().then(() => fulfill(...args)); inflight.add(p); p.finally(() => inflight.delete(p)); };
 }
@@ -746,18 +750,14 @@ export function environment() {
   };
 }
 
-// @ref LLP 1078 D6, D7 — the fold as the browser reports it: the Device
-// Posture API's `navigator.devicePosture.type` and the viewport segments
-// `window.viewport.segments` (two or more means a divider splits the
-// viewport; the columns are the distinct lefts, the rows the distinct tops).
-// Where the browser lacks the APIs: `continuous`, 1 × 1, which is also what
-// Chromium reports on a flat display. Under the agent, `prefer posture` and
-// `prefer segments` go through CDP's display-feature and posture overrides
-// (the driver), so the browser's own readings change; where CDP offers
-// none, the driver's substitute lands here (`preferFold`) and stands in for
-// them — the facts and `layout.env`, not CSS's own `env()` resolution. The
-// substitute lives on `globalThis.exact`: the JS target's agent reads its own
-// copy of this module (`agent-navigation.js`), and both copies must agree.
+// @ref LLP 1078 D6, D7 — the fold as the browser reports it: the Device Posture API's `navigator.devicePosture.type`
+// and the viewport segments `window.viewport.segments` (two or more means a divider splits the viewport; the columns
+// are the distinct lefts, the rows the distinct tops). Where the browser lacks the APIs: `continuous`, 1 × 1, which is
+// also what Chromium reports on a flat display. Under the agent, `prefer posture` and `prefer segments` go through
+// CDP's display-feature and posture overrides (the driver), so the browser's own readings change; where CDP offers
+// none, the driver's substitute lands here (`preferFold`) and stands in for them — the facts and `layout.env`, not
+// CSS's own `env()` resolution. The substitute lives on `globalThis.exact`: the JS target's agent reads its own copy of
+// this module (`agent-navigation.js`), and both copies must agree.
 const foldSubstitute = () => globalThis.exact?.foldSubstitute ?? null;
 const r2 = (x) => Math.round(x * 100) / 100;
 function readFold() {
@@ -808,34 +808,27 @@ export function preferFold(request) {
   return foldEnv();
 }
 
-// @ref LLP 1061 D4, LLP 1069.000 D1 — the user's display preferences as the
-// page's media queries report them: bit 0 `prefers-reduced-motion: reduce`,
-// bit 1 `prefers-reduced-transparency: reduce`, bit 2 `prefers-contrast: more`,
-// bit 3 `less` (both: `custom`), bit 4 `prefers-color-scheme: dark` — the
-// system's, whatever the page's `color-scheme` (a browser that does not know
-// a feature answers no preference, as CSS does) — and the primary input's
-// `pointer: coarse` (bit 5), `pointer: none` (bit 6) and `hover: none` (bit 7),
-// zero being a mouse. Told with each boot and resize.
+// @ref LLP 1061 D4, LLP 1069.000 D1 — the user's display preferences as the page's media queries report them: bit 0
+// `prefers-reduced-motion: reduce`, bit 1 `prefers-reduced-transparency: reduce`, bit 2 `prefers-contrast: more`, bit 3
+// `less` (both: `custom`), bit 4 `prefers-color-scheme: dark` — the system's, whatever the page's `color-scheme` (a
+// browser that does not know a feature answers no preference, as CSS does) — and the primary input's `pointer: coarse`
+// (bit 5), `pointer: none` (bit 6) and `hover: none` (bit 7), zero being a mouse. Told with each boot and resize.
 let preferenceQueries;
 // Bits 8–9 `color-gamut` (256 p3; 512 with it, rec2020) and bit 10 `dynamic-range: high` (LLP 1100 D9).
 const queries = () => (preferenceQueries ??= [["(prefers-reduced-motion: reduce)", 1], ["(prefers-reduced-transparency: reduce)", 2], ["(prefers-contrast: more)", 4], ["(prefers-contrast: less)", 8], ["(prefers-contrast: custom)", 12], ["(prefers-color-scheme: dark)", 16], ["(pointer: coarse)", 32], ["(pointer: none)", 64], ["(hover: none)", 128], ["(color-gamut: p3)", 256], ["(color-gamut: rec2020)", 512], ["(dynamic-range: high)", 1024]].map(([q, bits]) => [matchMedia(q), bits]));
 export const preferences = () => queries().reduce((bits, [q, bit]) => bits | (q.matches ? bit : 0), 0);
 export const onPreferences = (changed) => queries().forEach(([q]) => q.addEventListener("change", changed));
 
-// @ref LLP 1069.000 D2 — the page's facts as `exact_set_page` takes them:
-// bit 0 `document.visibilityState == "hidden"`, bit 1 `!navigator.onLine`,
-// bit 2 `typeof navigator.share === "function"` (LLP 1069.003 D5), bit 3
-// `typeof showOpenFilePicker === "function"` (LLP 1069.010 D2; studio diary
-// R31), bit 4 `!document.hasFocus()` (#114), told again at the window's
-// `focus` and `blur`. Under the agent the drive's values stand in (visible,
-// online, a share sheet, the pickers, focus: LLP 1069.000 D6), set by
-// `prefer`'s `page` group; the machine is never read.
+// @ref LLP 1069.000 D2 — the page's facts as `exact_set_page` takes them: bit 0 `document.visibilityState == "hidden"`,
+// bit 1 `!navigator.onLine`, bit 2 `typeof navigator.share === "function"` (LLP 1069.003 D5), bit 3 `typeof
+// showOpenFilePicker === "function"` (LLP 1069.010 D2; studio diary R31), bit 4 `!document.hasFocus()` (#114), told
+// again at the window's `focus` and `blur`. Under the agent the drive's values stand in (visible, online, a share
+// sheet, the pickers, focus: LLP 1069.000 D6), set by `prefer`'s `page` group; the machine is never read.
 export function pageReporter(agent, platform = globalThis) {
   const facts = { "visibility-state": "visible", online: true, "can-share": true, "can-open-files": true, "has-focus": true, "root-font-size": 16 };
-  // @ref LLP 1069.000 D3 — the root font size: the document element's
-  // computed `font-size`, the browser's setting unless a page sets it; under
-  // the agent the drive sets it on the element (`prefer root-font-size`).
-  // The app's own size (`appRootFontSize`) is set over it and read past.
+  // @ref LLP 1069.000 D3 — the root font size: the document element's computed `font-size`, the browser's setting
+  // unless a page sets it; under the agent the drive sets it on the element (`prefer root-font-size`). The app's own
+  // size (`appRootFontSize`) is set over it and read past.
   const rootFontSize = () => agent ? facts["root-font-size"] : beneathApp(platform, () => parseFloat(platform.getComputedStyle(platform.document.documentElement).fontSize) || 16);
   const read = () => agent ? { ...facts } : { "visibility-state": platform.document.visibilityState === "hidden" ? "hidden" : "visible", online: platform.navigator.onLine !== false, "can-share": typeof platform.navigator.share === "function", "can-open-files": typeof platform.showOpenFilePicker === "function", "has-focus": typeof platform.document.hasFocus !== "function" || platform.document.hasFocus() };
   const bits = () => { const f = read(); return (f["visibility-state"] === "hidden" ? 1 : 0) | (f.online ? 0 : 2) | (f["can-share"] ? 4 : 0) | (f["can-open-files"] ? 8 : 0) | (f["has-focus"] ? 0 : 16); };
@@ -855,11 +848,9 @@ export function pageReporter(agent, platform = globalThis) {
   return { bits, read: () => ({ ...read(), "root-font-size": rootFontSize() }), prefer, onChange, rootFontSize };
 }
 
-// @ref LLP 1069.000 D3 — the app's `setRootFontSize(px)`: `:root {
-// font-size: <px> !important }`, an author rule over the root element's own
-// size (the browser's setting, or the agent's `prefer root-font-size`), which
-// can change beneath it; `"medium"` removes the rule. The wasm runner checked
-// the value; the JS target checks it here.
+// @ref LLP 1069.000 D3 — the app's `setRootFontSize(px)`: `:root { font-size: <px> !important }`, an author rule over
+// the root element's own size (the browser's setting, or the agent's `prefer root-font-size`), which can change beneath
+// it; `"medium"` removes the rule. The wasm runner checked the value; the JS target checks it here.
 const APP_ROOT = "exact-root-font-size";
 export function appRootFontSize(value, say, platform = globalThis) {
   const doc = platform.document;
@@ -869,13 +860,11 @@ export function appRootFontSize(value, say, platform = globalThis) {
   if (!rule) { rule = doc.createElement("style"); rule.id = APP_ROOT; doc.head.append(rule); }
   rule.textContent = `:root{font-size:${value}px!important}`;
 }
-// @ref LLP 1116.001 D1.4 — `-exact-fit: shrink`. The browser lays the page out,
-// so it picks the scale the kernel would, by the kernel's rule (kernel/src/
-// layout/fit.rs): the text's min-content width against its room, down to half
-// its size (display text bigger than twice the root's: down to the root size).
-// It draws at it as CSS `zoom` on the element, which scales the text, its runs,
-// line height and letter spacing together and leaves the authored rows alone;
-// a style write clears it and the next pass sets it again.
+// @ref LLP 1116.001 D1.4 — `-exact-fit: shrink`. The browser lays the page out, so it picks the scale the kernel would,
+// by the kernel's rule (kernel/src/ layout/fit.rs): the text's min-content width against its room, down to half its
+// size (display text bigger than twice the root's: down to the root size). It draws at it as CSS `zoom` on the element,
+// which scales the text, its runs, line height and letter spacing together and leaves the authored rows alone; a style
+// write clears it and the next pass sets it again.
 export function fitText(el) {
   el.style.zoom = "";
   const cs = getComputedStyle(el), px = (v) => parseFloat(v) || 0;
@@ -935,11 +924,10 @@ export function placeReporter(params, platform = globalThis) {
   };
 }
 
-// @ref LLP 1027.000.000 D3 — under the agent the date at the clock's zero is
-// the drive's epoch (default 2026-01-01T00:00:00Z), and the offset its zone's
-// at the virtual instant `elapsed` names; `clock +N` moves the date because
-// `now()` moves, and the glue tells the offset again after each clock move, so
-// crossing a DST change re-answers it (LLP 1069.007 D2).
+// @ref LLP 1027.000.000 D3 — under the agent the date at the clock's zero is the drive's epoch (default
+// 2026-01-01T00:00:00Z), and the offset its zone's at the virtual instant `elapsed` names; `clock +N` moves the date
+// because `now()` moves, and the glue tells the offset again after each clock move, so crossing a DST change re-answers
+// it (LLP 1069.007 D2).
 export function timeReporter(params, platform = globalThis) {
   return (elapsed) => {
     if (!(AGENT_ADMITTED && params.has('agent'))) return [platform.Date.now() - elapsed, -new platform.Date().getTimezoneOffset()];
@@ -950,10 +938,9 @@ export function timeReporter(params, platform = globalThis) {
     return [epoch, (Date.UTC(at.year, at.month - 1, at.day, at.hour, at.minute, at.second) - Math.floor((epoch + elapsed) / 1000) * 1000) / 60000];
   };
 }
-// Where the page launches (LLP 1038 D5): its path and query, less a drive's
-// own parameters, which are the host's facts and not a route's — a driven
-// page numbers its visits as a native host does (feed F16). The JS target
-// launches here too (rt.js re-exports it).
+// Where the page launches (LLP 1038 D5): its path and query, less a drive's own parameters, which are the host's facts
+// and not a route's — a driven page numbers its visits as a native host does (feed F16). The JS target launches here
+// too (rt.js re-exports it).
 export function launchLocation(platform = globalThis) {
   const { pathname, search } = platform.location, q = new URLSearchParams(search);
   if (!(AGENT_ADMITTED && q.has('agent'))) return pathname + search;
@@ -1076,12 +1063,10 @@ export function guestType(frame, request) {
 // What a guest field holds, as the reply shows it: a password's is a fixed mark, whatever its length (#134).
 const guestValue = (target) => "value" in target ? (target.type === "password" && target.value ? "•••" : target.value) : target.textContent;
 
-// @ref LLP 1069.001 D4 (amended 2026-10-04) — a select, range or date is
-// controlled as a text field is: the committed `value` is written when it
-// changes, and shown again after the options change or a refused `type`;
-// after the action that heard the person (`acted`) it keeps their choice,
-// as the web build's does (x2apps kanban2 #5: a date cleared while a `send`
-// was in flight).
+// @ref LLP 1069.001 D4 (amended 2026-10-04) — a select, range or date is controlled as a text field is: the committed
+// `value` is written when it changes, and shown again after the options change or a refused `type`; after the action
+// that heard the person (`acted`) it keeps their choice, as the web build's does (x2apps kanban2 #5: a date cleared
+// while a `send` was in flight).
 const VALUED = new Set(["range", "date", "time", "datetime-local"]);
 export const valuedControl = (el) => el instanceof HTMLSelectElement || (el instanceof HTMLInputElement && VALUED.has(el.type));
 export function settleValue(el, acted = false) {
@@ -1089,23 +1074,18 @@ export function settleValue(el, acted = false) {
   if (acted) return;
   if (c && valuedControl(c) && c.exactValue !== undefined && c.value !== c.exactValue) c.value = c.exactValue;
 }
-// What `type <id> <value>` sets rather than types into (D9): the valued
-// controls, a checkbox (or `switch`), which a value turns on or off, and a
-// radio, which `true` checks (x2apps survey #2).
+// What `type <id> <value>` sets rather than types into (D9): the valued controls, a checkbox (or `switch`), which a
+// value turns on or off, and a radio, which `true` checks (x2apps survey #2).
 export const typedControl = (el) => valuedControl(el) || (el instanceof HTMLInputElement && (el.type === "checkbox" || el.type === "radio"));
-// A text field (x2apps codeedit #2): an input that is no control, or a
-// textarea that is not the Markdown editor; its `input` and `change` carry
-// its selection, and its `select` is HTML's.
+// A text field (x2apps codeedit #2): an input that is no control, or a textarea that is not the Markdown editor; its
+// `input` and `change` carry its selection, and its `select` is HTML's.
 export const textField = (el) => el instanceof HTMLTextAreaElement ? el.getAttribute("markup") !== "markdown" : el instanceof HTMLInputElement && !typedControl(el) && el.type !== "file";
-// Its selection as host kinds 40 to 42 carry it, before its text:
-// `start,end,direction,` in UTF-16 units, the DOM's; a type with none
-// (email, number) has its caret after its text, as the runner assumes.
+// Its selection as host kinds 40 to 42 carry it, before its text: `start,end,direction,` in UTF-16 units, the DOM's; a
+// type with none (email, number) has its caret after its text, as the runner assumes.
 export const fieldSelection = (el) => { const end = el.value.length; return `${el.selectionStart ?? end},${el.selectionEnd ?? end},${el.selectionDirection ?? "none"},`; };
-// A radio's group as committed again (x2apps survey #2): the browser checked
-// the radio and unchecked its group at once; the action decides, and one
-// that refuses snaps the group back. `bound` reads a radio's committed
-// `checked` (undefined when it has none); the unchecks go first, so the
-// radio left checked is the committed one.
+// A radio's group as committed again (x2apps survey #2): the browser checked the radio and unchecked its group at once;
+// the action decides, and one that refuses snaps the group back. `bound` reads a radio's committed `checked` (undefined
+// when it has none); the unchecks go first, so the radio left checked is the committed one.
 export function settleRadios(el, bound) {
   const group = el.name ? [...document.querySelectorAll('input[type="radio"]')].filter((r) => r.name === el.name) : [el];
   for (const r of group) if (bound(r) === false && r.checked) r.checked = false;
@@ -1119,12 +1099,10 @@ export function setFieldSelection(el, args, log) {
   if (typeof el.setSelectionRange !== "function") return log(`setSelectionRange "${id}" refused: not a text field`);
   try { el.setSelectionRange(start, end, direction); } catch { log(`setSelectionRange "${id}" refused: an input type=${el.type} has no text selection`); }
 }
-// The wasm host's `input`, `change` and a text field's `select` (LLP
-// 1069.001 D4; x2apps survey #2, codeedit #2), `dispatch(kind, payload)`:
-// a checkbox's checked state (25, 24), a radio's value (23, 1), a text
-// field's selection then its text (40, 41, 42), another control's value
-// (23, 1). The platform moves a control at once; the action decides, and
-// one that refuses snaps a checkbox or a radio group back.
+// The wasm host's `input`, `change` and a text field's `select` (LLP 1069.001 D4; x2apps survey #2, codeedit #2),
+// `dispatch(kind, payload)`: a checkbox's checked state (25, 24), a radio's value (23, 1), a text field's selection
+// then its text (40, 41, 42), another control's value (23, 1). The platform moves a control at once; the action
+// decides, and one that refuses snaps a checkbox or a radio group back.
 export function controlEvent(el, kind, on, dispatch) {
   if (kind === "select") return void (textField(el) && on("select", () => dispatch(42, fieldSelection(el) + el.value)));
   if (el.type === "checkbox") return on(kind, () => { dispatch(kind === "change" ? 24 : 25, String(el.checked)); if (el.exactChecked !== undefined && el.checked !== el.exactChecked) el.checked = el.exactChecked; });
@@ -1143,11 +1121,10 @@ export function controlEvent(el, kind, on, dispatch) {
     dispatch(textField(el) ? 40 : 23, (textField(el) ? fieldSelection(el) : "") + value); settleValue(el, true);
   });
 }
-// D9: `type <id> <value>` sets a control's value as the platform would on a
-// choice or a release: HTML's `input`, then `change`. A select takes one of
-// its enabled options by value, else by its one label (Playwright's
-// `selectOption`, the diaries' kanban F17 and shop F10); a checkbox takes
-// `true` or `false` and is clicked when that differs, as a person would.
+// D9: `type <id> <value>` sets a control's value as the platform would on a choice or a release: HTML's `input`, then
+// `change`. A select takes one of its enabled options by value, else by its one label (Playwright's `selectOption`, the
+// diaries' kanban F17 and shop F10); a checkbox takes `true` or `false` and is clicked when that differs, as a person
+// would.
 export function typeControl(el, request) {
   let text = String(request.text ?? "");
   const id = request.id;
@@ -1200,16 +1177,13 @@ export function reveal(el, id) {
   return { revealed: id, scrolled: true, from: [x, y], to: middle() };
 }
 
-// A text folded into its box's content (LLP 1007.001): `display: contents`,
-// or an inline box under a box that restricts touch. A paragraph's inline
-// runs are not `data-exact-text`; only the paragraph is.
+// A text folded into its box's content (LLP 1007.001): `display: contents`, or an inline box under a box that restricts
+// touch. A paragraph's inline runs are not `data-exact-text`; only the paragraph is.
 const folded = el => { const d = getComputedStyle(el).display; return d === "contents" || d === "inline" && el.hasAttribute("data-exact-text"); };
 
-// A view's box as the agent reports it. A folded text has no block box of its
-// own: its box is the anonymous block its text is, as a style-less block
-// child's was — its line boxes along the main axis, and its box's content box
-// across when the box stretches its items (a block, or a flex or grid box
-// that stretches).
+// A view's box as the agent reports it. A folded text has no block box of its own: its box is the anonymous block its
+// text is, as a style-less block child's was — its line boxes along the main axis, and its box's content box across
+// when the box stretches its items (a block, or a flex or grid box that stretches).
 export function viewBox(el) {
   if (!folded(el)) return el.getBoundingClientRect();
   const range = document.createRange();
@@ -1382,9 +1356,8 @@ const freezeGrantSet = set => {
   return Object.freeze(set);
 };
 
-// The Rust parser is the only producer. Admission validates an incoming JSON
-// value in full before making its authority immutable; a prior validation is
-// never a reason to trust a mutable or branded object.
+// The Rust parser is the only producer. Admission validates an incoming JSON value in full before making its authority
+// immutable; a prior validation is never a reason to trust a mutable or branded object.
 export function createGrantSet(value) {
   if (!validateGrantSet(value)) return freezeGrantSet(makeGrantSet([], INVALID_GRANTS));
   return freezeGrantSet(value);
@@ -1406,9 +1379,8 @@ export const hasGrant = (set, kind) => validateGrantSet(set) && !set.error && se
 const normalizedDeclaration = set => validateGrantSet(set)
   ? set.entries.map(([, source, grant, error]) => JSON.stringify([source, grant, error])) : [];
 
-// Module metadata carries the author's spelling while the bake carries the
-// Rust parser's normalized set. Blank lines and indentation have no bearing
-// on activation; the normalized declarations do.
+// Module metadata carries the author's spelling while the bake carries the Rust parser's normalized set. Blank lines
+// and indentation have no bearing on activation; the normalized declarations do.
 export function sameGrantDeclaration(set, source) {
   if (typeof source !== 'string' || !validateGrantSet(set)) return false;
   const child = scopedGrantSet(set, source);
@@ -1478,10 +1450,9 @@ export function coversPath(set, capability, path) {
 }
 // grant admission: end
 
-// `selectionchange` on a `text` (the reader diary), on both web targets: its
-// part of the page's selection, reported as the text and its UTF-16 start and
-// end in the element's own text when that part changes; nothing selected
-// there is "" at 0, 0. One document listener serves every such element.
+// `selectionchange` on a `text` (the reader diary), on both web targets: its part of the page's selection, reported as
+// the text and its UTF-16 start and end in the element's own text when that part changes; nothing selected there is ""
+// at 0, 0. One document listener serves every such element.
 const selectedTexts = new Map();
 export function onSelection(e, report) {
   if (!selectedTexts.size) document.addEventListener("selectionchange", () => {

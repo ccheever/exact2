@@ -62,5 +62,9 @@ test "each tab keeps its own stack"
   a visit to another tab. Selecting the shown tab again pops it to its root.
 - To hide the bar on one screen, set `display="none"` on the tablist; never remove it
   with `when`, or the panels' routes are found by no host.
+- A wide window (900 px and up on the web) draws the bar, placed as above (the root
+  column's last child), as a sidebar beside the panels; a phone keeps the bar. A
+  tablist you arrange yourself (`aria-orientation="vertical"`, positioned) stays yours.
+  A tab's list whose rows push sits beside its detail ([navigation-stack](navigation-stack.md)).
 - Under the agent the authored tablist paints; `--chrome platform` and `screenshot …
   window` show UIKit's (put `clock +300 real` before the screenshot).
