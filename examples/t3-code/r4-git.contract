@@ -23,6 +23,7 @@ use KeyMenu from "./menu-keys.contract"
 use kmOpenKey from "./menu-keys.contract"
 use KeyMenuOpen from "./menu-keys.contract"
 use kmBump from "./menu-keys.contract"
+use FocusGuard from "./dialog-trap.contract"
 
 keyframes r4GitSpin
   from rotate=0
@@ -266,14 +267,19 @@ component R4Dialog
     maxWidth: number
     close: action
     testId: string
+    // The dialog's first Tab stop, for the focus trap (dialog-trap.contract); the X is its last.
+    first: string
   slot
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=80 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" testId=`${testId}-overlay`
       button press=close aria-label="Close" aria-keyshortcuts="Escape" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId=`${testId}-backdrop` title=""
       column width="100%" max-width=maxWidth max-height="100%" position="relative" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-label=label testId=testId
+        // The focus trap (dialog-trap.contract): the content, then the X (DialogPopup's last child).
+        FocusGuard(guardId="r4-dialog-guard-start", target=`${testId}-close`)
         children
-        button press=close aria-label="Close" testId=`${testId}-close` position="absolute" top="0.5rem" right="0.5rem" width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+        button id=`${testId}-close` press=close aria-label="Close" testId=`${testId}-close` position="absolute" top="0.5rem" right="0.5rem" width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
           ShellIcon(name="x", size=16, color="light-dark(#27272a, #f5f5f5)")
+        FocusGuard(guardId="r4-dialog-guard-end", target=first)
 
 component R4Button
   props
@@ -283,7 +289,7 @@ component R4Button
     press: action
     testId: string
   view
-    button press=press disabled=disabled testId=testId display="flex" flex-direction="row" align-items="center" justify-content="center" min-height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 opacity=(disabled ? 0.64 : 1) border-color=(primary ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)") background-color=(primary ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d"
+    button id=testId press=press disabled=disabled testId=testId display="flex" flex-direction="row" align-items="center" justify-content="center" min-height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 opacity=(disabled ? 0.64 : 1) border-color=(primary ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)") background-color=(primary ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d"
       text label font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(primary ? "#ffffff" : "light-dark(#27272a, #f5f5f5)") text-align="center"
 
 component R4Checkbox
@@ -294,7 +300,7 @@ component R4Checkbox
     label: string
     testId: string
   view
-    button press=press role="checkbox" aria-checked=checked aria-label=label testId=testId width="1rem" height="1rem" padding=0 flex-shrink=0 box-sizing="border-box" border-radius="0.25rem" border-style="solid" border-width=1 border-color=(checked ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff26)") background-color=(checked ? "light-dark(#1b4ed8, #346bf1)" : mixed ? "light-dark(#f4f4f5, #ffffff0f)" : "light-dark(#ffffff, #ffffff07)") display="flex" align-items="center" justify-content="center" title=""
+    button id=testId press=press role="checkbox" aria-checked=checked aria-label=label testId=testId width="1rem" height="1rem" padding=0 flex-shrink=0 box-sizing="border-box" border-radius="0.25rem" border-style="solid" border-width=1 border-color=(checked ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff26)") background-color=(checked ? "light-dark(#1b4ed8, #346bf1)" : mixed ? "light-dark(#f4f4f5, #ffffff0f)" : "light-dark(#ffffff, #ffffff07)") display="flex" align-items="center" justify-content="center" title=""
       when checked
         ShellIcon(name="check", size=12, color="#ffffff")
       when mixed and not checked
@@ -316,7 +322,7 @@ component R4CommitDialog
   action write(value: string)
     message = value
   view
-    R4Dialog(label="Commit changes", maxWidth=512, close=local("git-dialog-close", "", ""), testId="git-commit-dialog")
+    R4Dialog(label="Commit changes", maxWidth=512, close=local("git-dialog-close", "", ""), testId="git-commit-dialog", first=(git.editing and git.fileCount > 0 ? "git-commit-all" : (git.fileCount > 0 ? "git-commit-edit" : "git-commit-message")))
       column gap="0.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" padding-bottom="0.75rem" box-sizing="border-box"
         text "Commit changes" font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
         text "Review and confirm your commit. Leave the message blank to auto-generate one." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
@@ -338,7 +344,7 @@ component R4CommitDialog
                   when not git.allSelected and not git.editing
                     text `(${git.selectedCount} of ${git.fileCount})` font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
                 when git.fileCount > 0
-                  button press=local("git-files-edit", "", "") testId="git-commit-edit" height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-width=0 background-color=(git.editing ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+                  button id="git-commit-edit" press=local("git-files-edit", "", "") testId="git-commit-edit" height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-width=0 background-color=(git.editing ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
                     text (git.editing ? "Done" : "Edit") font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
               when git.fileCount == 0
                 text "none" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
@@ -355,7 +361,7 @@ component R4CommitDialog
           column gap="0.25rem"
             text "Commit message (optional)" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
             box position="relative" width="100%" border-radius="0.5rem" background-color="light-dark(#ffffff, #ffffff07)"
-              textarea value=message input=write aria-label="Commit message" autocorrect="off" testId="git-commit-message" width="100%" height="4.1875rem" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.4375rem" padding-bottom="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="#00000000" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" spellcheck="false"
+              textarea id="git-commit-message" value=message input=write aria-label="Commit message" autocorrect="off" testId="git-commit-message" width="100%" height="4.1875rem" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.4375rem" padding-bottom="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="#00000000" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" spellcheck="false"
               when message == ""
                 text "Leave empty to auto-generate" position="absolute" left="0.6875rem" top="0.375rem" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717a, #818181)" pointer-events="none" aria-hidden=true
       row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box"
@@ -394,7 +400,7 @@ component R4ConfirmDialog
     act: action
     local: action
   view
-    R4Dialog(label=git.confirmTitle, maxWidth=576, close=local("git-dialog-close", "", ""), testId="git-confirm-dialog")
+    R4Dialog(label=git.confirmTitle, maxWidth=576, close=local("git-dialog-close", "", ""), testId="git-confirm-dialog", first="git-confirm-abort")
       column gap="0.5rem" padding="1.5rem" box-sizing="border-box"
         text git.confirmTitle font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2 testId="git-confirm-title"
         text git.confirmDescription font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"

@@ -4,6 +4,7 @@ use SettingsCore from "./settings-core.contract"
 use ScopeSentence from "./settings-rows.contract"
 use CoreSections from "./settings-rows.contract"
 use AppearanceLibrary from "./settings-appearance.contract"
+use FocusGuard from "./dialog-trap.contract"
 
 component SettingsCoreBody
   inject
@@ -48,10 +49,13 @@ component SettingsRestoreDialog
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 display="flex" align-items="center" justify-content="center" background-color="#00000055" padding="1.5rem" box-sizing="border-box" z-index=30 testId="restore-defaults-overlay"
       column width="100%" max-width="28rem" padding="1.5rem" gap="1rem" border-radius="1rem" border-width=1 border-style="solid" border-color=core.palette.cardBorder background-color=core.palette.canvas box-shadow="0 16px 40px -18px #0000008c" box-sizing="border-box" role="alertdialog" aria-label="Restore default settings?" testId="restore-defaults-dialog"
+        // The focus trap (dialog-trap.contract).
+        FocusGuard(guardId="restore-defaults-guard-start", target="restore-defaults-confirm")
         text "Restore default settings?" font-size="1.125rem" font-weight=600 line-height="1.5rem" color=core.palette.text
         text core.restoreText font-size="0.875rem" line-height="1.25rem" color=core.palette.muted testId="restore-defaults-list"
         row gap="0.5rem" justify-content="flex-end"
-          button press=cancel disabled=busy aria-keyshortcuts="Escape" display="flex" align-items="center" justify-content="center" height="2rem" padding-left="0.75rem" padding-right="0.75rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=core.palette.input background-color=core.palette.field testId="restore-defaults-cancel"
+          button id="restore-defaults-cancel" press=cancel disabled=busy aria-keyshortcuts="Escape" display="flex" align-items="center" justify-content="center" height="2rem" padding-left="0.75rem" padding-right="0.75rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=core.palette.input background-color=core.palette.field testId="restore-defaults-cancel"
             text "Cancel" font-size="0.875rem" font-weight=500 color=core.palette.text
-          button press=confirm disabled=busy display="flex" align-items="center" justify-content="center" height="2rem" padding-left="0.75rem" padding-right="0.75rem" border-radius="0.5rem" border-width=0 background-color="light-dark(#fb2c36, #fb414a)" testId="restore-defaults-confirm"
+          button id="restore-defaults-confirm" press=confirm disabled=busy display="flex" align-items="center" justify-content="center" height="2rem" padding-left="0.75rem" padding-right="0.75rem" border-radius="0.5rem" border-width=0 background-color="light-dark(#fb2c36, #fb414a)" testId="restore-defaults-confirm"
             text "Confirm" font-size="0.875rem" font-weight=500 color="#ffffff"
+        FocusGuard(guardId="restore-defaults-guard-end", target="restore-defaults-cancel")

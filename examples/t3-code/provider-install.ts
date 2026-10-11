@@ -37,6 +37,8 @@ export function providerRuntime(provider: Obj, entry: ProviderSetupEntry, enviro
     key: str(provider.instanceId), statusMessage,
     progressValue: phase === 'downloading' && total !== null && total > 0 ? downloaded : 0, progressMax: phase === 'downloading' && total !== null && total > 0 ? total : 0,
     progressPercent: phase === 'downloading' && total !== null && total > 0 ? Math.min(100, Math.max(0, Math.round((downloaded / total) * 1000) / 10)) : 0,
+    // The bar's value as assistive technology hears it (progress-value.contract): `<progress value max>` reads its rounded percentage.
+    progressLabel: phase === 'downloading' && total !== null && total > 0 ? `Antigravity download, ${Math.min(100, Math.max(0, Math.round((downloaded / total) * 100)))}%` : '',
     message: !installActive && message && message !== statusMessage ? message : '',
     customNote: usesCustomBinary, unavailableNote: !installed && !canInstall,
     token: `${phase}:${str(installation?.operationId)}`,

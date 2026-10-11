@@ -1,6 +1,7 @@
 // r4-composer: video attachments on the composer's shelf and their expanded
 // preview (ChatComposer composerVideos, ExpandedImageDialog's ExpandedVideo;
 // T3 Code, MIT; see LICENSE-T3). r4-composer-attachments.ts projects them.
+use FocusGuard from "./dialog-trap.contract"
 
 shape ComposerVideo
   id: string
@@ -52,11 +53,14 @@ component VideoPreviewDialog
   derive mediaWidth = max(64, min(preview.width > 0 ? preview.width : 640, min(maxWidth, maxHeight * aspect)))
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=45 align-items="center" justify-content="center" background-color="#000000bf" role="dialog" aria-label="Expanded video preview" testId="video-preview"
-      button press=command("editorlocal:r4c-video-close", "", "", 0) aria-label="Close video preview" aria-keyshortcuts="Escape" position="absolute" left=0 right=0 top=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="video-preview-backdrop" title=""
+      // The focus trap (dialog-trap.contract): the X is the only Tab stop; the backdrop is none (the reference's popup takes its clicks).
+      FocusGuard(guardId="video-preview-guard-start", target="video-preview-close")
+      button press=command("editorlocal:r4c-video-close", "", "", 0) aria-label="Close video preview" aria-keyshortcuts="Escape" tabindex=-1 position="absolute" left=0 right=0 top=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="video-preview-backdrop" title=""
       column min-width=0 align-items="center"
         box position="relative" width=mediaWidth height=(mediaWidth / aspect) border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7b3, #ffffff0d)" box-shadow="0 25px 50px -12px #00000040" box-sizing="border-box" background-color="#000000"
           box hatch="t3-video" data-snapshot-id=preview.id position="absolute" left=0 top=0 right=0 bottom=0 border-radius="0.4375rem" overflow="hidden" testId="video-preview-player"
-          button press=command("editorlocal:r4c-video-close", "", "", 0) aria-label="Close video preview" testId="video-preview-close" position="absolute" right=0 top="-2.5rem" width="1.5rem" height="1.5rem" padding=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="#ffffff33" background-color="#000000a6" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+          button id="video-preview-close" press=command("editorlocal:r4c-video-close", "", "", 0) aria-label="Close video preview" testId="video-preview-close" position="absolute" right=0 top="-2.5rem" width="1.5rem" height="1.5rem" padding=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="#ffffff33" background-color="#000000a6" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
             svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" color="#ffffff" fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
               path d="M18 6 6 18M6 6l12 12"
         text preview.name margin-top="0.5rem" max-width=maxWidth line-clamp=1 font-size="0.75rem" line-height="1rem" color="#ffffffcc"
+      FocusGuard(guardId="video-preview-guard-end", target="video-preview-close")

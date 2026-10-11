@@ -27,6 +27,7 @@ use KmItem from "./menu-keys.contract"
 use kmOpenKey from "./menu-keys.contract"
 use KeyMenuOpen from "./menu-keys.contract"
 use kmBump from "./menu-keys.contract"
+use FocusGuard from "./dialog-trap.contract"
 
 // animate-status-pulse: full, then half opacity in six steps.
 keyframes cnStatusPulse
@@ -434,14 +435,17 @@ component EnvironmentRemoveDialog
   view
     column class=CnOverlay testId="environment-remove-overlay"
       column width="100%" max-width="28rem" box-sizing="border-box" padding="1.5rem" gap="1rem" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" role="alertdialog" aria-label=`Remove ${environment.label} from this device?` testId="environment-remove-dialog"
+        // The focus trap (dialog-trap.contract).
+        FocusGuard(guardId="environment-remove-guard-start", target="environment-remove-confirm")
         column gap="0.5rem"
           text `Remove ${environment.label} from this device?` font-size="1.125rem" line-height="1.5rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
           text "This forgets its pairing, credentials, and cached threads here. Switch it off instead to keep it saved." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
         row gap="0.5rem" justify-content="flex-end"
-          button press=cancel class=PvOutline aria-keyshortcuts="Escape" disabled=busy testId="environment-remove-cancel"
+          button id="environment-remove-cancel" press=cancel class=PvOutline aria-keyshortcuts="Escape" disabled=busy testId="environment-remove-cancel"
             text "Cancel" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
-          button press=confirm class=PvOutline border-width=0 background-color="#e7000b" disabled=busy testId="environment-remove-confirm"
+          button id="environment-remove-confirm" press=confirm class=PvOutline border-width=0 background-color="#e7000b" disabled=busy testId="environment-remove-confirm"
             text "Confirm" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"
+        FocusGuard(guardId="environment-remove-guard-end", target="environment-remove-cancel")
 
 // "Add Environment" (ConnectionsSettings.tsx): Remote link or SSH. The remote
 // fields keep the drive contract: server-origin, server-credential, connect.

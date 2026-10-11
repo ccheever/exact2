@@ -23,6 +23,7 @@ use KmItem from "./menu-keys.contract"
 use kmOpenKey from "./menu-keys.contract"
 use KeyMenuOpen from "./menu-keys.contract"
 use kmBump from "./menu-keys.contract"
+use FocusGuard from "./dialog-trap.contract"
 
 shape TaskRowView
   id: string
@@ -357,13 +358,13 @@ component ScheduledEditor
       environmentOpens = kmBump(environmentOpens, false)
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #090909a3)" testId="scheduled-task-overlay"
-      column width="100%" max-width="36rem" max-height="100%" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-label=(draft.id == "" ? "New task" : "Edit task") testId="scheduled-task-dialog"
+      column position="relative" width="100%" max-width="36rem" max-height="100%" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-label=(draft.id == "" ? "New task" : "Edit task") testId="scheduled-task-dialog"
+        // The focus trap (dialog-trap.contract): from Runs on (a new task's) or Name to the X.
+        FocusGuard(guardId="scheduled-task-guard-start", target="close-scheduled-task")
         row padding-top="1.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-bottom="0.75rem" align-items="flex-start" gap="0.5rem" box-sizing="border-box" position="relative"
           column flex=1 min-width=0 gap="0.5rem"
             text (draft.id == "" ? "New task" : "Edit task") font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
             text "Run a prompt automatically — on an interval or at a fixed time." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
-          button press=close disabled=busy aria-label="Close" aria-keyshortcuts="Escape" testId="close-scheduled-task" width="2rem" height="2rem" border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" position="absolute" top="0.5rem" right="0.5rem" title=""
-            LucideX(size=16, color="light-dark(#71717b, #818181)")
         scroll flex=1 min-height=0 width="100%" testId="scheduled-editor-scroll"
           column width="100%" gap="1.25rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="0.25rem" padding-bottom="1.5rem" box-sizing="border-box" testId="scheduled-editor"
             when draft.missing
@@ -383,7 +384,7 @@ component ScheduledEditor
                     SkMenuItem(keysId="task-environment-menu-keys", label=option.label, menuId="task-environment-menu", itemId=`task-environment-option-${option.value}`, selected=option.selected, check=true, destructive=false, disabled=false, choose=choose("environment", option.value))
             column gap="0.375rem"
               text "Name" class=TkLabel
-              input value=title input=setText("title") placeholder="e.g. Check for Sentry issues" aria-label="Name" class=TkField disabled=busy testId="task-title" autocorrect="off"
+              input id="task-title" value=title input=setText("title") placeholder="e.g. Check for Sentry issues" aria-label="Name" class=TkField disabled=busy testId="task-title" autocorrect="off"
             row gap="0.75rem" width="100%"
               column gap="0.375rem" flex=1 min-width=0
                 text "Project" class=TkLabel
@@ -478,6 +479,10 @@ component ScheduledEditor
             text "Cancel" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
           button press=rest("task", `action=save&id=${encodeURIComponent(draft.id)}&environmentId=${encodeURIComponent(draft.environmentId)}&title=${encodeURIComponent(title)}&prompt=${encodeURIComponent(prompt)}&enabled=${enabled}&scheduleMode=${scheduleMode}&intervalMinutes=${encodeURIComponent(intervalMinutes)}&timeOfDay=${encodeURIComponent(timeOfDay)}&sunday=${sunday}&monday=${monday}&tuesday=${tuesday}&wednesday=${wednesday}&thursday=${thursday}&friday=${friday}&saturday=${saturday}&projectId=${encodeURIComponent(projectId)}&threadId=${encodeURIComponent(draft.threadId)}&workspaceMode=${workspaceMode}&baseRef=${encodeURIComponent(baseRef)}&startFromOrigin=${startFromOrigin}&path=${encodeURIComponent(path)}&modelKey=${encodeURIComponent(modelKey)}`) disabled=(busy or draft.missing or not data.available) testId="save-scheduled-task" display="flex" flex-direction="row" align-items="center" justify-content="center" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-width=0 background-color="light-dark(#1b4ed8, #346bf1)" opacity=(busy or draft.missing or not data.available ? 0.64 : 1)
             text (draft.id == "" ? "Create task" : "Save task") font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
+        // DialogPopup's X, after the footer (Base UI renders it last; it is placed at the top right).
+        button id="close-scheduled-task" press=close disabled=busy aria-label="Close" aria-keyshortcuts="Escape" testId="close-scheduled-task" width="2rem" height="2rem" border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" position="absolute" top="0.5rem" right="0.5rem" title=""
+          LucideX(size=16, color="light-dark(#71717b, #818181)")
+        FocusGuard(guardId="scheduled-task-guard-end", target=(draft.id == "" and not busy ? "task-environment" : "task-title"))
 
 fn projectLabel(options: list<SelectOption>, value: string): string = join(map(filter(options, option => option.value == value), option => option.label), "")
 fn markField(marks: list<TaskModelMark>, value: string, field: string): string = join(map(filter(marks, mark => mark.value == value), mark => field == "driver" ? mark.driver : (field == "badge" ? mark.badge : (field == "accent" ? mark.accent : mark.name))), "")

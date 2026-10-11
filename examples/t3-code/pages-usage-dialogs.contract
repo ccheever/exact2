@@ -12,6 +12,7 @@ use UsageSchemeIcon from "./pages-usage-prices.contract"
 use ProviderMark from "./icons.contract"
 use DriverMark from "./provider-icons.contract"
 use PgIcon from "./pages-icons.contract"
+use FocusGuard from "./dialog-trap.contract"
 
 // Over the whole window, above the sidebar, as the reference's portal is.
 // Model prices is drawn once for both schemes (its scheme only picks
@@ -24,7 +25,7 @@ component UsagePricesLayer
     busy: bool
     op: action
   view
-    UsageDialogShell(scheme=scheme, width=896, close=op("usage-prices-close", "", ""), closeDisabled=page.prices.pending, dialogId="usage-prices-dialog", title="Custom model prices")
+    UsageDialogShell(scheme=scheme, width=896, close=op("usage-prices-close", "", ""), closeDisabled=page.prices.pending, dialogId="usage-prices-dialog", title="Custom model prices", first=(not page.prices.pending and not page.prices.hasChanges ? "usage-prices-apply-button" : (not page.prices.locked ? "usage-prices-add" : "usage-prices-dialog-close")))
       UsagePricesDialog(prices=page.prices, scheme=scheme, viewportHeight=viewportHeight, busy=busy, op=op)
 
 component UsageModelLayer
@@ -35,7 +36,7 @@ component UsageModelLayer
     sm: bool
     op: action
   view
-    UsageDialogShell(scheme=scheme, width=768, close=op("usage-model-close", "", ""), closeDisabled=false, dialogId="usage-model-dialog", title=page.detail.model)
+    UsageDialogShell(scheme=scheme, width=768, close=op("usage-model-close", "", ""), closeDisabled=false, dialogId="usage-model-dialog", title=page.detail.model, first=(page.detail.unpricedNote != "" ? "usage-model-set-price" : "usage-model-dialog-close"))
       UsageModelDialog(detail=page.detail, scheme=scheme, viewportHeight=viewportHeight, sm=sm, op=op)
 
 // Dialog: the backdrop (bg-background 64% dark / 60% light, blur 4px) and
@@ -51,6 +52,8 @@ component UsageDialogShell
     closeDisabled: bool
     dialogId: string
     title: string
+    // The dialog's first Tab stop, for the focus trap (dialog-trap.contract); the X is its last.
+    first: string
   slot
   state held = false
   action hold
@@ -59,9 +62,12 @@ component UsageDialogShell
     box position="absolute" left=0 top=0 right=0 bottom=0 z-index=60 background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" testId=`${dialogId}-layer`
       column position="absolute" left=0 top=0 right=0 bottom=0 padding="1rem" box-sizing="border-box" align-items="center" justify-content="center" press=close aria-label="Close" testId=`${dialogId}-backdrop`
         column position="relative" width="100%" max-width=width max-height="100%" min-height=0 box-sizing="border-box" border-radius="1.125rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow=(scheme == "dark" ? "inset 0 1px 0 #ffffff0a, 0 24px 72px -20px #000000e6" : "0 24px 64px -24px #000000a6") press=hold retainFocus=true role="dialog" aria-label=title testId=dialogId
+          // The focus trap (dialog-trap.contract): the content, then the X (DialogPopup's last child).
+          FocusGuard(guardId="usage-dialog-guard-start", target=`${dialogId}-close`)
           children
-          button press=close disabled=closeDisabled aria-label="Close" aria-keyshortcuts="Escape" position="absolute" top="0.5rem" right="0.5rem" width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" testId=`${dialogId}-close` title=""
+          button id=`${dialogId}-close` press=close disabled=closeDisabled aria-label="Close" aria-keyshortcuts="Escape" position="absolute" top="0.5rem" right="0.5rem" width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" testId=`${dialogId}-close` title=""
             UsageSchemeIcon(name="x", size=16, scheme=scheme, light="#27272a", dark="#f5f5f5")
+          FocusGuard(guardId="usage-dialog-guard-end", target=first)
 
 // UsageModelDialog: provider mark and model id, "{Provider} · {pct} of cost",
 // the stats, the trend narrowed to this model, its mixes, and Set price for
@@ -113,5 +119,5 @@ component UsagePrimaryButton
   action hover(value: bool)
     over = value
   view
-    button press=press hover=hover disabled=disabled testId=testId height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#1b4ed8, #346bf1)" background-color=(over and not disabled ? "light-dark(#1b4ed8e6, #346bf1e6)" : "light-dark(#1b4ed8, #346bf1)") box-shadow=(disabled ? "none" : (scheme == "dark" ? "inset 0 1px 0 #ffffff29, 0 1px 2px #346bf13d" : "inset 0 1px 0 #ffffff29, 0 1px 2px #1b4ed83d")) opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
+    button id=testId press=press hover=hover disabled=disabled testId=testId height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#1b4ed8, #346bf1)" background-color=(over and not disabled ? "light-dark(#1b4ed8e6, #346bf1e6)" : "light-dark(#1b4ed8, #346bf1)") box-shadow=(disabled ? "none" : (scheme == "dark" ? "inset 0 1px 0 #ffffff29, 0 1px 2px #346bf13d" : "inset 0 1px 0 #ffffff29, 0 1px 2px #1b4ed83d")) opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
       text label font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color="#ffffff"
