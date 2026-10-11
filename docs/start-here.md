@@ -20,7 +20,8 @@ property, and the long guides by section only for what no recipe covers.
    total, the score), rows with a hierarchy (a `-exact-headline` title over
    `-exact-secondary-label` details), colour that means something, bars where numbers
    compare (`progress`), an empty state that says what to do. A content screen is not a
-   settings list; inset-grouped is for settings and forms ([content-design](recipes/content-design.md)).
+   settings list; inset-grouped is for settings and forms. `exact:content` draws these
+   parts ([content-design](recipes/content-design.md)).
 
 ## The workflow
 
