@@ -320,9 +320,11 @@ component PaletteToggle
     on: bool
     dark: bool
     testId: string
+    // The id a dialog's focus guard names (dialog-trap.contract), "" on every other instance.
+    elementId: string
     press: action
   view
-    button press=press aria-label=label aria-checked=on role="switch" tabindex=-1 testId=testId width="2.4375rem" height="1.5rem" padding=0 border-width=1 border-style="solid" border-color="#00000000" border-radius="0.5rem" box-sizing="border-box" background-color=(on ? "light-dark(#ffffff, #ffffff13)" : "#00000000") box-shadow=(on ? "0 1px 2px #0000001a" : "none") display="flex" flex-direction="row" align-items="center" justify-content="center"
+    button id=elementId press=press aria-label=label aria-checked=on role="switch" testId=testId width="2.4375rem" height="1.5rem" padding=0 border-width=1 border-style="solid" border-color="#00000000" border-radius="0.5rem" box-sizing="border-box" background-color=(on ? "light-dark(#ffffff, #ffffff13)" : "#00000000") box-shadow=(on ? "0 1px 2px #0000001a" : "none") display="flex" flex-direction="row" align-items="center" justify-content="center"
       column align-items="center"
         text glyph font-family="ui-monospace" font-size="0.875rem" line-height=(underline ? "1rem" : "1.25rem") font-weight=500 color=(on ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
         when underline
@@ -427,8 +429,10 @@ component CommandPaletteBody
     // Escape: the host binds key shortcuts on buttons only.
     button press=close aria-keyshortcuts="Escape" aria-label=(view.escapeLabel == "Back" ? "Back" : "Close") tabindex=-1 testId="palette-escape" position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" opacity=0 padding=0 border-width=0 background-color="#00000000" z-index=60 title=""
     column retainFocus=true position="absolute" left=floor((viewport.width - width) / 2) top=top width=width max-height=maxHeight min-height=(view.panel == "fill" ? maxHeight : 0) z-index=61 box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow=(scheme == "dark" ? "inset 0 1px 0 #ffffff0a, 0 24px 72px -20px #000000e6" : "0 24px 64px -24px #000000a6") overflow="hidden" role="dialog" aria-label=view.label testId=view.testId
-      // The focus trap (dialog-trap.contract): Back, the field, a row's Setup Required, the footer's action. The rows, the accessory and the toggles are no Tab stops, as the reference's (Autocomplete items; tabIndex -1).
-      FocusGuard(guardId="palette-guard-start", target=(view.footerAction != "" ? "palette-footer-action" : "palette-input"))
+      // The focus trap (dialog-trap.contract): Back, the field, content search's three toggles (Base UI Toggles, native
+      // buttons), a row's Setup Required, the footer's action. The rows and the accessory are no Tab stops, as the
+      // reference's (Autocomplete items; the accessory's tabIndex -1).
+      FocusGuard(guardId="palette-guard-start", target=(view.footerAction != "" ? "palette-footer-action" : (view.toggles ? "palette-regex" : "palette-input")))
       row padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" flex-shrink=0 box-sizing="border-box"
         box position="relative" width="100%" height="2.25rem" border-radius="0.625rem" box-sizing="border-box"
           when view.addon == "back"
@@ -449,9 +453,9 @@ component CommandPaletteBody
           when view.toggles
             // The segmented Match case / whole word / regex toggles (ui/toggle.tsx, variant segmented).
             row position="absolute" right="0.125rem" top="0.1875rem" height="1.875rem" padding="0.125rem" gap="0.125rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa4d, #ffffff02)" box-sizing="border-box" align-items="center" z-index=2
-              PaletteToggle(label="Match case", glyph="Aa", underline=false, on=view.matchCase, dark=dark, testId="palette-match-case", press=flag("case"))
-              PaletteToggle(label="Match whole word", glyph="ab", underline=true, on=view.wholeWord, dark=dark, testId="palette-whole-word", press=flag("word"))
-              PaletteToggle(label="Use regular expression", glyph=".*", underline=false, on=view.regex, dark=dark, testId="palette-regex", press=flag("regex"))
+              PaletteToggle(label="Match case", glyph="Aa", underline=false, on=view.matchCase, dark=dark, elementId="", testId="palette-match-case", press=flag("case"))
+              PaletteToggle(label="Match whole word", glyph="ab", underline=true, on=view.wholeWord, dark=dark, elementId="", testId="palette-whole-word", press=flag("word"))
+              PaletteToggle(label="Use regular expression", glyph=".*", underline=false, on=view.regex, dark=dark, elementId="palette-regex", testId="palette-regex", press=flag("regex"))
       when view.summary != ""
         row height="2.25rem" flex-shrink=0 padding-left="0.75rem" padding-right="0.75rem" align-items="center" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" box-sizing="border-box"
           text view.summary font-size="0.75rem" line-height="1rem" color=(view.summary == "Invalid regular expression" ? "light-dark(#e7000b, #ff6467)" : "light-dark(#71717b, #818181)") testId="palette-summary"

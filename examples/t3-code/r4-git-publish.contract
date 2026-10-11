@@ -115,13 +115,13 @@ component R4PublishDialog
       // WizardFooter: DialogFooter bare (px-6 py-4), the actions at the end.
       row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box"
         when git.publishStep == 2
-          R4Button(label="Done", primary=true, disabled=false, press=local("git-dialog-close", "", ""), testId="git-publish-done")
+          R4Button(label="Done", primary=true, disabled=false, press=local("git-dialog-close", "", ""), elementId="git-publish-done", testId="git-publish-done")
         else
-          R4Button(label=(git.publishStep == 0 ? "Cancel" : "Back"), primary=false, disabled=git.publishPending, press=local("git-publish-back", "", ""), testId="git-publish-back")
+          R4Button(label=(git.publishStep == 0 ? "Cancel" : "Back"), primary=false, disabled=git.publishPending, press=local("git-publish-back", "", ""), elementId="", testId="git-publish-back")
           when git.publishStep < 1
-            R4Button(label="Next", primary=true, disabled=(not git.publishAnyReady or not git.publishCanNext), press=local("git-publish-step", "", "1"), testId="git-publish-next")
+            R4Button(label="Next", primary=true, disabled=(not git.publishAnyReady or not git.publishCanNext), press=local("git-publish-step", "", "1"), elementId="", testId="git-publish-next")
           else
-            R4Button(label=(git.publishPending ? "Publishing..." : "Publish"), primary=true, disabled=(not git.publishCanSubmit), press=act("shell:git-publish", cwd, ""), testId="git-publish-submit")
+            R4Button(label=(git.publishPending ? "Publishing..." : "Publish"), primary=true, disabled=(not git.publishCanSubmit), press=act("shell:git-publish", cwd, ""), elementId="", testId="git-publish-submit")
 
 // WizardSteps' step: a numbered (or checked) circle and its label; the current one is a raised pill.
 component R4Step

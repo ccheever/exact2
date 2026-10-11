@@ -72,8 +72,23 @@ The reference's order of stops, where the clone's differed: the X is DialogPopup
 task and Set up snapshots (it came first in tree order; it is absolutely placed, so it looks the same); the four dialogs
 that drew no X have the reference's (Add a CLIProxyAPI hub, Save plan to workspace, the legacy sidebar's two, all with
 `showCloseButton` left on in the reference); a preview's backdrop button, the palette's and favicon picker's rows
-(Base UI Autocomplete items), the palette's accessory and its three toggles (`tabIndex={-1}` in the reference) are no
-Tab stops.
+(Base UI Autocomplete items) and the palette's accessory (`tabIndex={-1}` in the reference) are no Tab stops. Content
+search's Match case, Match whole word and Use regular expression are (`SearchOptionButton` is a Base UI Toggle outside a
+ToggleGroup, a native button): Tab from the field goes to Match case, and the palette's start guard sends Shift+Tab from
+the field to Use regular expression while they show (review round 1).
+
+**While a dialog is busy** (review round 1) a guard's target can be disabled or not drawn, and `focus(target)` then does
+nothing. A guard that keeps the focus holds the key that would leave the dialog: Shift+Tab at a start guard, Tab at an end
+guard, try the target again and otherwise leave the focus on the guard, inside the popup (Base UI keeps it on the popup
+when it has no stop); the other way the key goes on into the dialog (`FocusGuard` `hold`, the guard's edge read from its
+id, `-guard-start`). Four dialogs name a stop that stays enabled instead: Set up snapshots (Advanced after an error, else
+none), the welcome wizard's Agents step (the Connect step, held only while importing), Add a CLIProxyAPI hub (its Label
+field) and Add device host (Advanced options).
+
+**Element ids** (review round 1): the shared controls a guard names take the id as their own prop, `elementId`, set only
+where a guard names it and `""` elsewhere (MediaActions, UsagePrimaryButton, UsageGhostIcon, WelcomePrimary,
+WelcomeGhost, WelcomeDisclosure, R4Button, R4Checkbox, PreviewStep, PaletteToggle), so a thread's markdown images and
+videos carry no id (they all carried `markdown-image-actions` / `markdown-video-actions` with `id=testId`).
 
 **PV-1.** `progress-value.contract` `ProgressValue`: an indeterminate `progress` (AppKit's busy indicator, which macOS
 exposes, unlike a drawn box) laid over the bar's box, `opacity=0`, named with the label and the rounded percentage. The
@@ -86,7 +101,7 @@ window usage, 42%", its `aria-valuenow` rounded as the reference's).
 
 | Row | Result | Proof |
 | --- | --- | --- |
-| DT-1 | pass (agent drive, reference over CDP): 15 read-outs in 8 dialogs. Before: 11 left the dialog (the Settings page's "Add host" behind the wizard and the confirm, a toast's Settings button, the palette's backdrop) and 3 stayed on the field Shift+Tab started from; after: every read-out stays in its dialog and lands where the reference's does (the X before the first stop, the first stop after the last), but two the reference answers with what the clone has no stop for (Known differences below). The other 26 guarded popups are covered by `dialog-trap.test.ts` (their pair, first and last child, every target an element id; the plain ones' stops in tree order); two dialogs did not open in the base drive and were left out of both (New task: no editor within 5 s of the press; Custom model prices: the Usage environment menu's item did not open it), not investigated further | [dt1-quit.png](https://raw.githubusercontent.com/ccheever/exact2/f088b8c159948b3a004ba64e58039929a489193a/dialog-trap-and-progress-value/dt1-quit.png), [dt1-configure.png](https://raw.githubusercontent.com/ccheever/exact2/1603566d2de97a3a97fabdd32a0f1a00c4c2d5b1/dialog-trap-and-progress-value/dt1-configure.png), [dt1-remove.png](https://raw.githubusercontent.com/ccheever/exact2/8c21ea6995a2736eaf65cdabb479d1194cb5f29a/dialog-trap-and-progress-value/dt1-remove.png), [dt1-host.png](https://raw.githubusercontent.com/ccheever/exact2/c98f4966f1670f8d9520b58775cbb0aae9baa9fa/dialog-trap-and-progress-value/dt1-host.png), [dt1-provider.png](https://raw.githubusercontent.com/ccheever/exact2/800c832be717212fec3a0a6aff348854a63c7b60/dialog-trap-and-progress-value/dt1-provider.png), [dt1-hub.png](https://raw.githubusercontent.com/ccheever/exact2/986a3810d0f7049cbee681a8e72e4d6e2f345291/dialog-trap-and-progress-value/dt1-hub.png), [dt1-theme.png](https://raw.githubusercontent.com/ccheever/exact2/4020deef466a4c4cb8ada6fe496f816f4c094a6e/dialog-trap-and-progress-value/dt1-theme.png), [dt1-palette.png](https://raw.githubusercontent.com/ccheever/exact2/0499ea5bda6b2db87af058253c2df32dbd1e8a0c/dialog-trap-and-progress-value/dt1-palette.png), [focus-readouts.txt](https://raw.githubusercontent.com/ccheever/exact2/5ce88a8ebf560c57c7b9748da6c7cd4e3b829e2f/dialog-trap-and-progress-value/focus-readouts.txt) |
+| DT-1 | pass (agent drive, reference over CDP): 15 read-outs in 8 dialogs. Before: 11 left the dialog (the Settings page's "Add host" behind the wizard and the confirm, a toast's Settings button, the palette's backdrop) and 3 stayed on the field Shift+Tab started from; after: every read-out stays in its dialog and lands where the reference's does (the X before the first stop, the first stop after the last), but two the reference answers with what the clone has no stop for (Known differences below). The other 26 guarded popups are covered by `dialog-trap.test.ts` (their pair, first and last child, every target an element id; the plain ones' stops in tree order). Review round 1, a second drive (before, after, reference): content search's toggles are Tab stops again and the focus stays in it (3 read-outs); Custom model prices (2) and New task (3), which the first drive could not open, keep the focus in and land where the reference's does. New task's button sits under the lane's provider-update toast at 1280×840 (the first drive's tap landed on the toast; the reference's toast intercepts the click too), so both sides press it from the keyboard; Model prices opens on Cost but not on Limits, base and branch alike (an existing difference, QUEUE.md). The busy hold on a one-file probe: before, the second Shift+Tab or Tab from a guard whose target is disabled leaves the dialog; after, it stays on the guard | [dt1-quit.png](https://raw.githubusercontent.com/ccheever/exact2/f088b8c159948b3a004ba64e58039929a489193a/dialog-trap-and-progress-value/dt1-quit.png), [dt1-configure.png](https://raw.githubusercontent.com/ccheever/exact2/1603566d2de97a3a97fabdd32a0f1a00c4c2d5b1/dialog-trap-and-progress-value/dt1-configure.png), [dt1-remove.png](https://raw.githubusercontent.com/ccheever/exact2/8c21ea6995a2736eaf65cdabb479d1194cb5f29a/dialog-trap-and-progress-value/dt1-remove.png), [dt1-host.png](https://raw.githubusercontent.com/ccheever/exact2/c98f4966f1670f8d9520b58775cbb0aae9baa9fa/dialog-trap-and-progress-value/dt1-host.png), [dt1-provider.png](https://raw.githubusercontent.com/ccheever/exact2/800c832be717212fec3a0a6aff348854a63c7b60/dialog-trap-and-progress-value/dt1-provider.png), [dt1-hub.png](https://raw.githubusercontent.com/ccheever/exact2/986a3810d0f7049cbee681a8e72e4d6e2f345291/dialog-trap-and-progress-value/dt1-hub.png), [dt1-theme.png](https://raw.githubusercontent.com/ccheever/exact2/4020deef466a4c4cb8ada6fe496f816f4c094a6e/dialog-trap-and-progress-value/dt1-theme.png), [dt1-palette.png](https://raw.githubusercontent.com/ccheever/exact2/0499ea5bda6b2db87af058253c2df32dbd1e8a0c/dialog-trap-and-progress-value/dt1-palette.png), [focus-readouts.txt](https://raw.githubusercontent.com/ccheever/exact2/5ce88a8ebf560c57c7b9748da6c7cd4e3b829e2f/dialog-trap-and-progress-value/focus-readouts.txt); review round 1: [review1-dt1-content-search.png](https://raw.githubusercontent.com/ccheever/exact2/f1afac959a2ce2ad049efd7d9b6ab2db939f2201/dialog-trap-and-progress-value/review1-dt1-content-search.png), [review1-dt1-prices.png](https://raw.githubusercontent.com/ccheever/exact2/a7be52b03c1bba91e9edd4a9b09d0cc65740626e/dialog-trap-and-progress-value/review1-dt1-prices.png), [review1-dt1-newtask.png](https://raw.githubusercontent.com/ccheever/exact2/d986ee6a4263cfe2472beb480ddc96b4ec04d8c4/dialog-trap-and-progress-value/review1-dt1-newtask.png), [review1-focus-readouts.txt](https://raw.githubusercontent.com/ccheever/exact2/fb565f1c41c1172b5aa4e6dbe474e99667c6b052/dialog-trap-and-progress-value/review1-focus-readouts.txt), [review1-busy-guard.txt](https://raw.githubusercontent.com/ccheever/exact2/5f1b677b5a0603acd7cc3c0d720de6d71814baeb/dialog-trap-and-progress-value/review1-busy-guard.txt), [review1-element-ids.txt](https://raw.githubusercontent.com/ccheever/exact2/9d17077ee92c961a0cf9252752f092b06f3948a9/dialog-trap-and-progress-value/review1-element-ids.txt) |
 | PV-1 | pass in-process (`tree --ax`, AppKit's accessibility attributes): the drawn box is no accessibility element at all (before); after, one element, AppKit's busy indicator (agent role `progressbar`), named "Antigravity download, 30%", the bar's look unchanged. Measured on a one-file probe that draws both markups (the component copied verbatim) on the clone's own host binary, base and branch: the lane can show neither bar (a real Antigravity download is a provider install, and the context meter needs a thread with token usage, i.e. a provider turn). The value is in the name, not AXValue, and VoiceOver hears a busy indicator, not a progress indicator (X49 stays the framework gap). The out-of-process read was tried: an agent-mode window is not among the app's AX children from another process, so the in-process tree is the measurement | [pv1-ax.txt](https://raw.githubusercontent.com/ccheever/exact2/a4d7c968bf39d5a2ef70ab1ebb5b8ae22996c543/dialog-trap-and-progress-value/pv1-ax.txt), [pv1-look.png](https://raw.githubusercontent.com/ccheever/exact2/69d9f9fb5bcf930eccc3bae143249a4a0d0ef9d8/dialog-trap-and-progress-value/pv1-look.png), [pv-probe.contract](https://raw.githubusercontent.com/ccheever/exact2/2c98ef25a90e077793d755721ad63af3782cf170/dialog-trap-and-progress-value/pv-probe.contract.txt) |
 | The traps and VoiceOver under real keys | implemented, not verified (real input reserved for the coordinator's final session): Real-input batch steps below | — |
 
@@ -101,6 +116,15 @@ images: [compose.py](https://raw.githubusercontent.com/ccheever/exact2/747c03cdf
 The guard mechanism was first proven on a one-file probe on the base binary (Tab from a modal box's last button and
 Shift+Tab from its first wrap through the guards) before the live drive, which then passed on its first run.
 
+Review round 1 (an independent review of PR #431: four findings, all fixed): one more drive, the same ops on the evidence
+base and on this branch's rebuilt bundle (lanes as above, clone server 16142; [drive.sh](https://raw.githubusercontent.com/ccheever/exact2/6e29a49e43fe116274905d9bdd17eb587b90b706/dialog-trap-and-progress-value/review1-drive.sh.txt)),
+the branch's on its first run; the reference over CDP on 17140/17141 ([ref-content.mjs](https://raw.githubusercontent.com/ccheever/exact2/1fef8a434576d2e334abcc8ee3ae347bcd276456/dialog-trap-and-progress-value/review1-ref-content.mjs.txt),
+[ref-dialogs.mjs](https://raw.githubusercontent.com/ccheever/exact2/901a6bc3d480c66073a857f56fd26ce524038d46/dialog-trap-and-progress-value/review1-ref-dialogs.mjs.txt),
+[ref-limits.mjs](https://raw.githubusercontent.com/ccheever/exact2/38066c71d6ac9194e0fa07dbf6214ebfa7ee652c/dialog-trap-and-progress-value/review1-ref-limits.mjs.txt));
+images: [compose.py](https://raw.githubusercontent.com/ccheever/exact2/b71121be6d142642d15163d61a70d0d0ff9c4841/dialog-trap-and-progress-value/review1-compose.py.txt).
+The busy hold was measured on a one-file probe (two modal boxes whose guard targets are disabled, the old and the new
+FocusGuard) on the evidence base's host binary, which this branch does not change.
+
 ## Known differences (after this task)
 
 - The command palette: Tab from the field goes to the reference's results list, which Chromium makes a Tab stop because
@@ -111,22 +135,30 @@ Shift+Tab from its first wrap through the guards) before the live drive, which t
 - PV-1: the value is in the accessible name of a busy indicator, not a progress indicator's value (X49, X55).
 - On macOS a `select`, a time and a date input are no Tab stops (X52); the legacy Project grouping dialog's first stop
   is Cancel there (its Select comes first in the reference).
-- While a dialog is busy (every control disabled) a guard's target can be disabled; the focus then stays on the guard
-  until the next Tab. The Add provider wizard after an instance is created comes round to its X (its Sign in step's
-  first stop is not named).
+- While a dialog is busy, a guard whose target is disabled or not drawn keeps the focus itself, an invisible box inside
+  the popup (no ring shows), where Base UI goes to the nearest enabled stop or the popup; the trap holds (the key that
+  would leave the dialog stays on the guard). Set up snapshots, the welcome wizard's Agents step, Add a CLIProxyAPI hub
+  and Add device host name an enabled stop instead. The Add provider wizard after an instance is created comes round to
+  its X (its Sign in step's first stop is not named).
 
-Found, not in this task: the reference's ChatView "Switch to <branch>?" AlertDialog and PullRequestThreadLinks' thread
+Found, not in this task: Model prices opens nothing on the Usage page's Limits view (`pages-usage.ts` presents the prices
+only off Limits; the reference opens it on Limits too), and Custom model prices draws no X and no "Add model price" +
+(both laid out and focusable), base and branch alike: both in QUEUE.md. The reference's ChatView "Switch to <branch>?" AlertDialog and PullRequestThreadLinks' thread
 picker Dialog have no clone counterpart; the reference's ToggleGroup (Choose project icon's Icons / Emoji / Monogram) is
 one Tab stop, the clone's three.
 
 ## Tests
 
-- `dialog-trap.test.ts` (new, 52): the classification of every `role="dialog"`/`"alertdialog"` (guards, own `key`
+- `dialog-trap.test.ts` (new, 56 after review round 1): the classification of every `role="dialog"`/`"alertdialog"` (guards, own `key`
   wraps, or no modal in the reference, with the reason); the FocusGuard component; for each guarded popup the start
   guard as its first child and the end guard as its last, and every name a target can take declared as an element id;
   the plain dialogs' Tab stops in tree order against their guards' targets; the X after the footer in New task and Set up
   snapshots, the four added X's, the shared frames' X after their content; the stops the reference never has. Removing
-  one guard fails three of them (checked).
+  one guard fails three of them (checked). Review round 1: the guard's hold (the edge from its id), content search's
+  toggles as Tab stops with the start guard naming the last, the four busy fallbacks naming stops that take no `busy`,
+  and the shared controls' `elementId` (set only where a guard names it, never `id=testId`, a thread's markdown media
+  none). Each fails when its fix is reverted (checked: the toggles' `tabindex=-1`, the start guard without the toggles,
+  the guard without `key=hold`, MediaActions back on `id=testId`, the host editor's start guard without its fallback).
 - `progress-value.test.ts` (new, 5): `progressLabel` and `contextValueLabel` (rounded, empty without a size), the
   component, each drawn bar `aria-hidden` with its ProgressValue as a sibling in a positioned box, no drawn
   `role="progressbar"` left.
@@ -168,8 +200,11 @@ after each dialog opens; the ring shows where the focus is.
    (Add hub is disabled while the fields are empty). Escape. Add provider: Tab from the X → the Provider step.
 6. Settings › Scheduled Tasks › New task: Shift+Tab from Runs on → the X (top right); Tab from Create task (or Cancel
    while it is disabled) → the X; Tab → Runs on. Escape.
-7. ⌘K: Tab and Shift+Tab keep the ring on the field. Escape.
-8. VoiceOver (⌘F5), only if the session has a download or a thread with token usage: Settings › Providers › Antigravity
+7. ⌘K: Tab and Shift+Tab keep the ring on the field. Escape. ⌘⇧F (Search project contents): Tab from the field → Match
+   case; Tab, Tab → Use regular expression; Tab → the field; Shift+Tab → Use regular expression. Escape twice.
+8. Usage on Cost › the environment menu › Model prices: Tab from the X (top right) → "Apply to"; Shift+Tab → the X.
+   Escape.
+9. VoiceOver (⌘F5), only if the session has a download or a thread with token usage: Settings › Providers › Antigravity
    while its runtime downloads, VO on the bar reads "Antigravity download, N%, busy indicator"; the composer's context
    window popover, "Context window usage, N%". Without either, leave the row open.
 

@@ -31,6 +31,8 @@ component MediaActions
     tip: string
     local: action
     testId: string
+    // The id a dialog's focus guard names (dialog-trap.contract), "" on every other instance.
+    elementId: string
   // MediaActions onKeyDown: ContextMenu or Shift+F10 opens the menu at the node's bottom-left corner.
   action menuKey(k: string, e: KeyboardEvent)
     if k == "ContextMenu" or (e.shiftKey and not e.metaKey and not e.ctrlKey and not e.altKey and k == "F10")
@@ -39,7 +41,7 @@ component MediaActions
       local("media-menu", source, "key")
   slot
   view
-    box id=testId tabindex=0 title=tip contextmenu=local("media-menu", source, "pointer") key=menuKey aria-label=tip position="relative" max-width="100%" testId=testId
+    box id=elementId tabindex=0 title=tip contextmenu=local("media-menu", source, "pointer") key=menuKey aria-label=tip position="relative" max-width="100%" testId=testId
       children
 
 // OpenMediaLink: a small secondary button that opens the URL in the default browser.
@@ -88,17 +90,17 @@ component FilesMedia
       column flex=1 min-height=0 width="100%" align-items="center" justify-content="center" role="status" aria-label=(media.kind == "video" ? "Loading video" : "Loading image") testId="file-media-loading"
         ShellIcon(name="loader", size=24, color="light-dark(#71717b, #818181)")
     when media.state == "failed" and media.kind == "image"
-      MediaActions(source=media.source, tip=media.tip, local=local, testId="file-image-failed")
+      MediaActions(source=media.source, tip=media.tip, local=local, elementId="", testId="file-image-failed")
         column flex=1 min-height=0 width="100%" align-items="center" justify-content="center" padding-left="1.5rem" padding-right="1.5rem" box-sizing="border-box"
           text media.failText text-align="center" font-size="0.75rem" line-height="1.21875rem" color="light-dark(#e40014, #ff6467)" testId="file-image-error"
     when media.state == "ready" and media.kind == "image"
       column flex=1 min-height=0 width="100%" align-items="center" justify-content="center" overflow="auto" padding="1rem" box-sizing="border-box" testId="file-image"
-        MediaActions(source=media.source, tip=media.tip, local=local, testId="file-image-actions")
+        MediaActions(source=media.source, tip=media.tip, local=local, elementId="", testId="file-image-actions")
           image media.url aria-label=media.name error=local("media-image-error", media.url) max-width="100%" max-height="100%" object-fit="contain" testId="file-image-picture"
     when media.kind == "video" and media.state != "loading"
       column flex=1 min-height=0 width="100%" align-items="center" justify-content="center" overflow="hidden" padding="1rem" box-sizing="border-box" testId="file-video"
         column width="100%" max-width="64rem" align-items="center"
-          MediaActions(source=media.source, tip=media.tip, local=local, testId="file-video-actions")
+          MediaActions(source=media.source, tip=media.tip, local=local, elementId="", testId="file-video-actions")
             when media.state == "failed"
               MediaVideoFailure(media=media, dark=false, local=local, testId="file-video-failed")
             else

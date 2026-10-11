@@ -120,9 +120,9 @@ const NOT_MODAL: Record<string, string> = {
 };
 
 /** Every element id the sources declare: literal ids, templated ones (whole, and their literal heads: `x-${…}` → `x-`),
- *  and the testIds handed to a component whose element takes its testId (or buttonId) as its id. */
+ *  and the testIds handed to a component whose element takes its testId (or buttonId, or elementId) as its id. */
 const ids = new Set<string>(), idHeads: string[] = [];
-const takesTestId = new Set<string>(), takesButtonId = new Set<string>();
+const takesTestId = new Set<string>(), takesButtonId = new Set<string>(), takesElementId = new Set<string>();
 // A component whose element's id is a prop with a suffix (`id=\`${rowId}-allow\``): each call's value names one.
 const propIds: { component: string; prop: string; suffix: string }[] = [];
 for (const text of sources.values()) {
@@ -134,6 +134,7 @@ for (const text of sources.values()) {
     component = /^component (\w+)/.exec(line)?.[1] ?? component;
     if (/\bid=testId\b/.test(line)) takesTestId.add(component);
     if (/\bid=buttonId\b/.test(line)) takesButtonId.add(component);
+    if (/\bid=elementId\b/.test(line)) takesElementId.add(component);
     const prop = /\bid=`\$\{(\w+)\}([^`$]*)`/.exec(line);
     if (prop) propIds.push({ component, prop: prop[1]!, suffix: prop[2]! });
   }
@@ -142,6 +143,7 @@ for (const text of sources.values()) for (const line of text.split('\n')) {
   const call = /\b([A-Z]\w*)\(/.exec(line.trim())?.[1];
   if (call && takesTestId.has(call)) for (const m of line.matchAll(/\btestId="([^"]+)"/g)) ids.add(m[1]!);
   if (call && takesButtonId.has(call)) for (const m of line.matchAll(/\bbuttonId="([^"]+)"/g)) ids.add(m[1]!);
+  if (call && takesElementId.has(call)) for (const m of line.matchAll(/\belementId="([^"]+)"/g)) ids.add(m[1]!);
   for (const { component, prop, suffix } of propIds.filter(entry => entry.component === call))
     for (const m of line.matchAll(new RegExp(`\\b${prop}="([^"]+)"`, 'g'))) ids.add(m[1]! + suffix);
 }
@@ -166,7 +168,14 @@ describe('the FocusGuard pair (Base UI FloatingFocusManager\'s inside guards)', 
     const guard = source('dialog-trap.contract');
     expect(guard).toContain('component FocusGuard');
     expect(guard).toContain('action enter\n    if target != ""\n      focus(target)');
-    expect(guard).toContain('box id=guardId tabindex=0 aria-hidden=true focus=enter position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" testId=guardId');
+    expect(guard).toContain('box id=guardId tabindex=0 aria-hidden=true focus=enter key=hold position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" testId=guardId');
+  });
+
+  test('a guard whose target cannot take the focus keeps it: the key that would leave the dialog stays on the guard', () => {
+    const guard = source('dialog-trap.contract');
+    // Shift+Tab leaves from the start guard, Tab from the end guard; the other way goes on into the dialog.
+    expect(guard).toContain('derive start = includes(guardId, "-guard-start")');
+    expect(guard).toContain('action hold(k: string, e: KeyboardEvent)\n    if k == "Tab" and e.shiftKey == start\n      preventDefault()\n      stopPropagation()\n      if target != ""\n        focus(target)');
   });
 
   for (const dialog of dialogs.filter(dialog => dialog.key in GUARDED)) {
@@ -195,10 +204,10 @@ describe('the guards name the reference\'s first and last Tab stops', () => {
     ['settings-core-body.contract', '"restore-defaults-confirm"', '"restore-defaults-cancel"'],
     ['timeline.contract', '"revert-keep"', '"revert-cancel"'],
     ['timeline-plan.contract', '"plan-save-close"', '"plan-save-path"'],
-    ['providers-wizard.contract', '"usage-hub-close"', '"usage-hub-url"'],
+    ['providers-wizard.contract', '(busy ? "usage-hub-label" : "usage-hub-close")', '"usage-hub-url"'],
     ['r6-pr.contract', '(merge.pending ? "pr-merge-cancel" : "pr-merge-confirm")', '"pr-merge-cancel"'],
     ['r9-connect.contract', '"pr-checkout-close"', '"pr-checkout-input"'],
-    ['settings-a-hosts.contract', '"device-host-close"', '"device-host-name"'],
+    ['settings-a-hosts.contract', '(busy ? "device-host-options" : "device-host-close")', '(busy ? "device-host-options" : "device-host-name")'],
     ['settings-appearance-import.contract', '"add-theme-close"', '"add-theme-query"'],
     ['browser-profiles.contract', 'wizard.tabLast', 'wizard.tabFirst'],
   ];
@@ -218,7 +227,8 @@ describe('the guards name the reference\'s first and last Tab stops', () => {
       const body = block(lines, lines.findIndex(line => line.includes(anchor)));
       const stops = body.filter(line => /^\s*(button|input|textarea)\b/.test(line) && !/tabindex=-1\b/.test(line)).map(line => /\bid="([^"]+)"/.exec(line)?.[1] ?? '?');
       const guards = body.filter(line => line.includes('FocusGuard(')).map(line => named(/target=(.*)\)$/.exec(line.trim())![1]!));
-      expect(guards[1]).toEqual([stops[0]!]); // the end guard: Tab past the last stop goes to the first
+      // A busy fallback comes first (`busy ? <a stop still enabled> : <the stop>`): the last name is the idle one.
+      expect(guards[1]!.at(-1)).toBe(stops[0]!); // the end guard: Tab past the last stop goes to the first
       expect(guards[0]!.at(-1)).toBe(stops.at(-1)!); // the start guard: Shift+Tab before the first goes to the last
     }
   });
@@ -259,7 +269,7 @@ describe('the reference\'s order of stops', () => {
     }
   });
 
-  test('what the reference never stops at is no Tab stop: a preview\'s backdrop, Autocomplete items, the palette\'s accessory and toggles', () => {
+  test('what the reference never stops at is no Tab stop: a preview\'s backdrop, Autocomplete items, the palette\'s accessory', () => {
     for (const [file, testId] of [['timeline-attachments.contract', 'testId="image-preview-backdrop"'], ['r4-composer.contract', 'testId="video-preview-backdrop"'], ['timeline-mermaid.contract', 'testId="diagram-preview-backdrop"']] as const)
       expect(source(file).split('\n').find(line => line.includes(testId))).toContain('aria-keyshortcuts="Escape" tabindex=-1');
     const palette = source('palette.contract').split('\n');
@@ -267,7 +277,58 @@ describe('the reference\'s order of stops', () => {
     expect(options.length).toBe(2);
     for (const option of options) expect(option).toContain('tabindex=-1');
     expect(palette.find(line => line.includes('testId="palette-accessory"'))).toContain('tabindex=-1');
-    expect(palette.find(line => line.includes('role="switch" tabindex=-1 testId=testId'))).toBeDefined();
     expect(source('settings-b-icons.contract').split('\n').find(line => line.includes('role="option"') && line.includes('sb:project-favicon-set'))).toContain('tabindex=-1');
+  });
+});
+
+describe('review fixes (PR #431)', () => {
+  test('content search\'s toggles are Tab stops after the field, as the reference\'s Base UI Toggles; Shift+Tab from the field goes to the last', () => {
+    const palette = source('palette.contract').split('\n');
+    const toggle = block(palette, palette.indexOf('component PaletteToggle')).find(line => /^\s*button\b/.test(line))!;
+    expect(toggle).not.toContain('tabindex');
+    const calls = palette.filter(line => line.trim().startsWith('PaletteToggle('));
+    expect(calls.map(line => /testId="([^"]+)"/.exec(line)![1])).toEqual(['palette-match-case', 'palette-whole-word', 'palette-regex']);
+    expect(palette.findIndex(line => line.includes('testId="palette-input"'))).toBeLessThan(palette.indexOf(calls[0]!));
+    expect(palette.find(line => line.includes('FocusGuard(guardId="palette-guard-start"'))!.trim())
+      .toBe('FocusGuard(guardId="palette-guard-start", target=(view.footerAction != "" ? "palette-footer-action" : (view.toggles ? "palette-regex" : "palette-input")))');
+  });
+
+  test('while a dialog is busy its guards name a stop that stays enabled, where one is left', () => {
+    const guard = (file: string, id: string) => source(file).split('\n').find(line => line.includes(`FocusGuard(guardId="${id}"`))!.trim();
+    expect(guard('snapshot.contract', 'snapshot-setup-guard-start')).toContain('target=(busy ? (error != "" ? "snapshot-setup-advanced" : "") : "snapshot-setup-close")');
+    expect(guard('snapshot.contract', 'snapshot-setup-guard-end')).toContain('target=(busy ? (error != "" ? "snapshot-setup-advanced" : "") : ');
+    expect(guard('pages-welcome.contract', 'welcome-guard-start')).toContain('target=(step == "agents" ? (busy ? "welcome-step-1" : "welcome-agents-continue") :');
+    // The stops they fall back to take no `busy`: Advanced, the Connect step (held only while importing), the hub's label
+    // field, the host editor's Advanced options.
+    const line = (file: string, needle: string) => source(file).split('\n').find(text => text.includes(needle))!;
+    expect(line('snapshot.contract', 'button id="snapshot-setup-advanced"')).not.toContain('disabled=');
+    expect(line('pages-welcome.contract', 'WelcomeSteps(step=step')).toContain('busy=view.importing');
+    expect(line('providers-wizard.contract', 'input id="usage-hub-label"')).not.toContain('disabled=');
+    expect(line('settings-a-hosts.contract', 'button id="device-host-options"')).not.toContain('disabled=');
+  });
+
+  test('a shared control takes the id a guard names as its own prop, so no two instances share one', () => {
+    const shared = ['MediaActions', 'UsagePrimaryButton', 'UsageGhostIcon', 'WelcomePrimary', 'WelcomeGhost', 'WelcomeDisclosure', 'R4Button', 'R4Checkbox', 'PreviewStep', 'PaletteToggle'];
+    // What a guard can name: its target's literals, and those of the `first` a shared frame's guard takes.
+    const firsts = (line: string) => [...line.matchAll(/\bfirst=(\((?:[^()]|\([^()]*\))*\)|"[^"]*")/g)].flatMap(m => named(m[1]!));
+    const targets = new Set([...sources.values()].flatMap(text => text.split('\n')).flatMap(line =>
+      [...named(/FocusGuard\(.*target=(.*)\)$/.exec(line.trim())?.[1] ?? '""'), ...firsts(line)]));
+    for (const component of shared) {
+      const [file, text] = [...sources].find(([, text]) => text.includes(`\ncomponent ${component}\n`))!;
+      const body = block(text.split('\n'), text.split('\n').indexOf(`component ${component}`));
+      expect([file, component, body.some(line => /\bid=elementId\b/.test(line))]).toEqual([file, component, true]);
+      expect([file, component, body.some(line => /\bid=testId\b/.test(line))]).toEqual([file, component, false]);
+      for (const [callFile, callText] of sources) for (const call of callText.split('\n').filter(line => line.trim().startsWith(`${component}(`))) {
+        const id = /\belementId=("[^"]*")/.exec(call)?.[1];
+        expect([callFile, component, id === undefined]).toEqual([callFile, component, false]);
+        const value = JSON.parse(id!) as string;
+        if (value !== '') {
+          expect(call).toContain(`testId="${value}"`); // the instance's own name, so it is unique where its testId is
+          expect([value, targets.has(value)]).toEqual([value, true]); // and only where a guard names it
+        }
+      }
+    }
+    // A thread's markdown images and videos carry none.
+    for (const call of source('media-markdown.contract').split('\n').filter(line => line.trim().startsWith('MediaActions('))) expect(call).toContain('elementId="", ');
   });
 });
