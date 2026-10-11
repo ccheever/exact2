@@ -247,9 +247,17 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   `#18392d`); it stays the same in dark mode while the platform's text and controls
   turn dark. Four of round 4's five hex-heavy bake-off apps broke so. Fix: the one
   authored colour is the accent on the root, a role (`accent-color="-exact-system-indigo"`)
-  or one `light-dark(light, dark)` pair; surfaces and text are roles
-  (`-exact-secondary-grouped-background`, `-exact-label`) or unsaid. Look in both
-  schemes: `"prefer prefers-color-scheme dark"` as a drive's first op. (LLP 1116.002 D1.)
+  or one `light-dark(light, dark)` pair; surfaces and text are roles (`-exact-label`)
+  or unsaid. Look in both schemes: `"prefer prefers-color-scheme dark"` as a drive's
+  first op. (LLP 1116.002 D1.)
+- **A card is white on a white page in light mode.** Cause:
+  `-exact-secondary-grouped-background` (white in light) on a plain page (white), as
+  start-here once suggested; two round-5 apps' cards vanished so. Fix: surfaces in
+  pairs. A card on a plain page is `-exact-secondary-background` (light grey, dark
+  grey); on a `-exact-grouped-background` page (light grey, black) it is
+  `-exact-secondary-grouped-background` (white, dark grey); a surface inside a card is
+  the tertiary role of its pair (`-exact-tertiary-background`,
+  `-exact-tertiary-grouped-background`). (LLP 1116.003 D3.3.)
 - **The agent's screenshots and tree don't show the native bars.** Under
   `scripts/agent.mjs` the navigation bar, tab bar, `UIMenu`s and header search are
   not presented; the authored header, tablist and popover paint instead, by default.
