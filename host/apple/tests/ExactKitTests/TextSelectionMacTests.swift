@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import CExact
 import XCTest
 @testable import ExactKit
 
@@ -258,6 +259,75 @@ final class TextSelectionMacTests: XCTestCase {
         XCTAssertEqual(authored, [8, 10, 8], "selected text under an authored contextmenu hears it too")
         XCTAssertEqual(p.selection.selectedText(), "Row words")
         XCTAssertEqual(menus.count, 4, "and no text menu opens over it")
+    }
+
+    /// X76 on a reader paragraph whose caret cache misses the point (here a
+    /// line outside the band its worker rastered; in use, a line too long
+    /// for that cache): the click opens no menu itself, the raster worker
+    /// places it, and then the word under it is selected, or the selection
+    /// under it kept, and the menu opens for that.
+    func testASecondaryClickTheReaderMustPlaceOpensTheMenuOncePlaced() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "the agent opens no native menu")
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "text-selection-reader")
+        self.session = session
+        let p = session.presenter
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = p.viewport
+        window.orderFrontRegardless()
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+        let node = NodeView(id: 12345, kind: "text", presenter: p)
+        node.applyStyle(["font_size": 16.0, "line_height": "24px"])
+        node.applyProps(set: ["text": String(repeating: "reader scroll ahead words ", count: 4000)], clear: [])
+        node.frame = NSRect(x: 0, y: 0, width: 600, height: 100000)
+        node.prepareToMount()
+        scroll.documentView = node; p.root.addSubview(scroll)
+        var request = ExactMeasureRequest()
+        request.view = node.id; request.strut.font_size = 16
+        request.strut.has_line_height = 1; request.strut.line_height = 24
+        let reader = RegionReaderParagraph(request, bytes: 100000)
+        session.text.readerParagraphs[node.id] = reader
+        reader.update(node)
+        // Each wait is for its event; the bound only stops one that never comes.
+        func until(_ seconds: TimeInterval, _ done: () -> Bool) {
+            let hang = Date(timeIntervalSinceNow: seconds)
+            while !done() && Date() < hang { RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001)) }
+        }
+        until(300) { reader.raster != nil }
+        let height: CGFloat = try XCTUnwrap(reader.accepted?.metadata.height)
+        var menus: [String] = []
+        let center = NotificationCenter.default
+        let observer = center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+            guard let menu = note.object as? NSMenu else { return }
+            menus.append(menu.items.first?.title ?? "")
+            RunLoop.current.perform(inModes: [.eventTracking, .default]) { menu.cancelTracking() }
+        }
+        defer { center.removeObserver(observer) }
+        // The first word of the line at `fraction` of the text's height.
+        func rightClick(_ fraction: CGFloat) -> NSMenu? {
+            let box = node.contentBox()
+            let local = NSPoint(x: box.minX + 4, y: box.minY + floor(height * fraction / 24) * 24 + 12)
+            XCTAssertNil(reader.offset(at: local, node: node), "the caret cache misses the point")
+            return node.menu(for: NSEvent.mouseEvent(with: .rightMouseDown, location: node.convert(local, to: nil), modifierFlags: [],
+                                                     timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                                     context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!)
+        }
+        XCTAssertNil(rightClick(0.5), "nothing is known yet to open a menu over")
+        until(60) { menus.count == 1 }
+        let word = p.selection.selectedText(), first = p.selection.range(node)
+        XCTAssertTrue(["reader", "scroll", "ahead", "words"].contains(word), "the word the worker placed it on, not \"\(word)\"")
+        XCTAssertEqual(menus, ["Look Up “\(word)”"], "its menu opens once it is placed")
+        XCTAssertNil(rightClick(0.5))
+        until(60) { menus.count == 2 }
+        XCTAssertEqual(p.selection.range(node), first, "inside the selection it stays")
+        XCTAssertEqual(menus.last, "Look Up “\(word)”")
+        XCTAssertNil(rightClick(0.75), "the selection elsewhere opens no menu for itself")
+        until(60) { menus.count == 3 }
+        let second = try XCTUnwrap(p.selection.range(node))
+        XCTAssertGreaterThan(second.location, NSMaxRange(try XCTUnwrap(first)), "the word under the later point")
+        XCTAssertEqual(menus.last, "Look Up “\(p.selection.selectedText())”")
     }
 }
 #endif

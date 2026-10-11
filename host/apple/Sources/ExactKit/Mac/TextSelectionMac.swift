@@ -150,11 +150,9 @@ package final class TextSelection {
     }
 
     private func selectable(_ node: NodeView) -> Bool { node.textSelectable }
-    /// A press on `node`: `clicks` 2 selects the word under it and 3 its
-    /// paragraph, as the event's own count does when `clicks` is nil.
-    func begin(_ node: NodeView, event: NSEvent, clicks: Int? = nil) {
+    func begin(_ node: NodeView, event: NSEvent) {
         guard selectable(node) else { clear(); return }
-        let clicks = clicks ?? event.clickCount
+        let clicks = event.clickCount
         gesture += 1; motion = 0; pendingBegin = false; deferredDrag = nil; deferredEnd = nil
         let point = node.local(event.locationInWindow)
         if let reader = node.readerParagraph, reader.offset(at: point, node: node) == nil {
@@ -179,16 +177,33 @@ package final class TextSelection {
     /// does, as Chrome and an `NSTextView` do on a Mac before their menu
     /// opens. Inside the selection, its ends included (Chrome's
     /// `FrameSelection::Contains`), it keeps it; text the reader cannot
-    /// select keeps whatever is selected.
-    func secondaryClick(_ node: NodeView, event: NSEvent) {
-        guard selectable(node) else { return }
+    /// select keeps whatever is selected. Off the glyphs (past a line's
+    /// end, below the last line) it takes the nearest word, as an
+    /// `NSTextView` does; Chrome selects nothing there. Returns false when
+    /// the point is not known yet: a reader paragraph whose caret cache
+    /// misses it asks its raster worker, decides on the answer and then
+    /// runs `answered`, for the menu the click could not open.
+    func secondaryClick(_ node: NodeView, event: NSEvent, answered: @escaping () -> Void) -> Bool {
+        guard selectable(node) else { return true }
         let point = node.local(event.locationInWindow)
-        if let selected = range(node), selected.length > 0 {
-            let at = node.readerParagraph == nil ? index(node, at: point) : node.readerParagraph?.offset(at: point, node: node)
-            guard let at, at < selected.location || at > NSMaxRange(selected) else { return }
+        guard let reader = node.readerParagraph, reader.offset(at: point, node: node) == nil else {
+            secondaryClick(node, at: index(node, at: point)); return true
         }
+        gesture += 1; pendingBegin = false; deferredDrag = nil; deferredEnd = nil
+        let current = gesture
+        reader.resolveOffset(at: point, node: node) { [weak self, weak node] index, _ in
+            guard let self, let node, self.gesture == current, let index else { return }
+            self.secondaryClick(node, at: index)
+            answered()
+        }
+        return false
+    }
+
+    private func secondaryClick(_ node: NodeView, at index: Int) {
+        if let selected = range(node), selected.length > 0, index >= selected.location, index <= NSMaxRange(selected) { return }
         node.window?.makeFirstResponder(node)
-        begin(node, event: event, clicks: 2)
+        gesture += 1; motion = 0; pendingBegin = false; deferredDrag = nil; deferredEnd = nil
+        begin(node, clicks: 2, index: index)
     }
 
     private func begin(_ node: NodeView, clicks: Int, index: Int) {
@@ -450,21 +465,34 @@ extension NodeView {
 /// selects the word, as Chrome and AppKit do on a Mac (X76); then Look Up
 /// the selection, Copy (the `copy` event first, as ⌘C), Speech, and the
 /// Services that take text, which AppKit adds itself to a contextual menu
-/// whose responder can send them (`validRequestor`). An authored handler
-/// above, or on the run under the pointer, hears the click instead and
-/// nothing is selected, as in Chrome, which selects only for its own menu.
-/// Anywhere else there is no menu, as before, and under the agent none:
-/// AppKit's tracking of it would hold the agent's click.
+/// whose responder can send them (`validRequestor`). A reader paragraph
+/// whose raster worker must place the click opens it when the answer
+/// comes. An authored handler above, or on the run under the pointer,
+/// hears the click instead and nothing is selected, as in Chrome, which
+/// selects only for its own menu. Anywhere else there is no menu, as
+/// before, and under the agent none: AppKit's tracking of it would hold
+/// the agent's click.
 extension NodeView: NSServicesMenuRequestor {
     package override func menu(for event: NSEvent) -> NSMenu? {
         guard isParagraph, let selection = presenter?.selection, !contextMenuAuthored,
               inlineTarget(at: local(event.locationInWindow), handler: "contextmenu") == nil else { return super.menu(for: event) }
-        if event.type == .rightMouseDown || (event.type == .leftMouseDown && event.modifierFlags.contains(.control)) {
-            selection.secondaryClick(self, event: event)
+        if event.type == .rightMouseDown || (event.type == .leftMouseDown && event.modifierFlags.contains(.control)),
+           !selection.secondaryClick(self, event: event, answered: {
+               // The reader's worker placed the click: its menu opens on the
+               // next turn, once the reader has taken the answer in.
+               DispatchQueue.main.async { [weak self] in
+                   guard let self, self.window != nil, let menu = self.textMenu() else { return }
+                   NSMenu.popUpContextMenu(menu, with: event, for: self)
+               }
+           }) {
+            return super.menu(for: event)
         }
-        guard !ExactEnv.agentMode, let range = selection.range(self), range.length > 0 else { return super.menu(for: event) }
+        return textMenu() ?? super.menu(for: event)
+    }
+    private func textMenu() -> NSMenu? {
+        guard !ExactEnv.agentMode, let selection = presenter?.selection, let range = selection.range(self), range.length > 0 else { return nil }
         let text = selection.selectedText()
-        guard !text.isEmpty else { return super.menu(for: event) }
+        guard !text.isEmpty else { return nil }
         _ = Self.servicesRegistered
         let menu = NSMenu()
         let shown = text.count > 24 ? String(text.prefix(23)) + "…" : text
