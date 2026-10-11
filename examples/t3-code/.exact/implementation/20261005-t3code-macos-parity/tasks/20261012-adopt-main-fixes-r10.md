@@ -1,13 +1,13 @@
 ---
 name: 20261012-adopt-main-fixes-r10
 plan: 20261005-t3code-macos-parity
-implementation: in-progress
+implementation: done
 verification: pending
 delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-adopt-main-fixes-r10'
-pr_url:
+pr_url: https://github.com/ccheever/exact2/pull/472
 verified_commit:
 ---
 
@@ -223,7 +223,29 @@ home outside any git checkout), window 1280×840, a thread open (Verification fi
 
 ## Checks
 
-(filled in below after the run on the final head)
+Once, on `fb6081a2a` (the final merge; later commits change this record only), `target/r10/checks.sh`:
+
+| Check | Exit | Note |
+| --- | --- | --- |
+| `bun test examples/t3-code --timeout 60000` | 0 | 4,665 pass, 1 skip, 0 fail (312 files) |
+| strict `tsc` (README command) | 0 | TypeScript 7.0.2 |
+| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | 6,161 slots, 110,194 nodes, 48 resources; 250 warnings, no error (230 `lower-colour-one-scheme`, 19 `analyze-read-after-assign`, 1 `type-performance-now-persisted`; "Each item"). `app.contract` 1,398 lines |
+| `cargo test -p t3-code-macos --lib` | 0 | 21 pass (no clone Rust or Swift changed; run because main changed the host) |
+| `git add -A && bun scripts/caps.mjs` | 0 | all budgets within cap |
+| `cargo build --all-targets --keep-going` | 0 | |
+| `cargo test --lib --bins --tests --no-fail-fast` | 0 | 3,756 passed, 0 failed, 36 ignored (95 suites): main's `ccd3d3be7` ended round 9's `color-gallery` red; the examples sweep compiles the clone |
+| `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | |
+| `cargo fmt --all -- --check` | 0 | |
+| `bun scripts/boot.mjs` | 0 | |
+| `host/apple/build.mjs t3-code-macos --bundle` | 0 | before (`fe0e39c91`), after (`6bb7e084d`) and the retry's (`0af2a208d`) |
+
+The AppKit binaries were not run: no module Swift changed, and main's Apple changes since round 9 are the AX roles, the
+link URL, the right-click word, the heading child, the field ring, the popover press walk and an iOS autofocus guard,
+each driven above where the clone meets it.
+
+After the checks main moved 11 commits (`5f50e9877`, among them `efe10e0c1` "refuse string arms on number-only style
+rows", `ad3d5695d` lowering's `check_style`, `eff14ad1d` "preserve Exact nodes inside hatches", #422 calc sizing for
+measured leaves); not adopted here (the next round takes them; the first two may refuse clone lines).
 
 ## Attempts and evidence
 
