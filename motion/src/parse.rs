@@ -1,6 +1,6 @@
 //! CSS `transition` shorthand → [`Transitions`].
 //!
-//! @ref LLP 1002 §2 (the web is the standard: the authored form is CSS's own
+//! @ref LLP 1002 §2, LLP 1115 §2 (names stay CSS: the authored form is CSS's own
 //! `transition` shorthand; `-exact-spring(stiffness, damping, mass)` is the
 //! one declared extension, LLP 1081 D2)
 //!
