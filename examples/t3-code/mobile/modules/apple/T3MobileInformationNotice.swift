@@ -26,11 +26,15 @@ final class T3MobileInformationNotice: ExactNativeInstance {
     override func setProps(_ props: [String: String]) throws {
         entry = props["entry-id"] ?? ""; title.text = props["notice-name"] ?? ""; metadata.text = props["notice-metadata"] ?? ""; text.text = props["notice-text"] ?? ""
         let size = CGFloat(Double(props["notice-point-size"] ?? "14") ?? 14), line = CGFloat(Double(props["notice-line-height"] ?? "21") ?? 21)
-        let titleSize = CGFloat(Double(props["notice-title-size"] ?? "21") ?? 21)
-        title.font = UIFont(name: "DMSans-Bold", size: titleSize) ?? .systemFont(ofSize: titleSize, weight: .bold); metadata.font = UIFont(name: "DMSans-Regular", size: size) ?? .systemFont(ofSize: size); source.titleLabel?.font = UIFont(name: "DMSans-Medium", size: size) ?? .systemFont(ofSize: size, weight: .medium)
+        let titleSize = CGFloat(Double(props["notice-title-size"] ?? "26") ?? 26), titleLine = CGFloat(Double(props["notice-title-line-height"] ?? "32") ?? 32)
+        let titleFont = UIFont(name: "DMSans-Bold", size: titleSize) ?? .systemFont(ofSize: titleSize, weight: .bold), metadataFont = UIFont(name: "DMSans-Regular", size: size) ?? .systemFont(ofSize: size)
+        source.titleLabel?.font = UIFont(name: "DMSans-Medium", size: size) ?? .systemFont(ofSize: size, weight: .medium)
         let paragraph = NSMutableParagraphStyle(); paragraph.minimumLineHeight = line; paragraph.maximumLineHeight = line
-        text.attributedText = NSAttributedString(string: text.text, attributes: [.font: UIFont.monospacedSystemFont(ofSize: size, weight: .regular), .foregroundColor: color(props["notice-foreground"]), .paragraphStyle: paragraph])
-        title.textColor = color(props["notice-foreground"]); metadata.textColor = color(props["notice-muted"]); source.setTitleColor(color(props["notice-link"]), for: .normal)
+        let titleParagraph = NSMutableParagraphStyle(); titleParagraph.minimumLineHeight = titleLine; titleParagraph.maximumLineHeight = titleLine
+        title.attributedText = NSAttributedString(string: title.text ?? "", attributes: [.font: titleFont, .foregroundColor: color(props["notice-foreground"]), .paragraphStyle: titleParagraph])
+        metadata.attributedText = NSAttributedString(string: metadata.text ?? "", attributes: [.font: metadataFont, .foregroundColor: color(props["notice-muted"]), .paragraphStyle: paragraph])
+        text.attributedText = NSAttributedString(string: text.text, attributes: [.font: UIFont.systemFont(ofSize: size, weight: .regular), .foregroundColor: color(props["notice-foreground"]), .paragraphStyle: paragraph])
+        source.setTitleColor(color(props["notice-link"]), for: .normal)
         scroll.backgroundColor = color(props["notice-sheet"]); card.backgroundColor = color(props["notice-card"]); source.isHidden = props["has-source"] != "true"
         scroll.contentInset.bottom = max(0, CGFloat(Double(props["notice-bottom"] ?? "36") ?? 36) - 36)
     }
