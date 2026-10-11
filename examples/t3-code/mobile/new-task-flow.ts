@@ -17,7 +17,7 @@ import { mobileNewTaskTransferRecoveryRead, mobileNewTaskTransferRecoveryAction,
 import { mobileNewTaskDraftIsPendingKey, mobileNewTaskDraftNoteBranch } from './mobile-new-task-drafts';
 import { mobileNewTaskCloneObserve, mobileNewTaskCloneAction } from './new-task-clone';
 import { mobileClient, mobileNative } from './client';
-import { mobileHomeSources } from './home';
+import { mobileHomeProjects, mobileHomeSources } from './home';
 import { mobileNewTask, mobileNewTaskAction } from './new-task';
 import { mobileSessionGrants } from './environment-detail';
 import { mobileComposerSettings, mobileComposerSettingsAction } from './composer-settings';
@@ -45,6 +45,7 @@ export interface NewTaskFlowResult {
 interface Selection { environmentId: string; projectId: string; draftKey: string; generation: number; threadEpoch: number }
 interface Flow {
   session: string; owner: string; visit: string; location: string; active: boolean; serial: number;
+  catalogReady: boolean; groupingMode: string; environmentOrder?: readonly string[];
   draftKey: string; busy: boolean; selected: Selection | null; applied: Set<string>; requests: Map<string, string>; error: string; readyVisit: string;
   recovery?: MobileNewTaskTransferRecoveryView; share?: NewTaskShare;
   recoveredRoute?: string;
@@ -64,6 +65,23 @@ const sameSelection = (value: Selection | null, client: T3Client) => !!value && 
 const projectExists = (environmentId: string, projectId: string, client: T3Client, background: EnvironmentFleet) =>
   mobileHomeSources(client, background).some(source => source.environmentId === environmentId
     && source.shell.projects.some(project => project.id === projectId && project.archivedAt == null));
+const soleProject = (client: T3Client, background: EnvironmentFleet, groupingMode: string, environmentOrder?: readonly string[]) => {
+  if (!groupingMode) return null;
+  // The bare route uses the group's first catalog member, not the chooser's focused member.
+  const order = environmentOrder ? new Map(environmentOrder.map((id, index) => [id, index])) : null;
+  const available = mobileHomeSources(client, background);
+  // Connecting the representative clears the focused shell before synchronization.
+  const connecting = !client.shellLoaded && [...background.entries.values()].find(entry => entry.environmentId === client.environmentId
+    && entry.phase === 'connected' && entry.synchronized === entry.generation);
+  if (connecting) available.push({ environmentId: connecting.environmentId, label: '', machine: '',
+    config: connecting.config, shell: connecting.shell, focused: false, origin: connecting.origin, connected: true });
+  const sources = available.filter(source => !order || order.has(source.environmentId))
+    .sort((left, right) => order ? order.get(left.environmentId)! - order.get(right.environmentId)! : 0)
+    .map(source => ({ ...source, shell: { ...source.shell,
+      projects: source.shell.projects.filter(project => project.archivedAt == null) } }));
+  const scopes = mobileHomeProjects(sources, { groupingMode, projectSortOrder: 'updated_at' });
+  return scopes.length === 1 ? scopes[0]! : null;
+};
 
 /** Query identity is explicit. Titles never substitute for project IDs. */
 export function mobileNewTaskRoute(location: string) {
@@ -82,7 +100,7 @@ export function mobileNewTaskRoute(location: string) {
   const environmentId = param('environmentId'), projectId = param('projectId'), cwd = param('cwd'), pendingTaskId = param('pendingTaskId');
   const pendingConflict = !!pendingTaskId && (context !== 'draft' || !environmentId || !projectId || ['draftId', 'branch', 'worktreePath', 'cloning', 'incomingShareId'].some(key => query.has(key)));
   const standaloneFile = context === 'file' && !!environmentId && !!cwd && !projectId && !param('draftId') && !unsupported;
-  return { chooser, context, environmentId, projectId, cwd, pendingTaskId, standaloneFile, incomingShareId: param('incomingShareId'), draftId: param('draftId'),
+  return { chooser, bareDraft: path === '/new/draft' && query.size === 0, context, environmentId, projectId, cwd, pendingTaskId, standaloneFile, incomingShareId: param('incomingShareId'), draftId: param('draftId'),
     branch: query.get('branch') ?? '', worktreePath: query.get('worktreePath') ?? '', unsupported: mobileNewTaskDraftIsPendingKey(param('draftId')) ? 'draftId' : pendingConflict ? 'pendingTaskId' : unsupported };
 }
 
@@ -90,13 +108,17 @@ export function mobileNewTaskRoute(location: string) {
  * draft/selection mutation or native handle survives this synchronous snapshot.
  * An inactive observation invalidates every outstanding action for that session. */
 export function mobileNewTaskFlowView(session: string, visit: string, location: string, active: boolean, catalogReady: boolean,
-  client: T3Client = mobileClient, background: EnvironmentFleet = fleet): NewTaskFlowSnapshot {
+  client: T3Client = mobileClient, background: EnvironmentFleet = fleet, groupingMode = 'repository', environmentOrder?: readonly string[]): NewTaskFlowSnapshot {
   let flow = flows.get(client);
   if (!flow || flow.session !== session || active && !flow.active) {
     if (flow) mobileNewTaskDraftUnbind(client, flow.owner);
     flow = { session, owner: JSON.stringify([session, ++sequence]), visit, location, active, serial: 0,
+      catalogReady, groupingMode, environmentOrder: environmentOrder ?? (background.saved.length
+        ? background.saved.filter(entry => entry.enabled !== false).map(entry => str(entry.environmentId)) : undefined),
       draftKey: '', busy: false, selected: null, applied: new Set(), requests: new Map(), error: '', readyVisit: '' }; flows.set(client, flow);
   }
+  flow.catalogReady = catalogReady; flow.groupingMode = groupingMode;
+  if (environmentOrder) flow.environmentOrder = environmentOrder;
   if (flow.requests.has(visit) && flow.requests.get(visit) !== location) flow.applied.delete(visit);
   flow.requests.set(visit, location);
   if (flow.visit !== visit || flow.location !== location || flow.active !== active) {
@@ -165,6 +187,10 @@ export function mobileNewTaskFlowView(session: string, visit: string, location: 
     if (!catalogReady) return { ...base, status: 'loading' };
     if (!projectExists(route.environmentId, route.projectId, client, background)) return { ...base, status: 'pick', nextLocation: '/new' };
     return { ...base, status: 'prepare', needsPrepare: true };
+  }
+  if (route.bareDraft && !base.pendingEditor && !flow.share && !flow.draftKey && !flow.applied.has(visit)) {
+    if (!catalogReady || !groupingMode) return { ...base, status: 'loading' };
+    if (soleProject(client, background, groupingMode, flow.environmentOrder)) return { ...base, status: 'prepare', needsPrepare: true };
   }
   if (!selected) return { ...base, status: catalogReady ? 'pick' : 'loading', nextLocation: catalogReady ? '/new' : '' };
   if (route.context === 'branch' && mobileNewTask('', client, background).scratch) return { ...base, status: 'pick', nextLocation: '/new/draft' };
@@ -238,7 +264,13 @@ export async function mobileNewTaskFlowAction(owner: string, visit: string, kind
     const edited = await mobileNewTaskAction(kind, id, value, nativeInput, suppliedStorage, client, background, current);
     return { ...result(edited.message), revision: edited.revision };
   }
-  const serial = ++flow.serial, current = () => flows.get(client) === flow && flow.active && flow.visit === visit && flow.serial === serial;
+  const automatic = kind === 'prepare' && pendingRoute.bareDraft && !flow.pendingRoute && !flow.share && !flow.draftKey && flow.catalogReady
+    ? soleProject(client, background, flow.groupingMode, flow.environmentOrder) : null;
+  const serial = ++flow.serial, current = () => {
+    if (flows.get(client) !== flow || !flow.active || flow.visit !== visit || flow.serial !== serial) return false;
+    const target = automatic ? soleProject(client, background, flow.groupingMode, flow.environmentOrder) : null;
+    return !automatic || target?.environmentId === automatic.environmentId && target.projectId === automatic.projectId;
+  };
   let transferLease: NewTaskTransferLease | undefined, transferChecked = false;
   const assertCurrent = () => {
     if (!current()) throw new ClientError('The new task route changed.', 'superseded');
@@ -382,7 +414,8 @@ export async function mobileNewTaskFlowAction(owner: string, visit: string, kind
     if (kind === 'prepare') {
       if (!route.context || route.unsupported) return result('', '/new');
       const saved = route.draftId ? mobileNewTaskDraftLookup(client, route.draftId) : null;
-      const requestedEnvironment = saved?.environmentId || route.environmentId, requestedProject = saved?.projectId || route.projectId;
+      const requestedEnvironment = saved?.environmentId || route.environmentId || automatic?.environmentId,
+        requestedProject = saved?.projectId || route.projectId || automatic?.projectId;
       if (route.draftId && !saved) return result('', '/new');
       if (!flow.applied.has(visit) && requestedEnvironment && requestedProject) {
         if (!projectExists(requestedEnvironment, requestedProject, client, background) && !mobileNewTaskRestoredProject(client, route.draftId)) return result('', '/new');

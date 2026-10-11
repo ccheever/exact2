@@ -9,6 +9,7 @@ import { obj, type Obj } from './shared/domain';
 import type { Files, Native } from './shared/protocol';
 import type { MobileOutboxTransferClaim } from './mobile-outbox-transfer-model';
 import { mobileNewTaskSubmitRecover } from './new-task-submit';
+import { mobileNewTaskChooser } from './new-task';
 const time = 1791420000000, origin = 'https://test.invalid';
 function config(environmentId = 'env'): Obj {
   return { environment: { environmentId, orchestrationProtocolVersion: 2, capabilities: { serverResolvedCommandContext: true } },
@@ -80,6 +81,51 @@ test('two containing flows create independent IDs for one project and never adop
   expect(list(f.client).map(record => record.key).sort()).toEqual([keyA, keyB]);
   expect(f.client.local.drafts[keyA]).toBe('draft A'); expect(f.client.local.drafts['env:new:a']).toBe('old A');
   expect(f.calls.filter(call => call.op === 'ids')).toHaveLength(2);
+});
+test('bare draft uses the catalog representative while the chooser keeps the focused workspace', async () => {
+  const f = await fixture(), identity = { canonicalKey: 'one-repository' };
+  f.client.shell.projects = [{ id: 'a', title: 'A', workspaceRoot: '/a', repositoryIdentity: identity }];
+  const remoteProject = { id: 'remote-project', title: 'A', workspaceRoot: '/remote/a', repositoryIdentity: identity };
+  const remoteConfig = config('remote');
+  const entry = { key: 'remote-key', origin: 'https://remote.test', environmentId: 'remote', phase: 'connected' as const,
+    generation: 7, synchronized: 7, config: remoteConfig, shell: { projects: [remoteProject], threads: [], sequence: 0 },
+    scopes: ['orchestration:operate'], error: '', message: '', traceId: '', lastEvent: 0, subscriptions: {}, requested: true };
+  f.fleet.entries.set(entry.key, entry);
+  // The freshly read catalog order overrides the fleet's previous order and current focus.
+  f.fleet.saved = [{ environmentId: 'env' }, { environmentId: 'remote' }];
+  f.client.local.drafts['remote:new:remote-project'] = 'old remote';
+  const previous = f.native.later;
+  f.native.later = async input => {
+    const request = obj(input);
+    if (request.op === 'ids' || request.op === 'mobileOutbox') return previous(input);
+    if (request.fleet === entry.key) {
+      f.calls.push(request); return { ok: true, generation: 7,
+        value: request.path === '/api/auth/session' ? { authenticated: true, permissions: ['orchestration:operate'] } : {} };
+    }
+    if (request.op === 'connect') {
+      f.calls.push(request); return { ok: true, generation: 2,
+        value: { state: 'connected', origin: entry.origin, environmentId: 'remote', message: '' } };
+    }
+    if (f.client.environmentId === 'remote') {
+      f.calls.push(request); return { ok: true, generation: 2,
+        value: request.method === 'server.getConfig' ? remoteConfig
+          : request.path === '/api/orchestration/shell' ? { snapshotSequence: 1, projects: [remoteProject], threads: [] }
+            : request.path === '/api/auth/session' ? { authenticated: true, permissions: ['orchestration:operate'], scopes: ['orchestration:operate'] }
+              : request.op === 'subscribe' ? { id: String(request.key) } : {} };
+    }
+    return previous(input);
+  };
+  expect(mobileNewTaskChooser('', 'repository', f.client, f.fleet).projects[0]).toMatchObject({ environmentId: 'env', projectId: 'a' });
+  const flow = view('representative', 'visit', '/new/draft', true, true, f.client, f.fleet, 'repository', ['remote', 'env']);
+  expect(flow).toMatchObject({ status: 'prepare', needsPrepare: true });
+  expect(f.calls).toEqual([]);
+  expect((await f.act(flow.owner, 'prepare')).message).toBe('');
+  expect(f.client.environmentId).toBe('remote'); expect(f.client.projectId).toBe('remote-project');
+  expect(lookup(f.client, f.client.draftKey)).toMatchObject({ key: 'new-task:allocated-1', environmentId: 'remote', projectId: 'remote-project' });
+  expect(f.client.draft).toBe(''); expect(f.client.local.drafts['remote:new:remote-project']).toBe('old remote');
+  expect(f.client.local.drafts['env:new:a']).toBe('old A');
+  expect(f.calls.filter(call => call.op === 'ids')).toHaveLength(1);
+  expect(f.calls.filter(call => call.op === 'connect')).toHaveLength(1);
 });
 test('same-flow project retarget keeps identity/content through child routes', async () => {
   const f = await fixture(), flow = await f.choose('one'), key = f.client.draftKey;

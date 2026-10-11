@@ -1115,7 +1115,7 @@ component App
   resource modelData = composerSettings(modelQuery, modelFilter, modelLegacy, data.revision, taskGuardOwner, taskGuardRoute) as shape ComposerSettingsSnapshot
   derive newTaskActive = startsWith(top(nav).name, "newTask")
   derive newTaskSession = match first(filter(stack(nav), route => route.name == "newTask")) { case some(route) => `${route.id}`, case none => "" }
-  resource newTaskFlow = newTaskFlow(newTaskSession, `${top(nav).id}`, top(nav).url, newTaskActive or startsWith(top(nav).name, "addProject"), data.revision, wallTime.epochAtZero + max(elapsed, now()), incomingShareInbox.revision) as shape NewTaskFlowSnapshot
+  resource newTaskFlow = newTaskFlow(newTaskSession, `${top(nav).id}`, top(nav).url, newTaskActive or startsWith(top(nav).name, "addProject"), data.revision, wallTime.epochAtZero + max(elapsed, now()), incomingShareInbox.revision, preferences.ready ? appearance.groupingMode : "") as shape NewTaskFlowSnapshot
   resource addProjectData = addProjectObserve(newTaskSession, workspaceEntries, `${top(nav).id}`, data.revision) as shape AddProjectSnapshot
   resource addProjectLook = addProjectColors(appearance.scheme, appearance.themeId) as shape AddProjectColors
   derive addProjectAlert = addProjectNextAlert(addProjectData)
