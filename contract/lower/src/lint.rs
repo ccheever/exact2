@@ -211,7 +211,14 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                                 Some(tags::AttrTarget::Styles(rows))
                                     if rows != [StyleId::FontFamily] =>
                                 {
-                                    values::check_style_value(a, rows, &Ty::Unknown, &[])
+                                    values::check_style_value(
+                                        a,
+                                        rows,
+                                        &Ty::Unknown,
+                                        &[],
+                                        &Default::default(),
+                                        &Default::default(),
+                                    )
                                 }
                                 // The shorthand's parts, as lowering checks them: `flex="none"`
                                 // was refused here as a grow number beside another error
@@ -228,6 +235,8 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                                                 &[row],
                                                 &Ty::Unknown,
                                                 &[],
+                                                &Default::default(),
+                                                &Default::default(),
                                             )
                                         })
                                 }

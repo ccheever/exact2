@@ -1,6 +1,7 @@
 # Bound the native owner queue and retire redundant snapshots
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Coalesced retirement snapshots between owner turns; blocked_owner_keeps_only_latest_retirement_before_next_turn proves bounded pending bytes and ordering.
 **Systems:** data placement, native executors
 **Author:** Codex (GPT-6), for Charlie Cheever
 **Date:** 2026-10-06
