@@ -103,6 +103,19 @@ describe('mobile review source rules and real shared RPC ownership', () => {
     await act(f, 'line', 'src/a.ts', '', 2);
     expect(mobileReviewSnapshot(false, f.client)).toMatchObject({ commentOpen: false, canComment: true });
   });
+  test('a new long press replaces the pending range anchor before a tap completes it', async () => {
+    const f = fixture(); await read(f); f.calls.length = 0;
+    await act(f, 'range-start', 'src/a.ts', '', 0);
+    const restarted = await act(f, 'range-start', 'src/a.ts', '', 1);
+    expect(restarted.data.rows.filter(row => row.kind === 'line' && row.selected).map(row => row.lineIndex)).toEqual([1]);
+    expect(restarted).toMatchObject({ message: '', navigation: '', data: { selectionTitle: 'Select range end', canComment: false, commentOpen: false } });
+    const completed = await act(f, 'line', 'src/a.ts', '', 2);
+    expect(completed.data.rows.filter(row => row.kind === 'line' && row.selected).map(row => row.lineIndex)).toEqual([1, 2]);
+    expect(completed).toMatchObject({ message: '', navigation: '', data: { canComment: true, commentOpen: false } });
+    expect(completed.data.files[0]).toMatchObject({ expanded: true, viewed: false });
+    expect(f.calls).toEqual([]);
+    expect(f.client.draft).toBe('');
+  });
 });
 
 
