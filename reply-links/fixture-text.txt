@@ -1,0 +1,7 @@
+Known $verify skill. Price $5 stays plain; code `$verify` stays plain; [linked $verify](https://example.test) stays a link.
+
+Review [parser](fixture.txt:3), [fixture.txt](fixture.txt), [fixture.txt:3](fixture.txt:3).
+
+Write to [the team](mailto:team@example.test), join [the channel](irc://irc.example.test/t3), [chat](xmpp:team@example.test) or read [the notes](#notes).
+
+Code inside: [the `x` docs](https://example.com/c) and [`y` docs](https://example.com/d).
