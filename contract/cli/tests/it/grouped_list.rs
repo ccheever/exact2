@@ -466,6 +466,70 @@ fn a_column_row_keeps_its_direction() {
 }
 
 #[test]
+fn a_row_holding_its_own_stack_keeps_the_cells_margins() {
+    // Two bake-off apps (team-kanban's cards, household-list's items): a
+    // `row` around a `column` of a title, a second line and a row of
+    // buttons had no space above or below, so its title touched the card
+    // and its buttons the separator, on every host. A hand-built cell keeps
+    // its content inside the content view's margins: 15 above and below, as
+    // a `column` row has them.
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    row testId=\"card\"\n      column flex=1 min-width=0 gap=8 testId=\"stack\"\n        text \"Ada task one\" testId=\"title\"\n        text \"Ada\" testId=\"by\"\n        row gap=8 testId=\"actions\"\n          button press=go\n            text \"To Doing\"\n          button press=go\n            text \"Delete\"\n    row testId=\"item\"\n      input type=\"checkbox\" checked=on input=flip\n      when on\n        column flex=1 min-width=0 testId=\"lines\"\n          text \"Milk\"\n          text \"Added by Alice\"\n          text \"Checked by Bob\"\n      button press=go\n        text \"Delete\"\n    row testId=\"one\"\n      text \"No cards yet.\"\n    row testId=\"field\"\n      input value=\"\" placeholder=\"Card title\" flex=1\n      button press=go\n        text \"Add\"\n    row testId=\"pair\"\n      column\n        text \"Title\"\n        text \"Detail\"\n    row testId=\"cover\"\n      column width=44 height=66\n      text \"Untitled\"\n    button press=go testId=\"profile\"\n      row width=56 height=56 margin-top=10 margin-bottom=10\n      column\n        text \"Maya Chen\"\n        text \"+1 415 555 0134\"");
+    let k = r.kernel();
+    let frame = |t: &str| k.node(id(&r, t)).unwrap().frame;
+    let rows = &k.grouped_list(id(&r, "list")).unwrap().sections[0].rows;
+    assert!(rows[0].custom && rows[1].custom, "custom and carried");
+    let (card, title, actions) = (frame("card"), frame("title"), frame("actions"));
+    assert_eq!(title.y - card.y, 15.0, "the title 15 under the card's top");
+    assert_eq!(
+        card.y + card.height - 1.0 - (actions.y + actions.height),
+        15.0,
+        "the buttons 15 over the separator: {card:?} {actions:?}"
+    );
+    assert_eq!(title.x, 32.0, "16 into the card, as before");
+    let (item, lines) = (frame("item"), frame("lines"));
+    assert_eq!(
+        lines.y - item.y,
+        15.0,
+        "a column beside controls, shown by a condition, too"
+    );
+    assert_eq!(
+        item.height,
+        lines.height + 31.0,
+        "15 above, 15 below, and the separator"
+    );
+    assert_eq!(
+        frame("one").height,
+        53.0,
+        "one text: a cell's 52 and its separator"
+    );
+    assert_eq!(
+        frame("field").height,
+        53.0,
+        "a row of controls keeps the cell's 52"
+    );
+    assert!(
+        rows[4].subtitle && frame("pair").height < 70.0,
+        "the subtitle cell's padding is its column's, not its row's too"
+    );
+    assert_eq!(
+        frame("cover").height,
+        67.0,
+        "an empty column is a box (a cover's placeholder), not lines"
+    );
+    assert_eq!(
+        frame("profile").height,
+        77.0,
+        "the stack's margins are its own: a taller avatar with its own sets the height"
+    );
+    // The author's padding replaces the sheet's, a shorthand included.
+    let own = boot("list appearance=\"auto\" flex=1\n  section\n    row padding-top=8 padding-bottom=8 testId=\"tight\"\n      column testId=\"in\"\n        text \"A\"\n        text \"B\"\n        text \"C\"\n    row padding=40 testId=\"loose\"\n      column testId=\"in2\"\n        text \"A\"\n        text \"B\"\n        text \"C\"");
+    let k = own.kernel();
+    let frame = |t: &str| k.node(id(&own, t)).unwrap().frame;
+    assert!((frame("in").y - frame("tight").y - 8.0).abs() < 0.01);
+    assert!((frame("in2").y - frame("loose").y - 40.0).abs() < 0.01);
+}
+
+#[test]
 fn a_hidden_text_in_a_subtitle_column_and_a_hidden_first_line() {
     let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go\n      column testId=\"stack\"\n        text \"Gone\" display=\"none\"\n        text \"Privacy\"\n        text \"Screen lock\"\n    button press=go testId=\"row\"\n      column\n        when dark\n          text \"Privacy\"\n        text \"Screen lock\" testId=\"lock\"");
     assert!(

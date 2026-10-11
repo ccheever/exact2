@@ -689,6 +689,21 @@ fn row(node: &Node, separated: bool) -> Node {
             instance: *instance,
         };
     }
+    let stack = text_stack(children);
+    // A stack of lines in the row (an author's `column` that is not the
+    // subtitle cell) keeps the cell's margins, as a hand-built cell pins its
+    // content to its content view's: the subtitle cell's 15 above and below,
+    // as a `column` row has them. On the stack, not the row, so a taller part
+    // beside it (an avatar with its own margins) sets the height as before;
+    // a row whose author wrote its vertical padding has said the space.
+    // Without them its first line touched the card and its last the separator.
+    let lines = !stack
+        && !attrs.iter().any(|a| {
+            matches!(
+                a.name.as_str(),
+                "padding" | "padding-top" | "padding-bottom"
+            )
+        });
     let sheet = vec![
         s("display", "flex", span),
         s("flex-direction", "row", span),
@@ -715,7 +730,6 @@ fn row(node: &Node, separated: bool) -> Node {
         s("text-align", "left", span),
     ];
     let mut texts = Count::Known(0);
-    let stack = text_stack(children);
     // Positions among the shown parts: a part written `display="none"` is
     // not the leading or the trailing one (D4).
     let shown: Vec<&Node> = children.iter().filter(|c| !hidden(c)).collect();
@@ -734,6 +748,7 @@ fn row(node: &Node, separated: bool) -> Node {
                 i,
                 last,
                 stack,
+                lines,
                 tint: &tint,
             };
             part(child, at, &mut texts)
@@ -771,6 +786,8 @@ struct Place<'a> {
     last: usize,
     /// Whether a `column` here is the row's text stack (`text_stack`).
     stack: bool,
+    /// Whether a stack of lines here takes the cell's margins (`stacks`).
+    lines: bool,
     tint: &'a dyn Fn(&str) -> Expr,
 }
 
@@ -796,6 +813,7 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
         i,
         last,
         stack,
+        lines,
         tint,
     } = at;
     if let Node::When {
@@ -935,6 +953,10 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
             )
         }
         ("column", _) if stack => subtitle(child),
+        _ if lines && stacks(child) => with(
+            child,
+            vec![n("margin-top", 15.0, at), n("margin-bottom", 15.0, at)],
+        ),
         _ => child.clone(),
     }
 }
@@ -1014,6 +1036,14 @@ fn column_row(tag: &str, attrs: &[Attr]) -> bool {
         Some(a) => matches!(&a.value, Expr::Str(v, _) if v.starts_with("column")),
         None => tag == "column",
     }
+}
+
+/// Whether a row's part is lines stacked in the row: a shown element that
+/// lays out as a column around two parts or more (a column with nothing in
+/// it is a box, as a cover's placeholder is). `part` reads a `when` through.
+fn stacks(node: &Node) -> bool {
+    matches!(node, Node::Element { tag, attrs, children, .. }
+        if !hidden(node) && column_row(tag, attrs) && children.iter().filter(|c| !hidden(c)).count() >= 2)
 }
 
 /// A title over a subtitle: UIKit's subtitle cell, 15 above and below, the
