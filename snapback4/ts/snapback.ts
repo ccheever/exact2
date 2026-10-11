@@ -66,6 +66,21 @@ export interface Outcome<R = Json> { id: string; state: 'pending' | 'sent' | 'fa
  * the next round sends it. */
 export type Sent<R = Json> = Outcome<R> & { round?: Round };
 
+/** An operation handle Snapback generates (`api.recent` in the backend's
+ * `snapback/generated/api.ts`, a `Query` or `Mutation`): its name, and, as
+ * types only, its arguments and result. Passed where a name goes, it types
+ * the call: its arguments are checked (an unknown or missing field fails
+ * the build, named) and its result is the server's type, so no hand-written
+ * row type or `<T>` is needed. README.md, "Typed operations". */
+export interface Op<A = Args, R = Json> { readonly kind: string; readonly name: string; readonly __args?: A; readonly __result?: R }
+export type QueryOp<A = Args, R = Json> = Op<A, R> & { readonly kind: 'query' };
+export type MutationOp<A = Args, R = Json> = Op<A, R> & { readonly kind: 'mutation' };
+/** What a call by `O` takes: a handle's arguments, or any object for a name. */
+export type ArgsOf<O> = O extends Op<infer A, unknown> ? A : Args;
+/** What a call by `O` answers: a handle's result, or `T` for a name. */
+export type ResultOf<O, T = Json> = O extends Op<unknown, infer R> ? R : T;
+const nameOf = (op: string | Op<unknown, unknown>): string => typeof op === 'string' ? op : op.name;
+
 /** A session as Snapback mints it; `expiresAt` in milliseconds. */
 export interface Session { principal: string; kind: string; token: string; expiresAt: number }
 
@@ -307,7 +322,9 @@ export class Snapback {
    * server answers it (`POST /q/<name>`), and the answer says `server: true`.
    * Unreached, such a read answers `denied` with `E_OFFLINE`, never an empty
    * page that looks like one. */
-  async read<T = Json>(name: string, args: Args, now: number): Promise<Read<T>> {
+  async read<T = Json, O extends string | QueryOp<unknown, unknown> = string>(op: O, given: NoInfer<ArgsOf<O>>, now: number): Promise<Read<ResultOf<O, T>>> {
+    const name = nameOf(op), args = given as Args;
+    type R = ResultOf<O, T>;
     const at = clock(now);
     await this.ready();
     let route = this.partition.routes.get(name);
@@ -315,8 +332,8 @@ export class Snapback {
       route = ok<'device' | 'server' | 'held'>(await this.call({ op: 'route', name }));
       this.partition.routes.set(name, route);
     }
-    if (route === 'server') return this.serverRead<T>(name, args);
-    const local = ok<Read<T>>(await this.call({ op: 'read', name, args: args as Request, now: at }));
+    if (route === 'server') return this.serverRead<R>(name, args);
+    const local = ok<Read<R>>(await this.call({ op: 'read', name, args: args as Request, now: at }));
     // Whose answer (CLIENT-AND-OPERATIONS.md, "The device reply"): the
     // device's when it is not `unknown`, when it is `retained` history, or
     // when the schema holds the query to the device; otherwise the server's.
@@ -325,12 +342,12 @@ export class Snapback {
     // The prediction fence, coarse: while any write is queued, the device's
     // answer (with its predicted rows) stands; a speculative one is not an
     // answer, so it shows as loading. Checked again when the server replies.
-    const placeholder = (extra: Partial<Read<T>>): Read<T> =>
+    const placeholder = (extra: Partial<Read<R>>): Read<R> =>
       local.speculative === true || local.loading === true
         ? { loading: true, unknown: true, ...extra }
         : { ...local, ...extra };
     if (((await this.status()).queued ?? []).length) return placeholder({});
-    const served = await this.serverRead<T>(name, args);
+    const served = await this.serverRead<R>(name, args);
     if (served.denied?.code === 'E_OFFLINE') return placeholder({ offline: true });
     if (((await this.status()).queued ?? []).length) return placeholder({});
     return served;
@@ -359,12 +376,14 @@ export class Snapback {
    * any page was not (rows past a sync horizon, a capped scan, or the
    * device's partial with the server unreached, which also sets `offline`).
    * Show such a list as partial, never as all there is. */
-  async readAll<T = Json>(name: string, args: Args, now: number, cursor = 'c', limit = Infinity): Promise<Rows<T>> {
-    const rows = Object.assign([] as T[], { complete: true, offline: false });
+  async readAll<T = Json, O extends string | QueryOp<unknown, readonly unknown[]> = string>(op: O, given: NoInfer<ArgsOf<O>>, now: number, cursor = 'c', limit = Infinity): Promise<Rows<ResultOf<O, T[]>[number]>> {
+    type E = ResultOf<O, T[]>[number];
+    const name = nameOf(op), args = given as Args;
+    const rows = Object.assign([] as E[], { complete: true, offline: false });
     const seen = new Set<string>();
     let next: string | null = null;
     do {
-      const page: Read<T[]> = await this.read<T[]>(name, next === null ? args : { ...args, [cursor]: next }, now);
+      const page: Read<E[]> = await this.read<E[]>(name, next === null ? args : { ...args, [cursor]: next }, now);
       if (page.denied) throw refused(page.denied);
       if (!Array.isArray(page.data)) throw new Error(`${name}: not on this device yet`);
       if (page.complete === false || page.offline === true) rows.complete = false;
@@ -390,12 +409,10 @@ export class Snapback {
    * write is never refused by a prediction (the server decides it), and the
    * same key with other input answers `E_WRITE_ID_REUSE` while `outcome(id)`
    * still answers the first write's fate. */
-  async write(name: string, args: Args, now: number): Promise<Write>;
-  async write(name: string, args: Args, now: number, key: string): Promise<Write | Outcome>;
-  async write(name: string, args: Args, now: number, key?: string): Promise<Write | Outcome> {
+  async write<O extends string | MutationOp<unknown, unknown>, K extends string | undefined = undefined>(op: O, args: NoInfer<ArgsOf<O>>, now: number, key?: K): Promise<K extends string ? Write | Outcome<ResultOf<O>> : Write> {
     const at = clock(now);
     await this.ready();
-    return ok<Write | Outcome>(await this.call({ op: 'write', name, args: args as Request, now: at, ...(key === undefined ? {} : { key }) }));
+    return ok(await this.call({ op: 'write', name: nameOf(op), args: args as Request, now: at, ...(key === undefined ? {} : { key }) }));
   }
 
   /** Write, sync, and answer what became of the write: a mutation source's
@@ -405,11 +422,11 @@ export class Snapback {
    * CODE`'s code, `E_RULE`), or the device's when it refused at once;
    * `pending` means the round did not deliver it (offline: kept, and sent
    * by the next round). `key` is `write`'s idempotency key. */
-  async send<R = Json>(name: string, args: Args, now: number, key?: string): Promise<Sent<R>> {
-    const written = await this.write(name, args, now, key as string);
-    if (written.state !== 'pending') return written as Sent<R>;
+  async send<R = Json, O extends string | MutationOp<unknown, unknown> = string>(op: O, args: NoInfer<ArgsOf<O>>, now: number, key?: string): Promise<Sent<ResultOf<O, R>>> {
+    const written = await this.write(nameOf(op), args as Args, now, key);
+    if (written.state !== 'pending') return written as Sent<ResultOf<O, R>>;
     const round = await this.sync();
-    return { ...await this.outcome<R>(written.id), round };
+    return { ...await this.outcome<ResultOf<O, R>>(written.id), round };
   }
 
   /** The id a write with this idempotency key has (or would have). */

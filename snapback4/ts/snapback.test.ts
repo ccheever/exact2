@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Change, SqliteStorage } from './web.ts';
+import type { MutationOp, QueryOp } from './snapback.ts';
 
 const SCHEMA = `
 use identity
@@ -390,6 +391,19 @@ test('a sync after a write settles it while other sources sync at once; send is 
   } finally { globalThis.fetch = realFetch; }
   expect((await db.send('send', { body: 'now' }, Date.now())).state).toBe('sent');
   expect((await db.status()).queued).toEqual([]);
+
+  // Generated handles (snapback/generated/api.ts's `api`) go where a name goes, typed by their `Query`/`Mutation`.
+  const api = {
+    inbox: { kind: 'query', name: 'inbox', runs: 'device', rowKey: 'id' } as QueryOp<Record<string, never>, { id: string; body: string; pending?: boolean }[]>,
+    send: { kind: 'mutation', name: 'send', predicts: 'never' } as MutationOp<{ body: string }, { id: string }>,
+  };
+  const typed = await db.send(api.send, { body: 'by handle' }, Date.now());
+  expect([typed.state, typeof typed.result?.id]).toEqual(['sent', 'string']);
+  const byHandle = await db.read(api.inbox, {}, Date.now());
+  expect(byHandle.data?.some(row => row.id === typed.result?.id && row.body === 'by handle')).toBe(true);
+  expect((await db.readAll(api.inbox, {}, Date.now())).map(row => row.id)).toEqual(byHandle.data!.map(row => row.id));
+  expect((await db.write(api.send, { body: 'admitted by handle' }, Date.now())).state).toBe('pending');
+  await db.sync();
 
   // A query's `require … else CODE`, thrown as the driver throws it: the
   // code leads the message failure(x) shows, under the closed code `error`.
