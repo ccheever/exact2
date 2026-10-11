@@ -280,11 +280,10 @@ function command(name, args) {
 }
 // ---------------------------------------------------------------- the clock and timers
 export const clock = { now: 0, timers: [], agent: false, epoch: 0 };
-// `performanceNow()` is elapsed time: the driver's clock under the agent and in a
-// render, else the page's since it started; a timer commits at its due time.
-// A reader of `performanceNow()` is re-evaluated at each commit made at a later time,
-// as the runner marks the clock read dirty (instance/deps.rs), and never by
-// the clock moving alone. Not a write: no commit counts it as a change.
+// `performanceNow()` is elapsed time: the driver's clock under the agent and in a render, else the
+// page's since it started; a timer commits at its due time. A reader of `performanceNow()` is
+// re-evaluated at each commit made at a later time, as the runner marks the clock read dirty
+// (instance/deps.rs), and never by the clock moving alone. Not a write: no commit counts it as a change.
 const Now = node(null, 0);
 let Timing = false;
 // A commit takes its time first (`time`); its clock readers see it once the body has run (`tick`): the body reads the pre-state.
