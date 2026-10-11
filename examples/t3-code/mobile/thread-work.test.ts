@@ -288,6 +288,71 @@ test('read rows retain paths and missing detail has the exact source unavailable
   expect(mobileThreadActivity(activity, row, client, now, false, '')).toMatchObject({ call: false, body: '/repo/a.ts', output: 'Output is no longer available.' });
 });
 
+test('untitled read headers copy original paths without taking detail ownership', async () => {
+  const row = projected({ type: 'dynamic_tool', toolName: 'Read', title: null, input: { file_path: '/repo/a.ts' }, outputOmitted: true });
+  const client = clientFor([row]), requests: Obj[] = [];
+  client.scopes = []; client.local.drafts[client.draftKey] = '  ';
+  client.rpc = async (_native, method, payload) => {
+    requests.push({ method, ...payload });
+    return { item: { ...obj(row.item), input: { file_path: '/fetched/b.ts' }, outputOmitted: false, output: 'Fetched file body' } };
+  };
+  const before = JSON.stringify(client.projection), props = { ...activity, icon: 'file-text', label: 'Visible read row' };
+  const collapsed = mobileThreadActivity({ ...props, detailOpen: false }, row, client, now, false, '', 'visit');
+  expect(collapsed.nativeWorkRow).not.toBe('');
+  const configuration = JSON.parse(collapsed.nativeWorkRow), expected = 'Read /repo/a.ts\n/repo/a.ts';
+  expect(configuration).toMatchObject({ copyText: expected, label: 'Visible read row', symbol: 'doc.text', expanded: false, expandable: true });
+  expect(collapsed).toMatchObject({ nativeCommandDetail: false, nativeWorkDetail: false, call: false, output: '' });
+  const staticRow = mobileThreadActivity({ ...props, expandable: false }, row, client, now, false, '', 'visit');
+  expect(JSON.parse(staticRow.nativeWorkRow)).toMatchObject({ copyText: expected, expandable: false });
+  expect(requests).toEqual([]);
+  setTurnItemOpen(client, activity.id, true);
+  expect(await refreshNextOpenTurnItemDetail(client, native, now)).toBe(true);
+  const expanded = mobileThreadActivity(props, row, client, now, false, '', 'visit');
+  expect(JSON.parse(expanded.nativeWorkRow)).toMatchObject({ copyText: expected, owner: configuration.owner, expanded: true });
+  expect(expanded).toMatchObject({ nativeCommandDetail: false, nativeWorkDetail: false, call: false, body: '/repo/a.ts', output: 'Fetched file body' });
+  const otherVisit = JSON.parse(mobileThreadActivity(props, row, client, now, false, '', 'other-visit').nativeWorkRow);
+  expect(otherVisit.owner).not.toBe(configuration.owner); expect(otherVisit.copyText).toBe(expected);
+  expect(requests).toEqual([{ method: 'orchestration.getTurnItem', threadId: 'source', itemId: 'item', revision: time }]);
+  expect(client.draft).toBe('  '); expect(client.threadId).toBe('thread'); expect(JSON.stringify(client.projection)).toBe(before);
+});
+
+test('read header Copy preserves relative paths and existing collection bounds', () => {
+  const row = projected({ type: 'dynamic_tool', toolName: 'ReadFile', title: ' \n ', input: {
+    file_path: ' ./src/a.ts ', locations: [{ path: './src/a.ts' }, { path: 'src/b.ts' }],
+  } });
+  expect(JSON.parse(mobileThreadActivity(activity, row, clientFor([row]), now, false, '', 'visit').nativeWorkRow).copyText)
+    .toBe('Read ./src/a.ts\n./src/a.ts\nsrc/b.ts');
+  const array = projected({ type: 'dynamic_tool', toolName: 'read_file', fileName: 'root.ts',
+    input: [{ fileName: 'last.ts', file_path: 'middle.ts', path: 'first.ts' }] });
+  expect(JSON.parse(mobileThreadActivity(activity, array, clientFor([array]), now, false, '', 'visit').nativeWorkRow).copyText)
+    .toBe('Read first.ts\nroot.ts\nfirst.ts\nmiddle.ts\nlast.ts');
+  const bounded = projected({ type: 'dynamic_tool', toolName: 'Read', input: { locations: Array.from({ length: 10 }, (_, index) => ({ path: `p${index}.ts` })) } });
+  expect(JSON.parse(mobileThreadActivity(activity, bounded, clientFor([bounded]), now, false, '', 'visit').nativeWorkRow).copyText)
+    .toBe('Read p0.ts\np0.ts\np1.ts\np2.ts\np3.ts\np4.ts\np5.ts\np6.ts\np7.ts');
+  const deep = projected({ type: 'dynamic_tool', toolName: 'Read', input: { data: { data: { data: {
+    path: 'at-limit.ts', data: { path: 'too-deep.ts' },
+  } } } } });
+  expect(JSON.parse(mobileThreadActivity(activity, deep, clientFor([deep]), now, false, '', 'visit').nativeWorkRow).copyText)
+    .toBe('Read at-limit.ts\nat-limit.ts');
+  const empty = projected({ type: 'dynamic_tool', toolName: 'Read', input: {}, output: { path: '/output-only.ts' } });
+  expect(JSON.parse(mobileThreadActivity(activity, empty, clientFor([empty]), now, false, '', 'visit').nativeWorkRow).copyText).toBe('Read file');
+});
+
+test('read header Copy leaves titled, image and other dynamic rows on their existing path', () => {
+  for (const fields of [{ toolName: 'Read', title: 'Read source' }, { toolName: 'unknown', kind: 'read' },
+    { toolName: 'unknown', viewedImagePath: '/repo/image.png' }, { toolName: 'Skill', input: { skill: 'full-send' } },
+    { toolName: 'cua_repl.js', input: { title: 'Read source' } }, { toolName: 'mcp__t3-code__t3_thread_read' },
+    { type: 'notification', toolName: 'Read' }]) {
+    const row = projected({ type: 'dynamic_tool', input: { file_path: '/repo/a.ts' }, ...fields });
+    expect(mobileThreadActivity(activity, row, clientFor([row]), now, false, '', 'visit').nativeWorkRow).toBe('');
+  }
+  const row = projected({ type: 'dynamic_tool', toolName: 'Read', input: { file_path: '/repo/a.ts' } });
+  for (const dark of [false, true]) {
+    const image = mobileThreadActivity({ ...activity, iconLight: 'https://example.com/light.png', iconDark: 'https://example.com/dark.png' }, row, clientFor([row]), now, dark, '', 'visit');
+    expect(image.nativeWorkRow).toBe(''); expect(image.iconURL).toBe(`https://example.com/${dark ? 'dark' : 'light'}.png`);
+  }
+});
+
 test('answered question preview and history preserve shared parsing and source union order', () => {
   const row = projected({ type: 'user_input_request', questionAnswer: { requestId: 'request',
     questionTextById: { second: 'Second question?', first: 'First question?' },

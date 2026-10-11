@@ -7,7 +7,7 @@ import type { T3Client } from './shared/client';
 import { arr, obj, str, type Activity, type Obj } from './shared/domain';
 import { toolCallLines, turnItemNeedsDetailFetch, turnItemOutputText } from './shared/timeline-item-detail';
 import { turnItemDetailView, turnItemIsOpen } from './shared/timeline-item-fetch';
-import { projectedWorkEntry, groupAction, collectToolFilePaths, formatSearchToolLabel } from './shared/timeline-worklog';
+import { projectedWorkEntry, groupAction, collectToolFilePaths, formatReadToolLabel, formatSearchToolLabel } from './shared/timeline-worklog';
 import { preparationFailureRunId, workspacePreparationRetryRunIds } from './shared/r11-upstream-retry';
 
 export interface ThreadAnswerFile { id: string; name: string; image: boolean; url: string }
@@ -115,11 +115,14 @@ export function mobileThreadActivity(activity: Activity, row: Obj | undefined, c
     activity.label, [title ? `${title.charAt(0).toUpperCase()}${title.slice(1)}` : 'Searched the web', Array.isArray(original.patterns) ? original.patterns.join(', ') : '',
       JSON.stringify({ visibility: row.visibility, sourceThreadId: row.sourceThreadId, sourceItemId: row.sourceItemId,
         item: workDisplayItem(original) }, null, 2)], dark, toolSymbols[activity.icon] ?? 'wrench', activity.expandable === true) : '';
+  const readCopy = original.type === 'dynamic_tool' && isRead && !title && !iconURL && row ? nativeWorkConfiguration(client, activity.id, routeKey, expanded,
+    activity.label, [formatReadToolLabel(collectToolFilePaths({ input: original.input })[0] ?? ''), collectToolFilePaths(original).join('\n')],
+    dark, toolSymbols[activity.icon] ?? 'wrench', activity.expandable === true) : '';
   return {
     id: activity.id, nativeWorkRow: prominentError && row ? nativeWorkConfiguration(client, activity.id, routeKey, false,
       warning ? `Usage limit reached.${reset ? ` Retry after ${reset}.` : ''}` : failureSummary,
       [failureSummary, str(failure.message), JSON.stringify({ visibility: row.visibility, sourceThreadId: row.sourceThreadId,
-        sourceItemId: row.sourceItemId, item: workDisplayItem(original) }, null, 2)], dark, 'exclamationmark.circle', false) : commandCopy || searchCopy || webCopy,
+        sourceItemId: row.sourceItemId, item: workDisplayItem(original) }, null, 2)], dark, 'exclamationmark.circle', false) : commandCopy || searchCopy || webCopy || readCopy,
     nativeWorkDetail: false, nativeCommandDetail: commandCopy !== '' && call !== null, reasoningBlocks: [], answerPreview: answer ? questionAnswerPreview(answer) : '',
     hasAnswer: answer !== null && hasQuestionAnswer(answer), answerHistory: expanded && answer && row ? answerHistory(answer, client, row, now) : [], label: warning ? `Usage limit reached.${reset ? ` Retry after ${reset}.` : ''}`
       : prominentError ? failureSummary : activity.reasoning && expanded ? activity.status ?? 'Thought' : activity.label,
