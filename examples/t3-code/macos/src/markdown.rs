@@ -1377,6 +1377,34 @@ mod tests {
             .collect();
         assert_eq!(gaps, vec![0.0, 20.0, 10.4, 10.4, 10.4, 10.4, 0.0]);
     }
+
+    #[test]
+    fn an_image_with_a_fragment_source_loads_nothing() {
+        // A fragment stays a link's href (reply-links RL-2), but an image's `#…` source loads nothing, as an emptied one
+        // (media-views.ts markdownImageHref).
+        let Value::Record(doc) = document(
+            Value::str("m"),
+            "![a](#shot)\n\n![b](https://example.com/b.png)\n\n![c](javascript:x)",
+        ) else {
+            panic!("document")
+        };
+        let Value::List(blocks) = &doc[1] else {
+            panic!("blocks")
+        };
+        let images: Vec<(&str, &str)> = blocks
+            .iter()
+            .filter_map(|block| match block {
+                Value::Record(fields) if fields[1].as_str() == Some("image") => {
+                    Some((fields[4].as_str()?, fields[5].as_str()?))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            images,
+            vec![("a", ""), ("b", "https://example.com/b.png"), ("c", "")]
+        );
+    }
 }
 
 #[cfg(test)]

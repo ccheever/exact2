@@ -122,16 +122,17 @@ describe('the reply link menu hookup', () => {
     // A web link's later word or code span: one pressable box with the link's menu, hidden from assistive tech when the
     // link node names it (RG-4); a code span inside it is pressable too (RL-3).
     expect(markdown).toMatch(/when run\.kind == "link" and linkRun\(run, chips\) and webLink\(run\.href\)\n {10}box press=linkOpen\("link", run\.href\) contextmenu=linkMenu\(run\.href\) aria-hidden=\(run\.label != ""\)[^\n]*\n {12}when not run\.mono\n {14}text run\.text white-space="pre"[^\n]*\n {12}else\n {14}text run\.text font-family="ui-monospace"/);
-    // Any other code span: plain; a mailto or fragment link's later one is hidden as its words are, a pull request
-    // link's is not (each of its words is its own link).
-    expect(markdown).toContain('when run.mono and not (linkRun(run, chips) and (run.kind == "link-start" or webLink(run.href)))\n          box aria-hidden=(run.kind == "link" and run.label != "" and not webLink(run.href)) height="1.421875rem"');
+    // Any other code span: plain; a mailto or fragment link's later one is hidden as its words are and shows the link's
+    // pointer (the `<a>`'s cursor), a pull request link's is not (each of its words is its own link).
+    expect(markdown).toContain('when run.mono and not (linkRun(run, chips) and (run.kind == "link-start" or webLink(run.href)))\n          box aria-hidden=(run.kind == "link" and run.label != "" and not webLink(run.href)) cursor=(run.kind == "link" and run.label != "" and not webLink(run.href) ? "pointer" : "auto") height="1.421875rem"');
     expect(markdown).toContain('fn linkRun(run: ChatRun, chips: list<ChipView>): bool = (run.kind == "link" or run.kind == "link-start") and length(filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href)) == 0');
     expect(markdown).toMatch(/shape ChatRun\n(?: {2}[^\n]*\n)*? {2}label: string\n/);
     const handlers = lines.flatMap((line, at) => line.includes('contextmenu=linkMenu(run.href)') ? [at] : []);
     expect(handlers.length).toBe(5);
     // FlowRuns: prose, an emptied anchor's text and a mailto or fragment link's later words carry no href, so a click on
-    // them follows nothing (the host would hand a mailto URL to the mail app), and no handler.
-    const plain = lines.findIndex(line => line.includes('text run.text aria-hidden=(run.kind == "link" and run.label != "") white-space="pre"'));
+    // them follows nothing (the host would hand a mailto URL to the mail app), and no handler; a link's words keep its
+    // pointer, which ExactKit gave them for their href before (an emptied anchor has no label and no pointer).
+    const plain = lines.findIndex(line => line.includes('text run.text aria-hidden=(run.kind == "link" and run.label != "") cursor=(run.kind == "link" and run.label != "" ? "pointer" : "auto") white-space="pre"'));
     expect(plain).toBeGreaterThan(0);
     expect(lines[plain]).not.toContain('href=');
     expect(lines[plain]).not.toContain('contextmenu=');

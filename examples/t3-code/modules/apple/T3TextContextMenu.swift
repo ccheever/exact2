@@ -19,7 +19,9 @@
 // - A Browser page answers in its web view (T3ShellWebView.swift); other web views (the terminal) keep their own menus.
 // - A node whose `contextmenu` leaves the click to the shell (a reply's mailto, irc, xmpp or fragment link: ChatMarkdown's
 //   anchor returns before `preventDefault` when the link has no web host) asks for the shell's menu of that click
-//   (`shellMenu`, external-link-menu.ts; reply-links RL-1, RL-2), as Electron's `context-menu` then fires.
+//   (`shellMenu`, external-link-menu.ts; reply-links RL-1, RL-2), as Electron's `context-menu` then fires. The click is
+//   answered once, and only while it is the last input: a key (the ContextMenu key raises `contextmenu` on the focused
+//   node without a click) or another click ends it, and so does the tail's menu for it.
 //
 // The monitor ends every click it answers (it returns nil, never `self?.handle(event) ?? event`: optional chaining
 // would flatten handle's nil back into the event and the host's menu would pop after the shell's). Under the agent
@@ -54,7 +56,8 @@ final class T3TextContextMenu: NSObject {
     private var tails: [ObjectIdentifier: T3ShellMenuTail] = [:]
     /// What the last answered click showed (the agent's log line, and the tests).
     private(set) var lastShown: [String] = []
-    /// The last right-click on the page that went on to ExactKit, and when (`shellMenu` answers it once, while fresh).
+    /// The last right-click on the page that went on to ExactKit, and when (`shellMenu` answers it once, while fresh, and
+    /// only while no key or other click has come after it and no menu has answered it).
     private var lastPageClick: (event: NSEvent, at: TimeInterval)?
     /// Pops the shell's menu (tracks until the menu closes); a test records it instead. Without context-menu plug-ins:
     /// `popUpContextMenu` appends Services for a view that answers `validRequestor`, and AutoFill for a text view, which
@@ -85,7 +88,7 @@ final class T3TextContextMenu: NSObject {
         guard monitor == nil else { return }
         // Not `self?.handle(event) ?? event`: optional chaining flattens handle's `NSEvent?`, so its nil ("taken") would
         // turn back into the event and the host's menu would pop after the shell's.
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .rightMouseDown) { [weak self] event in
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.rightMouseDown, .leftMouseDown, .otherMouseDown, .keyDown]) { [weak self] event in
             guard let self else { return event }
             return self.handle(event)
         }
@@ -101,6 +104,8 @@ final class T3TextContextMenu: NSObject {
     /// The click ends here when the shell answers it (a text input, selected page text); the rest goes on, with the
     /// window's tail in place for a click no page node answers. A web view answers its own clicks.
     func handle(_ event: NSEvent) -> NSEvent? {
+        // Any key or click ends the last page click: a `contextmenu` after it was not raised by that click (`shellMenu`).
+        lastPageClick = nil
         guard event.type == .rightMouseDown, let window = event.window, let content = window.contentView else { return event }
         let point = content.superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow
         guard let hit = content.hitTest(point) else { return event }
@@ -155,8 +160,10 @@ final class T3TextContextMenu: NSObject {
         return T3ShellMenu.menu(params, T3ShellMenuActions(editTarget: target, image: image))
     }
 
-    /// A click no page node answered (`T3ShellMenuTail`): the shell's menu for the page.
+    /// A click no page node answered (`T3ShellMenuTail`): the shell's menu for the page. It answers the last page click,
+    /// which `shellMenu` then leaves alone.
     func pageClick(_ event: NSEvent) -> Bool {
+        lastPageClick = nil
         guard let window = event.window, let content = window.contentView else { return false }
         let point = content.superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow
         guard let hit = content.hitTest(point), let page = Self.page(hit) else { return false }

@@ -51,6 +51,28 @@ final class ShellMenuForLinkTests: ShellMenuCase {
         XCTAssertTrue(popped.isEmpty)
     }
 
+    func testTheTailsMenuOrALaterKeyOrClickEndsTheClick() {
+        // A `contextmenu` the last page click did not raise (the ContextMenu key on a focused mailto link, after a click the
+        // tail or a node's own menu answered) gets no shell menu at that old click's place (reply-links review).
+        rightClick(at: NSPoint(x: 400, y: 200))
+        XCTAssertEqual(popped.count, 1, "the tail answered a click no node took")
+        XCTAssertFalse(shell.shellMenuForLastClick(), "and that click is done")
+        let link = LinkNode(frame: NSRect(x: 20, y: 20, width: 80, height: 22))
+        page.addSubview(link)
+        rightClick(at: at(link, NSPoint(x: 10, y: 10)))
+        NSApp.sendEvent(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                         windowNumber: window.windowNumber, context: nil, characters: "a", charactersIgnoringModifiers: "a",
+                                         isARepeat: false, keyCode: 0)!)
+        XCTAssertFalse(shell.shellMenuForLastClick(), "a key came after the click")
+        rightClick(at: at(link, NSPoint(x: 10, y: 10)))
+        NSApp.sendEvent(NSEvent.mouseEvent(with: .leftMouseDown, location: NSPoint(x: 400, y: 200), modifierFlags: [],
+                                           timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
+                                           eventNumber: 0, clickCount: 1, pressure: 1)!)
+        XCTAssertFalse(shell.shellMenuForLastClick(), "another click came after it")
+        XCTAssertEqual(link.menus, 2)
+        XCTAssertEqual(popped.count, 1, "only the tail's menu")
+    }
+
     func testAWebLinkWouldStillGetCopyLinkFromTheTemplate() {
         // The handler asks for the shell only without a web host; the template itself still offers Copy Link for a safe URL.
         let link = LinkNode(frame: NSRect(x: 20, y: 20, width: 80, height: 22))

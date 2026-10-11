@@ -596,4 +596,49 @@ mod link_tests {
             vec!["#notes", "#notes", "mailto:t@example.test"]
         );
     }
+
+    #[test]
+    fn a_table_cell_copies_only_a_web_link_as_a_link() {
+        // serializeAnchor keeps only an http(s) link; a fragment, mailto or xmpp link in a cell copies its text. The
+        // fragment keeps its href (link_href), so the cell draws it as a link (ChatRuns' inline run), as the reference's
+        // `<a href="#notes">`; its click opens nothing, as a fragment link's in prose (reply-links review).
+        let doc = document(
+            Value::str("t"),
+            "| a | b |\n|-|-|\n| [the notes](#notes) | [mail](mailto:t@example.test) |\n| [web](https://example.com/w) | [chat](xmpp:t@example.test) |",
+        );
+        let table = blocks_of(&doc)
+            .into_iter()
+            .find(|block| block[1].as_str() == Some("table"))
+            .expect("table");
+        assert_eq!(
+            table[13].as_str(),
+            Some("| a | b |\n| --- | --- |\n| the notes | mail |\n| [web](https://example.com/w) | chat |")
+        );
+        let Value::List(rows) = &table[11] else {
+            panic!("rows")
+        };
+        let Value::Record(row) = &rows[1] else {
+            panic!("row")
+        };
+        let Value::List(cells) = &row[2] else {
+            panic!("cells")
+        };
+        let Value::Record(cell) = &cells[0] else {
+            panic!("cell")
+        };
+        let Value::List(runs) = &cell[1] else {
+            panic!("cell runs")
+        };
+        let drawn: Vec<(&str, &str)> = runs
+            .iter()
+            .map(|run| match run {
+                Value::Record(fields) => (
+                    fields[5].as_str().unwrap_or(""),
+                    fields[6].as_str().unwrap_or(""),
+                ),
+                _ => panic!("run"),
+            })
+            .collect();
+        assert_eq!(drawn, vec![("#notes", "link-start")]);
+    }
 }
