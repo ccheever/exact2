@@ -2,14 +2,15 @@
 // turns a file's `test` blocks into steps, and this drives them through the
 // session the operations use (`agent.mjs`'s `open`). `agent.mjs` re-exports it.
 import { spawnSync } from 'node:child_process';
-import { readdirSync, rmSync } from 'node:fs';
+import { readdirSync, readFileSync, rmSync } from 'node:fs';
+import { connect } from 'node:net';
 import { homedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { open } from './agent.mjs';
 import { duringOp } from './agent-drag.mjs';
 import { driveStore, faultSpecOf, launchFacts } from './agent-launch.mjs';
-import { resolveApp } from './app.mjs';
+import { resolveApp, webDist as defaultWebDist } from './app.mjs';
 import { serverUrl } from './verify.mjs';
 
 /** The text `expect text` reads (kanban F19, shop F15): the node's own `text`, else a checkbox's `checked` as `true` or `false`, else a control's value (a select's options
@@ -130,6 +131,29 @@ export function storeBase(appId, host, env = process.env, home = homedir()) {
   if (host === 'linux') return resolve(env.XDG_CACHE_HOME?.startsWith('/') ? env.XDG_CACHE_HOME : resolve(home, '.cache'), 'exact', appId, 'agent');
   return null;
 }
+/** The loopback origins a web build's data module may fetch: its `net.fetch` grants, as host/web-js/build.mjs writes
+ * them into the page's admission data (none for a wasm build). A backend on this machine the tests talk to. */
+export function loopbackOrigins(dist) {
+  let text = ''; try { text = readFileSync(resolve(dist, '.gen/admission-data.js'), 'utf8'); } catch { return []; }
+  return [...new Set([...text.matchAll(/"net\.fetch (https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?)[/"]/g)].map((m) => m[1]))];
+}
+const listening = (origin, ms = 1000) => new Promise((done) => {
+  const { hostname, port, protocol } = new URL(origin), socket = connect({ host: hostname.replace(/^\[|\]$/g, ''), port: Number(port || (protocol === 'https:' ? 443 : 80)) });
+  const end = (ok) => { socket.destroy(); done(ok); };
+  socket.setTimeout(ms, () => end(false)).once('connect', () => end(true)).once('error', () => end(false));
+});
+/** Before a web run, every loopback origin the app fetches is asked whether anything listens (app farm wave 1: four
+ * builds' tests failed as data mismatches with no `snapback4 dev` running). An app whose data is a Snapback client
+ * (it mounts snapback4/ts) cannot open a partition that never synced, so every test would fail: the run is refused,
+ * naming the origin. Any other app is told, and runs (its tests may be of the error path). */
+export async function backendPreflight(app, dist, say = console.error) {
+  const down = [];
+  for (const origin of loopbackOrigins(dist)) if (!(await listening(origin))) down.push(origin);
+  if (!down.length) return;
+  const what = `no backend at ${down.join(', ')}: nothing listens there, and app.ts fetches it (a net.fetch grant)`;
+  if (!Object.values(app.manifest.typescript?.sources ?? {}).some((path) => /(^|\/)snapback4\/ts\/?$/.test(path))) return say(`note: ${what}; a test that loads from it fails`);
+  throw new Error(`${what}. The app's Snapback client cannot open data that has never synced, so every test would fail. Start the server first, from the backend's directory (\`npx snapback4 dev --port ${new URL(down[0]).port || 80}\`, seeded if the tests read seeded rows), then run the tests again.`);
+}
 const alive = pid => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
 /** The stores of authored-test runs that are gone (`<storage>.r<pid>-<tag>.t<n>`, the pid no longer running):
  * a run killed before it removed its own. A live run's are left alone, so concurrent runs never share or
@@ -209,6 +233,7 @@ const LAUNCH = { epoch: 'epoch', 'time-zone': 'timeZone', locale: 'locale', seed
  */
 export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch, failFetch, storage = 'test', touch = 'agent', chrome: bars = 'agent', scale, atEnd, port } = {}) {
   const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
+  if (host === 'web' && !url) await backendPreflight(resolveApp(app), resolve(webDist ?? defaultWebDist()));
   // Cargo owns target selection and freshness, including CARGO_TARGET_DIR.
   const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'test', resolve(file)], { cwd: root, encoding: 'utf8' });
   if (c.status !== 0) throw new Error(c.stderr?.trim() || c.error?.message || 'contract test compiler failed');
