@@ -1,5 +1,5 @@
 // Starter: a dashboard: a summary, bars that compare and the latest rows, over a source.
-// One column on a phone, two on a wide window; the accent is chosen once, on the root.
+// One column on a phone, two on a wide window; the one colour written is the accent, on the root.
 use SummaryCard, StatBar, RowText, EmptyState from "exact:content"
 
 routes nav

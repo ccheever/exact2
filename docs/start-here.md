@@ -1,6 +1,6 @@
 # Start here: building an app with Exact
 
-The only required reading (LLP 1115 D7); the rest is lookup, listed at the end.
+The only required reading; the rest is lookup, listed last (LLP 1115 D7).
 
 ## The idea
 
@@ -8,14 +8,16 @@ The only required reading (LLP 1115 D7); the rest is lookup, listed at the end.
    and CSS's (`role`, `aria-*`, `inputmode`, `text-overflow`).
 2. **Ship the platform.** Say what a thing *is* (a `header` with a heading and buttons,
    a `tablist`, a `dialog role="alertdialog"`) and each host draws its own control: on
-   iOS the navigation bar, the tab bar, the system alert.
+   iOS the navigation bar, tab bar, system alert.
 3. **Leave the rest unsaid:** controls, bars, the type ramp, control colours and dark
    mode are the platform's. A colour or size names a role (`-exact-secondary-label`,
    `font="-exact-footnote"`, `-exact-system-red`); a lookalike of a system control is a
-   bug (`bun <exact2>/scripts/no-tells.mjs .` lists literals). Pick the app's accent
-   once, `accent-color="-exact-system-teal"` on the root: every control, selected tab,
-   progress, link and `exact:content` part follows it on every host, and destructive
-   and status colours keep their meaning.
+   bug (`bun <exact2>/scripts/no-tells.mjs .` lists literals). The one colour you write
+   is the accent, on the root: a role (`accent-color="-exact-system-indigo"`) or one
+   `light-dark(light, dark)` pair, which controls, tabs, progress, links and
+   `exact:content` follow. Others are unsaid or roles (`-exact-label`,
+   `-exact-secondary-grouped-background`): a hex on text, a page or a card stays put in
+   dark mode while the platform's text and controls change (four apps broke).
 4. **Design your content:** a summary leading the main screen, rows with a hierarchy,
    bars where numbers compare, an empty state that says what to do; inset-grouped is
    for settings and forms. `exact:content` draws these ([content-design](recipes/content-design.md)).
@@ -25,7 +27,7 @@ The only required reading (LLP 1115 D7); the rest is lookup, listed at the end.
 ```sh
 bun <exact2>/scripts/exact.mjs new ~/groceries && cd ~/groceries
 bun exact.mjs pattern      # lists the starting apps; `pattern list-detail` writes one
-bun exact.mjs ios          # in the background now: the first iOS build takes minutes
+bun exact.mjs ios          # in the background: the first iOS build takes minutes
 ```
 
 Start from the nearest pattern (`new` wrote `one-screen`) and change it: it compiles
@@ -34,12 +36,14 @@ and passes its tests.
 | `bun exact.mjs …` | What it does |
 | --- | --- |
 | `contract build app.contract --json` | `[]` or each diagnostic with its fix, after every edit; it rewrites the types `app.ts` imports. |
-| `test web`, `test ios` | Builds, then runs `app.test.contract` (iOS after `bun exact.mjs ios`). |
+| `test web`, `test ios` | Builds if stale, then runs `app.test.contract`. |
 | `agent web --storage s1 "clock data" tree "tap add" "screenshot .exact/a.png"` | Drives the app as a person would; look at every screenshot. iOS with its bars: [ios-driving](recipes/ios-driving.md). |
 | `web`, `ios --run` | The dev loop (it prints its URL, rebuilds on save); a simulator. |
 
-Drive by `testId`; keep scratch files in `.exact/` (any other new file is a source, and
-makes the build stale).
+Edit and check on the web host (about a second a build); drive iOS at milestones,
+several checks a build: one in dark mode (`"prefer prefers-color-scheme dark"` first),
+one after a write. Drive by `testId`; keep scratch files in `.exact/` (any other new
+file is a source, and makes the build stale).
 
 ## One screen: the view, its data, its test
 
@@ -53,9 +57,6 @@ shape Item
   title: string
   done: bool
 
-shape Items
-  items: list<Item>
-
 shape Reply
   ok: bool
   error: string
@@ -64,10 +65,10 @@ fn leftText(n: number): string = n == 1 ? "1 item left" : `${n} items left`
 
 component Groceries
   state draft = ""
-  resource groceries = loadItems() as shape Items else empty()
+  resource groceries = loadItems() as shape list<Item> else empty()
   mutation added as shape Reply refreshes groceries then afterAdd
   mutation saved as shape Reply queue refreshes groceries
-  derive left = length(filter(groceries.items, i => not i.done))
+  derive left = length(filter(groceries, i => not i.done))
   derive addError = match added { case some(r) => r.error, case none => "" }
 
   action edit(v: string)
@@ -84,20 +85,21 @@ component Groceries
   view
     list id="items" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0 testId="app"
       section
-        row gap=8
-          input appearance="none" value=draft input=edit submit=add placeholder="Add an item"
-            aria-label="New item" enterkeyhint="done" testId="draft" flex=1 min-width=0
+        row gap=8 align-items="center"
+          column flex=1 min-width=0 gap=4
+            input appearance="none" value=draft input=edit submit=add placeholder="Add an item"
+              aria-label="New item" enterkeyhint="done" testId="draft"
+            when addError != "" and not pending(added)
+              text addError font="-exact-footnote" color="-exact-system-red" testId="add-error"
           button press=add disabled=(trim(draft) == "") testId="add"
             text "Add"
-        footer
-          text (pending(added) ? "" : addError) testId="add-error"
       section
-        each i in groceries.items key=i.id
+        each i in groceries key=i.id
           row
             input type="checkbox" checked=i.done change=toggle(i.id) aria-label=i.title testId=`done-${i.id}`
             text i.title flex=1
         footer
-          text (length(groceries.items) == 0 ? "Nothing on the list." : leftText(left)) testId="left"
+          text (length(groceries) == 0 ? "Nothing on the list." : leftText(left)) testId="left"
 ```
 
 - **Syntax.** Indent with spaces; attributes continue on deeper lines. Quote units
@@ -111,13 +113,13 @@ component Groceries
   write, which `queue` keeps in order, `refreshes` follows with a read and `then` with
   an action. Only the root declares them; children take `props`.
 - **After a write**, `then` clears the field only on an ok reply; a refusal keeps the
-  text and says why under it ([after-a-write](recipes/after-a-write.md)). A form of
-  more fields is a sheet.
+  text and says what to do, in red under it ([after-a-write](recipes/after-a-write.md)).
+  A form of more fields is a sheet.
 
 **The data module** answers each source with exactly its declared shape (an extra field
 fails it), reaches only what its `grants` name, and answers a failed fetch as data
 ([fetch-loading-error](recipes/fetch-loading-error.md)). The clock and randomness are
-refused there: time comes in as an argument. `console.log` shows in the agent's `logs`.
+refused there; time comes as an argument.
 
 ```ts
 import type { Answer, Result, Sources, Storage } from './app.contract.d.ts';
@@ -125,7 +127,7 @@ import type { Answer, Result, Sources, Storage } from './app.contract.d.ts';
 export const appId = 'com.example.groceries';
 export const grants = 'fs.read app:/data/items.json\nfs.write app:/data/items.json';
 
-type Item = Result<'loadItems'>['items'][number];
+type Item = Result<'loadItems'>[number];
 const FILE = 'app:/data/items.json';
 const load = (storage: Storage): Promise<Item[]> => storage.fs.readFile(FILE).then(
   (bytes) => JSON.parse(new TextDecoder().decode(bytes)),
@@ -136,7 +138,7 @@ const save = async (storage: Storage, items: Item[]) => {
 };
 
 const sources: Sources = {
-  loadItems: async (_args, _store, storage) => ({ items: await load(storage) }),
+  loadItems: (_args, _store, storage) => load(storage),
   addItem: async ([title], _store, storage) => {
     const all = await load(storage), same = all.find((i) => i.title.toLowerCase() === title.toLowerCase());
     if (same) return { ok: false, error: `${same.title} is already on the list.` }; // a refusal is a reply too
@@ -163,7 +165,7 @@ test "an item is added, a repeat refused, checked off and kept"
   tap "done-1"
   clock data
   reload
-  expect state groceries.items.0 .done == true
+  expect state groceries.0 .done == true
   expect text "left" == "0 items left"
 ```
 
@@ -171,7 +173,7 @@ test "an item is added, a repeat refused, checked off and kept"
 `reload` relaunches on the same storage. Every step, and the real-clock drive before
 calling it done: [tests](recipes/tests.md).
 
-## The pitfalls that cost the most
+## Pitfalls that cost the most
 
 1. **Styling a platform control.** A `background-color`, `border`, `font-size` or
    `height` on a `button`, field or bar makes it your box; emphasis is
@@ -188,17 +190,16 @@ calling it done: [tests](recipes/tests.md).
 
 **A pattern** replaces the recipe beside it: read one or the other. A list, its pushed
 detail, a sheet to create, an alert to delete: `pattern list-detail` (in an app you
-have: `navigation-stack`). Tabs: `pattern tabs` (`tabs`). A summary, bars, a ring:
+have, `navigation-stack`). Tabs: `pattern tabs` (`tabs`). A summary, bars, a ring:
 `pattern dashboard` (`content-design`). Your own server: `pattern rest` (`rest-backend`).
 
 **A recipe**, [`recipes/<name>.md`](recipes/): `grouped-form` (forms, settings),
 `after-a-write`, `keyboard-and-focus`, `number-field` (`inputmode="decimal"`),
 `numeric-readout`, `money` (`formatNumber(n, "currency", "USD")`), `dates-and-days`,
-`timers` (`task … every`), `timer-that-survives-relaunch` (`time.epochAtZero +
-performanceNow()`), `random-and-shuffle`, `symbols` (`image "symbol:add"`),
-`chat-thread`, `persisted-setting` (`state … persist`), `files-and-grants` (SQLite
-too), `fetch-loading-error`, `responsive-columns`, `web-look` (wide screens), `tests`,
-`ios-driving`, `functions`.
+`timers` (`task … every`), `timer-that-survives-relaunch`, `random-and-shuffle`,
+`symbols` (`image "symbol:add"`), `chat-thread`, `persisted-setting` (`state …
+persist`), `files-and-grants` (SQLite too), `fetch-loading-error`,
+`responsive-columns`, `web-look` (wide screens), `tests`, `ios-driving`, `functions`.
 
 **Otherwise:** `bun exact.mjs contract vocab <name> <name> …` for any tag, property
 or function; [contract-for-agents](contract-for-agents.md) and

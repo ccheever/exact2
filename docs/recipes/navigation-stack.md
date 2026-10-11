@@ -132,9 +132,10 @@ column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="
   list id="add-form" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
     section
       row
-        input appearance="none" value=draft input=edit placeholder="Title" aria-label="Title" autofocus=true testId="add-title" flex=1
-      footer
-        text formError testId="error-title"
+        column flex=1 min-width=0 gap=4
+          input appearance="none" value=draft input=edit placeholder="Title" aria-label="Title" autofocus=true testId="add-title"
+          when formError != ""
+            text formError font="-exact-footnote" color="-exact-system-red" testId="error-title"
 ```
 
 The data module refuses a second note of the same title, in words the sheet shows:
@@ -150,7 +151,7 @@ const sources: Sources = {
   loadNotes: () => ({ notes }),
   addNote: ([title]) => {
     const same = notes.find((n) => n.title.toLowerCase() === title.toLowerCase());
-    if (same) return { ok: false, error: `There’s already a note called ${same.title}.` };
+    if (same) return { ok: false, error: `There’s already a note called ${same.title}. Choose another title.` };
     notes = [...notes, { id: String(next++), title }];
     return { ok: true, error: '' };
   },
@@ -174,7 +175,7 @@ test "add validates, saves, refuses a repeat, opens and deletes after asking"
   type "add-title" "milk"
   tap "add-save"
   clock data
-  expect text "error-title" == "There’s already a note called Milk."
+  expect text "error-title" == "There’s already a note called Milk. Choose another title."
   tap "add-cancel"
   clock settle
   tap "Milk"
@@ -194,8 +195,8 @@ test "add validates, saves, refuses a repeat, opens and deletes after asking"
 - The alert holds only text, buttons that close it and one Cancel (a closing button
   with no `press`). Open it from an action with `showModal("remove")`. For a modal you
   lay out yourself, use `role="dialog" aria-modal=true`.
-- Show a validation error only after the first Save (`submitted`), in the section's
-  footer, whose text is always the system's grey. The sheet closes in `then`, only when
+- Show a validation error only after the first Save (`submitted`), in red under the
+  field, in its row (a section footer is always grey on iOS). The sheet closes in `then`, only when
   the save's reply is ok: a refusal keeps the sheet, its text and the reason
   ([after-a-write](after-a-write.md)).
 - In tests, `clock settle` after every push, sheet or alert, and `clock data` before

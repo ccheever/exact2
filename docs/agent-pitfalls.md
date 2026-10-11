@@ -207,6 +207,12 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   by the root's `navigationBack`, and a route that declares one that is disabled
   refuses it (the log says "back gesture refused" and why). A route with no such
   control always goes back (LLP 1115 D5). Fix: enable the control, or leave it out.
+- **The browser's Back leaves the router where it was on the web.** A drive's `tap app
+  history -1` on a pushed `/item/1` left the stack at `/item/1` when the root had no
+  `navigate` handler. Fix: `navigate=follow` on the root and `action follow(url: string)`
+  with `nav = go(nav, url)`, as every pattern has; `one-screen` keeps it with one route,
+  so a second screen gets Back and deep links (LLP 1116.002; two round-4 web apps lost
+  their URL history).
 - **A pushed screen's content is cut off and never scrolls, or its large title never
   collapses.** Cause: a route is a box, not a scroller, and `navigationScroll` only
   names one; a title collapses only with the scroller right after the route's
@@ -236,6 +242,14 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   [`apps/shelf`](../apps/shelf/app.contract), the recipe, and run `bun
   scripts/no-tells.mjs <app>`, which lists every literal colour, font size and weight
   left. (Exact-new iOS app feedback, 2026-10-04; LLP 1115.)
+- **Dark mode is unreadable: white text on a light card, labels lost on a light page.**
+  Cause: a brand written as hex on a page, a card or text (`#f3f5f1`, `#ffffff`,
+  `#18392d`); it stays the same in dark mode while the platform's text and controls
+  turn dark. Four of round 4's five hex-heavy bake-off apps broke so. Fix: the one
+  authored colour is the accent on the root, a role (`accent-color="-exact-system-indigo"`)
+  or one `light-dark(light, dark)` pair; surfaces and text are roles
+  (`-exact-secondary-grouped-background`, `-exact-label`) or unsaid. Look in both
+  schemes: `"prefer prefers-color-scheme dark"` as a drive's first op. (LLP 1116.002 D1.)
 - **The agent's screenshots and tree don't show the native bars.** Under
   `scripts/agent.mjs` the navigation bar, tab bar, `UIMenu`s and header search are
   not presented; the authored header, tablist and popover paint instead, by default.
@@ -300,10 +314,13 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   a field that is a grouped-list row's content, as `apps/shelf`'s add sheet does.
   **Candidate fix:** the iOS host could drop the border of a field carried into a
   list cell. (Shelf recipe, 2026-10-10.)
-- **A section `footer`'s colour is ignored.** A validation message written
-  `color="-exact-system-red"` in a footer shows in the footer's grey on iOS: the list
-  reads the footer's text, not its colour. Leave it grey (`apps/shelf` does) or put the
-  message in a row. (Shelf recipe, 2026-10-10.)
+- **A section `footer`'s colour is ignored, and so is a text-only row's.** A validation
+  message written `color="-exact-system-red"` in a footer shows in the footer's grey on
+  iOS: the list reads the footer's text, not its colour; a row holding only the text is
+  a standard cell, which drops its colour and font too. Fix: the message goes in the
+  field's row, under the field: `row` > `column flex=1 min-width=0 gap=4` > the field,
+  then `when error != ""` a `text … font="-exact-footnote" color="-exact-system-red"`
+  (`docs/patterns/list-detail`). (Shelf recipe, 2026-10-10; LLP 1116.002.)
 
 ## Actions
 

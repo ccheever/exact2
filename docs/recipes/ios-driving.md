@@ -1,15 +1,18 @@
 # Recipe: driving iOS
 
-The simulator runs the build you made. Start `bun exact.mjs ios` early, in the
-background (the first build takes minutes, later ones a minute or two), and again after
-an edit: `test ios` and `agent ios` drive what it installed and refuse a stale build,
-naming the rebuild.
+Edit and check on the web host, where a build takes about a second. Drive iOS at
+milestones, several checks to each native build (a minute or two; the first takes
+minutes, so start `bun exact.mjs ios` early, in the background): the tests, one drive in
+dark mode, one after a write. `test ios` and `agent ios` build first when the app is
+stale, and say so in a line.
 
 ```sh
-bun exact.mjs ios > .exact/ios.log 2>&1 &      # $! is its PID
+bun exact.mjs ios > .exact/ios.log 2>&1 &      # once, early; $! is its PID
 bun exact.mjs test ios
-bun exact.mjs agent ios --storage s1 --chrome platform "clock data" tree "tap add" \
-  "clock settle" "screenshot .exact/ios.png window"
+bun exact.mjs agent ios --storage s1 --chrome platform "prefer prefers-color-scheme dark" \
+  "clock data" "screenshot .exact/ios-dark.png window"
+bun exact.mjs agent ios --storage s1 --chrome platform "tap add-item" "clock settle" \
+  "type add-title Milk" "tap add-save" "clock data" "clock settle" "screenshot .exact/ios-saved.png window"
 ```
 
 | Flag or op | What it does |

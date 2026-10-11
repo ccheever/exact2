@@ -4,7 +4,7 @@ export const appId = 'com.example.starter';
 const FILE = 'app:/data/items.json';
 export const grants = [`fs.read ${FILE}`, `fs.write ${FILE}`].join('\n');
 
-type Item = Result<'loadItems'>['items'][number];
+type Item = Result<'loadItems'>[number];
 let items: Item[] | null = null; // memory; the file is what survives a launch
 
 async function load(storage: Storage): Promise<Item[]> {
@@ -20,15 +20,11 @@ async function save(storage: Storage, next: Item[]): Promise<Result<'addItem'>> 
 }
 
 const sources: Sources = {
-  // The view has no sort: the data module orders the list by the setting it is given.
-  loadItems: async ([order], _store, storage) => {
-    const all = [...(await load(storage))];
-    return { items: order === 'title' ? all.sort((a, b) => a.title.localeCompare(b.title)) : all.reverse() };
-  },
+  loadItems: async (_args, _store, storage) => [...(await load(storage))].reverse(), // newest first
   addItem: async ([title, notes], _store, storage) => {
     const all = await load(storage);
     const same = all.find((i) => i.title.toLowerCase() === title.toLowerCase());
-    if (same) return { ok: false, error: `There’s already an item called ${same.title}.` }; // a refusal is a reply too
+    if (same) return { ok: false, error: `There’s already an item called ${same.title}. Choose another title.` }; // a refusal is a reply too
     const id = String(Math.max(0, ...all.map((i) => Number(i.id))) + 1);
     return save(storage, [...all, { id, title, notes }]);
   },

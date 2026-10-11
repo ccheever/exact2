@@ -49,7 +49,8 @@ component Budget
   beside it, a `progress` or a ring for how far along it is.
 - **Colour means something.** The accent is the ordinary state; a second colour is the
   other: `-exact-system-green` done or under, `-exact-system-red` over or failed,
-  `-exact-secondary-label` not yet. Pass it as a part's `tint`.
+  `-exact-secondary-label` not yet. Pass it as a part's `tint`. A brand is the accent (a
+  role or one `light-dark()` pair); a card, page or text is a role, never a hex.
 - **Bars where numbers compare**, a ring for one fraction; never a drawn track.
 - **Rows** are records, not a settings list: inset-grouped is for settings and forms.
 - The data module adds, groups and sorts (Contract has no `reduce` or `sort`); the view

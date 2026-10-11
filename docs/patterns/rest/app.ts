@@ -15,14 +15,14 @@ async function call(path: string, init: RequestInit = {}): Promise<Answered> {
     return { ok: false, error: typeof body.error === 'string' ? body.error : 'The server had a problem. Try again.' };
   } catch (e) {
     if ((e as { code?: string }).code === 'bake') throw e; // no server at build
-    return { ok: false, error: 'Can’t reach the server.' }; // a sheet keeps what was typed
+    return { ok: false, error: 'Can’t reach the server. Check that it’s running, then try again.' }; // a sheet keeps what was typed
   }
 }
 
 let last: Result<'loadItems'>['items'] = []; // a failed poll keeps the list on screen
 const sources: Sources = {
-  loadItems: async ([order]) => {
-    const r = await call(`/items?order=${order}`);
+  loadItems: async () => {
+    const r = await call('/items');
     if (!r.ok) return { ok: false, error: r.error, items: last };
     last = (r.body as Array<{ id: number; title: string; notes: string }>).map((i) => ({ id: String(i.id), title: i.title, notes: i.notes }));
     return { ok: true, error: '', items: last };

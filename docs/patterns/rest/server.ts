@@ -16,17 +16,13 @@ Bun.serve({ hostname: '127.0.0.1', port: 8787, routes: {
   '/health': () => new Response('ok'),
   '/items': {
     OPTIONS: preflight,
-    GET: (req) => {
-      if (!person(req)) return signIn();
-      const order = new URL(req.url).searchParams.get('order') === 'title' ? 'lower(title)' : 'id DESC';
-      return send(db.query(`SELECT id, title, notes FROM items ORDER BY ${order}`).all());
-    },
+    GET: (req) => person(req) ? send(db.query('SELECT id, title, notes FROM items ORDER BY id DESC').all()) : signIn(),
     POST: async (req) => {
       const by = person(req), { title, notes } = await req.json().catch(() => ({}));
       if (!by) return signIn();
       if (typeof title !== 'string' || !title.trim()) return send({ error: 'Enter a title.' }, 400);
       const same = db.query('SELECT title FROM items WHERE lower(title) = lower(?)').get(title.trim()) as { title: string } | null;
-      if (same) return send({ error: `There’s already an item called ${same.title}.` }, 409);
+      if (same) return send({ error: `There’s already an item called ${same.title}. Choose another title.` }, 409);
       db.query('INSERT INTO items (title, notes, by) VALUES (?, ?, ?)').run(title.trim(), typeof notes === 'string' ? notes : '', by);
       return send({ ok: true }, 201);
     },
