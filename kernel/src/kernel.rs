@@ -117,6 +117,19 @@ impl<'a> NodeRef<'a> {
             .map(|s| self.arena.local_id(s))
     }
 
+    /// Whether the author wrote the value this node computes for `id`
+    /// (LLP 1115.000 D2): the row that supplies it ([`NodeRef::source_of`])
+    /// is one its author wrote, on this node or on the ancestor an inherited
+    /// row comes from. False for an initial value and for a row the compiler
+    /// implied. `style.written` is the node's own rows alone, which is what
+    /// a control asks (a colour it only inherits is not its own); this is
+    /// what a text asks, whose colour and font CSS takes from its box.
+    pub fn says(&self, id: StyleId) -> bool {
+        self.arena
+            .inherited_source(self.slot, id)
+            .is_some_and(|s| self.arena.style(s).written.has(id))
+    }
+
     /// CSS's computed value of a row: the own row; else, for an inherited
     /// row, the nearest logical ancestor's; else the initial value.
     pub fn computed(&self, id: StyleId) -> RowValue<'a> {

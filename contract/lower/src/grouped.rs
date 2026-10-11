@@ -16,8 +16,9 @@ pub(crate) const STYLES: &[&str] = &["inset-grouped", "grouped", "plain"];
 /// label colours are their roles (LLP 1095 D2, LLP 1115 §3), whose fallback
 /// pairs are those measurements, so a host with the platform's colours draws
 /// its own; a symbol's tint is `AccentColor`, the nearest `accent-color` or
-/// else the platform's tint. The kernel reads a text's role back as unsaid
-/// (`kernel/src/grouped.rs`, `Slot`).
+/// else the platform's tint. No row of the sheet is written (LLP 1115.000
+/// D2), so a host that draws the platform's own list reads each as unsaid
+/// (`kernel/src/grouped.rs`): the values here have no second copy.
 const GROUPED_BACKGROUND: &str = "light-dark(#f2f2f7, #000000)";
 const PLAIN_BACKGROUND: &str = "light-dark(#ffffff, #000000)";
 const CELL: &str = "light-dark(#ffffff, #1c1c1e)";

@@ -657,6 +657,18 @@ fn an_authored_margin_is_the_webs_space_and_the_sheets_is_uikits() {
         "the sheet's numbers keep UIKit's gaps; the author's 20 is the space above"
     );
     assert_eq!(list.space_below, Some(0.0), "and the 0 under the last");
+    // LLP 1115.000 D2: a margin is the author's because they wrote it, not
+    // because its number differs from the sheet's. 17.33 between sections and
+    // 0 beside a header are the sheet's own numbers, written here.
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go\n      text \"Account\"\n  section margin-top=17.33\n    button press=go\n      text \"Chats\"\n  section margin-top=0\n    header\n      text \"More\"\n    button press=go\n      text \"Help\"");
+    let list = r.kernel().grouped_list(id(&r, "list")).unwrap();
+    let above: Vec<_> = list.sections.iter().map(|s| s.space_above).collect();
+    assert_eq!(
+        above,
+        [None, Some(17.33), Some(17.33)],
+        "each written margin meets the sheet's 17.33 under the section before it"
+    );
+    assert_eq!(list.space_below, None, "the last one's bottom is unsaid");
 }
 
 #[test]
@@ -706,7 +718,7 @@ fn a_negative_margin_collapses_as_css_has_it() {
     assert_eq!(
         list.sections[2].space_above,
         Some(17.33),
-        "in a plain list the sheet writes 0, so 17.33 is the author's"
+        "17.33 is the author's: they wrote it"
     );
 }
 
@@ -809,8 +821,11 @@ fn an_authored_colour_and_font_reach_the_platforms_texts_and_unsaid_ones_stay_it
     // and the footer's grey on iOS, where UIKit draws footers and standard
     // cells. Author > platform (LLP 1115): the kernel hands a host each
     // text's own colour and font, and nothing where the sheet's stand in for
-    // the platform's, which keeps its own.
-    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    header\n      text \"Measure\" font=\"-exact-footnote\"\n    row\n      text \"Title\" color=\"#ff0000\"\n      text \"Value\" font-size=20\n    button press=go destructive=true\n      text \"Delete\"\n    footer\n      text \"Enter a number.\" color=\"-exact-system-red\"\n  section\n    header\n      text \"Plain\"\n    button press=go\n      column\n        text \"Privacy\"\n        text \"Screen lock\" font-style=\"italic\"\n    row\n      text \"Name\"\n      text \"Ada\"\n    footer color=\"#00ff00\"\n      text \"Green, on the footer.\"\n  section\n    row\n      text \"Unsaid\"\n    row\n      text \"Quiet\" color=\"-exact-secondary-label\"\n      text \"Loud\" color=\"-exact-label\"\n    footer\n      text \"The platform's grey.\"");
+    // the platform's, which keeps its own. "Own" is what the author wrote
+    // (LLP 1115.000 D2), on the text or on a box it inherits from: the sheet's
+    // own value, written, is the author's, and a value the compiler implied
+    // (a heading's size) is not, whatever it is.
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    header\n      text \"Measure\" font=\"-exact-footnote\"\n    row\n      text \"Title\" color=\"#ff0000\"\n      text \"Value\" font-size=20\n    button press=go destructive=true\n      text \"Delete\"\n    footer\n      text \"Enter a number.\" color=\"-exact-system-red\"\n  section\n    header\n      text \"Plain\"\n    button press=go\n      column\n        text \"Privacy\"\n        text \"Screen lock\" font-style=\"italic\"\n    row\n      text \"Name\"\n      text \"Ada\"\n    footer color=\"#00ff00\"\n      text \"Green, on the footer.\"\n  section\n    row\n      text \"Unsaid\"\n    row\n      text \"Quiet\" color=\"-exact-secondary-label\"\n      text \"Loud\" color=\"-exact-label\"\n    row\n      text \"Same\" color=\"-exact-label\" font-size=17\n      text \"Too\" color=\"-exact-secondary-label\"\n    button press=go color=\"#00ff00\"\n      text \"On the row\"\n      text \"Value\"\n    row\n      text \"Heading\" role=\"heading\" aria-level=1\n    footer\n      text \"The platform's grey.\"");
     let list = r.kernel().grouped_list(id(&r, "list")).unwrap();
     let (s0, s1, s2) = (&list.sections[0], &list.sections[1], &list.sections[2]);
     let red = s0.footer_look.color.expect("the footer's own red");
@@ -876,9 +891,8 @@ fn an_authored_colour_and_font_reach_the_platforms_texts_and_unsaid_ones_stay_it
         (s2.rows[0].title_look, s2.footer_look),
         (TextLook::default(), TextLook::default())
     );
-    // The sheet names a role for each text (LLP 1115 §3), which is unsaid
-    // only in its own slot: the secondary label on a title and the label
-    // colour on a value are their author's.
+    // The sheet names a role for each text (LLP 1115 §3). A role its author
+    // wrote is theirs: in another text's slot,
     let role = |name: &str| ColorValue::Role(exact_kernel::style::roles::role(name).unwrap());
     assert_eq!(
         (s2.rows[1].title_look.color, s2.rows[1].secondary_look.color),
@@ -887,11 +901,38 @@ fn an_authored_colour_and_font_reach_the_platforms_texts_and_unsaid_ones_stay_it
             Some(role("-exact-label"))
         )
     );
+    // and in its own, where the value is the sheet's and the row says who
+    // wrote it; so too the sheet's own size.
+    let same = &s2.rows[2];
+    assert_eq!(
+        (same.title_look.color, same.secondary_look.color),
+        (
+            Some(role("-exact-label")),
+            Some(role("-exact-secondary-label"))
+        )
+    );
+    assert_eq!(
+        same.title_look.font.map(|f| (f.size, f.weight)),
+        Some((17.0, 400))
+    );
+    assert_eq!(same.secondary_look.font, None);
+    // A colour written on the row reaches its title, as CSS inherits it,
+    // and not its value, which the sheet colours itself.
+    let green = Some(ColorValue::Fixed(Color::parse_hex("#00ff00").unwrap()));
+    assert_eq!(
+        (s2.rows[3].title_look.color, s2.rows[3].secondary_look.color),
+        (green, None)
+    );
+    // A heading's size and weight are the compiler's: the cell's title
+    // keeps the platform's font.
+    assert_eq!(s2.rows[4].title.as_deref(), Some("Heading"));
+    assert_eq!(s2.rows[4].title_look, TextLook::default());
 }
 
 /// A destructive row's title keeps the platform's red where it is the first
 /// line only under a condition: the sheet cannot write its red there and
 /// writes the label colour, which is still the sheet's and not the author's.
+/// The row says so itself (LLP 1115.000 D2): no sheet row is written.
 #[test]
 fn a_destructive_rows_conditional_title_leaves_its_colour_unsaid() {
     let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go destructive=true\n      column\n        when dark\n          text \"Sure?\"\n        text \"Delete\"");
@@ -933,6 +974,12 @@ fn a_disabled_row_is_the_tertiary_labels_grey() {
         grey,
         "disabled once its condition holds"
     );
+    // The grey, like the red, is the sheet's and so unsaid (LLP 1115.000 D2):
+    // a host that draws the platform's list draws its own disabled row.
+    let list = r.kernel().grouped_list(id(&r, "list")).unwrap();
+    for row in &list.sections[0].rows {
+        assert_eq!(row.title_look, TextLook::default(), "{:?}", row.title);
+    }
 }
 
 /// LLP 1116.004 D2 (unit-converter, round 6): a text's line feed is what

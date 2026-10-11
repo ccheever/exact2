@@ -12,7 +12,7 @@ use crate::generated::{
 };
 use crate::id::ViewId;
 use crate::kernel::{Kernel, NodeRef};
-use crate::style::{roles, Color, ColorValue};
+use crate::style::ColorValue;
 
 /// A grouped list as a host draws it.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -44,7 +44,7 @@ pub struct GroupedSection {
     /// Whether its rows sit on a card: false when the section's group has a
     /// transparent background (`section background-color="transparent"`).
     pub card: bool,
-    /// The space above it, in points, when the author changed a margin at
+    /// The space above it, in points, when the author wrote a margin at
     /// that boundary (its `margin-top`, or the previous section's
     /// `margin-bottom`): the web's, the two margins collapsed. `None` keeps
     /// the platform's own gap, which Contract's sheet stands in for (§2).
@@ -101,6 +101,10 @@ pub struct GroupedRow {
 /// How a text the platform's list draws is set where its author said so
 /// (LLP 1116.003 D7: author > platform, LLP 1115). The defaults are the
 /// platform's: every line, wrapped, in the platform's colour and font.
+/// "Said" is the row's own fact (LLP 1115.000 D2): the row that gives the
+/// text its value was written by the author, on the text or on a box it
+/// inherits from. Contract's sheet stands in for the platform there and
+/// writes nothing, so its rows, like a value no one set, are unsaid.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct TextLook {
     /// The most lines it shows, 0 for any number: its `line-clamp`, or 1
@@ -110,10 +114,10 @@ pub struct TextLook {
     /// a `line-clamp`, as CSS draws one, or `text-overflow: ellipsis` in a
     /// box that clips its overflow.
     pub ellipsis: bool,
-    /// Its `color`, when it is not the one Contract's sheet writes there.
+    /// Its `color`, when its author wrote one.
     pub color: Option<ColorValue>,
-    /// Its font, when its size, weight, style, family or numerals are not
-    /// the sheet's.
+    /// Its font as computed, when its author wrote its size, weight, style,
+    /// family or numerals.
     pub font: Option<TextFont>,
 }
 
@@ -132,94 +136,24 @@ pub struct TextFont {
     pub numeric: u8,
 }
 
-/// The size, weight and colour Contract's sheet writes for a text in a slot
-/// (`contract/lower/src/grouped.rs`, LLP 1084 §2), standing in for the
-/// platform's there: a title, a value beside it and a header 17 points (the
-/// header semibold), a subtitle line 15, a footer 13; a title in UIKit's
-/// label colour (its red in a destructive row), any other text in its
-/// secondary label.
-#[derive(Clone, Copy)]
-struct Slot {
-    size: f32,
-    weight: u16,
-    color: SheetColor,
-}
-const TITLE: Slot = Slot {
-    size: 17.0,
-    weight: 400,
-    color: LABEL,
-};
-/// A destructive row's title.
-const DESTRUCTIVE: Slot = Slot {
-    color: RED,
-    ..TITLE
-};
-/// A value beside the title.
-const VALUE: Slot = Slot {
-    color: SECONDARY,
-    ..TITLE
-};
-const SUBTITLE: Slot = Slot {
-    size: 15.0,
-    weight: 400,
-    color: SECONDARY,
-};
-const HEADER: Slot = Slot {
-    size: 17.0,
-    weight: 600,
-    color: SECONDARY,
-};
-const FOOTER: Slot = Slot {
-    size: 13.0,
-    weight: 400,
-    color: SECONDARY,
-};
-
-/// A colour the sheet writes for a text (LLP 1084 §2). A text in its slot's
-/// left its colour unsaid, which is the platform's; any other is its
-/// author's, the role the sheet writes for another slot included.
-#[derive(Clone, Copy)]
-enum SheetColor {
-    /// A role (LLP 1095 D2), by its name in the schema.
-    Role(&'static str),
-    /// A pair, compared as Contract lowers it, so only that exact colour
-    /// matches.
-    Pair(ColorValue),
-}
-const LABEL: SheetColor = SheetColor::Role("label");
-const SECONDARY: SheetColor = SheetColor::Role("secondary-label");
-/// The sheet's red, the pair it still lowers to.
-const RED: SheetColor = SheetColor::Pair(ColorValue::LightDark(
-    Color::rgba(0xff, 0x38, 0x3c, 255),
-    Color::rgba(0xff, 0x42, 0x45, 255),
-));
-
-impl SheetColor {
-    fn is(self, color: ColorValue) -> bool {
-        match (self, color) {
-            (SheetColor::Role(name), ColorValue::Role(id)) => {
-                roles::role_of(id).is_some_and(|r| r.name == name)
-            }
-            (SheetColor::Pair(pair), color) => pair == color,
-            _ => false,
-        }
-    }
-}
+/// The rows a text's font is made of.
+const FONT: [StyleId; 5] = [
+    StyleId::FontSize,
+    StyleId::FontWeight,
+    StyleId::FontStyle,
+    StyleId::FontFamily,
+    StyleId::FontVariantNumeric,
+];
 
 impl TextLook {
-    /// The look the text node `node` asks for in `slot`, as the web lays it
-    /// out and paints it.
-    fn of(node: &NodeRef<'_>, slot: Slot) -> TextLook {
+    /// The look the text node `node` asks for, as the web lays it out and
+    /// paints it.
+    fn of(node: &NodeRef<'_>) -> TextLook {
         let mut rows = StyleMask::EMPTY;
-        for row in [
-            StyleId::WhiteSpace,
-            StyleId::TextColor,
-            StyleId::FontSize,
-            StyleId::FontWeight,
-            StyleId::FontStyle,
-            StyleId::FontFamily,
-            StyleId::FontVariantNumeric,
-        ] {
+        for row in [StyleId::WhiteSpace, StyleId::TextColor]
+            .into_iter()
+            .chain(FONT)
+        {
             rows.set(row);
         }
         let s = node.computed_style(rows);
@@ -230,14 +164,9 @@ impl TextLook {
             family: s.font_family,
             numeric: s.font_variant_numeric,
         };
-        let said = font.size != slot.size
-            || font.weight != slot.weight
-            || font.italic
-            || font.family != 0
-            || font.numeric != 0;
         let mut look = TextLook {
-            color: (!slot.color.is(s.text_color)).then_some(s.text_color),
-            font: said.then_some(font),
+            color: node.says(StyleId::TextColor).then_some(s.text_color),
+            font: FONT.iter().any(|row| node.says(*row)).then_some(font),
             ..TextLook::default()
         };
         let clamp = node.style.line_clamp;
@@ -294,17 +223,9 @@ impl GroupedRow {
     /// second a subtitle under the title, else a value beside it.
     fn texts(&mut self, title: &NodeRef<'_>, second: Option<&NodeRef<'_>>, subtitle: bool) {
         self.title = text_of(title);
-        let slot = if self.destructive { DESTRUCTIVE } else { TITLE };
-        self.title_look = TextLook::of(title, slot);
-        // A destructive row's title that is the first line only under a
-        // condition: the sheet writes it the label colour there, not its red
-        // (`stack_lines`), and that is still the sheet's, so still unsaid.
-        if self.destructive && self.title_look.color.is_some_and(|c| LABEL.is(c)) {
-            self.title_look.color = None;
-        }
+        self.title_look = TextLook::of(title);
         self.secondary = second.and_then(text_of);
-        let slot = if subtitle { SUBTITLE } else { VALUE };
-        self.secondary_look = second.map(|n| TextLook::of(n, slot)).unwrap_or_default();
+        self.secondary_look = second.map(TextLook::of).unwrap_or_default();
         self.subtitle = subtitle;
     }
 }
@@ -323,10 +244,10 @@ impl Kernel {
                 .filter(|c| c.style.display != Display::None)
                 .collect()
         };
-        let label = |n: &NodeRef<'_>, slot: Slot| {
+        let label = |n: &NodeRef<'_>| {
             nodes(n)
                 .iter()
-                .find_map(|t| text_of(t).map(|text| (text, TextLook::of(t, slot))))
+                .find_map(|t| text_of(t).map(|text| (text, TextLook::of(t))))
         };
         let shown = nodes(&list);
         let sections = shown
@@ -340,11 +261,11 @@ impl Kernel {
                 for part in nodes(section) {
                     match part.props.str(PropId::SemanticTag) {
                         Some("header") => {
-                            (out.header, out.header_look) = label(&part, HEADER)
+                            (out.header, out.header_look) = label(&part)
                                 .map_or((None, TextLook::default()), |(t, l)| (Some(t), l))
                         }
                         Some("footer") => {
-                            (out.footer, out.footer_look) = label(&part, FOOTER)
+                            (out.footer, out.footer_look) = label(&part)
                                 .map_or((None, TextLook::default()), |(t, l)| (Some(t), l))
                         }
                         _ => {
@@ -490,29 +411,18 @@ impl Kernel {
     }
 }
 
-/// A margin Contract's sheet writes (LLP 1084 §2): 0 beside a header or a
-/// footer and in a plain list, else 17.33, or 35.33 above a first section.
-/// Any other number is the author's. Compared as the f32 the sheet's
-/// numbers become, so only those exact numbers match.
-fn sheet_margin(value: f32, top: bool, labelled: bool, plain: bool) -> bool {
-    if labelled || plain {
-        value == 0.0
-    } else {
-        value == 17.33 || (top && value == 35.33)
-    }
-}
-
 /// Two adjoining vertical margins as CSS collapses them: the largest
 /// positive plus the most negative (CSS 2 §8.3.1).
 fn collapse(a: f32, b: f32) -> f32 {
     a.max(b).max(0.0) + a.min(b).min(0.0)
 }
 
-/// Each boundary the author changed takes the web's space: the margins that
-/// meet there collapsed, as block margins do (§6.4).
+/// Each boundary where the author wrote a margin takes the web's space: the
+/// margins that meet there collapsed, as block margins do (§6.4). A margin
+/// is the author's when its row says so (LLP 1115.000 D2), whatever its
+/// number; the sheet's (LLP 1084 §2) stands in for the platform's gap.
 fn authored_space(list: &mut GroupedList, shown: &[NodeRef<'_>]) {
     use crate::style::Dimension;
-    let plain = list.style == "plain";
     let mut below: Option<(f32, bool)> = None;
     for (section, node) in list.sections.iter_mut().zip(shown) {
         let points = |d: Dimension| match d {
@@ -520,17 +430,14 @@ fn authored_space(list: &mut GroupedList, shown: &[NodeRef<'_>]) {
             _ => 0.0,
         };
         let top = points(node.style.margin_top);
-        let authored = !sheet_margin(top, true, section.header.is_some(), plain);
+        let authored = node.style.written.has(StyleId::MarginTop);
         section.space_above = match below {
             Some((bottom, mine)) if mine || authored => Some(collapse(top, bottom)),
             None if authored => Some(top),
             _ => None,
         };
         let bottom = points(node.style.margin_bottom);
-        below = Some((
-            bottom,
-            !sheet_margin(bottom, false, section.footer.is_some(), plain),
-        ));
+        below = Some((bottom, node.style.written.has(StyleId::MarginBottom)));
     }
     list.space_below = below.and_then(|(bottom, mine)| mine.then_some(bottom));
 }
