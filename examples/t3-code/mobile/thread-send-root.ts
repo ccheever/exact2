@@ -125,7 +125,7 @@ export function mobileThreadSendRootSnapshot(client:MobileDraftClient,input:Thre
   return {revision:s.revision+client.revision+presentation.value.revision,ordinary,expectedOwner:named.owner,sendLabel,sendSymbol,canSend,hasContent,reason,busy,
     needsRead,readKey:needsRead?readKey(s,key,recovery):'',recovery:ordinary?recoveryView:{visible:false,message:'',actions:[]},
     dock:mobileThreadLocalDock(presentation.value,{usageKey:presentation.usageKey,viewportHeight:input.viewportHeight,dark:input.dark,
-      canManageProviders:client.scopes.includes('providers:manage'),resetStates:[...s.resets.values()]})};
+      canManageProviders:client.sessionHasScope('providers:manage'),resetStates:[...s.resets.values()]})};
 }
 export interface ThreadSendRootResult {revision:number;message:string;accepted:boolean;stale:boolean}
 /** Uses explicit current root input: Runner can execute this source before its dependent
@@ -141,7 +141,7 @@ export async function mobileThreadSendRootAction(client:MobileDraftClient,native
   const result=(message='',accepted=false):ThreadSendRootResult=>{s.revision++;return {revision:s.revision+client.revision+local(client,s.input??input,routeActive(client,s.input??input)).value.revision,message:routeCurrent()?message:'',accepted,stale:!routeCurrent()}};
   const transportCurrent=(permission:string)=>client.origin===origin&&client.generation===generation&&client.environmentId===scoped.environmentId
     &&mobileQueuedEditOrigin(client).trim().replace(/\/+$/,'')===scoped.origin&&mobileCacheCatalogIdentity(fleet.saved,scoped.environmentId)===catalog
-    &&catalog===encoded([scoped.environmentId,scoped.origin])&&client.connection==='connected'&&client.scopes.includes(permission);
+    &&catalog===encoded([scoped.environmentId,scoped.origin])&&client.connection==='connected'&&client.sessionHasScope(permission);
   const rawNative=letGoAware(nativeInput);
   const guarded=(check:()=>boolean):Native=>({available:rawNative.available,watch(topic){if(!check())throw stale();rawNative.watch(topic)},async later(request){
     if(!check())throw stale();const reply=await rawNative.later(request);if(!check())throw stale();return reply;
@@ -182,7 +182,7 @@ export async function mobileThreadSendRootAction(client:MobileDraftClient,native
     }
     if(action.op==='open-link'){
       const matches=()=>{const p=shown();return routeCurrent()&&mobileThreadLocalDock(p.value,{usageKey:p.usageKey,viewportHeight:input.viewportHeight,dark:input.dark,
-        canManageProviders:client.scopes.includes('providers:manage')}).accounts.some(a=>a.key===action.key&&a.externalURL===action.value)};
+        canManageProviders:client.sessionHasScope('providers:manage')}).accounts.some(a=>a.key===action.key&&a.externalURL===action.value)};
       const url=new URL(action.value);if(!['http:','https:'].includes(url.protocol)||!matches())throw stale();
       const opened=await bridgeReply(guarded(matches),{op:'mobileOpenURL',url:url.href});return result(opened.ok&&obj(opened.value).opened===true?'':'The usage link could not be opened.',opened.ok&&obj(opened.value).opened===true);
     }

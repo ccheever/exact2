@@ -32,6 +32,7 @@ import { mobileQueuedEditOrigin } from './queued-edit-origin';
 import { mobileQueuedEditDismissNotice, queuedEditClearEnvironmentNotices } from './queued-edit-memory';
 import { bridgeReply } from './shared/protocol';
 import { mobileCacheCatalogIdentity } from './mobile-client-cache-catalog';
+import { mobileSessionRetire } from './mobile-grants';
 
 import { mobileNewTaskDraftIsPendingKey, mobileNewTaskDraftBoundKey, mobileNewTaskDraftCurrent, mobileNewTaskDraftChoicesRestore, mobileNewTaskDraftHydrate, mobileNewTaskDraftPersisted, mobileNewTaskDraftStore } from './mobile-new-task-drafts';
 import { mobileNewTaskLaunchPrepare, mobileNewTaskLaunchBeforeRequest, mobileNewTaskLaunchEnd, mobileNewTaskLaunchFinish, mobileNewTaskLaunchCanReconcile, mobileNewTaskLaunchProtectedImages, mobileNewTaskDraftFlushFiles, mobileNewTaskLaunchSlotEnvironment } from './mobile-new-task-launch';
@@ -217,6 +218,7 @@ function pruneRetiredMarkers(client: T3Client) {
 export class MobileDraftClient extends T3Client {
   private cacheRefresh = 0;
   constructor() { super(); mobileCacheObserveAdoption(this); }
+  sessionHasScope(permission: string): boolean { return this.connection === 'connected' && this.scopes.includes(permission); }
   override async request(native: Native, method: string, payload: Obj, expected = this.generation, write = false): Promise<Obj> {
     const scope = mobileVcsFocusedScope(this);
     try { return await mobileVcsRequest(scope, native, method, payload, () => super.request(native, method, payload, expected, write)); }
@@ -226,8 +228,11 @@ export class MobileDraftClient extends T3Client {
     return mobileObserveFaviconRpc(this, args[1], args[2], () => super.rpc(...args));
   }
   override adoptStatus(value: Obj, generation: number): void {
+    const owner = [this.generation, this.origin, this.environmentId, this.local], connected = this.connection === 'connected';
     mobileCacheBeforeStatus(this, value, generation);
     super.adoptStatus(value, generation);
+    if (owner.some((part, index) => part !== [this.generation, this.origin, this.environmentId, this.local][index])
+      || connected && this.connection !== 'connected') mobileSessionRetire(this);
   }
   /** Plain, invocation-scoped cleanup projection. Concurrent preference writes
    * must serialize the same removal until live cleanup finishes. No handles. */

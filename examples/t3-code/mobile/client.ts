@@ -4,7 +4,7 @@ import { mobileFaviconQueries } from './mobile-favicon-query';
 import { watchLive } from './shared/live-streams';
 import { mobileThreadSelection } from './thread-selection';
 import { mobileThreadHeaderEvents } from './thread-header';
-import { mobileGrantRequest } from './mobile-grants';
+import { mobileGrantRequest, mobileSessionRead, type MobileSessionTarget } from './mobile-grants';
 import { mobileComposerTargetRequire } from './composer-target';
 import { mobileQueuedEditSave, mobileQueuedEditCancel, mobileQueuedEditRetry, mobileQueuedEditRefresh } from './queued-edit';
 import { mobileOpenAnswerFile } from './thread-answer-files';
@@ -25,6 +25,7 @@ import { letGo, letGoAware } from './shared/let-go';
 import { bridgeReply, ClientError, nativeFiles, parsePairing, type Files, type Native } from './shared/protocol';
 import { pairingFields } from './shared/r10-connect-pairing';
 import { EnvironmentFleet, fleet } from './shared/settings-b-fleet';
+import type { T3Client } from './shared/client';
 
 export const mobileClient = new MobileDraftClient();
 
@@ -75,7 +76,7 @@ export function mobilePairingTarget(host: string, code: string): { origin: strin
  * Mobile adapts standard pairing scopes and the creation source of newly authored work,
  * preserving the shared reducer, command IDs, replay ownership and other native operations.
  */
-export function mobileNative(native: Native): Native {
+export function mobileNative(native: Native, focused: T3Client = mobileClient, background: EnvironmentFleet = fleet): Native {
   return { available: native.available, watch: topic => native.watch(topic), later: request => {
     mobileVoiceObserveDraft(mobileClient);
     const operation = obj(request), payload = obj(operation.payload);
@@ -94,6 +95,22 @@ export function mobileNative(native: Native): Native {
         || (operation.method === 'orchestration.dispatchCommand'
           && ['message.dispatch', 'thread.fork', 'thread.merge_back'].includes(str(payload.type))));
     const requestValue = mobileGrantRequest(mobileWrite ? { ...operation, payload: { ...payload, creationSource: 'mobile' } } : request);
+    if (operation.op === 'http' && operation.path === '/api/auth/session') {
+      const key = typeof operation.fleet === 'string' ? operation.fleet : null;
+      const entry = key === null ? null : background.entries.get(key);
+      const subject = key === null ? focused : entry;
+      let target: MobileSessionTarget | null = null;
+      if (subject && operation.generation === subject.generation) {
+        const { generation, origin, environmentId } = subject, local = key === null ? focused.local : null;
+        const current = () => subject.generation === generation && subject.origin === origin && subject.environmentId === environmentId
+          && (key === null ? focused.local === local && focused.connection === 'connected'
+            : background.entries.get(key) === entry && entry?.phase === 'connected'
+              && background.wanted(focused).some(saved => saved.environmentId === environmentId && saved.origin === origin));
+        if (current()) target = { subject, identity: [generation, origin, environmentId, local], current,
+          changed: () => { if (key === null) focused.revision++; else background.revision++; }, fleet: key !== null };
+      }
+      return mobileSessionRead(native, requestValue, target);
+    }
     const result = native.later(requestValue);
     if (!['setConnectionPreferences', 'setRoutes', 'setEnvironmentEnabled', 'forgetEnvironment'].includes(str(operation.op))) return result;
     // These successful native metadata writes can be silent (no active transport).
