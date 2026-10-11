@@ -220,11 +220,11 @@ public final class ExactView: UIView {
     func fit() {
         let presenter = session.presenter
         // Containment may synchronously lay us out during a partial batch.
-        // Let the next layout read the fully mounted tree before resizing it.
+        // Finish that batch, then resize synchronously before returning to UIKit.
         if presenter.applying {
             if !fitPending {
                 fitPending = true
-                DispatchQueue.main.async { [weak self] in
+                presenter.afterBatch { [weak self] in
                     guard let self else { return }
                     self.fitPending = false
                     self.fit()
