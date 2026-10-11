@@ -82,6 +82,8 @@ shape R4GitCard
   menuPublish: bool
   notes: list<R4GitNote>
   dialog: string
+  // The control that opened the dialog: the quick action, or the options menu's trigger (DialogFinalFocus).
+  dialogFrom: string
   sourceMark: string
   commitBranch: string
   commitDefault: bool

@@ -461,6 +461,7 @@ shape Snapshot
   planSavePath: string
   planSaveRoot: string
   planSaving: bool
+  planSaveRow: string
   providers: list<Provider>
   models: list<Model>
   approvals: list<Approval>

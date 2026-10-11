@@ -24,6 +24,7 @@ use kmOpenKey from "./menu-keys.contract"
 use KeyMenuOpen from "./menu-keys.contract"
 use kmBump from "./menu-keys.contract"
 use FocusGuard from "./dialog-trap.contract"
+use DialogOpenFocus from "./dialog-trap.contract"
 
 shape TaskRowView
   id: string
@@ -195,7 +196,7 @@ component TaskRow
       row flex-shrink=0 align-items="center" gap="0.5rem"
         SettingsSwitch(checked=item.enabled, label=`Enable ${item.title}`, disabled=(busy or not data.writable), switchId=`task-enabled-${item.id}`, toggle=rest("task", `action=toggle&${target}&enabled=${item.enabled ? "false" : "true"}`))
         box position="relative" flex-shrink=0
-          button popovertarget=`task-menu-${item.id}` key=triggerKey focus=keyArm(true) blur=keyArm(false) disabled=(busy or not data.writable) aria-label=`Actions for ${item.title}` testId=`task-actions-${item.id}` width="1.75rem" height="1.75rem" border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+          button id=`task-actions-${item.environmentId}|${item.id}` popovertarget=`task-menu-${item.id}` key=triggerKey focus=keyArm(true) blur=keyArm(false) disabled=(busy or not data.writable) aria-label=`Actions for ${item.title}` testId=`task-actions-${item.id}` width="1.75rem" height="1.75rem" border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
             LucideEllipsis(size=16, color="light-dark(#27272a, #f5f5f5)")
           KeyMenuOpen(menuId=`task-menu-${item.id}`, armed=keyArmed, opened=keyOpened)
           SkPopup(menuId=`task-menu-${item.id}`, label=`Actions for ${item.title}`, width=160, list=false, endAlign=28, items=[KmItem(id=`task-edit-${item.id}`, label="Edit"), KmItem(id=`task-run-${item.id}`, label="Run now"), KmItem(id=`task-delete-${item.id}`, label="Delete")], keyed=keyed)
@@ -361,6 +362,7 @@ component ScheduledEditor
       column position="relative" width="100%" max-width="36rem" max-height="100%" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-label=(draft.id == "" ? "New task" : "Edit task") testId="scheduled-task-dialog"
         // The focus trap (dialog-trap.contract): from Runs on (a new task's) or Name to the X.
         FocusGuard(guardId="scheduled-task-guard-start", target="close-scheduled-task")
+        DialogOpenFocus(target=(draft.id == "" and not busy ? "task-environment" : "task-title"))
         row padding-top="1.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-bottom="0.75rem" align-items="flex-start" gap="0.5rem" box-sizing="border-box" position="relative"
           column flex=1 min-width=0 gap="0.5rem"
             text (draft.id == "" ? "New task" : "Edit task") font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2

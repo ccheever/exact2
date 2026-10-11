@@ -16,6 +16,7 @@ use ChatGptDialogSetup from "./codex-setup.contract"
 use CodexPicker from "./codex-setup.contract"
 use ChatGptAccountSetup from "./codex-setup.contract"
 use FocusGuard from "./dialog-trap.contract"
+use DialogOpenFocus from "./dialog-trap.contract"
 
 shape WizardDriver
   id: string
@@ -159,6 +160,7 @@ component AddProviderDialog
       column width="100%" max-width="48rem" max-height=(viewportHeight - 2 * rem) box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" position="relative" overflow="hidden" role="dialog" aria-label="Add provider" testId="add-provider-dialog"
         // The focus trap (dialog-trap.contract): from the Provider step to the X (DialogPopup's last child); once an instance is created the steps are disabled and the X is where Tab comes round to.
         FocusGuard(guardId="add-provider-guard-start", target="close-add-provider-x")
+        DialogOpenFocus(target=(wizard.created == "" ? "add-provider-step-0" : "close-add-provider-x"))
         column width="100%" box-sizing="border-box" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" padding-bottom="0.75rem" gap="0.5rem" flex-shrink=0
           text "Add provider" font-size="1.25rem" line-height="1.25rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
           text `Add an account or configure a provider on ${wizard.environment}.` font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
@@ -360,6 +362,7 @@ component UsageHubDialog
       column width="100%" max-width="28rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" position="relative" role="dialog" aria-label="Add a CLIProxyAPI hub" testId="usage-hub-dialog"
         // The focus trap (dialog-trap.contract): the fields, Cancel, Add hub while it is enabled, then the X.
         FocusGuard(guardId="usage-hub-guard-start", target=(busy ? "usage-hub-label" : "usage-hub-close"))
+        DialogOpenFocus(target="usage-hub-url")
         column padding="1.5rem" gap="0.5rem" padding-bottom="0.75rem"
           text "Add a CLIProxyAPI hub" font-size="1.25rem" line-height="1.25rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
           text `Show the quota of every account the hub pools, next to the providers on ${environment}. The key stays on that server.` font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
@@ -397,6 +400,7 @@ component HubRemoveDialog
       column width="100%" max-width="32rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="alertdialog" aria-label=`Remove ${hub.label}?` testId="usage-hub-remove-dialog"
         // The focus trap (dialog-trap.contract).
         FocusGuard(guardId="usage-hub-remove-guard-start", target="usage-hub-remove-confirm")
+        DialogOpenFocus(target="usage-hub-remove-cancel")
         column padding="1.5rem" gap="0.5rem"
           text `Remove ${hub.label}?` font-size="1.25rem" line-height="1.75rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
           text "The hub's management key is deleted from this server. Its accounts leave the Limits view; the hub itself is untouched. Add it again with the URL and key to bring them back." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
@@ -436,6 +440,7 @@ component ChatGptAccountDialog
   view
     column class=PvOverlay testId="chatgpt-account-overlay"
       column width="100%" max-width="48rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" position="relative" overflow="hidden" role="dialog" aria-modal=true aria-label=(length(wizard.chatgpt) > 0 ? join(map(wizard.chatgpt, (created) => created.title), "") : "Add ChatGPT account") testId="chatgpt-account-dialog"
+        DialogOpenFocus(target="chatgpt-account-name-field")
         column padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" padding-bottom="0.75rem" gap="0.5rem"
           text (length(wizard.chatgpt) > 0 ? join(map(wizard.chatgpt, (created) => created.title), "") : "Add ChatGPT account") font-size="1.25rem" line-height="1.25rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2 testId="chatgpt-account-title"
           text "Each account has its own Codex instance and sign-in. Choose the other account on the sign-in page." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"

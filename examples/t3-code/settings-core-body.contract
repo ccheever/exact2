@@ -5,6 +5,7 @@ use ScopeSentence from "./settings-rows.contract"
 use CoreSections from "./settings-rows.contract"
 use AppearanceLibrary from "./settings-appearance.contract"
 use FocusGuard from "./dialog-trap.contract"
+use DialogOpenFocus from "./dialog-trap.contract"
 
 component SettingsCoreBody
   inject
@@ -51,6 +52,7 @@ component SettingsRestoreDialog
       column width="100%" max-width="28rem" padding="1.5rem" gap="1rem" border-radius="1rem" border-width=1 border-style="solid" border-color=core.palette.cardBorder background-color=core.palette.canvas box-shadow="0 16px 40px -18px #0000008c" box-sizing="border-box" role="alertdialog" aria-label="Restore default settings?" testId="restore-defaults-dialog"
         // The focus trap (dialog-trap.contract).
         FocusGuard(guardId="restore-defaults-guard-start", target="restore-defaults-confirm")
+        DialogOpenFocus(target="restore-defaults-cancel")
         text "Restore default settings?" font-size="1.125rem" font-weight=600 line-height="1.5rem" color=core.palette.text
         text core.restoreText font-size="0.875rem" line-height="1.25rem" color=core.palette.muted testId="restore-defaults-list"
         row gap="0.5rem" justify-content="flex-end"

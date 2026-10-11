@@ -10,6 +10,7 @@ use R6VideoTile from "./r6-media-video.contract"
 use R6ExpandedVideo from "./r6-media-video.contract"
 use MediaActions, MediaVideoFailure, MediaView from "./media-actions.contract"
 use FocusGuard from "./dialog-trap.contract"
+use DialogOpenFocus from "./dialog-trap.contract"
 
 shape MessageImage
   id: string
@@ -145,6 +146,7 @@ component ImagePreviewDialog
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=45 align-items="center" justify-content="center" background-color="#000000bf" role="dialog" aria-label=(video ? "Expanded video preview" : "Expanded image preview") testId="image-preview"
       // The focus trap (dialog-trap.contract): Previous, the media's actions, the X, Next. The backdrop is no Tab stop (the reference's popup takes its clicks).
       FocusGuard(guardId="image-preview-guard-start", target=(next ? "image-preview-next" : "image-preview-close"))
+      DialogOpenFocus(target="image-preview-close")
       button press=local("image-close", "", "") aria-label=(video ? "Close video preview" : "Close image preview") aria-keyshortcuts="Escape" tabindex=-1 position="absolute" left=0 right=0 top=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="image-preview-backdrop" title=""
       row width=(windowWidth * 0.92) align-items="center" justify-content="space-between"
         PreviewStep(label="Previous media", shown=previous, flip=true, press=local("image-step", "", "previous"), elementId="image-preview-previous", testId="image-preview-previous")
