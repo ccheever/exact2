@@ -63,15 +63,18 @@ impl ControlKind {
     }
 
     /// The content size a host that reports none shows (LLP 1069.001 D3):
-    /// each is Chrome's bare control under the web reset. A role=switch
-    /// checkbox is still the same checkbox element; a native host that
-    /// presents a different switch reports that size through the intrinsic
-    /// seam. A host that knows any control's size reports it.
+    /// each is Chrome's bare control under the web reset. A switch is the
+    /// web page's drawn one (LLP 1116 D1), WebKit's own box and Linux's
+    /// painted one, 38 × 22; an empty select, the page's 36 px tall select
+    /// (its line, padding and line). A native host that presents a different
+    /// switch reports that size through the intrinsic seam. A host that knows
+    /// any control's size reports it.
     pub fn default_size(self) -> (f32, f32) {
         match self {
-            ControlKind::Checkbox | ControlKind::Switch | ControlKind::Radio => (13.0, 13.0),
+            ControlKind::Checkbox | ControlKind::Radio => (13.0, 13.0),
+            ControlKind::Switch => (38.0, 22.0),
             ControlKind::File => (347.0, 25.0),
-            ControlKind::Select => (22.0, 19.0),
+            ControlKind::Select => (46.0, 36.0),
             ControlKind::Range => (129.0, 16.0),
             ControlKind::Date => (150.0, 21.0),
             ControlKind::Time => (111.796_875, 22.796_875),

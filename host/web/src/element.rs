@@ -1033,18 +1033,18 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
         out.insert("data-scroll".into(), "true".into());
     }
     if element(node) == "select" {
-        // A `<select>` is its own kind; its `type` is not an attribute.
-        out.remove("type");
+        out.remove("type"); // A `<select>` is its own kind; its `type` is not an attribute.
     } else if is_progress(node) {
-        // The base sheet draws the ring from this mark.
-        out.remove("type");
+        out.remove("type"); // The base sheet draws the ring from this mark.
         out.insert("data-exact-progress".into(), String::new());
     } else if node.node_type == NodeType::Control {
         out.get_or_insert_with("type".into(), || "checkbox".into());
-        // @ref LLP 1069.001 D1 — WebKit's `switch`; a browser without it
-        // draws a checkbox that ARIA still hears as a switch.
+        // @ref LLP 1069.001 D1 — WebKit's `switch`, else drawn by index.html (LLP 1116 D1).
         if node.props.str(PropId::AccessibilityRole) == Some("switch") {
             out.insert("switch".into(), String::new());
+            if node.style.appearance == exact_kernel::Appearance::Auto {
+                out.insert("data-exact-switch".into(), String::new());
+            }
         }
     }
     // A `<button>` submits a form unless it says otherwise; a `button` never does.

@@ -501,8 +501,10 @@ if (how !== 'none') await bundle({ entrypoints: [resolve(gen, 'main-server.js')]
 }
 
 // The web host's base stylesheet, as its build writes it (comments out).
-const base = readFileSync(resolve(root, 'host/web/index.html'), 'utf8').match(/<style>([\s\S]*?)<\/style>/)[1]
-  .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s*\n\s*/g, '').replace(/\s*([{};:,>])\s*/g, '$1').replace(/;}/g, '}');
+// Whitespace before a `:` stays: in a selector it is a descendant's pseudo-class.
+const shell = readFileSync(resolve(root, 'host/web/index.html'), 'utf8');
+const base = shell.match(/<style>([\s\S]*?)<\/style>/)[1]
+  .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s*\n\s*/g, '').replace(/\s*([{};,>])\s*/g, '$1').replace(/:\s+/g, ':').replace(/;}/g, '}');
 const css = readFileSync(resolve(gen, 'app.css'), 'utf8');
 const viewport = existsSync(resolve(gen, 'viewport.txt')) ? readFileSync(resolve(gen, 'viewport.txt'), 'utf8') : 'width=device-width, initial-scale=1';
 // The entry and the chunks it imports statically (none, unless a split
