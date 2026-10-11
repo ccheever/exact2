@@ -94,6 +94,11 @@ the document as for any page. Ordinary scroll containers remain platform-owned. 
 
 ## 3. The macOS host: `NSScrollView`, made to agree with CSS (`host/apple`)
 
+> **LLP 1115 gives how scrolling feels to the platform.** What scrolls and how far is layout
+> and stays CSS; elasticity, momentum, the wheel's step and the scroller's style are AppKit's.
+> LLP 1115.000 D8 proposes reversing this section on that ground. Not yet accepted, so the
+> code is still as described here.
+
 **The page.** The window's content view is an `NSScrollView` (the
 viewport); its document is a flipped view holding the roots, sized after
 every batch to the roots' extent and never smaller than the viewport
