@@ -535,7 +535,8 @@ Read before writing code:
 - ${doc('agent-pitfalls.md')}: verified footguns, symptom → cause → fix.
 - ${doc('contract-grammar.md')}: exact forms, built-in functions, events (keys at a game's canvas too).
 
-Commands, from this directory:
+Commands, from this directory (\`exact.mjs\` runs from any other too, and finds a file
+you name where you are, else here):
 
 | | |
 |---|---|

@@ -59,13 +59,22 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
       [['agent', 'ios', 'state'], ['ios', '--app', 'field-log', 'state'], ios],
       [['agent', 'ios', '--sim', 'lane', 'tree'], ['ios', '--app', 'field-log', '--sim', 'lane', 'tree'], [...ios, '--sim', 'lane']],
       [['agent', 'ios', '--device', 'tree'], ['ios', '--app', 'field-log', '--device', 'tree']],
-      [['contract', 'build', 'app.contract', '--json'], ['contract', 'build', 'app.contract', '--json']],
+      [['contract', 'build', 'app.contract', '--json'], ['contract', 'build', resolve(realpathSync(dir), 'app.contract'), '--json']],
+      [['contract', 'types', 'app.contract', '-o', 'app.contract.d.ts'], ['contract', 'types', resolve(realpathSync(dir), 'app.contract'), '-o', resolve(realpathSync(dir), 'app.contract.d.ts')]],
+      [['contract', 'vocab', 'background-color'], ['contract', 'vocab', 'background-color']],
     ]) {
       const result = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), ...command], { cwd: parent, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
       assert.equal(result.status, 0, result.stderr);
       assert.deepEqual(JSON.parse(result.stdout), { args, app: realpathSync(dir), offline: '1' });
-      assert.deepEqual(result.stderr.trim() ? JSON.parse(result.stderr).args : null, built, `${command.join(' ')} builds first`);
+      assert.deepEqual(result.stderr.split('\n').filter(line => line.startsWith('{')).map(line => JSON.parse(line).args)[0] ?? null, built, `${command.join(' ')} builds first`);
     }
+    // From inside the app, a path from its parent finds the same file; one found nowhere is named.
+    const inside = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'contract', 'build', 'field-log/app.contract'], { cwd: dir, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
+    assert.deepEqual(JSON.parse(inside.stdout).args, ['contract', 'build', resolve(realpathSync(dir), 'app.contract')]);
+    assert.match(inside.stderr, /field-log\/app\.contract is .*field-log\/app\.contract \(the app is /);
+    const nowhere = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'contract', 'build', 'nope.contract'], { cwd: parent, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
+    assert.match(nowhere.stderr, /no nope\.contract in .* or in the app, /);
+    assert.deepEqual(JSON.parse(nowhere.stdout).args, ['contract', 'build', 'nope.contract']);
     // App farm wave 1: `test --help` ran the suite, `web --help` started a server. Help builds nothing; a verb whose
     // script has more to say is asked for its usage alone, and the rest print their line.
     const helped = (...command) => spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), ...command], { cwd: parent, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });

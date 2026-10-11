@@ -36,6 +36,9 @@ bun exact.mjs pattern      # lists the starters; `pattern <name>` writes one
 bun exact.mjs ios --prebuild  # the first iOS build: minutes, in the background
 ```
 
+Start from the nearest pattern. `exact.mjs` runs from any directory: a file you
+name is found where you are, else in the app, and it says which it took. Your
+shell commands have no such help, so keep one directory.
 |`bun exact.mjs …`|What it does|
 |---|---|
 |`contract build app.contract --json`|`[]` or each diagnostic with its fix; it rewrites the types `app.ts` imports.|
