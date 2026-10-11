@@ -126,7 +126,31 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     if (event.key !== "Enter" && !(event.key === " " && el.getAttribute("role") !== "link")) return;
     event.preventDefault();
     el.click();
+    if (event.key === " " && !surface(el)) keyed(el);
   });
+  // @ref LLP 1115.000 D6 — a pressable covering the window is a surface (a
+  // scrim that closes a sheet, a viewer that toggles its bars) and shows no
+  // press, as on iOS (PressFeedback.swift `platformPressDims`). CSS cannot
+  // measure a box against the window, so each press measures the innermost
+  // pressable under it and marks it for the shell's rule, before a frame.
+  const surface = at => {
+    const el = at.closest?.('button, a[href], [data-exact-on~="press"]');
+    if (!el || !root.contains(el)) return false;
+    const r = el.getBoundingClientRect(), page = document.documentElement;
+    return el.toggleAttribute("data-exact-surface", r.width >= page.clientWidth && r.height >= page.clientHeight * .9);
+  };
+  // Space held on a pressable this piece presses by key shows its press (its
+  // `-exact-press-scale`, else the shell's dim) until the key comes up or the
+  // focus leaves, as the browser holds a `<button>` `:active` under Space.
+  const keyed = el => {
+    const up = e => {
+      if (e.type === "keyup" && e.key !== " ") return;
+      showPress(el, false);
+      removeEventListener("keyup", up, true); el.removeEventListener("blur", up);
+    };
+    showPress(el, true);
+    addEventListener("keyup", up, true); el.addEventListener("blur", up);
+  };
   // @ref LLP 1061 D3 — press feedback by UIKit's rule, not `:active`'s: the
   // innermost node with a `press` handler takes the press (its pressable
   // ancestors, which `:active` would also match, do not), and shows it only
@@ -172,6 +196,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   root.addEventListener("pointerdown", e => {
     if (e.button !== 0 || !e.isPrimary) return;
     release(); // a press whose release never reached the page
+    surface(e.target);
     const el = e.target.closest?.("[data-exact-on~=press],button[data-button-style]");
     if (!el || !root.contains(el) || el.closest(":disabled,[disabled='true']")) return;
     // @ref LLP 1077 D14 — `-exact-press-haptic` plays at the press, as Apple's does:
