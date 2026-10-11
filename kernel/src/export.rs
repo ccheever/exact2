@@ -45,8 +45,9 @@ use std::collections::HashSet;
 
 /// Magic bytes.
 pub const MAGIC: [u8; 4] = *b"EXNO";
-/// Envelope version.
-pub const VERSION: u16 = 1;
+/// Envelope version. 2: a node's style carries its written mask beside
+/// its set mask (LLP 1115.000 D2), so a version 1 style is 32 bytes short.
+pub const VERSION: u16 = 2;
 /// Header size.
 pub const HEADER_LEN: usize = 40;
 /// Directory entry size.

@@ -148,8 +148,8 @@ fn position_area_places_a_popover_in_the_admitted_subset_only() {
 #[test]
 fn a_node_knows_which_of_its_rows_its_author_wrote() {
     use exact_kernel::StyleId::{
-        BackgroundColor, Display, FontSize, FontWeight, MarginBottom, MarginTop, MinHeight,
-        PaddingTop, TextColor, TintColor, Width,
+        Appearance, BackgroundColor, Display, FontSize, FontWeight, MarginBottom, MarginTop,
+        MinHeight, PaddingTop, TextColor, TintColor, Width,
     };
     let src = r##"style Loud
   color="#ff0000"
@@ -176,6 +176,8 @@ component A
         text "in red" testId="link-red" href="https://example.com" color="#ff0000"
       hr testId="rule"
       hr testId="rule-red" color="#ff0000"
+      textarea testId="editor" value="hi" markup="markdown"
+      textarea testId="editor-none" value="hi" markup="markdown" appearance="none"
       row testId="row"
       view testId="bound" width=(on ? 10 : 20)
       list appearance="auto" testId="list"
@@ -231,6 +233,8 @@ component A
         ("rule-red", TextColor, written, "the author's on an `hr`"),
         ("rule-red", MarginTop, implied, "keeps the tag's other rows"),
         ("row", Display, implied, "a tag's fixed row"),
+        ("editor", Appearance, implied, "a field never native"),
+        ("editor-none", Appearance, written, "the same, written"),
         ("bound", Width, written, "a computed attribute"),
         ("list", BackgroundColor, implied, "the grouped sheet's"),
         ("section", MarginBottom, written, "over the sheet's"),

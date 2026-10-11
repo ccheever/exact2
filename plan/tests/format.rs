@@ -210,6 +210,30 @@ fn font_sources_are_portable_local_relative_paths() {
     }
 }
 
+/// A bool is 0 or 1. Any other byte is refused, not read as `true`: a
+/// binding's `written` is a claim about its author (LLP 1115.000 D2).
+#[test]
+fn a_bool_is_zero_or_one_and_nothing_else() {
+    let written = sample();
+    let mut implied = sample();
+    implied.bindings[0].written = false;
+    let (a, b) = (written.encode(), implied.encode());
+    let differing: Vec<usize> = (0..a.len()).filter(|&i| a[i] != b[i]).collect();
+    assert_eq!(differing.len(), 1, "the bit is one byte of the plan");
+    let at = differing[0];
+    assert_eq!((a[at], b[at]), (1, 0));
+    let mut corrupt = a.clone();
+    corrupt[at] = 2;
+    assert_eq!(
+        Plan::decode(&corrupt),
+        Err(PlanError::UnknownEnum {
+            table: "bindings",
+            field: "written",
+            value: 2
+        })
+    );
+}
+
 #[test]
 fn host_event_kinds_round_trip_through_the_enum_codec() {
     for event in [
