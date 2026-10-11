@@ -112,6 +112,67 @@ final class RouteTests: XCTestCase {
         XCTAssertEqual(saved.all.count, 1)
     }
 
+    /// NR-1 (network-routes-followups): a learned plain-HTTP LAN route, as the server reports it (directEndpoints: a
+    /// numeric private IPv4 over http), is walked like any direct route and connects with the token it borrows from the
+    /// route it was learned over (routes.ts credentialConnectionId, resolver.ts), as the reference desktop does; the
+    /// token goes out only after the address answered as this environment. The fixture socket listens on every
+    /// interface, so this Mac's own private IPv4 reaches it; without one the test skips.
+    func testALearnedPlainHttpLanRouteConnectsWithTheTokenItBorrows() throws {
+        let addresses = (try? T3NetworkInterfaces.system())?.values.flatMap { $0 } ?? []
+        guard let lan = addresses.first(where: { address in
+            let parts = address.address.split(separator: ".").compactMap { Int($0) }
+            guard address.family == "IPv4", !address.isInternal, parts.count == 4 else { return false }
+            return parts[0] == 10 || (parts[0] == 172 && (16...31).contains(parts[1])) || (parts[0] == 192 && parts[1] == 168)
+        })?.address else { throw XCTSkip("This Mac has no private IPv4 address.") }
+        let socket = try R3Socket(), port = socket.port, log = Log()
+        let home = "http://127.0.0.1:\(port)", learned = "http://\(lan):\(port)", learnedId = "learned:fixture:\(learned)@\(home)"
+        // The paired loopback route is down (a stopped proxy); the learned LAN address answers.
+        serve(down: { ["127.0.0.1"] }, log: log)
+        saved.remember(origin: home, descriptor: ["environmentId": "fixture", "label": "Desk"])
+        try credentials.save("token-home", origin: home, environment: "fixture")
+        let transport = transport(); defer { transport.destroy() }
+        _ = perform(transport, ["op": "setRoutes", "environmentId": "fixture", "routes": [route(home), route(learned, credential: home, learned: true)]])
+        let opened = perform(transport, ["op": "connect", "origin": home, "credential": ""])
+        let value = opened["value"] as? [String: Any] ?? [:]
+        XCTAssertEqual(value["state"] as? String, "connected", "\(opened) \(log.all)")
+        XCTAssertEqual(value["activeRouteId"] as? String, learnedId)
+        XCTAssertEqual(value["origin"] as? String, learned, "The route in use")
+        XCTAssertEqual(value["homeOrigin"] as? String, home)
+        let lanLines = log.all.filter { $0.hasPrefix("\(lan) ") }
+        XCTAssertEqual(lanLines.first, "\(lan) /.well-known/t3/environment -", "The descriptor first, with no credential")
+        XCTAssertTrue(lanLines.contains("\(lan) /api/auth/session Bearer token-home"), "The borrowed token: \(lanLines)")
+        XCTAssertTrue(lanLines.contains("\(lan) /api/auth/websocket-ticket Bearer token-home"), "\(lanLines)")
+        XCTAssertNil(try credentials.read(origin: learned, environment: "fixture"), "A learned route owns no Keychain item")
+    }
+
+    /// NR-1: learning a route that ranks above the one in use (a LAN address learned over a tailnet or public route)
+    /// checks it at once with the borrowed token and moves the session to it, as supervisor.ts learnRoutesFrom
+    /// requests the better-route check; the 60 s timer is not what moves it.
+    func testALearnedRouteAboveTheOneInUseTakesOverAtOnce() throws {
+        guard ProcessInfo.processInfo.environment["T3_ROUTE_CHECK_INTERVAL_MS"] == nil else { throw XCTSkip("Needs the 60 s default interval.") }
+        let addresses = (try? T3NetworkInterfaces.system())?.values.flatMap { $0 } ?? []
+        guard let lan = addresses.first(where: { address in
+            let parts = address.address.split(separator: ".").compactMap { Int($0) }
+            guard address.family == "IPv4", !address.isInternal, parts.count == 4 else { return false }
+            return parts[0] == 10 || (parts[0] == 172 && (16...31).contains(parts[1])) || (parts[0] == 192 && parts[1] == 168)
+        })?.address else { throw XCTSkip("This Mac has no private IPv4 address.") }
+        let socket = try R3Socket(), port = socket.port, log = Log()
+        // The route in use stands for a tailnet or public address; `localhost` reaches the same fixture socket.
+        let home = "http://localhost:\(port)", learned = "http://\(lan):\(port)", learnedId = "learned:fixture:\(learned)@\(home)"
+        serve(down: { [] }, log: log)
+        saved.remember(origin: home, descriptor: ["environmentId": "fixture", "label": "Desk"])
+        try credentials.save("token-home", origin: home, environment: "fixture")
+        let transport = transport(); defer { transport.destroy() }
+        let opened = perform(transport, ["op": "connect", "origin": home, "credential": ""])
+        XCTAssertEqual((opened["value"] as? [String: Any])?["activeRouteId"] as? String, home, "\(opened)")
+        // learnRoutes: the server reported its LAN address; insertRoute puts it ahead of the route in use.
+        _ = perform(transport, ["op": "setRoutes", "environmentId": "fixture", "routes": [route(learned, credential: home, learned: true), route(home)]])
+        XCTAssertTrue(until(5) { status(transport)["activeRouteId"] as? String == learnedId && status(transport)["state"] as? String == "connected" }, "\(status(transport)) \(log.all)")
+        XCTAssertEqual(status(transport)["origin"] as? String, learned)
+        XCTAssertTrue(log.all.contains("\(lan) /api/auth/session Bearer token-home"), "The preflight and the session use the borrowed token")
+        XCTAssertEqual(log.all.first { $0.hasPrefix("\(lan) ") }, "\(lan) /.well-known/t3/environment -", "The descriptor first, with no credential")
+    }
+
     func testAFallbackRouteConnectsAndTheBetterRouteTakesOverOnceItAnswers() throws {
         let socket = try R3Socket(), port = socket.port, log = Log()
         final class Down: @unchecked Sendable { var hosts: Set<String> = ["127.0.0.1"] }
