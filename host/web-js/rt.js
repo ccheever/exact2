@@ -1475,8 +1475,7 @@ function locale() {
   }
 }
 const table = name => Texts.find(r => r[0] === name);
-/** `t(key, name=value…)`: MF2 simple messages, `{name}` or `{$name}`; an
- * unfilled name keeps its spelling; `\{ \} \\` escape. budget.js's `x_t` bounds it. */
+/** `t(key, name=value…)`: MF2 simple messages, `{name}` or `{$name}`; an unfilled name keeps its spelling; `\{ \} \\` escape. budget.js's `x_t` bounds it. */
 export function text(name, key, pairs, emit) {
   const text = table(name)?.[2][key] ?? Texts[0][2][key];
   if (text == null) throw new Refusal(`t: no text ${key}`);
