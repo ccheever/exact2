@@ -1,0 +1,23 @@
+// The reference's reply links in Chrome's accessibility tree (CDP Accessibility.getFullAXTree). Usage: node ref-ax.mjs <cdpPort>
+import { createRequire } from 'node:module';
+const require = createRequire('/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ref/src-1e2ecbd975/apps/desktop/package.json');
+const { chromium } = require('playwright-core');
+const browser = await chromium.connectOverCDP(`http://127.0.0.1:${process.argv[2]}`);
+const page = browser.contexts().flatMap((c) => c.pages()).find((p) => !p.url().startsWith('devtools://'));
+const cdp = await page.context().newCDPSession(page);
+const { nodes } = await cdp.send('Accessibility.getFullAXTree');
+const byId = new Map(nodes.map((n) => [n.nodeId, n]));
+// The reply's paragraphs: StaticText/link children of the paragraphs that hold our fixture words.
+for (const n of nodes) {
+  if (n.role?.value !== 'paragraph') continue;
+  const kids = (n.childIds ?? []).map((id) => byId.get(id)).filter(Boolean);
+  const text = kids.map((k) => k.name?.value ?? '').join('');
+  if (!/Write to|Code inside|Known|Review/.test(text) && !kids.some((k) => /Write to|Code inside/.test(k.name?.value ?? ''))) continue;
+  console.log('paragraph:');
+  for (const k of kids) {
+    const url = k.properties?.find((p) => p.name === 'url')?.value?.value;
+    console.log(`  ${k.role?.value} ${JSON.stringify(k.name?.value ?? '')}${url ? ` url=${url}` : ''}${k.ignored ? ' (ignored)' : ''}`);
+    if (k.role?.value === 'link') for (const g of (k.childIds ?? []).map((id) => byId.get(id))) console.log(`    ${g?.role?.value} ${JSON.stringify(g?.name?.value ?? '')}${g?.ignored ? ' (ignored)' : ''}`);
+  }
+}
+process.exit(0);
