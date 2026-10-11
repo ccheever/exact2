@@ -106,10 +106,15 @@ final class ModalStackIOSTests: XCTestCase {
     /// gone, the key "0" again) left the sheet presented over a blank screen and
     /// the list inactive beneath it. Now the list is selected again and live,
     /// and the sheet, its route gone, is owed its close. Batches as the
-    /// runner writes them, to a session no plan booted.
+    /// runner writes them, to a session whose boot was refused: a view's
+    /// first fit boots its session (a navigation transition's end fits it,
+    /// in the batch that installs the stack), and here that would be the
+    /// test host's baked plan over these batches. A refused boot boots
+    /// nothing again (LLP 1031 D8).
     func testASheetWhoseRouteLeftWhileTheRootNamesNoRouteClosesAndLeavesItsBackgroundLive() throws {
         let session = ExactApp.shared.makeSession(label: "sheet-closed-root-names-none")
         sessions.append(session)
+        XCTAssertNotNil(session.boot(plan: Data(), size: CGSize(width: 402, height: 874)).error, "no plan in no bytes")
         let view = ExactView(session: session)
         let host = UIViewController()
         let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene

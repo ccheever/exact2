@@ -68,11 +68,23 @@ extension Presenter {
         var o = sv.contentOffset
         if r.maxY > visible.maxY { o.y += r.maxY - visible.maxY } else if r.minY < visible.minY { o.y -= visible.minY - r.minY }
         if r.maxX > visible.maxX { o.x += r.maxX - visible.maxX } else if r.minX < visible.minX { o.x -= visible.minX - r.minX }
-        let i = sv.adjustedContentInset
-        o.y = min(max(o.y, -i.top), max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height))
-        o.x = min(max(o.x, -i.left), max(-i.left, sv.contentSize.width + i.right - sv.bounds.width))
+        let clamped = { (o: CGPoint, i: UIEdgeInsets) in
+            CGPoint(x: min(max(o.x, -i.left), max(-i.left, sv.contentSize.width + i.right - sv.bounds.width)),
+                    y: min(max(o.y, -i.top), max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height)))
+        }
+        let insets = sv.adjustedContentInset
+        o = clamped(o, insets)
         guard abs(o.y - sv.contentOffset.y) > 0.5 || abs(o.x - sv.contentOffset.x) > 0.5 else { return false }
         sv.contentOffset = o
+        // The bar's large title collapsing as the list scrolls changes its
+        // insets inside this assignment, and UIKit moves the offset on by the
+        // title's height to keep the content still: past the least scroll,
+        // with the field shown, so no later pass takes it back. The offset
+        // asked for, within the new insets, is the least.
+        if sv.adjustedContentInset != insets {
+            let held = clamped(o, sv.adjustedContentInset)
+            if abs(held.y - sv.contentOffset.y) > 0.5 || abs(held.x - sv.contentOffset.x) > 0.5 { sv.contentOffset = held }
+        }
         return true
     }
 
