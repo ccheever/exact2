@@ -706,20 +706,26 @@ impl Lowerer<'_> {
                         "a native button's `type` is `\"button\"`: it is what makes it one".into(),
                     )
                 }
-                // Its fixed role yields to a tab's or a menu item's (LLP 1069.011.000 D4, D5).
+                // Its fixed role yields to a tab's, a radio's (a radio group's
+                // segment, LLP 1116.004 D5.2) or a menu item's (LLP 1069.011.000 D4, D5).
                 "role"
                     if !literals(&a.value).is_some_and(|roles| {
                         roles.iter().all(|r| {
                             matches!(
                                 *r,
-                                "button" | "tab" | "menuitem" | "menuitemcheckbox" | "menuitemradio"
+                                "button"
+                                    | "tab"
+                                    | "radio"
+                                    | "menuitem"
+                                    | "menuitemcheckbox"
+                                    | "menuitemradio"
                             )
                         })
                     }) =>
                 {
                     return refuse(
                         "lower-button-context",
-                        format!("a native button's role is `button`, `tab`, `menuitem`, `menuitemcheckbox` or `menuitemradio`, written as a literal or a choice: {alternative}"),
+                        format!("a native button's role is `button`, `tab`, `radio`, `menuitem`, `menuitemcheckbox` or `menuitemradio`, written as a literal or a choice: {alternative}"),
                     )
                 }
                 "backgroundMaterial" | "glassGroup" => {

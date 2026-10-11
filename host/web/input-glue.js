@@ -26,6 +26,33 @@ function pointerLine(el, e, lifted = false) {
   const type = e.pointerType === "pen" || e.pointerType === "touch" ? e.pointerType : "mouse";
   return `${(e.clientX - r.left) / (sx || 1) - left},${(e.clientY - r.top) / (sy || 1) - top},${lifted ? 0 : e.buttons},${lifted ? 0 : Math.min(1, Math.max(0, e.pressure || 0))},${type},${e.pointerId ?? 1},${e.clientX},${e.clientY},${modifiers(e)}`;
 }
+/** @ref LLP 1116.004 D5.2 — a `radiogroup` of `radio`s, a value chosen from a few (the segmented
+ * control the shell draws), keyed as WAI-ARIA's radio group and a native one: one Tab stop, its
+ * checked radio or else its first, set as the Tab key goes down, before the browser moves the
+ * focus; and the arrows move the choice, to the next or previous radio, wrapping and past
+ * disabled ones (Left and Right mirrored right to left), focused and pressed. */
+const radiosOf = group => Array.from(group.children ?? []).filter(el => el.getAttribute?.("role") === "radio");
+const radioUsable = el => !el.disabled && el.getAttribute("aria-disabled") !== "true" && el.getClientRects().length > 0;
+const rove = (all, stop) => { for (const r of all) r.tabIndex = r === stop ? 0 : -1; };
+function radioStops(root) {
+  for (const group of root.querySelectorAll('[role="radiogroup"]')) {
+    const all = radiosOf(group);
+    rove(all, all.find(r => r.getAttribute("aria-checked") === "true" && radioUsable(r)) ?? all.find(radioUsable));
+  }
+}
+/** An arrow on a radio group's radio moves its choice; whether it did. */
+function radioArrow(root, event) {
+  const el = event.target, group = el?.parentElement;
+  if (el?.getAttribute?.("role") !== "radio" || group?.getAttribute?.("role") !== "radiogroup" || !root.contains(group)) return false;
+  const rtl = getComputedStyle(group).direction === "rtl";
+  const step = { ArrowDown: 1, ArrowUp: -1, ArrowRight: rtl ? -1 : 1, ArrowLeft: rtl ? 1 : -1 }[event.key];
+  if (!step) return false;
+  event.preventDefault();
+  const all = radiosOf(group), live = all.filter(r => r === el || radioUsable(r));
+  const next = live[(live.indexOf(el) + step + live.length) % live.length];
+  if (next !== el) { rove(all, next); next.focus(); next.click(); }
+  return true;
+}
 export function createInputHandlers({ root, views, retiredViews, ready, inertAncestor, dispatch, release: dispatchRelease = () => {}, velocity = {}, agentMode = false, log = () => {}, documents = null }) {
   // @ref LLP 1038 §7 — a plain click on a same-origin link to a declared
   // route stays in this document: a link with its own `press` navigates by
@@ -50,6 +77,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     if (!navigate(to)?.ops?.some(op => op.op === "router")) wasm.exact_log(writeIn(`history: link ${JSON.stringify(to)} refused`));
   }, true);
   document.addEventListener("keydown", (event) => {
+    if (event.key === "Tab") radioStops(root); // a radio group's one stop, before the focus moves
     if (event.isComposing || !ready() || event.defaultPrevented) return;
     const editing = event.composedPath().some(el => el?.isContentEditable || el?.matches?.("input, textarea, [role=textbox], [role=searchbox], [role=combobox]"));
     const physical = physicalKey(event);
@@ -89,9 +117,11 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // where its handlers are) activates as one, as it does natively: Enter, or
   // Space unless it is a link, after the key's handlers, unless one
   // prevented it — the bubble phase at the document is after them all (chat F14).
+  // A radio group's arrows move its choice, held or not, after the key's own handlers too.
   document.addEventListener("keydown", (event) => {
     const el = event.target;
-    if (event.defaultPrevented || event.isComposing || event.repeat || event.metaKey || event.ctrlKey || event.altKey || !ready()) return;
+    if (event.defaultPrevented || event.isComposing || event.metaKey || event.ctrlKey || event.altKey || !ready()) return;
+    if (radioArrow(root, event) || event.repeat) return;
     if (typeof el?.matches !== "function" || !root.contains(el) || !pressesByKey(el)) return;
     if (event.key !== "Enter" && !(event.key === " " && el.getAttribute("role") !== "link")) return;
     event.preventDefault();

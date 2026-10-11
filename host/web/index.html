@@ -141,20 +141,22 @@
      a red tint, a red fill. An accent-color on the button still wins. */
   #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]) { background: light-dark(#7676801f, #7676803d); color: light-dark(var(--exact-accent, AccentColor), color-mix(in srgb, var(--exact-accent, AccentColor) 80%, #fff)); }
   @media (hover: hover) {
-    #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]):not([role="tab"], :disabled):hover { background-color: light-dark(#7676802e, #7676804d); }
+    #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]):not([role="tab"], [role="radio"], :disabled):hover { background-color: light-dark(#7676802e, #7676804d); }
     #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"]):not(:disabled):hover { background-color: color-mix(in srgb, var(--exact-accent, AccentColor) 22%, transparent); }
     #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"]):not(:disabled):hover { background-color: color-mix(in srgb, var(--exact-accent, AccentColor), #000 10%); }
   }
-  #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]):not([role="tab"])[data-pressed] { background-color: light-dark(#7676803d, #7676805c); }
+  #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]):not([role="tab"], [role="radio"])[data-pressed] { background-color: light-dark(#7676803d, #7676805c); }
   #exact-root button[data-button-style][data-destructive="true"] { --exact-accent: light-dark(#ff3b30, #ff453a); }
   /* A content `tablist` of native tabs is a segmented control: a track, the
-     selected tab raised in it. The root tab bar (tabs that name the panel
+     selected tab raised in it; so is a `radiogroup` of native radios, its
+     checked radio raised (LLP 1116.004 D5.2; input-glue.js gives it the
+     arrow keys and one Tab stop). The root tab bar (tabs that name the panel
      they show, `aria-controls`) is a bar with a top separator, its selected
      tab in the accent. */
-  :where(#exact-root [role="tablist"]:has(> button[data-button-style][role="tab"]):not(:has(> [aria-controls]))) { background-color: light-dark(#7676801f, #7676803d); border-radius: 9px; padding: 2px; }
-  #exact-root [role="tablist"] > button[role="tab"]:is([data-button-style="bordered"], [data-button-style="gray"]) { background: none; border-radius: 7px; padding: .375em .75em; }
-  #exact-root [role="tablist"] > button[role="tab"]:is([data-button-style="bordered"], [data-button-style="gray"]):enabled { color: CanvasText; }
-  #exact-root [role="tablist"] > button[role="tab"]:not([aria-controls]):is([data-button-style="bordered"], [data-button-style="gray"])[aria-selected="true"] { background: light-dark(#fff, #636366); box-shadow: 0 3px 8px #0000001f, 0 3px 1px #0000000a; }
+  :where(#exact-root [role="tablist"]:has(> button[data-button-style][role="tab"]):not(:has(> [aria-controls])), #exact-root [role="radiogroup"]:has(> button[data-button-style][role="radio"])) { background-color: light-dark(#7676801f, #7676803d); border-radius: 9px; padding: 2px; }
+  #exact-root :is([role="tablist"] > button[role="tab"], [role="radiogroup"] > button[role="radio"]):is([data-button-style="bordered"], [data-button-style="gray"]) { background: none; border-radius: 7px; padding: .375em .75em; }
+  #exact-root :is([role="tablist"] > button[role="tab"], [role="radiogroup"] > button[role="radio"]):is([data-button-style="bordered"], [data-button-style="gray"]):enabled { color: CanvasText; }
+  #exact-root :is([role="tablist"] > button[role="tab"]:not([aria-controls])[aria-selected="true"], [role="radiogroup"] > button[role="radio"][aria-checked="true"]):is([data-button-style="bordered"], [data-button-style="gray"]) { background: light-dark(#fff, #636366); box-shadow: 0 3px 8px #0000001f, 0 3px 1px #0000000a; }
   :where(#exact-root [role="tablist"]:has(> [role="tab"][aria-controls])) { background-color: light-dark(#f9f9f9eb, #1d1d1feb); box-shadow: 0 -.5px 0 light-dark(#3c3c434a, #54545899); }
   #exact-root [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]) { border-radius: 0; }
   #exact-root [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]):enabled { color: light-dark(#8e8e93, #98989d); }

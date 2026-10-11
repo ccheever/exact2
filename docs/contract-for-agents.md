@@ -1085,6 +1085,7 @@ lists any literal colour, font size or weight an app's `.contract` files still w
 | `popover="auto" role="menu"` of `button`s, opened by `popovertarget` (a row whose `popovertarget` names another menu: its submenu) | `UIMenu`, nested (LLP 1021) |
 | `dialog role="alertdialog" aria-label="Remove book?"` of a `text`, its action(s) and one Cancel | `UIAlertController(.alert)`: the label its title, the text its message (LLP 1115 D6; recipe [below](#a-confirmation)) |
 | `role="tablist"`: each tab a symbol over a label / one text or image | `UITabBar` / `UISegmentedControl`, the tablist at least its native height unless `min-height` says otherwise (LLP 1059) |
+| `role="radiogroup"` of `button role="radio" aria-checked=…`, each one text or image (a value chosen from a few) | `UISegmentedControl`, as a tablist's; never a tab bar (LLP 1116.004 D5.2) |
 | a route whose first child is a `header` holding one heading, a text after it and its buttons | the navigation bar; a level-1 heading (`aria-level=1`) is a large title, the text after it the subtitle |
 | a route with `navigationPresentation="modal"` | a sheet |
 
@@ -1168,7 +1169,10 @@ column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="
 ```
 
 `action reload` is `refresh items`; `pending(items)` is true while it runs.
-A segmented control in the content is the same `row role="tablist"` of text tabs
+A segmented control in the content chooses a value or switches panels: a value
+from two to five (a preset, units, a period, a filter) is a `row role="radiogroup"` of
+`button role="radio" aria-checked=…`, each pressing its value (the web gives it the
+arrow keys and one Tab stop); switching panels, a `row role="tablist"` of text tabs
 outside the header. iOS needs a swipe row's content exactly the scroll's size
 ([pitfalls](agent-pitfalls.md), "There is no `swipeleft`").
 

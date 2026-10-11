@@ -7,7 +7,8 @@ use crate::id::ViewId;
 
 impl Kernel {
     /// Host intrinsic size (`None` to forget it). Replaced elements keep
-    /// their natural ratio; a projected tablist uses the height as its automatic
+    /// their natural ratio; a projected tablist or radio group (a segmented
+    /// control, LLP 1116.004 D5.2) uses the height as its automatic
     /// minimum (LLP 1059); a form control takes it as its size, with no ratio
     /// (LLP 1069.001 D3), as does a native module (LLP 1024 D4). Other nodes and nonpositive/nonfinite sizes are refused.
     pub fn set_intrinsic_size(
@@ -22,12 +23,13 @@ impl Kernel {
         if self.arena.intrinsic(slot) == size {
             return Ok(());
         }
-        let tablist = self
-            .arena
-            .props(slot)
-            .get(PropId::AccessibilityRole)
-            .and_then(|v| v.as_str())
-            == Some("tablist");
+        let tablist = matches!(
+            self.arena
+                .props(slot)
+                .get(PropId::AccessibilityRole)
+                .and_then(|v| v.as_str()),
+            Some("tablist" | "radiogroup")
+        );
         let clearing_projection = size.is_none() && self.arena.intrinsic(slot).is_some();
         let control = matches!(
             self.arena.node_type(slot),
