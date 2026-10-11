@@ -1,9 +1,10 @@
-// search-key-and-timeline-commit-title: SK-2's guard. A real key reaches the clone's commands only through
-// the hidden dispatch buttons this file's `keyboardDispatch` makes (the session's key monitor presses the
-// button whose `aria-keyshortcuts` matches, and the host files it as a menu key equivalent), so a reference
-// binding without its button is a key a real keyboard loses. Every ⌘ binding of the reference's defaults
-// (packages/shared/src/keybindings.ts DEFAULT_KEYBINDINGS, keybindingDefaults here) that holds in an open
-// thread keeps its button and chord, from the composer and with nothing focused.
+// search-key-and-timeline-commit-title (T3 Code 1e2ecbd975, MIT; see LICENSE-T3). SK-2's guard: a real key reaches the
+// clone's commands only through the hidden dispatch buttons `keyboardDispatch` makes (the session's key monitor presses
+// the button whose `aria-keyshortcuts` matches, and the host files it as a menu key equivalent), so a reference binding
+// without its button is a key a real keyboard loses. Every ⌘ binding of the reference's defaults (packages/shared/src/
+// keybindings.ts DEFAULT_KEYBINDINGS, keybindingDefaults here) that holds in an open thread keeps its button and chord,
+// from the composer and with nothing focused. SK-1's ⇧⌘F did reach its button through NSApplication.sendEvent; what
+// took the real key is outside the app (the task record). TC-1: below.
 import { describe, expect, test } from 'bun:test';
 import { T3Client } from './client';
 import { keyboardDispatch, type DispatchContext } from './keyboard-dispatch';
@@ -54,5 +55,28 @@ describe('SK-2: every reference ⌘ binding of an open thread keeps its dispatch
     for (const context of [thread, { ...thread, composerFocus: true, editableFocus: true }, { ...thread, paletteOpen: true, paletteMode: 'command' }]) {
       expect(keyboardDispatch(client(), [], '', '', context).filter(item => item.chord === 'Meta+Shift+f')).toEqual([expect.objectContaining({ command: 'projectSearch.toggle', kind: 'palette', target: 'content' })]);
     }
+  });
+});
+
+// TC-1: CommitEvent (PullRequestTimelineTab.tsx) draws its title at rest. In the clone the macOS host presents a wide
+// text's raster made off screen only for a selectable text (X82's pump), and no text under a button is one, so the
+// title stayed blank until the hover colour redrew it. The row's texts sit beside the button, which lies over them.
+describe('TC-1: the Timeline commit row keeps its title out of the button', () => {
+  test('the button lies over the row and holds no text; the title keeps the reference tones', async () => {
+    const lines = (await Bun.file(new URL('./pages-pr-timeline.contract', import.meta.url)).text()).split('\n');
+    const start = lines.findIndex(line => line.trim() === 'when row.kind == "commit"');
+    const end = lines.findIndex((line, index) => index > start && line.startsWith('    when '));
+    const row = lines.slice(start + 1, end).filter(line => !line.trim().startsWith('//'));
+    const indent = (line: string) => line.length - line.trimStart().length;
+    const button = row.findIndex(line => line.trim().startsWith('button press=openCommit(row.id)'));
+    expect(button).toBeGreaterThan(-1);
+    // Last in the row, so nothing nests under it, and over the whole row.
+    expect(button).toBe(row.length - 1);
+    for (const attr of ['position="absolute"', 'left=0', 'top=0', 'width="100%"', 'height="100%"', 'aria-label=`View commit ${row.id}`', 'testId=`pull-request-timeline-commit-${row.sha}`']) expect(row[button]).toContain(attr);
+    const title = row.find(line => line.trim().startsWith('text row.headline'))!;
+    expect(indent(title)).toBeGreaterThan(indent(row[0]));
+    expect(title).toContain('color=(over ? "light-dark(#1b4ed8, #346bf1)" : prtInk())');
+    // The texts are the button's label's, not their own names.
+    expect(row.find(line => line.includes('padding-top="0.375rem"'))).toContain('aria-hidden=true');
   });
 });
