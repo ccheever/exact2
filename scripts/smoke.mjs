@@ -1126,7 +1126,8 @@ if (deckFixture) {
 // top safe area; web and Linux report zero. Focusing the input
 // at the bottom: on iOS the software keyboard rises, the viewport insets
 // itself by the keyboard's height and reveals the field above it, the layout
-// viewport untouched — a browser's visual viewport; a tap on the dismiss
+// viewport untouched — a browser's visual viewport, which the fixture asks
+// for (`resizes-visual`; iOS's default resizes, LLP 1116 D2); a tap on the dismiss
 // button takes the focus, and the keyboard goes. `layout.env` reports both,
 // by the web's `env()` names, on every host.
 {

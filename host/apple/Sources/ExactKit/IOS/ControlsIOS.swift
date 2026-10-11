@@ -1,14 +1,19 @@
 // @ref LLP 1069.001 D5 — `input type="checkbox"` is projected onto UIKit as
 // a tablist is onto a segmented control: `switch` is a `UISwitch`; a plain
-// checkbox is drawn as Safari iOS draws it, a rounded square filled with
-// `accent-color` and a checkmark (UIKit has no checkbox). Contract owns the
-// value: the control flips at once, reports, and shows the committed
-// `checked` after the action (D4). `appearance: none` draws nothing native.
+// checkbox is the platform's checklist mark (LLP 1116 D2: iOS has no square
+// checkbox, and Safari's read as a web form), an empty circle that fills
+// with a checkmark in `accent-color`, as Reminders and Notes draw one. On
+// tvOS, where it stands in for a switch too, it is Safari's rounded square.
+// Contract owns the value: the control flips at once, reports, and shows the
+// committed `checked` after the action (D4). `appearance: none` draws
+// nothing native.
 #if os(iOS) || os(tvOS)
 import UIKit
 
-/// Safari iOS's checkbox: a 16×16 rounded square, filled and checked when
-/// on. A radio is drawn on it (`ExactRadio`, RadioIOS.swift).
+/// The checklist mark: an SF Symbol circle at the body text's size, filled
+/// and checked when on (tvOS: a 16×16 rounded square). A radio is drawn on
+/// it (`ExactRadio`, RadioIOS.swift). VoiceOver reads either as Safari reads
+/// a checkbox, a button with a checked state.
 class ExactCheckbox: UIControl {
     var isOn = false { didSet { if isOn != oldValue { setNeedsDisplay(); updateAccessibility() } } }
     var accent: UIColor? { didSet { setNeedsDisplay() } }
@@ -23,7 +28,22 @@ class ExactCheckbox: UIControl {
         updateAccessibility()
     }
     required init?(coder: NSCoder) { nil }
+    #if os(tvOS)
     override var intrinsicContentSize: CGSize { CGSize(width: 16, height: 16) }
+    #else
+    /// The mark's symbol at the reader's body size, Dynamic Type included;
+    /// on, its checkmark white over the accent.
+    func mark(on: Bool, tint: UIColor) -> UIImage? {
+        let font = UIFont.preferredFont(forTextStyle: .body, compatibleWith: traitCollection)
+        let size = UIImage.SymbolConfiguration(font: font, scale: .large)
+        guard on else { return UIImage(systemName: "circle", withConfiguration: size)?.withTintColor(tint, renderingMode: .alwaysOriginal) }
+        return UIImage(systemName: "checkmark.circle.fill", withConfiguration: size.applying(UIImage.SymbolConfiguration(paletteColors: [.white, tint])))
+    }
+    override var intrinsicContentSize: CGSize {
+        let s = mark(on: false, tint: .label)?.size ?? CGSize(width: 22, height: 22)
+        return CGSize(width: ceil(s.width), height: ceil(s.height))
+    }
+    #endif
     @objc func activated() {
         isOn.toggle()
         sendActions(for: .valueChanged)
@@ -35,9 +55,10 @@ class ExactCheckbox: UIControl {
     }
     override func draw(_ rect: CGRect) {
         let side = min(bounds.width, bounds.height)
-        let box = CGRect(x: bounds.midX - side / 2, y: bounds.midY - side / 2, width: side, height: side)
         let fill = accent ?? tintColor ?? .systemBlue
         let alpha: CGFloat = isEnabled ? 1 : 0.4
+        #if os(tvOS)
+        let box = CGRect(x: bounds.midX - side / 2, y: bounds.midY - side / 2, width: side, height: side)
         if isOn {
             fill.withAlphaComponent(alpha).setFill()
             UIBezierPath(roundedRect: box, cornerRadius: side * 0.25).fill()
@@ -51,18 +72,22 @@ class ExactCheckbox: UIControl {
             UIColor.white.withAlphaComponent(alpha).setStroke()
             check.stroke()
         } else {
-            let ring = UIBezierPath(roundedRect: box.insetBy(dx: 0.5, dy: 0.5), cornerRadius: side * 0.25)
-            #if os(tvOS)
             // tvOS has no systemBackground; the ring shows what is behind it.
-            UIColor.clear.setFill()
-            #else
-            UIColor.systemBackground.withAlphaComponent(alpha).setFill()
-            #endif
-            ring.fill()
+            let ring = UIBezierPath(roundedRect: box.insetBy(dx: 0.5, dy: 0.5), cornerRadius: side * 0.25)
             ring.lineWidth = 1
             UIColor.systemGray.withAlphaComponent(alpha).setStroke()
             ring.stroke()
         }
+        #else
+        // The ring in the tertiary label colour, the fill in the accent;
+        // dimmed while disabled. Fitted to the box when the author made it
+        // smaller than the mark.
+        let tint = isOn ? fill.withAlphaComponent(alpha) : (isEnabled ? UIColor.tertiaryLabel : .quaternaryLabel)
+        guard let image = mark(on: isOn, tint: tint) else { return }
+        let scale = min(1, side / max(image.size.width, image.size.height))
+        let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        image.draw(in: CGRect(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2, width: size.width, height: size.height))
+        #endif
     }
 }
 

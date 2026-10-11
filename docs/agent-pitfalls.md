@@ -53,11 +53,6 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   deliberately light-only design, write `color-scheme="light"` on the root, which
   holds the whole app in light as `overrideUserInterfaceStyle` does. (Shelf port,
   2026-10-09.)
-- **On iOS the whole window scrolls when the keyboard opens, and the header goes
-  with it.** Cause: without `interactive-widget`, the root is not resized for the
-  keyboard. Fix: `interactive-widget="resizes-content"` on the root, or
-  `overlays-content` with a `role="toolbar" toolbarPlacement="keyboard"` for a
-  toolbar that rides the keyboard without relayout (LLP 1008 §9.1). (Signal Clone.)
 
 - **The app is wider than the window, and its tests still pass.** A root with
   `width="100%"` and `padding=24` is 48 points too wide: sizes are `content-box`, as
@@ -293,9 +288,10 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 - **A grouped-list row you lay out loses its side insets, or its content runs off the
   card.** Cause: the sheet gives a custom row (a `row` that is not a title/value row)
   its padding, and `padding="12px 0"` replaces all four sides, so the row's content
-  starts and ends at the card's edge; its children are a flex row, so a `column` or a
-  bar inside takes no width either. Fix: write `padding-top`/`padding-bottom` only, and
-  put the content in a `column flex=1` (`apps/shelf`'s Progress and Yearly Goal rows).
+  starts and ends at the card's edge; a `row`'s children are a flex row, so a `column`
+  or a bar inside takes no width either. Fix: write `padding-top`/`padding-bottom` only,
+  and put the content in a `column flex=1` (`apps/shelf`'s Progress and Yearly Goal
+  rows), or make the row itself a `column`, which stacks its children (LLP 1116 D2).
   (Shelf recipe, 2026-10-10.)
 - **A text field or `textarea` in a grouped-list row draws a rounded box inside the
   card.** Cause: a native field keeps its own border wherever it is (`UITextField`'s

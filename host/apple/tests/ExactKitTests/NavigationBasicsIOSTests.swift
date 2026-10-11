@@ -300,12 +300,69 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertEqual(list.convert(list.bounds, to: chat.view).minY, 0, accuracy: 0.5, "it starts under the bar")
         XCTAssertEqual(sv.adjustedContentInset.top, chat.view.safeAreaInsets.top, accuracy: 0.5, "inset to the bar's bottom")
         XCTAssertFalse(nav.isNavigationBarHidden)
+        // Its route's last child, it runs to the screen's bottom edge too, and
+        // UIKit insets it by the home indicator (LLP 1116 D2): no band of the
+        // route's background under it.
+        XCTAssertTrue(journal(session).contains("scrolls its content to the bottom edge"))
+        XCTAssertGreaterThan(chat.view.safeAreaInsets.bottom, 0, "a home indicator to go under")
+        XCTAssertEqual(list.convert(list.bounds, to: chat.view).maxY, chat.view.bounds.maxY, accuracy: 0.5, "it ends at the screen's edge")
+        XCTAssertEqual(sv.adjustedContentInset.bottom, chat.view.safeAreaInsets.bottom, accuracy: 0.5, "inset by the home indicator")
+        XCTAssertTrue(chat.contentScrollView(for: .bottom) === sv, "the bottom edge follows it")
         let css = { sv.contentOffset.y + sv.adjustedContentInset.top }
         XCTAssertEqual(css(), 0, accuracy: 0.5, "at rest, CSS 0")
         list.pendingScrollTop = 80
         list.applyPendingScroll()
         spin(0.3)
         XCTAssertEqual(css(), 80, accuracy: 0.5, "an authored offset lands as the browser's")
+    }
+
+    /// The bottom edge (LLP 1116 D2): Detail's scroller has the "Open in"
+    /// row under it, which keeps its place above the tab bar, the scroller
+    /// no inset of UIKit's.
+    func testAFooterUnderTheScrollerKeepsTheBottomCover() throws {
+        let session = try fixture("basics-footer")
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        let nav = try XCTUnwrap(tabs.selectedViewController as? UINavigationController)
+        try tapNode(session, "detail")
+        until("Detail pushed") { nav.viewControllers.count == 2 && nav.transitionCoordinator == nil }
+        spin(0.3)
+        let detail = try XCTUnwrap(nav.topViewController as? RouteController)
+        let list = try node(session, "list-detail"), footer = try node(session, "open-above-card")
+        let sv = try XCTUnwrap(list.scroll)
+        if #available(iOS 18.0, *) { XCTAssertFalse(tabs.isTabBarHidden, "Detail shows the tab bar") }
+        XCTAssertEqual(sv.contentInsetAdjustmentBehavior, .never)
+        XCTAssertEqual(sv.adjustedContentInset.bottom, 0)
+        XCTAssertEqual(footer.convert(footer.bounds, to: detail.view).maxY, detail.view.bounds.maxY - detail.view.safeAreaInsets.bottom,
+                       accuracy: 0.5, "the footer stays above the tab bar")
+        XCTAssertNil(detail.contentScrollView(for: .bottom))
+    }
+
+    /// A route that paints no background shows what the web shows through
+    /// it — the root's (LLP 1116 D2: `-exact-grouped-background` on the root
+    /// under every screen, and under the home indicator) — light and dark,
+    /// written again when a batch changes it; its own background wins.
+    func testARouteWithoutABackgroundShowsTheRootsUnderIt() throws {
+        let session = try fixture("basics-backdrop")
+        let (_, _, chat) = try chat(session)
+        let root = try node(session, "navigation")
+        let rgb = { (style: UIUserInterfaceStyle) -> [Int] in
+            let c = chat.view.backgroundColor?.resolvedColor(with: UITraitCollection(userInterfaceStyle: style)) ?? .clear
+            var v: (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
+            c.getRed(&v.0, green: &v.1, blue: &v.2, alpha: &v.3)
+            return [v.0, v.1, v.2, v.3].map { Int(($0 * 255).rounded()) }
+        }
+        let colour = { (v: [Double]) in BatchValue.array(v.map { .number($0) }) }
+        XCTAssertEqual(rgb(.light), [255, 255, 255, 255], "its own white")
+        chat.node.style["background_color"] = nil
+        root.style["background_color"] = .array([colour([242, 242, 247, 255]), colour([28, 28, 30, 255])])
+        chat.paintBackdrop()
+        XCTAssertEqual(rgb(.light), [242, 242, 247, 255], "the root's, light")
+        XCTAssertEqual(rgb(.dark), [28, 28, 30, 255], "the root's, dark")
+        XCTAssertEqual(chat.view.convert(chat.view.bounds, to: nil).maxY, try XCTUnwrap(chat.view.window).bounds.maxY,
+                       "under the home indicator too")
+        chat.node.style["background_color"] = colour([0, 0, 255, 255])
+        chat.paintBackdrop()
+        XCTAssertEqual(rgb(.light), [0, 0, 255, 255], "the route's own wins")
     }
 
     func testARouteWithNoHeaderHasNoBarAndTheBarFollowsAPop() throws {

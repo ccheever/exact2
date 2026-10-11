@@ -92,6 +92,7 @@ This is HTML's own structure (`section` > `header`, the rows, `footer`), so the 
    - one `text` is the title;
    - two `text`s are the title and its value (UIKit's value cell);
    - a `column` (a flex column: what Contract's sheet styles) of one or two `text`s is the title over its subtitle (the subtitle cell). A `row` or plain box of texts is custom.
+4. **A row that is itself a `column`** (LLP 1116 D2, 2026-10-10) keeps its direction: the sheet stacks its children from the text's margin with the subtitle cell's 15 pt above and below, and the kernel reads it whole, before steps 1–3: one or two `text`s are the subtitle cell, anything else is custom. The sheet wrote it a flex row before, so its children ran across the cell while tests passed (two bake-off apps).
 
 A row of any other shape is **custom**: a raster image, a third text, a nested box. A row with no title is custom too. A custom row carries only its node, its press and its state, and the host shows its views. `destructive` (the existing prop 68) draws the title and symbol red, and `disabled` dims the row and makes it untappable. Roles name symbols as everywhere else, so `forward-chevron` is `chevron.forward`. This RFC adds the role `info` (`info.circle`), so the detail button has a web path.
 
