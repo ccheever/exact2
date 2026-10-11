@@ -233,7 +233,10 @@ component Home
                 dragToken = dragToken
   view
     t3-home-swipe-events swipe-owner=swipeOwner swipe-active=active swipe-route-key=(listId == "sidebar-list" ? "t3-workspace-sidebar" : routeId) swipe-refresh-at=`${refreshAt}` swipe-epoch-at-zero=`${epochAtZero}` width=0 height=0 change=swipeEvent testId=`home-swipe-events-${listId}`
-    when length(items) == 0
+    when length(items) == 0 and listId == "sidebar-list"
+      list id=listId flex=1 min-height=0 padding-left=8 padding-right=8 padding-top=6 padding-bottom=bottomClearance
+        text emptyTitle padding-left=7 padding-right=7 padding-top=14 padding-bottom=14 font-size=14 line-height="19px" color=colors.drawerMuted translate="0px 0.5px" testId="sidebar-empty-title"
+    else when length(items) == 0
       column flex=1
         align-items="center"
         justify-content="center"
