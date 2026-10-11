@@ -195,10 +195,13 @@ export function buildInputHash(host, target, mode = '0', profile = process.env.E
   return hash;
 }
 export async function ensureBuildReceipt({receipt, inputs, artifact, build}) {
-  let digest = artifact();
-  const stamp = () => JSON.stringify({inputs, artifact:digest});
+  const readInputs = typeof inputs === 'function' ? inputs : () => inputs;
+  let currentInputs = readInputs(), digest = artifact();
+  const stamp = () => JSON.stringify({inputs:currentInputs, artifact:digest});
   if (digest && existsSync(receipt) && readFileSync(receipt, 'utf8') === stamp()) return false;
   await build();
+  // A bake may rewrite generated inputs; bind them to the product from that same build.
+  currentInputs = readInputs();
   digest = artifact();
   if (!digest) throw new Error('build produced no complete proof artifact');
   writeFileSync(receipt, stamp());
@@ -411,7 +414,7 @@ export async function ensureLinuxReceipts({directory,gpuInputs,hostInputs,gpuArt
   const gpu=await ensureBuildReceipt({receipt:resolve(directory,'build-linux-gpu.sha256'),inputs:gpuInputs,artifact:gpuArtifact,build:()=>build('gpu')});
   completeGpu();
   // The GPU build may have changed surfaces.json; observe it only afterwards.
-  const host=await ensureBuildReceipt({receipt:resolve(directory,'build-linux-host.sha256'),inputs:hostInputs(),artifact:hostArtifact,build:()=>build('host')});
+  const host=await ensureBuildReceipt({receipt:resolve(directory,'build-linux-host.sha256'),inputs:hostInputs,artifact:hostArtifact,build:()=>build('host')});
   return gpu || host;
 }
 export function productDigest(path, cachePath) {
@@ -585,10 +588,10 @@ export async function proof(meta, script) {
   try {
     if (!['web','macos','ios','linux','windows'].includes(host)) throw new Error(`proof host unavailable: ${host}`);
     const appInfo = resolveApp(name);
-    const inputs = proofInputs(root, app, resolve(buildOut, 'input-digests.json'));
-    inputDigest = inputs.all;
+    let inputs;
+    const readInputs = () => inputs = proofInputs(root, app, resolve(buildOut, 'input-digests.json'));
     const inputHash = value => buildInputHash(destination, appInfo.target, process.env.EXACT_GAME_PARANOID ?? '0').update(value).digest('hex');
-    const digest = inputHash(inputs.all), receipt = resolve(buildOut, `build-${destination}.sha256`);
+    const receipt = resolve(buildOut, `build-${destination}.sha256`);
     const linuxTarget = host === 'linux' ? spawnSync('rustc', ['-vV'], {encoding:'utf8'}).stdout.match(/^host: (.+)$/m)?.[1] : null;
     const profile = process.env.EXACT_GAME_PROOF_PROFILE ?? 'gpu-dev';
     if (!['gpu-dev', 'release'].includes(profile)) throw new Error('EXACT_GAME_PROOF_PROFILE must be gpu-dev or release');
@@ -597,16 +600,16 @@ export async function proof(meta, script) {
     if (host === 'linux') process.env.EXACT_LINUX_BIN = artifacts.binary;
     if (host === 'windows') process.env.EXACT_WINDOWS_BIN = artifacts.binary;
     const built = host === 'linux' && profile === 'gpu-dev' ? await ensureLinuxReceipts({
-      directory:buildOut, gpuInputs:inputHash(inputs.gpu),
+      directory:buildOut, gpuInputs:() => inputHash(readInputs().gpu),
       completeGpu:() => writeFileSync(artifacts.module + '.proof.json',readFileSync(resolve(buildOut,'build-linux-gpu.sha256'))),
-      hostInputs:() => inputHash(inputs.host + readFileSync(resolve(appInfo.workspace,'surfaces.json'),'utf8')),
+      hostInputs:() => inputHash(readInputs().host + readFileSync(resolve(appInfo.workspace,'surfaces.json'),'utf8')),
       gpuArtifact:() => productDigest(artifacts.module,resolve(buildOut,'product-linux-gpu.json')),
       hostArtifact:() => productDigest(artifacts.binary,resolve(buildOut,'product-linux-host.json')),
       build:async part => {
         say(`BUILD ${part} stale or missing receipt`);
         buildBake(appInfo,'linux',linuxTarget,{profile,part,env:{EXACT_GAME_PARANOID:'0'}});
       },
-    }) : await ensureBuildReceipt({receipt, inputs:digest,
+    }) : await ensureBuildReceipt({receipt, inputs:() => inputHash(readInputs().all),
       artifact:() => artifactDigest(host, dist, artifacts), build:async () => {
       say(`BUILD stale or missing receipt ${receipt}; rebuilding: bun ${fileURLToPath(meta.url)} ${host}${device ? ' --device' : ''} --build-only`);
       if (host === 'linux') {
@@ -622,6 +625,8 @@ export async function proof(meta, script) {
         if (code !== 0) throw new Error(`app build exited ${code}`);
       }
     }});
+    // The proof reports the same post-build input tree that its receipts bind.
+    inputDigest = inputs.all;
     if (!built) say(`BUILD cached ${name} ${destination}`);
     if (!process.argv.includes('--build-only')) {
       await script({open, check, equal, out, host, say, pin, pinSave});

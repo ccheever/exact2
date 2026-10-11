@@ -1208,21 +1208,19 @@ test('concurrent prove runs keep their save artifacts and web builds separate', 
   }
 },15000);
 
-test('E11 split Linux receipts rebuild only GPU for logic and both for declarations', async () => {
-  const {ensureLinuxReceipts} = await import('./proof.mjs');
-  const dir=mkdtempSync(resolve(tmpdir(),'e11-split-')), builds=[];
-  let logic='one', declaration='one', plan='one', gpu='one', binary='one';
-  const run=()=>ensureLinuxReceipts({directory:dir, gpuInputs:logic, hostInputs:()=>plan+declaration,
-    gpuArtifact:()=>gpu, hostArtifact:()=>binary, build:async part=>{
-      builds.push(part); if(part==='gpu') gpu=logic; else binary=plan+declaration;
-    }});
+test('E11 receipts and proof provenance bind post-bake generated assets', async () => {
+  const {ensureLinuxReceipts,proofInputs} = await import('./proof.mjs');
+  const dir=mkdtempSync(resolve(tmpdir(),'e11-generated-')), app=resolve(dir,'game/games/sample'), out=resolve(dir,'artifacts/linux');
+  const write=(file,bytes)=>{const path=resolve(dir,file);mkdirSync(dirname(path),{recursive:true});writeFileSync(path,bytes);};
+  const generated=bytes=>{write('game/games/sample/assets/textures/crate.astc.tex',bytes);write('game/games/sample/.baked-assets.json',JSON.stringify({'textures/crate.astc.tex':createHash('sha256').update(bytes).digest('hex')}));};
   try {
-    await run(); expect(builds.splice(0)).toEqual(['gpu','host']);
-    await run(); expect(builds).toEqual([]);
-    logic='two'; await run(); expect(builds.splice(0)).toEqual(['gpu']);
-    logic='three'; declaration='argument added'; await run(); expect(builds.splice(0)).toEqual(['gpu','host']);
-    plan='new plan'; await run(); expect(builds.splice(0)).toEqual(['host']);
-    gpu=null; await run(); expect(builds.splice(0)).toEqual(['gpu']);
+    write('game/games/sample/art/crate.gltf','authored');generated('mac-simd');
+    let inputs;const read=()=>inputs=proofInputs(dir,app,resolve(out,'input-digests.json')), inputHash=value=>buildInputHash('linux','target').update(value).digest('hex'), before=read();let gpu='old-product',binary='old-host',builds=[];
+    const run=()=>ensureLinuxReceipts({directory:out,gpuInputs:()=>inputHash(read().gpu),hostInputs:()=>inputHash(read().host+'surface'),gpuArtifact:()=>gpu,hostArtifact:()=>binary,build:async part=>{builds.push(part);if(part==='gpu'){generated('linux-simd');gpu='linux-product';}else binary='linux-host';}});await run();
+    const summary=inputs.all, after=proofInputs(dir,app,resolve(out,'input-digests.json')), gpuReceipt=JSON.parse(readFileSync(resolve(out,'build-linux-gpu.sha256'))), hostReceipt=JSON.parse(readFileSync(resolve(out,'build-linux-host.sha256')));
+    expect(before.all).not.toBe(after.all);
+    expect({gpu:gpuReceipt.inputs,host:hostReceipt.inputs,summary}).toEqual({gpu:inputHash(after.gpu),host:inputHash(after.host+'surface'),summary:after.all});
+    expect(builds.splice(0)).toEqual(['gpu','host']);await run();expect(builds.splice(0)).toEqual([]);write('game/games/sample/art/crate.gltf','changed');await run();expect(builds.splice(0)).toEqual(['gpu']);write('game/games/sample/app.contract','changed');await run();expect(builds.splice(0)).toEqual(['host']);gpu=null;await run();expect(builds.splice(0)).toEqual(['gpu']);
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
 
