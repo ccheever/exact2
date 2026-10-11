@@ -293,7 +293,7 @@ describe('stable Archive reader and current projection', () => {
       saved = saved.map(row => row.environmentId === 'one' ? { ...row, mobileLabel: `Current ${i}` } : row); fleet.saved = saved;
       const admitted = answer('archiveScope', [mobileClient.revision, 'one', 3, true, 'connected', []]);
       expect(admitted.key).toBe(scope.key);
-      const view = answer('archiveView', [now + i * 60_000, i % 2 ? 'missing' : '', i % 3 ? '' : 'one', i % 2 ? 'oldest' : 'newest', true, { serial: 0, receipts: [], error: '' }, admitted], undefined, undefined, scoped);
+      const view = answer('archiveView', [now + i * 60_000, i % 2 ? 'missing' : '', i % 3 ? '' : 'one', i % 2 ? 'oldest' : 'newest', true, { serial: 0, receipts: [], error: '' }, admitted, true], undefined, undefined, scoped);
       expect(view.environments.find(row => row.id === 'one')?.label).toBe(`Current ${i}`);
     }
     expect(requests).toHaveLength(before); expect(watched).toEqual([]);
@@ -368,5 +368,64 @@ describe('stable Archive reader and current projection', () => {
     expect(mobileArchiveView(now, '', '', 'newest', true).items).toEqual([]);
     hook = null; const prepared = await mobileArchiveRead('retry', mobileArchiveScope().key, native);
     expect(prepared.error).toBe(''); expect(threads(mobileArchiveView(now, '', '', 'newest', true, prepared).items)[0]?.canOperate).toBe(true);
+  });
+});
+
+
+describe('Archive idle retention', () => {
+  test('the last observer starts five minutes, then actual retained data and grants are removed', async () => {
+    const prepared = await mobileArchiveRead('idle-retention', mobileArchiveScope().key, native);
+    expect(threads(mobileArchiveView(now, '', '', 'newest', true, prepared, true).items)).toHaveLength(2);
+    mobileArchiveView(now + 17, '', '', 'newest', false, prepared, false);
+    mobileArchiveView(now + 300_016, '', '', 'newest', false, prepared, false);
+    mobileArchiveView(now + 300_017, '', '', 'newest', false, prepared, false);
+    // Re-observation resets the idle marker; deleted snapshots cannot reappear.
+    expect(mobileArchiveView(now + 300_018, '', '', 'newest', true, prepared, true).items).toEqual([]);
+    const fresh = await mobileArchiveRead('idle-retention-return', mobileArchiveScope().key, native);
+    expect(threads(mobileArchiveView(now + 300_019, '', '', 'newest', true, fresh, true).items))
+      .toMatchObject([{ canOperate: true }, { canOperate: true }]);
+  });
+  test('covered and returning observers retain snapshots, then a new last removal receives a full lifetime', async () => {
+    const prepared = await mobileArchiveRead('idle-retention-covered', mobileArchiveScope().key, native);
+    mobileArchiveView(now, '', '', 'newest', true, prepared, true);
+    mobileArchiveView(now + 700_000, '', '', 'newest', false, prepared, true);
+    expect(threads(mobileArchiveView(now + 700_001, '', '', 'newest', true, prepared, true).items)).toHaveLength(2);
+    mobileArchiveView(now + 700_010, '', '', 'newest', false, prepared, false);
+    mobileArchiveView(now + 999_999, '', '', 'newest', true, prepared, true);
+    mobileArchiveView(now + 1_000_010, '', '', 'newest', false, prepared, false);
+    mobileArchiveView(now + 1_000_011, '', '', 'newest', false, prepared, false);
+    expect(threads(mobileArchiveView(now + 1_000_012, '', '', 'newest', true, prepared, true).items)).toHaveLength(2);
+    mobileArchiveView(now + 1_000_020, '', '', 'newest', false, prepared, false);
+    mobileArchiveView(now + 1_300_019, '', '', 'newest', false, prepared, false);
+    mobileArchiveView(now + 1_300_020, '', '', 'newest', false, prepared, false);
+    expect(mobileArchiveView(now + 1_300_021, '', '', 'newest', true, prepared, true).items).toEqual([]);
+  });
+  test('a read issued before eviction cannot restore expired snapshots after its late response', async () => {
+    const prepared = await mobileArchiveRead('idle-retention-old', mobileArchiveScope().key, native);
+    mobileArchiveView(now, '', '', 'newest', true, prepared, true);
+    let release!: () => void, reached!: () => void;
+    const wait = new Promise<void>(resolve => { release = resolve; });
+    const entered = new Promise<void>(resolve => { reached = resolve; });
+    hook = request => {
+      if (request.method !== 'orchestration.getArchivedShellSnapshot') return undefined;
+      reached();
+      return wait.then(() => ({ ok: true, generation: request.fleet ? 8 : 3, value: snapshot }));
+    };
+    const pending = mobileArchiveRead('idle-retention-held', mobileArchiveScope().key, native).then(() => null, error => error);
+    await entered;
+    mobileArchiveView(now + 10, '', '', 'newest', false, prepared, false);
+    mobileArchiveView(now + 300_010, '', '', 'newest', false, prepared, false);
+    release();
+    expect((await pending)?.message).toContain('superseded');
+    expect(mobileArchiveView(now + 300_011, '', '', 'newest', true, prepared, true).items).toEqual([]);
+  });
+  test('the generated source forwards mounted observation independently of foreground visibility', async () => {
+    const prepared = await mobileArchiveRead('idle-retention-dispatcher', mobileArchiveScope().key, native);
+    answer('archiveView', [now, '', '', 'newest', true, prepared, mobileArchiveScope(), true]);
+    answer('archiveView', [now + 400_000, '', '', 'newest', false, prepared, mobileArchiveScope(), true]);
+    expect(answer('archiveView', [now + 400_001, '', '', 'newest', true, prepared, mobileArchiveScope(), true]).items).not.toEqual([]);
+    answer('archiveView', [now + 400_010, '', '', 'newest', false, prepared, mobileArchiveScope(), false]);
+    answer('archiveView', [now + 700_010, '', '', 'newest', false, prepared, mobileArchiveScope(), false]);
+    expect(answer('archiveView', [now + 700_011, '', '', 'newest', true, prepared, mobileArchiveScope(), true]).items).toEqual([]);
   });
 });
