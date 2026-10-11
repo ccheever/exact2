@@ -166,6 +166,9 @@ The table is a starting point. The build fills in each cell from a measured fixt
 
 ### D4 — A native control's text: the platform's on Apple, the page's on the web
 
+> **LLP 1115.000 D4.10 proposes** that a surface the web host paints (a field, a select, the
+> app bar) carry its own ink, not the inherited colour. Not yet accepted.
+
 The browser's UA sheet gives `input`, `textarea` and `button` their own text style instead of the inherited one. In Chromium:
 - `font: -webkit-small-control` (13.33px), `color: FieldText`;
 - `letter-spacing: normal`, `word-spacing: normal`, `line-height: normal`;
@@ -232,6 +235,10 @@ Phase 1 probes the chrome across fonts from 11 to 34pt, two families and constra
 - **No provisional frame:** each host counts batches it presented while any control's measure was provisional (`state.layout.provisional`). The checks assert zero (§4).
 
 ### D6 — The OS draws a native control's focus; Exact draws the bare box's
+
+> **LLP 1115.000 D7 proposes** that on the Mac focus follow the Mac and not the web: a click
+> on a button leaves the first responder, and Tab honours Keyboard Navigation. Not yet
+> accepted.
 
 - **One focus owner per node.** A native field's owner is the native view. A native button's owner is the native view on macOS, tvOS and the web, and the node on iOS (below). Anything else's owner is the node. Every focus path uses that one mapping: Tab traversal, programmatic `focus()`/`blur()`, `autofocus`, `retainFocus`, collection pinning of a focused row, activation, and the routing of `focus`, `blur` and `key`. The node relays events from its owner. The agent's `tap` and focus operations address the node, as today.
 - **A focusable button doesn't need a handler of its own.** A `button` is focusable and shows a ring with no press handler of its own. That fixes the `pressable` gap at `NodeViewMac.swift:205` and the ring mask at `FocusMac.swift:50`.
