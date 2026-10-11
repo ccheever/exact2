@@ -131,7 +131,7 @@ Draft PR [#416](https://github.com/ccheever/exact2/pull/416) into `feat(example)
 
 Merged on 2026-10-11 as `2489c7c27` (#416, squash); the independent review found nothing to fix. No real-input rows.
 Two differences the build saw outside its rows are
-[diff-gutter-selection-followups](../20261011-diff-gutter-selection-followups.md).
+[diff-gutter-selection-followups](20261011-diff-gutter-selection-followups.md).
 
 ## Next action
 

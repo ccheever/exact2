@@ -2,13 +2,13 @@
 name: 20261011-unverified-real-input-rows
 plan: 20261005-t3code-macos-parity
 implementation: done
-verification: partial
-delivery: draft-pr
+verification: verified
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-unverified-real-input-rows
 pr_url: https://github.com/ccheever/exact2/pull/426
-verified_commit: null
+verified_commit: ff1eb4ceb
 ---
 
 # Rows never verified under real input: make the ones that can run ready for one final session
@@ -26,8 +26,8 @@ email tooltip and the press on its padding, #311's PR-link card.
 | UV-3 | #311, the commit link in a comment (onto it, away, a click) | The fixture comment needs a linked SHA |
 | UV-4 | #346, a muted tab behind another keeps its muted indicator, and its media plays on when shown again | Fixed in `b6b3e417e`, AppKit-tested, not driven by real input |
 
-Details: [pr-links-previews-and-routing](closed/20261005-pr-links-previews-and-routing.md) "Real-input batch steps" A and B;
-[browser-surface-automation](closed/20261005-browser-surface-automation.md) "Real-input batch steps" 4; STATUS "Next
+Details: [pr-links-previews-and-routing](20261005-pr-links-previews-and-routing.md) "Real-input batch steps" A and B;
+[browser-surface-automation](20261005-browser-surface-automation.md) "Real-input batch steps" 4; STATUS "Next
 real-input batch".
 
 ## Steps
@@ -141,7 +141,28 @@ after the session `bun fixture.mjs unseed` (closes #169, deletes its branch and 
 - The reason the clone's age tip missed the real pointer was not traced: the tip no longer exists (the reference has
   none), and agent hover by hit test showed it, so no framework gap is claimed.
 
+## Real-input results
+
+`realinput-1011a` (2026-10-11, the final session the user asked for after this wave; the bundle of `ff1eb4ceb`, the tip after #426, #427, #431 and #434, in lane copy ri1011a-1 on port 16971, real keys and pointer; the input source was ABC, read only). Notes: [00-1011a-notes.txt](https://raw.githubusercontent.com/ccheever/exact2/29d3c8eaf3255c533c999a477164418f9ee965ae/realinput-1011a/00-1011a-notes.txt).
+
+| Row | Result | Evidence |
+| --- | --- | --- |
+| UV-1 | Pass: the login tip shows on the author; the age shows none at its left edge or centre after 2 s; no Timeline age shows one | [UV1](https://raw.githubusercontent.com/ccheever/exact2/7730bd4ef4689453fb383a294af66587e657d9e9/realinput-1011a/UV1-author-tip-then-age-no-tip.png), [timeline](https://raw.githubusercontent.com/ccheever/exact2/2610719c6267c52ddaaa45274a12a74110dadfdc/realinput-1011a/UV1-timeline-ages-no-tip.png) |
+| UV-2 | Pass: #115's triangle, #132's info icon and #169's two triangles each show their tip and drop it when the pointer leaves | [115](https://raw.githubusercontent.com/ccheever/exact2/a9694727dd7c2685ba65c0d10d5322a4da61957c/realinput-1011a/UV2-115-triangle-tip-on-off.png), [132](https://raw.githubusercontent.com/ccheever/exact2/a1af97d2de68e54f66bbca60ed8ccb0aeabdb371/realinput-1011a/UV2-132-info-tip-on-off.png), [169](https://raw.githubusercontent.com/ccheever/exact2/ae97732e7999642d400c6ce004cd90ad0c83b67f/realinput-1011a/UV2-169-two-triangles-tips-on-off.png) |
+| UV-3 | Pass: the URL tip wraps inside its bubble and goes when the pointer leaves; click and ⌘-click each brought the default browser to the front and the panel did not move (the URL handed off is not in the clone's log or trace) | [tip](https://raw.githubusercontent.com/ccheever/exact2/c200616616148c926ccb1ca2b4097feae6f269d5/realinput-1011a/UV3-sha-tip-on-off.png), [clicks](https://raw.githubusercontent.com/ccheever/exact2/965c610e8d890f2eee472f65ce718d8035a50c6a/realinput-1011a/UV3-click-results.txt) |
+| UV-4 | Pass: playing, the chip shows the speaker; Mute tab turns it to speaker-off; behind `/b` it stays muted (paused at 30.0 s); shown again its time grows (30.6 → 33.7 s) and it stays muted | [UV4](https://raw.githubusercontent.com/ccheever/exact2/eec4c1378d8d22adc981d7b0f4238d583927830d/realinput-1011a/UV4-tone-chip-play-mute-hidden-shown.png) |
+
+Cleanup: `fixture.mjs stop` and `unseed` ran (#169 closed and its branch deleted, #132's fixture comment deleted).
+Seen in passing, not a row: a Timeline commit title stays invisible until the pointer is over it (`STATUS.md` "Found,
+not in scope").
+
+## Delivery
+
+Merged on 2026-10-11 as `6becef789` (#426, squash) after an independent review and its repair. Before the
+merge the wave's four PRs (#426, #427, #431, #434) were combined on `0292f4364` with no conflict, and the Bun suite
+(4540 pass), strict tsc, the contract build (28,771,221 bytes) and caps passed on that tree, which is the merged tip's.
+
 ## Next action
 
-None for this task: the coordinator checks conflicts, moves the PR to ready, and runs the real-input batch steps above
-in the final session.
+None. Closed after `realinput-1011a`; what stays open is listed in `STATUS.md` "Known differences" (the user's
+decision of 2026-10-11: no new tasks from real-input failures).

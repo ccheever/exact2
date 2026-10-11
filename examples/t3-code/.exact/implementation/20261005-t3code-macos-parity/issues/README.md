@@ -67,6 +67,7 @@ in bold are open (in `../tasks/`); the rest are closed and carry the workaround.
 | [X80](closed/20261010-x80-macos-hover-during-a-drag.md) | [20261010-macos-hover-during-a-drag.md](https://github.com/ccheever/exact2/blob/main/issues/20261010-macos-hover-during-a-drag.md) (main #414) | **[realinput-1010f-followups](../tasks/closed/20261010-realinput-1010f-followups.md)** (RF-3) | None needed: since #413's review round the gutter's "+" follows the selection, not hover, so the clone no longer shows it; the host gap stays for other `hover=` surfaces |
 | [X81](closed/20261011-x81-macos-list-copy-unselectable-text.md) | [20261011-macos-list-copy-unselectable-text.md](https://github.com/ccheever/exact2/blob/main/issues/20261011-macos-list-copy-unselectable-text.md) (main #418) | [diff-gutter-selection-followups](../tasks/closed/20261011-diff-gutter-selection-followups.md) (GS-1) | None: on macOS a copy across the diff's rows (the Diff panel, the pull request Code tab) includes the line numbers, where the reference copies the code only (#417) |
 | [X82](closed/20261011-x82-macos-scheme-switch-stale-text-raster.md) | [20261011-macos-scheme-switch-stale-text-raster.md](https://github.com/ccheever/exact2/blob/main/issues/20261011-macos-scheme-switch-stale-text-raster.md) (main #420) | [diff-gutter-selection-followups](../tasks/closed/20261011-diff-gutter-selection-followups.md) (observation 3) | None: on macOS, after a live colour-scheme switch, the Files surface's code lines and the file tree's labels (any wide unselectable text: a button's label, `user-select: none`, under a pressable or a `tree`) keep their old `light-dark()` half, unreadable in dark, until they mount again (#417) |
+| [X83](closed/20261011-x83-repeating-hatch-across-list-rows.md) | [20261011-repeating-hatch-across-list-rows.md](https://github.com/ccheever/exact2/blob/main/issues/20261011-repeating-hatch-across-list-rows.md) (main #430) | [files-gutter-parity](../tasks/closed/20261011-files-gutter-parity.md) (FG-3) | None: split view's hatched empty side repeats every 10 pt where the reference's repeats every 8 px (#427) |
 | X67 (no record) | [20261009-compiler-small-stack-depth.md](https://github.com/ccheever/exact2/blob/main/issues/20261009-compiler-small-stack-depth.md) ([#320](https://github.com/ccheever/exact2/issues/320)) | [view-depth-under-test-stack](../tasks/closed/20261009-view-depth-under-test-stack.md), **[clone-on-exact2-main](../tasks/20261005-clone-on-exact2-main.md)** | The clone's views were flattened under main's 2 MiB test-thread stack (#382) |
 | X68 (no record) | [20261009-elements-from-point-read.md](https://github.com/ccheever/exact2/blob/main/issues/20261009-elements-from-point-read.md) ([#321](https://github.com/ccheever/exact2/issues/321)) | [settings-scoped-controls-and-theme-editor](../tasks/closed/20261005-settings-scoped-controls-and-theme-editor.md) (U18) | The theme editor's Inspect is not built (U18) |
 | side, from X26 (no record) | [20261009-macos-menu-stalls-native-work.md](https://github.com/ccheever/exact2/blob/main/issues/20261009-macos-menu-stalls-native-work.md) ([#292](https://github.com/ccheever/exact2/issues/292)) | [adopt-main-fixes-r5](../tasks/closed/20261007-adopt-main-fixes-r5.md) | `T3MenuTurn` keeps native work running while an `NSMenu` tracks; fix in open PR [#327](https://github.com/ccheever/exact2/pull/327) (partial) |
@@ -350,3 +351,15 @@ Open main PR #327 does not change it.
 | Gap | Main issue | Title |
 | --- | --- | --- |
 | X82 | `issues/20261011-macos-scheme-switch-stale-text-raster.md` | macOS: after a live colour-scheme switch, a rastered text that is not selectable keeps its old colour |
+
+### Filed on main, 2026-10-11, third round
+
+Main PR [#430](https://github.com/ccheever/exact2/pull/430) (merged as `2d04f681a`) filed this as a main `issues/` file.
+It was reproduced on main `2b5e4a7dc` with four one-file contracts: `repeating-linear-gradient()`, length stops and
+`background-attachment: local` each fail `contract build`, and an SVG `pattern` per row builds with its stripes broken at
+each row edge. Chrome 155 paints one `repeating-linear-gradient` on the scroller with `background-attachment: local`
+unbroken across rows. Until then it was files-gutter-parity FG-3's declared difference (T3 PR #427).
+
+| Gap | Main issue | Title |
+| --- | --- | --- |
+| X83 | `issues/20261011-repeating-hatch-across-list-rows.md` | A hatch cannot run at a fixed period across a list's rows (`repeating-linear-gradient`, length stops, `background-attachment: local`) |

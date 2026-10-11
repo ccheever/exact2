@@ -270,8 +270,14 @@ card's Discard, RE-6's hover cause) is RF-1 to RF-5. Then merged (2026-10-10 to 
 moved to main (main PRs #410, #411, #412, #414, #418, #420). `realinput-1010h` (the bundle of `408eab1ad`) passed 14 of
 16 steps; RG-3's spelling guesses (another input source) and the wizard's Shift+Tab (X53) were partial. User decision of
 2026-10-11: that was the last real-input session, and build observations and failures go to `STATUS.md` "Known
-differences", not to new tasks; [files-gutter-parity](tasks/closed/20261011-files-gutter-parity.md) was stopped before
-it started. Open: nothing that can move; main adoption round 9 waits for main #327, and the held tasks below wait on
+differences", not to new tasks. Later that day the user asked to fix the Known differences that could be fixed then:
+[files-gutter-parity](tasks/closed/20261011-files-gutter-parity.md) (#427, `ab908d7a1`; reopened),
+[reply-links](tasks/closed/20261011-reply-links.md) (#434, `ff1eb4ceb`),
+[dialog-trap-and-progress-value](tasks/closed/20261011-dialog-trap-and-progress-value.md) (#431, `4b6a268f3`) and
+[unverified-real-input-rows](tasks/closed/20261011-unverified-real-input-rows.md) (#426, `6becef789`) merged; framework
+gap [X83](issues/closed/20261011-x83-repeating-hatch-across-list-rows.md) moved to main (main PR #430). One final
+session, `realinput-1011a` (the bundle of `ff1eb4ceb`), passed 14 of 21 steps; dialogs that open with nothing focused,
+⌘⇧F and the steps the lane could not reach are in `STATUS.md` "Known differences". Open: nothing that can move; main adoption round 9 waits for main #327, and the held tasks below wait on
 main.
 New local framework draft: [X70](issues/closed/20261010-x70-aria-disabled-focusable.md) (kept
 local, as the user chose for X69). User decisions of 2026-10-10: #99's clean delivery is not in this session; PG-10 runs in

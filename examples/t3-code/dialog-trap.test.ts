@@ -4,7 +4,7 @@
 // handlers the older dialogs wrap with (20261008-dialog-shortcut-focus). These checks read the Contract sources, as
 // dialog-focus.test.ts does: every `role="dialog"`/`"alertdialog"` is classified (a new one fails until it is), each
 // guarded popup opens and closes with its pair, and every literal a guard names is an element id. The behavior is proven
-// by the macOS drives in tasks/20261011-dialog-trap-and-progress-value.md.
+// by the macOS drives in tasks/closed/20261011-dialog-trap-and-progress-value.md.
 import { describe, expect, test } from 'bun:test';
 import { readdirSync } from 'node:fs';
 

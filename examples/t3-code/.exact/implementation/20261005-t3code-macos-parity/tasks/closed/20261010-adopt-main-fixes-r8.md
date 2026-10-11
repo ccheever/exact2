@@ -163,4 +163,4 @@ the repository allows only squash merges, and a squash of an adoption round drop
 is why this round began with `git merge -s ours bc357d03c` and why `git rev-list` had reported hundreds of main commits
 missing. After the fast-forward, main `d413487a8` is an ancestor of the T3 branch and `git rev-list --count
 feat(example)/t3-code..origin/main` is 0, so round 9 (#327's retirements) is a plain `git merge origin/main`. The
-Settings headings difference found here is [settings-headings](../20261010-settings-headings.md).
+Settings headings difference found here is [settings-headings](20261010-settings-headings.md).
