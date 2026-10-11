@@ -1,0 +1,19 @@
+(() => {
+  const { shell, webContents } = require('electron');
+  const log = (globalThis.__rl = globalThis.__rl ?? []);
+  if (!globalThis.__rlHooked) {
+    globalThis.__rlHooked = true;
+    shell.openExternal = async (url) => { log.push(['shell.openExternal', url]); };
+    for (const wc of webContents.getAllWebContents()) {
+      const tag = wc.getURL().slice(0, 40);
+      wc.session.setPermissionRequestHandler((_wc, permission, cb, details) => {
+        if (permission === 'openExternal') { log.push(['permission openExternal', details?.externalURL ?? '']); cb(false); return; }
+        cb(true);
+      });
+      wc.on('will-navigate', (_e, url) => log.push(['will-navigate', tag, url]));
+      wc.on('did-navigate-in-page', (_e, url) => log.push(['did-navigate-in-page', tag, url]));
+      wc.on('did-create-window', (_w, d) => log.push(['did-create-window', d?.url]));
+    }
+  }
+  return webContents.getAllWebContents().map((wc) => wc.getURL());
+})()
