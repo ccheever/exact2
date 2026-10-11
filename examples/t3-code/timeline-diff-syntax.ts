@@ -2,12 +2,12 @@
 // hunk with the same Shiki themes as chat code (pierre-light / pierre-dark), so
 // a line keeps the context of the lines around it. Word marks and syntax
 // classes overlay into one run list per line.
-import { highlight, languageOf, type Token } from './timeline-highlight';
+import { highlight, type Token } from './timeline-highlight';
 import { shikiLanguage, SHIKI_MAX_CHARS } from './r12-render-highlight';
 
 /** Token runs per line for one side of a hunk, highlighted as one text (up to the highlighter's limit, shiki-residuals). */
 export function lineTokens(lines: readonly string[], path: string): Token[][] {
-  const language = languageOf(path) || shikiLanguage(path);
+  const language = shikiLanguage(path);
   const total = lines.reduce((sum, line) => sum + line.length + 1, 0);
   if (!language || !lines.length || total > SHIKI_MAX_CHARS) return lines.map(line => line ? [{ text: line, cls: '' }] : []);
   const out: Token[][] = [[]];

@@ -1,11 +1,10 @@
-// Lane r12-render: the shared highlighter's Shiki path. For a language the reference's Shiki 4.2
-// grammars cover here (r12-render-grammar.ts: typescript, tsx, javascript, jsx, json, jsonc,
-// shellscript, python, css, html, markdown, yaml, toml, rust, go, swift; r12-render-grammar-more.ts:
-// c, java, kotlin, csharp, xml, diff, docker, make, ruby) the tokens are what the reference paints:
-// r12-render-textmate.ts runs the grammar, and each run's pierre-light / pierre-dark colour pair
-// names the synColor class that paints it (markdown.contract), with "+i" when the theme sets italic
-// (synSlant). Chat code blocks, the diff panel, the Files panel, the attachment code preview and
-// content-search lines all reach this through timeline-highlight.ts's highlight().
+// Lane r12-render: the shared highlighter's Shiki path. For every language the reference's Shiki 4.2
+// bundle has (code-highlighting-languages: all 235, with their aliases; r12-render-grammar.ts and its
+// chunks) the tokens are what the reference paints: r12-render-textmate.ts runs the grammar, and each
+// run's pierre-light / pierre-dark colour pair names the synColor class that paints it
+// (markdown.contract), with "+i" when the theme sets italic (synSlant). Chat code blocks, the diff
+// panel, the Files panel, the attachment code preview and content-search lines all reach this
+// through timeline-highlight.ts's highlight().
 //
 // shiki-residuals, cost: Hermes runs the slowest grammars here at about 70,000 characters a second,
 // so once the app turns slicing on (startHighlightTurn), one answer tokenizes at most
@@ -17,6 +16,7 @@
 // resumes from the last unchanged line's state.
 
 import { colorOf, grammarId, styleOf, tokenizeLine, type LineState } from './r12-render-textmate';
+import { FILE_TYPES } from './r12-render-filetypes';
 import type { Cls, Token } from './timeline-highlight';
 
 /** A longer text keeps the heuristic tokenizer (decision U15: the reference has no limit). */
@@ -48,33 +48,23 @@ function classOf(scopes: string[]): Cls {
   return cls;
 }
 
-// @pierre/diffs getFiletypeFromFileName, for the names and extensions whose grammar is here.
-const EXTENSIONS: Record<string, string> = {
-  sh: 'zsh', bash: 'zsh', zsh: 'zsh', css: 'css', go: 'go', html: 'html', htm: 'html', js: 'javascript', mjs: 'javascript',
-  cjs: 'javascript', json: 'json', jsonc: 'jsonc', jsx: 'jsx', md: 'markdown', markdown: 'markdown', py: 'python', pyw: 'python',
-  pyi: 'python', rs: 'rust', swift: 'swift', toml: 'toml', ts: 'typescript', mts: 'typescript', cts: 'typescript', tsx: 'tsx',
-  yaml: 'yaml', yml: 'yml',
-  // shiki-residuals
-  c: 'c', cs: 'csharp', diff: 'diff', patch: 'diff', Dockerfile: 'dockerfile', dockerfile: 'dockerfile', java: 'java', kt: 'kotlin',
-  Makefile: 'makefile', mk: 'makefile', makefile: 'makefile', rb: 'ruby', rbw: 'ruby', rake: 'ruby', gemspec: 'ruby', jbuilder: 'ruby',
-  builder: 'ruby', rabl: 'ruby', arb: 'ruby', ru: 'ruby', podspec: 'ruby', Gemfile: 'ruby', Rakefile: 'ruby', Guardfile: 'ruby',
-  Capfile: 'ruby', Berksfile: 'ruby', Brewfile: 'ruby', Vagrantfile: 'ruby', Thorfile: 'ruby', Appraisals: 'ruby', Dangerfile: 'ruby',
-  xml: 'xml',
-};
 /** The grammar for a fence language (Shiki's id or alias) or a file path (its name or extension), or ''. */
 export function shikiLanguage(nameOrPath: string): string {
   const raw = nameOrPath.trim();
   if (!raw) return '';
+  const has = (key: string) => Object.prototype.hasOwnProperty.call(FILE_TYPES, key);
   if (!raw.includes('/') && !raw.includes('.')) {
+    // ChatMarkdown.tsx extractFenceLanguage: Shiki has no gitignore grammar, so the reference reads it as ini.
+    if (raw === 'gitignore') return grammarId('ini');
     const id = grammarId(raw) || grammarId(raw.toLowerCase());
-    if (id || !Object.prototype.hasOwnProperty.call(EXTENSIONS, raw) || raw[0] === raw[0]!.toLowerCase()) return id;
+    if (id || !has(raw) || raw[0] === raw[0]!.toLowerCase()) return id;
   }
   const base = raw.split(/[/\\]/).pop() ?? raw;
-  if (/^[A-Z]/.test(base) && Object.prototype.hasOwnProperty.call(EXTENSIONS, base)) return grammarId(EXTENSIONS[base]!);
+  if (/^[A-Z]/.test(base) && has(base)) return grammarId(FILE_TYPES[base]!);
   const compound = /\.([^/\\]+\.[^/\\]+)$/.exec(raw)?.[1];
-  if (compound && Object.prototype.hasOwnProperty.call(EXTENSIONS, compound)) return grammarId(EXTENSIONS[compound]!);
+  if (compound && has(compound)) return grammarId(FILE_TYPES[compound]!);
   const simple = /\.([^.]+)$/.exec(raw)?.[1] ?? '';
-  return Object.prototype.hasOwnProperty.call(EXTENSIONS, simple) ? grammarId(EXTENSIONS[simple]!) : '';
+  return has(simple) ? grammarId(FILE_TYPES[simple]!) : '';
 }
 
 /** A tokenized text: per line, the state after it and its class runs (classes resolved as lines finish). */

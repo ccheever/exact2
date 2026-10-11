@@ -39,7 +39,8 @@ describe('the added grammars and italics against Shiki 4.2 (shiki-residuals)', (
     expect(codeLines('a.md', 'Some *soft* words')[0]!.runs.some(run => run.syntax === 'kw+i')).toBe(true);
   });
   test('a fence language with no grammar paints as one plain run, as the reference falls back to text', () => {
-    expect(messageCodeBlocks('```cobol\nDISPLAY "HI".\n```')[0]!.tokens).toEqual([{ id: '0', text: 'DISPLAY "HI".', cls: '' }]);
+    // code-highlighting-languages: every Shiki language has its grammar now; a word Shiki does not know stays plain.
+    expect(messageCodeBlocks('```klingon\nDISPLAY "HI".\n```')[0]!.tokens).toEqual([{ id: '0', text: 'DISPLAY "HI".', cls: '' }]);
     // An empty fence paints nothing.
     expect(messageCodeBlocks('```ts\n\n```')[0]!.tokens.map(token => token.text).join('')).toBe('');
   });

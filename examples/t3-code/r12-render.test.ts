@@ -38,9 +38,10 @@ describe('the shared highlighter against Shiki 4.2 (r12-render)', () => {
       .toEqual(['typescript', 'tsx', 'javascript', 'shellscript', 'yaml', 'toml', 'html', '', 'make', 'ruby']);
     // shiki-residuals: the added grammars, by fence word and by file name.
     expect(['c', 'java', 'kt', 'cs', 'c#', 'xml', 'diff', 'dockerfile', 'makefile', 'rb', 'cobol'].map(shikiLanguage))
-      .toEqual(['c', 'java', 'kotlin', 'csharp', 'csharp', 'xml', 'diff', 'docker', 'make', 'ruby', '']);
+      .toEqual(['c', 'java', 'kotlin', 'csharp', 'csharp', 'xml', 'diff', 'docker', 'make', 'ruby', 'cobol']);
+    // code-highlighting-languages: @pierre/diffs gives .h to objective-cpp, which is here now.
     expect(['src/main.c', 'A.java', 'b/C.kt', 'D.cs', 'pom.xml', 'fix.patch', 'docker/Dockerfile', 'lib/x.mk', 'Gemfile', 'a/b.gemspec', 'x.h'].map(shikiLanguage))
-      .toEqual(['c', 'java', 'kotlin', 'csharp', 'xml', 'diff', 'docker', 'make', 'ruby', 'ruby', '']);
+      .toEqual(['c', 'java', 'kotlin', 'csharp', 'xml', 'diff', 'docker', 'make', 'ruby', 'ruby', 'objective-cpp']);
   });
   test('every surface reaches it: chat fences, the diff panel, the Files panel', () => {
     const block = messageCodeBlocks('```tsx\nconst v = <b>{x}</b>;\n```')[0]!;
