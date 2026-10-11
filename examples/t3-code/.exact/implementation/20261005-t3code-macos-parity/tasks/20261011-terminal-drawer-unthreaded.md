@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-terminal-drawer-unthreaded
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/460
 verified_commit: null
 ---
 
@@ -135,3 +135,30 @@ server, open its thread, ⌘J, type a command, open a thread of This machine and
 ## Not done / not verified
 
 None.
+
+## Checks
+
+On `db2f5c8bb`, after merging `origin/feat(example)/t3-code` (no new commits; still `6db5cadea`):
+
+| Check | Exit | Note |
+| --- | --- | --- |
+| `bun test examples/t3-code --timeout 60000` | 0 | 4656 pass, 1 skip, 0 fail (312 files) |
+| strict `tsc` (README command) | 0 | |
+| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | `app.contract` 1,398 lines (unchanged) |
+| `cargo test -p t3-code-macos --lib` | 0 | 21 passed |
+| AppKit `macos/tests/transport`, `terminal`, `fleet` (README recipe) | 0 | 63 / 38 (1 opt-in skip) / 9 tests, 0 failures |
+| `git add -A && bun scripts/caps.mjs` | 0 | all budgets within cap |
+| `cargo build --all-targets --keep-going` | 0 | |
+| `cargo test --lib --bins --tests --no-fail-fast` | 0 | 3,679 passed, 0 failed |
+| `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | |
+| `cargo fmt --all -- --check` | 0 | |
+| `bun scripts/boot.mjs` | 0 | |
+| `host/apple/build.mjs t3-code-macos --bundle` | 0 | once, before the live drive (`9321f6518`'s app code) |
+
+## Delivery
+
+Draft PR [#460](https://github.com/ccheever/exact2/pull/460) into `feat(example)/t3-code`.
+
+## Next action
+
+The coordinator's review and merge. No real-input rows.
