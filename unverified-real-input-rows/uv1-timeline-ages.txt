@@ -1,0 +1,37 @@
+unverified-real-input-rows UV-1, the Timeline's ages (text before/after: no visible change without a hover).
+Drive: target/uv/drive.sh (before: feature tip eb9752918 in the evidence base; after: this branch), #168 > Timeline, 'tree pull-request-timeline'.
+Each relative age Text and whether its parent has a hover handler (a Tip):
+
+BEFORE
+Timeline: 17 ages, 17 wrapped by a hover handler
+   ('1d ago', '', True, '')
+   ('2d ago', '', True, '')
+   ('2d ago', '', True, '')
+   ('8d ago', '', True, '')
+   ('8d ago', '', True, '')
+   ('8d ago', '', True, '')
+   ('8d ago', '', True, '')
+   ('8d ago', '', True, '')
+   ('8d ago', '', True, '')
+   ('8d ago', '', True, '')
+   ('8d ago', '', True, '')
+   ('8d ago', '', True, '')
+Code tab, pointer on the age: [('pull-request-thread-age-tip-PRRC_kwDOU_luzM77Tefg', 'View', ['hover']), ('pull-request-thread-age-tip-PRRC_kwDOU_luzM77Tefg-bubble', 'View', [])] | hover-layer: 1 | age bubble: ['pull-request-thread-age-tip-PRRC_kwDOU_luzM77Tefg-bubble']
+
+AFTER
+Timeline: 17 ages, 0 wrapped by a hover handler
+   ('1d ago', '', False, '')
+   ('2d ago', '', False, '')
+   ('2d ago', '', False, '')
+   ('8d ago', '', False, '')
+   ('8d ago', '', False, '')
+   ('8d ago', '', False, '')
+   ('8d ago', '', False, '')
+   ('8d ago', '', False, '')
+   ('8d ago', '', False, '')
+   ('8d ago', '', False, '')
+   ('8d ago', '', False, '')
+   ('8d ago', '', False, '')
+Code tab, pointer on the age: [('pull-request-thread-age-PRRC_kwDOU_luzM77Tefg', 'Text', [])] | hover-layer: 0 | age bubble: []
+
+Reference: PullRequestTimelineTab.tsx draws every age as <span>{formatRelativeTimeLabel(event.at)}</span> (lines 226, 394, 435, 502); its only Tooltip is the stale verdict's (481-498).
