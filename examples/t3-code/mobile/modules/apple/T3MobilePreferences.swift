@@ -229,7 +229,7 @@ private struct T3SettingsHeaderConfig: Decodable {
     let routeKey: String; let close: Bool; let back: Bool; let filtered: Bool; let all: Bool
     let selectedCount: Int; let projectKey: String; let projectLabel: String
     let environments: [Environment]; let projects: [Project]
-    let addActionID: String?; let addEnabled: Bool?
+    let addActionID: String?; let addEnabled: Bool?; let compactRoot: Bool?
 }
 private final class T3SettingsHeaderPort: ExactNativeInstance {
     private weak var owner: T3SettingsNavigation?
@@ -238,6 +238,7 @@ private final class T3SettingsHeaderPort: ExactNativeInstance {
     private var config: T3SettingsHeaderConfig?
     private var right: [UIBarButtonItem] = []
     private var left: UIBarButtonItem?
+    private var compactLeading: (items: [UIBarButtonItem]?, hidesBack: Bool, supplements: Bool)?
     private var key = ""
     override var view: UIView { port }
     init(owner: T3SettingsNavigation, events: ExactNativeEvents) { self.owner = owner; super.init(events: events); port.isUserInteractionEnabled = false }
@@ -270,9 +271,19 @@ private final class T3SettingsHeaderPort: ExactNativeInstance {
         if config.close {
             let close = UIBarButtonItem(image: UIImage(systemName: "xmark"), primaryAction: UIAction { [weak self] _ in self?.emit("close") })
             close.accessibilityLabel = "Close settings"; close.accessibilityIdentifier = "settings-close"
-            right.insert(close, at: 0)
+            if config.compactRoot == true { right.append(close) } else { right.insert(close, at: 0) }
         }
         route.controller.navigationItem.rightBarButtonItems = right
+        let item = route.controller.navigationItem
+        if config.compactRoot == true {
+            // Keep the authored Back action live for sheet dismissal, but do not paint it.
+            if compactLeading == nil || item.leftBarButtonItems?.isEmpty == false {
+                compactLeading = (item.leftBarButtonItems, item.hidesBackButton, item.leftItemsSupplementBackButton)
+            }
+            item.leftBarButtonItems = nil; item.hidesBackButton = true; item.leftItemsSupplementBackButton = false
+        } else {
+            restoreCompactLeading(item)
+        }
         if config.back {
             let back = UIBarButtonItem(image: UIImage(systemName: "chevron.left"), primaryAction: UIAction { [weak self] _ in self?.emit("back") })
             back.accessibilityLabel = "Go back"; left = back; route.controller.navigationItem.leftBarButtonItem = back
@@ -284,8 +295,17 @@ private final class T3SettingsHeaderPort: ExactNativeInstance {
         guard let data = try? JSONSerialization.data(withJSONObject: ["kind": kind, "value": value]) else { return }
         events.change(String(decoding: data, as: UTF8.self))
     }
+    private func restoreCompactLeading(_ item: UINavigationItem) {
+        if let saved = compactLeading, item.leftBarButtonItems?.isEmpty != false,
+           item.hidesBackButton, !item.leftItemsSupplementBackButton {
+            item.leftBarButtonItems = saved.items; item.hidesBackButton = saved.hidesBack
+            item.leftItemsSupplementBackButton = saved.supplements
+        }
+        compactLeading = nil
+    }
     fileprivate func detach() {
         if let route {
+            restoreCompactLeading(route.controller.navigationItem)
             if route.controller.navigationItem.rightBarButtonItems == right { route.controller.navigationItem.rightBarButtonItems = nil }
             if route.controller.navigationItem.leftBarButtonItem === left { route.controller.navigationItem.leftBarButtonItem = nil }
         }
