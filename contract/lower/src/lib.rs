@@ -675,6 +675,7 @@ impl<'a> Lowerer<'a> {
                     svg::coerce_lengths(tag, svg::in_svg(self.svg_depth > 0, parent_tag), expanded);
                 let expanded = lengths.as_deref().unwrap_or(expanded);
                 self.check_svg(tag, parent_tag, expanded, *span)?;
+                shorthands::check_text_box(tag, parent_tag, expanded)?;
                 // @ref LLP 1034 §8 — an inline run paints in its paragraph's
                 // scheme: no host gives a run an appearance of its own.
                 if tag == "text" && parent_tag == Some("text") {
@@ -887,12 +888,10 @@ impl<'a> Lowerer<'a> {
                     .as_ref()
                     .map(|_| vec![Origin::Tag; bindings.len()]);
                 let font = self.font_use(expanded)?;
-                // @ref LLP 1024 D1 — a module tag's own attribute named like
-                // a row its box never uses is refused, not bound to nothing;
-                // a class's rows are the style's, never a prop. By name over
-                // the authored list: `expanded` is rewritten above (an
-                // animation shorthand and its longhands compose), so a
-                // position in it does not say whose an attribute is.
+                // @ref LLP 1024 D1 — a module tag's own attribute named like a row its box never uses
+                // is refused, not bound to nothing; a class's rows are the style's, never a prop. By
+                // name over the authored list: `expanded` is rewritten above (an animation shorthand
+                // and its longhands compose), so a position in it does not say whose an attribute is.
                 let own: Vec<&Attr> = attrs.iter().filter(|a| a.name != "class").collect();
                 let refused: Vec<&str> = own
                     .iter()
@@ -1263,6 +1262,11 @@ impl<'a> Lowerer<'a> {
                 a.span,
             );
         }
+        if let Some(why) = shorthands::text_box_trim_refusal(&a.name, tag, module)
+            .or_else(|| fields::outline_refusal(&a.name, tag, control))
+        {
+            return err("lower-attr-tag", why, a.span);
+        }
         if a.name == "alt" && tag != "image" {
             return err(
                 "lower-attr-tag",
@@ -1364,7 +1368,7 @@ impl<'a> Lowerer<'a> {
                     if index < 2 && matches!(ty, Ty::String) {
                         return err("lower-attr-type", "a computed `flex` must be a number, a literal CSS shorthand or a choice of literal shorthands; for a computed basis write the longhands, as in `flex-grow=1 flex-shrink=1 flex-basis=w`", a.span);
                     }
-                    values::check_style_value(&component, &[row], &ty, font)?;
+                    self.check_style(&component, &[row], &ty, font, scope)?;
                     bindings.push(BindingsRow {
                         kind: BindingKind::Style,
                         id: row as u16,
@@ -1390,7 +1394,7 @@ impl<'a> Lowerer<'a> {
                         for (&row, value) in rows.iter().zip(sides) {
                             let (code, ty) = self.typed_code(&value, scope, locals)?;
                             let side = Attr { value, ..a.clone() };
-                            values::check_style_value(&side, &[row], &ty, font)?;
+                            self.check_style(&side, &[row], &ty, font, scope)?;
                             bindings.push(BindingsRow {
                                 kind: BindingKind::Style,
                                 id: row as u16,
@@ -1401,7 +1405,7 @@ impl<'a> Lowerer<'a> {
                     }
                 }
                 let (code, ty) = self.typed_code(&a.value, scope, locals)?;
-                values::check_style_value(a, rows, &ty, font)?;
+                self.check_style(a, rows, &ty, font, scope)?;
                 for &row in rows {
                     bindings.push(BindingsRow {
                         kind: BindingKind::Style,
@@ -1427,6 +1431,9 @@ impl<'a> Lowerer<'a> {
                 let glass;
                 let value = if prop == exact_kernel::PropId::GlassGroup {
                     glass = values::glass_group(&a.value)?;
+                    &glass
+                } else if let Some(width) = values::split_width(prop, &a.value) {
+                    glass = width;
                     &glass
                 } else {
                     &a.value

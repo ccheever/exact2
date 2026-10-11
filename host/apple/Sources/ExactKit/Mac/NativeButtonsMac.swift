@@ -162,7 +162,8 @@ extension ControlHost {
         let written = NativeButtonMac.Written(
             face: face, accent: accent, enabled: !owner.disabled,
             label: owner.authoredLabel ?? face.title, testId: owner.props["testId"],
-            selected: owner.props["accessibilitySelected"] == "true", expanded: owner.props["accessibilityExpanded"],
+            selected: owner.props["accessibilitySelected"] == "true" || owner.checkedRole.map { $0.role == "radio" && $0.checked } == true,
+            expanded: owner.props["accessibilityExpanded"],
             pressed: owner.pressedState, appearance: owner.effectiveAppearance.name.rawValue,
             interactive: owner.style["pointer_events"]?.string != "none",
             // HTML's `title`, else an icon-only button's label: AppKit's help
@@ -181,6 +182,8 @@ extension ControlHost {
         button.setAccessibilitySelected(written.selected)
         if let expanded = written.expanded { button.setAccessibilityExpanded(expanded == "true") }
         button.setAccessibilityToggle(written.pressed, else: .button)
+        // A `radio` is AXRadioButton, its value whether it is checked (a radio group's segment kept as authored).
+        if let checked = owner.checkedRole, checked.role == "radio" { button.setAccessibilityChecked(checked.role, checked.checked) }
         button.drawn = look
         if button.isGlass != glass {
             button.isGlass = glass

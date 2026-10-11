@@ -16,7 +16,7 @@ import { createServer, request } from 'node:http';
 import { existsSync, lstatSync, readFileSync, rmSync, statSync, watch, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { webRequestURL } from '../../scripts/origin.mjs';
-import { INPUT_TREE, OUTPUT } from '../../scripts/agent-launch.mjs';
+import { compilerWarnings, INPUT_TREE, OUTPUT } from '../../scripts/agent-launch.mjs';
 import { appManifestDigest, buildFileCards, buildTreeFile, replaceBuild, saveTrace, sendStaticBody, watchLauncher, webContentType } from '../web/serve.mjs';
 import { localInstaller } from '../web/local-install.mjs';
 
@@ -53,12 +53,15 @@ function build(app, dist) {
     child.on('exit', (code) => {
       building = null;
       const packages = devPackages(stage);
-      if (code !== 0) { rmSync(stage, { recursive: true, force: true }); return done({ packages, error: log.split('\n').filter((l) => l.trim() && !/^\s*(Compiling|Finished|Running|warning)/.test(l)).slice(-12).join('\n') || `build exited ${code}` }); }
+      // The one line a build says when it rewrote the types app.ts imports, built or not (LLP 1116.001 D4.5).
+      const types = /^app\.contract\.d\.ts: .*$/m.exec(log)?.[0];
+      if (types) console.log(types);
+      if (code !== 0) { rmSync(stage, { recursive: true, force: true }); return done({ packages, error: log.split('\n').filter((l) => l.trim() && !/^\s*(Compiling|Finished|Running|warning)/.test(l) && !compilerWarnings(l).length).slice(-12).join('\n') || `build exited ${code}` }); }
       const logic = readFileSync(resolve(stage, '.exact-dev-logic.json'), 'utf8').trim();
       writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({ exactBuild: 1, target: 'js', app: { id: app.id, name: app.displayName },
         manifestSha256: appManifestDigest(app), files: buildFileCards(stage) }) + '\n');
       replaceBuild(stage, dist);
-      done({ error: null, logic, packages });
+      done({ error: null, logic, packages, warnings: compilerWarnings(log) });
     });
   });
 }
@@ -70,8 +73,17 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // A first build that fails (a refusal or a compile error) serves its
   // errors in the page and builds again at the next edit.
   let built = await build(app, dist), error = built.error, logicRevision = built.logic ?? '';
+  // The compiler's warnings (LLP 1116.004 D7) when they change, not again at each save that leaves them.
+  let warned = '';
+  const warn = (warnings) => {
+    if (!warnings || warnings.join('\n') === warned) return;
+    if (warnings.length) console.log(warnings.join('\n'));
+    else console.log('the compiler warns of nothing now');
+    warned = warnings.join('\n');
+  };
   if (error) console.log(`JS target: ${app.name} does not build; its errors show in the page\n${error}`);
   else console.log(`JS target: ${app.name} built in ${Date.now() - t0} ms`);
+  warn(built.warnings);
   console.log('plan ready');
   const clients = new Set();
   const push = (m) => { for (const res of clients) res.write(`data: ${JSON.stringify(m)}\n\n`); };
@@ -87,6 +99,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       logicRevision = built.logic;
       pending.set(++seq, at);
       console.log(`edit → plan ready ${Date.now() - at} ms (rebuilt in ${Date.now() - t} ms) · ${clients.size} page${clients.size === 1 ? '' : 's'} reloading`);
+      warn(built.warnings);
       push({ reload: seq, revision: logicRevision });
     }
     if (again) { again = false; rebuild(); }

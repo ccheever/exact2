@@ -107,7 +107,10 @@ fn a_progress_with_a_value_is_htmls_progress_element() {
     }
     let css = super::host_css_of(&facts, None, String::new(), "progress");
     assert!(!css.contains("contain"), "the browser's box: {css}");
-    assert!(include_str!("../index.html").contains("progress { display: block; }"));
+    // The page draws its bar (LLP 1116.003; tests/document.test.mjs).
+    assert!(include_str!("../index.html").contains(
+        "progress { display: block; appearance: none; border: none; background: none; }"
+    ));
 }
 
 /// LLP 1069.001, amended 2026-10-07: an indeterminate progress is a box
@@ -174,6 +177,39 @@ fn a_progress_is_a_busy_progressbar_box_the_page_draws_a_ring_in() {
         assert!(!css.contains("justify-self"), "{display:?}: {css}");
     }
     assert!(include_str!("../index.html").contains("[data-exact-progress]::before"));
+}
+
+/// LLP 1116.001 D1: a date, time or local date-time control is marked for
+/// the page's field look while its appearance is the platform's; the
+/// author's `appearance: none`, and every other control, is not.
+#[test]
+fn a_date_or_time_control_takes_the_field_look_unless_the_author_has_it() {
+    let marked = |ty: &str, appearance| {
+        let style = StyleProps {
+            appearance,
+            ..StyleProps::default()
+        };
+        let mut props = PropList::default();
+        props.set(PropId::Type, PropValue::Str(ty.into()));
+        super::props_of(&NodeFacts {
+            id: 1,
+            node_type: NodeType::Control,
+            style: &style,
+            props: &props,
+            is_root: false,
+            inline_run: false,
+        })
+        .contains_key("data-exact-field")
+    };
+    use exact_kernel::Appearance::{Auto, None};
+    for ty in ["date", "time", "datetime-local"] {
+        assert!(marked(ty, Auto), "{ty}");
+        assert!(!marked(ty, None), "{ty}, appearance none");
+    }
+    for ty in ["checkbox", "range", "file", "select"] {
+        assert!(!marked(ty, Auto), "{ty}");
+    }
+    assert!(include_str!("../index.html").contains("input[data-exact-field]"));
 }
 
 /// A link to an absolute URL opens outside the app, as natively, unless

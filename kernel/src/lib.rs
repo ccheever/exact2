@@ -70,7 +70,7 @@ pub use error::{
     ApplyError, DecodeError, KernelError, LayoutError, StyleDomainError, StyleValueError,
 };
 pub use generated::*;
-pub use grouped::{Accessory, GroupedList, GroupedRow, GroupedSection};
+pub use grouped::{Accessory, GroupedList, GroupedRow, GroupedSection, TextFont, TextLook};
 pub use handoff::Handoff;
 pub use id::{AxisOffer, Frame, NodeFlags, NodeKey, Offer, ViewId};
 pub use kernel::{HostCover, Kernel, NodeRef, PresentedHeight, StickyConstraint};
@@ -88,8 +88,8 @@ pub use style::{
 pub use text::case::link as link_text_transform;
 pub use text::case::{linked_lowercase, lowercase_bounded, Lowercase};
 pub use text::{
-    Markup, MonospaceMeasurer, ParagraphStamp, TextMeasureRequest, TextMeasurer, TextMetrics,
-    TextRun, TextStyle,
+    Markup, MonospaceMeasurer, OverEdge, ParagraphStamp, TextEdges, TextMeasureRequest,
+    TextMeasurer, TextMetrics, TextRun, TextStyle, UnderEdge,
 };
 pub use transform::TransformDragBinding;
 pub use txn::{CommitReceipt, Exit, MAX_DEPTH};

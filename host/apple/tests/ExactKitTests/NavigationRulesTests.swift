@@ -122,12 +122,49 @@ final class NavigationRulesTests: XCTestCase {
     }
 
     /// D1: the stack is the prefix through the selected route; a key that
-    /// matches no route leaves the stack alone.
+    /// matches no route leaves the stack alone (less what left the tree, below).
     func testTheStackIsThePrefixThroughTheSelectedRoute() {
         let keys = ["", "thread", "details:thread", "compose"]
         XCTAssertEqual(NavigationRules.stack(routeKeys: keys, selected: ""), 0..<1)
         XCTAssertEqual(NavigationRules.stack(routeKeys: keys, selected: "details:thread"), 0..<3)
         XCTAssertNil(NavigationRules.stack(routeKeys: keys, selected: "elsewhere"))
+    }
+
+    /// D1: a key that matches no route leaves the stack alone, less the
+    /// routes that left the tree; and macOS's hide-and-inert projection
+    /// follows it. Chat-rooms (bake-off round 6) keyed its list "rooms" while
+    /// its root named the visit, "0" at the stack's root: Cancel on its sheet
+    /// (the route gone, the key "0" again) left the list inert.
+    func testAKeyThatMatchesNoRouteKeepsWhatIsLeftOfTheStackShown() throws {
+        XCTAssertEqual(NavigationRules.survivor(of: ["rooms", "1"], declared: [["rooms"]]), "rooms")
+        XCTAssertEqual(NavigationRules.survivor(of: ["rooms", "1"], declared: [["rooms", "1"]]), "1")
+        XCTAssertEqual(NavigationRules.survivor(of: ["a", "b"], declared: [["c"], ["a"]]), "a", "in any tab's stack")
+        XCTAssertNil(NavigationRules.survivor(of: [], declared: [["rooms"]]), "nothing shown yet: nothing changes")
+        XCTAssertNil(NavigationRules.survivor(of: ["gone"], declared: [["rooms"]]))
+
+        _ = NSApplication.shared
+        let p = Presenter()
+        defer { p.reset() }
+        func apply(_ ops: [[String: Any]]) { p.apply(batchFixture(ops: ops, timers: false, motion: false, clock: nil, error: nil)) }
+        func route(_ id: Int, _ key: String, modal: Bool = false) -> [String: Any] {
+            ["op": "create", "id": id, "kind": "view", "props": ["navigationKey": key].merging(modal ? ["navigationPresentation": "modal"] : [:]) { $1 }]
+        }
+        apply([
+            ["op": "create", "id": 1, "kind": "view", "props": ["navigationBack": "back", "navigationKey": "0"]],
+            route(2, "rooms"),
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "roots", "ids": [1]],
+        ])
+        let rooms = try XCTUnwrap(p.views[2])
+        XCTAssertEqual([rooms.isHidden, rooms.routeInert], [false, false], "nothing projected at first")
+        apply([route(3, "1", modal: true), ["op": "children", "id": 1, "ids": [2, 3]], ["op": "props", "id": 1, "set": ["navigationKey": "1"]]])
+        XCTAssertEqual([rooms.isHidden, rooms.routeInert], [false, true], "shown and inert beneath the sheet")
+        apply([["op": "children", "id": 1, "ids": [2]], ["op": "destroy", "id": 3], ["op": "props", "id": 1, "set": ["navigationKey": "0"]]])
+        XCTAssertEqual([rooms.isHidden, rooms.routeInert], [false, false], "the sheet closed, the list is live")
+        apply([route(4, "2"), ["op": "children", "id": 1, "ids": [2, 4]], ["op": "props", "id": 1, "set": ["navigationKey": "2"]]])
+        XCTAssertEqual([rooms.isHidden, rooms.routeInert], [true, true], "hidden under a pushed screen")
+        apply([["op": "children", "id": 1, "ids": [2]], ["op": "destroy", "id": 4], ["op": "props", "id": 1, "set": ["navigationKey": "0"]]])
+        XCTAssertEqual([rooms.isHidden, rooms.routeInert], [false, false], "popped, the list shows again")
     }
 
     func testPresentationBoundariesRetainTheirOwnerThroughLaterRoutes() {
@@ -264,18 +301,6 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertFalse(NavigationRules.freezesViewport(modalActive: true, changing: true, initiallyInteractive: true))
         XCTAssertFalse(NavigationRules.freezesViewport(modalActive: false, changing: false, initiallyInteractive: true))
         XCTAssertFalse(NavigationRules.freezesViewport(modalActive: false, changing: true, initiallyInteractive: false))
-    }
-
-    /// D5: a stack change waits for the viewport only when its batch put the
-    /// keyboard away: shown, no editor left, a stack that changes, and not
-    /// under the agent (Ocho's Back over the composer, 2026-10-08).
-    func testAStackChangeWaitsForTheViewportOnlyWhenItsBatchDroppedTheKeyboard() {
-        XCTAssertTrue(NavigationRules.waitsForKeyboardViewport(applying: true, keyboardShown: true, editing: false, agentFreezes: false, stackChanges: true))
-        XCTAssertFalse(NavigationRules.waitsForKeyboardViewport(applying: false, keyboardShown: true, editing: false, agentFreezes: false, stackChanges: true))
-        XCTAssertFalse(NavigationRules.waitsForKeyboardViewport(applying: true, keyboardShown: false, editing: false, agentFreezes: false, stackChanges: true))
-        XCTAssertFalse(NavigationRules.waitsForKeyboardViewport(applying: true, keyboardShown: true, editing: true, agentFreezes: false, stackChanges: true))
-        XCTAssertFalse(NavigationRules.waitsForKeyboardViewport(applying: true, keyboardShown: true, editing: false, agentFreezes: true, stackChanges: true))
-        XCTAssertFalse(NavigationRules.waitsForKeyboardViewport(applying: true, keyboardShown: true, editing: false, agentFreezes: false, stackChanges: false))
     }
 
     /// A presentation's background goes home as autoresizing would have

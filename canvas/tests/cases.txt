@@ -285,6 +285,8 @@ fillStyle = g
 fillRect(0, 0, 10, 10)
 createImageData(0, 3) ! IndexSizeError
 createImageData(NaN, 3) ! TypeError
+createImageData(65536, 65536) ! RangeError
+createImageData(4294967295, 1) ! TypeError
 putImageData(ctx.createImageData(1, 1), NaN, 0) ! TypeError
 putImageData(ctx.createImageData(2, 2), 3, 4, -1, 1, 5, -3)
 

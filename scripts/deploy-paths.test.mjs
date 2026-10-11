@@ -1,12 +1,45 @@
 // LLP 1091 §11: capture admission uses native paths, not POSIX spellings.
-// No Cargo, install, signing, publication or host process is needed here.
+// Only Contract compiler discovery below runs Cargo; no install, signing, publication or host process is needed here.
 import { afterAll, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, isAbsolute, join, resolve, toNamespacedPath } from 'node:path';
+import { dirname, isAbsolute, join, resolve, sep, toNamespacedPath } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { assertCapturedContractSources, installedContractPackage, unrelocatableContractDependency } from './deploy.mjs';
+import { assertCapturedContractSources, contractCompiler, installedContractPackage, unrelocatableContractDependency } from './deploy.mjs';
+import { appleTouched, glueTests, retainSkippedFailures } from './async.mjs';
+
+test('async retains only failures from checks skipped on this commit', () => {
+  const previous = ['ios: failed', 'ios-touch: failed', 'lane: failed', 'tvos: failed', 'install: failed'];
+  const skipped = {checks:{}, failures:[]};
+  retainSkippedFailures(previous, skipped);
+  expect(skipped.failures).toEqual(previous.slice(0, 4));
+  expect(['ios-touch: failed'].filter(f => !new Set(skipped.failures).has(f))).toEqual([]);
+  const passed = {checks:{'ios-touch':{status:0}}, failures:[]};
+  retainSkippedFailures(previous, passed);
+  expect(passed.failures).toEqual(['ios: failed', 'lane: failed', 'tvos: failed']);
+  const iosPassed = {checks:{ios:{status:0}}, failures:[]};
+  retainSkippedFailures(previous, iosPassed);
+  expect(iosPassed.failures).toEqual(['ios-touch: failed', 'lane: failed', 'tvos: failed']);
+  const other = {checks:{}, failures:[]};
+  retainSkippedFailures(['optional: failed'], other, ['optional']);
+  expect(other.failures).toEqual(['optional: failed']);
+});
+
+test('async newest detects Apple edits anywhere in the coalesced range', () => {
+  const calls = [];
+  expect(appleTouched('new', 'old', args => {
+    calls.push(args);
+    return args[2] === 'old' ? 'host/apple/changed.swift' : '';
+  })).toBe(true);
+  expect(calls[0]).toEqual(['diff', '--name-only', 'old', 'new', '--', 'host/apple']);
+  appleTouched('new', null, args => { calls.push(args); return ''; });
+  expect(calls[1]).toEqual(['diff', '--name-only', 'new^', 'new', '--', 'host/apple']);
+});
+
+test('async glue runs the capture fixtures', () => {
+  expect(glueTests(resolve(import.meta.dir, '..'))).toContain('./scripts/app.test.mjs');
+});
 
 const parent = realpathSync.native(tmpdir());
 const fixture = mkdtempSync(join(parent, 'exact deploy paths café # '));
@@ -21,6 +54,49 @@ afterAll(() => {
   if (dirname(resolve(fixture)) !== parent) throw new Error('Refusing fixture cleanup outside its owned parent');
   rmSync(fixture, { recursive: true, force: true });
 });
+
+function compilerRoot() {
+  const root = mkdtempSync(join(fixture, 'compiler-'));
+  mkdirSync(join(root, 'src'));
+  writeFileSync(join(root, 'Cargo.toml'), '[package]\nname="contract"\nversion="0.1.0"\nedition="2021"\n');
+  writeFileSync(join(root, 'src/main.rs'), 'fn main() {}\n');
+  const lock = spawnSync('cargo', ['generate-lockfile', '--offline'], {cwd:root, encoding:'utf8'});
+  expect(lock.status).toBe(0);
+  return root;
+}
+
+test('Contract discovery builds in the selected private Cargo target', () => {
+  const root = compilerRoot(), target = mkdtempSync(join(fixture, 'cargo-target-'));
+  const previous = process.env.CARGO_TARGET_DIR;
+  try {
+    process.env.CARGO_TARGET_DIR = target;
+    const compiler = contractCompiler(root);
+    expect(compiler.startsWith(`${target}${sep}`)).toBe(true);
+    expect(existsSync(compiler)).toBe(true);
+    expect(existsSync(join(root, 'target', 'debug', 'contract'))).toBe(false);
+  } finally {
+    if (previous === undefined) delete process.env.CARGO_TARGET_DIR;
+    else process.env.CARGO_TARGET_DIR = previous;
+  }
+}, 30000);
+
+test('Contract discovery uses Cargo executable for the selected build target', () => {
+  const root = compilerRoot();
+  const rustc = spawnSync('rustc', ['-vV'], {encoding:'utf8'});
+  expect(rustc.status).toBe(0);
+  const host = /^host: (.+)$/m.exec(rustc.stdout)?.[1];
+  expect(host).toBeTruthy();
+  const previous = process.env.CARGO_BUILD_TARGET;
+  try {
+    process.env.CARGO_BUILD_TARGET = host;
+    const compiler = contractCompiler(root);
+    expect(compiler.includes(`${sep}${host}${sep}debug${sep}`)).toBe(true);
+    expect(existsSync(compiler)).toBe(true);
+  } finally {
+    if (previous === undefined) delete process.env.CARGO_BUILD_TARGET;
+    else process.env.CARGO_BUILD_TARGET = previous;
+  }
+}, 30000);
 
 test('actual app and installed package paths stay within the captured source', () => {
   const app = put('stage/app/app.contract');

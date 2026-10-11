@@ -25,6 +25,16 @@ enum NavigationRules {
         return 0..<(index + 1)
     }
 
+    /// D1, when the root's key matches no route: the stack is left alone,
+    /// less the routes that have left the tree. The deepest route of the
+    /// stack last shown (`shown`, its keys through its selected route) that
+    /// is still declared in one of the stacks is the selected one, so a
+    /// closed sheet or a popped screen never leaves the route beneath it
+    /// covered. `nil` when none is (nothing shown yet): nothing changes.
+    static func survivor(of shown: [String], declared: [[String]]) -> String? {
+        shown.last { key in declared.contains { $0.contains(key) } }
+    }
+
     /// D4: presentation boundaries split the selected prefix into retained
     /// owners. A later push stays in the most recent presentation's stack.
     static func segments(presentations: [String?]) -> [Range<Int>] {
@@ -153,16 +163,6 @@ enum NavigationRules {
     /// transition outside a sheet — never to a sheet's vertical dismissal.
     static func freezesViewport(modalActive: Bool, changing: Bool, initiallyInteractive: Bool) -> Bool {
         !modalActive && changing && initiallyInteractive
-    }
-
-    /// D5: a stack change waits a turn when it arrives in a batch that put
-    /// the keyboard away (shown, with no editor of the session's left): the
-    /// viewport's growth is applied after the batch, and a transition begun
-    /// before it keeps the routes at the keyboard's height to its end. Under
-    /// the agent nothing animates, so nothing waits.
-    static func waitsForKeyboardViewport(applying: Bool, keyboardShown: Bool, editing: Bool,
-                                         agentFreezes: Bool, stackChanges: Bool) -> Bool {
-        applying && keyboardShown && !editing && !agentFreezes && stackChanges
     }
 
     /// A presentation's background view, back in the home it left: its

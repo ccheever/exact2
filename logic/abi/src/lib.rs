@@ -41,6 +41,28 @@ fn read_pairs(r: &mut Reader<'_>) -> Result<Vec<(String, String)>, String> {
         .map(|_| Ok((r.string().map_err(error)?, r.string().map_err(error)?)))
         .collect()
 }
+// A store value is length-prefixed bytes, as a string is
+fn store_value(w: &mut Writer, value: &[u8]) {
+    w.u32(value.len() as u32);
+    w.bytes(value);
+}
+fn read_store_value(r: &mut Reader<'_>) -> Result<Vec<u8>, String> {
+    let n = r.count().map_err(error)?;
+    Ok(r.bytes(n).map_err(error)?.to_vec())
+}
+fn store_pairs(w: &mut Writer, data: &[(String, Vec<u8>)]) {
+    w.u32(data.len() as u32);
+    for (name, value) in data {
+        w.string(name);
+        store_value(w, value);
+    }
+}
+fn read_store_pairs(r: &mut Reader<'_>) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let n = r.count().map_err(error)?;
+    (0..n)
+        .map(|_| Ok((r.string().map_err(error)?, read_store_value(r)?)))
+        .collect()
+}
 fn finish(w: Writer) -> Result<Vec<u8>, String> {
     if w.len() > MAX_MESSAGE {
         Err("logic ABI message too large".into())
@@ -101,7 +123,7 @@ pub fn call_request(
         .into_iter()
         .filter(|(name, _)| !name.starts_with(Store::KEPT) && store.granted().contains(name))
         .collect::<Vec<_>>();
-    pairs(&mut w, &snapshot);
+    store_pairs(&mut w, &snapshot);
     if let Some(outcome) = outcome {
         encode_outcome(&mut w, outcome);
     }
@@ -562,7 +584,7 @@ impl<D: DataSource> Session<D> {
                 let Value::List(args) = Value::decode(&mut r).map_err(error)? else {
                     return Err("arguments must be a list".into());
                 };
-                let mut store = Store::module_mirror(self.data.grants(), read_pairs(&mut r)?);
+                let mut store = Store::module_mirror(self.data.grants(), read_store_pairs(&mut r)?);
                 let outcome = if op == 4 {
                     Some(read_outcome(&mut r)?)
                 } else {
@@ -581,7 +603,7 @@ impl<D: DataSource> Session<D> {
                     w.string(&write.name);
                     w.u8(u8::from(write.value.is_some()));
                     if let Some(value) = write.value {
-                        w.string(&value);
+                        store_value(&mut w, &value);
                     }
                 }
                 encode_result(&mut w, result);

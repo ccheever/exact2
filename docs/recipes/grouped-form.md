@@ -50,18 +50,20 @@ component Profile
               header
                 text "Name"
               row
-                input appearance="none" value=name input=editName placeholder="Required" aria-label="Name"
-                  autocomplete="name" testId="name" flex=1
-              footer
-                text (submitted ? nameError : "") testId="name-error"
+                column flex=1 min-width=0 gap=4
+                  input appearance="none" value=name input=editName placeholder="Required" aria-label="Name"
+                    autocomplete="name" testId="name"
+                  when submitted and nameError != ""
+                    text nameError font="-exact-footnote" color="-exact-system-red" testId="name-error"
             section
               header
                 text "Email"
               row
-                input appearance="none" type="email" value=email input=editEmail placeholder="name@example.com"
-                  aria-label="Email" autocapitalize="off" autocomplete="email" testId="email" flex=1
-              footer
-                text (submitted ? emailError : "") testId="email-error"
+                column flex=1 min-width=0 gap=4
+                  input appearance="none" type="email" value=email input=editEmail placeholder="name@example.com"
+                    aria-label="Email" autocapitalize="off" autocomplete="email" testId="email"
+                  when submitted and emailError != ""
+                    text emailError font="-exact-footnote" color="-exact-system-red" testId="email-error"
             section
               header
                 text "Preferences"
@@ -80,7 +82,7 @@ component Profile
 
 ```contract-test
 test "errors show after the first Save and clear when fixed"
-  expect text "name-error" == ""
+  expect tree missing "name-error"
   tap "save"
   expect text "name-error" == "Enter your name."
   type "name" "Ada"
@@ -88,7 +90,7 @@ test "errors show after the first Save and clear when fixed"
   type "units" "imperial"
   type "reminders" "false"
   tap "save"
-  expect text "name-error" == ""
+  expect tree missing "name-error"
   expect state reminders == false
 ```
 
@@ -99,7 +101,7 @@ test "errors show after the first Save and clear when fixed"
   other row is yours, a flex row: vertical content goes in a `column flex=1`, and it
   writes only `padding-top`/`padding-bottom` (`padding` or `width="100%"` runs it off
   the card).
-- Validate a derive of the raw text, and show it only after the first Save. A
-  footer's text is always the system's grey, so don't colour it.
+- Validate a derive of the raw text, and show it only after the first Save, under the
+  field in its row, in `-exact-system-red`, saying what to do.
 - The list paints its own grouped background; don't set one. To keep a setting across
   launches, see [persisted-setting](persisted-setting.md).

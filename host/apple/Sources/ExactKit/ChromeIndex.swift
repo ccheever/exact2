@@ -12,7 +12,9 @@ struct ChromeIndex {
     /// Props a pass reads for one value. Every list row has a role and every
     /// `main` or `header` a tag, so these are indexed by that value, never by
     /// presence.
-    static let values = [("role:tablist", "accessibilityRole", "tablist"), ("tag:dialog", "semanticTag", "dialog"),
+    static let values = [("role:tablist", "accessibilityRole", "tablist"), ("role:radiogroup", "accessibilityRole", "radiogroup"),
+                         ("tag:dialog", "semanticTag", "dialog"),
+                         ("role:status", "accessibilityRole", "status"), ("role:alert", "accessibilityRole", "alert"),
                          ("type:checkbox", "type", "checkbox"), ("type:radio", "type", "radio"), ("type:select", "type", "select"),
                          ("type:range", "type", "range"), ("type:date", "type", "date"),
                          ("type:time", "type", "time"), ("type:datetime-local", "type", "datetime-local"),
@@ -64,7 +66,7 @@ struct ChromeIndex {
     /// Whether anything that can hide a view or make it inert is mounted:
     /// only the passes over these ever set either.
     var hidesOrInerts: Bool {
-        ["navigationBack", "inert", "tag:dialog", "popover", "toolbarPlacement", "role:tablist"]
+        ["navigationBack", "inert", "tag:dialog", "popover", "toolbarPlacement", "role:tablist", "role:radiogroup"]
             .contains { !(byKey[$0]?.isEmpty ?? true) }
     }
 }

@@ -15,21 +15,51 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 // The real `redirectOf` and `ownWithout`, for a stub `admission.js` written beside a module under test
 const realHelpers = `export { ownWithout, redirectOf } from ${JSON.stringify(pathToFileURL(resolve(ROOT, 'host/web-js/admission.js')).href)}; `;
 const sets = new Map();
-function normalized(spec) {
+const normalizers = new Map();
+function builtNormalizer(target, run = spawnSync) {
+  const result = run('cargo', ['build', '-q', '-p', 'exact-web-js'], { cwd: ROOT, encoding: 'utf8' });
+  if (result.status !== 0) throw new Error(result.stderr || 'grant normalizer build failed');
+  return target;
+}
+const normalizerTarget = resolve(process.env.CARGO_TARGET_DIR || resolve(ROOT, 'target'), `debug/exact-web-js${process.platform === 'win32' ? '.exe' : ''}`);
+normalizers.set(normalizerTarget, builtNormalizer(normalizerTarget));
+function normalized(spec, { target = normalizerTarget, build = spawnSync, run = spawnSync } = {}) {
   if (sets.has(spec)) return sets.get(spec);
+  if (!normalizers.has(target)) normalizers.set(target, builtNormalizer(target, build));
   const scratch = mkdtempSync(resolve(tmpdir(), 'exact-grants-'));
   const input = resolve(scratch, 'grants.txt');
   writeFileSync(input, spec);
-  const target = resolve(process.env.CARGO_TARGET_DIR || resolve(ROOT, 'target'), `debug/exact-web-js${process.platform === 'win32' ? '.exe' : ''}`);
-  const result = existsSync(target)
-    ? spawnSync(target, ['normalize-grants', input], { cwd: ROOT, encoding: 'utf8' })
-    : spawnSync('cargo', ['run', '-q', '-p', 'exact-web-js', '--', 'normalize-grants', input], { cwd: ROOT, encoding: 'utf8' });
+  const result = run(normalizers.get(target), ['normalize-grants', input], { cwd: ROOT, encoding: 'utf8' });
   rmSync(scratch, { recursive: true });
   if (result.status !== 0) throw new Error(result.stderr || 'grant normalizer failed');
   const set = JSON.parse(result.stdout);
   sets.set(spec, set);
   return set;
 }
+test('grant normalization rebuilds when an old binary exists', () => {
+  const scratch = mkdtempSync(resolve(tmpdir(), 'exact-stale-normalizer-'));
+  const old = resolve(scratch, 'exact-web-js');
+  writeFileSync(old, 'old CLI');
+  try {
+    const calls = [];
+    const set = normalized('secret.keep stale-binary-regression', {
+      target: old,
+      build: (command, args) => {
+        calls.push([command, args]);
+        writeFileSync(old, 'current CLI');
+        return { status: 0 };
+      },
+      run: (command, args) => {
+        expect(command).toBe(old);
+        expect(args[0]).toBe('normalize-grants');
+        expect(readFileSync(command, 'utf8')).toBe('current CLI');
+        return { status: 0, stdout: '{"grants":[]}' };
+      },
+    });
+    expect(set).toEqual({ grants: [] });
+    expect(calls).toEqual([['cargo', ['build', '-q', '-p', 'exact-web-js']]]);
+  } finally { rmSync(scratch, { recursive: true }); }
+});
 const text = result => new TextDecoder().decode(result.body);
 
 test('native requests resolve their real source scope before calling the module', async () => {

@@ -44,16 +44,36 @@
   #exact-root [data-native] { all: revert; display: block; font: inherit; letter-spacing: inherit; color: inherit; }
   #exact-root [data-native]:disabled { color: revert; }
   select { display: block; }
-  /* A determinate progress is HTML's (LLP 1116 D8): the browser draws it and its UA sheet sizes it (`10em` by `1em`,
-     border-box), as the kernel does; a block, as every node is, where the UA's is an inline-block. */
-  progress { display: block; }
-  /* A link is a bare node too: the UA's link colour, underline and pointer
-     go, as a button's control styling does. A \`link\` is block-level like any
-     node and inherits its colour; a run with an \`href\` stays inline in its
-     paragraph, and its colour is the compiler's unsaid \`LinkText\` row,
-     inline, so the browser's own link colour (LLP 1115 §3). Markdown's own
-     links (never views) keep the UA's look. */
-  #exact-root a[data-view] { color: inherit; text-decoration: none; cursor: default; display: block; }
+  /* A determinate progress is HTML's (LLP 1116 D8): its UA sheet sizes it (`10em` by `1em`, border-box), as the kernel
+     does; a block, as every node is, where the UA's is an inline-block. The page draws its bar as UIKit draws its own and
+     Linux paints it (LLP 1116.003): a 4 px capsule centred across the box, the accent's to the value over a track of
+     the system fill, whatever the accent, in either scheme (`-exact-fill` is UIKit's track in light; in dark UIKit's
+     shades from 33% to 23%, a little under the fill's 36%). Chrome's own takes its track by contrast with the accent:
+     near black under a light accent (teal, mint, yellow) in light, near white under a dark one in dark. The element
+     keeps no border (Firefox's UA would add 2 px to the box) or background, so an authored background is the box's,
+     under the track, as on iOS. Firefox styles no track and puts its bar at the top of the box: there both are bands
+     centred in the box, square-ended. */
+  progress { display: block; appearance: none; border: none; background: none; }
+  progress::-webkit-progress-bar { position: relative; top: calc(50% - 2px); height: 4px; border-radius: 2px; background-color: var(--exact-fill, light-dark(#78788033, #7878805c)); }
+  progress::-webkit-progress-value { border-radius: 2px; background-color: var(--exact-accent, AccentColor); }
+  @supports (-moz-appearance: none) {
+    progress { background: linear-gradient(var(--exact-fill, light-dark(#78788033, #7878805c)) 0 0) 0 50% / 100% 4px no-repeat; }
+    progress::-moz-progress-bar { background: linear-gradient(var(--exact-accent, AccentColor) 0 0) 0 50% / 100% 4px no-repeat; }
+  }
+  /* A link is a bare node too: the UA's underline goes, as a button's control
+     styling does. A \`link\` is block-level like any node; a run with an
+     \`href\` stays inline in its paragraph, and its colour is the compiler's
+     unsaid \`LinkText\` row, inline, so the browser's own link colour (LLP
+     1115 §3). LLP 1116.000 D4: a block \`link\` of text (a \`tel:\` or
+     \`mailto:\` value, a "Learn more") is in the accent, as the plain button
+     and the tab bar are (the tint, iOS's \`LinkText\`); one holding a row or
+     column, or given a \`role\` or a \`buttonStyle\`, is the author's row or
+     button and inherits. Both are \`:where()\`, so an authored colour wins.
+     Every link points, as on any web page. Markdown's own links (never
+     views) keep the UA's look. */
+  #exact-root a[data-view] { text-decoration: none; cursor: pointer; display: block; }
+  :where(#exact-root a[data-view]) { color: inherit; }
+  :where(#exact-root a[data-view][href]:not([role], [data-button-style], [data-exact-text] a):not(:has(> :not([data-exact-text], img)))) { color: var(--exact-accent, AccentColor); }
   #exact-root [data-exact-text] a[data-view] { display: inline; }
   /* A text node with a heading level is an <h1>–<h6> for the accessibility
      tree; its box is a bare div's, so the UA's heading margins, size and
@@ -94,12 +114,26 @@
   #exact-root button[data-button-style] > [data-exact-text] ~ [data-exact-text] { grid-area: subtitle; font-size: .8em; color: color-mix(in srgb, currentColor 70%, transparent); }
   #exact-root button[data-button-style] > img { grid-area: image; --exact-tint: currentColor; --exact-symbol-size-authored: 0; --exact-symbol-weight-authored: 0; width: 1em; height: 1em; }
   button[data-button-style][data-pressed] > * { opacity: .5; }
+  /* LLP 1116.003 D4: a native button taller than its face (a round button's
+     80 by 80) centres the face, as UIKit and a browser's own button do; the
+     grid's empty subtitle row no longer takes half the height. */
+  #exact-root button[data-button-style] { align-content: center; }
   #exact-root button:is([data-button-style="plain"], [data-button-style="borderless"]) { background: none; color: var(--exact-accent, AccentColor); }
   #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"]) { background: color-mix(in srgb, var(--exact-accent, AccentColor) 15%, transparent); color: var(--exact-accent, AccentColor); }
   #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"]) { background: var(--exact-accent, AccentColor); --exact-button-accent-fill: var(--exact-accent); color: #fff; }
   #exact-root button:is([data-button-style="glass"], [data-button-style="prominent-glass"]) { backdrop-filter: blur(20px) saturate(150%) !important; background: light-dark(#ffffffb3, #262629b3); color: CanvasText; box-shadow: 0 8px 24px #0000000d, inset 0 0 1px light-dark(#ffffffcc, #ffffff33); }
   #exact-root button:is([data-button-style="clear-glass"], [data-button-style="prominent-clear-glass"]) { backdrop-filter: blur(10px) saturate(120%) !important; background: light-dark(#ffffff26, #ffffff1a); color: CanvasText; box-shadow: inset 0 0 1px light-dark(#ffffffcc, #ffffff33); }
   #exact-root button:is([data-button-style="prominent-glass"], [data-button-style="prominent-clear-glass"]) { background: color-mix(in srgb, var(--exact-accent, AccentColor) 85%, transparent); --exact-button-accent-fill: color-mix(in srgb, var(--exact-accent) 85%, transparent); color: #fff; }
+  /* LLP 1116.003 D3.1: the ink on the accent's fill is white, as UIKit draws
+     it, until white falls under WCAG's 3:1 for a control's label against the
+     accent as this scheme resolves it (relative luminance above 0.3, CIE
+     lightness 61.65), where black has at least 7:1. A pale dark-scheme accent
+     (light-dark(#6652c5, #b5a4ff)) takes black; the system blue and red, in
+     either scheme, keep white. An authored colour wins (inline, or the JS
+     target's classes). */
+  @supports (color: lab(from red l a b)) {
+    #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"], [data-button-style="prominent-glass"], [data-button-style="prominent-clear-glass"]) { color: lab(from var(--exact-accent, AccentColor) calc((61.65 - l) * 1e6 + 100) 0 0 / 1); }
+  }
   /* LLP 1116 D1: `bordered` and `gray`, the unsaid button, as Apple draws
      them: a neutral fill under the accent's ink, darker under the pointer
      and while pressed (when the face also dims, as above). `destructive` is
@@ -107,24 +141,47 @@
      a red tint, a red fill. An accent-color on the button still wins. */
   #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]) { background: light-dark(#7676801f, #7676803d); color: light-dark(var(--exact-accent, AccentColor), color-mix(in srgb, var(--exact-accent, AccentColor) 80%, #fff)); }
   @media (hover: hover) {
-    #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]):not([role="tab"], :disabled):hover { background-color: light-dark(#7676802e, #7676804d); }
+    #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]):not([role="tab"], [role="radio"], :disabled):hover { background-color: light-dark(#7676802e, #7676804d); }
     #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"]):not(:disabled):hover { background-color: color-mix(in srgb, var(--exact-accent, AccentColor) 22%, transparent); }
     #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"]):not(:disabled):hover { background-color: color-mix(in srgb, var(--exact-accent, AccentColor), #000 10%); }
   }
-  #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]):not([role="tab"])[data-pressed] { background-color: light-dark(#7676803d, #7676805c); }
+  #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]):not([role="tab"], [role="radio"])[data-pressed] { background-color: light-dark(#7676803d, #7676805c); }
   #exact-root button[data-button-style][data-destructive="true"] { --exact-accent: light-dark(#ff3b30, #ff453a); }
   /* A content `tablist` of native tabs is a segmented control: a track, the
-     selected tab raised in it. The root tab bar (tabs that name the panel
+     selected tab raised in it; so is a `radiogroup` of native radios, its
+     checked radio raised (LLP 1116.004 D5.2; input-glue.js gives it the
+     arrow keys and one Tab stop). The root tab bar (tabs that name the panel
      they show, `aria-controls`) is a bar with a top separator, its selected
      tab in the accent. */
-  :where(#exact-root [role="tablist"]:has(> button[data-button-style][role="tab"]):not(:has(> [aria-controls]))) { background-color: light-dark(#7676801f, #7676803d); border-radius: 9px; padding: 2px; }
-  #exact-root [role="tablist"] > button[role="tab"]:is([data-button-style="bordered"], [data-button-style="gray"]) { background: none; border-radius: 7px; padding: .375em .75em; }
-  #exact-root [role="tablist"] > button[role="tab"]:is([data-button-style="bordered"], [data-button-style="gray"]):enabled { color: CanvasText; }
-  #exact-root [role="tablist"] > button[role="tab"]:not([aria-controls]):is([data-button-style="bordered"], [data-button-style="gray"])[aria-selected="true"] { background: light-dark(#fff, #636366); box-shadow: 0 3px 8px #0000001f, 0 3px 1px #0000000a; }
+  :where(#exact-root [role="tablist"]:has(> button[data-button-style][role="tab"]):not(:has(> [aria-controls])), #exact-root [role="radiogroup"]:has(> button[data-button-style][role="radio"])) { background-color: light-dark(#7676801f, #7676803d); border-radius: 9px; padding: 2px; }
+  #exact-root :is([role="tablist"] > button[role="tab"], [role="radiogroup"] > button[role="radio"]):is([data-button-style="bordered"], [data-button-style="gray"]) { background: none; border-radius: 7px; padding: .375em .75em; }
+  #exact-root :is([role="tablist"] > button[role="tab"], [role="radiogroup"] > button[role="radio"]):is([data-button-style="bordered"], [data-button-style="gray"]):enabled { color: CanvasText; }
+  #exact-root :is([role="tablist"] > button[role="tab"]:not([aria-controls])[aria-selected="true"], [role="radiogroup"] > button[role="radio"][aria-checked="true"]):is([data-button-style="bordered"], [data-button-style="gray"]) { background: light-dark(#fff, #636366); box-shadow: 0 3px 8px #0000001f, 0 3px 1px #0000000a; }
   :where(#exact-root [role="tablist"]:has(> [role="tab"][aria-controls])) { background-color: light-dark(#f9f9f9eb, #1d1d1feb); box-shadow: 0 -.5px 0 light-dark(#3c3c434a, #54545899); }
   #exact-root [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]) { border-radius: 0; }
   #exact-root [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]):enabled { color: light-dark(#8e8e93, #98989d); }
   #exact-root [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]):enabled[aria-selected="true"] { color: var(--exact-accent, AccentColor); }
+  /* LLP 1116.004 D1: a wide window (900 px and up, navigation.js `WIDE`) adapts what the app left unsaid, as the
+     projection marks it. A root tab bar whose placement is unsaid is a sidebar: the root's column turns, the tabs
+     are rows (a symbol in the accent beside its label), the selected one in the accent's tint. An authored colour
+     still wins; the layout is the platform's. A stack whose root route is a list whose rows push shows that route
+     as a column beside the detail, as a split view does: `navigationSplit` wide (320 by default), its rows without
+     the disclosure (they select, not push), the row whose press pushed the detail shown marked. */
+  #exact-root [data-exact-sidebar] { flex-direction: row !important; }
+  #exact-root [data-exact-sidebar] > [role="tablist"] { order: -1; flex: none !important; box-sizing: border-box !important; width: 240px !important; height: auto !important; flex-direction: column !important; flex-wrap: nowrap !important; align-items: stretch !important; justify-content: flex-start !important; gap: 2px !important; padding: 12px 10px !important; overflow-y: auto; background-color: light-dark(#f9f9f9, #1d1d1f); box-shadow: .5px 0 0 light-dark(#3c3c434a, #54545899); }
+  #exact-root [data-exact-sidebar] > [role="tablist"] > [role="tab"] { flex: none !important; width: auto !important; height: auto !important; min-height: 36px; justify-content: start !important; padding: 6px 10px !important; border-radius: 8px !important; }
+  #exact-root [data-exact-sidebar] > [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]) { --exact-button-space-width: 10px; }
+  #exact-root [data-exact-sidebar] > [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]):enabled { color: CanvasText; }
+  #exact-root [data-exact-sidebar] > [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"])[aria-selected="true"] { background-color: color-mix(in srgb, var(--exact-accent, AccentColor) 15%, transparent); }
+  #exact-root [data-exact-sidebar] > [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]):enabled[aria-selected="true"] { color: light-dark(var(--exact-accent, AccentColor), color-mix(in srgb, var(--exact-accent, AccentColor) 80%, #fff)); }
+  @media (hover: hover) { #exact-root [data-exact-sidebar] > [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]):not([aria-selected="true"]):hover { background-color: light-dark(#7676801f, #7676803d); } }
+  /* A tab's symbol is in its ink as the page lays it out now (the runtimes copy the title's at a commit, and a resize is none). */
+  #exact-root [role="tablist"] > button[role="tab"][aria-controls] > img { color: inherit !important; }
+  #exact-root [data-exact-sidebar] > [role="tablist"] > button[role="tab"][aria-controls] > img { color: var(--exact-accent, AccentColor) !important; }
+  #exact-root [data-exact-split="list"] { inset-inline-end: auto !important; box-sizing: border-box !important; width: var(--exact-split, 320px) !important; box-shadow: .5px 0 0 light-dark(#3c3c434a, #54545899); }
+  #exact-root [data-exact-split="detail"] { inset-inline-start: var(--exact-split, 320px) !important; }
+  #exact-root [data-exact-split="list"] :is(button, a[href], [data-exact-on~="press"]) img:is([data-symbol-source="symbol:forward-chevron"], [data-symbol-source="symbol:sf/chevron.forward"], [data-symbol-source="symbol:sf/chevron.right"]) { display: none !important; }
+  #exact-root [data-exact-split="list"] [data-exact-split-row] { background-color: color-mix(in srgb, var(--exact-accent, AccentColor) 15%, transparent); box-shadow: -64px 0 0 color-mix(in srgb, var(--exact-accent, AccentColor) 15%, transparent); }
   /* Disabled UA ink, while inline author colours and symbol tint still win. */
   #exact-root button[data-button-style]:disabled { color: GrayText; }
   #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"], [data-button-style$="glass"]):disabled { background-color: var(--exact-button-accent-fill, color-mix(in srgb, var(--exact-accent, AccentColor) 45%, transparent)); }
@@ -151,11 +208,15 @@
      a 1 px line, 8 px corners, the field's own background. A select's height
      is its line height, so an authored padding adds to it as to the UA's and
      its box keeps the recorded rules (kernel/tests/it/browser_controls.rs);
-     its chevron is drawn in its ink. */
+     its chevron is drawn in its ink. A date, time or local date-time control
+     whose appearance is the platform's (`data-exact-field`) is a border box
+     the same way (LLP 1116.001 D1); the browser keeps its picker and icon. */
   #exact-root input[data-native], #exact-root textarea[data-native] { border: 1px solid light-dark(#c7c7cc, #48484a); border-radius: 8px; padding: .5em .75em; background-color: light-dark(#fff, #1c1c1e); }
   #exact-root input[data-native]:disabled, #exact-root textarea[data-native]:disabled { background-color: light-dark(#f2f2f7, #2c2c2e); }
   #exact-root select:not([multiple]) { appearance: none; font: inherit; letter-spacing: inherit; color: inherit; line-height: 2.125; padding: 0 2em 0 .75em; border: 1px solid light-dark(#c7c7cc, #48484a); border-radius: 8px; background: linear-gradient(45deg, #0000 50%, currentColor 50%) right calc(.75em + 4px) center / 4px 4px no-repeat, linear-gradient(135deg, currentColor 50%, #0000 50%) right .75em center / 4px 4px no-repeat, light-dark(#fff, #1c1c1e); }
   #exact-root select:not([multiple]):disabled { color: GrayText; }
+  #exact-root input[data-exact-field] { box-sizing: border-box; line-height: 2; padding: 0 .75em; border: 1px solid light-dark(#c7c7cc, #48484a); border-radius: 8px; background-color: light-dark(#fff, #1c1c1e); }
+  #exact-root input[data-exact-field]:disabled { color: GrayText; background-color: light-dark(#f2f2f7, #2c2c2e); }
   /* A switch where the browser draws none (LLP 1069.001 D1, amended by LLP
      1116 D1): a track and a thumb in WebKit's box, 38 × 22, which Linux
      paints too; a browser that styles its own (`::thumb`) keeps it. The box

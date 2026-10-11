@@ -81,7 +81,7 @@ A proposal in a design document is not an implemented grammar production.
 
 In an app made by `exact new`, run its own `exact.mjs` from the app's directory.
 `bun exact.mjs update` regenerates that file, so the app's own verbs go in
-`app.json`'s `commands` (`"verify": ["bun", "verify.mjs"]` is `bun exact.mjs verify
+`app.json`'s `commands` (`"seed": ["bun", "seed.mjs"]` is `bun exact.mjs seed
 web`, run in the app's directory), which it reads and update leaves alone.
 Its `contract` verb is exact2's compiler, with paths relative to where you run it:
 
@@ -104,9 +104,14 @@ exit status: 0 success, 1 compilation/I/O failure, 2 invalid invocation. Read al
 diagnostics, including related locations, before making the next repair. Each has
 a `severity`: `"error"` refuses the build; `"warning"` (after the errors, also on a
 success) builds and runs but is not what you meant, such as a header node the iOS
-bar hides (`lower-header-unplaced`), a tab bar of one tab (`lower-single-tab`) or a
-`performanceNow()` time sent to a source (`type-performance-now-persisted`); each
-names its repair, and fixing it is part of the edit.
+bar hides (`lower-header-unplaced`), a tab bar of one tab (`lower-single-tab`), a
+`button` with no words and no `aria-label` (`lower-button-unlabelled`), a dialog's
+role on a box (`lower-dialog-role`), a count before a plural noun, `${n} cards`
+(`lower-count-plural`), a
+`performanceNow()` time sent to a source (`type-performance-now-persisted`), a
+state read after its own action assigned it (`analyze-read-after-assign`) or a
+literal colour that stays the same in dark mode (`lower-colour-one-scheme`, every
+site past the cap); each names its repair, and fixing it is part of the edit.
 
 Formatting is explicit. `fmt --stdout` previews, `fmt --check` checks, and plain
 `fmt` writes. Formatting changes spacing and breaks only: a result that would
@@ -199,7 +204,7 @@ compile complete examples, parse authored tests, and check local links.
 | Form | Placement | Meaning |
 | --- | --- | --- |
 | `use A, B as C from "./file.contract"` | File | Names from another file; nothing unnamed comes along (LLP 1091); `contract fmt --uses app.contract` writes the lines `contract-use-missing` names |
-| `use Card from "@acme/ui"` / `use Activity from "exact:motion"` | File | A package's names (from `node_modules`), or a built-in's |
+| `use Card from "@acme/ui"` / `use Activity from "exact:motion"` | File | A package's names (from `node_modules`), or a built-in's: `exact:motion`, `exact:content` ([content components](#content-components-exactcontent)) |
 | `shape Name` | File | Finite record with typed fields |
 | `fn name(arg: T): U = expr` | File | Effect-free, nonrecursive expression function |
 | `style Name` | File | Literal style attributes |
@@ -234,10 +239,11 @@ is an ordinary name there, so `action searchKey(key: string)` and `action refres
 compile. Shape fields, named arguments and members take any word
 ([grammar](contract-grammar.md#lexical-rules)).
 
-`contract vocab` lists every built-in tag, attribute, and CSS property the compiler
-accepts, with each property's value kind and default; `contract vocab <name>`
-answers for one, or suggests the spelling it meant. Check there before guessing
-at CSS.
+`contract vocab` lists every built-in tag, attribute, CSS property and standard
+function the compiler accepts, with each property's value kind and default and each
+function's signature; `contract vocab <name>` answers for one (a function's rules and
+an example too: `contract vocab formatDate`), or says what to write instead
+(`contract vocab sort`). Check there before guessing at CSS or a function.
 
 ## Values, expressions, and functions
 
@@ -373,7 +379,8 @@ component App
 
 The first press yields `1/2`. Writing `doubled = count * 2` instead would use the
 old count and yield `1/0`. The same snapshot rule applies inside nested branches
-and to locals declared after a state assignment.
+and to locals declared after a state assignment. The compiler warns of such a read
+(`analyze-read-after-assign`), naming the line that assigned the slot.
 
 A local is immutable, block-scoped, and visible only after its declaration. It
 cannot shadow an in-scope name. Two disjoint arms may declare the same local name.
@@ -609,6 +616,79 @@ render-function props.
 Imports resolve local `.contract` declarations, with cycle and app-boundary
 checks. Paths begin with `./` and cannot contain `..` segments. They do not load app logic or expand the available built-in function
 roster. Compiler-owned router names exist only with a `routes` declaration.
+
+### Content components: `exact:content`
+
+The platform answers the controls and the chrome; the app's own content is the
+author's to design (LLP 1116.000 D3): a summary at the top, bars where numbers
+compare, rows with a hierarchy, an empty state that says what to do.
+`exact:content` is a built-in library of nine components that draw it with
+nothing but roles (`-exact-secondary-background`, `-exact-secondary-label`,
+`AccentColor`, the system hues, the text styles, symbols, the determinate
+`progress`), so dark mode, Dynamic Type and the tint come with them:
+
+```contract
+use SummaryCard, StatBar, RingProgress, DoneMark, EmptyState, RowText from "exact:content"
+
+shape Day
+  key: string
+  name: string
+  ml: number
+
+fn ml(n: number): string = `${formatNumber(n, "decimal")} ml`
+
+component Water
+  state total = 750
+  state days = [Day(key="mon", name="Mon", ml=1800), Day(key="tue", name="Tue", ml=2250)]
+  action drink
+    total = total + 250
+  view
+    scroll height="100%" accent-color="-exact-system-teal"
+      column gap=16 padding=16
+        RingProgress(label="of 2,000 ml", value=ml(total), fraction=total / 2000, tint=none)
+        SummaryCard(label="Today", value=ml(total), detail="of 2,000 ml", progress=some(total / 2000), symbol=some("symbol:activity"))
+        each d in days key=d.key
+          StatBar(label=d.name, value=ml(d.ml), fraction=d.ml / 2000, tint=none)
+        row justify-content="space-between"
+          each d in days key=d.key
+            DoneMark(caption=d.name, done=d.ml >= 2000)
+        when total == 0
+          EmptyState(symbol="symbol:calendar", title="No water yet", message="Each glass you log adds to today.")
+            button "Log a glass" press=drink buttonStyle="bordered-prominent"
+        each d in days key=d.key
+          RowText(title=d.name, detail="", value=some(ml(d.ml)))
+```
+
+| Component | Props | Draws |
+| --- | --- | --- |
+| `SummaryCard` | `label: string`, `value: string`, `detail: string`, `progress: option<number>`, `symbol: option<string>` | a card: the symbol and label, the value large in tabular figures, the detail beside it where the card is wide and under it where it is narrow, the fraction as `progress` |
+| `StatBar` | `label: string`, `value: string`, `fraction: number`, `tint: option<string>` | the label and value over a bar `fraction` (held to 0–1) of the width: the accent short of the goal, the system green at 1 or past it, `tint` (a colour role) when given; one `meter` to a reader |
+| `RingProgress` | `label: string`, `value: string`, `fraction: number`, `tint: option<string>` | a ring filled `fraction` of the way round from the top, in the bar's colours over a grey track, the value large in its centre and the label under it; 200 across, down to 120 in a narrower box; one `progressbar` to a reader |
+| `DoneMark` | `caption: string`, `done: bool` | a filled check in the system green, or an empty circle in grey, with `caption` (short: a weekday; `""` for none) under it; one image to a reader, named by its caption and state ("Mon, done") |
+| `EmptyState` | `symbol: string`, `title: string`, `message: string`; a slot | a centred symbol, the title as a heading, the message; the nodes indented under the use (your `button`) under them |
+| `RowText` | `title: string`, `detail: string`, `value: option<string>` | a title, a secondary line under it (`""` for none) and a trailing value in tabular figures: a grouped list `row`'s content, or any list's |
+| `Badge` | `label: string`, `tint: option<string>` | a status in a word ("Full", "Cancelled") in a capsule, the caption style semibold, keeping its own size beside a title; `none` the neutral grey, `some("AccentColor")`, or a system hue under dark ink (white on indigo); read as its text |
+| `RoundButton` | `label: string`, `tint: option<string>`, `press: action`, `disabled: bool`, `testId: string` | the platform's own button as an 80-point circle (the Clock's Start, Stop, Lap): filled with `tint` (a role: `"AccentColor"`, `"-exact-system-green"`), ink the host picks for contrast; `none` is the neutral grey with the label's ink |
+| `AnswerTile` | `label: string`, `status: string`, `press: action`, `testId: string` | a full-width tile for one answer, the label in the headline style; `status` `"idle"` (a neutral fill), `"selected"` (the accent's outline and check), `"correct"` (the system green, dark ink, a check), `"wrong"` (the system red, white ink, a cross) or `"dimmed"`; told and dimmed tiles are disabled; a reader hears "Quito, correct" |
+
+- Props have no defaults: pass `none` for an option. A symbol is an `image` source:
+  a role (`"symbol:calendar"`) draws on every host, `"symbol:sf/<name>"` on Apple only.
+- They are in the app's accent: `accent-color` on the root (or any ancestor) tints
+  them as it tints the controls, on the web and iOS (macOS keeps the system accent,
+  as AppKit does). A state is a second colour: progress
+  short of its goal is the accent, a goal met (`fraction` 1 or more, a card's
+  `progress` at 1) the system green, done against not done green against grey. A
+  `tint` overrides it: a budget gone over passes `some("-exact-system-red")`, a
+  breakdown whose bars are shares rather than goals passes `some("AccentColor")`.
+- They draw no chrome, and two controls: `RoundButton` and `AnswerTile`, the
+  emphasis a timer's or a quiz's screen needs, which paint on a `button` would
+  make your own box. Any other action is your own `button`, beside a card or
+  indented under `EmptyState`. Inset-grouped lists are for settings and forms; a
+  content screen is a `scroll` of these.
+- Each fills its container's width; arrange them with CSS. In a `flex-wrap="wrap"`
+  row, `flex="1 1 320px"` puts a card beside the bars on a wide window and stacks
+  them on a phone.
+- The source is `contract/lib/content.contract`. To change one, copy it into the app.
 
 ## Data requests and side effects
 
@@ -880,6 +960,8 @@ classes select two named styles with `class=(condition ? A : B)`. Computed value
 go on nodes. There is no selector cascade, dynamic style object, or arbitrary
 class-string composition. A style branch can mix a number and a CSS keyword in
 a property's admitted value space; this does not add general union types.
+On a number-only row such as `opacity`, a computed branch known to be a string
+is refused at build time even when another branch is numeric.
 
 For scrolling, provide a bound and inspect measured layout. For virtualized
 lists, use `list virtualized=true` (no other tag takes it), one direct keyed
@@ -1009,6 +1091,7 @@ lists any literal colour, font size or weight an app's `.contract` files still w
 | `popover="auto" role="menu"` of `button`s, opened by `popovertarget` (a row whose `popovertarget` names another menu: its submenu) | `UIMenu`, nested (LLP 1021) |
 | `dialog role="alertdialog" aria-label="Remove book?"` of a `text`, its action(s) and one Cancel | `UIAlertController(.alert)`: the label its title, the text its message (LLP 1115 D6; recipe [below](#a-confirmation)) |
 | `role="tablist"`: each tab a symbol over a label / one text or image | `UITabBar` / `UISegmentedControl`, the tablist at least its native height unless `min-height` says otherwise (LLP 1059) |
+| `role="radiogroup"` of `button role="radio" aria-checked=…`, each one text or image (a value chosen from a few) | `UISegmentedControl`, as a tablist's; never a tab bar (LLP 1116.004 D5.2) |
 | a route whose first child is a `header` holding one heading, a text after it and its buttons | the navigation bar; a level-1 heading (`aria-level=1`) is a large title, the text after it the subtitle |
 | a route with `navigationPresentation="modal"` | a sheet |
 
@@ -1073,7 +1156,7 @@ column navigationKey=`${e.id}` navigationScroll="inbox-list" position="absolute"
 column navigationKey=`${e.id}` navigationScroll="list" position="absolute" inset=0 display="flex" flex-direction="column"
   header
     text "Shopping List" role="heading" aria-level=1
-    text `${left} items left`
+    text `${left} ${left == 1 ? "item" : "items"} left`
     button press=add aria-label="Add Item"
       image "symbol:add"
   scroll id="list" flex=1 min-height=0
@@ -1092,7 +1175,10 @@ column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="
 ```
 
 `action reload` is `refresh items`; `pending(items)` is true while it runs.
-A segmented control in the content is the same `row role="tablist"` of text tabs
+A segmented control in the content chooses a value or switches panels: a value
+from two to five (a preset, units, a period, a filter) is a `row role="radiogroup"` of
+`button role="radio" aria-checked=…`, each pressing its value (the web gives it the
+arrow keys and one Tab stop); switching panels, a `row role="tablist"` of text tabs
 outside the header. iOS needs a swipe row's content exactly the scroll's size
 ([pitfalls](agent-pitfalls.md), "There is no `swipeleft`").
 
@@ -1271,6 +1357,34 @@ component Editor
       textarea id="editor" value=body input=edit select=selected markup="markdown"
       text body markup="markdown"
 ```
+
+Choose a colour by what it means, not by how it looks. **The accent is for
+what the user can act on**: a link, a plain button's title or symbol, a filled
+button's fill, a toggle's on state, the icon of a tappable row. Write it as
+`AccentColor` (or leave `-exact-tint-color` unset, whose initial value is
+`AccentColor`), never as the colour the accent happens to be today
+(`-exact-system-blue`): the platform keeps the accent dynamic and dims it to
+grey behind an alert or a sheet to say the screen under it is inert. **A
+colour of its own is for what means something by itself**: status
+(`-exact-system-green`, `-exact-system-red`), text hierarchy (`-exact-label`,
+`-exact-secondary-label`), data, and marks. A colour of its own never dims; on
+iOS the tint does where UIKit draws it, whoever set it (the root's
+`accent-color` or a node's own), as UIKit greys a view's `tintColor`:
+controls, bars, symbols drawn in the tint, and a box shadow in `AccentColor`.
+A gradient or SVG paint in `AccentColor` is resolved by Exact to the app's
+accent and does not dim. Set the app's accent once, on the root:
+`accent-color` on the root element is the app's accent, and on iOS it is the
+window's tint, as an AccentColor asset is, so every `AccentColor`, bar, sheet
+and alert follows it. On Apple hosts only, an app may instead ship its accent
+as an `AccentColor` colour set in its asset catalog
+(`modules/apple/*.xcassets`, below): the build names it in the app's
+Info.plist (`NSAccentColorName`, as Xcode does), and it is the accent wherever
+the root's `accent-color` is `auto` or absent (UIKit applies it as every
+view's tint; macOS's AppKit uses it where the user's system accent is
+Multicolour). The web, Linux and Windows never read it: there the root's
+`accent-color` is the accent the controls take, and the web's `AccentColor`
+keyword stays the browser's, so an app that wants one accent everywhere writes
+it on the root.
 
 Keep `id` and `testId` separate:
 
@@ -1642,7 +1756,9 @@ compiles these catalogs together with its generated assets into the main bundle.
 On macOS, a catalog makes the dev build and agent launch the assembled `.app`.
 Load custom symbols with `UIImage(named: "donut", in: .main, with: configuration)`
 or `NSImage(named: "donut")`; SwiftUI uses `Image("donut", bundle: .main)`.
-`symbol:sf/...` still looks up system symbols only. Catalog changes require a
+`symbol:sf/...` still looks up system symbols only. A colour set named
+`AccentColor` is the app's accent on Apple hosts (`NSAccentColorName`; the
+accent section above). Catalog changes require a
 new native build; they are not web assets or live update payloads.
 
 Haptics are already there (LLP 1077 D14). `-exact-press-haptic` (`selection`,
@@ -1825,7 +1941,9 @@ move, with the finger still down, before the hold. Under `--touch platform` the
 lift is scripted, so the reads run inside the hold and `during` needs one
 (`hold 300 during "state"`). `tap <target> drag to <other> [at <x> <y>]`
 ends the drag on another node (refused by name when it is not mounted or off
-screen); a drag that should autoscroll a list or a board is `drag dx dy hold ms`.
+screen); a drag that should autoscroll a list or a board is `drag dx dy hold ms`. On iOS
+without `--touch platform` a drag scrolls the scroll or list it starts on with the
+finger, no fling; any other drag there is refused, naming the flag.
 During a reorder `state.reorder` reads `{ item, from, to, before, phase,
 ending }`; a grouped grip also takes `type <grip> key Space` and the arrows. `clock +N` moves the virtual clock without
 waiting for a store's or the network's reply on real time (unless a timer fires
@@ -2008,12 +2126,15 @@ that restates a constant is weaker evidence than the user's actual sequence.
 | `press={() => save()}` | `press=save` or `press=save(captured)` |
 | Copying an action's statements into another | Call it: `arrive(path)`; the callee runs in the same commit |
 | A helper that reads a slot its caller just assigned | Pass the value: `follow(next)` (`analyze-call-stale-read`) |
+| `button press=add` with no child, or only an `image "symbol:…"` (`lower-button-unlabelled`) | Its words in it (`text "Add"`), or `aria-label="Add"` on a symbol-only button |
+| `column role="dialog" aria-modal=true` for a modal you lay out (`lower-dialog-role`) | A sheet, a route with `navigationPresentation="modal"` ([navigation-stack](recipes/navigation-stack.md)); a confirmation is `dialog role="alertdialog"`, opened with `showModal(id)` |
+| `` `${n} cards` ``, which reads "1 cards" (`lower-count-plural`) | The noun chosen by the number: `` `${n} ${n == 1 ? "card" : "cards"}` `` (`contract vocab plural`) |
+| `now = performanceNow()`, then `now` read in the same action (`analyze-read-after-assign`) | Bind it and read the local: `let stamp = performanceNow()`, `now = stamp`, then `stamp` |
 | Child `resource`, `mutation`, or `task` | Root-owned declaration and props/injections |
 | `fontSize`, `radius`, `resizeMode` | `font-size`, `border-radius`, `object-fit` |
 | `width=20px` | `width=20` or `width="20px"` |
 | Unbounded `scroll` | Real height/max-height or flex in a bounded layout |
 | `state item = none` with no usable type | Supply a typed use/write or rethink whether it is mutable state |
-| Read a slot after writing it to get the new value | Compute `let next` before the assignments |
 | `let next = …` where `next` is already an action, state or other name (`type-let-shadow`) | A name of its own: `let revised = …` |
 | `let op = ""`, then `op = "tab"` in a branch (`type-let-reassign`) | Choose the value where it is bound: `let op = key == "Tab" ? "tab" : "insert"`; or a `state` |
 | `mutation exported` and `action exported` (`type-duplicate-name`) | One name per declaration: a component's props, states, derives, resources, mutations and actions share names (`action fileSaved`) |
@@ -2120,6 +2241,27 @@ and shows a hyphen; `none` ignores it; `auto` also hyphenates by the document's
 language on the web and Apple (Linux has no dictionary and breaks only at soft
 hyphens).
 
+`text-box` cuts a paragraph's line box to its glyphs (CSS Inline Layout 3 §4),
+to centre a label in a pill or line a heading's cap height up with an icon
+without padding by eye: `text-box="trim-both cap alphabetic"` trims the first
+line down to the cap height and the last up to the baseline. Write the trim
+(`none`, `trim-start`, `trim-end`, `trim-both`) and the edges in either order,
+or `normal`; the edges are over (`text`, `cap`, `ex`) then under (`text`,
+`alphabetic`), and `auto` or a lone `text` sets both (a lone `cap` or `ex` is
+refused: CSS's one-word edge also names the under edge). The longhands are
+`text-box-trim` and `text-box-edge`. The cut uses the paragraph's own font, as
+CSS's root inline box: a smaller run inside does not change it.
+`text-box-edge` is inherited, so it may sit on a `view` above; the trim is
+not, and goes on the `text`. Exact refuses the trim on a `view` or a `column`
+(CSS trims a block's first and last lines, which Exact does not reach yet), on
+an inline `text` run, on a `text` that is itself in columns, one included (CSS
+trims every column), on a `text` laid out as flex or grid (CSS does not trim
+it), and the `ideographic` edges. A later declaration, the node's own over its
+class's, overrides an earlier one, and a `?:` choice of literals is refused
+only when one of its values would be. A paragraph split across a `view`'s
+columns is trimmed at its outer ends only. Every host trims: Apple and Linux
+measure and paint the cut, the web writes CSS's own `text-box`.
+
 Multi-column layout is CSS's (LLP 1093). A `view` (or a `text`) with
 `column-count`, `column-width` or `columns="12em 3"` flows its content through
 columns of one width, separated by `column-gap` (unset, 1em) and an optional
@@ -2154,6 +2296,15 @@ is a literal, resolved from the class then the field's own attribute; to
 switch it, write `when` with two fields. Excluded input types and the Markdown
 editor keep the bare text-input box or their existing specialised control.
 
+A focused field shows the platform's ring: the OS's on a native field, Exact's
+on a bare one (LLP 1104 D6). `outline="none"` (or `outline-style="none"`)
+takes it off on every host, for a field whose focus you draw yourself, such as
+a ring on the card around a composer: draw that from the field's `focus` and
+`blur` handlers (an ancestor does not yet hear the focus enter its subtree: no
+`focusin` or `:focus-within`), since a field with no visible focus fails WCAG
+2.4.7. Tab still reaches the field and its accessibility is unchanged. Only
+`none` is admitted, and only on a text field or a `textarea`.
+
 `textarea rows=3` sets its preferred height in lines (default 2); explicit CSS
 height and `field-sizing="content"` override it. `maxlength=80` on text inputs
 and textareas limits user edits in UTF-16 units; authored `value` updates are
@@ -2180,7 +2331,9 @@ Where you must say one, name a role, which each host resolves to its own colour
 for light, dark and Increased Contrast (`labelColor` on iOS, the browser's own on
 the web; LLP 1095): CSS's system colours `Canvas`, `CanvasText`, `LinkText`,
 `GrayText`, `AccentColor`, `AccentColorText`, `Field`, `FieldText`, `ButtonFace`,
-`ButtonText`, `Highlight`, `HighlightText`, and Exact's `-exact-label`,
+`ButtonText`, `Highlight`, `HighlightText` (`AccentColor` and `LinkText` are the
+tint: the nearest `accent-color` a node or an ancestor sets, else the platform's, as
+UIKit's inherited `tintColor` is), and Exact's `-exact-label`,
 `-exact-secondary-label`, `-exact-tertiary-label`, `-exact-quaternary-label`,
 `-exact-placeholder`, `-exact-separator`, `-exact-opaque-separator`, `-exact-link`,
 `-exact-background`, `-exact-secondary-background`, `-exact-tertiary-background`,
@@ -2189,7 +2342,11 @@ the web; LLP 1095): CSS's system colours `Canvas`, `CanvasText`, `LinkText`,
 `quaternary-`), and the hues `-exact-system-red`, `-orange`, `-yellow`, `-green`,
 `-mint`, `-teal`, `-cyan`, `-blue`, `-indigo`, `-purple`, `-pink`, `-brown`,
 `-gray` (each `-exact-system-…`). `color="-exact-secondary-label"`, not
-`color="#8e8e93"`; `border-color="-exact-separator"`, not a grey hex. A brand colour
+`color="#8e8e93"`; `border-color="-exact-separator"`, not a grey hex. Surfaces come
+in pairs: a card on a plain page (`-exact-background`, or unsaid) is
+`-exact-secondary-background`; on a `-exact-grouped-background` page it is
+`-exact-secondary-grouped-background` (white in light mode, so on a plain white page
+it vanishes); a surface inside either card is its pair's tertiary role. A brand colour
 the platform has no role for is the one place for a literal.
 
 **Type: say a heading, not a size.** Body text is the platform's body size

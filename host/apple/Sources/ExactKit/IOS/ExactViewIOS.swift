@@ -180,6 +180,8 @@ public final class ExactView: UIView {
 
     public override func didMoveToWindow() {
         super.didMoveToWindow()
+        // The window it joined takes the accent; one it left has its own back
+        session.presenter.accent.apply()
         if window != nil { reportScheme() }
         session.tellPage() // `hasFocus` is this window's scene's (#114)
         session.natives.scopesChanged()
@@ -217,12 +219,26 @@ public final class ExactView: UIView {
     /// the batch sets animate with the keyboard (LLP 1008 §9).
     func fit() {
         let presenter = session.presenter
-        // Containment or an owner's native callback can lay us out before
-        // the runtime can accept a resize. Keep its size pending until then.
-        if presenter.applying || Owner.shared.isServingMain {
+        // A native callback served for the owner cannot resize the runtime
+        // yet. Keep the latest geometry pending until that callback returns.
+        if Owner.shared.isServingMain {
             if !fitPending {
                 fitPending = true
                 DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.fitPending = false
+                    guard self.session.state != .destroyed else { return }
+                    self.fit()
+                }
+            }
+            return
+        }
+        // Containment may synchronously lay us out during a partial batch.
+        // Finish that batch, then resize synchronously before returning to UIKit.
+        if presenter.applying {
+            if !fitPending {
+                fitPending = true
+                presenter.afterBatch { [weak self] in
                     guard let self else { return }
                     self.fitPending = false
                     guard self.session.state != .destroyed else { return }
@@ -359,6 +375,12 @@ public final class ExactView: UIView {
             lastSize = size
             session.resize(size)
             session.natives.scopesChanged()
+            // The keys came or went: the tab bar stays under them, and the
+            // field being edited is shown in what they leave (LLP 1116.003
+            // D2.1). Usually already done in the keyboard's animation; this
+            // catches a guide that moved after its notification.
+            presenter.navigation.fitOwner()
+            if presenter.keyboardInset > 0 { presenter.reveal(presenter.editing) }
         }
         if fold.fold != lastFold {
             lastFold = fold.fold

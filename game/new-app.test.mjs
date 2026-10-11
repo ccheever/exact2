@@ -6,7 +6,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { outsideWorkspaceProblems, pathFrom, readManifest } from '../scripts/app.mjs';
-import { createApp, createGame } from './new.mjs';
+import { applyPattern, createApp, createGame, patternFiles, patterns } from './new.mjs';
 
 test('a new outside app passes the checks every run makes, and a drifted one is told what to paste', () => {
   const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
@@ -21,30 +21,36 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     const agents = () => readFileSync(resolve(dir, 'AGENTS.md'), 'utf8');
     assert.match(agents(), /<!-- exact:begin[^]*Run `bun exact\.mjs feedback status` first; it prints what to keep\.[^]*<!-- exact:end -->/);
     assert.doesNotMatch(agents(), /## The authoring diary|### Needed/);
-    assert.ok(Buffer.byteLength(agents()) <= 5 * 1024 + 512, `AGENTS.md is ${Buffer.byteLength(agents())} bytes`);
+    assert.ok(Buffer.byteLength(agents()) <= 3 * 1024 + 512, `AGENTS.md is ${Buffer.byteLength(agents())} bytes`); // 3 KB, and long temp-dir paths (LLP 1116.001 D4)
     assert.match(agents(), /one-time installer[^]*exact\.mjs[^]*setup[^]*forced offline for Hermes/);
     assert.match(readFileSync(resolve(dir, '.gitignore'), 'utf8'), /^\/\.exact\/$/m);
     // Execute the generated dispatcher against fake SDK entry points: cwd may
     // be anywhere, but the source and test file must still name this app.
     const sdk = resolve(parent, 'sdk');
-    for (const file of ['host/web/build.mjs', 'scripts/agent.mjs', 'scripts/exact.mjs']) {
+    for (const file of ['host/web/build.mjs', 'scripts/agent.mjs', 'scripts/agent-build.mjs', 'scripts/exact.mjs']) {
       mkdirSync(resolve(sdk, file, '..'), { recursive: true });
       writeFileSync(resolve(sdk, file), 'console.log(JSON.stringify({args:process.argv.slice(2),app:process.env.EXACT_APP_DIR,offline:process.env.HERMES_LEAN_SYS_OFFLINE}));');
     }
     const testArgs = host => [host, '--app', 'field-log', '--test', resolve(realpathSync(dir), 'app.test.contract')];
-    for (const [command, args] of [
+    // A drive builds first (LLP 1116.002 D4): web-build, or agent-build for ios and macos, its output on
+    // stderr so stdout stays the drive's; a phone's build stays explicit.
+    const webBuild = ['field-log'], ios = ['ios', '--app', 'field-log'];
+    for (const [command, args, built = null] of [
       [['web-build'], ['field-log']],
-      [['test'], testArgs('web')],
-      [['test', 'web'], testArgs('web')],
-      [['test', 'ios'], testArgs('ios')],
-      [['test', 'macos', '--size', '800x600'], [...testArgs('macos'), '--size', '800x600']],
-      [['agent', 'web', 'tree', 'type title a title with spaces'], ['web', '--app', 'field-log', 'tree', 'type title a title with spaces']],
-      [['agent', 'ios', 'state'], ['ios', '--app', 'field-log', 'state']],
+      [['test'], testArgs('web'), webBuild],
+      [['test', 'web'], testArgs('web'), webBuild],
+      [['test', 'ios'], testArgs('ios'), ios],
+      [['test', 'macos', '--size', '800x600'], [...testArgs('macos'), '--size', '800x600'], ['macos', '--app', 'field-log']],
+      [['agent', 'web', 'tree', 'type title a title with spaces'], ['web', '--app', 'field-log', 'tree', 'type title a title with spaces'], webBuild],
+      [['agent', 'ios', 'state'], ['ios', '--app', 'field-log', 'state'], ios],
+      [['agent', 'ios', '--sim', 'lane', 'tree'], ['ios', '--app', 'field-log', '--sim', 'lane', 'tree'], [...ios, '--sim', 'lane']],
+      [['agent', 'ios', '--device', 'tree'], ['ios', '--app', 'field-log', '--device', 'tree']],
       [['contract', 'build', 'app.contract', '--json'], ['contract', 'build', 'app.contract', '--json']],
     ]) {
       const result = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), ...command], { cwd: parent, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
       assert.equal(result.status, 0, result.stderr);
       assert.deepEqual(JSON.parse(result.stdout), { args, app: realpathSync(dir), offline: '1' });
+      assert.deepEqual(result.stderr.trim() ? JSON.parse(result.stderr).args : null, built, `${command.join(' ')} builds first`);
     }
     // chat F19, calendar F13: the files named, from the current directory (a glob too), each run in turn.
     mkdirSync(resolve(dir, 'tests'));
@@ -62,8 +68,11 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     writeFileSync(resolve(sdk, 'scripts/agent.mjs'), 'process.exit(7);');
     const refused = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'test', 'ios'], { cwd: parent, env: { ...process.env, EXACT2: sdk } });
     assert.equal(refused.status, 7, 'a failed app test fails the generated command');
+    writeFileSync(resolve(sdk, 'scripts/agent-build.mjs'), 'process.exit(5);');
+    const unbuilt = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'agent', 'macos', 'tree'], { cwd: parent, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
+    assert.deepEqual([unbuilt.status, unbuilt.stdout], [5, ''], 'a failed build fails the drive, which never starts');
     const logged = readFileSync(resolve(dir, '.exact/commands.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
-    assert.deepEqual(logged.map(c => [c.verb, c.exit]).slice(-2), [['test ios', 2], ['test ios', 7]], 'each command is logged, without its arguments, a glob that matched nothing too');
+    assert.deepEqual(logged.map(c => [c.verb, c.exit]).slice(-3), [['test ios', 2], ['test ios', 7], ['agent macos', 5]], 'each command is logged, without its arguments, a glob that matched nothing and a failed build too');
     assert.ok(logged.some(c => c.verb === 'contract' && c.exit === 0), 'the contract command is logged too');
     const manifest = readFileSync(resolve(dir, 'Cargo.toml'), 'utf8');
     writeFileSync(resolve(dir, 'Cargo.toml'), manifest.replace(/^taffy = .*\n/m, ''));
@@ -131,21 +140,21 @@ test('the app\'s own verbs live in app.json, so update keeps them', () => {
     mkdirSync(resolve(sdk, 'scripts'), { recursive: true });
     writeFileSync(resolve(sdk, 'scripts/agent.mjs'), '');
     const manifest = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
-    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest, commands: { verify: ['bun', 'verify.mjs', '--quick'] } }, null, 2));
-    writeFileSync(resolve(dir, 'verify.mjs'), 'console.log(JSON.stringify({cwd:process.cwd(),args:process.argv.slice(2),app:process.env.EXACT_APP_DIR,exact2:process.env.EXACT2})); process.exit(3);');
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest, commands: { seed: ['bun', 'seed.mjs', '--quick'] } }, null, 2));
+    writeFileSync(resolve(dir, 'seed.mjs'), 'console.log(JSON.stringify({cwd:process.cwd(),args:process.argv.slice(2),app:process.env.EXACT_APP_DIR,exact2:process.env.EXACT2})); process.exit(3);');
     readManifest(dir, 'field-log');
     const exact = (...args) => spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), ...args], { cwd: parent, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
     createApp(dir, { update: true });
-    const verified = exact('verify', 'web');
-    assert.equal(verified.status, 3, verified.stderr);
-    assert.deepEqual(JSON.parse(verified.stdout), { cwd: realpathSync(dir), args: ['--quick', 'web'], app: realpathSync(dir), exact2: sdk });
-    assert.match(exact('nope').stderr, /Usage: bun exact\.mjs <web\|[^>]*\|verify>/);
-    assert.deepEqual(JSON.parse(readFileSync(resolve(dir, '.exact/commands.jsonl'), 'utf8').trim().split('\n')[0]).verb, 'verify');
+    const seeded = exact('seed', 'web');
+    assert.equal(seeded.status, 3, seeded.stderr);
+    assert.deepEqual(JSON.parse(seeded.stdout), { cwd: realpathSync(dir), args: ['--quick', 'web'], app: realpathSync(dir), exact2: sdk });
+    assert.match(exact('nope').stderr, /Usage: bun exact\.mjs <web\|[^>]*\|seed>/);
+    assert.deepEqual(JSON.parse(readFileSync(resolve(dir, '.exact/commands.jsonl'), 'utf8').trim().split('\n')[0]).verb, 'seed');
     // A built-in verb's name is the generated file's, and an empty command is no command.
-    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest, commands: { test: ['bun', 'verify.mjs'] } }, null, 2));
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest, commands: { test: ['bun', 'seed.mjs'] } }, null, 2));
     assert.match(exact('test').stderr, /commands\.test: test is one of exact\.mjs's own verbs/);
-    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest, commands: { verify: [] } }, null, 2));
-    assert.throws(() => readManifest(dir, 'field-log'), /commands\.verify: fewer than 1 items/);
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest, commands: { seed: [] } }, null, 2));
+    assert.throws(() => readManifest(dir, 'field-log'), /commands\.seed: fewer than 1 items/);
   } finally { rmSync(parent, { recursive: true, force: true }); }
 }, 60_000); // Two offline Cargo resolutions.
 
@@ -281,7 +290,10 @@ test('a new app tells its agent where the guides are, and update keeps what the 
       assert.ok(notes.includes(resolve(root, 'docs', guide)), guide);
       assert.ok(existsSync(resolve(root, 'docs', guide)), guide);
     }
-    assert.match(notes, /bun exact\.mjs contract types app\.contract -o app\.contract\.d\.ts/);
+    // The patterns, the recipes and `--help`, and nothing start-here says (LLP 1116.001 D4).
+    assert.match(notes, /`bun exact\.mjs pattern` lists them \(`one-screen`, `list-detail`,\s+`tabs`, `dashboard`, `rest`\)/);
+    assert.match(notes, /bun exact\.mjs <verb> --help/);
+    assert.doesNotMatch(notes, /contract types|no-tells|\.exact\//);
     assert.ok(lstatSync(resolve(dir, 'CLAUDE.md')).isSymbolicLink());
     assert.equal(readFileSync(resolve(dir, 'CLAUDE.md'), 'utf8'), notes);
     const manifest = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
@@ -342,6 +354,81 @@ test('update names the app by its crates, not its folder', () => {
     const commands = readFileSync(resolve(moved, 'exact.mjs'), 'utf8');
     assert.match(commands, /'todo-list-apple'/);
     assert.doesNotMatch(commands, /'todo-apple'/);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+// LLP 1116.004 D8: bake-off contacts, round 6, drove an earlier round's contacts.json: both rounds' apps were
+// `com.example.contacts-exact2`, and a store is named by the app's id. A new app's id is its own; an app made
+// before keeps the id it has, since its stores, bundle and update stream are named by it.
+test('a new app\'s id is its own, and update keeps the id an older app has', () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-id-'));
+  try {
+    const one = resolve(parent, 'r5/contacts'), two = resolve(parent, 'r6/contacts');
+    createApp(one); createApp(two);
+    const read = (dir, file) => readFileSync(resolve(dir, file), 'utf8');
+    const ids = [one, two].map(dir => {
+      const manifest = JSON.parse(read(dir, 'app.json'));
+      assert.match(manifest.app.id, /^com\.example\.contacts-[0-9a-f]{6}$/);
+      assert.equal(manifest.id, manifest.app.id, 'the web manifest names the same app');
+      assert.ok(read(dir, 'app.ts').includes(`\nexport const appId = '${manifest.app.id}';\n`), 'app.ts names the id app.json does');
+      assert.equal(readManifest(dir, 'contacts').app.id, manifest.app.id, 'the id is one the schema accepts');
+      return manifest.app.id;
+    });
+    assert.notEqual(ids[0], ids[1]);
+    // An app from before keeps `com.example.contacts` through update, in app.json and app.ts.
+    for (const file of ['app.json', 'app.ts']) writeFileSync(resolve(one, file), read(one, file).replaceAll(ids[0], 'com.example.contacts'));
+    const before = ['app.json', 'app.ts'].map(file => read(one, file));
+    createApp(one, { update: true });
+    assert.deepEqual(['app.json', 'app.ts'].map(file => read(one, file)), before);
+    assert.equal(JSON.parse(before[0]).app.id, 'com.example.contacts');
+    // And a pattern writes the id it has, taking the template's app.ts as untouched.
+    assert.match(applyPattern(one, 'one-screen').said, /\(com\.example\.contacts\)$/);
+    assert.ok(read(one, 'app.ts').includes("\nexport const appId = 'com.example.contacts';\n"));
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+}, 60_000); // Three offline Cargo resolutions.
+
+// LLP 1116.001 D3: a pattern replaces the template's three files with the app's own id and name; a file the
+// author edited is refused unless forced; rest brings its server, test runner and command, which go with it.
+test('a pattern replaces the template, refuses an edited file unless forced, and takes its extras with it', () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-pattern-'));
+  try {
+    const dir = resolve(parent, 'field-log');
+    createApp(dir);
+    assert.deepEqual(patterns().map(p => p.name), ['one-screen', 'list-detail', 'tabs', 'dashboard', 'rest']);
+    for (const { line } of patterns()) assert.ok(line.length > 20 && line.length <= 92 && !line.startsWith('//'), line);
+    const read = (file) => readFileSync(resolve(dir, file), 'utf8');
+    // The app's own id (LLP 1116.004 D8), which the template's untouched app.ts carries.
+    const id = JSON.parse(read('app.json')).app.id;
+    assert.match(id, /^com\.example\.field-log-[0-9a-f]{6}$/);
+    const { said } = applyPattern(dir, 'list-detail');
+    assert.equal(said, `list-detail: wrote app.contract, app.ts, app.test.contract as Field Log (${id})`);
+    assert.ok(read('app.ts').includes(`\nexport const appId = '${id}';\n`));
+    assert.match(read('app.contract'), /^\/\/ Field Log: a list that pushes a detail/);
+    assert.match(read('app.contract'), /text "Field Log" role="heading" aria-level=1/);
+    assert.doesNotMatch(read('app.contract') + read('app.ts'), /Starter|com\.example\.starter/);
+    // Untouched, it gives way to another pattern; edited, it is refused, named, and nothing is written.
+    applyPattern(dir, 'tabs');
+    writeFileSync(resolve(dir, 'app.ts'), `${read('app.ts')}// mine\n`);
+    const before = read('app.contract');
+    assert.throws(() => applyPattern(dir, 'dashboard'), /^Error: pattern: app\.ts was edited \(not what exact new or a pattern wrote\); --force replaces it$/);
+    assert.equal(read('app.contract'), before);
+    applyPattern(dir, 'dashboard', { force: true });
+    assert.doesNotMatch(read('app.ts'), /\/\/ mine/);
+    assert.throws(() => applyPattern(dir, 'nope'), /no pattern nope; there are one-screen, list-detail/);
+    // rest: its server and test runner, and the command that runs them; another pattern takes them away again.
+    assert.match(applyPattern(dir, 'rest').next, /bun exact\.mjs api-test web$/);
+    assert.ok(existsSync(resolve(dir, 'server.ts')) && existsSync(resolve(dir, 'test.mjs')));
+    assert.deepEqual(JSON.parse(read('app.json')).commands, { 'api-test': ['bun', 'test.mjs'] });
+    assert.equal(JSON.parse(read('app.json')).app.id, id);
+    assert.match(applyPattern(dir, 'one-screen').said, /removed server\.ts, test\.mjs$/);
+    assert.ok(!existsSync(resolve(dir, 'server.ts')) && JSON.parse(read('app.json')).commands === undefined);
+    // A name with a quote stays one Contract string.
+    const quoted = patternFiles('one-screen', { id: 'com.example.q', title: 'Say "Hi" $5' }).files['app.contract'];
+    assert.match(quoted, /text "Say \\"Hi\\" \\\$5" role="heading"/);
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }

@@ -259,22 +259,25 @@ fn a_numeric_border_says_to_quote_the_shorthand() {
         .unwrap_err()
         .message
     };
+    // What the message says to write compiles, and earns no warning: its
+    // colour is a role, not a literal `lower-colour-one-scheme` would name.
     let compiles = |attr: &str| {
-        contract::compile(&format!(
+        let (plan, warnings) = contract::compile_warned(&format!(
             "component App\n  state x = true\n  view\n    view {attr} testId=\"b\"\n"
-        ))
-        .unwrap_or_else(|e| panic!("{attr}: {e}"));
+        ));
+        plan.unwrap_or_else(|e| panic!("{attr}: {e}"));
+        assert_eq!(warnings, [], "{attr}");
     };
     assert_eq!(
         says("border=0"),
         "`border`: `0` is a number, and a CSS shorthand is a string, so write `\"0\"`"
     );
     compiles("border=\"0\"");
-    assert_eq!(says("border-top=2"), "`border-top`: `2` is a number, and a CSS shorthand is a string, as CSS writes it: `\"2px solid #ccc\"`");
-    compiles("border-top=\"2px solid #ccc\"");
+    assert_eq!(says("border-top=2"), "`border-top`: `2` is a number, and a CSS shorthand is a string, as CSS writes it: `\"2px solid -exact-separator\"`");
+    compiles("border-top=\"2px solid -exact-separator\"");
     // One arm of a choice: the literal is named, and its replacement keeps the choice.
-    assert_eq!(says("border=(x ? \"0\" : 1)"), "`border`: `1` is a number, and a CSS shorthand is a string, as CSS writes it: `\"1px solid #ccc\"`");
-    compiles("border=(x ? \"0\" : \"1px solid #ccc\")");
+    assert_eq!(says("border=(x ? \"0\" : 1)"), "`border`: `1` is a number, and a CSS shorthand is a string, as CSS writes it: `\"1px solid -exact-separator\"`");
+    compiles("border=(x ? \"0\" : \"1px solid -exact-separator\")");
     // A negative width (a style folds `-1` into a number) gets no example: no width is negative.
     let error = contract::compile(
         "style Card\n  border=-1\ncomponent App\n  view\n    view class=Card testId=\"b\"\n",

@@ -1,0 +1,31 @@
+// A page that says nothing about its look (LLP 1115 D7): a heading, a
+// paragraph, a button and a field, with no colour, font or size written.
+// What shows is the platform's: the page and its text follow the device's
+// scheme, and the text its font scale. The button opens a second page that
+// says nothing about Back either: no Back control, no `navigate` handler,
+// so the system's Back is the router's own (LLP 1115 D5). A fixture for a
+// host's defaults, built for Android's Canvas host first (LLP 1115.001 D3,
+// D6; `android/`).
+routes nav
+  home "/"
+    next "/next"
+
+component Unsaid
+  state name = ""
+  action open
+    nav = push(nav, "/next")
+  action rename(value)
+    name = value
+  view
+    main navigationKey=`${top(nav).id}` testId="unsaid" width="100%" height="100%"
+      each e in stack(nav) key = e.id
+        column navigationKey=`${e.id}` position="absolute" inset=0 gap=12 padding=16
+          when e.name == "home"
+            text "Nothing written" role="heading" aria-level=1 testId="heading"
+            text "This page writes no colour, font or size. Its background and its text follow the device's scheme, and the text follows the device's font scale." testId="paragraph"
+            button press=open testId="button"
+              text "Open the next page"
+            input value=name input=rename placeholder="A field" aria-label="A field" testId="field"
+          when e.name == "next"
+            text "The next page" role="heading" aria-level=1 testId="next-heading"
+            text "It has no Back control. The system's Back returns to the first page, and from there it leaves the app." testId="next-paragraph"

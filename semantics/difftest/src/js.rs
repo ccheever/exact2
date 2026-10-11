@@ -171,7 +171,8 @@ fn prepare(case: &Case, dir: &Path, index: usize) -> Result<Ready, JsVerdict> {
     let stored: Vec<String> = data
         .snapshot()
         .iter()
-        .map(|(k, v)| format!("{}:{}", string(k), string(v)))
+        // Persisted states, which are text
+        .map(|(k, v)| format!("{}:{}", string(k), string(&String::from_utf8_lossy(v))))
         .collect();
     let persisted: Vec<String> = plan
         .slots

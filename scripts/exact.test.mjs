@@ -1,9 +1,10 @@
-// `exact release` signs every nested Mach-O file and bundle, innermost first (#119).
+// `exact release` signs every nested Mach-O file and bundle, innermost first (#119); `exact contract build`
+// refreshes an app's types (LLP 1116.001 D4.5).
 // `bun test ./scripts/exact.test.mjs`.
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, relative, resolve } from 'node:path';
 import { signingOrder } from '../host/apple/assets.mjs';
@@ -295,6 +296,7 @@ test.skipIf(process.platform !== 'darwin')('Apple asset catalogs retain named im
   const keys = iosAssets(app, ios, false, { catalog: true, kept: cache, expected: inventory });
   assert.equal(keys.CFBundleIcons.CFBundlePrimaryIcon.CFBundleIconName, 'AppIcon');
   assert.equal(keys.UILaunchScreen.UIColorName, 'ExactLaunch');
+  assert.equal(keys.NSAccentColorName, undefined, 'no AccentColor set, no accent named');
   const inspect = path => {
     const result = spawnSync('xcrun', ['assetutil', '--info', resolve(path, 'Assets.car')], { encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
@@ -314,6 +316,16 @@ test.skipIf(process.platform !== 'darwin')('Apple asset catalogs retain named im
   iosAssets(app, second, false, { catalog: true, kept: cache });
   assert.notEqual(readdirSync(cache.dir).find(name => name.startsWith('assets-ios-')), held);
   assert.notDeepEqual(readFileSync(resolve(second, 'Assets.car')), readFileSync(resolve(ios, 'Assets.car')));
+  // An `AccentColor` set is named the app's accent, as Xcode's default
+  json(`${source}/AccentColor.colorset/Contents.json`, colour('0.5'));
+  const accented = resolve(dir, 'Accented.app'); mkdirSync(accented);
+  assert.equal(iosAssets(app, accented, false, { catalog: true }).NSAccentColorName, 'AccentColor');
+  const cached = resolve(dir, 'Cached.app'); mkdirSync(cached);
+  assert.equal(iosAssets(app, cached, false, { catalog: true, kept: cache }).NSAccentColorName, 'AccentColor', 'the cached path names it too');
+  assert.ok(inspect(accented).some(asset => asset.Name === 'AccentColor'));
+  const accentedMac = resolve(dir, 'AccentedMac.bundle/Contents/Resources'); mkdirSync(accentedMac, { recursive: true });
+  assert.equal(appleAssets(app, accentedMac, { platform: 'macos' }).NSAccentColorName, 'AccentColor', 'macOS names it too');
+  rmSync(resolve(dir, source, 'AccentColor.colorset'), { recursive: true, force: true });
   const mac = resolve(dir, 'Catalog.bundle/Contents/Resources'); mkdirSync(mac, { recursive: true });
   put('Catalog.bundle/Contents/Info.plist', '<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com.exact.catalog.test</string></dict></plist>');
   appleAssets(app, mac, { platform: 'macos', kept: cache });
@@ -330,3 +342,33 @@ test.skipIf(process.platform !== 'darwin')('Apple asset catalogs retain named im
   appleAssets(app, mac, { platform: 'macos', kept: cache });
   assert.ok(!existsSync(resolve(mac, 'Assets.car')), 'removing all catalogs clears the previous output');
 }), 60000);
+
+// LLP 1116.001 D4.5: `exact contract build` of an app's app.contract rewrites the types its app.ts imports
+// when a source's signature changed, and only then, saying so in one line on stderr; `contract types` agrees.
+test('contract build regenerates app.contract.d.ts when a signature changed, and only then', () => inDir(dir => {
+  const contract = (shape) => `shape Greeting\n  text: string\n${shape}\ncomponent App\n  resource greeting = greeting("x") as shape Greeting\n  view\n    text greeting.text\n`;
+  writeFileSync(resolve(dir, 'app.contract'), contract(''));
+  writeFileSync(resolve(dir, 'app.ts'), "export const appId = 'com.example.types';\n");
+  const exact = (...args) => spawnSync(process.execPath, [resolve(import.meta.dir, 'exact.mjs'), ...args], { cwd: dir, encoding: 'utf8', timeout: 600_000 });
+  const build = () => exact('contract', 'build', 'app.contract', '--json');
+  const types = resolve(dir, 'app.contract.d.ts');
+  let r = build();
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout.trim(), '[]', 'the build\'s reply stays JSON');
+  assert.match(r.stderr, /^app\.contract\.d\.ts: written \(the types app\.ts imports\)$/m);
+  assert.equal(readFileSync(types, 'utf8'), exact('contract', 'types', 'app.contract').stdout, 'what contract types prints');
+  const written = statSync(types).mtimeMs;
+  r = build();
+  assert.doesNotMatch(r.stderr, /app\.contract\.d\.ts/, 'nothing changed, nothing said');
+  assert.equal(statSync(types).mtimeMs, written, 'nor written');
+  writeFileSync(resolve(dir, 'app.contract'), contract('  count: number\n'));
+  r = build();
+  assert.match(r.stderr, /^app\.contract\.d\.ts: regenerated, since a source's signature changed/m);
+  assert.match(readFileSync(types, 'utf8'), /"count": T\d+;/);
+  // A build that fails leaves the types as they were; another file than app.contract never writes them.
+  writeFileSync(resolve(dir, 'app.contract'), 'not a contract');
+  assert.notEqual(build().status, 0);
+  assert.match(readFileSync(types, 'utf8'), /"count"/);
+  writeFileSync(resolve(dir, 'other.contract'), contract(''));
+  assert.doesNotMatch(exact('contract', 'build', 'other.contract').stderr, /app\.contract\.d\.ts/);
+}), 600_000); // The first call may compile the compiler.

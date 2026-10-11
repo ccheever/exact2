@@ -28,7 +28,7 @@ fn compress_image_writes_an_upright_jpeg_or_refuses_by_name() {
     let root = Root::new();
     let mut m = root.module();
     m.activate().unwrap();
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     assert_eq!(call(&mut m, &mut s, "file", "x"), "x"); // app:/data/note, a text file
     std::fs::write(
         root.0.join("data/in.jpg"),
@@ -94,7 +94,7 @@ fn a_compression_the_wait_gave_up_on_never_writes() {
     let mut m = root.module();
     m.set_storage_wait(WAIT);
     m.activate().unwrap();
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     assert_eq!(call(&mut m, &mut s, "file", "x"), "x");
     std::fs::write(root.0.join("data/noise.bmp"), noise_bmp()).unwrap();
     // The wait gives up: the answer fails, and its failure names `timeout`.
@@ -178,7 +178,7 @@ fn a_background_compression_the_wait_gave_up_on_rejects_and_the_queue_moves() {
     let mut m = root.module();
     m.set_storage_wait(WAIT);
     m.activate().unwrap();
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     assert_eq!(call(&mut m, &mut s, "file", "x"), "x");
     std::fs::write(root.0.join("data/noise.bmp"), noise_bmp()).unwrap();
     assert_eq!(call(&mut m, &mut s, "compress-background", ""), "started");
@@ -205,7 +205,7 @@ fn a_let_go_compression_the_wait_gave_up_on_does_not_strand_the_queue() {
     let mut m = root.module();
     m.set_storage_wait(WAIT);
     m.activate().unwrap();
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     assert_eq!(call(&mut m, &mut s, "file", "x"), "x");
     std::fs::write(root.0.join("data/noise.bmp"), noise_bmp()).unwrap();
     let a = args("compress-abandoned", "");
@@ -257,7 +257,7 @@ fn a_let_go_chain_keeps_its_other_storage_after_a_discarded_waiter_gave_up() {
     let mut m = root.module();
     m.set_storage_wait(WAIT);
     m.activate().unwrap();
-    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
     assert_eq!(call(&mut m, &mut s, "file", "x"), "x");
     std::fs::write(root.0.join("data/noise.bmp"), noise_bmp()).unwrap();
     let a = args("compress-and-write", "");

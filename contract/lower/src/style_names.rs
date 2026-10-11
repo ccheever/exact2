@@ -119,6 +119,10 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     // platform draws it.
     ("accent-color", "css CSS UI 4", AttrTarget::Styles(&[StyleId::AccentColor])),
     ("appearance", "css CSS UI 4", AttrTarget::Styles(&[StyleId::Appearance])),
+    // @ref LLP 1104 D6 — a text field's focus ring off: `outline: none`,
+    // the one value either name takes (`fields::outline_refusal`).
+    ("outline-style", "css CSS UI 4", AttrTarget::Styles(&[StyleId::OutlineStyle])),
+    ("outline", "css CSS UI 4", AttrTarget::Styles(&[StyleId::OutlineStyle])),
     ("-exact-tint-color", "exact LLP 1011", AttrTarget::Styles(&[StyleId::TintColor])),
     ("opacity", "css CSS Color 4", AttrTarget::Styles(&[StyleId::Opacity])),
     // @ref LLP 1064 D1 — one value, each row takes its part of the parse.
@@ -253,6 +257,8 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("-exact-scroll-edge-effect", "exact LLP 1077", AttrTarget::Styles(&[StyleId::ScrollEdgeEffect])),
     ("-exact-hover-effect", "exact LLP 1077", AttrTarget::Styles(&[StyleId::HoverEffect])),
     ("-exact-smart-invert", "exact LLP 1077", AttrTarget::Styles(&[StyleId::SmartInvert])),
+    // @ref LLP 1116.001 D1.4 — a text shrinks to fit its line, down to half.
+    ("-exact-fit", "exact LLP 1116.001 D1.4", AttrTarget::Styles(&[StyleId::Fit])),
     ("dynamic-range-limit", "css CSS Color HDR 1", AttrTarget::Styles(&[StyleId::DynamicRangeLimit])),
     // @ref LLP 1034 §8 — a subtree's colour scheme.
     ("color-scheme", "css CSS Color Adjustment 1", AttrTarget::Styles(&[StyleId::ColorScheme])),
@@ -284,6 +290,11 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     // @ref LLP 1115 D3 — a platform text style, as WebKit's
     // `font: -apple-system-headline`; no other `font` value.
     ("font", "css CSS Fonts 4", AttrTarget::Shorthand),
+    // CSS Inline Layout 3 §4: the trim's row, and the edge's two words
+    // projected through `shorthands`.
+    ("text-box-trim", "css CSS Inline Layout 3", AttrTarget::Styles(&[StyleId::TextBoxTrim])),
+    ("text-box-edge", "css CSS Inline Layout 3", AttrTarget::Shorthand),
+    ("text-box", "css CSS Inline Layout 3", AttrTarget::Shorthand),
 ];
 
 /// The target of a style attribute, if `name` is one.

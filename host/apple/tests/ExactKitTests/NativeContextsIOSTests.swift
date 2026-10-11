@@ -179,6 +179,123 @@ final class NativeContextsIOSTests: XCTestCase {
         XCTAssertEqual(rebuilt.selectedSegmentIndex, 0, "a rebuilt control shows the selection")
     }
 
+    /// A radio group of three native radios, the one `checked` checked.
+    private func radiogroup(_ faces: [UInt32: ButtonFace], checked: UInt32 = 3) -> Presenter {
+        var ops = view(1, ["accessibilityRole": "radiogroup", "accessibilityLabel": "Tip"])
+        for (i, id) in [2, 3, 4].enumerated() {
+            ops += native(id, ["accessibilityRole": "radio", "accessibilityChecked": id == checked ? "true" : "false", "testId": "tip-\(id)"],
+                          x: Double(i) * 100, w: 100)
+        }
+        return presenter(ops + [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "roots", "ids": [1]]], faces: faces)
+    }
+
+    /// LLP 1116.004 D5.2: a value chosen from a few is a radio group, and a
+    /// radio group of radios is UIKit's segmented control, as a tablist of
+    /// tabs is: its selection the checked radio, a pick pressing that radio,
+    /// the next sync showing what the app checked. A value is never a tab:
+    /// symbol-over-label radios are no tab bar.
+    func testARadioGroupIsASegmentedControlWhosePickPressesItsRadio() throws {
+        var p = radiogroup([2: face("15%"), 3: face("18%"), 4: face("20%")])
+        defer { window.isHidden = true }
+        let segments = try XCTUnwrap(p.views[1]?.subviews.compactMap { $0 as? UISegmentedControl }.first)
+        XCTAssertEqual((0..<3).map { segments.titleForSegment(at: $0) }, ["15%", "18%", "20%"])
+        XCTAssertEqual(segments.selectedSegmentIndex, 1, "the checked radio is the selected segment")
+        XCTAssertEqual(segments.accessibilityLabel, "Tip", "the group's label names the control")
+        XCTAssertEqual(p.views[2]?.isHidden, true, "the authored radios are the control's")
+        XCTAssertEqual(p.segments.observation(try XCTUnwrap(p.views[4]))?["view"] as? String, "UISegmentedControl")
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        segments.selectedSegmentIndex = 2
+        report(segments)
+        XCTAssertEqual(pressed, [4], "a pick presses its radio")
+        p.segments.sync()
+        XCTAssertEqual(segments.selectedSegmentIndex, 1, "unchecked by the app, the pick does not stay")
+        p.views[3]?.props["accessibilityChecked"] = "false"
+        p.views[4]?.props["accessibilityChecked"] = "true"
+        p.segments.sync()
+        XCTAssertEqual(segments.selectedSegmentIndex, 2, "the radio the app checked")
+        // The agent's tap of an authored radio presses it through the control.
+        XCTAssertEqual(p.segments.activate(try XCTUnwrap(p.views[2])), true)
+        XCTAssertEqual(pressed, [4, 2])
+        // Symbols over labels: no tab bar and no segments; the radios stay as authored, the checked one selected.
+        p = radiogroup([2: face("Low", symbol: "drop"), 3: face("Mid", symbol: "drop.halffull"), 4: face("High", symbol: "drop.fill")])
+        let group = try XCTUnwrap(p.views[1])
+        XCTAssertTrue(group.subviews.compactMap { $0 as? UITabBar }.isEmpty, "a value is never a tab bar")
+        XCTAssertTrue(group.subviews.compactMap { $0 as? UISegmentedControl }.isEmpty)
+        XCTAssertEqual(p.views[3]?.isHidden, false)
+        XCTAssertFalse(group.accessibilityTraits.contains(.tabBar))
+        let checked = try XCTUnwrap(p.controls.controls[3] as? UIButton), other = try XCTUnwrap(p.controls.controls[2] as? UIButton)
+        XCTAssertTrue(checked.accessibilityTraits.contains(.selected), "a checked radio is selected, as Safari's VoiceOver reads one")
+        XCTAssertFalse(other.accessibilityTraits.contains(.selected))
+    }
+
+    /// The same from Contract (scripts/fixtures/native-buttons.contract, its
+    /// `period`): a `row role="radiogroup"` of default `button role="radio"`s
+    /// compiles to native radios, which UIKit draws as one segmented control;
+    /// a pick runs that radio's `press`, and the runner's `aria-checked` keeps it.
+    func testAContractRadioGroupIsOneSegmentedControlAndAPickRunsItsPress() throws {
+        let path = try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_BUTTONS_PLAN"])
+        let session = ExactApp.shared.makeSession(label: "radio-group")
+        defer { session.destroy() }
+        let controller = UIViewController()
+        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: .zero)
+        window.frame = CGRect(x: 0, y: 0, width: 400, height: 850)
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        session.presenter.viewport.frame = window.bounds
+        controller.view.addSubview(session.presenter.viewport)
+        XCTAssertNil(session.boot(plan: try Data(contentsOf: URL(fileURLWithPath: path)), size: window.bounds.size).error)
+        window.layoutIfNeeded()
+        let p = session.presenter
+        let node = { (id: String) in p.views.values.first { $0.props["testId"] == id } }
+        let group = try XCTUnwrap(node("period"))
+        let segments = try XCTUnwrap(group.subviews.compactMap { $0 as? UISegmentedControl }.first)
+        XCTAssertEqual((0..<segments.numberOfSegments).map { segments.titleForSegment(at: $0) }, ["Day", "Week", "Month"])
+        XCTAssertEqual(segments.selectedSegmentIndex, 1, "the checked radio, Week")
+        XCTAssertEqual(segments.accessibilityLabel, "Period")
+        XCTAssertEqual(node("period-Day")?.isHidden, true)
+        segments.selectedSegmentIndex = 2
+        report(segments)
+        XCTAssertEqual(node("period-Month")?.props["accessibilityChecked"], "true", "the pick ran Month's press")
+        XCTAssertEqual(node("period-Week")?.props["accessibilityChecked"], "false")
+        p.segments.sync()
+        XCTAssertEqual(segments.selectedSegmentIndex, 2)
+    }
+
+    /// LLP 1116.003 (r5 weather: "ExactSegmentedControl covers its middle"):
+    /// a real touch on a tab a segmented control draws aims at its segment,
+    /// the control taking the touch, never at the hidden authored tab.
+    func testARealTouchAimsAtTheSegmentItsControlDraws() throws {
+        let session = ExactApp.shared.makeSession(label: "segment-aim")
+        defer { session.destroy() }
+        let p = session.presenter
+        let faces: [UInt32: ButtonFace] = [2: face("Day"), 3: face("Week"), 4: face("Month")]
+        p.buttonFace = { faces[$0] ?? ButtonFace() }
+        let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+        window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        window.frame = CGRect(x: 0, y: 0, width: 400, height: 400)
+        window.rootViewController = UIViewController()
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        p.viewport.frame = window.bounds
+        window.rootViewController?.view.addSubview(p.viewport)
+        var ops = view(1, ["accessibilityRole": "tablist"])
+        for (i, id) in [2, 3, 4].enumerated() { ops += native(id, ["accessibilityRole": "tab"], x: Double(i) * 100, w: 100) }
+        p.apply(wireBatch(ops + [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "roots", "ids": [1]]]))
+        let control = try XCTUnwrap(p.views[1]?.subviews.compactMap { $0 as? UISegmentedControl }.first)
+        control.layoutIfNeeded()
+        let reply = Agent(session: session).aim(["id": 3, "aim": ["press": true]])
+        if (reply["error"] as? String)?.contains("foreground") == true { throw XCTSkip("the test host is in the background: a real touch's aim refuses it") }
+        let aim = try XCTUnwrap(reply["aim"] as? [String: Any], "\(reply)")
+        let w = try XCTUnwrap(aim["window"] as? [Double])
+        let local = control.convert(CGPoint(x: w[0], y: w[1]), from: nil)
+        XCTAssertTrue(control.bounds.contains(local), "on the control: \(local)")
+        XCTAssertEqual(Int(local.x / (control.bounds.width / 3)), 1, "on Week, the middle segment: \(local)")
+        XCTAssertEqual(aim["hit"] as? Int, 1, "the touch lands in the tablist's node: \(aim)")
+    }
+
     func testAMenuRowsSymbolIsItsItemsImageNativeOrCustom() throws {
         let p = presenter(
             view(1, ["popover": "auto", "id": "menu", "accessibilityRole": "menu"])

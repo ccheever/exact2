@@ -75,16 +75,15 @@ fn what_the_bar_places_or_the_compiler_cannot_see_is_not_warned() {
         // that presses and one that opens a popover, a spacer between.
         "  text \"List\" role=\"heading\" aria-level=1\n  text \"3 left\"\n  view flex=1\n  input type=\"search\" value=q\n  row role=\"tablist\"\n    button role=\"tab\" aria-selected=true press=go\n      text \"A\"\n  button press=go testId=\"add\"\n    text \"Add\"\n  button popovertarget=\"menu\"\n    text \"More\"",
         // A heading's group: an avatar before it, a line of glyphs after.
-        "  row\n    box background-color=\"#08f\"\n      text \"AL\"\n    text \"Ada\" role=\"heading\" aria-level=1\n    row\n      image \"symbol:sf/bell.slash\"\n      text \"Muted\"",
+        "  row\n    box background-color=\"-exact-system-blue\"\n      text \"AL\"\n    text \"Ada\" role=\"heading\" aria-level=1\n    row\n      image \"symbol:sf/bell.slash\"\n      text \"Muted\"",
         // A pressable group around the heading is the title, tapped.
         "  button press=go\n    text \"Ada\" role=\"heading\" aria-level=1\n    text \"online\"",
         // `when`, `each` and a computed role are given the benefit.
         "  text \"List\" role=\"heading\" aria-level=1\n  text \"sub\"\n  when q != \"\"\n    text q\n  each x in [\"a\"] key=x\n    text x\n  text \"c\" role=(q == \"\" ? \"note\" : \"status\")",
         // Shown on no host, or over the page when opened.
         "  text \"List\" role=\"heading\" aria-level=1\n  text \"sub\"\n  text \"hidden\" display=\"none\"\n  button popovertarget=\"m\"\n    text \"More\"\n  column id=\"m\" popover=\"auto\" role=\"menu\"\n    text \"Sort\"\n    button press=go popovertarget=\"m\" popovertargetaction=\"hide\" role=\"menuitem\"\n      text \"Go\"",
-        // No heading, or two: the bar takes nothing and the header is shown.
-        "  text \"one\"\n  image \"symbol:heart\"",
-        "  text \"A\" role=\"heading\" aria-level=1\n  text \"B\" role=\"heading\" aria-level=2\n  image \"symbol:heart\"",
+        // A heading under a `when` may be the one: the benefit.
+        "  when q != \"\"\n    text q role=\"heading\"\n  text \"sub\"",
     ] {
         assert_eq!(warned(&route(header)), [], "{header}");
     }
@@ -95,6 +94,42 @@ fn what_the_bar_places_or_the_compiler_cannot_see_is_not_warned() {
             "          text \"first\"\n          header display=\"flex\"\n",
         );
     assert_eq!(warned(&src), []);
+}
+
+const NO_BAR: &str = "lower-header-no-bar";
+
+#[test]
+fn a_header_with_no_heading_or_two_is_named_as_no_bar() {
+    // No heading, or two: on iOS the route has no bar, its header drawn as
+    // written; nothing in it is called unplaced (LLP 1116.003 D2.2).
+    let none = route("  text \"one\"\n  button press=go testId=\"add\"\n    text \"Add\"");
+    assert_eq!(warned(&none), [(NO_BAR.to_string(), 11)]);
+    let (_, warnings) = contract::compile_warned(&none);
+    assert!(
+        warnings[0].message.contains("holds no heading")
+            && warnings[0].message.contains("no Back button")
+            && warnings[0].message.contains("one `text role=\"heading\"`"),
+        "{warnings:?}"
+    );
+    let two = route("  text \"A\" role=\"heading\" aria-level=1\n  text \"B\" role=\"heading\" aria-level=2\n  image \"symbol:heart\"");
+    assert_eq!(warned(&two), [(NO_BAR.to_string(), 11)]);
+    let (_, warnings) = contract::compile_warned(&two);
+    assert!(
+        warnings[0].message.contains("holds 2 headings")
+            && warnings[0].message.contains("make the others plain `text`"),
+        "{warnings:?}"
+    );
+    // A route that opens with `when`, as workout-log's did: each branch's
+    // header is the route's first child while its branch is taken.
+    let branched = route("  text \"List\" role=\"heading\" aria-level=1").replace(
+        "          header display=\"flex\"\n            text \"List\" role=\"heading\" aria-level=1\n",
+        "          when q == \"\"\n            header\n              text \"Sheet\"\n          else\n            header\n              text \"List\" role=\"heading\" aria-level=1\n              image \"symbol:heart\"\n",
+    );
+    assert_eq!(
+        warned(&branched),
+        [(NO_BAR.to_string(), 12), (UNPLACED.to_string(), 17)],
+        "{branched}"
+    );
 }
 
 /// A root tab bar: tabs that name their panels, as polls and chat-rooms
@@ -196,6 +231,402 @@ fn the_wall_clock_time_and_a_duration_are_not_named() {
 #[test]
 fn a_launch_relative_time_in_a_persisted_state_is_named() {
     // stopwatch's start mark, kept by `persist` instead of a source.
-    let src = "shape Time\n  epochAtZero: number\ncomponent App\n  resource time = exactTime() as shape Time\n  state start = 0 persist\n  state wall = 0 persist\n  state lap = 0 persist\n  action begin\n    start = performanceNow()\n    wall = time.epochAtZero + performanceNow()\n    lap = performanceNow() - start\n  view\n    button \"go\" press=begin\n";
+    let src = "shape Time\n  epochAtZero: number\ncomponent App\n  resource time = exactTime() as shape Time\n  state start = 0 persist\n  state wall = 0 persist\n  state lap = 0 persist\n  action begin\n    lap = performanceNow() - start\n    start = performanceNow()\n    wall = time.epochAtZero + performanceNow()\n  view\n    button \"go\" press=begin\n";
     assert_eq!(warned(src), [(PERSISTED.to_string(), 5)]);
+}
+
+const ONE_SCHEME: &str = "lower-colour-one-scheme";
+
+/// One screen, its view's lines at 5 on, with a style, a `fn` and a derive
+/// that choose colours.
+fn screen(view: &str) -> String {
+    let view: String = view.lines().map(|l| format!("    {l}\n")).collect();
+    format!(
+        "fn tone(n: number): string = n > 3 ? \"#e8f1ec\" : \"-exact-fill\"\ncomponent App\n  state n = 1\n  view\n{view}"
+    )
+}
+
+#[test]
+fn a_literal_colour_on_the_page_is_named_with_its_repair() {
+    // Round 4's light card and its tinted text: the same in dark mode.
+    let card = screen("column background-color=\"#ffffff\"\n  text \"a\"");
+    assert_eq!(warned(&card), [(ONE_SCHEME.to_string(), 5)]);
+    let (_, warnings) = contract::compile_warned(&card);
+    let m = &warnings[0].message;
+    assert!(
+        m.contains("`#ffffff` on `background-color` stays the same in dark mode")
+            && m.contains("`-exact-secondary-grouped-background`")
+            && m.contains("one `light-dark(light, dark)` pair on `accent-color`"),
+        "{m}"
+    );
+    let text = screen("text \"a\" color=\"rgb(20, 30, 40)\"");
+    assert_eq!(warned(&text), [(ONE_SCHEME.to_string(), 5)]);
+    let (_, warnings) = contract::compile_warned(&text);
+    assert!(
+        warnings[0]
+            .message
+            .contains("`rgb(20, 30, 40)` on `color` stays the same in dark mode")
+            && warnings[0].message.contains("`-exact-label`"),
+        "{warnings:?}"
+    );
+    // A forced scheme is the app with no dark mode: still named.
+    for scheme in ["light", "dark"] {
+        let forced = screen(&format!(
+            "main color-scheme=\"{scheme}\" background-color=\"#fafafa\"\n  text \"a\""
+        ));
+        assert_eq!(warned(&forced), [(ONE_SCHEME.to_string(), 5)], "{scheme}");
+    }
+    // A named colour, `hsl()`, a border's colour, the bare accent, the
+    // leaves of a choice, a `fn`'s and a derive's, and a style's rows.
+    for view in [
+        "text \"a\" color=\"white\"",
+        "text \"a\" background-color=\"hsl(120 40% 50%)\"",
+        "text \"a\" border-bottom=\"1px solid #dddddd\"",
+        "column accent-color=\"#0a7f5a\"",
+        "text \"a\" color=(n > 1 ? \"#111111\" : \"#222222\")",
+        "text \"a\" background-color=tone(n)",
+    ] {
+        assert_eq!(
+            warned(&screen(view)),
+            [(ONE_SCHEME.to_string(), 5)],
+            "{view}"
+        );
+    }
+    let derived = screen("text \"a\" color=shade").replace(
+        "  view\n",
+        "  derive shade = n > 2 ? \"#333333\" : \"-exact-label\"\n  view\n",
+    );
+    assert_eq!(warned(&derived), [(ONE_SCHEME.to_string(), 6)]);
+    let styled = screen("column class=Card").replace(
+        "component App\n",
+        "style Card\n  background-color=\"#fafafa\"\ncomponent App\n",
+    );
+    assert_eq!(warned(&styled), [(ONE_SCHEME.to_string(), 3)]);
+}
+
+#[test]
+fn the_accent_pair_roles_and_artwork_are_not_named() {
+    for view in [
+        // The one authored colour, as a pair or a role.
+        "main accent-color=\"light-dark(#0a7f5a, #3cc98f)\"\n  text \"a\"",
+        "main accent-color=\"-exact-system-teal\"\n  text \"a\"",
+        // Roles, and what is no colour of its own.
+        "text \"a\" color=\"-exact-secondary-label\" background-color=\"-exact-secondary-grouped-background\" border-color=\"-exact-separator\"",
+        "text \"a\" color=\"CanvasText\" background-color=\"AccentColor\" -exact-tint-color=\"-exact-system-red\"",
+        "text \"a\" color=\"currentColor\" background-color=\"transparent\" border-color=\"rgba(0, 0, 0, 0)\"",
+        "text \"a\" color=\"-exact-platform-color(ios systemPinkColor, #ff2d55)\"",
+        // Artwork: an `svg`'s paint, and a shadow, which darkens in both.
+        "svg viewBox=\"0 0 10 10\" width=10 height=10\n  circle cx=5 cy=5 r=4 fill=\"#ff0000\" stroke=\"#000000\"",
+        "text \"a\" box-shadow=\"0 1px 2px rgba(0, 0, 0, 0.2)\"",
+        // What the compiler cannot see: a state, an item, a field.
+        "column\n  each c in [\"#ffffff\"] key=c\n    text c color=c",
+    ] {
+        assert_eq!(warned(&screen(view)), [], "{view}");
+    }
+}
+
+#[test]
+fn every_literal_colour_is_named_past_the_cap_with_one_line_on_why() {
+    let view: String = (0..25)
+        .map(|i| format!("  text \"{i}\" color=\"#1234{i:02}\"\n"))
+        .collect();
+    let view = format!("column\n{view}");
+    let all = warned(&screen(&view));
+    assert_eq!(all.len(), 26, "{all:?}");
+    assert!(all.iter().all(|(id, _)| id == ONE_SCHEME), "{all:?}");
+    let (_, warnings) = contract::compile_warned(&screen(&view));
+    assert!(
+        warnings[0].message.ends_with("or leave it unsaid")
+            && warnings[25].message.starts_with("these 25 literal colours")
+            && warnings[25].span.line == 6,
+        "{warnings:?}"
+    );
+}
+
+const REREAD: &str = "analyze-read-after-assign";
+
+/// One action, `go`, its body from line 10 (LLP 1116.003 D6).
+fn go(body: &str) -> String {
+    let body: String = body.lines().map(|l| format!("    {l}\n")).collect();
+    format!(
+        "shape Ack\n  ok: bool\ncomponent App\n  mutation saved as shape Ack\n  state count = 0\n  state doubled = 0\n  state mode = \"a\"\n  state shown = \"\"\n  action go\n{body}  view\n    button \"go\" press=go\n"
+    )
+}
+
+#[test]
+fn a_read_of_a_slot_its_action_assigned_is_named_with_its_repair() {
+    // The doc's example, written the way focus-timer and
+    // password-generator wrote it: the read sees the starting `count`.
+    let direct = go("count = count + 1\ndoubled = count * 2");
+    assert_eq!(warned(&direct), [(REREAD.to_string(), 11)]);
+    let (_, warnings) = contract::compile_warned(&direct);
+    assert_eq!(
+        warnings[0].message,
+        "`count` here is its value from before the action, not the one assigned at line 10: writes land when the action ends. Bind the new value and read it: `let next = …`, `count = next`, then `next`"
+    );
+    // In a later branch's condition and its `let`, on the path that
+    // assigned it.
+    let nested = go(
+        "count = count + 1\nif mode == \"a\"\n  if count > 3\n    let seen = count\n    shown = `${seen}`",
+    );
+    assert_eq!(
+        warned(&nested),
+        [(REREAD.to_string(), 12), (REREAD.to_string(), 13)]
+    );
+    // A `send`'s argument; an assignment in one arm, read after the branch.
+    let sent = go("count = count + 1\nsend saved = keep(count)");
+    assert_eq!(warned(&sent), [(REREAD.to_string(), 11)]);
+    let arm = go("if mode == \"a\"\n  count = 1\nshown = `${count}`");
+    assert_eq!(warned(&arm), [(REREAD.to_string(), 12)]);
+}
+
+#[test]
+fn a_read_before_the_assignment_on_another_path_or_of_a_let_is_not_named() {
+    for (case, body) in [
+        // An assignment reads the starting value it replaces.
+        ("before", "doubled = count * 2\ncount = count + 1"),
+        // The doc's repair.
+        ("let", "let next = count + 1\ncount = next\ndoubled = next * 2"),
+        ("else", "if mode == \"a\"\n  count = 1\nelse\n  doubled = count"),
+        // Sequential arms over one name and literals no evaluation can
+        // both satisfy; the right of an `and` runs where its left held.
+        (
+            "exclusive",
+            "if mode == \"a\"\n  count = 1\nif mode == \"b\"\n  doubled = count\nif mode == \"b\" and count > 0\n  shown = \"b\"",
+        ),
+        // A chain over the starting state steps once an action.
+        (
+            "steps",
+            "if mode == \"a\"\n  mode = \"b\"\nif mode == \"b\"\n  mode = \"c\"",
+        ),
+    ] {
+        assert_eq!(warned(&go(body)), [], "{case}");
+    }
+}
+
+#[test]
+fn a_field_the_copy_left_alone_is_not_named() {
+    // fieldnotes' `session = Session(session, savedId=…)`, then
+    // `session.version` in the `send`: the same value either way.
+    let src = "shape Ack\n  ok: bool\nshape Item\n  id: string\n  n: number\ncomponent App\n  mutation saved as shape Ack\n  state item = Item(id=\"x\", n=0)\n  state shown = \"\"\n  action go\n    item = Item(item, n=item.n + 1)\n    send saved = keep(item.id)\n    shown = `${item.n}`\n  view\n    button \"go\" press=go\n";
+    assert_eq!(warned(src), [(REREAD.to_string(), 13)]);
+}
+
+const UNLABELLED: &str = "lower-button-unlabelled";
+
+/// One screen of buttons, its view's lines at 6 on, with a `Pill`
+/// component whose button is filled through its slot.
+fn buttons(view: &str) -> String {
+    let view: String = view.lines().map(|l| format!("      {l}\n")).collect();
+    format!(
+        "component App\n  state label = \"Add\"\n  action go\n    label = \"x\"\n  view\n    column\n{view}component Pill\n  slot\n  view\n    button width=44 height=44\n      children\n"
+    )
+}
+
+#[test]
+fn a_button_with_nothing_to_say_is_named_with_its_repair() {
+    // water-tracker's +500 ml button: no child, blank on every host.
+    let blank = buttons("button press=go testId=\"add-500\" flex=1");
+    assert_eq!(warned(&blank), [(UNLABELLED.to_string(), 7)]);
+    let (_, warnings) = contract::compile_warned(&blank);
+    assert!(
+        warnings[0]
+            .message
+            .contains("holds no text and no `aria-label`")
+            && warnings[0].message.contains("Put its words in it")
+            && warnings[0].message.contains("docs/recipes/symbols.md"),
+        "{warnings:?}"
+    );
+    // A symbol with no name is drawn and read as nothing; a swatch, an
+    // empty text and an `svg` of shapes say nothing either.
+    let symbol = buttons("button press=go appearance=\"none\"\n  image \"symbol:add\"");
+    assert_eq!(warned(&symbol), [(UNLABELLED.to_string(), 7)]);
+    let (_, warnings) = contract::compile_warned(&symbol);
+    assert!(
+        warnings[0]
+            .message
+            .contains("shows only an image with no name")
+            && warnings[0]
+                .message
+                .contains("`aria-label=\"Add\"` on the button"),
+        "{warnings:?}"
+    );
+    for view in [
+        "button press=go\n  row\n    view width=10 height=10 background-color=\"-exact-system-red\"",
+        "button press=go aria-label=\"\"\n  text \"\"",
+        "button press=go\n  svg viewBox=\"0 0 10 10\" width=10 height=10\n    circle cx=5 cy=5 r=4",
+        "button press=go\n  when label == \"\"\n    image \"symbol:add\"",
+    ] {
+        assert_eq!(
+            warned(&buttons(view)),
+            [(UNLABELLED.to_string(), 7)],
+            "{view}"
+        );
+    }
+    // A component used twice is one line, at its button; an empty slot
+    // fill leaves it blank.
+    let pills = buttons("Pill()\nPill()");
+    assert_eq!(warned(&pills), [(UNLABELLED.to_string(), 12)]);
+}
+
+#[test]
+fn a_button_with_words_a_name_or_a_doubt_is_not_named() {
+    for view in [
+        "button press=go\n  text \"Add\"",
+        // A text of any expression, through a `when` or an `each`.
+        "button press=go\n  text label",
+        "button press=go\n  when label == \"\"\n    text \"Add\"\n  else\n    image \"symbol:add\"",
+        "button press=go\n  each w in [\"a\"] key=w\n    text w",
+        // An icon button named, by itself or by its image.
+        "button press=go aria-label=\"Add\"\n  image \"symbol:add\"",
+        "button press=go aria-label=label\n  image \"symbol:add\"",
+        "button press=go aria-labelledby=\"caption\" width=44 height=44",
+        "button press=go\n  image \"symbol:add\" alt=\"Add\"",
+        "button press=go\n  svg viewBox=\"0 0 10 10\" width=10 height=10 aria-label=\"Add\"\n    circle cx=5 cy=5 r=4",
+        // A bare box keeps its words; one hidden from VoiceOver is no button to it.
+        "button appearance=\"none\" press=go\n  row\n    text \"Add\"",
+        "button press=go aria-hidden=true position=\"absolute\" inset=0",
+        // Filled through a slot.
+        "Pill()\n  text \"Add\"",
+    ] {
+        assert_eq!(warned(&buttons(view)), [], "{view}");
+    }
+}
+
+const DIALOG_ROLE: &str = "lower-dialog-role";
+
+#[test]
+fn a_dialog_role_on_a_box_is_named_with_its_repair() {
+    // flashcards' editor: a `column role="dialog" aria-modal=true`, with
+    // no Escape, no focus kept inside and no iOS sheet.
+    let editor = buttons(
+        "column role=\"dialog\" aria-modal=true aria-label=\"Add a flashcard\" testId=\"editor\"\n  text \"Add a flashcard\" role=\"heading\"\n  button press=go\n    text \"Save\"",
+    );
+    assert_eq!(warned(&editor), [(DIALOG_ROLE.to_string(), 7)]);
+    let (_, warnings) = contract::compile_warned(&editor);
+    let m = &warnings[0].message;
+    assert!(
+        m.starts_with("`role=\"dialog\"` on a `column` names a dialog without making one")
+            && m.contains("no Escape")
+            && m.contains("a route with `navigationPresentation=\"modal\"`")
+            && m.contains("`dialog role=\"alertdialog\"`, opened with `showModal(id)`")
+            && m.contains("docs/recipes/navigation-stack.md"),
+        "{m}"
+    );
+    let alert =
+        buttons("view role=\"alertdialog\" aria-label=\"Delete?\"\n  text \"Gone for good.\"");
+    assert_eq!(warned(&alert), [(DIALOG_ROLE.to_string(), 7)]);
+}
+
+#[test]
+fn a_dialog_a_popover_and_a_modal_route_are_not_named() {
+    for view in [
+        // The `dialog` element, as a confirmation or laid out.
+        "dialog id=\"remove\" role=\"alertdialog\" aria-label=\"Delete?\"\n  text \"Gone for good.\"\n  button press=go commandfor=\"remove\" command=\"close\"\n    text \"Delete\"\n  button commandfor=\"remove\" command=\"close\"\n    text \"Cancel\"",
+        "dialog id=\"edit\" role=\"dialog\" closedby=\"any\"\n  text \"Edit\"",
+        // A popover: light dismiss and Escape; as an alertdialog, the
+        // native confirmation.
+        "column id=\"pick\" popover=\"auto\" role=\"dialog\" aria-label=\"Theme\"\n  text \"Light\"",
+        // A computed role is the benefit of the doubt.
+        "column role=(label == \"\" ? \"dialog\" : \"region\")\n  text \"a\"",
+        // `aria-modal` alone keeps VoiceOver inside an overlay (LLP 1080.003).
+        "column aria-modal=true\n  text \"Call\"",
+    ] {
+        assert_eq!(warned(&buttons(view)), [], "{view}");
+    }
+    // A route the router presents as a sheet.
+    let sheet = "routes nav\n  home \"/\"\n    add \"/add\"\ncomponent App\n  action back\n    nav = back(nav)\n  view\n    main navigationKey=`${top(nav).id}` navigationBack=\"back\" width=\"100%\" height=\"100%\"\n      each e in stack(nav) key=e.id\n        column navigationKey=`${e.id}` navigationPresentation=(e.name == \"add\" ? \"modal\" : \"push\") role=\"dialog\" position=\"absolute\" inset=0\n          text e.name\n";
+    assert_eq!(warned(sheet), []);
+}
+
+const COUNT_PLURAL: &str = "lower-count-plural";
+
+/// One screen over a count and a name, its view's lines at 9 on, with a
+/// `fn` on line 1 for the cases that need one.
+fn counted(view: &str, function: &str) -> String {
+    let view: String = view.lines().map(|l| format!("      {l}\n")).collect();
+    format!(
+        "{function}\nshape Event\n  going: number\n  capacity: number\ncomponent App\n  state known = 1\n  state total = 3\n  state name = \"Ada\"\n  state events = [Event(going=3, capacity=4)]\n  view\n    column\n{view}"
+    )
+}
+
+#[test]
+fn a_count_before_a_plural_noun_is_named_with_its_repair() {
+    // flashcards' and event-rsvp's round-6 lines: the noun fixed, the count
+    // free to be 1, under a choice made on something else.
+    let cards = counted(
+        "text (known == total ? \"You worked through every card.\" : `${total - known} cards to keep practicing next time.`)",
+        "",
+    );
+    assert_eq!(warned(&cards), [(COUNT_PLURAL.to_string(), 12)]);
+    let (_, warnings) = contract::compile_warned(&cards);
+    assert!(
+        warnings[0]
+            .message
+            .starts_with("this count reads \"1 cards\" when it is 1")
+            && warnings[0]
+                .message
+                .contains("`${n} ${n == 1 ? \"card\" : \"cards\"}`")
+            && warnings[0].message.contains("`contract vocab plural`"),
+        "{warnings:?}"
+    );
+    let spots = counted(
+        "each e in events key=e.going\n  text (e.going >= e.capacity ? \"Full · no spots left\" : `${e.going} going · ${e.capacity - e.going} spots left`)",
+        "",
+    );
+    assert_eq!(warned(&spots), [(COUNT_PLURAL.to_string(), 13)]);
+    // An irregular plural, a `length`, a derive, a `fn`'s parameter, an
+    // action's message.
+    for (view, function) in [
+        ("text `${total} people`", ""),
+        ("text `${length(events)} events`", ""),
+        (
+            "text daysText(total)",
+            "fn daysText(d: number): string = `${d} days`",
+        ),
+    ] {
+        let src = counted(view, function);
+        assert_eq!(warned(&src).len(), 1, "{src}");
+        assert_eq!(warned(&src)[0].0, COUNT_PLURAL, "{src}");
+    }
+    let (_, warnings) = contract::compile_warned(&counted("text `${total} people`", ""));
+    assert!(
+        warnings[0]
+            .message
+            .contains("`${n} ${n == 1 ? \"person\" : \"people\"}`"),
+        "{warnings:?}"
+    );
+    let toast = counted("text name", "").replace(
+        "  view\n",
+        "  action add\n    let n = total + 1\n    name = `${n} entries saved`\n  view\n",
+    );
+    assert_eq!(warned(&toast), [(COUNT_PLURAL.to_string(), 12)]);
+}
+
+#[test]
+fn a_chosen_noun_a_string_a_unit_or_a_total_is_not_named() {
+    for (view, function) in [
+        // The noun chosen by the number, in the template or around it.
+        (
+            "text `${total} ${total == 1 ? \"card\" : \"cards\"} left`",
+            "",
+        ),
+        ("text (total == 1 ? \"1 card\" : `${total} cards`)", ""),
+        ("text (total != 1 ? `${total} cards` : \"1 card\")", ""),
+        ("when total > 1\n  text `${total} cards`", ""),
+        (
+            "text cardsText(total)",
+            "fn cardsText(n: number): string = n == 1 ? \"1 card\" : `${n} cards`",
+        ),
+        // A string, a unit's abbreviation, a percent, a word that is no
+        // plural, a total after `of`.
+        ("text `${name} votes`", ""),
+        ("text `${total} lbs · ${total} ms · ${total} kg`", ""),
+        ("text `${total}% done`", ""),
+        ("text `${total} plus tax, ${total} was`", ""),
+        ("text `${known} of ${total} cards`", ""),
+    ] {
+        let src = counted(view, function);
+        assert_eq!(warned(&src), [], "{src}");
+    }
 }

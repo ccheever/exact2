@@ -70,7 +70,9 @@ impl ControlKind {
     /// each is Chrome's bare control under the web reset. A switch is the
     /// web page's drawn one (LLP 1116 D1), WebKit's own box and Linux's
     /// painted one, 38 × 22; an empty select, the page's 36 px tall select
-    /// (its line, padding and line). A native host that presents a different
+    /// (its line, padding and line), and a date, time or local date-time
+    /// control in the same field look (LLP 1116.001 D1), Chrome's on macOS
+    /// with an empty value. A native host that presents a different
     /// switch reports that size through the intrinsic seam. A host that knows
     /// any control's size reports it.
     pub fn default_size(self) -> (f32, f32) {
@@ -80,9 +82,9 @@ impl ControlKind {
             ControlKind::File => (347.0, 25.0),
             ControlKind::Select => (46.0, 36.0),
             ControlKind::Range => (129.0, 16.0),
-            ControlKind::Date => (150.0, 21.0),
-            ControlKind::Time => (111.796_875, 22.796_875),
-            ControlKind::DateTimeLocal => (240.0, 21.0),
+            ControlKind::Date => (164.0, 36.0),
+            ControlKind::Time => (131.796_88, 36.0),
+            ControlKind::DateTimeLocal => (247.0, 36.0),
             // UIKit's medium button, rounded (LLP 1069.011 §2: 63.33 × 34.33
             // for a short title): frame one until the host reports.
             ControlKind::Button => (64.0, 34.0),

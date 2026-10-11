@@ -23,8 +23,9 @@ component Split
     peopleText = v
   action commitPeople(v: string)
     let n = round(amount(v))
-    people = n >= 1 ? n : people
-    peopleText = n >= 1 ? `${n}` : `${people}`
+    let next = n >= 1 ? n : people
+    people = next
+    peopleText = `${next}`
 
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" testId="app" width="100%" height="100%"
@@ -36,15 +37,17 @@ component Split
           list id="form" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
             section
               row
-                text "Bill"
-                input appearance="none" value=billText input=editBill inputmode="decimal" placeholder="0.00"
-                  aria-label="Bill" text-align="end" testId="bill" flex=1 min-width=0
+                column flex=1 min-width=0 gap=4
+                  row gap=8
+                    text "Bill"
+                    input appearance="none" value=billText input=editBill inputmode="decimal" placeholder="0.00"
+                      aria-label="Bill" text-align="end" testId="bill" flex=1 min-width=0
+                  when billError != ""
+                    text billError font="-exact-footnote" color="-exact-system-red" testId="bill-error"
               row
                 text "People"
                 input appearance="none" value=peopleText input=editPeople change=commitPeople inputmode="numeric"
                   aria-label="People" text-align="end" testId="people" flex=1 min-width=0
-              footer
-                text billError testId="bill-error"
             section
               row
                 text "Each Pays"
@@ -72,4 +75,35 @@ test "a bad amount says so, and people commit on Enter"
   hint in words; leave the text as typed.
 - The number pad has no Return key, so `change` comes on blur. A `scroll` with
   `keyboardDismissMode="on-drag"` lets a drag put the keyboard away.
+
+## A value that can be negative
+
+The decimal pad has no minus key. Say the field's range: a `min` below zero gives it a ±
+key on iOS, in the keyboard's bar, as a hand-built converter adds one (the web's keyboard
+has a minus). Never `inputmode="text"` for a number: that is a letter keyboard.
+
+```contract
+component Convert
+  state celsiusText = ""
+  derive celsius = parseNumber(celsiusText)
+  action edit(v: string)
+    celsiusText = v
+  view
+    column gap=8 padding=16
+      input value=celsiusText input=edit inputmode="decimal" min="-273.15" enterkeyhint="done"
+        placeholder="0" aria-label="Celsius" testId="celsius"
+      text (match celsius { case some(c) => `${toFixed(c * 9 / 5 + 32, 1)} °F`, case none => "Enter °C" })
+        font-variant-numeric="tabular-nums" testId="fahrenheit"
+```
+
+```contract-test
+test "below zero converts"
+  type "celsius" "-40"
+  expect text "fahrenheit" == "-40.0 °F"
+```
+
+- **Putting the keyboard away** is the field's, not a permanent Done button in the bar:
+  `enterkeyhint="done"` gives the pad a Done key that puts it away (and fires `change`),
+  `blur()` does from the action that uses the value, and `keyboardDismissMode` lets a
+  drag do it.
 - Show money with [money](money.md), and a big result with [numeric-readout](numeric-readout.md).

@@ -17,10 +17,16 @@
  * (`font="-exact-footnote"`, `font-size="-exact-caption1"`). Layout (sizes,
  * padding, gaps, radii) is CSS and the author's, and is not looked at.
  *
+ * The one authored colour is the accent (LLP 1116.002 D1): a role, or one
+ * `light-dark(light, dark)` pair on `accent-color`, which is not flagged. A pair
+ * anywhere else is, as a bare literal is everywhere: the compiler's
+ * `lower-colour-one-scheme` warning names the bare ones (outside `svg`), so what
+ * passes here never earns it.
+ *
  * A numeric readout is design, not a tell (LLP 1116 D3): a literal `font-size` on
  * a node that also sets `font-variant-numeric="tabular-nums"` (a timer's or a
- * total's big number) is not flagged. A line that must keep one (a brand colour
- * the platform has no role for) ends with `// no-tells: <why>`. Exit 0 when there is nothing to say, 1 with every
+ * total's big number) is not flagged. A line that must keep a literal ends with
+ * `// no-tells: <why>`. Exit 0 when there is nothing to say, 1 with every
  * finding, 2 on a bad invocation. `apps/shelf` is held to it by its
  * `app.test.ts`.
  */
@@ -102,8 +108,22 @@ function literals(value) {
   return [...value.matchAll(/"((?:[^"\\]|\\.)*)"|`((?:[^`\\]|\\.)*)`/g)].map(m => m[1] ?? m[2]);
 }
 
+/** The literal with each balanced `light-dark(…)` removed: the accent's pair. */
+function withoutPairs(literal) {
+  let out = literal, at;
+  while ((at = out.search(/light-dark\(/i)) >= 0) {
+    let depth = 0, end = at;
+    for (; end < out.length; end++) {
+      if (out[end] === '(') depth++;
+      else if (out[end] === ')' && !--depth) break;
+    }
+    out = out.slice(0, at) + ' ' + out.slice(end + 1);
+  }
+  return out;
+}
+
 function colourIn(literal) {
-  if (HEX.test(literal)) return literal.match(HEX)[0].trim();
+  if (HEX.test(literal)) return '#' + literal.match(HEX)[2];
   if (COLOUR_FUNCTION.test(literal)) return literal.match(COLOUR_FUNCTION)[0] + '…)';
   const named = literal.split(/[\s,()]+/).find(word => NAMED.has(word.toLowerCase()));
   return named ?? null;
@@ -144,7 +164,7 @@ export function tellsIn(source) {
       if (bad !== undefined) found.push({ line, column, property: name, value, kind: 'type' });
     } else if (COLOUR_PROPERTY.test(property)) {
       for (const literal of literals(value)) {
-        const colour = colourIn(literal);
+        const colour = colourIn(property === 'accent-color' ? withoutPairs(literal) : literal);
         if (colour) { found.push({ line, column, property: name, value, kind: 'colour', colour }); break; }
       }
     }
@@ -196,11 +216,12 @@ screenshot had, which miss dark mode, Increased Contrast, Dynamic Type and the n
 - Colour: leave it unsaid (text, tint, backgrounds, separators and controls are the
   platform's), or name a role: CanvasText, AccentColor, -exact-secondary-label,
   -exact-separator, -exact-fill, -exact-grouped-background, -exact-system-red …
-  (docs/contract-for-agents.md, "Colours: say a role, not a value").
+  The one authored colour is the accent: a role, or one light-dark(light, dark) pair
+  on accent-color (docs/contract-for-agents.md, "Colours: say a role, not a value").
 - Type: leave body text unsaid; say a heading (text role="heading" aria-level=1..4) or
   a text style (font="-exact-footnote", -exact-headline, -exact-caption1 …)
   (docs/contract-for-agents.md, "Type: say a heading, not a size").
-apps/shelf is the recipe. A brand colour with no role keeps its line with
+apps/shelf is the recipe. A line that must keep a literal says why with
 \`// no-tells: <why>\`.`;
 
 if (import.meta.main) {

@@ -129,3 +129,47 @@ fn a_renewed_row_is_not_the_row_it_was() {
     assert_eq!(heard.begun[1].1, None, "a renewed row is a new one");
     assert!(heard.freed.contains(&was_renewed), "its old recording goes");
 }
+
+/// A reader made again holds none of the last one's rows (LLP 1115.001
+/// D15.1): the backend that records for it is told every row as a new one,
+/// and of none to free, though nothing in the app changed.
+#[test]
+fn a_new_reader_is_sent_every_row_again() {
+    let cells: String = (0..6)
+        .map(|i| format!("        box height=50 width=200 testId=\"c{i}\"\n"))
+        .collect();
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(&format!(
+            "component App\n  view\n    scroll testId=\"port\" width=200 height=400\n      column\n{cells}"
+        ))
+        .unwrap()
+        .encode(),
+        Nothing,
+        (400., 500.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let first = Rc::new(RefCell::new(Heard::default()));
+    p.brush.replace_backend(Box::new(Keeps {
+        heard: first.clone(),
+        row: 0,
+    }));
+    let _ = p.frame();
+    assert_eq!(first.borrow().begun.len(), 6, "each cell a kept row");
+    let _ = p.frame();
+    assert!(!p.dirty(), "nothing is owed once it has painted");
+    let second = Rc::new(RefCell::new(Heard::default()));
+    p.reader_replaced(Box::new(Keeps {
+        heard: second.clone(),
+        row: 0,
+    }));
+    assert!(p.dirty(), "the new reader is owed a paint");
+    let _ = p.frame();
+    let second = second.borrow();
+    assert_eq!(second.begun.len(), 6, "every row is recorded for it");
+    assert!(second.begun.iter().all(|(_, previous)| previous.is_none()));
+    assert!(second.freed.is_empty(), "it was sent no row to free");
+}

@@ -158,11 +158,11 @@ fn plan(context: u16, empty_call: bool) -> Plan {
     b.finish().unwrap()
 }
 
-fn entry(args: &[Value], value: &Value) -> Vec<(String, String)> {
+fn entry(args: &[Value], value: &Value) -> Vec<(String, Vec<u8>)> {
     vec![(kept::kept_name("answer"), kept::encode(args, value))]
 }
 
-fn boot(plan: Plan, source: Source, snapshot: Vec<(String, String)>) -> Runner<Source> {
+fn boot(plan: Plan, source: Source, snapshot: Vec<(String, Vec<u8>)>) -> Runner<Source> {
     Runner::boot_stored(
         plan,
         source,
@@ -233,7 +233,7 @@ fn seed_survives_two_context_changes_and_activation_asks_the_latest_full_argumen
     assert_eq!(state(&r).args, full("A", "200", 2.));
     assert_eq!(
         r.store.kept(&kept::kept_name("answer")),
-        Some(kept::encode(&[Value::str("A")], &Value::str("fresh")).as_str())
+        Some(kept::encode(&[Value::str("A")], &Value::str("fresh")).as_slice())
     );
     assert_eq!(answer_writes(&r), 1);
     assert!(r.data_ready().unwrap().is_none());
@@ -426,14 +426,14 @@ fn no_with_preserves_entry_bytes_and_requires_all_arguments_to_match() {
     r.data_ready().unwrap();
     assert_eq!(
         r.store.kept(&kept::kept_name("answer")),
-        Some(old_bytes.as_str())
+        Some(old_bytes.as_slice())
     );
     assert_eq!(answer_writes(&r), 0);
     r.act("minute", vec![Value::str("200")]).unwrap();
     assert_eq!(answer_writes(&r), 1);
     assert_eq!(
         r.store.kept(&kept::kept_name("answer")),
-        Some(kept::encode(&full("A", "200", 0.), &Value::str("kept")).as_str())
+        Some(kept::encode(&full("A", "200", 0.), &Value::str("kept")).as_slice())
     );
     let mismatch = boot(
         plan(0, false),
@@ -459,7 +459,7 @@ fn an_empty_call_keeps_one_answer_and_still_passes_all_context_to_the_source() {
     assert_eq!(r.data.asks, [vec![Value::str("200"), Value::Number(0.)]]);
     assert_eq!(
         r.store.kept(&kept::kept_name("answer")),
-        Some(kept::encode(&[], &Value::str("fresh")).as_str())
+        Some(kept::encode(&[], &Value::str("fresh")).as_slice())
     );
 }
 

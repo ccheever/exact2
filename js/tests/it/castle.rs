@@ -89,7 +89,7 @@ fn unloaded() -> Module {
 }
 
 fn store() -> Store {
-    Store::new(GRANTS, Vec::<(String, String)>::new())
+    Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new())
 }
 
 fn response(status: u16, body: &str) -> Outcome {
@@ -1080,7 +1080,7 @@ fn a_store_reading_resource_boots_from_its_kept_answer_and_is_asked_again_once_t
 
     // The keychain was cleared underneath: the kept answer shows for a
     // frame, then the engine corrects it.
-    let cleared: Vec<(String, String)> = snapshot
+    let cleared: Vec<(String, Vec<u8>)> = snapshot
         .into_iter()
         .filter(|(n, _)| n != "castle.session")
         .collect();

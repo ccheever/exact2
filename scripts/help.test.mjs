@@ -8,10 +8,10 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync,
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { createApp } from '../game/new.mjs';
-import { HELP, knownFlags } from './help.mjs';
+import { HELP, helpText, knownFlags } from './help.mjs';
 
 const ROOT = resolve(import.meta.dir, '..');
-const APP_VERBS = ['web', 'web-build', 'test', 'agent', 'ios', 'mac', 'linux', 'android', 'update', 'contract', 'hatch', 'feedback'];
+const APP_VERBS = ['web', 'web-build', 'test', 'agent', 'verify', 'ios', 'mac', 'linux', 'android', 'update', 'contract', 'hatch', 'pattern', 'feedback'];
 const timed = (args, options) => {
   const t = performance.now(), r = spawnSync(process.execPath, args, { encoding: 'utf8', timeout: 15_000, ...options });
   return { ...r, ms: performance.now() - t };
@@ -23,29 +23,30 @@ test('each verb of a new app\'s exact.mjs, and no verb, answers help from exact2
     const dir = resolve(parent, 'field-log'), sdk = resolve(parent, 'sdk'), started = resolve(parent, 'started');
     createApp(dir);
     const manifest = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
-    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest, commands: { verify: ['bun', 'verify.mjs'] } }, null, 2));
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest, commands: { seed: ['bun', 'seed.mjs'] } }, null, 2));
     // A fake exact2 whose every script, run, leaves a mark: a help that built or served anything would.
     mkdirSync(resolve(sdk, 'scripts'), { recursive: true });
     copyFileSync(resolve(ROOT, 'scripts/help.mjs'), resolve(sdk, 'scripts/help.mjs'));
-    for (const file of ['host/web/dev.mjs', 'host/web/build.mjs', 'host/apple/build.mjs', 'scripts/agent.mjs', 'scripts/build-linux.mjs', 'scripts/agent-android.mjs', 'scripts/exact.mjs', 'scripts/feedback.mjs']) {
+    for (const file of ['host/web/dev.mjs', 'host/web/build.mjs', 'host/apple/build.mjs', 'scripts/agent.mjs', 'scripts/verify.mjs', 'scripts/build-linux.mjs', 'scripts/agent-android.mjs', 'scripts/exact.mjs', 'scripts/feedback.mjs']) {
       mkdirSync(resolve(sdk, file, '..'), { recursive: true });
       writeFileSync(resolve(sdk, file), `require('node:fs').appendFileSync(${JSON.stringify(started)}, ${JSON.stringify(file)} + '\\n');`);
     }
     const exact = (...args) => timed([resolve(dir, 'exact.mjs'), ...args], { cwd: dir, env: { ...process.env, EXACT2: sdk } });
     for (const verb of APP_VERBS) {
-      const lead = verb === 'test' ? ['ios'] : verb === 'agent' ? ['web', 'tree'] : [];
-      for (const args of [[verb, '--help'], [verb, ...lead, '-h'], ['help', verb]]) {
+      const lead = verb === 'test' || verb === 'verify' ? ['ios'] : verb === 'agent' ? ['web', 'tree'] : [];
+      for (const args of [[verb, '--help'], [verb, ...lead, '-h'], ['help', verb], [verb, '--help', 'all']]) {
         const r = exact(...args);
         assert.equal(r.status, 0, `${args.join(' ')}: ${r.stderr}`);
         assert.ok(r.stdout.startsWith(HELP[verb].usage), `${args.join(' ')} printed:\n${r.stdout}`);
         assert.ok(r.ms < 2000, `${args.join(' ')} took ${Math.round(r.ms)} ms`);
+        assert.equal(r.stdout.trim(), helpText(verb, { all: args.includes('all') }), `${args.join(' ')}: the short text, or with all the whole`);
       }
     }
     for (const args of [[], ['help'], ['--help'], ['-h']]) {
       const r = exact(...args);
       assert.equal(r.status, 0, r.stderr);
-      for (const verb of [...APP_VERBS, 'verify']) assert.match(r.stdout, new RegExp(`^  ${verb} +\\S`, 'm'), `the index names ${verb}`);
-      assert.match(r.stdout, /verify +app\.json commands: bun verify\.mjs/);
+      for (const verb of [...APP_VERBS, 'seed']) assert.match(r.stdout, new RegExp(`^  ${verb} +\\S`, 'm'), `the index names ${verb}`);
+      assert.match(r.stdout, /seed +app\.json commands: bun seed\.mjs/);
     }
     assert.equal(exact('help', 'nope').status, 2);
     assert.ok(!existsSync(started), `help ran ${existsSync(started) && readFileSync(started, 'utf8')}`);
@@ -59,9 +60,10 @@ test('the scripts a verb runs answer --help and refuse a flag they do not take, 
   for (const [verb, args] of [
     ['web', ['host/web/dev.mjs', '--app', 'caltrain']], ['web-build', ['host/web/build.mjs', 'caltrain']],
     ['agent', ['scripts/agent.mjs', 'web', '--app', 'caltrain', 'tree']], ['test', ['scripts/agent.mjs', 'web', '--test', 'x.test.contract']],
+    ['verify', ['scripts/verify.mjs', 'web', '--app', 'caltrain']],
     ['ios', ['host/apple/build.mjs', '--ios', 'caltrain-apple']], ['mac', ['host/apple/build.mjs', 'caltrain-apple']],
     ['linux', ['scripts/build-linux.mjs', 'caltrain']], ['android', ['scripts/agent-android.mjs', 'build', 'caltrain']],
-    ['feedback', ['scripts/feedback.mjs', 'send']], ['hatch', ['scripts/exact.mjs', 'hatch', 'avatar']],
+    ['feedback', ['scripts/feedback.mjs', 'send']], ['hatch', ['scripts/exact.mjs', 'hatch', 'avatar']], ['pattern', ['scripts/exact.mjs', 'pattern', 'list-detail']],
     ['contract', ['scripts/exact.mjs', 'contract', 'build']], ['new', ['scripts/exact.mjs', 'new', 'x']],
   ]) {
     const help = timed([...args, '--help'], { cwd: ROOT, env });
@@ -93,15 +95,31 @@ test('each verb\'s help names exactly the flags its script parses, in a short te
   for (const [verb, flags] of [
     ['web', parsed(read('host/web/dev.mjs'), read('scripts/install-page.mjs'))],
     ['web-build', parsed(read('host/web/build.mjs'))],
-    ['agent', parsed(read('scripts/agent-launch.mjs'))], ['test', parsed(read('scripts/agent-launch.mjs'))],
+    ['agent', parsed(read('scripts/agent-launch.mjs'))], ['test', parsed(read('scripts/agent-launch.mjs'))], ['verify', parsed(read('scripts/verify.mjs'))],
     ['ios', apple], ['mac', apple],
     ['linux', parsed(read('scripts/build-linux.mjs'))], ['android', parsed(read('scripts/agent-android.mjs'))],
     ['feedback', parsed(read('scripts/feedback.mjs'))],
-    ['hatch', parsed(between('export function hatch(', '\nfunction main('))],
+    ['hatch', parsed(between('export function hatch(', '\nexport function pattern('))],
+    ['pattern', parsed(between('export function pattern(', '\nfunction main('))],
     ['new', parsed(between("if (verb === 'new')", '\n  }'))],
   ]) assert.deepEqual([...knownFlags(verb).keys()].sort(), flags, `${verb}: the help's flags (documented and internal) against its script's`);
   for (const verb of Object.keys(HELP)) {
-    const lines = (`${HELP[verb].usage}\n${HELP[verb].body}`.split('\n').length + HELP[verb].flags.length);
-    assert.ok(lines <= 34, `${verb}'s help is ${lines} lines; it is replayed in an agent's context, so keep it short`);
+    const lines = helpText(verb, { all: true }).split('\n').length;
+    assert.ok(lines <= 36, `${verb}'s help is ${lines} lines; it is replayed in an agent's context, so keep it short`);
+  }
+});
+
+// LLP 1116.003 D5: the helps a small web app reads first (web, test, agent) say what a first build
+// needs; `--help all` names every flag the short text leaves out, and the ports.
+test('a first build\'s helps are short, and --help all has every flag', () => {
+  for (const verb of ['web', 'test', 'agent']) {
+    const short = helpText(verb), all = helpText(verb, { all: true });
+    assert.ok(short.length <= 1800, `${verb} --help is ${short.length} bytes`);
+    assert.match(short, new RegExp(`^More     bun exact\\.mjs ${verb} --help all: `, 'm'));
+    for (const [row] of [...HELP[verb].flags, ...HELP[verb].more]) {
+      for (const spec of row.split(' · ')) assert.ok(all.includes(spec.split(' ')[0]), `${verb} --help all names ${spec}`);
+    }
+    assert.match(all, /^Ports {4}/m, `${verb} --help all says its ports`);
+    assert.doesNotMatch(all, /^More /m);
   }
 });

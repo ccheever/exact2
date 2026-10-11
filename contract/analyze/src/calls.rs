@@ -148,7 +148,7 @@ impl<'a> Walk<'a> {
     ) {
         let mut found = Vec::new();
         slot_reads(e, &self.slots, bound, &mut found);
-        for (slot, at) in found {
+        for (slot, at, _) in found {
             let Some(w) = written.get(slot).and_then(|ws| {
                 ws.iter()
                     .find(|w| w.frame != self.frame.0 && !exclusive(&w.guard, guard))
@@ -235,17 +235,25 @@ fn merge<'a>(into: &mut Written<'a>, from: Written<'a>) {
     }
 }
 
-/// The slots `e` reads, outside the binders in force and written in it.
-fn slot_reads<'e>(
+/// The slots `e` reads, outside the binders in force and written in it,
+/// each with the field read of it when it is a record's (`s.f`).
+pub(super) fn slot_reads<'e>(
     e: &'e Expr,
     slots: &BTreeSet<&str>,
     bound: &mut Vec<&'e str>,
-    out: &mut Vec<(&'e str, Span)>,
+    out: &mut Vec<(&'e str, Span, Option<&'e str>)>,
 ) {
     match e {
         Expr::Ident(n, span) => {
             if slots.contains(n.as_str()) && !bound.contains(&n.as_str()) {
-                out.push((n, *span));
+                out.push((n, *span, None));
+            }
+        }
+        Expr::Member(x, field, _) if matches!(&**x, Expr::Ident(..)) => {
+            let at = out.len();
+            slot_reads(x, slots, bound, out);
+            if let Some(read) = out.get_mut(at) {
+                read.2 = Some(field);
             }
         }
         Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => {}

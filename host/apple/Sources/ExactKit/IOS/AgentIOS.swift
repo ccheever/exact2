@@ -19,6 +19,7 @@ extension Agent {
     /// `sessions` are what a request's `session` label routes among.
     public static func startSocket(ready: [String: Any], sessions: [(String, ExactSession)]) {
         routes = sessions
+        _ = KeyboardMotion.shared // a press waits out the keyboard's motion (`settleForPress`)
         // Agent input does not reset UIKit's user-idle timer. Keep an explicitly
         // driven test launch awake; normal launches never enter this carrier.
         UIApplication.shared.isIdleTimerDisabled = true
@@ -441,47 +442,6 @@ extension Agent {
         return presenter.textHost(UInt32(id))
     }
 
-    /// The agent's `reveal` (ledger F7, shop F11): before a tap or a type, a
-    /// view whose middle is out of view is scrolled to the middle of each
-    /// enclosing scroll view it is outside of, innermost first, then the
-    /// page's — as the web's `scrollIntoView` does there (block centre,
-    /// inline only as far as it takes) — unanimated, as far as each one's
-    /// range allows; their delegates tell the app, as a finger's scroll does.
-    /// In view is what a person sees: inside the scroll view's insets, as the
-    /// presenter's own reveal of a focused field measures it, so the bars and
-    /// the keyboard are out of view: the viewport ends at its top
-    /// (`resizes-content`, the default) or is inset by it (`resizes-visual`).
-    /// `overlays-content` insets nothing, so there the keyboard's top bounds
-    /// it (LLP 1086.000.000 D2).
-    func reveal(_ req: [String: Any]) -> [String: Any] {
-        guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
-        let from = box(v)
-        // The keyboard's top in the window, as the presenter last applied it.
-        let keyboard = presenter.keyboardPolicy == "overlays-content" ? presenter.keyboardTop : nil
-        var scrolled = false
-        for case let sv as UIScrollView in sequence(first: v.superview, next: { $0?.superview }).compactMap({ $0 }) where sv.isScrollEnabled {
-            let frame = v.convert(v.bounds, to: sv), mid = CGPoint(x: frame.midX, y: frame.midY), i = sv.adjustedContentInset
-            var port = sv.bounds.inset(by: i)
-            if let keyboard { port.size.height = max(0, min(port.maxY, sv.convert(CGPoint(x: 0, y: keyboard), from: nil).y) - port.minY) }
-            if port.contains(mid) { continue }
-            var o = sv.contentOffset
-            if mid.y < port.minY || mid.y >= port.maxY { o.y += mid.y - port.midY }
-            // Inline, only as far as it takes from the side its middle is on; a
-            // target wider than the port is centred, so its middle comes in.
-            if mid.x < port.minX || mid.x >= port.maxX {
-                o.x += frame.width > port.width ? mid.x - port.midX : mid.x < port.minX ? frame.minX - port.minX : frame.maxX - port.maxX
-            }
-            o.y = min(max(o.y, -i.top), max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height))
-            o.x = min(max(o.x, -i.left), max(-i.left, sv.contentSize.width + i.right - sv.bounds.width))
-            if o != sv.contentOffset { sv.contentOffset = o; scrolled = true }
-        }
-        guard scrolled else { return ["revealed": Int(v.id), "scrolled": false] }
-        presenter.settlePump()
-        let to = box(v)
-        return ["revealed": Int(v.id), "scrolled": to.origin != from.origin,
-                "from": [Agent.r2(from.midX), Agent.r2(from.midY)], "to": [Agent.r2(to.midX), Agent.r2(to.midY)]]
-    }
-
     func tap(_ req: [String: Any]) -> [String: Any] {
         // A header node the app's navigation bar leaves out is not there to
         // tap, whatever the agent's chrome paints (LLP 1116 D2).
@@ -489,6 +449,8 @@ extension Agent {
             return ["error": "tap #\(id)\(node.props["testId"].map { " [\($0)]" } ?? ""): \(why)"]
         }
         if let reply = touchForm(req) { return reply }
+        settleForPress()
+        if req["scrollDrag"] != nil { return scrollDrag(req) }
         if view(req)?.placedAncestor?.placementHidden == true { return ["error": "placed child is hidden"] }
         if req["phase"] == nil, req["wheel"] == nil,
            let node = view(req), node.isDescendant(of: presenter.viewport), presenter.groupedLists?.draws(node.id) != true,
@@ -545,6 +507,11 @@ extension Agent {
             if let unsupported = presenter.controls.unopened(node) { return unsupported }
             return activated ? ["tapped": id, "delivery": "host-activation", "native": "control"]
                 : ["error": "control #\(id) is disabled, inert or not shown"]
+        }
+        if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
+           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
+           let why = drawnCovered(node) {
+            return ["error": "tap #\(id): \(why)"]
         }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
@@ -1052,6 +1019,8 @@ extension Agent {
 
     func screenshot(_ req: [String: Any]) -> [String: Any] {
         let loading = settleForPicture()
+        // UIKit's own motion lands first, unless the picture is a film's frame (LLP 1116.003 D8).
+        if req["film"] as? Bool != true { settleMotion() }
         // A canvas painting its children through its surface (LLP 1014)
         // shows its last capture: what is pending is captured and rendered
         // at the agent's clock first, as `clock` leaves it.

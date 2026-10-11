@@ -44,6 +44,12 @@ fn layout(id: StyleId) -> bool {
     )
 }
 
+/// The control's tint, which the platform applies to its own button (LLP 1104
+/// D3's table: `tintColor`), so it preserves no authored appearance.
+fn tint(id: StyleId) -> bool {
+    id == StyleId::AccentColor
+}
+
 impl Lowerer<'_> {
     /// Decide from authored class-then-own rows, before any grouped-list UA
     /// sheet. A sheet is not author CSS and cannot disable native appearance.
@@ -113,7 +119,9 @@ impl Lowerer<'_> {
         let native = bare_reason.is_none();
         let migrate = native
             && self.sites.is_some()
-            && (attrs.iter().any(|a| rows(a).iter().any(|id| !layout(*id)))
+            && (attrs
+                .iter()
+                .any(|a| rows(a).iter().any(|id| !layout(*id) && !tint(*id)))
                 || self.styled_button_face(children)?);
         Ok(Some(ButtonSite {
             native,

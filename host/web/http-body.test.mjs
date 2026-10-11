@@ -1,6 +1,6 @@
 import {test} from 'bun:test';
 import assert from 'node:assert/strict';
-import {existsSync,mkdtempSync,rmSync,writeFileSync} from 'node:fs';
+import {mkdtempSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {dirname,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -8,11 +8,13 @@ import {spawnSync} from 'node:child_process';
 import {boundedHttpBody as readBody, waitForInflight} from './http-body.js';
 
 const ROOT=resolve(dirname(fileURLToPath(import.meta.url)),'../..'),sets=new Map();
+const target=resolve(process.env.CARGO_TARGET_DIR||resolve(ROOT,'target'),`debug/exact-web-js${process.platform==='win32'?'.exe':''}`);
+const built=spawnSync('cargo',['build','-q','-p','exact-web-js'],{cwd:ROOT,encoding:'utf8'});
+if(built.status!==0)throw new Error(built.stderr||'grant normalizer build failed');
 function normalized(spec){
   if(sets.has(spec))return sets.get(spec);
   const scratch=mkdtempSync(resolve(tmpdir(),'exact-grants-')),input=resolve(scratch,'grants.txt');writeFileSync(input,spec);
-  const target=resolve(process.env.CARGO_TARGET_DIR||resolve(ROOT,'target'),'debug/exact-web-js');
-  const result=existsSync(target)?spawnSync(target,['normalize-grants',input],{cwd:ROOT,encoding:'utf8'}):spawnSync('cargo',['run','-q','-p','exact-web-js','--','normalize-grants',input],{cwd:ROOT,encoding:'utf8'});
+  const result=spawnSync(target,['normalize-grants',input],{cwd:ROOT,encoding:'utf8'});
   rmSync(scratch,{recursive:true});if(result.status!==0)throw new Error(result.stderr||'grant normalizer failed');
   const set=JSON.parse(result.stdout);sets.set(spec,set);return set;
 }

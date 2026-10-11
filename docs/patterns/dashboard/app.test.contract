@@ -1,0 +1,17 @@
+test "the month leads with its total, its categories and the latest rows"
+  expect state detail == "$5.10 left of $800.00"
+  expect tree has "by-category"
+  expect state summary.recent.0 .title == "Corner Market"
+
+test "an empty week says what to do, and its button goes back to the month"
+  tap "week"
+  clock data
+  expect tree missing "by-category"
+  tap "see-month"
+  clock data
+  expect state period == "month"
+  expect tree has "recent"
+
+test "a wide window shows both columns"
+  size 1100x800
+  expect tree has "recent"

@@ -302,6 +302,7 @@ public final class ExactApp {
         lastModule = module
         selectedToken = token
         if let shaderSources { surfaces?.replaceShaders(shaderSources) }
+        for (session, _) in batches { session.awaitingTree = true } // each report waits for its own tree: one tree may retint the window
         for (session, batch) in batches { session.presentCommitted(batch, label: label) }
         for session in participants { session.apply(session.runtime.deliverySync()) }
         transaction = false
@@ -810,17 +811,16 @@ public final class ExactSession {
         let tApply = CACurrentMediaTime()
         if batch.error == nil {
             sampler?.reset() // a new runner numbers its transactions afresh (LLP 1079 D3)
-            // A fresh boot over a running app (the dev menu's reload from
-            // the baked plan) starts the views over; the library already
-            // replaced its host.
+            // A fresh boot over a running app (the dev menu's reload from the baked plan) starts the views over; the library already replaced its host.
             routerOp = nil
             generation += 1
-            if booted { presenter.reset(); forgetAppearances(); presenter.launchAutofocusReleased = false } // a fresh boot's autofocus waits again
+            if booted { awaitingTree = true; presenter.reset(); forgetAppearances(); presenter.launchAutofocusReleased = false } // a fresh boot's autofocus waits again
             booted = true
             text.commitFonts()
             AppFiles.learn(runtime) // before the first frame's `app:/` images load (LLP 1069.002 D7)
         }
         apply(batch)
+        treeIsIn()
         if batch.error == nil { tellTime(); refuseUnheardLaunch() }
         // A fresh runner must receive the view's current viewport and insets.
         if batch.error == nil { view?.rebooted() }
@@ -900,6 +900,7 @@ public final class ExactSession {
         routerOp = nil
         let restart = booted, kept = keptFocus
         keptFocus = nil
+        awaitingTree = true // the tint a reset gives back is reported with the new tree
         presenter.reset()
         forgetAppearances()
         booted = true
@@ -908,13 +909,14 @@ public final class ExactSession {
         sampler?.reset() // a new runner numbers its transactions afresh (LLP 1079 D3)
         AppFiles.learn(runtime)
         apply(batch)
+        treeIsIn()
         tellTime()
         refuseUnheardLaunch()
         view?.rebooted()
         autofocusHeld = false
         if restart { presenter.restoreFocus(kept, tree: agent("{\"op\":\"tree\"}")) }
         state = .ready
-        fputs("reloaded \(label)\n", stderr)
+        if restart { fputs("reloaded \(label)\n", stderr) } // a launch generation's first boot is no reload
     }
 
     /// A host may replace one session's plan transactionally; app delivery
@@ -1026,6 +1028,7 @@ public final class ExactSession {
                 let (name, json) = pendingSurfaceRecords.removeFirst()
                 apply(runtime.surfaceRecord(name, json))
             }
+            if colorsOwed, !holdingReports, !awaitingTree { colorsOwed = false; apply(runtime.reportColors(tint: SystemColor.appTint.flatMap { SystemColor.tintPair($0) })) }
             while !holdingReports, !pendingViewDark.isEmpty {
                 let (id, dark) = pendingViewDark.removeFirst()
                 apply(runtime.viewScheme(id, dark: dark))
@@ -1322,34 +1325,33 @@ public final class ExactSession {
             let early = unreported; unreported.removeAll()
             for id in early { if let v = presenter.views[id] { noteAppearance(v) } }
         }
-        // A subtree with a `color-scheme` of its own keeps its appearance
-        // when the session's changes, so no trait callback says it: said
-        // here, after the scheme. Its views' appearance is the row's, already
-        // settled, whatever the platform's walk has reached.
+        // A subtree with a `color-scheme` of its own keeps its appearance when the session's changes, so no trait
+        // callback says it: said here, after the scheme. Its views' appearance is the row's, already settled,
+        // whatever the platform's walk has reached.
         for v in presenter.views.values where v.style["color_scheme"] != nil { noteAppearance(v) }
         apply(runtime.scheme(dark: dark))
     }
-    /// @ref LLP 1095 D9 — the platform's resolution of every reference the
-    /// kernel paints itself, with the app's tint read here, on main: one
-    /// for every session (`SystemColor.appTint`), since the table is the
-    /// process's; a view's own tint is the host's to paint (`ownTint`).
+    /// @ref LLP 1095 D9 — the platform's resolution of every reference the kernel paints itself, with the app's tint
+    /// read here, on main: one for every session (`SystemColor.appTint`), since the table is the process's; a view's
+    /// own tint is the host's to paint (`ownTint`).
     func reportColors() {
         guard booted, state != .destroyed else { return }
         #if os(iOS) || os(tvOS)
-        // No window, no report: attaching reports (`didMoveToWindow`),
-        // before its scheme, so nothing eases from a stand-in blue.
+        // No window, no report: attaching reports (`didMoveToWindow`), before its scheme, so nothing eases from a stand-in blue.
         guard view?.window != nil else { return }
         #endif
+        if applying || awaitingTree { colorsOwed = true; return } // a tint the batch being applied set, reported once the batch is in
         // No app tint: `@tint` is left out, and the kernel keeps the last.
         apply(runtime.reportColors(tint: SystemColor.appTint.flatMap { SystemColor.tintPair($0) }))
     }
-    /// The appearance last reported for the session, and each node view
-    /// found painting motion in another (a sheet's override, say), by id.
+    /// The appearance last reported for the session, and each node view found painting motion in another (a sheet's override, say), by id.
     private(set) var schemeDark: Bool?
     private(set) var viewDark: [UInt32: Bool] = [:]
-    private var pendingViewDark: [(UInt32, Bool)] = []
-    /// A view painting motion: when its own appearance is not the one its
-    /// node's colours resolve by, say so after the batch (LLP 1062 D4).
+    private var pendingViewDark: [(UInt32, Bool)] = [], colorsOwed = false
+    fileprivate(set) var awaitingTree = false // committed to a new runner whose tree is not in: a report would reach the old views
+    private func treeIsIn() { awaitingTree = false; if colorsOwed { colorsOwed = false; reportColors() } } // only the replacement batch, not a reset's cleanup
+    /// A view painting motion: when its own appearance is not the one its node's colours resolve by, say so after
+    /// the batch (LLP 1062 D4).
     func noteAppearance(_ view: NodeView) {
         guard let session = schemeDark else { unreported.insert(view.id); return }
         let dark = view.drawsDark

@@ -590,6 +590,12 @@
       "_comment": "@ref LLP 1075.003 §3.5: the HTML id of the route's content scroll view, resolved inside the route as its Back control is."
     },
     {
+      "id": 262,
+      "name": "navigationSplit",
+      "kind": "str",
+      "_comment": "@ref LLP 1116.004 D1.2: on a stack's root route, \"none\" keeps a wide window's stack pushed, and a positive width (CSS px, points) is the list column's when the stack splits, splitting a list the host's rule does not find; unsaid, a list whose rows push splits at 320."
+    },
+    {
       "id": 221,
       "name": "accessibilityControls",
       "kind": "str",
@@ -1538,6 +1544,10 @@
       "values": ["dynamic", "small", "medium", "large", "capsule"],
       "default": "dynamic"
     },
+    "TextFit": {
+      "values": ["none", "shrink"],
+      "default": "none"
+    },
     "FlexDirection": {
       "values": [
         "row",
@@ -2195,6 +2205,21 @@
         "auto"
       ],
       "default": "manual"
+    },
+    "TextBoxTrim": {
+      "_comment": "CSS `text-box-trim` (Inline Layout 3 \u00a74.1): trim the first formatted line's over edge (trim-start), the last line's under edge (trim-end), or both, to `text-box-edge`. Not inherited.",
+      "values": ["none", "trim-start", "trim-end", "trim-both"],
+      "default": "none"
+    },
+    "TextBoxEdge": {
+      "_comment": "CSS `text-box-edge` (Inline Layout 3 \u00a74.2): the over edge (text, cap or ex) and the under edge (text or alphabetic) a trim cuts to, as one value: `cap alphabetic` is cap-alphabetic; one keyword is that over edge with a text under edge; auto is text text. Contract writes CSS's two words. Inherited.",
+      "values": ["auto", "text", "cap", "ex", "text-alphabetic", "cap-alphabetic", "ex-alphabetic"],
+      "default": "auto"
+    },
+    "OutlineStyle": {
+      "_comment": "@ref LLP 1104 D6: CSS `outline-style`, bounded to `none`, CSS's initial value, which an author writes to take a text field's focus ring off. The other line styles are refused by name.",
+      "values": ["none"],
+      "default": "none"
     }
   },
   "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points, 3-6 an env(safe-area-inset-top/right/bottom/left) length with the f32 the points added, 7 calc(<percent> \u00b1 <px>) with a second f32 the points, 8-13 an env(viewport-segment-width/height/top/left/bottom/right x y) length with the f32 the points added and then two u8 indices x then y \u2014 LLP 1078 D3; 14-23 viewport vw/vh/vmin/vmax/svw/svh/lvw/lvh/dvw/dvh with f32 the percentage; 24 a min()/max()/clamp() with a zero f32 and then its tree \u2014 style/compare.rs, LLP 1001 \u00a72) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | auto-color (u8: 0 auto, 1 followed by color) | color2 (rgba8 rgba8) | tracks (CSS grid-template grammar Taffy can lay out: none, named lines, px, %, fr, auto, min/max-content, fit-content(), minmax(), and fixed/auto-fill/auto-fit repeat(); canonical CSS text on the wire) | placement (CSS grid placement: auto, nonzero numeric or named lines and positive numeric or named spans; canonical CSS text on the wire) | aspect-ratio (CSS text: auto, a ratio, or both) | background-image (CSS text: none or one gradient, LLP 1066) | paint (CSS text: none, currentcolor, or a colour) | dasharray (CSS text: none or a list of numbers) | transform (CSS text: a transform list) | paint-order (CSS text: normal, or fill/stroke/markers) | marker (CSS text: none or url(#id)) | transform-origin (CSS text: one to three lengths, percentages or keywords) | animations (`_animations`) | drag-timeline, animation-timeline, animation-range, timeline-scope (CSS text: the four timeline rows, LLP 1057.003) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. Every length row (each dimension, line-height, font-size, letter-spacing, the gaps, border widths and radii, shape-margin) also takes CSS `rem` and `em` through `set_dynamic`; the row holds the pixels the kernel resolves at the end of each commit against the host's root font size (LLP 1069.000 D3), so every reader and the wire see pixels. Every length row also takes CSS `ch` and `lh` at a fixed 8\u00d716 px cell (LLP 1101 D3). terminal: how a terminal entry admits the row (LLP 1101 \u00a74) \u2014 cell (lengths only in `ch`/`lh`, a percentage, `auto` or 0), admit, or quantize (the host approximates it); a row without one is refused in a terminal entry. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance \u2014 a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults \u2014 this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard). A colour row's default may name a role from `colors` (`\"CanvasText\"`), as CSS's initial `color` is a system colour; a host with the platform's colour shows that, never a snapshot (LLP 1095 stage 2).",
@@ -3261,7 +3286,7 @@
       "codec": "auto-color",
       "inherited": true,
       "default": "auto",
-      "_comment": "@ref LLP 1069.001 D6: CSS `accent-color`, the tint of a form control (a checkbox's fill, a switch's on track); auto is the platform's."
+      "_comment": "@ref LLP 1069.001 D6: CSS `accent-color`, the tint of a form control (a checkbox's fill, a switch's on track); auto is the platform's. LLP 1116.001 D2: also its subtree's tint, which the `@tint` roles at full strength (`AccentColor`, `LinkText`) resolve to beneath it (`roles::follows_accent`): iOS sets it as the view's `tintColor`, the web reads the `--exact-accent` written beside it."
     },
     {
       "bit": 146,
@@ -3639,6 +3664,38 @@
       "field": "control_corner_style",
       "codec": "enum:ControlCornerStyle",
       "_comment": "@ref LLP 1069.011.001 D9, D15: -exact-corner-style, a native button's named corners; an authored border-radius wins. An unset mask leaves the platform's corners alone."
+    },
+    {
+      "bit": 200,
+      "field": "fit",
+      "rare": true,
+      "terminal": "admit",
+      "codec": "enum:TextFit",
+      "text": true,
+      "layout": true,
+      "_comment": "@ref LLP 1116.001 D1.4: not CSS. -exact-fit: shrink is UIKit's adjustsFontSizeToFitWidth with a minimumScaleFactor on a text: when its longest unbreakable run (its whole line under white-space: nowrap) is wider than its content box, the kernel measures it at the scale that fits, down to half its size (display text bigger than twice the root font size: down to the root size), and publishes that scale (Kernel::fit_scale), at which every host draws it. Opt-in; a terminal draws whole cells."
+    },
+    {
+      "bit": 201,
+      "field": "text_box_trim",
+      "codec": "enum:TextBoxTrim",
+      "text": true,
+      "layout": true
+    },
+    {
+      "bit": 202,
+      "field": "text_box_edge",
+      "codec": "enum:TextBoxEdge",
+      "inherited": true,
+      "text": true,
+      "layout": true
+    },
+    {
+      "bit": 203,
+      "field": "outline_style",
+      "terminal": "admit",
+      "codec": "enum:OutlineStyle",
+      "_comment": "@ref LLP 1104 D6: CSS `outline-style` on a text field (`input`, `textarea`). An unset mask is the platform's focus ring, as the UA sheet's `:focus-visible` outline is the browser's: the ring the OS draws for a native field, the one Exact draws for a bare one. `none` takes it off on every host, and Tab order and accessibility stay. A terminal draws no ring. Not inherited, as in CSS."
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 -exact-tint-color, 23 box-shadow \u2014 LLP 1062; 24, box-shadow's colour alone, is refused; 25 is CSS's `border-color` shorthand; 26 is a path's `d`, LLP 1055.000 D15), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",

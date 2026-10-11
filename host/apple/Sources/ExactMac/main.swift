@@ -307,6 +307,11 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
     }
 }
 
+// EXACT_PLAN naming a local bake with its module (LLP 1116.003) is the launch
+// generation: the first boot runs it fresh, as a build that baked it would.
+let launchRefusal = ExactEnv.environment["EXACT_PLAN"].flatMap { path in
+    ExactDevelopmentPlan(path).hasModule ? ExactDevelopmentPlan(path).installInitial(on: exact) : nil
+}
 let firstWindow = DocumentWindow(label: "main", first: true)
 /// Every open window, oldest first.
 var windows = [firstWindow]
@@ -556,15 +561,14 @@ func finishLaunching() {
         let presented = session.viewportSize
         let size = presented.width > 0 && presented.height > 0 ? presented : window.contentLayoutRect.size
         let path = ExactEnv.environment["EXACT_PLAN"] ?? devPlanPath
-        if let path, ExactDevelopmentPlan(path).hasModule, ExactEnv.environment["EXACT_PLAN"] != nil {
-            DispatchQueue.main.async { ExactDevelopmentPlan(path).apply(to: exact) }
-        }
         if let path, !ExactDevelopmentPlan(path).hasModule, let bytes = FileManager.default.contents(atPath: path) {
             planRefusal = session.boot(plan: bytes, size: size).error
             return planRefusal
         }
-        if session.booted { return session.bootError }
-        return session.boot(size: size).error
+        // A plan with its module boots here as the launch generation; a refused one, the embedded plan.
+        planRefusal = launchRefusal
+        let error = session.booted ? session.bootError : session.boot(size: size).error
+        return planRefusal ?? error
     }()
     // Boot the selected plan before attachment can auto-boot the embedded one.
     // A session mounts once, including its one autofocus attempt.
