@@ -980,10 +980,10 @@ impl LayoutTree {
             // LayoutOutput, including baselines in border-box coordinates.
             let inset = style
                 .padding
-                .resolve_or_zero(inputs.parent_size.width, |_, _| 0.0)
+                .resolve_or_zero(inputs.parent_size.width, crate::style::resolve_calc)
                 + style
                     .border
-                    .resolve_or_zero(inputs.parent_size.width, |_, _| 0.0);
+                    .resolve_or_zero(inputs.parent_size.width, crate::style::resolve_calc);
             // @ref LLP 1043.000 §3 D3 — upstream supplies the full layout input.
             // The proof is separate from the ordinary size-only callback offers.
             let height_known = match (inputs.run_mode, inputs.sizing_mode) {
@@ -994,7 +994,7 @@ impl LayoutTree {
                         .or_else(|| {
                             style
                                 .size
-                                .maybe_resolve(inputs.parent_size, |_, _| 0.0)
+                                .maybe_resolve(inputs.parent_size, crate::style::resolve_calc)
                                 .maybe_apply_aspect_ratio(style.aspect_ratio)
                                 .height
                         })
@@ -1007,7 +1007,7 @@ impl LayoutTree {
             let mut output = taffy::compute_leaf_layout(
                 inputs,
                 style,
-                |_, _| 0.0,
+                crate::style::resolve_calc,
                 |known, space| {
                     let Some(context) = context else {
                         return Size::ZERO;
