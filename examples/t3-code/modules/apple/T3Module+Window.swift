@@ -1,6 +1,6 @@
 // T3Module's window ops (T3Module.swift routes them): drawn frames for
 // window-level popups, the appearance, send shortcut and quit mode, Open in
-// Finder's folder picker, and copying text.
+// Finder's folder picker, copying text, and the shell's menu for a link's click.
 import Foundation
 import AppKit
 
@@ -23,6 +23,13 @@ extension T3Module {
                 self?.menus.pickFolder(startingAt: request["path"] as? String ?? "") { path in
                     reply.send(["ok": true, "generation": request["generation"] as? Int ?? 0, "value": ["path": path ?? ""]])
                 }
+            }
+            return
+        }
+        if request["op"] as? String == "shellMenu" { // reply-links: a link's `contextmenu` left its click to the shell (T3TextContextMenu)
+            DispatchQueue.main.async { [weak self] in
+                let shown = self?.textMenu.shellMenuForLastClick() ?? false
+                reply.send(["ok": true, "generation": request["generation"] as? Int ?? 0, "value": ["shown": shown]])
             }
             return
         }

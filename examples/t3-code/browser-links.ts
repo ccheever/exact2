@@ -112,6 +112,10 @@ export async function openLink(client: T3Client, native: Native, url: string, op
  *  result in the work-log inspector ("external": the system browser). */
 export async function openLinkFromUi(client: T3Client, native: Native, kind: string, url: string): Promise<string> {
   if (!url) return '';
+  // reply-links RL-1, RL-2: ChatMarkdown leaves a mailto, irc, xmpp or fragment link's click to the desktop shell, whose
+  // window-open handler opens only http(s) and remote-editor links (DesktopWindow.ts, parseSafeExternalUrl): nothing opens.
+  // A fragment also sets the page's hash, which Electron's hash router reads as a route (it leaves the thread); the clone stays.
+  if (kind === 'link' && !isWebUrl(url)) return '';
   let event = NO_MODIFIER;
   if (kind === 'link') {
     const gesture = obj((await bridgeReply(native, { op: 'composerSendIntent' }).catch(() => ({ ok: false, generation: 0, value: {} }))).value);
