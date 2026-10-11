@@ -192,6 +192,8 @@ public final class ExactApp {
     func applyGeneration(_ g: ExactGeneration, label: String, commit: () -> Bool) -> Bool {
         precondition(commit()); generations.append(g); return true
     }
+    var initial: ExactGeneration?
+    func installInitial(_ g: ExactGeneration) { initial = g }
 }
 let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -202,12 +204,16 @@ func write(_ name: String, _ value: String) throws {
 let app = ExactApp(), candidate = ExactDevelopmentPlan(directory.appendingPathComponent("app.plan").path)
 try write("app.plan", "plan")
 precondition(!candidate.hasModule && candidate.apply(to: app) && app.plain == 1)
+precondition(candidate.installInitial(on: app) == "app.plan has no module beside it" && app.initial == nil)
 let bare = candidate.revision
 try write("app.module.json", "receipt")
 let partial = candidate.revision
 precondition(partial != bare && candidate.hasModule)
 precondition(!candidate.apply(to: app) && app.plain == 1 && app.generations.isEmpty)
+precondition(candidate.installInitial(on: app)?.hasPrefix("local generation refused") == true && app.initial == nil)
 try write("app.hbc", "bytecode")
+// The pair as the launch generation (LLP 1116.003): installed whole, never applied over a running plan.
+precondition(candidate.installInitial(on: app) == nil && app.initial?.module.bytecode == Data("bytecode".utf8) && app.generations.isEmpty)
 precondition(candidate.revision != partial && candidate.apply(to: app))
 let pair = app.generations.last!
 precondition(pair.plan == Data("plan".utf8) && pair.module.receipt == Data("receipt".utf8))

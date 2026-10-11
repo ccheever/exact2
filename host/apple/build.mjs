@@ -663,6 +663,7 @@ async function main(args) {
     process.exitCode = 1; return;
   }
   const app = resolveApp(args.find((a, i) => !a.startsWith('--') && !['--sim', '--phone', '--url', '--archive', '--optimize', '--link'].includes(args[i - 1])));
+  if (args.includes('--prebuild')) { process.exitCode = await (await import('../../scripts/agent-build.mjs')).prebuild(app, args); return; } // LLP 1116.003 D1.2
   const release = appleBuildLock(app);
   const cleanup = [], beside = []; // what to remove, and the steps started beside the build, when it ends
   try {
@@ -689,8 +690,7 @@ async function main(args) {
     built: `lib${app.crate(`gpu-${name}`).replace(/-/g, '_')}.dylib`, load: `libexact_gpu_${name.replace(/-/g, '_')}.dylib` }));
   const webLoadName = 'libexact_web.dylib';
   const videoLoadName = 'libexact_video.dylib';
-  const soundLoadName = 'libexact_sound.dylib';
-  const svgLoadName = 'libexact_svg.dylib';
+  const soundLoadName = 'libexact_sound.dylib', svgLoadName = 'libexact_svg.dylib';
   const webBuildDir = mkdtempSync(resolve(tmpdir(), 'exact-webarm-'));
   cleanup.push(webBuildDir);
   const webBuilt = resolve(webBuildDir, webLoadName);
