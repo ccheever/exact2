@@ -1,0 +1,278 @@
+[
+  {
+    "label": "palette: open",
+    "active": "INPUT[Search commands, projects, and threads...]",
+    "insideDialog": true,
+    "dialog": "Command palette",
+    "rect": {
+      "x": 362,
+      "y": 92,
+      "w": 556,
+      "h": 34
+    }
+  },
+  {
+    "label": "palette: Tab from the field",
+    "active": "DIV \"Actions New thread in Verification fixtu\"",
+    "insideDialog": true,
+    "dialog": "Command palette",
+    "rect": {
+      "x": 353,
+      "y": 133,
+      "w": 574,
+      "h": 330
+    }
+  },
+  {
+    "label": "palette: Shift+Tab from the field",
+    "active": "INPUT[Search commands, projects, and threads...]",
+    "insideDialog": true,
+    "dialog": "Command palette",
+    "rect": {
+      "x": 362,
+      "y": 92,
+      "w": 556,
+      "h": 34
+    }
+  },
+  {
+    "label": "quit: open",
+    "active": "BUTTON \"Cancel\"",
+    "insideDialog": true,
+    "dialog": "Quit Brave to import",
+    "rect": {
+      "x": 705.0625,
+      "y": 452.5,
+      "w": 69.3515625,
+      "h": 32
+    }
+  },
+  {
+    "label": "quit: Shift+Tab from Cancel",
+    "active": "BUTTON[Close]",
+    "insideDialog": true,
+    "dialog": "Quit Brave to import",
+    "rect": {
+      "x": 855,
+      "y": 347.5,
+      "w": 32,
+      "h": 32
+    }
+  },
+  {
+    "label": "quit: Tab from the X",
+    "active": "BUTTON \"Cancel\"",
+    "insideDialog": true,
+    "dialog": "Quit Brave to import",
+    "rect": {
+      "x": 705.0625,
+      "y": 452.5,
+      "w": 69.3515625,
+      "h": 32
+    }
+  },
+  {
+    "label": "configure: open",
+    "active": "BUTTON \"Personal 5 cookies\"",
+    "insideDialog": true,
+    "dialog": "Import from Chrome",
+    "rect": {
+      "x": 409,
+      "y": 373.5,
+      "w": 207,
+      "h": 54
+    }
+  },
+  {
+    "label": "configure: Shift+Tab from the first tile",
+    "active": "BUTTON[Close]",
+    "insideDialog": true,
+    "dialog": "Import from Chrome",
+    "rect": {
+      "x": 855,
+      "y": 238.5,
+      "w": 32,
+      "h": 32
+    }
+  },
+  {
+    "label": "configure: Tab from the X",
+    "active": "BUTTON \"Personal 5 cookies\"",
+    "insideDialog": true,
+    "dialog": "Import from Chrome",
+    "rect": {
+      "x": 409,
+      "y": 373.5,
+      "w": 207,
+      "h": 54
+    }
+  },
+  {
+    "label": "remove: open",
+    "active": "BUTTON \"Cancel\"",
+    "insideDialog": true,
+    "dialog": "Remove “Firefox”?",
+    "rect": {
+      "x": 671.125,
+      "y": 462.5,
+      "w": 69.3515625,
+      "h": 32
+    }
+  },
+  {
+    "label": "remove: Shift+Tab from Cancel",
+    "active": "BUTTON \"Remove profile\"",
+    "insideDialog": true,
+    "dialog": "Remove “Firefox”?",
+    "rect": {
+      "x": 748.4765625,
+      "y": 462.5,
+      "w": 122.5234375,
+      "h": 32
+    }
+  },
+  {
+    "label": "remove: Tab from Remove profile",
+    "active": "BUTTON \"Cancel\"",
+    "insideDialog": true,
+    "dialog": "Remove “Firefox”?",
+    "rect": {
+      "x": 671.125,
+      "y": 462.5,
+      "w": 69.3515625,
+      "h": 32
+    }
+  },
+  {
+    "label": "host: open",
+    "active": "INPUT[Mac mini]",
+    "insideDialog": true,
+    "dialog": "Add device host",
+    "rect": {
+      "x": 410,
+      "y": 339.5,
+      "w": 460,
+      "h": 30
+    }
+  },
+  {
+    "label": "host: Shift+Tab from Name",
+    "active": "BUTTON[Close]",
+    "insideDialog": true,
+    "dialog": "Add device host",
+    "rect": {
+      "x": 855,
+      "y": 218.5,
+      "w": 32,
+      "h": 32
+    }
+  },
+  {
+    "label": "host: Tab from the X",
+    "active": "INPUT[Mac mini]",
+    "insideDialog": true,
+    "dialog": "Add device host",
+    "rect": {
+      "x": 410,
+      "y": 339.5,
+      "w": 460,
+      "h": 30
+    }
+  },
+  {
+    "label": "provider: open",
+    "active": "BUTTON[Provider, step 1] \"1 Provider\"",
+    "insideDialog": true,
+    "dialog": "Add provider",
+    "rect": {
+      "x": 285,
+      "y": 101,
+      "w": 232,
+      "h": 36
+    }
+  },
+  {
+    "label": "provider: Tab from the X",
+    "active": "BUTTON[Provider, step 1] \"1 Provider\"",
+    "insideDialog": true,
+    "dialog": "Add provider",
+    "rect": {
+      "x": 285,
+      "y": 101,
+      "w": 232,
+      "h": 36
+    }
+  },
+  {
+    "label": "hub: open",
+    "active": "INPUT[https://hub.example.ts.net:8318]",
+    "insideDialog": true,
+    "dialog": "Add a CLIProxyAPI hub",
+    "rect": {
+      "x": 442,
+      "y": 376,
+      "w": 396,
+      "h": 30
+    }
+  },
+  {
+    "label": "hub: Shift+Tab from Hub URL",
+    "active": "BUTTON[Close]",
+    "insideDialog": true,
+    "dialog": "Add a CLIProxyAPI hub",
+    "rect": {
+      "x": 823,
+      "y": 233,
+      "w": 32,
+      "h": 32
+    }
+  },
+  {
+    "label": "hub: Tab from Cancel",
+    "active": "BUTTON[Close]",
+    "insideDialog": true,
+    "dialog": "Add a CLIProxyAPI hub",
+    "rect": {
+      "x": 823,
+      "y": 233,
+      "w": 32,
+      "h": 32
+    }
+  },
+  {
+    "label": "theme: open",
+    "active": "INPUT[Search Open VSX themes]",
+    "insideDialog": true,
+    "dialog": "Add a theme",
+    "rect": {
+      "x": 305,
+      "y": 238,
+      "w": 693,
+      "h": 34
+    }
+  },
+  {
+    "label": "theme: Shift+Tab from the search field",
+    "active": "INPUT",
+    "insideDialog": true,
+    "dialog": "Add a theme",
+    "rect": {
+      "x": 293,
+      "y": 387.5,
+      "w": 1,
+      "h": 1
+    }
+  },
+  {
+    "label": "theme: Tab from the X",
+    "active": "INPUT[Search Open VSX themes]",
+    "insideDialog": true,
+    "dialog": "Add a theme",
+    "rect": {
+      "x": 305,
+      "y": 238,
+      "w": 693,
+      "h": 34
+    }
+  }
+]
