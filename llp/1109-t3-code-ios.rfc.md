@@ -80,7 +80,34 @@ to meaningful content, long-thread opening and scrolling, composer keystroke
 latency, and memory after ten threads. The target is faster than upstream on
 each measure. No performance result has been measured at this revision.
 
-## Implementation and evidence
+## Current acceptance boundary, 2026-10-11
+
+[observed] Checkpoint `aba91d670` contains the current mobile implementation.
+Its full mobile suite passes 2,941 tests; the repository suite passes 3,521 with
+34 ignored. The native app builds and the installed Mini bundle matches all
+89 files. These results establish their checked code and runtime boundaries,
+not completion of the route, interaction, appearance or performance matrix.
+Later implementation and native evidence live in the numbered decisions;
+the initial milestone notes below are historical, not the current inventory.
+
+[observed] The range checkpoint retains the long-press anchor through repeated
+endpoint taps and passes a read-only Mini check against the actual laptop.
+The latest Usage checkpoint verifies conditional refresh-control composition
+and empty-state navigation. Populated refresh and spinner timing remain
+unverified. The saved-history experiment reconstructs the full saved
+response and retains both graphs correctly, but does not establish final JS
+reclamation or production/device capacity. These distinct boundaries are in
+[Settings](1109.009-mobile-settings.decision.md) and
+[Composer and transcript](1109.005-composer-and-transcript.decision.md).
+
+[open] Full native parity and the release performance comparison remain
+unfinished. Individually stopped targets retain their recorded limits and
+need new direction before another correction. The verified delivery destination
+is Expo `@exponathan/t3-code` / ASC app `6821176299`; no final accepted IPA or
+EAS submission has been produced. TestFlight delivery follows functional,
+visual and performance acceptance rather than replacing it.
+
+## Initial implementation evidence
 
 [observed] M0 established a Contract root, a TypeScript source importing the
 shared pairing parser, and a `t3-code-ios` crate registered in the root workspace.
