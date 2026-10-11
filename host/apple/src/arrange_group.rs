@@ -138,8 +138,7 @@ impl<D: DataSource> Host<D> {
             return self.group_reply(Vec::new(), None);
         };
         self.now_ms = now_ms.max(self.now_ms);
-        let mut receipts = Vec::new();
-        let mut error = None;
+        let (mut receipts, mut error) = self.advance_for_input(self.now_ms);
         let mut dropped = false;
         let target = self.runner.reorder_frame(token).and_then(|f| f.target);
         if let Some(g) = drop
@@ -149,7 +148,10 @@ impl<D: DataSource> Host<D> {
             match self.runner.drop_reorder(token, g) {
                 Ok(Some(receipt)) => {
                     dropped = true;
-                    receipts.push(receipt);
+                    receipts.push(Timed {
+                        at_ms: self.runner.now_ms(),
+                        receipt,
+                    });
                     if let Some(g) = self.group.as_mut() {
                         g.dropped = true;
                     }
@@ -160,11 +162,14 @@ impl<D: DataSource> Host<D> {
         }
         if !dropped {
             match self.runner.cancel_reorder(token) {
-                Ok(receipt) => receipts.extend(receipt),
+                Ok(receipt) => receipts.extend(receipt.map(|receipt| Timed {
+                    at_ms: self.runner.now_ms(),
+                    receipt,
+                })),
                 Err(e) => error = error.or(Some(format!("{e:?}"))),
             }
         }
-        self.group_reply(receipts, error)
+        self.group_reply_timed(&receipts, error)
     }
 
     /// The ghost has landed or faded: the session ends, its pin retires and
@@ -239,7 +244,11 @@ impl<D: DataSource> Host<D> {
             .into_iter()
             .map(|receipt| Timed { at_ms, receipt })
             .collect();
-        let (mut batch, e) = self.commit_tree(&timed, error, Batch::new());
+        self.group_reply_timed(&timed, error)
+    }
+
+    fn group_reply_timed(&mut self, timed: &[Timed], error: Option<String>) -> String {
+        let (mut batch, e) = self.commit_tree(timed, error, Batch::new());
         let arrange = self.arrange_after_commit(&mut batch);
         // Every reply says the session, changed or not.
         if let Some(op) = self.group_op() {

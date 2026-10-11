@@ -412,14 +412,15 @@ export function install({ internals: { Collection, Lists, Views, find, minEpoch,
       return true;
     },
     /** A grouped drop (D2, D8): the target's `reorderdrop` once, with its `ReorderEvent`; the hold armed first. */
-    dropGroup(token, geometry) {
+    dropGroup(token, geometry, releaseAt) {
       const s = grouped(token), t = s?.target;
-      if (!s || s.phase !== "active" || !hasReorder(token) || !sameGeometry(t.reorderGeometry(), geometry)) return false;
+      if (!s || s.phase !== "active" || !hasReorder(token) || !sameGeometry(t.reorderGeometry(), geometry) || !Number.isFinite(releaseAt) || releaseAt < 0) return false;
       let item, before;
       if (t === s.source) { const d = t.holdDrop(geometry); if (!d) return false; [item, before] = d; }
       else { before = t.incomingDrop(geometry); if (before === undefined) return false; item = s.key; s.source.holdOutgoing(); }
       s.before = before === null ? null : `s:${before}`;
       s.place = [s.source, ...(s.source.placeOf(s.item) ?? [null, null])];
+      clock.now = Math.max(clock.now, releaseAt);
       s.phase = "holding"; s.deadline = clock.now + HOLD_MS;
       every(HOLD_MS, () => { if (Session === s && s.phase === "holding") return commit(() => { say("reorderdrop: the move did not show within 1 s"); endSession(s, "timeout", false); }, "reorderdrop hold"); return true; }, true);
       s.timer = clock.timers.at(-1);

@@ -104,6 +104,10 @@ component App
 "#;
 
 fn boot(later: bool) -> Host<Board> {
+    boot_plan(later, BOARD)
+}
+
+fn boot_plan(later: bool, source: &str) -> Host<Board> {
     let cards = [
         ("a1", "a"),
         ("a2", "a"),
@@ -118,7 +122,7 @@ fn boot(later: bool) -> Host<Board> {
             .collect(),
         later,
     };
-    let plan = contract::compile(BOARD).unwrap().encode();
+    let plan = contract::compile(source).unwrap().encode();
     let (mut h, _) = Host::boot(
         &plan,
         board,
@@ -129,6 +133,126 @@ fn boot(later: bool) -> Host<Board> {
     .unwrap();
     report(&mut h, None, 0.);
     h
+}
+
+#[test]
+fn grouped_drop_arms_its_timer_at_the_release_clock() {
+    let source = BOARD
+        .replace(
+            "  state log = \"\"",
+            "  state log = \"\"\n  state notice = \"\"\n  state dropAt = 0\n  state expiredAt = 0\n  task window when notice != \"\"\n    after(10000, expire)\n  action expire\n    expiredAt = performanceNow()\n    notice = \"\"",
+        )
+        .replace(
+            "    send changed = move(item, col, at)",
+            "    dropAt = performanceNow()\n    notice = \"Undo\"\n    send changed = move(item, col, at)",
+        );
+    let mut h = boot_plan(false, &source);
+    let token = lift(&mut h, "a1", true);
+    let b = view(&h, "list-b");
+    h.reorder_move_into(token, b, 25., 0., true, 120.);
+    h.reorder_group_end(token, true, 20_000.);
+    assert_eq!(
+        h.runner.slot("dropAt").and_then(DataValue::as_number),
+        Some(20_000.)
+    );
+    h.advance(29_999.);
+    assert_eq!(h.runner.slot("notice"), Some(&DataValue::str("Undo")));
+    h.advance(30_000.);
+    assert_eq!(
+        h.runner.slot("expiredAt").and_then(DataValue::as_number),
+        Some(30_000.)
+    );
+}
+
+#[test]
+fn grouped_drop_survives_an_identical_timer_refresh_at_release() {
+    let source = BOARD
+        .replace(
+            "  state log = \"\"",
+            "  state log = \"\"\n  state refreshes = 0\n  state refreshesAtDrop = 0\n  task tick mount\n    every(1000, refreshCards)\n  action refreshCards\n    refreshes = refreshes + 1\n    send changed = cards()",
+        )
+        .replace(
+            "    send changed = move(item, col, at)",
+            "    refreshesAtDrop = refreshes\n    send changed = move(item, col, at)",
+        );
+    let mut probe = boot_plan(false, &source);
+    let list = probe
+        .runner
+        .kernel()
+        .node(view(&probe, "list-b"))
+        .unwrap()
+        .key;
+    let revision = probe.runner.reorder_geometry(list).unwrap().revision;
+    probe.advance(2_000.);
+    assert_eq!(
+        probe.runner.reorder_geometry(list).unwrap().revision,
+        revision
+    );
+    let mut h = boot_plan(false, &source);
+    let token = lift(&mut h, "a1", true);
+    let b = view(&h, "list-b");
+    h.reorder_move_into(token, b, 25., 0., true, 120.);
+    let reply = h.reorder_group_end(token, true, 2_000.);
+    assert_eq!(field(&reply, "dispatched"), "true", "{reply}");
+    assert_eq!(
+        h.runner.slot("refreshesAtDrop"),
+        Some(&DataValue::Number(2.))
+    );
+    assert_eq!(
+        h.runner.slot("log"),
+        Some(&DataValue::str("a1>b@b2 col-a>col-b"))
+    );
+}
+
+#[test]
+fn grouped_async_drop_holds_for_one_second_after_release() {
+    let mut h = boot(true);
+    let token = lift(&mut h, "a1", true);
+    let b = view(&h, "list-b");
+    h.reorder_move_into(token, b, 25., 0., true, 120.);
+    let reply = h.reorder_group_end(token, true, 20_000.);
+    assert_eq!(field(&reply, "phase"), "holding", "{reply}");
+    assert_eq!(h.runner.timer_due_ms(), Some(21_000.));
+    h.advance(20_500.);
+    assert_eq!(
+        h.runner
+            .reorder_frame(h.group.as_ref().unwrap().token)
+            .unwrap()
+            .phase,
+        exact_runner::ReorderPhase::Holding
+    );
+    assert!(!h
+        .runner
+        .journal()
+        .any(|line| line.contains("reorderdrop: the move did not show within 1 s")));
+    let ticket = h.take_requests()[0].ticket;
+    let ok = Outcome::Response(Response {
+        status: 200,
+        headers: vec![],
+        body: b"{}".to_vec(),
+    });
+    let batch = h.fulfill_all(vec![(ticket, ok, None)], 20_600.);
+    assert_eq!(field(&batch, "ending"), "landed", "{batch}");
+    assert!(!h
+        .runner
+        .journal()
+        .any(|line| line.contains("reorderdrop: the move did not show within 1 s")));
+
+    let mut h = boot(true);
+    let token = lift(&mut h, "a1", true);
+    let b = view(&h, "list-b");
+    h.reorder_move_into(token, b, 25., 0., true, 120.);
+    h.reorder_group_end(token, true, 20_000.);
+    h.advance(20_999.);
+    assert!(!h
+        .runner
+        .journal()
+        .any(|line| line.contains("reorderdrop: the move did not show within 1 s")));
+    h.advance(21_000.);
+    assert!(h
+        .runner
+        .journal()
+        .any(|line| line.contains("reorderdrop: the move did not show within 1 s")));
 }
 
 fn view(h: &Host<Board>, test_id: &str) -> ViewId {
