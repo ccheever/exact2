@@ -72,7 +72,7 @@ describe('TC-1: the Timeline commit row keeps its title out of the button', () =
     expect(button).toBeGreaterThan(-1);
     // Last in the row, so nothing nests under it, and over the whole row.
     expect(button).toBe(row.length - 1);
-    for (const attr of ['position="absolute"', 'left=0', 'top=0', 'width="100%"', 'height="100%"', 'aria-label=`View commit ${row.id}`', 'testId=`pull-request-timeline-commit-${row.sha}`']) expect(row[button]).toContain(attr);
+    for (const attr of ['position="absolute"', 'left=0', 'top=0', 'width="100%"', 'height="100%"', 'aria-label=`View commit ${row.id}`', 'title=""', 'testId=`pull-request-timeline-commit-${row.sha}`']) expect(row[button]).toContain(attr);
     const title = row.find(line => line.trim().startsWith('text row.headline'))!;
     expect(indent(title)).toBeGreaterThan(indent(row[0]));
     expect(title).toContain('color=(over ? "light-dark(#1b4ed8, #346bf1)" : prtInk())');
