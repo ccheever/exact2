@@ -57,7 +57,8 @@ test('actual snapshot shares a later disabled catalog with compact Home and side
     Object.assign(mobileClient, new MobileDraftClient());
     Object.assign(fleet, { saved: [], entries: new Map(), revision: 0 });
     const now = Date.parse('2026-10-10T00:00:00Z');
-    const snapshot = obj(await answer('snapshot', ['light', 't3-code', now], {} as never, storage, native));
+    const read = obj(await answer('snapshotRead', [], {} as never, storage, native));
+    const snapshot = obj(answer('snapshot', ['light', 't3-code', read.serial, now], {} as never, storage, native));
     expect(catalogReads).toContain(false); expect(catalogReads.at(-1)).toBe(true);
     expect(arr(snapshot.environments)).toHaveLength(1);
     expect(arr(snapshot.environments)[0]).toMatchObject({ environmentId: 'saved-off', label: 'Saved Mac', enabled: false, status: 'Off' });

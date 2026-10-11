@@ -59,7 +59,8 @@ import { mobileMediaPrepare, mobileMediaForget } from './media-preview';
 import { mobileComposerAttachmentAction, mobileComposerAttachmentPreviews } from './composer-attachments';
 import {mobileComposerAttachmentMenuAction,mobileComposerAttachmentMenuSnapshot} from './composer-attachment-menu';
 // @ref llp/1109.003-pairing-and-transport.decision.md#decision
-import { mobileClient, mobileNative, mobileSnapshot, mobileCommand, mobilePairingFields } from './client';
+import { applyMobileComposerBehavior } from './composer-behavior';
+import { mobileClient, mobileNative, mobileSnapshotRead, mobileSnapshotProjection, mobileCommand, mobilePairingFields } from './client';
 import { mobileEnvironmentDetail, mobileEnvironmentDetailCommand } from './environment-detail';
 import { arr, obj, str } from './shared/domain';
 import { fleet } from './shared/settings-b-fleet';
@@ -523,6 +524,7 @@ const sources: Sources = {
   appearance: (args, _store, storage, nativeInput) => {
     const native = sourceNative('appearance', args, nativeInput);
     const preferences = normalizeMobilePreferences(args[0]);
+    applyMobileComposerBehavior(mobileClient, preferences);
     const resolved = resolveMobileAppearance(preferences, String(args[1] ?? 'light'));
     return { scheme: resolved.scheme, themeId: resolved.themeId, baseFontSize: resolved.baseFontSize, terminalFontSize: resolved.terminalFontSize,
       themeMode: preferences.themeMode, enterBehavior: preferences.composerEnterBehavior, groupingMode: preferences.projectGroupingMode };
@@ -677,10 +679,11 @@ const sources: Sources = {
     const native = sourceNative('homeView', args, nativeInput);
     return mobileHomeView(args);
   },
-  snapshot: (args, _store, storage, nativeInput) => {
-    const native = sourceNative('snapshot', args, nativeInput);
-    noteNow(mobileClient, Number(args[2]));
-    return mobileSnapshot(native, storage!, Number(args[2])).then(snapshot => connectionView(snapshot, String(args[0] ?? 'light'), String(args[1] ?? 't3-code')));
+  snapshotRead: (args, _store, storage, nativeInput) => mobileSnapshotRead(sourceNative('snapshotRead', args, nativeInput), storage!),
+  snapshot: (args) => {
+    const now = Number(args[3]);
+    noteNow(mobileClient, now);
+    return connectionView(mobileSnapshotProjection(now), String(args[0] ?? 'light'), String(args[1] ?? 't3-code'));
   },
   cameraPermission: (args, _store, storage, nativeInput) => {
     const native = sourceNative('cameraPermission', args, nativeInput);

@@ -1,6 +1,6 @@
 // upstream 365aa87982 ConnectionEnvironmentRow.tsx / EnvironmentMachineSymbol.tsx.
 // @ref llp/1109.003-pairing-and-transport.decision.md#decision
-import { mobileSnapshot } from './client';
+import { mobileSnapshotProjection } from './client';
 import { mobileTheme, withAlpha } from './design';
 import { statusText } from './shared/connections';
 
@@ -9,7 +9,7 @@ const machineSymbols: Record<string, string> = {
   laptop: 'laptopcomputer', 'mac-mini': 'macmini', 'mac-studio': 'macstudio',
 };
 
-export function connectionView(snapshot: Awaited<ReturnType<typeof mobileSnapshot>>, scheme: string, palette = 't3-code') {
+export function connectionView(snapshot: ReturnType<typeof mobileSnapshotProjection>, scheme: string, palette = 't3-code') {
   const theme = mobileTheme(scheme, palette), colors = theme.colors;
   return {
     nativeAvailable: snapshot.nativeAvailable, revision: snapshot.revision, faviconRevision: snapshot.faviconRevision,

@@ -87,6 +87,8 @@ shape Camera
   status: string
 shape Notice
   choice: string
+shape SnapshotRead
+  serial: number
 shape Snapshot
   faviconRevision: number
   nativeAvailable: bool

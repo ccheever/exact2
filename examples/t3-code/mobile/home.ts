@@ -271,7 +271,7 @@ export function projectMobileHome(sources: HomeSource[], now: number, options: H
     emptyTitle: items.length ? '' : empty.title, emptyDetail: items.length ? '' : empty.detail };
 }
 
-/** Call after mobileSnapshot refresh. Root owns watches, timer, navigation, shelf persistence, and search RPC. */
+/** Call after the stable snapshot reader. Root owns watches, timer, navigation, shelf persistence, and search RPC. */
 export function mobileHome(now: number, options: HomeOptions = {}, client: T3Client = mobileClient, background: EnvironmentFleet = fleet) {
   options = { ...options, pendingTasks: options.pendingTasks ?? mobileOutboxPendingTasks(client, now),
     pendingEditors: options.pendingEditors ?? mobilePendingTaskEditorsSnapshot(client).markers };

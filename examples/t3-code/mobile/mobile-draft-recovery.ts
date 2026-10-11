@@ -234,10 +234,11 @@ export class MobileDraftClient extends T3Client {
   pendingTaskCleanup: { marker: MobilePendingTaskMarker; fingerprint: string } | null = null;
 
   override async refresh(...args: Parameters<T3Client['refresh']>): Promise<void> {
-    const serial = ++this.cacheRefresh;
+    let serial = 0;
     const native = args[0]?.available ? letGoAware(args[0]) : args[0];
-    await super.refresh(native, args[1]); mobileOutboxRecoveryDraftApplyChoices(this);
-    if (serial !== this.cacheRefresh) return;
+    await super.refresh(native, args[1], () => { serial = ++this.cacheRefresh; args[2]?.(); });
+    mobileOutboxRecoveryDraftApplyChoices(this);
+    if (!serial || serial !== this.cacheRefresh) return;
     await mobileCacheSync(this, native, () => fleet.saved);
     if (serial !== this.cacheRefresh) return;
     await mobileCacheFleetSync(fleet, native, this);

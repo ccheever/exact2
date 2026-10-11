@@ -2,6 +2,8 @@
 // Adapted body from examples/t3-code/client.ts at 38352ceaf4cd35a40b7b24ce992db87c2357a99b.
 // Mobile 365aa87982: selection errors belong to the requesting route, not the thread composer.
 // Additive cleanup visibility from shared commit af0a96dddbd500aa50bc5bbe69ec59597e34efee.
+// Mobile history ownership: invocation-local tokens and captured transfer cleanup.
+// @ref llp/1109.003-pairing-and-transport.decision.md#stable-history-reader-and-thread-ownership
 import { snapshotShortcut } from './snapshot-shortcut';
 import { snapshotIdentity, snapshotDefaultProject, snapshotDestinationExists, withoutSnapshot, snapshotNoProjectMessage, snapshotFailureMessage } from './snapshot-adopt';
 import { decodeClientPrefs, type ClientPrefs } from './settings-core';
@@ -102,6 +104,25 @@ export class T3Client {
   private nextRefreshEpoch = 0;
   private refreshEpoch = 0;
   private commandEpoch = 0;
+  // Mobile history ownership begin: no native handle, promise or transcript graph.
+  private threadOpening: { id: string; environment: string; origin: string; generation: number; epoch: number } | null = null;
+  private openingThread(id = this.threadId): boolean {
+    const opening = this.threadOpening;
+    return !!opening && opening.id === id && id === this.threadId && opening.environment === this.environmentId
+      && opening.origin === this.origin && opening.generation === this.generation && opening.epoch === this.threadEpoch;
+  }
+  private openingStatus(value: Obj, generation: number): boolean {
+    return this.openingThread() && generation === this.generation && value.state === 'connected'
+      && value.origin === this.origin && value.environmentId === this.environmentId && typeof value.message === 'string';
+  }
+  private async preserveSelected(native: Native, id: string): Promise<boolean> {
+    if (this.threadId !== id) return false;
+    if (this.openingThread(id)) return true;
+    if (str(obj(this.thread?.projection.thread).id) !== id) return false;
+    if (this.threadSubscription !== id) await this.openThread(native, id, true);
+    sidebarOpened(this, native); return true;
+  }
+  // Mobile history ownership end.
   private lastEvent = 0;
   threadEpoch = 0;
   threadSubscription = '';
@@ -128,11 +149,29 @@ export class T3Client {
   get projection(): Obj { return this.thread?.projection || {}; }
 
   private changed(): void { this.revision++; }
-  private ownedNative(native: Native, current: () => boolean): Native {
+  private ownedNative(native: Native, current: () => boolean, cleanup = false): Native {
+    // Lexical to this invocation: only a descriptor it actually received can
+    // release through the still-live base answer after an app epoch changes.
+    const transfers = new Map<string, number>();
+    const release = (request: Obj) => cleanup && request.op === 'releaseChunk'
+      && typeof request.id === 'string' && transfers.get(request.id) === request.generation;
     return { available: native.available, watch: topic => native.watch(topic), later: async request => {
+      const fields = obj(request);
+      if (release(fields)) { transfers.delete(str(fields.id)); return native.later(request); }
       if (!current()) throw new ClientError('This operation was superseded.', 'superseded');
       const result = await native.later(request);
-      if (!current()) throw new ClientError('This operation was superseded.', 'superseded');
+      const envelope = obj(result), transfer = obj(obj(envelope.value)._nativeTransfer);
+      if (cleanup && envelope.ok === true && typeof envelope.generation === 'number' && str(transfer.id))
+        transfers.set(str(transfer.id), envelope.generation);
+      if (!current()) {
+        // A late descriptor allocated native bytes before the app guard noticed.
+        // letGoAware remains beneath this call and refuses a truly retired answer.
+        if (release({ op: 'releaseChunk', id: transfer.id, generation: envelope.generation })) {
+          transfers.delete(str(transfer.id));
+          await native.later({ op: 'releaseChunk', id: transfer.id, generation: envelope.generation }).catch(() => {});
+        }
+        throw new ClientError('This operation was superseded.', 'superseded');
+      }
       return result;
     } };
   }
@@ -293,8 +332,8 @@ export class T3Client {
     }
   }
 
-  async refresh(native: Native | null | undefined, storage: Files): Promise<void> {
-    if (!native?.available) { this.available = false; return; }
+  async refresh(native: Native | null | undefined, storage: Files, claimed?: () => void): Promise<void> {
+    if (!native?.available) { claimed?.(); this.available = false; return; }
     const epoch = ++this.nextRefreshEpoch;
     native.watch('t3.status'); native.watch('t3.events');
     native.watch('t3.notify'); // r13-threads: a command's wake redraws the composer (Send's "Preparing machine")
@@ -307,9 +346,11 @@ export class T3Client {
       // Exact may discard an optimistic asynchronous reread without dispatching
       // it. Only a real reply can replace the active refresh's ownership.
       if (epoch < this.refreshEpoch) return;
+      if (status.ok && this.openingStatus(obj(status.value), status.generation)) return; // Mobile history ownership
+      claimed?.(); // Mobile cache follows an actual ownership claim, not an optimistic reread.
       this.refreshEpoch = epoch;
       this.available = true;
-      native = this.ownedNative(native, () => epoch === this.refreshEpoch);
+      native = this.ownedNative(native, () => epoch === this.refreshEpoch, true);
       if (!status.ok) throw new ClientError(status.error!.message);
       this.adoptStatus(obj(status.value), status.generation);
       await reconnectOnLaunch(this, native, obj(status.value)); // r8-pointer D14: a relaunch reconnects (r8-pointer-reconnect.ts)
@@ -323,6 +364,7 @@ export class T3Client {
       if (this.streamRetryDue.size) { await this.retryStreams(native); await this.drain(native); }
       if (this.needsFreshSnapshot) {
         this.needsFreshSnapshot = false;
+        this.threadEpoch++; // Mobile: a stream reset retires the pending load before authoritative synchronization.
         this.shellLoaded = false; this.thread = null;
         await this.synchronize(native);
         await this.drain(native);
@@ -339,10 +381,11 @@ export class T3Client {
   }
 
   async synchronize(native: Native): Promise<void> {
+    if (this.openingThread()) return; // Mobile: do not steal the matching in-flight bootstrap.
     // Commands and watched snapshots can both bootstrap. Only the newest one
     // may install subscriptions, even when their answer lifetimes differ.
     const epoch = ++this.synchronizationEpoch;
-    native = this.ownedNative(native, () => epoch === this.synchronizationEpoch);
+    native = this.ownedNative(native, () => epoch === this.synchronizationEpoch, true);
     const generation = this.generation;
     this.synchronizedGeneration = -1;
     this.shellLive = false; this.threadLive = false;
@@ -435,7 +478,27 @@ export class T3Client {
     applyStaged(this);
   }
 
+  // Mobile history ownership begin: clear only this invocation's token.
   async openThread(native: Native, id: string, resume = false): Promise<void> {
+    if (this.openingThread(id)) return;
+    const opening = { id, environment: this.environmentId, origin: this.origin, generation: this.generation, epoch: this.threadEpoch + 1 };
+    this.threadOpening = opening;
+    try {
+      await this.readThread(native, id, resume);
+      const subscription = this.subscriptions.thread;
+      if (this.threadOpening !== opening || !this.openingThread(id) || this.threadSubscription !== id || !subscription) return;
+      this.threadOpening = null;
+      // The inbox may have announced its marker before registration finished.
+      // Clearing the gate is not demand: wake its existing reader from this answer.
+      if (opening.epoch === this.threadEpoch && opening.generation === this.generation
+        && opening.origin === this.origin && opening.environment === this.environmentId
+        && this.threadId === id && this.threadSubscription === id && this.subscriptions.thread === subscription)
+        await this.call(native, { op: 'r10Wake', topic: 't3.notify' }, opening.generation);
+    }
+    finally { if (this.threadOpening === opening) this.threadOpening = null; }
+  }
+  // Mobile history ownership end.
+  private async readThread(native: Native, id: string, resume = false): Promise<void> {
     const epoch = ++this.threadEpoch, generation = this.generation;
     this.threadLive = false; this.threadSubscription = '';
     delete this.subscriptions.thread;
@@ -618,6 +681,10 @@ export class T3Client {
 
   async command(op: string, id: string, value: string, n: number, native: Native | null | undefined, storage: Files): Promise<{ revision: number; message: string }> {
     if (!native?.available) return { revision: ++this.revision, message: 'Open this app on macOS to connect to T3 Code.' };
+    if (op === 'select-thread' && this.openingThread(id)) return { revision: this.revision, message: '' }; // Mobile history ownership
+    // Explicit Refresh replaces an open; watched rereads only observe its gate.
+    // Retire before the command epoch changes or connectionOps clears the graph.
+    if (op === 'refresh') { this.threadEpoch++; this.threadOpening = null; }
     const local = ['draft', 'answer', 'choice', 'previous-question', 'search', 'sidebar', 'dismiss-error', 'close-diff', 'favorite-model', 'copy-message', 'grouping-mode', 'grouping-override', 'device-setting', 'setting-snapshot', 'remove-snapshot', 'snapshot-preview-sound', 'snapshot-shortcut-record', 'snapshot-shortcut-save', 'copy-diagnostic'].includes(op) || op.startsWith('restlocal:') || op.startsWith('chatlocal:') || op.startsWith('editorlocal:') || op.startsWith('shelllocal:') || op.startsWith('cclocal:') || op.startsWith('sidebarlocal:') || op.startsWith('pageslocal:') || op.startsWith('terminallocal:') || op.startsWith('terminalpanellocal:') || DIFF_LOCAL_OPS.includes(op);
     const epoch = local ? this.commandEpoch : ++this.commandEpoch;
     if (!local) {
@@ -712,6 +779,7 @@ export class T3Client {
   /** Opens a thread as the selection: the row press, keyboard jumps and the sidebar's forward navigation. */
   async openSelected(native: Native, id: string): Promise<void> {
     if (!this.shell.threads.some(thread => thread.id === id)) { await this.openDraft(native, this.projectId); this.threadId = id; return; } // composer-fidelity G15: a missing thread shows NoActiveThreadState
+    if (await this.preserveSelected(native, id)) return; // Mobile history ownership
     this.threadId = id; this.thread = null; this.diffOpen = false; this.answers = {};
     this.ensureSelection(); await this.openThread(native, id);
     sidebarOpened(this, native);

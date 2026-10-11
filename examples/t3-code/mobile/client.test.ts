@@ -1,9 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { mobileClient, mobileCommand, mobileNative, mobilePairingFields, mobilePairingTarget, mobilePairingUrl, mobileSnapshot } from './client';
+import { mobileClient, mobileCommand, mobileNative, mobilePairingFields, mobilePairingTarget, mobilePairingUrl, mobileSnapshotRead, mobileSnapshotProjection } from './client';
 import { bridgeReply, ClientError, type Files, type Native } from './shared/protocol';
 import { T3Client } from './shared/client';
+import { MobileDraftClient } from './mobile-draft-recovery';
 import { requestPresentation } from './shared/requests';
 import { letGoAware } from './shared/let-go';
 import { obj, str, type Obj } from './shared/domain';
@@ -14,8 +15,8 @@ const unusedStorage: Files = { fs: {
   async atomicWriteFile() { throw new Error('Unexpected storage call'); },
 } };
 
-function refreshFixture() {
-  const client = new T3Client(), calls: Obj[] = [], events: Obj[] = [], subscriptions: Record<string, string> = {};
+function refreshFixture(client: T3Client = new T3Client()) {
+  const calls: Obj[] = [], events: Obj[] = [], subscriptions: Record<string, string> = {};
   let generation = 1, sequence = 0, floor = 0, serial = 0;
   const selected = { id: 'thread', projectId: 'project', modelSelection: { instanceId: 'provider', model: 'model' } };
   const config = { environment: { environmentId: 'env', orchestrationProtocolVersion: 2, capabilities: { serverResolvedCommandContext: true } },
@@ -42,7 +43,7 @@ function refreshFixture() {
     if (request.op === 'ack') { while (events.length && Number(events[0]!.seq) <= Number(request.through)) events.shift(); return good({ latest: sequence }); }
     return good({});
   } };
-  return { client, native, calls, events, reconnect() { generation++; floor = sequence; events.length = 0; },
+  return { client, native, calls, events, generation: () => generation, reconnect() { generation++; floor = sequence; events.length = 0; },
     overflow() { sequence += 100; floor = sequence; events.length = 0; } };
 }
 
@@ -288,7 +289,27 @@ describe('pinned shared sources', () => {
         .replace("  let refs: Refs | null = null;\n", "  if (currentOwner && !currentOwner()) throw new ClientError('The selected workspace changed.', 'superseded');\n  let refs: Refs | null = null;\n")
         .replace("  try { refs = await loadRefs(client, native, cwd, state.query.trim()); } catch { refs = state.refs && state.refs.cwd === cwd ? state.refs : null; }\n", "  try { refs = await loadRefs(client, native, cwd, state.query.trim(), currentOwner); } catch { refs = state.refs && state.refs.cwd === cwd ? state.refs : null; }\n  if (currentOwner && !currentOwner()) throw new ClientError('The selected workspace changed.', 'superseded');\n")
         .replace("  if (!client.threadId && !selectingBase && strip.branch && context.branch !== strip.branch) {\n", "  if (!currentOwner && !client.threadId && !selectingBase && strip.branch && context.branch !== strip.branch) {\n");
-      expect(local.slice(2).join('\n')).toBe(expected);
+      let actual = local.slice(2).join('\n');
+      if (name === 'client.ts') {
+        expect(actual).toContain('// Mobile history ownership: invocation-local tokens and captured transfer cleanup.');
+        const method = /^  private ownedNative\([^\n]*\n[\s\S]*?^  }\n/m;
+        const pinnedGuard = expected.match(method)?.[0]; expect(pinnedGuard).toBeDefined();
+        actual = actual.replace('// Mobile history ownership: invocation-local tokens and captured transfer cleanup.\n', '')
+          .replace('// @ref llp/1109.003-pairing-and-transport.decision.md#stable-history-reader-and-thread-ownership\n', '')
+          .replace(/^  \/\/ Mobile history ownership begin:[^\n]*\n[\s\S]*?^  \/\/ Mobile history ownership end\.\n/gm, '')
+          .replace(method, pinnedGuard!)
+          .replace('  private async readThread(', '  async openThread(')
+          .replace('storage: Files, claimed?: () => void): Promise<void>', 'storage: Files): Promise<void>')
+          .replace('claimed?.(); this.available = false;', 'this.available = false;')
+          .replace(/^.*\/\/ Mobile history ownership\n/gm, '')
+          .replace(/^.*claimed\?\.\(\); \/\/ Mobile cache[^\n]*\n/gm, '')
+          .replace('() => epoch === this.refreshEpoch, true)', '() => epoch === this.refreshEpoch)')
+          .replace('() => epoch === this.synchronizationEpoch, true)', '() => epoch === this.synchronizationEpoch)')
+          .replace(/^    \/\/ Explicit Refresh replaces an open;[^\n]*\n    \/\/ Retire before[^\n]*\n    if \(op === 'refresh'\) \{ this.threadEpoch\+\+; this.threadOpening = null; \}\n/gm, '')
+          .replace(/^.*this.threadEpoch\+\+; \/\/ Mobile: a stream reset[^\n]*\n/gm, '')
+          .replace(/^.*if \(this.openingThread\(\)\) return; \/\/ Mobile:[^\n]*\n/gm, '');
+      }
+      expect(actual).toBe(expected);
     }
   });
 });
@@ -367,7 +388,8 @@ describe('bake and command boundary', () => {
     } finally { mobileClient.threadId = oldThread; mobileClient.environmentId = oldEnvironment; }
   });
   test('bake snapshot is disconnected without reading files or manufacturing environments', async () => {
-    const snapshot = await mobileSnapshot(undefined, unusedStorage);
+    await mobileSnapshotRead(undefined, unusedStorage);
+    const snapshot = mobileSnapshotProjection();
     expect(snapshot.nativeAvailable).toBe(false);
     expect(snapshot.ready).toBe(false);
     expect(snapshot.environments).toEqual([]);
@@ -566,4 +588,196 @@ describe('mobile complete transfer decoding', () => {
     await expect(native.later({ op: 'releaseChunk', id: 'abandoned', generation: 1 })).rejects.toMatchObject({ kind: 'superseded' });
     expect(wire.calls.length).toBe(count);
   });
+});
+
+// Actual mobile client and protocol seam: every invocation owns its own Native.
+function deferred<T>() {
+  let resolve!: (value: T) => void, reject!: (error: unknown) => void;
+  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+const historyStorage: Files = { fs: { async mkdir() {}, async readFile() { return new TextEncoder().encode('{}').buffer; }, async atomicWriteFile() {} } };
+async function multipartSelection() {
+  const f = refreshFixture(new MobileDraftClient()); await f.client.refresh(letGoAware(f.native), historyStorage);
+  f.client.threadId = 'thread'; f.calls.length = 0;
+  const original = f.native.later, entered = deferred<void>(), pause = deferred<void>();
+  const held = new Map<string, { parts: string[]; generation: number }>();
+  let serial = 0, failure = '', pausedOp = 'readChunk', hasPaused = false;
+  const replies: Obj[] = [];
+  f.native.later = async input => {
+    const request = obj(input);
+    if (request.op === 'http' && str(request.path).endsWith('/bounded')) {
+      f.calls.push(request);
+      if (failure === 'http') return { ok: false, generation: f.generation(), error: { kind: 'Limit', message: 'Synthetic admission refused.' } };
+      const envelope = obj(await original(input)), snapshot = { ...obj(JSON.parse(JSON.stringify(envelope.value))), snapshotSequence: 7, historyCursor: 'cursor', hasMoreHistory: true };
+      obj(obj(snapshot.projection).thread).id = decodeURIComponent(str(request.path).split('/').at(-2)!);
+      obj(snapshot.projection).messages = [{ id: 'unicode', role: 'assistant', text: 'Complete 💻 café 漢字\nend' }];
+      const scalars = Array.from(failure === 'json' ? '{invalid' : JSON.stringify(snapshot));
+      const parts = Array.from({ length: Math.ceil(scalars.length / 64) }, (_, index) => scalars.slice(index * 64, (index + 1) * 64).join(''));
+      const id = `transfer-${++serial}`, generation = f.generation(); held.set(id, { parts, generation });
+      const response = { ok: true, generation, value: { _nativeTransfer: { id, parts: parts.length } } };
+      replies.push(response);
+      if (pausedOp === 'http' && !hasPaused) { hasPaused = true; entered.resolve(); await pause.promise; }
+      return response;
+    }
+    if (request.op === 'readChunk' || request.op === 'releaseChunk') {
+      f.calls.push(request); const transfer = held.get(str(request.id));
+      if (!transfer) throw new Error('Unknown fixture transfer');
+      expect(request.generation).toBe(transfer.generation);
+      if (!hasPaused && (request.op === pausedOp && (pausedOp !== 'readChunk' || request.index === 1))) {
+        hasPaused = true; entered.resolve(); await pause.promise;
+      }
+      if (request.op === 'releaseChunk') { held.delete(str(request.id)); return { ok: true, generation: transfer.generation, value: {} }; }
+      if (failure === 'chunk' && request.index === 2) return { ok: false, generation: transfer.generation, error: { kind: 'Read', message: 'Synthetic chunk failed.' } };
+      return { ok: true, generation: transfer.generation, value: { text: transfer.parts[Number(request.index)] } };
+    }
+    return original(input);
+  };
+  const answer = () => letGoAware(f.native);
+  const refresh = () => f.client.refresh(answer(), historyStorage);
+  const select = (id = 'thread') => f.client.command('select-thread', id, '', 0, answer(), historyStorage);
+  // The fixture delegates GET decoding to the original source, so count unique
+  // reply descriptors rather than its two logging seams.
+  return { ...f, entered, pause, held, replies, answer, refresh, select,
+    fail(kind: string) { failure = kind; }, pauseAt(op: string) { pausedOp = op; },
+    reads: () => f.calls.filter(call => call.op === 'readChunk'), releases: () => f.calls.filter(call => call.op === 'releaseChunk'),
+    subscriptions: () => f.calls.filter(call => call.op === 'subscribe' && call.key === 'thread') };
+}
+
+describe('mobile history invocation ownership', () => {
+  test('selection owns multipart load across refresh, synchronize and repeated selection demand', async () => {
+    const f = await multipartSelection(), first = f.select(); await f.entered.promise;
+    const epoch = f.client.threadEpoch;
+    await f.refresh(); await f.client.synchronize(f.answer()); expect((await f.select()).message).toBe('');
+    expect(f.client.threadEpoch).toBe(epoch); expect(f.replies).toHaveLength(1); expect(f.client.thread).toBeNull();
+    f.pause.resolve(); expect((await first).message).toBe('');
+    expect(f.reads().length).toBe(Number(obj(obj(f.replies[0]!.value)._nativeTransfer).parts));
+    expect(f.releases()).toHaveLength(1); expect(f.held.size).toBe(0); expect(f.subscriptions()).toHaveLength(1);
+    expect(obj(f.client.thread?.projection.thread).id).toBe('thread'); expect(f.client.thread?.historyCursor).toBe('cursor');
+    expect(obj((f.client.projection.messages as Obj[])[0]).text).toBe('Complete 💻 café 漢字\nend');
+    // The Runner integration witness consumes this wake; this unit test does not inject an extra refresh.
+    expect(f.client.ready).toBe(false);
+    expect(f.calls.filter(call => call.op === 'r10Wake')).toEqual([{ op: 'r10Wake', topic: 't3.notify', generation: 1 }]);
+    expect(f.events.some(event => event.key === 'thread')).toBe(true);
+  });
+  test('a second same-generation refresh leaves the first refresh and its cache boundary current', async () => {
+    const f = await multipartSelection(), first = f.refresh(); await f.entered.promise;
+    const epoch = f.client.threadEpoch;
+    await f.refresh(); expect(f.client.threadEpoch).toBe(epoch); expect(f.replies).toHaveLength(1);
+    f.pause.resolve(); await first;
+    expect(f.client.ready).toBe(true); expect(f.client.error).toBe(''); expect(f.releases()).toHaveLength(1); expect(f.held.size).toBe(0);
+  });
+  test('same active selection retains the expanded graph, cursor and sequence without IO', async () => {
+    const f = await multipartSelection(), first = f.select(); await f.entered.promise; f.pause.resolve(); await first; await f.refresh();
+    const thread = f.client.thread!; thread.historyExpanded = true; thread.historyCursor = 'older-cursor'; thread.sequence = 42;
+    f.calls.length = 0; await f.client.openSelected(f.answer(), 'thread');
+    expect(f.client.thread).toBe(thread); expect(f.client.thread.historyCursor).toBe('older-cursor'); expect(f.client.thread.sequence).toBe(42);
+    expect(f.calls.some(call => call.op === 'http' || call.op === 'subscribe')).toBe(false);
+    f.client.threadSubscription = ''; await f.client.openSelected(f.answer(), 'thread');
+    expect(f.client.thread).toBe(thread); expect(f.calls.find(call => call.key === 'thread')?.payload).toMatchObject({ afterSequence: 42 });
+    expect(f.replies).toHaveLength(1);
+  });
+  test('draft selection retires the old load without stale adoption', async () => {
+    const f = await multipartSelection(), first = f.select(); await f.entered.promise;
+    await f.client.openDraft(f.answer(), 'project'); f.pause.resolve(); await first;
+    expect(f.client.threadId).toBe(''); expect(f.client.thread).toBeNull(); expect(f.subscriptions()).toHaveLength(0); expect(f.held.size).toBe(0);
+    expect((await f.select()).message).toBe(''); expect(f.client.threadId).toBe('thread'); expect(f.replies).toHaveLength(2);
+  });
+  test('a different thread is never hidden by the pending target gate', async () => {
+    const f = await multipartSelection(), first = f.select(); await f.entered.promise;
+    f.client.shell.threads.push({ ...f.client.shell.threads[0]!, id: 'other-thread' });
+    expect((await f.select('other-thread')).message).toBe('');
+    const current = f.client.thread; f.pause.resolve(); await first;
+    expect(f.client.thread).toBe(current); expect(obj(f.client.thread?.projection.thread).id).toBe('other-thread');
+    expect(f.client.threadSubscription).toBe('other-thread'); expect(f.replies).toHaveLength(2);
+    expect(f.calls.filter(call => call.op === 'r10Wake')).toHaveLength(1);
+  });
+  test('new generation bypasses the gate and stale first refresh releases its captured lease', async () => {
+    const f = await multipartSelection(), first = f.refresh(); await f.entered.promise;
+    f.reconnect(); await f.refresh(); expect(f.client.generation).toBe(2); expect(f.client.ready).toBe(true);
+    const current = f.client.thread; f.pause.resolve(); await first;
+    expect(f.client.thread).toBe(current); expect(f.client.ready).toBe(true); expect(f.held.size).toBe(0);
+    expect(f.releases().map(call => [call.id, call.generation])).toEqual(f.replies.slice(1).map(reply =>
+      [obj(obj(reply.value)._nativeTransfer).id, 2]).concat([[obj(obj(f.replies[0]!.value)._nativeTransfer).id, 1]]));
+    expect(new Set(f.releases().map(call => call.id)).size).toBe(f.replies.length);
+    expect(f.subscriptions()).toHaveLength(2); // Current-generation inbox reset legitimately opens again.
+  });
+  for (const owner of ['selection', 'reader']) test(`manual Refresh replaces a pending ${owner} open before clearing the graph`, async () => {
+    const f = await multipartSelection(), prior = owner === 'selection' ? f.select() : f.refresh(); await f.entered.promise;
+    const oldDescriptor = str(obj(obj(f.replies[0]!.value)._nativeTransfer).id);
+    const changed = await f.client.command('refresh', '', '', 0, f.answer(), historyStorage);
+    expect(changed.message).toBe(''); expect(f.client.shellLoaded).toBe(true);
+    expect(obj(f.client.thread?.projection.thread).id).toBe('thread');
+    const replacement = f.client.thread, currentEpoch = f.client.threadEpoch;
+    f.pause.resolve(); await prior;
+    expect(f.client.thread).toBe(replacement); expect(f.client.threadEpoch).toBe(currentEpoch);
+    // Old command leases remain subject to native expiry; a live reader can release its captured lease.
+    expect(f.held.has(oldDescriptor)).toBe(owner === 'selection');
+    expect(f.calls.some(call => call.op === 'r10Wake' && call.topic === 't3.notify')).toBe(true);
+  });
+  for (const boundary of ['subscribe', 'r10Wake']) test(`real Aborted at ${boundary} clears the gate without another native dispatch`, async () => {
+    const f = await multipartSelection(), original = f.native.later;
+    let refuse = true;
+    f.native.later = async input => {
+      if (refuse && obj(input).op === boundary && (boundary !== 'subscribe' || obj(input).key === 'thread')) {
+        f.calls.push(obj(input)); throw { name: 'FetchError', kind: 'Aborted' };
+      }
+      return original(input);
+    };
+    const selected = f.select(); await f.entered.promise; f.pause.resolve(); await selected;
+    const stoppedAt = f.calls.length; await Promise.resolve(); expect(f.calls.length).toBe(stoppedAt);
+    expect(f.client.error).toBe('');
+    expect(f.calls.filter(call => call.op === 'r10Wake')).toHaveLength(boundary === 'r10Wake' ? 1 : 0);
+    refuse = false; await f.refresh(); expect(f.client.ready).toBe(true);
+  });
+  test('malformed same-generation status is not hidden by the pending gate', async () => {
+    const f = await multipartSelection(), first = f.refresh(); await f.entered.promise;
+    const original = f.native.later;
+    f.native.later = async input => obj(input).op === 'status'
+      ? { ok: true, generation: f.generation(), value: {} } : original(input);
+    await f.refresh(); expect(f.client.error).toContain('invalid connection status');
+    f.pause.resolve(); await first; expect(f.client.thread).toBeNull(); expect(f.held.size).toBe(0);
+    f.native.later = original; await f.refresh(); expect(f.client.ready).toBe(true);
+  });
+  test('a late descriptor after refresh supersession releases only that observed old reply', async () => {
+    const f = await multipartSelection(); f.pauseAt('http'); const first = f.refresh(); await f.entered.promise;
+    // No thread token from a different generation can block this owner.
+    f.reconnect(); await f.refresh(); const current = f.client.thread;
+    f.pause.resolve(); await first;
+    expect(f.client.thread).toBe(current); expect(f.reads().every(call => call.generation === 2)).toBe(true);
+    expect(f.releases().map(call => [call.id, call.generation])).toEqual(f.replies.slice(1).map(reply =>
+      [obj(obj(reply.value)._nativeTransfer).id, 2]).concat([[obj(obj(f.replies[0]!.value)._nativeTransfer).id, 1]]));
+    expect(new Set(f.releases().map(call => call.id)).size).toBe(f.replies.length); expect(f.held.size).toBe(0);
+  });
+  for (const boundary of ['http', 'readChunk', 'releaseChunk']) test(`real Aborted at ${boundary} settles, refuses later native calls and permits a fresh retry`, async () => {
+    const f = await multipartSelection(); f.pauseAt(boundary); const first = f.refresh(); await f.entered.promise;
+    const calls = f.calls.length;
+    f.pause.reject({ name: 'FetchError', kind: 'Aborted' }); await first;
+    expect(f.client.error).toBe(''); expect(f.calls.length).toBe(calls);
+    const orphanCount = f.held.size; expect(orphanCount).toBe(1);
+    await f.refresh(); expect(f.client.ready).toBe(true); expect(f.client.error).toBe('');
+    expect(f.held.size).toBe(orphanCount); // True abandonment remains native expiry/reset, never a borrowed ticket.
+  });
+  for (const failure of ['http', 'json', 'chunk']) test(`${failure} failure clears ownership and a fresh refresh retries`, async () => {
+    const f = await multipartSelection(); f.fail(failure); f.pause.resolve(); await f.refresh();
+    expect(f.client.thread).toBeNull(); expect(f.client.error).not.toBe(''); expect(f.held.size).toBe(0);
+    const error = f.client.error;
+    f.fail(''); await f.refresh(); expect(f.client.ready).toBe(true); expect(f.client.error).toBe(error); expect(f.held.size).toBe(0);
+  });
+});
+
+
+test('silent successful catalog and routing writes announce only through the existing metadata wake', async () => {
+  const requests: Obj[] = []; let fail = false;
+  const native = mobileNative({ available: true, watch() {}, async later(input) {
+    const request = obj(input); requests.push(request);
+    return { ok: !fail || request.op === 'r10Wake', generation: 1, value: {} };
+  } });
+  for (const op of ['setConnectionPreferences', 'setRoutes', 'setEnvironmentEnabled', 'forgetEnvironment']) {
+    requests.length = 0; await native.later({ op });
+    expect(requests.map(request => request.op)).toEqual([op, 'r10Wake']);
+    expect(requests[1]).toEqual({ op: 'r10Wake', topic: 't3.notify' });
+  }
+  requests.length = 0; fail = true; await native.later({ op: 'setRoutes' });
+  expect(requests.map(request => request.op)).toEqual(['setRoutes']);
 });
