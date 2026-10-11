@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { highlight, messageCodeBlocks } from './timeline-highlight';
 import { CLASS_OF_PAIR, SLOW_LANGUAGES, highlightPending, highlightSlice, resetHighlightSlicing, shikiLanguage, shikiTokens, startHighlightTurn } from './r12-render-highlight';
 import { grammarId, grammarWork, loadedGrammarChunks } from './r12-render-textmate';
@@ -23,6 +23,8 @@ const SHIKI: [string, string, string, string][] = [
   ["lua as Shiki paints it", "lua", "local function add(a, b)\n  return a + b -- sum\nend", "l#d32a61/#ff678d o#d32a61/#ff678d c#d32a61/#ff678d a#d32a61/#ff678d l#d32a61/#ff678d f#d32a61/#ff678d u#d32a61/#ff678d n#d32a61/#ff678d c#d32a61/#ff678d t#d32a61/#ff678d i#d32a61/#ff678d o#d32a61/#ff678d n#d32a61/#ff678d a#693acf/#9d6afb d#693acf/#9d6afb d#693acf/#9d6afb (#636363/#636363 a#636363/#a3a3a3 ,#636363/#636363 b#636363/#a3a3a3 )#636363/#636363 r#d32a61/#ff678d e#d32a61/#ff678d t#d32a61/#ff678d u#d32a61/#ff678d r#d32a61/#ff678d n#d32a61/#ff678d a#d47628/#ffa359 +#636363/#636363 b#d47628/#ffa359 -#737373/#737373 -#737373/#737373 s#737373/#737373 u#737373/#737373 m#737373/#737373 e#d32a61/#ff678d n#d32a61/#ff678d d#d32a61/#ff678d"],
   ["vue with its own injections as Shiki paints it", "vue", "<template>\n  <p :title=\"msg\">{{ msg }}</p>\n</template>", "<#636363/#636363 t#d5512f/#ff855e e#d5512f/#ff855e m#d5512f/#ff855e p#d5512f/#ff855e l#d5512f/#ff855e a#d5512f/#ff855e t#d5512f/#ff855e e#d5512f/#ff855e >#636363/#636363 <#636363/#636363 p#d5512f/#ff855e :#18a46c/#60d199 t#18a46c/#60d199 i#18a46c/#60d199 t#18a46c/#60d199 l#18a46c/#60d199 e#18a46c/#60d199 =#636363/#636363 \"#199f43/#5ecc71 m#199f43/#5ecc71 s#199f43/#5ecc71 g#199f43/#5ecc71 \"#199f43/#5ecc71 >#636363/#636363 {#0a0a0a/#fafafa {#0a0a0a/#fafafa m#0a0a0a/#fafafa s#0a0a0a/#fafafa g#0a0a0a/#fafafa }#0a0a0a/#fafafa }#0a0a0a/#fafafa <#636363/#636363 /#636363/#636363 p#d5512f/#ff855e >#636363/#636363 <#636363/#636363 /#636363/#636363 t#d5512f/#ff855e e#d5512f/#ff855e m#d5512f/#ff855e p#d5512f/#ff855e l#d5512f/#ff855e a#d5512f/#ff855e t#d5512f/#ff855e e#d5512f/#ff855e >#636363/#636363"]];
 
+// code-highlighting-languages: an app test may leave slicing on, and a language's first use then defers its tokens.
+beforeEach(() => resetHighlightSlicing());
 afterEach(() => resetHighlightSlicing());
 
 describe('the reference\'s whole language list (code-highlighting-languages)', () => {
