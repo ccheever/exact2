@@ -320,7 +320,7 @@ on each host in its own session; for a copy you launched yourself, use
 ## Contract
 
 An agent building an app starts at [start-here.md](docs/start-here.md), the only
-required reading. For more, read the complete [guide for humans](docs/contract-for-humans.md),
+required reading, then looks up the [recipe](docs/recipes/) for each question. For more, read the complete [guide for humans](docs/contract-for-humans.md),
 or look things up in the [guide for agents](docs/contract-for-agents.md) or the
 [grammar and vocabulary reference](docs/contract-grammar.md).
 

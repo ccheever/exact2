@@ -7,7 +7,7 @@
 /// clock is the web's `performance.now()`, so it wears that name, and the
 /// date is the boot instant plus it.
 // @ref LLP 1109 D1 — `now()` read as `Date.now()`; deleted, not deprecated.
-pub const NOW_REFUSED: &str = "`now()` is not in Contract: write `performanceNow()` for durations and timers (milliseconds on the runner's clock since boot, the web's `performance.now()`), or `time.epochAtZero + performanceNow()` for the date, with `resource time = exactTime() as shape Clock` declared and `shape Clock` holding `epochAtZero: number`";
+pub const NOW_REFUSED: &str = "`now()` is not in Contract: write `performanceNow()` for durations and timers (milliseconds since this launch of the app, restarting at 0 on every launch, the web's `performance.now()`), or `time.epochAtZero + performanceNow()` for the date, with `resource time = exactTime() as shape Clock` declared and `shape Clock` holding `epochAtZero: number`";
 
 /// The fix for `recv.name(…)`, or for `recv.name` read as a field of a value
 /// that has none: Contract has no methods.
