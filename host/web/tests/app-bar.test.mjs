@@ -6,7 +6,9 @@
 // text is in the accent with the pointing hand while an authored colour, a
 // row inside it, a `role` or a `buttonStyle` keeps the author's look. The
 // browser's Back with no `navigate` handler is the platform's own whatever the
-// routes are keyed by (LLP 1115 D5).
+// routes are keyed by (LLP 1115 D5). A root whose key names no route keeps
+// what is left of the stack it showed (LLP 1035.001 D1), so a closed sheet
+// never leaves the route beneath it inert.
 import { test, expect } from 'bun:test';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -142,7 +144,8 @@ check('a block link of text is in the accent and points; the author\'s look wins
 
 // A stack whose root route is keyed by a name, not its visit id, as the list-detail pattern keys its list
 // (`navigationKey="items"`), over a stand-in runner: each visit a route, each change the router's op, the runner's own
-// `back` (`host back`) popping the selected top, and a `navigate` handler, when heard, `go` to the location.
+// `back` (`host back`) popping the selected top, and a `navigate` handler, when heard, `go` to the location. With
+// `byVisit` the root names the visit at the stack's root too (`${top(nav).id}`), which no route carries.
 const keyed = page.match(/<style>[\s\S]*?<\/style>/)[0] + `
 <div id="exact-root"><main id="nav" navigationKey="items" navigationBack="back" style="display:block">
   <div navigationKey="items"><header><h1>Items</h1></header></div>
@@ -150,11 +153,11 @@ const keyed = page.match(/<style>[\s\S]*?<\/style>/)[0] + `
 <script type="module">
   import { navigation } from './navigation.js';
   const root = document.getElementById('exact-root'), nav = document.getElementById('nav');
-  window.calls = []; window.heard = false; window.stack = [[0, '/']];
-  const show = removed => {
+  window.calls = []; window.heard = false; window.byVisit = false; window.stack = [[0, '/']];
+  const show = window.show = removed => {
     const [top, url] = stack.at(-1);
-    nav.setAttribute('navigationKey', stack.length === 1 ? 'items' : String(top));
-    navigation.project(root, () => {}); navigation.apply({ top, url, removed });
+    nav.setAttribute('navigationKey', stack.length === 1 && !byVisit ? 'items' : String(top));
+    navigation.project(root, line => calls.push('log ' + line)); navigation.apply({ top, url, removed });
   };
   window.pop = () => { const [id] = stack.pop(); nav.lastElementChild.remove(); show([id]); };
   window.push = (id, url, sheet = false) => {
@@ -189,4 +192,19 @@ check('the browser\'s Back with no navigate handler is the runner\'s own back, h
   expect(await evaluate(`push(3, '/add', true); back()`)).toEqual([['navigate /', 'pressed 3'], '/', 1]);
   expect(await evaluate(`push(4, '/add', true); document.querySelector('[navigationKey="4"] #back').disabled = true; back(2)`))
     .toEqual([['navigate /', 'log history: Back refused: its id="back" control is disabled, inert or not shown; restoring the entry'], '/add', 2]);
+}, keyed), 30000);
+
+check('a closed sheet or a popped screen leaves the route beneath it live when the root names no route there', () => inChrome(async (evaluate) => {
+  // The root names visit 0, which no route carries (chat-rooms in bake-off round 6): nothing is projected at first.
+  const beneath = `(r => [r.inert, r.style.visibility, r.hasAttribute('data-exact-covered')])(document.querySelector('[navigationKey="items"]'))`;
+  expect(await evaluate(`byVisit = true; show([]); calls.splice(0); ${beneath}`)).toEqual([false, '', false]);
+  // A sheet covers it, shown and inert; Cancel closes the sheet and the route beneath is live again, not left inert.
+  expect(await evaluate(`push(1, '/add', true); ${beneath}`)).toEqual([true, '', true]);
+  expect(await evaluate(`document.querySelector('[navigationKey="1"] #back').click(); ${beneath}`)).toEqual([false, '', false]);
+  // A pushed screen hides it; popped, it shows again.
+  expect(await evaluate(`push(2, '/item/2'); ${beneath}`)).toEqual([true, 'hidden', false]);
+  expect(await evaluate(`pop(); ${beneath}`)).toEqual([false, '', false]);
+  // The key that names no route is still a refusal, journaled each time the root comes back to it.
+  const refusal = 'log navigationKey "0" matches no route among the root\'s children or those of the tabpanels its tablist names; the stack is unchanged';
+  expect(await evaluate(`calls.filter(c => c.startsWith('log '))`)).toEqual([refusal, refusal]);
 }, keyed), 30000);

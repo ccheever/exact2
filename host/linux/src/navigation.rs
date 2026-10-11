@@ -29,6 +29,15 @@ pub(crate) fn popover_invoker(kernel: &Kernel, id: ViewId) -> bool {
     false
 }
 
+/// LLP 1035.001 D1, when the root's key matches no route: the stack is left
+/// alone, less the routes that have left the tree. The deepest route of the
+/// stack last shown (its keys through its selected route) that is still
+/// declared is the selected one, so a closed sheet or a popped screen never
+/// leaves the route beneath it covered; `None` (nothing shown yet) changes nothing.
+pub fn survivor(shown: &[String], declared: impl Fn(&str) -> bool) -> Option<String> {
+    shown.iter().rev().find(|key| declared(key)).cloned()
+}
+
 /// Hidden and inert, respectively, for each direct route child. An unmatched
 /// selection leaves the previously projected state alone.
 pub fn route_visibility(keys: &[&str], selected: &str, modal: bool) -> Option<Vec<(bool, bool)>> {
@@ -100,6 +109,8 @@ pub(crate) struct Navigation {
     /// The tabpanels a root last hid or showed: one it stops naming shows again.
     panels: BTreeSet<ViewId>,
     refused: BTreeMap<ViewId, String>,
+    /// Each root's stack as last shown, its keys through its selected route.
+    shown: BTreeMap<ViewId, Vec<String>>,
     popovers: bool,
 }
 
@@ -107,6 +118,7 @@ impl Navigation {
     pub fn sync(&mut self, kernel: &Kernel, order: &[ViewId]) -> Vec<String> {
         self.routes.retain(|id, _| kernel.node(*id).is_some());
         self.refused.retain(|id, _| kernel.node(*id).is_some());
+        self.shown.retain(|id, _| kernel.node(*id).is_some());
         let mut logs = Vec::new();
         let before = std::mem::take(&mut self.panels);
         self.popovers = false;
@@ -146,20 +158,34 @@ impl Navigation {
                     .and_then(|n| n.props.str(PropId::NavigationKey))
                     .unwrap_or("")
             };
-            let selected = nav.props.str(PropId::NavigationKey).unwrap_or("");
+            let named = nav.props.str(PropId::NavigationKey).unwrap_or("");
+            let declared = |k: &str| {
+                stacks
+                    .iter()
+                    .any(|routes| routes.iter().any(|r| key(r) == k))
+            };
+            let selected = if declared(named) {
+                self.refused.remove(id);
+                named.to_string()
+            } else {
+                if self.refused.get(id).map(String::as_str) != Some(named) {
+                    self.refused.insert(*id, named.into());
+                    logs.push(format!(
+                        "navigationKey \"{named}\" matches no route among the root's children or those of the tabpanels its tablist names; the stack is unchanged"
+                    ));
+                }
+                let shown = self.shown.get(id).map(Vec::as_slice).unwrap_or_default();
+                let Some(survivor) = survivor(shown, declared) else {
+                    continue;
+                };
+                survivor
+            };
             let Some(at) = stacks
                 .iter()
                 .position(|routes| routes.iter().any(|r| key(r) == selected))
             else {
-                if self.refused.get(id).map(String::as_str) != Some(selected) {
-                    self.refused.insert(*id, selected.into());
-                    logs.push(format!(
-                        "navigationKey \"{selected}\" matches no route among the root's children or those of the tabpanels its tablist names; the stack is unchanged"
-                    ));
-                }
                 continue;
             };
-            self.refused.remove(id);
             for (index, panel) in panels.iter().enumerate() {
                 self.routes.insert(*panel, (index != at, index != at));
             }
@@ -168,10 +194,15 @@ impl Navigation {
                 // The selected stack shows the route the root names; another
                 // keeps its top laid out.
                 let shown = if stack == at {
-                    selected
+                    selected.as_str()
                 } else {
                     keys.last().copied().unwrap_or("")
                 };
+                if stack == at {
+                    let through = keys.iter().position(|k| *k == shown).map_or(0, |i| i + 1);
+                    self.shown
+                        .insert(*id, keys[..through].iter().map(|k| k.to_string()).collect());
+                }
                 let modal = routes.iter().find(|r| key(r) == shown).is_some_and(|r| {
                     kernel
                         .node(*r)
@@ -250,5 +281,20 @@ mod tests {
         );
         assert_eq!(route_visibility(&keys, "missing", false), None);
         assert_eq!(route_visibility(&[], "missing", false), None);
+    }
+
+    /// LLP 1035.001 D1: a root whose key names no route (visit "0" over a
+    /// route keyed "rooms") keeps what is left of the stack it showed: the
+    /// sheet closed, the route beneath it is selected, live again.
+    #[test]
+    fn a_key_that_names_no_route_keeps_what_is_left_of_the_stack_shown() {
+        let shown = ["rooms".to_string(), "1".to_string()];
+        assert_eq!(survivor(&shown, |k| k == "rooms"), Some("rooms".into()));
+        assert_eq!(
+            survivor(&shown, |k| k == "rooms" || k == "1"),
+            Some("1".into())
+        );
+        assert_eq!(survivor(&shown, |_| false), None);
+        assert_eq!(survivor(&[], |_| true), None);
     }
 }
