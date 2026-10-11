@@ -25,6 +25,10 @@ pub struct Device {
     pub high_contrast: bool,
     /// The screen is touched with a finger, which cannot hover.
     pub touch: bool,
+    /// How far a finger moves before its contact is a drag and no longer a
+    /// tap, in points (Android's scaled touch slop); 0 where the shell
+    /// knows none, which keeps the shared one.
+    pub touch_slop: f32,
 }
 
 /// The root font size at a font scale of 1: CSS's `medium`.
@@ -42,7 +46,8 @@ impl<D: DataSource> Presenter<D> {
     ///   table and its dates;
     /// - "remove animations" is `prefers-reduced-motion`, high contrast is
     ///   `prefers-contrast: more`;
-    /// - a touch screen is `pointer: coarse` and `hover: none`.
+    /// - a touch screen is `pointer: coarse` and `hover: none`, and its
+    ///   touch slop is how far a contact moves before it is a drag.
     ///
     /// The layout direction, the 12 or 24-hour clock and bold text are kept
     /// ([`Presenter::device`]) and change nothing yet: the runner has no
@@ -52,6 +57,10 @@ impl<D: DataSource> Presenter<D> {
             return None;
         }
         self.device = Some(device.clone());
+        self.slop = match device.touch && device.touch_slop.is_finite() && device.touch_slop > 0.0 {
+            true => f64::from(device.touch_slop),
+            false => exact_motion::gesture::SLOP,
+        };
         self.set_system_scheme(device.night);
         let runner = self.host.runner();
         let mut preferences = runner.viewport().preferences;

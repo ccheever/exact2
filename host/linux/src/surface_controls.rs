@@ -603,7 +603,10 @@ impl<D: DataSource> Presenter<D> {
     }
 
     /// A press moves focus to the nearest focusable node at or above `hit`,
-    /// except that a canvas press leaves an editor focused.
+    /// except that a canvas press leaves an editor focused. A finger's press
+    /// gives the focus without its ring (LLP 1115.001 D7.6: no focus ring in
+    /// touch mode, as the web's `:focus-visible`); a mouse's shows it, as it
+    /// did, and so does a focus a key or the app moves there after.
     fn focus_for_press(&mut self, hit: ViewId, now_ms: f64) {
         let mut focus = Some(hit);
         while let Some(id) = focus {
@@ -612,6 +615,9 @@ impl<D: DataSource> Presenter<D> {
             }
             focus = self.host.kernel().node(id).and_then(|n| n.parent);
         }
+        let ringless = focus.filter(|_| self.direct());
+        self.dirty |= self.brush.ringless != ringless;
+        self.brush.ringless = ringless;
         let editing = self.surfaces.wants_input(hit)
             && self
                 .focus

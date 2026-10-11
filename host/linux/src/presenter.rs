@@ -107,6 +107,7 @@ pub use device::Device;
 use painter::cpu_info;
 pub(crate) use painter::PainterBoot;
 pub use painter::{set_custom_painter, PainterChoice, PainterFactory, PainterInfo};
+pub use pointer::PointerKind;
 pub use window::{Chrome, Window};
 
 /// The presenter: one host, its painter, and the host state.
@@ -185,6 +186,10 @@ pub struct Presenter<D: DataSource> {
     pub(crate) scheme: (Option<bool>, bool),
     /// The device's settings as its shell last told them (LLP 1115.001 D3.1).
     device: Option<Device>,
+    /// What the pointer is, and how far it moves before a contact is a
+    /// drag: a mouse and the shared slop until a shell says (D7.4).
+    pointer_kind: PointerKind,
+    slop: f64,
     /// The shell's window, its insets, and the page's place in it (D3.3).
     window: window::State,
     /// The viewport segments the agent set (LLP 1078 D7), for `layout.env`;
@@ -425,6 +430,8 @@ impl<D: DataSource> Presenter<D> {
             deferred_collections: None,
             scheme: (None, false),
             device: None,
+            pointer_kind: PointerKind::Mouse,
+            slop: exact_motion::gesture::SLOP,
             window: Default::default(),
             segments: Vec::new(),
             surfaces: Default::default(),

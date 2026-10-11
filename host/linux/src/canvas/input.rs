@@ -1,8 +1,11 @@
 //! The reader's scroll steps and touches (LLP 1076 §3.3): a driver's scroll
 //! moves the feed, and a touch is the presenter's pointer at the view's
-//! pixels.
+//! pixels. Each touch says what touched (LLP 1115.001 D7.4): this entry is
+//! where a finger is told from a mouse, which desktop Linux's own inputs
+//! (evdev, VNC) and the agent remain.
 
 use super::{CanvasHost, Section};
+use crate::presenter::PointerKind;
 use exact_runner::DataSource;
 
 impl<D: DataSource + Default> CanvasHost<D> {
@@ -26,9 +29,16 @@ impl<D: DataSource + Default> CanvasHost<D> {
         self.p.hold_collections(false);
     }
 
-    /// A touch (0 down, 1 up, 2 move, 3 cancel) at pixels.
-    pub fn touch(&mut self, action: i32, x: f32, y: f32) {
+    /// A touch (0 down, 1 up, 2 move, 3 cancel) at pixels, by Android's
+    /// tool type `tool`: a mouse (3) is a mouse, a stylus or its eraser (2,
+    /// 4) a pen, and anything else a finger.
+    pub fn touch(&mut self, action: i32, x: f32, y: f32, tool: i32) {
         let _s = Section::begin(c"exact touch");
+        self.p.set_pointer_kind(match tool {
+            3 => PointerKind::Mouse,
+            2 | 4 => PointerKind::Pen,
+            _ => PointerKind::Touch,
+        });
         self.force |= action != 2;
         if action != 2 && self.painted_once {
             self.p.slice_collections(Some(0), 0.0);

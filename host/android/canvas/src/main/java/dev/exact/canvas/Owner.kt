@@ -245,8 +245,8 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
 
     /** A touch: answered within [waitMs] if exact2 is free (as LLP 1072's events are synchronous, so the response is
      * in this frame), else published when it is. Whether it was answered. */
-    fun touch(action: Int, x: Float, y: Float, waitMs: Long): Boolean = answer(waitMs) {
-        Native.touch(action, x, y)
+    fun touch(action: Int, x: Float, y: Float, tool: Int, waitMs: Long): Boolean = answer(waitMs) {
+        Native.touch(action, x, y, tool)
         if (action == 0 && ahead) { handler.removeCallbacks(aheadSlice); handler.post(aheadSlice) }
     }
 

@@ -28,11 +28,12 @@ internal data class Device(
     val boldText: Boolean,
     /** High contrast: the system's contrast level above standard (Android 14), or high contrast text (Android 16). */
     val highContrast: Boolean,
-    /** The screen is a finger's. */
+    /** The screen is a finger's, and how far one moves before its touch is a drag, in dp (the system's touch slop). */
     val touch: Boolean,
+    val touchSlop: Float,
 ) {
     /** Tell exact2: on the thread that holds the host, or on any before it boots. */
-    fun tell() = Native.configure(night, fontScale, locale, rtl, hour24, noAnimations, boldText, highContrast, touch)
+    fun tell() = Native.configure(night, fontScale, locale, rtl, hour24, noAnimations, boldText, highContrast, touch, touchSlop)
 
     companion object {
         fun read(context: Context): Device {
@@ -51,6 +52,7 @@ internal data class Device(
                 boldText = weight != Configuration.FONT_WEIGHT_ADJUSTMENT_UNDEFINED && weight > 0,
                 highContrast = contrast,
                 touch = config.touchscreen == Configuration.TOUCHSCREEN_FINGER,
+                touchSlop = android.view.ViewConfiguration.get(context).scaledTouchSlop / context.resources.displayMetrics.density,
             )
         }
     }

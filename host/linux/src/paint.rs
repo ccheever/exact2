@@ -520,6 +520,9 @@ pub struct Painter {
     /// The node a 3D island paints flat, its own transform being the warp's
     /// (LLP 1077 D8).
     pub(crate) flatten: Option<ViewId>,
+    /// The control a finger's press focused: it is the focus and shows no
+    /// ring, which is for a focus a key moved (LLP 1115.001 D7.6).
+    pub(crate) ringless: Option<ViewId>,
     rows: rows::Rows,
     /// The `svg` painting now: its elements the reader animates.
     svg_layers: Vec<(ViewId, Presented)>,
@@ -617,6 +620,7 @@ impl Painter {
             viewport: (0., 0.),
             cpu_ms: None,
             flatten: None,
+            ringless: None,
             rows: Default::default(),
             boxes_hint: 0,
             svg_layers: Vec::new(),
@@ -1185,7 +1189,7 @@ impl Painter {
                     ts,
                     &face,
                     &rows,
-                    walk.scene.focus == Some(node.id),
+                    walk.scene.focus == Some(node.id) && self.ringless != Some(node.id),
                 );
             }
             NodeType::Control => control::paint(
@@ -1233,6 +1237,7 @@ impl Painter {
             && node.node_type == NodeType::Pressable
             && node.props.str(PropId::Href).is_none()
             && walk.scene.focus == Some(node.id)
+            && self.ringless != Some(node.id)
             && node.props.bool(PropId::Disabled) != Some(true)
         {
             let accent = control::accent(node, self.dark).unwrap_or(control::ACCENT);

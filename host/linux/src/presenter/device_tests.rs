@@ -40,6 +40,7 @@ fn phone() -> Device {
         bold_text: false,
         high_contrast: false,
         touch: true,
+        touch_slop: 8.0,
     }
 }
 

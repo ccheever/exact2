@@ -218,12 +218,12 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
                 o.held(true)
             }
             if (action == 1 || action == 3) holdFrom = 0L
-            val answered = o.touch(action, e.x, e.y, if (press) 0L else if (action == 2) 2L else releaseWait)
+            val answered = o.touch(action, e.x, e.y, e.getToolType(0), if (press) 0L else if (action == 2) 2L else releaseWait)
             if (action == 1 || action == 3) o.held(false)
             if (answered) publish()
             return true
         }
-        Native.touch(action, e.x, e.y)
+        Native.touch(action, e.x, e.y, e.getToolType(0))
         if (action == 1) keys?.focusChanged()
         // A frame only when the touch changed what exact2 draws (a down on a plain row changes nothing).
         if (started) pump()

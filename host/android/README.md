@@ -107,6 +107,10 @@ The cut was the smallest one. Left in the reader:
     else the root's `navigate`, else the runner's own `back`; with nowhere to go back to, the activity finishes. The
     back callback is always enabled, so there is no predictive preview, and no top layer closes first (there is
     none yet).
+  - *A finger is a finger* (D7.4, D7.6). Each touch says what touched (`Native.touch`'s tool type), so a finger is a
+    `touch` pointer to the app, hovers nothing, and leaves no focus ring on the button it presses (a text field keeps
+    its own focus ring). The system's touch slop, told with the settings, is how far a touch moves before it is a
+    drag. One pointer still: a second finger cancels the touch.
   - *The lifecycle's first two parts* (D15): the manifest declares the configuration changes the host takes in
     place, an activity made again adopts the host that runs (`Native.start` on a thread that has one), and the host
     does no frame work while the activity is stopped. Nothing is saved for a process the system kills (D15.3).

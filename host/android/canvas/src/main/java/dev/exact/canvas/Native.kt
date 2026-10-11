@@ -20,7 +20,7 @@ object Native {
      * with them, and again on the host's thread whenever one changes. */
     @JvmStatic external fun configure(
         night: Boolean, fontScale: Float, locale: String, rtl: Boolean, hour24: Boolean, noAnimations: Boolean,
-        boldText: Boolean, highContrast: Boolean, touch: Boolean,
+        boldText: Boolean, highContrast: Boolean, touch: Boolean, touchSlop: Float,
     )
     /** The window (LLP 1115.001 D3.3): its size in pixels, the display's pixels a point, and the system's raw insets
      * in pixels, sixteen numbers: top, right, bottom, left for the system bars, then the display cutout, the software
@@ -41,7 +41,10 @@ object Native {
     @JvmStatic external fun nextDue(): Double
     @JvmStatic external fun fds(): IntArray
     @JvmStatic external fun scroll(dy: Float)
-    @JvmStatic external fun touch(action: Int, x: Float, y: Float)
+    /** A touch (0 down, 1 up, 2 move, 3 cancel) at the view's pixels, and what touched: the event's tool type
+     * ([android.view.MotionEvent.getToolType]). A finger is reported to the app as a touch that hovers nothing and
+     * leaves no focus ring, a mouse as a mouse (LLP 1115.001 D7.4). */
+    @JvmStatic external fun touch(action: Int, x: Float, y: Float, tool: Int)
     /** One slice ([budgetUs] of shaping) of laying out what the touch that is down would open; whether more is left. */
     @JvmStatic external fun ahead(budgetUs: Int): Boolean
     @JvmStatic external fun copyImage(id: Int, bitmap: Bitmap): Boolean
