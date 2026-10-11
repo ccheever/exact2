@@ -35,7 +35,10 @@ const targetNode = (nodes, target) => { const matches = nodes.filter((n) => n.pr
  * navigation bar leaves out, which the agent's own chrome still paints (LLP 1116 D2). No clock can change that. */
 export function textExpectation(nodes, target, value) {
   const n = targetNode(nodes, target), got = n ? textOf(nodes, n) : undefined;
-  if (got !== value) return { message: `text of "${target}" is ${n ? JSON.stringify(got) : 'absent (no view carries that testId)'}, expected ${JSON.stringify(value)}` };
+  const runs = [];
+  if (n && n.props.text == null && got !== n.props.value) for (let i = nodes.indexOf(n) + 1; i < nodes.length && nodes[i].depth > n.depth; i++) if (nodes[i].props.text != null) runs.push(nodes[i].props.text);
+  const parts = runs.length > 1 ? ` (joined from its descendants: ${runs.map((r) => JSON.stringify(r)).join(' + ')}; to assert one, give that text its own testId)` : '';
+  if (got !== value) return { message: `text of "${target}" is ${n ? JSON.stringify(got) : 'absent (no view carries that testId)'}, expected ${JSON.stringify(value)}${parts}` };
   return n.unshown ? { message: `text of "${target}" is ${JSON.stringify(got)}, but ${n.unshown}`, unshown: true } : null;
 }
 
@@ -321,6 +324,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     // A zone or locale the driver refuses fails this test at its line, not the run. `epoch now` is read here, once
     // a test, so a `reload` relaunches from the same date on every host. `facts.epoch` is the date at the clock's zero
     // of the launch now running: a `reload` moves it on by the virtual time that launch reached (LLP 1116.009 D1).
+    const fixedDate = facts.epoch == null;
     try { facts.epoch = launchFacts({ ...facts, env: env ?? {} }).epoch; } catch (e) {
       results.push({ name: t.name, failures: [`${t.name}: ${lines.length ? `line ${lines.join(', ')}` : "the drive's launch flags"}: ${e.message}`] });
       continue;
@@ -553,6 +557,8 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       await s.close().catch((e) => { if (closedAt == null) throw e; });
     }
     if (failures.length) shared.forEach((o, i) => { if (heads[i] > 0 && atStart[i] != null) notes.push(sharedBackendNote(o, atStart[i], heads[i] - atStart[i])); });
+    // The README says `epoch now` (sb4 farm wave 7, E1: 013 found it only in prose).
+    if (failures.length && fixedDate && atStart.some((h) => h != null)) notes.push('this test ran on the fixed date 2026-01-01T00:00:00Z while snapback4 dev keeps real time: if what failed reads a time (a deadline, an age, a window), the server\'s and the app\'s disagree; write `epoch now` at the top of the test file (snapback4/README.md, "Time")');
     results.push({ name: t.name, failures, notes, ...(shots.length ? { shots } : {}), ...(end ? { end } : {}), ...(end?.keep ? { store } : {}) });
     if (base && !end?.keep) rmSync(resolve(base, store), { recursive: true, force: true });
   }
