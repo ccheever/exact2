@@ -424,6 +424,41 @@ read the starting cell, and the last write wins. Calls in exclusive branches
 A derive is not mutable storage, an async effect, or a timer. Derive cycles are
 refused. Avoid unnecessary state that can be calculated from existing values.
 
+### A remembered setting: `persist`
+
+A root `state` that ends in `persist` is kept across launches (LLP 1116 D5), as
+SwiftUI's `@AppStorage` or a React `useState` over `localStorage`:
+
+```contract
+component App
+  state tipPercent = 18 persist
+  state units = "C" persist
+  action toggleUnits
+    units = units == "C" ? "F" : "C"
+  view
+    button press=toggleUnits testId="units"
+      text `${tipPercent}% · °${units}`
+```
+
+- Before the first frame the store is read: a kept value of the state's type
+  replaces the initializer's. A missing one keeps the initializer's, and so does
+  one of another shape (the state's type changed since), which `logs` names
+  (`persisted state units: the stored value does not fit string: …`).
+- After every commit that stands, the store holds the state's value: the page's
+  `localStorage` (`exact.state.<name>`), the app's `UserDefaults` domain on Apple
+  (never the Keychain), a file under the app's data directory on Linux. The key
+  is the state's name, so renaming the state forgets what was kept.
+- Small settings only: a number, string or bool, or an option or list of one, at
+  most 16 KB as JSON (a longer value is not kept, and `logs` says so). `persist`
+  on a record, a list of records or a state holding an action is
+  `type-persist-type`: keep app data in a source. A child component's state is
+  `type-persist-child`; a derive, `syntax-persist-derive`.
+- Each authored test starts from an empty store, and its `reload` reads back what
+  it kept. A drive with `--storage <name>` keeps persisted state in that store
+  between drives; a drive without one starts from the declared values and keeps
+  nothing past the drive. The recipe:
+  [a remembered setting](recipes/persisted-setting.md).
+
 ### Editing a value: the field's contract
 
 A text field is re-set only when what its `value` binding reads changes, never

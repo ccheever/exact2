@@ -174,7 +174,8 @@ section       = "props" block(field)
               | "inject" block(field)
               | "provide" block(provider)
               | "slot" NL
-              | ( "state" | "derive" ) IDENT "=" expr NL
+              | "state" IDENT "=" expr [ "persist" ] NL
+              | "derive" IDENT "=" expr NL
               | resource | mutation | action | task
               | "view" block(node) ;
 provider      = FIELD [ "=" expr ] NL ;
@@ -1280,6 +1281,13 @@ Syntax is only the first layer. In particular:
 - A state's initializer reads only props, injects and the states above it; a
   resource, derive, mutation, action or later state it names is
   `type-initializer-scope` (LLP 1088 D4).
+- `persist` (LLP 1116 D5) keeps a root state across launches under its name: a
+  stored value of its type replaces the initializer's before the first frame,
+  and after each commit that stands the store holds the state's value. Only a
+  number, string or bool, or an option or list of one, at most 16 KB as JSON;
+  a record, a list of records or a state holding an action is
+  `type-persist-type` (keep app data in a source), a child's state
+  `type-persist-child`, a derive `syntax-persist-derive`.
 - An action sends one mutation at most once on any path: a second send forgets
   the first's reply (LLP 1016 D5), so it is `analyze-send-twice` — unless the
   mutation is `queue`, whose sends each wait their turn (LLP 1092 D6). Exclusive
