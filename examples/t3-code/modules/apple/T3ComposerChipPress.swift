@@ -70,14 +70,25 @@ final class T3ComposerChipPress {
     @discardableResult func mouseDown(_ event: NSEvent) -> Bool {
         guard let styler, let view = styler.view, let window = view.window, event.window === window,
               event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
-              let root = window.contentView?.superview ?? window.contentView,
-              root.hitTest(root.convert(event.locationInWindow, from: nil))?.isDescendant(of: view) == true else { return false }
+              let root = window.contentView?.superview ?? window.contentView else { return false }
+        let hit = root.hitTest(root.convert(event.locationInWindow, from: nil))
+        guard hit?.isDescendant(of: view) == true else {
+            // diff-cite-popover DC-1: a press anywhere else outside the citation's comment (the timeline's ground, which
+            // takes no focus and no window `pointerdown`, included) is Base UI's outside press: the popover's textarea
+            // gives the focus up, and its blur settles the draft in the app. A press in the popover is its own.
+            if chip?.kind == "citation", !T3ComposerChipPress.inCitationComment(hit), window.firstResponder !== view { window.makeFirstResponder(nil) }
+            return false
+        }
         let point = view.convert(event.locationInWindow, from: nil)
         // diff-cite-popover DC-1: while a citation's comment is open, a press in the text is its outside press, and on its
         // own button the trigger's: the text view takes the focus from the popover's textarea, whose blur settles the draft
-        // in the app (resolveAssistantCitationCommentDismissal), so nothing closes here. The trigger's press is taken.
+        // in the app (resolveAssistantCitationCommentDismissal), so nothing closes here. The trigger's press is taken; any
+        // other is the text view's, which places the caret.
         if let open = chip, open.kind == "citation" {
-            guard styler.citationAction(at: point) == open, !view.hasMarkedText() else { return false }
+            guard styler.citationAction(at: point) == open, !view.hasMarkedText() else {
+                if window.firstResponder !== view { window.makeFirstResponder(view) }
+                return false
+            }
             select(open, in: view, window: window)
             return true
         }
@@ -116,9 +127,18 @@ final class T3ComposerChipPress {
         self.anchor = anchor
         self.source = source
         self.removeOnCancel = removeOnCancel
+        // A citation's comment takes the focus as it opens (PopoverPopup `initialFocus`: its textarea): the prompt gives it
+        // up, so the popover's `autofocus` (which yields to a focused view, as HTML's does) lands there.
+        if chip.kind == "citation", let window = styler?.view?.window, window.firstResponder === styler?.view { window.makeFirstResponder(nil) }
         follow()
         (frame, trigger) = measure() ?? ([], [])
         onChange()
+    }
+
+    /// Whether `view` is in the window's citation comment popover (citation-comment.contract, its node's testId
+    /// "citation-comment", which Exact writes as the view's accessibility identifier).
+    static func inCitationComment(_ view: NSView?) -> Bool {
+        sequence(first: view, next: { $0?.superview }).contains { $0?.accessibilityIdentifier() == "citation-comment" }
     }
 
     /// After Cite (ChatComposer citeAssistantText's `citationCommentAnchor`, the editor's requestCitationComment): the
@@ -143,7 +163,16 @@ final class T3ComposerChipPress {
         close()
         guard let current else { return false }
         if focus, let window = view.window, window.firstResponder !== view { window.makeFirstResponder(view) }
-        if let text, text != current { return styler.editor?.apply(chip.range, text, in: view) ?? false }
+        if let text, text != current {
+            // An outside press's commit (no focus) leaves the caret where the reader put it, moved with the text after the chip.
+            let kept = view.selectedRange(), delta = (text as NSString).length - chip.range.length
+            guard styler.editor?.apply(chip.range, text, in: view) == true else { return false }
+            if !focus {
+                let location = kept.location >= chip.end ? kept.location + delta : min(kept.location, chip.start)
+                view.setSelectedRange(NSRange(location: min(max(0, location), (view.string as NSString).length), length: 0))
+            }
+            return true
+        }
         if focus { view.setSelectedRange(NSRange(location: chip.end, length: 0)) }
         return true
     }

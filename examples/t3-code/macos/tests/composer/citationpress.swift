@@ -39,6 +39,19 @@ private final class CitationFixture {
         base.tick()
     }
 
+    /// The same click at `point` in the window's content coordinates (top-left origin, as the content view is unflipped: y from the bottom).
+    func clickWindow(_ point: NSPoint) {
+        let location = point, window = base.window
+        let down = NSEvent.mouseEvent(with: .leftMouseDown, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!
+        let up = NSEvent.mouseEvent(with: .leftMouseUp, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 0)!
+        NSApp.postEvent(up, atStart: true)
+        NSApp.sendEvent(down)
+        if let queued = NSApp.nextEvent(matching: .leftMouseUp, until: Date(), inMode: .default, dequeue: true) { NSApp.sendEvent(queued) }
+        base.tick()
+    }
+
     func button(_ chip: T3ComposerChip) -> NSPoint { let rect = styler.citationActionRect(chip)!; return NSPoint(x: rect.midX, y: rect.midY) }
     func label(_ chip: T3ComposerChip) -> NSPoint { let rect = styler.chipRect(chip)!; return NSPoint(x: rect.minX + rect.width * 0.3, y: rect.midY) }
 }
@@ -90,6 +103,7 @@ final class ComposerCitationTests: XCTestCase {
         fixture.click(fixture.button(chip))
         XCTAssertTrue(fixture.press.isOpen, "a real click on the comment button opens the comment")
         XCTAssertEqual(fixture.base.editor.selectedRange(), chip.range, "the press selects the chip, as the reference's node selection")
+        XCTAssertTrue(fixture.base.window.firstResponder === fixture.base.window, "the prompt gives the focus up, so the popover's autofocus takes it (initialFocus)")
         let state = fixture.press.state
         XCTAssertEqual(state["kind"] as? String, "citation")
         XCTAssertEqual(state["link"] as? String, link(quoteHref), "the chip's source, whose href the app rewrites")
@@ -104,6 +118,7 @@ final class ComposerCitationTests: XCTestCase {
         let seq = fixture.press.seq
         fixture.click(NSPoint(x: 395, y: 8))
         XCTAssertTrue(fixture.press.isOpen, "a press in the text is the app's outside press")
+        XCTAssertTrue(fixture.base.window.firstResponder === fixture.base.editor, "the text view takes the focus, so the popover's textarea blurs and the app settles it")
         fixture.base.window.makeFirstResponder(nil)
         fixture.click(fixture.button(chip))
         XCTAssertTrue(fixture.press.isOpen && fixture.press.seq == seq, "the trigger again: the app settles it")
@@ -113,6 +128,30 @@ final class ComposerCitationTests: XCTestCase {
         XCTAssertFalse(fixture.press.isOpen)
         XCTAssertEqual(fixture.base.editor.string, "See " + link(quoteHref) + " now")
         XCTAssertEqual(fixture.base.editor.selectedRange(), NSRange(location: chip.end, length: 0), "onRestoreFocus: the caret after the chip")
+    }
+
+    /// Base UI's outside press anywhere in the window (the timeline's ground takes no focus and no `pointerdown`): the
+    /// popover's textarea gives the focus up and its blur settles the draft; a press in the popover is its own.
+    func testAPressOutsideTheCommentTakesTheFocusFromItsTextarea() {
+        let fixture = CitationFixture("See " + link(quoteHref) + " now")
+        let content = fixture.base.window.contentView!
+        let popover = NSView(frame: NSRect(x: 0, y: 130, width: 200, height: 60)) // above the prompt (0, 0, 400, 120)
+        popover.setAccessibilityIdentifier("citation-comment")
+        let field = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 60))
+        popover.addSubview(field); content.addSubview(popover)
+        fixture.press.press(fixture.styler.chips[0])
+        XCTAssertTrue(fixture.base.window.makeFirstResponder(field))
+        fixture.clickWindow(NSPoint(x: 100, y: 160))
+        XCTAssertTrue(fixture.base.window.firstResponder === field, "a press in the popover keeps its focus")
+        fixture.clickWindow(NSPoint(x: 300, y: 160))
+        XCTAssertTrue(fixture.base.window.firstResponder === fixture.base.window, "a press on the window's ground takes it")
+        XCTAssertTrue(fixture.press.isOpen, "the app closes it once it has settled the draft")
+        // With nothing of a citation open, a press outside leaves the focus alone.
+        fixture.press.close()
+        XCTAssertTrue(fixture.base.window.makeFirstResponder(field))
+        fixture.clickWindow(NSPoint(x: 300, y: 160))
+        XCTAssertTrue(fixture.base.window.firstResponder === field)
+        XCTAssertTrue(T3ComposerChipPress.inCitationComment(field) && !T3ComposerChipPress.inCitationComment(content))
     }
 
     func testCiteOpensItUnderTheCitedTextSaveRewritesTheChipAndCancelRemovesIt() {
@@ -134,6 +173,15 @@ final class ComposerCitationTests: XCTestCase {
         XCTAssertEqual(fixture.base.editor.selectedRange().location, ("Before " + link(commentHref) as NSString).length)
         XCTAssertEqual(fixture.styler.chips[0].label, "Check the pure claim")
         XCTAssertEqual(fixture.press.accessibilityElements.map { $0.accessibilityLabel() ?? "" }, ["Edit citation comment"])
+        // An outside press's commit (no focus) keeps the reader's caret, moved with the text after the chip.
+        _ = fixture.press.openCitation(href: commentHref, source: [])
+        let tail = (fixture.base.editor.string as NSString).length
+        fixture.base.editor.setSelectedRange(NSRange(location: tail, length: 0))
+        XCTAssertTrue(fixture.press.finishCitation(seq: fixture.press.seq, text: link(quoteHref), focus: false))
+        XCTAssertEqual(fixture.base.editor.string, "Before " + link(quoteHref) + " ")
+        XCTAssertEqual(fixture.base.editor.selectedRange().location, tail - (link(commentHref) as NSString).length + (link(quoteHref) as NSString).length)
+        XCTAssertTrue(fixture.press.openCitation(href: quoteHref, source: []))
+        XCTAssertTrue(fixture.press.finishCitation(seq: fixture.press.seq, text: link(commentHref), focus: true))
         // Cite again, then Cancel: the chip just cited goes again (removeOnCancel), the spaces stay as the reference's.
         fixture.base.editor.setSelectedRange(NSRange(location: (fixture.base.editor.string as NSString).length, length: 0))
         _ = fixture.base.composer.editor.insert(["text": link(quoteHref)])
