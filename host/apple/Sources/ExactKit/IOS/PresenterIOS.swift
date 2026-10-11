@@ -1101,9 +1101,14 @@ package final class Presenter {
         // Replayed outside a batch (a sheet's dismissal completing): carried
         // rows go back to their authored parents first, as before a batch,
         // so the new box is theirs; the projections remount on the next turn.
+        // Inside one they went back as it began, unless a list laid out in the
+        // batch carried one again: a box replayed then (a sheet closing, LLP
+        // 1116.002 D2) is the row's too, which `restore` would otherwise undo.
         if !applying {
             groupedLists?.prepare()
             requestProjectionSync()
+        } else if groupedLists?.carriesRows == true {
+            groupedLists?.prepare()
         }
         let id = op.id
         guard let v = views[id] else { return }
