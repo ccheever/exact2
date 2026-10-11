@@ -181,7 +181,7 @@ Ports    none. Runs to completion.`,
     flags: [],
     body: `  build <file.contract> [-o <file.plan>] [--json] [--map]   --json: [] or each diagnostic with its range
   types <file.contract> [-o <app.d.ts>]   the types app.ts imports
-  vocab [--json] [<name>]                 the tags, attributes and CSS properties Contract takes
+  vocab [--json] [<name>]                 the tags, attributes, CSS properties and functions Contract takes
   fmt [--check | --stdout] <file.contract> · fmt --uses <file.contract>
   symbols <file.contract> [--name <name>] · sources <file.contract>
   test <file.test.contract>               the compiled tests, as JSON (bun exact.mjs test runs them)

@@ -391,7 +391,7 @@ overrides it).
 
 Read before writing code: ${doc('start-here.md')}, the only required reading (LLP 1115
 D7). After it, look things up: the recipe for the question in ${doc('recipes')} (start-here
-lists them), \`bun exact.mjs contract vocab <name>\` for a tag or property, and the long
+lists them), \`bun exact.mjs contract vocab <name>\` for a tag, property or function, and the long
 guides beside start-here by section only, never front to back.
 
 ${DIARY_LINE}
@@ -403,7 +403,7 @@ Commands, from this directory:
 | \`bun exact.mjs <verb> --help\`, \`bun exact.mjs help\` | a verb's flags, the ports it opens, whether it stays in the foreground, and an example; the verbs. Read these, not exact2's scripts |
 | \`bun exact.mjs contract types app.contract -o app.contract.d.ts\` | the types \`app.ts\` imports; rerun after changing a source's signature |
 | \`bun exact.mjs contract build app.contract --json\` | compile; \`[]\` or every diagnostic with its range |
-| \`bun exact.mjs contract vocab [name]\` | the tags, attributes and CSS properties Contract accepts |
+| \`bun exact.mjs contract vocab [name]\` | the tags, attributes, CSS properties and functions Contract accepts; one function's signature, rules and example |
 | \`bun exact.mjs web\` | the web dev loop, at the URL it prints (8765 unless another loop holds it) |
 | \`bun exact.mjs test web\` | build the web app if needed, then run \`app.test.contract\` or the files named (also \`macos\`, \`ios\`, \`linux\`) |
 | \`bun exact.mjs agent web --storage s1 tree "tap <id>" "screenshot .exact/a.png"\` | drive the app as a person would; without \`--storage <name>\` its storage calls are refused |
