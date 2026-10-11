@@ -61,7 +61,8 @@ extension NodeView {
         field.bezelStyle = standard.bezelStyle
         field.drawsBackground = native && standard.drawsBackground
         field.backgroundColor = native ? standard.backgroundColor : .clear
-        field.focusRingType = native ? .default : .exterior
+        field.focusRingType = outlineNone ? .none : native ? .default : .exterior
+        restyleFieldFocus()
         field.alignment = fieldAlignment
         if native, field.currentEditor() == nil {
             field.attributedStringValue = NSAttributedString(string: field.stringValue, attributes: fieldTextAttributes)

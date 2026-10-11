@@ -1134,8 +1134,11 @@ impl Painter {
                     );
                     let at_end = || exact_runner::FieldSelection::at_end(value);
                     self.field_caret(&field, caret, selection.unwrap_or_else(at_end), ts);
-                    let accent = control::accent(node, self.dark).unwrap_or(control::ACCENT);
-                    self.field_ring(field_shape.as_ref().unwrap_or(&outer), accent, ts);
+                    // LLP 1104 D6: `outline: none` (the row's one value) draws no ring.
+                    if !node.style.mask.has(exact_kernel::StyleId::OutlineStyle) {
+                        let accent = control::accent(node, self.dark).unwrap_or(control::ACCENT);
+                        self.field_ring(field_shape.as_ref().unwrap_or(&outer), accent, ts);
+                    }
                 }
             }
             NodeType::Svg => self.svg(walk, node, rect, content, ts),
