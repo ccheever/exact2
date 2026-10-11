@@ -1245,8 +1245,7 @@ impl<D: DataSource> Runner<D> {
             .collect()
     }
 
-    /// A resource's answer by name: what its source answered, without the
-    /// writes laid over it.
+    /// A resource's answer by name: what its source answered, without the writes laid over it.
     pub fn resource(&self, name: &str) -> Option<&Value> {
         self.plan
             .resources
