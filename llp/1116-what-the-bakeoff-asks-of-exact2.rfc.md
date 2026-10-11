@@ -45,10 +45,10 @@ A/B order randomized) drives both apps and scores them.
 
 Round 1 (Exact2 `20da6c87d`, 24 pairs; final numbers in §1):
 
-- **Time: Exact2 is already competitive.** Over the pairs it took 0.85× the comparison's
-  minutes (geometric mean), and it was faster in 13 of 24.
-- **Tokens: Exact2 costs more.** Total tokens were 1.23× the comparison's (fresh tokens, the
-  input not served from cache, about 1.3×). The difference is reading, not writing. Exact2
+- **Time: Exact2 is already competitive.** Over the pairs it took 0.79× the comparison's
+  minutes (geometric mean).
+- **Tokens: Exact2 costs more.** Total tokens were 1.19× the comparison's (fresh tokens, the
+  input not served from cache, 1.15×), and 1.78× against React on the web. The difference is reading, not writing. Exact2
   builders took in 100–350 KB of tool output, against 15–42 KB for React and SwiftUI builders,
   who "already knew" their stack. Of that:
   - `start-here.md` (30 KB), read in full by every builder;
@@ -56,8 +56,8 @@ Round 1 (Exact2 `20da6c87d`, 24 pairs; final numbers in §1):
   - **about 280 KB of the CLI's own source** (`scripts/exact.mjs`, `agent*.mjs`,
     `build.mjs`), because `--help` works on no verb.
   Everything read early is carried in context through every later turn.
-- **Quality: Exact2 loses most pairs.** The grader preferred the comparison app in 19 of 24
-  (see §1). Almost every app on both sides passed every feature, so the losses are about how
+- **Quality: Exact2 loses most pairs.** The grader preferred the comparison app in 18 of 24:
+  React 8 of 8, SwiftUI 7 of 8, Expo 3 of 8 (see §1). Almost every app on both sides passed every feature, so the losses are about how
   the app looks and how it behaves at the edges:
   - **On the web, Exact2 lost every pair on looks.** Its platform score was 5–6 against
     React's 7–9. Unsaid presentation is the browser's own (grey UA buttons, regular-weight
@@ -96,7 +96,34 @@ Per pair, from `~/bakeoff/rounds/r1/records/*.json`. Minutes are wall clock meas
 harness, from launch to the builder's exit. Tokens are the model's input plus output tokens
 summed over every model call, subagents included.
 
-ROUND1_TABLE
+| Spec | Model | Stack | Exact2 min | Other min | Exact2 Mtok | Other Mtok | Exact2 overall | Other overall | Better |
+|---|---|---|---|---|---|---|---|---|---|
+| Unit Converter | GPT | SwiftUI | 9.4 | 7.9 | 3.6 | 1.6 | 7 | 8 | SwiftUI |
+| Household Shopping List (backend) | Muse | Expo | 23.8 | 49.8 | 15.3 | 30.2 | 6 | 6 | Expo |
+| Water Tracker | Muse | React | 8.7 | 6.4 | 3.6 | 2.7 | 6 | 8 | React |
+| Weather | GPT | Expo | 7.4 | 26.0 | 2.3 | 9.3 | 7 | 8 | Expo |
+| Recipe Finder | GPT | React | 6.1 | 6.2 | 1.5 | 1.0 | 6 | 8 | React |
+| Book Club (backend) | GPT | Expo | 18.1 | 15.8 | 9.3 | 6.8 | 7 | 7 | Exact2 |
+| Password Generator | GPT | Expo | 13.1 | 16.9 | 5.6 | 4.9 | 8 | 7 | Exact2 |
+| Flashcards | GPT | React | 5.2 | 6.8 | 1.6 | 0.9 | 6 | 8 | React |
+| Chat Rooms (backend) | Muse | SwiftUI | 40.3 | 19.9 | 21.7 | 7.5 | 4 | 7 | SwiftUI |
+| Stopwatch | Muse | Expo | 8.3 | 15.6 | 2.6 | 4.0 | 4 | 8 | Expo |
+| Polls (backend) | Muse | SwiftUI | 19.2 | 15.0 | 12.5 | 6.7 | 7 | 8 | SwiftUI |
+| Habit Tracker | GPT | React | 5.7 | 6.9 | 1.4 | 0.8 | 6 | 8 | React |
+| Team Kanban (backend) | Muse | SwiftUI | 22.8 | 20.0 | 13.4 | 6.8 | 2 | 7 | SwiftUI |
+| Mood Journal | GPT | SwiftUI | 6.2 | 6.3 | 1.9 | 1.5 | 7 | 7 | Exact2 |
+| Tip Splitter | GPT | React | 3.8 | 6.7 | 0.9 | 1.0 | 6 | 8 | React |
+| Workout Log | Muse | SwiftUI | 12.9 | 90.2 (cap) | 4.3 | 17.8 | 6 | 7 | SwiftUI |
+| Notes | GPT | Expo | 11.0 | 17.7 | 3.3 | 5.6 | 7 | 6 | Exact2 |
+| Trivia Quiz | Muse | SwiftUI | 8.9 | 17.6 | 3.3 | 2.4 | 6 | 7 | SwiftUI |
+| Grocery List | Muse | SwiftUI | 10.5 | 27.4 | 3.8 | 6.2 | 6 | 8 | SwiftUI |
+| Event RSVP (backend) | GPT | React | 11.2 | 9.5 | 5.8 | 2.7 | 3 | 8 | React |
+| Expense Tracker | GPT | Expo | 9.8 | 9.5 | 3.7 | 2.7 | 8 | 6 | Exact2 |
+| Contacts Directory | Muse | React | 6.5 | 6.1 | 4.2 | 2.9 | 5 | 7 | React |
+| Focus Timer | GPT | React | 11.7 | 6.4 | 3.1 | 0.5 | 6 | 8 | React |
+| Countdowns | GPT | Expo | 10.6 | 13.2 | 4.2 | 4.5 | 8 | 6 | Exact2 |
+
+Geometric means, Exact2 over the comparison: minutes **0.79×**, total tokens **1.19×**, fresh tokens **1.15×**. Better: Exact2 **6**, comparison **18**. By stack: React 0 of 8; Expo 5 of 8; SwiftUI 1 of 8.
 
 How to read it:
 
