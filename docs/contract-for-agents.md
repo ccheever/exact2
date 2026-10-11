@@ -104,9 +104,10 @@ exit status: 0 success, 1 compilation/I/O failure, 2 invalid invocation. Read al
 diagnostics, including related locations, before making the next repair. Each has
 a `severity`: `"error"` refuses the build; `"warning"` (after the errors, also on a
 success) builds and runs but is not what you meant, such as a header node the iOS
-bar hides (`lower-header-unplaced`), a tab bar of one tab (`lower-single-tab`) or a
-`performanceNow()` time sent to a source (`type-performance-now-persisted`); each
-names its repair, and fixing it is part of the edit.
+bar hides (`lower-header-unplaced`), a tab bar of one tab (`lower-single-tab`), a
+`performanceNow()` time sent to a source (`type-performance-now-persisted`) or a
+literal colour that stays the same in dark mode (`lower-colour-one-scheme`, every
+site past the cap); each names its repair, and fixing it is part of the edit.
 
 Formatting is explicit. `fmt --stdout` previews, `fmt --check` checks, and plain
 `fmt` writes. Formatting changes spacing and breaks only: a result that would

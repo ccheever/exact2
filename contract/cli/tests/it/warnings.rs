@@ -75,7 +75,7 @@ fn what_the_bar_places_or_the_compiler_cannot_see_is_not_warned() {
         // that presses and one that opens a popover, a spacer between.
         "  text \"List\" role=\"heading\" aria-level=1\n  text \"3 left\"\n  view flex=1\n  input type=\"search\" value=q\n  row role=\"tablist\"\n    button role=\"tab\" aria-selected=true press=go\n      text \"A\"\n  button press=go testId=\"add\"\n    text \"Add\"\n  button popovertarget=\"menu\"\n    text \"More\"",
         // A heading's group: an avatar before it, a line of glyphs after.
-        "  row\n    box background-color=\"#08f\"\n      text \"AL\"\n    text \"Ada\" role=\"heading\" aria-level=1\n    row\n      image \"symbol:sf/bell.slash\"\n      text \"Muted\"",
+        "  row\n    box background-color=\"-exact-system-blue\"\n      text \"AL\"\n    text \"Ada\" role=\"heading\" aria-level=1\n    row\n      image \"symbol:sf/bell.slash\"\n      text \"Muted\"",
         // A pressable group around the heading is the title, tapped.
         "  button press=go\n    text \"Ada\" role=\"heading\" aria-level=1\n    text \"online\"",
         // `when`, `each` and a computed role are given the benefit.
@@ -198,4 +198,112 @@ fn a_launch_relative_time_in_a_persisted_state_is_named() {
     // stopwatch's start mark, kept by `persist` instead of a source.
     let src = "shape Time\n  epochAtZero: number\ncomponent App\n  resource time = exactTime() as shape Time\n  state start = 0 persist\n  state wall = 0 persist\n  state lap = 0 persist\n  action begin\n    start = performanceNow()\n    wall = time.epochAtZero + performanceNow()\n    lap = performanceNow() - start\n  view\n    button \"go\" press=begin\n";
     assert_eq!(warned(src), [(PERSISTED.to_string(), 5)]);
+}
+
+const ONE_SCHEME: &str = "lower-colour-one-scheme";
+
+/// One screen, its view's lines at 5 on, with a style, a `fn` and a derive
+/// that choose colours.
+fn screen(view: &str) -> String {
+    let view: String = view.lines().map(|l| format!("    {l}\n")).collect();
+    format!(
+        "fn tone(n: number): string = n > 3 ? \"#e8f1ec\" : \"-exact-fill\"\ncomponent App\n  state n = 1\n  view\n{view}"
+    )
+}
+
+#[test]
+fn a_literal_colour_on_the_page_is_named_with_its_repair() {
+    // Round 4's light card and its tinted text: the same in dark mode.
+    let card = screen("column background-color=\"#ffffff\"\n  text \"a\"");
+    assert_eq!(warned(&card), [(ONE_SCHEME.to_string(), 5)]);
+    let (_, warnings) = contract::compile_warned(&card);
+    let m = &warnings[0].message;
+    assert!(
+        m.contains("`#ffffff` on `background-color` stays the same in dark mode")
+            && m.contains("`-exact-secondary-grouped-background`")
+            && m.contains("one `light-dark(light, dark)` pair on `accent-color`"),
+        "{m}"
+    );
+    let text = screen("text \"a\" color=\"rgb(20, 30, 40)\"");
+    assert_eq!(warned(&text), [(ONE_SCHEME.to_string(), 5)]);
+    let (_, warnings) = contract::compile_warned(&text);
+    assert!(
+        warnings[0]
+            .message
+            .contains("`rgb(20, 30, 40)` on `color` stays the same in dark mode")
+            && warnings[0].message.contains("`-exact-label`"),
+        "{warnings:?}"
+    );
+    // A forced scheme is the app with no dark mode: still named.
+    for scheme in ["light", "dark"] {
+        let forced = screen(&format!(
+            "main color-scheme=\"{scheme}\" background-color=\"#fafafa\"\n  text \"a\""
+        ));
+        assert_eq!(warned(&forced), [(ONE_SCHEME.to_string(), 5)], "{scheme}");
+    }
+    // A named colour, `hsl()`, a border's colour, the bare accent, the
+    // leaves of a choice, a `fn`'s and a derive's, and a style's rows.
+    for view in [
+        "text \"a\" color=\"white\"",
+        "text \"a\" background-color=\"hsl(120 40% 50%)\"",
+        "text \"a\" border-bottom=\"1px solid #dddddd\"",
+        "column accent-color=\"#0a7f5a\"",
+        "text \"a\" color=(n > 1 ? \"#111111\" : \"#222222\")",
+        "text \"a\" background-color=tone(n)",
+    ] {
+        assert_eq!(
+            warned(&screen(view)),
+            [(ONE_SCHEME.to_string(), 5)],
+            "{view}"
+        );
+    }
+    let derived = screen("text \"a\" color=shade").replace(
+        "  view\n",
+        "  derive shade = n > 2 ? \"#333333\" : \"-exact-label\"\n  view\n",
+    );
+    assert_eq!(warned(&derived), [(ONE_SCHEME.to_string(), 6)]);
+    let styled = screen("column class=Card").replace(
+        "component App\n",
+        "style Card\n  background-color=\"#fafafa\"\ncomponent App\n",
+    );
+    assert_eq!(warned(&styled), [(ONE_SCHEME.to_string(), 3)]);
+}
+
+#[test]
+fn the_accent_pair_roles_and_artwork_are_not_named() {
+    for view in [
+        // The one authored colour, as a pair or a role.
+        "main accent-color=\"light-dark(#0a7f5a, #3cc98f)\"\n  text \"a\"",
+        "main accent-color=\"-exact-system-teal\"\n  text \"a\"",
+        // Roles, and what is no colour of its own.
+        "text \"a\" color=\"-exact-secondary-label\" background-color=\"-exact-secondary-grouped-background\" border-color=\"-exact-separator\"",
+        "text \"a\" color=\"CanvasText\" background-color=\"AccentColor\" -exact-tint-color=\"-exact-system-red\"",
+        "text \"a\" color=\"currentColor\" background-color=\"transparent\" border-color=\"rgba(0, 0, 0, 0)\"",
+        "text \"a\" color=\"-exact-platform-color(ios systemPinkColor, #ff2d55)\"",
+        // Artwork: an `svg`'s paint, and a shadow, which darkens in both.
+        "svg viewBox=\"0 0 10 10\" width=10 height=10\n  circle cx=5 cy=5 r=4 fill=\"#ff0000\" stroke=\"#000000\"",
+        "text \"a\" box-shadow=\"0 1px 2px rgba(0, 0, 0, 0.2)\"",
+        // What the compiler cannot see: a state, an item, a field.
+        "column\n  each c in [\"#ffffff\"] key=c\n    text c color=c",
+    ] {
+        assert_eq!(warned(&screen(view)), [], "{view}");
+    }
+}
+
+#[test]
+fn every_literal_colour_is_named_past_the_cap_with_one_line_on_why() {
+    let view: String = (0..25)
+        .map(|i| format!("  text \"{i}\" color=\"#1234{i:02}\"\n"))
+        .collect();
+    let view = format!("column\n{view}");
+    let all = warned(&screen(&view));
+    assert_eq!(all.len(), 26, "{all:?}");
+    assert!(all.iter().all(|(id, _)| id == ONE_SCHEME), "{all:?}");
+    let (_, warnings) = contract::compile_warned(&screen(&view));
+    assert!(
+        warnings[0].message.ends_with("or leave it unsaid")
+            && warnings[25].message.starts_with("these 25 literal colours")
+            && warnings[25].span.line == 6,
+        "{warnings:?}"
+    );
 }
