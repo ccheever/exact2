@@ -259,8 +259,11 @@ own list on iOS and a measured sheet elsewhere; `listStyle` picks
 `inset-grouped`, `grouped` or `plain`. The Signal Clone's settings screens are
 the consumer. Unblocks native cell highlight, separators, dynamic type and
 VoiceOver rows in a settings screen without a module. Take: none offered;
-waived by Charlie's approval. No sidebar styles, no virtualized grouped list,
-no grouped swipe actions.
+waived by Charlie's approval. No sidebar styles, no virtualized grouped list.
+**Expanded (LLP 1116.001 D1, 2026-10-11, decided under LLP 1116's standing
+instruction):** a grouped row that names swipe actions takes its list cell's
+own swipe on iOS (grocery-list's swipe-to-delete did nothing in round 3).
+Take: none; the one-row table it replaces is not made for such a row.
 **Expanded (Charlie, 2026-10-06, via the lead: "Recs seem good. Approve and
 push"):** hatches on every platform and what the agent sees of them (LLP
 1075.003.000.001). The changes:

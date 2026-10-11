@@ -53,6 +53,9 @@ function build(app, dist) {
     child.on('exit', (code) => {
       building = null;
       const packages = devPackages(stage);
+      // The one line a build says when it rewrote the types app.ts imports, built or not (LLP 1116.001 D4.5).
+      const types = /^app\.contract\.d\.ts: .*$/m.exec(log)?.[0];
+      if (types) console.log(types);
       if (code !== 0) { rmSync(stage, { recursive: true, force: true }); return done({ packages, error: log.split('\n').filter((l) => l.trim() && !/^\s*(Compiling|Finished|Running|warning)/.test(l)).slice(-12).join('\n') || `build exited ${code}` }); }
       const logic = readFileSync(resolve(stage, '.exact-dev-logic.json'), 'utf8').trim();
       writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({ exactBuild: 1, target: 'js', app: { id: app.id, name: app.displayName },

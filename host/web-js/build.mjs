@@ -156,7 +156,7 @@ const compiler = webCompiler();
 const cargo = spawnSync(compiler.cmd, [...compiler.pre, 'js', input, '-o', gen, ...(production ? [] : ['--sites']), ...(devReload ? ['--dev-reload'] : [])], { cwd: root, stdio: 'inherit', env: { ...process.env, EXACT_JS_GPU_SURFACES: gpuSurfaces.join(',') } });
 if (cargo.status !== 0) process.exit(cargo.status ?? 1);
 compiler.done();
-for (const f of ['rt.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'pointer.js', 'document.js', 'media.js', 'commands.js', 'focus.js', 'backdrop.js']) cpSync(resolve(here, f), resolve(gen, f));
+for (const f of ['rt.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'pointer.js', 'document.js', 'media.js', 'commands.js', 'focus.js', 'backdrop.js', 'persist.js']) cpSync(resolve(here, f), resolve(gen, f));
 // Canvas 2D surfaces (a loaded chunk: this runtime's engine over the web
 // host's own replayer) are drawn by the Rust data module, or by a
 // TypeScript source's `draw` in the page (ts-draw.js, in the same chunk).
@@ -206,9 +206,14 @@ async function typecheck() {
   let declarations = readFileSync(resolve(gen, 'app.contract.d.ts'), 'utf8');
   if (/export\s+(?:function|const|let)\s+draw\b|export\s*\{[^}]*\bdraw\b/.test(source)) declarations += readFileSync(resolve(root, 'js/bake/src/canvas-types.d.ts'), 'utf8');
   // Beside app.ts too, for an editor, as the native development bake writes
-  // it: never a captured source, written only when it changes.
+  // it: never a captured source, written only when it changes, and said in
+  // one line, as `exact.mjs contract build` says it (LLP 1116.001 D4.5).
   const beside = resolve(appDir, 'app.contract.d.ts');
-  if (!production && (!existsSync(beside) || readFileSync(beside, 'utf8') !== declarations)) writeFileSync(beside, declarations);
+  const before = existsSync(beside) ? readFileSync(beside, 'utf8') : null;
+  if (!production && before !== declarations) {
+    writeFileSync(beside, declarations);
+    console.error(`app.contract.d.ts: ${before === null ? 'written' : 'regenerated, since a source\'s signature changed'} (the types app.ts imports)`);
+  }
   // The bake's capture (js/bake/src/lib.rs `sources`): the app's TypeScript
   // and JSON, and each `typescript.sources` mount under its name.
   const stage = resolve(gen, 'typescript');
@@ -501,8 +506,14 @@ if (how !== 'none') await bundle({ entrypoints: [resolve(gen, 'main-server.js')]
 }
 
 // The web host's base stylesheet, as its build writes it (comments out).
-const base = readFileSync(resolve(root, 'host/web/index.html'), 'utf8').match(/<style>([\s\S]*?)<\/style>/)[1]
-  .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s*\n\s*/g, '').replace(/\s*([{};:,>])\s*/g, '$1').replace(/;}/g, '}');
+// Whitespace before a `:` stays: in a selector it is a descendant's pseudo-class.
+const shell = readFileSync(resolve(root, 'host/web/index.html'), 'utf8');
+const base = shell.match(/<style>([\s\S]*?)<\/style>/)[1]
+  .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s*\n\s*/g, '').replace(/\s*([{};,>])\s*/g, '$1').replace(/:\s+/g, ':').replace(/;}/g, '}');
+// LLP 1116 D8: the app's first manifest icon, else the shell's default one.
+const appIcon = webManifest.icons?.[0];
+const attr = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+const icon = appIcon ? `<link rel="icon" type="${attr(appIcon.type ?? 'image/png')}" href="./${attr(appIcon.src)}">` : shell.match(/<link rel="icon"[^>]*>/)[0];
 const css = readFileSync(resolve(gen, 'app.css'), 'utf8');
 const viewport = existsSync(resolve(gen, 'viewport.txt')) ? readFileSync(resolve(gen, 'viewport.txt'), 'utf8') : 'width=device-width, initial-scale=1';
 // The entry and the chunks it imports statically (none, unless a split
@@ -517,13 +528,14 @@ writeFileSync(resolve(out, 'index.html'), `<!doctype html>
 <base href="/">
 <title>${manifest.name}</title>
 <meta name="viewport" content="${viewport}">
+${icon}
 ${preloads}<style>${base}${css}</style>
 <div id="exact-root"${manifest.audio_session ? ` data-audio-session="${manifest.audio_session}"` : ''}></div>
 ${args.includes('--inline') ? `<script type="module">${readFileSync(resolve(out, 'app.js'), 'utf8').replaceAll('</script', '<\\/script')}</script>` : '<script type="module" src="./app.js"></script>'}
 `);
 if (production) {
   const bake = dirname(resolve(opt('--plan')));
-  const links = readFileSync(resolve(bake, 'index.html'), 'utf8').match(/^<(?:link rel="(?:alternate|manifest|icon)"|meta name="theme-color")[^>]*>$/gm) ?? [];
+  const links = readFileSync(resolve(bake, 'index.html'), 'utf8').match(/^<(?:link rel="(?:alternate|manifest)"|meta name="theme-color")[^>]*>$/gm) ?? [];
   writeFileSync(resolve(out, 'index.html'), readFileSync(resolve(out, 'index.html'), 'utf8').replace(/(<meta name="viewport"[^>]*>\n)/, `$1${links.map(l => l + '\n').join('')}`)
     .replace('<html lang="en">', readFileSync(resolve(bake, 'index.html'), 'utf8').match(/<html lang="[^"]*">/)?.[0] ?? '<html lang="en">'));
   for (const f of ['exact.json', 'manifest.json', 'robots.txt', 'sitemap.xml', '.well-known', '.exact', 'rust']) if (existsSync(resolve(bake, f))) cpSync(resolve(bake, f), resolve(out, f), { recursive: true });

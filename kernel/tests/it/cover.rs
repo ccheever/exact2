@@ -309,3 +309,96 @@ fn a_replaced_header_destroyed_outright_leaves_no_inset() {
     kernel.apply(2, 3, &[Op::DestroyView { id: 3 }]).unwrap();
     assert_eq!(frame(&mut kernel, 4).1, 44.0);
 }
+
+/// The route's list (4) as a scroller padded by 16 holding a column (5)
+/// that fills its height (`flex: 1` in its flex column) and, when `long`,
+/// a 2000-point box after it: trivia-quiz's results and a filled-height
+/// screen (LLP 1116.000 D1.2).
+fn scroller(long: bool) -> Kernel {
+    let mut kernel = route();
+    let flex_column = [
+        (StyleId::Display, StyleValue::Text("flex".into())),
+        (StyleId::FlexDirection, StyleValue::Text("column".into())),
+        (StyleId::OverflowY, StyleValue::Text("scroll".into())),
+        (StyleId::MinHeight, StyleValue::Number(0.0)),
+        (StyleId::PaddingTop, StyleValue::Number(16.0)),
+        (StyleId::PaddingBottom, StyleValue::Number(16.0)),
+    ];
+    let mut ops = vec![
+        Op::SetStyle {
+            id: 4,
+            patch: Box::new(style(&flex_column)),
+        },
+        Op::CreateView {
+            id: 5,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id: 5,
+            patch: Box::new(style(&[(StyleId::FlexGrow, StyleValue::Number(1.0))])),
+        },
+        Op::CreateView {
+            id: 6,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id: 6,
+            patch: Box::new(style(&[
+                (StyleId::Height, StyleValue::Number(2000.0)),
+                (StyleId::FlexShrink, StyleValue::Number(0.0)),
+            ])),
+        },
+    ];
+    ops.push(Op::SetChildren {
+        id: 4,
+        children: if long { vec![5, 6] } else { vec![5] },
+    });
+    kernel.apply(1, 2, &ops).unwrap();
+    // The bar replaces the header and the list runs under it, as a route's
+    // collapsing scroller does on iOS.
+    kernel.set_host_cover(3, Some(HostCover::Whole)).unwrap();
+    kernel
+}
+
+#[test]
+fn a_scroller_the_platform_insets_lays_out_its_content_between_the_insets() {
+    let mut kernel = scroller(false);
+    assert_eq!(frame(&mut kernel, 4), (0.0, 0.0, 390.0, 844.0));
+    assert_eq!(
+        frame(&mut kernel, 5),
+        (0.0, 16.0, 390.0, 812.0),
+        "as authored"
+    );
+    // UIKit insets the scroller by the large title's 140 and the home
+    // indicator's 34: the filled column ends where the indicator begins
+    // once the title's inset moves it down, and keeps its start.
+    kernel
+        .set_host_cover(4, Some(HostCover::Inset([140.0, 34.0])))
+        .unwrap();
+    assert_eq!(
+        frame(&mut kernel, 4),
+        (0.0, 0.0, 390.0, 844.0),
+        "the scroller keeps its box"
+    );
+    assert_eq!(frame(&mut kernel, 5), (0.0, 16.0, 390.0, 638.0));
+    assert_eq!(
+        kernel.node(4).unwrap().content.1,
+        670.0,
+        "the extent the platform adds its insets to: 16 + 638 + 16"
+    );
+    kernel.set_host_cover(4, None).unwrap();
+    assert_eq!(frame(&mut kernel, 5).3, 812.0, "cleared, as authored");
+}
+
+#[test]
+fn scrolling_content_keeps_its_extent_under_an_inset() {
+    let mut kernel = scroller(true);
+    kernel
+        .set_host_cover(4, Some(HostCover::Inset([140.0, 34.0])))
+        .unwrap();
+    assert_eq!(frame(&mut kernel, 6), (0.0, 16.0, 390.0, 2000.0));
+    assert_eq!(kernel.node(4).unwrap().content.1, 2032.0, "16 + 2000 + 16");
+    assert!(kernel
+        .set_host_cover(4, Some(HostCover::Inset([f32::NAN, 0.0])))
+        .is_err());
+}

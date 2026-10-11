@@ -11,6 +11,8 @@
 
 Fix admitted role mappings and implicit live announcements first; amend LLP 1080.003 D3 for modal subtree projection alongside #282. Check actual AppKit tree/VoiceOver; ARIA modality is not keyboard containment.
 
+2026-10-10, LLP 1116 D8 (`43f6d298c`): the `progressbar` part landed. A drawn range role (`progressbar`, `slider`, `meter`, `scrollbar`, `spinbutton`) is one AppKit element with its role, value, minimum and maximum (`NodeViewMac.updateRoleAccessibility`, `AccessibilityTests.testARangeRoleIsOneElementWithItsValue`). `status`, `alert` and the modal dialog remain.
+
 Transferred at exact2 `5e8da7027` on 2026-10-09. This preserves reported evidence; this triage has not reproduced or fixed the runtime behavior. The current scope and Charlie's decisions below supersede conflicting proposals/acceptance in the original report. This file is the live issue after the GitHub copy is closed.
 
 ## Original report

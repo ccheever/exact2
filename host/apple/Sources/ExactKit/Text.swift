@@ -25,6 +25,19 @@ import CExact
 import CoreText
 
 /// One styled run: what changes glyph metrics.
+extension Run {
+    /// This run at `scale` of its size, in the kernel's f32 arithmetic
+    /// (`TextStyle::scaled`, LLP 1116.001 D1.4: a fitted paragraph).
+    func scaled(_ scale: Float) -> Run {
+        guard scale != 1 else { return self }
+        var run = self
+        run.size = CGFloat(Float(size) * scale)
+        run.lineHeight = lineHeight.map { CGFloat(Float($0) * scale) }
+        run.letterSpacing = CGFloat(Float(letterSpacing) * scale)
+        return run
+    }
+}
+
 package struct Run: Hashable {
     package var text: String
     package var size: CGFloat
@@ -123,6 +136,13 @@ struct Spec: Hashable {
     /// blur in points, then the colour's r g b a (0–255), resolved for the
     /// appearance. Nil when the runs' own differ (`gatherShadows`).
     var shadow: [Double]? = nil
+    /// CSS `text-box-trim` (0 none, 1 trim-start, 2 trim-end, 3 trim-both)
+    /// and `text-box-edge`'s over (0 text, 1 cap, 2 ex) and under (0 text,
+    /// 1 alphabetic) edges: the paragraph is cut to its fonts' own metrics,
+    /// for measuring and painting alike.
+    var textBoxTrim = 0
+    var textBoxOver = 0
+    var textBoxUnder = 0
 }
 
 /// Where collapsed white space went, from `exact_text_collapse`: offsets
@@ -1138,8 +1158,13 @@ package final class TextEngine {
         // up once, on iOS (CSSLineBox). A width rounds up to the browser's
         // 1/64 layout unit, so text laid out again at its own measured width
         // still fits on its lines.
+        var height = explicit ? y : ceil(y)
+        // CSS `text-box-trim`: the first line cut at its fonts' text, cap or
+        // ex top, the last at their baseline or descent, as the measurer and
+        // the painter both see it (`Spec.textBoxTrim`).
+        trimTextBox(spec, lines: lines, baselines: &baselines, lineBottoms: &lineBottoms, height: &height)
         let paragraph = Paragraph(lines: lines, baselines: baselines, width: CSSLineBox.layoutWidth(maxWidth),
-                                  height: explicit ? y : ceil(y), lineBottoms: lineBottoms,
+                                  height: height, lineBottoms: lineBottoms,
                                   shape: shape, offeredWidth: width, glyphCount: glyphCount)
         paragraph.clampedRange = clampedRange
         paragraph.insets = insets
@@ -1358,6 +1383,7 @@ package final class TextEngine {
         // Metric-only keys match the geometry used by the colored presenter.
         var made = Spec(runs: runs, align: Int(request.align), lineClamp: Int(request.line_clamp), color: [0, 0, 0, 255], overflowWrap: Int(request.overflow_wrap), direction: Int(request.direction), whiteSpace: Int(request.white_space), strut: run(request.strut))
         made.textIndent = CGFloat(request.text_indent); made.hyphens = Int(request.hyphens)
+        made.textBoxTrim = Int(request.text_box_trim); made.textBoxOver = Int(request.text_box_over); made.textBoxUnder = Int(request.text_box_under)
         if made.hyphens == 2, let lang = request.lang {
             made.language = String(decoding: UnsafeBufferPointer(start: lang, count: request.lang_len), as: UTF8.self)
         }

@@ -58,12 +58,12 @@ final class RevealKeyboardIOSTests: XCTestCase {
         return v.convert(CGPoint(x: v.bounds.midX, y: v.bounds.midY), to: nil).y
     }
 
-    func testRevealScrollsAnActionUnderTheKeyboardAboveItUnderTheDefaultWidget() throws {
-        let (session, window) = session("reveal-keyboard-default", widget: nil, scroller: false)
+    func testRevealScrollsAnActionUnderTheKeyboardAboveItUnderResizesVisual() throws {
+        let (session, window) = session("reveal-keyboard-visual", widget: "resizes-visual", scroller: false)
         defer { window.isHidden = true; session.destroy() }
         let p = session.presenter
         // A keyboard whose top is 340 points above the window's bottom: the
-        // default `resizes-visual` makes its overlap the viewport's inset.
+        // web's `resizes-visual`, the opt-out, makes its overlap the viewport's inset.
         p.applyKeyboard(top: 460, duration: 0, curve: 0)
         XCTAssertEqual(p.viewport.contentInset.bottom, 340)
         XCTAssertEqual(try middle(session), 720, accuracy: 0.5, "under the keyboard, inside the viewport's bounds")
@@ -123,6 +123,57 @@ final class RevealKeyboardIOSTests: XCTestCase {
         XCTAssertEqual(reply["scrolled"] as? Bool, true, "\(reply)")
         let middle = v.convert(CGPoint(x: v.bounds.midX, y: v.bounds.midY), to: nil).x
         XCTAssertTrue((0..<400).contains(middle), "its middle is in view: \(middle), \(reply)")
+    }
+
+    private func spin(_ seconds: Double) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
+
+    /// LLP 1116 D2: keyboard avoidance is the default, as in a hand-built
+    /// app. A root that names no `interactive-widget` ends the viewport at
+    /// the keyboard's top, so the routes end above the keys, a scroller's
+    /// last rows and the field in it reachable there; `resizes-visual` opts
+    /// out to the web's inset.
+    func testTheDefaultEndsTheViewportAtTheKeyboardsTop() throws {
+        let env = ProcessInfo.processInfo.environment
+        let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(env["EXACT_FIXTURE_PLAN"], "build.mjs --test --ios compiles the fixture's plan")))
+        let session = ExactApp.shared.makeSession(label: "keyboard-default")
+        let view = ExactView(session: session)
+        let host = UIViewController()
+        let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+        let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        host.view.addSubview(view)
+        defer { session.destroy(); window.isHidden = true }
+        XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 402, height: 874)).error)
+        view.frame = host.view.bounds
+        view.layoutIfNeeded()
+        spin(0.3)
+        let p = session.presenter
+        XCTAssertNil(p.interactiveWidget, "the fixture's root names none")
+        XCTAssertEqual(p.keyboardPolicy, "resizes-content")
+        XCTAssertEqual((Agent(session: session).stateSections()["keyboard"] as? [String: Any])?["policy"] as? String, "resizes-content", "the agent reports it")
+        let route = try XCTUnwrap(p.views.values.first { $0.props["testId"] == "route-home" })
+        let bottom = { route.convert(route.bounds, to: nil).maxY }
+        XCTAssertEqual(bottom(), 874, accuracy: 0.5, "the whole window without a keyboard")
+        p.applyKeyboard(top: 574, duration: 0, curve: 0)
+        spin(0.3)
+        XCTAssertEqual(p.viewport.frame.maxY, 574, accuracy: 0.5, "the viewport ends at the keys")
+        XCTAssertEqual(p.viewport.contentInset.bottom, 0, "nothing to pan")
+        XCTAssertEqual(p.keyboardInset, 300, accuracy: 0.5, "the overlap, against the viewport without it")
+        XCTAssertEqual(bottom(), 574, accuracy: 0.5, "the route ends above the keys")
+        p.applyKeyboard(top: nil, duration: 0, curve: 0)
+        spin(0.3)
+        XCTAssertEqual(bottom(), 874, accuracy: 0.5, "and takes the window back")
+        // The opt-out: the web's inset, the layout viewport left alone.
+        let root = try XCTUnwrap(p.root.subviews.first as? NodeView)
+        p.apply(wireBatch([["op": "props", "id": Int(root.id), "set": ["interactiveWidget": "resizes-visual"]]]))
+        XCTAssertEqual(p.keyboardPolicy, "resizes-visual")
+        p.applyKeyboard(top: 574, duration: 0, curve: 0)
+        spin(0.3)
+        XCTAssertEqual(p.viewport.contentInset.bottom, 300, accuracy: 0.5, "inset by the overlap")
+        XCTAssertEqual(bottom(), 874, accuracy: 0.5, "laid out as without a keyboard")
+        p.applyKeyboard(top: nil, duration: 0, curve: 0)
     }
 
     func testWithoutAKeyboardAnActionInsideTheViewportStaysPut() throws {

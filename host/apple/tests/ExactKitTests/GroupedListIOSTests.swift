@@ -298,6 +298,47 @@ final class GroupedListIOSTests: XCTestCase {
         XCTAssertFalse(host(p).projects(row))
     }
 
+    /// A carried row of stacked lines keeps the cell's margins (team-kanban's
+    /// cards and household-list's items, 2026-10-10, whose titles touched the
+    /// card and buttons the separator): the sheet keeps the stack 15 under the
+    /// row's top and 15 over its separator, as a hand-built cell pinned to its
+    /// content view's margins has it, and the cell shows the row so, as tall
+    /// as the row less the separator it draws instead.
+    func testACarriedStackKeepsTheCellsMargins() throws {
+        let p = presenter { self.model(custom: true) }
+        let text = { (id: Int, text: String) -> [String: Any] in
+            ["op": "create", "id": id, "kind": "text", "props": ["text": text], "style": ["text_color": [0, 0, 0, 255]]]
+        }
+        // The kernel's boxes for `row` > `column gap=8` of a title, a second
+        // line and a row of buttons: 15, 22, 8, 20, 8, 34, 15 and the separator.
+        p.apply(wireBatch([
+            ["op": "create", "id": 44, "kind": "view", "props": [:], "style": [:]],
+            text(40, "Ada task one"), text(41, "Ada"),
+            ["op": "create", "id": 42, "kind": "view", "props": [:], "style": [:]],
+            ["op": "create", "id": 43, "kind": "button", "props": ["testId": "move"], "handlers": ["press"], "style": [:]],
+            ["op": "children", "id": 42, "ids": [43]], ["op": "children", "id": 44, "ids": [40, 41, 42]],
+            ["op": "children", "id": 21, "ids": [44]],
+            ["op": "frame", "id": 21, "x": 16.0, "y": 52.0, "w": 354.0, "h": 123.0],
+            ["op": "frame", "id": 44, "x": 0.0, "y": 15.0, "w": 338.0, "h": 92.0],
+            ["op": "frame", "id": 40, "x": 0.0, "y": 0.0, "w": 120.0, "h": 22.0],
+            ["op": "frame", "id": 41, "x": 0.0, "y": 30.0, "w": 40.0, "h": 20.0],
+            ["op": "frame", "id": 42, "x": 0.0, "y": 58.0, "w": 200.0, "h": 34.0],
+            ["op": "frame", "id": 43, "x": 0.0, "y": 0.0, "w": 100.0, "h": 34.0],
+        ]))
+        let cell = try cell(p, 21)
+        let row = try XCTUnwrap(p.views[21])
+        XCTAssertTrue(row.superview === cell.contentView, "carried")
+        XCTAssertEqual(cell.bounds.height, 122, accuracy: 0.5, "the row less the separator the cell draws")
+        let first = try XCTUnwrap(p.views[40]), last = try XCTUnwrap(p.views[42])
+        let (top, bottom) = (first.convert(first.bounds, to: cell), last.convert(last.bounds, to: cell))
+        let margins = cell.contentView.directionalLayoutMargins
+        XCTAssertGreaterThanOrEqual(top.minY, 15, "the first line 15 under the card's top: \(top)")
+        XCTAssertGreaterThanOrEqual(cell.bounds.height - bottom.maxY, 15, "the buttons 15 over the separator: \(bottom) in \(cell.bounds)")
+        XCTAssertGreaterThanOrEqual(top.minX, 16, "the text's margin")
+        XCTAssertGreaterThanOrEqual(top.minY, margins.top, "at least UIKit's own content margin")
+        XCTAssertGreaterThanOrEqual(cell.bounds.height - bottom.maxY, margins.bottom, "at least UIKit's own content margin")
+    }
+
     /// The symbol's tint is the sheet's (D7), the author's over its own: the
     /// shown symbol the model named, each side of a light-dark() pair for its
     /// appearance, and a row whose tint changes is configured again.
@@ -589,6 +630,81 @@ final class GroupedListIOSTests: XCTestCase {
         XCTAssertFalse(s.isOn)
     }
 
+    /// LLP 1116.001 D1: a custom row that names swipe actions (the
+    /// `list-rows` recipe's scroll, in a grouped section) swipes as a
+    /// hand-built list's cell does: UIKit's actions on its list cell, a full
+    /// swipe the first. Its content need not fill the row (the sheet's
+    /// inset and padding), no table is projected, and its controls stay
+    /// hidden while the row is carried (grocery-list, round 3: the row was
+    /// refused and swiped 27 points by its scroll, the action clipped).
+    func testASwipeRowTakesItsListCellsOwnActions() throws {
+        ExactGroupedLists.install()
+        let p = Presenter()
+        host(p).model = { $0 == 1 ? GroupedListModel(sections: [
+            .init(view: 2, header: nil, footer: nil, rows: [Row(view: 21, custom: true), Row(view: 30, title: "Plain")]),
+        ]) : nil }
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        p.viewport.frame = window.bounds
+        window.addSubview(p.viewport)
+        window.makeKeyAndVisible()
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "list", "props": ["listStyle": "inset-grouped"], "style": ["overflow_y": "scroll"]],
+            ["op": "create", "id": 2, "kind": "view", "props": ["semanticTag": "section"], "style": [:]],
+            ["op": "create", "id": 4, "kind": "view", "props": [:], "style": [:]],
+            ["op": "create", "id": 21, "kind": "view", "props": ["swipeContent": "body", "swipeTrailing": "delete", "testId": "swipe-row"],
+             "style": ["overflow_x": "scroll", "overflow_y": "hidden", "padding_right": 16.0, "border_width_bottom": 1.0]],
+            ["op": "create", "id": 22, "kind": "view", "props": ["id": "body"], "style": [:]],
+            ["op": "create", "id": 23, "kind": "button", "props": ["id": "delete", "accessibilityLabel": "Delete Milk", "destructive": "true"], "handlers": ["press"], "style": [:]],
+            ["op": "create", "id": 30, "kind": "view", "props": [:], "style": [:]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "children", "id": 2, "ids": [4]], ["op": "children", "id": 4, "ids": [21, 30]],
+            ["op": "children", "id": 21, "ids": [22, 23]], ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 402.0, "h": 874.0],
+            // The sheet's 16 in and 16 of padding: the content is 370 of a 386 × 53 row.
+            ["op": "frame", "id": 21, "x": 16.0, "y": 0.0, "w": 386.0, "h": 53.0],
+            ["op": "frame", "id": 22, "x": 0.0, "y": 9.0, "w": 370.0, "h": 34.0],
+            ["op": "frame", "id": 23, "x": 370.0, "y": 9.0, "w": 60.0, "h": 34.0],
+            ["op": "frame", "id": 30, "x": 16.0, "y": 52.0, "w": 354.0, "h": 52.0],
+        ]))
+        let owner = try XCTUnwrap(p.views[21]), delete = try XCTUnwrap(p.views[23])
+        XCTAssertNil(p.swipeActions.refusal(of: owner), "a grouped row's content need not fill it")
+        XCTAssertTrue(delete.isHidden, "the cell's action stands for the control")
+        XCTAssertNil(owner.scroll, "no scroll to pan: the cell's swipe takes the touch")
+        XCTAssertTrue(p.swipeActions.ownsAction(23))
+        let c = try cell(p, 21)
+        XCTAssertTrue(owner.isDescendant(of: c.contentView), "carried into its list cell")
+        p.swipeActions.touch(owner)
+        XCTAssertNil(p.swipeActions.cell(of: owner), "no table projected: the list cell is UIKit's own")
+        XCTAssertFalse(owner.subviews.contains { $0 is UITableView })
+
+        let l = try list(p)
+        let trailing = try XCTUnwrap(l.swipeActions(at: IndexPath(item: 0, section: 0), leading: false))
+        XCTAssertEqual(trailing.actions.count, 1)
+        XCTAssertEqual(trailing.actions.first?.style, .destructive)
+        XCTAssertEqual(trailing.actions.first?.accessibilityLabel, "Delete Milk")
+        XCTAssertTrue(trailing.performsFirstActionWithFullSwipe, "a full swipe deletes")
+        XCTAssertNil(l.swipeActions(at: IndexPath(item: 0, section: 0), leading: true), "it names no leading action")
+        XCTAssertNil(l.swipeActions(at: IndexPath(item: 1, section: 0), leading: false), "a standard row has none")
+        var completed: Bool?
+        try XCTUnwrap(trailing.actions.first).handler(try XCTUnwrap(trailing.actions.first), UIView(), { completed = $0 })
+        XCTAssertEqual(completed, true)
+        XCTAssertEqual(pressed, [23], "the action is the control's press")
+
+        // A batch gives the row back and carries it again; the control
+        // stays the cell's action, and the agent's tap on it, unrevealed,
+        // performs it as assistive technology would.
+        p.apply(wireBatch([["op": "props", "id": 21, "set": ["testId": "swipe-row"], "clear": [String]()]]))
+        XCTAssertTrue(delete.isHidden)
+        XCTAssertTrue(owner.isDescendant(of: try cell(p, 21).contentView))
+        XCTAssertEqual(p.swipeActions.perform(23), true)
+        XCTAssertEqual(pressed, [23, 23])
+        // An inert section offers no action.
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["inert": "true"], "clear": [String]()]]))
+        XCTAssertNil(l.swipeActions(at: IndexPath(item: 0, section: 0), leading: false), "inert: nothing offered")
+        XCTAssertEqual(p.swipeActions.perform(23), false)
+    }
+
     func testABatchUpdatesTheRowsAndAGoneListGoes() throws {
         var dark = false
         let p = presenter { self.model(dark: dark) }
@@ -598,6 +714,96 @@ final class GroupedListIOSTests: XCTestCase {
         XCTAssertEqual(try cell(p, 20).accessories.count, 1, "the checkmark")
         p.apply(wireBatch([["op": "roots", "ids": []], ["op": "destroy", "id": 1]]))
         XCTAssertNil(host(p).lists[1])
+    }
+
+    /// LLP 1116.002 D2, round 4's countdowns: the commit that lands while a
+    /// sheet covers the list (the saved event's refresh, before `then`
+    /// closes the form) inserts a row and a sibling section, the "next up"
+    /// card, and grows a row; the sheet holds their boxes until it closes.
+    /// All of it shows on the batch that closes the sheet, not after the
+    /// screen is left: a cell first sized to nothing is one UIKit never
+    /// shows again, and a box given back to a row that a layout pass in that
+    /// batch carried again is the row's, not one the next `restore` undoes.
+    func testWhatACommitInsertsUnderASheetShowsWhenItCloses() throws {
+        var m = model(custom: true)
+        let p = presenter { m }
+        // The list's route where navigation hosts one: a controller's view in
+        // a scene's window, which UIKit presents a sheet over.
+        let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+        let screen = scene.map { UIWindow(windowScene: $0) } ?? UIWindow()
+        screen.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        let owner = UIViewController(), background = UIViewController()
+        screen.rootViewController = owner
+        screen.makeKeyAndVisible()
+        window.isHidden = true
+        window = screen
+        addTeardownBlock { owner.presentedViewController?.dismiss(animated: false); screen.isHidden = true }
+        p.viewport.frame = owner.view.bounds
+        owner.view.addSubview(p.viewport)
+        owner.addChild(background)
+        background.view.frame = owner.view.bounds
+        owner.view.addSubview(background.view)
+        background.didMove(toParent: owner)
+        let route = try XCTUnwrap(p.views[1])
+        background.view.addSubview(route)
+        // The sheet's route, and the document's first root once the list's
+        // route has left it (the closing batch changes its viewport fit).
+        p.apply(wireBatch([
+            ["op": "create", "id": 90, "kind": "view", "props": ["navigationPresentation": "modal"], "style": [:]],
+            ["op": "create", "id": 95, "kind": "view", "props": [:], "style": [:]],
+            ["op": "roots", "ids": [95]],
+        ]))
+        p.modals.present(try XCTUnwrap(p.views[90]), navigation: UIViewController(), from: background, node: route, preceding: nil, owner: owner)
+        XCTAssertEqual(p.modals.routes.count, 1, "the sheet is up")
+
+        // The refresh, under the sheet: a "next up" section first, a new row
+        // under the others, and row 21 grown. The sheet holds every box.
+        m.sections.insert(.init(view: 69, header: nil, footer: nil, rows: [Row(view: 71, custom: true)]), at: 0)
+        m.sections[2].rows.append(Row(view: 80, custom: true, pressable: true))
+        let view = { (id: Int, kind: String, props: [String: String]) -> [String: Any] in
+            ["op": "create", "id": id, "kind": kind, "props": props, "style": ["text_color": [0, 0, 0, 255], "border_width_bottom": 1.0]]
+        }
+        p.apply(wireBatch([
+            view(69, "view", ["semanticTag": "section"]), view(70, "view", [:]), view(71, "view", ["testId": "next-up"]),
+            view(72, "text", ["text": "NEXT UP"]), view(80, "button", ["testId": "row80"]), view(81, "text", ["text": "Holiday"]),
+            ["op": "children", "id": 1, "ids": [69, 2, 3]], ["op": "children", "id": 69, "ids": [70]], ["op": "children", "id": 70, "ids": [71]],
+            ["op": "children", "id": 71, "ids": [72]], ["op": "children", "id": 5, "ids": [20, 21, 80]], ["op": "children", "id": 80, "ids": [81]],
+            ["op": "frame", "id": 69, "x": 0.0, "y": 0.0, "w": 402.0, "h": 120.0],
+            ["op": "frame", "id": 70, "x": 16.0, "y": 10.0, "w": 370.0, "h": 101.0],
+            ["op": "frame", "id": 71, "x": 0.0, "y": 0.0, "w": 370.0, "h": 101.0],
+            ["op": "frame", "id": 72, "x": 16.0, "y": 20.0, "w": 100.0, "h": 20.0],
+            ["op": "frame", "id": 21, "x": 16.0, "y": 52.0, "w": 354.0, "h": 91.0],
+            ["op": "frame", "id": 80, "x": 16.0, "y": 143.0, "w": 354.0, "h": 73.0],
+            ["op": "frame", "id": 81, "x": 16.0, "y": 26.0, "w": 100.0, "h": 21.0],
+        ]))
+        for id: UInt32 in [71, 80, 21] { XCTAssertTrue(p.modals.holdsGeometry(id), "the sheet holds #\(id)'s box") }
+        XCTAssertEqual(p.views[80]?.frame.height, 0, "no box yet")
+
+        // The batch that closes it, as navigation's sync does mid-batch; UIKit
+        // laid the list out in that batch, carrying its shown rows again.
+        let l = try list(p)
+        p.onViewportFit = {
+            l.mount()
+            p.modals.closeTop(animated: false)
+        }
+        p.apply(wireBatch([["op": "props", "id": 95, "set": ["viewportFit": "cover"], "clear": [String]()]]))
+        p.onViewportFit = nil
+        XCTAssertTrue(p.modals.routes.isEmpty, "the sheet closed")
+        func shown(_ id: UInt32, _ height: CGFloat, _ what: String) throws {
+            let cell = try self.cell(p, id), row = try XCTUnwrap(p.views[id])
+            XCTAssertTrue(row.superview === cell.contentView, "\(what): carried into its cell")
+            XCTAssertEqual(cell.bounds.height, height, accuracy: 0.5, "\(what): the row less its separator")
+            XCTAssertTrue(l.collection.bounds.intersects(cell.frame), "\(what): in the list's port")
+        }
+        try shown(71, 100, "the next-up card")
+        try shown(80, 72, "the new row")
+        try shown(21, 90, "the grown row")
+        // The next batch gives the rows back and carries them again at
+        // their boxes, the ones the sheet held.
+        p.apply(wireBatch([["op": "props", "id": 95, "set": ["testId": "root"], "clear": [String]()]]))
+        XCTAssertEqual(p.views[21]?.frame.height ?? 0, 91, accuracy: 0.5, "the replayed box, kept")
+        try shown(21, 90, "the grown row, after a batch")
+        try shown(80, 72, "the new row, after a batch")
     }
 }
 #endif

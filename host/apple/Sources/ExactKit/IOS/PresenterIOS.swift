@@ -91,8 +91,10 @@ package final class Presenter {
     /// Heavy leaves held mid-fling (LLP 1068 §5.1).
     lazy var leaves = HeavyLeaves(self)
     lazy var flats = FlatLeaves(self)
+    /// The native swipe rows (LLP 1008 §9), a grouped list's included.
+    package lazy var swipeActions = SwipeActionsHost(self)
+    lazy var accent = AppAccent(self)
     /// The native menu arm (LLP 1021 D3).
-    lazy var swipeActions = SwipeActionsHost(self)
     lazy var menus = MenuHost(presenter: self)
     lazy var keyboardToolbars = KeyboardToolbars(self)
     lazy var segments = SegmentHost(self)
@@ -128,11 +130,19 @@ package final class Presenter {
     /// last batch; `onViewportFit` fires when it changes.
     private(set) var viewportFit: String?
     var onViewportFit: (() -> Void)?
-    /// The first root's `interactiveWidget` prop: `resizes-content` ends the
-    /// layout viewport at the keyboard's top (the controller lays out again,
-    /// inside the keyboard's animation, so every frame that moves moves with
-    /// it); anything else is the default, `resizes-visual` — the inset below.
+    /// The first root's `interactiveWidget` prop, as written (`keyboardPolicy`
+    /// is what applies).
     private(set) var interactiveWidget: String?
+    /// The keyboard's policy (LLP 1116 D2): `resizes-content` unless the root
+    /// says otherwise, as a hand-built app avoids the keyboard — the layout
+    /// viewport ends at the keyboard's top (the controller lays out again,
+    /// inside the keyboard's animation, so every frame that moves moves with
+    /// it), so a scroller ends above the keys and the focused field is
+    /// revealed in what is left, as UIKit's keyboard layout guide and
+    /// SwiftUI's keyboard safe area do. The root opts out with the web's
+    /// default, `resizes-visual` (the inset below: the page pans, nothing is
+    /// laid out), or with `overlays-content` (nothing moves).
+    var keyboardPolicy: String { interactiveWidget ?? "resizes-content" }
     /// The keyboard's top edge in the window while one is shown, else nil.
     private(set) var keyboardTop: CGFloat?
     /// The controller's: frame the viewport again (`Controller.fit`).
@@ -151,12 +161,12 @@ package final class Presenter {
     /// before that, a 27.1 device's fold is unknown (LLP 1078 D7).
     var hingeReported = false
     /// The keyboard's inset on the viewport: the points of the screen's
-    /// viewport a software keyboard covers. By default the web's visual
-    /// viewport — the layout viewport does not change; the viewport insets
-    /// its content by this and reveals the field being edited, in the
-    /// keyboard's own animation. Under `resizes-content` the controller
-    /// sets it, measured against the viewport it would frame without a
-    /// keyboard.
+    /// viewport a software keyboard covers. Under `resizes-content` (the
+    /// default) the controller sets it, measured against the viewport it
+    /// would frame without a keyboard. Under `resizes-visual`, the web's
+    /// visual viewport — the layout viewport does not change; the viewport
+    /// insets its content by this and reveals the field being edited, in the
+    /// keyboard's own animation.
     var keyboardInset: CGFloat = 0
 
     var hasKeyboardEditor: Bool {
@@ -274,8 +284,8 @@ package final class Presenter {
     }
 
     /// The keyboard's top edge (nil: hidden) takes effect: the viewport is
-    /// inset by the overlap (`resizes-visual`, the default) or laid out to
-    /// end there (`resizes-content`, the controller's `fit`), the field
+    /// laid out to end there (`resizes-content`, the default: the
+    /// controller's `fit`) or inset by the overlap (`resizes-visual`), the field
     /// being edited revealed after — inside an animation with the keyboard's
     /// own duration and curve, so the frames the batch sets are Core
     /// Animation moves in the keyboard's transaction, never a frame behind.
@@ -290,9 +300,9 @@ package final class Presenter {
         guard let window = viewport.window, let parent = viewport.superview else { return }
         keyboardTop = top
         let change = {
-            if self.interactiveWidget == "resizes-content" {
+            if self.keyboardPolicy == "resizes-content" {
                 self.onKeyboardResize?()
-            } else if self.interactiveWidget == "overlays-content" {
+            } else if self.keyboardPolicy == "overlays-content" {
                 let frame = parent.convert(self.viewport.frame, to: window)
                 let overlap = top.map { min(max(0, frame.maxY - max($0, frame.minY)), frame.height) } ?? 0
                 self.keyboardInset = overlap
@@ -375,6 +385,7 @@ package final class Presenter {
         collections.reset()
         autofocusProcessed.removeAll()
         segments.reset()
+        accent.release()
         groupedLists?.reset()
         controls.reset()
         fieldSelections.reset()
@@ -900,7 +911,7 @@ package final class Presenter {
             case .surface:
                 if let v = views[id] { session?.canvases.surface(view: v, name: op.payload["name"] as? String ?? "", values: op.payload["values"] ?? []) }
             case .canvas2d: if let v = views[id] { canvas2d.apply(id, op.payload, layer: v.layer) }
-            case .svg: if let v = views[id] { svg.scene(id, op.payload, layer: v.layer, dark: v.drawsDark, clock: session?.clock, limit: v.style["dynamic_range_limit"]?.string) }
+            case .svg: if let v = views[id] { svg.scene(id, op.payload, layer: v.layer, dark: v.drawsDark, clock: session?.clock, limit: v.style["dynamic_range_limit"]?.string, tint: v.viewTint) }
             case .animations:
                 if flats.isFlat(id) { flats.promote(id) }
                 svg.animations(id, op.payload, layer: views[id]?.layer, clock: session?.clock)
@@ -941,7 +952,7 @@ package final class Presenter {
                 if let gone, !modals.retainsRemovedView(gone) { gone.removeFromSuperview() }
             case .roots:
                 root.subviews.forEach { $0.removeFromSuperview() }
-                for r in op.ids.compactMap({ views[UInt32($0)] }) { root.addSubview(r) }
+                accent.attach(op.ids.compactMap { views[UInt32($0)] }) { for r in $0 { root.addSubview(r) } }
             case .frame, .content:
                 if flats.isFlat(id) {
                     if kind == .frame { flats.frame(id, CGRect(x: op.x, y: op.y, width: op.w, height: op.h)) }
@@ -1092,9 +1103,14 @@ package final class Presenter {
         // Replayed outside a batch (a sheet's dismissal completing): carried
         // rows go back to their authored parents first, as before a batch,
         // so the new box is theirs; the projections remount on the next turn.
+        // Inside one they went back as it began, unless a list laid out in the
+        // batch carried one again: a box replayed then (a sheet closing, LLP
+        // 1116.002 D2) is the row's too, which `restore` would otherwise undo.
         if !applying {
             groupedLists?.prepare()
             requestProjectionSync()
+        } else if groupedLists?.carriesRows == true {
+            groupedLists?.prepare()
         }
         let id = op.id
         guard let v = views[id] else { return }

@@ -443,9 +443,11 @@ extension TextEngine {
     /// Size and run count bound the ordinary synchronous unit. Known revisions
     /// use only the request header; no source decode/hash on intermediate widths.
     func readerMeasure(_ request: ExactMeasureRequest) -> ExactMetrics? {
-        guard request.view != 0, request.width >= 0, request.exclusion_count == 0, request.line_clamp == 0 else {
+        guard request.view != 0, request.width >= 0, request.exclusion_count == 0, request.line_clamp == 0,
+              request.text_box_trim == 0 else {
             // Intrinsic offers retain the ordinary exact contract. Reader block
             // widths are definite; estimates never become min/max-content facts.
+            // A `text-box` trim is the ordinary layout's (TextBox.swift).
             readerParagraphs.removeValue(forKey: request.view)
             return nil
         }

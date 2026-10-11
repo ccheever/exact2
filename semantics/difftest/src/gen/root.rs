@@ -40,7 +40,9 @@ impl Gen<'_> {
             if t.needs_list() || init == "none" {
                 untyped.push((name.clone(), t.clone()));
             }
-            decls.push_str(&format!("  state {name} = {init}\n"));
+            let persist = t.persistable() && self.persist.chance(1, 3);
+            let persist = if persist { " persist" } else { "" };
+            decls.push_str(&format!("  state {name} = {init}{persist}\n"));
             states.push((name, t));
         }
         env.vars.extend(states.iter().cloned());
