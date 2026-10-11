@@ -116,6 +116,57 @@ describe('mobile review source rules and real shared RPC ownership', () => {
     expect(f.calls).toEqual([]);
     expect(f.client.draft).toBe('');
   });
+  test('repeated endpoint taps retain the original long-press range anchor', async () => {
+    const f = fixture(); await read(f); f.calls.length = 0;
+    await act(f, 'range-start', 'src/a.ts', '', 0);
+    const first = await act(f, 'line', 'src/a.ts', '', 1);
+    expect(first.data.rows.filter(row => row.kind === 'line' && row.selected).map(row => row.lineIndex)).toEqual([0, 1]);
+    expect(first.data).toMatchObject({ canComment: true, commentOpen: false });
+    const adjusted = await act(f, 'line', 'src/a.ts', '', 2);
+    expect(adjusted.data.rows.filter(row => row.kind === 'line' && row.selected).map(row => row.lineIndex)).toEqual([0, 1, 2]);
+    expect(adjusted.data).toMatchObject({ canComment: true, commentOpen: false });
+    expect(f.calls).toEqual([]); expect(f.client.draft).toBe('');
+  });
+  test('range endpoints can cross and return to their anchor before commenting', async () => {
+    const f = fixture(); await read(f); f.calls.length = 0;
+    await act(f, 'range-start', 'src/a.ts', '', 1);
+    await act(f, 'line', 'src/a.ts', '', 2);
+    const crossed = await act(f, 'line', 'src/a.ts', '', 0);
+    expect(crossed.data.rows.filter(row => row.kind === 'line' && row.selected).map(row => row.lineIndex)).toEqual([0, 1]);
+    expect(crossed.data).toMatchObject({ canComment: true, commentOpen: false });
+    expect(crossed.data.selectionTitle).toMatch(/^Comment on /);
+    const atAnchor = await act(f, 'line', 'src/a.ts', '', 1);
+    expect(atAnchor.data.rows.filter(row => row.kind === 'line' && row.selected).map(row => row.lineIndex)).toEqual([1]);
+    expect(atAnchor.data).toMatchObject({ selectionTitle: 'Select range end', canComment: false, commentOpen: false });
+    const completed = await act(f, 'line', 'src/a.ts', '', 2);
+    expect(completed.data.rows.filter(row => row.kind === 'line' && row.selected).map(row => row.lineIndex)).toEqual([1, 2]);
+    expect(completed.data).toMatchObject({ canComment: true, commentOpen: false });
+    expect((await act(f, 'comment')).data.commentOpen).toBe(true);
+    expect(f.calls).toEqual([]); expect(f.client.draft).toBe('');
+  });
+  test('clear, cancel, file navigation and section changes retire a retained range', async () => {
+    for (const reset of ['clear', 'cancel', 'file', 'section']) {
+      const f = fixture(); await read(f);
+      await act(f, 'range-start', 'src/a.ts', '', 0); await act(f, 'line', 'src/a.ts', '', 1);
+      const retired = await act(f, reset, reset === 'file' ? 'src/a.ts' : reset === 'section' ? 'turn:1' : '');
+      expect(retired.data).toMatchObject({ selectionTitle: '', canComment: false, commentOpen: false });
+      const next = await act(f, 'line', reset === 'section' ? 'turn.ts' : 'src/a.ts', '', 2);
+      expect(next.data.rows.filter(row => row.kind === 'line' && row.selected).map(row => row.lineIndex)).toEqual([2]);
+      expect(next.data).toMatchObject({ canComment: true, commentOpen: true });
+      expect(f.client.draft).toBe('');
+    }
+  });
+  test('a tap in another file starts an ordinary single-line comment', async () => {
+    const f = fixture();
+    f.hook(request => request.method === 'review.getDiffPreview' ? { ok: true, generation: 3,
+      value: { cwd: '/repo', sources: [{ kind: 'branch-range', diff: patch() + patch('src/b.ts') }] } } : undefined);
+    await read(f); f.calls.length = 0;
+    await act(f, 'range-start', 'src/a.ts', '', 0); await act(f, 'line', 'src/a.ts', '', 1);
+    const next = await act(f, 'line', 'src/b.ts', '', 2);
+    expect(next.data.rows.filter(row => row.kind === 'line' && row.selected).map(row => [row.path, row.lineIndex])).toEqual([['src/b.ts', 2]]);
+    expect(next.data).toMatchObject({ commentPath: 'src/b.ts', canComment: true, commentOpen: true });
+    expect(f.calls).toEqual([]); expect(f.client.draft).toBe('');
+  });
 });
 
 
@@ -184,6 +235,24 @@ test('queued comment selection cannot retarget ordinary content after edit ends;
   await act(f, 'line', 'src/a.ts', '', 1);
   expect((await act(f, 'save', '', 'New ordinary comment')).message).toBe('');
   expect(f.client.draft).toContain('t3-context://v1/review-comment/');
+});
+
+test('a retained range cannot continue in a replacement composer owner', async () => {
+  const { queuedEditThreadKey, queuedEditEndMemory } = await import('./queued-edit-state');
+  const { queuedEditState } = await import('./queued-edit-memory');
+  const f = fixture(); f.client.local.drafts[f.client.draftKey] = 'ordinary untouched';
+  const edit = { owner: 'range-edit', session: 'range-session', draftKey: 'one:t~queued-edit~r', origin: f.client.origin,
+    environmentId: 'one', threadId: 't', projectId: 'p', generation: 3, revision: 1, runId: 'r', messageId: 'm', text: 'queued',
+    attachments: [], existingAttachments: [], saving: false };
+  const state = queuedEditState(f.client); state.sessions.set(edit.owner, edit); state.active.set(queuedEditThreadKey('one', 't'), edit.owner);
+  await read(f); f.calls.length = 0;
+  await act(f, 'range-start', 'src/a.ts', '', 0); await act(f, 'line', 'src/a.ts', '', 1);
+  queuedEditEndMemory(edit.owner, f.client);
+  expect(mobileReviewSnapshot(false, f.client)).toMatchObject({ selectionTitle: '', canComment: false, commentOpen: false });
+  const next = await act(f, 'line', 'src/a.ts', '', 2);
+  expect(next.data.rows.filter(row => row.kind === 'line' && row.selected).map(row => row.lineIndex)).toEqual([2]);
+  expect(next.data).toMatchObject({ canComment: true, commentOpen: true });
+  expect(f.calls).toEqual([]); expect(f.client.draft).toBe('ordinary untouched');
 });
 
 
