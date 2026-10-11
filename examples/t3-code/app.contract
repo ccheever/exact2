@@ -1229,6 +1229,7 @@ component T3Code
   state canvasGestureValue = ""
   action canvasGesture(value: string)
     canvasGestureValue = value
+    detailsOpen = detailsOpen and value == "" // a press on the player is outside the details popover (Base UI's outside press)
   resource canvas = chatCanvas(data.revision, conversationWidth, viewport.height, details.inline, data.look.chatMax, length(data.messages) > 0 or data.threadId != "", canvasGestureValue, `${shell.panel.deviceMini.key}|${shell.panel.browserMini.key}`, shell.panel.deviceMini.show or shell.panel.browserMini.show, conversationWidth >= 984, detailsOpen) as shape ChatCanvasView
   // ThreadDetailsCard's mode: the header's popover where chat is narrow or the floating player left the card no placement;
   // a popover opened before the mode last switched stays closed (the inline mode closes it, rightPanelStore popoverOpen).
@@ -1333,7 +1334,7 @@ component T3Code
       commandPending = true
       send changed = command((id == "diff" or id == "d" or id == "D") ? "diff" : "shelllocal:surface-open", "", id, 0)
   action detailsAct(op: string, target: string, value: string) // the window's half: the editors list, the title menu
-    detailsOpen = op == "toggle" ? (not detailsShown and detailsPopover) : (detailsOpen and op != "ui:project-settings" and op != "ui:scheduled-tasks" and op != "select-thread" and op != "ui:changes") // inline: toggle remembers the thread's docked card
+    detailsOpen = op == "toggle" ? (not detailsShown and detailsPopover) : (detailsOpen and op != "ui:project-settings" and op != "ui:scheduled-tasks" and op != "select-thread" and op != "ui:changes" and op != "dismiss") // inline: toggle remembers the thread's docked card
     detailsEpoch = op == "toggle" ? canvas.popoverEpoch : detailsEpoch
     if op == "ui:project-settings"
       openSettings() // a project link replaces the whole scope (retainSettingsScope)
@@ -1355,7 +1356,7 @@ component T3Code
       restSubject = target == "" ? "" : `link|${value}|${target}`
       modalError = ""
       taskModelPick = ""
-    if (op != "toggle" or not detailsPopover) and op != "editors" and op != "ui:project-settings" and op != "ui:add-script" and op != "ui:scheduled-tasks" and not commandPending
+    if (op != "toggle" or not detailsPopover) and op != "editors" and op != "dismiss" and op != "ui:project-settings" and op != "ui:add-script" and op != "ui:scheduled-tasks" and not commandPending
       commandPending = true
       send changed = command(op == "toggle" ? "shelllocal:details-inline" : op == "ui:changes" ? "diff" : op == "ui:editor" ? "shell:open-editor" : op, target, value, 0)
       if op == "select-thread" or op == "shell:merge-back"

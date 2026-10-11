@@ -135,11 +135,26 @@ describe('DP-2: the card becomes the header\'s popover where no placement is lef
     expect(root).toContain('if (op != "toggle" or not detailsPopover) and op != "editors"');
     expect(root).toContain('narrowDiff=narrowDiff, detailsOpen=detailsShown, details=details,');
     expect(root).toContain('shell.panel.deviceMini.show or shell.panel.browserMini.show, conversationWidth >= 984, detailsOpen) as shape ChatCanvasView');
-    const overlays = await component('app-overlays.contract', 'WindowOverlays');
-    expect(overlays).toContain('when detailsOpen and scheme == "dark"\n      ThreadDetailsPanel(details=details, density=detailsDensity,');
-    expect(overlays).not.toContain('conversationWidth < 984');
-    // The header's button is pressed for the presentation it toggles (selectThreadPanelOpen).
+    // The popover lies in the chat column under the floating player (the reference's popover sits below the player;
+    // z-index orders siblings here), not in the window's overlays.
+    expect(await component('app-overlays.contract', 'WindowOverlays')).not.toContain('ThreadDetailsPanel(');
     const column = await component('app-main.contract', 'ChatColumn');
+    const popover = column.indexOf('when detailsOpen and scheme == "dark"\n        ThreadDetailsPanel(details=details, density=canvas.density, right=13,');
+    expect(popover).toBeGreaterThan(0);
+    expect(column.indexOf('R6DeviceMiniPlayer(')).toBeGreaterThan(popover);
+    expect(column.indexOf('BrowserMiniPlayer(')).toBeGreaterThan(popover);
+    const layer = await component('shell-details.contract', 'ThreadDetailsPanel');
+    expect(layer).toContain('z-index=35 testId="thread-details-layer"');
+    expect(await component('r6-device.contract', 'R6DeviceMiniPlayer')).toContain('z-index=40 role="region" aria-label="Floating device preview"');
+    // Outside presses close it, as Base UI's: a press on the player as its gesture starts, a press beside the chat column
+    // (the sidebar, the right panel) but not on the right panel's own details button, which toggles it.
+    expect(root).toContain('    canvasGestureValue = value\n    detailsOpen = detailsOpen and value == ""');
+    const window = await component('app-window.contract', 'T3Window');
+    expect(window).toContain('if detailsOpen and e.buttons == 1 and (e.clientX < (data.sidebarOpen ? sidebarWidth : 0) or e.clientX >= (data.sidebarOpen ? sidebarWidth : 0) + conversationWidth) and not (e.clientX >= frame("panel-toggle-details").x');
+    expect(window).toContain('frame("panel-toggle-details").height)\n      detailsAct("dismiss", "", "")');
+    expect(root).toContain('op != "ui:changes" and op != "dismiss")');
+    for (const file of ['r4-surfaces.contract', 'shell-panels.contract']) expect(await source(file)).toContain('button id="panel-toggle-details" press=details("toggle", "", "")');
+    // The header's button is pressed for the presentation it toggles (selectThreadPanelOpen).
     expect(column.split('detailsOpen=(detailsOpen or (details.inline and canvas.cardShown))').length - 1).toBe(2);
     expect(column).toContain('ThreadDetailsInline(details=details, density=canvas.density,');
     // The popover's menus take its inner width, not the docked card's.

@@ -41,7 +41,8 @@ use kmArrow from "./menu-keys.contract"
 use kmOpenTarget from "./menu-keys.contract"
 use kmEndKeyed from "./menu-keys.contract"
 
-// The popover presentation, with its click-away backdrop.
+// The popover presentation, with its click-away backdrop: drawn in the chat column (app-main.contract ChatColumn),
+// under the floating player; a press outside the column closes it too (app-window.contract outsidePressDown).
 component ThreadDetailsPanel
   props
     details: ShellDetails
