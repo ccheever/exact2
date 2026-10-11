@@ -1,6 +1,6 @@
 # Start here: building an app with Exact
 
-The only required reading (LLP 1115 D7); the rest is lookup, listed at the end.
+The only required reading; the rest is lookup, listed last (LLP 1115 D7).
 
 ## The idea
 
@@ -8,14 +8,16 @@ The only required reading (LLP 1115 D7); the rest is lookup, listed at the end.
    and CSS's (`role`, `aria-*`, `inputmode`, `text-overflow`).
 2. **Ship the platform.** Say what a thing *is* (a `header` with a heading and buttons,
    a `tablist`, a `dialog role="alertdialog"`) and each host draws its own control: on
-   iOS the navigation bar, the tab bar, the system alert.
+   iOS the navigation bar, tab bar, system alert.
 3. **Leave the rest unsaid:** controls, bars, the type ramp, control colours and dark
    mode are the platform's. A colour or size names a role (`-exact-secondary-label`,
    `font="-exact-footnote"`, `-exact-system-red`); a lookalike of a system control is a
-   bug (`bun <exact2>/scripts/no-tells.mjs .` lists literals). Pick the app's accent
-   once, `accent-color="-exact-system-teal"` on the root: every control, selected tab,
-   progress, link and `exact:content` part follows it on every host, and destructive
-   and status colours keep their meaning.
+   bug (`bun <exact2>/scripts/no-tells.mjs .` lists literals). The one colour you write
+   is the accent, on the root: a role (`accent-color="-exact-system-indigo"`) or one
+   `light-dark(light, dark)` pair, which controls, tabs, progress, links and
+   `exact:content` follow. Others are unsaid or roles (`-exact-label`,
+   `-exact-secondary-grouped-background`): a hex on text, a page or a card stays put in
+   dark mode while the platform's text and controls change (four apps broke).
 4. **Design your content:** a summary leading the main screen, rows with a hierarchy,
    bars where numbers compare, an empty state that says what to do; inset-grouped is
    for settings and forms. `exact:content` draws these ([content-design](recipes/content-design.md)).
@@ -171,7 +173,7 @@ test "an item is added, a repeat refused, checked off and kept"
 `reload` relaunches on the same storage. Every step, and the real-clock drive before
 calling it done: [tests](recipes/tests.md).
 
-## The pitfalls that cost the most
+## Pitfalls that cost the most
 
 1. **Styling a platform control.** A `background-color`, `border`, `font-size` or
    `height` on a `button`, field or bar makes it your box; emphasis is
@@ -188,17 +190,16 @@ calling it done: [tests](recipes/tests.md).
 
 **A pattern** replaces the recipe beside it: read one or the other. A list, its pushed
 detail, a sheet to create, an alert to delete: `pattern list-detail` (in an app you
-have: `navigation-stack`). Tabs: `pattern tabs` (`tabs`). A summary, bars, a ring:
+have, `navigation-stack`). Tabs: `pattern tabs` (`tabs`). A summary, bars, a ring:
 `pattern dashboard` (`content-design`). Your own server: `pattern rest` (`rest-backend`).
 
 **A recipe**, [`recipes/<name>.md`](recipes/): `grouped-form` (forms, settings),
 `after-a-write`, `keyboard-and-focus`, `number-field` (`inputmode="decimal"`),
 `numeric-readout`, `money` (`formatNumber(n, "currency", "USD")`), `dates-and-days`,
-`timers` (`task … every`), `timer-that-survives-relaunch` (`time.epochAtZero +
-performanceNow()`), `random-and-shuffle`, `symbols` (`image "symbol:add"`),
-`chat-thread`, `persisted-setting` (`state … persist`), `files-and-grants` (SQLite
-too), `fetch-loading-error`, `responsive-columns`, `web-look` (wide screens), `tests`,
-`ios-driving`, `functions`.
+`timers` (`task … every`), `timer-that-survives-relaunch`, `random-and-shuffle`,
+`symbols` (`image "symbol:add"`), `chat-thread`, `persisted-setting` (`state …
+persist`), `files-and-grants` (SQLite too), `fetch-loading-error`,
+`responsive-columns`, `web-look` (wide screens), `tests`, `ios-driving`, `functions`.
 
 **Otherwise:** `bun exact.mjs contract vocab <name> <name> …` for any tag, property
 or function; [contract-for-agents](contract-for-agents.md) and

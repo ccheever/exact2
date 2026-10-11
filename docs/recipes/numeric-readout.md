@@ -38,8 +38,10 @@ test "the total grows"
   size down to the reader's text size. Without it, a stopwatch's `00:48.12` at the
   largest accessibility size ran off both edges (only `:48.` showed). It never caps the
   size: a line that fits keeps it. Every host lays it out at the same scale.
-- Only the number is designed. Its label stays the platform's (`color="-exact-
-  secondary-label"`), and a title is a heading, never a big `font-size`.
+- Only the number's size is designed. Its colour is unsaid or the accent
+  (`color="AccentColor"`), never a hex, which stays the same in dark mode; its label
+  stays the platform's (`color="-exact-secondary-label"`), and a title is a heading,
+  never a big `font-size`.
 - Columns of numbers (laps, a ledger) take `tabular-nums` at body size too, so they
   line up.
 - Give the readout an `aria-label` that says what the number is; VoiceOver reads the
