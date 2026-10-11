@@ -158,11 +158,15 @@
      a 1 px line, 8 px corners, the field's own background. A select's height
      is its line height, so an authored padding adds to it as to the UA's and
      its box keeps the recorded rules (kernel/tests/it/browser_controls.rs);
-     its chevron is drawn in its ink. */
+     its chevron is drawn in its ink. A date, time or local date-time control
+     whose appearance is the platform's (`data-exact-field`) is a border box
+     the same way (LLP 1116.001 D1); the browser keeps its picker and icon. */
   #exact-root input[data-native], #exact-root textarea[data-native] { border: 1px solid light-dark(#c7c7cc, #48484a); border-radius: 8px; padding: .5em .75em; background-color: light-dark(#fff, #1c1c1e); }
   #exact-root input[data-native]:disabled, #exact-root textarea[data-native]:disabled { background-color: light-dark(#f2f2f7, #2c2c2e); }
   #exact-root select:not([multiple]) { appearance: none; font: inherit; letter-spacing: inherit; color: inherit; line-height: 2.125; padding: 0 2em 0 .75em; border: 1px solid light-dark(#c7c7cc, #48484a); border-radius: 8px; background: linear-gradient(45deg, #0000 50%, currentColor 50%) right calc(.75em + 4px) center / 4px 4px no-repeat, linear-gradient(135deg, currentColor 50%, #0000 50%) right .75em center / 4px 4px no-repeat, light-dark(#fff, #1c1c1e); }
   #exact-root select:not([multiple]):disabled { color: GrayText; }
+  #exact-root input[data-exact-field] { box-sizing: border-box; line-height: 2; padding: 0 .75em; border: 1px solid light-dark(#c7c7cc, #48484a); border-radius: 8px; background-color: light-dark(#fff, #1c1c1e); }
+  #exact-root input[data-exact-field]:disabled { color: GrayText; background-color: light-dark(#f2f2f7, #2c2c2e); }
   /* A switch where the browser draws none (LLP 1069.001 D1, amended by LLP
      1116 D1): a track and a thumb in WebKit's box, 38 × 22, which Linux
      paints too; a browser that styles its own (`::thumb`) keeps it. The box

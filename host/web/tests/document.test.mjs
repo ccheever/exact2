@@ -518,6 +518,43 @@ for (const concern of ['defaults', 'nowrap', 'clamp', 'floor', 'disabled accent'
   }, {html});
 });
 
+// LLP 1116.001 D1: a date, time or local date-time control takes the text
+// field's look (a 1 px line, 8 px corners, the field's background, 36 px
+// tall at the body size) in light and dark, as a border box the kernel
+// models; the author's rows win, and `appearance: none` (no marker) is bare.
+browserCheck('date and time controls take the field look', async () => {
+  const shell = readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8');
+  const field = (id, type, extra = '') => `<input id="${id}" type="${type}" ${extra}>`;
+  const html = shell.replace('<div id="exact-root"></div>', `<div id="exact-root"><div style="width:300px">${
+    field('date', 'date', 'data-exact-field')}${field('time', 'time', 'data-exact-field value="14:30"')}${
+    field('local', 'datetime-local', 'data-exact-field')}${field('off', 'date', 'data-exact-field disabled')}${
+    field('authored', 'date', 'data-exact-field style="border:2px solid rgb(255, 0, 0);padding:3px;border-radius:0;box-sizing:content-box;width:200px"')}${
+    field('bare', 'date', 'style="appearance:none"')}<input id="text" data-native><div style="color-scheme:dark">${
+    field('dark', 'date', 'data-exact-field')}<input id="dark-text" data-native></div></div></div>`).replace('<script type="module" src="./glue.js"></script>', '');
+  await withDocument('/', async tab => {
+    const page = await tab(true);
+    await page.until("document.readyState === 'complete'", 'field fixture');
+    const facts = await page(`(() => Object.fromEntries(['date','time','local','off','authored','bare','text','dark','dark-text'].map(id => { const e = document.getElementById(id), s = getComputedStyle(e), r = e.getBoundingClientRect(); return [id, {width: r.width, height: r.height, border: s.borderTopWidth + ' ' + s.borderTopStyle + ' ' + s.borderTopColor, radius: s.borderTopLeftRadius, background: s.backgroundColor, sizing: s.boxSizing, appearance: s.appearance, color: s.color}]; })))()`);
+    for (const id of ['date', 'time', 'local']) {
+      expect(facts[id].height).toBe(36);
+      expect(facts[id].sizing).toBe('border-box');
+      expect(facts[id].appearance).toBe('auto');
+      expect(facts[id].border).toBe(facts.text.border);
+      expect(facts[id].radius).toBe(facts.text.radius);
+      expect(facts[id].background).toBe(facts.text.background);
+    }
+    expect(facts.date.border).toBe('1px solid rgb(199, 199, 204)');
+    expect(facts.dark.border).toBe(facts['dark-text'].border);
+    expect(facts.dark.background).toBe(facts['dark-text'].background);
+    expect(facts.dark.background).not.toBe(facts.date.background);
+    expect(facts.off.background).not.toBe(facts.date.background);
+    expect(facts.authored.border).toBe('2px solid rgb(255, 0, 0)');
+    expect(facts.authored.radius).toBe('0px');
+    expect(facts.authored.width).toBe(210);
+    expect(facts.bare.border).toBe('0px none rgb(0, 0, 0)');
+    expect(facts.bare.sizing).toBe('content-box');
+  }, {html});
+});
 
 test('native button WebKit allowance ends at exactly 6.00 px', () => {
   const known = JSON.parse(readFileSync(resolve(ROOT, 'host/web-js/conformance/known-webkit.json'), 'utf8'));

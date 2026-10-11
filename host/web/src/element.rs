@@ -1062,6 +1062,20 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
                 out.insert("data-exact-switch".into(), String::new());
             }
         }
+        // LLP 1116.001 D1: a date, time or local date-time control takes the
+        // page's field look (index.html) while its appearance is the platform's.
+        if node.style.appearance == exact_kernel::Appearance::Auto
+            && matches!(
+                exact_kernel::ControlKind::of(node.node_type, node.props),
+                Some(
+                    exact_kernel::ControlKind::Date
+                        | exact_kernel::ControlKind::Time
+                        | exact_kernel::ControlKind::DateTimeLocal
+                )
+            )
+        {
+            out.insert("data-exact-field".into(), String::new());
+        }
     }
     // A `<button>` submits a form unless it says otherwise; a `button` never does.
     if element(node) == "button" {
