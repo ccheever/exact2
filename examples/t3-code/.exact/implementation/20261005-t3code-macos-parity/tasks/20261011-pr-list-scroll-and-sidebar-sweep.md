@@ -1,8 +1,8 @@
 ---
 name: 20261011-pr-list-scroll-and-sidebar-sweep
 plan: 20261005-t3code-macos-parity
-implementation: in-progress
-verification: pending
+implementation: implemented
+verification: verified-with-open-real-input-rows
 delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
@@ -152,3 +152,57 @@ host keeps the pressed row hovered through a pan and hovers nothing new until th
   component's actions (`contract/syntax/src/inline.rs`, `@capture:{n}:a{pi}:{j}`, `ty: None`) are untyped there. A root
   action handed down as it is works (the fix calls the root's `sidebarHover`). Not a parity gap; the message names an
   internal parameter. For the coordinator to judge.
+
+## Acceptance results
+
+| Row | Result | Proof |
+| --- | --- | --- |
+| PS-1 | pass, no clone change: reproduced on the feature tip and traced to the agent's first `prefer` (the system appearance re-told, the per-scheme page mounted again); after it, a refocus with the list's read due (a 72 KB `pullRequests.list` reply in the trace) keeps `sy 1200` on the same scroll node, before and after alike; one-file repro for the coordinator (EXACT2-GAPS X58) | [record](https://raw.githubusercontent.com/ccheever/exact2/d9bf0946469c048d1cb0077224c9f6c7fe84c103/pr-list-scroll-and-sidebar-sweep/ps-record.txt), [one-file repro](https://raw.githubusercontent.com/ccheever/exact2/596c32887cd45e0e40fadd36d7c7175d25323a52/pr-list-scroll-and-sidebar-sweep/x58-one-file-repro.png) |
+| PS-1 under a real refocus | open: real-input step 1 | — |
+| PS-2a | pass: with the sweep armed the window's hover is cleared (`sidebarHoverId` `""`; before, it stayed on the pressed row's Settle, `sweep-4~active#settle`), no card or tooltip during the sweep, as the reference; the press already moved them off through the buttons' `focus` (before and after) | [image](https://raw.githubusercontent.com/ccheever/exact2/17d1b73dee10743b6426ff73717c3d2a4b8f5376/pr-list-scroll-and-sidebar-sweep/ps2-sweep-escape.png) (row 2), [record](https://raw.githubusercontent.com/ccheever/exact2/d9bf0946469c048d1cb0077224c9f6c7fe84c103/pr-list-scroll-and-sidebar-sweep/ps-record.txt) |
+| PS-2b | pass (unchanged from r12, before and after): Escape cancels, no row stays armed, the release settles nothing (`settled 0`, `sweepEpoch` +1) | [image](https://raw.githubusercontent.com/ccheever/exact2/17d1b73dee10743b6426ff73717c3d2a4b8f5376/pr-list-scroll-and-sidebar-sweep/ps2-sweep-escape.png) (rows 3, 4) |
+| PS-2c | pass: after the cancelled release Sweep three (under the pointer) is the hovered row and no card opens until the pointer moves, as the reference; before, Sweep four (the pressed row) was | [image](https://raw.githubusercontent.com/ccheever/exact2/17d1b73dee10743b6426ff73717c3d2a4b8f5376/pr-list-scroll-and-sidebar-sweep/ps2-sweep-escape.png) (rows 4, 5) |
+| PS-2: a released sweep still applies | pass (before and after): Settled, "Settled 3 threads, ⌘Z to undo" | [image](https://raw.githubusercontent.com/ccheever/exact2/251ba010078ef802fc339a00dc3283b58f353c17/pr-list-scroll-and-sidebar-sweep/ps2-sweep-release.png) |
+| PS-2 under a real trackpad drag and real Escape | open: real-input steps 2-5 | — |
+
+Drives (agent mode, 1280×840, `final.sh`: [script](https://raw.githubusercontent.com/ccheever/exact2/8f690e40c018396b5a5292b14ffa379e0a48b50a/pr-list-scroll-and-sidebar-sweep/drive-final.sh.txt)): before on the evidence worktree at `6db5cadea`, after on this branch's bundle (merged with the feature tip `fe0e39c91`); the lanes' T3 homes hold five threads "Sweep one" … "Sweep five" ([seed](https://raw.githubusercontent.com/ccheever/exact2/349d06600a8863549f5adeee1005c55e911d4273/pr-list-scroll-and-sidebar-sweep/sweep-threads.py.txt), projection rows only, as the audit's `extras.py`); the GitHub lane's primary server (16523) paired through Settings › Connections. The reference: `ref-app.sh` on 16520 with the same five threads, driven by trusted CDP mouse and key events ([script](https://raw.githubusercontent.com/ccheever/exact2/9ce6af018582552524d5e96b071a75596e6c77e9/pr-list-scroll-and-sidebar-sweep/ref-final.mjs.txt); screenshots through `Page.captureScreenshot`: Playwright's own resizes the page, and a `resize` cancels the reference's sweep).
+
+## Seen while building, not a finding row
+
+- In the agent drives the clone's sweep armed one row more than the reference on the second and third gestures of a
+  session (Sweep two dragged 90 pt armed Sweep two, Sweep one and Timeline verification; the reference armed two); the
+  first gesture matched (Sweep four and three). Before and after alike; the arming geometry is r11's, unchanged here.
+- The agent's `tap settle-… hover` lights Settle but draws no "Settle thread" tooltip in these drives (the window's hover
+  moves to `…#settle`, `sidebarHoverH` 0); the reference shows it. Not driven further (one live drive).
+- The clone mounts its Pull Requests page (and most surfaces) once per scheme, so a real appearance change while
+  reading the list also puts it back at the top, where the reference keeps its place.
+
+## Real-input batch steps
+
+Launch this branch's bundle as a lane copy (its own bundle id, the lane home outside any git checkout) whose T3 home has
+the five sweep threads (`python3 -I sweep-threads.py <home>/userdata/statev2.sqlite` before the first launch), with
+the GitHub lane paired. Never send a message.
+
+1. **PS-1.** Pull Requests; scroll the list down with the trackpad about twenty rows. Click another app's window
+   (Finder), wait 15 s, click the clone's title bar. Expected (reference): the same rows stay in view (a read may run;
+   no jump to the top). Then ⌘Tab away and back: the same.
+2. **PS-2a.** Hover Sweep four (its card opens), move onto its Settle (the card gives way to "Settle thread"), press and
+   hold, drag down slowly onto Sweep three. Expected: the tooltip is gone from the press on, no card or tooltip while
+   Sweep four and Sweep three show their Settle badges.
+3. **PS-2b.** Still holding, press Escape: the badges go and Sweep three shows its hover actions; release: nothing is
+   settled (no toast, Settled count unchanged).
+4. **PS-2c.** Without moving: Sweep three stays the hovered row, no card. Move the pointer a little: Sweep three's card
+   opens.
+5. Repeat 2-4 at once from the same Settle (a press on a button that already holds the focus moves no focus, the
+   case the arming's own close covers): the same.
+6. A sweep from Sweep two over Sweep one, released: "Settled 2 threads, ⌘Z to undo"; ⌘Z brings them back.
+
+## Tests
+
+- `pr-list-scroll-and-sidebar-sweep.test.ts` (5): `sweepRowHover` evaluated (none while live; the cancelled sweep's
+  resting row while the window's hover count holds; the window's hover after it moves on); the rows take it and the
+  cancel records the row under the pointer and the count; the first arming calls the root's `sidebarHover(hoverId,
+  false)` handed down as `unhover` to all five sections, and the window's half counts hover events; Escape's shortcut
+  only while live and the `|cancel|` release; PS-1's guard: the Pull Requests list mounts on the page and the scheme
+  only, never on the window's focus or visibility, its rows keyed. The three PS-2 tests fail on the base (`6db5cadea`'s
+  contracts), the two others pass there.
