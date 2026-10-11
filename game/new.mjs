@@ -390,43 +390,34 @@ key). The app uses the exact2 checkout at \`${pathFrom(dir, ROOT)}\` by path (\`
 overrides it).
 
 Read before writing code: ${doc('start-here.md')}, the only required reading (LLP 1115
-D7). After it, look things up: the recipe for the question in ${doc('recipes')} (start-here
-lists them), \`bun exact.mjs contract vocab <name>\` for a tag, property or function, and the long
-guides beside start-here by section only, never front to back.
+D7): the idea, the workflow and its commands, the language in one example. Then look
+things up, never reading front to back:
+
+- A pattern to start from: \`bun exact.mjs pattern\` lists them (\`one-screen\`, \`list-detail\`,
+  \`tabs\`, \`dashboard\`, \`rest\`); \`pattern <name>\` writes one, tested.
+- A recipe per question, in ${doc('recipes')} (start-here's last section is the index).
+- \`bun exact.mjs contract vocab <name> <name> …\`: any tag, property or function.
+- \`bun exact.mjs help\`, \`bun exact.mjs <verb> --help\`: the verbs; a verb's flags, ports,
+  whether it stays in the foreground, and an example. Read these, not exact2's scripts.
 
 ${DIARY_LINE}
 
-Commands, from this directory:
+Beyond start-here's commands:
 
 | | |
 |---|---|
-| \`bun exact.mjs <verb> --help\`, \`bun exact.mjs help\` | a verb's flags, the ports it opens, whether it stays in the foreground, and an example; the verbs. Read these, not exact2's scripts |
-| \`bun exact.mjs contract types app.contract -o app.contract.d.ts\` | the types \`app.ts\` imports; rerun after changing a source's signature |
-| \`bun exact.mjs contract build app.contract --json\` | compile; \`[]\` or every diagnostic with its range |
-| \`bun exact.mjs contract vocab [name]\` | the tags, attributes, CSS properties and functions Contract accepts; one function's signature, rules and example |
-| \`bun exact.mjs web\` | the web dev loop, at the URL it prints (8765 unless another loop holds it) |
-| \`bun exact.mjs test web\` | build the web app if needed, then run \`app.test.contract\` or the files named (also \`macos\`, \`ios\`, \`linux\`) |
-| \`bun exact.mjs agent web --storage s1 tree "tap <id>" "screenshot .exact/a.png"\` | drive the app as a person would; without \`--storage <name>\` its storage calls are refused |
-| \`bun exact.mjs agent ios --chrome platform …\` | the same on an iOS simulator, with UIKit's bars; drive by \`testId\`, never by coordinates |
-| \`bun exact.mjs mac --run\`, \`bun exact.mjs ios --run\` | build and launch natively |
-| \`bun exact.mjs linux\`, \`bun exact.mjs android\` | the Linux host, driven headless by \`test linux\` and \`agent linux …\`; the same host for Android |
-| \`bun exact.mjs web-build\` | the web build alone (\`test web\` and \`agent web\` run it first) |
-| \`bun exact.mjs hatch <word>\` | an access hatch: native code for what Contract can't say (${doc('reference.md')}, "Access hatches") |
+| \`bun exact.mjs mac --run\`, \`linux\`, \`android\` | the Mac app; the Linux host (Android's too), driven headless by \`test linux\` and \`agent linux …\` |
+| \`bun exact.mjs hatch <word>\` | native code for what Contract can't say (${doc('reference.md')}, "Access hatches") |
 | \`bun exact.mjs update\` | after exact2 moves or changes its patches; it rewrites \`exact.mjs\` and this block |
 | app.json \`"commands": {"verify": ["bun", "verify.mjs"]}\` | the app's own verbs: \`bun exact.mjs verify web\` runs \`bun verify.mjs web\` here |
-
-Keep drive scripts, evidence and logs in \`.exact/\` (git-ignored). Anything else in this
-folder is a source: changing it makes the driver refuse to drive until the app is rebuilt.
 
 Before the first native TypeScript build on a machine, run the one-time installer
 \`bun ${sdk('scripts/exact.mjs')} setup\` (\`setup --check\` only names what is missing).
 Cargo builds are forced offline for Hermes.
 
-Say what a thing is and leave colours, fonts and control metrics to the platform (LLP
-1115); \`bun ${sdk('scripts/no-tells.mjs')} .\` lists the literal ones left. Shared server
-data: your own server (${doc('recipes/rest-backend.md')}) or Snapback 4's client
-(${sdk('snapback4/README.md')}). Contract libraries: \`use Card from "@scope/ui"\` after
-\`bun add\`, or \`use Activity from "exact:motion"\`.
+Shared server data: your own server (${doc('recipes/rest-backend.md')}) or Snapback 4's
+client (${sdk('snapback4/README.md')}). Contract libraries: \`use Card from "@scope/ui"\`
+after \`bun add\`, or \`use Activity from "exact:motion"\`.
 
 Generated, so don't edit: the \`[patch.crates-io]\` table in \`Cargo.toml\`,
 \`rust-toolchain.toml\`, \`.cargo/config.toml\`, \`exact.mjs\`, and this block.
