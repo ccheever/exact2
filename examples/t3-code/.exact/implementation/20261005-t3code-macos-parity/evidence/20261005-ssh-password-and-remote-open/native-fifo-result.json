@@ -1,0 +1,36 @@
+{
+  "first": {
+    "open": true,
+    "requestId": "7da0eed2-d531-42f6-8500-4aa3c116b579",
+    "target": "t3-ssh157",
+    "prompt": "Enter the SSH password for t3-ssh157.",
+    "remaining": "2:54",
+    "expired": false,
+    "error": "",
+    "hint": "Use SSH keys to avoid repeated password prompts on new SSH sessions.",
+    "queued": 1
+  },
+  "second": {
+    "open": true,
+    "requestId": "b2611d1e-6cde-4485-b5e4-94533f4d705d",
+    "target": "oracle-second",
+    "prompt": "Enter the SSH password for oracle-second.",
+    "remaining": "3:00",
+    "expired": false,
+    "error": "",
+    "hint": "Use SSH keys to avoid repeated password prompts on new SSH sessions.",
+    "queued": 0
+  },
+  "afterCancel": {
+    "open": true,
+    "requestId": "b2611d1e-6cde-4485-b5e4-94533f4d705d",
+    "target": "oracle-second",
+    "prompt": "Enter the SSH password for oracle-second.",
+    "remaining": "2:59",
+    "expired": false,
+    "error": "",
+    "hint": "Use SSH keys to avoid repeated password prompts on new SSH sessions.",
+    "queued": 0
+  },
+  "ssh": "Real /usr/bin/ssh with 35-second BatchMode-only scheduling delay"
+}

@@ -1,0 +1,17 @@
+{
+  "id": "5b137aa4-0756-45c6-835a-0c8f46a370fb",
+  "ok": false,
+  "error": {
+    "code": "permission_denied",
+    "message": "app 'T3 Code (Exact)' has visible windows but no accessibility window (AX reads stayed blocked for 1500ms after retries). macOS Accessibility may need Orca Computer Use toggled off and on again in System Settings.",
+    "data": {
+      "nextSteps": [
+        "Run `orca computer permissions --json`, or `orca computer permissions --id accessibility --json` / `--id screenshots --json` when the message names one missing permission.",
+        "For remote or SSH targets, verify the command is running inside an active graphical desktop session."
+      ]
+    }
+  },
+  "_meta": {
+    "runtimeId": "defede84-9127-4520-9b9d-59e9b6cb89da"
+  }
+}

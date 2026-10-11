@@ -1,0 +1,176 @@
+use R4GitCard from "./r4-git-shapes.contract"
+// The window shell's projection (shell.ts): the toast stack, the header's
+// panel controls and labels, the right panel's surface chooser, the thread
+// details panel and the thread title's action menu.
+use AutomationsView from "./thread-automations.contract"
+use R4Panel from "./r4-surfaces-shapes.contract"
+use R5PrRows from "./r5-panels-shapes.contract"
+use R9Checkout from "./r9-connect-shapes.contract" // lane r9-connect
+
+shape ShellToast
+  id: number
+  kind: string
+  title: string
+  description: string
+  icon: string
+  iconColor: string
+  provider: string
+  actionLabel: string
+  actionOp: string
+  actionId: string
+  actionValue: string
+  actionOutline: bool
+  secondaryLabel: string
+  secondaryOp: string
+  secondaryId: string
+  secondaryValue: string
+  secondaryGhost: bool
+  stacked: bool
+  copyText: string
+  copied: bool
+  index: number
+  details: list<ShellToastDetail>
+  expandLabel: string
+  collapseLabel: string
+  extraLabel: string // browser-surface part 3: ThreadToastData.additionalActions (one), and each button's "Copied!" state
+  extraOp: string
+  extraId: string
+  extraValue: string
+  actionDone: bool
+  secondaryDone: bool
+  extraDone: bool
+shape ShellToastDetail
+  id: string
+  title: string
+  subtitle: string
+  last: bool
+shape ShellSurface
+  id: string
+  label: string
+  icon: string
+  shortcut: string
+  letter: string
+  available: bool
+  reason: string
+shape ShellMenuItem
+  id: string
+  label: string
+  icon: string
+  destructive: bool
+  disabled: bool
+  separated: bool
+  submenu: string
+  checked: bool
+  op: string
+  target: string
+  value: string
+  confirmTitle: string
+  confirmBody: string
+  offset: number
+shape ShellLineage
+  id: string
+  title: string
+  icon: string
+  driver: string
+  status: string
+  dot: string
+  group: string
+  index: number
+  mergeTarget: bool
+  elapsed: string
+  agent: bool
+  missing: bool
+  hint: string
+shape ShellEditor
+  id: string
+  label: string
+  selected: bool
+shape ShellView
+  toasts: list<ShellToast>
+  toastCount: number
+  ticking: bool
+  openRequest: string
+  openThreadId: string
+  keyRightPanel: string
+  keyThreadPanel: string
+  keyTerminal: string
+  terminalAvailable: bool // terminal-drawer: an active server thread with a project
+  terminalOpen: bool
+  keyNewThread: string
+  keyNewThreadLocal: string
+  keySidebar: string
+  serverThread: bool
+  projectPath: string
+  surfaces: list<ShellSurface>
+  titleMenu: list<ShellMenuItem>
+  titleSubmenu: list<ShellMenuItem>
+  notifications: string
+  // r4-surfaces-panel.ts: the right panel's tabs and its Files / Linked pull requests / Device surfaces.
+  panel: R4Panel
+  // lane r9-connect: the branch picker's PullRequestThreadDialog (r9-connect-checkout.ts).
+  prCheckout: R9Checkout
+  highlightPending: bool // shiki-residuals: a Files / attachment code text waits for its Shiki tokens
+shape CardScript
+  id: string
+  label: string
+  icon: string
+shape ShellDetails
+  ready: bool
+  // server-update-banner: the version-differ card (ThreadDetailsPanel versionMismatch), "" when hidden.
+  versionClient: string
+  versionServer: string
+  versionLabel: string
+  // r6-polish: the project script row (r6-polish-scripts.ts): the primary script and every script for its menu.
+  scriptName: string
+  scriptIcon: string
+  scripts: list<CardScript>
+  inline: bool
+  error: string
+  folderName: string
+  folderLabel: string
+  cwd: string
+  editorId: string
+  editorLabel: string
+  editors: list<ShellEditor>
+  editorShortcut: string
+  // OpenInPicker's remote states (remote-open.ts): the row shows, the hint until the first remote
+  // open, "No SSH route to <label>" and "No installed editors found".
+  editorShow: bool
+  editorHint: string
+  editorUnavailable: string
+  editorEmpty: bool
+  isGit: bool
+  branch: string
+  actionLabel: string
+  actionKind: string
+  actionDisabled: bool
+  actionHint: string
+  insertions: number
+  deletions: number
+  // Appearance → Diff colors (red-green or blue-orange) for the Changes counts.
+  diffScheme: string
+  envModeSelect: bool
+  envMode: string
+  envIcon: string
+  previousLabel: string
+  actionIcon: string
+  changesEnabled: bool
+  envShow: bool
+  envLabel: string
+  envKind: string
+  lineageTitle: string
+  lineage: list<ShellLineage>
+  showLineage: bool
+  previousCount: number
+  previousFailed: number
+  mergeRunId: string
+  mergeTargetId: string
+  mergeSourceId: string
+  mergeLabel: string
+  mergeHint: string
+  // lane r5-panels: the pull request rows under the branch (r5-panels-pr.ts).
+  prRows: R5PrRows
+  // ThreadAutomationsPanel (thread-automations.ts): the thread's bound scheduled tasks.
+  automations: AutomationsView
+  // lane r4-git: the branch picker, Git actions and their dialogs (r4-git-card.ts).
+  git: R4GitCard

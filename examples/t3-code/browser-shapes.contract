@@ -1,0 +1,94 @@
+// browser-surface part 1: the Browser tab's projection (browser-surface.ts `BrowserView`), apart from its
+// views so the panel's shapes (r4-surfaces-shapes.contract) can carry it without a `use` cycle.
+shape BrowserProfileChoice
+  id: string
+  name: string
+
+// browser-surface part 2 (browser-navigation.ts): the empty state's rows and the device toolbar's presets.
+shape BrowserRecent
+  url: string
+  title: string
+  subtitle: string
+  favicon: string
+  fallback: string
+  removeLabel: string
+
+shape BrowserServer
+  key: string
+  title: string
+  description: string
+  url: string
+  favicon: string
+  fallback: string
+
+shape BrowserPresetChoice
+  id: string
+  label: string
+  detail: string
+
+shape BrowserPanel
+  tabId: string
+  runtimeId: string
+  environment: string
+  profileId: string
+  profileName: string
+  showProfile: bool
+  url: string
+  loading: bool
+  canGoBack: bool
+  canGoForward: bool
+  refreshDisabled: bool
+  hasWebContents: bool
+  empty: bool
+  failed: bool
+  failHost: string
+  failMessage: string
+  failLabel: string
+  live: bool
+  profiles: list<BrowserProfileChoice>
+  // part 2: zoom, appearance, the viewport, the preview's chords, the empty state's lists
+  zoomFactor: number
+  zoomLabel: string
+  zoomSerial: number
+  colorScheme: string
+  viewportMode: string
+  viewportWidth: number
+  viewportHeight: number
+  viewportKey: string
+  viewportSerial: number
+  presetId: string
+  presetLabel: string
+  aspectLocked: bool
+  presets: list<BrowserPresetChoice>
+  keys: string
+  recents: list<BrowserRecent>
+  servers: list<BrowserServer>
+  capture: BrowserCapture // part 3 (browser-surface-capture)
+
+// browser-surface part 3 (capture): the chrome row's Annotate, Capture and Float preview, and the separate window
+// (browser-capture.ts `BrowserCaptureView`).
+shape BrowserCapture
+  pickActive: bool
+  pickDisabled: bool
+  pickTip: string
+  captureDisabled: bool
+  recording: bool
+  floating: bool
+  floatDisabled: bool
+  separateWindow: bool
+
+// The floating player's browser source (browser-capture.ts `BrowserMiniView`); its frame is the chat canvas's.
+shape BrowserMini
+  show: bool
+  key: string
+  sourceKey: string
+  tabId: string
+  runtimeId: string
+  url: string
+  profileId: string
+  environment: string
+  hasWebContents: bool
+  recording: bool
+  separateWindow: bool
+  width: number
+  height: number

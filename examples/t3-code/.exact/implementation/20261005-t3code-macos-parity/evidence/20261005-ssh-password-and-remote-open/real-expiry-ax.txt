@@ -1,0 +1,43 @@
+App=com.exact.t3code.ssh157 (pid 99940)
+Window: "T3 Code (Exact)", App: T3 Code (Exact).
+
+0 standard window T3 Code (Exact)
+	1 scroll area, Secondary Actions: scroll up, scroll down
+		2 button Toggle sidebar
+		3 button Go to threads
+		4 text Search
+		5 text field (disabled) Search threads
+		6 button Filter threads by project
+		7 button (disabled) Add project
+		8 button (disabled) New thread
+		9 scroll area, Secondary Actions: scroll up, scroll down
+			10 text No projects yet
+			11 button Add project
+		12 button Settings
+		13 button Usage
+		14 heading New thread
+		15 button Toggle thread details panel
+		16 button (disabled) Toggle terminal drawer
+		17 button Toggle right panel
+		18 scroll area, Secondary Actions: scroll up, scroll down
+			19 text entry area Message
+			20 scroll bar (disabled) 0
+		21 button (disabled) Choose provider and model
+		22 button (disabled) Runtime mode
+		23 button (disabled) Environment disconnected
+		24 button Settings
+		25 button Cancel SSH password prompt
+		26 heading SSH Password Required
+		27 text T3 needs your SSH password to connect to tester@t3-ssh157. The password is passed to the local SSH process for this connection attempt and is not saved by T3 Code. [redacted]
+		28 text Enter the SSH password for tester@t3-ssh157. [redacted]
+		29 text Expired
+		30 secure text field (disabled) Enter the SSH password for tester@t3-ssh157., Value: [redacted]
+		31 text This SSH password prompt expired. Try connecting again. [redacted]
+		32 button Dismiss
+		33 button (disabled) Continue
+	34 toolbar
+	35 close button
+	36 full screen button, Secondary Actions: zoom the window
+	37 minimize button
+
+The focused UI element is 32 button Dismiss.

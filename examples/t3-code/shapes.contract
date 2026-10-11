@@ -1,0 +1,755 @@
+use CodeHighlight from "./markdown.contract"
+use MermaidDiagram from "./markdown.contract"
+use MarkdownEnv from "./markdown.contract"
+use WorktreeSetupView from "./timeline-worktree-shapes.contract"
+use MinimapItem from "./timeline-minimap.contract"
+use MessageImage from "./timeline-attachments.contract"
+use MessageFile from "./timeline-attachments.contract"
+use ComposerView from "./composer-shapes.contract"
+use SnoozePreset from "./sidebar-shapes.contract"
+use Thread from "./sidebar-shapes.contract"
+use ChatGptPlanNotice from "./codex-setup.contract"
+use SidebarView from "./sidebar-shapes.contract"
+use LegacySidebarView from "./legacy-sidebar-shapes.contract"
+use Look from "./settings-appearance-look.contract"
+use ComposerVideo from "./r4-composer.contract"
+use ComposerVideoPreview from "./r4-composer.contract"
+use TableMenuView from "./r8-keys-table-menu.contract"
+shape Project
+  id: string
+  name: string
+  path: string
+  selected: bool
+shape CheckpointFile
+  id: string
+  path: string
+  additions: number
+  deletions: number
+  kind: string
+  name: string
+  depth: number
+  expanded: bool
+  icon: string
+  spacer: bool
+  plus: string
+  minus: string
+shape MarkdownSkill
+  name: string
+  displayName: string
+// timeline-work-rows TH-5: one V2ItemInspector list item: a file search result ("file": path and
+// line over its preview), a web result ("web": its title, a link when href is set, over its snippet)
+// or one change of a file edit ("change").
+shape InspectorResult
+  id: string
+  kind: string
+  label: string
+  href: string
+  preview: string
+shape Activity
+  id: string
+  label: string
+  body: string
+  icon: string
+  output: string
+  outputState: string
+  detailOpen: bool
+  iconLight: string
+  iconDark: string
+  result: string
+  failed: bool
+  timestamp: string
+  tone: string
+  ok: bool
+  reasoning: bool
+  expandable: bool
+  detail: string
+  status: string
+  targetId: string
+  answer: string
+  // r4-timeline: the full date under the hover time (formatChatTimestampTooltip).
+  timeTip: string
+  // r11-upstream (737993303d): the failed run a workspace preparation Retry prepares again.
+  retryRunId: string
+  // timeline-work-rows TH-5: the inspector's results, and a file change's path, +/- counts and Open diff.
+  results: list<InspectorResult>
+  changePath: string
+  stats: bool
+  additions: number
+  deletions: number
+  diffRunId: string
+  diffPath: string
+  // timeline-work-rows TH-6: SubagentAvatar's driver mark (`detail` is the driver) and a live agent's start (ms; 0 when settled).
+  initials: string
+  driverIcon: string
+  startedMs: number
+  // timeline-work-rows TH-2: the trailing button's text for targetId ("Open chat" for a created thread, "Open subagent").
+  targetLabel: string
+shape Message
+  id: string
+  kind: string
+  title: string
+  body: string
+  checkpointId: string
+  checkpointOrdinal: number
+  additions: number
+  deletions: number
+  files: list<CheckpointFile>
+  runId: string
+  sourceThreadId: string
+  canFork: bool
+  completed: bool
+  createdAt: string
+  timestamp: string
+  activities: list<Activity>
+  first: bool
+  attached: bool
+  // r8-pointer D9: the row hover this row shares (an attached changed-files card takes its answer's).
+  hoverKey: string
+  actionsId: string
+  actionsFork: bool
+  actionsTime: string
+  expanded: bool
+  last: bool
+  icon: string
+  tone: string
+  failed: bool
+  live: bool
+  startedMs: number
+  detail: string
+  status: string
+  groupId: string
+  continues: bool
+  revert: number
+  intent: string
+  intentTip: string
+  attribution: string
+  targetId: string
+  actionLabel: string
+  copied: number
+  copyFailed: bool
+  meta: bool
+  collapsible: bool
+  code: list<CodeHighlight>
+  diagrams: list<MermaidDiagram>
+  setup: list<WorktreeSetupView>
+  timeTip: string
+  actionsTimeTip: string
+  codeCopied: string
+  codeCopyNonce: number
+  fileCount: number
+  images: list<MessageImage>
+  attachFiles: list<MessageFile>
+  // r4-timeline: code font/size, word wrap and the message's chips (r4-timeline-chips.ts).
+  md: MarkdownEnv
+shape Provider
+  id: string
+  name: string
+  available: bool
+shape Model
+  id: string
+  name: string
+  providerId: string
+  selected: bool
+shape ModelOption
+  id: string
+  label: string
+  value: string
+  selected: bool
+  default: bool
+shape ApprovalOption
+  id: string
+  label: string
+  warning: string
+  primary: bool
+shape Approval
+  id: string
+  label: string
+  appName: string
+  count: string
+  mono: bool
+  detail: string
+  canRespond: bool
+  live: bool
+  responding: bool
+  responseReason: string
+  options: list<ApprovalOption>
+  more: list<ApprovalOption>
+shape QuestionOption
+  id: string
+  label: string
+  description: string
+  selected: bool
+  shortcut: string
+shape Question
+  id: string
+  requestId: string
+  header: string
+  question: string
+  multiSelect: bool
+  canRespond: bool
+  live: bool
+  responding: bool
+  dismissible: bool
+  responseReason: string
+  customAllowed: bool
+  answer: string
+  position: string
+  index: number
+  last: bool
+  canAdvance: bool
+  complete: bool
+  action: string
+  options: list<QuestionOption>
+shape DiffSegment
+  id: string
+  text: string
+  mark: bool
+  syntax: string
+shape DiffTurn
+  id: string
+  label: string
+  time: string
+  selected: bool
+shape DiffFile
+  id: string
+  name: string
+  path: string
+  status: string
+  letter: string
+  additions: number
+  deletions: number
+  markdown: bool
+// One row of the Diff panel's comparison target picker: a ref, its value, the remote column ("switch", "only" or "") and the ref its switch picks.
+shape DiffBaseRef
+  id: string
+  label: string
+  value: string
+  remote: string
+  remoteOn: bool
+  other: string
+  selected: bool
+shape DiffItem
+  id: string
+  kind: string
+  path: string
+  name: string
+  status: string
+  letter: string
+  additions: number
+  deletions: number
+  expanded: bool
+  markdown: bool
+  tone: string
+  number: string
+  segments: list<DiffSegment>
+  leftTone: string
+  leftNumber: string
+  leftSegments: list<DiffSegment>
+  rightTone: string
+  rightNumber: string
+  rightSegments: list<DiffSegment>
+  label: string
+  gutter: number
+  // diff-review: a line's side and number for selection and comments (split: left/right), file marks, gap expansion, comment entries.
+  side: string
+  line: number
+  selected: bool
+  leftLine: number
+  rightLine: number
+  leftSelected: bool
+  rightSelected: bool
+  // The file has a selection: its gutter "+" is pinned to the selection's bottom line (pin, or leftPin/rightPin in split), not hover.
+  pinned: bool
+  pin: bool
+  leftPin: bool
+  rightPin: bool
+  error: bool
+  partial: bool
+  unavailable: bool
+  expandable: bool
+  entry: string
+  text: string
+  // diff-panel-parity: a file header's counts (diff.ts headerStat): Pierre's "-d +a", or DiffStatLabel's aligned "+a -d" for a large source.
+  statAligned: bool
+  addText: string
+  delText: string
+// Appearance › Typography's code sample (settings-font-previews.ts): the sample patch's
+// unified rows, each with its tone, number and syntax/emphasis segments.
+shape FontDiffLine
+  id: string
+  tone: string
+  number: string
+  segments: list<DiffSegment>
+shape FontDiffPreview
+  path: string
+  status: string
+  additions: number
+  deletions: number
+  scheme: string
+  lines: list<FontDiffLine>
+// diff-review: one row of the Diff panel's file tree (diff-tree.ts).
+shape DiffTreeRow
+  id: string
+  kind: string
+  path: string
+  name: string
+  depth: number
+  status: string
+  letter: string
+  markdown: bool
+  expanded: bool
+  selected: bool
+shape SnapshotDraft
+  id: string
+  name: string
+  // false for an image picked with Attach files: a plain 64pt tile (composer-editor.contract ImageDraftTile).
+  snapshot: bool
+  app: string
+  title: string
+  letter: string
+  included: bool
+  contents: string
+  // r4-composer: its image chip is in the prompt, so Remove asks first (removeComposerImage).
+  referenced: bool
+// server-update-banner (server-update-notices.ts serverUpdateView): the offline banner's timer episodes,
+// the details toggle's warning dot and the desktop-managed update's confirmation.
+shape ServerUpdateView
+  reconnecting: string
+  unavailable: string
+  attention: bool
+  confirmTitle: string
+  confirmBody: string
+shape Snapshot
+  serverUpdate: ServerUpdateView
+  timelineReadsNeeded: bool
+  highlightPending: bool // shiki-residuals: a code text waits for its Shiki tokens
+  markdownSkills: list<MarkdownSkill>
+  composer: ComposerView
+  // r6-polish: the AlertStack wrapper's clip to its banners (r6-polish-measure.ts alertClip).
+  alertClip: string
+  snapshotDrafts: list<SnapshotDraft>
+  snapshotOwner: string
+  // managed-codex-chatgpt: ChatGptWelcomeCoordinator's next "Your ChatGPT plan is connected" (chatgpt-plan.ts).
+  chatgptPlan: list<ChatGptPlanNotice>
+  revision: number
+  // Resource telemetry samples drained (client.ts drain): Diagnostics' live Resource monitor redraws on it alone.
+  telemetry: number
+  available: bool
+  connected: bool
+  connecting: bool
+  syncComplete: bool
+  status: string
+  error: string
+  providerBannerKey: string
+  providerBannerTitle: string
+  providerBannerMessage: string
+  providerBannerWarning: bool
+  // provider-sign-in-and-install (provider-status-message.ts): role, dismiss label and the instance "Open provider setup" opens.
+  providerBannerAlert: bool
+  providerBannerDismiss: string
+  providerBannerSetup: string
+  serverUrl: string
+  // auto-balance (auto-balance-owner.ts): the open draft's identity; a draft Auto balance moved keeps its earlier one.
+  composerOwner: string
+  uncertain: bool
+  uncertainMessage: string
+  sidebarWidth: number
+  // r12-sidebar: resolveThreadSidebarMinimumWidth at the Interface font size (r12-sidebar-width.ts).
+  sidebarMinWidth: number
+  // desktop-shell-details: --workspace-controls-left, 90 beside the traffic lights, 0.75rem in full screen (r12-sidebar-width.ts).
+  controlsLeft: number
+  sidebarOpen: bool
+  query: string
+  projectId: string
+  projectName: string
+  threadId: string
+  threadTitle: string
+  threadHeading: list<CommandChoice>
+  draft: string
+  running: bool
+  // timeline-work-rows TH-6: a live subagent's elapsed time ticks on the timeline clock (AgentElapsed).
+  subagentsLive: bool
+  canSend: bool
+  canStop: bool
+  providerId: string
+  modelId: string
+  modelLabel: string
+  composerCollapseOnScroll: bool
+  planModeEnabled: bool
+  composerResting: bool
+  transcriptAway: bool
+  // r4-composer-overlay.ts: the transcript's end reservation under the composer overlay, and the Scroll to end pill's rise.
+  transcriptTail: number
+  scrollLift: number
+  // r4-composer-attachments.ts: the draft's attached videos on the shelf, and the one being previewed (0 or 1).
+  composerVideos: list<ComposerVideo>
+  composerVideoPreview: list<ComposerVideoPreview>
+  tableMenu: list<TableMenuView> // lane r8-keys
+  providerDriver: string
+  providerBadge: string
+  providerBadgeColor: string
+  optionLabel: string
+  optionId: string
+  modelOptions: list<ModelOption>
+  settled: bool
+  projectMark: string
+  projectInk: string
+  projectSurface: string
+  runtimeMode: string
+  modeLabel: string
+  interactionMode: string
+  hasMore: bool
+  historyLoading: bool
+  threadLoading: bool // audit-wave-followups FU-1: a server thread's detail is not in yet (ChatView threadDetailLoading)
+  diffOpen: bool
+  diffLoading: bool
+  diffError: string
+  diffScopeLabel: string
+  diffMenu: string
+  diffScope: string
+  diffTurns: list<DiffTurn>
+  diffLatestSelected: bool
+  diffCanRefresh: bool
+  diffLayout: string
+  diffWrap: bool
+  diffIgnoreWhitespace: bool
+  diffTree: bool
+  diffTruncated: bool
+  diffEmpty: bool
+  diffEmptyLabel: string
+  diffAdditions: number
+  diffDeletions: number
+  diffAdditionsText: string
+  diffDeletionsText: string
+  // diff-panel-parity: the Changes header's "<head> → <base>" and the comparison target picker (diff-base-ref.ts).
+  diffCompare: bool
+  diffHead: string
+  diffBase: string
+  diffBaseRefs: list<DiffBaseRef>
+  diffBaseAutomatic: bool
+  diffBaseEmpty: bool
+  diffAllCollapsed: bool
+  diffFiles: list<DiffFile>
+  diffItems: list<DiffItem>
+  diffTreeRows: list<DiffTreeRow>
+  diffTreeLabel: string
+  diffTreeFolders: bool
+  diffTreeAllOpen: bool
+  diffCommentOpen: bool
+  diffLoadingLabel: string
+  projects: list<Project>
+  searchFirstId: string
+  snoozePresets: list<SnoozePreset>
+  threads: list<Thread>
+  sidebar: SidebarView
+  // legacy-sidebar: General › Sidebar (legacy)'s per-project thread trees (legacy-sidebar-view.ts).
+  legacy: LegacySidebarView
+  messages: list<Message>
+  historyError: string
+  revertPending: string
+  minimap: list<MinimapItem>
+  minimapCurrent: number
+  imagePreviewId: string
+  imagePreviewName: string
+  imagePreviewPosition: string
+  imagePreviewPrevious: bool
+  imagePreviewNext: bool
+  imagePreviewVideo: bool
+  imagePreviewSource: string
+  diagramPreview: list<MermaidDiagram>
+  planSaveOpen: bool
+  planSavePath: string
+  planSaveRoot: string
+  planSaving: bool
+  providers: list<Provider>
+  models: list<Model>
+  approvals: list<Approval>
+  questions: list<Question>
+  requestMode: string
+  requestKey: string
+  clientError: string
+  errorWarning: bool
+  look: Look
+shape Change
+  revision: number
+  message: string
+shape Viewport
+  width: number
+  height: number
+  prefersColorScheme: string
+  prefersReducedMotion: bool
+
+style Ink
+  color="light-dark(#27272a, #ededed)"
+style Muted
+  color="light-dark(#71717a, #858585)"
+style Canvas
+  background-color="light-dark(#fcfcfc, #0a0a0a)"
+style Surface
+  background-color="light-dark(#ffffff, #101010)"
+style Edge
+  border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #252525)"
+style Control
+  cursor="pointer"
+  display="flex" flex-direction="row" align-items="center" justify-content="center"
+  box-sizing="border-box"
+  padding="0.4375rem" gap="0.375rem" border-radius="0.5rem" border-width=0
+  background-color="#00000000" min-height="1.75rem" flex-shrink=0
+  color="light-dark(#52525b, #b0b0b0)"
+style Field
+  box-sizing="border-box" min-width=0 padding="0.625rem" border-radius="0.5rem"
+  border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #303030)"
+  background-color="light-dark(#fafafa, #191919)"
+  color="light-dark(#27272a, #ededed)" font-size="0.8125rem"
+style Primary
+  display="flex" flex-direction="row" align-items="center" justify-content="center"
+  box-sizing="border-box"
+  padding-left="0.8125rem" padding-right="0.8125rem" height="2rem" border-radius="1rem" border-width=0
+  background-color="light-dark(#2451cc, #4475ed)" color="#ffffff"
+style Overlay
+  position="absolute" left=0 right=0 top=0 bottom=0
+  display="flex" align-items="center" justify-content="center"
+  background-color="#00000055" padding="1.5rem" box-sizing="border-box" z-index=20
+
+
+shape Settings
+  environmentId: string
+  available: bool
+  permission: string
+  overridden: bool
+  environmentPermission: string
+  defaultModel: string
+  defaultModelExplicit: bool
+  modelOverridden: bool
+  composerCollapseOnScroll: bool
+  planModeEnabled: bool
+  timestampFormat: string
+  appearanceMode: string
+  sendShortcut: string
+  snapShotShortcut: string
+  snapShotEnabled: bool
+  snapShotIncludeAccessibility: bool
+  snapShotPlaySound: bool
+  snapShotSound: string
+  snapShotFlash: bool
+  snapShotAnimations: bool
+  keySidebar: string
+  keyNewThread: string
+  keyDiff: string
+  keyModels: string
+shape SettingsDestination
+  route: string
+  target: string
+  section: string
+  id: string
+  title: string
+shape SettingsNavigation
+  firstTarget: string
+  firstRoute: string
+  items: list<SettingsDestination>
+
+shape ProjectGroup
+  groupId: string
+  name: string
+  count: number
+  members: list<Project>
+shape ProjectGroups
+  mode: string
+  groups: list<ProjectGroup>
+
+shape ManagedProvider
+  id: string
+  name: string
+  driver: string
+  enabled: bool
+shape ProviderManagement
+  providers: list<ManagedProvider>
+  drivers: list<ManagedDriver>
+shape ManagedDriver
+  id: string
+  name: string
+  canAuthenticate: bool
+
+shape ArchivedThread
+  id: string
+  scope: string
+  title: string
+  archivedAt: string
+  createdAt: string
+shape ArchivedGroup
+  id: string
+  title: string
+  threads: list<ArchivedThread>
+shape ArchivedSettings
+  available: bool
+  error: string
+  groups: list<ArchivedGroup>
+shape LicenseEntry
+  id: string
+  name: string
+  version: string
+  license: string
+  bundles: string
+  sourceUrl: string
+  expanded: bool
+  noticeText: string
+shape LicenseSettings
+  ready: bool
+  error: string
+  total: number
+  matched: number
+  entries: list<LicenseEntry>
+shape DiagnosticRow
+  id: string
+  label: string
+  value: string
+  detail: string
+  copy: string
+shape DiagnosticSection
+  id: string
+  title: string
+  error: string
+  readAt: string
+  rows: list<DiagnosticRow>
+shape DiagnosticsSettings
+  available: bool
+  error: string
+  sections: list<DiagnosticSection>
+
+shape StorageRule
+  key: string
+  label: string
+  description: string
+  enabled: bool
+  days: string
+  retention: bool
+shape StorageSettings
+  available: bool
+  project: bool
+  error: string
+  mode: string
+  scope: string
+  rules: list<StorageRule>
+
+shape ScopedChoice
+  id: string
+  label: string
+  value: string
+  selected: bool
+shape ScopedControl
+  key: string
+  label: string
+  description: string
+  value: string
+  text: bool
+  overridden: bool
+  inheritKey: string
+  inheritLabel: string
+  disabled: bool
+  choices: list<ScopedChoice>
+shape ScopedControls
+  available: bool
+  error: string
+  project: bool
+  scope: string
+  rows: list<ScopedControl>
+
+shape ScheduledDraft
+  id: string
+  title: string
+  prompt: string
+  enabled: bool
+  scheduleMode: string
+  minutes: string
+  time: string
+  sunday: bool
+  monday: bool
+  tuesday: bool
+  wednesday: bool
+  thursday: bool
+  friday: bool
+  saturday: bool
+  projectId: string
+  threadId: string
+  workspaceMode: string
+  baseRef: string
+  startFromOrigin: bool
+  path: string
+  instanceId: string
+  model: string
+  runtimeMode: string
+  interactionMode: string
+shape ScheduledRow
+  id: string
+  title: string
+  project: string
+  summary: string
+  enabled: bool
+  status: string
+  error: string
+shape ScheduledProject
+  id: string
+  title: string
+shape ScheduledModel
+  id: string
+  instanceId: string
+  model: string
+  label: string
+shape ScheduledSettings
+  available: bool
+  writable: bool
+  error: string
+  scope: string
+  draft: ScheduledDraft
+  tasks: list<ScheduledRow>
+  projects: list<ScheduledProject>
+  models: list<ScheduledModel>
+
+shape KeybindingRow
+  custom: bool
+  id: string
+  command: string
+  key: string
+  condition: string
+shape KeybindingSettings
+  available: bool
+  writable: bool
+  error: string
+  path: string
+  rows: list<KeybindingRow>
+  commands: list<CommandChoice>
+
+shape CommandChoice
+  id: string
+  label: string
+
+shape SnapshotKey
+  id: string
+  label: string
+shape SnapshotSettings
+  recording: bool
+  candidate: string
+  shortcut: string
+  shortcutError: string
+  available: bool
+  captureAvailable: bool
+  error: string
+  message: string
+  screenRecording: bool
+  accessibility: bool
+  enabled: bool
+  includeAccessibility: bool
+  playSound: bool
+  sound: string
+  flash: bool
+  animations: bool
+  statusText: string
+  setupLabel: string
+  shortcutStatus: string
+  shortcutAria: string
+  keys: list<SnapshotKey>
+  changed: bool
+  canSave: bool
+  soundSelection: string
+  soundLabel: string
+  setupReady: bool

@@ -1,0 +1,10 @@
+caps — budgets declared in rules/RULES.md
+
+  rules/RULES.md: 700 words
+  blocking checks: 5 (build, test, lint, caps, boot)
+  product-latency row: filled
+  working set: 15 of 15
+  foundation: 7 of 10
+  source files: 3264 scanned, 4 skipped as generated, 527 skipped as vendored
+
+All budgets within cap. 6 categories inspected.

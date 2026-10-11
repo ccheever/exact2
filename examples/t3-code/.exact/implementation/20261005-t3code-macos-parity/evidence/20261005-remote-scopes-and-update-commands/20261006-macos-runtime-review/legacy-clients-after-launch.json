@@ -1,0 +1,44 @@
+[
+  {
+    "sessionId": "21603e45-0268-4f78-922a-cd39e18d7cae",
+    "subject": "one-time-token",
+    "scopes": [
+      "orchestration:read",
+      "orchestration:operate",
+      "review:write"
+    ],
+    "method": "bearer-access-token",
+    "client": {
+      "label": "review-legacy-three-scopes",
+      "ipAddress": "127.0.0.1",
+      "userAgent": "Python-urllib/3.9",
+      "deviceType": "desktop"
+    },
+    "issuedAt": "2026-10-06T06:06:49.872Z",
+    "expiresAt": "2026-11-05T06:06:49.872Z",
+    "lastConnectedAt": null,
+    "connected": false,
+    "current": false
+  },
+  {
+    "sessionId": "16e982cf-e526-47c7-905f-f9e9bc44a3f8",
+    "subject": "one-time-token",
+    "scopes": [
+      "orchestration:read",
+      "orchestration:operate",
+      "review:write"
+    ],
+    "method": "bearer-access-token",
+    "client": {
+      "label": "review-legacy-three-scopes",
+      "ipAddress": "127.0.0.1",
+      "userAgent": "Python-urllib/3.9",
+      "deviceType": "desktop"
+    },
+    "issuedAt": "2026-10-06T06:05:42.711Z",
+    "expiresAt": "2026-11-05T06:05:42.711Z",
+    "lastConnectedAt": null,
+    "connected": false,
+    "current": false
+  }
+]

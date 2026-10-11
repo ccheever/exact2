@@ -1,0 +1,106 @@
+// ProposedPlanCard (T3 Code, MIT; see LICENSE-T3), measured on the built
+// reference: a 22pt-radius card with the Plan badge and title, a ⋯ menu of
+// plan actions, and long plans clipped to 416pt behind a fade until expanded.
+use ChatDocument from "./markdown.contract"
+use AnswerMarkdown, noUrls from "./markdown.contract"
+use Message from "./shapes.contract"
+use TimelineIcon from "./timeline-icons.contract"
+use KmItem from "./menu-keys.contract"
+use KeyMenu from "./menu-keys.contract"
+use kmOpenKey from "./menu-keys.contract"
+use KeyMenuOpen from "./menu-keys.contract"
+use kmBump from "./menu-keys.contract"
+
+component PlanCard
+  props
+    message: Message
+    documents: list<ChatDocument>
+    local: action
+    scheme: string
+  state expanded = false
+  state hovered = ""
+  // fix-keyboard-focus: the plan menu's keyboard (menu-keys.contract).
+  state keyed = 0
+  state keyArmed = false
+  action keyArm(on: bool)
+    keyArmed = on
+  action keyOpened(last: bool)
+    keyed = kmBump(keyed, last)
+  action toggle
+    expanded = not expanded
+  action triggerKey(k: string)
+    if kmOpenKey(k)
+      keyed = kmBump(keyed, false)
+  action hover(id: string, over: bool)
+    hovered = over ? id : ""
+  view
+    column width="100%" padding-left="0.25rem" padding-right="0.25rem" padding-top="0.125rem" padding-bottom="0.125rem" box-sizing="border-box" testId=`plan-${message.id}`
+      column width="100%" padding="1.25rem" box-sizing="border-box" border-radius="1.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffff14)" background-color="light-dark(#ffffffb2, #171717b2)" position="relative"
+        row width="100%" align-items="center" justify-content="space-between" gap="0.75rem" flex-wrap="wrap"
+          row min-width=0 align-items="center" gap="0.5rem"
+            text "Plan" flex-shrink=0 height="1.125rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.375rem" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)" background-color="light-dark(#f4f4f5, #ffffff12)"
+            text message.title role="heading" aria-level=3 min-width=0 line-clamp=1 font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+          column position="relative" flex-shrink=0
+            button popovertarget=`plan-menu-${message.id}` key=triggerKey focus=keyArm(true) blur=keyArm(false) aria-label="Plan actions" testId=`plan-actions-${message.id}` width="1.5rem" height="1.5rem" padding=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+              TimelineIcon(name="ellipsis", size=16, color="light-dark(#71717b, #818181)")
+            KeyMenuOpen(menuId=`plan-menu-${message.id}`, armed=keyArmed, opened=keyOpened)
+            column id=`plan-menu-${message.id}` popover="auto" position="absolute" margin-top="0.25rem" width="12.5rem" margin-left="-11rem"
+              column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffffd5, #171717d5)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Plan actions"
+                KeyMenu(menuId=`plan-menu-${message.id}-keys`, items=[KmItem(id=`plan-copy-${message.id}`, label="Copy to clipboard"), KmItem(id=`plan-download-${message.id}`, label="Download as markdown"), KmItem(id=`plan-save-${message.id}`, label="Save to workspace")], keyed=keyed, gap="0px", modal=true)
+                  PlanMenuItem(keysId=`plan-menu-${message.id}-keys`, label=(message.copied > 0 ? "Copied!" : "Copy to clipboard"), menuId=`plan-menu-${message.id}`, itemId=`plan-copy-${message.id}`, disabled=false, choose=local("plan-copy", message.id, ""))
+                  PlanMenuItem(keysId=`plan-menu-${message.id}-keys`, label="Download as markdown", menuId=`plan-menu-${message.id}`, itemId=`plan-download-${message.id}`, disabled=false, choose=local("plan-download", message.id, ""))
+                  PlanMenuItem(keysId=`plan-menu-${message.id}-keys`, label="Save to workspace", menuId=`plan-menu-${message.id}`, itemId=`plan-save-${message.id}`, disabled=false, choose=local("plan-save-open", message.id, ""))
+        column width="100%" margin-top="1rem"
+          column width="100%" position="relative" max-height=(message.collapsible and not expanded ? "26rem" : "6250rem") overflow="hidden"
+            each document in filter(documents, (doc) => doc.id == (message.collapsible and not expanded ? `${message.id}#preview` : message.id)) key=document.id
+              AnswerMarkdown(document=document, local=local, code=message.code, diagrams=message.diagrams, scheme=scheme, copiedText=message.codeCopied, copiedNonce=message.codeCopyNonce, env=message.md, source="", cite=local("cite-none"), urls=noUrls())
+            when message.collapsible and not expanded
+              box position="absolute" left=0 right=0 bottom=0 height="6rem" pointer-events="none" background-color="light-dark(#fefefe, #121212)" mask-image="linear-gradient(to top, #000000f2 0%, #000000cc 50%, #00000000 100%)" aria-hidden=true
+          when message.collapsible
+            row width="100%" margin-top="1rem" justify-content="center"
+              button press=toggle testId=`plan-expand-${message.id}` height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" display="flex" flex-direction="row" align-items="center" justify-content="center"
+                text (expanded ? "Collapse plan" : "Expand plan") font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+
+// One MenuItem row: 28pt, 4/8 inset, radius 6, highlight on hover.
+component PlanMenuItem
+  props
+    // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
+    keysId: string
+    label: string
+    menuId: string
+    itemId: string
+    disabled: bool
+    choose: action
+  state lit = false
+  action hover(over: bool)
+    if over
+      focus(`${itemId}-km`)
+    else if lit
+      focus(keysId)
+  action focused(on: bool)
+    lit = on
+  view
+    button id=itemId press=choose popovertarget=menuId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) disabled=disabled role="menuitem" testId=itemId display="flex" flex-direction="row" align-items="center" justify-content="flex-start" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" opacity=(disabled ? 0.64 : 1) background-color=(lit ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
+      text label font-size="0.875rem" line-height="1.25rem" flex=1 min-width=0 white-space="nowrap" color="light-dark(#27272a, #f5f5f5)"
+
+// The "Save plan to workspace" dialog: a path relative to the workspace root.
+component PlanSaveDialog
+  props
+    path: string
+    root: string
+    saving: bool
+    local: action
+  view
+    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #090909a3)" testId="plan-save-overlay"
+      column width="100%" max-width="36rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-label="Save plan to workspace" testId="plan-save-dialog"
+        column gap="0.5rem" padding="1.5rem" padding-bottom="1rem" box-sizing="border-box"
+          text "Save plan to workspace" font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
+          text `Enter a path relative to ${root != "" ? root : "the workspace"}.` font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
+        column gap="0.375rem" padding-left="1.5rem" padding-right="1.5rem" padding-bottom="1.5rem" box-sizing="border-box"
+          text "Workspace path" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
+          input value=path input=local("plan-save-path", "") submit=local("plan-save", "", "") placeholder="plan.md" aria-label="Workspace path" disabled=saving spellcheck="false" testId="plan-save-path" height="2.25rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.4375rem" padding-bottom="0.4375rem" line-height="1.25rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off"
+        row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#f9f9f9b8, #ffffff06)"
+          button press=local("plan-save-cancel", "", "") disabled=saving aria-keyshortcuts="Escape" testId="plan-save-cancel" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)"
+            text "Cancel" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+          button press=local("plan-save", "", "") disabled=saving testId="plan-save-confirm" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 opacity=(saving ? 0.64 : 1) background-color="light-dark(#1b4ed8, #346bf1)"
+            text (saving ? "Saving..." : "Save") font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"

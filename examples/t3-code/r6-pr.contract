@@ -1,0 +1,192 @@
+// Lane r6-pr, measured on the served HEAD reference (MIT, see LICENSE-T3;
+// chat/ThreadDetailsPrRow.tsx, pullRequest/PullRequestChecksPopover.tsx,
+// pullRequestPresentation.tsx, ui/popover.tsx, ui/tooltip.tsx variant "glass",
+// ui/alert-dialog.tsx):
+// - R6ChecksPopover: PopoverPopup width md (320), side bottom 4pt off, aligned
+//   with the checks trigger's end (its start would cross the window): the
+//   headline (14/20 medium), the summary (12/16 muted), the checks (attention,
+//   running, then "Show all"), each with its status, label and Details link.
+//   Popovers here anchor at the invoker's bottom-left and clamp to the window,
+//   so the layer carries a transparent tail as wide as the window right of the
+//   trigger (`tail`, from r6-pr-row.ts): the clamp lands it end-aligned. Its
+//   glass (white/#111 at 83.6% over a 12-16pt blur) is drawn as the colour the
+//   blur settles to over the card (#fff, #121212): backdrop blur here sees only
+//   its parent, so a translucent popup would show the rows under it.
+// - R6PrCard: the row's tooltip with the host's detail: title and number, then
+//   the state, base ← head, the checks while open, a draft's conflict and the
+//   diff size; 4pt above the row, start-aligned unless it would cross the window
+//   (`flipped`: its end meets the link half's end). The reference portals it; here
+//   the details card clips it, so a flipped card wider than the room left of the
+//   link half's end is held inside the card's 8pt insets (`clamped`).
+// - R6MergeDialog: "Merge pull request?" / "This merges #N using <method>." with
+//   Cancel (Escape) and Merge.
+use R5PrRow from "./r5-panels-shapes.contract"
+use R6PrCard from "./r6-pr-shapes.contract"
+use R6MergeAsk from "./r6-pr-shapes.contract"
+use R6Check from "./r6-pr-shapes.contract"
+use ShellDetails from "./shell-shapes.contract"
+use PgIcon from "./pages-icons.contract"
+use prdTone from "./pages-pr-detail.contract"
+use Tip from "./shell-tip.contract"
+
+keyframes r6Spin
+  from rotate=0
+  to rotate=360
+
+fn r6Ink(): string = "light-dark(#27272a, #f5f5f5)"
+fn r6Muted(): string = "light-dark(#71717b, #818181)"
+fn r6Soft(): string = "light-dark(#27272abf, #f5f5f5bf)"
+fn r6Primary(): string = "light-dark(#1b4ed8, #346bf1)"
+fn r6Destructive(): string = "light-dark(#fb2c36, #fb414a)"
+// CHECK_STATUS_PRESENTATION tones: emerald-600 / emerald-300/90, text-destructive, amber-500 for a running spinner.
+fn r6CheckTone(status: string): string = status == "success" ? "light-dark(#009966, #5ee9b5e6)" : status == "failure" or status == "cancelled" ? "light-dark(#fb2c36, #fb414a)" : status == "pending" ? "#fe9a00" : status == "action-required" ? "light-dark(#e17100, #ffb900e6)" : "light-dark(#71717bb3, #818181b3)"
+fn r6CheckIcon(status: string): string = status == "success" ? "circle-check" : status == "failure" or status == "cancelled" ? "circle-x" : status == "action-required" ? "circle-dot" : "circle-dashed"
+// CHECKS_STATE_PRESENTATION: the trigger's rollup glyph (a running set is the amber dot).
+fn r6RollupTone(rollup: string): string = rollup == "passing" ? "light-dark(#009966, #5ee9b5e6)" : rollup == "failing" ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#e17100, #ffb900e6)"
+fn r6RollupIcon(rollup: string): string = rollup == "passing" ? "circle-check" : rollup == "failing" ? "circle-x" : "circle-dot"
+
+// One check's status glyph: the Spinner while it runs, else its circle.
+component R6CheckGlyph
+  props
+    status: string
+    size: number
+  view
+    when status == "pending"
+      box width=`${size / 16}rem` height=`${size / 16}rem` flex-shrink=0 display="flex" animation="r6Spin 1s linear infinite" aria-label="Loading"
+        svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color="#fe9a00" fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
+          path d="M21 12a9 9 0 1 1-6.219-8.56"
+    else
+      PgIcon(name=r6CheckIcon(status), size=size, color=r6CheckTone(status))
+
+// The checks segment of the split row and the popover it opens.
+component R6ChecksTrigger
+  props
+    row: R5PrRow
+    hovered: bool
+    hover: action
+  view
+    button popovertarget=row.r6.popId hover=hover aria-label=row.checksAria testId=`details-pr-checks-${row.key}` height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.375rem" border-width=0 background-color=(hovered ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
+      PgIcon(name=r6RollupIcon(row.checks), size=14, color=r6RollupTone(row.checks))
+      when row.checksCount != ""
+        text row.checksCount font-size="0.8125rem" font-weight=500 line-height="1.21875rem" font-variant-numeric="tabular-nums" color="light-dark(#27272acc, #f5f5f5cc)"
+      PgIcon(name="chevron-down", size=12, color="light-dark(#27272acc, #f5f5f5cc)")
+
+component R6ChecksPopover
+  props
+    row: R5PrRow
+    local: action
+  view
+    row id=row.r6.popId popover="auto" position="absolute" padding-top="0.25rem" align-items="flex-start" testId=`details-pr-checks-layer-${row.key}`
+      column width="20rem" box-sizing="border-box" padding="1rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #121212)" box-shadow="0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a" role="dialog" aria-label=row.r6.checksTitle testId=`details-pr-checks-popover-${row.key}`
+        text row.r6.checksTitle font-size="0.875rem" line-height="1.25rem" font-weight=500 color=r6Ink() margin-bottom="0.5rem"
+        text row.r6.checksSummary font-size="0.75rem" line-height="1rem" color=r6Muted() margin-bottom="0.5rem"
+        column width="100%" gap="0.25rem" role="list"
+          each check in row.r6.checksList key=check.key
+            R6CheckRow(check=check)
+        when row.r6.collapsible
+          button press=local("surface-r5-pr-checks-all", row.key, "") aria-expanded=row.r6.expanded testId=`details-pr-checks-all-${row.key}` align-self="flex-start" margin-top="0.125rem" height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+            text (row.r6.expanded ? "Show less" : "Show all") font-size="0.75rem" line-height="1rem" font-weight=500 color=r6Ink()
+      box width=row.r6.tail height=1 flex-shrink=0
+
+component R6CheckRow
+  props
+    check: R6Check
+  view
+    row width="100%" height="1rem" gap="0.5rem" align-items="center" role="listitem"
+      R6CheckGlyph(status=check.status, size=14)
+      box flex=1 min-width=0 display="flex"
+        Tip(label=check.description, side="top", align="center", offset=20)
+          text check.name min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.75rem" line-height="1rem" color=r6Ink()
+      text check.label flex-shrink=0 font-size="0.75rem" line-height="1rem" color=r6Muted()
+      when check.url != ""
+        link cursor="pointer" href=check.url aria-label=`Details: ${check.name}` flex-shrink=0 text-decoration-line="none"
+          text "Details" font-size="0.75rem" line-height="1rem" color=r6Primary()
+
+// The tooltip card above the row's link half.
+component R6PrCardView
+  props
+    card: R6PrCard
+    shown: bool
+  view
+    row position="absolute" bottom="2.25rem" left=(card.clamped ? "-0.5rem" : card.flipped ? "-25rem" : "0px") right=(card.flipped and not card.clamped ? "0px" : "-25rem") justify-content=(card.flipped and not card.clamped ? "flex-end" : "flex-start") pointer-events="none" z-index=140
+      column max-width=card.maxWidth padding-left="0.8125rem" padding-right="0.8125rem" padding-top="0.8125rem" padding-bottom="0.8125rem" box-sizing="border-box" gap="0.5rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #121212)" box-shadow="0 20px 25px -5px #00000040, 0 8px 10px -6px #00000040" opacity=(shown ? 1 : 0) transition=(shown ? "opacity 150ms ease 600ms" : "opacity 0ms") role="tooltip" aria-hidden=(not shown) testId=(shown ? "details-pr-card" : "details-pr-card-hidden")
+        row gap="0.375rem" align-items="baseline" min-width=0
+          text card.title min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.75rem" line-height="0.75rem" font-weight=500 color=r6Ink()
+          text card.number flex-shrink=0 font-size="0.75rem" line-height="0.75rem" color=r6Muted()
+        column gap="0.375rem" padding-left="0.125rem"
+          row gap="0.5rem" height="1rem" align-items="center"
+            PgIcon(name=(card.stateKey == "draft" ? "git-pull-request-draft" : card.stateKey == "closed" ? "git-pull-request-closed" : card.stateKey == "merged" ? "git-merge" : "git-pull-request-arrow"), size=12, color=prdTone(card.stateKey))
+            text card.stateLabel min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.75rem" line-height="1rem" color=r6Soft()
+          row gap="0.5rem" height="1rem" align-items="center"
+            PgIcon(name="git-branch", size=12, color=r6Muted())
+            text card.branches min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.75rem" line-height="1rem" color=r6Soft()
+          when card.checksShown
+            row gap="0.5rem" height="1rem" align-items="center"
+              R6CheckGlyph(status=card.checksStatus, size=14)
+              text card.checksText min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.75rem" line-height="1rem" color=r6Soft()
+          when card.conflictText != ""
+            row gap="0.5rem" align-items="flex-start"
+              box margin-top="0.125rem" display="flex" flex-shrink=0
+                PgIcon(name="triangle-alert", size=12, color=r6Destructive())
+              text card.conflictText flex=1 min-width=0 font-size="0.75rem" line-height="1.25rem" color=r6Destructive()
+          row gap="0.5rem" height="1rem" align-items="center"
+            PgIcon(name="file-diff", size=12, color=r6Muted())
+            row gap="0.25rem" align-items="baseline" min-width=0
+              text card.files white-space="nowrap" font-size="0.75rem" line-height="1rem" color=r6Soft()
+              when card.additions != ""
+                text card.additions font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#009966, #00d492)"
+                text card.deletions font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color=r6Destructive()
+
+// The trailing action: Resolve and Fix (destructive, with the hand-off arrow), Ready, Merge.
+component R6ActionButton
+  props
+    row: R5PrRow
+    hovered: bool
+    hover: action
+    act: action
+    local: action
+  view
+    // Merge asks first (the AlertDialog); the others act on the press.
+    when row.action == "merge"
+      button press=local("surface-r5-pr-merge-ask", row.actionTarget, row.r6.method) hover=hover disabled=row.actionDisabled testId=`details-pr-action-${row.key}` width=row.r6.actionWidth height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.625rem" border-top-left-radius=0 border-bottom-left-radius=0 opacity=(row.actionDisabled ? 0.64 : 1) background-color=(hovered ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
+        R6ActionLabel(row=row)
+    else
+      button press=act(`shell:surface-r5-pr-${row.action}`, row.actionTarget, "") hover=hover disabled=row.actionDisabled testId=`details-pr-action-${row.key}` width=row.r6.actionWidth height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.625rem" border-top-left-radius=0 border-bottom-left-radius=0 opacity=(row.actionDisabled ? 0.64 : 1) background-color=(hovered ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
+        R6ActionLabel(row=row)
+
+component R6ActionLabel
+  props
+    row: R5PrRow
+  view
+    text row.actionLabel white-space="nowrap" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color=(row.r6.destructive ? r6Destructive() : r6Primary())
+    when row.r6.suffix
+      PgIcon(name="arrow-up-right", size=12, color=(row.r6.destructive ? r6Destructive() : r6Primary()))
+
+// The Merge AlertDialog over the window.
+component R6PrLayers
+  props
+    details: ShellDetails
+    scheme: string
+    act: action
+    local: action
+  view
+    when details.prRows.merge.open
+      R6MergeDialog(merge=details.prRows.merge, dark=(scheme == "dark"), act=act, local=local)
+
+component R6MergeDialog
+  props
+    merge: R6MergeAsk
+    dark: bool
+    act: action
+    local: action
+  view
+    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=80 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" testId="pr-merge-dialog-overlay"
+      column width="100%" max-width="32rem" position="relative" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow=(dark ? "inset 0 1px 0 #ffffff0a, 0 24px 72px -20px #000000e6" : "0 24px 64px -24px #000000a6") overflow="hidden" role="alertdialog" aria-label="Merge pull request?" testId="pr-merge-dialog"
+        column gap="0.5rem" padding="1.5rem" box-sizing="border-box"
+          text "Merge pull request?" font-size="1.25rem" font-weight=600 line-height="1.25rem" color=r6Ink() role="heading" aria-level=2
+          text merge.description font-size="0.875rem" line-height="1.25rem" color=r6Muted() testId="pr-merge-dialog-description"
+        row width="100%" gap="0.5rem" justify-content="flex-end" align-items="center" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafab8, #ffffff06)"
+          button press=local("surface-r5-pr-merge-cancel", "", "") aria-keyshortcuts="Escape" testId="pr-merge-cancel" height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" align-items="center" justify-content="center"
+            text "Cancel" font-size="0.875rem" line-height="1.25rem" font-weight=500 color=r6Ink()
+          button press=act("shell:surface-r5-pr-merge", merge.target, "") disabled=merge.pending testId="pr-merge-confirm" height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=r6Primary() background-color=r6Primary() box-shadow="inset 0 1px 0 #ffffff29, 0 1px 2px #0000000d" opacity=(merge.pending ? 0.64 : 1) display="flex" align-items="center" justify-content="center"
+            text "Merge" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"

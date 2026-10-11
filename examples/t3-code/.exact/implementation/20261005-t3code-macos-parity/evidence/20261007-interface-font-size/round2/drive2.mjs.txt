@@ -1,0 +1,82 @@
+// Lane drive 2 (not committed): bun drive2.mjs <repo> <label> <width>x<height> <sizes>. One macOS session:
+// pair, then for each Interface font size: Settings > Appearance (size menu open) and thread alpha-1,
+// screenshots, `layout` of fixed test ids and `layout … native` on the composer and the key recorder.
+import { execFileSync } from 'node:child_process';
+import { writeFileSync, appendFileSync, mkdirSync } from 'node:fs';
+import { resolve } from 'node:path';
+const [repo, label, sizeArg, sizesArg] = process.argv.slice(2);
+const [W, H] = sizeArg.split('x').map(Number), sizes = sizesArg.split(',').map(Number);
+const L = resolve(import.meta.dir), out = resolve(L, 'out2'); mkdirSync(out, { recursive: true });
+process.env.EXACT_APP_DIR = resolve(repo, 'examples/t3-code');
+const { open } = await import(resolve(repo, 'scripts/agent.mjs'));
+const origin = 'http://127.0.0.1:16521';
+const token = () => /token=([A-Z0-9]+)/.exec(execFileSync(resolve(L, 'server.sh'), ['pair', '--base-dir', resolve(L, 't3home')], { encoding: 'utf8' }))[1];
+const tag = `${label}-${W}`;
+const rec = (line) => { appendFileSync(resolve(out, `${tag}-record.txt`), line + '\n'); console.log(line); };
+const PROBES = ['chat-header', 'thread-alpha-1', 'toggle-sidebar', 'connection-settings', 'settings-header', 'settings-navigation', 'settings-appearance',
+  'setting-interface-font-size', 'setting-chat-width', 'composer', 'composer-toolbar', 'settings-search', 'keybinding-recorder'];
+const s = await open({ host: 'macos', size: [W, H], env: { HOME: resolve(L, `apphome-${tag}`) }, epoch: Date.parse('2026-10-07T10:00:00Z'), onProcess: p => writeFileSync(resolve(L, `${tag}-app.pid`), String(p.pid)) });
+const ids = async () => (await s.tree()).nodes.map(n => n.testId ?? n.props?.testId).filter(Boolean);
+const has = async id => (await ids()).includes(id);
+const settle = async (ms = 600) => { await s.clock(`+${ms} real`); await s.clock('settle'); };
+const tapIf = async id => { if (await has(id)) { await s.tap(id); await settle(); return true; } return false; };
+const geometry = async (name) => {
+  const l = await s.layout(); const boxes = {};
+  for (const n of l.nodes) if (n.testId && PROBES.includes(n.testId) && !boxes[n.testId]) boxes[n.testId] = [n.x, n.y, n.width ?? n.w, n.height ?? n.h].map(v => Math.round(Number(v) * 100) / 100);
+  const st = await s.state().catch(() => ({}));
+  rec(`[${tag}] ${name} rootFontSize=${st?.device?.rootFontSize ?? '?'} ${JSON.stringify(boxes)}`);
+};
+const native = async (id, name) => {
+  if (!(await has(id))) { rec(`[${tag}] ${name} native ${id}: not on screen`); return; }
+  try { const r = await s.layout(id, undefined, { native: { depth: 2, limit: 12 } }); writeFileSync(resolve(out, `${tag}-${name}-native-${id}.json`), JSON.stringify(r, null, 1));
+    const views = JSON.stringify(r.native ?? r.node?.native ?? r).match(/"(font|pointSize|fontSize)"\s*:\s*[^,}]+/g) ?? [];
+    rec(`[${tag}] ${name} native ${id}: box ${JSON.stringify(r.node?.space?.viewport ?? r.node?.box ?? '')} fonts ${[...new Set(views)].slice(0, 6).join(' ')}`);
+  } catch (e) { rec(`[${tag}] ${name} native ${id}: ${e.message.slice(0, 200)}`); }
+};
+const shot = async (name) => { await settle(400); await s.screenshot(resolve(out, `${tag}-${name}.png`), true); rec(`[${tag}] shot ${name}`); };
+const openSettings = async (page = 'settings-appearance') => { if (!(await has(page))) { await s.tap('connection-settings'); await settle(1200); } await s.tap(page); await settle(1200); };
+const openThread = async () => { await tapIf('close-settings'); await settle(800); await s.tap('thread-alpha-1'); await settle(1500); };
+const pickSize = async (n) => {
+  await s.tap('setting-interface-font-size'); await settle(600);
+  const option = (await ids()).filter(id => id.startsWith('setting-interface-font-size-menu-')).find(id => new RegExp(`(^|[^0-9])${n}$`).test(id));
+  if (!option) { rec(`[${tag}] no option for ${n}`); return; }
+  await s.tap(option); await settle(1000);
+};
+try {
+  await settle(1500);
+  if (await has('welcome-pairing-link')) { await s.type('welcome-pairing-link', `${origin}/pair#token=${token()}`); await s.tap('welcome-pair'); await settle(4000); }
+  for (const id of ['welcome-continue', 'welcome-agents-continue', 'welcome-skip-import']) await tapIf(id);
+  await settle(3000);
+  rec(`[${tag}] connected; rows: ${(await ids()).filter(id => /^thread-alpha/.test(id)).join(',')}`);
+  for (const size of sizes) {
+    await openSettings();
+    if (size !== 16) await pickSize(size);
+    await geometry(`appearance-${size}`);
+    await s.tap('setting-interface-font-size'); await settle(600);
+    await shot(`appearance-${size}`);
+    // Close the menu by choosing the same size again (a press on the trigger can land on an item at 840).
+    const same = (await ids()).filter(id => id.startsWith('setting-interface-font-size-menu-')).find(id => new RegExp(`(^|[^0-9])${size}$`).test(id));
+    if (same) { await s.tap(same); await settle(800); }
+    if (size !== 16) {
+      await openSettings('settings-keybindings');
+      const edit = (await ids()).find(id => id.startsWith('edit-keybinding-'));
+      if (edit) {
+        await s.tap(edit); await settle(600);
+        const capture = (await ids()).find(id => id.startsWith('keybinding-capture-'));
+        if (capture) { await s.tap(capture); await settle(600); }
+        await geometry(`keybindings-${size}`);
+        await native('keybinding-recorder', `keybindings-${size}`);
+        await shot(`keybindings-${size}`);
+        // left recording; the next step leaves Settings
+      } else rec(`[${tag}] no edit-keybinding: ${(await ids()).filter(id => id.includes('keybinding')).slice(0, 8).join(',')}`);
+    }
+    await openThread();
+    await geometry(`thread-${size}`);
+    if (size !== 16) await native('composer', `thread-${size}`);
+    await shot(`thread-${size}`);
+  }
+  const logs = await s.logs();
+  writeFileSync(resolve(out, `${tag}-logs.json`), JSON.stringify(logs, null, 1));
+  rec(`[${tag}] setRootFontSize refusals: ${(JSON.stringify(logs).match(/setRootFontSize\([^)]*\) refused/g) ?? []).length}`);
+} catch (e) { rec(`[${tag}] ERROR ${e.stack?.slice(0, 800)}`); }
+finally { await s.close?.(); }

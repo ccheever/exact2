@@ -1,0 +1,21 @@
+{
+  "source": "target/ssh-live/loading-samples.json",
+  "sampleCount": 239,
+  "firstSampleSeconds": 0.056843291,
+  "lastSampleSeconds": 1.037070958,
+  "visibleSamples": [
+    {
+      "at": 0.056843291,
+      "visible": true,
+      "disabled": true
+    },
+    {
+      "at": 0.062332083,
+      "visible": true,
+      "disabled": true
+    }
+  ],
+  "visibleSampleCount": 2,
+  "visibleDisabledSampleCount": 2,
+  "limitation": "Polling observed two disabled loading samples; it does not measure the exact transition duration."
+}

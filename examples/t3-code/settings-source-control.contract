@@ -1,0 +1,545 @@
+// Settings → Source control and Integrations (reference SourceControlSettings.tsx,
+// ProjectDefaultsSettings.tsx, BranchNamingSettings.tsx,
+// SourceControlWritingSettings.tsx, IntegrationsSettings.tsx). Scoped rows show
+// where their value comes from (SettingInheritance) and a reset arrow.
+use RedactedText from "./redacted-text.contract"
+use SelectOption from "./settings-kit.contract"
+use SettingsSwitch from "./settings-kit.contract"
+use SettingsSelect from "./settings-kit.contract"
+use SettingsNotice from "./settings-kit.contract"
+use PolicyTip from "./settings-kit.contract"
+use LucideLayers from "./settings-icons.contract"
+use LucideUndo2 from "./settings-icons.contract"
+use LucideCheck from "./settings-icons.contract"
+use LucideRefreshCw from "./settings-icons.contract"
+use LucideChevronDown from "./settings-icons.contract"
+use LucideChevronUp from "./settings-icons.contract"
+use LucideInfo from "./settings-icons.contract"
+use LucideMinus from "./settings-icons.contract"
+use LucidePlus from "./settings-icons.contract"
+use BrandGit from "./settings-brands.contract"
+use BrandJujutsu from "./settings-brands.contract"
+use BrandGitHub from "./settings-brands.contract"
+use BrandGitLab from "./settings-brands.contract"
+use BrandAzureDevOps from "./settings-brands.contract"
+use BrandBitbucket from "./settings-brands.contract"
+use BrandForgejo from "./settings-brands.contract"
+use BitbucketView from "./settings-a-bitbucket.contract"
+use BitbucketForm from "./settings-a-bitbucket.contract"
+use DeviceHostsView from "./settings-a-hosts.contract"
+use DeviceHostsRow from "./settings-a-hosts.contract"
+use SimulatorSupportRow from "./device-support.contract"
+use SimulatorSupportSettingsRow from "./device-support.contract"
+use ScopedSwitch from "./settings-scoped-switch.contract"
+use BrowserProfilesView from "./browser-profiles.contract"
+use BrowserProfilesSetting from "./browser-profiles.contract"
+use BrowserTabDefaultRows from "./browser-defaults.contract"
+use BrowserAutoShowRow from "./browser-defaults.contract"
+use SettingsPickerTrigger from "./model-picker.contract" // model-picker-parity S2-4
+
+shape InheritLayer
+  key: string
+  label: string
+  value: string
+  effective: bool
+  set: bool
+shape ScopedRow
+  key: string
+  kind: string
+  title: string
+  description: string
+  checked: bool
+  value: string
+  valueLabel: string
+  options: list<SelectOption>
+  placeholder: string
+  disabled: bool
+  first: bool
+  summary: string
+  state: string
+  layers: list<InheritLayer>
+  reset: string
+  status: string
+  child: string
+  mixed: bool
+  // The control's accessible name and the reset's "Reset <resetLabel> to default", as the reference names them; "" uses the title.
+  control: string
+  resetLabel: string
+  // model-picker-parity S2-4: a model row's picker trigger mark.
+  driver: string
+  badge: string
+  accent: string
+shape DiscoveryRow
+  kind: string
+  label: string
+  version: string
+  comingSoon: bool
+  badge: string
+  dot: string
+  summary: string
+  account: bool
+  enabled: bool
+  details: bool
+  accountValue: string
+  accountPlaceholder: string
+shape FetchInterval
+  seconds: string
+  canReset: bool
+  decrease: string
+  increase: string
+  base: string
+shape SourceControlPage
+  available: bool
+  error: string
+  project: bool
+  scope: string
+  repositories: list<ScopedRow>
+  text: list<ScopedRow>
+  scanned: bool
+  scanError: string
+  vcs: list<DiscoveryRow>
+  providers: list<DiscoveryRow>
+  fetches: list<FetchInterval>
+  bitbucket: list<BitbucketView>
+shape DeviceTool
+  kind: string
+  title: string
+  label: string
+  aria: string
+  known: bool
+  running: string
+  required: string
+  installed: string
+  update: string
+  inspect: bool
+  offset: number
+  error: string
+shape IntegrationsPage
+  available: bool
+  // The settings scope the device switches write (settings-integrations-scope.ts): `machine|projectKey|checkout`.
+  deviceScope: string
+  error: string
+  project: bool
+  scope: string
+  browser: list<ScopedRow>
+  deviceHub: ScopedRow
+  agentDevice: ScopedRow
+  hubStatus: string
+  agentStatus: string
+  hosts: number
+  hubTool: DeviceTool
+  agentTool: DeviceTool
+  hostsRow: ScopedRow
+  deviceHosts: DeviceHostsView
+  simulatorSupport: list<SimulatorSupportRow>
+  // browser-surface part 4: Browser profiles and the import wizard (browser-profiles-settings.ts).
+  browserProfiles: BrowserProfilesView
+  // browser-surface part 5: "Open links in" ("system" or "app", the client setting browserLinkTarget).
+  linkTarget: string
+
+component SectionTitle
+  props
+    title: string
+  view
+    text title font-size="0.875rem" font-weight=400 line-height="1.25rem" color="light-dark(#262629b3, #f5f5f5b3)" role="heading" aria-level=2
+
+component Card
+  slot
+  view
+    column width="100%" box-sizing="border-box" border-radius="0.875rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e899, #ffffff09)" background-color="light-dark(#ffffff66, #11111166)" box-shadow="0 1px 2px #0000000d"
+      children
+
+// SettingInheritance: the layers icon opens the top-down resolution chain.
+component Inheritance
+  props
+    row: ScopedRow
+  view
+    button popovertarget=`inherit-${row.key}` aria-label=`${row.summary}. Show where this value comes from` testId=`inherit-${row.key}` width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.375rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
+      LucideLayers(size=12, color=(row.state == "overridden" ? "light-dark(#1b4ed8, #346bf1)" : (row.state == "mixed" ? "#fe9a00" : "light-dark(#71717b, #818181)")))
+    column id=`inherit-${row.key}` popover="auto" position="absolute" width="20rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" padding-bottom="0.625rem" box-sizing="border-box" border-radius="0.75rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #181818)" box-shadow="0 8px 24px #00000026" aria-label=row.summary testId=`inherit-popup-${row.key}`
+      text "This environment" font-size="0.75rem" font-weight=500 line-height="1rem" padding-bottom="0.375rem" color="light-dark(#71717b, #818181)"
+      each layer in row.layers key=layer.key
+        row align-items="center" gap="0.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.375rem" background-color=(layer.effective ? "light-dark(#27272a0f, #f5f5f50f)" : "#00000000")
+          text layer.label font-size="0.875rem" line-height="1.25rem" font-weight=(layer.effective ? 500 : 400) color=(layer.effective ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)") flex=1 min-width=0 line-clamp=1
+          text layer.value font-size="0.875rem" line-height="1.25rem" max-width="8rem" line-clamp=1 color=(layer.effective ? "light-dark(#27272a, #f5f5f5)" : (layer.set ? "light-dark(#71717b, #818181)" : "light-dark(#71717b99, #81818199)"))
+          box width="0.875rem" height="0.875rem"
+            when layer.effective
+              LucideCheck(size=14, color="light-dark(#1b4ed8, #346bf1)")
+
+// SettingsRow over a scoped server setting.
+component ScopedSettingRow
+  inject
+    rem: number
+    pickModel: action
+  props
+    row: ScopedRow
+    // The page's `<environmentId>:<projectId>`, which the writer model's picker writes to.
+    scope: string
+    busy: bool
+    rest: action
+    restInput: action
+  view
+    column width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom=(row.child != "" or row.kind == "textarea" ? "0.25rem" : "0.75rem") padding-left="1rem" padding-right="1rem" border-top-style="solid" border-top-width=(row.first ? 0 : 1) border-color="light-dark(#e3e3e780, #ffffff08)" opacity=(row.disabled and row.kind != "model" ? 0.64 : 1) testId=`scoped-row-${row.key}`
+      when row.kind == "note"
+        text row.description font-size="0.875rem" line-height="1.25rem" padding-bottom=0 color="light-dark(#71717b, #818181)"
+      when row.kind != "note"
+        row width="100%" gap="2rem" align-items="center"
+          column flex=1 min-width=0 gap="0.25rem"
+            row min-height="1.25rem" align-items="center" gap="0.375rem"
+              text row.title font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+              when row.summary != ""
+                Inheritance(row=row)
+              box width="1.25rem" height="1.25rem" display="flex" align-items="center" justify-content="center"
+                when row.reset != ""
+                  button press=rest("scoped", row.reset) disabled=busy aria-label=`Reset ${row.resetLabel != "" ? row.resetLabel : row.title} to default` testId=`reset-${row.key}` width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+                    LucideUndo2(size=12, color="light-dark(#71717b, #818181)")
+            when row.description != ""
+              text row.description font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" max-width="36rem"
+            when row.status != ""
+              text row.status font-size="0.75rem" line-height="1rem" padding-top="0.125rem" color="light-dark(#71717b, #818181)"
+          row flex-shrink=0 min-width="10rem" align-items="center" justify-content="flex-end" gap="0.5rem"
+            when row.kind == "switch"
+              SettingsSwitch(checked=row.checked, label=(row.control != "" ? row.control : row.title), disabled=(busy or row.disabled), switchId=`scoped-${row.key}`, toggle=rest("scoped", `key=${row.key}&value=${row.checked ? "false" : "true"}`))
+            when row.kind == "select"
+              SettingsSelect(selectId=`scoped-${row.key}`, label=(row.control != "" ? row.control : row.title), valueLabel=row.valueLabel, value="", width=((row.key == "sourceControlWritingStyle" ? 224 : 160) * rem / 16), disabled=(busy or row.disabled), options=row.options, choose=restInput("scoped", `key=${row.key == "sourceControlWritingStyle" ? "sourceControlWritingStyle.mode" : row.key}&value=`))
+            when row.kind == "text"
+              ScopedTextField(value=row.value, placeholder=row.placeholder, label=row.title, fieldKey=row.key, busy=(busy or row.disabled), restInput=restInput)
+            when row.kind == "model"
+              // ProviderModelPicker (model-picker-parity S2-4): the window's picker under this trigger, while a provider can write.
+              when row.checked and row.status == ""
+                SettingsPickerTrigger(rowId="source-control-writer-model", label=row.valueLabel, name="Source control writer model", driver=row.driver, badge=row.badge, accent=row.accent, disabled=(busy or row.disabled), press=pickModel("source-control-writer-model", scope))
+              SettingsSwitch(checked=row.checked, label="Use a separate source control writer model", disabled=(busy or row.disabled), switchId="scoped-writer-model-enabled", toggle=rest("scoped", `key=sourceControlWriterModelSelection&value=${row.checked ? "off" : "default"}`))
+      when row.kind == "textarea"
+        ScopedTextArea(value=row.value, placeholder=row.placeholder, label=row.title, fieldKey=row.key, busy=(busy or row.disabled), restInput=restInput)
+      when row.child != "" or (row.key == "sourceControlWritingStyle" and row.value == "custom")
+        ScopedTextArea(value=row.child, placeholder=row.placeholder, label="Custom source control writing instructions", fieldKey="sourceControlWritingStyle.customInstructions", busy=(busy or row.disabled), restInput=restInput)
+
+// Inputs commit on blur, as the reference's onBlur writes do.
+component ScopedTextField
+  props
+    value: string
+    placeholder: string
+    label: string
+    fieldKey: string
+    busy: bool
+    restInput: action
+  state draft = value
+  action edit(next: string)
+    draft = next
+  view
+    input value=draft input=edit change=restInput("scoped", `key=${fieldKey}&value=`) placeholder=placeholder aria-label=label disabled=busy testId=`scoped-input-${fieldKey}` box-sizing="border-box" width="11.125rem" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" padding-top="0.3125rem" padding-bottom="0.3125rem" line-height="1.25rem" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off"
+
+component ScopedTextArea
+  props
+    value: string
+    placeholder: string
+    label: string
+    fieldKey: string
+    busy: bool
+    restInput: action
+  state draft = value
+  action edit(next: string)
+    draft = next
+  view
+    column width="100%" max-width="42rem" padding-top="0.75rem" padding-bottom="0.875rem" box-sizing="border-box"
+      textarea value=draft input=edit autocorrect="off" change=restInput("scoped", `key=${fieldKey}&value=`) placeholder=placeholder aria-label=label disabled=busy testId=`scoped-input-${fieldKey}` box-sizing="border-box" width="100%" height="6rem" padding="0.6875rem" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+
+component DiscoveryMark
+  props
+    kind: string
+    dot: string
+  view
+    box position="relative" width="1.25rem" height="1.25rem" display="flex" align-items="center" justify-content="center" flex-shrink=0
+      when kind == "git"
+        BrandGit(size=18)
+      when kind == "jj"
+        BrandJujutsu(size=18)
+      when kind == "github"
+        BrandGitHub(size=18)
+      when kind == "gitlab"
+        BrandGitLab(size=18)
+      when kind == "azure-devops"
+        BrandAzureDevOps(size=18)
+      when kind == "bitbucket"
+        BrandBitbucket(size=18)
+      when kind == "forgejo"
+        BrandForgejo(size=18)
+      box position="absolute" left="-0.125rem" top="-0.125rem" width="0.5rem" height="0.5rem" border-radius="0.375rem" border-style="solid" border-width=2 border-color="light-dark(#fcfcfc, #0a0a0a)" box-sizing="content-box" margin-left="-0.125rem" margin-top="-0.125rem" background-color=(dot == "success" ? "#00bc7d" : (dot == "warning" ? "#fe9a00" : "light-dark(#70707b59, #81818159)"))
+
+component DiscoveryItem
+  props
+    item: DiscoveryRow
+    first: bool
+    fetches: list<FetchInterval>
+    forms: list<BitbucketView>
+    busy: bool
+    rest: action
+    restInput: action
+  state open = false
+  action toggleOpen
+    open = not open
+  view
+    column width="100%" border-top-style="solid" border-top-width=(first ? 0 : 1) border-color="light-dark(#e3e3e780, #ffffff08)" opacity=(item.comingSoon ? 0.8 : 1) testId=`discovery-${item.kind}`
+      row width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="0.75rem" align-items="center"
+        column flex=1 min-width=0 gap="0.25rem"
+          row min-width=0 gap="0.5rem" align-items="center" flex-wrap="wrap"
+            DiscoveryMark(kind=item.kind, dot=item.dot)
+            text item.label font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" line-clamp=1
+            when item.version != ""
+              text item.version font-family="monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+            when item.comingSoon
+              text "Coming Soon" font-size="0.625rem" font-weight=500 line-height="0.875rem" padding-left="0.1875rem" padding-right="0.1875rem" border-radius="0.25rem" background-color="light-dark(#ff990014, #ff9b0029)" color="light-dark(#bb4d00, #ffb900)"
+            when item.badge != ""
+              text item.badge font-size="0.625rem" font-weight=500 line-height="0.875rem" padding-left="0.1875rem" padding-right="0.1875rem" border-radius="0.25rem" background-color="light-dark(#ff990014, #ff9b0029)" color="light-dark(#bb4d00, #ffb900)"
+          row gap="0.25rem" align-items="center" flex-wrap="wrap"
+            text item.summary font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)"
+            when item.account
+              text "as" font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" aria-hidden=true
+              // RedactedAccount (SourceControlSettings.tsx:160-168): each item reveals its own account.
+              RedactedText(value=item.accountValue, placeholder=item.accountPlaceholder, label="Toggle source control account visibility", revealTip="Click to reveal account", hideTip="Click to hide account", testId=`reveal-account-${item.kind}`)
+        row flex-shrink=0 align-items="center" gap="0.5rem"
+          when item.details
+            button press=toggleOpen aria-expanded=open aria-label=`Toggle ${item.label} details` testId=`discovery-details-${item.kind}` width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+              when open
+                LucideChevronUp(size=14, color="light-dark(#71717b, #818181)")
+              else
+                LucideChevronDown(size=14, color="light-dark(#71717b, #818181)")
+          when not item.comingSoon
+            SettingsSwitch(checked=item.enabled, label=`${item.label} availability`, disabled=true, switchId=`discovery-switch-${item.kind}`, toggle=toggleOpen)
+      when open and item.kind == "bitbucket"
+        each form in forms key=form.key
+          BitbucketForm(form=form, busy=busy, rest=rest)
+      when open and item.kind == "git"
+        row width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.25rem" padding-bottom="1rem" gap="0.75rem" align-items="flex-start" justify-content="space-between" testId="git-fetch-interval"
+          column min-width=0 gap="0.25rem"
+            row align-items="center" gap="0.25rem"
+              text "Git fetch interval" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
+              PolicyTip(tip="This interval is configured for Git only. The shared Background activity policy still decides whether Git refreshes may run when the timer fires. Custom intervals appear as Advanced in General settings.", tipId="git-fetch-policy")
+                LucideInfo(size=14, color="light-dark(#71717b, #818181)")
+              box width="1.25rem" height="1.25rem" display="flex" align-items="center" justify-content="center"
+                when length(filter(fetches, current => current.canReset)) > 0
+                  button press=rest("fetch-interval", "value=__default__") aria-label="Reset fetch interval to default" testId="reset-fetch-interval" width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+                    LucideUndo2(size=12, color="light-dark(#71717b, #818181)")
+            text "Refresh remote branches in the background. Set to 0 to avoid automatic Git prompts." font-size="0.75rem" line-height="1.21875rem" max-width="42rem" color="light-dark(#71717b, #818181)"
+          row flex-shrink=0 align-items="center" gap="0.5rem"
+            each current in fetches key=current.seconds
+              FetchField(fetch=current, busy=busy, rest=rest, restInput=restInput)
+            text "seconds" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+
+component FetchField
+  props
+    fetch: FetchInterval
+    busy: bool
+    rest: action
+    restInput: action
+  state draft = fetch.seconds
+  action edit(next: string)
+    draft = next
+  view
+    row role="group" align-items="center" width="8rem" height="1.75rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)"
+      button press=rest("fetch-interval", `value=${fetch.decrease}`) disabled=busy aria-label="Decrease fetch interval" testId="decrease-fetch-interval" width="2.125rem" height="1.625rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+        LucideMinus(size=16, color="light-dark(#27272a, #f5f5f5)")
+      input value=draft input=edit change=restInput("fetch-interval", "value=") disabled=busy aria-label="Automatic Git fetch interval in seconds" testId="fetch-interval-seconds" flex=1 min-width=0 height="1.625rem" padding=0 position="relative" top="0.28125rem" line-height="1.625rem" border-width=0 background-color="#00000000" font-size="0.875rem" text-align="center" color="light-dark(#27272a, #f5f5f5)" autocorrect="off"
+      button press=rest("fetch-interval", `value=${fetch.increase}`) disabled=busy aria-label="Increase fetch interval" testId="increase-fetch-interval" width="2.125rem" height="1.625rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+        LucidePlus(size=16, color="light-dark(#27272a, #f5f5f5)")
+
+component SourceControlPanel
+  props
+    data: SourceControlPage
+    busy: bool
+    error: string
+    rest: action
+    restInput: action
+    restLocal: action
+  view
+    column width="100%" gap="2rem" testId="source-control-settings"
+      when error != ""
+        text error font-size="0.75rem" line-height="1.125rem" color="light-dark(#dc2626, #f87171)" role="alert" testId="source-control-error" padding-left="1rem"
+      when data.error != ""
+        Card()
+          SettingsNotice(message=data.error, warning=false)
+      when data.available
+        column width="100%" gap="0.625rem" testId="source-control-repositories"
+          row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center"
+            SectionTitle(title="Repositories")
+          Card()
+            each item in data.repositories key=`${data.scope}:${item.key}:${item.value}:${item.checked}`
+              ScopedSettingRow(row=item, scope=data.scope, busy=busy, rest=rest, restInput=restInput)
+        when length(data.vcs) > 0
+          column width="100%" gap="0.625rem" testId="source-control-vcs"
+            row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center" justify-content="space-between"
+              SectionTitle(title="Version Control")
+              button press=restLocal("rescan", "") disabled=busy aria-label="Rescan server environment" testId="rescan-source-control" width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+                LucideRefreshCw(size=14, color="light-dark(#71717b, #818181)")
+            Card()
+              each item in data.vcs key=item.kind
+                DiscoveryItem(item=item, first=(item.kind == "git"), fetches=data.fetches, forms=data.bitbucket, busy=busy, rest=rest, restInput=restInput)
+        when length(data.providers) > 0
+          column width="100%" gap="0.625rem" testId="source-control-providers"
+            row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center"
+              SectionTitle(title="Source Control Providers")
+            Card()
+              each item in data.providers key=item.kind
+                DiscoveryItem(item=item, first=(item.kind == "github"), fetches=data.fetches, forms=data.bitbucket, busy=busy, rest=rest, restInput=restInput)
+        when data.scanned and length(data.vcs) == 0 and length(data.providers) == 0
+          column width="100%" gap="0.625rem"
+            row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center"
+              SectionTitle(title="Server environment")
+            Card()
+              column align-items="center" gap="0.5rem" padding="2rem" box-sizing="border-box" width="100%"
+                text (data.scanError != "" ? "Could not scan the server environment" : "Nothing detected yet") font-size="1rem" font-weight=600 line-height="1.5rem" color="light-dark(#27272a, #f5f5f5)"
+                text (data.scanError != "" ? data.scanError : "Install Git on the server, add optional hosting integrations or credentials your workspace needs, then rescan.") font-size="0.875rem" line-height="1.25rem" text-align="center" max-width="24rem" color="light-dark(#71717b, #818181)"
+                button press=restLocal("rescan", "") disabled=busy testId="scan-source-control" display="flex" flex-direction="row" align-items="center" gap="0.375rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)"
+                  LucideRefreshCw(size=14, color="light-dark(#71717b, #818181)")
+                  text "Scan" font-size="0.875rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+        column width="100%" gap="0.625rem" testId="source-control-text-generation"
+          row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center"
+            SectionTitle(title="Text generation")
+          Card()
+            each item in data.text key=`${data.scope}:${item.key}:${item.value}:${item.checked}:${item.child}`
+              ScopedSettingRow(row=item, scope=data.scope, busy=busy, rest=rest, restInput=restInput)
+
+component IntegrationsPanel
+  props
+    data: IntegrationsPage
+    busy: bool
+    error: string
+    rest: action
+    restInput: action
+    local: action // browser-surface part 4: the profiles row's `restlocal:` ops
+  view
+    column width="100%" gap="2rem" testId="integrations-settings"
+      when error != ""
+        text error font-size="0.75rem" line-height="1.125rem" color="light-dark(#dc2626, #f87171)" role="alert" testId="integrations-error" padding-left="1rem"
+      when data.error != ""
+        Card()
+          SettingsNotice(message=data.error, warning=false)
+      when data.available
+        column width="100%" gap="0.625rem" testId="integrations-browser-access"
+          row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center"
+            SectionTitle(title="Browser")
+          Card()
+            each item in data.browser key=`${data.scope}:${item.key}:${item.checked}`
+              ScopedSettingRow(row=item, scope=data.scope, busy=busy, rest=rest, restInput=restInput)
+      // IntegrationsSettingsPanel: the Browser section's rows are device-local ("ignore the header selection"), so they show
+      // with no connected environment too. Part 4: BrowserProfilesSetting, the tab defaults, the recording rows, Auto-show;
+      // "Open links in" is part 5's.
+      column width="100%" gap="0.625rem" testId="integrations-browser"
+        row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center"
+          SectionTitle(title="Browser")
+        Card()
+          BrowserProfilesSetting(view=data.browserProfiles, local=local)
+          BrowserTabDefaultRows(view=data.browserProfiles.defaults, local=local)
+          BrowserDefaults(linkTarget=data.linkTarget, restInput=restInput)
+          BrowserAutoShowRow(view=data.browserProfiles.defaults, local=local)
+      when data.available
+        column width="100%" gap="0.625rem" testId="integrations-devices"
+          row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center"
+            SectionTitle(title="Devices")
+          Card()
+            DeviceRow(row=data.deviceHub, tool=data.hubTool, scope=data.deviceScope, busy=busy, rest=rest)
+            // 1e2ecbd975 (5318d054a5): Simulator support, revealed once the hub is ready or the local host lacks a platform.
+            each support in data.simulatorSupport key=support.key
+              SimulatorSupportSettingsRow(row=support, busy=busy, rest=rest)
+            DeviceRow(row=data.agentDevice, tool=data.agentTool, scope=data.deviceScope, busy=busy, rest=rest)
+            DeviceHostsRow(view=data.deviceHosts, busy=busy, rest=rest)
+              when data.hostsRow.summary != ""
+                Inheritance(row=data.hostsRow)
+
+component DeviceRow
+  props
+    row: ScopedRow
+    tool: DeviceTool
+    scope: string
+    busy: bool
+    rest: action
+  view
+    row width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="2rem" align-items="center" border-top-style="solid" border-top-width=(row.first ? 0 : 1) border-color="light-dark(#e3e3e780, #ffffff08)" testId=`device-row-${row.key}`
+      column flex=1 min-width=0 gap="0.25rem"
+        row min-height="1.25rem" align-items="center" gap="0.375rem"
+          text row.title font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+          when row.summary != ""
+            Inheritance(row=row)
+          box width="1.25rem" height="1.25rem"
+        text row.description font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" max-width="36rem"
+      row flex-shrink=0 min-width="10rem" align-items="center" justify-content="flex-end" gap="0.5rem"
+        DeviceVersions(tool=tool, busy=busy, rest=rest)
+        ScopedSwitch(checked=row.checked, mixed=row.mixed, label=row.title, disabled=(busy or row.disabled), faded=(busy or row.disabled), on="light-dark(#1b4ed8, #346bf1)", off="light-dark(#d4d4d8, #ffffff14)", thumb="light-dark(#fcfcfc, #0a0a0a)", reduced=false, switchId=`device-${row.key}`, press=rest("device", `key=${row.key}&value=${row.mixed or not row.checked ? "true" : "false"}&scope=${scope}`))
+
+// "Open links in" (part 5, BrowserLinkTargetRow) between part 4's tab defaults and Auto-show.
+component BrowserDefaults
+  props
+    linkTarget: string
+    restInput: action
+  view
+    column width="100%" testId="browser-defaults-links"
+      BrowserLinkTargetRow(value=linkTarget, restInput=restInput)
+
+// browser-surface part 5: IntegrationsSettings `BrowserLinkTargetSetting`, live (the client setting, written by
+// `rest:browser-link-target`); its reset shows while it is not the default.
+component BrowserLinkTargetRow
+  inject
+    rem: number
+  props
+    value: string
+    restInput: action
+  view
+    row width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="2rem" align-items="center" testId="browser-link-target-row"
+      column flex=1 min-width=0 gap="0.25rem"
+        row min-height="1.25rem" align-items="center" gap="0.375rem"
+          text "Open links in" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+          box width="1.25rem" height="1.25rem" display="flex" align-items="center" justify-content="center"
+            when value != "system"
+              button press=restInput("browser-link-target", "", "system") aria-label="Reset link target to default" testId="reset-browser-link-target" width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+                LucideUndo2(size=12, color="light-dark(#71717b, #818181)")
+        text "Where links in the chat and terminal open. Hold ⌘ or Ctrl while clicking a link to open it in your default browser either way." font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" max-width="36rem"
+      row flex-shrink=0 min-width="10rem" align-items="center" justify-content="flex-end"
+        SettingsSelect(selectId="browser-link-target", label="Open links in", valueLabel=(value == "app" ? "T3 Code" : "Your default browser"), value=(value == "app" ? "app" : "system"), width=(160 * rem / 16), disabled=false, options=linkTargetOptions(), choose=restInput("browser-link-target", ""))
+
+fn linkTargetOptions(): list<SelectOption> = [SelectOption(value="system", label="Your default browser", selected=false), SelectOption(value="app", label="T3 Code", selected=false)]
+
+// DeviceToolVersions: a muted inline button (underlined while hovered or open) and
+// its popover — Running / Required / Installed in monospace, the update note and
+// versionActions' Update / Check versions. Native popovers anchor at the trigger's
+// start; the estimated label width puts the popup's end at the trigger's end.
+component DeviceVersions
+  props
+    tool: DeviceTool
+    busy: bool
+    rest: action
+  state hovered = false
+  action hover(over: bool)
+    hovered = over
+  view
+    box position="relative" flex-shrink=0
+      button popovertarget=`device-versions-${tool.kind}` hover=hover aria-label=tool.aria testId=`device-status-${tool.kind}` display="flex" flex-direction="row" align-items="center" height="1.5rem" padding=0 border-width=0 background-color="#00000000"
+        text tool.label font-size="1rem" font-weight=500 line-height="1.5rem" color=(hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)") text-decoration-line=(hovered ? "underline" : "none") white-space="nowrap"
+      column id=`device-versions-${tool.kind}` popover="auto" position="absolute" margin-top="0.25rem" margin-left=tool.offset width="20rem" padding="1rem" gap=0 box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff1a)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 16px 40px -18px #0000008c" role="dialog" aria-label=tool.title testId=`device-versions-${tool.kind}-popover`
+        text tool.title font-size="0.875rem" font-weight=600 line-height="0.875rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
+        when tool.known
+          column gap="0.25rem" margin-top="1rem"
+            DeviceVersionLine(term="Running", value=tool.running)
+            DeviceVersionLine(term="Required", value=tool.required)
+            DeviceVersionLine(term="Installed", value=tool.installed)
+        else
+          text "Versions have not been checked." font-size="0.75rem" line-height="1rem" margin-top="0.75rem" color="light-dark(#71717b, #818181)"
+        text "Tools update automatically on this host when needed." font-size="0.75rem" line-height="1rem" margin-top="1rem" padding-top="0.75rem" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e780, #ffffff0a)" color="light-dark(#71717b, #818181)"
+        when tool.error != ""
+          text tool.error role="status" font-size="0.75rem" line-height="1rem" margin-top="0.5rem" color="light-dark(#dc2626, #f87171)"
+        when tool.update != "" or tool.inspect
+          row gap="0.5rem" margin-top="0.75rem" flex-wrap="wrap"
+            when tool.update != ""
+              button press=rest("device-tools", `action=update&tool=${tool.kind}`) disabled=busy testId=`device-update-${tool.kind}` display="flex" flex-direction="row" align-items="center" height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="light-dark(#1b4ed8, #346bf1)" opacity=(busy ? 0.64 : 1)
+                text tool.update font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff" white-space="nowrap"
+            when tool.inspect
+              button press=rest("device-tools", "action=check") disabled=busy testId=`device-check-${tool.kind}` display="flex" flex-direction="row" align-items="center" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" opacity=(busy ? 0.64 : 1)
+                text (busy ? "Checking…" : "Check versions") font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
+
+component DeviceVersionLine
+  props
+    term: string
+    value: string
+  view
+    row width="100%" gap="1.5rem" align-items="flex-start"
+      text term font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" flex-shrink=0
+      text value font-family="ui-monospace" font-size="0.75rem" line-height="1rem" text-align="right" flex=1 min-width=0 overflow-wrap="anywhere" color="light-dark(#27272a, #f5f5f5)"

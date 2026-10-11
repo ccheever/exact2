@@ -1,0 +1,374 @@
+// The pull request Timeline tab (lane "pages"; pr-conversation-and-refresh), measured against
+// T3 Code 1e2ecbd975 (MIT, see LICENSE-T3) components/pullRequest/PullRequestTimelineTab.tsx,
+// PullRequestDetailPanel.tsx's tab bar (the comment, commit and approval counts and the order
+// toggle) and PullRequestGhosts.tsx PullRequestTimelineGhost: a rail of rows newest first —
+// conversation sections that fold consecutive remarks into "N comments", verdict rows that stand
+// alone (a verdict overtaken by later commits keeps its word and loses its colour), commits
+// (plain until the Code tab, 20261005-pr-code-tab) and the lifecycle. The model is pages-pr-timeline.ts.
+use PgIcon from "./pages-icons.contract"
+use PrAvatar from "./pages-prs.contract"
+use ChatMarkdown from "./markdown.contract"
+use ChatDocument from "./markdown.contract"
+use CodeHighlight from "./markdown.contract"
+use MarkdownEnv from "./markdown.contract"
+use Tip from "./shell-tip.contract"
+use PrdActivityUnavailable from "./pages-pr-summary.contract"
+use PrdGhostButton from "./pages-pr-summary.contract"
+use PrReactionPill from "./pages-pr-meta.contract"
+use PrReactionChoice from "./pages-pr-meta.contract"
+use PrdReactionBar from "./pages-pr-meta.contract"
+use PrdEditButton from "./pages-pr-edit.contract"
+use PrdWords from "./pages-pr-edit.contract"
+
+shape PrTimelineCard
+  key: string
+  id: string
+  author: string
+  title: string
+  stateLabel: string
+  age: string
+  ageTip: string
+  path: string
+  url: string
+  bodyId: string
+  body: string
+  markdown: bool
+  // pr-writing-and-metadata: the pencil, the editor's seed, and the reactions.
+  canEdit: bool
+  raw: string
+  kind: string
+  saving: bool
+  savedSerial: number
+  reactions: list<PrReactionPill>
+  reacted: list<string>
+  canReact: bool
+shape PrTimelineRow
+  key: string
+  kind: string
+  id: string
+  author: string
+  avatar: string
+  initial: string
+  hasActor: bool
+  label: string
+  age: string
+  ageTip: string
+  path: string
+  url: string
+  bodyId: string
+  outcome: string
+  outcomeLabel: string
+  stale: bool
+  staleLabel: string
+  sha: string
+  headline: string
+  additions: string
+  deletions: string
+  count: string
+  authorsLine: string
+  cards: list<PrTimelineCard>
+  reactions: list<PrReactionPill>
+  reacted: list<string>
+  canReact: bool
+shape PrTimelineView
+  newest: list<PrTimelineRow>
+  oldest: list<PrTimelineRow>
+  empty: bool
+  comments: string
+  commentsAria: string
+  commits: string
+  commitsAria: string
+  approvals: number
+  approvalsText: string
+
+fn prtMuted(): string = "light-dark(#71717b, #818181)"
+fn prtInk(): string = "light-dark(#27272a, #f5f5f5)"
+// pullRequestReviewOutcomeToneClassName.
+fn prtTone(outcome: string): string = outcome == "approved" ? "light-dark(#009966, #a4f4cfe6)" : outcome == "changes-requested" ? "light-dark(#e40014, #ff6467)" : "light-dark(#71717bb3, #818181b3)"
+fn prtOutcomeIcon(outcome: string): string = outcome == "approved" ? "circle-check" : outcome == "changes-requested" ? "circle-x" : "circle-dashed"
+fn prtLifecycleIcon(kind: string): string = kind == "merged" ? "git-merge" : kind == "closed" ? "git-pull-request-closed" : "git-pull-request-arrow"
+// Lucide file-code-2 (FileCode2Icon), not in the pages glyph set.
+fn prtFileCode(): string = "M4 12.15V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2h-3.35M14 2v5a1 1 0 0 0 1 1h5M5 16l-3 3 3 3M9 22l3-3-3-3"
+
+// The tab bar's Timeline side: counts ("—" unread, "…" reading) and the order toggle.
+component PrdTimelineBar
+  props
+    timeline: PrTimelineView
+    dim: bool
+    order: string
+    flip: action
+  view
+    row margin-left="auto" flex-shrink=0 align-items="center" gap="0.5rem" testId="pull-request-timeline-counts"
+      row align-items="center" gap="0.375rem" opacity=(dim ? 0.35 : 1) white-space="nowrap"
+        row align-items="center" gap="0.25rem" aria-label=timeline.commentsAria testId="pull-request-timeline-comments"
+          PgIcon(name="message-square", size=12, color=prtMuted())
+          text timeline.comments font-size="0.6875rem" line-height="1rem" color=prtMuted()
+        text "·" font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b80, #81818180)" aria-hidden=true
+        row align-items="center" gap="0.25rem" aria-label=timeline.commitsAria testId="pull-request-timeline-commits"
+          PgIcon(name="git-commit-horizontal", size=12, color=prtMuted())
+          text timeline.commits font-size="0.6875rem" line-height="1rem" color=prtMuted()
+        when timeline.approvals > 0
+          text "·" font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b80, #81818180)" aria-hidden=true
+          row align-items="center" gap="0.25rem" aria-label=`${timeline.approvals} ${timeline.approvalsText}` testId="pull-request-timeline-approvals"
+            PgIcon(name="circle-check", size=12, color=prtTone("approved"))
+            text `${timeline.approvals}` font-size="0.6875rem" line-height="1rem" color=prtTone("approved")
+      PrdGhostButton(label=(order == "newest" ? "Newest first" : "Oldest first"), icon="arrow-down-up", press=flip, ariaLabel=(order == "newest" ? "Show oldest activity first" : "Show newest activity first"), testId="pull-request-timeline-order")
+
+// PullRequestTimelineTab: the rail and its rows, in the order the bar chose.
+component PrdTimeline
+  props
+    timeline: PrTimelineView
+    order: string
+    pending: bool
+    error: string
+    choices: list<PrReactionChoice>
+    scope: string
+    documents: list<ChatDocument>
+    code: list<CodeHighlight>
+    env: MarkdownEnv
+    still: bool
+    local: action
+    act: action
+    retry: action
+    // pr-code-tab: a commit row opens the Code tab on that commit (PullRequestDetailPanel openCommit).
+    openCommit: action
+  view
+    column width="100%" testId="pull-request-timeline"
+      when pending
+        PrdTimelineGhost(still=still)
+      else
+        when error != ""
+          PrdActivityUnavailable(error=error, compact=false, retry=retry)
+        else
+          column width="100%" max-width="48rem" padding-left="1rem" padding-right="1rem" padding-top="1.25rem" padding-bottom="1.25rem" box-sizing="border-box" align-self="center"
+            column width="100%" position="relative"
+              box position="absolute" left="0.9375rem" top="0.25rem" bottom="1.25rem" width=1 background-color="light-dark(#e4e4e773, #ffffff0f)" aria-hidden=true
+              each row in (order == "newest" ? timeline.newest : timeline.oldest) key=row.key
+                PrdTimelineRow(row=row, choices=choices, scope=scope, documents=documents, code=code, env=env, still=still, local=local, act=act, openCommit=openCommit)
+            when timeline.empty
+              column width="100%" padding-top="4rem" padding-bottom="4rem" align-items="center" justify-content="center" gap="0.5rem"
+                PgIcon(name="git-pull-request", size=20, color=prtMuted())
+                text "No activity yet." font-size="0.75rem" line-height="1rem" color=prtMuted()
+
+component PrdTimelineRow
+  props
+    row: PrTimelineRow
+    choices: list<PrReactionChoice>
+    scope: string
+    documents: list<ChatDocument>
+    code: list<CodeHighlight>
+    env: MarkdownEnv
+    still: bool
+    local: action
+    act: action
+    openCommit: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    when row.kind == "comments"
+      PrdConversationGroup(row=row, choices=choices, scope=scope, documents=documents, code=code, env=env, still=still, local=local, act=act)
+    when row.kind == "verdict"
+      PrdVerdictRow(row=row, choices=choices, scope=scope, documents=documents, code=code, env=env, local=local, act=act)
+    when row.kind == "commit"
+      // CommitEvent: the whole row is a button that opens the commit's diff; its headline takes the primary tone on hover.
+      button press=openCommit(row.id) hover=hover aria-label=`View commit ${row.id}` position="relative" width="100%" margin-bottom="1.25rem" padding=0 padding-left="3rem" box-sizing="border-box" border-width=0 border-radius="0.125rem" background-color="#00000000" text-align="left" display="flex" flex-direction="column" testId=`pull-request-timeline-commit-${row.sha}`
+        PrdMarker(row=row, pinned=false, muted=false, icon="git-commit-horizontal")
+        row width="100%" min-width=0 align-items="center" gap="0.625rem" padding-top="0.375rem" padding-bottom="0.375rem"
+          column flex=1 min-width=0
+            text row.headline font-size="0.75rem" line-height="1rem" font-weight=600 color=(over ? "light-dark(#1b4ed8, #346bf1)" : prtInk()) white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+            row margin-top="0.25rem" flex-wrap="wrap" align-items="center" gap="0.5rem"
+              text row.sha font-family="ui-monospace" font-size="0.625rem" line-height="0.875rem" color=prtMuted()
+              Tip(label=row.ageTip, side="top", align="start", offset=18)
+                text row.age font-size="0.625rem" line-height="0.875rem" color=prtMuted()
+          when row.additions != ""
+            row margin-left="auto" flex-shrink=0 align-items="baseline" gap="0.25rem"
+              text row.additions font-family="ui-monospace" font-size="0.625rem" line-height="0.875rem" color="light-dark(#009966, #00d492)"
+              text row.deletions font-family="ui-monospace" font-size="0.625rem" line-height="0.875rem" color="light-dark(#fb2c36, #fb414a)"
+    when row.kind == "opened" or row.kind == "merged" or row.kind == "closed"
+      column position="relative" margin-bottom="1.25rem" padding-left="3rem" box-sizing="border-box" testId=`pull-request-timeline-${row.kind}`
+        PrdMarker(row=row, pinned=false, muted=false, icon=prtLifecycleIcon(row.kind))
+        column padding-top="0.375rem" padding-bottom="0.375rem"
+          row flex-wrap="wrap" align-items="center" gap="0.375rem"
+            when row.hasActor
+              text row.author font-size="0.75rem" line-height="1rem" font-weight=600 color=prtInk()
+            text row.label font-size="0.75rem" line-height="1rem" font-weight=600 color=prtInk()
+          Tip(label=row.ageTip, side="top", align="start", offset=18)
+            text row.age margin-top="0.125rem" font-size="0.6875rem" line-height="1rem" color=prtMuted()
+
+// The rail's marker: the actor's face where there is one (dimmed on a closed section), else the
+// event's glyph; centred on its row, or pinned by the name where the row grows with a body.
+component PrdMarker
+  props
+    row: PrTimelineRow
+    pinned: bool
+    muted: bool
+    icon: string
+  view
+    row position="absolute" left=0 top=(pinned ? "0.5rem" : "50%") margin-top=(pinned ? 0 : "-1rem") z-index=1 width="2rem" height="2rem" align-items="center" justify-content="center" background-color="light-dark(#fcfcfc, #0a0a0a)" aria-hidden=true
+      when row.hasActor
+        box opacity=(muted ? 0.45 : 1) filter=(muted ? "grayscale(1)" : "none")
+          PrAvatar(avatar=row.avatar, initial=row.initial, size=28)
+      else
+        row width="1.75rem" height="1.75rem" align-items="center" justify-content="center"
+          PgIcon(name=icon, size=14, color=prtMuted())
+
+// ConversationGroup: "N comments" over "N authors · when", folded until pressed.
+component PrdConversationGroup
+  props
+    row: PrTimelineRow
+    choices: list<PrReactionChoice>
+    scope: string
+    documents: list<ChatDocument>
+    code: list<CodeHighlight>
+    env: MarkdownEnv
+    still: bool
+    local: action
+    act: action
+  state open = false
+  action toggle
+    open = not open
+  view
+    column position="relative" margin-bottom="1.25rem" padding-left="3rem" box-sizing="border-box" testId=`pull-request-timeline-group-${row.key}`
+      PrdMarker(row=row, pinned=true, muted=(not open), icon="message-square")
+      button press=toggle aria-expanded=open testId=`pull-request-timeline-group-toggle-${row.key}` width="100%" min-width=0 padding-top="0.5rem" padding-bottom="0.5rem" padding-left=0 padding-right=0 gap="0.75rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" text-align="left" opacity=(open ? 1 : 0.55)
+        column flex=1 min-width=0 align-items="flex-start"
+          text row.count font-size="0.75rem" line-height="1rem" font-weight=600 color=(open ? prtInk() : prtMuted())
+          text row.authorsLine font-size="0.625rem" line-height="0.875rem" color=prtMuted() white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+        box width="0.875rem" height="0.875rem" flex-shrink=0 rotate=(open ? 180 : 0) transition=(still ? "none" : "rotate 150ms cubic-bezier(0.4, 0, 0.2, 1)") aria-hidden=true
+          PgIcon(name="chevron-down", size=14, color=prtMuted())
+      when open
+        column margin-top="0.25rem" gap="0.25rem"
+          each card in row.cards key=card.key
+            PrdConversationCard(card=card, choices=choices, scope=scope, documents=documents, code=code, env=env, still=still, local=local, act=act)
+
+component PrdConversationCard
+  props
+    card: PrTimelineCard
+    choices: list<PrReactionChoice>
+    scope: string
+    documents: list<ChatDocument>
+    code: list<CodeHighlight>
+    env: MarkdownEnv
+    still: bool
+    local: action
+    act: action
+  state over = false
+  state editing = false
+  state seen = 0
+  state draft = ""
+  state previewing = false
+  derive open = editing and seen == card.savedSerial
+  action hover(value: bool)
+    over = value
+  action begin
+    editing = true
+    seen = card.savedSerial
+    draft = card.raw
+    previewing = false
+  action edit(text: string)
+    draft = text
+  action preview(on: bool)
+    previewing = on
+    if on
+      act("preview", `comment:${card.id}|${draft}`)
+  action save
+    if not card.saving
+      act("edit-comment", `${card.id}|${card.kind}|${draft}`)
+  action cancel
+    editing = false
+  view
+    column padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" role="article" hover=hover testId=`pull-request-timeline-card-${card.id}`
+      row padding-left="0.5rem" padding-right="0.5rem" min-width=0 flex-wrap="wrap" align-items="flex-start" gap="0.5rem"
+        column flex=1 min-width=0
+          row min-width=0 flex-wrap="wrap" align-items="center" gap="0.375rem"
+            text card.author font-size="0.75rem" line-height="1rem" font-weight=600 color=prtInk()
+            text card.title font-size="0.75rem" line-height="1rem" color=prtMuted()
+            when card.stateLabel != ""
+              text card.stateLabel font-size="0.625rem" line-height="0.875rem" font-weight=500 color=prtMuted()
+          row margin-top="0.25rem" flex-wrap="wrap" align-items="center" gap="0.375rem"
+            Tip(label=card.ageTip, side="top", align="start", offset=18)
+              text card.age font-size="0.6875rem" line-height="1rem" color=prtMuted()
+            when card.path != ""
+              text "·" font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b80, #81818180)" aria-hidden=true
+              row min-width=0 align-items="center" gap="0.25rem"
+                svg width="0.75rem" height="0.75rem" viewBox="0 0 24 24" color=prtMuted() fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
+                  path d=prtFileCode()
+                text card.path font-size="0.6875rem" line-height="1rem" color=prtMuted() white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
+        // The pencil sits in the header here (ConversationCard), the body below it becomes the editor.
+        when card.canEdit and not open
+          PrdEditButton(label="Edit comment", shown=over, still=still, press=begin, testId=`${scope}-t-edit-comment-${card.id}`)
+        PrdReactionBar(pills=card.reactions, reacted=card.reacted, canReact=card.canReact, choices=choices, subject=card.id, pickerId=`${scope}-react-t-${card.id}`, act=act)
+        when card.url != ""
+          link href=card.url cursor="pointer" aria-label="Open activity on host" testId=`pull-request-timeline-open-${card.id}` width="1.5rem" height="1.5rem" margin-top="-0.25rem" margin-right="-0.25rem" border-radius="0.5rem" flex-shrink=0 display="flex" align-items="center" justify-content="center" title=""
+            PgIcon(name="external-link", size=12, color=prtMuted())
+      when open or card.bodyId != ""
+        column padding-left="0.5rem" padding-right="0.5rem" padding-bottom="0.5rem" margin-top="0.75rem" box-sizing="border-box" min-width=0
+          PrdWords(bodyId=card.bodyId, emptyText="", collapse=false, canEdit=card.canEdit, pencil=false, hovered=over, open=open, previewing=previewing, draft=draft, saving=card.saving, allowEmpty=false, label="Edit comment", placeholder="", previewId=`pr-preview:comment:${card.id}`, pencilLabel="Edit comment", frameId=`${scope}-t-comment-body-${card.id}`, testId=`${scope}-t-comment-${card.id}`, still=still, documents=documents, code=code, env=env, local=local, begin=begin, edit=edit, preview=preview, save=save, cancel=cancel)
+      when not open and card.bodyId == "" and card.body != ""
+        text card.body padding-left="0.5rem" padding-right="0.5rem" margin-top="0.75rem" white-space="pre-wrap" font-size="0.75rem" line-height="1rem" color=prtMuted()
+
+// ReviewVerdictEvent: the reviewer's face, their name and the verdict's own word in its colour;
+// a stale verdict keeps the word, loses the colour, and says why to a screen reader and on hover.
+component PrdVerdictRow
+  props
+    row: PrTimelineRow
+    choices: list<PrReactionChoice>
+    scope: string
+    documents: list<ChatDocument>
+    code: list<CodeHighlight>
+    env: MarkdownEnv
+    local: action
+    act: action
+  view
+    column position="relative" margin-bottom="1.25rem" padding-left="3rem" box-sizing="border-box" testId=`pull-request-timeline-verdict-${row.key}`
+      PrdMarker(row=row, pinned=true, muted=false, icon=prtOutcomeIcon(row.outcome))
+      row min-width=0 flex-wrap="wrap" align-items="flex-start" gap="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem"
+        column flex=1 min-width=0
+          row min-width=0 flex-wrap="wrap" align-items="center" gap="0.375rem"
+            text row.author font-size="0.75rem" line-height="1rem" font-weight=600 color=prtInk()
+            Tip(label=(row.stale ? row.staleLabel : ""), side="top", align="start", offset=18)
+              text row.outcomeLabel text-transform="lowercase" font-size="0.75rem" line-height="1rem" font-weight=500 color=(row.stale ? prtMuted() : prtTone(row.outcome)) opacity=(row.stale ? 0.7 : 1) aria-label=(row.stale ? `${row.outcomeLabel}, before the latest commits` : row.outcomeLabel) testId=`pull-request-timeline-verdict-word-${row.key}`
+          row margin-top="0.125rem" flex-wrap="wrap" align-items="center" gap="0.375rem"
+            Tip(label=row.ageTip, side="top", align="start", offset=18)
+              text row.age font-size="0.6875rem" line-height="1rem" color=prtMuted()
+            when row.path != ""
+              text "·" font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b80, #81818180)" aria-hidden=true
+              text row.path font-size="0.6875rem" line-height="1rem" color=prtMuted() white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
+        PrdReactionBar(pills=row.reactions, reacted=row.reacted, canReact=row.canReact, choices=choices, subject=row.id, pickerId=`${scope}-react-v-${row.id}`, act=act)
+        when row.url != ""
+          link href=row.url cursor="pointer" aria-label="Open activity on host" testId=`pull-request-timeline-open-${row.key}` width="1.5rem" height="1.5rem" margin-top="-0.25rem" margin-right="-0.25rem" border-radius="0.5rem" flex-shrink=0 display="flex" align-items="center" justify-content="center" title=""
+            PgIcon(name="external-link", size=12, color=prtMuted())
+      when row.bodyId != ""
+        column margin-top="0.75rem" min-width=0
+          each document in filter(documents, (doc) => doc.id == row.bodyId) key=document.id
+            ChatMarkdown(document=document, local=local, code=code, env=env)
+
+// PullRequestTimelineGhost: six dots on the rail, a line and a date to each.
+keyframes prtPulse
+  from opacity=1
+  42% opacity=1
+  50% opacity=0.55
+  92% opacity=0.55
+  to opacity=1
+component PrdTimelineGhost
+  props
+    still: bool
+  view
+    column width="100%" padding-left="1rem" padding-right="1rem" padding-top="1.25rem" padding-bottom="1.25rem" box-sizing="border-box" role="status" aria-label="Loading timeline" animation=(still ? "none" : "prtPulse 2.4s steps(4) infinite") testId="pull-request-timeline-ghost"
+      column margin-left="0.5rem" padding-left="1.25rem" box-sizing="border-box" border-left-width=1 border-left-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff12)"
+        PrdTimelineGhostRow(width="60%")
+        PrdTimelineGhostRow(width="40%")
+        PrdTimelineGhostRow(width="50%")
+        PrdTimelineGhostRow(width="66%")
+        PrdTimelineGhostRow(width="40%")
+        PrdTimelineGhostRow(width="60%")
+
+component PrdTimelineGhostRow
+  props
+    width: string
+  view
+    column position="relative" padding-bottom="1.25rem"
+      box position="absolute" left="-1.55rem" top="0.25rem" width="0.5rem" height="0.5rem" border-radius="624.9375rem" background-color="light-dark(#71717b26, #81818126)"
+      box width=width height="0.875rem" border-radius="0.25rem" background-color="light-dark(#71717b26, #81818126)"
+      box width="4rem" height="0.75rem" margin-top="0.375rem" border-radius="0.25rem" background-color="light-dark(#71717b26, #81818126)"

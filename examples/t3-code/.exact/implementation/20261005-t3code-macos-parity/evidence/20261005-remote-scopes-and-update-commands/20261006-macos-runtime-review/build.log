@@ -1,0 +1,28 @@
+    Finished `host-dev` profile [optimized] target(s) in 0.36s
+host/apple: baked L=0; Swift embedded composition
+Building for debugging...
+[Planning deferred tasks]
+[1 / 1]
+[2 / 9] ExactKit
+[14 / 89]
+[25 / 89]
+[28 / 89]
+[34 / 89]
+[37 / 89]
+[46 / 89]
+[49 / 89]
+[51 / 89]
+[52 / 89]
+[68 / 89]
+[69 / 89]
+[75 / 89]
+[80 / 89]
+[81 / 89]
+[83 / 89] ExactKit
+[88 / 93] ExactComposition
+[91 / 95] ExactMac-product
+[94 / 95] ExactMac-product
+Build complete! (7.90 sec)
+local client: /Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/clients/e22818802f97c366e6210351/com.exact.t3code.macos/macos/T3 Code (Exact).app
+  No development opening link: build with --url <dev server URL> to register one.
+host/apple: target/clients/e22818802f97c366e6210351/com.exact.t3code.macos/macos/aarch64-apple-darwin/embedded/development/standalone/ExactMac (cargo 1.1 s, swift 8.4 s, arms 0.9 s, modules 0.0 s, package 1.2 s; signed 0F0D033A); GPU: no GPU crate; web arm: libexact_web.dylib; modules: libexact_modules.dylib

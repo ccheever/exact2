@@ -1,0 +1,59 @@
+// Lucide glyphs the built T3 timeline draws (MIT, see LICENSE-T3), each
+// flattened to one path; names Icon already draws fall through to it.
+use Icon from "./icons.contract"
+
+// TimelineIcon's lookups are fns: a call reads its argument once, so a caller's deep expression is not
+// nested under every comparison (view-depth-under-test-stack).
+fn timelineIconGeometry(name: string): string = includes(["messages-square", "skill", "film", "square-terminal", "mouse-pointer-click", "image", "circle-dashed"], name) ? (name == "messages-square" ? "M16 10a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 14.286V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2zM20 9a2 2 0 0 1 2 2v10.286a.71.71 0 0 1-1.212.502l-2.202-2.202A2 2 0 0 0 17.172 19H10a2 2 0 0 1-2-2v-1" : name == "skill" ? "M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16ZM3.3 7l8.7 5 8.7-5M12 22V12" : name == "film" ? "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2ZM7 3v18M3 7.5h4M3 12h18M3 16.5h4M17 3v18M17 7.5h4M17 16.5h4" : name == "square-terminal" ? "m7 11 2-2-2-2M11 13h4M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z" : name == "mouse-pointer-click" ? "M14 4.1 12 6M5.1 8l-2.9-.8M6 12l-1.9 2M7.2 2.2 8 5.1M9.037 9.69a.498.498 0 0 1 .653-.653l11 4.5a.5.5 0 0 1-.074.949l-4.349 1.041a1 1 0 0 0-.74.739l-1.04 4.35a.5.5 0 0 1-.95.074z" : name == "image" ? "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2ZM9 9a2 2 0 1 0 0-.01M21 15l-3.086-3.086a2 2 0 0 0-2.828 0L6 21" : "M10.1 2.182a10 10 0 0 1 3.8 0M13.9 21.818a10 10 0 0 1-3.8 0M17.609 3.721a10 10 0 0 1 2.69 2.7M2.182 13.9a10 10 0 0 1 0-3.8M20.279 17.609a10 10 0 0 1-2.7 2.69M21.818 10.1a10 10 0 0 1 0 3.8M3.721 6.391a10 10 0 0 1 2.7-2.69M6.391 20.279a10 10 0 0 1-2.69-2.7") : includes(["message-circle", "hammer", "eye", "square-pen", "globe", "wrench", "bot"], name) ? (name == "message-circle" ? "M7.9 20A9 9 0 1 0 4 16.1L2 22Z" : name == "hammer" ? "m15 12-9.373 9.373a1 1 0 0 1-3.001-3L12 9M18 15l4-4M21.5 11.5l-1.914-1.914A2 2 0 0 1 19 8.172v-.344a2 2 0 0 0-.586-1.414l-1.657-1.657A6 6 0 0 0 12.516 3H9l1.243 1.243A6 6 0 0 1 12 8.485V10l2 2h1.172a2 2 0 0 1 1.414.586L18.5 14.5" : name == "eye" ? "M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0M9 12a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" : name == "square-pen" ? "M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z" : name == "globe" ? "M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20" : name == "wrench" ? "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.106-3.105c.32-.322.863-.22.983.218a6 6 0 0 1-8.259 7.057l-7.91 7.91a1 1 0 0 1-2.999-3l7.91-7.91a6 6 0 0 1 7.057-8.259c.438.12.54.662.219.984z" : "M12 8V4H8M6 8h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2ZM2 14h2M20 14h2M15 13v2M9 13v2") : includes(["zap", "minimize", "maximize", "arrow-right-left", "chevrons-up-down", "chevrons-down-up", "folder-open"], name) ? (name == "zap" ? "M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" : name == "minimize" ? "m14 10 7-7M20 10h-6V4M3 21l7-7M4 14h6v6" : name == "maximize" ? "M15 3h6v6M21 3l-7 7M3 21l7-7M9 21H3v-6" : name == "arrow-right-left" ? "m16 3 4 4-4 4M20 7H4M8 21l-4-4 4-4M4 17h16" : name == "chevrons-up-down" ? "m7 15 5 5 5-5M7 9l5-5 5 5" : name == "chevrons-down-up" ? "m7 20 5-5 5 5M7 4l5 5 5-5" : "m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2") : includes(["folder-closed", "check-mark", "redo", "ellipsis", "download", "quote", "message-square"], name) ? (name == "folder-closed" ? "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2ZM2 10h20" : name == "check-mark" ? "M20 6 9 17l-5-5" : name == "redo" ? "m15 14 5-5-5-5M20 9H9.5A5.5 5.5 0 0 0 4 14.5A5.5 5.5 0 0 0 9.5 20H13" : name == "ellipsis" ? "M4 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0M11 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0M18 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" : name == "download" ? "M12 15V3M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5" : name == "quote" ? "M16 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2 1 1 0 0 1 1 1v1a2 2 0 0 1-2 2 1 1 0 0 0-1 1v2a1 1 0 0 0 1 1 6 6 0 0 0 6-6V5a2 2 0 0 0-2-2zM5 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2 1 1 0 0 1 1 1v1a2 2 0 0 1-2 2 1 1 0 0 0-1 1v2a1 1 0 0 0 1 1 6 6 0 0 0 6-6V5a2 2 0 0 0-2-2z" : "M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z") : includes(["triangle-alert", "list-collapse", "device", "loader-circle", "minus", "circle", "chevron-down"], name) ? (name == "triangle-alert" ? "m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3M12 9v4M12 17h.01" : name == "list-collapse" ? "M3 5h8M3 12h8M3 19h8m4-14 3 3 3-3m-6 14 3-3 3 3" : name == "device" ? "M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2ZM12 18h.01" : name == "loader-circle" ? "M21 12a9 9 0 1 1-6.219-8.56" : name == "minus" ? "M5 12h14" : name == "circle" ? "M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0" : "m6 9 6 6 6-6") : includes(["chevron-right", "code", "workflow", "external-link"], name) ? (name == "chevron-right" ? "m9 18 6-6-6-6" : name == "code" ? "m16 18 6-6-6-6M8 6l-6 6 6 6" : name == "workflow" ? "M5 3h4a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2ZM7 11v4a2 2 0 0 0 2 2h4M15 13h4a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2Z" : "M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6") : ""
+
+component TimelineIcon
+  props
+    name: string
+    size: number
+    color: string
+  derive geometry = timelineIconGeometry(name)
+  view
+    // T3Wordmark and the timeline's BrowserAppIcon draw filled marks of their own.
+    when name == "t3-code"
+      svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="15.5309 37 94.3941 56.96" color=color fill="currentColor" flex-shrink=0 aria-hidden=true
+        path d="M33.4509 93V47.56H15.5309V37H64.3309V47.56H46.4109V93H33.4509ZM86.7253 93.96C82.832 93.96 78.9653 93.4533 75.1253 92.44C71.2853 91.3733 68.032 89.88 65.3653 87.96L70.4053 78.04C72.5386 79.5867 75.0186 80.8133 77.8453 81.72C80.672 82.6267 83.5253 83.08 86.4053 83.08C89.6586 83.08 92.2186 82.44 94.0853 81.16C95.952 79.88 96.8853 78.12 96.8853 75.88C96.8853 73.7467 96.0586 72.0667 94.4053 70.84C92.752 69.6133 90.0853 69 86.4053 69H80.4853V60.44L96.0853 42.76L97.5253 47.4H68.1653V37H107.365V45.4L91.8453 63.08L85.2853 59.32H89.0453C95.9253 59.32 101.125 60.8667 104.645 63.96C108.165 67.0533 109.925 71.0267 109.925 75.88C109.925 79.0267 109.099 81.9867 107.445 84.76C105.792 87.48 103.259 89.6933 99.8453 91.4C96.432 93.1067 92.0586 93.96 86.7253 93.96Z"
+    when name == "computer"
+      // ComputerUseAppIcon (Icons.tsx): Codex's Computer Use mark, drawn in its own colours.
+      svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" flex-shrink=0 aria-hidden=true
+        defs
+          linearGradient id="t3-computer-use-gradient" x1=2 y1=2 x2=22 y2=22 gradientUnits="userSpaceOnUse"
+            stop offset=0 stop-color="#00dff0"
+            stop offset=0.42 stop-color="#3b9cff"
+            stop offset=0.72 stop-color="#b044f5"
+            stop offset=1 stop-color="#ff78b6"
+        rect x=1 y=1 width=22 height=22 rx=5 fill="url(#t3-computer-use-gradient)"
+        path d="m7.2 6.2 10.5 4.1-4.2 2.1-2 4.7z" fill="#ffffff" stroke="#315cff" stroke-width=1.1 stroke-linejoin="round"
+    when name == "browser"
+      svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=1.9 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
+        path d="M8.5 19H7.2C4.4 19 3 17.5 3 14.6V7.4C3 4.5 4.5 3 7.4 3h8.2C18.5 3 20 4.5 20 7.4v2.4M11.2 7.2h4.3"
+        path d="M7.4 6.45a.75.75 0 1 0 0 1.5a.75.75 0 1 0 0-1.5ZM12.4 11.4l7.5 2.6-3.4 1.6-1.5 3.6z" fill="currentColor" stroke="none"
+    when not includes(["t3-code", "computer", "browser"], name) and geometry == ""
+      Icon(name=(name == "pull-request" ? "pull-requests" : name), size=size, color=color)
+    when not includes(["t3-code", "computer", "browser"], name) and geometry != ""
+      svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
+        path d=geometry
+
+// Native image lifecycle owns only the overlay; the fallback stays Contract-owned.
+// T3 Code ToolActivityImageIcon (MIT, LICENSE-T3), app hook adaptation. A muted image (every
+// work-log row but a live row's highlight) is `opacity-70` here and `light:brightness-60` in the
+// hook (T3ToolActivityIcon.swift), as the reference's span and img are (timeline-work-rows TH-10).
+component ToolActivityIcon
+  props
+    light: string
+    dark: string
+    label: string
+    muted: bool
+  slot
+  state loaded = false
+  action settled
+    loaded = not loaded
+  view
+    box width="1rem" height="1rem" position="relative" flex-shrink=0 aria-label=label
+      when not loaded
+        children
+      box position="absolute" left=0 top=0 width="1rem" height="1rem" padding=0 border-width=0 background-color="#00000000" opacity=(muted ? 0.7 : 1) pointer-events="none" aria-hidden=true tabindex=-1 hatch="t3-tool-icon" data-tool-icon-light=light data-tool-icon-dark=dark data-tool-icon-muted=(muted ? "1" : "") press=settled

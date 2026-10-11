@@ -1,0 +1,224 @@
+// UsagePriceOverrides, "Custom model prices" (lane "pages", upstream
+// b05adb70b0 and e8545b293b's Set price), measured against the served
+// reference at 1280×840: the Apply to menu, a table of Model ID, Map to and
+// the four rates per million tokens, per-destination save results and the
+// footer. Inputs show a seed and report every keystroke (pages-usage-prices.ts).
+// T3 Code, MIT (LICENSE-T3).
+use UsagePrices from "./pages-usage-shapes.contract"
+use UsagePriceRow from "./pages-usage-shapes.contract"
+use CheckRow from "./pages-usage.contract"
+use TipBubble from "./shell-tip.contract"
+use PgIcon from "./pages-icons.contract"
+use KmItem from "./menu-keys.contract"
+use KeyMenu from "./menu-keys.contract"
+use kmOpenKey from "./menu-keys.contract"
+use KeyMenuOpen from "./menu-keys.contract"
+use kmBump from "./menu-keys.contract"
+
+component UsagePricesDialog
+  inject
+    rem: number
+  props
+    prices: UsagePrices
+    scheme: string
+    viewportHeight: number
+    busy: bool
+    op: action
+  view
+    column flex-shrink=0 padding-top="1.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-bottom="0.75rem" box-sizing="border-box" gap="0.5rem"
+      text "Custom model prices" font-size="1.25rem" line-height="1.25rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2 padding-right="1.5rem"
+      text "Prices and mappings apply to all past and future usage on the environments you select." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
+    scroll max-height=(viewportHeight - 11.375 * rem) min-height=0 width="100%" testId="usage-prices-scroll"
+      column width="100%" padding-top="0.25rem" padding-left="1.5rem" padding-right="1.5rem" padding-bottom="0.25rem" box-sizing="border-box" gap="1rem"
+        row flex-wrap="wrap" align-items="center" justify-content="space-between" gap="0.5rem"
+          row min-width=0 align-items="center" gap="0.5rem"
+            text "Apply to" font-size="0.875rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" flex-shrink=0
+            UsagePricesApply(prices=prices, scheme=scheme, op=op)
+          text "USD / million tokens" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+        when prices.selectionNotice != ""
+          text prices.selectionNotice font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" testId="usage-prices-notice"
+        else
+          column width="100%" min-width=0 box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" overflow="hidden"
+            // A table-fixed colgroup of 22%, 18%, four equal rate columns and 40pt; rows share the template.
+            column width="100%" min-width=720 role="table" aria-label="Custom model prices" testId="usage-prices-table"
+              box width="100%" display="grid" grid-template-columns="22% 18% minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) 40px" align-items="center" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" role="row"
+                UsagePriceHead(label="Model ID")
+                UsagePriceHead(label="Map to")
+                UsagePriceHead(label="Input")
+                UsagePriceHead(label="Output")
+                UsagePriceHead(label="Cache read")
+                UsagePriceHead(label="Cache write")
+                row height="2.5rem" padding-left="0.5rem" padding-right="0.5rem" align-items="center" justify-content="center"
+                  UsageGhostIcon(icon="plus", label="Add model price", tip="", scheme=scheme, disabled=prices.locked, press=op("usage-prices-add", "", ""), testId="usage-prices-add")
+              when length(prices.rows) == 0
+                text prices.emptyRows width="100%" padding-top="2rem" padding-bottom="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" text-align="center" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="usage-prices-empty"
+              // The last row's rule sits under the frame's border (tbody tr:last-child border-0).
+              column width="100%" margin-bottom=-1
+                each row in prices.rows key=row.key
+                  UsagePriceRowView(row=row, scheme=scheme, locked=prices.locked, op=op)
+          text prices.footnote font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+        when length(prices.statuses) > 0
+          column width="100%" gap="0.25rem" role="status" testId="usage-prices-status"
+            each status in prices.statuses key=status.key
+              row width="100%" justify-content="space-between" gap="0.75rem"
+                text status.label font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" line-clamp=1 min-width=0
+                text status.status font-size="0.75rem" line-height="1rem" text-align="right" color=(status.failed ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #818181)") flex-shrink=0
+    row flex-shrink=0 padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" align-items="center" justify-content="space-between" gap="0.5rem"
+      text prices.changesLabel font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" min-width=0
+      row flex-wrap="wrap" justify-content="flex-end" gap="0.5rem"
+        when prices.hasChanges
+          UsageGhostButton(label=prices.discardLabel, disabled=busy, press=op("usage-prices-discard", "", ""), testId="usage-prices-discard")
+        UsagePricesSave(label=(busy ? "Saving…" : prices.saveLabel), scheme=scheme, disabled=(busy or prices.saveDisabled), press=op("usage-prices-save", "", ""))
+
+// TableHead: h-10, px-2, text-xs medium in the foreground.
+component UsagePriceHead
+  props
+    label: string
+  view
+    row height="2.5rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" align-items="center" min-width=0
+      text label font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" white-space="nowrap" role="columnheader"
+
+// One row of the table. A mapped row reads "Counted as …" in place of its
+// rates; a reset row reads "Automatic pricing after saving" until it is saved.
+component UsagePriceRowView
+  props
+    row: UsagePriceRow
+    scheme: string
+    locked: bool
+    op: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    box width="100%" hover=hover border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color=(over ? "light-dark(#fafafa80, #ffffff04)" : "#00000000") role="row" testId=`usage-price-row-${row.id}`
+      box display="grid" grid-template-columns="22% 18% minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) 40px" width="100%" align-items="center"
+        column grid-column=1 padding="0.5rem" min-width=0 gap="0.25rem"
+          when row.isNew
+            UsagePriceInput(value=row.modelValue, placeholder="Model ID", label="New model ID", mono=false, invalid=row.invalid, scheme=scheme, disabled=locked, edit=op("usage-prices-edit", `${row.id}:model`), testId=`usage-price-${row.id}-model`)
+          else
+            text row.model font-size="0.75rem" line-height="1rem" overflow-wrap="anywhere" text-decoration-line=(row.removed ? "line-through" : "none") color=(row.removed ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)") testId=`usage-price-${row.id}-name`
+          when row.error != ""
+            text row.error font-size="0.75rem" line-height="1rem" color="light-dark(#fb2c36, #fb414a)" role="alert" testId=`usage-price-${row.id}-error`
+        when row.removed
+          text "Automatic pricing after saving" grid-column="2 / span 5" padding="0.5rem" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+        else
+          column grid-column=2 padding="0.5rem" min-width=0
+            UsagePriceInput(value=row.aliasValue, placeholder=row.aliasPlaceholder, label=row.aliasLabel, mono=false, invalid=false, scheme=scheme, disabled=locked, edit=op("usage-prices-edit", `${row.id}:alias`), testId=`usage-price-${row.id}-alias`)
+          when row.countedAs != ""
+            text `Counted as ${row.countedAs}` grid-column="3 / span 4" padding="0.5rem" font-size="0.75rem" line-height="1rem" overflow-wrap="anywhere" color="light-dark(#71717b, #818181)" testId=`usage-price-${row.id}-counted`
+          else
+            each cell in row.cells key=cell.key
+              column padding="0.5rem" min-width=0
+                UsagePriceInput(value=cell.value, placeholder=cell.placeholder, label=cell.ariaLabel, mono=true, invalid=false, scheme=scheme, disabled=locked, edit=op("usage-prices-edit", `${row.id}:${cell.key}`), testId=`usage-price-${row.id}-${cell.key}`)
+        row grid-column=7 padding="0.5rem" align-items="center" justify-content="center"
+          UsageGhostIcon(icon=(row.removed ? "rotate-ccw" : row.resetIcon), label=row.resetLabel, tip=row.resetTip, scheme=scheme, disabled=locked, press=op("usage-prices-reset", row.id, ""), testId=`usage-price-${row.id}-reset`)
+
+// Input size="compact": 28pt inside its 1pt border, 9pt inset (7 here: the field cell adds 2), text-xs; aria-invalid tints the border and rings it.
+component UsagePriceInput
+  props
+    value: string
+    placeholder: string
+    label: string
+    mono: bool
+    invalid: bool
+    scheme: string
+    disabled: bool
+    edit: action
+    testId: string
+  view
+    input value=value input=edit placeholder=placeholder aria-label=label disabled=disabled autocorrect="off" spellcheck="false" inputmode=(mono ? "decimal" : "text") testId=testId width="100%" height="1.875rem" padding-left="0.4375rem" padding-right="0.4375rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(invalid ? "light-dark(#fb2c36a3, #fb414aa3)" : "light-dark(#d4d4d8, #ffffff14)") background-color="light-dark(#fcfcfc, #ffffff07)" box-shadow=(invalid ? (scheme == "dark" ? "0 0 0 3px #fb414a3d" : "0 0 0 3px #fb2c3629") : "none") opacity=(disabled ? 0.64 : 1) font-family=(mono ? "ui-monospace" : "system-ui") font-size="0.75rem" line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
+
+// Apply to: an outline sm trigger and its checkbox menu; locked while there are unsaved changes.
+component UsagePricesApply
+  props
+    prices: UsagePrices
+    scheme: string
+    op: action
+  // fix-keyboard-focus: Enter or Space opens the menu from the keyboard (menu-keys.contract).
+  state keyed = 0
+  state keyArmed = false
+  action keyArm(on: bool)
+    keyArmed = on
+  action keyOpened(last: bool)
+    keyed = kmBump(keyed, last)
+  action triggerKey(k: string)
+    if kmOpenKey(k)
+      keyed = kmBump(keyed, false)
+  view
+    column position="relative" min-width=0
+      button popovertarget="usage-prices-apply" key=triggerKey focus=keyArm(true) blur=keyArm(false) disabled=(prices.pending or prices.hasChanges) aria-label=`Apply to ${prices.selectionLabel}` testId="usage-prices-apply" height="1.75rem" padding-left="0.5625rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" opacity=(prices.pending or prices.hasChanges ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" min-width=0
+        text prices.selectionLabel font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" line-clamp=1 min-width=0
+        UsageSchemeIcon(name="chevron-down", size=14, scheme=scheme, light="#27272a", dark="#f5f5f5")
+      KeyMenuOpen(menuId="usage-prices-apply", armed=keyArmed, opened=keyOpened)
+      column id="usage-prices-apply" popover="auto" position="absolute" left=0 top=0 padding-top="0.25rem" testId="usage-prices-apply-layer"
+        // MenuPopup: content-sized from its measured width, its glass drawn opaque (as the environment menu, usage-and-pr-pages PG-5).
+        column min-width=`${prices.menuWidth / 16}rem` padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #111111)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") role="menu" testId="usage-prices-apply-menu"
+          KeyMenu(menuId="usage-prices-apply-keys", items=concat([KmItem(id="usage-prices-apply-all", label="All environments")], map(prices.targets, (target) => KmItem(id=`usage-prices-apply-${target.key}`, label=target.label))), keyed=keyed, gap="0px", modal=true)
+            CheckRow(keysId="usage-prices-apply-keys", label="All environments", status="", disabled=false, checked=prices.allChecked, press=op("usage-prices-env", "", ""), testId="usage-prices-apply-all")
+            box width="calc(100% - 16px)" height=1 margin-left="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
+            each target in prices.targets key=target.key
+              CheckRow(keysId="usage-prices-apply-keys", label=target.label, status=target.unavailable, disabled=false, checked=target.checked, press=op("usage-prices-env", target.key, ""), testId=`usage-prices-apply-${target.key}`)
+
+// Button size="icon-xs" variant="ghost": 24pt, a 14pt glyph, bg-accent on hover, with its tooltip.
+component UsageGhostIcon
+  props
+    icon: string
+    label: string
+    tip: string
+    scheme: string
+    disabled: bool
+    press: action
+    testId: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    box position="relative" display="flex"
+      button press=press hover=hover disabled=disabled aria-label=label testId=testId width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+        UsageSchemeIcon(name=icon, size=14, scheme=scheme, light="#27272a", dark="#f5f5f5")
+      when tip != ""
+        TipBubble(label=tip, side="top", align="center", offset=28, inset=0, shown=(over and not disabled))
+
+// Button variant="ghost" (sm:h-8): text in the foreground, bg-accent on hover.
+component UsageGhostButton
+  props
+    label: string
+    disabled: bool
+    press: action
+    testId: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=press hover=hover disabled=disabled testId=testId height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center"
+      text label font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color="light-dark(#27272a, #f5f5f5)"
+
+component UsagePricesSave
+  props
+    label: string
+    scheme: string
+    disabled: bool
+    press: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=press hover=hover disabled=disabled testId="usage-prices-save" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#1b4ed8, #346bf1)" background-color=(over and not disabled ? "light-dark(#1b4ed8e6, #346bf1e6)" : "light-dark(#1b4ed8, #346bf1)") box-shadow=(disabled ? "none" : (scheme == "dark" ? "inset 0 1px 0 #ffffff29, 0 1px 2px #346bf13d" : "inset 0 1px 0 #ffffff29, 0 1px 2px #1b4ed83d")) opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center"
+      text label font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color="#ffffff"
+
+// This dialog is drawn once for both schemes so its inputs survive an
+// appearance change; an SVG's light-dark() would not follow the flip, so its
+// glyphs are drawn per scheme instead.
+component UsageSchemeIcon
+  props
+    name: string
+    size: number
+    scheme: string
+    light: string
+    dark: string
+  view
+    box display="flex" flex-shrink=0
+      when scheme == "dark"
+        PgIcon(name=name, size=size, color=dark)
+      else
+        PgIcon(name=name, size=size, color=light)

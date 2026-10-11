@@ -1,0 +1,557 @@
+// The pull request Summary tab (lane "pages"; pr-conversation-and-refresh), measured against
+// T3 Code 1e2ecbd975 (MIT, see LICENSE-T3) components/pullRequest/PullRequestSummaryTab.tsx,
+// PullRequestActivityUnavailableState.tsx and PullRequestGhosts.tsx PullRequestConversationGhost:
+// reviewers with the verdict ring each last gave, labels, the sticky Description, Checks and
+// Comments sections, the conversation 10 at a time from the newest, the bot and the
+// resolved-or-dismissed groups, the truncated notice and the order toggle. The model is
+// pages-pr-summary.ts; the window, order and open groups are this tab's own state, made fresh
+// for each pull request (the panel keys the tab by its URL).
+use PgIcon from "./pages-icons.contract"
+use PrAvatar from "./pages-prs.contract"
+use PrChip from "./pages-prs.contract"
+use ChatMarkdown from "./markdown.contract"
+use ChatDocument from "./markdown.contract"
+use CodeHighlight from "./markdown.contract"
+use MarkdownEnv from "./markdown.contract"
+use Tip from "./shell-tip.contract"
+use PrReactionPill from "./pages-pr-meta.contract"
+use PrReactionChoice from "./pages-pr-meta.contract"
+use PrdReactionBar from "./pages-pr-meta.contract"
+use PrdCandidatePicker from "./pages-pr-meta.contract"
+use PrWrites from "./pages-pr-compose.contract"
+use PrdDescription from "./pages-pr-edit.contract"
+use PrdRemarkBody from "./pages-pr-edit.contract"
+use PrHandoffsView from "./pages-pr-handoffs.contract"
+use PrdFixButton from "./pages-pr-handoffs.contract"
+
+shape PrFace
+  key: string
+  login: string
+  avatar: string
+  initial: string
+shape PrCommentCard
+  key: string
+  id: string
+  bodyId: string
+  author: string
+  avatar: string
+  initial: string
+  authorTip: string
+  age: string
+  ageTip: string
+  url: string
+  outcome: string
+  outcomeLabel: string
+  stateLabel: string
+  location: string
+  outdated: bool
+  fromEnd: number
+  finishedLabel: string
+  preview: string
+  // pr-writing-and-metadata: the pencil, the editor's seed, and the reactions.
+  canEdit: bool
+  raw: string
+  kind: string
+  saving: bool
+  savedSerial: number
+  reactions: list<PrReactionPill>
+  reacted: list<string>
+  canReact: bool
+  // pr-handoffs-and-quick-actions: the finding its Fix hands over ('' for talk and verdicts).
+  fix: string
+shape PrCommentGroup
+  label: string
+  authorsText: string
+  filesText: string
+  latest: string
+  latestTip: string
+  faces: list<PrFace>
+  more: number
+shape PrReviewerEntry
+  key: string
+  login: string
+  avatar: string
+  initial: string
+  outcome: string
+  stale: bool
+  outcomeText: string
+  tooltip: string
+shape PrSummaryCheck
+  key: string
+  name: string
+  status: string
+  statusLabel: string
+  url: string
+  fix: string
+shape PrSummaryView
+  key: string
+  activityPending: bool
+  activityError: string
+  reviewers: list<PrReviewerEntry>
+  showLabels: bool
+  checksStale: bool
+  checksState: string
+  checks: list<PrSummaryCheck>
+  commentsTitle: string
+  truncated: bool
+  truncatedText: string
+  empty: bool
+  activeCount: number
+  newest: list<PrCommentCard>
+  oldest: list<PrCommentCard>
+  botCount: number
+  botsNewest: list<PrCommentCard>
+  botsOldest: list<PrCommentCard>
+  bots: PrCommentGroup
+  finishedCount: number
+  finishedNewest: list<PrCommentCard>
+  finishedOldest: list<PrCommentCard>
+  finished: PrCommentGroup
+
+fn prsMuted(): string = "light-dark(#71717b, #818181)"
+fn prsInk(): string = "light-dark(#27272a, #f5f5f5)"
+fn prsBorder(): string = "light-dark(#e4e4e799, #ffffff0a)"
+fn prsCheckTone(status: string): string = status == "failure" or status == "cancelled" ? "light-dark(#e40014, #fb414a)" : status == "pending" or status == "action-required" ? "light-dark(#e17100, #ffb900e6)" : status == "success" ? "light-dark(#009966, #5ee9b5e6)" : "light-dark(#71717b, #818181)"
+fn prsCheckIcon(status: string): string = status == "failure" or status == "cancelled" ? "circle-x" : status == "pending" or status == "action-required" ? "circle-dot" : status == "success" ? "circle-check" : "circle-dashed"
+// REVIEW_OUTCOME_PRESENTATION: the ring a face wears (a stale verdict's is mixed 35% into the background).
+fn prsRing(outcome: string, stale: bool): string = outcome == "approved" ? (stale ? "0 0 0 2px light-dark(#a6e8d2, #075139)" : "0 0 0 2px light-dark(#00bc7d, #00d492)") : outcome == "changes-requested" ? (stale ? "0 0 0 2px light-dark(#f6a6ad, #602a2b)" : "0 0 0 2px light-dark(#e40014, #ff6467)") : outcome == "dismissed" ? (stale ? "0 0 0 2px light-dark(#d4d4d7, #2e2e2e)" : "0 0 0 2px light-dark(#71717b99, #81818199)") : "none"
+fn prsOutcomeIcon(outcome: string): string = outcome == "approved" ? "circle-check" : outcome == "changes-requested" ? "circle-x" : "circle-dashed"
+fn prsBadgeBg(outcome: string): string = outcome == "approved" ? "light-dark(#00bc7d14, #00bc7d29)" : outcome == "changes-requested" ? "light-dark(#fb2c3614, #fb2c3629)" : "light-dark(#ffffff, #ffffff0a)"
+fn prsBadgeInk(outcome: string): string = outcome == "approved" ? "light-dark(#007a55, #00d492)" : outcome == "changes-requested" ? "light-dark(#c10007, #ff6467)" : "light-dark(#27272a, #f5f5f5)"
+
+// PullRequestSummaryTab, under the panel's tab bar.
+component PrdSummary
+  props
+    summary: PrSummaryView
+    labels: list<PrChip>
+    hasBody: bool
+    bodyId: string
+    writes: PrWrites
+    documents: list<ChatDocument>
+    code: list<CodeHighlight>
+    env: MarkdownEnv
+    still: bool
+    local: action
+    act: action
+    refresh: action
+    retry: action
+    // Section collapse keeps the pressed heading where it is (pullRequestSummaryScroll.logic.ts
+    // sectionCollapseAnchorScrollTop): the scroll box's id, its offset, and how to move it.
+    scrollId: string
+    scrollTop: number
+    anchor: action
+    // pr-handoffs-and-quick-actions: a finding's own Fix, and where its task lands (the surface).
+    handoffs: PrHandoffsView
+    surface: string
+  state descriptionOpen = true
+  state checksOpen = false
+  state commentsOpen = true
+  state order = "newest"
+  state shown = 10
+  state shownBots = 10
+  action toggle(section: string)
+    let closing = section == "description" ? descriptionOpen : (section == "checks" ? checksOpen : commentsOpen)
+    let viewportTop = frame(scrollId).y
+    let sectionTop = frame(`${scrollId}-${section}`).y
+    let headingTop = frame(`${scrollId}-${section}-heading`).y
+    // A pinned heading whose section has scrolled past the top: put the section's natural top
+    // where the heading is now, so the next section's heading does not slide under the pointer.
+    if closing and sectionTop < viewportTop and headingTop <= viewportTop + 1
+      anchor(max(0, scrollTop + sectionTop - viewportTop))
+    descriptionOpen = section == "description" ? not descriptionOpen : descriptionOpen
+    checksOpen = section == "checks" ? not checksOpen : checksOpen
+    commentsOpen = section == "comments" ? not commentsOpen : commentsOpen
+  action flipOrder
+    order = order == "newest" ? "oldest" : "newest"
+  action more(bots: bool)
+    shown = bots ? shown : shown + 10
+    shownBots = bots ? shownBots + 10 : shownBots
+  action fewer(bots: bool)
+    shown = bots ? shown : 10
+    shownBots = bots ? 10 : shownBots
+  view
+    column width="100%" testId="pull-request-summary"
+      // Raised (here and the Reviewers row) so a reviewer's tooltip, which hangs below the face, paints over
+      // the Labels row and the Description heading: z-index orders siblings (docs/agent-pitfalls.md).
+      column position="relative" z-index=1 width="100%" padding-left="1rem" padding-right="1rem" padding-top="0.625rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem"
+        row position="relative" z-index=1 min-height="1.5rem" align-items="center" gap="0.5rem"
+          row width="6rem" align-items="center" gap="0.375rem" flex-shrink=0
+            PgIcon(name="users", size=14, color=prsMuted())
+            text "Reviewers" font-size="0.75rem" line-height="1rem" color=prsMuted()
+          row min-width=0 flex-wrap="wrap" align-items="center" gap="0.375rem"
+            when length(summary.reviewers) == 0
+              text "None" font-size="0.75rem" line-height="1rem" color=prsMuted() testId="pull-request-reviewers-none"
+            else
+              row align-items="center" min-width=0 testId="pull-request-reviewers"
+                each reviewer in summary.reviewers key=reviewer.key
+                  PrdReviewerFace(reviewer=reviewer)
+            // PullRequestReviewerPicker: wherever the host can take a request and say who could be asked.
+            when writes.reviewers.shown
+              PrdCandidatePicker(picker=writes.reviewers, which="reviewers", op="reviewer", icon="user-plus", label="Request a review", disabledReason="Asking someone to review needs write access on this repository", searchLabel="Search people with access", emptyLabel="Nobody else has access to this repository.", noMatchLabel="Nobody with access matches that.", errorLabel="The people with access could not be read.", truncatedLabel="This repository has more people with access than are listed here. Ask for the rest on the host.", menuId=`${scrollId}-reviewers-menu`, still=still, act=act)
+        when summary.showLabels
+          row min-height="1.5rem" align-items="center" gap="0.5rem"
+            row width="6rem" align-items="center" gap="0.375rem" flex-shrink=0
+              PgIcon(name="tag", size=14, color=prsMuted())
+              text "Labels" font-size="0.75rem" line-height="1rem" color=prsMuted()
+            row flex-wrap="wrap" align-items="center" gap="0.25rem" min-width=0 testId="pull-request-labels"
+              when length(labels) == 0
+                text "None" font-size="0.75rem" line-height="1rem" color=prsMuted()
+              each chip in labels key=chip.key
+                text chip.name max-width="12rem" line-clamp=1 height="1.125rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.25rem" background-color=chip.background font-size="0.75rem" line-height="1.125rem" font-weight=500 color=chip.ink
+              // PullRequestLabelPicker: where the host can change labels at all.
+              when writes.labels.shown
+                PrdCandidatePicker(picker=writes.labels, which="labels", op="label", icon="tag", label="Change labels", disabledReason="Changing labels needs triage access on this repository", searchLabel="Search labels", emptyLabel="This repository has no labels.", noMatchLabel="No label matches that.", errorLabel="The labels could not be read.", truncatedLabel="This repository has more labels than are listed here. Apply the rest on the host.", menuId=`${scrollId}-labels-menu`, still=still, act=act)
+      // Each section is its own box, so its heading sticks only while the section is in view (`section` + `sticky top-0`).
+      column id=`${scrollId}-description` width="100%" role="region" aria-label="Description"
+        PrdSectionHeader(id=`${scrollId}-description-heading`, label="Description", open=descriptionOpen, still=still, press=toggle("description"), testId="pull-request-description-toggle")
+        column width="100%" padding-left="1rem" padding-right="1rem" padding-bottom="1rem" box-sizing="border-box" display=(descriptionOpen ? "flex" : "none") testId="pull-request-description"
+          PrdDescription(bodyId=(hasBody ? bodyId : ""), raw=writes.rawBody, canEdit=writes.canEditChange, saving=writes.bodySaving, serial=writes.bodySerial, scope=scrollId, documents=documents, code=code, env=env, still=still, local=local, act=act)
+      column id=`${scrollId}-checks` width="100%" role="region" aria-label="Checks"
+        PrdSectionHeader(id=`${scrollId}-checks-heading`, label="Checks", open=checksOpen, still=still, press=toggle("checks"), testId="pull-request-checks-toggle")
+        when checksOpen
+          column width="100%" padding-left="1rem" padding-right="1rem" padding-bottom="1rem" box-sizing="border-box" testId="pull-request-checks"
+            when summary.checksStale
+              row align-items="center" gap="0.5rem" testId="pull-request-checks-stale"
+                text "Check details are out of date." font-size="0.75rem" line-height="1rem" color=prsMuted()
+                PrdGhostButton(label="Refresh", icon="", press=refresh, ariaLabel="Refresh", testId="pull-request-checks-refresh")
+            when not summary.checksStale and length(summary.checks) == 0
+              text "No checks reported." font-size="0.75rem" line-height="1rem" color=prsMuted()
+            when not summary.checksStale
+              each check in summary.checks key=check.key
+                PrdCheckRow(check=check, handoffs=handoffs, surface=surface, act=act)
+      column id=`${scrollId}-comments` width="100%" role="region" aria-label="Comments"
+        PrdSectionHeader(id=`${scrollId}-comments-heading`, label=summary.commentsTitle, open=commentsOpen, still=still, press=toggle("comments"), testId="pull-request-comments-toggle")
+          PrdGhostButton(label=(order == "newest" ? "Newest first" : "Oldest first"), icon="arrow-down-up", press=flipOrder, ariaLabel=(order == "newest" ? "Show oldest comments first" : "Show newest comments first"), testId="pull-request-comments-order")
+        when commentsOpen
+          column width="100%" padding-left="1rem" padding-right="1rem" padding-bottom="1rem" box-sizing="border-box" testId="pull-request-comments"
+            when summary.activityPending
+              PrdConversationGhost(still=still)
+            else
+              when summary.activityError != ""
+                PrdActivityUnavailable(error=summary.activityError, compact=true, retry=retry)
+              else
+                when summary.truncated
+                  text summary.truncatedText margin-bottom="0.5rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#fe9a004d, #fe9a004d)" background-color="light-dark(#fffbeb, #fe9a0014)" font-size="0.75rem" line-height="1rem" color=prsInk() testId="pull-request-comments-truncated"
+                when summary.empty
+                  text "No comments yet." padding-top="0.5rem" padding-bottom="0.5rem" font-size="0.75rem" line-height="1rem" color=prsMuted()
+                else
+                  column width="100%" gap="0.75rem"
+                    when order == "oldest" and summary.activeCount > shown
+                      PrdShowOlder(hidden=(summary.activeCount - shown), bots=false, press=more(false))
+                    each card in filter(order == "newest" ? summary.newest : summary.oldest, (c) => c.fromEnd < shown) key=card.key
+                      PrdCommentCard(card=card, choices=writes.reactionChoices, scope=scrollId, documents=documents, code=code, env=env, still=still, local=local, act=act, handoffs=handoffs, surface=surface)
+                    when order == "newest" and summary.activeCount > shown
+                      PrdShowOlder(hidden=(summary.activeCount - shown), bots=false, press=more(false))
+                    when shown > 10
+                      PrdWideButton(label="Show only 10 recent comments", outline=false, press=fewer(false), testId="pull-request-comments-fewer")
+                    when summary.botCount > 0
+                      PrdCommentGroupBox(group=summary.bots, still=still, testId="pull-request-bot-comments")
+                        each card in filter(order == "newest" ? summary.botsNewest : summary.botsOldest, (c) => c.fromEnd < shownBots) key=card.key
+                          PrdCommentCard(card=card, choices=writes.reactionChoices, scope=scrollId, documents=documents, code=code, env=env, still=still, local=local, act=act, handoffs=handoffs, surface=surface)
+                        when summary.botCount > shownBots
+                          PrdShowOlder(hidden=(summary.botCount - shownBots), bots=true, press=more(true))
+                        when shownBots > 10
+                          PrdWideButton(label="Show only 10 recent bot comments", outline=false, press=fewer(true), testId="pull-request-bot-comments-fewer")
+                    when summary.finishedCount > 0
+                      PrdCommentGroupBox(group=summary.finished, still=still, testId="pull-request-finished-comments")
+                        each card in (order == "newest" ? summary.finishedNewest : summary.finishedOldest) key=card.key
+                          PrdCollapsedComment(card=card, choices=writes.reactionChoices, scope=scrollId, documents=documents, code=code, env=env, local=local, act=act, still=still)
+
+// A reviewer's face in the stack (-space-x-1): the verdict rides it as a ring, its words for a
+// screen reader and in the tooltip ("<name> — <outcome>").
+component PrdReviewerFace
+  props
+    reviewer: PrReviewerEntry
+  view
+    Tip(label=reviewer.tooltip, side="bottom", align="center", offset=20)
+      box margin-left="-0.25rem" border-radius="624.9375rem" box-shadow=prsRing(reviewer.outcome, reviewer.stale) role="img" aria-label=(reviewer.outcomeText == "" ? reviewer.login : `${reviewer.login}, ${reviewer.outcomeText}`) testId=`pull-request-reviewer-${reviewer.key}`
+        PrAvatar(avatar=reviewer.avatar, initial=reviewer.initial, size=16)
+
+// Section: a sticky 40pt heading (the label and a chevron that turns), then its body; heading
+// controls sit beside the trigger, not inside it.
+component PrdSectionHeader
+  props
+    id: string
+    label: string
+    open: bool
+    still: bool
+    press: action
+    testId: string
+  slot
+  view
+    row id=id position="sticky" top=0 z-index=10 width="100%" padding-right="1rem" box-sizing="border-box" align-items="center" background-color="light-dark(#fcfcfc, #0a0a0a)"
+      button press=press aria-expanded=open testId=testId flex=1 min-width=0 height="2.5rem" padding-left="1rem" padding-right="1rem" box-sizing="border-box" gap="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+        text label font-size="0.75rem" line-height="1rem" font-weight=500 color=prsMuted() white-space="nowrap"
+        box width="0.875rem" height="0.875rem" flex-shrink=0 rotate=(open ? 90 : 0) transition=(still ? "none" : "rotate 150ms cubic-bezier(0.4, 0, 0.2, 1)") aria-hidden=true
+          PgIcon(name="chevron-right", size=14, color="light-dark(#71717b99, #80808099)")
+      children
+
+// Button size="xs" variant="ghost-muted".
+component PrdGhostButton
+  props
+    label: string
+    icon: string
+    press: action
+    ariaLabel: string
+    testId: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=press hover=hover aria-label=ariaLabel testId=testId height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" flex-shrink=0
+      when icon != ""
+        PgIcon(name=icon, size=12, color=(over ? prsInk() : prsMuted()))
+      text label font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=(over ? prsInk() : prsMuted())
+
+// Button size="sm" (variant outline or ghost), full width.
+component PrdWideButton
+  props
+    label: string
+    outline: bool
+    press: action
+    testId: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=press hover=hover testId=testId width="100%" height="1.75rem" box-sizing="border-box" border-radius="0.5rem" border-width=(outline ? 1 : 0) border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(over ? "light-dark(#f4f4f580, #ffffff0d)" : (outline ? "light-dark(#ffffff, #ffffff07)" : "#00000000")) box-shadow=(outline ? "0 1px 2px #0000000d" : "none") display="flex" flex-direction="row" align-items="center" justify-content="center"
+      text label font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color=prsInk()
+
+component PrdShowOlder
+  props
+    hidden: number
+    bots: bool
+    press: action
+  view
+    PrdWideButton(label=`Show ${min(hidden, 10)} older ${bots ? "bot " : ""}comment${hidden == 1 ? "" : "s"} (${hidden} hidden)`, outline=true, press=press, testId=(bots ? "pull-request-bot-comments-older" : "pull-request-comments-older"))
+
+// A check row opens its details in the system browser where the host gave a URL; a failing one
+// offers its own Fix beside it (pr-handoffs-and-quick-actions).
+component PrdCheckRow
+  inject
+    linkOpen: action
+  props
+    check: PrSummaryCheck
+    handoffs: PrHandoffsView
+    surface: string
+    act: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    row width="100%" align-items="center" gap="0.5rem" padding-right=(check.fix != "" ? "0.25rem" : "0px") box-sizing="border-box" border-radius="0.375rem" background-color=(over ? "light-dark(#f4f4f599, #ffffff0a)" : "#00000000") hover=hover
+      when check.url != ""
+        link href=check.url press=linkOpen(surface == "thread" ? "button" : "button-page", check.url) cursor="pointer" aria-label=`${check.name}: ${check.statusLabel}` testId=`pull-request-check-${check.key}` flex=1 min-width=0 min-height="2.25rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" display="flex" flex-direction="row" align-items="flex-start"
+          box margin-top="0.125rem" flex-shrink=0
+            PgIcon(name=prsCheckIcon(check.status), size=14, color=prsCheckTone(check.status))
+          text check.name flex=1 min-width=0 font-size="0.75rem" line-height="1.25rem" color=prsInk() overflow-wrap="anywhere"
+          text check.statusLabel flex-shrink=0 font-size="0.75rem" line-height="1.25rem" color=prsMuted()
+      else
+        row flex=1 min-width=0 min-height="2.25rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" gap="0.5rem" align-items="flex-start" testId=`pull-request-check-${check.key}`
+          box margin-top="0.125rem" flex-shrink=0
+            PgIcon(name=prsCheckIcon(check.status), size=14, color=prsCheckTone(check.status))
+          text check.name flex=1 min-width=0 font-size="0.75rem" line-height="1.25rem" color=prsInk() overflow-wrap="anywhere"
+          text check.statusLabel flex-shrink=0 font-size="0.75rem" line-height="1.25rem" color=prsMuted()
+      when check.fix != ""
+        PrdFixButton(finding=check.fix, label=(surface == "thread" ? "Fix in this thread" : "Fix"), pending=handoffs.pending, surface=surface, act=act, testId=`pull-request-fix-check-${check.key}`)
+
+// The remark's author and when, the time a link to the remark on the host.
+component PrdIdentity
+  props
+    card: PrCommentCard
+  view
+    row flex=1 min-width=0 flex-wrap="wrap" align-items="center" gap="0.5rem"
+      Tip(label=card.authorTip, side="top", align="start", offset=20)
+        row align-items="center" gap="0.375rem" min-width=0
+          PrAvatar(avatar=card.avatar, initial=card.initial, size=16)
+          text card.author font-size="0.75rem" line-height="1rem" font-weight=500 color=prsInk() line-clamp=1 min-width=0
+      Tip(label=card.ageTip, side="top", align="start", offset=20)
+        when card.url != ""
+          link href=card.url cursor="pointer" testId=`pull-request-comment-age-${card.id}`
+            text card.age font-size="0.75rem" line-height="1rem" color=prsMuted() white-space="nowrap"
+        else
+          text card.age font-size="0.75rem" line-height="1rem" color=prsMuted() white-space="nowrap"
+
+// The verdict a review carries (Badge size="sm"): its icon and word.
+component PrdOutcomeBadge
+  props
+    outcome: string
+    label: string
+  view
+    row height="1rem" padding-left="0.1875rem" padding-right="0.1875rem" box-sizing="border-box" gap="0.25rem" border-radius="0.25rem" border-width=(outcome == "dismissed" ? 1 : 0) border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color=prsBadgeBg(outcome) align-items="center" flex-shrink=0 testId="pull-request-outcome-badge"
+      PgIcon(name=prsOutcomeIcon(outcome), size=12, color=prsBadgeInk(outcome))
+      text label font-size="0.625rem" line-height="1rem" font-weight=500 white-space="nowrap" color=prsBadgeInk(outcome)
+
+component PrdLocation
+  props
+    card: PrCommentCard
+  view
+    when card.location != ""
+      row margin-top="0.5rem" min-width=0 align-items="center" gap="0.5rem" testId=`pull-request-comment-location-${card.id}`
+        Tip(label=card.location, side="top", align="start", offset=20)
+          text card.location font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=prsMuted() line-clamp=1 min-width=0
+        when card.outdated
+          text "Outdated" flex-shrink=0 font-size="0.75rem" line-height="1rem" color=prsMuted()
+
+// renderComment: a remark's card (bg-muted/25 header with the reactions, the location, the words
+// with their pencil where this reader may rewrite them; a long remark collapses at 240pt).
+component PrdCommentCard
+  props
+    card: PrCommentCard
+    choices: list<PrReactionChoice>
+    scope: string
+    documents: list<ChatDocument>
+    code: list<CodeHighlight>
+    env: MarkdownEnv
+    still: bool
+    local: action
+    act: action
+    handoffs: PrHandoffsView
+    surface: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    column width="100%" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=prsBorder() background-color="light-dark(#fcfcfc, #0a0a0a)" role="article" hover=hover testId=`pull-request-comment-${card.id}`
+      row flex-wrap="wrap" align-items="flex-start" gap="0.5rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" padding-bottom="0.625rem" box-sizing="border-box" border-top-left-radius="0.5rem" border-top-right-radius="0.5rem" background-color="light-dark(#f4f4f540, #ffffff06)"
+        row flex=1 min-width=0 flex-wrap="wrap" align-items="center" gap="0.5rem"
+          PrdIdentity(card=card)
+          when card.outcome != ""
+            PrdOutcomeBadge(outcome=card.outcome, label=card.outcomeLabel)
+          when card.outcome == "" and card.stateLabel != ""
+            text card.stateLabel font-size="0.75rem" line-height="1rem" color=prsMuted()
+        // Review remarks only: a plain comment is talk, not a finding (PullRequestSummaryTab).
+        when card.fix != ""
+          box margin-top="-0.25rem" flex-shrink=0
+            PrdFixButton(finding=card.fix, label=(surface == "thread" ? "Fix in this thread" : "Fix in a thread"), pending=handoffs.pending, surface=surface, act=act, testId=`pull-request-fix-${card.id}`)
+        PrdReactionBar(pills=card.reactions, reacted=card.reacted, canReact=card.canReact, choices=choices, subject=card.id, pickerId=`${scope}-react-s-${card.id}`, act=act)
+      when card.location != ""
+        column padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box"
+          PrdLocation(card=card)
+      when card.bodyId != "" or card.canEdit
+        column padding="0.75rem" box-sizing="border-box" min-width=0
+          PrdRemarkBody(remarkId=card.id, bodyId=card.bodyId, raw=card.raw, kind=card.kind, canEdit=card.canEdit, saving=card.saving, serial=card.savedSerial, shown=over, scope=`${scope}-s`, documents=documents, code=code, env=env, still=still, local=local, act=act)
+
+// CommentGroup: the overlapping faces, the label, "N authors · N files · Latest …", a chevron.
+component PrdCommentGroupBox
+  props
+    group: PrCommentGroup
+    still: bool
+    testId: string
+  slot
+  state open = false
+  action toggle
+    open = not open
+  view
+    column width="100%" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fcfcfc, #0a0a0a)" overflow="hidden" testId=testId
+      row align-items="center" gap="0.75rem" padding-left="0.75rem"
+        row flex-shrink=0
+          each person in group.faces key=person.key
+            box margin-right="-0.375rem" border-radius="624.9375rem" box-shadow="0 0 0 2px light-dark(#fcfcfc, #0a0a0a)" aria-label=person.login role="img"
+              PrAvatar(avatar=person.avatar, initial=person.initial, size=16)
+          when group.more > 0
+            row width="1.5rem" height="1.5rem" border-radius="624.9375rem" background-color="light-dark(#f4f4f5, #ffffff0a)" box-shadow="0 0 0 2px light-dark(#fcfcfc, #0a0a0a)" align-items="center" justify-content="center"
+              text `+${group.more}` font-size="0.5625rem" line-height="0.75rem" color=prsMuted()
+        button press=toggle aria-label=group.label aria-expanded=open testId=`${testId}-toggle` flex=1 min-width=0 padding-top="0.75rem" padding-bottom="0.75rem" padding-right="0.75rem" padding-left="0.375rem" box-sizing="border-box" gap="0.75rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+          column flex=1 min-width=0 gap="0.25rem" align-items="flex-start"
+            text group.label font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272ae6, #f5f5f5e6)"
+            row flex-wrap="wrap" gap="0.375rem"
+              text group.authorsText font-size="0.6875rem" line-height="1rem" color=prsMuted()
+              when group.filesText != ""
+                text `· ${group.filesText}` font-size="0.6875rem" line-height="1rem" color=prsMuted()
+              when group.latest != ""
+                Tip(label=group.latestTip, side="top", align="start", offset=20)
+                  text `· Latest ${group.latest}` font-size="0.6875rem" line-height="1rem" color=prsMuted()
+          box width="0.875rem" height="0.875rem" flex-shrink=0 rotate=(open ? 90 : 0) transition=(still ? "none" : "rotate 150ms cubic-bezier(0.4, 0, 0.2, 1)") aria-hidden=true
+            PgIcon(name="chevron-right", size=14, color=prsMuted())
+      column width="100%" padding-left="0.75rem" padding-right="0.75rem" padding-bottom="0.75rem" padding-top="0.5rem" box-sizing="border-box" gap="0.75rem" border-top-width=1 border-top-style="solid" border-color=prsBorder() display=(open ? "flex" : "none")
+        children
+
+// CollapsedComment: finished work opens collapsed — its status ("Resolved", "Review dismissed")
+// toggles it, and a one-line preview of its words stands in until it opens.
+component PrdCollapsedComment
+  props
+    card: PrCommentCard
+    choices: list<PrReactionChoice>
+    scope: string
+    documents: list<ChatDocument>
+    code: list<CodeHighlight>
+    env: MarkdownEnv
+    local: action
+    act: action
+    still: bool
+  state open = false
+  state over = false
+  action toggle
+    open = not open
+  action hover(value: bool)
+    over = value
+  view
+    column width="100%" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=prsBorder() role="article" hover=hover testId=`pull-request-finished-${card.id}`
+      column padding="0.75rem" box-sizing="border-box"
+        row flex-wrap="wrap" align-items="flex-start" gap="0.5rem"
+          PrdIdentity(card=card)
+          button press=toggle aria-expanded=open testId=`pull-request-finished-toggle-${card.id}` flex-shrink=0 padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" gap="0.375rem" border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+            text card.finishedLabel font-size="0.75rem" line-height="1rem" color=prsMuted()
+            box width="0.875rem" height="0.875rem" rotate=(open ? 180 : 0) transition=(still ? "none" : "rotate 150ms cubic-bezier(0.4, 0, 0.2, 1)") aria-hidden=true
+              PgIcon(name="chevron-down", size=14, color=prsMuted())
+          PrdReactionBar(pills=card.reactions, reacted=card.reacted, canReact=card.canReact, choices=choices, subject=card.id, pickerId=`${scope}-react-f-${card.id}`, act=act)
+        PrdLocation(card=card)
+        when not open and card.preview != ""
+          button press=toggle testId=`pull-request-finished-preview-${card.id}` width="100%" margin-top="0.5rem" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row"
+            text card.preview flex=1 min-width=0 text-align="left" font-size="0.75rem" line-height="1rem" color=prsMuted() white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+      // A dismissal carries no more words than an approval does; kept where the pencil lives.
+      when open and (card.bodyId != "" or card.canEdit)
+        column padding-left="0.75rem" padding-right="0.75rem" padding-bottom="0.75rem" box-sizing="border-box" min-width=0
+          PrdRemarkBody(remarkId=card.id, bodyId=card.bodyId, raw=card.raw, kind=card.kind, canEdit=card.canEdit, saving=card.saving, serial=card.savedSerial, shown=over, scope=`${scope}-f`, documents=documents, code=code, env=env, still=still, local=local, act=act)
+
+// PullRequestActivityUnavailableState: compact under Summary's Comments, full in the Timeline.
+component PrdActivityUnavailable
+  props
+    error: string
+    compact: bool
+    retry: action
+  view
+    column width="100%" min-height=(compact ? "auto" : "12rem") padding-left=(compact ? 0 : "1rem") padding-right=(compact ? 0 : "1rem") padding-top=(compact ? "0.75rem" : "2.5rem") padding-bottom=(compact ? "0.75rem" : "2.5rem") box-sizing="border-box" align-items="center" justify-content="center" gap="0.5rem" role="alert" testId=(compact ? "pull-request-activity-error-compact" : "pull-request-activity-error")
+      text "Could not load pull request activity" text-align="center" font-size="0.875rem" line-height="1.25rem" font-weight=500 color=prsInk()
+      text error max-width="28rem" text-align="center" font-size="0.75rem" line-height="1rem" color=prsMuted()
+      PrdRetry(retry=retry)
+
+// Button size="sm" variant="outline": the refresh glyph and "Retry".
+component PrdRetry
+  props
+    retry: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=retry hover=hover aria-label="Retry" testId="pull-request-activity-retry" height="1.75rem" padding-left="0.4375rem" padding-right="0.5625rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(over ? "light-dark(#f4f4f580, #ffffff0d)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center"
+      PgIcon(name="refresh-cw", size=14, color=prsMuted())
+      text "Retry" font-size="0.875rem" line-height="1.25rem" font-weight=500 color=prsInk()
+
+// PullRequestConversationGhost: three rows, a face and three bars each, one pulse.
+keyframes prgPulse
+  from opacity=1
+  42% opacity=1
+  50% opacity=0.55
+  92% opacity=0.55
+  to opacity=1
+component PrdConversationGhost
+  props
+    still: bool
+  view
+    column width="100%" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" gap="1rem" role="status" aria-label="Loading pull request conversation" animation=(still ? "none" : "prgPulse 2.4s steps(4) infinite") testId="pull-request-conversation-ghost"
+      PrdGhostRemark(meta="40%")
+      PrdGhostRemark(meta="33%")
+      PrdGhostRemark(meta="40%")
+
+component PrdGhostRemark
+  props
+    meta: string
+  view
+    row align-items="flex-start" gap="0.5rem"
+      box width="1.25rem" height="1.25rem" flex-shrink=0 border-radius="624.9375rem" background-color="light-dark(#71717b26, #81818126)"
+      column flex=1 gap="0.375rem"
+        box width=meta height="0.75rem" border-radius="0.25rem" background-color="light-dark(#71717b26, #81818126)"
+        box width="100%" height="0.75rem" border-radius="0.25rem" background-color="light-dark(#71717b26, #81818126)"
+        box width="75%" height="0.75rem" border-radius="0.25rem" background-color="light-dark(#71717b26, #81818126)"

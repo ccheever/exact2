@@ -1,0 +1,226 @@
+[
+  {
+    "kind": "npm-global",
+    "theme": "light",
+    "width": 1280,
+    "height": 840,
+    "command": "npm install --global --prefix '/opt/scope fixture'\\''s node' t3@0.0.46-nightly.20261004.1",
+    "toast": true
+  },
+  {
+    "kind": "npm-global",
+    "theme": "light",
+    "width": 840,
+    "height": 620,
+    "command": "npm install --global --prefix '/opt/scope fixture'\\''s node' t3@0.0.46-nightly.20261004.1",
+    "toast": true
+  },
+  {
+    "kind": "npx",
+    "theme": "light",
+    "width": 1280,
+    "height": 840,
+    "command": "npx t3@0.0.46-nightly.20261004.1",
+    "toast": true
+  },
+  {
+    "kind": "npx",
+    "theme": "light",
+    "width": 840,
+    "height": 620,
+    "command": "npx t3@0.0.46-nightly.20261004.1",
+    "toast": true
+  },
+  {
+    "kind": "pnpm-dlx",
+    "theme": "light",
+    "width": 1280,
+    "height": 840,
+    "command": "pnpm dlx t3@0.0.46-nightly.20261004.1",
+    "toast": true
+  },
+  {
+    "kind": "pnpm-dlx",
+    "theme": "light",
+    "width": 840,
+    "height": 620,
+    "command": "pnpm dlx t3@0.0.46-nightly.20261004.1",
+    "toast": true
+  },
+  {
+    "kind": "bunx",
+    "theme": "light",
+    "width": 1280,
+    "height": 840,
+    "command": "bunx t3@0.0.46-nightly.20261004.1",
+    "toast": true
+  },
+  {
+    "kind": "bunx",
+    "theme": "light",
+    "width": 840,
+    "height": 620,
+    "command": "bunx t3@0.0.46-nightly.20261004.1",
+    "toast": true
+  },
+  {
+    "kind": "absent",
+    "theme": "light",
+    "width": 1280,
+    "height": 840,
+    "command": "npx t3@0.0.46-nightly.20261004.1",
+    "toast": true
+  },
+  {
+    "kind": "absent",
+    "theme": "light",
+    "width": 840,
+    "height": 620,
+    "command": "npx t3@0.0.46-nightly.20261004.1",
+    "toast": true
+  },
+  {
+    "kind": "future",
+    "theme": "light",
+    "width": 1280,
+    "height": 840,
+    "command": "npx t3@0.0.46-nightly.20261004.1",
+    "toast": true
+  },
+  {
+    "kind": "future",
+    "theme": "light",
+    "width": 840,
+    "height": 620,
+    "command": "npx t3@0.0.46-nightly.20261004.1",
+    "toast": true
+  },
+  {
+    "kind": "desktop",
+    "theme": "light",
+    "width": 1280,
+    "height": 840,
+    "command": null,
+    "toast": null
+  },
+  {
+    "kind": "desktop",
+    "theme": "light",
+    "width": 840,
+    "height": 620,
+    "command": null,
+    "toast": null
+  },
+  {
+    "kind": "npm-global",
+    "theme": "dark",
+    "width": 1280,
+    "height": 840,
+    "command": "npm install --global --prefix '/opt/scope fixture'\\''s node' t3@0.0.46-nightly.20261004.1",
+    "toast": true
+  },
+  {
+    "kind": "npm-global",
+    "theme": "dark",
+    "width": 840,
+    "height": 620,
+    "command": "npm install --global --prefix '/opt/scope fixture'\\''s node' t3@0.0.46-nightly.20261004.1",
+    "toast": true
+  },
+  {
+    "kind": "npx",
+    "theme": "dark",
+    "width": 1280,
+    "height": 840,
+    "command": "npx t3@0.0.46-nightly.20261004.1",
+    "toast": true
+  },
+  {
+    "kind": "npx",
+    "theme": "dark",
+    "width": 840,
+    "height": 620,
+    "command": "npx t3@0.0.46-nightly.20261004.1",
+    "toast": true
+  },
+  {
+    "kind": "pnpm-dlx",
+    "theme": "dark",
+    "width": 1280,
+    "height": 840,
+    "command": "pnpm dlx t3@0.0.46-nightly.20261004.1",
+    "toast": true
+  },
+  {
+    "kind": "pnpm-dlx",
+    "theme": "dark",
+    "width": 840,
+    "height": 620,
+    "command": "pnpm dlx t3@0.0.46-nightly.20261004.1",
+    "toast": true
+  },
+  {
+    "kind": "bunx",
+    "theme": "dark",
+    "width": 1280,
+    "height": 840,
+    "command": "bunx t3@0.0.46-nightly.20261004.1",
+    "toast": true
+  },
+  {
+    "kind": "bunx",
+    "theme": "dark",
+    "width": 840,
+    "height": 620,
+    "command": "bunx t3@0.0.46-nightly.20261004.1",
+    "toast": true
+  },
+  {
+    "kind": "absent",
+    "theme": "dark",
+    "width": 1280,
+    "height": 840,
+    "command": "npx t3@0.0.46-nightly.20261004.1",
+    "toast": true
+  },
+  {
+    "kind": "absent",
+    "theme": "dark",
+    "width": 840,
+    "height": 620,
+    "command": "npx t3@0.0.46-nightly.20261004.1",
+    "toast": true
+  },
+  {
+    "kind": "future",
+    "theme": "dark",
+    "width": 1280,
+    "height": 840,
+    "command": "npx t3@0.0.46-nightly.20261004.1",
+    "toast": true
+  },
+  {
+    "kind": "future",
+    "theme": "dark",
+    "width": 840,
+    "height": 620,
+    "command": "npx t3@0.0.46-nightly.20261004.1",
+    "toast": true
+  },
+  {
+    "kind": "desktop",
+    "theme": "dark",
+    "width": 1280,
+    "height": 840,
+    "command": null,
+    "toast": null
+  },
+  {
+    "kind": "desktop",
+    "theme": "dark",
+    "width": 840,
+    "height": 620,
+    "command": null,
+    "toast": null
+  }
+]

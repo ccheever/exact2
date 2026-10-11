@@ -1,0 +1,90 @@
+App=com.exact.t3code.ssh157 (pid 36366)
+Window: "T3 Code (Exact)", App: T3 Code (Exact).
+
+0 standard window T3 Code (Exact)
+	1 scroll area, Secondary Actions: scroll up, scroll down
+		2 button Toggle sidebar
+		3 button Go to threads
+		4 text Search
+		5 text field (settable) Search threads
+		6 button Filter threads by project
+		7 button Add project
+		8 button New thread
+		9 scroll area, Secondary Actions: scroll up, scroll down
+			10 button Local route acceptance, Local route fixture
+			11 button SSH menu acceptance, SSH Acceptance
+			12 button Toggle Settled
+		13 button Settings
+		14 button Pull Requests
+		15 button Usage
+		16 button New thread in Local route fixture
+		17 text /
+		18 button Thread actions for Local route acceptance
+		19 button (expanded) Toggle thread details panel
+		20 button (disabled) Toggle terminal drawer
+		21 button Toggle right panel
+		22 scroll area, Secondary Actions: scroll up, scroll down
+			23 text Open
+			24 button /Users/daehyeonmun/orca/workspaces/exact2/t3-code-ssh-password-and-remote-open/target/ssh-live/local-project/README.md
+			25 text .
+			26 button Fork from this response
+			27 button Copy message
+			28 text 7:06 PM
+		29 scroll area, Secondary Actions: scroll up, scroll down
+			30 text entry area (settable) Message
+			31 scroll bar (disabled) 0
+		32 button Choose provider and model
+		33 button Runtime mode
+		34 button Attach files
+		35 button (disabled) Submit message
+		36 scroll area, Secondary Actions: scroll up, scroll down
+			37 text local-project
+			38 button Open in Cursor
+			39 button Choose editor
+			40 button Add project script
+			41 container Git actions
+				42 button Git action options
+				43 button (disabled) Commit
+			44 button Changes +0 -0
+			45 scroll bar 0
+				46 value indicator 0
+				47 increment arrow button
+				48 decrement arrow button
+				49 increment page button
+				50 decrement page button
+		51 button Settings
+		52 button Command Palette
+		53 button Go to File
+		54 button Search Project Contents
+		55 button Change Theme
+		56 button Open Usage
+		57 button Toggle Theme Editor
+		58 button New Thread
+		59 button New Thread
+		60 button New Local Thread
+		61 button Appearance: Dark
+		62 button Previous Thread
+		63 button Next Thread
+		64 button Thread 1
+		65 button Thread 2
+		66 button Settle Thread
+		67 button Pin Thread
+		68 button Open in Editor
+		69 button Toggle Right Panel
+		70 button Toggle Diff
+		71 button Copy Thread ID
+		72 heading Some requests are slow
+		73 button Show requests
+		74 button Dismiss notification
+		75 button Terminal harness
+	76 toolbar
+	77 close button
+	78 full screen button, Secondary Actions: zoom the window
+	79 minimize button
+	80 menu
+		81 menu item Open in Cursor
+		82 menu item Reveal in Finder
+		83 menu item Copy relative path
+		84 menu item Copy full path
+
+The focused UI element is 0 standard window T3 Code (Exact).

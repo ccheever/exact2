@@ -1,0 +1,329 @@
+// The right panel's launcher, the thread title's action menu and the app's
+// confirm dialog (MIT reference, see LICENSE-T3: RightPanelTabs.tsx
+// RightPanelEmptyState, PanelLayoutControls.tsx, threadActionMenu.logic.ts
+// through ContextMenu's DOM fallback, ConfirmDialogHost.tsx), measured on
+// the served reference.
+use ShellView from "./shell-shapes.contract"
+use ShellSurface from "./shell-shapes.contract"
+use ShellMenuItem from "./shell-shapes.contract"
+use ShellIcon from "./shell-icons.contract"
+use TipBubble from "./shell-tip.contract"
+use MorphMaximize from "./shell-morph.contract"
+use R4PanelHeader from "./r4-surfaces.contract"
+use R4SurfaceBody from "./r4-surfaces.contract"
+use R5PrSurfaceBody from "./r5-panels.contract"
+use R5AttachmentBody from "./r5-panels.contract"
+use PrDetailView from "./pages-pr-detail.contract"
+use ChatDocument from "./markdown.contract"
+use Look from "./settings-appearance-look.contract"
+use KmItem from "./menu-keys.contract"
+use KeyMenu from "./menu-keys.contract"
+use BrowserLauncherProfiles from "./browser-surface.contract" // browser-surface part 4
+use BrowserProfileChoice from "./browser-shapes.contract"
+
+// RightPanelEmptyState in a 540pt panel (1px left border): its own top bar
+// (maximize, terminal drawer, right panel pressed) and the centred launcher,
+// 320pt wide, 32pt rows with a 20pt key cap. A row's letter opens it while
+// the launcher has focus; unavailable rows stay listed at 50% with a reason.
+component SurfacePanel
+  props
+    shell: ShellView
+    sheet: bool
+    maximized: bool
+    detailsOpen: bool
+    still: bool
+    ui: action
+    details: action
+    local: action
+    command: action
+    paletteShow: action
+    scheme: string
+    prDetail: PrDetailView
+    prDocuments: list<ChatDocument>
+    // markdown-links-and-files-preview PA-3: the Files surface's rendered Markdown (app.contract filesMarkdown).
+    filesDocuments: list<ChatDocument>
+    prTab: string
+    prSetTab: action
+    prReload: action
+    prAct: action
+    prCopy: action
+    look: Look
+    confirm: action
+    closePending: bool
+    // pr-header-actions-and-stacks: the panel's width (the pull request header's labels go below 30rem).
+    width: number
+  state hovered = ""
+  action hover(id: string, over: bool)
+    hovered = over ? id : (hovered == id ? "" : hovered)
+  // browser-surface: the Browser tab whose URL field has the focus (the module answers the preview's chords then).
+  // Kept by tab: a field that leaves without a blur (its tab switched away) never holds another tab's focus.
+  state urlFocusTab = ""
+  action urlFocus(tab: string, on: bool)
+    urlFocusTab = on ? tab : (urlFocusTab == tab ? "" : urlFocusTab)
+  // right-panel-escape: the surface whose Files search has the focus; while it does, a sheet's toggle leaves Escape to it.
+  // Kept by surface, as the URL field's is by tab.
+  state filesSearchAt = ""
+  action filesSearchFocus(on: bool)
+    filesSearchAt = on ? shell.panel.active : (filesSearchAt == shell.panel.active ? "" : filesSearchAt)
+  view
+    column height="100%" width="100%" min-width=0 position="relative" box-sizing="border-box" background-color=(sheet ? "light-dark(#ffffff, #0a0a0a)" : "light-dark(#fcfcfc, #0a0a0a)") border-left-style="solid" border-left-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" box-shadow=(sheet ? "0 10px 15px -3px #0000000d, 0 4px 6px -4px #0000000d" : "none") role=(sheet ? "dialog" : "region") aria-label="Right panel" testId="right-panel"
+      // r4-surfaces: an open surface draws the tab bar and its body (r4-surfaces.contract); otherwise the launcher.
+      when shell.panel.open
+        R4PanelHeader(panel=shell.panel, surfaces=shell.surfaces, sheet=sheet, maximized=maximized, detailsOpen=detailsOpen, keyThreadPanel=shell.keyThreadPanel, keyRightPanel=shell.keyRightPanel, terminalAvailable=shell.terminalAvailable, terminalOpen=shell.terminalOpen, keyTerminal=shell.keyTerminal, still=still, ui=ui, details=details, local=local, scheme=scheme, searchFocused=(filesSearchAt != "" and filesSearchAt == shell.panel.active and shell.panel.files.showExplorer))
+        R4SurfaceBody(panel=shell.panel, scheme=scheme, sheet=sheet, local=local, command=command, paletteShow=paletteShow, look=look, confirm=confirm, closePending=closePending, urlFocus=urlFocus, filesDocuments=filesDocuments, urlFocused=(urlFocusTab != "" and shell.panel.kind == "browser" and urlFocusTab == shell.panel.browser.tabId), searchFocus=filesSearchFocus)
+        // lane r5-panels: the pull request beside the thread and a sent attachment (r5-panels.contract).
+        when shell.panel.kind == "pull-request"
+          R5PrSurfaceBody(pr=shell.panel.pr, detail=prDetail, documents=prDocuments, scheme=scheme, tab=prTab, setTab=prSetTab, reload=prReload, act=prAct, copy=prCopy, local=local, still=still, compact=(width < 480))
+        when shell.panel.kind == "attachment"
+          R5AttachmentBody(att=shell.panel.attachment, documents=filesDocuments, scheme=scheme, sheet=sheet, local=local)
+      else
+        row height=52 flex-shrink=0 padding-right="0.8125rem" box-sizing="border-box" align-items="center" justify-content="flex-end" gap="0.25rem" position="relative" z-index=20
+          when sheet
+            box position="relative" flex-shrink=0
+              button press=details("toggle", "", "") hover=hover("details") aria-label="Toggle thread details panel" aria-expanded=detailsOpen testId="panel-toggle-details" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(detailsOpen or hovered == "details" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
+                ShellIcon(name="square-menu", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
+              TipBubble(label=(shell.keyThreadPanel == "" ? "Toggle thread details" : `Toggle thread details (${shell.keyThreadPanel})`), side="bottom", align="center", offset=32, inset=0, shown=(hovered == "details"))
+          box position="relative" flex-shrink=0 display=(sheet ? "none" : "flex")
+            button press=ui("maximize", "") hover=hover("maximize") aria-label=(maximized ? "Restore panel size" : "Maximize panel") testId="maximize-right-panel" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(maximized or hovered == "maximize" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
+              MorphMaximize(on=maximized, size=16, color="light-dark(#27272acc, #f5f5f5cc)", weight=2, still=still)
+            TipBubble(label=(maximized ? "Restore panel size" : "Maximize panel"), side="bottom", align="center", offset=32, inset=0, shown=(hovered == "maximize"))
+          box position="relative" flex-shrink=0 hover=hover("terminal")
+            button press=ui("terminal", "") disabled=(not shell.terminalAvailable) aria-label="Toggle terminal drawer" aria-pressed=shell.terminalOpen testId="panel-toggle-terminal" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 opacity=(shell.terminalAvailable ? 1 : 0.64) display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(shell.terminalAvailable and (shell.terminalOpen or hovered == "terminal") ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
+              ShellIcon(name="panel-bottom", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
+            TipBubble(label=(shell.terminalAvailable ? (shell.keyTerminal == "" ? "Toggle terminal drawer" : `Toggle terminal drawer (${shell.keyTerminal})`) : "Terminal drawer is unavailable"), side="bottom", align="end", offset=32, inset=40, shown=(hovered == "terminal"))
+          box position="relative" flex-shrink=0
+            button press=ui("toggle", "") hover=hover("toggle") aria-label="Toggle right panel" aria-keyshortcuts=(sheet ? "Escape" : "") testId="panel-toggle-right" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color="light-dark(#f4f4f5, #ffffff0a)" title=""
+              ShellIcon(name="panel-right", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
+            TipBubble(label=(shell.keyRightPanel == "" ? "Toggle right panel" : `Toggle right panel (${shell.keyRightPanel})`), side="bottom", align="end", offset=32, inset=8, shown=(hovered == "toggle"))
+        SurfaceLauncher(surfaces=shell.surfaces, ui=ui, profiles=shell.panel.browser.profiles, local=local)
+
+// RightPanelEmptyState's launcher (RightPanelTabs.tsx): it takes the focus as it mounts (R8KeysLauncher.swift), and its
+// letters open their surfaces. One highlight runs over the available rows: a pointer over a row sets it, leaving that
+// row clears it, ↓ and → move it on and ↑ and ← back, wrapping (↑ with none goes to the last), and Enter on the
+// launcher itself opens the highlighted surface (`handleKeyDown`). A ⌘, ⌃ or ⌥ chord is not the launcher's. A letter of an
+// available row, either case, is the launcher's alone (the reference's capture listener prevents it and stops it): with
+// a real key the window's monitor hands it here (R8KeysLauncher.route), and nothing else hears it. It mounts afresh each
+// time the panel has no surface, so the highlight starts with none (-1).
+component SurfaceLauncher
+  props
+    surfaces: list<ShellSurface>
+    ui: action
+    profiles: list<BrowserProfileChoice> // browser-surface part 4: the Browser row's profile chevron
+    local: action
+  state hovered = ""
+  state highlight = -1
+  derive ids = map(filter(surfaces, (entry) => entry.available), (entry) => entry.id)
+  derive lit = length(ids) == 0 ? -1 : min(highlight, length(ids) - 1)
+  derive letters = concat(map(filter(surfaces, (entry) => entry.available), (entry) => entry.shortcut), map(filter(surfaces, (entry) => entry.available), (entry) => entry.letter))
+  action hover(id: string, over: bool)
+    hovered = over ? id : (hovered == id ? "" : hovered)
+    if indexOf(ids, id) >= 0
+      highlight = over ? indexOf(ids, id) : (highlight == indexOf(ids, id) ? -1 : highlight)
+  action keys(k: string, e: KeyboardEvent)
+    if e.metaKey or e.ctrlKey or e.altKey or length(ids) == 0
+      ui("key", k)
+    else if k == "ArrowDown" or k == "ArrowRight"
+      preventDefault()
+      highlight = (lit + 1) % length(ids)
+    else if k == "ArrowUp" or k == "ArrowLeft"
+      preventDefault()
+      highlight = lit == -1 ? length(ids) - 1 : (lit - 1 + length(ids)) % length(ids)
+    else if k == "Enter" and lit >= 0
+      preventDefault()
+      match at(ids, lit)
+        case some(id)
+          ui("choose", id)
+        case none
+    else if includes(letters, k)
+      preventDefault()
+      stopPropagation()
+      ui("key", k)
+    else
+      ui("key", k)
+  view
+    column flex=1 min-height=0 align-items="center" justify-content="center" padding-left="1.5rem" padding-right="1.5rem" padding-bottom="3.25rem" box-sizing="border-box" id="surface-chooser" key=keys hatch="t3-launcher" data-surface-launcher-keys=join(map(filter(surfaces, (entry) => entry.available), (entry) => entry.shortcut), "") aria-label="Open a surface" testId="surface-chooser"
+      column width="100%" max-width="20rem" padding-top="1.5rem" padding-bottom="1.5rem" box-sizing="border-box"
+        text "Open a surface" margin-bottom="0.75rem" text-align="center" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+        column width="100%" gap="0.125rem"
+          each surface in surfaces key=surface.id
+            SurfaceRow(surface=surface, highlighted=(surface.available and lit >= 0 and indexOf(ids, surface.id) == lit), tipped=(hovered == surface.id), hover=hover, choose=ui("choose"), profiles=profiles, local=local)
+
+component SurfaceRow
+  props
+    surface: ShellSurface
+    highlighted: bool
+    tipped: bool
+    hover: action
+    choose: action
+    profiles: list<BrowserProfileChoice> // browser-surface part 4: the Browser row's profile chevron
+    local: action
+  // Enter on a focused row is the row's own press: the launcher hears Enter only on itself (`event.target !== event.currentTarget`).
+  action rowKey(k: string)
+    if k == "Enter"
+      stopPropagation()
+  view
+    box position="relative" width="100%" hover=hover(surface.id)
+      when surface.available
+        button press=choose(surface.id) key=rowKey testId=`surface-${surface.id}` aria-label=`${surface.label} ${surface.shortcut}` width="100%" height="2rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" gap="0.625rem" border-radius="0.5rem" border-width=0 display="flex" flex-direction="row" align-items="center" background-color=(highlighted ? "light-dark(#f4f4f599, #ffffff06)" : "#00000000")
+          ShellIcon(name=surface.icon, size=16, color="light-dark(#262626, #f5f5f5)")
+          // A button centers its text (text-align: center, as on the web); the reference's row is start-aligned.
+          text surface.label flex=1 min-width=0 line-clamp=1 text-align="left" font-size="0.875rem" line-height="1.25rem" padding-right=(surface.id == "browser" and length(profiles) > 1 ? "1.75rem" : 0) color="light-dark(#262626, #f5f5f5)"
+          SurfaceKey(shortcut=surface.shortcut)
+        when surface.id == "browser" and length(profiles) > 1
+          BrowserLauncherProfiles(profiles=profiles, local=local)
+      else
+        row width="100%" height="2rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" gap="0.625rem" border-radius="0.5rem" align-items="center" opacity=0.5 aria-label=`${surface.label} ${surface.shortcut}` testId=`surface-${surface.id}`
+          ShellIcon(name=surface.icon, size=16, color="light-dark(#262626, #f5f5f5)")
+          text surface.label flex=1 min-width=0 line-clamp=1 font-size="0.875rem" line-height="1.25rem" color="light-dark(#262626, #f5f5f5)"
+          SurfaceKey(shortcut=surface.shortcut)
+        TipBubble(label=surface.reason, side="top", align="center", offset=36, inset=0, shown=tipped)
+
+// ui/kbd: 20pt cap, 4pt radius, muted fill, 12/16 medium.
+component SurfaceKey
+  props
+    shortcut: string
+  view
+    row min-width="1.25rem" height="1.25rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.25rem" align-items="center" justify-content="center" flex-shrink=0 background-color="light-dark(#fafafa, #ffffff08)" pointer-events="none"
+      text shortcut font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)"
+
+// The thread action menu as ContextMenu's DOM fallback draws it at the title
+// (left edge, 4pt below): dropdown glass, 4pt inset, 28pt rows (16pt muted
+// glyph, 8pt gap, 14/20 label), 1pt separators inset 8pt, a submenu flown out
+// to the right level with its row when that row is hovered. A transparent
+// backdrop closes it; a second click there (a double-click on the title)
+// renames instead. Submenu state is keyed to this opening's serial. Pressing
+// a submenu's row (a click, Enter or Space) opens it with the focus on its
+// first enabled item, as the fallback's openSubmenu(true) does (title-custom-snooze).
+component TitleMenu
+  props
+    items: list<ShellMenuItem>
+    children: list<ShellMenuItem>
+    x: number
+    y: number
+    serial: number
+    pick: action
+    ui: action
+  state sub = ""
+  state subTop = 0
+  state subSerial = -1
+  state hoveredId = ""
+  // fix-keyboard-focus: the arrows, Home, End and a letter move through each list (menu-keys.contract); a
+  // submenu's row opened from the keyboard hands the focus to the submenu's first item.
+  state subKeyed = 0
+  derive open = subSerial == serial ? sub : ""
+  action hover(id: string, op: string, parent: string, offset: number, over: bool)
+    if over
+      hoveredId = id
+      if op == "ui:submenu"
+        sub = id
+        subTop = offset
+        subSerial = serial
+      else
+        if parent == ""
+          sub = ""
+    else
+      if hoveredId == id
+        hoveredId = ""
+  action expand(id: string, offset: number)
+    hover(id, "ui:submenu", "", offset, true)
+    subKeyed = subKeyed + 1
+    focus("title-submenu-keys")
+  action subBack(k: string)
+    if k == "ArrowLeft" and open != ""
+      preventDefault()
+      focus(`title-menu-${open}`)
+      sub = ""
+  view
+    box position="absolute" left=0 top=0 right=0 bottom=0 z-index=60 testId="title-menu-layer"
+      button press=ui("close", "") dblclick=ui("rename", "") aria-label="Close menu" aria-keyshortcuts="Escape" testId="title-menu-backdrop" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" title=""
+      row position="absolute" left=x top=y align-items="flex-start"
+        column min-width="8rem" max-width="24rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" box-shadow="0 20px 25px -5px #00000040, 0 8px 10px -6px #00000040" role="menu" aria-label="Thread actions" testId="title-menu"
+          KeyMenu(menuId="title-menu-keys", items=map(filter(items, (entry) => not entry.disabled), (entry) => KmItem(id=`title-menu-${entry.id}`, label=entry.label)), keyed=0, gap="0px", modal=false)
+            each entry in items key=entry.id
+              when entry.separated
+                box height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" background-color="light-dark(#e4e4e7, #ffffff0f)"
+              MenuRow(entry=entry, highlighted=(hoveredId == entry.id or open == entry.id), pick=pick, hover=hover, expand=expand)
+        when open != ""
+          column min-width="8rem" max-width="24rem" margin-left=-1 margin-top=subTop padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" box-shadow="0 20px 25px -5px #00000040, 0 8px 10px -6px #00000040" key=subBack role="menu" aria-label=open testId="title-submenu"
+            KeyMenu(menuId="title-submenu-keys", items=map(filter(children, (c) => c.submenu == open and not c.disabled), (entry) => KmItem(id=`title-menu-${entry.id}`, label=entry.label)), keyed=subKeyed, gap="0px", modal=false)
+              each entry in filter(children, (c) => c.submenu == open) key=entry.id
+                when entry.separated
+                  box height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" background-color="light-dark(#e4e4e7, #ffffff0f)"
+                MenuRow(entry=entry, highlighted=(hoveredId == entry.id), pick=pick, hover=hover, expand=expand)
+
+component MenuRow
+  props
+    entry: ShellMenuItem
+    highlighted: bool
+    pick: action
+    hover: action
+    expand: action
+  action activate
+    if entry.op == "ui:submenu"
+      expand(entry.id, entry.offset)
+    else
+      pick(entry.op, entry.target, entry.value, entry.confirmTitle, entry.confirmBody, entry.destructive)
+  // → opens a submenu's row as Enter does (fix-keyboard-focus).
+  action rowKey(k: string)
+    if k == "ArrowRight" and entry.op == "ui:submenu" and not entry.disabled
+      preventDefault()
+      expand(entry.id, entry.offset)
+  // A disabled row hears no pointer (the fallback's pointer-events: none): a disabled Snooze never opens its submenu.
+  action point(over: bool)
+    if not entry.disabled
+      hover(entry.id, entry.op, entry.submenu, entry.offset, over)
+  view
+    button id=`title-menu-${entry.id}` press=activate hover=point key=rowKey disabled=entry.disabled role=(entry.id == "auto-settle:enabled" or entry.id == "auto-settle:disabled" ? "menuitemradio" : "menuitem") aria-checked=entry.checked aria-expanded=(entry.op == "ui:submenu" and highlighted) testId=`title-menu-${entry.id}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 display="flex" flex-direction="row" align-items="center" opacity=(entry.disabled ? 0.64 : 1) background-color=(highlighted ? (entry.destructive ? "light-dark(#fb2c3614, #fb414a1f)" : "light-dark(#f4f4f5, #ffffff0a)") : "#00000000")
+      when entry.icon != ""
+        ShellIcon(name=entry.icon, size=16, color=(entry.destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#71717b, #818181)"))
+      when entry.checked
+        ShellIcon(name="check", size=16, color="light-dark(#27272a, #f5f5f5)")
+      when entry.icon == "" and not entry.checked and (entry.id == "auto-settle:enabled" or entry.id == "auto-settle:disabled")
+        box width="1rem" height="1rem" flex-shrink=0
+      // A button centers its text (text-align: center, as on the web); the fallback menu's rows are start-aligned.
+      text entry.label flex=1 min-width=0 line-clamp=1 white-space="nowrap" text-align="left" font-size="0.875rem" line-height="1.25rem" color=(entry.destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#27272a, #f5f5f5)")
+      when entry.op == "ui:submenu"
+        box opacity=0.8 margin-right="-0.125rem" flex-shrink=0 display="flex"
+          ShellIcon(name="chevron-right", size=16, color="light-dark(#71717b, #818181)")
+
+// ConfirmDialogHost (ui/alert-dialog.tsx), measured on the served reference:
+// a 4pt-blurred 60% canvas backdrop (64% dark), a 512pt dialog-glass popup
+// (18pt radius, foreground/10 edge, 0 24 64 -24 black/65 shadow) with a 24pt
+// header (20/20 semibold title, 14/20 muted description, 8pt apart) and a
+// muted footer (16×24, top rule) holding Cancel (outline, Escape) and Confirm
+// (default, or destructive), both 32pt with 11pt sides. The popup's own glass
+// is flattened to the colour it shows over that backdrop.
+// Its focus is Base UI's: Cancel, the first control, takes it as the dialog
+// opens (`autofocus`, which an opener that keeps the focus moves itself), and Tab
+// and Shift+Tab cycle Cancel and Confirm (the popup's focus trap), so nothing
+// behind it is a stop. `confirmId` keeps the ids of two mounted at once apart (the
+// main window's is "app-confirm"; the testIds stay app-confirm-cancel/-confirm).
+component AppConfirm
+  props
+    title: string
+    body: string
+    destructive: bool
+    busy: bool
+    confirmId: string
+    cancel: action
+    confirm: action
+  action fromCancel(k: string, e: KeyboardEvent)
+    if k == "Tab" and e.shiftKey and not e.metaKey and not e.ctrlKey and not e.altKey
+      preventDefault()
+      focus(`${confirmId}-confirm`)
+  action fromConfirm(k: string, e: KeyboardEvent)
+    if k == "Tab" and not e.shiftKey and not e.metaKey and not e.ctrlKey and not e.altKey
+      preventDefault()
+      focus(`${confirmId}-cancel`)
+  view
+    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" testId="app-confirm-overlay"
+      column width="100%" max-width="32rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfc, #0a0a0a)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="alertdialog" aria-modal=true aria-label=title testId="app-confirm"
+        column gap="0.5rem" padding="1.5rem" box-sizing="border-box"
+          text title font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
+          when body != ""
+            text body font-size="0.875rem" line-height="1.25rem" white-space="pre-line" color="light-dark(#71717b, #8f8f8f)"
+        row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafab8, #ffffff06)"
+          button id=`${confirmId}-cancel` press=cancel key=fromCancel autofocus=true disabled=busy aria-keyshortcuts="Escape" testId="app-confirm-cancel" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d"
+            text "Cancel" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+          button id=`${confirmId}-confirm` press=confirm key=fromConfirm disabled=busy testId="app-confirm-confirm" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 opacity=(busy ? 0.64 : 1) border-color=(destructive ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#1b4ed8, #346bf1)") background-color=(destructive ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#1b4ed8, #346bf1)") box-shadow="0 1px 2px #0000000d"
+            text "Confirm" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"

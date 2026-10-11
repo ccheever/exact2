@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "status": "failed",
+  "source": {
+    "digest": "04454aad63111ed5bcf7d6a6662270e2af511552",
+    "algorithm": "git-tree-sha1",
+    "commit": "60a28292df26bda45397934b6598e2f55d5a3053",
+    "implementation_unchanged_since_build": true
+  },
+  "platform": "macOS 26.6.2 arm64; Xcode 27.0; Bun 1.4.2; normal native and Electron 44.4.2",
+  "failed": [
+    "Visible focus ring missing on keyboard-focused update control"
+  ],
+  "blocked": [
+    "Full normalized T0 trace comparison",
+    "U12 and prerequisite merge decisions"
+  ],
+  "passed": [
+    "Ordered five-scope exchanges",
+    "Read-only rejection and consumption",
+    "Legacy chat and restart",
+    "28 installation/theme/size cases per app",
+    "Keyboard activation",
+    "Native pasteboard failure/retry",
+    "Message and approval receipt",
+    "Automated checks with pinned Bun"
+  ]
+}

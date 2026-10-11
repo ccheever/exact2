@@ -1,0 +1,26 @@
+[package]
+name = "t3-code-macos"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+build = "build.rs"
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-apple = { path = "../../../host/apple" }
+exact-js = { path = "../../../js" }
+exact-data = { path = "../../../data" }
+exact-plan = { path = "../../../plan" }
+exact-runner = { path = "../../../runner" }
+markdown-parse = { path = "../../../apps/markdown/parse" }
+
+[build-dependencies]
+exact-js-bake = { path = "../../../js/bake" }
+exact-data = { path = "../../../data" }
+exact-plan = { path = "../../../plan" }
+exact-runner = { path = "../../../runner" }
+markdown-parse = { path = "../../../apps/markdown/parse" }

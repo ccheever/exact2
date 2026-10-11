@@ -1,0 +1,226 @@
+// The pull request panel's host stack (lane "pages", pr-header-actions-and-stacks), drawn from
+// pages-pr-stack.ts presentStack: PullRequestStackMenu's trigger ("2/3", a warning glyph when the
+// refresh failed), its menu (Stack #N with "May be stale"/"Refreshing…", Retry stack refresh, the
+// layers top-down with their state glyph and a check on this one, "↳ base", Merge stack (k), Rebase
+// stack, the open-and-ready note), the separate "Merge stack" button, "Retry stack lookup", and the
+// confirmation Dialog. Sources: T3 Code (MIT, see LICENSE-T3) components/pullRequest/
+// {PullRequestStackMenu,PullRequestStackLayers,PullRequestStackHeader,PullRequestStackLayerContent}.tsx,
+// ui/{menu,dialog,button}.tsx.
+use PgIcon from "./pages-icons.contract"
+use PrMenuBox from "./pages-prs.contract"
+use Tip from "./shell-tip.contract"
+use KmItem from "./menu-keys.contract"
+use KeyMenu from "./menu-keys.contract"
+use kmOpenKey from "./menu-keys.contract"
+use KeyMenuOpen from "./menu-keys.contract"
+use kmBump from "./menu-keys.contract"
+
+shape PrStackLayer
+  key: string
+  number: number
+  ref: string
+  title: string
+  detail: string
+  compact: string
+  state: string
+  current: bool
+shape PrStackView
+  shown: bool
+  retryLookup: bool
+  number: number
+  label: string
+  ariaLabel: string
+  tooltip: string
+  warn: bool
+  noticeText: string
+  notice: string
+  retry: bool
+  layers: list<PrStackLayer>
+  base: string
+  selectable: bool
+  canMerge: bool
+  mergeDisabled: bool
+  mergeItemLabel: string
+  canRebase: bool
+  rebaseDisabled: bool
+  note: string
+  mergeButton: bool
+  mergeTooltip: string
+  dialogOpen: bool
+  dialogTitle: string
+  dialogDescription: string
+  dialogLayers: list<PrStackLayer>
+  dialogConfirm: string
+  dialogAction: string
+  pending: bool
+
+fn psTone(state: string): string = state == "draft" ? "light-dark(#71717b, #9f9fa9cc)" : state == "closed" ? "light-dark(#e7000b, #ffa2a2e6)" : state == "merged" ? "light-dark(#7f22fe, #c4b4ffe6)" : "light-dark(#009966, #5ee9b5e6)"
+fn psIcon(state: string): string = state == "draft" ? "git-pull-request-draft" : state == "closed" ? "git-pull-request-closed" : state == "merged" ? "git-merge" : "git-pull-request-arrow"
+fn psInk(): string = "light-dark(#27272a, #f5f5f5)"
+fn psMuted(): string = "light-dark(#71717b, #818181)"
+fn psPrimary(): string = "light-dark(#1b4ed8, #346bf1)"
+
+// The header's stack controls, before the thread links and the primary control.
+component PrdStackControls
+  props
+    stack: PrStackView
+    ref: string
+    scheme: string
+    local: action
+    select: action
+  // fix-keyboard-focus: the stack menu's keyboard (menu-keys.contract).
+  state keyed = 0
+  state keyArmed = false
+  action keyArm(on: bool)
+    keyArmed = on
+  action keyOpened(last: bool)
+    keyed = kmBump(keyed, last)
+  derive stackItems = filter(concat(concat([KmItem(id=(stack.retry ? "pr-stack-retry" : ""), label="Retry stack refresh")], map(stack.layers, (layer) => KmItem(id=(stack.selectable ? `pr-stack-layer-${layer.number}` : ""), label=layer.title))), [KmItem(id=(stack.canMerge and not stack.mergeDisabled ? "pr-stack-merge" : ""), label=stack.mergeItemLabel), KmItem(id=(stack.canRebase and not stack.rebaseDisabled ? "pr-stack-rebase" : ""), label="Rebase stack")]), (item) => item.id != "")
+  action triggerKey(k: string)
+    if kmOpenKey(k)
+      keyed = kmBump(keyed, false)
+  view
+    when stack.retryLookup
+      PsGhostButton(label="Retry stack lookup", press=local("pr-ui-stack-retry", ref, ""), testId="pull-request-stack-retry-lookup")
+    when stack.shown
+      column position="relative" flex-shrink=0
+        Tip(label=stack.tooltip, side="top", align="center", offset=20)
+          button popovertarget="pr-stack-menu" key=triggerKey focus=keyArm(true) blur=keyArm(false) aria-label=stack.ariaLabel testId="pull-request-stack" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="#00000000" background-color="#00000000" display="flex" flex-direction="row" align-items="center" flex-shrink=0
+            PgIcon(name="layers", size=14, color=psMuted())
+            text stack.label font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=psInk() font-variant-numeric="tabular-nums"
+            when stack.warn
+              PgIcon(name="triangle-alert", size=12, color="#fe9a00")
+        KeyMenuOpen(menuId="pr-stack-menu", armed=keyArmed, opened=keyOpened)
+        row id="pr-stack-menu" popover="auto" position="absolute" padding-top="0.25rem" align-items="flex-start" testId="pr-stack-layer"
+          PrMenuBox(scheme=scheme, width=288, label=`Stack #${stack.number}`)
+            KeyMenu(menuId="pr-stack-keys", items=stackItems, keyed=keyed, gap="0px", modal=true)
+              row width="100%" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" justify-content="space-between" align-items="center" gap="0.5rem"
+                text `Stack #${stack.number}` font-size="0.75rem" line-height="1rem" font-weight=500 color=psMuted()
+                when stack.noticeText != ""
+                  Tip(label=stack.notice, side="top", align="center", offset=20)
+                    text stack.noticeText role="status" font-size="0.75rem" line-height="1rem" color=psMuted() testId="pull-request-stack-notice"
+              when stack.retry
+                PsMenuItem(keysId="pr-stack-keys", icon="", label="Retry stack refresh", detail="", state="", current=false, disabled=false, destructive=false, press=local("pr-ui-stack-retry", ref, ""), testId="pr-stack-retry")
+              column width="100%" max-height="20rem" overflow-y="auto"
+                each layer in stack.layers key=layer.key
+                  PsMenuItem(keysId="pr-stack-keys", icon=psIcon(layer.state), label=layer.title, detail=layer.detail, state=layer.state, current=layer.current, disabled=(not stack.selectable), destructive=false, press=select(layer.ref), testId=`pr-stack-layer-${layer.number}`)
+                text stack.base padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" font-size="0.75rem" line-height="1rem" font-weight=500 color=psMuted() testId="pr-stack-base"
+              when stack.canMerge or stack.canRebase
+                box width="calc(100% - 16px)" height=1 margin-left="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
+                when stack.canMerge
+                  PsMenuItem(keysId="pr-stack-keys", icon="git-merge", label=stack.mergeItemLabel, detail="", state="", current=false, disabled=stack.mergeDisabled, destructive=false, press=local("pr-ui-stack-ask", ref, "merge"), testId="pr-stack-merge")
+                when stack.canRebase
+                  PsMenuItem(keysId="pr-stack-keys", icon="refresh-cw", label="Rebase stack", detail="", state="", current=false, disabled=stack.rebaseDisabled, destructive=false, press=local("pr-ui-stack-ask", ref, "update-branch"), testId="pr-stack-rebase")
+                when stack.note != ""
+                  text stack.note padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" font-size="0.75rem" line-height="1rem" color=psMuted() testId="pr-stack-note"
+          box width="1rem" height=1 flex-shrink=0
+      when stack.mergeButton
+        Tip(label=stack.mergeTooltip, side="top", align="center", offset=20)
+          button press=local("pr-ui-stack-ask", ref, "merge") disabled=stack.mergeDisabled aria-label="Merge stack" testId="pull-request-stack-merge" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=psPrimary() background-color=psPrimary() box-shadow="inset 0 1px 0 #ffffff29, 0 1px 2px #1b4ed83d" opacity=(stack.mergeDisabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0
+            PgIcon(name="git-merge", size=14, color="#ffffff")
+            text "Merge stack" font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color="#ffffff"
+
+// Button size="xs" variant="ghost".
+component PsGhostButton
+  props
+    label: string
+    press: action
+    testId: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=press hover=hover testId=testId height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="#00000000" background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" flex-shrink=0
+      text label font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=psInk()
+
+// MenuItem: a layer (its state glyph, title over "#n · branch · State", a check on this one) or an action.
+component PsMenuItem
+  props
+    // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
+    keysId: string
+    icon: string
+    label: string
+    detail: string
+    state: string
+    current: bool
+    disabled: bool
+    destructive: bool
+    press: action
+    testId: string
+  state lit = false
+  action hover(value: bool)
+    if value
+      focus(`${testId}-km`)
+    else if lit
+      focus(keysId)
+  action focused(on: bool)
+    lit = on
+  view
+    button id=testId press=press popovertarget="pr-stack-menu" popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) disabled=disabled role="menuitem" aria-current=(current ? "true" : "") testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(lit and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
+      when icon != ""
+        PgIcon(name=icon, size=(state != "" ? 16 : 14), color=(state != "" ? psTone(state) : psMuted()))
+      column flex=1 min-width=0 align-items="flex-start"
+        text label font-size="0.875rem" line-height="1.25rem" color=psInk() width="100%" min-width=0 text-align="left" white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+        when detail != ""
+          text detail font-size="0.75rem" line-height="1rem" color=psMuted() width="100%" min-width=0 text-align="left" white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+      when current
+        PgIcon(name="check", size=14, color=psInk())
+
+// The confirmation Dialog over the window: "Merge k pull requests?" / "Rebase n pull requests?", the
+// layers it touches, Cancel and Merge stack / Rebase stack ("Working…" while it runs; no close then).
+component PrStackDialog
+  props
+    stack: PrStackView
+    ref: string
+    dark: bool
+    act: action
+    local: action
+  view
+    box position="absolute" left=0 top=0 right=0 bottom=0 z-index=80 background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" testId="pr-stack-dialog-layer"
+      column position="absolute" left=0 top=0 right=0 bottom=0 padding="1rem" box-sizing="border-box" align-items="center" justify-content="center" press=local("pr-ui-stack-cancel", ref, "") aria-label="Close" testId="pr-stack-dialog-backdrop"
+        PsDialogPopup(stack=stack, ref=ref, dark=dark, act=act, local=local)
+
+component PsDialogPopup
+  props
+    stack: PrStackView
+    ref: string
+    dark: bool
+    act: action
+    local: action
+  state held = false
+  action hold
+    held = true
+  // Focus starts on Cancel; Tab goes Cancel, the action, Close and round again (X53's stopgap).
+  action fromCancel(k: string, e: KeyboardEvent)
+    if k == "Tab" and not e.metaKey and not e.ctrlKey and not e.altKey
+      preventDefault()
+      focus(e.shiftKey ? (stack.pending ? "pr-stack-dialog-confirm" : "pr-stack-dialog-close") : "pr-stack-dialog-confirm")
+  action fromConfirm(k: string, e: KeyboardEvent)
+    if k == "Tab" and not e.metaKey and not e.ctrlKey and not e.altKey
+      preventDefault()
+      focus(e.shiftKey or stack.pending ? "pr-stack-dialog-cancel" : "pr-stack-dialog-close")
+  action fromClose(k: string, e: KeyboardEvent)
+    if k == "Tab" and not e.metaKey and not e.ctrlKey and not e.altKey
+      preventDefault()
+      focus(e.shiftKey ? "pr-stack-dialog-confirm" : "pr-stack-dialog-cancel")
+  view
+    column position="relative" width="100%" max-width="28rem" max-height="100%" min-height=0 box-sizing="border-box" border-radius="1.125rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow=(dark ? "inset 0 1px 0 #ffffff0a, 0 24px 72px -20px #000000e6" : "0 24px 64px -24px #000000a6") overflow="hidden" press=hold retainFocus=true role="dialog" aria-modal=true aria-label=stack.dialogTitle testId="pr-stack-dialog"
+      column gap="0.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" padding-bottom="0.75rem" box-sizing="border-box"
+        text stack.dialogTitle font-size="1.25rem" font-weight=600 line-height="1.25rem" color=psInk() role="heading" aria-level=2 testId="pr-stack-dialog-title"
+        text stack.dialogDescription font-size="0.875rem" line-height="1.25rem" color=psMuted() testId="pr-stack-dialog-description"
+      column padding-left="1.5rem" padding-right="1.5rem" padding-top="0.25rem" padding-bottom="1.5rem" box-sizing="border-box"
+        column width="100%" max-height="12rem" overflow-y="auto" gap="0.25rem" role="list"
+          each layer in stack.dialogLayers key=layer.key
+            row width="100%" gap="0.5rem" align-items="center" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-radius="0.375rem" background-color="light-dark(#f4f4f580, #ffffff05)" role="listitem" testId=`pr-stack-dialog-layer-${layer.number}`
+              PgIcon(name=psIcon(layer.state), size=16, color=psTone(layer.state))
+              column flex=1 min-width=0
+                text layer.title font-size="0.875rem" line-height="1.25rem" color=psInk() white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+                text layer.compact font-size="0.75rem" line-height="1rem" color=psMuted() white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+      row width="100%" gap="0.5rem" justify-content="flex-end" align-items="center" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafab8, #ffffff06)"
+        button id="pr-stack-dialog-cancel" press=local("pr-ui-stack-cancel", ref, "") key=fromCancel autofocus=true disabled=stack.pending aria-keyshortcuts="Escape" testId="pr-stack-dialog-cancel" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" opacity=(stack.pending ? 0.64 : 1) display="flex" align-items="center" justify-content="center"
+          text "Cancel" font-size="0.875rem" line-height="1.25rem" font-weight=500 color=psInk()
+        button id="pr-stack-dialog-confirm" press=act("stack-run", "") key=fromConfirm disabled=stack.pending testId="pr-stack-dialog-confirm" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=psPrimary() background-color=psPrimary() box-shadow="inset 0 1px 0 #ffffff29, 0 1px 2px #0000000d" opacity=(stack.pending ? 0.64 : 1) display="flex" align-items="center" justify-content="center"
+          text stack.dialogConfirm font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"
+      when not stack.pending
+        button id="pr-stack-dialog-close" press=local("pr-ui-stack-cancel", ref, "") key=fromClose aria-label="Close" position="absolute" top="0.5rem" right="0.5rem" width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" testId="pr-stack-dialog-close" title=""
+          PgIcon(name="x", size=16, color=psInk())

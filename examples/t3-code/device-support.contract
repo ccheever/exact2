@@ -1,0 +1,72 @@
+// Simulator support before the device hub is ready (T3 Code 1e2ecbd975, 5318d054a5;
+// MIT, see LICENSE-T3). DeviceSetup.tsx: the "Check simulator support" section
+// (DevicePlatformSetup) at step 1, and at step 0 too (16 pt above it) when the hub is
+// on and a local host has no available platform. IntegrationsSettings.tsx: the
+// "Simulator support" row with compact PlatformStatus and Refresh.
+// exact2: the reference animates the row's reveal (AnimatedHeight); layout
+// interpolation is unsupported, so the row shows at once, with or without reduced motion.
+use R4Device from "./r4-surfaces-shapes.contract"
+use R4Platform from "./r4-surfaces-shapes.contract"
+use R4Icon from "./r4-surfaces-icons.contract"
+
+shape SimulatorSupportRow
+  key: string
+  platforms: list<R4Platform>
+  description: string
+  disabled: bool
+
+// DevicePlatformSetup under its heading. The panel column's gap is 12, so step 0's
+// mt-4 is a 4 pt margin on top of it.
+component SimulatorSupportSection
+  props
+    device: R4Device
+    command: action
+  view
+    column width="100%" gap="0.75rem" margin-top=(device.step == 0 ? "0.25rem" : "0px") testId=`device-platforms-step-${device.step}`
+      text "Check simulator support" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+      each platform in device.platforms key=platform.id
+        row gap="0.5rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)"
+          box margin-top="0.125rem" flex-shrink=0
+            R4Icon(name=(platform.ready ? "check" : "circle-alert"), size=16, color=(platform.ready ? "light-dark(#00a63e, #05df72)" : "light-dark(#71717b, #818181)"))
+          column flex=1 min-width=0
+            text platform.platform font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+            text platform.message font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+      text "You can use either platform. Fixing a missing platform does not block the other one." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+      button press=command("shell:surface-device-list", "", "", 0) disabled=(not device.enabled or device.busy or device.pending != "") testId="device-check-again" align-self="flex-start" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" gap="0.375rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff08)" opacity=(not device.enabled or device.busy or device.pending != "" ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
+        text (device.pending == "check" ? "Checking…" : "Check again") font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+
+// Integrations › Devices "Simulator support" (SettingsRow with status and control).
+// `checking` marks this row's own Refresh; the page re-keys the row after each one.
+component SimulatorSupportSettingsRow
+  props
+    row: SimulatorSupportRow
+    busy: bool
+    rest: action
+  state checking = false
+  action refresh
+    checking = true
+    rest("device-platforms", "")
+  view
+    row width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="2rem" align-items="center" border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff08)" testId="device-row-platform-support" id="device-platform-support"
+      column flex=1 min-width=0 gap="0.25rem"
+        row min-height="1.25rem" align-items="center" gap="0.375rem"
+          text "Simulator support" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+          box width="1.25rem" height="1.25rem"
+        when row.description != ""
+          text row.description font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" max-width="36rem" testId="device-platform-support-description"
+        row padding-top="0.125rem" flex-wrap="wrap" column-gap="1.25rem" row-gap="0.5rem" testId="device-platform-support-status"
+          each platform in row.platforms key=platform.id
+            row gap="0.5rem" align-items=(platform.ready ? "center" : "flex-start") testId=`device-platform-${platform.id}`
+              box margin-top=(platform.ready ? "0px" : "0.125rem") flex-shrink=0
+                R4Icon(name=(platform.ready ? "check" : "circle-alert"), size=16, color=(platform.ready ? "light-dark(#00a63e, #05df72)" : "light-dark(#71717b, #818181)"))
+              when platform.ready
+                row gap="0.5rem" align-items="center"
+                  text platform.platform font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)"
+                  text "Ready" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+              else
+                column min-width=0
+                  text platform.platform font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)"
+                  text platform.message font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+      row flex-shrink=0 min-width="10rem" align-items="center" justify-content="flex-end" gap="0.5rem"
+        button press=refresh disabled=(busy or row.disabled) testId="device-platform-refresh" display="flex" flex-direction="row" align-items="center" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" opacity=(busy or row.disabled ? 0.64 : 1)
+          text (checking and busy ? "Checking…" : "Refresh") font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"

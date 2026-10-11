@@ -1,0 +1,22 @@
+// Settings › Appearance's prompt sample, adapted from T3 Code (MIT, see LICENSE-T3):
+// SettingsFontPreviews.tsx PromptFontPreview, "a live composer editor: type in it to feel the
+// family and size". It holds the composer's serialized sample (a `$skill` and two Markdown file
+// links, drawn as chips) in its own state, so typing never reaches a thread's draft or sends,
+// and a remount (Advanced on or off) starts it again from the sample. Its textarea is the
+// composer's kind: `t3-prompt-preview` gives it its own native editor on macOS (T3Module
+// promptPreview, T3ComposerEditor.swift): chips, atomic chip keys and undo grouping.
+use CorePalette from "./settings-core.contract"
+
+component PromptFontPreview
+  props
+    family: string
+    size: number
+    pal: CorePalette
+  state prompt = "Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx) before shipping."
+  action write(value: string)
+    prompt = value
+  view
+    // rounded-lg border bg-background px-3 py-2 around ComposerPromptEditor (min-h-14, max-h-42, leading-relaxed;
+    // focus:outline-none, so the bare box: appearance none draws no field look or focus ring).
+    column width="100%" padding-top="0.5rem" padding-bottom="0.5rem" padding-left="0.75rem" padding-right="0.75rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.border background-color=pal.thumb box-sizing="border-box"
+      textarea value=prompt input=write hatch="t3-prompt-preview" aria-label="Prompt font preview" placeholder="Ask for changes, send follow-ups, or attach images" testId="prompt-font-preview" appearance="none" width="100%" field-sizing="content" min-height="3.5rem" max-height="10.5rem" padding=0 border-width=0 box-sizing="border-box" background-color="#00000000" font-family=(family == "system-ui" ? "system-ui" : family == "ui-sans-serif" ? "ui-sans-serif" : family == "sans-serif" ? "sans-serif" : family == "ui-serif" ? "ui-serif" : family == "serif" ? "serif" : family == "ui-monospace" ? "ui-monospace" : family == "monospace" ? "monospace" : "ui-rounded") font-size=size line-height=`${size * 1.625}px` color=pal.text caret-color=pal.text autocorrect="off"

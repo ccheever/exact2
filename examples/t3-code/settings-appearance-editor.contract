@@ -1,0 +1,249 @@
+// Appearance → the floating theme editor (lane settings-a; settings-appearance-editor.ts).
+// Reference ThemeEditorPanel.tsx: a 416pt panel at the window's bottom-right with
+// its header (title, "Select a color below", minimize, close), Theme name,
+// Appearance (Light/Dark), Colors with Advanced and Filter colors, the colour
+// families, and Cancel / Create theme. ThemeColorPicker's popover chooses a colour
+// (theme-color-picker.contract).
+use CoreIcon from "./settings-core.contract"
+use CorePalette from "./settings-core.contract"
+use SettingsGhost from "./settings-core.contract"
+use EditorRow from "./settings-appearance-editor-shapes.contract"
+use EditorView from "./settings-appearance-editor-shapes.contract"
+use SettingsCore from "./settings-core.contract"
+use Viewport from "./shapes.contract"
+use ThemeColorSwatch from "./theme-color-picker.contract"
+
+// ThemeEditorHost (D16): the editor floats above every route while its session is open
+// (the window's create/edit/duplicate dialog), so it stays across threads, pages and
+// Settings; each session is a fresh panel (keyed by its id), as `key={session.id}`.
+component ThemeEditorHost
+  props
+    kind: string
+    core: SettingsCore
+    viewport: Viewport
+    busy: bool
+    error: string
+    close: action
+    commit: action
+    live: action
+    save: action
+    // popover-escape-parity: the window's outside-press count, for the colour controls that take the pointer.
+    outsideDown: action
+    outsideUp: action
+    outsideFocus: action
+  view
+    when (kind == "create" or kind == "duplicate" or kind == "edit") and core.editor.open
+      each editor in [core.editor] key=editor.session
+        ThemeEditorPanel(editor=editor, pal=core.palette, vw=viewport.width, vh=viewport.height, reduced=viewport.prefersReducedMotion, busy=busy, error=error, close=close, commit=commit, live=live, save=save, outsideDown=outsideDown, outsideUp=outsideUp, outsideFocus=outsideFocus)
+
+// The panel's place and size are its own state (ThemeEditorPanel.tsx:296-360, 1073-1150):
+// null parks it bottom-right 16; a drag or the corner grip gives an explicit top-left,
+// clamped so the header (48) stays reachable within margin 8; the grip grows toward the
+// right and bottom only, at least 280x220. After the window changes size the size shrinks
+// to fit first, then the place is clamped and pulled up so the panel fits again (the
+// viewport resource stands in for the resize event, X22).
+component ThemeEditorPanel
+  inject
+    rem: number
+  props
+    editor: EditorView
+    pal: CorePalette
+    vw: number
+    vh: number
+    reduced: bool
+    busy: bool
+    error: string
+    close: action
+    commit: action
+    live: action
+    save: action
+    outsideDown: action
+    outsideUp: action
+    outsideFocus: action
+  state minimized = false
+  state name = ""
+  state named = false
+  state placed = false
+  state rx = 0
+  state ry = 0
+  state sized = false
+  state rw = 0
+  state rh = 0
+  state dragging = false
+  state growing = false
+  derive boxW = sized ? max(280, min(rw, vw - 16)) : min(416, vw - 32)
+  derive boxH = max(220, min(rh, vh - 16))
+  derive capH = min(672, vh - 96)
+  derive left = min(max(rx, 8), max(8, vw - boxW - 8))
+  derive top = min(max(ry, 8), max(8, vh - 48))
+  action toggleMinimized
+    minimized = not minimized
+  // The name travels with Save (no commit on blur: a blur-time write would make Save's
+  // own click land on a busy, disabled button). audit-wave-followups-2 FV-4: each keystroke also reaches the draft as a
+  // stamped `live` op (themelocal, never behind another command), so the submit label follows the name as typed.
+  state nameSent = 0
+  action editName(next: string)
+    let t = max(performanceNow(), nameSent + 0.001)
+    name = next
+    named = true
+    nameSent = t
+    live("name", `${editor.session}|name`, next, t)
+  // Header drag: the move since the last event; the first one starts from where the panel is drawn.
+  action drag(dx: number, dy: number)
+    rx = (dragging ? rx : (placed ? left : frame("theme-editor").x)) + dx
+    ry = (dragging ? ry : (placed ? top : frame("theme-editor").y)) + dy
+    dragging = true
+    placed = true
+  action dropDrag(vx: number, vy: number)
+    dragging = false
+    rx = left
+    ry = top
+  // Corner grip: the top-left holds still (a parked panel converts to an explicit place first).
+  action grow(dx: number, dy: number)
+    rx = placed ? left : frame("theme-editor").x
+    ry = placed ? top : frame("theme-editor").y
+    rw = min(max((growing ? rw : frame("theme-editor").width) + dx, 280), max(280, vw - 8 - (placed ? left : frame("theme-editor").x)))
+    rh = min(max((growing ? rh : frame("theme-editor").height) + dy, 220), max(220, vh - 8 - (placed ? top : frame("theme-editor").y)))
+    growing = true
+    sized = true
+    placed = true
+  action dropGrow(vx: number, vy: number)
+    growing = false
+    rw = boxW
+    rh = boxH
+  // The window resized (the layer below tracks the viewport): the size shrinks to fit first, then the
+  // place is clamped and pulled up so the whole panel fits; the clamped values are kept, so growing the
+  // window again leaves the panel where the clamp put it (ThemeEditorPanel.tsx:336-360).
+  action windowSized(w: number, h: number)
+    let width = sized ? max(280, min(rw, w - 16)) : min(416, w - 32)
+    let height = sized and not minimized ? max(220, min(rh, h - 16)) : frame("theme-editor").height
+    rw = sized ? width : rw
+    rh = sized ? max(220, min(rh, h - 16)) : rh
+    rx = placed ? min(max(rx, 8), max(8, w - width - 8)) : rx
+    ry = placed ? min(min(max(ry, 8), max(8, h - 48)), max(8, h - height - 8)) : ry
+  view
+    column position="absolute" left=(placed ? left : "auto") top=(placed ? top : "auto") right=(placed ? "auto" : "1rem") bottom=(placed ? "auto" : "1rem") width=boxW height=(sized and not minimized ? boxH : "auto") max-height=(minimized ? vh : (sized ? vh - rem : capH)) border-radius="0.875rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.canvas box-shadow="0 20px 25px -5px #0000001a, 0 8px 10px -6px #0000001a" box-sizing="border-box" overflow="hidden" z-index=110 role="dialog" aria-label=editor.title id="theme-editor" testId="theme-editor"
+      // Sized to the window, clipped by the panel and inert: only its resize event matters (X22, #127).
+      box position="absolute" left=0 top=0 width=vw height=vh inert=true aria-hidden=true resize=windowSized testId="theme-editor-window-tracker"
+      row flex-shrink=0 align-items="center" gap="0.25rem" padding-top="0.5rem" padding-bottom="0.5rem" padding-left="0.75rem" padding-right="0.75rem" border-bottom-width=(minimized ? 0 : 1) border-bottom-style="solid" border-color=pal.divider box-sizing="border-box" touch-action="none" cursor=(dragging ? "grabbing" : "grab") pan=drag panrelease=dropDrag testId="theme-editor-header"
+        row flex=1 min-width=0 gap="0.5rem" align-items="baseline"
+          text editor.title font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text role="heading" aria-level=2 flex-shrink=0
+          when not minimized
+            text "Select a color below" font-size="0.75rem" line-height="1rem" color=pal.muted line-clamp=1
+        button press=toggleMinimized aria-label=(minimized ? "Expand the theme editor" : "Minimize the theme editor") aria-expanded=(not minimized) class=SettingsGhost width="1.5rem" height="1.5rem" border-radius="0.5rem" cursor="default" testId="theme-editor-minimize" title=""
+          // f2cc80a7 MorphIcon ChevronDown↔ChevronUp: a half turn on morphicons' snappy spring (none under reduced motion).
+          box rotate=(minimized ? "180deg" : "0deg") transition=(reduced ? "none" : "rotate -exact-spring(420, 30, 1)")
+            CoreIcon(name="chevron-down", size=14, color=pal.muted)
+        // No Escape of its own, as the reference's panel (ThemeEditorPanel.tsx: a plain role="dialog" whose
+        // only key listener cancels Inspect): Escape in the editor reaches the page under it (Settings' Back,
+        // the Usage page's), and the editor stays (user decision 2026-10-08, popover-escape-parity). An open
+        // colour popover is aria-modal, so its Escape is its own: it closes and the focus goes to the swatch.
+        button press=close aria-label="Close the theme editor" class=SettingsGhost width="1.5rem" height="1.5rem" border-radius="0.5rem" cursor="default" testId="theme-editor-close" title=""
+          CoreIcon(name="x", size=14, color=pal.muted)
+      when not minimized
+        scroll flex=1 min-height=0 max-height=((sized ? boxH : capH) - 5.5 * rem) width="100%"
+          column padding-top="0.75rem" padding-bottom="0.75rem" padding-left="0.75rem" padding-right="0.375rem" gap="0.75rem" box-sizing="border-box" width="100%"
+            row width="100%" gap="0.75rem" align-items="center"
+              text "Theme name" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text width="8rem" flex-shrink=0
+              input value=(named ? name : editor.name) input=editName focus=outsideFocus placeholder=(editor.title == "Edit theme" ? "Theme name" : "e.g. Aurora") aria-label="Theme name" spellcheck="false" flex=1 min-width=0 height="1.75rem" padding-top="0.1875rem" padding-bottom="0.1875rem" line-height="1.25rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field font-size="0.875rem" color=pal.text testId="theme-editor-name" autocorrect="off"
+            row width="100%" gap="0.75rem" align-items="center"
+              text "Appearance" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text width="8rem" flex-shrink=0
+              row role="group" aria-label="Theme appearance" padding="0.125rem" gap="0.125rem" border-radius="0.625rem" background-color=pal.highlight
+                EditorToggle(label="Light", on=(editor.appearance == "light"), pal=pal, press=commit("theme-editor", "appearance", "light"))
+                EditorToggle(label="Dark", on=(editor.appearance == "dark"), pal=pal, press=commit("theme-editor", "appearance", "dark"))
+            column width="100%" gap="0.75rem"
+              row width="100%" gap="0.75rem" align-items="flex-start"
+                column width="8rem" flex-shrink=0
+                  text "Colors" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text role="heading" aria-level=3
+                  when not editor.advanced
+                    text "Two colors, rest derived" font-size="0.75rem" line-height="1rem" color=pal.muted
+                row flex=1 min-width=0 gap="0.75rem" align-items="flex-start"
+                  when editor.advanced
+                    EditorFilter(value=editor.filter, pal=pal, commit=commit("theme-editor", "filter"), touched=outsideFocus)
+                  else
+                    box flex=1
+                  row gap="0.5rem" align-items="center" padding-top="0.125rem" flex-shrink=0
+                    text "Advanced" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text
+                    button press=commit("theme-editor", "advanced", editor.advanced ? "false" : "true") role="switch" aria-checked=editor.advanced aria-label="Advanced Use advanced theme colors" class=SettingsGhost justify-content="flex-start" width="1.875rem" height="1.125rem" padding="0.125rem" border-radius="0.5625rem" background-color=(editor.advanced ? pal.accent : pal.switchOff) testId="theme-editor-advanced" title=""
+                      box width="0.875rem" height="0.875rem" border-radius="0.4375rem" background-color=pal.thumb margin-left=(editor.advanced ? "0.75rem" : "0px")
+              when editor.advanced
+                column width="100%" gap="1.25rem"
+                  each group in editor.groups key=group.id
+                    column width="100%" gap="0.5rem"
+                      text group.title font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text role="heading" aria-level=4
+                      column width="100%" gap="0.25rem"
+                        each row in group.rows key=row.id
+                          EditorColorRow(row=row, session=editor.session, pal=pal, vh=vh, commit=commit, live=live, outsideDown=outsideDown, outsideUp=outsideUp, outsideFocus=outsideFocus)
+                  when length(editor.groups) == 0
+                    text "No matches." font-size="0.75rem" line-height="1rem" color=pal.muted
+              else
+                column width="100%" gap="0.25rem"
+                  each row in editor.rows key=row.id
+                    EditorColorRow(row=row, session=editor.session, pal=pal, vh=vh, commit=commit, live=live, outsideDown=outsideDown, outsideUp=outsideUp, outsideFocus=outsideFocus)
+            when error != ""
+              text error role="alert" font-size="0.75rem" line-height="1.125rem" color="light-dark(#dc2626, #f87171)" testId="theme-editor-error"
+        row flex-shrink=0 justify-content="flex-end" align-items="center" gap="0.5rem" padding-top="0.5rem" padding-bottom="0.5rem" padding-left="0.75rem" padding-right="0.75rem" border-top-width=1 border-top-style="solid" border-color=pal.divider box-sizing="border-box"
+          button press=close class=SettingsGhost height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" testId="theme-editor-cancel"
+            text "Cancel" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text
+          button press=save(named ? name : editor.name) disabled=(busy or (named ? name : editor.name) == "" or not editor.canSave) class=SettingsGhost height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" gap="0.375rem" border-radius="0.5rem" background-color=pal.accent opacity=(busy or (named ? name : editor.name) == "" or not editor.canSave ? 0.64 : 1) testId="theme-editor-save"
+            when editor.saveIcon != ""
+              CoreIcon(name=editor.saveIcon, size=16, color=pal.accentText)
+            text editor.saveLabel font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.accentText
+
+      // The corner grip (aria-hidden in the reference): grows toward the right and bottom only.
+      when not minimized
+        box position="absolute" right=0 bottom=0 width="1.25rem" height="1.25rem" z-index=10 padding="0.25rem" box-sizing="border-box" display="flex" align-items="flex-end" justify-content="flex-end" touch-action="none" cursor="se-resize" pan=grow panrelease=dropGrow aria-hidden=true testId="theme-editor-grip"
+          svg width="0.625rem" height="0.625rem" viewBox="0 0 8 8" fill="none"
+            path d="M7 1 1 7M7 4.5 4.5 7" stroke=pal.muted stroke-width=1.2 stroke-linecap="round"
+
+component EditorToggle
+  props
+    label: string
+    on: bool
+    pal: CorePalette
+    press: action
+  view
+    button press=press role="radio" aria-checked=on class=SettingsGhost height="1.5rem" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" background-color=(on ? pal.canvas : "#00000000") box-shadow=(on ? "0 1px 2px #0000000d" : "none") testId=`theme-editor-appearance-${label}`
+      text label font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(on ? pal.text : pal.muted)
+
+component EditorFilter
+  props
+    value: string
+    pal: CorePalette
+    commit: action
+    touched: action
+  state draft = ""
+  state edited = false
+  action edit(next: string)
+    draft = next
+    edited = true
+  view
+    input value=(edited ? draft : value) input=edit change=commit focus=touched placeholder="Filter colors" aria-label="Filter colors" spellcheck="false" flex=1 min-width=0 height="1.75rem" padding-top="0.1875rem" padding-bottom="0.1875rem" line-height="1.25rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field font-size="0.875rem" color=pal.text testId="theme-editor-filter" autocorrect="off"
+
+// ThemeColorField: the family label, the swatch (opens the picker) and the hex value.
+component EditorColorRow
+  props
+    row: EditorRow
+    session: string
+    pal: CorePalette
+    vh: number
+    commit: action
+    live: action
+    outsideDown: action
+    outsideUp: action
+    outsideFocus: action
+  state hovered = false
+  state draft = ""
+  state editing = false
+  action hover(over: bool)
+    hovered = over
+  action edit(next: string)
+    draft = next
+    editing = true
+  action leave
+    editing = false
+  view
+    row width="100%" height="2.75rem" padding-top="0.375rem" padding-bottom="0.375rem" padding-left="0.5rem" padding-right="0.5rem" gap="0.5rem" align-items="center" box-sizing="border-box" border-radius="0.625rem" hover=hover background-color=(hovered ? pal.highlight : "#00000000") testId=`theme-editor-row-${row.id}`
+      text row.label font-size="0.875rem" line-height="1.25rem" color=(hovered ? pal.text : pal.muted) flex=1 min-width=0 line-clamp=1
+      ThemeColorSwatch(row=row, session=session, pal=pal, vh=vh, live=live, outsideDown=outsideDown, outsideUp=outsideUp)
+      input value=(editing ? draft : row.value) input=edit change=commit("theme-editor", `color:${row.role}`) focus=outsideFocus blur=leave aria-label=`${row.label} hex value` spellcheck="false" width="7rem" height="1.875rem" flex-shrink=0 padding-top="0.25rem" padding-bottom="0.25rem" line-height="1.25rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field font-family="ui-monospace" font-size="0.75rem" color=pal.text testId=`theme-editor-hex-${row.id}` autocorrect="off"

@@ -1,0 +1,382 @@
+// Lane r6-media (MIT reference, see LICENSE-T3): the Device surface once a device is chosen.
+// - R6DeviceStatus: DevicePanel's host detail, "Starting …" and the dismissible operation error.
+// - R6DeviceLoading: DeviceLoadingView (opening, then connecting video; a failed stream offers
+//   Reconnect).
+// - R6DeviceWorkspaceView: DeviceWorkspace + DeviceStreamView's flat picture (the app module's
+//   `t3-media` hook, R6DeviceStream.swift) under DeviceControlsRail; the Text size and More menus
+//   open to the rail's left beside their triggers (measured by `t3-frame`).
+// - R6DeviceMiniPlayer: ThreadPreviewMiniPlayer's device player floated over the chat.
+// `local` is the window's chatLocal (`surface-r6dev-*` reaches r6-media-device.ts), `command`
+// the gated writes (`shell:surface-r6dev-*`). Glyphs are lucide's, from the reference build.
+use R6DeviceView from "./r6-device-shapes.contract"
+use R6DeviceWorkspace from "./r6-device-shapes.contract"
+use R6DeviceMini from "./r6-device-shapes.contract"
+use ChatCanvasMini from "./chat-canvas.contract"
+use R4Icon from "./r4-surfaces-icons.contract"
+use R7DevGlyph from "./r7-device.contract"
+use R7DevToolsDrawer from "./r7-device.contract"
+use R9DevFoldingControls from "./r9-device.contract"
+use KmItem from "./menu-keys.contract"
+use KeyMenu from "./menu-keys.contract"
+use kmKeyEnd from "./menu-keys.contract"
+use kmArrow from "./menu-keys.contract"
+use kmEndKeyed from "./menu-keys.contract"
+
+fn r6devMuted(): string = "light-dark(#71717b, #818181)"
+fn r6devInk(): string = "light-dark(#27272a, #f5f5f5)"
+fn r6devBorder(): string = "light-dark(#e4e4e7, #ffffff14)"
+fn r6devBackground(): string = "light-dark(#fcfcfc, #0a0a0a)"
+fn r6devDestructive(): string = "light-dark(#e40014, #ff6467)"
+
+component R6DeviceGlyph
+  props
+    name: string
+    size: number
+    color: string
+  view
+    svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
+      when name == "home"
+        path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"
+        path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"
+      when name == "rotate"
+        path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"
+        path d="M3 3v5h5"
+      when name == "moon"
+        path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"
+      when name == "sun"
+        circle cx=12 cy=12 r=4
+        path d="M12 2v2M12 20v2m-7.07-17.07 1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"
+      when name == "type"
+        path d="M12 4v16"
+        path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2"
+        path d="M9 20h6"
+      when name == "camera"
+        path d="M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z"
+        circle cx=12 cy=13 r=3
+      when name == "more"
+        circle cx=12 cy=12 r=1
+        circle cx=19 cy=12 r=1
+        circle cx=5 cy=12 r=1
+      when name == "float"
+        path d="M21 9V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10c0 1.1.9 2 2 2h4"
+        rect x=12 y=13 width=10 height=7 rx=2
+      when name == "x"
+        path d="M18 6 6 18"
+        path d="m6 6 12 12"
+      when name == "power"
+        path d="M12 2v10"
+        path d="M18.4 6.6a9 9 0 1 1-12.77.04"
+      when name == "smartphone"
+        rect x=5 y=2 width=14 height=20 rx=2 ry=2
+        path d="M12 18h.01"
+      when name == "check"
+        path d="M20 6 9 17l-5-5"
+      when name == "panel-right"
+        rect x=3 y=3 width=18 height=18 rx=2
+        path d="M15 3v18"
+
+// DevicePanel's status rows above the body.
+component R6DeviceStatus
+  props
+    view: R6DeviceView
+    local: action
+  view
+    when view.hostDetail != ""
+      text view.hostDetail flex-shrink=0 padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" border-bottom-width=1 border-bottom-style="solid" border-color=r6devBorder() white-space="pre-line" font-size="0.75rem" line-height="1rem" color=r6devMuted() role="status"
+    when view.booting != ""
+      text view.booting flex-shrink=0 padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" border-bottom-width=1 border-bottom-style="solid" border-color=r6devBorder() font-size="0.75rem" line-height="1rem" color=r6devMuted() role="status" testId="device-booting"
+    when view.operationError != ""
+      row flex-shrink=0 gap="0.5rem" align-items="flex-start" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" border-bottom-width=1 border-bottom-style="solid" border-color=r6devBorder() background-color="light-dark(#e400140d, #ff64670d)" role="alert" testId="device-operation-error"
+        text view.operationError flex=1 min-width=0 white-space="pre-wrap" overflow-wrap="break-word" font-size="0.75rem" line-height="1rem" color=r6devDestructive()
+        button press=local("surface-r6dev-dismiss-error", "", "") aria-label="Dismiss device error" testId="device-error-dismiss" width="1.5rem" height="1.5rem" padding=0 border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
+          R6DeviceGlyph(name="x", size=12, color=r6devDestructive())
+
+// DeviceLoadingView: a 48pt rounded tile with the phone glyph, the name and description, the
+// spinner and message, then the two-step bar (open device, connect video).
+component R6DeviceLoading
+  props
+    name: string
+    description: string
+    message: string
+    stage: string
+    error: bool
+    reconnect: action
+  view
+    column width="100%" height="100%" align-items="center" justify-content="center" padding-left="1.5rem" padding-right="1.5rem" padding-top="2.5rem" padding-bottom="2.5rem" box-sizing="border-box" background-color=r6devBackground() role=(error ? "alert" : "status") testId=`device-loading-${stage}`
+      column max-width="24rem" align-items="center" gap="0.75rem"
+        column width="3rem" height="3rem" box-sizing="border-box" border-radius="0.75rem" border-width=1 border-style="solid" border-color=r6devBorder() background-color="light-dark(#f4f4f54d, #ffffff05)" align-items="center" justify-content="center"
+          R6DeviceGlyph(name="smartphone", size=24, color=r6devMuted())
+        column gap="0.25rem" align-items="center"
+          text name text-align="center" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=r6devInk()
+          when description != ""
+            text description text-align="center" font-size="0.75rem" line-height="1rem" color=r6devMuted()
+        row gap="0.5rem" align-items="center"
+          when not error
+            R4Icon(name="loader", size=12, color=r6devMuted())
+          text message text-align="center" font-size="0.75rem" line-height="1rem" color=r6devMuted()
+        when error
+          button press=reconnect testId="device-reconnect" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff08)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center"
+            text "Reconnect" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=r6devInk()
+        else
+          row width="6rem" gap="0.25rem" aria-label=(stage == "opening" ? "Step 1 of 2: open device" : "Step 2 of 2: connect video")
+            box flex=1 height="0.25rem" border-radius="0.125rem" background-color="light-dark(#27272a99, #f5f5f599)"
+            box flex=1 height="0.25rem" border-radius="0.125rem" background-color=(stage == "stream" ? "light-dark(#27272a99, #f5f5f599)" : "light-dark(#f4f4f5, #ffffff0f)")
+
+// RailButton: an icon-sm ghost button (28pt, 16pt glyph); pressed wears the secondary fill.
+component R6RailButton
+  props
+    icon: string
+    label: string
+    // DeviceControlsRail: the menu triggers (text size, more actions) carry HTML's title; "" for none.
+    title: string
+    disabled: bool
+    pressed: bool
+    press: action
+    testId: string
+    // fix-keyboard-focus: a menu trigger (text size, rotate, more) opens its menu on ↓ and ↑ too, and tells the
+    // rail which end of it the keys asked for (menu-keys.contract); taking the focus (a pointer press) clears it.
+    menu: bool
+    menuEnd: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  action keyed(k: string, e: KeyboardEvent)
+    menuEnd(kmKeyEnd(k))
+    if menu and kmArrow(k) and not e.metaKey and not e.ctrlKey and not e.altKey
+      preventDefault()
+      press()
+  view
+    button id=testId press=press key=keyed focus=menuEnd("") hover=hover disabled=disabled aria-label=label title=title aria-checked=pressed testId=testId width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(pressed ? "light-dark(#f4f4f5, #ffffff0f)" : over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+      R6DeviceGlyph(name=icon, size=16, color=r6devInk())
+
+component R6RailDivider
+  view
+    box width="1.25rem" height=1 margin-top="0.25rem" margin-bottom="0.25rem" flex-shrink=0 background-color="light-dark(#e4e4e7b3, #ffffff0f)" aria-hidden=true
+
+component R6MenuItem
+  props
+    // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
+    keysId: string
+    icon: string
+    label: string
+    checked: bool
+    destructive: bool
+    press: action
+    testId: string
+  state lit = false
+  action hover(value: bool)
+    if value
+      focus(`${testId}-km`)
+    else if lit
+      focus(keysId)
+  action focused(on: bool)
+    lit = on
+  view
+    button id=testId press=press hover=hover focus=focused(true) blur=focused(false) role=(icon == "" ? "menuitemradio" : "menuitem") aria-checked=checked testId=testId width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 display="flex" flex-direction="row" align-items="center" background-color=(lit ? (destructive ? "light-dark(#e400141a, #ff64671a)" : "light-dark(#f4f4f5, #ffffff0a)") : "#00000000")
+      when icon != ""
+        R6DeviceGlyph(name=icon, size=16, color=(destructive ? r6devDestructive() : r6devMuted()))
+      text label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color=(destructive ? r6devDestructive() : r6devInk())
+      when checked
+        R6DeviceGlyph(name="check", size=14, color=r6devInk())
+
+// The rail's buttons that draw an R7DevGlyph (lane r7-device).
+component R7DevRailButton
+  props
+    icon: string
+    label: string
+    disabled: bool
+    pressed: bool
+    press: action
+    testId: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=press hover=hover disabled=disabled aria-label=label aria-checked=pressed testId=testId width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(pressed ? "light-dark(#f4f4f5, #ffffff0f)" : over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
+      R7DevGlyph(name=icon, size=16, color=r6devInk())
+
+// DeviceWorkspace: the stream (flat picture or, lane r7-device, the 3D phone; the app module's
+// `t3-media` hook) under DeviceControlsRail, beside DeviceToolsPanel (static from a 700pt-wide
+// area, else over the screen).
+component R6DeviceWorkspaceView
+  props
+    ws: R6DeviceWorkspace
+    local: action
+    command: action
+  // fix-keyboard-focus: a rail menu opens from the data module, so its trigger lets go of the focus and the
+  // menu's popup takes it as it mounts (`autofocus`, menu-keys.contract); Escape gives it back to the trigger.
+  action openRailMenu(menu: string)
+    blur()
+    local("surface-r6dev-menu", "", menu)
+  state railEnd = ""
+  action setRailEnd(end: string)
+    railEnd = end
+  action closeRailMenu
+    local("surface-r6dev-menu", "", ws.rail.menu)
+    focus(ws.rail.menu == "text" ? "device-text-size" : `device-${ws.rail.menu}`)
+  view
+    row flex=1 min-height=0 width="100%" position="relative" hatch="t3-frame" data-frame="r7-device-area"
+      column flex=1 min-height=0 min-width=0 height="100%" position="relative" hatch="t3-frame" data-frame="r6-device" testId="device-workspace"
+        when ws.alert != ""
+          text ws.alert flex-shrink=0 padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" font-size="0.75rem" line-height="1rem" color=r6devDestructive() role="alert"
+        box flex=1 min-height=0 width="100%" position="relative" background-color=r6devBackground()
+          box hatch="t3-media" data-media-kind=`device-${ws.platform}` data-device-id=ws.deviceId data-device-host=ws.hostId data-media-name=ws.name data-device-view=ws.r7.rail.view data-device-ax=ws.r7.rail.ax position="absolute" left=0 top=0 bottom=0 right=(ws.r7.rail.phone ? "0px" : "3.5rem") role="application" aria-label=ws.screenLabel testId="device-screen"
+          when ws.stream.inputNotice != "" or ws.r7.rail.waiting != ""
+            row position="absolute" left=0 right=(ws.r7.rail.phone ? "0px" : "3.5rem") bottom=0 padding="0.5rem" box-sizing="border-box" justify-content="center" pointer-events="none"
+              text (ws.stream.inputNotice != "" ? ws.stream.inputNotice : ws.r7.rail.waiting) padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.375rem" background-color="light-dark(#fcfcfcd9, #0a0a0ad9)" font-size="0.75rem" line-height="1rem" color=r6devMuted()
+          when ws.stream.status != "streaming"
+            box position="absolute" left=0 top=0 right=0 bottom=0
+              R6DeviceLoading(name=ws.name, description=ws.description, message=ws.stream.message, stage="stream", error=ws.stream.error, reconnect=local("surface-r6dev-reconnect", "", ws.key))
+          // DeviceControlsRail: a 56pt strip at the right edge, its pill centred.
+          column position="absolute" top=0 bottom=0 right=0 width="3.5rem" padding-top="0.75rem" padding-bottom="0.75rem" padding-right="0.5rem" box-sizing="border-box" align-items="center" justify-content="center" gap="0.5rem" z-index=10 role="complementary" aria-label="Device controls"
+            column flex-shrink=0 align-items="center" gap="0.25rem" padding="0.5rem" border-radius="62.4375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e780, #ffffff0a)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" box-shadow="0 1px 2px #0000000d"
+              R6RailButton(icon="home", label="Home", title="", disabled=(not ws.rail.inputConnected), pressed=false, press=local("surface-r6dev-home", "", ws.key), testId="device-home", menu=false, menuEnd=setRailEnd)
+              when ws.platform == "android"
+                R7DevRailButton(icon="back", label="Back", disabled=(not ws.rail.inputConnected), pressed=false, press=local("surface-r6dev-back", "", ws.key), testId="device-back")
+                R7DevRailButton(icon="square", label="Recents", disabled=(not ws.rail.inputConnected), pressed=false, press=local("surface-r6dev-recents", "", ws.key), testId="device-recents")
+                box hatch="t3-frame" data-frame="r6-device-rotate"
+                  R6RailButton(icon="rotate", label="Rotate device", title="", disabled=ws.r7.rail.rotateDisabled, pressed=(ws.rail.menu == "rotate"), press=openRailMenu("rotate"), testId="device-rotate", menu=true, menuEnd=setRailEnd)
+              else
+                R6RailButton(icon="rotate", label="Rotate device", title="", disabled=ws.r7.rail.rotateDisabled, pressed=false, press=local("surface-r6dev-rotate", "", ws.key), testId="device-rotate", menu=false, menuEnd=setRailEnd)
+              R6RailDivider()
+              R6RailButton(icon=ws.rail.appearanceIcon, label=ws.rail.appearanceLabel, title="", disabled=ws.rail.appearanceDisabled, pressed=false, press=command("shell:surface-r6dev-appearance", "", "", 0), testId="device-appearance", menu=false, menuEnd=setRailEnd)
+              box hatch="t3-frame" data-frame="r6-device-text"
+                R6RailButton(icon="type", label="Device text size", title="Device text size", disabled=ws.rail.textSizeDisabled, pressed=(ws.rail.menu == "text"), press=openRailMenu("text"), testId="device-text-size", menu=true, menuEnd=setRailEnd)
+              R7DevRailButton(icon="sliders", label="Device tools", disabled=false, pressed=ws.r7.rail.toolsOpen, press=local("surface-r6dev-tools-toggle", "", ""), testId="device-tools-toggle")
+              R6RailButton(icon="camera", label=ws.rail.screenshotLabel, title="", disabled=ws.rail.screenshotDisabled, pressed=false, press=command("shell:surface-r6dev-screenshot", "", "", 0), testId="device-screenshot", menu=false, menuEnd=setRailEnd)
+              box hatch="t3-frame" data-frame="r6-device-more"
+                R6RailButton(icon="more", label="More device actions", title="More device actions", disabled=false, pressed=(ws.rail.menu == "more"), press=openRailMenu("more"), testId="device-more", menu=true, menuEnd=setRailEnd)
+              R6RailDivider()
+              R7DevRailButton(icon="box", label="3D view", disabled=ws.r7.rail.phoneDisabled, pressed=ws.r7.rail.phone, press=local("surface-r6dev-tools-view", "", "phone"), testId="device-view-3d")
+              R7DevRailButton(icon="smartphone", label="Flat view", disabled=(not ws.r7.rail.streaming), pressed=(not ws.r7.rail.phone), press=local("surface-r6dev-tools-view", "", "flat"), testId="device-view-flat")
+              when ws.r7.rail.keyboard
+                R7DevRailButton(icon="keyboard", label=(ws.r7.rail.keyboardAttached ? "Detach Magic Keyboard" : "Attach Magic Keyboard"), disabled=false, pressed=ws.r7.rail.keyboardAttached, press=local("surface-r6dev-tools-keyboard", "", ""), testId="device-keyboard")
+              when ws.r7.rail.phone
+                R7DevRailButton(icon="maximize", label="Restore 3D view", disabled=false, pressed=false, press=local("surface-r6dev-tools-reset", "", ""), testId="device-view-reset")
+            // lane r9-device: DeviceStreamView foldingControls (the Duo's stands, a foldable's Fold / Unfold).
+            when ws.r9.kind != ""
+              R9DevFoldingControls(folding=ws.r9, local=local)
+        when ws.rail.menu != ""
+          button press=closeRailMenu aria-label="Close menu" aria-keyshortcuts="Escape" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" z-index=20 testId="device-menu-backdrop" title=""
+        when ws.rail.menu == "text"
+            KeyMenu(menuId="device-text-keys", items=[KmItem(id="device-text-small", label="Small"), KmItem(id="device-text-default", label="Default"), KmItem(id="device-text-large", label="Large"), KmItem(id="device-text-extra-large", label="Extra large")], keyed=kmEndKeyed(railEnd), gap="0px", modal=false)
+            column position="absolute" right=ws.rail.menuRight top=ws.rail.menuTop width="10rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" z-index=30 role="menu" aria-label="Device text size" testId="device-text-menu"
+              R6MenuItem(keysId="device-text-keys", icon="", label="Small", checked=(ws.rail.textSize == "small"), destructive=false, press=command("shell:surface-r6dev-text-size", "", "small", 0), testId="device-text-small")
+              R6MenuItem(keysId="device-text-keys", icon="", label="Default", checked=(ws.rail.textSize == "default"), destructive=false, press=command("shell:surface-r6dev-text-size", "", "default", 0), testId="device-text-default")
+              R6MenuItem(keysId="device-text-keys", icon="", label="Large", checked=(ws.rail.textSize == "large"), destructive=false, press=command("shell:surface-r6dev-text-size", "", "large", 0), testId="device-text-large")
+              R6MenuItem(keysId="device-text-keys", icon="", label="Extra large", checked=(ws.rail.textSize == "extra-large"), destructive=false, press=command("shell:surface-r6dev-text-size", "", "extra-large", 0), testId="device-text-extra-large")
+        when ws.rail.menu == "rotate"
+            KeyMenu(menuId="device-rotate-keys", items=[KmItem(id="device-rotate-portrait", label="Portrait"), KmItem(id="device-rotate-landscape", label="Landscape")], keyed=kmEndKeyed(railEnd), gap="0px", modal=false)
+            column position="absolute" right=ws.rail.menuRight top=ws.rail.menuTop padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" z-index=30 role="menu" aria-label="Rotate device" testId="device-rotate-menu"
+              R6MenuItem(keysId="device-rotate-keys", icon="", label="Portrait", checked=false, destructive=false, press=local("surface-r6dev-tools-pick-orientation", "", "portrait"), testId="device-rotate-portrait")
+              R6MenuItem(keysId="device-rotate-keys", icon="", label="Landscape", checked=false, destructive=false, press=local("surface-r6dev-tools-pick-orientation", "", "landscape_left"), testId="device-rotate-landscape")
+        when ws.rail.menu == "more"
+            KeyMenu(menuId="device-more-keys", items=[KmItem(id="device-float", label="Float device over chat"), KmItem(id="device-close-panel", label="Close device panel"), KmItem(id="device-power-off", label="Power off device")], keyed=kmEndKeyed(railEnd), gap="0px", modal=false)
+            column position="absolute" right=ws.rail.menuRight top=ws.rail.menuTop padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" z-index=30 role="menu" aria-label="More device actions" testId="device-more-menu"
+              R6MenuItem(keysId="device-more-keys", icon="float", label="Float device over chat", checked=false, destructive=false, press=local("surface-r6dev-float", "", ""), testId="device-float")
+              R6MenuItem(keysId="device-more-keys", icon="x", label="Close device panel", checked=false, destructive=false, press=local("surface-r6dev-close-panel", "", ""), testId="device-close-panel")
+              box height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" background-color=r6devBorder()
+              R6MenuItem(keysId="device-more-keys", icon="power", label="Power off device", checked=false, destructive=true, press=command("shell:surface-r6dev-poweroff", "", "", 0), testId="device-power-off")
+      when ws.r7.tools.open
+        when ws.r7.tools.overlay
+          row position="absolute" top=0 bottom=0 right=0 width="100%" max-width="18rem" z-index=15
+            R7DevToolsDrawer(tools=ws.r7.tools, local=local, edit=local, command=command)
+        else
+          R7DevToolsDrawer(tools=ws.r7.tools, local=local, edit=local, command=command)
+
+// ThreadPreviewMiniPlayer (device, T3 Code 1e2ecbd975 MiniPlayerShell): the stream at the source's aspect in
+// the chat canvas's frame (chat-canvas-view.ts), clipped at its radius with a hairline ring. The 12 pt handle
+// (its 8 pt dot) and the pill drag it; eight invisible grab zones straddling the edges (8 pt thick) and corners
+// (16 pt square) resize it, their cursor the only affordance. A gesture reports its pan total since it began
+// (`serial|sourceKey|direction|dx|dy`) to the canvas source, which applies it from the frame on screen; the
+// release clears it. The zones are siblings of the clipped frame so their outer half takes the press. The pill
+// ("Open preview in right panel", "Close floating preview") shows while the handle or the pill is hovered, a
+// pill button has focus (group-focus-within) or a gesture runs (the host sends no hover during a pan).
+component R6DeviceMiniPlayer
+  inject
+    rem: number
+  props
+    mini: R6DeviceMini
+    frame: ChatCanvasMini
+    still: bool
+    local: action
+    gesture: action
+  state dotOver = false
+  state pillOver = false
+  state pillFocus = ""
+  state dragging = ""
+  state started = 0
+  state gx = 0
+  state gy = 0
+  action overDot(value: bool)
+    dotOver = value
+  action overPill(value: bool)
+    pillOver = value
+  action focusPill(id: string, value: bool)
+    pillFocus = value ? id : (pillFocus == id ? "" : pillFocus)
+  // MiniPlayerShell beginGesture / handlePointerMove: the frame at the first pan, then the total.
+  action pan(direction: string, dx: number, dy: number)
+    let starting = dragging == ""
+    let count = starting ? started + 1 : started
+    let nx = (starting ? 0 : gx) + dx
+    let ny = (starting ? 0 : gy) + dy
+    started = count
+    dragging = direction
+    gx = nx
+    gy = ny
+    gesture(`${floor(performanceNow())}.${count}|${mini.sourceKey}|${direction}|${nx}|${ny}`)
+  // endGesture: the stored frame stays where the last move left it.
+  action release(vx: number, vy: number)
+    dragging = ""
+    gx = 0
+    gy = 0
+    gesture("")
+  derive pill = dotOver or pillOver or pillFocus != "" or dragging != ""
+  // ThreadPreviewMiniPlayer resize handles: -1/h-2 edges, -2/size-4 corners (rem).
+  derive edge = 0.25 * rem
+  derive corner = 0.5 * rem
+  view
+    box position="absolute" left=frame.x top=frame.top width=frame.width height=frame.height z-index=40 role="region" aria-label="Floating device preview" testId="device-mini-player"
+      column position="absolute" left=0 top=0 right=0 bottom=0 border-radius=frame.radius overflow="hidden" background-color="light-dark(#f4f4f5, #1a1a1a)" box-shadow="0 25px 50px -12px #00000059"
+        box hatch="t3-media" data-media-kind=`device-${mini.platform}` data-device-id=mini.deviceId data-device-host=mini.hostId position="absolute" left=0 top=0 right=0 bottom=0 role="application" aria-label=(mini.platform == "ios" ? "iOS Simulator screen" : "Android Emulator screen") testId="device-mini-screen"
+        when mini.stream.status != "streaming"
+          box position="absolute" left=0 top=0 right=0 bottom=0
+            R6DeviceLoading(name=mini.name, description=mini.description, message=mini.stream.message, stage="stream", error=mini.stream.error, reconnect=local("surface-r6dev-reconnect", "", mini.key))
+        box position="absolute" left=0 top=0 right=0 bottom=0 border-radius=frame.radius border-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffff14)" pointer-events="none"
+      box position="absolute" top=(frame.pillInset - 1) right=(frame.pillInset - 1) width="0.625rem" height="0.625rem" border-radius="0.3125rem" border-width=1 border-style="solid" border-color="light-dark(#ffffffb3, #0a0a0ab3)" background-color="light-dark(#0a0a0a40, #fafafa40)" box-sizing="border-box" box-shadow="0 1px 2px 0 #0000000d" opacity=(pill ? 0 : 1) transition=(still ? "opacity 0ms" : "opacity 150ms cubic-bezier(0.4, 0, 0.2, 1)") pointer-events="none"
+      box position="absolute" top=frame.pillInset right=frame.pillInset width="0.75rem" height="0.75rem" hover=overDot pan=pan("move") panrelease=release touch-action="none" cursor=(dragging == "move" ? "grabbing" : "grab") testId="device-mini-handle"
+      row position="absolute" top=frame.pillInset right=frame.pillInset height="2rem" padding="0.125rem" gap="0.125rem" box-sizing="border-box" align-items="center" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffff14)" background-color="light-dark(#fefefeeb, #171717eb)" box-shadow="0 10px 15px -3px #00000033" opacity=(pill ? 1 : 0) transition=(still ? "opacity 0ms" : "opacity 150ms cubic-bezier(0.4, 0, 0.2, 1)") pointer-events=(pill ? "auto" : "none") hover=overPill pan=pan("move") panrelease=release touch-action="none" cursor=(dragging == "move" ? "grabbing" : "grab") testId="device-mini-pill"
+        R6MiniPillButton(icon="panel-right", label="Open preview in right panel", shown=pill, press=local("surface-r6dev-mini-restore", "", ""), focusChange=focusPill("restore"), testId="device-mini-restore")
+        R6MiniPillButton(icon="x", label="Close floating preview", shown=pill, press=local("surface-r6dev-mini-close", "", ""), focusChange=focusPill("close"), testId="device-mini-close")
+      box position="absolute" left=0 right=0 top=(0 - edge) height=(2 * edge) pan=pan("north") panrelease=release touch-action="none" cursor="ns-resize" role="presentation" testId="device-mini-resize-north"
+      box position="absolute" left=0 right=0 bottom=(0 - edge) height=(2 * edge) pan=pan("south") panrelease=release touch-action="none" cursor="ns-resize" role="presentation" testId="device-mini-resize-south"
+      box position="absolute" top=0 bottom=0 left=(0 - edge) width=(2 * edge) pan=pan("west") panrelease=release touch-action="none" cursor="ew-resize" role="presentation" testId="device-mini-resize-west"
+      box position="absolute" top=0 bottom=0 right=(0 - edge) width=(2 * edge) pan=pan("east") panrelease=release touch-action="none" cursor="ew-resize" role="presentation" testId="device-mini-resize-east"
+      box position="absolute" left=(0 - corner) top=(0 - corner) width=(2 * corner) height=(2 * corner) pan=pan("northwest") panrelease=release touch-action="none" cursor="nwse-resize" role="presentation" testId="device-mini-resize-northwest"
+      box position="absolute" right=(0 - corner) top=(0 - corner) width=(2 * corner) height=(2 * corner) pan=pan("northeast") panrelease=release touch-action="none" cursor="nesw-resize" role="presentation" testId="device-mini-resize-northeast"
+      box position="absolute" left=(0 - corner) bottom=(0 - corner) width=(2 * corner) height=(2 * corner) pan=pan("southwest") panrelease=release touch-action="none" cursor="nesw-resize" role="presentation" testId="device-mini-resize-southwest"
+      box position="absolute" right=(0 - corner) bottom=(0 - corner) width=(2 * corner) height=(2 * corner) pan=pan("southeast") panrelease=release touch-action="none" cursor="nwse-resize" role="presentation" testId="device-mini-resize-southeast"
+
+// A pill button (Button ghost icon-xs): focusable while the pill is hidden (opacity 0), as group-focus-within
+// needs, but it takes no pointer then; its glyph refuses the pointer too, since a box's pointer-events covers
+// only its own hit.
+component R6MiniPillButton
+  props
+    icon: string
+    label: string
+    shown: bool
+    press: action
+    focusChange: action
+    testId: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=press hover=hover focus=focusChange(true) blur=focusChange(false) pointer-events=(shown ? "auto" : "none") aria-label=label testId=testId width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(over and shown ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
+      svg width="1rem" height="1rem" viewBox="0 0 24 24" color=r6devInk() fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 pointer-events="none" aria-hidden=true
+        when icon == "panel-right"
+          rect x=3 y=3 width=18 height=18 rx=2
+          path d="M15 3v18"
+        when icon == "x"
+          path d="M18 6 6 18"
+          path d="m6 6 12 12"

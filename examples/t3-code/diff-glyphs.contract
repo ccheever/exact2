@@ -1,0 +1,70 @@
+// The Diff panel's glyphs, moved out of diff.contract so the tree (diff-tree.contract) and the
+// comment cards (diff-comments.contract) can draw them too: lucide (24 grid) and @pierre/diffs (16 grid).
+component DiffGlyph
+  props
+    name: string
+    size: number
+    color: string
+  view
+    when name == "file-diff" or name == "panel-right" or name == "fold" or name == "unfold" or name == "wrap" or name == "pilcrow" or name == "tree" or name == "copy" or name == "refresh" or name == "stacked" or name == "split" or name == "rotate-cw" or name == "info" or name == "plus" or name == "trash" or name == "message-circle" or name == "quote"
+      svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
+        when name == "file-diff"
+          path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"
+          path d="M9 10h6M12 13V7M9 17h6"
+        when name == "stacked"
+          rect width=18 height=18 x=3 y=3 rx=2
+          path d="M21 9H3M21 15H3"
+        when name == "split"
+          rect width=18 height=18 x=3 y=3 rx=2
+          path d="M12 3v18"
+        when name == "panel-right"
+          rect width=18 height=18 x=3 y=3 rx=2
+          path d="M15 3v18"
+        when name == "fold"
+          path d="m7 20 5-5 5 5M7 4l5 5 5-5"
+        when name == "unfold"
+          path d="m7 15 5 5 5-5M7 9l5-5 5 5"
+        when name == "wrap"
+          path d="m16 16-3 3 3 3M3 12h14.5a1 1 0 0 1 0 7H13M3 19h6M3 5h18"
+        when name == "pilcrow"
+          path d="M13 4v16M17 4v16M19 4H9.5a4.5 4.5 0 0 0 0 9H13"
+        when name == "tree"
+          path d="M20 10a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-2.5a1 1 0 0 1-.8-.4l-.9-1.2A1 1 0 0 0 15 3h-2a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1Z"
+          path d="M20 21a1 1 0 0 0 1-1v-3a1 1 0 0 0-1-1h-2.9a1 1 0 0 1-.88-.55l-.42-.85a1 1 0 0 0-.92-.6H13a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1Z"
+          path d="M3 5a2 2 0 0 0 2 2h3M3 3v13a2 2 0 0 0 2 2h3"
+        when name == "copy"
+          rect width=14 height=14 x=8 y=8 rx=2 ry=2
+          path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"
+        when name == "refresh"
+          path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16M8 16H3v5"
+        // diff-review: DiffFileStatus (RotateCw, Info), the gutter's "+", DiffCommentAnnotation (MessageCircle, Trash2), Cite (Quote).
+        when name == "rotate-cw"
+          path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8M21 3v5h-5"
+        when name == "info"
+          path d="M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0M12 16v-4M12 8h.01"
+        when name == "plus"
+          path d="M5 12h14M12 5v14"
+        when name == "trash"
+          path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2M10 11v6M14 11v6"
+        when name == "message-circle"
+          path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"
+        when name == "quote"
+          path d="M16 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2 1 1 0 0 1 1 1v1a2 2 0 0 1-2 2 1 1 0 0 0-1 1v2a1 1 0 0 0 1 1 6 6 0 0 0 6-6V5a2 2 0 0 0-2-2zM5 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2 1 1 0 0 1 1 1v1a2 2 0 0 1-2 2 1 1 0 0 0-1 1v2a1 1 0 0 0 1 1 6 6 0 0 0 6-6V5a2 2 0 0 0-2-2z"
+    else
+      svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 16 16" color=color fill="currentColor" flex-shrink=0 aria-hidden=true
+        when name == "modified"
+          path d="M1.5 8c0 1.613.088 2.806.288 3.704.196.88.478 1.381.802 1.706s.826.607 1.706.802c.898.2 2.091.288 3.704.288s2.806-.088 3.704-.288c.88-.195 1.381-.478 1.706-.802s.607-.826.802-1.706c.2-.898.288-2.091.288-3.704s-.088-2.806-.288-3.704c-.195-.88-.478-1.381-.802-1.706s-.826-.606-1.706-.802C10.806 1.588 9.613 1.5 8 1.5s-2.806.088-3.704.288c-.88.196-1.381.478-1.706.802s-.606.826-.802 1.706C1.588 5.194 1.5 6.387 1.5 8M0 8c0-6.588 1.412-8 8-8s8 1.412 8 8-1.412 8-8 8-8-1.412-8-8m8 3a3 3 0 1 0 0-6 3 3 0 0 0 0 6"
+        when name == "deleted" or name == "added" or name == "renamed"
+          path d="M1.788 4.296c.196-.88.478-1.381.802-1.706s.826-.606 1.706-.802C5.194 1.588 6.387 1.5 8 1.5s2.806.088 3.704.288c.88.196 1.381.478 1.706.802s.607.826.802 1.706c.2.898.288 2.091.288 3.704s-.088 2.806-.288 3.704c-.195.88-.478 1.381-.802 1.706s-.826.607-1.706.802c-.898.2-2.091.288-3.704.288s-2.806-.088-3.704-.288c-.88-.195-1.381-.478-1.706-.802s-.606-.826-.802-1.706C1.588 10.806 1.5 9.613 1.5 8s.088-2.806.288-3.704M8 0C1.412 0 0 1.412 0 8s1.412 8 8 8 8-1.412 8-8-1.412-8-8-8"
+          when name == "deleted"
+            path d="M4 8a.75.75 0 0 1 .75-.75h6.5a.75.75 0 0 1 0 1.5h-6.5A.75.75 0 0 1 4 8"
+          when name == "added"
+            path d="M8 4a.75.75 0 0 1 .75.75v2.5h2.5a.75.75 0 0 1 0 1.5h-2.5v2.5a.75.75 0 0 1-1.5 0v-2.5h-2.5a.75.75 0 0 1 0-1.5h2.5v-2.5A.75.75 0 0 1 8 4"
+          when name == "renamed"
+            path d="M8.47 4.22a.75.75 0 0 0 0 1.06l1.97 1.97H3.75a.75.75 0 0 0 0 1.5h6.69l-1.97 1.97a.75.75 0 1 0 1.06 1.06l3.25-3.25a.75.75 0 0 0 0-1.06L9.53 4.22a.75.75 0 0 0-1.06 0"
+        when name == "markdown"
+          path d="M1 12V4h2l2 2.5L7 4h2v8H7V7.5l-2 2-2-2V12zm9-3 3 3.5L16 9h-2V4h-2v5z"
+        when name == "file"
+          path d="M8 1v3a3 3 0 0 0 3 3h3v5.5a2.5 2.5 0 0 1-2.5 2.5h-7A2.5 2.5 0 0 1 2 12.5v-9A2.5 2.5 0 0 1 4.5 1z" opacity=0.4
+          path d="M9.5 1a.5.5 0 0 1 .354.146l4 4A.5.5 0 0 1 14 5.5V6h-3a2 2 0 0 1-2-2V1z"
+

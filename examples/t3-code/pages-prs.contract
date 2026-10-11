@@ -1,0 +1,814 @@
+// The Pull Requests page (lane "pages"), measured against the served reference
+// at 1280×840: the page header, the search and list controls (Sort, Filters
+// with its submenus, the provider filter, Refresh), the grouped rows and the
+// empty states. The detail panel is pages-pr-detail.contract. Sources: T3 Code
+// (MIT, see LICENSE-T3) routes/_chat.pull-requests.tsx,
+// components/pullRequest/{PullRequestRow,PullRequestListRow,
+// PullRequestListFilters,pullRequestPresentation,pullRequestIcons}.tsx.
+use PrListFooter from "./pages-pr-links.contract" // pr-links-previews-and-routing
+use Icon from "./icons.contract"
+use PgIcon from "./pages-icons.contract"
+use PgGlyph from "./pages-icons.contract"
+use BrandGitHub from "./settings-brands.contract"
+use PrEmptyState from "./r5-shell-prs.contract"
+use KmItem, kmTarget from "./menu-keys.contract"
+use KeyMenu from "./menu-keys.contract"
+use kmOpenKey from "./menu-keys.contract"
+use PrSpeedAction from "./pages-pr-quick.contract"
+use PrChecksPopover from "./pages-pr-quick.contract"
+use PrStackPopover from "./pages-pr-quick.contract"
+use PrQuickActions from "./pages-pr-quick.contract"
+use PrRowChecks from "./pages-pr-quick.contract"
+use PrRowStack from "./pages-pr-quick.contract"
+use KeyMenuOpen from "./menu-keys.contract"
+use kmBump from "./menu-keys.contract"
+
+shape PrChip
+  key: string
+  name: string
+  background: string
+  ink: string
+shape PrRow
+  key: string
+  ref: string
+  number: number
+  title: string
+  state: string
+  stateLabel: string
+  conflict: string
+  checks: string
+  checksLabel: string
+  review: string
+  reviewLabel: string
+  additions: string
+  deletions: string
+  author: string
+  avatar: string
+  initial: string
+  repository: string
+  age: string
+  selected: bool
+  labels: list<PrChip>
+  firstLabel: list<PrChip>
+  moreLabels: number
+  projectId: string
+  host: string
+  linkMenu: string
+  // pr-handoffs-and-quick-actions: the Shift quick actions, the stack trigger and the checks popover's headline.
+  speed: list<PrSpeedAction>
+  speedPending: bool
+  stackLabel: string
+  stackAria: string
+  stackTip: string
+  checksHeadline: string
+shape PrGroup
+  key: string
+  label: string
+  count: number
+  rows: list<PrRow>
+shape PrHost
+  value: string
+  label: string
+  selected: bool
+  unavailable: string
+shape PrProject
+  id: string
+  name: string
+  mark: string
+  ink: string
+  surface: string
+  selected: bool
+  unavailable: string
+shape PrAuthor
+  key: string
+  login: string
+  // The actor's display name, which "Search authors" also matches (usage-and-pr-pages PG-6).
+  name: string
+  avatar: string
+  initial: string
+  detail: string
+  selected: bool
+shape PrLabelFacet
+  key: string
+  name: string
+  color: string
+  count: number
+  selected: bool
+shape PrName
+  key: string
+  name: string
+shape PrNote
+  key: string
+  text: string
+shape PrListView
+  available: bool
+  // r4-timeline: Appearance → Diff colors for the +/- counts (PullRequestDiffStat).
+  diffScheme: string
+  loading: bool
+  hasProjects: bool
+  error: string
+  empty: string
+  emptyDetail: string
+  emptyAction: string
+  query: string
+  sort: string
+  sortLabel: string
+  state: string
+  involvement: string
+  draft: string
+  review: string
+  checks: string
+  author: string
+  labels: list<PrName>
+  host: string
+  hostLabel: string
+  filterCount: number
+  stateLabel: string
+  involvementLabel: string
+  draftLabel: string
+  reviewLabel: string
+  checksLabel: string
+  projectLabel: string
+  projectId: string
+  hosts: list<PrHost>
+  projects: list<PrProject>
+  authors: list<PrAuthor>
+  labelFacets: list<PrLabelFacet>
+  groups: list<PrGroup>
+  truncated: bool
+  errors: list<PrNote>
+  total: number
+  authorLabel: string
+  labelsLabel: string
+  stateIcon: string
+  involvementIcon: string
+  draftIcon: string
+  reviewIcon: string
+  checksIcon: string
+  filterBadge: string
+  filtersWidth: number
+  providerIconOnly: bool
+  speedMode: bool
+  checksPopover: PrChecksPopover
+  stackPopover: PrStackPopover
+  // pr-links-previews-and-routing: the list footer and a failed read over the rows shown.
+  footer: string
+  footerText: string
+  loadDisabled: bool
+  listError: string
+
+// PullRequestAuthorFilter's list (usage-and-pr-pages PG-6): the chosen author first, then every other whose login or name
+// holds the trimmed, lower-cased search, at most 10 in all.
+fn prAuthorMatches(person: PrAuthor, needle: string): bool = needle == "" or includes(toLowerCase(person.login), needle) or includes(toLowerCase(person.name), needle)
+fn prVisibleAuthors(authors: list<PrAuthor>, query: string): list<PrAuthor> = slice(concat(filter(authors, (person) => person.selected), filter(authors, (person) => not person.selected and prAuthorMatches(person, toLowerCase(trim(query))))), 0, 10)
+
+// The lifecycle tones (PULL_REQUEST_STATE_PRESENTATION) and the rollup tones.
+fn prStateIcon(lifecycle: string): string = lifecycle == "draft" ? "git-pull-request-draft" : lifecycle == "closed" ? "git-pull-request-closed" : lifecycle == "merged" ? "git-merge" : "git-pull-request-arrow"
+fn prStateTone(lifecycle: string): string = lifecycle == "draft" ? "light-dark(#71717b, #9f9fa9cc)" : lifecycle == "closed" ? "light-dark(#e7000b, #ffa2a2e6)" : lifecycle == "merged" ? "light-dark(#7f22fe, #c4b4ffe6)" : "light-dark(#009966, #5ee9b5e6)"
+fn prChecksIcon(checks: string): string = checks == "failing" ? "circle-x" : checks == "pending" ? "circle-dot" : "circle-check"
+fn prChecksTone(checks: string): string = checks == "failing" ? "light-dark(#e40014, #fb414a)" : checks == "pending" ? "light-dark(#e17100, #ffb900e6)" : "light-dark(#009966, #5ee9b5e6)"
+fn prReviewIcon(review: string): string = review == "approved" ? "user-check" : review == "changes-requested" ? "user-round-x" : "user-round"
+fn prReviewTone(review: string): string = review == "approved" ? "light-dark(#009966, #5ee9b5e6)" : review == "changes-requested" ? "light-dark(#e17100e6, #ffb900cc)" : "light-dark(#71717b99, #81818199)"
+fn prGroupIcon(group: string): string = group == "authored" ? "pen-line" : group == "reviewRequested" ? "eye" : "users"
+
+// PullRequestsColumn: header, the in-flow controls and the list. `narrow` is the
+// list column's @lg container (32rem) and `compact` the row meta's @xs (20rem).
+component PrList
+  inject
+    rem: number
+  props
+    // desktop-shell-details: --workspace-controls-left (90 beside the traffic lights; 0.75rem in full screen).
+    controlsLeft: number
+    page: PrListView
+    scheme: string
+    query: string
+    sidebarOpen: bool
+    keySidebar: string
+    narrow: bool
+    compact: bool
+    panelOpen: bool
+    viewportWidth: number
+    listLeft: number
+    listWidth: number
+    toggleSidebar: action
+    togglePanel: action
+    search: action
+    control: action
+    select: action
+    reload: action
+    addProject: action
+    // pr-handoffs-and-quick-actions: a row's quick action runs as the panel's actions do (prAct).
+    act: action
+    // usage-and-pr-pages PG-7: the page Escape leaves (useEscapeToGoBack), back to the page before it.
+    back: action
+  // An open popover sits at its invoker's bottom-left, clamped to the window, so
+  // an end-aligned menu carries a transparent tail as wide as the gap from its
+  // trigger's right edge to the window's: the clamp then lands it end-aligned.
+  // The controls row: wide, the search flexes and the buttons end at the
+  // content edge; narrow, the buttons wrap greedily under the search.
+  derive contentLeft = listLeft + 30
+  derive contentWidth = listWidth - 60
+  derive providerWidth = page.providerIconOnly ? 32 : 61.73
+  derive filtersFit = 72.95 + 8 + page.filtersWidth <= contentWidth
+  derive filtersRight = not narrow ? contentLeft + contentWidth - 32 - 8 - providerWidth - 8 : (filtersFit ? contentLeft + 72.95 + 8 + page.filtersWidth : contentLeft + page.filtersWidth)
+  derive providerRight = not narrow ? contentLeft + contentWidth - 32 - 8 : (filtersRight + 8 + providerWidth <= contentLeft + contentWidth ? filtersRight + 8 + providerWidth : contentLeft + providerWidth)
+  view
+    column flex=1 min-width=0 height="100%" background-color="light-dark(#fcfcfc, #0a0a0a)" testId="pull-requests-page"
+      // With the panel open, the panel holds the page's Back (PrPanel), as only it knows which of its editors has the focus.
+      when not panelOpen
+        PrPageBack(held=false, back=back)
+      row height=52 flex-shrink=0 width="100%" padding-left=(sidebarOpen ? 1.25 * rem : controlsLeft + 2.5 * rem) padding-right="1.25rem" box-sizing="border-box" align-items="center" position="relative"
+        when not sidebarOpen
+          button press=toggleSidebar position="absolute" left=(controlsLeft + 1) top="0.75rem" width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Toggle sidebar" aria-keyshortcuts=keySidebar testId="toggle-sidebar" title=""
+            Icon(name="panel-left", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
+        text "Pull Requests" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=1 line-clamp=1
+      scroll flex=1 min-height=0 width="100%" testId="pull-requests-scroll"
+        column width="100%" min-height="100%" padding-left="1.875rem" padding-right="1.875rem" padding-top="1.5rem" padding-bottom="3rem" box-sizing="border-box" gap="1rem"
+          // r5-shell: the reference wraps the controls in a 35pt block (34pt row + 1pt).
+          row width="100%" flex-wrap="wrap" align-items="center" gap="0.5rem" padding-bottom=1 box-sizing="border-box"
+            row height="2.125rem" flex-grow=1 flex-shrink=1 flex-basis=(narrow ? "100%" : "0px") min-width=0 box-sizing="border-box" padding-left="0.625rem" padding-right="0.625rem" gap="0.5rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" box-shadow="0 1px 2px #0000000d" align-items="center"
+              PgIcon(name="search", size=16, color="light-dark(#27272a, #f5f5f5)")
+              input value=query input=search submit=search(query) placeholder="Search pull requests, or label:bug" aria-label="Search pull requests" autocorrect="off" spellcheck="false" testId="pull-requests-search" flex=1 min-width=0 height="1.25rem" padding=0 border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+            PrSortMenu(page=page, scheme=scheme, control=control)
+            PrFiltersMenu(page=page, scheme=scheme, tail=(viewportWidth - filtersRight), control=control)
+            PrHostMenu(page=page, scheme=scheme, tail=(viewportWidth - providerRight), control=control)
+            PrToolButton(icon="refresh-cw", label="", ariaLabel="Refresh pull requests", badge="", busy=page.loading, press=reload, testId="pull-requests-refresh")
+          when length(page.groups) > 0
+            column width="100%" gap="0.75rem" role="list" aria-label="Pull requests"
+              each group in page.groups key=group.key
+                column width="100%" gap="0.125rem"
+                  row height="1rem" padding-left="0.75rem" padding-right="0.75rem" padding-bottom="0.25rem" gap="0.5rem" align-items="center"
+                    PgIcon(name=prGroupIcon(group.key), size=14, color="light-dark(#71717bb3, #828282b3)")
+                    text group.label font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717bb3, #828282b3)" role="heading" aria-level=2 flex-shrink=0
+                    text `${group.count}` font-size="0.75rem" line-height="1rem" font-weight=500 font-variant-numeric="tabular-nums" color="light-dark(#72727c80, #81818180)" flex-shrink=0
+                    box flex=1 min-width="0.5rem" height=1 background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
+                  each row in group.rows key=row.key
+                    PrRowButton(row=row, scheme=scheme, compact=compact, select=select, control=control, diff=page.diffScheme, act=act, speedMode=page.speedMode, checks=page.checksPopover, stack=page.stackPopover)
+              when length(page.errors) > 0
+                column width="100%" gap="0.25rem" padding-left="0.75rem" padding-right="0.75rem"
+                  each note in page.errors key=note.key
+                    text note.text font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+              // pr-links-previews-and-routing: Load more pull requests (the cursors), its spinner, the cap; a failed read over the rows.
+              PrListFooter(footer=page.footer, footerText=page.footerText, loadDisabled=page.loadDisabled, listError=page.listError, control=control, reload=reload)
+          else
+            when page.empty != ""
+              PrEmptyState(available=page.available, error=page.error, title=page.empty, detail=page.emptyDetail, action=page.emptyAction, loading=page.loading, scheme=scheme, reload=reload, control=control, addProject=addProject)
+            else
+              PrGhost()
+
+// Button variant="outline" (size default, 32pt): the list's control triggers.
+component PrToolButton
+  props
+    icon: string
+    label: string
+    ariaLabel: string
+    badge: string
+    busy: bool
+    press: action
+    testId: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=press hover=hover disabled=busy aria-label=ariaLabel testId=testId height="2rem" min-width="2rem" padding-left=(label == "" ? "0px" : "0.625rem") padding-right=(label == "" ? "0px" : "0.6875rem") box-sizing="border-box" gap="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(over ? "light-dark(#f4f4f580, #ffffff0d)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" opacity=(busy ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
+      PgIcon(name=icon, size=16, color="light-dark(#71717b, #818181)")
+      when label != ""
+        text label font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color="light-dark(#27272a, #f5f5f5)"
+      when badge != ""
+        text badge padding-left="0.375rem" padding-right="0.375rem" border-radius="624.9375rem" background-color="light-dark(#f4f4f5, #ffffff0f)" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
+
+// useEscapeToGoBack (usage-and-pr-pages PG-7): an Escape nothing else took blurs the focus and goes back to the page
+// before. Exact hears an `aria-keyshortcuts` button before any `key` handler, so the page's own owners of Escape keep it
+// from Back: a menu or popover is `aria-modal` while it shows (only shortcuts inside a shown modal are heard; its open
+// state has no event, X66), and a pull request editor's field holds it while it has the focus (`held`, PrPanel), as the
+// reference's onKeyDown hears it only from the focused field.
+component PrPageBack
+  props
+    held: bool
+    back: action
+  action escape
+    blur()
+    back()
+  view
+    box position="absolute" left=0 top=0 width=0 height=0 overflow="hidden" testId="pull-requests-keys"
+      button press=escape aria-keyshortcuts=(held ? "" : "Escape") aria-label="Back" tabindex=-1 testId="pull-requests-key-back" width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+        text "Back" font-size=1
+
+// The popup every list menu shares (MenuPopup: dropdown glass, rounded-lg). The glass blurs what is under it, which the
+// macOS presenter cannot, so it sits on the popover colour itself, or a toast or the list reads through it (as the
+// pull request Code tab's menus; usage-and-pr-pages, with the Usage page's menus).
+component PrMenuBox
+  props
+    scheme: string
+    width: number
+    label: string
+  slot
+  view
+    column width=width padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #111111)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") role="menu" aria-label=label flex-shrink=0
+      children
+
+// MenuRadioItem with the option's glyph; the chosen row is tinted (CompactFilterMenu) or ticked (submenus).
+component PrMenuItem
+  props
+    // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
+    keysId: string
+    menuId: string
+    icon: string
+    label: string
+    detail: string
+    selected: bool
+    tick: bool
+    disabled: bool
+    press: action
+    testId: string
+  state lit = false
+  action hover(value: bool)
+    if value
+      focus(`${testId}-km`)
+    else if lit
+      focus(keysId)
+  action focused(on: bool)
+    lit = on
+  view
+    button id=testId press=press popovertarget=menuId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) disabled=disabled role="menuitemradio" aria-checked=selected testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(lit and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : selected and not tick ? "light-dark(#27272a14, #f2f2f214)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
+      when icon != ""
+        PgIcon(name=icon, size=14, color="light-dark(#27272a, #f5f5f5)")
+      text label font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1 text-align="left" white-space="nowrap"
+      when detail != ""
+        text detail font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" flex-shrink=0 white-space="nowrap"
+      when tick
+        box width="1rem" height="1rem" display="flex" align-items="center" justify-content="center" flex-shrink=0
+          when selected
+            PgIcon(name="check", size=16, color="light-dark(#27272a, #f5f5f5)")
+
+component PrSortMenu
+  props
+    page: PrListView
+    scheme: string
+    control: action
+  // fix-keyboard-focus: the menu's keyboard (menu-keys.contract).
+  state keyed = 0
+  state keyArmed = false
+  action keyArm(on: bool)
+    keyArmed = on
+  action keyOpened(last: bool)
+    keyed = kmBump(keyed, last)
+  action triggerKey(k: string)
+    if kmOpenKey(k)
+      keyed = kmBump(keyed, false)
+  view
+    column position="relative" flex-shrink=0
+      button popovertarget="pr-sort-menu" key=triggerKey focus=keyArm(true) blur=keyArm(false) aria-label=`Sort pull requests: ${page.sortLabel}` testId="pull-requests-sort" height="2rem" padding-left="0.625rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center"
+        PgIcon(name="arrow-down-up", size=16, color="light-dark(#71717b, #818181)")
+        text "Sort" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+      KeyMenuOpen(menuId="pr-sort-menu", armed=keyArmed, opened=keyOpened)
+      column id="pr-sort-menu" popover="auto" position="absolute" padding-top="0.25rem" testId="pr-sort-layer"
+        PrMenuBox(scheme=scheme, width=160, label=`Sort pull requests: ${page.sortLabel}`)
+          KeyMenu(menuId="pr-sort-keys", items=[KmItem(id="pr-sort-ready", label="Merge readiness"), KmItem(id="pr-sort-blocked", label="Blocked on me"), KmItem(id="pr-sort-updated", label="Recently updated"), KmItem(id="pr-sort-newest", label="Newest shown"), KmItem(id="pr-sort-oldest", label="Oldest shown"), KmItem(id="pr-sort-largest", label="Largest shown"), KmItem(id="pr-sort-smallest", label="Smallest shown")], keyed=keyed, gap="0px", modal=true)
+            PrMenuItem(keysId="pr-sort-keys", menuId="pr-sort-menu", icon="list-checks", label="Merge readiness", detail="", selected=(page.sort == "ready"), tick=false, disabled=false, press=control("sort", "ready"), testId="pr-sort-ready")
+            PrMenuItem(keysId="pr-sort-keys", menuId="pr-sort-menu", icon="user-lock", label="Blocked on me", detail="", selected=(page.sort == "blocked"), tick=false, disabled=false, press=control("sort", "blocked"), testId="pr-sort-blocked")
+            PrMenuItem(keysId="pr-sort-keys", menuId="pr-sort-menu", icon="clock", label="Recently updated", detail="", selected=(page.sort == "updated"), tick=false, disabled=false, press=control("sort", "updated"), testId="pr-sort-updated")
+            PrMenuItem(keysId="pr-sort-keys", menuId="pr-sort-menu", icon="calendar-arrow-down", label="Newest shown", detail="", selected=(page.sort == "newest"), tick=false, disabled=false, press=control("sort", "newest"), testId="pr-sort-newest")
+            PrMenuItem(keysId="pr-sort-keys", menuId="pr-sort-menu", icon="calendar-arrow-up", label="Oldest shown", detail="", selected=(page.sort == "oldest"), tick=false, disabled=false, press=control("sort", "oldest"), testId="pr-sort-oldest")
+            PrMenuItem(keysId="pr-sort-keys", menuId="pr-sort-menu", icon="maximize-2", label="Largest shown", detail="", selected=(page.sort == "largest"), tick=false, disabled=false, press=control("sort", "largest"), testId="pr-sort-largest")
+            PrMenuItem(keysId="pr-sort-keys", menuId="pr-sort-menu", icon="minimize-2", label="Smallest shown", detail="", selected=(page.sort == "smallest"), tick=false, disabled=false, press=control("sort", "smallest"), testId="pr-sort-smallest")
+
+// The provider filter (CompactFilterMenu outlined): "All" with the plug, end-aligned.
+component PrHostMenu
+  props
+    page: PrListView
+    scheme: string
+    tail: number
+    control: action
+  state keyed = 0
+  state keyArmed = false
+  action keyArm(on: bool)
+    keyArmed = on
+  action keyOpened(last: bool)
+    keyed = kmBump(keyed, last)
+  action triggerKey(k: string)
+    if kmOpenKey(k)
+      keyed = kmBump(keyed, false)
+  view
+    column position="relative" flex-shrink=0
+      button popovertarget="pr-host-menu" key=triggerKey focus=keyArm(true) blur=keyArm(false) aria-label=`Filter by provider: ${page.hostLabel}` testId="pull-requests-provider" height="2rem" min-width="2rem" padding-left=(page.providerIconOnly ? "0px" : "0.625rem") padding-right=(page.providerIconOnly ? "0px" : "0.6875rem") box-sizing="border-box" gap="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+        PgIcon(name="plug-2", size=16, color="light-dark(#71717b, #818181)")
+        when not page.providerIconOnly
+          text "All" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+      KeyMenuOpen(menuId="pr-host-menu", armed=keyArmed, opened=keyOpened)
+      row id="pr-host-menu" popover="auto" position="absolute" padding-top="0.25rem" align-items="flex-start" testId="pr-host-layer"
+        PrMenuBox(scheme=scheme, width=160, label=`Filter by provider: ${page.hostLabel}`)
+          KeyMenu(menuId="pr-host-keys", items=map(filter(page.hosts, (host) => host.unavailable == ""), (host) => KmItem(id=`pr-host-${host.label}`, label=host.label)), keyed=keyed, gap="0px", modal=true)
+            each host in page.hosts key=host.value
+              PrHostItem(keysId="pr-host-keys", host=host, control=control)
+        box width=tail height=1 flex-shrink=0
+
+component PrHostItem
+  props
+    // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
+    keysId: string
+    host: PrHost
+    control: action
+  state lit = false
+  action hover(value: bool)
+    if value
+      focus(`pr-host-${host.label}-km`)
+    else if lit
+      focus(keysId)
+  action focused(on: bool)
+    lit = on
+  view
+    button id=`pr-host-${host.label}` press=control("host", host.value) popovertarget="pr-host-menu" popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) disabled=(host.unavailable != "") role="menuitemradio" aria-checked=host.selected testId=`pr-host-${host.label}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(lit and host.unavailable == "" ? "light-dark(#f4f4f5, #ffffff0a)" : host.selected ? "light-dark(#27272a14, #f2f2f214)" : "#00000000") opacity=(host.unavailable != "" ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
+      when host.value == ""
+        PgIcon(name="plug-2", size=14, color="light-dark(#27272a, #f5f5f5)")
+      else
+        BrandGitHub(size=14)
+      text host.label font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1 text-align="left" white-space="nowrap"
+      when host.unavailable != ""
+        text "· Unavailable" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" flex-shrink=0
+
+// PullRequestFiltersMenu: end-aligned under its trigger; a submenu opens to its left.
+component PrFiltersMenu
+  props
+    page: PrListView
+    scheme: string
+    tail: number
+    control: action
+  state sub = ""
+  // "Search authors" (PG-6): the Author submenu's search, kept while the Filters menu is open (the reference's state
+  // lives in the Filters popup) and cleared as it opens again, by a press, Enter or Space (`openMenu`) or ↓ or ↑
+  // (`keyOpened`): the reference's popup mounts afresh each time.
+  state authorQuery = ""
+  derive authors = prVisibleAuthors(page.authors, authorQuery)
+  // Where the Author submenu puts the focus as it opens, as Base UI's does (checked on the reference): a press gives it
+  // to "Search authors" (the field's autoFocus), the keyboard (→, Enter, Space) to its first row, Anyone. `subPointer`:
+  // the open submenu came from a press, so its KeyMenu sees no keyboard opening (`keyed` 0 below) and leaves the focus.
+  state subPointer = false
+  action open(name: string)
+    sub = sub == name ? "" : name
+    subPointer = true
+    subLeft = false
+    if name == "author" and sub != "author"
+      focus("pr-author-search")
+  action openMenu
+    sub = ""
+    authorQuery = ""
+  action searchAuthors(text: string)
+    authorQuery = text
+  // fix-keyboard-focus: the menu's keyboard (menu-keys.contract), and its submenus' (MenuSubTrigger):
+  // → , Enter or Space on a row opens its submenu with the focus on the submenu's first row, ← closes it
+  // and gives the focus back to the row.
+  state keyed = 0
+  state keyArmed = false
+  action keyArm(on: bool)
+    keyArmed = on
+  action keyOpened(last: bool)
+    keyed = kmBump(keyed, last)
+    openMenu()
+  state subKeyed = 0
+  derive subItems = sub == "state" ? [KmItem(id="pr-state-all", label="All"), KmItem(id="pr-state-open", label="Open"), KmItem(id="pr-state-closed", label="Closed"), KmItem(id="pr-state-merged", label="Merged")] : (sub == "involvement" ? [KmItem(id="pr-involvement-all", label="All"), KmItem(id="pr-involvement-reviewing", label="Reviewing"), KmItem(id="pr-involvement-authored", label="Authored")] : (sub == "draft" ? [KmItem(id="pr-draft-all", label="All"), KmItem(id="pr-draft-only", label="Drafts only"), KmItem(id="pr-draft-hide", label="Hide drafts")] : (sub == "review" ? [KmItem(id="pr-review-all", label="All"), KmItem(id="pr-review-approved", label="Approved"), KmItem(id="pr-review-changes", label="Changes requested"), KmItem(id="pr-review-required", label="Review required"), KmItem(id="pr-review-none", label="No reviews")] : (sub == "checks" ? [KmItem(id="pr-checks-all", label="All"), KmItem(id="pr-checks-passing", label="Passing"), KmItem(id="pr-checks-failing", label="Failing")] : (sub == "project" ? concat([KmItem(id="pr-project-all", label="All projects")], map(filter(page.projects, (project) => project.unavailable == ""), (project) => KmItem(id=`pr-project-${project.id}`, label=project.name))) : (sub == "author" ? concat([KmItem(id="pr-author-anyone", label="Anyone")], map(authors, (person) => KmItem(id=`pr-author-${person.key}`, label=person.login))) : map(page.labelFacets, (label) => KmItem(id=`pr-label-${label.key}`, label=label.name))))))))
+  action triggerKey(k: string)
+    if kmOpenKey(k)
+      keyed = kmBump(keyed, false)
+  derive filterItems = [KmItem(id="pr-filter-state", label="State"), KmItem(id="pr-filter-involvement", label="Involvement"), KmItem(id="pr-filter-author", label="Author"), KmItem(id="pr-filter-labels", label="Labels"), KmItem(id="pr-filter-draft", label="Draft"), KmItem(id="pr-filter-review", label="Review"), KmItem(id="pr-filter-checks", label="Checks"), KmItem(id="pr-filter-project", label="Project")]
+  action subKey(name: string, k: string, e: KeyboardEvent)
+    if k == "ArrowRight" or kmOpenKey(k)
+      preventDefault()
+      sub = name
+      subPointer = false
+      subLeft = false
+      subKeyed = subKeyed + 1
+      focus("pr-filters-sub-keys")
+    else if not e.metaKey and not e.ctrlKey and not e.altKey
+      // FW-3: ↓, ↑, Home, End and a letter go on from the row that has the focus, however it got it (a press, the
+      // Escape that closed its submenu), as Base UI's list navigation does from its highlighted row: the popup's
+      // KeyMenu knows only the rows its own keys reached (from Author, ↓ is Labels, not State).
+      match kmTarget(filterItems, `pr-filter-${name}`, k)
+        case some(item)
+          preventDefault()
+          stopPropagation()
+          focus(item.id)
+        case none
+  action subBack(k: string)
+    if k == "ArrowLeft" and sub != ""
+      preventDefault()
+      focus(`pr-filter-${sub}`)
+      sub = ""
+  // audit-wave-followups-3 FW-3: Escape while a submenu is open closes only the submenu, from its rows, its search
+  // field or the Filters rows (Base UI: a menu with an open child leaves Escape to the child, closeParentOnEsc false).
+  // Prevented, it never reaches the popover's own Escape. The focus goes back to the submenu's row, as the submenu's
+  // FloatingFocusManager returns it to its trigger, unless the pointer left that row after the submenu opened (into
+  // the submenu, say): the trigger's mouseleave stops the return, so the focus drops, no row is lit and ↓ moves
+  // nothing; a second Escape still closes Filters. Checked on the reference over CDP: click Author, Escape in "Search
+  // authors" focuses the Author row and ↓ goes to Labels; click Author, then into the field (or State, then onto
+  // Closed), Escape leaves the focus on BODY and ↓ does nothing.
+  // realinput-1010c-fixes RC-3: the dropped focus lands on the popup's rest box (`pr-filters-rest`), not on nothing.
+  // `blur()` left the window itself the first responder, and the host's popover Escape (MenusMac `key`) closes a
+  // popover only while the focus is in the window's content, so a real second Escape closed nothing (an agent's
+  // `type <row> key Escape` focuses the row first, which is why the drive passed). The rest box lies outside both
+  // KeyMenus and the submenu's row, so ↓ there still moves nothing, and it draws no ring (not pressable). EXACT2-GAPS
+  // X73: the box goes when the host closes an auto popover on Escape at any focus.
+  state subLeft = false
+  action rowLeft(name: string)
+    if sub == name
+      subLeft = true
+  action closeSub
+    if subLeft
+      focus("pr-filters-rest")
+    else
+      focus(`pr-filter-${sub}`)
+    sub = ""
+  action subEscape(k: string)
+    if k == "Escape" and sub != ""
+      preventDefault()
+      closeSub()
+  derive subWidth = sub == "" ? 0 : (sub == "author" or sub == "labels" or sub == "project" ? 232 : 168)
+  derive subTop = sub == "involvement" ? 28 : sub == "author" ? 65 : sub == "labels" ? 93 : sub == "draft" ? 121 : sub == "review" ? 149 : sub == "checks" ? 177 : sub == "project" ? 214 : 0
+  view
+    column position="relative" flex-shrink=0
+      button popovertarget="pr-filters-menu" press=openMenu key=triggerKey focus=keyArm(true) blur=keyArm(false) aria-label="Filters" testId="pull-requests-filters" height="2rem" padding-left="0.625rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center"
+        PgIcon(name="list-filter", size=16, color="light-dark(#71717b, #818181)")
+        text "Filters" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+        when page.filterBadge != ""
+          text page.filterBadge padding-left="0.375rem" padding-right="0.375rem" border-radius="624.9375rem" background-color="light-dark(#f4f4f5, #ffffff0f)" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
+      KeyMenuOpen(menuId="pr-filters-menu", armed=keyArmed, opened=keyOpened)
+      column id="pr-filters-menu" popover="auto" position="absolute" padding-top="0.25rem" testId="pr-filters-layer"
+        box id="pr-filters-rest" tabindex=-1 aria-hidden=true position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" testId="pr-filters-rest"
+        row align-items="flex-start" key=subEscape
+          when sub != ""
+            column margin-top=subTop margin-right="-0.1875rem" key=subBack
+              PrMenuBox(scheme=scheme, width=subWidth, label=sub)
+                KeyMenu(menuId="pr-filters-sub-keys", items=subItems, keyed=(sub == "author" and subPointer ? 0 : subKeyed), gap="0px", modal=true)
+                  PrFilterSub(page=page, sub=sub, authors=authors, authorQuery=authorQuery, searchAuthors=searchAuthors, searchEscape=closeSub, control=control)
+          PrMenuBox(scheme=scheme, width=184, label="Filters")
+            KeyMenu(menuId="pr-filters-keys", items=filterItems, keyed=keyed, gap="0px", modal=true)
+              PrSubTrigger(keysId="pr-filters-keys", icon=page.stateIcon, label="State", value=page.stateLabel, open=(sub == "state"), press=open("state"), keys=subKey("state"), leave=rowLeft("state"), testId="pr-filter-state")
+              PrSubTrigger(keysId="pr-filters-keys", icon=page.involvementIcon, label="Involvement", value=page.involvementLabel, open=(sub == "involvement"), press=open("involvement"), keys=subKey("involvement"), leave=rowLeft("involvement"), testId="pr-filter-involvement")
+              box width="calc(100% - 16px)" height=1 margin-left="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
+              PrSubTrigger(keysId="pr-filters-keys", icon="user-round", label="Author", value=page.authorLabel, open=(sub == "author"), press=open("author"), keys=subKey("author"), leave=rowLeft("author"), testId="pr-filter-author")
+              PrSubTrigger(keysId="pr-filters-keys", icon="tag", label="Labels", value=page.labelsLabel, open=(sub == "labels"), press=open("labels"), keys=subKey("labels"), leave=rowLeft("labels"), testId="pr-filter-labels")
+              PrSubTrigger(keysId="pr-filters-keys", icon=page.draftIcon, label="Draft", value=page.draftLabel, open=(sub == "draft"), press=open("draft"), keys=subKey("draft"), leave=rowLeft("draft"), testId="pr-filter-draft")
+              PrSubTrigger(keysId="pr-filters-keys", icon=page.reviewIcon, label="Review", value=page.reviewLabel, open=(sub == "review"), press=open("review"), keys=subKey("review"), leave=rowLeft("review"), testId="pr-filter-review")
+              PrSubTrigger(keysId="pr-filters-keys", icon=page.checksIcon, label="Checks", value=page.checksLabel, open=(sub == "checks"), press=open("checks"), keys=subKey("checks"), leave=rowLeft("checks"), testId="pr-filter-checks")
+              box width="calc(100% - 16px)" height=1 margin-left="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
+              PrSubTrigger(keysId="pr-filters-keys", icon="layers", label="Project", value=page.projectLabel, open=(sub == "project"), press=open("project"), keys=subKey("project"), leave=rowLeft("project"), testId="pr-filter-project")
+          box width=tail height=1 flex-shrink=0
+
+// MenuSubTrigger: glyph, name, the current value in muted text and a chevron.
+component PrSubTrigger
+  props
+    // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
+    keysId: string
+    icon: string
+    label: string
+    value: string
+    open: bool
+    press: action
+    keys: action
+    // FW-3: the pointer left the row (PrFiltersMenu `rowLeft`).
+    leave: action
+    testId: string
+  state lit = false
+  action hover(value: bool)
+    if value
+      focus(`${testId}-km`)
+    else if lit
+      focus(keysId)
+    if not value
+      leave()
+  action focused(on: bool)
+    lit = on
+  view
+    button id=testId press=press key=keys hover=hover focus=focused(true) blur=focused(false) role="menuitem" aria-expanded=open aria-label=`${label} ${value}` testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.375rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(lit or open ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+      PgIcon(name=icon, size=14, color="light-dark(#71717b, #818181)")
+      text label font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 text-align="left" white-space="nowrap"
+      text value font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" max-width="8rem" line-clamp=1 flex-shrink=0 text-align="left"
+      PgIcon(name="chevron-right", size=16, color="light-dark(#71717b, #818181)")
+
+// The open submenu: a labelled radio group, the author list or the label checkboxes.
+component PrFilterSub
+  props
+    page: PrListView
+    sub: string
+    // The Author submenu's visible authors and its search (PrFiltersMenu, PG-6).
+    authors: list<PrAuthor>
+    authorQuery: string
+    searchAuthors: action
+    // FW-3: Escape in the field closes the submenu (PrFiltersMenu `closeSub`).
+    searchEscape: action
+    control: action
+  // The search field's keys are its own (the reference stops their propagation), but for ↓, which moves to the first
+  // row, and Escape, which closes the submenu: no menu typeahead or ← takes a letter or the caret's arrow.
+  action searchKey(k: string)
+    if k == "Escape"
+      preventDefault()
+      stopPropagation()
+      searchEscape()
+    else if k != "ArrowDown"
+      stopPropagation()
+  view
+    column width="100%"
+      when sub != "author" and sub != "labels"
+        text (sub == "state" ? "State" : sub == "involvement" ? "Involvement" : sub == "draft" ? "Draft" : sub == "review" ? "Review" : sub == "checks" ? "Checks" : "Project") padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)"
+      when sub == "state"
+        PrMenuItem(keysId="pr-filters-sub-keys", menuId="pr-filters-menu", icon="layers", label="All", detail="", selected=(page.state == "all"), tick=true, disabled=false, press=control("state", "all"), testId="pr-state-all")
+        PrMenuItem(keysId="pr-filters-sub-keys", menuId="pr-filters-menu", icon="git-pull-request-arrow", label="Open", detail="", selected=(page.state == "open"), tick=true, disabled=false, press=control("state", "open"), testId="pr-state-open")
+        PrMenuItem(keysId="pr-filters-sub-keys", menuId="pr-filters-menu", icon="git-pull-request-closed", label="Closed", detail="", selected=(page.state == "closed"), tick=true, disabled=false, press=control("state", "closed"), testId="pr-state-closed")
+        PrMenuItem(keysId="pr-filters-sub-keys", menuId="pr-filters-menu", icon="git-merge", label="Merged", detail="", selected=(page.state == "merged"), tick=true, disabled=false, press=control("state", "merged"), testId="pr-state-merged")
+      when sub == "involvement"
+        PrMenuItem(keysId="pr-filters-sub-keys", menuId="pr-filters-menu", icon="layers", label="All", detail="", selected=(page.involvement == "all"), tick=true, disabled=false, press=control("involvement", "all"), testId="pr-involvement-all")
+        PrMenuItem(keysId="pr-filters-sub-keys", menuId="pr-filters-menu", icon="eye", label="Reviewing", detail="", selected=(page.involvement == "reviewing"), tick=true, disabled=false, press=control("involvement", "reviewing"), testId="pr-involvement-reviewing")
+        PrMenuItem(keysId="pr-filters-sub-keys", menuId="pr-filters-menu", icon="pen-line", label="Authored", detail="", selected=(page.involvement == "authored"), tick=true, disabled=false, press=control("involvement", "authored"), testId="pr-involvement-authored")
+      when sub == "draft"
+        PrMenuItem(keysId="pr-filters-sub-keys", menuId="pr-filters-menu", icon="layers", label="All", detail="", selected=(page.draft == "all"), tick=true, disabled=false, press=control("draft", "all"), testId="pr-draft-all")
+        PrMenuItem(keysId="pr-filters-sub-keys", menuId="pr-filters-menu", icon="git-pull-request-draft", label="Drafts only", detail="", selected=(page.draft == "only"), tick=true, disabled=false, press=control("draft", "only"), testId="pr-draft-only")
+        PrMenuItem(keysId="pr-filters-sub-keys", menuId="pr-filters-menu", icon="eye-off", label="Hide drafts", detail="", selected=(page.draft == "hide"), tick=true, disabled=false, press=control("draft", "hide"), testId="pr-draft-hide")
+      when sub == "review"
+        PrMenuItem(keysId="pr-filters-sub-keys", menuId="pr-filters-menu", icon="layers", label="All", detail="", selected=(page.review == "all"), tick=true, disabled=false, press=control("review", "all"), testId="pr-review-all")
+        PrMenuItem(keysId="pr-filters-sub-keys", menuId="pr-filters-menu", icon="circle-check", label="Approved", detail="", selected=(page.review == "approved"), tick=true, disabled=false, press=control("review", "approved"), testId="pr-review-approved")
+        PrMenuItem(keysId="pr-filters-sub-keys", menuId="pr-filters-menu", icon="circle-x", label="Changes requested", detail="", selected=(page.review == "changes-requested"), tick=true, disabled=false, press=control("review", "changes-requested"), testId="pr-review-changes")
+        PrMenuItem(keysId="pr-filters-sub-keys", menuId="pr-filters-menu", icon="circle-dashed", label="Review required", detail="", selected=(page.review == "review-required"), tick=true, disabled=false, press=control("review", "review-required"), testId="pr-review-required")
+        PrMenuItem(keysId="pr-filters-sub-keys", menuId="pr-filters-menu", icon="circle-slash", label="No reviews", detail="", selected=(page.review == "none"), tick=true, disabled=false, press=control("review", "none"), testId="pr-review-none")
+      when sub == "checks"
+        PrMenuItem(keysId="pr-filters-sub-keys", menuId="pr-filters-menu", icon="layers", label="All", detail="", selected=(page.checks == "all"), tick=true, disabled=false, press=control("checks", "all"), testId="pr-checks-all")
+        PrMenuItem(keysId="pr-filters-sub-keys", menuId="pr-filters-menu", icon="circle-check", label="Passing", detail="", selected=(page.checks == "passing"), tick=true, disabled=false, press=control("checks", "passing"), testId="pr-checks-passing")
+        PrMenuItem(keysId="pr-filters-sub-keys", menuId="pr-filters-menu", icon="circle-x", label="Failing", detail="", selected=(page.checks == "failing"), tick=true, disabled=false, press=control("checks", "failing"), testId="pr-checks-failing")
+      when sub == "project"
+        PrMenuItem(keysId="pr-filters-sub-keys", menuId="pr-filters-menu", icon="layers", label="All projects", detail="", selected=(page.projectId == ""), tick=true, disabled=false, press=control("project", ""), testId="pr-project-all")
+        each project in page.projects key=project.id
+          PrMenuItem(keysId="pr-filters-sub-keys", menuId="pr-filters-menu", icon="folder-git-2", label=project.name, detail=(project.unavailable == "" ? "" : "· Unavailable"), selected=project.selected, tick=true, disabled=(project.unavailable != ""), press=control("project", project.id), testId=`pr-project-${project.id}`)
+      when sub == "author"
+        // InputGroup (size compact) in a p-1 pb-2 box: the search glyph, then "Search authors" (text-xs in the 28pt row; the
+        // field is one line tall, centred by the row, as the list's search field is: a taller macOS field draws its text at the top).
+        // A press on Author focuses it (PrFiltersMenu `open`); opened from the keyboard, Anyone has the focus.
+        box padding="0.25rem" padding-bottom="0.5rem" box-sizing="border-box" width="100%"
+          row width="100%" height="1.875rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.5625rem" gap="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" box-shadow="0 1px 2px #0000000d" align-items="center"
+            PgIcon(name="search", size=14, color="light-dark(#71717b, #818181)")
+            input id="pr-author-search" value=authorQuery input=searchAuthors key=searchKey placeholder="Search authors" aria-label="Search authors" autocorrect="off" spellcheck="false" testId="pr-author-search" flex=1 min-width=0 height="1rem" padding=0 border-width=0 background-color="#00000000" font-size="0.75rem" line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
+        // audit-wave-followups-3 FW-4: PullRequestAuthorFilter's radio items carry no MenuRadioItemIndicator, so the chosen
+        // row (Anyone while no author is chosen) is only tinted (data-checked:bg-foreground/[0.08]), never ticked.
+        PrMenuItem(keysId="pr-filters-sub-keys", menuId="pr-filters-menu", icon="layers", label="Anyone", detail="", selected=(page.author == ""), tick=false, disabled=false, press=control("author", page.author), testId="pr-author-anyone")
+        each person in authors key=person.key
+          PrAuthorItem(keysId="pr-filters-sub-keys", person=person, control=control)
+        when length(authors) == 0
+          text "No authors found" padding="0.5rem" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" opacity=0.64
+      when sub == "labels"
+        each label in page.labelFacets key=label.key
+          PrLabelItem(keysId="pr-filters-sub-keys", label=label, control=control)
+        when length(page.labelFacets) == 0
+          text "No labels in this view" padding="0.5rem" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" opacity=0.64
+
+// An author's MenuRadioItem: avatar, login, merges loaded; chosen, it is tinted, with no tick (FW-4, as Anyone).
+component PrAuthorItem
+  props
+    // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
+    keysId: string
+    person: PrAuthor
+    control: action
+  state lit = false
+  action hover(value: bool)
+    if value
+      focus(`pr-author-${person.key}-km`)
+    else if lit
+      focus(keysId)
+  action focused(on: bool)
+    lit = on
+  view
+    button id=`pr-author-${person.key}` press=control("author", person.login) popovertarget="pr-filters-menu" popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) role="menuitemradio" aria-checked=person.selected testId=`pr-author-${person.key}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(lit ? "light-dark(#f4f4f5, #ffffff0a)" : person.selected ? "light-dark(#27272a14, #f2f2f214)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+      PrAvatar(avatar=person.avatar, initial=person.initial, size=16)
+      text person.login font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1 text-align="left"
+      text person.detail font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" flex-shrink=0 white-space="nowrap"
+
+// MenuCheckboxItem: the label's color dot, its name and how many rows wear it.
+component PrLabelItem
+  props
+    // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
+    keysId: string
+    label: PrLabelFacet
+    control: action
+  state lit = false
+  action hover(value: bool)
+    if value
+      focus(`pr-label-${label.key}-km`)
+    else if lit
+      focus(keysId)
+  action focused(on: bool)
+    lit = on
+  view
+    button id=`pr-label-${label.key}` press=control("label", label.name) hover=hover focus=focused(true) blur=focused(false) role="menuitemcheckbox" aria-checked=label.selected testId=`pr-label-${label.key}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(lit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+      box width="1rem" height="1rem" display="flex" align-items="center" justify-content="center" flex-shrink=0
+        when label.selected
+          PgIcon(name="check", size=16, color="light-dark(#27272a, #f5f5f5)")
+      box width="0.625rem" height="0.625rem" border-radius="624.9375rem" flex-shrink=0 background-color=(label.color == "" ? "light-dark(#71717b, #818181)" : label.color)
+      text label.name font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1 text-align="left"
+      text `${label.count}` font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" flex-shrink=0
+
+// PullRequestActorAvatar: the host's picture in a circle, or the initial.
+component PrAvatar
+  props
+    avatar: string
+    initial: string
+    size: number
+  view
+    box width=`${size / 16}rem` height=`${size / 16}rem` border-radius="624.9375rem" overflow="hidden" flex-shrink=0 background-color="light-dark(#fafafa, #ffffff08)" display="flex" align-items="center" justify-content="center"
+      when avatar != ""
+        image avatar width=`${size / 16}rem` height=`${size / 16}rem` object-fit="cover" aria-hidden=true
+      else
+        text initial font-size=(size > 14 ? "0.625rem" : "0.5rem") line-height="0.875rem" font-weight=500 color="light-dark(#71717b, #818181)"
+
+// PullRequestRow: the lifecycle glyph (with the conflict badge on its corner),
+// "#n title" with the checks and review glyphs, the stack and the diff stat, then
+// author, repository, labels and the age under it; the Shift quick actions after
+// it (pr-handoffs-and-quick-actions). The selection button lies under the lines,
+// which let the pointer through but for the number (its right-click menu), the
+// checks and the stack indicators, so those are not presses of the row (the
+// reference's spans with stopPropagation inside the row's button). PULL_REQUEST_ROW_CLASS's
+// `text-left` stays on the lines (an overflowing title kept its start on macOS, X57).
+component PrRowButton
+  props
+    row: PrRow
+    scheme: string
+    diff: string
+    compact: bool
+    select: action
+    control: action
+    act: action
+    speedMode: bool
+    checks: PrChecksPopover
+    stack: PrStackPopover
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    row position="relative" hover=hover width="100%" height="3.5rem" border-radius="0.5rem" background-color=(row.selected ? "light-dark(#f4f4f5, #ffffff0a)" : over ? "light-dark(#f4f4f599, #ffffff06)" : "#00000000") align-items="center" testId=`pr-row-wrap-${row.number}`
+      button press=select(row.ref) aria-label=`${row.stateLabel} #${row.number} ${row.title}` aria-current=(row.selected ? "true" : "") testId=`pr-row-${row.number}` position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" title=""
+      row flex=1 min-width=0 height="100%" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" padding-bottom="0.625rem" box-sizing="border-box" gap="0.5rem" align-items="center" text-align="left" pointer-events="none"
+        column width="1rem" flex-shrink=0 align-self="flex-start" margin-top="0.1875rem" position="relative" aria-label=row.stateLabel
+          PgIcon(name=prStateIcon(row.state), size=16, color=prStateTone(row.state))
+          when row.conflict != ""
+            box position="absolute" left="0.5rem" top="0.5rem" width="0.75rem" height="0.75rem" aria-label=row.conflict
+              box position="absolute" left=0 top=0
+                PgGlyph(name="triangle-fill-filled", size=12, color="light-dark(#fcfcfc, #0a0a0a)", weight=2.5)
+              box position="absolute" left=0 top=0
+                PgGlyph(name="triangle-alert", size=12, color="light-dark(#e40014, #fb414a)", weight=2.5)
+        column flex=1 min-width=0
+          row height="1.25rem" min-width=0 align-items="center" gap="0.375rem"
+            // PullRequestRow: the number carries the link; its right-click is pullRequestLinkContextMenu (Copy link, Open on <host>).
+            box press=select(row.ref) contextmenu=control("link-menu", row.linkMenu) pointer-events="auto" flex-shrink=0 testId=`pr-number-${row.number}`
+              text `#${row.number}` font-family="ui-monospace" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
+            text row.title font-size="0.875rem" line-height="1.25rem" color="light-dark(#262626, #f5f5f5)" min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" flex-shrink=1
+            when row.checks != "" or row.review != ""
+              row flex-shrink=0 align-items="center" gap="0.25rem"
+                when row.checks != ""
+                  PrRowChecks(rowRef=row.ref, popId=`pr-row-checks-${row.projectId}-${row.number}`, checks=row.checks, label=row.checksLabel, headline=row.checksHeadline, popover=checks, scheme=scheme, control=control)
+                when row.review != ""
+                  box width="0.875rem" height="0.875rem" aria-label=row.reviewLabel
+                    PgIcon(name=prReviewIcon(row.review), size=14, color=prReviewTone(row.review))
+            box flex=1 min-width=0
+            when row.stackLabel != ""
+              PrRowStack(rowRef=row.ref, popId=`pr-row-stack-${row.projectId}-${row.number}`, label=row.stackLabel, ariaLabel=row.stackAria, tip=row.stackTip, popover=stack, scheme=scheme, control=control, select=select)
+            when row.additions != ""
+              row flex-shrink=0 align-items="baseline" gap="0.25rem"
+                text row.additions font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color=(diff == "blue-orange" ? "light-dark(#155dfc, #51a2ff)" : "light-dark(#009966, #00d492)")
+                text row.deletions font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color=(diff == "blue-orange" ? "light-dark(#f54900, #ff8904)" : "light-dark(#fb2c36, #fb414a)")
+          row height="1rem" min-width=0 align-items="center" gap="0.375rem" overflow="hidden"
+            row align-items="center" gap="0.25rem" min-width="0.875rem" max-width="10rem" flex-shrink=1
+              PrAvatar(avatar=row.avatar, initial=row.initial, size=14)
+              when not compact
+                text row.author font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #818181)" line-clamp=1 min-width=0
+            text row.repository font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #818181)" line-clamp=1 min-width=0 flex-shrink=1
+            when length(row.labels) > 0
+              row min-width=0 align-items="center" gap="0.25rem" flex-shrink=1
+                each chip in (compact ? row.firstLabel : row.labels) key=chip.key
+                  text chip.name height="1rem" padding-left="0.1875rem" padding-right="0.1875rem" box-sizing="border-box" border-radius="0.25rem" background-color=chip.background font-size="0.625rem" line-height="1rem" color=chip.ink max-width="10rem" line-clamp=1 min-width=0
+                when compact and row.moreLabels > 0
+                  text `+${row.moreLabels}` font-size="0.625rem" line-height="1rem" color="light-dark(#71717b, #818181)" flex-shrink=0
+            box flex=1 min-width=0
+            text row.age font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" white-space="nowrap" color="light-dark(#71717b, #818181)" flex-shrink=0
+      // PullRequestSpeedActions: `display: visible || actionPending ? flex : none`.
+      when length(row.speed) > 0 and (speedMode or row.speedPending)
+        PrQuickActions(actions=row.speed, number=row.number, pending=row.speedPending, act=act)
+
+// PullRequestListGhost: seven placeholder rows while the first answer is out.
+component PrGhost
+  view
+    column width="100%" gap="0.125rem" aria-label="Loading pull requests" role="status" testId="pull-requests-loading"
+      PrGhostRow(wide=true)
+      PrGhostRow(wide=false)
+      PrGhostRow(wide=true)
+      PrGhostRow(wide=false)
+      PrGhostRow(wide=true)
+      PrGhostRow(wide=false)
+      PrGhostRow(wide=true)
+
+component PrGhostRow
+  props
+    wide: bool
+  view
+    row width="100%" height="3.5rem" padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" gap="0.5rem" align-items="center"
+      box width="1rem" height="1rem" border-radius="624.9375rem" background-color="light-dark(#e4e4e799, #ffffff0a)"
+      column flex=1 gap="0.375rem"
+        box width=(wide ? "62%" : "48%") height="0.75rem" border-radius="0.25rem" background-color="light-dark(#e4e4e799, #ffffff0a)"
+        box width="28%" height="0.625rem" border-radius="0.25rem" background-color="light-dark(#e4e4e766, #ffffff07)"
+
+// PullRequestListEmptyState and PullRequestsUnavailableState: r5-shell-prs.contract.

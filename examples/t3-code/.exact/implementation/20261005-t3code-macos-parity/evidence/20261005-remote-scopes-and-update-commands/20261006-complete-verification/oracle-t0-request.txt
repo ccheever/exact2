@@ -1,0 +1,61 @@
+Code
+T0 verification message. Return T0_READY_FOR_APPRO...
+16
+16140
+Approval
+Settle
+T0 verification message. Return T0_READY_FOR_APPRO...
+Regenerating title
+T0 verification message. Return T0_READY_FOR_APPRO...
+16
+16140
+2m
+Settle
+T0 verification message. Return T0_READY_FOR_APPRO...
+T0 verification message. Return T0_READY_FOR_APPRO...
+16
+16140
+2m
+Settle
+T0 verification message. Return T0_READY_FOR_APPRO...
+T0 verification message. Return T0_READY_FOR_APPRO...
+16
+16140
+2m
+Settle
+T0 verification message. Return T0_READY_FOR_APPRO...
+Legacy scope verification. Reply with LEGACY_SCOPE...
+16
+16140
+32m
+Settle
+Legacy scope verification. Reply with LEGACY_SCOPE...
+New thread
+16
+16140
+2h
+Settle
+New thread
+Settled (0)
+16
+16140
+/
+T0 verification message. Return T0_READY_FOR_APPRO...
+You
+
+T0 verification message. Return T0_READY_FOR_APPROVAL and request fixture approval.
+
+5:14 PM
+
+Working for 1s
+Approve this local verification fixture? No command is executed.
+Command approval
+Approve this local verification fixture? No command is executed.
+Decline
+Approve
+
+
+
+
+Resolve this approval request to continue
+Toggle Sidebar

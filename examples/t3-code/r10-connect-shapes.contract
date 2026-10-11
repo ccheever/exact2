@@ -1,0 +1,6 @@
+// Lane r10-connect: Add Environment's Host field split into host and pairing code when it holds a
+// full pairing URL (r10-connect-pairing.ts pairingFields; host is "" otherwise).
+shape R10PairFields
+  source: string
+  host: string
+  code: string

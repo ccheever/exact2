@@ -1,0 +1,1397 @@
+use WorkspaceDiscovery, WorkspaceRefresh, TimelineReadsResult, Time, Page from "./app-shapes.contract" // first: the plan orders shapes by first use
+use HighlightStep from "./highlight.contract"
+use Snapshot, Viewport, Change, LicenseSettings, SnapshotSettings, Settings, Canvas from "./shapes.contract"
+use R10PairFields from "./r10-connect-shapes.contract" // lane r10-connect
+use providerLinkVisit from "./app-settings.contract" // audit-wave-followups FU-4
+use SshPromptView, SshPromptAnswer from "./ssh-prompt.contract" // the SSH password dialog (ssh-auth.ts)
+use TranscriptMarkdown from "./markdown.contract"
+use TimelineAttachmentUrls from "./timeline-attachments.contract"
+use PagesHome, pageTrailNext from "./pages-hero.contract"
+use UsageView, UsageKey from "./pages-usage.contract"
+use PrListView from "./pages-prs.contract"
+use PrDetailView from "./pages-pr-detail.contract"
+use WelcomeView from "./pages-welcome.contract"
+use PaletteView, PaletteResult from "./palette.contract"
+use ProviderPage from "./providers.contract"
+use ProviderWizard, AcpRegistry from "./providers-wizard.contract"
+use ConnectionsPage, SbSshHosts from "./connections.contract"
+use KeybindingPage from "./settings-keybindings.contract"
+use ScheduledPage from "./settings-scheduled.contract"
+use KeyDispatch from "./settings-shortcuts.contract"
+use SourceControlPage, IntegrationsPage from "./settings-source-control.contract"
+use StoragePage from "./settings-storage.contract"
+use ArchivePage from "./settings-archive.contract"
+use DiagnosticsPage from "./settings-diagnostics.contract"
+use CoreNav, SettingsCore from "./settings-core.contract"
+use AboutDelivery from "./settings-a-about.contract"
+use ProjectsPage from "./settings-projects.contract"
+use SbPicker from "./settings-b-icons.contract"
+use PickerCatalog, PickerTarget, ComposerBranches from "./composer-shapes.contract"
+use ComposerEditorView from "./composer-editor.contract"
+use ChipPopover from "./composer-chip-popover.contract" // settings-appearance-and-skill-chip
+use ShellView, ShellDetails from "./shell-shapes.contract"
+use T3Window from "./app-window.contract" // the window's view; its uses load the view's files here, in this order
+use ChatCanvasView from "./chat-canvas.contract" // floating-device-player
+use TerminalDrawerView from "./terminal.contract" // terminal-drawer
+component T3Code
+  state elapsed = 0
+  resource wallTime = exactTime() as shape Time
+  resource data = snapshot(wallTime.epochAtZero + elapsed, reconnectGraceKey, disconnectDelayKey) as shape Snapshot
+  state reconnectGraceKey = ""
+  state disconnectDelayKey = ""
+  task reconnectGrace when data.serverUpdate.reconnecting != "" key=data.serverUpdate.reconnecting
+    after(2000, reconnectGraceElapsed)
+  action reconnectGraceElapsed
+    reconnectGraceKey = data.serverUpdate.reconnecting
+  task disconnectDelay when data.serverUpdate.unavailable != "" key=data.serverUpdate.unavailable
+    after(20000, disconnectDelayElapsed)
+  action disconnectDelayElapsed
+    disconnectDelayKey = data.serverUpdate.unavailable
+  task rootFont key=data.look.fontSize // Interface font size (appearanceFonts.ts applyAppearanceFontVariables): the root font size every rem follows, set at launch and on every change; `rem` is provided for lengths computed in px at 16.
+    after(1, rootFontApply)
+  action rootFontApply // the reference's 16 before the data's first answer (the Mac host's own size is 13 since LLP 1115)
+    setRootFontSize(data.look.fontSize > 0 ? data.look.fontSize : 16)
+  mutation balanceLoaded as shape Change refreshes data // auto-balance (auto-balance.ts; X19, X21): an unresolved Auto draft asks its machines' host resources, at the window's time.
+  task balanceLoad when branches.balanceFetch != "" key=branches.balanceFetch
+    after(1, balanceLoadNow)
+  action balanceLoadNow
+    send balanceLoaded = command("cclocal:balance-load", branches.balanceFetch, `${wallTime.epochAtZero + performanceNow()}`, 0)
+  state noticeExit = ""
+  state noticeExitOp = ""
+  state noticeExitTarget = ""
+  state noticeExitSerial = 0
+  action noticeDismiss(notice: string, op: string, target: string)
+    if noticeExitOp == "" and not commandPending
+      noticeExit = notice
+      noticeExitOp = op
+      noticeExitTarget = target
+      noticeExitSerial = noticeExitSerial + 1
+  task noticeExiting when noticeExitOp != "" key=noticeExitSerial
+    after(220, noticeExited)
+  action noticeExited
+    if not commandPending
+      commandPending = true
+      send changed = command(noticeExitOp, noticeExitTarget, "", 0)
+    else
+      noticeExit = ""
+    noticeExitOp = ""
+  state hoverWait = 0 // fix-hover-cards: the hover clock (hover-layer.contract, T3Window): +10 each 10 ms while a hover card's close delay runs (to hoverEnd), and on a surface change, which ends a tooltip or card whose trigger went with no leave
+  state hoverEnd = 0
+  task hoverTick when hoverWait < hoverEnd key=hoverEnd
+    every(10, hoverTicked)
+  task hoverSurface key=`${settingsOpen}|${settingsRoute}|${utilityPage}|${modal}|${prSelected}`
+    after(1, hoverTicked)
+  action hoverTicked
+    hoverWait = hoverWait + 10
+  action hoverHold(end: number)
+    hoverEnd = end
+  resource markdown = renderMarkdown(data.messages, data.markdownSkills) as shape TranscriptMarkdown
+  resource attachmentUrls = timelineAttachments(data.threadId, wallTime.epochAtZero + elapsed, data.revision) as shape TimelineAttachmentUrls // Signed preview URLs for the thread's sent images (timeline-attachments.ts).
+  resource home = pagesHome(data.revision) as shape PagesHome // Lane pages: the empty main view, the utility pages and the sidebar footer route.
+  state utilityPage = ""
+  derive pageCover = utilityPage != "" or home.landing == "no-environment" or home.landing == "no-projects" or home.landing == "start-error" or home.landing == "no-thread"
+  action openPage(name: string)
+    pageTrailNote(name)
+    utilityPage = name
+    sidebarHoverId = "" // r8-pointer D11: a press closes its tooltip (Base UI); the pressed footer button unmounts without a hover-out
+  // useNavigateBack (usage-and-pr-pages): the pages a utility page's Escape goes back through, as history.back() does.
+  // A page opened from another keeps the one it left; one opened from a thread starts a new trail; with none, home.
+  state pageTrail = []
+  action pageTrailNote(name: string)
+    pageTrail = pageTrailNext(pageTrail, utilityPage, name)
+  action pageBack
+    utilityPage = match at(pageTrail, -1) { case some(page) => page, case none => "" }
+    pageTrail = slice(pageTrail, 0, -1)
+    sidebarHoverId = ""
+  state usageMetric = ""
+  state usageDays = 0
+  state usageBreakdown = "model"
+  state usageRefresh = 0
+  resource usage = usagePage(utilityPage == "usage", usageMetric, usageDays, usageBreakdown, usageRefresh, viewport.width, data.sidebarOpen ? sidebarWidth : 0, wallTime.epochAtZero + elapsed, data.revision) as shape UsageView
+  resource usageShortcuts = usageKeys(data.revision) as shape list<UsageKey>
+  action usageMetricSet(value: string)
+    usageMetric = value
+    send localChanged = command("pageslocal:usage-metric", "", value, 0)
+  action usageWindowSet(days: number)
+    usageDays = days
+    send localChanged = command("pageslocal:usage-window", "", `${days}`, 0)
+  action usageBreakdownSet(value: string)
+    usageBreakdown = value
+  action usageRefreshNow
+    usageRefresh = usageRefresh + 1
+  state prQuery = ""
+  state prApplied = ""
+  state prTyped = false
+  state prSelected = ""
+  state prPanelOpen = true
+  state prRefresh = 0
+  state prTab = "summary"
+  resource prList = prList(utilityPage == "pull-requests", prRefresh, wallTime.epochAtZero + elapsed, prSelected, prApplied, prTyped, data.revision, page.visibilityState == "visible", windowReturns) as shape PrListView
+  resource prDetail = prDetail(utilityPage == "pull-requests" ? prSelected : shell.panel.pr.selected, prRefresh, wallTime.epochAtZero + elapsed, data.revision, page.visibilityState == "visible", windowReturns, prTab, utilityPage == "pull-requests", floor(liveNow / 10000)) as shape PrDetailView // pr-links-previews-and-routing: the page, the linked threads' 10 s tick
+  resource prMarkdown = renderPullRequestMarkdown(prDetail.bodies) as shape TranscriptMarkdown
+  action prType(value: string)
+    prQuery = value
+    prTyped = true
+  task prSearchSettle when utilityPage == "pull-requests" and prTyped and prApplied != prQuery key=prQuery // SEARCH_DEBOUNCE_MS: 250 ms after the last keystroke (exact2 #192)
+    after(250, prSettle)
+  action prSettle
+    prApplied = prQuery
+    send localChanged = command("pageslocal:pr-query", "", prQuery, 0)
+  action prControl(op: string, value: string)
+    if op == "query"
+      prQuery = value
+      prApplied = value
+      prTyped = true
+    send localChanged = command(`pageslocal:pr-${op}`, "", value, 0)
+  action prSelect(ref: string)
+    prSelected = ref
+    prPanelOpen = true
+    prTab = "summary"
+  action prTogglePanel
+    prPanelOpen = not prPanelOpen
+  action prReload
+    prRefresh = prRefresh + 1
+  action prSetTab(value: string)
+    prTab = value
+  action prAct(op: string, value: string)
+    if not commandPending
+      commandPending = true
+      send changed = command(`pageslocal:pr-act-${op}`, utilityPage == "pull-requests" ? prSelected : shell.panel.pr.selected, value, 0)
+  action prCopy(label: string, text: string)
+    send localChanged = command("pageslocal:copy", label, text, 0)
+  state welcomeStep = "connect"
+  state welcomeLink = ""
+  state welcomePairOpen = true
+  resource welcome = welcome(welcomeStep, wallTime.epochAtZero + elapsed, data.revision) as shape WelcomeView
+  action welcomeGo(step: string)
+    welcomeStep = step
+  action welcomeSetup
+    welcomeStep = "agents"
+    send localChanged = command("pageslocal:welcome-setup", "", "", 0)
+  action welcomeEditLink(value: string)
+    welcomeLink = value
+  action welcomePair
+    if not commandPending and trim(welcomeLink) != ""
+      draftOwner = "__unset__"
+      commandPending = true
+      pendingModal = "welcome-pair"
+      modalError = ""
+      send changed = command("welcome-pair", "", welcomeLink, 0)
+  action welcomeTogglePair
+    welcomePairOpen = not welcomePairOpen
+  action welcomeFinish
+    if not commandPending
+      commandPending = true
+      send changed = command("pageslocal:welcome-finish", "", `${wallTime.epochAtZero + performanceNow()}`, 0)
+  action welcomeImport(op: string, id: string, value: string) // also the Usage page's pages:usage-* ops
+    if op != "import" and op != "usage-prices-save"
+      send localChanged = command(startsWith(op, "usage-") ? `pageslocal:${op}` : `pageslocal:welcome-${op}`, id, value, 0)
+    else if not commandPending
+      commandPending = true
+      send changed = command(op == "import" ? "pageslocal:welcome-import" : "pageslocal:usage-prices-save", "", `${wallTime.epochAtZero + performanceNow()}`, 0)
+  action openConnectionsPage
+    openSettings() // retainSettingsScope: a link from outside Settings starts with no scope
+    settingsRoute = "connections"
+  action tick
+    elapsed = performanceNow()
+  task clock mount
+    every(60000, tick)
+  state windowReturns = 0 // pr-list-live-refresh: the window focused again, the clock read then (useLiveRefresh's `focus` at Date.now(), not at the last minute tick), for the list and the detail
+  task windowBack when page.hasFocus and page.visibilityState == "visible"
+    after(1, windowReturned)
+  action windowReturned
+    elapsed = performanceNow()
+    windowReturns = windowReturns + 1
+  mutation timelineDisclosureChanged as shape Change refreshes data then dispatchTimelineReads
+  mutation timelineReadsRefreshed as shape TimelineReadsResult refreshes data
+  mutation timelineReadsRefreshedNext as shape TimelineReadsResult refreshes data
+  action dispatchTimelineReads
+    if not pending(timelineReadsRefreshed)
+      send timelineReadsRefreshed = refreshTimelineReads(wallTime.epochAtZero + performanceNow())
+    if not pending(timelineReadsRefreshedNext)
+      send timelineReadsRefreshedNext = refreshTimelineReads(wallTime.epochAtZero + performanceNow())
+  state liveNow = 0 // The timeline's "Working for 12s" ticks each second while a run is live.
+  resource workspaceDiscovery = composerWorkspace(data.revision, not settingsOpen and not pageCover and not welcome.show) as shape WorkspaceDiscovery // ChatComposer is mounted on the chat view only
+  mutation workspaceRefreshed as shape WorkspaceRefresh refreshes workspaceDiscovery, data then workspaceRefreshFinished
+  state workspaceRetryKey = ""
+  state workspaceRetryAt = 0
+  state workspaceRetryWake = 0 // ChatComposer: without a pending snapshot, only a change after the cooldown retries.
+  action workspaceRefreshFinished
+    match workspaceRefreshed
+      case some(result)
+        workspaceRetryKey = result.key
+        workspaceRetryAt = result.retry ? performanceNow() + 10000 : 0
+        workspaceRetryWake = result.wake
+      case none
+        workspaceRetryAt = performanceNow() + 10000
+  action liveTick
+    if data.timelineReadsNeeded
+      dispatchTimelineReads()
+    if workspaceDiscovery.needed and not pending(workspaceRefreshed)
+      if workspaceRetryKey != workspaceDiscovery.key or (performanceNow() >= workspaceRetryAt and (workspaceDiscovery.timer or workspaceDiscovery.wake != workspaceRetryWake))
+        send workspaceRefreshed = refreshComposerWorkspace(workspaceDiscovery.key)
+      if workspaceRetryKey == workspaceDiscovery.key and performanceNow() < workspaceRetryAt
+        workspaceRetryWake = workspaceDiscovery.wake
+    if data.running or data.subagentsLive or data.sidebar.ticking or data.sidebar.undoUntil > wallTime.epochAtZero + liveNow or prDetail.links.polling
+      liveNow = performanceNow()
+  task liveClock mount
+    every(1000, liveTick)
+  mutation highlightSliced as shape HighlightStep then highlightStepped
+  action highlightStep
+    if not pending(highlightSliced)
+      send highlightSliced = highlightSlice(wallTime.epochAtZero + performanceNow())
+  action highlightStepped
+    match highlightSliced
+      case some(step)
+        if step.finished or not step.pending
+          refresh data
+          refresh shell
+      case none
+        refresh data
+  task highlightPump when data.highlightPending or shell.highlightPending
+    every(16, highlightStep)
+  resource viewport = exactViewport() as shape Viewport
+  // app-color-scheme: the scheme every surface draws in. Settings › Appearance decides it (useTheme's resolvedTheme):
+  // Light and Dark override macOS, System follows it. viewport.prefersColorScheme is the system's appearance, beneath
+  // the window's own (T3WindowChrome.setAppearance), so no view reads it for a palette; app-color-scheme.test.ts holds that.
+  derive scheme = (data.look.mode == "light" or data.look.mode == "dark") ? data.look.mode : (viewport.prefersColorScheme == "dark" ? "dark" : "light")
+  state paletteOpen = false
+  state paletteMode = "command"
+  state palettePage = ""
+  state paletteQuery = ""
+  state paletteCursor = -1
+  state paletteScroll = 0
+  state paletteCase = false
+  state paletteWord = false
+  state paletteRegex = false
+  state paletteBusy = false
+  resource palette = paletteView(paletteOpen, paletteMode, palettePage, paletteQuery, `${paletteCase ? "case " : ""}${paletteWord ? "word " : ""}${paletteRegex ? "regex" : ""}`, paletteCursor >= 0, wallTime.epochAtZero + elapsed, scheme, data.revision) as shape PaletteView
+  mutation paletteChanged as shape PaletteResult refreshes data then paletteDone
+  derive paletteHighlight = palette.count == 0 ? -1 : (paletteCursor >= 0 ? min(paletteCursor, palette.count - 1) : (palette.autoHighlight and paletteCursor == -1 ? 0 : -1))
+  derive paletteListHeight = min(330, min(448, viewport.height * 0.7))
+  action paletteShow(mode: string, page: string)
+    let show = page != "" or not (paletteOpen and paletteMode == mode)
+    paletteOpen = show
+    paletteMode = mode
+    palettePage = page
+    paletteQuery = ""
+    paletteCursor = mode == "files" or page != "" ? -2 : -1
+    paletteScroll = 0
+    modelsOpen = false
+    optionsOpen = ""
+    projectsOpen = false
+    modalError = ""
+    if show
+      focus("palette-input")
+  action paletteClose
+    if paletteMode != "command"
+      paletteMode = "command"
+      palettePage = ""
+      paletteQuery = ""
+      paletteCursor = -1
+      paletteScroll = 0
+      focus("palette-input")
+    else
+      paletteOpen = false
+      focus(palettePage == "pr-link-thread" ? "pull-request-more" : (startsWith(palettePage, "pr-linked|") ? "pull-request-linked-threads" : "composer")) // pr-links-previews-and-routing: back to the trigger
+  action paletteEdit(value: string)
+    paletteQuery = value
+    paletteCursor = paletteMode == "content" ? -1 : -2
+    paletteScroll = 0
+    if value == "" and palette.popOnEmpty
+      palettePage = palette.parent
+  action paletteKey(name: string)
+    if name == "ArrowDown" and palette.count > 0
+      let next = (paletteHighlight < 0 or paletteHighlight + 1 >= palette.count) ? 0 : paletteHighlight + 1
+      paletteCursor = next
+      match first(filter(palette.rows, (r) => r.index == next))
+        case some(r)
+          paletteScroll = next == 0 ? 0 : max(paletteScroll, r.top + r.height + 24 - paletteListHeight)
+        case none
+    if name == "ArrowUp" and palette.count > 0
+      let previous = paletteHighlight <= 0 ? palette.count - 1 : paletteHighlight - 1
+      paletteCursor = previous
+      match first(filter(palette.rows, (r) => r.index == previous))
+        case some(r)
+          paletteScroll = paletteHighlight <= 0 ? max(0, r.top + r.height + 24 - paletteListHeight) : min(paletteScroll, max(0, r.top - 24))
+        case none
+    if (name == "Back" or (name == "Backspace" and paletteQuery == "")) and palette.back
+      palettePage = palette.parent
+      paletteQuery = ""
+      paletteCursor = paletteCursor >= 0 ? -1 : -2
+      paletteScroll = 0
+      focus("palette-input")
+  action paletteHover(index: number, over: bool)
+    paletteCursor = over and index >= 0 ? index : paletteCursor
+  action paletteFlag(name: string)
+    paletteCursor = -1
+    paletteScroll = 0
+    paletteCase = name == "case" ? not paletteCase : paletteCase
+    paletteWord = name == "word" ? not paletteWord : paletteWord
+    paletteRegex = name == "regex" ? not paletteRegex : paletteRegex
+  action paletteRun(op: string, arg: string, arg2: string)
+    if op == "page" or op == "browse" or op == "browse-to" or op == "mode"
+      palettePage = op == "browse-to" ? palettePage : (op == "mode" ? "" : arg)
+      paletteMode = op == "mode" ? arg : paletteMode
+      paletteQuery = op == "browse" ? arg2 : (op == "browse-to" ? arg : "")
+      paletteCursor = op == "mode" and arg == "content" ? -1 : -2
+      paletteScroll = 0
+      focus("palette-input") // lane r8-keys: a clicked row takes the focus on its mouse down (NSWindow), so the field takes it back
+    if op == "device"
+      paletteOpen = false
+      send localChanged = command("device-setting", arg, arg2, 0)
+    if op == "copy-thread"
+      paletteOpen = false
+      send localChanged = command("restlocal:copy-thread", ":", "", 0)
+    let editing = settingsThemeDialog == "create" or settingsThemeDialog == "edit" or settingsThemeDialog == "duplicate"
+    if op == "theme-editor"
+      paletteOpen = false
+      settingsThemeDialog = editing ? "" : "create"
+      settingsThemeSubject = ""
+      modalError = ""
+    if op == "settings" or op == "project-settings"
+      paletteOpen = false
+      providerLinkTarget = ""
+      settingsEnvironmentId = settings.environmentId
+      settingsOpen = true
+      settingsRoute = op == "project-settings" ? "projects" : arg
+      settingsFocusTarget = op == "settings" ? arg2 : ""
+      settingsThemeDialog = editing ? settingsThemeDialog : ""
+      settingsThemeSubject = editing ? settingsThemeSubject : ""
+      settingsQuery = ""
+      settingsMenu = ""
+      settingsMachine = ""
+      settingsProjectKey = ""
+      settingsCheckout = ""
+      settingsProjectId = op == "project-settings" ? arg : ""
+      modalError = ""
+    if op == "usage" or op == "pull-requests" or op == "thread-pull-requests"
+      paletteOpen = false
+      settingsOpen = op == "thread-pull-requests" and settingsOpen // thread-commands-and-keys: ⌘U from Settings leaves it, as the /usage route does
+      if op != "thread-pull-requests"
+        pageTrailNote(op)
+      utilityPage = op == "thread-pull-requests" ? utilityPage : op
+      rightPanelAt = op == "thread-pull-requests" ? shell.panel.key : rightPanelAt
+    if (op == "flow" or op == "open-project" or op == "finder" or op == "open-file" or op == "thread" or op == "new-thread" or op == "thread-pull-requests") and not paletteBusy
+      paletteBusy = true
+      send paletteChanged = paletteCommand(op == "flow" ? arg : (op == "finder" ? "pick-folder" : op), op == "flow" ? arg2 : arg, op == "open-file" ? arg2 : palettePage)
+  action paletteDone
+    paletteBusy = false
+    match paletteChanged
+      case some(result)
+        if result.close
+          paletteOpen = false
+        if result.page != "-"
+          palettePage = result.page
+          paletteQuery = result.query
+          paletteCursor = -2
+          paletteScroll = 0
+        if (result.thread != "" or result.project != "") and not commandPending
+          draftOwner = "__unset__"
+          commandPending = true
+          send changed = command(result.thread != "" ? "select-thread" : "new-thread", result.thread != "" ? result.thread : result.project, "", 0)
+          jumpRequest = jumpRequest + 1
+          utilityPage = ""
+          focus("composer")
+      case none
+  mutation providerAuthChanged as shape Change queue refreshes data, providerPage, providerWizard
+  mutation providerUpdateRun as shape Change queue refreshes providerPage
+  mutation changed as shape Change refreshes data then commandCompleted
+  mutation localChanged as shape Change refreshes data
+  mutation prHandoffChanged as shape Change refreshes data // pr-handoffs-and-quick-actions: a checkout hand-off's second half, its own send
+  mutation terminalFocusChanged as shape Change refreshes data
+  mutation fileCommentChanged as shape Change queue refreshes data // audit-wave-followups FU-3: the Files preview's line comments (chatLocal)
+  mutation lineDragChanged as shape Change queue refreshes data // realinput-1010f RF-3: a diff gutter drag's press, moves and release, each in turn
+  mutation terminalChanged as shape Change refreshes data then terminalCompleted
+  action terminalCompleted
+    match terminalChanged
+      case some(result)
+        if result.message == "terminal:focus-composer"
+          focus("composer")
+      case none
+  state commandPending = false
+  state pendingModal = ""
+  state modalError = ""
+  state connecting = false
+  state projectsOpen = false
+  state providerSelected = ""
+  state providerVisit = 0 // audit-wave-followups FU-4: the provider links that changed the Providers page's target
+  state providerLinkTarget = "" // FU-4: the instance the route names (the last link's), apart from the page's own pick (providerSelected)
+  state providerDialog = ""
+  state providerSerial = 0
+  state providerCreated = ""
+  state providerTarget = ""
+  state wizardDriver = "codex"
+  state wizardLabel = ""
+  state wizardLabelSet = false
+  state wizardId = ""
+  state wizardIdSet = false
+  state wizardStep = 0
+  state wizardManual = false
+  state acpQuery = ""
+  state providerNow = 0
+  action providerTick
+    if settingsOpen and (settingsRoute == "providers" or (settingsRoute == "connections" and connectionsPage.network.ticking))
+      providerNow = performanceNow()
+    providerDialog = (providerDialog == "chatgpt" and providerWizard.chatgptConnected) or providerPage.environment == "-" ? "" : providerDialog // AddCodexAccountDialog closes once the plan is shared; the page's dialogs close when its environment drops (they unmount with EnvironmentProviderSettings, ProviderSettingsPanel.tsx:551-586, 1377-1385)
+  task providerClock mount
+    every(1000, providerTick)
+  resource providerPage = providerPage(providerSelected, settingsOpen and settingsRoute == "providers", data.revision, wallTime.epochAtZero + max(elapsed, providerNow), settingsMachine, settingsProjectKey, settingsCheckout, settingsProjectId) as shape ProviderPage // the scope's environment (providers-scope.ts): its page and its actions name `providerPage.environment`
+  resource providerWizard = providerWizard(providerDialog != "", providerSerial, wizardManual ? "acpRegistry" : wizardDriver, wizardLabelSet, wizardLabel, wizardIdSet, wizardId, data.revision, providerDialog, providerTarget, providerPage.environment) as shape ProviderWizard
+  state connectionRemove = ""
+  state connectionMenu = ""
+  resource connectionsPage = connectionsPage(settingsOpen and settingsRoute == "connections", data.revision, data.status, data.connected, data.connecting, wallTime.epochAtZero + max(elapsed, providerNow)) as shape ConnectionsPage
+  resource acpAgents = acpRegistry(acpQuery, providerDialog == "add" and wizardStep == 0, data.revision, providerPage.environment) as shape AcpRegistry
+  state settingsOpen = false
+  state settingsRoute = "general"
+  state settingsRefresh = 0
+  state keybindingQuery = ""
+  state keybindingOpen = false
+  state keybindingPrevious = ""
+  state keybindingCommand = ""
+  state keybindingKey = ""
+  state keybindingWhen = ""
+  state keybindingRecording = false
+  resource bindings = keybindingSettings(settingsEnvironmentId, keybindingQuery, settingsOpen and settingsRoute == "keybindings", keybindingPrevious, keybindingKey, keybindingWhen, keybindingCommand, settingsRefresh, data.revision) as shape KeybindingPage
+  resource scheduled = scheduledSettings(settingsEnvironmentId, settingsProjectId, restEditor, restSubject, settingsOpen and settingsRoute == "scheduled-tasks", wallTime.epochAtZero + elapsed, settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout, taskBase, shellClock) as shape ScheduledPage // shellClock: the base-branch picker's next page (r6-polish-refs.ts)
+  state licenseQuery = ""
+  state licenseExpanded = ""
+  state licenseRetry = 0
+  state diagnosticPeriod = "15m"
+  resource shortcuts = keyboardDispatch(data.threads, browseProvider, modelQuery, composerFocused, data.running, modelsOpen, data.threadId == "", modal, settingsOpen, data.diffOpen or shell.panel.open, data.revision, paletteOpen, paletteMode, utilityPage == "pull-requests" and prSelected != "" and prPanelOpen ? prDetail.numberLabel : "", data.sidebar.undoUntil > wallTime.epochAtZero + max(liveNow, elapsed), settingsRoute, utilityPage, modelTarget.id) as shape list<KeyDispatch>
+  resource sourceControl = sourceControlPage(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "source-control", settingsRefresh, data.revision) as shape SourceControlPage
+  resource integrations = integrationsPage(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "integrations", settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout, fdaPoll) as shape IntegrationsPage
+  // browser-surface part 4: the import wizard's Full Disk Access step reads the grant again every 1.5 s and when the window
+  // takes the focus (usePermissionStatus), skipped while the window is hidden; each tick asks the page again (`fdaPoll`).
+  state fdaPoll = 0
+  task fdaPolling when integrations.browserProfiles.wizard.step == "fullDiskAccess" and page.visibilityState == "visible"
+    every(1500, fdaTick)
+  task fdaFocused when integrations.browserProfiles.wizard.step == "fullDiskAccess" and page.hasFocus and page.visibilityState == "visible"
+    after(1, fdaTick)
+  action fdaTick
+    fdaPoll = fdaPoll + 1
+  // realinput-1010e-followups RE-4: however the import wizard closes (Cancel, Escape, Close, its X), Base UI's Dialog gives
+  // the focus back to Add profile, whose menu opened it (the reference over CDP: Cancel by mouse leaves BUTTON "Add profile").
+  state importWizardShown = false
+  task importWizardFocus when integrations.browserProfiles.wizard.open != importWizardShown
+    after(1, importWizardFlip)
+  action importWizardFlip
+    if importWizardShown and not integrations.browserProfiles.wizard.open
+      focus("browser-profiles-add")
+    importWizardShown = integrations.browserProfiles.wizard.open
+  // import-wizard-initial-focus: as the wizard opens, Base UI's Dialog focuses the popup's first tabbable element
+  // (`openFocus`; the menu has given the focus back to Add profile, so an `autofocus` would not take it). After a change of
+  // screen or a grant on Full Disk Access, the focus moves to the popup itself only when the element that held it is gone
+  // (restoreFocus "popup" acts on a removed element): the step's buttons go with their step and Allow with the grant, while
+  // the close X stays between two steps that can close; the popup itself, or an element mounted since the change last seen
+  // (`mounted`), keeps it. `importWizardFocused` is the wizard element that holds the focus, from their focus and blur.
+  // The removal confirm (AlertDialog) focuses Cancel as it opens, and Cancel or Escape gives the focus back to the row's
+  // options button; once the profile is removed, that button is gone and Base UI falls back to the last element that held
+  // the focus as a popup opened, Add profile in the reference's run (the clone keeps no such history). The reference over CDP.
+  state importWizardAt = -1
+  state importWizardFocused = ""
+  action importWizardFocusMoved(id: string, on: bool)
+    if on
+      importWizardFocused = id
+    else if importWizardFocused == id
+      importWizardFocused = ""
+  task importWizardStepFocus when integrations.browserProfiles.wizard.focusAt != importWizardAt
+    after(1, importWizardStep)
+  action importWizardStep
+    let wizard = integrations.browserProfiles.wizard
+    if wizard.openedAt > importWizardAt
+      focus(wizard.openFocus)
+    else if wizard.focusAt >= 0 and importWizardFocused != "browser-import-popup" and not includes(map(filter(wizard.mounted, (element) => element.since <= importWizardAt), (element) => element.id), importWizardFocused)
+      focus("browser-import-popup")
+    importWizardAt = wizard.focusAt
+  state removalAt = ""
+  task removalFocus when integrations.browserProfiles.removalId != removalAt
+    after(1, removalFlip)
+  action removalFlip
+    if removalAt == ""
+      focus("browser-profile-remove-cancel")
+    else if includes(map(integrations.browserProfiles.rows, (row) => row.id), removalAt)
+      focus(`browser-profile-options-${removalAt}`)
+    else
+      focus("browser-profiles-add")
+    removalAt = integrations.browserProfiles.removalId
+  resource storageSettings = storageSettings(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "storage", settingsRefresh, data.revision) as shape StoragePage
+  resource archives = archivedSettings(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "archived", wallTime.epochAtZero + elapsed, settingsRefresh, data.revision) as shape ArchivePage
+  resource licenses = licenseSettings(licenseQuery, licenseExpanded, licenseRetry, settingsOpen and settingsRoute == "open-source-licenses", data.revision) as shape LicenseSettings
+  resource diagnostics = diagnosticsSettings(settingsEnvironmentId, diagnosticPeriod, settingsOpen and settingsRoute == "diagnostics", wallTime.epochAtZero + elapsed, settingsRefresh, data.revision, data.telemetry) as shape DiagnosticsPage // a telemetry sample asks only this page again (data.telemetry); its reads are shared, so one asked again before a reply joins it (diagnostics-view.ts)
+  state settingsFocusTarget = ""
+  resource snapshotSettings = snapshotSettings(settingsOpen and settingsRoute == "snap-shot", settingsRefresh, data.revision, page.hasFocus) as shape SnapshotSettings // SnapShotSettings refreshState on window focus (exact2 #219): back from System Settings, the permissions read again
+  state settingsQuery = ""
+  resource settingsNavigation = settingsNavigation(settingsQuery, settingsCore.kind, settingsResultIndex, data.revision) as shape CoreNav
+  state settingsProjectId = ""
+  state settingsEnvironmentId = ""
+  state settingsMachine = ""
+  state settingsProjectKey = ""
+  state settingsCheckout = ""
+  state settingsMenu = ""
+  state settingsResultIndex = 0
+  state settingsScrollTop = 0 // settings search jump: the reveal offset (settings-a)
+  state settingsThemeDialog = ""
+  state settingsThemeSubject = ""
+  state settingsThemeRequest = 0
+  resource delivery = exactDelivery() as shape AboutDelivery // the binary's own update facts (settings-a-about)
+  resource settingsCore = settingsCore(settingsMachine, settingsProjectKey, settingsCheckout, settingsProjectId, settingsRoute, settingsFocusTarget, settingsOpen, settingsRefresh, data.revision, settingsThemeDialog, settingsThemeSubject, delivery.stream, delivery.staged, scheme) as shape SettingsCore
+  resource settings = settings(settingsEnvironmentId, settingsProjectId, data.revision, composerFocused, modal, data.running, data.threadId != "", modelsOpen) as shape Settings
+  resource projectsSettings = projectsView(settingsProjectKey, settingsCheckout, settingsProjectId, settingsOpen and settingsRoute == "projects", settingsRefresh, data.revision) as shape ProjectsPage
+  state sbQuery = ""
+  state sbLetters = ""
+  state sbLettersEdited = false
+  state sbEmoji = ""
+  state sbSshHost = ""
+  resource sbSshHosts = settingsBSshHosts(connecting, sbSshHost, data.revision) as shape SbSshHosts
+  state sshNow = 0
+  state sshResponding = false
+  state sshReturnToConnect = false
+  resource sshPrompt = sshPrompt(wallTime.epochAtZero + sshNow) as shape SshPromptView
+  mutation sshAnswered as shape SshPromptAnswer refreshes sshPrompt then sshAnswerDone
+  task sshClock mount
+    every(1000, sshTick)
+  action sshTick
+    if sshPrompt.open
+      sshNow = performanceNow()
+    if sshReturnToConnect and not sshPrompt.open and not commandPending
+      sshReturnToConnect = false
+      if connecting
+        focus("ssh-connect")
+  action sshAnswer(kind: string)
+    if not sshResponding and sshPrompt.requestId != ""
+      sshResponding = kind == "submit"
+      send sshAnswered = sshPromptAnswer(sshPrompt.requestId, kind)
+  action sshAnswerDone
+    sshResponding = false
+  resource pairFields = pairingFields(connecting ? origin : "") as shape R10PairFields // lane r10-connect: a pasted pairing URL fills Host and Pairing code
+  action sbSet(which: string, value: string)
+    if which == "query"
+      sbQuery = value
+    if which == "letters"
+      sbLetters = value
+      sbLettersEdited = true
+    if which == "emoji"
+      sbEmoji = value
+    if which == "ssh-host"
+      sbSshHost = value
+  resource sbPicker = settingsBPicker(restEditor, sbQuery, (sbLettersEdited ? sbLetters : projectsSettings.iconLetters), sbEmoji, projectsSettings.iconCwd, projectsSettings.name, data.revision) as shape SbPicker
+  state modelsOpen = false
+  state browseProvider = ""
+  state modelQuery = ""
+  state modelTarget = PickerTarget(id="", top=0, bottom=0, left=0) // settings-model-picker: a General model row's picker
+  resource catalog = modelCatalog(browseProvider, modelQuery, data.revision, modelTarget.id) as shape PickerCatalog
+  resource editor = composerEditor(data.revision, wallTime.epochAtZero + elapsed) as shape ComposerEditorView // composer-editor.ts
+  resource chip = composerChip(data.revision) as shape ChipPopover // a skill chip's details popover (composer-chip-popover.ts)
+  // A composer chip's details close when Settings or a page covers the chat: there T3 Code's route change unmounts the
+  // composer with its popover, while the clone keeps the composer mounted under them, so ⌘, alone left it open over
+  // Settings. T3Window hides it at once; this closes the native press, so it does not come back on return. The palette
+  // and dialogs leave it open and under it, as T3 Code's (portaled last, it stays above them and open after Escape).
+  derive chipCovered = chip.open and chip.surface == "composer" and (settingsOpen or pageCover)
+  task chipCover when chipCovered key=chip.seq
+    after(1, chipCoverClose)
+  action chipCoverClose
+    editorOp("chip-close", `${chip.seq}`, "")
+  state optionsOpen = ""
+  state branchQuery = ""
+  resource branches = composerBranches(optionsOpen == "branch", branchQuery, data.revision, shellClock) as shape ComposerBranches
+  state popoverSession = 0
+  state origin = ""
+  state originEdited = false
+  state draft = ""
+  state draftOwner = "__unset__"
+  state draggedWidth = 0
+  state sidebarHoverId = ""
+  state jumpRequest = 0
+  state composerFocused = false
+  action composerFocus
+    composerFocused = true
+  action composerBlur
+    composerFocused = false
+  action scrollToEnd
+    jumpRequest = jumpRequest + 1
+    foldHold = false
+  derive modal = connecting or projectsOpen or paletteOpen or settingsOpen or providerDialog != "" or restEditor != "" or welcome.show
+  resource sidebarLaunch = sidebarLaunchWidth(viewport.width, data.revision) as shape number // threadSidebarWidth.ts (r4-polish-sidebar-width.ts): no stored width sizes the sidebar once at load
+  derive sidebarWidth = draggedWidth == 0 and sidebarLaunch > 0 ? sidebarLaunch : min(max(max(208, data.sidebarMinWidth), draggedWidth > 0 ? draggedWidth : data.sidebarWidth), max(max(208, data.sidebarMinWidth), viewport.width - 640)) // a stored width: at least the minimum (13rem, or the brand at the Interface font size: r12-sidebar-width.ts), leaving 40rem of main content
+  derive narrowDiff = viewport.width <= 980
+  state diffUserWidth = 540
+  derive diffWidth = narrowDiff ? (viewport.width <= 760 ? min(viewport.width * 0.88, 384) : min(448, max(320, viewport.width * 0.42))) : max(360, min(diffUserWidth, min(floor(viewport.width * 0.7), viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - 360)))
+  action resizeDiff(dx: number, dy: number)
+    diffUserWidth = max(360, min(diffWidth - dx, min(floor(viewport.width * 0.7), viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - 360)))
+  action finishDiffResize(vx: number, vy: number)
+    diffUserWidth = diffWidth
+  derive conversationWidth = viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - ((data.diffOpen or rightPanel or shell.panel.open) and not narrowDiff ? diffWidth : 0)
+  derive composerOwner = data.composerOwner // `${serverUrl}:${projectId}:${threadId}`; a draft Auto balance moved keeps its own (auto-balance-owner.ts)
+  derive composerText = draftOwner == `${composerOwner}${data.requestKey}` ? draft : data.draft
+  action closeOptions
+    optionsOpen = ""
+    focus("composer")
+  action openOptions(name: string)
+    focus(optionsOpen == name ? "composer" : name == "effort" ? "composer-menu" : name == "runtime" ? `composer-menu-item-${data.composer.runtimeSelected}` : name == "branch" ? "branch-search" : name == "workspace" ? "composer-menu" : "composer-menu-item-0")
+    optionsOpen = optionsOpen == name ? "" : name
+    branchQuery = ""
+    modelsOpen = false
+    popoverSession = popoverSession + 1
+  action menuCommand(op: string, id: string, value: string, n: number)
+    optionsOpen = ""
+    focus("composer")
+    if not commandPending
+      commandPending = true
+      send changed = command(op, id, value, n)
+  action searchBranches(value: string)
+    branchQuery = value
+  action composerKey(op: string, id: string, value: string) // A composer control's key name (composer-controls-commands.ts).
+    if not commandPending
+      commandPending = true
+      send changed = command(`cc:${op}`, id, value, 0)
+  action composerDrop(op: string, id: string, vx: number, vy: number) // A queued row's grip released (pan release).
+    if not commandPending
+      commandPending = true
+      send changed = command(`cc:${op}`, id, "", 0)
+  action menuPick(op: string, id: string, value: string)
+    optionsOpen = ""
+    focus("composer")
+    if not commandPending
+      commandPending = true
+      send changed = command(op, id, value, 0)
+  action commandCompleted
+    noticeExit = ""
+    match changed
+      case some(result)
+        if pendingModal != ""
+          modalError = startsWith(result.message, "toasted:") ? "" : result.message
+        if result.message == ""
+          if pendingModal == "connect-first" or pendingModal == "connect"
+            connecting = false
+            origin = ""
+            originEdited = false
+          if pendingModal == "welcome-pair"
+            welcomeLink = ""
+            welcomePairOpen = false
+          if pendingModal == "provider-add"
+            providerDialog = wizardManual or wizardDriver == "acpRegistry" ? providerDialog : ""
+            providerSelected = providerCreated
+          if pendingModal == "provider-close"
+            providerDialog = ""
+          if pendingModal == "provider-acp"
+            wizardManual = false
+            wizardDriver = "acpRegistry"
+            wizardStep = 1
+          if pendingModal == "rest"
+            keybindingOpen = false
+            keybindingPrevious = ""
+            keybindingRecording = false
+            if restEditor == "project-remove" and restSubject == ""
+              settingsOpen = false
+              settingsProjectKey = ""
+              settingsProjectId = ""
+              settingsCheckout = ""
+            restEditor = ""
+            settingsRefresh = settingsRefresh + 1
+          if pendingModal == "settings"
+            settingsRefresh = settingsRefresh + 1
+          if pendingModal == "theme-dialog"
+            settingsThemeDialog = ""
+        if result.message == "terminal:focus-composer"
+          focus("composer")
+        if startsWith(result.message, "focus:") // usage-reset-and-feedback: the reset credit confirm takes the focus and gives it back
+          focus(slice(result.message, 6))
+        if result.message == "sidebar:new-thread" or result.message == "pr-handoff-next"
+          draftOwner = "__unset__"
+          jumpRequest = jumpRequest + 1
+          utilityPage = ""
+          focus("composer")
+        if result.message == "pr-handoff-next" // the thread shows first, then its checkout runs (pages-pr-handoffs.ts)
+          send prHandoffChanged = command("pageslocal:pr-act-handoff-run", "", "", 0)
+        if result.message == "sidebar:palette-new-thread" or startsWith(result.message, "palette:") // pr-links-previews-and-routing: `palette:<page>` (the linked threads, on the pull request's URL; the thread picker)
+          paletteOpen = true
+          paletteMode = "command"
+          palettePage = result.message == "sidebar:palette-new-thread" ? "new-thread-in" : slice(result.message, 8)
+          paletteQuery = startsWith(result.message, "palette:pr-linked|") ? slice(result.message, 18) : ""
+          paletteCursor = -1
+          paletteScroll = 0
+          modelsOpen = false
+          optionsOpen = ""
+          focus("palette-input")
+        if startsWith(result.message, "pr-select:") // pr-links-previews-and-routing: a pull request link opens on the page
+          prSelect(slice(result.message, 10))
+        if result.message == "sidebar:navigate" and data.sidebar.navigateKind == "project-settings"
+          openSettings() // a project link replaces the whole scope (retainSettingsScope)
+          settingsProjectId = data.sidebar.navigateProject
+          settingsRoute = "projects"
+      case none
+    pendingModal = ""
+    commandPending = false
+  action command(op: string, id: string, value: string, n: number)
+    if op == "chatlocal:item-detail"
+      send timelineDisclosureChanged = command(op, id, value, n)
+    else if op == "diffreview" and (startsWith(id, "drag:") or startsWith(id, "gutter:") or startsWith(id, "comment:") or id == "to" or id == "end")
+      // realinput-1010f RF-3: a gutter drag sends at its press, on each line and at its release; a click's press and
+      // release come within a few ms, so they queue on their own send (a later send on one mutation would replace the
+      // press before it ran, and `changed` takes one command at a time). The "+"'s press queues behind its drag.
+      send lineDragChanged = command(op, id, value, n)
+    else
+      if endsWith(op, ":focus-in") or endsWith(op, ":focus-out")
+        send terminalFocusChanged = command(op, id, value, n)
+      else if startsWith(op, "terminallocal:") or startsWith(op, "terminalpanellocal:")
+        send terminalChanged = command(op, id, value, n)
+      else if op == "draft" or op == "search" or op == "sidebar" or op == "answer" or op == "choice" or op == "dismiss-error" or op == "close-diff" or op == "diff-view" or op == "favorite-model"
+        send localChanged = command(op, id, value, n)
+      else
+        if not commandPending
+          commandPending = true
+          // shell-sidebar-palette-keys (SH-2): a thread command carries the window's instant, as the sidebar's do, so
+          // ⇧⌘S's undo notice is timed on the window's clock (sidebar-state.ts adoptCommandTime).
+          send changed = command(op, id, value, (n == 0 and startsWith(op, "chat:")) ? wallTime.epochAtZero + performanceNow() : n)
+  action editKeybindingQuery(value: string)
+    keybindingQuery = value
+  action newKeybinding
+    keybindingPrevious = "new"
+    keybindingCommand = ""
+    keybindingKey = ""
+    keybindingWhen = ""
+    keybindingRecording = false
+    keybindingOpen = true
+    modalError = ""
+  action editKeybinding(previous: string, commandName: string, shortcut: string, condition: string)
+    if keybindingPrevious != previous
+      keybindingPrevious = previous
+      keybindingCommand = commandName
+      keybindingKey = shortcut
+      keybindingWhen = condition
+      keybindingRecording = false
+  action recordKeybinding(previous: string, commandName: string, shortcut: string, condition: string)
+    if keybindingPrevious != previous
+      keybindingPrevious = previous
+      keybindingCommand = commandName
+      keybindingKey = shortcut
+      keybindingWhen = condition
+    keybindingRecording = true
+  action chooseKeybindingCommand(value: string)
+    keybindingCommand = value
+  action editKeybindingKey(value: string)
+    keybindingKey = value
+    keybindingRecording = false
+  action editKeybindingWhen(value: string)
+    keybindingWhen = value
+  action captureKeybinding(original: string, value: string) // the recorder's chord; "escape" restores, "blur" keeps the draft (settings-escape-and-nav)
+    keybindingKey = value == "escape" ? original : (value == "blur" ? keybindingKey : value)
+    keybindingRecording = false
+  action cancelKeybinding
+    keybindingOpen = false
+    keybindingPrevious = ""
+    keybindingRecording = false
+    modalError = ""
+  action settingsCommand(op: string, id: string, value: string)
+    if not commandPending
+      commandPending = true
+      pendingModal = "settings"
+      modalError = ""
+      send changed = command(op, id, value, 0)
+  action previewSnapshotSound(sound: string)
+    if not commandPending
+      commandPending = true
+      pendingModal = ""
+      send changed = command("snapshot-preview-sound", "", sound, 0)
+  action removeSnapshot(imageId: string)
+    send changed = command("remove-snapshot", imageId, "", 0)
+  action clearModalError // SnapShot's setup dialog (T3Window toggleSnapshots, showSnapshotSetup)
+    modalError = ""
+  action openProviderSettings(id: string)
+    let machine = settingsOpen ? settingsCore.scopeEnvironment : settings.environmentId // a setup link names its environment: Settings' own the scope's representative (ProjectDefaultsSettings.tsx:168-173), none without one; the chat's its thread's (ChatView.tsx:5217-5223)
+    if not settingsOpen or machine != ""
+      // audit-wave-followups FU-4: a link to another target remounts the Providers page (app-settings.contract providerLinkVisit).
+      providerVisit = providerLinkVisit(providerVisit, settingsOpen and settingsRoute == "providers", settingsMachine, providerLinkTarget, id == "" ? "" : machine, id == "" ? "" : `target:${id}`)
+      openSettings() // retainSettingsScope: a link from outside Settings starts with no scope
+      settingsRoute = "providers"
+      settingsMachine = id == "" ? "" : machine
+      providerSelected = id == "" ? "" : `target:${id}`
+      providerLinkTarget = id == "" ? "" : `target:${id}`
+  action openSettings
+    sidebarHoverId = "" // r8-pointer D11: the Settings button's tooltip closes on its press
+    settingsEnvironmentId = settings.environmentId
+    settingsOpen = true
+    settingsRoute = "general"
+    settingsMenu = ""
+    settingsMachine = ""
+    settingsProjectKey = ""
+    settingsCheckout = ""
+    settingsProjectId = ""
+    modalError = ""
+  action focusSettingsTarget
+    if settingsOpen and settingsFocusTarget != ""
+      if settingsRoute != "storage" or storageSettings.available
+        if settingsRoute != "archived" or archives.available
+          if settingsRoute != "diagnostics" or diagnostics.available
+            if settingsRoute != "keybindings" or bindings.available
+              if settingsRoute != "scheduled-tasks" or scheduled.available
+                if (settingsRoute != "source-control" or sourceControl.available) and (settingsRoute != "integrations" or integrations.available)
+                  if (settingsRoute != "general" and settingsRoute != "appearance") or (settingsCore.ready and settingsCore.route == settingsRoute and length(settingsCore.sections) > 0)
+                    settingsScrollTop = max(0, frame(settingsFocusTarget).y - frame("settings-content-column").y + frame(settingsFocusTarget).height / 2 - frame("settings-content-scroll").height / 2) + (settingsScrollTop == floor(settingsScrollTop) ? 0.25 : 0)
+                    focus(settingsFocusTarget)
+                    settingsFocusTarget = ""
+  task settingsSearchFocus mount
+    every(1000, focusSettingsTarget)
+  action editSettingsQuery(value: string)
+    settingsFocusTarget = ""
+    settingsQuery = value
+    settingsResultIndex = 0
+  action deviceSetting(id: string, value: string)
+    send localChanged = command("device-setting", id, value, 0)
+  action coreChange(row: string, part: string, value: string)
+    settingsMenu = ""
+    if part == "picker"
+      openModels()
+      modelTarget = PickerTarget(id=`${row}:|${settingsCore.scopeKey}`, top=frame(`setting-${row}`).y, bottom=frame(`setting-${row}`).y + frame(`setting-${row}`).height, left=frame(`setting-${row}`).x)
+    else if row == "background-activity" and value == "advanced"
+      settingsThemeDialog = "background-activity"
+      modalError = ""
+    else
+      settingsCommand("settings-core", `${row}:${part}|${settingsCore.scopeKey}`, value)
+  action coreMenu(section: string, id: string)
+    settingsMenu = (id == "" or settingsMenu == id) ? "" : id
+  action coreMenuClose
+    settingsMenu = ""
+  action coreScope(project: bool, id: string, member: string)
+    settingsMenu = ""
+    modalError = ""
+    providerSelected = "" // routes/settings.tsx keys the page on its scope: Providers starts over on the new environment's first row
+    providerLinkTarget = ""
+    settingsProjectKey = project ? id : settingsProjectKey
+    settingsCheckout = project ? "" : settingsCheckout
+    settingsProjectId = project ? member : settingsProjectId
+    settingsMachine = project ? settingsMachine : id
+  action coreNavigate(route: string)
+    settingsRoute = route
+    providerLinkTarget = "" // FU-4: a route reached without a provider link names no instance
+    if route == "diagnostics" and settings.environmentId != ""
+      settingsMachine = settings.environmentId
+      settingsProjectKey = ""
+      settingsCheckout = ""
+      settingsProjectId = ""
+    settingsMenu = ""
+    settingsQuery = ""
+    modalError = ""
+  action corePick(route: string, target: string, scope: string, id: string)
+    settingsRoute = route
+    providerLinkTarget = ""
+    settingsFocusTarget = target
+    settingsQuery = ""
+    settingsMenu = ""
+    modalError = ""
+  action coreSearchKey(k: string)
+    if k == "/"
+      focus("settings-search")
+    if k == "Escape"
+      settingsQuery = ""
+      settingsResultIndex = 0
+    if k == "ArrowDown"
+      settingsResultIndex = settingsResultIndex + 1
+    if k == "ArrowUp"
+      settingsResultIndex = settingsResultIndex + settingsNavigation.count - 1
+    if k == "Enter" and settingsNavigation.firstRoute != ""
+      settingsRoute = settingsNavigation.firstRoute
+      providerLinkTarget = ""
+      settingsFocusTarget = settingsNavigation.firstTarget
+      settingsQuery = ""
+      settingsMenu = ""
+      modalError = ""
+  action coreClearSearch
+    settingsQuery = ""
+    focus("settings-search")
+  action coreThemeDialog(kind: string, theme: string)
+    settingsThemeDialog = kind
+    settingsThemeRequest = settingsThemeRequest + 1
+    settingsThemeSubject = kind == "create" or kind == "edit" or kind == "duplicate" ? `${theme}#${settingsThemeRequest + 1}` : theme
+    modalError = ""
+  action coreThemeChange(row: string, part: string, value: string)
+    if not commandPending
+      commandPending = true
+      pendingModal = "theme-dialog"
+      modalError = ""
+      send changed = command("settings-core", `${row}:${part}|${settingsCore.scopeKey}`, value, 0)
+  mutation themeLive as shape Change refreshes data // the colour picker's own, so no other local op forgets its reply (the picker waits for it)
+  action coreThemeLive(part: string, id: string, value: string, n: number) // the colour picker's draft ops (theme-color-picker.contract), never behind another command
+    send themeLive = command(`themelocal:${part}`, id, value, n)
+  state restEditor = ""
+  state restSubject = ""
+  state taskBase = "" // the scheduled editor's picker: its project, base and search (settings-scheduled.contract taskPicker), new with each editor
+  action restTaskBase(value: string)
+    taskBase = value
+  action restOpen(editor: string, subject: string) // the window's half: the dialog label, the row menu
+    sbQuery = ""
+    sbLettersEdited = false
+    sbEmoji = ""
+    restEditor = editor
+    restSubject = subject
+    modalError = ""
+    taskModelPick = ""
+    taskBase = ""
+  action restClose
+    restEditor = ""
+    modalError = ""
+    taskModelPick = ""
+    taskBase = ""
+  action restLocal(op: string, value: string)
+    send localChanged = command(`restlocal:${op}`, `${settingsEnvironmentId}:${settingsProjectId}`, value, 0)
+  action restRaw(op: string, id: string, value: string) // a settings editor's command, also as rest and restInput (T3Window)
+    if not commandPending
+      commandPending = true
+      pendingModal = "rest"
+      modalError = ""
+      send changed = command(op, id, value, 0)
+  action refreshSettings
+    settingsRefresh = settingsRefresh + 1
+  action editLicenseQuery(value: string)
+    licenseQuery = value
+  action toggleLicense(id: string)
+    licenseExpanded = licenseExpanded == id ? "" : id
+  action retryLicenses
+    licenseRetry = licenseRetry + 1
+  action selectDiagnosticPeriod(value: string)
+    diagnosticPeriod = value
+  action copyDiagnostic(value: string)
+    send localChanged = command("copy-diagnostic", "", value, 0)
+  action providerUi(what: string, value: string) // the window's half: whether the wizard tried to go on
+    modalError = ""
+    providerSelected = what == "select" ? value : providerSelected
+    if what == "open"
+      providerDialog = value
+      providerSerial = providerSerial + 1
+      wizardDriver = "codex"
+      wizardLabel = ""
+      wizardLabelSet = false
+      wizardId = ""
+      wizardIdSet = false
+      wizardStep = 0
+      wizardManual = false
+      acpQuery = ""
+    if what == "close"
+      providerDialog = ""
+    if what == "hub-remove" or what == "setup-logout" or what == "setup-remove" or what == "codex-picker" or what == "acp-delete" or what == "acp-disable"
+      providerDialog = what
+      providerTarget = value
+    if what == "driver" or what == "manual"
+      wizardDriver = what == "driver" ? value : wizardDriver
+      wizardManual = what == "manual" and value == "true"
+      wizardLabelSet = false
+      wizardIdSet = false
+    if what == "label"
+      wizardLabel = value
+      wizardLabelSet = true
+    if what == "id"
+      wizardId = value
+      wizardIdSet = true
+    if what == "acp"
+      acpQuery = value
+    if what == "step"
+      let target = value == "back" ? max(0, wizardStep - 1) : min(wizardManual ? 1 : 2, value == "next" ? wizardStep + 1 : (value == "2" ? 2 : (value == "1" ? 1 : 0)))
+      wizardStep = wizardStep <= 1 and target > 1 and providerWizard.idError != "" ? 1 : target // the window's half marks the attempt
+  action providerOp(op: string, id: string, field: string, value: string, apply: bool)
+    if startsWith(op, "upkeep:update") and apply
+      send providerUpdateRun = providerChange(op, id, field, value, providerPage.environment)
+    else if (startsWith(op, "setup:") or startsWith(op, "upkeep:")) and apply
+      send providerAuthChanged = providerChange(op, id, field, value, providerPage.environment)
+    else if apply and not commandPending
+      commandPending = true
+      pendingModal = op == "acp-prepare" ? "provider-acp" : (op == "provider-hub-add" or op == "provider-hub-remove" or (op == "provider-chatgpt" and welcome.show) ? "provider-close" : "provider")
+      modalError = ""
+      send changed = providerChange(op, id, field, value, providerPage.environment)
+  action providerAccent(id: string, hex: string, vx: number, vy: number)
+    if not commandPending
+      commandPending = true
+      pendingModal = "provider"
+      modalError = ""
+      send changed = providerChange("provider-accent", id, "", hex, providerPage.environment)
+  action providerAdd(driver: string, label: string, id: string, accent: string, f0: string, f1: string, f2: string, f3: string, f4: string) // the window's half marks the attempt
+    if not commandPending
+      commandPending = true
+      pendingModal = "provider-add"
+      providerCreated = id == "" ? providerWizard.instanceId : id
+      modalError = ""
+      send changed = providerAdd(driver, label, id, accent, f0, f1, f2, f3, f4, providerPage.environment)
+  action connectionOp(op: string, id: string, value: string)
+    if not commandPending
+      sshReturnToConnect = op == "environment-ssh-add" or op == "environment-ssh-pick"
+      draftOwner = "__unset__"
+      commandPending = true
+      pendingModal = (op == "environment-add" or op == "environment-route-add" or op == "environment-ssh-add" or op == "environment-ssh-pick") ? (data.connected ? "connect" : "connect-first") : "connection"
+      modalError = ""
+      connectionRemove = ""
+      send changed = command(op, id, value, 0)
+  action connectionAskRemove(target: string)
+    connectionRemove = target
+    connectionMenu = ""
+  action connectionToggleMenu(target: string)
+    connectionMenu = connectionMenu == target ? "" : target
+  action openConnection // and Add a route (T3Window openRoute); the window's half: the credential, the route target
+    modalError = ""
+    connecting = true
+    sbSshHost = ""
+  action closeConnection
+    modalError = "" // lane r9-connect: closing Add Environment clears its error (setSavedBackendError(null))
+    pendingModal = ""
+    connecting = false
+    origin = ""
+    originEdited = false
+  action closeModal
+    pendingModal = ""
+    connecting = false
+    projectsOpen = false
+    paletteOpen = false
+    settingsOpen = false
+    keybindingOpen = false
+    providerDialog = ""
+    connectionRemove = ""
+    modelsOpen = false
+    origin = ""
+    originEdited = false
+  action editOrigin(value: string) // the window's half fills the credential from a pasted pairing URL
+    origin = value
+    originEdited = true
+  action editCredential // the window's half keeps the typed credential
+    origin = pairFields.host != "" and pairFields.source == origin ? pairFields.host : origin
+  action resizeSidebar(dx: number, dy: number)
+    draggedWidth = min(max(max(208, data.sidebarMinWidth), viewport.width - 640), max(max(208, data.sidebarMinWidth), sidebarWidth + dx))
+  action openProjects
+    projectsOpen = true
+  action selectProject(id: string)
+    if not commandPending
+      draftOwner = "__unset__"
+      commandPending = true
+      send changed = command("select-project", id, "", 0)
+      projectsOpen = false
+  action manageProject(id: string, name: string, path: string)
+    projectsOpen = false
+    openSettings() // a project link replaces the whole scope (retainSettingsScope)
+    settingsProjectId = id
+    settingsRoute = "projects"
+  action selectThread(id: string)
+    if not commandPending
+      draftOwner = "__unset__"
+      commandPending = true
+      send changed = command("select-thread", id, "", 0)
+      jumpRequest = jumpRequest + 1
+      utilityPage = ""
+  action openThread(id: string, how: string) // Sidebar (sidebar-commands.ts): a row press says how it opened ("click" reads ⌘/⇧ to multi-select, "search" clears it).
+    if not commandPending and id != ""
+      draftOwner = "__unset__"
+      commandPending = true
+      send changed = command("select-thread", id, how, 0)
+      jumpRequest = jumpRequest + 1
+      utilityPage = ""
+  action sidebarLocal(op: string, id: string, value: string)
+    send localChanged = command(`sidebarlocal:${op}`, id, value, 0)
+  // r12-sidebar: a focused row's keys look for its menu key; Enter and Space stay its press. shell-sidebar-palette-keys
+  // (SH-1): a modifier's own press is no key of the row's either (the reference's row has no handler): ⌘ held
+  // before N set commandPending here, so chat.new's button, pressed next, found it set and did nothing.
+  action sidebarRun(op: string, id: string, value: string)
+    if not commandPending and ((op != "row-key" and op != "legacy-row-key") or (value != "Enter" and value != " " and value != "Meta" and value != "Shift" and value != "Control" and value != "Alt" and value != "CapsLock"))
+      commandPending = true
+      send changed = command(`sidebar:${op}`, id, value, wallTime.epochAtZero + performanceNow())
+  action sidebarHover(id: string, over: bool) // the window's half sets the card's geometry (app-window.contract)
+    if over
+      sidebarHoverId = id
+      if data.sidebar.searching
+        send localChanged = command("sidebarlocal:search-hover", id, "", 0)
+    else if sidebarHoverId == id
+      sidebarHoverId = ""
+  action resetSidebarWidth
+    draggedWidth = 0
+    send localChanged = command("sidebarlocal:width-reset", "", "", 0)
+  action sidebarNewThread
+    if not commandPending
+      if data.sidebar.projectGroupCount > 1
+        commandPending = true
+        send changed = command("sidebar:new-thread-click", "", "", 0)
+      else
+        if data.projectId != ""
+          draftOwner = "__unset__"
+          commandPending = true
+          send changed = command("new-thread", "", "", 0)
+          jumpRequest = jumpRequest + 1
+          focus("composer")
+          utilityPage = ""
+  action newThread
+    if not commandPending
+      if data.projectId != ""
+        draftOwner = "__unset__"
+        commandPending = true
+        send changed = command("new-thread", "", "", 0)
+        jumpRequest = jumpRequest + 1
+        focus("composer")
+        utilityPage = ""
+      else
+        projectsOpen = true
+  action write(value: string)
+    draft = value
+    draftOwner = `${composerOwner}${data.requestKey}`
+    send localChanged = command("draft", "", value, 0)
+  action send
+    if not commandPending and editor.overLimit and data.requestMode != "question"
+      send localChanged = command("editorlocal:arm-limit", "", "", 0)
+    if not commandPending and (not editor.overLimit or data.requestMode == "question")
+      if data.requestMode == "question" or (data.canSend and (composerText != "" or length(data.snapshotDrafts) > 0))
+        commandPending = true
+        send changed = command("send", "", composerText, 0)
+        draftOwner = "__unset__"
+        jumpRequest = jumpRequest + 1
+  action editorOp(op: string, id: string, value: string) // composer-editor.ts: menu picks, the stash
+    send localChanged = command(`editorlocal:${op}`, id, value, wallTime.epochAtZero + performanceNow())
+  action openModels
+    focus(modelsOpen ? "composer" : "model-search")
+    modelsOpen = not modelsOpen
+    popoverSession = popoverSession + 1
+    browseProvider = ""
+    modelQuery = ""
+    optionsOpen = ""
+    modelTarget = PickerTarget(id="", top=0, bottom=0, left=0)
+  action closeModels
+    modelsOpen = false
+    focus(modelTarget.id == "" ? "composer" : `setting-${slice(modelTarget.id, 0, indexOf(modelTarget.id, ":"))}`)
+  action searchModels(value: string)
+    modelQuery = value
+  action selectProvider(id: string)
+    browseProvider = id
+    modelQuery = ""
+    focus("model-search")
+  // A pick: the composer's model (Shift adds one to a draft's several and keeps the picker open, model-picker-parity CO-7),
+  // a General row's setting, the scheduled task editor's Model (its draft, `taskModelPick`) or Source Control's writer model.
+  action selectModel(id: string, provider: string, additive: bool)
+    if id != "" and startsWith(modelTarget.id, "task-model:")
+      taskModelPick = `${provider}:${id}`
+      modelsOpen = false
+      focus("setting-task-model")
+    else if id != "" and startsWith(modelTarget.id, "source-control-writer-model:")
+      modelsOpen = false
+      focus("setting-source-control-writer-model")
+      restRaw("rest:scoped", slice(modelTarget.id, indexOf(modelTarget.id, ":|") + 2, length(modelTarget.id)), `key=sourceControlWriterModelSelection&value=${encodeURIComponent(`${provider}:${id}`)}`)
+    else if not commandPending and id != ""
+      commandPending = true
+      pendingModal = modelTarget.id == "" ? "" : "settings" // a General row's pick is that setting's write, never the thread's model
+      send changed = command(modelTarget.id == "" ? "model" : "settings-core", modelTarget.id == "" ? id : modelTarget.id, modelTarget.id == "" ? provider : `${provider}|${id}`, additive and modelTarget.id == "" ? 1 : 0)
+      modelsOpen = additive and modelTarget.id == "" and catalog.multiple
+      focus(additive and modelTarget.id == "" and catalog.multiple ? "model-search" : (modelTarget.id == "" ? "composer" : `setting-${slice(modelTarget.id, 0, indexOf(modelTarget.id, ":"))}`))
+  // model-picker-parity S2-4: a Settings picker outside General (Scheduled Tasks' Model, Source Control's writer model) opens
+  // under its trigger `setting-<row>`; `context` is what its catalog and its pick need (settings-model-picker.ts).
+  state taskModelPick = "" // the open scheduled task editor's picked `instance:model`, until it closes
+  action pickModel(row: string, context: string)
+    openModels()
+    modelTarget = PickerTarget(id=`${row}:|${context}`, top=frame(`setting-${row}`).y, bottom=frame(`setting-${row}`).y + frame(`setting-${row}`).height, left=frame(`setting-${row}`).x)
+  action chatLocal(op: string, id: string, value: string)
+    if op == "fold" or op == "group" or op == "attempt" or op == "tree-all" or op == "tree-dir"
+      foldHold = true
+    // browser-surface part 3: Float preview closes the right panel too (handlePictureInPicture: rightPanelStore.close).
+    // right-panel-escape: so does a sheet's Files search Escape (the dialog closes after FileSearchField's closeSearch).
+    if op == "surface-close-others" or op == "surface-close-to-right" or op == "surface-close-all" or (op == "surface-close" and length(filter(shell.panel.tabs, (tab) => tab.id == id and tab.closeTitle != "")) == 0) or (op == "surface-browser-float" and not shell.panel.browser.capture.floating) or (op == "surface-files-search-key" and id == "sheet" and value == "Escape")
+      rightPanelAt = ""
+    // audit-wave-followups FU-3: a Files preview comment's ops have their own queued send. Its save inserts the composer's
+    // chip, whose text change is the composer's `draft` write on localChanged: on one send, that write replaced the
+    // save before it closed the draft. Queued, the draft's focus reports wait behind its save too.
+    if startsWith(op, "surface-files-comment-")
+      send fileCommentChanged = command(`chatlocal:${op}`, id, value, 0)
+    else if op == "pr-code-drag" or op == "pr-code-begin"
+      send lineDragChanged = command(`chatlocal:${op}`, id, value, 0) // realinput-1010f RF-3: the Code tab's gutter drags and "+", in turn
+    else
+      send localChanged = command(`chatlocal:${op}`, id, op == "table-menu" ? `${frame(`table-copy-${id}`).x}|${frame(`table-copy-${id}`).y}|${frame(`table-copy-${id}`).width}|${frame(`table-copy-${id}`).height}|${viewport.width}|${viewport.height}|${value}` : value, 0) // lane r8-keys: a table popup's trigger frame
+  state foldHold = false
+  action releaseFold
+    if foldHold
+      foldHold = false
+  action answerRevert(choice: string)
+    if choice != "cancel"
+      draftOwner = "__unset__"
+    send localChanged = command("chatlocal:revert-answer", "", choice, 0)
+  action earlier
+    if not commandPending
+      if data.hasMore and not data.historyLoading
+        commandPending = true
+        send changed = command("chatlocal:history", "", "", 0)
+  state shellClock = 0
+  state toastDismissed = ""
+  state toastHover = false
+  state shellOpenHandled = ""
+  resource page = exactPage() as shape Page // the window's focus and visibility (document.hasFocus(), exact2 #219): thread notifications and activity reports
+  resource shell = shellView(data.revision, wallTime.epochAtZero + shellClock, toastDismissed, toastHover, viewport.width <= 980, page.hasFocus, page.visibilityState) as shape ShellView
+  // markdown-links-and-files-preview PA-3: Files › Show rendered markdown is ChatMarkdown; audit-wave-followups-3 FW-2: so is a
+  // sent attachment's rendered Markdown (the panel shows one of the two, so at most one source is asked).
+  resource filesMarkdown = renderFileMarkdown(concat(shell.panel.files.markdownSource, shell.panel.attachment.markdownSource)) as shape TranscriptMarkdown
+  // audit-wave-followups FU-2: the right panel's open state is the thread's (rightPanelStore byThreadKey isOpen): the window
+  // holds it for the panel key it was opened on (shell.panel.key) until the client's own state answers, and the client
+  // keeps each thread's launcher open (shell.panel.launcher), so a fresh draft or another thread opens with it closed.
+  state rightPanelAt = ""
+  derive rightPanel = (rightPanelAt != "" and rightPanelAt == shell.panel.key) or shell.panel.launcher
+  state detailsOpen = false
+  resource details = shellDetails(detailsOpen, data.threadId, data.revision, conversationWidth >= 984, wallTime.epochAtZero + shellClock, floor(viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - conversationWidth), page.hasFocus and page.visibilityState == "visible") as shape ShellDetails
+  state canvasGestureValue = ""
+  action canvasGesture(value: string)
+    canvasGestureValue = value
+  resource canvas = chatCanvas(data.revision, conversationWidth, viewport.height, details.inline, data.look.chatMax, length(data.messages) > 0 or data.threadId != "", canvasGestureValue, `${shell.panel.deviceMini.key}|${shell.panel.browserMini.key}`, shell.panel.deviceMini.show or shell.panel.browserMini.show) as shape ChatCanvasView
+  resource terminalDrawer = terminalDrawer(data.revision, viewport.height, wallTime.epochAtZero + elapsed) as shape TerminalDrawerView // terminal-drawer (terminal-drawer-view.ts)
+  state titleDialog = false
+  state confirmTitle = ""
+  state confirmBody = ""
+  state confirmDestructive = false
+  state confirmOp = ""
+  state confirmTarget = ""
+  state confirmValue = ""
+  state terminalCloseHandled = 0
+  task shellTicks mount
+    every(500, shellTick)
+  action shellTick
+    if shell.toastCount > 0 or shell.ticking or commandPending
+      shellClock = performanceNow()
+  task sidebarDialogFocus when data.sidebar.dialog != "" and not paletteOpen key=data.sidebar.dialog // fix-keyboard-focus: and again as the palette over it closes (its finalFocus); dialog-shortcut-focus: a dialog the sidebar opens takes the focus at its first stop, however it opened (Base UI's initialFocus)
+    after(1, focusSidebarDialog)
+  action focusSidebarDialog
+    focus(data.sidebar.dialog == "snooze" ? "snooze-mode-date" : `sidebar-${data.sidebar.dialog}-cancel`)
+    titleDialog = data.sidebar.dialogReturn == "thread-title"
+  task snoozeCalendarFocus when data.sidebar.calendar.focusSeq > 0 key=data.sidebar.calendar.focusSeq // TH-8: a key moved the date popover's focus (snooze-calendar.ts)
+    after(1, focusSnoozeDay)
+  action focusSnoozeDay
+    focus(`snooze-day-${data.sidebar.calendar.focus}`)
+  task titleDialogClosed when titleDialog and data.sidebar.dialog == "" // title-custom-snooze: however it closes (Snooze too), the title menu's dialog gives the focus back to the title (Base UI's finalFocus)
+    after(1, returnTitleFocus)
+  action returnTitleFocus
+    titleDialog = false
+    focus("thread-title")
+  // browser-surface part 3: ⌘Return in Annotate sends the composer with the annotation at once, whatever the panel shows
+  // (PreviewView onSendAnnotation); when Send cannot go, ChatView onSend says "Annotation attached to draft" instead.
+  state annotationSendHandled = 0
+  task annotationSend when shell.panel.annotationSend > annotationSendHandled key=shell.panel.annotationSend
+    after(1, annotationSendNow)
+  action annotationSendNow
+    annotationSendHandled = shell.panel.annotationSend
+    if commandPending or not data.canSend or data.requestMode == "question"
+      chatLocal("surface-browser-annotation-held", "", "")
+    else
+      send()
+  task terminalCloseAsk when shell.panel.terminalClose.serial > terminalCloseHandled and confirmOp == "" key=shell.panel.terminalClose.serial // Gated tasks (exact2 #192), not a 500 ms poll: a terminal close asks, and a thread the module opened is selected, at once.
+    after(1, terminalCloseConfirm)
+  action terminalCloseConfirm
+    terminalCloseHandled = shell.panel.terminalClose.serial
+    confirmTitle = shell.panel.terminalClose.title
+    confirmBody = shell.panel.terminalClose.body
+    confirmDestructive = true
+    confirmOp = shell.panel.terminalClose.op
+    confirmTarget = shell.panel.terminalClose.target
+    confirmValue = ""
+    focus("app-confirm-cancel") // dialog-shortcut-focus: the confirm takes the focus from the terminal (Base UI's initialFocus); Cancel gives it back
+  task shellOpen when shell.openRequest != "" and shell.openRequest != shellOpenHandled and shell.openThreadId != "" and not commandPending key=shell.openRequest
+    after(1, shellOpenThread)
+  action shellOpenThread // a clicked notification's thread, or a `t3 app` request's draft (desktop-activation.ts), which leaves Settings and the utility pages as the reference's route change does
+    shellOpenHandled = shell.openRequest
+    draftOwner = "__unset__"
+    commandPending = true
+    send changed = command(startsWith(shell.openThreadId, "activation:") ? "activation:open" : "select-thread", shell.openThreadId, "", 0)
+    jumpRequest = jumpRequest + 1
+    settingsOpen = settingsOpen and not startsWith(shell.openThreadId, "activation:")
+    utilityPage = startsWith(shell.openThreadId, "activation:") ? "" : utilityPage
+  action toastHovering(over: bool)
+    toastHover = over
+  action toastAct(id: number, op: string, target: string, value: string)
+    toastDismissed = op == "copy" or startsWith(op, "shelllocal:surface-browser-artifact-") ? toastDismissed : `${toastDismissed} ${op == "dismiss" ? "x" : "a"}${id}` // browser-surface part 3: a screenshot's Copy and Reveal keep their toast
+    if op == "copy"
+      send localChanged = command("shelllocal:copy-error", `${id}`, value, 0)
+    if op == "ui:settings" and not settingsOpen
+      openSettings() // retainSettingsScope: from outside Settings the scope starts over; inside, the category link keeps it
+    if op == "ui:settings"
+      settingsRoute = target
+      providerLinkTarget = ""
+      settingsMenu = ""
+      settingsQuery = ""
+      settingsFocusTarget = value
+      modalError = ""
+    if startsWith(op, "upkeep:")
+      send providerUpdateRun = providerChange(op, target, "", value, "") // a toast's update: the launch prompt's own environments, never the page's
+    if op != "copy" and op != "dismiss" and op != "ui:settings" and not startsWith(op, "upkeep:") and not commandPending
+      commandPending = true
+      send changed = command(op, target, value, 0)
+      if op == "select-thread" or op == "new-thread"
+        draftOwner = "__unset__"
+        jumpRequest = jumpRequest + 1
+  // right-panel-escape: the launcher's other keys come here as "key", Escape among them; it hides nothing (T3 Code's launcher
+  // binds no Escape). A sheet closes on Escape by its toggle's shortcut (r4-surfaces.contract, shell-panels.contract).
+  action panelUi(what: string, id: string) // r4-surfaces: tabs and surfaces live in the client (r4-surfaces-panel.ts, shell.panel)
+    let closingTerminal = what == "tab-close" and length(filter(shell.panel.tabs, (tab) => tab.id == id and tab.closeTitle != "")) > 0
+    rightPanelAt = closingTerminal ? rightPanelAt : (what == "toggle" or what == "close" or what == "tab-close" ? ((what == "toggle" and not data.diffOpen and not rightPanel and not shell.panel.open) or (what == "tab-close" and shell.panel.count > 1)) : (rightPanel or what == "choose")) ? shell.panel.key : ""
+    if what == "toggle" or what == "close" or what == "tab-close"
+      send localChanged = command(what == "tab-close" ? "shelllocal:surface-close" : (what == "toggle" and not data.diffOpen and not rightPanel and not shell.panel.open ? "shelllocal:surface-show" : "shelllocal:surface-hide"), id, "", 0)
+      if what == "toggle" and not data.diffOpen and not rightPanel and not shell.panel.open
+        focus("surface-chooser")
+    if what == "terminal" // terminal-drawer: the layout controls' toggle (toggleTerminalVisibility); closing returns to the composer
+      send terminalChanged = command("terminallocal:toggle", "", "", 0)
+    if (what == "choose" or (what == "key" and (id == "b" or id == "B" or id == "d" or id == "D" or id == "f" or id == "F" or id == "m" or id == "M" or id == "l" or id == "L" or id == "p" or id == "P" or id == "t" or id == "T"))) and (data.threadId != "" or id == "browser" or id == "b" or id == "B" or id == "files" or id == "f" or id == "F" or (shell.terminalAvailable and (id == "terminal" or id == "t" or id == "T")) or (data.projectId != "" and (id == "device" or id == "m" or id == "M"))) and not commandPending
+      commandPending = true
+      send changed = command((id == "diff" or id == "d" or id == "D") ? "diff" : "shelllocal:surface-open", "", id, 0)
+  action detailsAct(op: string, target: string, value: string) // the window's half: the editors list, the title menu
+    detailsOpen = op == "toggle" ? (not detailsOpen and conversationWidth < 984) : (detailsOpen and op != "ui:project-settings" and op != "ui:scheduled-tasks" and op != "select-thread" and op != "ui:changes") // inline (>= 984): toggle remembers the thread's docked card
+    if op == "ui:project-settings"
+      openSettings() // a project link replaces the whole scope (retainSettingsScope)
+      settingsProjectId = target == "" ? data.projectId : target
+      settingsRoute = "projects"
+    if op == "ui:add-script" // ProjectScriptsControl's Add project script: the Add Action dialog in place, for this project
+      restEditor = "card-action"
+      restSubject = target == "" ? data.projectId : target
+      modalError = ""
+    if op == "ui:scheduled-tasks" // ThreadAutomationsPanel: Manage scheduled tasks, or Edit as the page's taskId deep link (scheduled-view.ts)
+      settingsEnvironmentId = settings.environmentId
+      settingsMachine = ""
+      settingsProjectKey = ""
+      settingsCheckout = ""
+      settingsProjectId = ""
+      settingsRoute = "scheduled-tasks"
+      settingsOpen = true
+      restEditor = target == "" ? "" : "task"
+      restSubject = target == "" ? "" : `link|${value}|${target}`
+      modalError = ""
+      taskModelPick = ""
+    if (op != "toggle" or conversationWidth >= 984) and op != "editors" and op != "ui:project-settings" and op != "ui:add-script" and op != "ui:scheduled-tasks" and not commandPending
+      commandPending = true
+      send changed = command(op == "toggle" ? "shelllocal:details-inline" : op == "ui:changes" ? "diff" : op == "ui:editor" ? "shell:open-editor" : op, target, value, 0)
+      if op == "select-thread" or op == "shell:merge-back"
+        draftOwner = "__unset__"
+        jumpRequest = jumpRequest + 1
+  action titleSend(what: string, text: string) // the title's rename commit or New thread (T3Window titleUi)
+    if not commandPending
+      commandPending = true
+      send changed = command(what == "commit" ? "shell:rename" : "new-thread", what == "commit" ? data.threadId : data.projectId, text, 0)
+      if what == "new-thread"
+        draftOwner = "__unset__"
+        jumpRequest = jumpRequest + 1
+        focus("composer")
+  action titleMenuPick(op: string, target: string, value: string, askTitle: string, askBody: string, destructive: bool) // the window's half: the menu, Rename
+    if op == "ui:project-settings"
+      openSettings() // a project link replaces the whole scope (retainSettingsScope)
+      settingsProjectId = target
+      settingsRoute = "projects"
+    if op == "ui:confirm"
+      confirmTitle = askTitle
+      confirmBody = askBody
+      confirmDestructive = destructive
+      confirmOp = value
+      confirmTarget = target
+      confirmValue = ""
+    if startsWith(op, "shelllocal:")
+      send localChanged = command(op, target, value, 0)
+    if (op == "ui:new-thread" or not startsWith(op, "ui:")) and not startsWith(op, "shelllocal:") and not commandPending
+      commandPending = true
+      send changed = command(op == "ui:new-thread" ? "new-thread" : op, target, value, 0)
+    else if op == "ui:custom-snooze" // title-custom-snooze: Snooze › Custom… opens the sidebar's Custom snooze for this thread (useThreadActionMenu's requestCustomSnooze)
+      sidebarRun("snooze:custom", target, "title")
+  action confirmUi(accept: bool)
+    confirmOp = ""
+    if startsWith(confirmOp, "shell:") // dialog-shortcut-focus: the title menu's confirms give the focus back to its trigger (Base UI's finalFocus)
+      focus("thread-title")
+    if accept and (confirmOp == "terminallocal:close" or confirmOp == "terminalpanellocal:close")
+      send terminalChanged = command(confirmOp, confirmTarget, confirmValue, 0)
+    else if accept and not commandPending
+      commandPending = true
+      send changed = command(confirmOp, confirmTarget, confirmValue, 0)
+    else if not accept and (confirmOp == "terminallocal:close" or confirmOp == "terminalpanellocal:close")
+      send terminalChanged = command(confirmOp == "terminallocal:close" ? "terminallocal:focus" : "terminalpanellocal:focus", confirmTarget, "", 0)
+    else if not accept and confirmOp == "shelllocal:surface-close-confirmed" and shell.panel.terminal.open
+      send terminalChanged = command("terminalpanellocal:focus", `${shell.panel.terminal.threadKey}|${shell.panel.terminal.terminalId}`, "", 0)
+  view
+    T3Window(data=data, viewport=viewport, scheme=scheme, hoverWait=hoverWait, hoverHold=hoverHold, settingsCore=settingsCore, sshPrompt=sshPrompt, modal=modal, shell=shell, wallTime=wallTime, liveNow=liveNow, elapsed=elapsed, sidebarWidth=sidebarWidth, commandPending=commandPending, settings=settings, utilityPage=utilityPage, home=home, paletteShow=paletteShow, openThread=openThread, sidebarLocal=sidebarLocal, sidebarRun=sidebarRun, openSettings=openSettings, openPage=openPage, pageBack=pageBack, openProviderSettings=openProviderSettings, sidebarHoverId=sidebarHoverId, openProjects=openProjects, sidebarNewThread=sidebarNewThread, selectThread=selectThread, command=command, resizeSidebar=resizeSidebar, resetSidebarWidth=resetSidebarWidth, noticeExit=noticeExit, noticeDismiss=noticeDismiss, pageCover=pageCover, canvas=canvas, canvasGesture=canvasGesture, rightPanel=rightPanel, narrowDiff=narrowDiff, detailsOpen=detailsOpen, details=details, jumpRequest=jumpRequest, composerOwner=composerOwner, markdown=markdown, earlier=earlier, attachmentUrls=attachmentUrls, conversationWidth=conversationWidth, editor=editor, chip=chip, chipCovered=chipCovered, composerKey=composerKey, composerDrop=composerDrop, editorOp=editorOp, openModels=openModels, composerText=composerText, modelsOpen=modelsOpen, optionsOpen=optionsOpen, write=write, send=send, composerFocus=composerFocus, composerBlur=composerBlur, openOptions=openOptions, removeSnapshot=removeSnapshot, menuPick=menuPick, branches=branches, terminalDrawer=terminalDrawer, confirmOp=confirmOp, diffWidth=diffWidth, resizeDiff=resizeDiff, finishDiffResize=finishDiffResize, prDetail=prDetail, prMarkdown=prMarkdown, filesMarkdown=filesMarkdown, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy, usage=usage, usageShortcuts=usageShortcuts, usageMetricSet=usageMetricSet, usageWindowSet=usageWindowSet, usageBreakdownSet=usageBreakdownSet, usageRefreshNow=usageRefreshNow, prList=prList, prTyped=prTyped, prQuery=prQuery, prSelected=prSelected, prPanelOpen=prPanelOpen, prTogglePanel=prTogglePanel, prType=prType, prControl=prControl, prSelect=prSelect, prClose=prSelect(""), openConnectionsPage=openConnectionsPage, welcomeImport=welcomeImport, popoverSession=popoverSession, closeOptions=closeOptions, menuCommand=menuCommand, branchQuery=branchQuery, searchBranches=searchBranches, projectsOpen=projectsOpen, manageProject=manageProject, selectProject=selectProject, settingsOpen=settingsOpen, connecting=connecting, settingsThemeDialog=settingsThemeDialog, settingsNavigation=settingsNavigation, settingsRoute=settingsRoute, settingsQuery=settingsQuery, settingsMenu=settingsMenu, editSettingsQuery=editSettingsQuery, coreSearchKey=coreSearchKey, corePick=corePick, coreClearSearch=coreClearSearch, settingsScrollTop=settingsScrollTop, coreMenuClose=coreMenuClose, coreMenu=coreMenu, coreChange=coreChange, coreNavigate=coreNavigate, coreScope=coreScope, coreThemeDialog=coreThemeDialog, sourceControl=sourceControl, modalError=modalError, restLocal=restLocal, importWizardFocusMoved=importWizardFocusMoved, integrations=integrations, snapshotSettings=snapshotSettings, settingsCommand=settingsCommand, previewSnapshotSound=previewSnapshotSound, bindings=bindings, keybindingQuery=keybindingQuery, keybindingOpen=keybindingOpen, keybindingPrevious=keybindingPrevious, keybindingCommand=keybindingCommand, keybindingKey=keybindingKey, keybindingWhen=keybindingWhen, keybindingRecording=keybindingRecording, editKeybindingQuery=editKeybindingQuery, newKeybinding=newKeybinding, cancelKeybinding=cancelKeybinding, chooseKeybindingCommand=chooseKeybindingCommand, editKeybinding=editKeybinding, editKeybindingKey=editKeybindingKey, editKeybindingWhen=editKeybindingWhen, recordKeybinding=recordKeybinding, captureKeybinding=captureKeybinding, scheduled=scheduled, restEditor=restEditor, storageSettings=storageSettings, archives=archives, licenses=licenses, licenseQuery=licenseQuery, editLicenseQuery=editLicenseQuery, toggleLicense=toggleLicense, retryLicenses=retryLicenses, diagnostics=diagnostics, selectDiagnosticPeriod=selectDiagnosticPeriod, refreshSettings=refreshSettings, copyDiagnostic=copyDiagnostic, connectionsPage=connectionsPage, pendingModal=pendingModal, providerPage=providerPage, providerDialog=providerDialog, providerOp=providerOp, providerAccent=providerAccent, projectsSettings=projectsSettings, settingsThemeSubject=settingsThemeSubject, coreThemeChange=coreThemeChange, coreThemeLive=coreThemeLive, welcome=welcome, welcomeStep=welcomeStep, welcomeLink=welcomeLink, welcomePairOpen=welcomePairOpen, welcomeGo=welcomeGo, welcomeEditLink=welcomeEditLink, welcomePair=welcomePair, welcomeTogglePair=welcomeTogglePair, welcomeSetup=welcomeSetup, welcomeFinish=welcomeFinish, shortcuts=shortcuts, newThread=newThread, deviceSetting=deviceSetting, selectProvider=selectProvider, selectModel=selectModel, pickModel=pickModel, taskModelPick=taskModelPick, paletteRun=paletteRun, restSubject=restSubject, sbPicker=sbPicker, sbQuery=sbQuery, sbLettersEdited=sbLettersEdited, sbLetters=sbLetters, sbEmoji=sbEmoji, sbSet=sbSet, origin=origin, pairFields=pairFields, sbSshHosts=sbSshHosts, sbSshHost=sbSshHost, providerWizard=providerWizard, acpAgents=acpAgents, wizardStep=wizardStep, wizardLabelSet=wizardLabelSet, wizardLabel=wizardLabel, wizardIdSet=wizardIdSet, wizardId=wizardId, acpQuery=acpQuery, wizardManual=wizardManual, providerTarget=providerTarget, providerVisit=providerVisit, catalog=catalog, modelQuery=modelQuery, modelTarget=modelTarget, closeModels=closeModels, searchModels=searchModels, paletteOpen=paletteOpen, palette=palette, paletteQuery=paletteQuery, paletteHighlight=paletteHighlight, paletteScroll=paletteScroll, paletteBusy=paletteBusy, paletteEdit=paletteEdit, paletteKey=paletteKey, paletteHover=paletteHover, paletteClose=paletteClose, paletteFlag=paletteFlag, answerRevert=answerRevert, confirmTitle=confirmTitle, confirmBody=confirmBody, confirmDestructive=confirmDestructive, confirmUi=confirmUi, toastHover=toastHover, toastHovering=toastHovering, toastAct=toastAct, sshResponding=sshResponding, sshAnswer=sshAnswer, providerAuthPending=pending(providerAuthChanged), sidebarHoverRoot=sidebarHover, panelUiRoot=panelUi, detailsActRoot=detailsAct, titleMenuPickRoot=titleMenuPick, chatLocal=chatLocal, scrollToEnd=scrollToEnd, foldHold=foldHold, releaseFold=releaseFold, titleSend=titleSend, openConnectionRoot=openConnection, closeConnectionRoot=closeConnection, editOriginRoot=editOrigin, editCredentialRoot=editCredential, connectionOp=connectionOp, connectionRemove=connectionRemove, connectionMenu=connectionMenu, connectionAskRemove=connectionAskRemove, connectionToggleMenu=connectionToggleMenu, closeModalRoot=closeModal, clearModalError=clearModalError, restOpenRoot=restOpen, restCloseRoot=restClose, taskBaseRoot=restTaskBase, restRawRoot=restRaw, settingsEnvironmentId=settingsEnvironmentId, settingsProjectId=settingsProjectId, providerUiRoot=providerUi, providerAddRoot=providerAdd, composerFocused=composerFocused)

@@ -1,0 +1,14 @@
+# The embedded server runtime that stage-runtime.mjs puts beside its pin (the
+# release archive and its manifest), and its download cache. Only the pin is committed.
+/server-runtime/*
+!/server-runtime/runtime-pin.json
+/.runtime-cache/
+# Declarations the dev producer writes beside app.ts (moved here from the root .gitignore in
+# adopt-main-fixes-r7, so the branch carries no framework-file edits).
+/app.contract.d.ts
+# The terminal page, built by terminal-host/build.mjs.
+/assets/terminal-host.html
+/assets/terminal-host.js
+/assets/terminal-ghostty-vt.wasm
+/assets/terminal-ghostty-write-pty.wasm
+/assets/terminal-symbols-nerd-font-mono.woff2

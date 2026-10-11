@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "status": "blocked",
+  "source": {
+    "digest": "04454aad63111ed5bcf7d6a6662270e2af511552",
+    "algorithm": "git-tree-sha1",
+    "commit": "60a28292df26bda45397934b6598e2f55d5a3053",
+    "implementation_unchanged_since_build": true
+  },
+  "platform": "macOS 26.6.2, arm64, Bun 1.4.2",
+  "passed": [
+    "Native copy button, label, pasteboard and toast for npm-global/pnpm-dlx/bunx/npx",
+    "npm prefix with spaces and apostrophe survives shell parsing",
+    "Native NSPasteboard failure reaches error toast",
+    "Second press recovers and copies command",
+    "840x620 dark native screenshot captured and inspected"
+  ],
+  "blocked": [
+    "Normal-launch legacy-session reconnect and message send: Mac screen locked; user cannot unlock now",
+    "Normal-window Tab/Space/Enter and focus observation: Mac screen locked",
+    "Reference desktop oracle / trace comparison: prerequisite toolchain not present on this checkout"
+  ],
+  "not_claimed": [
+    "Pixel parity",
+    "Live unknown-future installation descriptor",
+    "Automatic legacy-scope migration or a user decision on U12"
+  ]
+}

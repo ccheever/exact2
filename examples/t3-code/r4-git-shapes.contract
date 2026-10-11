@@ -1,0 +1,124 @@
+// The workspace card's Git data (lane r4-git): r4-git-actions.ts gitCardView and
+// r4-git-branch.ts cardBranchView, carried on ShellDetails.git.
+use R9CheckoutItem from "./r9-connect-shapes.contract" // lane r9-connect
+shape R4GitRef
+  name: string
+  badge: string
+  selected: bool
+  index: number
+shape R4GitBranch
+  show: bool
+  open: bool
+  label: string
+  value: string
+  disabled: bool
+  query: string
+  refs: list<R4GitRef>
+  creatable: string
+  status: string
+  empty: string
+  enterOp: string
+  enterValue: string
+  originShown: bool
+  originOn: bool
+  count: number
+  // A ref picked from the keyboard empties the open popover (r4-git-branch.ts).
+  picked: bool
+  // lane r9-connect: "Checkout pull request" before the refs (0 or 1).
+  checkout: list<R9CheckoutItem>
+shape R4GitMenuItem
+  id: string
+  label: string
+  icon: string
+  disabled: bool
+  reason: string
+shape R4GitNote
+  id: string
+  text: string
+  tone: string
+shape R4GitFile
+  path: string
+  insertions: number
+  deletions: number
+  excluded: bool
+shape R4GitProvider
+  value: string
+  label: string
+  ready: bool
+  hint: string
+  selected: bool
+// Two provider cards side by side (the reference's grid-cols-2).
+shape R4ProviderRow
+  key: string
+  first: R4GitProvider
+  second: R4GitProvider
+  pair: bool
+// One environment of the "Run on" select (r4-git-env.ts).
+shape R4EnvOption
+  id: string
+  label: string
+  machine: string
+  primary: bool
+  projectId: string
+  selected: bool
+shape R4GitCard
+  repo: bool
+  initLabel: string
+  initPending: bool
+  quickLabel: string
+  quickIcon: string
+  quickDisabled: bool
+  quickHint: string
+  progress: bool
+  progressStatus: string
+  progressOutput: string
+  progressElapsed: string
+  success: bool
+  successTitle: string
+  successDescription: string
+  menuDisabled: bool
+  menuOpen: bool
+  menu: list<R4GitMenuItem>
+  menuPublish: bool
+  notes: list<R4GitNote>
+  dialog: string
+  sourceMark: string
+  commitBranch: string
+  commitDefault: bool
+  editing: bool
+  files: list<R4GitFile>
+  fileCount: number
+  selectedCount: number
+  allSelected: bool
+  noneSelected: bool
+  someSelected: bool
+  selectedInsertions: number
+  selectedDeletions: number
+  confirmTitle: string
+  confirmDescription: string
+  confirmContinue: string
+  publishStep: number
+  publishProviders: list<R4GitProvider>
+  publishRows: list<R4ProviderRow>
+  publishProvider: string
+  publishProviderLabel: string
+  publishHost: string
+  publishPlaceholder: string
+  publishRepository: string
+  publishVisibility: string
+  publishRemote: string
+  publishProtocol: string
+  publishAdvanced: bool
+  publishPending: bool
+  publishError: string
+  publishAnyReady: bool
+  publishCanNext: bool
+  publishCanSubmit: bool
+  publishPushed: bool
+  publishName: string
+  publishUrl: string
+  publishSummary: string
+  envPick: bool
+  envOptions: list<R4EnvOption>
+  envCount: number
+  branch: R4GitBranch

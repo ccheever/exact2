@@ -1,0 +1,70 @@
+// The theme editor view (settings-appearance-editor.ts editorView), shared by the
+// settings shell shape and the editor panel.
+shape EditorRow
+  id: string
+  label: string
+  role: string
+  value: string
+  seq: number
+  hex6: string
+  rgb: string
+  h: number
+  s: number
+  v: number
+shape EditorGroup
+  id: string
+  title: string
+  rows: list<EditorRow>
+shape EditorView
+  open: bool
+  title: string
+  saveLabel: string
+  // The submit's icon (ThemeEditorPanel.tsx:1252-1266): paintbrush for Create theme, plus for Add <appearance> palette, none for an edit.
+  saveIcon: string
+  name: string
+  appearance: string
+  advanced: bool
+  filter: string
+  rows: list<EditorRow>
+  groups: list<EditorGroup>
+  canSave: bool
+  session: string
+
+shape ThemeExtension
+  id: string
+  namespace: string
+  name: string
+  displayName: string
+  publisher: string
+  description: string
+  version: string
+  downloads: string
+  sourceUrl: string
+  source: string
+  iconUrl: string
+  installed: bool
+  installing: bool
+  action: string
+shape ImportSort
+  id: string
+  value: string
+  label: string
+  detail: string
+  icon: string
+  selected: bool
+  disabled: bool
+shape ImportView
+  query: string
+  sort: string
+  sortLabel: string
+  sorts: list<ImportSort>
+  searching: bool
+  error: string
+  searched: bool
+  pendingUpdate: string
+  pendingUpdateName: string
+  results: list<ThemeExtension>
+  status: string
+  fileName: string
+  json: string
+  popular: list<string>
