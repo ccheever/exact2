@@ -131,12 +131,14 @@ export function storeBase(appId, host, env = process.env, home = homedir()) {
   if (host === 'linux') return resolve(env.XDG_CACHE_HOME?.startsWith('/') ? env.XDG_CACHE_HOME : resolve(home, '.cache'), 'exact', appId, 'agent');
   return null;
 }
-/** The loopback origins a web build's data module may fetch: its `net.fetch` grants, as host/web-js/build.mjs writes
- * them into the page's admission data (none for a wasm build). A backend on this machine the tests talk to. */
-export function loopbackOrigins(dist) {
+/** The origins a web build's data module may fetch: its `net.fetch` grants, as host/web-js/build.mjs writes them
+ * into the page's admission data (none for a wasm build). */
+export function fetchOrigins(dist) {
   let text = ''; try { text = readFileSync(resolve(dist, '.gen/admission-data.js'), 'utf8'); } catch { return []; }
-  return [...new Set([...text.matchAll(/"net\.fetch (https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?)[/"]/g)].map((m) => m[1]))];
+  return [...new Set([...text.matchAll(/"net\.fetch (https?:\/\/[^/"\s]+)[/"]/g)].map((m) => m[1]))];
 }
+/** The loopback ones: a backend on this machine the tests talk to. */
+export const loopbackOrigins = (dist) => fetchOrigins(dist).filter((o) => /^https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/.test(o));
 const listening = (origin, ms = 1000) => new Promise((done) => {
   const { hostname, port, protocol } = new URL(origin), socket = connect({ host: hostname.replace(/^\[|\]$/g, ''), port: Number(port || (protocol === 'https:' ? 443 : 80)) });
   const end = (ok) => { socket.destroy(); done(ok); };
@@ -234,6 +236,8 @@ const LAUNCH = { epoch: 'epoch', 'time-zone': 'timeZone', locale: 'locale', seed
 export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch, failFetch, storage = 'test', touch = 'agent', chrome: bars = 'agent', scale, atEnd, port } = {}) {
   const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
   if (host === 'web' && !url) await backendPreflight(resolveApp(app), resolve(webDist ?? defaultWebDist()));
+  // A fetch prefix outside every grant fails nothing (sb4 farm wave 4, lane 070: an origin moved in app.ts only).
+  const granted = host === 'web' && !url ? fetchOrigins(resolve(webDist ?? defaultWebDist())) : [];
   // Cargo owns target selection and freshness, including CARGO_TARGET_DIR.
   const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'test', resolve(file)], { cwd: root, encoding: 'utf8' });
   if (c.status !== 0) throw new Error(c.stderr?.trim() || c.error?.message || 'contract test compiler failed');
@@ -263,6 +267,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     // Advice beside the verdict, never a failure: a `fail fetch` armed before the app's data first loaded (app farm
     // round 2: six builds read the failed first load as a broken app; a client that must sync once cannot open offline).
     const notes = [], shots = []; // `shots`: the paths of the test's own `screenshot` steps (verify --shots copies them)
+    for (const st of granted.length ? t.steps : []) if ((st.op === 'fail-fetch' || st.op === 'pass-fetch') && !granted.some((o) => o.startsWith(st.prefix) || st.prefix.startsWith(o))) notes.push(`line ${st.line}: \`${st.op.replace('-', ' ')} ${JSON.stringify(st.prefix)}\` names no origin app.ts fetches (its net.fetch grants: ${granted.join(', ')}), so it changes nothing`);
     const early = (st) => notes.push(`line ${st.line}: \`fail fetch ${JSON.stringify(st.prefix)}\` is armed before the app has loaded its data, so every first load to it fails; a client that must sync once before it works offline (Snapback4's) cannot open its data at all. To test going offline after a load, put \`clock data\` before it; a launch with no network is what it tests as written`);
     for (const st of t.steps) {
       if (st.op === 'before-data') beforeData = true;

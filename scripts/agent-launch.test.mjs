@@ -79,7 +79,7 @@ test("a Chrome that dies at launch is reported by its first fatal line, before t
 // App farm wave 1 (four builds): `test web` against no `snapback4 dev` failed as data mismatches. The loopback origins
 // app.ts fetches are asked first; a Snapback app's run is refused naming the origin, any other app's is told.
 test('a web test run asks the backend its app fetches first', async () => {
-  const { backendPreflight, loopbackOrigins } = await import('./agent-test.mjs');
+  const { backendPreflight, loopbackOrigins, fetchOrigins } = await import('./agent-test.mjs');
   const { createServer } = await import('node:net');
   const { mkdtempSync, mkdirSync, rmSync, writeFileSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
@@ -92,6 +92,7 @@ test('a web test run asks the backend its app fetches first', async () => {
     const grants = (...lines) => writeFileSync(resolve(dist, '.gen/admission-data.js'), `export const tsGrantSet=createGrantSet(${JSON.stringify({ entries: lines.map((l, i) => [i, l, [], null]) })});`);
     grants(`net.fetch ${up}`, `net.fetch ${down}/api`, 'net.fetch https://example.com', 'sqlite.open app:/data');
     expect(loopbackOrigins(dist)).toEqual([up, down]);
+    expect(fetchOrigins(dist)).toEqual([up, down, 'https://example.com']);
     const snapback = { manifest: { typescript: { sources: { snapback4: '../../exact2/snapback4/ts' } } } }, said = [];
     await expect(backendPreflight(snapback, dist)).rejects.toThrow(`no backend at ${down}: nothing listens there`);
     await backendPreflight({ manifest: {} }, dist, (line) => said.push(line));
