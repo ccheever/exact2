@@ -54,6 +54,28 @@ fn a_handler_and_a_tag_say_what_they_are() {
     assert!(column.contains("flex_direction: column"), "{column}");
 }
 
+/// LLP 1116.003 D2.2: when a route's `header` becomes the iOS navigation
+/// bar is one stated rule, under the tag.
+#[test]
+fn header_states_when_it_is_the_navigation_bar() {
+    let header = stdout(&vocab(&["header"]));
+    for part in [
+        "the route's first child",
+        "exactly one heading",
+        "lower-header-no-bar",
+        "lower-header-unplaced",
+    ] {
+        assert!(header.contains(part), "{part}: {header}");
+    }
+    let doc: Value = serde_json::from_str(&stdout(&vocab(&["--json", "header"]))).unwrap();
+    assert!(
+        doc["tag"]["note"]
+            .as_str()
+            .is_some_and(|n| n.contains("navigation bar")),
+        "{doc}"
+    );
+}
+
 #[test]
 fn an_unknown_name_gets_the_compilers_suggestion_and_exit_1() {
     let output = vocab(&["paddin"]);
@@ -383,4 +405,25 @@ fn several_names_print_in_order_and_one_unknown_exits_1() {
         .contains("did you mean"));
     let one: Value = serde_json::from_str(&stdout(&vocab(&["--json", "ellipsis"]))).unwrap();
     assert_eq!(one["valueOf"][0], "text-overflow");
+}
+
+/// LLP 1116.003 D4: a built-in library's part answers too, with its props
+/// and what it draws, read from its source.
+#[test]
+fn a_content_part_says_its_props_and_what_it_draws() {
+    let out = stdout(&vocab(&["RoundButton", "DoneMark"]));
+    assert!(
+        out.contains(
+            "RoundButton: a part of `exact:content` (`use RoundButton from \"exact:content\"`)"
+        ),
+        "{out}"
+    );
+    assert!(
+        out.contains("props label: string, tint: option<string>, press: action, disabled: bool, testId: string"),
+        "{out}"
+    );
+    assert!(out.contains("80-point circle"), "{out}");
+    assert!(out.contains("props caption: string, done: bool"), "{out}");
+    let json: Value = serde_json::from_str(&stdout(&vocab(&["--json", "AnswerTile"]))).unwrap();
+    assert_eq!(json["part"]["props"][1], "status: string");
 }

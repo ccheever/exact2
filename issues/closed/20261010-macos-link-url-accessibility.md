@@ -1,6 +1,7 @@
 # macOS: a link's URL is not in the accessibility tree, and an inline link run's element is invalid outside the app
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by #455
 **Systems:** host/apple macOS, accessibility
 **Severity:** P2
 **Author:** daehyeon-mun (T3 Code clone)

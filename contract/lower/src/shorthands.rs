@@ -87,7 +87,7 @@ pub(crate) fn component(value: &Expr, name: &str, index: usize) -> Result<Expr, 
             let width = name.starts_with("border") && *n >= 0.0 && (*n as f32).is_finite();
             let like = match (width, *n == 0.0) {
                 (true, true) => ", so write `\"0\"`".to_string(),
-                (true, false) => format!(", as CSS writes it: `\"{n}px solid #ccc\"`"),
+                (true, false) => format!(", as CSS writes it: `\"{n}px solid -exact-separator\"`"),
                 _ => ", as CSS writes it".to_string(),
             };
             return err("lower-css-shorthand", format!("`{name}`: `{n}` is a number, and a CSS shorthand is a string{like}"), *span);

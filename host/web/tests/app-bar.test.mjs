@@ -4,7 +4,9 @@
 // iOS draws UIKit's (a route above its stack's root, not a sheet, whose header
 // does not hold the root's `navigationBack` control), and a block `link` of
 // text is in the accent with the pointing hand while an authored colour, a
-// row inside it, a `role` or a `buttonStyle` keeps the author's look.
+// row inside it, a `role` or a `buttonStyle` keeps the author's look. The
+// browser's Back with no `navigate` handler is the platform's own whatever the
+// routes are keyed by (LLP 1115 D5).
 import { test, expect } from 'bun:test';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -64,10 +66,10 @@ const page = readFileSync(resolve(WEB, 'index.html'), 'utf8').match(/<style>[\s\
   window.ready = true;
 </script>`;
 
-/** The page in headless Chrome: `test(evaluate, call)` with its `Runtime.evaluate` and its CDP session. */
-async function inChrome(test) {
+/** The page (`html`) in headless Chrome: `test(evaluate, call)` with its `Runtime.evaluate` and its CDP session. */
+async function inChrome(test, html = page) {
   const server = createServer((req, res) => {
-    if (req.url === '/') { res.writeHead(200, { 'content-type': 'text/html' }); res.end(page); return; }
+    if (req.url === '/') { res.writeHead(200, { 'content-type': 'text/html' }); res.end(html); return; }
     res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(readFileSync(resolve(WEB, 'navigation.js')));
   });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
@@ -137,3 +139,54 @@ check('a block link of text is in the accent and points; the author\'s look wins
     'l-run rgb(0, 0, 238) pointer inline none',
   ]);
 }), 30000);
+
+// A stack whose root route is keyed by a name, not its visit id, as the list-detail pattern keys its list
+// (`navigationKey="items"`), over a stand-in runner: each visit a route, each change the router's op, the runner's own
+// `back` (`host back`) popping the selected top, and a `navigate` handler, when heard, `go` to the location.
+const keyed = page.match(/<style>[\s\S]*?<\/style>/)[0] + `
+<div id="exact-root"><main id="nav" navigationKey="items" navigationBack="back" style="display:block">
+  <div navigationKey="items"><header><h1>Items</h1></header></div>
+</main></div>
+<script type="module">
+  import { navigation } from './navigation.js';
+  const root = document.getElementById('exact-root'), nav = document.getElementById('nav');
+  window.calls = []; window.heard = false; window.stack = [[0, '/']];
+  const show = removed => {
+    const [top, url] = stack.at(-1);
+    nav.setAttribute('navigationKey', stack.length === 1 ? 'items' : String(top));
+    navigation.project(root, () => {}); navigation.apply({ top, url, removed });
+  };
+  window.pop = () => { const [id] = stack.pop(); nav.lastElementChild.remove(); show([id]); };
+  window.push = (id, url, sheet = false) => {
+    const route = document.createElement('div');
+    route.setAttribute('navigationKey', String(id));
+    if (sheet) { route.setAttribute('navigationPresentation', 'modal'); route.innerHTML = '<header><button id="back">Cancel</button><h2>New</h2></header>'; }
+    else route.innerHTML = '<header><h2>' + url + '</h2></header>';
+    route.querySelector('#back')?.addEventListener('click', () => { calls.push('pressed ' + id); pop(); });
+    nav.append(route); stack.push([id, url]); show([]);
+  };
+  navigation.connect(root, location => {
+    calls.push('navigate ' + location);
+    if (heard) while (stack.length > 1 && stack.at(-1)[1] !== location) pop();
+    return heard;
+  }, line => calls.push('log ' + line), id => { calls.push('host back ' + id); if (stack.length > 1 && stack.at(-1)[0] === id) pop(); });
+  show([]);
+  // The browser's Back, after the popstates it causes (a restored entry is a second).
+  window.back = (pops = 1) => new Promise(ok => {
+    const heardPop = () => { if (--pops === 0) { removeEventListener('popstate', heardPop); ok([calls.splice(0), location.pathname, stack.length]); } };
+    addEventListener('popstate', heardPop); history.back();
+  });
+  window.ready = true;
+</script>`;
+
+check('the browser\'s Back with no navigate handler is the runner\'s own back, however the routes are keyed', () => inChrome(async (evaluate) => {
+  // The route beneath is keyed "items", not visit 0: unheard, Back one entry down is the runner's own `back` from the
+  // visit the entry left (LLP 1115 D5), accepted where it landed.
+  expect(await evaluate(`push(1, '/item/1'); back()`)).toEqual([['navigate /', 'host back 1'], '/', 1]);
+  // A `navigate` handler still wins: it is the Back, and the runner does nothing of its own.
+  expect(await evaluate(`heard = true; push(2, '/item/2'); back().finally(() => { heard = false; })`)).toEqual([['navigate /'], '/', 1]);
+  // A sheet's Back control is what Back presses, as on iOS; a disabled one refuses, and the entry is restored.
+  expect(await evaluate(`push(3, '/add', true); back()`)).toEqual([['navigate /', 'pressed 3'], '/', 1]);
+  expect(await evaluate(`push(4, '/add', true); document.querySelector('[navigationKey="4"] #back').disabled = true; back(2)`))
+    .toEqual([['navigate /', 'log history: Back refused: its id="back" control is disabled, inert or not shown; restoring the entry'], '/add', 2]);
+}, keyed), 30000);

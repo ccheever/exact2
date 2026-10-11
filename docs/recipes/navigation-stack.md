@@ -5,6 +5,14 @@ On iOS each route's `header` is its navigation bar, a pushed route gets the syst
 button and edge swipe, a sheet swipes down, and the alert is `UIAlertController`. The
 contract blocks below are one app; each route block fills its `when` in the first.
 
+A `header` is the bar when it is the route's first child and holds exactly one heading
+(`text role="heading"`): the heading is the title (large at `aria-level=1`), buttons
+before it lead and after it trail, the first text after it is the subtitle, and the rest
+of the header is hidden. With no heading or two the route has no bar, no title and no
+Back button, and the header draws in the page; a stack has bars only when its first
+route's header is one. `contract vocab header` states it whole, and the compiler warns
+(`lower-header-no-bar`, `lower-header-unplaced`).
+
 <!-- check: app -->
 ```contract
 routes nav
@@ -196,7 +204,7 @@ test "add validates, saves, refuses a repeat, opens and deletes after asking"
   with no `press`). Open it from an action with `showModal("remove")`. For a modal you
   lay out yourself, use `role="dialog" aria-modal=true`.
 - Show a validation error only after the first Save (`submitted`), in red under the
-  field, in its row (a section footer is always grey on iOS). The sheet closes in `then`, only when
+  field, in its row. The sheet closes in `then`, only when
   the save's reply is ok: a refusal keeps the sheet, its text and the reason
   ([after-a-write](after-a-write.md)).
 - In tests, `clock settle` after every push, sheet or alert, and `clock data` before
