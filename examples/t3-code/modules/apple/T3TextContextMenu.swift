@@ -17,6 +17,9 @@
 //   (the image layer's bitmap), Copy while page text is selected (ExactKit enables Edit ▸ Speech ▸ Start Speaking exactly
 //   then), Select All.
 // - A Browser page answers in its web view (T3ShellWebView.swift); other web views (the terminal) keep their own menus.
+// - A node whose `contextmenu` leaves the click to the shell (a reply's mailto, irc, xmpp or fragment link: ChatMarkdown's
+//   anchor returns before `preventDefault` when the link has no web host) asks for the shell's menu of that click
+//   (`shellMenu`, external-link-menu.ts; reply-links RL-1, RL-2), as Electron's `context-menu` then fires.
 //
 // The monitor ends every click it answers (it returns nil, never `self?.handle(event) ?? event`: optional chaining
 // would flatten handle's nil back into the event and the host's menu would pop after the shell's). Under the agent
@@ -51,6 +54,8 @@ final class T3TextContextMenu: NSObject {
     private var tails: [ObjectIdentifier: T3ShellMenuTail] = [:]
     /// What the last answered click showed (the agent's log line, and the tests).
     private(set) var lastShown: [String] = []
+    /// The last right-click on the page that went on to ExactKit, and when (`shellMenu` answers it once, while fresh).
+    private var lastPageClick: (event: NSEvent, at: TimeInterval)?
     /// Pops the shell's menu (tracks until the menu closes); a test records it instead. Without context-menu plug-ins:
     /// `popUpContextMenu` appends Services for a view that answers `validRequestor`, and AutoFill for a text view, which
     /// Electron's menu (`popUpMenuPositioningItem`, DesktopWindow's template) has neither of (realinput-1010f RF-1,
@@ -109,8 +114,19 @@ final class T3TextContextMenu: NSObject {
             show(menu, event, view)
             return nil
         }
-        if Self.page(hit) != nil { attachTail(to: window) }
+        if Self.page(hit) != nil {
+            attachTail(to: window)
+            lastPageClick = (event, ProcessInfo.processInfo.systemUptime)
+        }
         return event
+    }
+
+    /// `shellMenu`: the node that took the last page click left it to the shell; the shell's menu for that click, as the
+    /// page shows it (`pageClick`). Nothing for no click, one already answered, or one older than a few seconds.
+    func shellMenuForLastClick(now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Bool {
+        guard let click = lastPageClick, now - click.at < 5 else { return false }
+        lastPageClick = nil
+        return pageClick(click.event)
     }
 
     // MARK: Selected page text (RD-4)

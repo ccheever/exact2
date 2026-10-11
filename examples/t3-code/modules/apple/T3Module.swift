@@ -36,7 +36,7 @@ final class T3Module: ExactModule {
     let browserSessions: T3BrowserSessions // browser-surface: this session's Browser pages (T3BrowserSessions.swift)
     let browserAutomation: T3BrowserAutomation // browser-surface part 5: the previewAutomation host's executor (T3BrowserAutomation.swift)
     private let r10: R10Connect // lane r10-connect: wake, select on open, chords by physical key, hover under a still pointer (R10Connect.swift).
-    private let textMenu: T3TextContextMenu // realinput-1010d, shell-context-menu: the desktop shell's context menu wherever the page shows none (T3TextContextMenu.swift).
+    let textMenu: T3TextContextMenu // realinput-1010d, shell-context-menu: the desktop shell's context menu wherever the page shows none (T3TextContextMenu.swift).
     // Settings → Keybindings capture field (T3KeyRecorder.swift).
     // The SSH password dialog's secure field (T3SshAuth.swift).
     override class var views: [String: ExactNativeFactory] { ["t3-key-recorder": ExactNativeFactory { props, events in T3KeyRecorder(props: props, events: events) },

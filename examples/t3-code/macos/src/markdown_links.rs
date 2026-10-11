@@ -69,9 +69,8 @@ fn link_href(href: &str) -> String {
         NO_HREF.to_string()
     } else if is_file_link(href) {
         format!("{FILE_LINK}{href}")
-    } else if href.is_empty() || href.starts_with('#') {
-        String::new()
     } else {
+        // A fragment (`#notes`) stays the anchor's href, a link like a mailto one (reply-links RL-2).
         href.to_string()
     }
 }
@@ -221,8 +220,8 @@ fn task_items(blocks: &mut [markdown_parse::Block], text: &str) -> Vec<(&'static
 /// Gives each run its `label`: every run of a link (its first run, `link-start`, and the next runs that keep its `href`,
 /// `link`) carries the whole link's text, as the reference's one `<a>` reads; every other run has "". FlowRuns draws a
 /// link word by word: the first word is the link node named with this text, and its other words, which carry the same
-/// label, are hidden from assistive tech (realinput-1010g RG-4). A link that starts with a code span draws no link
-/// node (FlowRuns' code box), so its runs keep "" and its words stay readable as text.
+/// label, are hidden from assistive tech (realinput-1010g RG-4). A link that starts with a code span is no different: its
+/// link node holds the code span (after a web link's favicon; reply-links RL-3).
 fn link_labels(runs: Vec<Value>) -> Vec<Value> {
     let field = |run: &Value, index: usize| match run {
         Value::Record(fields) => fields
@@ -231,10 +230,6 @@ fn link_labels(runs: Vec<Value>) -> Vec<Value> {
             .unwrap_or("")
             .to_string(),
         _ => String::new(),
-    };
-    let mono = |run: &Value| match run {
-        Value::Record(fields) => fields.get(4).and_then(Value::as_bool).unwrap_or(false),
-        _ => false,
     };
     // The link the walk is in: its href and its label.
     let mut link: Option<(String, String)> = None;
@@ -250,12 +245,7 @@ fn link_labels(runs: Vec<Value>) -> Vec<Value> {
                 }
                 label.push_str(&field(next, 1));
             }
-            let label = if mono(run) {
-                String::new()
-            } else {
-                label.trim().to_string()
-            };
-            link = Some((href, label));
+            link = Some((href, label.trim().to_string()));
         } else if kind != "link" || link.as_ref().is_some_and(|(open, _)| *open != href) {
             link = None;
         }
@@ -334,7 +324,7 @@ mod link_tests {
             ("javascript:alert(1)", NO_HREF.to_string()),
             ("data:text/plain,hi", NO_HREF.to_string()),
             ("ftp://example.com/a", NO_HREF.to_string()),
-            ("#section", String::new()),
+            ("#section", "#section".to_string()),
             ("//example.com/a", "//example.com/a".to_string()),
             (
                 "t3-context://v1/file/f1",
@@ -550,17 +540,60 @@ mod link_tests {
                 row("today.", "", false, ""),
             ]
         );
-        // A code span after the link's first word is one of its runs; a link that starts with one has no link node.
+        // A code span after the link's first word is one of its runs, and a web link that starts with one is labelled too
+        // (its link node holds the favicon; reply-links RL-3).
         assert_eq!(
             labelled("Was [linked `$verify`](https://example.test/) and [`x` docs](https://example.com/c) today."),
             vec![
                 row("linked ", "link-start", false, "linked $verify"),
                 row("$verify", "link", true, "linked $verify"),
-                row("x", "link-start", true, ""),
-                row(" ", "link", false, ""),
-                row("docs", "link", false, ""),
+                row("x", "link-start", true, "x docs"),
+                row(" ", "link", false, "x docs"),
+                row("docs", "link", false, "x docs"),
                 row("today.", "", false, ""),
             ]
+        );
+        // reply-links RL-1, RL-2: a mailto, irc, xmpp or fragment link is a link with its href and label, one that starts
+        // with a code span too.
+        assert_eq!(
+            labelled("Write [the team](mailto:t@example.test), [the channel](irc://irc.example.test/t3), [chat](xmpp:t@example.test), [the notes](#notes) or [`y` mail](mailto:y@example.test) today."),
+            vec![
+                row("the ", "link-start", false, "the team"),
+                row("team", "link", false, "the team"),
+                row("the ", "link-start", false, "the channel"),
+                row("channel", "link", false, "the channel"),
+                row("chat", "link-start", false, "chat"),
+                row("the ", "link-start", false, "the notes"),
+                row("notes", "link", false, "the notes"),
+                row("y", "link-start", true, "y mail"),
+                row(" ", "link", false, "y mail"),
+                row("mail", "link", false, "y mail"),
+                row("today.", "", false, ""),
+            ]
+        );
+        let hrefs = |text: &str| -> Vec<String> {
+            let Value::Record(doc) = document(Value::str("a"), text) else {
+                panic!("document")
+            };
+            let Value::List(blocks) = &doc[1] else {
+                panic!("blocks")
+            };
+            let Value::Record(block) = &blocks[0] else {
+                panic!("block")
+            };
+            let Value::List(runs) = &block[7] else {
+                panic!("runs")
+            };
+            runs.iter()
+                .filter_map(|run| match run {
+                    Value::Record(fields) => fields[5].as_str().filter(|h| !h.is_empty()).map(str::to_string),
+                    _ => None,
+                })
+                .collect()
+        };
+        assert_eq!(
+            hrefs("[the notes](#notes) and [mail](mailto:t@example.test)"),
+            vec!["#notes", "#notes", "mailto:t@example.test"]
         );
     }
 }

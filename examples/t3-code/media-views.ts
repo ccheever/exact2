@@ -96,19 +96,19 @@ export function urlScheme(href: string): string | null {
   return href.slice(0, colon);
 }
 const windowsDrive = (href: string) => /^[A-Za-z](?::|%3a)(?:[\\/]|%2f|%5c)/i.test(href);
-/** markdown_links.rs link_href: a reference as written, an emptied anchor, a file link as `t3-file:`, a kept URL, or nothing. */
+/** markdown_links.rs link_href: a reference as written, an emptied anchor, a file link as `t3-file:`, a kept URL or fragment, or nothing. */
 export function markdownLinkHref(href: string): string {
   const lower = href.toLowerCase();
   if (lower.startsWith('t3-context://') || lower.startsWith('t3-citation://')) return href;
   const scheme = urlScheme(href);
   if (!lower.startsWith('file:') && !windowsDrive(href) && scheme !== null && !SAFE_SCHEMES.test(scheme)) return NO_HREF;
   if (lower.startsWith('file:') || windowsDrive(href) || (!!href && !href.startsWith('#') && !href.startsWith('//') && scheme === null)) return `t3-file:${href}`;
-  return !href || href.startsWith('#') ? '' : href;
+  return href; // a fragment (`#notes`) stays the anchor's href (reply-links RL-2)
 }
-/** markdown.rs's resolver for an image's src: as a link, but an emptied source loads nothing. */
+/** markdown.rs's resolver for an image's src: as a link, but an emptied source or a fragment loads nothing. */
 export function markdownImageHref(src: string): string {
   const href = markdownLinkHref(src);
-  return href === NO_HREF ? '' : href;
+  return href === NO_HREF || href.startsWith('#') ? '' : href;
 }
 /** The image lines of a message, as markdown.rs reads them (src trimmed and cut at a title's quote). */
 export function markdownImages(text: string): { alt: string; src: string; href: string }[] {

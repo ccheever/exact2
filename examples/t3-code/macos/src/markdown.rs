@@ -628,8 +628,10 @@ fn document_with_links(
         tasks.iter_mut().for_each(|task| task.1 = -1.0);
     }
     for block in &mut doc.blocks {
-        // An image's emptied source loads nothing (media-views.ts markdownImageHref).
-        if matches!(block.kind, markdown_parse::Kind::Image) && block.href == NO_HREF {
+        // An image's emptied source loads nothing, nor does a fragment (media-views.ts markdownImageHref).
+        if matches!(block.kind, markdown_parse::Kind::Image)
+            && (block.href == NO_HREF || block.href.starts_with('#'))
+        {
             block.href.clear();
         }
         block.runs = skill_runs(&block.runs, &skills);
