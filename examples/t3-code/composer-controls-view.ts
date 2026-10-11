@@ -313,7 +313,7 @@ const percentLabel = (value: number) => value < 10 ? `${value.toFixed(1).replace
 /** ContextWindowMeter, shown when Settings › Context window indicator is on and usage exists. */
 export function contextMeter(client: T3Client, modelName: string) {
   const empty = { contextShow: false, contextAria: '', contextPercent: '', contextOffset: 0, contextOver: false, contextUsed: '', contextMax: '',
-    contextTotal: '', contextCost: '', contextNote: '', contextCompact: false };
+    contextTotal: '', contextCost: '', contextNote: '', contextCompact: false, contextValueLabel: '' };
   const settings = (client.local as { clientSettings?: Obj }).clientSettings;
   if (!client.threadId || settings?.contextWindowMeterEnabled !== true) return empty;
   const usage = contextSnapshot(client.projection);
@@ -330,5 +330,7 @@ export function contextMeter(client: T3Client, modelName: string) {
     contextTotal: usage.total !== null && usage.total > 0 ? formatTokens(usage.total) : '', contextCost: cost,
     contextNote: !usage.auto ? '' : usage.threshold !== null && usage.threshold > 0 ? `Compacts automatically at ${usage.threshold.toLocaleString('en-US')} tokens.`
       : modelName ? `Context for ${modelName} compacts automatically when needed.` : 'Context compacts automatically when needed.',
-    contextCompact: arr(provider?.slashCommands).some(command => command.name === 'compact') };
+    contextCompact: arr(provider?.slashCommands).some(command => command.name === 'compact'),
+    // The bar's value as assistive technology hears it (progress-value.contract): ContextWindowMeter's aria-valuenow, rounded.
+    contextValueLabel: usage.max !== null ? `Context window usage, ${Math.round(normalized)}%` : '' };
 }

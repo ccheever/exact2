@@ -10,6 +10,7 @@ use BrandForgejo from "./settings-brands.contract"
 use DiffGlyph from "./diff-glyphs.contract"
 use synColor from "./markdown.contract"
 use synSlant from "./markdown.contract"
+use FocusGuard from "./dialog-trap.contract"
 
 // The command palette (⌘K), the file picker (⌘P) and project content search (⇧⌘F):
 // reference CommandPaletteContent.tsx, CommandPaletteResults.tsx, ui/command.tsx and
@@ -268,7 +269,7 @@ component PaletteRowView
         text row.badge font-size="0.625rem" line-height="0.875rem" padding-left="0.375rem" padding-right="0.375rem" padding-top="0.125rem" padding-bottom="0.125rem" border-radius="62.4375rem" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#71717b, #818181)"
     else
       when row.kind == "line"
-        button press=run(row.op, row.arg, row.arg2) hover=hover(row.index) disabled=busy role="option" aria-selected=highlighted aria-label=`${row.arg}:${row.line}` testId=`palette-line-${row.index}` width="100%" height="1.75rem" padding-left="0.75rem" padding-right="0.75rem" gap="0.75rem" border-width=0 border-radius=0 display="flex" flex-direction="row" align-items="center" justify-content="flex-start" box-sizing="border-box" background-color=(highlighted ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+        button press=run(row.op, row.arg, row.arg2) hover=hover(row.index) disabled=busy tabindex=-1 role="option" aria-selected=highlighted aria-label=`${row.arg}:${row.line}` testId=`palette-line-${row.index}` width="100%" height="1.75rem" padding-left="0.75rem" padding-right="0.75rem" gap="0.75rem" border-width=0 border-radius=0 display="flex" flex-direction="row" align-items="center" justify-content="flex-start" box-sizing="border-box" background-color=(highlighted ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
           text row.line width="2.5rem" flex-shrink=0 text-align="right" font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #818181b3)"
           text flex=1 min-width=0 font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#27272a, #f5f5f5)" white-space="pre" overflow="hidden" text-overflow="ellipsis" text-align="left"
             each part in row.matchParts key=part.id
@@ -287,7 +288,7 @@ component PaletteRowView
               button press=run("settings", row.badgeOp, "") aria-label=row.badge testId=`palette-setup-${row.key}` opacity=0.64 height="1.25rem" padding-left="0.3125rem" padding-right="0.3125rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#fe9a0052, #fe9a0052)" background-color="light-dark(#ff9a0029, #ff9a0029)" display="flex" flex-direction="row" align-items="center" flex-shrink=0
                 text row.badge font-size="0.6875rem" line-height="0.98125rem" font-weight=500 color="light-dark(#bb4d00, #ffb900)"
         else
-          button press=run(row.op, row.arg, row.arg2) hover=hover(row.index) disabled=busy role="option" aria-selected=highlighted aria-label=(row.bold != "" ? `${row.prefix}${row.bold}` : row.title) testId=`palette-row-${row.key}` width="100%" min-height="2rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" gap="0.5rem" border-width=0 border-radius="0.375rem" display="flex" flex-direction="row" align-items="center" justify-content="flex-start" text-align="left" box-sizing="border-box" background-color=(highlighted ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
+          button press=run(row.op, row.arg, row.arg2) hover=hover(row.index) disabled=busy tabindex=-1 role="option" aria-selected=highlighted aria-label=(row.bold != "" ? `${row.prefix}${row.bold}` : row.title) testId=`palette-row-${row.key}` width="100%" min-height="2rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" gap="0.5rem" border-width=0 border-radius="0.375rem" display="flex" flex-direction="row" align-items="center" justify-content="flex-start" text-align="left" box-sizing="border-box" background-color=(highlighted ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
             PaletteGlyph(name=row.icon, project=row.project, ink=row.projectInk, surface=row.projectSurface, dark=dark)
             PaletteText(row=row, highlighted=highlighted, dark=dark)
             when row.trailing == "Current"
@@ -321,7 +322,7 @@ component PaletteToggle
     testId: string
     press: action
   view
-    button press=press aria-label=label aria-checked=on role="switch" testId=testId width="2.4375rem" height="1.5rem" padding=0 border-width=1 border-style="solid" border-color="#00000000" border-radius="0.5rem" box-sizing="border-box" background-color=(on ? "light-dark(#ffffff, #ffffff13)" : "#00000000") box-shadow=(on ? "0 1px 2px #0000001a" : "none") display="flex" flex-direction="row" align-items="center" justify-content="center"
+    button press=press aria-label=label aria-checked=on role="switch" tabindex=-1 testId=testId width="2.4375rem" height="1.5rem" padding=0 border-width=1 border-style="solid" border-color="#00000000" border-radius="0.5rem" box-sizing="border-box" background-color=(on ? "light-dark(#ffffff, #ffffff13)" : "#00000000") box-shadow=(on ? "0 1px 2px #0000001a" : "none") display="flex" flex-direction="row" align-items="center" justify-content="center"
       column align-items="center"
         text glyph font-family="ui-monospace" font-size="0.875rem" line-height=(underline ? "1rem" : "1.25rem") font-weight=500 color=(on ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
         when underline
@@ -426,10 +427,12 @@ component CommandPaletteBody
     // Escape: the host binds key shortcuts on buttons only.
     button press=close aria-keyshortcuts="Escape" aria-label=(view.escapeLabel == "Back" ? "Back" : "Close") tabindex=-1 testId="palette-escape" position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" opacity=0 padding=0 border-width=0 background-color="#00000000" z-index=60 title=""
     column retainFocus=true position="absolute" left=floor((viewport.width - width) / 2) top=top width=width max-height=maxHeight min-height=(view.panel == "fill" ? maxHeight : 0) z-index=61 box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow=(scheme == "dark" ? "inset 0 1px 0 #ffffff0a, 0 24px 72px -20px #000000e6" : "0 24px 64px -24px #000000a6") overflow="hidden" role="dialog" aria-label=view.label testId=view.testId
+      // The focus trap (dialog-trap.contract): Back, the field, a row's Setup Required, the footer's action. The rows, the accessory and the toggles are no Tab stops, as the reference's (Autocomplete items; tabIndex -1).
+      FocusGuard(guardId="palette-guard-start", target=(view.footerAction != "" ? "palette-footer-action" : "palette-input"))
       row padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" flex-shrink=0 box-sizing="border-box"
         box position="relative" width="100%" height="2.25rem" border-radius="0.625rem" box-sizing="border-box"
           when view.addon == "back"
-            button press=back aria-label="Back" testId="palette-back" position="absolute" left="0.5625rem" top="0.625rem" width="1rem" height="1rem" padding=0 border-width=0 background-color="#00000000" display="flex" align-items="center" justify-content="center" z-index=2 title=""
+            button id="palette-back" press=back aria-label="Back" testId="palette-back" position="absolute" left="0.5625rem" top="0.625rem" width="1rem" height="1rem" padding=0 border-width=0 background-color="#00000000" display="flex" align-items="center" justify-content="center" z-index=2 title=""
               PaletteIcon(name="arrow-left", size=16, color=(dark ? "#f5f5f5" : "#27272a"))
           else
             box position="absolute" left="0.6875rem" top="0.625rem" display="flex" z-index=2
@@ -439,7 +442,7 @@ component CommandPaletteBody
           // py-2 in the reference; the native field sets its text 1pt higher than Chrome in the same box, so 9/7.
           input id="palette-input" testId="palette-input" value=query input=edit key=inputKey submit=run(tOp, tArg, tArg2) autofocus=true role="combobox" aria-label=view.placeholder aria-expanded=true autocorrect="off" spellcheck="false" disabled=(view.placeholder == "" ) width="100%" height="2.25rem" padding-left="1.9375rem" padding-right=view.inputPaddingRight padding-top="0.5625rem" padding-bottom="0.4375rem" border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" box-sizing="border-box"
           when view.accessory != ""
-            button press=run(view.accessoryOp, view.accessoryArg, view.accessoryArg2) disabled=(busy or not view.accessoryEnabled) aria-label=`${view.accessory} (${view.accessoryKey})` testId="palette-accessory" position="absolute" right="0.125rem" top="0.375rem" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" gap="0.25rem" border-radius="0.5rem" box-sizing="border-box" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #ffffff08)" display="flex" flex-direction="row" align-items="center" opacity=(busy or not view.accessoryEnabled ? 0.64 : 1) z-index=2
+            button press=run(view.accessoryOp, view.accessoryArg, view.accessoryArg2) disabled=(busy or not view.accessoryEnabled) tabindex=-1 aria-label=`${view.accessory} (${view.accessoryKey})` testId="palette-accessory" position="absolute" right="0.125rem" top="0.375rem" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" gap="0.25rem" border-radius="0.5rem" box-sizing="border-box" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #ffffff08)" display="flex" flex-direction="row" align-items="center" opacity=(busy or not view.accessoryEnabled ? 0.64 : 1) z-index=2
               text view.accessory font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
               box height="1.25rem" padding-left="0.25rem" padding-right="0.25rem" border-radius="0.25rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" background-color="light-dark(#27272a08, #ffffff08)"
                 text view.accessoryKey font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)"
@@ -491,8 +494,9 @@ component CommandPaletteBody
             PaletteKbd(label="Esc", icon="", dark=dark)
             text view.escapeLabel font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#71717b, #818181)"
         when view.footerAction != ""
-          button press=run("finder", query, "") aria-label=view.footerAction testId="palette-footer-action" height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" border-width=0 border-radius="0.375rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+          button id="palette-footer-action" press=run("finder", query, "") aria-label=view.footerAction testId="palette-footer-action" height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" border-width=0 border-radius="0.375rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center"
             text view.footerAction font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)"
+      FocusGuard(guardId="palette-guard-end", target=(view.addon == "back" ? "palette-back" : "palette-input"))
 
 // Link pull request (reference pullRequest/LinkPullRequestDialog.tsx on ui/dialog.tsx): the
 // palette's link-pr page drawn as a centred dialog. palette-linkpr.ts resolves the typed
@@ -516,6 +520,8 @@ component PaletteDialog
     box position="absolute" left=0 top=0 right=0 bottom=0 z-index=60 background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" press=close aria-label="Close" testId="palette-backdrop"
     button press=close aria-keyshortcuts="Escape" aria-label="Close" tabindex=-1 testId="palette-escape" position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" opacity=0 padding=0 border-width=0 background-color="#00000000" z-index=60 title=""
     column position="absolute" left=floor((viewport.width - width) / 2) top=max(16, floor((viewport.height - height) / 2 + 0.5)) width=width z-index=61 box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow=(dark ? "inset 0 1px 0 #ffffff0a, 0 24px 72px -20px #000000e6" : "0 24px 64px -24px #000000a6") overflow="hidden" role="dialog" aria-label=view.label testId=view.testId
+      // The focus trap (dialog-trap.contract): the field, Cancel, Link, then the X.
+      FocusGuard(guardId="link-pr-guard-start", target="link-pr-close")
       column gap="0.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" padding-bottom="0.75rem" box-sizing="border-box"
         text view.label font-size="1.25rem" line-height="1.25rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2 padding-right="1.5rem"
         text view.contextDescription font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
@@ -533,6 +539,7 @@ component PaletteDialog
           text "Cancel" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
         button press=run(view.accessoryOp, view.accessoryArg, view.accessoryArg2) disabled=(busy or not view.accessoryEnabled) testId="link-pr-submit" display="flex" flex-direction="row" align-items="center" justify-content="center" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#1b4ed8, #346bf1)" background-color="light-dark(#1b4ed8, #346bf1)" opacity=(busy or not view.accessoryEnabled ? 0.64 : 1)
           text view.accessory font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
-      button press=close aria-label="Close" testId="link-pr-close" position="absolute" top="0.5rem" right="0.5rem" width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+      button id="link-pr-close" press=close aria-label="Close" testId="link-pr-close" position="absolute" top="0.5rem" right="0.5rem" width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
         svg width="1rem" height="1rem" viewBox="0 0 24 24" color=(dark ? "#818181" : "#71717b") fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
           path d="M18 6 6 18M6 6l12 12"
+      FocusGuard(guardId="link-pr-guard-end", target="palette-input")

@@ -39,7 +39,7 @@ component MediaActions
       local("media-menu", source, "key")
   slot
   view
-    box tabindex=0 title=tip contextmenu=local("media-menu", source, "pointer") key=menuKey aria-label=tip position="relative" max-width="100%" testId=testId
+    box id=testId tabindex=0 title=tip contextmenu=local("media-menu", source, "pointer") key=menuKey aria-label=tip position="relative" max-width="100%" testId=testId
       children
 
 // OpenMediaLink: a small secondary button that opens the URL in the default browser.

@@ -16,6 +16,7 @@ use LucideHardDrive from "./settings-icons.contract"
 use LucideX from "./settings-icons.contract"
 use R4Glyph from "./r4-git.contract"
 use BrowserDefaultsView from "./browser-defaults.contract"
+use FocusGuard from "./dialog-trap.contract"
 
 shape BrowserProfileRowView
   id: string
@@ -213,6 +214,8 @@ component BrowserProfileDialogs
     when view.removalOpen
       column class=BpOverlay testId="browser-profile-remove-overlay"
         column class=BpPopup role="alertdialog" aria-modal=true aria-label=`Remove “${view.removalName}”?` testId="browser-profile-remove-dialog"
+          // The focus trap (dialog-trap.contract): Remove profile is the last stop while it is enabled.
+          FocusGuard(guardId="browser-profile-remove-guard-start", target=(view.removalBusy or not view.hydrated or not view.removalAvailable ? "browser-profile-remove-cancel" : "browser-profile-remove-confirm"))
           column gap="0.5rem" padding="1.5rem" box-sizing="border-box"
             text `Remove “${view.removalName}”?` font-size="1.25rem" font-weight=600 line-height="1.5rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
             text "Its cookies and logins are deleted. Tabs already open in this profile stay open until you close them." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #8f8f8f)"
@@ -223,6 +226,7 @@ component BrowserProfileDialogs
           row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafab8, #ffffff06)"
             BiButton(buttonId="browser-profile-remove-cancel", label="Cancel", tone="outline", disabled=view.removalBusy, keys="Escape", press=cancelRemoval, track=track)
             BiButton(buttonId="browser-profile-remove-confirm", label=(view.removalBusy ? "Removing…" : "Remove profile"), tone="destructive", disabled=(view.removalBusy or not view.hydrated or not view.removalAvailable), keys="", press=local("browser-profiles-remove", ""), track=track)
+          FocusGuard(guardId="browser-profile-remove-guard-end", target="browser-profile-remove-cancel")
     when view.wizard.open
       BrowserImportWizard(wizard=view.wizard, local=local, track=track, still=still)
 
@@ -250,6 +254,8 @@ component BrowserImportWizard
   view
     column class=BpOverlay testId="browser-import-overlay"
       column id="browser-import-popup" tabindex=-1 key=popupKeys focus=hold(true) blur=hold(false) class=BpPopup role="dialog" aria-modal=true aria-label=(wizard.step == "quit" ? `Quit ${wizard.sourceName} to import` : wizard.step == "configure" ? `Import from ${wizard.sourceName}` : wizard.step == "fullDiskAccess" ? `Let T3 Code read ${wizard.sourceName}’s cookies` : wizard.step == "importing" ? "Importing cookies" : wizard.step == "checking" ? `Checking ${wizard.sourceName}` : wizard.step == "done" ? wizard.doneTitle : `Couldn’t import from ${wizard.sourceName}`) testId=`browser-import-step-${wizard.step}`
+        // The focus trap (dialog-trap.contract) between the screen's first and last Tab stops (`wizardTabStops`).
+        FocusGuard(guardId="browser-import-guard-start", target=wizard.tabLast)
         when wizard.step == "quit"
           BiHeader(title=`Quit ${wizard.sourceName} to import`, description=`${wizard.sourceName} is open, so its cookies can’t be read yet. Quit it, then continue.`)
           BiFooter()
@@ -318,6 +324,7 @@ component BrowserImportWizard
               BiButton(buttonId="browser-import-retry", label="Try again", tone="default", disabled=false, keys="", press=local("browser-import-retry", ""), track=track)
         when wizard.canClose
           BiClose(press=local("browser-import-close", ""), track=track)
+        FocusGuard(guardId="browser-import-guard-end", target=wizard.tabFirst)
 
 component BiHeader
   props

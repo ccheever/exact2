@@ -1,0 +1,16 @@
+// Base UI's focus trap, as its FloatingFocusManager builds one for every modal Dialog and AlertDialog (T3 Code
+// 1e2ecbd975, ui/dialog.tsx and ui/alert-dialog.tsx over @base-ui/react): an invisible, `aria-hidden` Tab stop just
+// inside the popup before its content, and one after it (the X, DialogPopup's last child, included). Tab past the last
+// stop lands on the guard after it, which sends the focus to the first stop; Shift+Tab before the first lands on the
+// guard before it, which sends it to the last. Exact keeps no Tab inside an `aria-modal` box on macOS (EXACT2-GAPS.md
+// X53, #282), so each dialog carries its own pair and names its first and last Tab stops for the screen it shows (a
+// disabled control is no stop). `dialog-trap.test.ts` lists every dialog and its pair.
+component FocusGuard
+  props
+    guardId: string
+    target: string
+  action enter
+    if target != ""
+      focus(target)
+  view
+    box id=guardId tabindex=0 aria-hidden=true focus=enter position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" testId=guardId

@@ -9,6 +9,7 @@ use TipBubble from "./shell-tip.contract"
 use R6VideoTile from "./r6-media-video.contract"
 use R6ExpandedVideo from "./r6-media-video.contract"
 use MediaActions, MediaVideoFailure, MediaView from "./media-actions.contract"
+use FocusGuard from "./dialog-trap.contract"
 
 shape MessageImage
   id: string
@@ -142,7 +143,9 @@ component ImagePreviewDialog
     failedUrl = url
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=45 align-items="center" justify-content="center" background-color="#000000bf" role="dialog" aria-label=(video ? "Expanded video preview" : "Expanded image preview") testId="image-preview"
-      button press=local("image-close", "", "") aria-label=(video ? "Close video preview" : "Close image preview") aria-keyshortcuts="Escape" position="absolute" left=0 right=0 top=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="image-preview-backdrop" title=""
+      // The focus trap (dialog-trap.contract): Previous, the media's actions, the X, Next. The backdrop is no Tab stop (the reference's popup takes its clicks).
+      FocusGuard(guardId="image-preview-guard-start", target=(next ? "image-preview-next" : "image-preview-close"))
+      button press=local("image-close", "", "") aria-label=(video ? "Close video preview" : "Close image preview") aria-keyshortcuts="Escape" tabindex=-1 position="absolute" left=0 right=0 top=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="image-preview-backdrop" title=""
       row width=(windowWidth * 0.92) align-items="center" justify-content="space-between"
         PreviewStep(label="Previous media", shown=previous, flip=true, press=local("image-step", "", "previous"), testId="image-preview-previous")
         MediaActions(source=source, tip=name, local=local, testId="image-preview-actions")
@@ -167,10 +170,11 @@ component ImagePreviewDialog
                       text "Image unavailable. The file may have been moved or deleted." text-align="center" font-size="0.875rem" line-height="1.25rem" color="#ffffff"
                   else
                     box width=min(windowWidth * 0.92 - 96, 512) height="12rem" border-radius="0.5rem" background-color="#000000" role="status" aria-label="Loading image"
-              button press=local("image-close", "", "") aria-label=(video ? "Close video preview" : "Close image preview") testId="image-preview-close" position="absolute" right=0 top="-2.5rem" width="1.5rem" height="1.5rem" padding=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="#ffffff33" background-color="#000000a6" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+              button id="image-preview-close" press=local("image-close", "", "") aria-label=(video ? "Close video preview" : "Close image preview") testId="image-preview-close" position="absolute" right=0 top="-2.5rem" width="1.5rem" height="1.5rem" padding=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="#ffffff33" background-color="#000000a6" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
                 Icon(name="x", size=14, color="#ffffff")
             text (position != "" ? `${name} ${position}` : name) margin-top="0.5rem" line-clamp=1 font-size="0.75rem" line-height="1rem" color="#ffffffcc"
         PreviewStep(label="Next media", shown=next, flip=false, press=local("image-step", "", "next"), testId="image-preview-next")
+      FocusGuard(guardId="image-preview-guard-end", target=(previous ? "image-preview-previous" : "image-preview-actions"))
 
 component PreviewStep
   props
@@ -182,7 +186,7 @@ component PreviewStep
   view
     box width="2.25rem" height="2.25rem" flex-shrink=0
       when shown
-        button press=press aria-label=label testId=testId width="2.25rem" height="2.25rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+        button id=testId press=press aria-label=label testId=testId width="2.25rem" height="2.25rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
           box width="1.25rem" height="1.25rem" rotate=(flip ? 180 : 0)
             Icon(name="right", size=20, color="#ffffff")
 
