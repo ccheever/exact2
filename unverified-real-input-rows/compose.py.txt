@@ -1,0 +1,59 @@
+# unverified-real-input-rows: one labelled image per scenario (before | after | reference, or a sequence). Not committed.
+# Usage: python3 compose.py  (writes target/uv/evidence/*.png)
+import os
+from PIL import Image, ImageDraw, ImageFont
+
+U = os.path.dirname(os.path.abspath(__file__))
+REF = '/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit/lanes/unverified-real-input-rows/shots'
+OUT = os.path.join(U, 'evidence'); os.makedirs(OUT, exist_ok=True)
+try:
+    FONT = ImageFont.truetype('/System/Library/Fonts/SFNS.ttf', 22)
+    SMALL = ImageFont.truetype('/System/Library/Fonts/SFNS.ttf', 18)
+except Exception:
+    FONT = SMALL = ImageFont.load_default()
+
+def panel(path, crop=None, scale=2, height=None):
+    """A clone screenshot (2x) cropped by a CSS-pixel box, or a reference shot (1x) as is; scaled to `height`."""
+    im = Image.open(path).convert('RGB')
+    if crop:
+        x0, y0, x1, y1 = crop
+        im = im.crop((x0 * scale, y0 * scale, x1 * scale, y1 * scale))
+    if height:
+        im = im.resize((round(im.width * height / im.height), height), Image.LANCZOS)
+    return im
+
+def compose(name, caption, items, height):
+    tiles = [(label, panel(path, crop, scale, height)) for label, path, crop, scale in items]
+    pad, head, cap = 16, 34, 40
+    width = sum(t.width for _, t in tiles) + pad * (len(tiles) + 1)
+    out = Image.new('RGB', (width, cap + head + height + pad), 'white')
+    d = ImageDraw.Draw(out)
+    d.text((pad, 10), caption, fill='#222', font=SMALL)
+    x = pad
+    for label, tile in tiles:
+        d.text((x, cap + 4), label, fill='#c2185b' if label.startswith('before') else '#1b5e20' if label.startswith('after') else '#0d47a1', font=FONT)
+        out.paste(tile, (x, cap + head))
+        d.rectangle((x - 1, cap + head - 1, x + tile.width, cap + head + tile.height), outline='#bbb')
+        x += tile.width + pad
+    out.save(os.path.join(OUT, name))
+    print(name, out.size)
+
+B, A = os.path.join(U, 'shots/before'), os.path.join(U, 'shots/after')
+card = (650, 300, 1270, 510)
+compose('uv1-code-tab-age.png', 'UV-1: #168 Code tab, thread card off the diff, the pointer on the age (agent hover by hit test; reference over CDP)',
+        [('before: a full-date tip', f'{B}/uv1-2-age.png', card, 2), ('after: no tip', f'{A}/uv1-2-age.png', card, 2), ('reference: no tip', f'{REF}/ref-uv1-age.png', None, 1)], 300)
+compose('uv1-code-tab-author.png', 'UV-1: the same card, the pointer on the author: the login tip stays (as the reference)',
+        [('before', f'{B}/uv1-1-author.png', card, 2), ('after', f'{A}/uv1-1-author.png', card, 2), ('reference', f'{REF}/ref-uv1-author.png', None, 1)], 300)
+link = (650, 400, 1280, 590)
+compose('uv3-commit-link-tip.png', 'UV-3: #132 Summary, the pointer on the commit link c46352e: its URL tip (before: one line past the bubble and the window)',
+        [('before', f'{B}/uv3-1-commit-on.png', link, 2), ('after', f'{A}/uv3-1-commit-on.png', link, 2), ('reference', f'{REF}/ref-uv3-on.png', None, 1)], 300)
+compose('uv3-commit-link-away-click.png', 'UV-3 (after): away from the link the tip is gone; a click records the commit URL (agent mode opens nothing)',
+        [('after: away', f'{A}/uv3-2-commit-away.png', link, 2), ('after: clicked', f'{A}/uv3-3-commit-click.png', link, 2)], 300)
+head = (640, 225, 1280, 375)
+compose('uv2-code-tab-tips.png', 'UV-2 (after, agent mode): #115 viewed-error, #132 viewed-here, #169 viewed-short and withheld tips, each by hover on its icon',
+        [('after: #115 viewed-error', f'{A}/uv2-1-viewed-error.png', head, 2), ('after: #132 viewed-here', f'{A}/uv2-2-viewed-here.png', head, 2),
+         ('after: #169 viewed-short', f'{A}/uv2-3-viewed-short.png', head, 2), ('after: #169 withheld', f'{A}/uv2-4-withheld.png', head, 2)], 260)
+tabs = (720, 0, 1280, 120)
+compose('uv4-muted-tab.png', 'UV-4 (after, agent mode): the tone plays, Mute tab, a second tab (the first keeps its muted icon), the first shown again',
+        [('after: playing', f'{A}/uv4-1-playing.png', tabs, 2), ('after: muted', f'{A}/uv4-3-muted.png', tabs, 2),
+         ('after: behind tab 2', f'{A}/uv4-4-second-tab.png', tabs, 2), ('after: shown again', f'{A}/uv4-5-first-again.png', tabs, 2)], 120)
