@@ -155,16 +155,6 @@ enum NavigationRules {
         !modalActive && changing && initiallyInteractive
     }
 
-    /// D5: a stack change waits a turn when it arrives in a batch that put
-    /// the keyboard away (shown, with no editor of the session's left): the
-    /// viewport's growth is applied after the batch, and a transition begun
-    /// before it keeps the routes at the keyboard's height to its end. Under
-    /// the agent nothing animates, so nothing waits.
-    static func waitsForKeyboardViewport(applying: Bool, keyboardShown: Bool, editing: Bool,
-                                         agentFreezes: Bool, stackChanges: Bool) -> Bool {
-        applying && keyboardShown && !editing && !agentFreezes && stackChanges
-    }
-
     /// A presentation's background view, back in the home it left: its
     /// frame then, grown or shrunk on each flexible axis by what its home
     /// did meanwhile, as autoresizing would have done had it stayed.

@@ -916,7 +916,7 @@ public final class ExactSession {
         autofocusHeld = false
         if restart { presenter.restoreFocus(kept, tree: agent("{\"op\":\"tree\"}")) }
         state = .ready
-        fputs("reloaded \(label)\n", stderr)
+        if restart { fputs("reloaded \(label)\n", stderr) } // a launch generation's first boot is no reload
     }
 
     /// A host may replace one session's plan transactionally; app delivery

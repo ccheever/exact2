@@ -134,7 +134,7 @@ describe('DC-1: the citation chip\'s comment popover', () => {
     expect(layer).toContain('derive width = min(20 * rem, viewportWidth - 2 * rem)');
     expect(layer).toContain('role="dialog" aria-label="Edit citation comment"');
     expect(layer).toContain('padding-top="0.5rem" padding-bottom="0.5rem" padding-left="0.75rem" padding-right="0.75rem"');
-    expect(layer).toContain('textarea id="citation-comment-text" value=draft input=edit key=keys blur=settle autofocus=true rows=2 placeholder="Add an optional comment..." aria-label="Comment on selected text" aria-description="Enter to save the citation comment; Command/Ctrl+Enter to save and send; Shift+Enter for a new line." aria-invalid=tooLong field-sizing="content" width="100%" min-height="4rem" max-height="10rem"');
+    expect(layer).toContain('textarea id="citation-comment-text" value=draft input=edit key=keys blur=settle autofocus=true rows=2 placeholder="Add an optional comment..." aria-label="Comment on selected text" aria-description="Enter to save the citation comment; Command/Ctrl+Enter to save and send; Shift+Enter for a new line." aria-invalid=tooLong field-sizing="content" outline="none" width="100%" min-height="4rem" max-height="10rem"');
     expect(layer).toContain('text "Comments can contain up to 8,000 characters." role="status"');
     expect(layer).toContain('CitationCommentButton(label="Cancel", primary=false, enabled=true, choose=cancel');
     expect(layer).toContain('CitationCommentButton(label=(tooLong ? "Shorten comment" : "Save"), primary=true, enabled=(not tooLong), choose=save(false)');

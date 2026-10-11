@@ -37,6 +37,34 @@ The generator fails closed: a row it cannot validate is a build error. A second
 copy of any table anywhere is a defect — the TypeScript encoder, when it exists,
 reads the same file.
 
+> **Amended by LLP 1115 (2026-10-09).** `rules/RULES.md` §Scope now reads "write the
+> web, ship the platform". **Layout defaults and names are still CSS's**, as every
+> example in the paragraph below is. A **presentation default** (a colour, a text
+> size, a control's look, what a press shows) is the platform's: the table names a
+> role or an `auto` that each host resolves (LLP 1095; LLP 1115 §3). The presentation
+> deviations from CSS that LLP 1115 made, declared here once:
+>
+> - the root font size is the host's body size (17 iOS at the default Dynamic Type
+>   size, 13 macOS, the reader's setting on the web), set through
+>   `Kernel::set_root_font_size`; the table's 16 is what a host that sets none shows;
+> - `font-size` takes a text style (`-exact-title1`, …) that the kernel resolves
+>   against that root, and a `role="heading"` is lowered to one by its level;
+> - `hr` is one solid edge in the separator role, not Chrome's two shades;
+> - an `href` run is `LinkText` and is not underlined;
+> - an unset root background is the platform's, never a fixed white;
+> - a pushed route has the platform's Back whether or not one is authored;
+> - a custom pressable that declares no press feedback dims while held on iOS.
+>
+> And one layout deviation, recorded here because it holds on every host and not only
+> the terminal it was made for (LLP 1101 D3): `ch` and `lh` are a fixed 8 × 16 cell
+> (`kernel/src/style/cells.rs`), where CSS's `ch` is the `0` advance of the element's
+> font and `lh` its line height.
+>
+> Where a later paragraph of this spec still states a presentation default as Chrome's
+> (`hr`'s shading, a bare `button` as `appearance: none`, `-exact-tint-color`
+> "initially opaque black", `-exact-press-scale`, `keyboardDismissMode`, which hosts
+> present dialogs), LLP 1115.000 Appendix B says what holds now.
+
 **Defaults live in the table, once, and they are CSS's.** The style table's
 `default` column is both the storage initializer and the semantic default; there is
 no separate profile authority yet (0486's layout profile becomes relevant when a
@@ -126,6 +154,9 @@ it against the node's computed text colour, retaining light/dark pairs; CSS
 receives the authored values. Explicit transparent colour still occupies space.
 These are [CSS Backgrounds §3.2–3.3](https://www.w3.org/TR/css-backgrounds-3/#border-style)'s rules.
 
+> **Amended by LLP 1115 (2026-10-09).** A bare `hr` is one solid edge in the separator role.
+> Chrome's two shades now serve only an authored `border-style: inset`.
+
 The prior native host painted every declared width: a 100×60 content box
 with padding 10 and border width 8 was 136×96 versus CSS's default 120×80,
 with child inset 18 versus 10 (`/tmp/messages-border-geometry/`). The corrected
@@ -176,6 +207,9 @@ Empty/unavailable names and symbols on hosts without their renderer paint
 nothing, with a one-computed-font-size square as fallback intrinsic size.
 This font-sized image source is a declared extension to the web's schemes;
 CSS dimensions, constraints and aspect ratio still determine its box.
+
+> **Amended by LLP 1095 D8.** `-exact-tint-color` is initially `AccentColor`, the platform's
+> tint, not opaque black.
 
 `overflow-wrap` (bit 90; implementer Codex, 2026-09-11) is inherited text
 layout intent with CSS's `normal | break-word | anywhere` vocabulary and
@@ -259,6 +293,9 @@ or runner gesture state. Other hosts ignore it.
 opts an iOS scroll container into UIKit's keyboard dismissal behavior. Other
 hosts retain their platform behavior. Linux does not yet implement either policy.
 
+> **LLP 1115.000 D9 proposes** that an unsaid `keyboardDismissMode` be `interactive` on iOS.
+> Until that is accepted, absent is still none.
+
 `scrollbar-width` (bit 88; Messages, 2026-09-09) follows
 [CSS Scrollbars](https://www.w3.org/TR/css-scrollbars-1/#scrollbar-width):
 `auto` initially, `thin`, or `none`, not inherited. It changes scrollbar
@@ -318,6 +355,10 @@ semantic tag defaults to absolute positioning; `show-modal` and `close` name
 browser-owned presentation commands, not runner state. UIKit supports the narrow
 confirmation grammar and `closedby="any"`; AppKit/Linux do not present dialogs
 (LLP 1021 D2). No arbitrary dialog or additional command capability is implied.
+
+> **Superseded by LLP 1115 D6.** An alert-shaped `alertdialog` is the platform's alert on iOS,
+> and `closedby="any"` is implied, not required; macOS and the web show the `dialog`. The
+> Linux host still presents none.
 
 `emojiPicker` (prop 63, boolean, absent/false by default) is an explicit
 selection-input policy on `input`, not an HTML `inputmode` value. A single emoji
@@ -476,6 +517,9 @@ with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
   macOS's `NSSegmentedControl`) reports its own the same way and fills the
   content box (LLP 1059 D2a). The former overflow deviation
   is removed (`issues/closed/20260927-tab-bar-height-to-layout.md`).
+
+> **Amended by LLP 1115 (2026-10-10).** A custom pressable that declares no press feedback
+> dims while held on iOS. The row's default is still no scale.
 
 **When a list row's animations start (2026-10-06, [LLP 1055](1055-svg-shapes-and-css-animations.rfc.md)
 D13; Charlie's ruling, not reviewed).** `-exact-animation-trigger` (bit 193; spelled `-exact-` by LLP 1081 D1, since only CSS's name is shared) is
@@ -1182,6 +1226,10 @@ hit-tests its own control); `accent-color` colours what the platform colours
 with its tint, as iOS does on the web and Linux; inherited typography is
 reset on the web's native face; Linux draws no symbol. Its size is the
 platform's, as any control's is.
+
+> **Amended by LLP 1104 D1.** An unset `appearance` is `auto`, the platform's own button. This
+> paragraph describes the bare box an author gets with `appearance="none"` or a background,
+> border or radius.
 
 ### Window toolbars
 

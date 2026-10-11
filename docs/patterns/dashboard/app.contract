@@ -55,13 +55,14 @@ component App
                   button press=show("month") testId="see-month"
                     text "See This Month"
               else
-                // Columns of at least 320 points share a wide window and stack on a phone.
-                row flex-wrap="wrap" align-items="flex-start" gap=24
-                  column flex="1 1 320px" min-width=0 gap=14 testId="by-category"
+                // Cards of at least 320 points share a wide window and stack on a phone; on this
+                // plain page a card is `-exact-secondary-background`, as the summary's is.
+                row flex-wrap="wrap" align-items="flex-start" gap=20
+                  column flex="1 1 320px" min-width=0 gap=14 padding=20 border-radius=16 background-color="-exact-secondary-background" testId="by-category"
                     text "By Category" role="heading" aria-level=3
                     each c in summary.categories key=c.id
                       StatBar(label=c.name, value=`${money(c.spent)} of ${money(c.budget)}`, fraction=c.spent / c.budget, tint=(c.spent > c.budget ? some("-exact-system-red") : none))
-                  column flex="1 1 320px" min-width=0 testId="recent"
+                  column flex="1 1 320px" min-width=0 padding="20px 20px 10px" border-radius=16 background-color="-exact-secondary-background" testId="recent"
                     text "Recent" role="heading" aria-level=3
                     each x in summary.recent key=x.id
                       RowText(title=x.title, detail=x.detail, value=some(money(x.amount)))

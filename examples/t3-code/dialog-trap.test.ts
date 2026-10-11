@@ -86,7 +86,6 @@ const KEYED: Record<string, { component: string; wraps: string[] }> = {
 };
 // No trap, as the reference has none: a Popover, Menu, hover card, toast, page or non-modal panel there.
 const NOT_MODAL: Record<string, string> = {
-  'app-settings.contract "settings-dialog"': 'the Settings page (a route in the reference)',
   'auto-balance.contract `notice-machines-${notice.id}`': 'Popover',
   'composer-chip-popover.contract "chip-popover"': 'Popover',
   'citation-comment.contract "citation-comment"': 'Popover (AssistantCitationChip\'s comment, diff-cite-popover)',
@@ -96,7 +95,6 @@ const NOT_MODAL: Record<string, string> = {
   'model-picker.contract "model-dialog"': 'ProviderModelPicker PopoverPopup',
   'pages-pr-actions.contract testId': 'Popover (the freshness card)',
   'pages-pr-compose.contract "pull-request-composer"': 'PullRequestComposer PopoverPopup',
-  'pages-pr-links.contract "pull-request-link-preview"': 'PreviewCard',
   'pages-pr-meta.contract `pull-request-${which}-menu`': 'Popover',
   'pages-pr-quick.contract popId': 'Popover',
   'pages-usage.contract "usage-seg-pop-unpriced"': 'Popover',
