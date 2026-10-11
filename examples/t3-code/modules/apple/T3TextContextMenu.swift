@@ -21,7 +21,8 @@
 //   anchor returns before `preventDefault` when the link has no web host) asks for the shell's menu of that click
 //   (`shellMenu`, external-link-menu.ts; reply-links RL-1, RL-2), as Electron's `context-menu` then fires. The click is
 //   answered once, and only while it is the last input: a key (the ContextMenu key raises `contextmenu` on the focused
-//   node without a click) or another click ends it, and so does the tail's menu for it.
+//   node without a click) or another click ends it, and so does a menu that answered it (the tail's, or the app's own
+//   through T3ContextMenu: `pageClickAnswered`), for a path that sends no event (the agent's keys, VoiceOver's show menu).
 //
 // The monitor ends every click it answers (it returns nil, never `self?.handle(event) ?? event`: optional chaining
 // would flatten handle's nil back into the event and the host's menu would pop after the shell's). Under the agent
@@ -125,6 +126,10 @@ final class T3TextContextMenu: NSObject {
         }
         return event
     }
+
+    /// The app showed its own menu for a node (`contextMenu`): that node took the last page click, as `preventDefault` keeps
+    /// Electron's `context-menu` from firing, so `shellMenu` no longer answers it.
+    func pageClickAnswered() { lastPageClick = nil }
 
     /// `shellMenu`: the node that took the last page click left it to the shell; the shell's menu for that click, as the
     /// page shows it (`pageClick`). Nothing for no click, one already answered, or one older than a few seconds.

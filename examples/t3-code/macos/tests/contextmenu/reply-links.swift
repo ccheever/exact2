@@ -51,7 +51,7 @@ final class ShellMenuForLinkTests: ShellMenuCase {
         XCTAssertTrue(popped.isEmpty)
     }
 
-    func testTheTailsMenuOrALaterKeyOrClickEndsTheClick() {
+    func testAMenuThatAnsweredItOrALaterKeyOrClickEndsTheClick() {
         // A `contextmenu` the last page click did not raise (the ContextMenu key on a focused mailto link, after a click the
         // tail or a node's own menu answered) gets no shell menu at that old click's place (reply-links review).
         rightClick(at: NSPoint(x: 400, y: 200))
@@ -69,7 +69,12 @@ final class ShellMenuForLinkTests: ShellMenuCase {
                                            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
                                            eventNumber: 0, clickCount: 1, pressure: 1)!)
         XCTAssertFalse(shell.shellMenuForLastClick(), "another click came after it")
-        XCTAssertEqual(link.menus, 2)
+        // A node's own app menu (T3Module's `contextMenu` op) took the click; a path with no event follows (the agent's
+        // keys go to the window, not through NSApplication's monitor; VoiceOver's show menu sends none).
+        rightClick(at: at(link, NSPoint(x: 10, y: 10)))
+        shell.pageClickAnswered()
+        XCTAssertFalse(shell.shellMenuForLastClick(), "the app's own menu answered it")
+        XCTAssertEqual(link.menus, 3)
         XCTAssertEqual(popped.count, 1, "only the tail's menu")
     }
 
