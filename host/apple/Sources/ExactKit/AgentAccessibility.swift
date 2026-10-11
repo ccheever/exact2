@@ -434,7 +434,9 @@ extension Presenter {
         let r = f.role ?? "AXUnknown"
         let mapped = ["AXButton": "button", "AXLink": "link", "AXHeading": "heading", "AXTextField": "textbox", "AXTextArea": "textbox",
                       "AXCheckBox": f.subrole == "AXSwitch" ? "switch" : "checkbox", "AXRadioButton": "radio", "AXRadioGroup": "radiogroup",
-                      "AXSlider": "slider", "AXPopUpButton": "combobox", "AXStaticText": "text", "AXGroup": "group", "AXImage": "image", "AXList": "list",
+                      "AXSlider": "slider", "AXPopUpButton": "combobox", "AXStaticText": "text", "AXImage": "image", "AXList": "list",
+                      // A live-region role is a group by its subrole, as WebKit serves one.
+                      "AXGroup": ["AXApplicationStatus": "status", "AXApplicationAlert": "alert"][f.subrole ?? ""] ?? "group",
                       "AXBusyIndicator": "progressbar", "AXProgressIndicator": "progressbar",
                       "AXLevelIndicator": "meter", "AXScrollBar": "scrollbar", "AXIncrementor": "spinbutton"][r]
         e["role"] = forced ?? mapped ?? r

@@ -380,6 +380,15 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         } else if role == "group" || role == "radiogroup" {
             setAccessibilityElement(true)
             setAccessibilityRole(role == "radiogroup" ? .radioGroup : .group)
+        } else if let live = liveRole {
+            // A live-region role as WebKit serves it (Core-AAM): a group whose
+            // subrole is the role, named only by its author, a paragraph's
+            // words a child (`textAccessibilityChildren`).
+            let subrole = NSAccessibility.Subrole(rawValue: live == "alert" ? "AXApplicationAlert" : "AXApplicationStatus")
+            setAccessibilityElement(true)
+            if accessibilityRole() != .group { setAccessibilityRole(.group) }
+            if accessibilitySubrole() != subrole { setAccessibilitySubrole(subrole) }
+            if isParagraph, accessibilityValue() != nil { setAccessibilityValue(nil); setAccessibilityLabel(props["accessibilityLabel"]) }
         } else if let range = rangeRole {
             // A range role is one element, its value between its bounds and
             // its `aria-valuetext` the description, as WebKit serves a drawn

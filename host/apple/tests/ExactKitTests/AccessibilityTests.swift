@@ -289,6 +289,67 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertEqual(first.liveText, "Quiet")
         withExtendedLifetime(w) {}
     }
+    /// #278: `status` and `alert` are live regions by their roles, as WebKit
+    /// serves them: a group whose subrole is the role, named only by its
+    /// author, a paragraph's words a static text inside it, a container's
+    /// its children; live with no `aria-live`, and `off` silences one.
+    func testStatusAndAlertAreLiveRegionGroups() {
+        let (p, w, _, _) = fixture()
+        let stage = NodeView(id: 40, kind: "text", presenter: p)
+        let error = NodeView(id: 41, kind: "view", presenter: p)
+        let words = NodeView(id: 42, kind: "text", presenter: p)
+        stage.frame = NSRect(x: 0, y: 60, width: 200, height: 20)
+        error.frame = NSRect(x: 0, y: 90, width: 200, height: 20)
+        words.frame = NSRect(x: 0, y: 0, width: 200, height: 20)
+        for n in [stage, error] { p.root.addSubview(n); p.views[n.id] = n }
+        error.addSubview(words); p.views[words.id] = words
+        stage.applyProps(set: ["text": "Downloading", "accessibilityRole": "status"], clear: [])
+        error.applyProps(set: ["accessibilityRole": "alert"], clear: [])
+        words.applyProps(set: ["text": "Setup failed"], clear: [])
+        p.syncAccessibility()
+        XCTAssertTrue(stage.isAccessibilityElement())
+        XCTAssertEqual(stage.accessibilityRole(), .group)
+        XCTAssertEqual(stage.accessibilitySubrole()?.rawValue, "AXApplicationStatus")
+        XCTAssertNil(stage.accessibilityLabel(), "named only by its author")
+        let text = stage.accessibilityChildren()?.compactMap { $0 as? NSAccessibilityElement } ?? []
+        XCTAssertEqual(text.map { $0.accessibilityRole() }, [.staticText])
+        XCTAssertEqual(text.first?.accessibilityValue() as? String, "Downloading")
+        XCTAssertEqual(stage.liveText, "Downloading", "live by its role")
+        XCTAssertTrue(error.isAccessibilityElement())
+        XCTAssertEqual(error.accessibilityRole(), .group)
+        XCTAssertEqual(error.accessibilitySubrole()?.rawValue, "AXApplicationAlert")
+        XCTAssertEqual(error.accessibilityChildren()?.first as? NodeView, words)
+        XCTAssertEqual(error.liveText, "Setup failed")
+        stage.applyProps(set: ["accessibilityLive": "off"], clear: [])
+        p.syncAccessibility()
+        XCTAssertNil(stage.liveText, "its aria-live over its role's")
+        stage.applyProps(set: [:], clear: ["accessibilityRole", "accessibilityLive"])
+        XCTAssertEqual(stage.accessibilityRole(), .staticText, "no role: a paragraph again")
+        XCTAssertNil(stage.accessibilitySubrole())
+        withExtendedLifetime(w) {}
+    }
+    /// An `alert` speaks as it appears, as a browser's alert event has it,
+    /// except at launch; a live region otherwise only as its text changes.
+    func testAnAlertSpeaksAsItAppears() {
+        let (p, w, _, _) = fixture()
+        let error = NodeView(id: 43, kind: "text", presenter: p)
+        error.frame = NSRect(x: 0, y: 60, width: 200, height: 20)
+        p.root.addSubview(error); p.views[error.id] = error
+        error.applyProps(set: ["text": "Setup failed", "accessibilityRole": "alert"], clear: [])
+        XCTAssertEqual(error.livePoliteness, "assertive")
+        XCTAssertTrue(error.liveSpeaks("Setup failed", launching: false))
+        XCTAssertFalse(error.liveSpeaks("Setup failed", launching: true), "there at launch: read with the screen")
+        error.props["accessibilityRole"] = "status"
+        XCTAssertEqual(error.livePoliteness, "polite")
+        XCTAssertFalse(error.liveSpeaks("Setup failed", launching: false), "a status appearing is not spoken")
+        p.syncAccessibility()
+        XCTAssertFalse(error.liveSpeaks("Setup failed", launching: false), "unchanged")
+        XCTAssertTrue(error.liveSpeaks("Unpacking", launching: false))
+        XCTAssertFalse(error.liveSpeaks("", launching: false))
+        error.props["accessibilityLive"] = "assertive"
+        XCTAssertEqual(error.livePoliteness, "assertive", "its aria-live over its role's")
+        withExtendedLifetime(w) {}
+    }
     /// Spreadsheet F4, F14: ⌘V, ⌘C and ⌘X at a focused node are its
     /// `paste`, `copy` and `cut` — the nearest handler's — and with none the
     /// Edit menu's action is not this node's, so the chain goes on.

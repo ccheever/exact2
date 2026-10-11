@@ -83,6 +83,24 @@ extension NodeView {
         }
     }
     static let ariaAttributes = ["AXInvalid", "AXHasPopup", "AXPopupValue", "AXARIACurrent"]
+    /// ARIA's live-region roles with an implicit `aria-live` (WAI-ARIA 1.2):
+    /// `status` is polite, `alert` assertive.
+    static let liveRoles = ["status": "polite", "alert": "assertive"]
+    var liveRole: String? { props["accessibilityRole"].flatMap { Self.liveRoles[$0] == nil ? nil : $0 } }
+    /// How a live region speaks: its `aria-live`, else its role's; nil when
+    /// `off` or neither.
+    var livePoliteness: String? {
+        let live = props["accessibilityLive"] ?? liveRole.flatMap { Self.liveRoles[$0] }
+        return live == "polite" || live == "assertive" ? live : nil
+    }
+    /// Whether a live region speaks as its text becomes `text`: when it
+    /// changed, and an `alert` as it appears, as a browser's alert event has
+    /// it (Core-AAM); one there at launch is read with the screen.
+    func liveSpeaks(_ text: String, launching: Bool) -> Bool {
+        guard accessibilityVisible, !text.isEmpty else { return false }
+        if let previous = liveText { return previous != text }
+        return liveRole == "alert" && !launching
+    }
     /// ARIA's range roles (LLP 1116 D8): a value is `aria-valuenow` between
     /// `aria-valuemin` and `aria-valuemax`, and the children are
     /// presentational, so the node is one element. A control's own view
@@ -272,7 +290,7 @@ extension Presenter {
         }
         let nodes: [NodeView]
         if let changed {
-            let indexed = chrome.ids("accessibilityLive").union(chrome.ids("autofocus"))
+            let indexed = chrome.ids("accessibilityLive").union(chrome.ids("role:status")).union(chrome.ids("role:alert")).union(chrome.ids("autofocus"))
             nodes = changed.union(indexed).compactMap { views[$0] }.sorted { $0.id < $1.id }
         } else {
             autofocusProcessed.formIntersection(Set(views.values.map { ObjectIdentifier($0) }))
@@ -314,10 +332,9 @@ extension Presenter {
                 node.accessibilityLabel = node.accessibleName
                 #endif
             }
-            if let live = node.props["accessibilityLive"], live == "polite" || live == "assertive" {
+            if let live = node.livePoliteness {
                 let text = node.accessibleText
-                if node.accessibilityVisible,
-                   let previous = node.liveText, previous != text, !text.isEmpty {
+                if node.liveSpeaks(text, launching: launchAutofocusPending) {
                     #if os(macOS)
                     NSAccessibility.post(element: node.paragraphOwner, notification: .announcementRequested,
                         userInfo: [.announcement: text, .priority: (live == "assertive" ? NSAccessibilityPriorityLevel.high : .low).rawValue])

@@ -57,6 +57,9 @@ extension NodeView {
         let label = props["accessibilityLabel"] ?? visibleParagraphText
         #if os(macOS)
         setAccessibilityElement(true)
+        // A live-region role is a group holding these words (`updateRoleAccessibility`).
+        guard liveRole == nil else { return }
+        if accessibilitySubrole() != nil { setAccessibilitySubrole(nil) }
         if let level = headingLevel {
             // The heading role WebKit exposes (AppKit's constant from macOS
             // 26), its level the value, as a `<h1>`–`<h6>` has on the web.
@@ -86,11 +89,17 @@ extension NodeView {
     }
     func textAccessibilityChildren() -> [Any]? {
         let interactive = inlineText.filter { !$0.run(dark: drawsDark).hidden && (!($0.props["href"] ?? "").isEmpty || !$0.handlers.isEmpty || $0.props["accessibilityLabel"] != nil) }
+        #if os(macOS)
+        // A live-region paragraph is a group whose words are a static text inside it, as WebKit's.
+        let words: [Any] = isParagraph && liveRole != nil ? [ParagraphWords(owner: self)] : []
+        guard !interactive.isEmpty || !words.isEmpty else { return nil }
+        #else
         guard !interactive.isEmpty else { return nil }
+        #endif
         let text = paragraphText as NSString
         let children: [Any] = interactive.map { InlineAccessibility(owner: self, run: $0, text: text) }
         #if os(macOS)
-        return children
+        return words + children
         #else
         let paragraph = UIAccessibilityElement(accessibilityContainer: self)
         paragraph.accessibilityLabel = props["accessibilityLabel"] ?? visibleParagraphText
@@ -103,6 +112,23 @@ extension NodeView {
 }
 
 #if os(macOS)
+/// A live-region paragraph's words: the static text its group holds.
+private final class ParagraphWords: NSAccessibilityElement, AgentOwned {
+    weak var owner: NodeView?
+    var agentViewId: UInt32? { owner?.id }
+    init(owner: NodeView) {
+        self.owner = owner
+        super.init()
+        setAccessibilityParent(owner)
+        setAccessibilityRole(.staticText)
+        setAccessibilityValue(owner.visibleParagraphText)
+        setAccessibilityLabel(owner.visibleParagraphText)
+    }
+    override func accessibilityFrame() -> NSRect {
+        guard let owner, let window = owner.window else { return .zero }
+        return window.convertToScreen(owner.convert(owner.contentBox(), to: nil))
+    }
+}
 private final class InlineAccessibility: NSAccessibilityElement, AgentOwned {
     weak var owner: NodeView?
     package let id: UInt32
