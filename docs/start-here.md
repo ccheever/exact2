@@ -233,3 +233,6 @@ data, test. A lookup is for a name the card lacks (`contract vocab <name> …`) 
 A Snapback app needs its backend running before `test web`: the runner checks
 loopback origins in its fetch grants and refuses a Snapback run if none listens.
 Start `snapback4 dev` in the backend directory, seeded if the tests read seeded rows.
+
+`test web` reads backend origins from `app.ts`’s `net.fetch` grants.
+`EXACT_PORT` sets the page’s port and never moves the Snapback origin.

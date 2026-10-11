@@ -272,6 +272,22 @@ server, and `node <this checkout>/snapback4/web/build.mjs assets/snapback4.wasm`
 builds the device. Built and tested as written against 0.4.16 (2026-10-08):
 both tests pass, and pass again on the data a first run leaves.
 
+### Ports: the Snapback origin and the page's own
+
+Two ports, set apart. **The Snapback origin** is a constant in `app.ts`
+(`const origin = 'http://127.0.0.1:4400'`) and its `net.fetch` grant; a data
+module reads no environment, so the server must come to it:
+`snapback4 dev --port 4400` (4400 is also `dev`'s default), and the test
+file's `fail fetch`/`pass fetch` prefixes name the same origin. To move it,
+change the constant, the `--port` and the prefixes together. `test web` reads
+this origin from the build's `net.fetch` grants (`app.ts`'s `grants`), asks
+whether anything listens there, and refuses the run when nothing does.
+**The Exact page's port** is separate: `EXACT_PORT=<n>` (or `--port <n>`)
+serves `web`, `test web` and `agent web` on exactly that port, else a free
+one. It never changes the origin the app fetches, and `--port` on `test web`
+is the page's, not the server's. On a machine that assigns you ports, take
+one for `snapback4 dev --port` and the origin, and another for `EXACT_PORT`.
+
 ### Open, sync, read, write
 
 ```ts
