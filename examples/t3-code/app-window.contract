@@ -47,6 +47,7 @@ use HoverTip, HoverLayer, HoverText, HoverScopes, noHoverTip, hoverDelay, hoverO
 use PaFreshnessCard from "./pages-pr-actions.contract"
 use PrLinkPreviewCard from "./pages-pr-links.contract" // pr-links-previews-and-routing
 use ChipPopover, ChipPopoverLayer, ChipPopoverEscape from "./composer-chip-popover.contract" // settings-appearance-and-skill-chip: a skill chip's details
+use CitationCommentLayer from "./citation-comment.contract" // diff-cite-popover DC-1: a citation chip's comment
 component T3Window
   props
     data: Snapshot
@@ -330,6 +331,11 @@ component T3Window
     scheme // browser-surface part 3: the chrome row and the annotation overlay take the resolved appearance (browser-capture.contract)
     pickModel
     taskModelPick
+    // diff-cite-popover DC-1: the answer whose quote an open citation comment highlights (markdown.contract AnswerMarkdown).
+    citeMessage = (citeShown ? chip.message : "")
+    citeQuote = (citeShown ? chip.quote : "")
+    citeAt = (citeShown ? chip.at : -1)
+    citeOpen = citeShown
   // browser-surface part 5: a link that follows "Open links in" (browser-links.ts `openLinkFromUi`): a Markdown link
   // ("link": ⌘ or Ctrl held opens the default browser), a check's details or the published repository ("button").
   action linkOpen(kind: string, href: string)
@@ -370,7 +376,10 @@ component T3Window
     // A skill chip's details close on a primary press outside them (Base UI's outside press); a press in
     // the chip's own text is the native editor's (T3ComposerChipPress.swift), which never reaches here.
     if chipShown and e.buttons == 1 and not (e.clientX >= frame("chip-popover").x and e.clientX < frame("chip-popover").x + frame("chip-popover").width and e.clientY >= frame("chip-popover").y and e.clientY < frame("chip-popover").y + frame("chip-popover").height)
-      chipClose(false)
+      if chip.kind == "citation"
+        citeSettle()
+      else
+        chipClose(false)
   action outsidePressUp
     outsidePresses = outsideDown ? outsidePresses + 1 : outsidePresses
     outsideDown = false
@@ -381,6 +390,40 @@ component T3Window
   action chipClose(instructions: bool)
     chipClosed = chip.seq
     editorOp(instructions ? "chip-instructions" : "chip-close", `${chip.seq}`, instructions ? chip.path : "")
+  // The window's Escape (ChipPopoverEscape): a citation's comment cancels, as its editor's Escape does.
+  action chipEscape
+    if chip.kind == "citation"
+      citeCancel()
+    else
+      chipClose(false)
+  // diff-cite-popover DC-1: a citation's comment (citation-comment.contract, citation-comment.ts). The draft is the
+  // window's, so every way the popover closes can settle it: Base UI's onOpenChange with resolveAssistantCitationCommentDismissal
+  // (AssistantCitationChip settleDraftOnClose). An untouched draft (`citeDraftSeq` another press's) is the reference's null.
+  state citeDraft = ""
+  state citeDraftSeq = -1
+  derive citeText = citeDraftSeq == chip.seq ? citeDraft : chip.comment
+  action citeEdit(value: string)
+    citeDraft = value
+    citeDraftSeq = chip.seq
+  // Save, Enter, and Command/Ctrl+Enter (`send`: then Send, submitCitationAndSend); the editor takes the focus after the chip.
+  action citeSave(send: bool)
+    if length(citeText) <= 8000
+      chipClosed = chip.seq
+      editorOp(send ? "chip-cite-send" : "chip-cite-save", `${chip.seq}`, citeText)
+  // Cancel and Escape: closes, and after Cite takes the chip away again (`removeOnCancel`).
+  action citeCancel
+    chipClosed = chip.seq
+    editorOp("chip-cite-cancel", `${chip.seq}`, "")
+  // An outside press here, or the focus leaving the textarea (a press in the composer's text or on the chip's button again,
+  // which the native editor answers by taking the focus: T3ComposerChipPress.swift): a changed draft is committed, one past
+  // the limit keeps the popover open, anything else closes it.
+  derive citeShown = chipShown and chip.kind == "citation"
+  action citeSettle
+    if citeShown and (citeDraftSeq != chip.seq or trim(citeDraft) == trim(chip.comment))
+      chipClose(false)
+    else if citeShown and length(citeDraft) <= 8000
+      chipClosed = chip.seq
+      editorOp("chip-cite-commit", `${chip.seq}`, citeDraft)
   // A press in a text field reaches no node's pointerdown on macOS (the field editor takes it), so the
   // floating theme editor's fields count the focus a press gives them instead.
   action outsideFocus
@@ -605,7 +648,7 @@ component T3Window
       // The skill chip details' Escape, the window's first node so it is the oldest shortcut that declares Escape
       // (composer-chip-popover.contract ChipPopoverEscape, realinput-1010c-fixes RC-4); outside the SSH prompt's inert
       // background, so it gives the key up while the prompt shows, as the details under it did.
-      ChipPopoverEscape(held=(chipShown and not (sshPrompt.open or paletteOpen or modelsOpen or optionsOpen != "" or projectsOpen or confirmOp != "")), dismiss=chipClose(false))
+      ChipPopoverEscape(held=(chipShown and not (sshPrompt.open or paletteOpen or modelsOpen or optionsOpen != "" or projectsOpen or confirmOp != "")), dismiss=chipEscape)
       row width="100%" height="100%" min-width=0 position="relative" inert=sshPrompt.open testId="ssh-background"
         row width="100%" height="100%" min-width=0 inert=(modal or shell.panel.deviceSetup)
           when data.sidebarOpen
@@ -639,8 +682,11 @@ component T3Window
         SettingsModals(snapshotSetupOpen=snapshotSetupOpen, snapshotSettings=snapshotSettings, commandPending=commandPending, modalError=modalError, snapshotSetupWasEnabled=snapshotSetupWasEnabled, snapshotSetupFrom=snapshotSetupFrom, showSnapshotSetup=showSnapshotSetup, toggleSnapshots=toggleSnapshots, changeSnapshot=settingsCommand("setting-snapshot"), recordSnapshotShortcut=settingsCommand("snapshot-shortcut-record", ""), saveSnapshotShortcut=settingsCommand("snapshot-shortcut-save", ""), connecting=connecting, origin=origin, credential=credential, pairFields=pairFields, data=data, viewport=viewport, scheme=scheme, sbSshHosts=sbSshHosts, sbSshHost=sbSshHost, editOrigin=editOrigin, editCredential=editCredential, connectionOp=connectionOp, sbSet=sbSet, closeConnection=closeConnection, providerDialog=providerDialog, providerWizard=providerWizard, acpAgents=acpAgents, wizardStep=wizardStep, wizardAttempted=wizardAttempted, wizardLabelSet=wizardLabelSet, wizardLabel=wizardLabel, wizardIdSet=wizardIdSet, wizardId=wizardId, acpQuery=acpQuery, wizardManual=wizardManual, providerUi=providerUi, providerAdd=providerAdd, providerOp=providerOp, providerPage=providerPage, providerTarget=providerTarget, setupBusy=providerAuthPending, connectionRemove=connectionRemove, connectionsPage=connectionsPage, connectionAskRemove=connectionAskRemove, routeTarget=routeTarget, routeLabel=routeLabel, localCommand=settingsCommand)
         WindowOverlays(modelsOpen=modelsOpen, data=data, popoverSession=popoverSession, catalog=catalog, viewport=viewport, scheme=scheme, modelQuery=modelQuery, modelTarget=modelTarget, composerLeft=composerLeft, resting=resting, commandPending=commandPending, closeModels=closeModels, selectModel=selectModel, searchModels=searchModels, selectProvider=selectProvider, openProviderSettings=openProviderSettings, command=command, paletteOpen=paletteOpen, palette=palette, paletteQuery=paletteQuery, paletteHighlight=paletteHighlight, paletteScroll=paletteScroll, paletteBusy=paletteBusy, paletteEdit=paletteEdit, paletteKey=paletteKey, paletteRun=paletteRun, paletteHover=paletteHover, paletteClose=paletteClose, paletteFlag=paletteFlag, detailsOpen=detailsOpen, details=details, rightPanel=(rightPanel or shell.panel.open), narrowDiff=narrowDiff, sidebarWidth=sidebarWidth, conversationWidth=conversationWidth, detailsEditors=detailsEditors, detailsAct=detailsAct, titleMenuOpen=titleMenuOpen, shell=shell, titleMenuX=titleMenuX, titleMenuY=titleMenuY, titleMenuSerial=titleMenuSerial, titleMenuPick=titleMenuPick, titleUi=titleUi, answerRevert=answerRevert, attachmentUrls=attachmentUrls, chatLocal=chatLocal, confirmOp=confirmOp, confirmTitle=confirmTitle, confirmBody=confirmBody, confirmDestructive=confirmDestructive, confirmUi=confirmUi, toastHover=toastHover, toastHovering=toastHovering, toastAct=toastAct, prDetail=prDetail, prAct=prAct)
         // A skill chip's details (composer-chip-popover.contract), above every page, the Settings prompt sample's chip included.
-        when chipShown
+        when chipShown and chip.kind != "citation"
           ChipPopoverLayer(chip=chip, viewportWidth=viewport.width, viewportHeight=viewport.height, instructions=chipClose(true))
+        // diff-cite-popover DC-1: a citation chip's comment, under the cited text after Cite or above the chip's button.
+        when citeShown
+          CitationCommentLayer(chip=chip, draft=citeText, viewportWidth=viewport.width, viewportHeight=viewport.height, edit=citeEdit, save=citeSave, cancel=citeCancel, settle=citeSettle)
         // fix-hover-cards: the window's hover layer (hover-layer.contract), above every page and panel, below the SSH prompt.
         // The Usage page draws its own segment card in its scroll content (pages-usage.contract).
         when hoverShown and hoverTip.kind != "usage"
