@@ -313,6 +313,11 @@ component NativeFixture
   state shortChat = false
   action toggleShortChat
     shortChat = not shortChat
+  // Second's scroller replaced in place by a taller or a shorter one, as a
+  // quiz's results replace its question: each opens at its top.
+  state secondPage = ""
+  action showSecondPage(page: string)
+    secondPage = page
   // The tablist hidden over the root, as Signal's chat-list multi-select
   // hides its tab bar (LLP 1075.003 §3.7, amended 2026-10-05).
   state choosing = false
@@ -632,7 +637,7 @@ component NativeFixture
                   column testId="photo-view" flex=1 background-color="#000000" padding=12
                     button id="back" press=back testId="photo-back" aria-label="Close" padding=6 background-color="#e5e7eb" align-self="flex-start"
                       text "Close"
-                when e.name == "second"
+                when e.name == "second" and secondPage == ""
                   scroll id="list-second" testId="list-second" flex=1 min-height=0
                     column padding=12 gap=8
                       input appearance="none" value=draft input=setDraft testId="draft" aria-label="Draft" placeholder="A draft" padding=6 border-width=1 border-style="solid" border-color="#d1d5db"
@@ -643,6 +648,19 @@ component NativeFixture
                       exact-screen testId="screen" width="100%" height=96
                       text "Second" testId="second-top"
                       column testId="tall-second" height=1600 background-color="#eef2ff"
+                      button press=showSecondPage("taller") testId="second-taller" padding=6 background-color="#e5e7eb"
+                        text "Taller"
+                when e.name == "second" and secondPage == "taller"
+                  scroll id="list-second" testId="list-second-taller" flex=1 min-height=0
+                    column padding=12 gap=8
+                      text "Taller" testId="second-taller-top"
+                      button press=showSecondPage("shorter") testId="second-shorter" padding=6 background-color="#e5e7eb"
+                        text "Shorter"
+                      column height=2400 background-color="#fef3c7"
+                when e.name == "second" and secondPage == "shorter"
+                  scroll id="list-second" testId="list-second-shorter" flex=1 min-height=0
+                    column padding=12 gap=8
+                      text "Shorter" testId="second-shorter-top"
       // Hidden on Chat and Photo, so the tab bar hides for them (§9.10);
       // its accent tints the bar's selected item.
       row role="tablist" aria-label="Tabs" testId="tabs" accent-color="#3838f5" display=((choosing and top(nav).name == "home") or top(nav).name == "chat" or top(nav).name == "photo" ? "none" : "flex") flex-shrink=0 height=56 border-top-width=1 border-top-style="solid" border-color="#e5e7eb" align-items="stretch"
