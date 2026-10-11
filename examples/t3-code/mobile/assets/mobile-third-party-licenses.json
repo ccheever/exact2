@@ -81,6 +81,18 @@
     },
     {
       "kind": "custom",
+      "name": "Expo text editor implementation",
+      "version": "T3 Code 365aa87982",
+      "license": "MIT",
+      "bundles": [
+        "ios",
+        "mobile"
+      ],
+      "sourceUrl": "https://github.com/pingdotgg/t3code/tree/365aa87982a4d81cc8e0c085e8d1a40ca7daecdc/apps/mobile/modules/t3-composer-editor",
+      "noticeText": "The MIT License (MIT)\n\nCopyright (c) 2015-present 650 Industries, Inc. (aka Expo)\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+    },
+    {
+      "kind": "custom",
       "name": "Ghostty / libghostty",
       "version": "cf8edc23f3a6a87a96e41a90013e89e987d34980",
       "license": "MIT",
