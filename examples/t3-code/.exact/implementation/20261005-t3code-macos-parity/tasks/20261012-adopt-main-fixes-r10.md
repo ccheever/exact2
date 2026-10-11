@@ -111,7 +111,7 @@ squash: a squash drops main from the branch's ancestry.
 | Item | Main commit | Outcome | Clone change |
 | --- | --- | --- | --- |
 | Contract refusals and renames | all | `contract build` exit 0 on the merged tree before any clone change (6,161 slots, 110,198 nodes, 48 resources) and after it (110,194 nodes) | nothing forced |
-| New `contract build` warnings: `analyze-read-after-assign` (LLP 1116.003 D6) | `42e0da95d` | 19 warnings at 9 sites, all reads the runtime already did (writes land when the action ends; the warning is new, the behaviour is not). Read each: `confirmUi` (`app.contract:1385`), `coreThemeDialog` (`:906`), `showSnapshotSetup` (`app-window.contract:467`, `:472`) and the rename `key` (`:541`) read the value from before the action on purpose; `paletteCursor` (`app.contract:313`/`:321`) is assigned and read in exclusive `if` arms (`ArrowUp`, `Back`); `sidebarDragMove`'s `dragDx`/`dragDy` (`app-window.contract:579`/`:591`) are 0 at a drag's start anyway (reset at its end, `:601`). One may matter: a row-action sweep (`sidebar.contract:254`-`262`) that starts on another row adds its first move to the last sweep's `sweepDx`/`sweepDy` and places it from the last `sweepY` (they reset only at a sweep's start). Not changed here (behaviour as before; listed for the coordinator) | none |
+| New `contract build` warnings: `analyze-read-after-assign` (LLP 1116.003 D6) | `42e0da95d` | 19 warnings at 9 sites, all reads the runtime already did (writes land when the action ends; the warning is new, the behaviour is not). Read each: `confirmUi` (`app.contract:1385`), `coreThemeDialog` (`:906`), `showSnapshotSetup` (`app-window.contract:467`, `:472`) and the rename `key` (`:541`) read the value from before the action on purpose; `paletteCursor` (`app.contract:313`/`:321`) is assigned and read in exclusive `if` arms (`ArrowUp`, `Back`); `sidebarDragMove`'s `dragDx`/`dragDy` (`app-window.contract:579`/`:591`) are 0 at a drag's start anyway (reset at its end, `:601`). One is a real bug: a row-action sweep (`sidebar.contract:254`-`262`) that starts after an earlier one keeps the last sweep's `sweepDx`/`sweepDy` to its release and places its first move from the last `sweepY` (the reset's writes land only when the action ends). Reproduced in a one-file app in review round 1 and listed in `STATUS.md` "Found, not in scope" (below, "Review round 1"); not changed here (behaviour as before) | none |
 | `lower-colour-one-scheme`, `type-performance-now-persisted` | — | 230 and 1, as round 9 recorded (unchanged) | none |
 | X61 `outline: none` | `998fe3031` (#459) | fixes X61 | RT-1 |
 | X74 a heading inside a button | `845cd6af3` (#451) | fixes X74 | RT-2 |
@@ -145,7 +145,8 @@ squash: a squash drops main from the branch's ancestry.
   the `pr-filters-rest` box is gone. With nothing focused, the next Escape reaches main #446's `MenuHost.key` path and
   closes Filters. One thing the rest box gave and `blur()` does not: from the rest box the closing popover returned the
   focus to the Filters button, as the reference's FloatingFocusManager does from BODY; now the focus stays nowhere
-  (below, "Decision needed").
+  (below, "Decision needed"). While option (a) stands this is a declared difference: `EXACT2-GAPS.md` X73 (and X66's
+  blocked list) and `STATUS.md` "Known differences" say so (review round 1).
 - **RT-5 (X76, X78).** No clone change. The shell menu module (`T3TextContextMenu.replacement(for:)`) takes ExactKit's
   text menu wherever ExactKit shows one, so once #454 selects the word on a secondary click, the shell's menu over
   unselected text has Copy enabled; `link(at:)` already falls back to a link node's own `accessibilityURL()`, which #455
@@ -179,7 +180,7 @@ Evidence: [drive.sh](https://raw.githubusercontent.com/ccheever/exact2/b112e8c4f
 | RT-1 | pass: focused composer and prompt preview, before the 2 pt ring, after none, the reference none (`outline-style: none`) | [composer](https://raw.githubusercontent.com/ccheever/exact2/3f8ab69802190a8b46a383dead052c080d80f4bc/adopt-main-fixes-r10/rt1-composer-focus.png), [prompt preview](https://raw.githubusercontent.com/ccheever/exact2/7226af957c2955e572a47e5074390c49d93fbeb0/adopt-main-fixes-r10/rt1-prompt-preview-focus.png) |
 | RT-2 | pass: before the 1×1 heading is the button's sibling; after `button "Legacy features"` › `heading [level=2]` (its parent is the button), as the reference's snapshot | [AX text](https://raw.githubusercontent.com/ccheever/exact2/be71f2eef41de8effffd11f7245b09cebc07e032/adopt-main-fixes-r10/rt2-legacy-ax.txt) |
 | RT-3 | pass: Day table, Oct 9 Codex (USD 0.825) `$0.83` before (own rounding) and after (`Intl.NumberFormat`), the reference `$0.83`; `pages-usage.test.ts` passes | [image](https://raw.githubusercontent.com/ccheever/exact2/b74860fcabfde6acc43ee0f183ef4d63127084dc/adopt-main-fixes-r10/rt3-usage-day.png), [text](https://raw.githubusercontent.com/ccheever/exact2/5659b8143a96374eba51b35012022615c1344d40/adopt-main-fixes-r10/rt3-usage.txt) |
-| RT-4 | pass for the retirement: after Escape in "Search authors" (pointer left the row) nothing is focused (before: the rest box, node 937; reference: BODY), and the window's own Escape (`type t3-code key Escape`, nothing focused) closes Filters. Differs from the reference after the close: the focus stays nowhere, the reference returns it to Filters ("Decision needed"). Real keys: batch step 1 | [first Escape](https://raw.githubusercontent.com/ccheever/exact2/ad3986bcf662c4e6854c098e21af7977ec8d0368/adopt-main-fixes-r10/rt4-filters-escape.png), [second Escape](https://raw.githubusercontent.com/ccheever/exact2/8a97510c874fc4f552b9d6e9294c5c68c8aa5e94/adopt-main-fixes-r10/rt4-filters-closed.png), [focus text](https://raw.githubusercontent.com/ccheever/exact2/d19c906677a5b1a5b2e9269a5cd580e159a851c9/adopt-main-fixes-r10/rt4-filters-focus.txt) |
+| RT-4 | pass for the retirement: after Escape in "Search authors" (pointer left the row) nothing is focused (before: the rest box, node 937; reference: BODY), and the window's own Escape (`type t3-code key Escape`, nothing focused) closes Filters. Differs from the reference after the close: the focus stays nowhere, the reference returns it to Filters ("Decision needed"; declared in `EXACT2-GAPS.md` X73 and `STATUS.md` "Known differences" while option (a) stands). Before, the focus also returned to Filters (node 929), but an agent-mode window is never key, so its column draws no ring. Real keys: batch step 1 | [first Escape](https://raw.githubusercontent.com/ccheever/exact2/ad3986bcf662c4e6854c098e21af7977ec8d0368/adopt-main-fixes-r10/rt4-filters-escape.png), [second Escape](https://raw.githubusercontent.com/ccheever/exact2/822c4572c2f93c49548b5b35a60a47234233e006/adopt-main-fixes-r10/rt4-filters-closed-v2.png) (each column's focus written on it), [focus text](https://raw.githubusercontent.com/ccheever/exact2/d19c906677a5b1a5b2e9269a5cd580e159a851c9/adopt-main-fixes-r10/rt4-filters-focus.txt) |
 | RT-5 | agent pass for X76 (an agent right-click on unselected "Text generation": the shell menu's Copy disabled before, enabled after); records updated; real input open (batch steps 2 and 3) | [menu log](https://raw.githubusercontent.com/ccheever/exact2/23b4b5e5f7881ab290402094ca554919e343425b/adopt-main-fixes-r10/rt5-textmenu.txt) |
 | RT-6 | pass: the toast is `AXApplicationDialog` (before: not exposed), the provider banner `AXApplicationAlert` (before: plain text), "No settings found" `AXApplicationStatus`; the Settings page is no dialog (the first after drive showed `AXApplicationDialog "Settings"` before `0af2a208d`); `adopt-main-fixes-r10.test.ts` | [AX text](https://raw.githubusercontent.com/ccheever/exact2/50a0f72ac4edbff2c1ef6de71ffc77fb672bca4d/adopt-main-fixes-r10/rt6-roles-ax.txt) |
 | RT-7 | none to retire (read; Cause and fix) | this record |
@@ -258,6 +259,15 @@ measured leaves); not adopted here (the next round takes them; the first two may
 | After drive 2 (the one retry) | bundle of `0af2a208d` | completed, plus a status node (settings search "zzqx": "No settings found") | second column of each image |
 | Reference | Electron 1e2ecbd975 on the lane, CDP | composer and preview focused, Legacy features' ARIA, Usage Day table, the Filters Escapes, the toast region's roles | third column |
 
+## Review round 1
+
+An independent review of the draft PR found two should-fix problems; both are records, no source changed.
+
+| Finding | What was done |
+| --- | --- |
+| RT-4: retiring the rest box loses the focus return after the second Escape, which the base build had; the X73 row said only "workaround retired"; image 5's before column draws no ring though the before build focused Filters | `EXACT2-GAPS.md` X73 declares the lost return while option (a) stands (cause, drive numbers, X66 #319 as the blocker, what (b) undoes); X66's blocked list names it; `STATUS.md` "Known differences" has the row; "Decision needed" keeps the question for the coordinator. Image 5 is recomposed with each column's focus written on it (before: Filters, node 929, no ring because an agent-mode window is never key; after: none; reference: BUTTON "Filters", ring), [rt4-filters-closed-v2.png](https://raw.githubusercontent.com/ccheever/exact2/822c4572c2f93c49548b5b35a60a47234233e006/adopt-main-fixes-r10/rt4-filters-closed-v2.png); the PR caption says so |
+| The row-action sweep's carry-over (`sidebar.contract:254`-`262`) was recorded only here | Reproduced: a one-file app with the sweep's start branch and move, run headless by this worktree's `exact-terminal`, gives row b's first move an offset of 33 after three moves of 10 on row a (3 expected) and its second 36 (6 expected), so the old offset lasts the whole sweep ([repro](https://raw.githubusercontent.com/ccheever/exact2/8bdbf4b0b2f1a7637d7eb37897deb902e51d40c9/adopt-main-fixes-r10/sweep-carryover.txt)). Listed in `STATUS.md` "Found, not in scope" with steps, cause and the fix shape (`let` bindings), as the user's 2026-10-11 rule lists build observations rather than opening tasks; not driven in the app and not fixed here (it predates this PR) |
+
 ## Not done / not verified
 
 - Real input (steps 1–3 above): reserved for the coordinator's `realinput-1011c`; this task used no real input.
@@ -274,9 +284,18 @@ retirement (this PR): the first Escape matches the reference (nothing focused), 
 restore the rest box: both Escapes close as the reference, the focus returns to Filters, the hidden box stays. Recommended:
 (b) until X66 gives a close event, if the focus return is judged worth the hidden box; else (a).
 
+Review round 1 noted that (a) matches the reference less than the base build after the second Escape: the base build
+gave the focus back to Filters (node 929), as the reference does, and (a) leaves it nowhere. After the first Escape the
+two options differ only in which node holds an invisible focus (the hidden rest box under (b), nothing under (a)); a
+person sees no ring either way. While (a) stands, the lost return is declared in `EXACT2-GAPS.md` X73 (and X66's
+blocked list) and in `STATUS.md` "Known differences"; choosing (b) restores the rest box, `menu-keys.test.ts` FW-3's
+old check and the X73 row's workaround text, and drops those sentences.
+
 ## Seen while building, not a finding row
 
-- `analyze-read-after-assign` at `sidebar.contract:254`–`262` (the row-action sweep's first move on a new row), above.
+- `analyze-read-after-assign` at `sidebar.contract:254`–`262`: a row-action sweep after an earlier one keeps that
+  sweep's offset to its release ("Each item"). A real bug, pre-existing; listed in `STATUS.md` "Found, not in scope"
+  with steps and a one-file reproduction (review round 1), not fixed here.
 - The reference lane's Usage page reads Claude Code $0.08 on Oct 9 where the clone's reads $0.10: the clone lane carries
   the pages lane's `acme-coder-1` price override and the reference lane does not (the same before and after).
 - The sidebar's project scope popup writes `role="dialog"` where the reference's is a Combobox popup; not changed (not
