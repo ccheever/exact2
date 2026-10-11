@@ -182,6 +182,16 @@ describe('DP-1: the rows each density shows (ThreadDetailsPanel)', () => {
   });
 });
 
+describe('found while driving: Float device over chat closes the right panel (DevicePanel floatActive)', () => {
+  test('the window lets go of the panel it holds open, as for a floated Browser tab', async () => {
+    const root = await source('app.contract');
+    const rule = root.split('\n').find(line => line.includes('op == "surface-browser-float" and not shell.panel.browser.capture.floating'))!;
+    expect(rule).toContain('or op == "surface-r6dev-float" or');
+    const next = root.split('\n')[root.split('\n').indexOf(rule) + 1]!;
+    expect(next.trim()).toBe('rightPanelAt = ""');
+  });
+});
+
 describe('DR-1: the device rail menus hear the keys at a focused row (Base UI Menu)', () => {
   test('each rail menu draws its rows inside its KeyMenu', async () => {
     const workspace = await component('r6-device.contract', 'R6DeviceWorkspaceView');
