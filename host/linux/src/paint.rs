@@ -1319,6 +1319,8 @@ pub fn text_spec(s: &StyleProps, text: &str) -> Spec {
         white_space: s.white_space,
         direction: s.direction,
         text_indent: s.text_indent,
+        text_box_trim: s.text_box_trim,
+        text_box_edge: s.text_box_edge,
     }
     .collapse_white_space()
 }

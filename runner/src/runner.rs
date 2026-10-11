@@ -667,7 +667,7 @@ impl<D: DataSource> Runner<D> {
         mut data: D,
         kernel: Kernel,
         seed: Seed<'_>,
-        snapshot: Vec<(String, String)>,
+        snapshot: Vec<(String, Vec<u8>)>,
         delivery: crate::delivery::Delivery,
         // @ref LLP 1039 D2 — the layout size before settlement.
         viewport: crate::Viewport,

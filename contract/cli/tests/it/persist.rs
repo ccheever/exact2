@@ -32,7 +32,7 @@ fn boot(snapshot: Vec<(&str, &str)>) -> Runner<()> {
     let plan = contract::compile(SRC).unwrap();
     let snapshot = snapshot
         .into_iter()
-        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .map(|(k, v)| (k.to_string(), v.as_bytes().to_vec()))
         .collect();
     Runner::boot_stored(
         plan,
@@ -45,7 +45,7 @@ fn boot(snapshot: Vec<(&str, &str)>) -> Runner<()> {
     .unwrap()
 }
 
-fn kept(writes: Vec<StoreWrite>) -> Vec<(String, String)> {
+fn kept(writes: Vec<StoreWrite>) -> Vec<(String, Vec<u8>)> {
     writes
         .into_iter()
         .map(|w| {
@@ -57,8 +57,8 @@ fn kept(writes: Vec<StoreWrite>) -> Vec<(String, String)> {
         .collect()
 }
 
-fn pair(name: &str, value: &str) -> (String, String) {
-    (format!("exact.state.{name}"), value.to_string())
+fn pair(name: &str, value: &str) -> (String, Vec<u8>) {
+    (format!("exact.state.{name}"), value.as_bytes().to_vec())
 }
 
 #[test]

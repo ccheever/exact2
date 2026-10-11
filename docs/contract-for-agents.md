@@ -1348,6 +1348,34 @@ component Editor
       text body markup="markdown"
 ```
 
+Choose a colour by what it means, not by how it looks. **The accent is for
+what the user can act on**: a link, a plain button's title or symbol, a filled
+button's fill, a toggle's on state, the icon of a tappable row. Write it as
+`AccentColor` (or leave `-exact-tint-color` unset, whose initial value is
+`AccentColor`), never as the colour the accent happens to be today
+(`-exact-system-blue`): the platform keeps the accent dynamic and dims it to
+grey behind an alert or a sheet to say the screen under it is inert. **A
+colour of its own is for what means something by itself**: status
+(`-exact-system-green`, `-exact-system-red`), text hierarchy (`-exact-label`,
+`-exact-secondary-label`), data, and marks. A colour of its own never dims; on
+iOS the tint does where UIKit draws it, whoever set it (the root's
+`accent-color` or a node's own), as UIKit greys a view's `tintColor`:
+controls, bars, symbols drawn in the tint, and a box shadow in `AccentColor`.
+A gradient or SVG paint in `AccentColor` is resolved by Exact to the app's
+accent and does not dim. Set the app's accent once, on the root:
+`accent-color` on the root element is the app's accent, and on iOS it is the
+window's tint, as an AccentColor asset is, so every `AccentColor`, bar, sheet
+and alert follows it. On Apple hosts only, an app may instead ship its accent
+as an `AccentColor` colour set in its asset catalog
+(`modules/apple/*.xcassets`, below): the build names it in the app's
+Info.plist (`NSAccentColorName`, as Xcode does), and it is the accent wherever
+the root's `accent-color` is `auto` or absent (UIKit applies it as every
+view's tint; macOS's AppKit uses it where the user's system accent is
+Multicolour). The web, Linux and Windows never read it: there the root's
+`accent-color` is the accent the controls take, and the web's `AccentColor`
+keyword stays the browser's, so an app that wants one accent everywhere writes
+it on the root.
+
 Keep `id` and `testId` separate:
 
 - `id`: host command target, geometry, cross-node references.
@@ -1718,7 +1746,9 @@ compiles these catalogs together with its generated assets into the main bundle.
 On macOS, a catalog makes the dev build and agent launch the assembled `.app`.
 Load custom symbols with `UIImage(named: "donut", in: .main, with: configuration)`
 or `NSImage(named: "donut")`; SwiftUI uses `Image("donut", bundle: .main)`.
-`symbol:sf/...` still looks up system symbols only. Catalog changes require a
+`symbol:sf/...` still looks up system symbols only. A colour set named
+`AccentColor` is the app's accent on Apple hosts (`NSAccentColorName`; the
+accent section above). Catalog changes require a
 new native build; they are not web assets or live update payloads.
 
 Haptics are already there (LLP 1077 D14). `-exact-press-haptic` (`selection`,
@@ -2197,6 +2227,27 @@ a paragraph's last line. `text-indent` is a length (`text-indent="1.5em"`,
 and shows a hyphen; `none` ignores it; `auto` also hyphenates by the document's
 language on the web and Apple (Linux has no dictionary and breaks only at soft
 hyphens).
+
+`text-box` cuts a paragraph's line box to its glyphs (CSS Inline Layout 3 §4),
+to centre a label in a pill or line a heading's cap height up with an icon
+without padding by eye: `text-box="trim-both cap alphabetic"` trims the first
+line down to the cap height and the last up to the baseline. Write the trim
+(`none`, `trim-start`, `trim-end`, `trim-both`) and the edges in either order,
+or `normal`; the edges are over (`text`, `cap`, `ex`) then under (`text`,
+`alphabetic`), and `auto` or a lone `text` sets both (a lone `cap` or `ex` is
+refused: CSS's one-word edge also names the under edge). The longhands are
+`text-box-trim` and `text-box-edge`. The cut uses the paragraph's own font, as
+CSS's root inline box: a smaller run inside does not change it.
+`text-box-edge` is inherited, so it may sit on a `view` above; the trim is
+not, and goes on the `text`. Exact refuses the trim on a `view` or a `column`
+(CSS trims a block's first and last lines, which Exact does not reach yet), on
+an inline `text` run, on a `text` that is itself in columns, one included (CSS
+trims every column), on a `text` laid out as flex or grid (CSS does not trim
+it), and the `ideographic` edges. A later declaration, the node's own over its
+class's, overrides an earlier one, and a `?:` choice of literals is refused
+only when one of its values would be. A paragraph split across a `view`'s
+columns is trimmed at its outer ends only. Every host trims: Apple and Linux
+measure and paint the cut, the web writes CSS's own `text-box`.
 
 Multi-column layout is CSS's (LLP 1093). A `view` (or a `text`) with
 `column-count`, `column-width` or `columns="12em 3"` flows its content through

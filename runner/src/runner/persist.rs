@@ -62,7 +62,7 @@ impl<D: DataSource> Runner<D> {
             encode(&self.slots[i], &mut text);
             let name = self.plan.str(self.plan.slots[i].name);
             let key = state_name(name);
-            if self.store.kept(&key) == Some(text.as_str()) {
+            if self.store.kept(&key) == Some(text.as_bytes()) {
                 continue;
             }
             if text.len() > PERSIST_LIMIT {
@@ -74,7 +74,7 @@ impl<D: DataSource> Runner<D> {
                 self.log(line);
                 continue;
             }
-            self.store.keep(&key, &text);
+            self.store.keep(&key, text.into_bytes());
         }
     }
 
@@ -125,11 +125,8 @@ pub fn encode(v: &Value, out: &mut String) {
 }
 
 /// `text` as a value of type `ty`: `None` when it is not one.
-pub fn decode(plan: &Plan, ty: TypesId, text: &str) -> Option<Value> {
-    let mut r = Reader {
-        b: text.as_bytes(),
-        at: 0,
-    };
+pub fn decode(plan: &Plan, ty: TypesId, text: &[u8]) -> Option<Value> {
+    let mut r = Reader { b: text, at: 0 };
     let v = r.value(plan, ty, 0)?;
     r.space();
     (r.at == r.b.len()).then_some(v)

@@ -19,7 +19,7 @@ fn unavailable(message: impl Into<String>) -> DataError {
 /// A module's scoped snapshot of the committed store: its own `secret.keep`
 /// names, never the runner's kept answers or persisted states (LLP
 /// 1027.002 D3, change 1; LLP 1116 D5).
-pub fn snapshot(store: &Store, grants: &str) -> Vec<(String, String)> {
+pub fn snapshot(store: &Store, grants: &str) -> Vec<(String, Vec<u8>)> {
     let granted = Store::new(grants, []).granted().to_vec();
     store
         .snapshot()
@@ -35,7 +35,13 @@ pub fn encode(result: Result<Answer, DataError>, local: &mut Store, logs: Vec<St
     let writes: Vec<Json> = local
         .take_writes()
         .into_iter()
-        .map(|w| json!([w.name, w.value]))
+        // A module writes only secrets, which are text
+        .map(|w| {
+            json!([
+                w.name,
+                w.value.map(|v| String::from_utf8_lossy(&v).into_owned())
+            ])
+        })
         .collect();
     let mut body = json!({"turn": 1, "reads": local.reads(), "topics": local.take_topics(), "writes": writes, "logs": logs});
     match result {
@@ -242,7 +248,7 @@ mod tests {
 
     #[test]
     fn a_turn_round_trips_its_value_writes_reads_and_yields() {
-        let mut local = Store::new("secret.keep a", [("a".to_string(), "1".to_string())]);
+        let mut local = Store::new("secret.keep a", [("a".to_string(), "1".into())]);
         let _ = local.get("a");
         local.set("a", "2").unwrap();
         let value = Value::record(vec![Value::str("x"), Value::Number(2.0)]);
@@ -316,14 +322,14 @@ mod tests {
         let store = Store::new(
             "secret.keep a\nsecret.keep b",
             [
-                ("a".to_string(), "1".to_string()),
-                ("b".to_string(), "2".to_string()),
-                ("exact.kept.x".to_string(), "k".to_string()),
+                ("a".to_string(), "1".into()),
+                ("b".to_string(), "2".into()),
+                ("exact.kept.x".to_string(), "k".into()),
             ],
         );
         assert_eq!(
             snapshot(&store, "secret.keep b\nnet.fetch https://x"),
-            vec![("b".to_string(), "2".to_string())]
+            vec![("b".to_string(), "2".into())]
         );
         assert_eq!(unbase64(&base64(b"hello, turn")).unwrap(), b"hello, turn");
         assert_eq!(unbase64("!!"), None);

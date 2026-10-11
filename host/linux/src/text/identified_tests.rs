@@ -581,6 +581,8 @@ mod owned_spec {
             white_space: exact_kernel::WhiteSpace::Normal,
             direction: exact_kernel::Direction::Ltr,
             text_indent: 0.0,
+            text_box_trim: exact_kernel::TextBoxTrim::None,
+            text_box_edge: exact_kernel::TextBoxEdge::Auto,
         }
     }
     fn stamp_tree(text: &str) -> Kernel {

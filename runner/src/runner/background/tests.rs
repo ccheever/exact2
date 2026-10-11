@@ -54,7 +54,7 @@ impl DataSource for Saving {
         assert!(matches!(outcome, Outcome::Response(_)));
         self.left -= 1;
         self.landed += 1;
-        Ok(self.background(&Store::new("", Vec::<(String, String)>::new())))
+        Ok(self.background(&Store::new("", Vec::<(String, Vec<u8>)>::new())))
     }
 
     fn background_state(&self) -> Option<BackgroundState> {

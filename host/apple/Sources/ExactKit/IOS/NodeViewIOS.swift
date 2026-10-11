@@ -1266,6 +1266,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         applyFilter()
         updateMaterial()
         syncVibrancy()
+        presenter?.accent.restyled(self)
         syncScroll()
         applyAffordances()
         styleTextArea()

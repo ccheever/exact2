@@ -93,6 +93,7 @@ package final class Presenter {
     lazy var flats = FlatLeaves(self)
     /// The native swipe rows (LLP 1008 §9), a grouped list's included.
     package lazy var swipeActions = SwipeActionsHost(self)
+    lazy var accent = AppAccent(self)
     /// The native menu arm (LLP 1021 D3).
     lazy var menus = MenuHost(presenter: self)
     lazy var keyboardToolbars = KeyboardToolbars(self)
@@ -357,6 +358,7 @@ package final class Presenter {
         collections.reset()
         autofocusProcessed.removeAll()
         segments.reset()
+        accent.release()
         groupedLists?.reset()
         controls.reset()
         fieldSelections.reset()
@@ -923,7 +925,7 @@ package final class Presenter {
                 if let gone, !modals.retainsRemovedView(gone) { gone.removeFromSuperview() }
             case .roots:
                 root.subviews.forEach { $0.removeFromSuperview() }
-                for r in op.ids.compactMap({ views[UInt32($0)] }) { root.addSubview(r) }
+                accent.attach(op.ids.compactMap { views[UInt32($0)] }) { for r in $0 { root.addSubview(r) } }
             case .frame, .content:
                 if flats.isFlat(id) {
                     if kind == .frame { flats.frame(id, CGRect(x: op.x, y: op.y, width: op.w, height: op.h)) }

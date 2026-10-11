@@ -17,7 +17,7 @@ const STATE: &str = "exact.state";
 /// tree is emptied first, once a process and before anything is written there
 /// (`picker::empty_fresh_tree`); one that cannot be emptied gives nothing,
 /// said at boot and again by the activation.
-pub(super) fn store_snapshot(app_id: &str, carried: bool) -> Vec<(String, String)> {
+pub(super) fn store_snapshot(app_id: &str, carried: bool) -> Vec<(String, Vec<u8>)> {
     if carried {
         return Vec::new();
     }
@@ -48,7 +48,7 @@ pub(super) fn store_snapshot(app_id: &str, carried: bool) -> Vec<(String, String
     let mut out = Vec::new();
     for name in names {
         if let Ok(Some(value)) = ibex2::secrets::SecretStore::get(&secrets, &name) {
-            out.push((name, value));
+            out.push((name, value.into_bytes()));
         }
     }
     // The runner's own: kept answers and persisted states (LLP 1116 D5),
@@ -58,10 +58,8 @@ pub(super) fn store_snapshot(app_id: &str, carried: bool) -> Vec<(String, String
         (STATE, exact_runner::Store::STATE),
     ] {
         for key in ibex2::kv::KvStore::keys(&kv, scope).unwrap_or_default() {
-            if let Ok(Some(bytes)) = ibex2::kv::KvStore::get(&kv, scope, &key) {
-                if let Ok(value) = String::from_utf8(bytes) {
-                    out.push((format!("{prefix}{key}"), value));
-                }
+            if let Ok(Some(value)) = ibex2::kv::KvStore::get(&kv, scope, &key) {
+                out.push((format!("{prefix}{key}"), value));
             }
         }
     }
@@ -94,11 +92,15 @@ pub(super) fn persist_store_writes(
         .find_map(|(scope, prefix)| Some((scope, write.name.strip_prefix(prefix)?)));
         let result = match owned {
             Some((scope, key)) => match &write.value {
-                Some(value) => ibex2::kv::KvStore::set(&kv, scope, key, value.as_bytes()),
+                Some(value) => ibex2::kv::KvStore::set(&kv, scope, key, value),
                 None => ibex2::kv::KvStore::delete(&kv, scope, key),
             },
             None => match &write.value {
-                Some(value) => ibex2::secrets::SecretStore::set(&secrets, &write.name, value),
+                Some(value) => ibex2::secrets::SecretStore::set(
+                    &secrets,
+                    &write.name,
+                    &String::from_utf8_lossy(value),
+                ),
                 None => ibex2::secrets::SecretStore::forget(&secrets, &write.name),
             },
         };

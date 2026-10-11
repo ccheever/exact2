@@ -286,6 +286,11 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     // @ref LLP 1115 D3 — a platform text style, as WebKit's
     // `font: -apple-system-headline`; no other `font` value.
     ("font", "css CSS Fonts 4", AttrTarget::Shorthand),
+    // CSS Inline Layout 3 §4: the trim's row, and the edge's two words
+    // projected through `shorthands`.
+    ("text-box-trim", "css CSS Inline Layout 3", AttrTarget::Styles(&[StyleId::TextBoxTrim])),
+    ("text-box-edge", "css CSS Inline Layout 3", AttrTarget::Shorthand),
+    ("text-box", "css CSS Inline Layout 3", AttrTarget::Shorthand),
 ];
 
 /// The target of a style attribute, if `name` is one.
