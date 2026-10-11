@@ -240,10 +240,28 @@ extension NodeView {
     /// A window or ancestor tint changed: the rows naming it apply again.
     package override func tintColorDidChange() {
         super.tintColorDidChange()
+        // An `svg`'s paints are resolved into its scene's layers.
+        if kind == "svg" { presenter?.svg.reappear(id, dark: drawsDark, clock: presenter?.session?.clock, tint: viewTint) }
         // A symbol counts: hierarchical and palette glyphs bake the tint in.
         guard style.values.contains(where: \.namesTint) || inlineText.contains(where: \.namesTint) || symbolView != nil else { return }
         paragraphOwner.invalidateText(); paragraphOwner.setNeedsDisplay()
         applyStyle(style)
+    }
+
+    /// An authored `accent-color` is its subtree's tint (LLP 1116.001 D2),
+    /// as a hand-built UIKit app sets a view's `tintColor`: UIKit carries it
+    /// down, and every row beneath that names the tint (`AccentColor`,
+    /// `LinkText`, a symbol's default) resolves by it (`ownTint`). `auto`, or
+    /// an accent that names the tint itself, leaves the inherited one.
+    /// Called when the row changes; nothing else sets a node view's tint.
+    func applyAccentTint() {
+        guard style["accent_color"]?.namesTint != true, channels("accent_color", dark: false) != nil else {
+            tintColor = nil
+            return
+        }
+        tintColor = UIColor { [weak self] traits in
+            self?.channels("accent_color", dark: traits.userInterfaceStyle == .dark).map { TextEngine.color($0) } ?? .systemBlue
+        }
     }
     #endif
 
