@@ -2,13 +2,13 @@
 name: 20261011-restore-defaults-and-timeline-glyph
 plan: 20261005-t3code-macos-parity
 implementation: implemented
-verification: unverified
-delivery: none
+verification: verified
+delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-restore-defaults-and-timeline-glyph
-pr_url:
-verified_commit:
+pr_url: https://github.com/ccheever/exact2/pull/470
+verified_commit: ee0bd2f44
 ---
 
 # Restore defaults resets what the reference resets; the Timeline's lifecycle glyph
@@ -95,6 +95,35 @@ that the agent's taps and `screenshot … window` reach.
   `PrdMarker` or `PrAvatar`, names the actor, and the marker is the reference's box and glyph; the opened row keeps its
   actor for the name. Against the feature tip's sources: 1 pass, 4 fail.
 - `settings-core.test.ts` unchanged and passing (its restore cases never changed one of the five).
+
+## Checks
+
+On `ee0bd2f44` (after a fetch: `origin/feat(example)/t3-code` had no commit past this branch's base `fe0e39c91`, so no
+merge was needed), once:
+
+| Check | Exit | Note |
+| --- | --- | --- |
+| `bun test examples/t3-code --timeout 60000` | 0 | 4666 pass, 1 skip, 0 fail (312 files) |
+| strict `tsc` (README command) | 0 | |
+| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | `app.contract` 1,398 lines |
+| `cargo test -p t3-code-macos --lib`, AppKit binaries | not run | no Rust and no Swift changed |
+| `git add -A && bun scripts/caps.mjs` | 0 | every file within its cap (`settings-core.ts` 754, `pages-pr-timeline.contract` 387 lines) |
+| `cargo build --all-targets --keep-going` | 0 | |
+| `cargo test --lib --bins --tests --no-fail-fast` | 101 | 3,744 passed, 1 failed: `contract` `button_migration::every_app_corpus_and_example_compiles_and_the_button_migration_is_complete` on `apps/color-gallery/app.contract:269:17` ("styled default button needs appearance=\"none\""), main's color-gallery, inherited from the feature tip (adopt-main-fixes-r9's record, #440); this branch changes nothing outside `examples/t3-code` |
+| `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | |
+| `cargo fmt --all -- --check` | 0 | |
+| `bun scripts/boot.mjs` | 0 | |
+
+`host/apple/build.mjs t3-code-macos --bundle`: 0, once, before the live drive (`b1acb571f`'s app code, the same as the
+checked head's).
+
+## Not done / not verified
+
+None. No real-input rows: both rows are state and drawing the agent's taps and `screenshot … window` reach.
+
+## Delivery
+
+Draft PR [#470](https://github.com/ccheever/exact2/pull/470) into `feat(example)/t3-code`.
 
 ## Next action
 
