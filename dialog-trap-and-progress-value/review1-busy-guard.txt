@@ -1,0 +1,76 @@
+# dialog-trap-and-progress-value, review round 1: a guard whose target cannot take the focus (busy-guard probe)
+#
+# One-file probe (busy-probe.contract below), driven by scripts/agent.mjs macos --plan on the clone's host binary (the
+# evidence base's build; no host code changed). Dialog A: the start guard's target, the X, is disabled. Dialog B: the end
+# guard's target, the first stop, is disabled - as a dialog's guards are while it is busy. Outside before / Outside after
+# are buttons outside both dialogs. 'type <id> key <K>' focuses <id>, then sends the key.
+#
+# before = dialog-trap.contract FocusGuard at 808fc26ba (PR #431 before this round); after = this round's FocusGuard.
+
+== before
+Shift+Tab from A first                   -> a-guard-start
+Shift+Tab again (on A's start guard)     -> outside-before
+Tab (on A's start guard)                 -> a-first
+Tab from B last                          -> b-guard-end
+Tab again (on B's end guard)             -> outside-after
+Shift+Tab (on B's end guard)             -> b-last
+
+== after
+Shift+Tab from A first                   -> a-guard-start
+Shift+Tab again (on A's start guard)     -> a-guard-start
+Tab (on A's start guard)                 -> a-first
+Tab from B last                          -> b-guard-end
+Tab again (on B's end guard)             -> b-guard-end
+Shift+Tab (on B's end guard)             -> b-last
+
+# busy-probe.contract (after):
+// dialog-trap-and-progress-value review probe (not committed): two modal boxes whose guard targets are disabled, as
+// while a dialog is busy. A: the start guard's target (the X) is disabled. B: the end guard's target (the first stop)
+// is disabled. The guard component below is dialog-trap.contract's FocusGuard, verbatim (before: 808fc26ba; after: this
+// branch).
+component Probe
+  state pressed = ""
+  action press(which: string)
+    pressed = which
+  view
+    column padding=20 gap=12 width="100%"
+      button press=press("outside-before") testId="outside-before"
+        text "Outside before"
+      column position="relative" padding=12 gap=8 border-width=1 border-style="solid" border-color="#999999" role="dialog" aria-modal=true aria-label="A" testId="dialog-a"
+        FocusGuard(guardId="a-guard-start", target="a-x")
+        button id="a-first" press=press("a-first") testId="a-first"
+          text "A first (enabled)"
+        button id="a-x" press=press("a-x") disabled=true testId="a-x" position="absolute" right=4 top=4
+          text "X (disabled)"
+        FocusGuard(guardId="a-guard-end", target="a-first")
+      column position="relative" padding=12 gap=8 border-width=1 border-style="solid" border-color="#999999" role="dialog" aria-modal=true aria-label="B" testId="dialog-b"
+        FocusGuard(guardId="b-guard-start", target="b-last")
+        button id="b-first" press=press("b-first") disabled=true testId="b-first"
+          text "B first (disabled)"
+        button id="b-last" press=press("b-last") testId="b-last"
+          text "B last (enabled)"
+        FocusGuard(guardId="b-guard-end", target="b-first")
+      button press=press("outside-after") testId="outside-after"
+        text "Outside after"
+      text pressed testId="pressed"
+
+component FocusGuard
+  props
+    guardId: string
+    target: string
+  derive start = includes(guardId, "-guard-start")
+  action enter
+    if target != ""
+      focus(target)
+  // A guard keeps the focus only when its target cannot take it: disabled or not drawn while the dialog is busy, or
+  // none named. Base UI then holds the focus in the popup, so the key that would leave the dialog from here (Shift+Tab
+  // at the start guard, Tab at the end guard) tries the target again and otherwise leaves the focus on the guard;
+  // the other way, the key goes on into the dialog.
+  action hold(k: string, e: KeyboardEvent)
+    if k == "Tab" and e.shiftKey == start
+      preventDefault()
+      stopPropagation()
+      if target != ""
+        focus(target)
+  view
+    box id=guardId tabindex=0 aria-hidden=true focus=enter key=hold position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" testId=guardId
