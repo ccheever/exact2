@@ -1,0 +1,18 @@
+# readouts.py <drive.jsonl>: for each screenshot, the focused element (testId, label, role) and the dialog it sits in.
+import json, sys, os
+rows = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
+for i, r in enumerate(rows):
+    shot = next((v for v in r.values() if isinstance(v, str) and v.endswith('.png')), None)
+    if not shot: continue
+    st, tr = rows[i - 3], rows[i - 2]
+    ns = {n['id']: n for n in tr.get('nodes', [])}
+    fid = st.get('focus', {}).get('logical')
+    n = ns.get(fid); inside = None; desc = None
+    if n:
+        p = n['props']; desc = f"{p.get('testId')} [{p.get('accessibilityRole')}] {p.get('accessibilityLabel') or ''}".strip()
+        a = n
+        while a is not None:
+            if a['props'].get('accessibilityRole') in ('dialog', 'alertdialog'): inside = a['props'].get('testId') or a['props'].get('accessibilityLabel'); break
+            a = ns.get(a.get('parent'))
+    dialogs = [m['props'].get('testId') or m['props'].get('accessibilityLabel') for m in ns.values() if m['props'].get('accessibilityRole') in ('dialog', 'alertdialog')]
+    print(json.dumps({'shot': os.path.basename(shot), 'focus': desc, 'inside': inside, 'dialogs': dialogs}))
