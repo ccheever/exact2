@@ -261,9 +261,19 @@ heading inside a button, found by #404) moved to main as `issues/20261010-macos-
 #405); X75 (two sends on one mutation in one turn, found by #403) was checked and not filed: main's docs declare it.
 `realinput-1010f` (the bundle of `d057787cb`) passed RD-1, RD-2's positions, RD-3, RE-1 to RE-4 and RE-5's Code tab, and
 traced RE-6's two bad states. What did not pass (RD-4's Services item, RD-2's drag offset, #308's gutter drag, the pending
-card's Discard, RE-6's hover cause) is RF-1 to RF-5. Open tasks: [shell-context-menu](tasks/20261010-shell-context-menu.md)
-(#407), [import-wizard-initial-focus](tasks/20261010-import-wizard-initial-focus.md) (planned) and
-[realinput-1010f-followups](tasks/20261010-realinput-1010f-followups.md) (RF-1 to RF-5, planned).
+card's Discard, RE-6's hover cause) is RF-1 to RF-5. Then merged (2026-10-10 to 2026-10-11), all closed:
+[shell-context-menu](tasks/closed/20261010-shell-context-menu.md) (#407, `6bac646cc`),
+[import-wizard-initial-focus](tasks/closed/20261010-import-wizard-initial-focus.md) (#409, `d608796fa`),
+[realinput-1010f-followups](tasks/closed/20261010-realinput-1010f-followups.md) (#413, `1d620b880`),
+[diff-gutter-visuals](tasks/closed/20261011-diff-gutter-visuals.md) (#416, `2489c7c27`),
+[diff-gutter-selection-followups](tasks/closed/20261011-diff-gutter-selection-followups.md) (#417, `f427a9a27`) and
+[realinput-1010g-followups](tasks/closed/20261010-realinput-1010g-followups.md) (#419, `408eab1ad`). Framework gaps X76–X82
+moved to main (main PRs #410, #411, #412, #414, #418, #420). `realinput-1010h` (the bundle of `408eab1ad`) passed 14 of
+16 steps; RG-3's spelling guesses (another input source) and the wizard's Shift+Tab (X53) were partial. User decision of
+2026-10-11: that was the last real-input session, and build observations and failures go to `STATUS.md` "Known
+differences", not to new tasks; [files-gutter-parity](tasks/closed/20261011-files-gutter-parity.md) was stopped before
+it started. Open: nothing that can move; main adoption round 9 waits for main #327, and the held tasks below wait on
+main.
 New local framework draft: [X70](issues/closed/20261010-x70-aria-disabled-focusable.md) (kept
 local, as the user chose for X69). User decisions of 2026-10-10: #99's clean delivery is not in this session; PG-10 runs in
 a later attended session; the old real-input rows that need a provider, Codex usage or the Korean input source run with

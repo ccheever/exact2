@@ -264,7 +264,7 @@ steps 1 (empty timeline, Select All, Copy, paste), 3 (the app's link menu, Copy 
 WebKit items), 7 (the empty field's Select All disabled in every frame, no flicker) and 8 (the thread row keeps its own
 menu) pass. Step 2 fails (the tool icon has no Copy Image) → RG-1; step 5 is partial (the right-click capitalized the
 field's word and Cut did nothing) → RG-2; the spelling menu's AutoFill → RG-3; "Services ›" on every menu over a
-selection is RF-1. All in [realinput-1010g-followups](../20261010-realinput-1010g-followups.md).
+selection is RF-1. All in [realinput-1010g-followups](20261010-realinput-1010g-followups.md).
 
 ## Next action
 

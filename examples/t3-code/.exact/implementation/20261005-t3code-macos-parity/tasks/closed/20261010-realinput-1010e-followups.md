@@ -238,11 +238,11 @@ or live drive (the task's one drive and its retry were used).
 Merged on 2026-10-10 as `2c9225c10` (#406, squash) after an independent review and its repair round (four should-fix
 items: the Viewed write routed as the reference routes it, tests for every changed RE-5 path, the record's node number,
 the wizard's opening focus written up). The record stayed open for the real-input steps 1–6. The wizard's opening
-focus is [import-wizard-initial-focus](../20261010-import-wizard-initial-focus.md).
+focus is [import-wizard-initial-focus](20261010-import-wizard-initial-focus.md).
 
 **Real-input results (realinput-1010f).** Steps 1–6 ran in `realinput-1010f` on the bundle of `d057787cb` (lane
 ri1010f-2, the GitHub lane's server paired) ([notes](https://raw.githubusercontent.com/ccheever/exact2/2f3a80555ea176b202a0e652e92c2dcbf790b352/realinput-1010f/F0-1010f-notes.txt)). New rows went to
-[realinput-1010f-followups](../20261010-realinput-1010f-followups.md).
+[realinput-1010f-followups](20261010-realinput-1010f-followups.md).
 
 - RE-1 passed (the reference's probe): one click logs `app did-become-active`, then `page mousedown` and `page click`. On
   a press and drag, `did-become-active` comes before `page dragstart`: the reference is front on press
@@ -265,4 +265,4 @@ ri1010f-2, the GitHub lane's server paired) ([notes](https://raw.githubuserconte
 ## Next action
 
 Closed after `realinput-1010f`. RE-5's open parts are RF-3 (#308's gutter drag) and RF-4 (Discard), and RE-6's cause is
-RF-5, in [realinput-1010f-followups](../20261010-realinput-1010f-followups.md).
+RF-5, in [realinput-1010f-followups](20261010-realinput-1010f-followups.md).

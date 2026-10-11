@@ -1,7 +1,7 @@
 ---
 name: 20261011-files-gutter-parity
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: dropped
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
@@ -15,7 +15,7 @@ verified_commit: null
 
 ## Outcome
 
-[diff-gutter-selection-followups](closed/20261011-diff-gutter-selection-followups.md) (#417, "Observations") saw three
+[diff-gutter-selection-followups](20261011-diff-gutter-selection-followups.md) (#417, "Observations") saw three
 differences from T3 Code (`1e2ecbd975`) outside its rows:
 
 | Id | Clone | Reference |
@@ -44,6 +44,12 @@ differences from T3 Code (`1e2ecbd975`) outside its rows:
 | FG-1..FG-3 | reference comparison (CDP) first; tests; agent drive | before / after / reference images, light and dark |
 | The '+' and drag under a real pointer | a real-input step for the next session | — |
 
+## Stopped
+
+2026-10-11: the user stopped this task before it started ("마지막 세션 1회 후 종료": run one last real-input session,
+then stop; build observations go to a list, not to new tasks). FG-1 to FG-3 are in `STATUS.md` "Known differences".
+Nothing was built; no branch or PR.
+
 ## Next action
 
-Start now.
+None.

@@ -3,19 +3,19 @@ name: 20261010-realinput-1010g-followups
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified-with-unverified-rows
-delivery: draft-pr
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-realinput-1010g-followups
 pr_url: https://github.com/ccheever/exact2/pull/419
-verified_commit: null
+verified_commit: 408eab1ad
 ---
 
 # Findings of the real-input session realinput-1010g (the shell context menu)
 
 ## Outcome
 
-The session `realinput-1010g` ran [shell-context-menu](closed/20261010-shell-context-menu.md)'s (#407) real-input steps
+The session `realinput-1010g` ran [shell-context-menu](20261010-shell-context-menu.md)'s (#407) real-input steps
 1–8 on the bundle of `6bac646cc`. Passed: steps 1, 3, 4, 6, 7 and 8. This task takes what did not pass. Each row is
 compared with the reference first (`DesktopWindow.ts` `installContextMenu`, CDP plus the main-process inspector, as
 #407 measured it); a row that matches it closes as such. Session notes:
@@ -187,17 +187,28 @@ binaries were not rerun (first round, on `642cdeb37`: `contextmenu` 53 run / 0 f
 
 ## Not done / not verified
 
-- Real-input steps 1-4 above (the screen stays locked; open until the batch runs). RG-2's capitalization and RG-4's
-  out-of-process read cannot be made in agent mode or headless here (see Cause and fix).
+- Real-input steps 1-4 ran in `realinput-1010h`: 1, 2 and 4 pass; 3 passes for the system items, and its spelling
+  guesses were not compared (another input source; Real-input results).
 
 ## Decision needed
 
 None.
 
+## Real-input results
+
+`realinput-1010h` (2026-10-11, the last real-input session by the user's decision; the bundle of `408eab1ad` in lane copies ri1010h-1 and ri1010h-2, real keys and pointer; the input source was 2-Set Korean and was left so, so text went in by paste). Notes: [00-1010h-notes.txt](https://raw.githubusercontent.com/ccheever/exact2/7102c03c8286911606342d14bda00cec33d3883d/realinput-1010h/00-1010h-notes.txt). `NSAutomaticCapitalizationEnabled` read 1 (read only).
+
+| Step | Result | Evidence |
+| --- | --- | --- |
+| 1, RG-1 | Pass: rested or not, the icon's right-click shows Copy Image, a separator, Cut/Copy/Paste disabled, Select All; Preview › New from Clipboard shows the blue square | [menu](https://raw.githubusercontent.com/ccheever/exact2/7102c03c8286911606342d14bda00cec33d3883d/realinput-1010h/RG1-a-rested-icon-menu.png), [Preview](https://raw.githubusercontent.com/ccheever/exact2/7102c03c8286911606342d14bda00cec33d3883d/realinput-1010h/RG1-b-preview-new-from-clipboard.png), [no rest](https://raw.githubusercontent.com/ccheever/exact2/7102c03c8286911606342d14bda00cec33d3883d/realinput-1010h/RG1-c-no-rest-icon-menu.png) |
+| 2, RG-2 | Pass: the field stays "theme" with the word selected, nothing after Select All; Cut empties it and the composer's paste gives "theme"; the thread search keeps "theme " | [menu](https://raw.githubusercontent.com/ccheever/exact2/7102c03c8286911606342d14bda00cec33d3883d/realinput-1010h/RG2-a-theme-menu.png), [after Cut](https://raw.githubusercontent.com/ccheever/exact2/7102c03c8286911606342d14bda00cec33d3883d/realinput-1010h/RG2-b-after-cut.png), [thread search](https://raw.githubusercontent.com/ccheever/exact2/7102c03c8286911606342d14bda00cec33d3883d/realinput-1010h/RG2-c-thread-search-theme-space.png) |
+| 3, RG-3 | Partial: no AutoFill, Services or Writing Tools on any of the four menus (the row's point). The composer's guesses for "chek" were chef, chew, cheek, whek, chez, without "check" (in `realinput-1010g` "check" came first). The guesses are `NSSpellChecker`'s, not the clone's; the input source was 2-Set Korean this time, so the list is not compared. Not re-run (the last session) | [composer](https://raw.githubusercontent.com/ccheever/exact2/7102c03c8286911606342d14bda00cec33d3883d/realinput-1010h/RG3-a-composer-spelling-menu.png), [example.com](https://raw.githubusercontent.com/ccheever/exact2/7102c03c8286911606342d14bda00cec33d3883d/realinput-1010h/RG3-b-example-word-menu.png), [fixture field](https://raw.githubusercontent.com/ccheever/exact2/7102c03c8286911606342d14bda00cec33d3883d/realinput-1010h/RG3-c-fixture-field-menu.png) |
+| 4, RG-4 | Pass: `AXLink "linked $verify"` (`AXURL` -25205 while X78 is open), no `AXStaticText "$verify"` after it | [grep](https://raw.githubusercontent.com/ccheever/exact2/7102c03c8286911606342d14bda00cec33d3883d/realinput-1010h/RG4-axwalk-linked-grep.txt), [walk](https://raw.githubusercontent.com/ccheever/exact2/7102c03c8286911606342d14bda00cec33d3883d/realinput-1010h/RG4-axwalk-full.txt) |
+
 ## Delivery
 
-Draft PR [#419](https://github.com/ccheever/exact2/pull/419) into `feat(example)/t3-code`.
+Merged on 2026-10-11 as `408eab1ad` (#419, squash) after an independent review.
 
 ## Next action
 
-Review the draft PR; run the real-input steps in the next batch.
+None. Closed after `realinput-1010h`; real-input sessions ended there (the user's decision).
