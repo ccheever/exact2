@@ -92,11 +92,12 @@ the initial milestone notes below are historical, not the current inventory.
 
 [observed] The range checkpoint retains the long-press anchor through repeated
 endpoint taps and passes a read-only Mini check against the actual laptop.
-The latest Usage checkpoint verifies conditional refresh-control composition
-and empty-state navigation. Populated refresh and spinner timing remain
-unverified. The saved-history experiment reconstructs the full saved
-response and retains both graphs correctly, but does not establish final JS
-reclamation or production/device capacity. These distinct boundaries are in
+The latest Usage checkpoint verifies conditional refresh-control composition,
+empty-state navigation and a populated actual-laptop visit. Exact refresh
+dispatch and spinner timing remain unverified. The saved-history experiment
+reconstructs the full saved response, retains both graphs correctly and
+reclaims the graph-sized remainder after the JS function returns. Production
+ingestion and device capacity remain unverified. These boundaries are in
 [Settings](1109.009-mobile-settings.decision.md) and
 [Composer and transcript](1109.005-composer-and-transcript.decision.md).
 
