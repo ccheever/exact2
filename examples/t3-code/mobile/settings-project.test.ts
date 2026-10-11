@@ -74,7 +74,7 @@ test('Project overview scope is bound to its own visit without replacing Back or
   const selected=answer('settingsScopeEvent',[JSON.stringify({kind:'project',value:project.id}),'{}','',rows]);
   expect(selected.close).toBe(false);
   const scoped=prepare(selected.selection), header=obj(JSON.parse(scoped.projectHeader));
-  expect(obj(JSON.parse(scoped.header))).toMatchObject({routeKey:'settings-root',close:true});
+  expect(obj(JSON.parse(scoped.header))).toMatchObject({routeKey:'settings-root',close:false});
   expect(header).toMatchObject({routeKey:'overview-1',close:false,back:false,filtered:true,projectKey:project.id});
   expect(header.addActionID).toBeUndefined();
   expect((header.projects as Obj[]).find(row=>row.id===project.id)?.selected).toBe(true);
@@ -99,8 +99,8 @@ test('compact Settings owns only its root toolbar while a child keeps the curren
  const prepare=(compact:boolean,visit:string,selection='')=>answer('settingsRoot',['{}','light',rows,0,'settings-root',selection,0,visit,compact]);
  const regular=prepare(false,'child-1'), compact=prepare(true,'child-1');
  const regularHeader=obj(JSON.parse(regular.header)), compactHeader=obj(JSON.parse(compact.header));
- expect(compactHeader).toEqual({...regularHeader,compactRoot:true});
- expect(regularHeader).toMatchObject({routeKey:'settings-root',close:true,back:false,compactRoot:false});
+ expect(compactHeader).toEqual({...regularHeader,close:true,compactRoot:true});
+ expect(regularHeader).toMatchObject({routeKey:'settings-root',close:false,back:false,compactRoot:false});
  expect(compact.projectHeader).toBe(regular.projectHeader);
  expect(obj(JSON.parse(compact.projectHeader))).toMatchObject({routeKey:'child-1',close:false,back:false});
  expect(obj(JSON.parse(compact.projectHeader)).compactRoot).toBeUndefined();
@@ -110,5 +110,16 @@ test('compact Settings owns only its root toolbar while a child keeps the curren
  expect(obj(JSON.parse(next.header))).toMatchObject({routeKey:'settings-root',compactRoot:true,all:false});
  expect(obj(JSON.parse(next.projectHeader))).toMatchObject({routeKey:'child-2',close:false,back:false,all:false});
  expect(obj(JSON.parse(next.serverScope)).environmentIds).toEqual(['a']);
+ const splitAgain=prepare(false,'child-2',selection.selection);
+ expect(obj(JSON.parse(splitAgain.header))).toEqual({...obj(JSON.parse(next.header)),close:false,compactRoot:false});
+ expect(splitAgain.projectHeader).toBe(next.projectHeader);expect(splitAgain.serverScope).toBe(next.serverScope);
+ expect(prepare(true,'child-2',selection.selection)).toEqual(next);
+ for(const kind of ['close','back']){
+  const dismissed=answer('settingsScopeEvent',[JSON.stringify({kind,value:''}),'{}',selection.selection,rows]);
+  expect(dismissed).toEqual({selection:selection.selection,close:true});
+ }
+ for(const event of [{kind:'all',value:''},{kind:'project',value:''},{kind:'environment',value:'a'}]){
+  expect(answer('settingsScopeEvent',[JSON.stringify(event),'{}',selection.selection,rows]).close).toBe(false);
+ }
  } finally {fleet.saved=oldSaved;}
 });
