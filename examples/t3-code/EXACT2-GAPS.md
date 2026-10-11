@@ -690,7 +690,12 @@ reference's CDP desktop host (`apps/desktop/src/preview/Manager.ts`):
   `uploadedAttachmentId`, which the server claims and hands the agent as a path in its environment. The module waits
   for the tab, hands the request to the data module (`presentation.browserAutomation.recordings`) and answers with the
   outcome it sends back; a request the data module has not answered by the request's host deadline answers an
-  execution error there (the reference's host waits on, and the broker times the request out). The upload is native
+  execution error there (the reference's host waits on, and the broker times the request out). The data module runs
+  each request in one of four queued sends of the window (`automationRecordingServed0`-`3`, review of 2026-10-12): the
+  panel names one whose answer runs nothing, so a start never waits for another thread's stop and its upload, as the
+  reference's `handleRequest` runs each request on its own; only a fifth request in flight at once waits behind one of
+  the four (a Contract's mutations are declared, and a mutation's sends replace or queue: X75, LLP 1092; not an exact2
+  gap). The upload is native
   (`attachments.createUploadUrl`, then the bytes through the transport's `uploadAttachment`), not `fetch` with an abort
   signal: the module gives up at the budget's last second and the transfer it started may still finish.
 - **Presentation (part 3).** The reference shows an agent's tab in the floating preview; part 3's floating player is in,
