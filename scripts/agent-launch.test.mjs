@@ -4,7 +4,7 @@ import { test, expect } from 'bun:test';
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
-import { chromium, launchFacts, launchEnvironment, parseFlags, webPort } from './agent-launch.mjs';
+import { chromium, launchFacts, launchEnvironment, parseFlags, launchLog, launchFailure, webPort } from './agent-launch.mjs';
 import { timeReporter } from '../host/web/navigation.js';
 
 // LLP 1107 D1: `--reader` is a flag of the drive, said to the Android carrier as the variable it reads
@@ -64,3 +64,14 @@ test('a web drive takes its port from --port, else EXACT_PORT, and refuses anyth
   expect(() => webPort(undefined, {EXACT_PORT: 'x'})).toThrow('EXACT_PORT x: a port number');
 });
 
+// App farm 082: Chrome's fatal line came before a native stack the tail kept instead.
+test("a Chrome that dies at launch is reported by its first fatal line, before the stack's tail", () => {
+  const log = launchLog();
+  log.add('[1:1:1011/000000.000:FATAL:process_singleton_posix.cc(313)] Socket path too long: /long/.org.chromium.Chromium.x/SingletonSocket');
+  for (let i = 0; i < 20; i++) log.add(`  r${i}: 0000000000000006`);
+  const message = launchFailure(new Error('the DevTools pipe closed'), log, {alive: false, chrome: '/c', env: {TMPDIR: '/long'}}).message;
+  expect(message).toContain('FATAL:process_singleton_posix.cc(313)] Socket path too long');
+  expect(message).toContain('r19: 0000000000000006');
+  expect(message).toContain('give the drive a shorter TMPDIR');
+  expect(launchFailure(new Error('closed'), launchLog(), {alive: false, chrome: '/c'}).message).toContain('(it printed nothing)\nSet CHROME');
+});

@@ -179,6 +179,24 @@ export function webPort(flag, env = process.env) {
   return port;
 }
 
+/** A launching Chrome's stderr, unfiltered: the last lines, and the first fatal one, which the native stack trace
+ * after it pushes out of any tail (app farm 082: "Socket path too long" under a long TMPDIR read as a bare stack). */
+export function launchLog(limit = 8) {
+  const log = { tail: [], fatal: null, add(line) {
+    if (!log.fatal && /:FATAL:|\bCheck failed\b/.test(line)) log.fatal = line;
+    log.tail.push(line); if (log.tail.length > limit) log.tail.shift();
+  } };
+  return log;
+}
+
+/** Why Chrome did not start or answer, from its `launchLog` (the pipe only closes). */
+export function launchFailure(error, log, { alive, chrome, env = process.env }) {
+  const tail = log.tail.slice(-6), lines = log.fatal && !tail.includes(log.fatal) ? [log.fatal, '…', ...tail] : tail;
+  const temp = env.TMPDIR || tmpdir(), socket = /Socket path too long/i.test(log.fatal ?? '')
+    ? `\nChrome keeps a Unix socket under TMPDIR (${temp}, ${temp.length} characters), and a socket's path must fit in 107 bytes: give the drive a shorter TMPDIR.` : '';
+  return new Error(`Chrome ${alive ? 'did not answer' : 'did not start'} (${error.message}); CHROME=${chrome}\n${lines.map(l => '  chrome: ' + l).join('\n') || '  (it printed nothing)'}${socket || (alive ? '' : '\nSet CHROME to a browser that runs here.')}`);
+}
+
 /** One browser lookup for the agent and its tests: an explicit override,
  * otherwise the platform's ordinary Chromium installation. A bare CHROME
  * name is resolved through PATH before a test decides whether to skip. */
