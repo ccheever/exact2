@@ -2,7 +2,9 @@
 //! `contract` block in `docs/*.md`, the recipes (`docs/recipes/*.md`, LLP
 //! 1116 D3) and `README.md` compiles with no diagnostics, and each
 //! `contract-test` block parses. A deliberately partial block is fenced
-//! `text`. Every failure is reported in one run.
+//! `text`. Every failure is reported in one run. So does every starter
+//! pattern (`docs/patterns/<name>/`, LLP 1116.001 D3), and the async lane
+//! runs each one's tests in an app `exact new` made.
 
 use std::path::{Path, PathBuf};
 
@@ -229,8 +231,124 @@ fn every_split_app_in_the_guides_compiles_assembled() {
     );
 }
 
+/// The starter patterns (LLP 1116.001 D3): each directory under
+/// `docs/patterns` holding an `app.contract`, by path from the repo root.
+pub(crate) fn patterns() -> Vec<PathBuf> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/patterns");
+    let mut dirs: Vec<PathBuf> = std::fs::read_dir(&root)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|dir| dir.join("app.contract").is_file())
+        .collect();
+    dirs.sort();
+    dirs
+}
+
+/// Every pattern `exact.mjs pattern` writes compiles with no diagnostic,
+/// error or warning, and its `app.test.contract` parses.
+#[test]
+fn every_pattern_compiles_with_no_diagnostic_and_its_tests_parse() {
+    let mut failures = Vec::new();
+    let all = patterns();
+    assert!(all.len() >= 5, "docs/patterns has {} patterns", all.len());
+    for dir in &all {
+        let path = dir.join("app.contract");
+        let name = dir.file_name().unwrap().to_string_lossy().to_string();
+        let at = |e: &contract::CompileError| {
+            format!(
+                "{name}/app.contract:{}: [{}] {}",
+                e.span.line, e.id, e.message
+            )
+        };
+        if let Err(all) = contract::compile_path_all(&path, false) {
+            failures.extend(all.iter().map(at));
+        }
+        failures.extend(
+            contract::compile_path_all_warned(&path, false)
+                .1
+                .iter()
+                .map(at),
+        );
+        match std::fs::read_to_string(dir.join("app.test.contract")) {
+            Ok(tests) => match contract::tests(&tests) {
+                Ok(decls) if decls.is_empty() => {
+                    failures.push(format!("{name}/app.test.contract: no tests"))
+                }
+                Ok(_) => {}
+                Err(e) => failures.push(format!(
+                    "{name}/app.test.contract:{}: [{}] {}",
+                    e.span.line, e.id, e.message
+                )),
+            },
+            Err(e) => failures.push(format!("{name}/app.test.contract: {e}")),
+        }
+        if !dir.join("app.ts").is_file() {
+            failures.push(format!("{name}: no app.ts"));
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} failures in docs/patterns:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}
+
+/// Each pattern, written by `bun exact.mjs pattern <name>` into one app
+/// `exact new` made, passes its own tests on the web: `test web`, or the
+/// command its pattern.json adds (rest's `api-test`, which starts its server).
+#[test]
+#[ignore = "async lane: makes an app with Bun and Cargo and drives every pattern's tests in Chrome; bun scripts/async.mjs runs it"]
+fn every_pattern_passes_its_tests_on_the_web() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let parent = std::env::temp_dir().join(format!("exact-patterns-{}", std::process::id()));
+    std::fs::create_dir_all(&parent).unwrap();
+    let app = parent.join("patterns-check");
+    let run = |cwd: &Path, args: &[&str]| {
+        let output = std::process::Command::new("bun")
+            .args(args)
+            .current_dir(cwd)
+            .env_remove("EXACT_APP_DIR")
+            .output()
+            .expect("bun runs");
+        let said = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        (output.status.success(), said)
+    };
+    let script = root.join("scripts/exact.mjs");
+    let (made, said) = run(
+        &root,
+        &[script.to_str().unwrap(), "new", app.to_str().unwrap()],
+    );
+    assert!(made, "exact new: {said}");
+    let mut failures = Vec::new();
+    for dir in patterns() {
+        let name = dir.file_name().unwrap().to_string_lossy().to_string();
+        let (wrote, said) = run(&app, &["exact.mjs", "pattern", &name, "--force"]);
+        if !wrote {
+            failures.push(format!("pattern {name}: {said}"));
+            continue;
+        }
+        let verb = if dir.join("pattern.json").is_file() {
+            "api-test"
+        } else {
+            "test"
+        };
+        let (passed, said) = run(&app, &["exact.mjs", verb, "web"]);
+        if !passed {
+            failures.push(format!("{name} ({verb} web):\n{said}"));
+        }
+    }
+    let _ = std::fs::remove_dir_all(&parent);
+    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+}
+
 /// A recipe builders copy carries no tells (LLP 1116 D3 §6.5): `no-tells`
-/// passes over every recipe's `contract` blocks and start-here's.
+/// passes over every recipe's `contract` blocks and start-here's, and over
+/// every pattern's (LLP 1116.001 D3).
 #[test]
 #[ignore = "async lane: launches Bun for scripts/no-tells.mjs; bun scripts/async.mjs runs it"]
 fn the_recipes_and_start_here_say_no_literal_colour_size_or_weight() {
@@ -246,6 +364,7 @@ fn the_recipes_and_start_here_say_no_literal_colour_size_or_weight() {
     let output = std::process::Command::new("bun")
         .arg(root.join("scripts/no-tells.mjs"))
         .args(&guides)
+        .args(patterns().iter().map(|dir| dir.join("app.contract")))
         .output()
         .expect("bun runs scripts/no-tells.mjs");
     assert!(

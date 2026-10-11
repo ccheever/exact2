@@ -37,7 +37,7 @@ import { BINARYEN } from '../host/web/stages.mjs';
 import { basename, delimiter, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cargoEnvironment, executableName, HERMES_INSTALLER, hermesBundle, hermesTarget, resolveApp, WEB_TOOLCHAIN, webToolchainEnv } from './app.mjs';
-import { createApp, createGame } from '../game/new.mjs';
+import { applyPattern, createApp, createGame, patternList } from '../game/new.mjs';
 import { sdkFetch } from '../game/app/shells.mjs';
 import { appleArtifacts, assertAppleIdentity, macReleaseEntitlements, stripForDistribution } from '../host/apple/build.mjs';
 import { closeFilesystemReader } from './filesystem.mjs';
@@ -846,6 +846,18 @@ fn ${snake}_hatch_ended<H: Hatches>(_element: &Element, _context: &mut Context<'
   return { wrote, todo, platforms };
 }
 
+/** `exact.mjs pattern [<name>] [--force]` (LLP 1116.001 D3): the starter patterns, or one written
+ * into the app (`EXACT_APP_DIR`, else this directory) with the types its app.ts imports. */
+export function pattern(args, say = console.log) {
+  const name = args.find(arg => !arg.startsWith('-'));
+  if (!name) return say(patternList());
+  const dir = process.env.EXACT_APP_DIR ?? process.cwd();
+  const { said, next } = applyPattern(dir, name, { force: args.includes('--force') });
+  say(said);
+  refreshTypes(dir);
+  say(next);
+}
+
 function main(argv) {
   const [verb, name, ...rest] = argv;
   if (!verb || verb === '--help' || verb === '-h' || verb === 'help') return console.log(USAGE);
@@ -854,6 +866,7 @@ function main(argv) {
   // The compiler parses its own flags; its help is printed here, so asking compiles nothing (LLP 1116 D4).
   if (verb === 'contract') return process.exit(argv.includes('--help') || argv.includes('-h') ? (console.log(helpText('contract')), 0) : contract(argv.slice(1)));
   if (verb === 'hatch') return hatch(guardFlags('hatch', argv.slice(1)));
+  if (verb === 'pattern') return pattern(guardFlags('pattern', argv.slice(1)));
   if (verb === 'new') {
     // Flags may come before the path: `exact new --game ./my-game`.
     const args = guardFlags(argv.includes('--update') ? 'update' : 'new', argv.slice(1)), path = args.find(arg => !arg.startsWith('--'));
