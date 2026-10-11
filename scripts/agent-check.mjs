@@ -157,15 +157,28 @@ function line(f, nodes) {
   return `  ${f.kind.padEnd(8)} ${who(f, nodes)} ${box}: ${what}${f.hint ? `; ${f.hint}` : ''}`;
 }
 
-/** The text a check prints: per scheme, its findings (at most SHOWN, then a count), or one line saying there are none. */
+/** An advisory line (LLP 1116.004 D1.3): a phone's layout at a desktop width, which a composed page may mean. Never a finding. */
+function advise(a, width, nodes) {
+  const who = named(a.id, nodes);
+  return `  advice   ${who}: ${a.kind === 'tabbar'
+    ? `a bottom tab bar ${r0(a.w)} px wide along a ${width}-px window; placed as docs/recipes/tabs.md places it (the last child of the root's flex column, unpositioned) a wide window draws it as a sidebar, or lay out a rail of your own when the window is wide`
+    : a.pushed
+      ? `the list beneath pushes this detail over the whole ${width}-px window where they would fit side by side; a row that pushes draws the disclosure (\`image "symbol:forward-chevron"\`, last in the row) and a wide window shows the list beside its detail, or set \`navigationSplit\` on the list's route (contract vocab navigationSplit)`
+      : `a list ${r0(a.w)} px wide on a ${width}-px window; if a row pushes its detail, draw the disclosure in the row (\`image "symbol:forward-chevron"\`, last) and a wide window shows the list beside the detail (contract vocab navigationSplit)`}`;
+}
+
+/** The text a check prints: per scheme, its findings (at most SHOWN, then a count), or one line saying there are none; then its advice. */
 export function report(runs, nodes, host) {
   const out = [];
   for (const run of runs) {
     const head = `check ${host} · ${run.scheme}${run.asked && run.asked !== run.scheme ? ` (asked ${run.asked}: the app keeps its own scheme)` : ''}`;
-    if (!run.findings.length) { out.push(`${head}: no findings (text fits, nothing covered or overlapping, targets ≥ ${run.target}, no horizontal overflow, contrast ≥ 4.5:1 or 3:1 large, cards show)`); continue; }
-    out.push(`${head}: ${run.findings.length} finding${run.findings.length === 1 ? '' : 's'}`);
-    for (const f of run.findings.slice(0, SHOWN)) out.push(line(f, nodes));
-    if (run.findings.length > SHOWN) out.push(`  … and ${run.findings.length - SHOWN} more (--json lists them all)`);
+    if (!run.findings.length) out.push(`${head}: no findings (text fits, nothing covered or overlapping, targets ≥ ${run.target}, no horizontal overflow, contrast ≥ 4.5:1 or 3:1 large, cards show)`);
+    else {
+      out.push(`${head}: ${run.findings.length} finding${run.findings.length === 1 ? '' : 's'}`);
+      for (const f of run.findings.slice(0, SHOWN)) out.push(line(f, nodes));
+      if (run.findings.length > SHOWN) out.push(`  … and ${run.findings.length - SHOWN} more (--json lists them all)`);
+    }
+    for (const a of run.advice ?? []) out.push(advise(a, run.width, nodes));
   }
   return out.join('\n');
 }
@@ -187,7 +200,7 @@ export async function checkOp(s, args = []) {
       const path = resolve(dir, `${scheme}.png`);
       await s.carrier.screenshot(path, obs.capture?.window === true); // iOS observes in the window's points: a sheet is not in the viewport's picture
       const png = decodePng(readFileSync(path));
-      runs.push({ scheme: obs.scheme, asked: scheme, target: obs.target, findings: judge(obs, png, { host: s.host === 'web' ? 'web' : 'ios' }) });
+      runs.push({ scheme: obs.scheme, asked: scheme, target: obs.target, findings: judge(obs, png, { host: s.host === 'web' ? 'web' : 'ios' }), ...(obs.advice ? { advice: obs.advice, width: obs.viewport.w } : {}) });
     }
   } finally {
     if (preferred && preferred !== first.scheme) await s.prefer({ 'prefers-color-scheme': first.scheme }).catch(() => {});

@@ -156,10 +156,24 @@ export function observe(views, inactive = () => false) {
     }
     if (item.text || item.control || item.fill || item.outX) items.push(item);
   }
+  // LLP 1116.004 D1.3: a phone's layout at a desktop width, as advice (never a finding): a root tab bar stretched along
+  // the window's bottom, and a stack the projection did not split whose root route's list pushes its detail (or, at
+  // the root, a list of pressable rows stretched across the window, which may).
+  const advice = [];
+  if (W >= 900) for (const nav of document.querySelectorAll('#exact-root [navigationBack]')) {
+    const bar = [...nav.querySelectorAll('[role="tablist"]')].find((l) => l.parentElement?.closest('[navigationKey]') === nav && l.querySelector(':scope > [role="tab"][aria-controls]'));
+    const bb = bar?.getBoundingClientRect();
+    if (bb && !nav.hasAttribute('data-exact-sidebar') && bb.width >= W * 0.75 && bb.bottom >= H - 2 && bb.height * 4 < bb.width) advice.push({ kind: 'tabbar', id: viewOf(bar), w: r2(bb.width) });
+    const key = nav.getAttribute('navigationKey'), top = [...nav.querySelectorAll('[navigationKey]')].find((r) => r !== nav && r.getAttribute('navigationKey') === key && r.parentElement.closest('[navigationKey]') === nav);
+    const first = top && [...top.parentElement.children].find((r) => r.hasAttribute('navigationKey')), w = first ? r2(first.getBoundingClientRect().width) : 0;
+    if (!first || first.hasAttribute('data-exact-split') || first.getAttribute('navigationSplit') === 'none' || /^(modal|fullscreen)$/.test(top.getAttribute('navigationPresentation') ?? '')) continue;
+    const rows = first.querySelectorAll('[role="list"] :is(button, a[href])').length;
+    if (top !== first ? rows > 0 : rows >= 2 && w >= 600) advice.push({ kind: 'push', id: viewOf(top), pushed: top !== first, w });
+  }
   // The scheme the page draws in: a light-dark() probe in the root, whatever the system says.
   const root = document.getElementById('exact-root'), probe = document.createElement('span');
   probe.style.color = 'light-dark(rgb(0, 0, 1), rgb(0, 0, 2))'; root.append(probe);
   const used = getComputedStyle(probe).color.includes('2)') ? 'dark' : 'light'; probe.remove();
   const coarse = matchMedia('(pointer: coarse)').matches, overlap = Math.max(0, H - (globalThis.visualViewport?.height ?? H));
-  return { viewport: { w: W, h: H, scrollW: page.scrollWidth }, scheme: used, target: coarse ? 44 : 24, ...(overlap ? { keyboard: r2(H - overlap) } : {}), items };
+  return { viewport: { w: W, h: H, scrollW: page.scrollWidth }, scheme: used, target: coarse ? 44 : 24, ...(overlap ? { keyboard: r2(H - overlap) } : {}), items, ...(advice.length ? { advice } : {}) };
 }

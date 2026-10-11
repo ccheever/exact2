@@ -3,7 +3,8 @@
 // tab bar whose placement is unsaid is a sidebar on a wide window and a bar on a phone; an arrangement the app wrote
 // stays its own. A stack whose root route is a list whose rows push shows that route beside its top on a wide window
 // (the list live, its disclosure gone, the row whose press pushed the detail marked, no Back in the detail) and pushes
-// on a phone; `navigationSplit` opts out or names the width; a sheet stays a sheet; a resize changes nothing else.
+// on a phone; `navigationSplit` opts out or names the width; a sheet stays a sheet; a resize changes nothing else. At a
+// desktop width `check` advises (D1.3) on a tab bar left along the bottom and on a list that pushes unsplit.
 import { test, expect } from 'bun:test';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -53,7 +54,7 @@ const page = (body) => style + `<div id="exact-root">${body}</div>
 async function inChrome(html, test, w = 1280) {
   const server = createServer((req, res) => {
     if (req.url === '/') { res.writeHead(200, { 'content-type': 'text/html' }); res.end(html); return; }
-    res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(readFileSync(resolve(WEB, 'navigation.js')));
+    res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(readFileSync(req.url === '/check.js' ? resolve(WEB, '../web-js/check.js') : resolve(WEB, 'navigation.js')));
   });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
   const profile = mkdtempSync(resolve(tmpdir(), 'exact-wide-'));
@@ -140,3 +141,26 @@ check('navigationSplit opts a stack out, or names the width of a list the rule d
     expect(await evaluate(`[shown('r1'), box('r1'), box('r2'), back('r2')]`)).toEqual([true, [0, 0, 280, 800], [280, 0, 1000, 800], false]);
   });
 }, 60000);
+
+check('check advises on a bottom tab bar and an unsplit pushing list at a desktop width, and on neither at a phone\'s', () => {
+  const positioned = BAR.replace('style="display:flex;flex-direction:row"', 'style="display:flex;flex-direction:row;position:absolute;left:0;right:0;bottom:0"');
+  const html = page(tabs(positioned).replaceAll(chevron, '')) + `<script type="module">
+    import { observe } from './check.js';
+    window.advice = () => { const views = new Map([...document.querySelectorAll('#exact-root *')].map(e => [e.id || e.localName, e])); return (observe(views).advice ?? []).map(a => a.kind + ' ' + a.id + (a.pushed ? ' pushed' : '')); };
+  </script>`;
+  return inChrome(html, async (evaluate, size) => {
+    await evaluate(`select('1')`);
+    expect(await evaluate('advice()')).toEqual(['tabbar bar', 'push r1']);
+    await evaluate(`select('2')`);
+    expect(await evaluate('advice()')).toEqual(['tabbar bar', 'push r2 pushed']);
+    await size(390);
+    expect(await evaluate('advice()')).toEqual([]);
+  });
+}, 30000);
+
+check('the split and sidebar leave check nothing to advise', () => inChrome(page(tabs(BAR)) + `<script type="module">
+    import { observe } from './check.js';
+    window.advice = () => { const views = new Map([...document.querySelectorAll('#exact-root *')].map(e => [e.id || e.localName, e])); return observe(views).advice ?? []; };
+  </script>`, async (evaluate) => {
+  expect(await evaluate(`select('2'); advice()`)).toEqual([]);
+}), 30000);
