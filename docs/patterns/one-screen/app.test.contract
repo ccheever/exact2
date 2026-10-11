@@ -1,0 +1,15 @@
+test "the count grows toward the goal and survives a relaunch"
+  expect state count == 0
+  tap "add"
+  tap "add"
+  tap "remove"
+  tap "add"
+  expect state count == 2
+  reload
+  expect state count == 2
+  tap "reset"
+  expect state count == 0
+
+test "the summary says the goal"
+  expect state goal.target == 8
+  expect tree has "add"

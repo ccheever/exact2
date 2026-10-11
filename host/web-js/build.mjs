@@ -206,9 +206,14 @@ async function typecheck() {
   let declarations = readFileSync(resolve(gen, 'app.contract.d.ts'), 'utf8');
   if (/export\s+(?:function|const|let)\s+draw\b|export\s*\{[^}]*\bdraw\b/.test(source)) declarations += readFileSync(resolve(root, 'js/bake/src/canvas-types.d.ts'), 'utf8');
   // Beside app.ts too, for an editor, as the native development bake writes
-  // it: never a captured source, written only when it changes.
+  // it: never a captured source, written only when it changes, and said in
+  // one line, as `exact.mjs contract build` says it (LLP 1116.001 D4.5).
   const beside = resolve(appDir, 'app.contract.d.ts');
-  if (!production && (!existsSync(beside) || readFileSync(beside, 'utf8') !== declarations)) writeFileSync(beside, declarations);
+  const before = existsSync(beside) ? readFileSync(beside, 'utf8') : null;
+  if (!production && before !== declarations) {
+    writeFileSync(beside, declarations);
+    console.error(`app.contract.d.ts: ${before === null ? 'written' : 'regenerated, since a source\'s signature changed'} (the types app.ts imports)`);
+  }
   // The bake's capture (js/bake/src/lib.rs `sources`): the app's TypeScript
   // and JSON, and each `typescript.sources` mount under its name.
   const stage = resolve(gen, 'typescript');

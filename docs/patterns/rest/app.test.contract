@@ -1,0 +1,43 @@
+// Run by `bun exact.mjs api-test web`: one server, empty, for the whole run.
+test "an item is added for everyone; a refusal and a lost server are said in words, in place"
+  expect text "items-empty" == "Nothing yet. Tap + to add the first item."
+  tap "add-item"
+  clock settle
+  type "add-title" "Milk"
+  type "add-notes" "Two litres"
+  tap "add-save"
+  clock data
+  clock settle
+  expect state lib.items.0 .title == "Milk"
+  tap "add-item"
+  clock settle
+  type "add-title" "milk"
+  tap "add-save"
+  clock data
+  expect text "add-error" == "There’s already an item called Milk."
+  fail fetch "http://127.0.0.1:8787"
+  type "add-title" "Eggs"
+  tap "add-save"
+  clock data
+  expect text "add-error" == "Can’t reach the server."
+  expect text "add-title" == "Eggs"
+  pass fetch "http://127.0.0.1:8787"
+  tap "add-save"
+  clock data
+  clock settle
+  expect state lib.items.0 .title == "Eggs"
+  tap "sort"
+  tap "sort-title"
+  clock data
+  expect state lib.items.0 .title == "Eggs"
+  expect state lib.items.1 .title == "Milk"
+  tap "item-1"
+  clock settle
+  expect text "detail-notes" == "Two litres"
+  tap "delete-item"
+  clock settle
+  tap "remove-confirm"
+  clock settle
+  clock data
+  expect state lib.items.0 .title == "Eggs"
+  expect tree missing "item-1"

@@ -11,7 +11,7 @@ import { createApp } from '../game/new.mjs';
 import { HELP, knownFlags } from './help.mjs';
 
 const ROOT = resolve(import.meta.dir, '..');
-const APP_VERBS = ['web', 'web-build', 'test', 'agent', 'ios', 'mac', 'linux', 'android', 'update', 'contract', 'hatch', 'feedback'];
+const APP_VERBS = ['web', 'web-build', 'test', 'agent', 'ios', 'mac', 'linux', 'android', 'update', 'contract', 'hatch', 'pattern', 'feedback'];
 const timed = (args, options) => {
   const t = performance.now(), r = spawnSync(process.execPath, args, { encoding: 'utf8', timeout: 15_000, ...options });
   return { ...r, ms: performance.now() - t };
@@ -61,7 +61,7 @@ test('the scripts a verb runs answer --help and refuse a flag they do not take, 
     ['agent', ['scripts/agent.mjs', 'web', '--app', 'caltrain', 'tree']], ['test', ['scripts/agent.mjs', 'web', '--test', 'x.test.contract']],
     ['ios', ['host/apple/build.mjs', '--ios', 'caltrain-apple']], ['mac', ['host/apple/build.mjs', 'caltrain-apple']],
     ['linux', ['scripts/build-linux.mjs', 'caltrain']], ['android', ['scripts/agent-android.mjs', 'build', 'caltrain']],
-    ['feedback', ['scripts/feedback.mjs', 'send']], ['hatch', ['scripts/exact.mjs', 'hatch', 'avatar']],
+    ['feedback', ['scripts/feedback.mjs', 'send']], ['hatch', ['scripts/exact.mjs', 'hatch', 'avatar']], ['pattern', ['scripts/exact.mjs', 'pattern', 'list-detail']],
     ['contract', ['scripts/exact.mjs', 'contract', 'build']], ['new', ['scripts/exact.mjs', 'new', 'x']],
   ]) {
     const help = timed([...args, '--help'], { cwd: ROOT, env });
@@ -97,7 +97,8 @@ test('each verb\'s help names exactly the flags its script parses, in a short te
     ['ios', apple], ['mac', apple],
     ['linux', parsed(read('scripts/build-linux.mjs'))], ['android', parsed(read('scripts/agent-android.mjs'))],
     ['feedback', parsed(read('scripts/feedback.mjs'))],
-    ['hatch', parsed(between('export function hatch(', '\nfunction main('))],
+    ['hatch', parsed(between('export function hatch(', '\nexport function pattern('))],
+    ['pattern', parsed(between('export function pattern(', '\nfunction main('))],
     ['new', parsed(between("if (verb === 'new')", '\n  }'))],
   ]) assert.deepEqual([...knownFlags(verb).keys()].sort(), flags, `${verb}: the help's flags (documented and internal) against its script's`);
   for (const verb of Object.keys(HELP)) {

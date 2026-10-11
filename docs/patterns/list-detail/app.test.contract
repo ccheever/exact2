@@ -1,0 +1,64 @@
+test "add validates, saves, refuses a repeat in place, opens and deletes after asking"
+  expect text "items-empty" == "Nothing yet. Tap + to add the first item."
+  tap "add-item"
+  clock settle
+  tap "add-save"
+  expect text "add-error" == "Enter a title."
+  type "add-title" "Milk"
+  type "add-notes" "Two litres"
+  tap "add-save"
+  clock data
+  clock settle
+  expect state lib.items.0 .title == "Milk"
+  tap "add-item"
+  clock settle
+  type "add-title" "milk"
+  tap "add-save"
+  clock data
+  expect text "add-error" == "There’s already an item called Milk."
+  expect text "add-title" == "milk"
+  tap "add-cancel"
+  clock settle
+  tap "item-1"
+  clock settle
+  expect text "detail-notes" == "Two litres"
+  tap "delete-item"
+  clock settle
+  tap "remove-confirm"
+  clock settle
+  clock data
+  expect state lib.items == []
+
+test "the items and the order survive a relaunch"
+  tap "add-item"
+  clock settle
+  type "add-title" "Bread"
+  tap "add-save"
+  clock data
+  clock settle
+  tap "add-item"
+  clock settle
+  type "add-title" "Cherries"
+  tap "add-save"
+  clock data
+  clock settle
+  expect state lib.items.0 .title == "Cherries"
+  tap "sort"
+  tap "sort-title"
+  clock data
+  reload
+  expect state order == "title"
+  expect state lib.items.0 .title == "Bread"
+  expect state lib.items.1 .title == "Cherries"
+
+test "a wide window shows the list beside the detail"
+  size 1000x700
+  tap "add-item"
+  clock settle
+  type "add-title" "Eggs"
+  type "add-notes" "A dozen"
+  tap "add-save"
+  clock data
+  clock settle
+  tap "item-1"
+  expect text "detail-notes" == "A dozen"

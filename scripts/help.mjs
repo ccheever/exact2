@@ -180,8 +180,9 @@ Ports    none. Runs to completion.`,
     usage: 'bun exact.mjs contract <subcommand> …      (paths from where you run it)',
     flags: [],
     body: `  build <file.contract> [-o <file.plan>] [--json] [--map]   --json: [] or each diagnostic with its range
-  types <file.contract> [-o <app.d.ts>]   the types app.ts imports
-  vocab [--json] [<name>]                 the tags, attributes, CSS properties and functions Contract takes
+  types <file.contract> [-o <app.d.ts>]   the types app.ts imports (build app.contract, test, web refresh them)
+  vocab [--json] [<name> …]               the tags, attributes, CSS properties and functions Contract takes;
+                                          each name's entry in turn, exit 1 if one is unknown
   fmt [--check | --stdout] <file.contract> · fmt --uses <file.contract>
   symbols <file.contract> [--name <name>] · sources <file.contract>
   test <file.test.contract>               the compiled tests, as JSON (bun exact.mjs test runs them)
@@ -190,6 +191,18 @@ Ports    none. Runs to completion.`,
 The first call compiles the compiler (minutes on a cold checkout).
 Ports    none. Runs to completion: exit 0 when it compiled.`,
     example: 'bun exact.mjs contract build app.contract --json',
+  },
+  pattern: {
+    line: 'start from a working, tested app: one-screen, list-detail, tabs, dashboard, rest',
+    usage: 'bun exact.mjs pattern [<name>] [--force]',
+    flags: [['--force', 'replace a file you edited (without it, it is refused, named)']],
+    body: `With no name, lists the patterns. With one, writes its app.contract, app.ts and
+app.test.contract here (and what else it needs: rest's server.ts and test.mjs) with this
+app's id and name, then the types app.ts imports. A file still as exact new or a pattern
+wrote it is replaced; one you edited is refused unless --force. Each pattern passes its own
+tests and no-tells; rest's run with bun exact.mjs api-test web, which starts its server.
+Ports    none. Runs to completion.`,
+    example: 'bun exact.mjs pattern list-detail && bun exact.mjs test web',
   },
   hatch: {
     line: 'an access hatch: a stub for each target the app builds, and its app.json entry',

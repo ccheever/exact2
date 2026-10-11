@@ -6,7 +6,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { outsideWorkspaceProblems, pathFrom, readManifest } from '../scripts/app.mjs';
-import { createApp, createGame } from './new.mjs';
+import { applyPattern, createApp, createGame, patternFiles, patterns } from './new.mjs';
 
 test('a new outside app passes the checks every run makes, and a drifted one is told what to paste', () => {
   const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
@@ -345,6 +345,46 @@ test('update names the app by its crates, not its folder', () => {
     const commands = readFileSync(resolve(moved, 'exact.mjs'), 'utf8');
     assert.match(commands, /'todo-list-apple'/);
     assert.doesNotMatch(commands, /'todo-apple'/);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+// LLP 1116.001 D3: a pattern replaces the template's three files with the app's own id and name; a file the
+// author edited is refused unless forced; rest brings its server, test runner and command, which go with it.
+test('a pattern replaces the template, refuses an edited file unless forced, and takes its extras with it', () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-pattern-'));
+  try {
+    const dir = resolve(parent, 'field-log');
+    createApp(dir);
+    assert.deepEqual(patterns().map(p => p.name), ['one-screen', 'list-detail', 'tabs', 'dashboard', 'rest']);
+    for (const { line } of patterns()) assert.ok(line.length > 20 && line.length <= 92 && !line.startsWith('//'), line);
+    const read = (file) => readFileSync(resolve(dir, file), 'utf8');
+    const { said } = applyPattern(dir, 'list-detail');
+    assert.match(said, /^list-detail: wrote app\.contract, app\.ts, app\.test\.contract as Field Log \(com\.example\.field-log\)$/);
+    assert.match(read('app.ts'), /^export const appId = 'com\.example\.field-log';$/m);
+    assert.match(read('app.contract'), /^\/\/ Field Log: a list that pushes a detail/);
+    assert.match(read('app.contract'), /text "Field Log" role="heading" aria-level=1/);
+    assert.doesNotMatch(read('app.contract') + read('app.ts'), /Starter|com\.example\.starter/);
+    // Untouched, it gives way to another pattern; edited, it is refused, named, and nothing is written.
+    applyPattern(dir, 'tabs');
+    writeFileSync(resolve(dir, 'app.ts'), `${read('app.ts')}// mine\n`);
+    const before = read('app.contract');
+    assert.throws(() => applyPattern(dir, 'dashboard'), /^Error: pattern: app\.ts was edited \(not what exact new or a pattern wrote\); --force replaces it$/);
+    assert.equal(read('app.contract'), before);
+    applyPattern(dir, 'dashboard', { force: true });
+    assert.doesNotMatch(read('app.ts'), /\/\/ mine/);
+    assert.throws(() => applyPattern(dir, 'nope'), /no pattern nope; there are one-screen, list-detail/);
+    // rest: its server and test runner, and the command that runs them; another pattern takes them away again.
+    assert.match(applyPattern(dir, 'rest').next, /bun exact\.mjs api-test web$/);
+    assert.ok(existsSync(resolve(dir, 'server.ts')) && existsSync(resolve(dir, 'test.mjs')));
+    assert.deepEqual(JSON.parse(read('app.json')).commands, { 'api-test': ['bun', 'test.mjs'] });
+    assert.equal(JSON.parse(read('app.json')).app.id, 'com.example.field-log');
+    assert.match(applyPattern(dir, 'one-screen').said, /removed server\.ts, test\.mjs$/);
+    assert.ok(!existsSync(resolve(dir, 'server.ts')) && JSON.parse(read('app.json')).commands === undefined);
+    // A name with a quote stays one Contract string.
+    const quoted = patternFiles('one-screen', { id: 'com.example.q', title: 'Say "Hi" $5' }).files['app.contract'];
+    assert.match(quoted, /text "Say \\"Hi\\" \\\$5" role="heading"/);
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }

@@ -68,8 +68,9 @@ if (target !== '--wasm' && !game && !bakeOnly) {
   process.stdout.write(said(js.stdout));
   if (js.status === 0) {
     // What the JS target warned of, in its own words: the count it prints names nothing (workout F3, kanban F30).
-    // The bundler's notes on the generated glue are not the app's to act on.
-    for (const line of (js.stderr ?? '').split('\n')) if (/^warning: /.test(line)) console.error(line);
+    // The bundler's notes on the generated glue are not the app's to act on. The types app.ts imports, when
+    // the build rewrote them, are one line (LLP 1116.001 D4.5).
+    for (const line of (js.stderr ?? '').split('\n')) if (/^(warning|app\.contract\.d\.ts): /.test(line)) console.error(line);
     writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({ exactBuild: 1, target: 'js', app: { id: app.id, name: app.displayName },
       manifestSha256: appManifestDigest(app), files: buildFileCards(stage), inputs: webInputDigests(app, true) }) + '\n');
     replaceBuild(stage, dist);
@@ -86,7 +87,8 @@ if (target !== '--wasm' && !game && !bakeOnly) {
     // The bundler's refusal, in the words the type check uses (`Error: ` is its wrapper).
     .map((l) => l.replace(/^Error: (?=module outside captured app: )/, ''));
   const reason = (message.length ? message : lines.slice(-3)).join('\n');
-  console.error(`${[...warnings, reason].join('\n')}\n${app.name}: the web build (the JS target) failed; the wasm target is internal (--wasm)`);
+  const types = all.filter((l) => /^app\.contract\.d\.ts: /.test(l));
+  console.error(`${[...types, ...warnings, reason].join('\n')}\n${app.name}: the web build (the JS target) failed; the wasm target is internal (--wasm)`);
   process.exit(1);
 }
 const crate = app.crate('web');

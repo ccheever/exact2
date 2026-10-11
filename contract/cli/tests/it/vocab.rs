@@ -327,3 +327,39 @@ fn every_function_has_rows_and_every_written_example_holds() {
         .collect();
     assert!(wrong.is_empty(), "{wrong:#?}");
 }
+
+/// LLP 1116.001 D4.3: several names are one call, each entry in order, and a
+/// value names the attributes that take it; an unknown name is refused in its
+/// place, the others still printed, and the call exits 1.
+#[test]
+fn several_names_print_in_order_and_one_unknown_exits_1() {
+    let out = stdout(&vocab(&["formatDate", "slice", "tabular-nums"]));
+    let at = |needle: &str| {
+        out.find(needle)
+            .unwrap_or_else(|| panic!("{needle} missing:\n{out}"))
+    };
+    assert!(at("formatDate: standard function") < at("slice: standard function"));
+    assert!(at("slice: standard function") < at("tabular-nums: a value of `font-variant-numeric`"));
+    let output = vocab(&["padding", "paddin", "press"]);
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let (out, err) = (
+        String::from_utf8(output.stdout).unwrap(),
+        String::from_utf8(output.stderr).unwrap(),
+    );
+    assert!(
+        out.contains("padding: style attribute") && out.contains("press: handler attribute"),
+        "{out}"
+    );
+    assert!(err.contains("did you mean `padding`?"), "{err}");
+    let output = vocab(&["--json", "slice", "paddin"]);
+    assert_eq!(output.status.code(), Some(1));
+    let docs: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(docs[0]["function"]["name"], "slice");
+    assert_eq!(docs[1]["name"], "paddin");
+    assert!(docs[1]["refused"]
+        .as_str()
+        .unwrap()
+        .contains("did you mean"));
+    let one: Value = serde_json::from_str(&stdout(&vocab(&["--json", "ellipsis"]))).unwrap();
+    assert_eq!(one["valueOf"][0], "text-overflow");
+}
