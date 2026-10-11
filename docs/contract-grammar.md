@@ -665,7 +665,10 @@ top-right, bottom-right, bottom-left; no `/` elliptical radii).
 CSS hyphens are part of the authored name. `testId` and admitted host-specific
 props retain their declared spelling.
 
-A `button` is Chrome's `<button>` with Exact's reset ([LLP
+A `button` is the platform's own control by default ([LLP
+1104](../llp/1104-the-platforms-controls-by-default.rfc.md) D1). Your bare box
+(`appearance="none"`, or a button given a background, border, radius or rich
+children) lays out as Chrome's `<button>` does with Exact's reset ([LLP
 1001](../llp/1001-kernel-v1.spec.md) §1): a block that shrinks to fit, whose
 content is centred in its height (safely: content taller than the button
 starts at the top) and whose text is `text-align: center`. `align-items`,
@@ -689,8 +692,11 @@ such a link in the page (it replaces the app) and `target="_blank"` opens a
 path in a new one; natively `target` changes nothing, an app having no
 other tab. `mailto:` and `tel:` links go to their handlers everywhere.
 
-`button appearance="auto"` selects a native control; the literal switch is
-resolved after class merging. Default/`none` keeps the authored pressable.
+An unset `appearance` is `auto`: the platform's button, unless a background,
+border, radius, rich children or a row the native control cannot carry makes it
+your bare box. `appearance="auto"` written out asks for the platform's button and
+refuses what it cannot carry; `appearance="none"` asks for your box. The literal
+switch is resolved after class merging.
 Native face content, styles, transitions/keyframes, and enclosing contexts have
 an explicit allowlist in [`controls.rs`](../contract/lower/src/controls.rs).
 `buttonStyle` is a styleable host-policy prop whose complete vocabulary is the
