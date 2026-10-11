@@ -591,7 +591,7 @@ const sources: Sources = {
   },
   archiveScope: () => mobileArchiveScope(),
   archiveRead: (args, _store, _storage, nativeInput) => mobileArchiveRead(String(args[0] ?? ''), String(args[1] ?? ''), sourceNative('archiveRead', args, nativeInput)),
-  archiveView: args => mobileArchiveView(Number(args[0]), String(args[1] ?? ''), String(args[2] ?? ''), String(args[3] ?? 'newest'), args[4] === true, args[5]),
+  archiveView: args => mobileArchiveView(Number(args[0]), String(args[1] ?? ''), String(args[2] ?? ''), String(args[3] ?? 'newest'), args[4] === true, args[5], args[7] === true),
   archiveAction: (args, _store, storage, nativeInput) => {
     const native = sourceNative('archiveAction', args, nativeInput);
     return mobileArchiveCommand(String(args[0] ?? ''), String(args[1] ?? ''), String(args[2] ?? ''), String(args[3] ?? ''), native, storage);

@@ -76,6 +76,7 @@ export function projectMobileArchive(snapshots: ArchiveSnapshot[], now: number, 
 interface RetainedArchive { identity: string; revision: string; serial: number; value: ArchiveSnapshot }
 const snapshots = new Map<string, RetainedArchive>();
 let readSerial = 0;
+let idle: { since: number; expired: boolean } | null = null;
 // Scalar producer identity only: weak membership never retains a fleet entry.
 const producers = new WeakMap<object, number>();
 let producerSerial = 0;
@@ -231,7 +232,18 @@ export async function mobileArchiveRead(visit: string, admission: string, native
 
 /** The resource's live receipt is separate from nongranted retained snapshots. */
 export function mobileArchiveView(now: number, query = '', selectedEnvironment = '', sortOrder = 'newest', active = false,
-  prepared: ArchiveRead = { serial: 0, receipts: [], error: '' }): ArchiveView {
+  prepared: ArchiveRead = { serial: 0, receipts: [], error: '' }, observed = active): ArchiveView {
+  // A covered Archive route is still an observer. The root's one-shot task
+  // wakes this projection after its last mounted route has been absent for 5m.
+  if (observed) idle = null;
+  else {
+    idle ??= { since: now, expired: false };
+    if (!idle.expired && now - idle.since >= 300_000) {
+      if (readSerial >= Number.MAX_SAFE_INTEGER) throw new ClientError('The Archive read cannot be identified safely. Restart the app.');
+      readSerial++; // An already-issued read cannot repopulate an expired cache.
+      snapshots.clear(); idle.expired = true;
+    }
+  }
   const filtered = !!query.trim() || !!selectedEnvironment;
   const empty = { items: [] as ArchiveItem[], environments: [] as ArchiveEnvironment[], error: '', loading: false,
     emptyTitle: filtered ? 'No matching threads' : 'No archived threads', emptyDetail: filtered ? 'Try another search or environment.' : 'Threads you archive will appear here.' };
