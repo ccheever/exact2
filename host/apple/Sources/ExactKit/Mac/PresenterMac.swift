@@ -814,6 +814,7 @@ package final class Presenter {
         pressHeld = held; defer { pressHeld = "" }
         guard let node = textHost(id), !node.inert, !node.disabled,
               fromNativeMenu || (segments.shown(node) ?? !node.isHiddenOrHasHiddenAncestor) || toolbar.contains(node) else { return }
+        commitPendingEdit() // the press no longer ends a field's editing (FocusMac.swift)
         let command = dialogs.command(node, fromNativeMenu: fromNativeMenu)
         let popover = menus.command(node, fromNativeMenu: fromNativeMenu)
         if command == nil && popover == nil, node.id == id, let url = node.defaultLink, node.activateLink(url) { return }

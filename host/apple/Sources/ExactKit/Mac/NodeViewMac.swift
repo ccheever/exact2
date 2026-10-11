@@ -1331,10 +1331,10 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// key vanish (found driving the app by hand over stdin).
     package override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    // Press: down and up inside the bounds. A pressed node that does not
-    // take the focus ends the editing, as a click on a button blurs a page's
-    // input; a click nothing consumes reaches the viewport, which does the
-    // same (a click on the page's ground).
+    // Press: down and up inside the bounds. A click on a button or a
+    // pressable leaves the first responder where it is, as a click on an
+    // `NSButton` does, and so does one nothing consumes, which reaches the
+    // viewport (LLP 1115.000 D7.1; `takesClickFocus`, FocusMac.swift).
     package override func accessibilityPerformPress() -> Bool {
         if isSurfaceControl { return control("down") && control("up") }
         guard !disabled, !inert, pressable else { return false }
@@ -1362,19 +1362,10 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             presenter?.selection.begin(self, event: event)
             return
         }
-        var focusNode: NSView? = self
-        var retainFocus = false
-        while let view = focusNode {
-            if (view as? NodeView)?.props["retainFocus"] == "true" { retainFocus = true; break }
-            focusNode = view.superview
-        }
-        // NSView forwards a click up the chain: a node under it the web would focus (not a paragraph selecting) took it first and keeps it (LLP 1088 D7.3).
+        // NSView forwards a click up the chain: a node under it that took the focus (not a paragraph selecting) keeps it (LLP 1088 D7.3).
         let inner = (window?.firstResponder as? NodeView).map { $0 !== self && ($0.tabbable || $0.explicitTabIndex != nil) && (window?.contentView?.hitTest(event.locationInWindow)?.isDescendant(of: $0) ?? false) } ?? false
-        if acceptsFirstResponder, !retainFocus, !inner { window?.makeFirstResponder(self) }
-        if pressable {
-            if !acceptsFirstResponder, !retainFocus { window?.makeFirstResponder(nil) }
-            pressed = true
-        } else { super.mouseDown(with: event) }
+        if takesClickFocus, !inner { window?.makeFirstResponder(self) }
+        if pressable { pressed = true } else { super.mouseDown(with: event) }
     }
     /// A paragraph's drag selects its text unless a press takes it: its
     /// own handler (a `<span onClick>`, spreadsheet F12) or an ancestor's.

@@ -1971,7 +1971,9 @@ text is the rest of the op's words, joined by one space, quotes included:
 `"type new-task buy milk"`;
 in a test file each value is one quoted string, a checkbox's `"true"` too); `change` comes as a
 person's would, when the field commits (`type <id> key Enter` on a field, or the
-focus leaving it), so an edit saved on `change` needs one of those. A CLI drive's
+focus leaving it), so an edit saved on `change` needs one of those (on macOS a
+`tap` on a button leaves the focus in the field, and commits the field's `change`
+before the button's `press` runs). A CLI drive's
 input does not wait for a request its action sends; `clock data` lands it.
 `tap <target> drag <dx> <dy> … during "<op>" …` runs the quoted reads after the
 move, with the finger still down, before the hold. Under `--touch platform` the

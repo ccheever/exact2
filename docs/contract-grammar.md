@@ -726,7 +726,8 @@ argument is the URL), `heading` (`"1"` to `"6"`), `bullet`, `ordered`, `task`,
 `toggleTask`, `quote`, `codeblock`, `footnote`, `figure` (the argument is the
 media `src`), `indent`, `outdent` and `newline`; another name, or a missing
 argument, changes nothing. A toolbar button takes `retainFocus=true`, so a press
-leaves the editor focused and its selection where it was.
+leaves the editor focused and its selection where it was (on the Mac a click on any
+button does; the attribute is what says it for the web and iOS).
 
 The editor's `select` hands its action a `MarkdownSelection` when the selection
 or the source changes: `formats`, space-separated (the inline command names,
@@ -1086,6 +1087,13 @@ macOS, iOS and iPadOS with a hardware keyboard, Linux):
   is in the Tab order), or with a `tabindex`. It then bubbles: the
   focused element's handler hears it first, then every ancestor's, innermost
   first. With nothing focused, only `aria-keyshortcuts` buttons hear keys.
+  On the Mac a click on a `button`, or on a box that is only pressable, leaves
+  the focus where it is, as a click on an AppKit button does: a field beside
+  it keeps its caret, and its pending `change` is committed before the `press`
+  runs. A click on empty ground moves no focus either. An element with a
+  `tabindex`, a `button` included, or a box that is no button and has `focus`,
+  `blur` or `key` handlers, still takes a click's focus there, and `focus(id)`
+  moves it to any of them.
 - **What.** The payload is `KeyboardEvent.key`: the character typed, Shift's
   included (`"a"`, `"A"`, `"7"`, `" "`, `"/"`), or the key's name (`"Enter"`,
   `"Escape"`, `"Tab"`, `"Backspace"`, `"Delete"`, `"ArrowUp"`…, `"Home"`,

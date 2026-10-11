@@ -89,7 +89,9 @@ test "Return in the add field adds and keeps typing"
 - **`focus("id")`** moves the focus to a field by its `id`, from an action; a sheet's
   first field takes `autofocus=true` instead.
 - **`focus=` and `blur=`** on a field say when it is being edited. Keep Cancel while
-  there is a query too: on the web, pressing it blurs the field first.
+  there is a query too: on the web, pressing it blurs the field first. On the Mac a
+  click on a button leaves the focus in the field, as AppKit's buttons do, so say
+  `blur()` or `focus("id")` in the action when the press should move it.
 - **On scroll:** `keyboardDismissMode="interactive"` on the `list` or `scroll` lets a drag
   pull the keyboard down, as Messages does; `"on-drag"` puts it away as the drag starts;
   without it the keyboard stays, as UIKit's default. A composer that rides above the

@@ -61,7 +61,7 @@ extension DialogHost {
         }
         if let button = presenter.controls.controls[target.id] as? NativeButtonMac { button.pressAsDefault() }
         else if target.pressable { presenter.press(target.id) }
-        else { target.activateNative(focusing: false) }
+        else { target.activateNative() }
         return true
     }
 }
