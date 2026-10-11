@@ -137,12 +137,15 @@ describe('DP-2: the card becomes the header\'s popover where no placement is lef
     expect(root).toContain('shell.panel.deviceMini.show or shell.panel.browserMini.show, conversationWidth >= 984, detailsOpen) as shape ChatCanvasView');
     // The popover lies in the chat column under the floating player (the reference's popover sits below the player;
     // z-index orders siblings here), not in the window's overlays.
-    expect(await component('app-overlays.contract', 'WindowOverlays')).not.toContain('ThreadDetailsPanel(');
     const column = await component('app-main.contract', 'ChatColumn');
-    const popover = column.indexOf('when detailsOpen and scheme == "dark"\n        ThreadDetailsPanel(details=details, density=canvas.density, right=13,');
+    const popover = column.indexOf('when detailsOpen and not (narrowDiff and (rightPanel or data.diffOpen)) and scheme == "dark"\n        ThreadDetailsPanel(details=details, density=canvas.density, right=13,');
     expect(popover).toBeGreaterThan(0);
     expect(column.indexOf('R6DeviceMiniPlayer(')).toBeGreaterThan(popover);
     expect(column.indexOf('BrowserMiniPlayer(')).toBeGreaterThan(popover);
+    // Over a right panel sheet (a narrow window) the window draws it, above the sheet, as the base did.
+    const overlays = await component('app-overlays.contract', 'WindowOverlays');
+    expect(overlays).toContain('when detailsSheet and scheme == "dark"\n      ThreadDetailsPanel(details=details, density=detailsDensity, right=13,');
+    expect(await source('app-window.contract')).toContain('detailsSheet=(detailsOpen and narrowDiff and (rightPanel or shell.panel.open or data.diffOpen)), detailsDensity=canvas.density');
     const layer = await component('shell-details.contract', 'ThreadDetailsPanel');
     expect(layer).toContain('z-index=35 testId="thread-details-layer"');
     expect(await component('r6-device.contract', 'R6DeviceMiniPlayer')).toContain('z-index=40 role="region" aria-label="Floating device preview"');

@@ -211,10 +211,11 @@ component ChatColumn
       // The header's thread details popover (app.contract detailsShown: chat is narrow, or the floating player left the
       // docked card no placement), 13pt in from the chat column's right edge and under the floating player, as the
       // reference's popover sits below the player (z-index orders siblings here, LLP 1001). Its backdrop covers the chat
-      // column; the window closes it on a press outside the column (app-window.contract outsidePressDown).
-      when detailsOpen and scheme == "dark"
+      // column; the window closes it on a press outside the column (app-window.contract outsidePressDown). Over a right
+      // panel sheet (a narrow window) it is the window's (app-overlays.contract WindowOverlays), above the sheet.
+      when detailsOpen and not (narrowDiff and (rightPanel or data.diffOpen)) and scheme == "dark"
         ThreadDetailsPanel(details=details, density=canvas.density, right=13, maxHeight=(viewport.height - 104), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
-      when detailsOpen and scheme != "dark"
+      when detailsOpen and not (narrowDiff and (rightPanel or data.diffOpen)) and scheme != "dark"
         ThreadDetailsPanel(details=details, density=canvas.density, right=13, maxHeight=(viewport.height - 104), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
       // lane r6-media: a device floated over the chat (r6-device.contract), in the canvas's frame.
       when shell.panel.deviceMini.show and canvas.mini.show and canvas.mini.key == shell.panel.deviceMini.key
