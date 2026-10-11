@@ -599,8 +599,21 @@ test('New Task keyboard offset uses an explicit docked guide fact, never focus-l
     expect(mobileLayoutFacts(JSON.stringify({ keyboardDocked: value })).keyboardDocked).toBe(false);
   }
   expect(mobileLayoutFacts('{"safeTop":-1,"safeBottom":34,"keyboardDocked":true,"liquidGlass":true}'))
-    .toEqual({ safeTop: 0, safeBottom: 34, liquidGlass: true, keyboardDocked: true, displayScale: 1 });
+    .toEqual({ safeTop: 0, safeBottom: 34, liquidGlass: true, keyboardDocked: true, displayScale: 1, windowHeight: 0 });
   expect(mobileLayoutFacts('{"focused":true,"height":300}').keyboardDocked).toBe(false);
+});
+
+test('window height stays unavailable until an attached native window publishes a positive finite size', () => {
+  expect(mobileLayoutFacts('').windowHeight).toBe(0);
+  expect(mobileLayoutFacts('not-json').windowHeight).toBe(0);
+  for (const value of [undefined, null, false, true, 0, -1, '1133', {}, []]) {
+    expect(mobileLayoutFacts(JSON.stringify({ windowHeight: value })).windowHeight).toBe(0);
+  }
+  expect(mobileLayoutFacts('{"windowHeight":1e999}').windowHeight).toBe(0);
+  expect(mobileLayoutFacts('{"height":748,"keyboardDocked":true}').windowHeight).toBe(0);
+  expect(mobileLayoutFacts('{"windowHeight":1133,"height":748,"keyboardDocked":true}'))
+    .toMatchObject({ windowHeight: 1133, keyboardDocked: true });
+  expect(mobileLayoutFacts('{"windowHeight":744}').windowHeight).toBe(744);
 });
 
 function modelConfig(client: T3Client) {
