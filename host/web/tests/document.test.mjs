@@ -560,6 +560,26 @@ browserCheck('the ink on an accent fill is chosen for contrast in each scheme', 
   }, {html});
 });
 
+// LLP 1116.003 D3.2: a symbol that names no tint is the nearest authored
+// accent, as `AccentColor` is (LLP 1116.001 D2) and UIKit's inherited tint
+// is: event-rsvp's calendar under `light-dark(#6652c5, #b5a4ff)` drew the
+// browser's blue. Both targets' symbol sheets; an authored tint still wins.
+for (const sheet of ['host/web/glue.js', 'host/web-js/symbols.js']) browserCheck(`an untinted symbol is the nearest accent (${sheet})`, async () => {
+  const style = readFileSync(resolve(ROOT, sheet), 'utf8').match(/'(@property --exact-tint[^']*)'/)[1];
+  const shell = readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8');
+  const img = (id, css = '') => `<img id="${id}" data-symbol-path="M0 0h16v16H0Z" style="width:16px;height:16px;${css}">`;
+  const html = shell.replace('<div id="exact-root"></div>', `<style>${style}</style><div id="exact-root"><div style="--exact-accent:light-dark(#6652c5, #b5a4ff)"><div style="color-scheme:light">${img('light')}</div><div style="color-scheme:dark">${img('dark')}</div>${img('authored', '--exact-tint:rgb(255, 0, 0)')}</div>${img('unsaid')}<span id="system" style="color:AccentColor"></span></div>`).replace('<script type="module" src="./glue.js"></script>', '');
+  await withDocument('/', async tab => {
+    const page = await tab(true);
+    await page.until("document.readyState === 'complete'", 'symbol fixture');
+    const tint = await page(`(() => Object.fromEntries(['light', 'dark', 'authored', 'unsaid'].map(id => [id, getComputedStyle(document.getElementById(id)).backgroundColor]).concat([['system', getComputedStyle(document.getElementById('system')).color]])))()`);
+    expect(tint.light).toBe('rgb(102, 82, 197)');
+    expect(tint.dark).toBe('rgb(181, 164, 255)');
+    expect(tint.authored).toBe('rgb(255, 0, 0)');
+    expect(tint.unsaid).toBe(tint.system);
+  }, {html});
+});
+
 // LLP 1116.001 D1: a date, time or local date-time control takes the text
 // field's look (a 1 px line, 8 px corners, the field's background, 36 px
 // tall at the body size) in light and dark, as a border box the kernel
