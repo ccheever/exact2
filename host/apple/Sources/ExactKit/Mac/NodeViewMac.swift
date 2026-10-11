@@ -357,7 +357,21 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
     package override func accessibilityChildren() -> [Any]? {
         if props["accessibilityElementsHidden"] == "true" { return [] }
-        return actsAsButton || props["accessibilityRole"] == "img" || rangeRole != nil ? nil : textAccessibilityChildren() ?? super.accessibilityChildren()
+        if actsAsButton { return controlAccessibilityChildren() }
+        return props["accessibilityRole"] == "img" || rangeRole != nil ? nil : textAccessibilityChildren() ?? super.accessibilityChildren()
+    }
+    /// A control's text and images are its name, so VoiceOver reads it once
+    /// and a control of only those is a leaf. A descendant with a role of
+    /// its own is its child, as the web keeps one: Chrome's `<button><h2>`
+    /// is button › heading (X74).
+    private func controlAccessibilityChildren() -> [Any]? {
+        let named: Set<NSAccessibility.Role> = [.staticText, .image]
+        let children: [Any] = super.accessibilityChildren() ?? []
+        let own = children.filter { child in
+            let role = (child as? NSView)?.accessibilityRole() ?? (child as? NSAccessibilityElement)?.accessibilityRole()
+            return role.map { !named.contains($0) } ?? false
+        }
+        return own.isEmpty ? nil : own
     }
     /// What VoiceOver reaches, as the web's accessibility tree and iOS's
     /// traits have it: a pressable is a button — a link, checkbox, radio or
