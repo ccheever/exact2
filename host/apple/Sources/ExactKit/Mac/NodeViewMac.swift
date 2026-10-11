@@ -215,7 +215,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var fieldFocused = false { didSet { if fieldFocused != oldValue { applyBoxLayer(); needsDisplay = true } } }
     /// A key down's default action at a focused node; its `key` handlers
     /// heard it before AppKit delivered it (`Presenter.keyDown`, KeyEvents.swift).
-    /// Space and Enter on a pressable fire `press`, as they do on a `<button>`.
+    /// Space on a pressable fires `press`; Return is the default button's (LLP 1115.000 D7.3), and here only follows a focused link, as Safari does.
     package override func keyDown(with event: NSEvent) {
         guard !inert else { return }
         if inputCanvas?.canvasInput?.key(event, down: true, source: self) == true { return }
@@ -238,11 +238,11 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             return
         }
         if reorderKey(name) || presenter?.controls.radioKey(self, name, held: KeyCodes.held(event.modifierFlags)) == true { return }
-        if isButton, !pressable, name == "Enter" || name == " " {
+        if isButton, !pressable, name == " " {
             activateNative()
             return
         }
-        if pressable, name == "Enter" || (name == " " && props["href"] == nil) {
+        if pressable, props["href"] == nil ? name == " " : name == "Enter" {
             let canvas = inputCanvas, ownerWindow = window
             presenter?.press(id)
             finishPress(canvas: canvas, window: ownerWindow, pointer: false)

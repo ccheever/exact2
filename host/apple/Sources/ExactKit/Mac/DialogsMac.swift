@@ -4,7 +4,7 @@ import AppKit
 /// HTML's top layer belongs to the session, not to NSApp or a second runner.
 /// The actual subtree moves; fields, selection and app state remain the same.
 final class DialogHost {
-    private weak var presenter: Presenter?
+    private(set) weak var presenter: Presenter?
     final class Entry {
         let dialog: NodeView
         weak var parent: NSView?
@@ -23,6 +23,8 @@ final class DialogHost {
         }
     }
     private var entries: [Entry] = []
+    /// The native button drawn as the open dialog's default (DefaultButtonMac.swift).
+    weak var drawnDefault: NativeButtonMac?
     var active: NodeView? { entries.last?.dialog }
     /// LLP 1080.001 D3: an open dialog's backdrop; the dialogs it lifts.
     func inspectionOwns(_ view: NSView) -> Bool { entries.contains { $0.backdrop === view } }
@@ -79,6 +81,7 @@ final class DialogHost {
         refreshInputGates()
         presenter.syncKeyViewLoop()
         enterFocus()
+        syncDefaultButton()
         presenter.syncAccessibility()
         presenter.shortcuts.sync()
     }
@@ -102,6 +105,7 @@ final class DialogHost {
         }
         refreshInputGates()
         presenter?.syncKeyViewLoop()
+        syncDefaultButton()
         if wasTop, restoreFocus, hadFocus, let window {
             if let previous = entry.previous, previous.window === window,
                !previous.isHiddenOrHasHiddenAncestor, !blocks(previous),
@@ -149,6 +153,7 @@ final class DialogHost {
         }
         if changed { refreshInputGates() }
         layout()
+        if active != nil || drawnDefault != nil { syncDefaultButton() }
         if let window = presenter.viewport.window, active != nil,
            ownsFocus(window), focusOwner(window).map({ blocks($0) }) ?? true { enterFocus() }
     }
@@ -223,6 +228,8 @@ final class DialogHost {
             if event.type == .keyDown, !event.isARepeat, dialog.props["closedby"] != "none" { close(dialog) }
             return true
         }
+        // Return is the default button's, when the dialog has one (LLP 1115.000 D7.3).
+        if pressDefault(event, in: dialog) { return true }
         if event.type == .keyDown, event.keyCode == 48 {
             let choices = candidates(dialog)
             guard let window = dialog.window, !choices.isEmpty else { enterFocus(); return true }

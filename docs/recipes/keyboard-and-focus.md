@@ -78,7 +78,11 @@ test "Return in the add field adds and keeps typing"
 - **Return** is the field's `submit`; `enterkeyhint` labels the key. On iOS `done`,
   `go`, `search` and `send` also put the keyboard away, and `next` moves to the next
   field (at the last, puts it away). No hint keeps the keyboard up, for typing several
-  in a row, as the add field does.
+  in a row, as the add field does. On the Mac Return also ends the editing as a text
+  field's does: the field keeps the focus with its text selected, unless the action
+  moved it. There Space presses the focused control, and Return a `dialog`'s default
+  button: its one `buttonStyle="filled"` button that is not `destructive`, when there
+  is exactly one (a field with `submit` takes Return itself; one without passes it on).
 - **`blur()`** puts the keyboard away from an action on every host (the web keeps the
   focus on Enter): call it where the typing is finished, as `searched` does.
   `blur("search")` takes the focus from that field only.

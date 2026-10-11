@@ -57,11 +57,23 @@ final class NativeButtonMac: NSButton {
             else { window.selectNextKeyView(self) }
             return
         }
-        if name == " " || name == "Enter" {
+        // Space presses the focused control. Return is the default button's
+        // (LLP 1115.000 D7.3): a dialog's took it before it came here
+        // (`DialogHost.key`), and a merely focused button does nothing with it.
+        if name == " " {
             performClick(nil)
             return
         }
+        if name == "Enter" { return }
         super.keyDown(with: event)
+    }
+    /// Return's press of a dialog's default button: AppKit's own click, its
+    /// flash included, with the focus left where it is, as AppKit leaves it.
+    private(set) var pressingAsDefault = false
+    func pressAsDefault() {
+        pressingAsDefault = true
+        defer { pressingAsDefault = false }
+        performClick(nil)
     }
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard written?.interactive != false else { return nil }
@@ -113,7 +125,9 @@ extension NodeView {
     /// one), as iOS resolves it. The clicked button keeps its single focus
     /// owner while the action bubbles, unless a `retainFocus` ancestor
     /// preserves the previous owner. Then `press` and the canvas's pointer return.
-    func activateNative() {
+    /// `focusing` is false for Return's press of the default button, which
+    /// leaves the focus where it is.
+    func activateNative(focusing: Bool = true) {
         guard let presenter, !disabled, !inert else { return }
         let click = convert(NSPoint(x: bounds.midX, y: bounds.midY), to: nil)
         var target: NodeView?
@@ -131,7 +145,7 @@ extension NodeView {
         }
         // Keep the innermost eligible owner's focus while the press bubbles.
         // A handler on an ancestor must not become a second stop for this button.
-        if !retainsFocus {
+        if focusing, !retainsFocus {
             let responder = presenter.keyView(of: self)
             if responder.acceptsFirstResponder { window?.makeFirstResponder(responder) }
             else if target != nil { window?.makeFirstResponder(nil) }
@@ -152,7 +166,8 @@ extension ControlHost {
     }
 
     @objc func nativePressed(_ sender: NSControl) {
-        (sender as? NativeButtonMac)?.owner?.activateNative()
+        guard let button = sender as? NativeButtonMac else { return }
+        button.owner?.activateNative(focusing: !button.pressingAsDefault)
     }
 
     /// Its look, face, accent, enabled state and accessibility, written only
