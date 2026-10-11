@@ -299,6 +299,13 @@ guide's rules don't make obvious.
   on that view. Reading `testId` from the factory dictionary can overwrite its
   identifier with nil. (T3 Code fork row, LLP 1109.005, 2026-10-10.)
 
+- **`ExactRoute.element` resolves HTML ids, not test ids.** A field's `testId`
+  can appear as its native accessibility identifier while `route.element` still
+  returns nil. Use an authored `id` for element lookup, or existing route data
+  to identify a screen. Do not gate route work on an accessibility identifier
+  passed to the HTML-id resolver. (T3 Code connection trace, LLP 1109.005,
+  2026-10-11.)
+
 ## Actions
 
 - **A token kept in an app data file.** Exact has a secret store, and it holds
