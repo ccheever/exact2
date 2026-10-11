@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-scheduled-tasks-followups
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/456
 verified_commit: null
 ---
 
@@ -181,7 +181,7 @@ The code at `0310dd8b7` (the final head adds this record only). No Rust and no S
 
 ## Delivery
 
-Draft pull request into `feat(example)/t3-code` (the PR link is in the frontmatter).
+Draft pull request [#456](https://github.com/ccheever/exact2/pull/456) into `feat(example)/t3-code`.
 
 ## Next action
 
