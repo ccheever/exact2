@@ -39,6 +39,14 @@ extension NavigationHost {
         return route.props["navigationKey"].flatMap { UInt64($0) } != nil || !backControls(in: route, of: root).isEmpty
     }
 
+    /// Whether the window's toolbar shows the chevron: Back is offered, and
+    /// the route did not ask for a screen with no bar (`navigationBar="none"`,
+    /// LLP 1115.000 D5.2). The author hid the bar, not the way back: Go ▸
+    /// Back, ⌘[ and the swipe go from such a route as from any other.
+    var backInToolbar: Bool {
+        backOffered && pushedRoute?.route.props["navigationBar"] != "none"
+    }
+
     /// How Back goes from the selected route, resolved at use as iOS's is
     /// (`NavigationRules.back`); nil when it does not.
     var back: NavigationRules.Back? {

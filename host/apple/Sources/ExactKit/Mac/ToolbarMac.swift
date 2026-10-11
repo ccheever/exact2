@@ -3,7 +3,8 @@
 // And the platform's Back (LLP 1115.000 D5.1): while a route is pushed the
 // toolbar leads with a navigational back chevron, in the toolbar the author
 // declared or, with none, in one that holds only it and goes at the root.
-// The route's header and title stay in the content.
+// A route that asks for no bar (`navigationBar="none"`, D5.2) gets no
+// chevron. The route's header and title stay in the content.
 #if os(macOS)
 import AppKit
 
@@ -254,9 +255,10 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         prepare()
         guard let window, presenter.root.window === window else { reset(); return }
         let declared = declaration(in: window)
-        // Back while a route is pushed, the author's toolbar or not. AppKit
-        // asks whether it goes now (`validateToolbarItem`), as it does a menu.
-        let back = presenter.navigation.backOffered
+        // Back while a route is pushed, the author's toolbar or not, unless
+        // the route asked for no bar (`navigationBar="none"`). AppKit asks
+        // whether it goes now (`validateToolbarItem`), as it does a menu.
+        let back = presenter.navigation.backInToolbar
         guard declared != nil || back else { reset(); return }
         // A host that takes its toolbar back wins. Never overwrite it on a tick.
         guard window.toolbar == nil || window.toolbar === toolbar else { refuse("window owner installed another toolbar"); return }

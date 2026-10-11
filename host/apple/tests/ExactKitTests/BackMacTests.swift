@@ -169,6 +169,51 @@ final class BackMacTests: XCTestCase {
         p.toolbar.detach()
     }
 
+    /// A route that asks for a screen with no bar (`navigationBar="none"`,
+    /// LLP 1115.000 D5.2; the prop set by hand here) gets no chevron, and no
+    /// toolbar that would exist only to hold it. The author hid the bar, not
+    /// the way back: the menu's Back and the swipe still go.
+    func testARouteThatAsksForNoBarHasNoBackItemButStillGoesBack() throws {
+        let p = fixture(selected: "b", control: true)
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        XCTAssertTrue(p.toolbar.attach(to: window))
+        XCTAssertEqual(window.toolbar?.items.map(\.itemIdentifier), [WindowToolbarHost.backIdentifier])
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["navigationBar": "none"]]]))
+        XCTAssertNil(window.toolbar, "no toolbar only to hold a Back the route asked not to show")
+        XCTAssertFalse(p.navigation.backInToolbar)
+        XCTAssertTrue(p.navigation.backOffered)
+        XCTAssertTrue(p.navigation.canGoBack, "Go ▸ Back and ⌘[ are enabled by this")
+        XCTAssertTrue(p.navigation.goBack())
+        XCTAssertTrue(p.backSwipe.swiped(deltaX: 1))
+        var handler: ((CGFloat, NSEvent.Phase, Bool) -> Void)?
+        p.backSwipe.track = { _, tracked in handler = tracked }
+        let cg = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: 0, wheel2: 14, wheel3: 0))
+        cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+        cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: 1)
+        XCTAssertTrue(p.backSwipe.scroll(try XCTUnwrap(NSEvent(cgEvent: cg)), enabled: true))
+        try XCTUnwrap(handler)(1, .ended, true)
+        XCTAssertEqual(pressed, [20, 20, 20])
+        // `auto`, or the prop gone: the chevron is back.
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["navigationBar": "auto"]]]))
+        XCTAssertEqual(window.toolbar?.items.map(\.itemIdentifier), [WindowToolbarHost.backIdentifier])
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["navigationBar": "none"]]]))
+        XCTAssertNil(window.toolbar)
+        p.apply(wireBatch([["op": "props", "id": 3, "set": [:], "clear": ["navigationBar"]]]))
+        XCTAssertEqual(window.toolbar?.items.map(\.itemIdentifier), [WindowToolbarHost.backIdentifier])
+        p.toolbar.detach()
+        window.close()
+        // In the author's own toolbar: it stays, without Back.
+        let q = fixture(selected: "b", control: true, toolbar: true)
+        XCTAssertTrue(q.toolbar.attach(to: window))
+        let compose = try XCTUnwrap(q.toolbar.items[31])
+        XCTAssertEqual(window.toolbar?.items.map(\.itemIdentifier), [WindowToolbarHost.backIdentifier, compose.itemIdentifier])
+        q.apply(wireBatch([["op": "props", "id": 3, "set": ["navigationBar": "none"]]]))
+        XCTAssertEqual(window.toolbar?.items.map(\.itemIdentifier), [compose.itemIdentifier])
+        XCTAssertTrue(q.navigation.canGoBack)
+        q.toolbar.detach()
+    }
+
     /// Go ▸ Back ⌘[ leads the Go menu of an app with a navigation root; an
     /// app with none has no Go menu, and the app's own ⌘[ stands in for it.
     func testGoBackIsInTheMenuBarOfAnAppThatNavigates() throws {
