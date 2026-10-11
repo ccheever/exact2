@@ -1,6 +1,7 @@
 # Web grant tests trust a stale exact-web-js binary
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Grant tests rebuild exact-web-js before use; the stale-binary regression and 59 web tests pass.
 **Systems:** host/web, verification
 **Severity:** P3
 **Author:** Grok, for Charlie Cheever

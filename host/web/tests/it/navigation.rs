@@ -116,7 +116,7 @@ fn sweep(js: bool) {
     ))
     .unwrap();
     std::fs::write(dir.join("accessibility.plan"), accessibility.encode()).unwrap();
-    let output = Command::new("bun")
+    let output = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .arg("host/web/tests/navigation.mjs")
         .env("EXACT_ROUTER_DIST", dist)
         .env("CHROME", chrome)

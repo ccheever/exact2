@@ -25,6 +25,24 @@ fn a_style_shows_its_rows_codec_and_default() {
     assert!(out.contains("dimension, default 0"), "{out}");
 }
 
+#[test]
+fn navigation_detent_vocab_names_its_validated_forms() {
+    let out = stdout(&vocab(&["navigationDetent"]));
+    for form in [
+        "large",
+        "medium",
+        "positive point height",
+        "fit-content large",
+    ] {
+        assert!(out.contains(form), "{out}");
+    }
+    let doc: Value =
+        serde_json::from_str(&stdout(&vocab(&["navigationDetent", "--json"]))).unwrap();
+    let accepts = doc["attribute"]["accepts"].as_str().unwrap();
+    assert!(accepts.contains("fit-content large"), "{accepts}");
+    assert!(accepts.contains("positive point height"), "{accepts}");
+}
+
 /// LLP 1116.001 D1.4: a name Exact invents starts with a dash, and is still
 /// a name (`vocab -exact-fit`), not a flag; the platforms' spellings point at it.
 #[test]

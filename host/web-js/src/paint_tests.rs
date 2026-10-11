@@ -3,6 +3,16 @@ use exact_kernel::{NodeType, PropId, StyleId};
 use exact_plan::{builder::PlanBuilder, BindingKind, BindingsRow, Plan, Value};
 use std::collections::BTreeMap;
 
+fn bun_command(named: Option<std::ffi::OsString>) -> std::process::Command {
+    std::process::Command::new(named.unwrap_or_else(|| "bun".into()))
+}
+
+#[test]
+fn bun_command_uses_the_named_binary() {
+    let pinned = std::ffi::OsString::from("/tmp/pinned/bun");
+    assert_eq!(bun_command(Some(pinned.clone())).get_program(), pinned);
+}
+
 #[test]
 fn native_field_templates_keep_the_marker_for_runtime_and_rendering() {
     let plan = contract::compile(include_str!("../conformance/native-fields.contract")).unwrap();
@@ -68,7 +78,7 @@ fn dynamic_backdrop_grammar_agrees_with_the_kernel() {
         Err(reason) => (css, None, Some(reason)),
     })
     .collect();
-    let output = std::process::Command::new("bun")
+    let output = bun_command(std::env::var_os("BUN"))
         .args(["-e", "const {backdropValue}=await import('./backdrop.js');for(const [input,expected,reason] of JSON.parse(process.argv[1])){let why=null;const actual=backdropValue(input,n=>why=n);if(actual!==expected||why!==reason)throw Error(JSON.stringify({input,expected,actual,reason,why}));}"])
         .arg(serde_json::to_string(&cases).unwrap())
         .current_dir(env!("CARGO_MANIFEST_DIR"))
@@ -326,7 +336,7 @@ fn compare_cases(dir: &std::path::Path, labels: &[impl AsRef<str>]) {
         serde_json::to_string(&labels.iter().map(AsRef::as_ref).collect::<Vec<_>>()).unwrap(),
     )
     .unwrap();
-    let output = std::process::Command::new("bun")
+    let output = bun_command(std::env::var_os("BUN"))
         .arg(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../web/tests/paint-order/compare.mjs"
@@ -592,7 +602,7 @@ fn bound_transition_stacking_matches_kernel() {
     );
     use std::io::Write;
     use std::process::Stdio;
-    let mut child = std::process::Command::new("bun")
+    let mut child = bun_command(std::env::var_os("BUN"))
         .arg("-")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

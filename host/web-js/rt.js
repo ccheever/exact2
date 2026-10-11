@@ -613,7 +613,7 @@ const rel = (k, v) => (k === "src" || k === "poster") && /^\/(assets|deck|shader
 export function h(p, tag, cls, attrs, text, ns) {
   if (attrs?.["aria-keyshortcuts"] != null) input();
   if (Adopt) { const e = adopt(p, tag, cls, attrs); if (tag === "video" || tag === "audio") Media.media(e, attrs); return e; }
-  const e = ns ? document.createElementNS(ns, tag) : document.createElement(tag);
+  const e = ns ? document.createElementNS(ns, tag) : document.createElement(tag); e.$exactTree = true;
   if (cls !== 0) e.setAttribute("class", "c" + cls);
   if (attrs) { for (const k in attrs) e.setAttribute(k, rel(k, attrs[k])); if ("data-scrolldocument" in attrs) Docs.add(e); }
   if (text !== 0) e.textContent = text;
@@ -645,7 +645,7 @@ function adopt(p, tag, cls, attrs) {
   let e = at(p);
   while (e && e.nodeType !== 1) e = e.nextSibling;
   if (!e || e.localName.toLowerCase() !== tag.toLowerCase()) throw new Mismatch(`adoption: expected <${tag}>, found ${e ? "<" + e.localName + ">" : "nothing"}`);
-  p.$n = e.nextSibling;
+  p.$n = e.nextSibling; e.$exactTree = true;
   e.$paintWaiting = false; e.$paintFacts = null; e.removeAttribute("data-exact-paint");
   // The renderer's inline style stays: it is the class's declarations and
   // the live rows, which the node's style bindings rewrite as they change.

@@ -10,7 +10,15 @@
 
 use crate::tags::{self, AttrTarget, Tag};
 use contract_syntax::{Attr, Expr, Span};
-use exact_kernel::{StyleCodec, StyleId};
+use exact_kernel::{PropId, StyleCodec, StyleId};
+
+/// A prop's literal value grammar, shared by its refusal and `contract vocab`.
+pub fn accepts(prop: PropId) -> Option<&'static str> {
+    match prop {
+        PropId::NavigationDetent => Some("space-separated large, medium, or finite positive point heights; fit-content alone or as fit-content large"),
+        _ => None,
+    }
+}
 
 include!(concat!(env!("OUT_DIR"), "/vocab.rs"));
 

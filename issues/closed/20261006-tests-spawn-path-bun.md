@@ -1,6 +1,7 @@
 # Rust tests spawn PATH bun instead of the pinned one
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Rust Bun subprocess tests honor BUN; bun_command_uses_the_named_binary passes.
 **Systems:** verification, bake, host/web
 **Severity:** P3
 **Author:** Grok, for Charlie Cheever

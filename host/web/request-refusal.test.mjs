@@ -15,21 +15,34 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 // The real `redirectOf` and `ownWithout`, for a stub `admission.js` written beside a module under test
 const realHelpers = `export { ownWithout, redirectOf } from ${JSON.stringify(pathToFileURL(resolve(ROOT, 'host/web-js/admission.js')).href)}; `;
 const sets = new Map();
+function builtNormalizer(target, run = spawnSync) {
+  const result = run('cargo', ['build', '-q', '-p', 'exact-web-js'], { cwd: ROOT, encoding: 'utf8' });
+  if (result.status !== 0) throw new Error(result.stderr || 'grant normalizer build failed');
+  return target;
+}
+const normalizer = builtNormalizer(resolve(process.env.CARGO_TARGET_DIR || resolve(ROOT, 'target'), `debug/exact-web-js${process.platform === 'win32' ? '.exe' : ''}`));
 function normalized(spec) {
   if (sets.has(spec)) return sets.get(spec);
   const scratch = mkdtempSync(resolve(tmpdir(), 'exact-grants-'));
   const input = resolve(scratch, 'grants.txt');
   writeFileSync(input, spec);
-  const target = resolve(process.env.CARGO_TARGET_DIR || resolve(ROOT, 'target'), `debug/exact-web-js${process.platform === 'win32' ? '.exe' : ''}`);
-  const result = existsSync(target)
-    ? spawnSync(target, ['normalize-grants', input], { cwd: ROOT, encoding: 'utf8' })
-    : spawnSync('cargo', ['run', '-q', '-p', 'exact-web-js', '--', 'normalize-grants', input], { cwd: ROOT, encoding: 'utf8' });
+  const result = spawnSync(normalizer, ['normalize-grants', input], { cwd: ROOT, encoding: 'utf8' });
   rmSync(scratch, { recursive: true });
   if (result.status !== 0) throw new Error(result.stderr || 'grant normalizer failed');
   const set = JSON.parse(result.stdout);
   sets.set(spec, set);
   return set;
 }
+test('grant normalization rebuilds when an old binary exists', () => {
+  const scratch = mkdtempSync(resolve(tmpdir(), 'exact-stale-normalizer-'));
+  const old = resolve(scratch, 'exact-web-js');
+  writeFileSync(old, 'old CLI');
+  try {
+    const calls = [];
+    expect(builtNormalizer(old, (command, args) => { calls.push([command, args]); return { status: 0 }; })).toBe(old);
+    expect(calls).toEqual([['cargo', ['build', '-q', '-p', 'exact-web-js']]]);
+  } finally { rmSync(scratch, { recursive: true }); }
+});
 const text = result => new TextDecoder().decode(result.body);
 
 test('native requests resolve their real source scope before calling the module', async () => {

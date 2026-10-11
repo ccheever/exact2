@@ -305,12 +305,13 @@ fn every_pattern_passes_its_tests_on_the_web() {
     std::fs::create_dir_all(&parent).unwrap();
     let app = parent.join("patterns-check");
     let run = |cwd: &Path, args: &[&str]| {
-        let output = std::process::Command::new("bun")
-            .args(args)
-            .current_dir(cwd)
-            .env_remove("EXACT_APP_DIR")
-            .output()
-            .expect("bun runs");
+        let output =
+            std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
+                .args(args)
+                .current_dir(cwd)
+                .env_remove("EXACT_APP_DIR")
+                .output()
+                .expect("bun runs");
         let said = format!(
             "{}{}",
             String::from_utf8_lossy(&output.stdout),
@@ -361,12 +362,13 @@ fn the_recipes_and_start_here_say_no_literal_colour_size_or_weight() {
         })
         .collect();
     assert!(guides.len() > 1, "no recipes found under docs/recipes");
-    let output = std::process::Command::new("bun")
-        .arg(root.join("scripts/no-tells.mjs"))
-        .args(&guides)
-        .args(patterns().iter().map(|dir| dir.join("app.contract")))
-        .output()
-        .expect("bun runs scripts/no-tells.mjs");
+    let output =
+        std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
+            .arg(root.join("scripts/no-tells.mjs"))
+            .args(&guides)
+            .args(patterns().iter().map(|dir| dir.join("app.contract")))
+            .output()
+            .expect("bun runs scripts/no-tells.mjs");
     assert!(
         output.status.success(),
         "{}{}",

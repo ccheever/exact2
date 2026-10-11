@@ -2,7 +2,7 @@
 //! literal style value by the kernel's own row parser, a computed one and a
 //! prop by type (LLP 1017 P1a).
 
-use crate::{err, media, tags, FontUse, LowerError};
+use crate::{err, media, tags, vocab, FontUse, LowerError};
 use contract_syntax::{Attr, Expr, Span, UnOp};
 use contract_types::Ty;
 use exact_kernel::{PropId, StyleId, StyleProps, StyleValue, StyleValueError};
@@ -944,7 +944,10 @@ pub(crate) fn check_prop_value(
             }) {
                 return err(
                     "lower-attr-value",
-                    format!("`navigationDetent` takes space-separated \"large\", \"medium\", \"fit-content\" or a positive point height; given \"{word}\""),
+                    format!(
+                        "`navigationDetent` accepts {}; given \"{word}\"",
+                        vocab::accepts(prop).unwrap()
+                    ),
                     span,
                 );
             }
@@ -956,7 +959,7 @@ pub(crate) fn check_prop_value(
             {
                 return err(
                     "lower-attr-value",
-                    format!("`navigationDetent` takes \"fit-content\" alone or as \"fit-content large\": a content height can pass any other detent, and UIKit's go from shortest to tallest; given \"{s}\""),
+                    format!("`navigationDetent` accepts {}: a content height can pass any other detent, and UIKit's go from shortest to tallest; given \"{s}\"", vocab::accepts(prop).unwrap()),
                     span,
                 );
             }
