@@ -17,8 +17,6 @@ component MobileRootHeader
     sidebarVisible: bool
     back: action
     closeNewTask: action
-    openAddProject: action
-    canAddProject: bool
     scan: action
     addEnvironment: action
     documentAction: action
@@ -42,9 +40,6 @@ component MobileRootHeader
         aria-level=2
         font-size=(routeName == "threadBrowser" or modelChoice ? 17 : 18)
         font-weight=(routeName == "threadBrowser" ? 600 : modelChoice ? 700 : 800)
-      when routeName == "newTask" and canAddProject
-        button press=openAddProject aria-label="Add project" testId="new-task-add-project"
-          image "symbol:add" width=20 height=20
       when routeName == "settingsLegal"
         button id="legal-close" press=back aria-label="Close legal document"
           text "Close"
