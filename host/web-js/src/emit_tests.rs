@@ -66,3 +66,60 @@ fn a_runner_owned_resource_is_marked() {
     assert!(time.contains(".r.owned=true;"), "{time}");
     assert!(!full.contains(".r.owned"), "{full}");
 }
+
+/// LLP 1104 D6: `outline="none"` is the field's own `outline-style`, in its
+/// class, which outranks the base sheet's `:focus-visible` restore
+/// (`#exact-root#exact-root .cN` over `#exact-root input:…`); a bound one is
+/// written where it changes, and a field without it declares none.
+#[test]
+fn outline_none_is_a_fields_own_declaration() {
+    let plan = contract::compile(
+        "component App\n  state t = \"\"\n  state quiet = true\n  action w(v: string)\n    t = v\n  view\n    column\n      textarea value=t input=w outline=\"none\"\n      input value=t input=w outline=(quiet ? \"none\" : none)\n      input value=t input=w\n",
+    )
+    .unwrap();
+    let out = crate::emit::emit(&plan, false, false).unwrap();
+    assert!(
+        out.css.starts_with("#exact-root#exact-root{"),
+        "{}",
+        out.css
+    );
+    assert_eq!(
+        out.css.matches("outline-style:none").count(),
+        1,
+        "{}",
+        out.css
+    );
+    let class = out
+        .css
+        .split(".c")
+        .find(|c| c.contains("outline-style:none"))
+        .unwrap();
+    let class = class.split('{').next().unwrap();
+    assert!(
+        out.js.contains(&format!("\"textarea\",{class},")),
+        "the textarea's class: {}",
+        out.js
+    );
+    assert_eq!(
+        out.js.matches("\"outline-style\"").count(),
+        1,
+        "the bound one: {}",
+        out.js
+    );
+}
+
+/// LLP 1116 D8: a literal `value` on a `progress` is its `<progress>`'s
+/// attribute, as a bound one is its property; without it the browser draws
+/// an indeterminate bar.
+#[test]
+fn a_literal_progress_value_is_its_attribute() {
+    let plan = contract::compile(
+        "component App\n  view\n    column\n      progress value=0.4 max=1 aria-label=\"Done\"\n",
+    )
+    .unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    let at = js.find("\"progress\"").expect("a <progress>");
+    let made = js[at..].split(';').next().unwrap();
+    assert!(made.contains("\"value\":\"0.4\""), "{made}");
+    assert!(made.contains("\"max\":\"1\""), "{made}");
+}

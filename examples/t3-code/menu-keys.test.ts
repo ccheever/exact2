@@ -289,6 +289,8 @@ describe('the Pull Requests Filters submenus (audit-wave-followups-3)', () => {
     // that row after the submenu opened: the trigger's mouseleave stops the return and the focus drops (BODY on the
     // reference, from a row or from "Search authors"). realinput-1010c-fixes RC-3: it drops onto the popup's rest box, not
     // onto nothing: with the window itself the first responder, the host's popover Escape ignored a real second Escape.
+    // Main #446 fixed that (X73); the box stays (adopt-main-fixes-r10 RT-4, (b)) because the popover that closes with
+    // the focus inside it gives it back to Filters, as the reference does, which `blur()` cannot until X66 (#319).
     expect(menu).toContain('action closeSub\n    if subLeft\n      focus("pr-filters-rest")\n    else\n      focus(`pr-filter-${sub}`)\n    sub = ""');
     expect(menu).not.toMatch(/^\s+blur\(\)$/m);
     // The rest box is the popover's own child, before the row that holds the submenu and both KeyMenus (so no `key`

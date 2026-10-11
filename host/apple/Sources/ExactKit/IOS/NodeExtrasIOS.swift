@@ -229,7 +229,7 @@ extension NodeView {
 extension UIColor {
     /// LLP 1115 D2: what an unset background is, the platform's —
     /// `systemBackground` (tvOS has none; white stands in).
-    static var platformBackground: UIColor {
+    package static var platformBackground: UIColor {
         #if os(tvOS)
         return .white
         #else

@@ -1,6 +1,7 @@
 # Apple: `Intl.NumberFormat` rounds half to even, so USD 0.825 prints $0.82 where the web prints $0.83
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by #447
 **Systems:** js runtime, Apple hosts
 **Severity:** P3
 **Author:** daehyeon-mun (T3 Code clone)

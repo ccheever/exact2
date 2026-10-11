@@ -1264,7 +1264,9 @@ impl<'a> Lowerer<'a> {
                 a.span,
             );
         }
-        if let Some(why) = shorthands::text_box_trim_refusal(&a.name, tag, module) {
+        if let Some(why) = shorthands::text_box_trim_refusal(&a.name, tag, module)
+            .or_else(|| fields::outline_refusal(&a.name, tag, control))
+        {
             return err("lower-attr-tag", why, a.span);
         }
         if a.name == "alt" && tag != "image" {
