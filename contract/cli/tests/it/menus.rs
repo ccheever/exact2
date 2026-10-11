@@ -150,7 +150,10 @@ fn a_shape_the_native_sheet_cannot_present_is_refused_naming_the_row() {
         (format!("{open}\n{action}\n  hr\n{CANCEL}"), "a `hr` row"),
         (format!("{open}\n{action}\n  view\n    text \"Hi\""), "a `view` row"),
         // A laid-out modal is told what takes any content (x2apps onboarding).
-        (format!("{open}\n  column\n{action}"), "give it `role=\"dialog\"`"),
+        (
+            format!("{open}\n  column\n{action}"),
+            "a modal you lay out yourself is a sheet, a route with `navigationPresentation=\"modal\"`",
+        ),
         // The hosts present buttons only: a `link` action is any other row.
         (
             format!("{open}\n{action}\n  link press=go popovertarget=\"c\" popovertargetaction=\"hide\"\n    text \"Go\""),

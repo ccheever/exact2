@@ -51,6 +51,7 @@ pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
                     .then(|| roles::unlabelled_button(attrs, children, span))
                     .flatten();
                 out.extend(button.filter(|_| fresh));
+                out.extend(roles::dialog_role(tag, attrs, span).filter(|_| fresh));
                 let keyed = has(attrs, "navigationKey");
                 if in_root && keyed && !has(attrs, "navigationBack") {
                     route_header(children, &mut out);

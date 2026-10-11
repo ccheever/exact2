@@ -201,8 +201,12 @@ test "add validates, saves, refuses a repeat, opens and deletes after asking"
   `each`/`when` only), and covered routes stay mounted: two screens never share a
   `testId`. Build locations with `path("note", id)`, never a template string.
 - The alert holds only text, buttons that close it and one Cancel (a closing button
-  with no `press`). Open it from an action with `showModal("remove")`. For a modal you
-  lay out yourself, use `role="dialog" aria-modal=true`.
+  with no `press`). Open it from an action with `showModal("remove")`.
+- A modal you lay out yourself (a form, an editor) is a sheet, as `add` is: open it
+  with `push`, close it with `back`. On iOS it is UIKit's sheet, which swipes down; on
+  the web Escape presses its Cancel, and on every host the page under it is inert.
+  `role="dialog"` on a box gets none of that (`lower-dialog-role`), and iOS presents a
+  `dialog` only as its alert.
 - Show a validation error only after the first Save (`submitted`), in red under the
   field, in its row. The sheet closes in `then`, only when
   the save's reply is ok: a refusal keeps the sheet, its text and the reason

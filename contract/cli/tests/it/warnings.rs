@@ -492,3 +492,49 @@ fn a_button_with_words_a_name_or_a_doubt_is_not_named() {
         assert_eq!(warned(&buttons(view)), [], "{view}");
     }
 }
+
+const DIALOG_ROLE: &str = "lower-dialog-role";
+
+#[test]
+fn a_dialog_role_on_a_box_is_named_with_its_repair() {
+    // flashcards' editor: a `column role="dialog" aria-modal=true`, with
+    // no Escape, no focus kept inside and no iOS sheet.
+    let editor = buttons(
+        "column role=\"dialog\" aria-modal=true aria-label=\"Add a flashcard\" testId=\"editor\"\n  text \"Add a flashcard\" role=\"heading\"\n  button press=go\n    text \"Save\"",
+    );
+    assert_eq!(warned(&editor), [(DIALOG_ROLE.to_string(), 7)]);
+    let (_, warnings) = contract::compile_warned(&editor);
+    let m = &warnings[0].message;
+    assert!(
+        m.starts_with("`role=\"dialog\"` on a `column` names a dialog without making one")
+            && m.contains("no Escape")
+            && m.contains("a route with `navigationPresentation=\"modal\"`")
+            && m.contains("`dialog role=\"alertdialog\"`, opened with `showModal(id)`")
+            && m.contains("docs/recipes/navigation-stack.md"),
+        "{m}"
+    );
+    let alert =
+        buttons("view role=\"alertdialog\" aria-label=\"Delete?\"\n  text \"Gone for good.\"");
+    assert_eq!(warned(&alert), [(DIALOG_ROLE.to_string(), 7)]);
+}
+
+#[test]
+fn a_dialog_a_popover_and_a_modal_route_are_not_named() {
+    for view in [
+        // The `dialog` element, as a confirmation or laid out.
+        "dialog id=\"remove\" role=\"alertdialog\" aria-label=\"Delete?\"\n  text \"Gone for good.\"\n  button press=go commandfor=\"remove\" command=\"close\"\n    text \"Delete\"\n  button commandfor=\"remove\" command=\"close\"\n    text \"Cancel\"",
+        "dialog id=\"edit\" role=\"dialog\" closedby=\"any\"\n  text \"Edit\"",
+        // A popover: light dismiss and Escape; as an alertdialog, the
+        // native confirmation.
+        "column id=\"pick\" popover=\"auto\" role=\"dialog\" aria-label=\"Theme\"\n  text \"Light\"",
+        // A computed role is the benefit of the doubt.
+        "column role=(label == \"\" ? \"dialog\" : \"region\")\n  text \"a\"",
+        // `aria-modal` alone keeps VoiceOver inside an overlay (LLP 1080.003).
+        "column aria-modal=true\n  text \"Call\"",
+    ] {
+        assert_eq!(warned(&buttons(view)), [], "{view}");
+    }
+    // A route the router presents as a sheet.
+    let sheet = "routes nav\n  home \"/\"\n    add \"/add\"\ncomponent App\n  action back\n    nav = back(nav)\n  view\n    main navigationKey=`${top(nav).id}` navigationBack=\"back\" width=\"100%\" height=\"100%\"\n      each e in stack(nav) key=e.id\n        column navigationKey=`${e.id}` navigationPresentation=(e.name == \"add\" ? \"modal\" : \"push\") role=\"dialog\" position=\"absolute\" inset=0\n          text e.name\n";
+    assert_eq!(warned(sheet), []);
+}

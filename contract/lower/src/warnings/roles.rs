@@ -1,7 +1,8 @@
 //! What a button or a role promises a person and VoiceOver, and the
-//! element does not keep (LLP 1116.004 D4): a button with nothing to say.
+//! element does not keep (LLP 1116.004 D4): a button with nothing to say,
+//! and a dialog's role on a box.
 
-use super::BOXES;
+use super::{computed, has, literal, BOXES};
 use crate::LowerError;
 use contract_syntax::{Attr, Expr, Node, Span};
 
@@ -107,6 +108,32 @@ pub(super) fn unlabelled_button(
     Some(LowerError {
         id: "lower-button-unlabelled",
         message: message.into(),
+        span,
+    })
+}
+
+/// `lower-dialog-role`: `role="dialog"` or `role="alertdialog"` on an
+/// element that is not a `dialog` (LLP 1116.004 D4). The role is a label:
+/// the box is drawn as written, with no Escape, no focus kept inside and
+/// no iOS sheet (flashcards' editor, a `column role="dialog"
+/// aria-modal=true`). A popover (light dismiss and Escape; with
+/// `alertdialog`, the native confirmation) and a route the router
+/// presents (`navigationPresentation`) are dialogs already; a computed
+/// role is the benefit of the doubt.
+pub(super) fn dialog_role(tag: &str, attrs: &[Attr], span: Span) -> Option<LowerError> {
+    if tag == "dialog"
+        || computed(attrs, "role")
+        || has(attrs, "popover")
+        || has(attrs, "navigationPresentation")
+    {
+        return None;
+    }
+    let role = literal(attrs, "role").filter(|r| matches!(*r, "dialog" | "alertdialog"))?;
+    Some(LowerError {
+        id: "lower-dialog-role",
+        message: format!(
+            "`role=\"{role}\"` on a `{tag}` names a dialog without making one: the box is drawn as written, with no Escape, no focus kept inside it (Tab reaches the page behind) and no iOS sheet. A modal you lay out (a form, an editor) is a sheet, a route with `navigationPresentation=\"modal\"`: UIKit's sheet on iOS, closed by Escape on the web, the page under it inert. A confirmation of text and buttons is `dialog role=\"alertdialog\"`, opened with `showModal(id)` (docs/recipes/navigation-stack.md)"
+        ),
         span,
     })
 }
