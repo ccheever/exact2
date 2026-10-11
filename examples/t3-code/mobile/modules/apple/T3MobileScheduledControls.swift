@@ -95,7 +95,7 @@ final class T3MobileScheduledControls: NSObject, UIPopoverPresentationController
             popover.permittedArrowDirections = .down; popover.delegate = self
         }
         presenter.present(controller, animated: true)
-        controller.presentationController?.delegate = self
+        if !(controller is UIAlertController) { controller.presentationController?.delegate = self }
     }
 
     private func dismissThenFinish(_ value: [String: Any]) {
