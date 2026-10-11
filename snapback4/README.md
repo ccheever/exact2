@@ -15,6 +15,33 @@ is handed to whoever drives it. Pinned to Snapback4 **0.4.16**
 | `web/` (`exact-snapback4-web`) | the same client as wasm over the device's memory store; `web/build.mjs` builds it with its wasm-bindgen glue |
 | `ts/` | the TypeScript driver an app's `app.ts` imports: `Snapback.open`, `Snapback.switcher` (one persona's partition at a time), `read`/`readAll`, `write`, `sync`, `poll`, `refreshSession`, `outcome`, `status`, `upload`/`download` |
 
+> **Exact + Snapback checklist.** Each line is a pair that must agree; a
+> mismatch fails late, as data that never loads.
+>
+> - **Directories.** The backend (`snapback/schema.q`, `snapback4@0.4.22`)
+>   is the directory above the app (the one holding `app.json`). Run
+>   `snapback4` there and `bun exact.mjs …` and the setup block in the app;
+>   `assets/snapback4.wasm` is built into the app's `assets/`.
+> - **The app id.** `app.ts`'s `export const appId` is `app.json`'s
+>   `"app": { "id" }`.
+> - **The mounts.** `app.json`'s `typescript.sources`: `snapback4` (this
+>   checkout's `snapback4/ts`, relative) and `backend`
+>   (`../snapback/generated`, after the first `snapback4 check`).
+> - **The origin's port, in four places** (["Ports"](#ports-the-snapback-origin-and-the-pages-own)):
+>   `app.ts`'s `origin`, its `net.fetch` grant (write it as `${origin}`),
+>   `snapback4 dev --port`, and the test file's `fail fetch`/`pass fetch`
+>   prefixes. Moving it means all four. The page's port (`EXACT_PORT`,
+>   `--port` on `bun exact.mjs`) is another, never this one.
+> - **Grants.** `sqlite.open app:/data` for the partition; `fs.read app:/tmp`
+>   to upload a picked file and `fs.write app:/cache` to download one.
+> - **Personas.** A `Snapback.switcher` key sent as `x-snapback-persona` is
+>   a persona the schema's `use personas` declares (another is `E_AUTH`),
+>   and each key has its own partition `name`.
+> - **Tests.** `epoch now` in the test file (the server keeps real time);
+>   `snapback4 dev` listening before `test web`; `clock data` before `fail
+>   fetch`; a fresh server per run, or per file
+>   (["Tests share the server"](#tests-share-the-server)).
+
 ## From TypeScript
 
 ### Set it up: one block
