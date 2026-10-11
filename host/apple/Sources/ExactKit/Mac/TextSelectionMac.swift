@@ -181,12 +181,12 @@ package final class TextSelection {
         } else if event.clickCount == 2 {
             let text = node.paragraphSpec().runs.map(\.text).joined() as NSString
             if text.length > 0 {
-                let at = min(anchorIndex, text.length - 1)
-                var lo = at, hi = at
-                func space(_ i: Int) -> Bool { CharacterSet.whitespacesAndNewlines.contains(UnicodeScalar(text.character(at: i)) ?? " ") }
-                while lo > 0 && !space(lo - 1) { lo -= 1 }
-                while hi < text.length && !space(hi) { hi += 1 }
-                anchorIndex = lo; focusIndex = hi; dragged = true
+                // The word a double click takes in an `NSTextView`, by the
+                // text system's own boundaries: "hello," without its comma,
+                // a Chinese or Japanese word and not its whole run.
+                let at = character(node, at: node.local(event.locationInWindow), caret: index, in: text)
+                let word = NSAttributedString(string: text as String).doubleClick(at: at)
+                anchorIndex = word.location; focusIndex = NSMaxRange(word); dragged = true
             }
         }
         if let (owner, start) = position(node, offset: anchorIndex), let (_, end) = position(node, offset: focusIndex) {
@@ -365,6 +365,33 @@ package final class TextSelection {
         let x = content.minX + p.origin(i, align: spec.align, width: content.width)
         let offset = p.stringIndex(in: i, at: mapped.x - x)
         return offset == kCFNotFound ? length(node) : min(max(0, offset), length(node))
+    }
+
+    /// The character under `point`, which a double click takes its word
+    /// from. `caret` (`index`) is the caret nearest the point: the next
+    /// character's from a glyph's trailing half, and the next line's first
+    /// past a line's end. A reader paragraph's lines are its worker's; there
+    /// the caret stands, stepped back off white space, so that a click on a
+    /// word's last letter still takes the word.
+    private func character(_ node: NodeView, at point: NSPoint, caret: Int, in text: NSString) -> Int {
+        let caret = min(max(0, caret), text.length - 1)
+        guard node.readerParagraph == nil, let (p, spec, i) = line(node, at: point) else {
+            let blank = CharacterSet.whitespacesAndNewlines.contains(UnicodeScalar(text.character(at: caret)) ?? " ")
+            return blank && caret > 0 ? caret - 1 : caret
+        }
+        let row = p.lines[i], range = CTLineGetStringRange(row)
+        guard range.length > 0 else { return caret }
+        let content = node.paragraphBox()
+        let x = node.caretPoint(point).x - content.minX - p.origin(i, align: spec.align, width: content.width)
+        var at = caret
+        if caret > range.location {
+            // Between the carets either side of the character before: on it,
+            // whichever way its run reads.
+            let before = text.rangeOfComposedCharacterSequence(at: caret - 1).location
+            let a = CTLineGetOffsetForStringIndex(row, before, nil), b = CTLineGetOffsetForStringIndex(row, caret, nil)
+            if x >= min(a, b), x < max(a, b) { at = before }
+        }
+        return min(max(at, range.location), range.location + range.length - 1)
     }
 
     private func link(_ node: NodeView, at point: NSPoint) -> String? { node.inlineLink(at: point) }

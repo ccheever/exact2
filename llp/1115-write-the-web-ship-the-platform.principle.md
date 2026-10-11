@@ -2,7 +2,7 @@
 
 **Type:** Principle
 **Status:** Active (Charlie Cheever, 2026-10-09: "write that up and write an LLP about it")
-**Systems:** All hosts (iOS, macOS, tvOS, Linux, Windows, web), the kernel's style defaults, the Contract compiler's lowering, the agent docs and `exact new`
+**Systems:** All hosts (iOS, macOS, tvOS, Android, Linux, Windows, web), the kernel's style defaults, the Contract compiler's lowering, the agent docs and `exact new`
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-09
 **Implementer:** Claude (Opus 5.5), waves 1–2 from 2026-10-09 (§6)
@@ -174,6 +174,25 @@ from the recipe, a determinate `progress` (`UIProgressView`), a stepper (`UIStep
 app-wide tint (`accent-color` on the root reaches the tab bar and controls, but a bar
 button takes only its own `color`; LLP 1095 D4's `theme`), swipe actions and context menus on
 grouped-list rows, borderless fields in list cells, and a footer's colour.
+
+*Status (2026-10-11), after a second audit (LLP 1115.000).* Corrections to the record above,
+which read as "on every host" where it was iOS and the web:
+
+- **D5** (Back without an authored control) landed on iOS and the web. macOS, Linux and
+  Android do not call `host_back`; a pushed route on the Mac has no way back without one.
+- **D6**'s `showModal`/`close` landed on iOS, macOS and the web. The Linux host, and so
+  Android, refuses both and presents no dialog or popover.
+- **Press feedback for custom pressables** landed on iOS only.
+- **D3's root font size** landed on iOS, macOS and the web. Linux, Android and Windows show
+  16, and tvOS scales 16.
+- **Heading weights:** a title is bold since LLP 1116 D7, not "regular" as written above.
+- Of "Still open", four have landed: a determinate `progress` (LLP 1116 D8), an app-wide
+  tint (#440), swipe actions on grouped-list rows (LLP 1116.001 D1) and a footer's colour
+  (LLP 1116.003 D7).
+- Ten items of Appendix A are in neither list above. LLP 1115.000 §1 names them and gives
+  each a decision.
+
+What is left, on every host, is LLP 1115.000 (and LLP 1115.001 for Android).
 
 **Later, needs an owner.** A plain `button`'s default style on iOS (bordered → plain; changes
 every app), checkbox on iOS (switch or checkmark), plain-list separators and highlight, Mac

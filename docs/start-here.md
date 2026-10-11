@@ -1,6 +1,6 @@
 # Start here: building an app with Exact
 
-The only required reading; the rest is lookup, listed last (LLP 1115 D7).
+The only required reading; the rest is lookup, listed last.
 
 ## The idea
 
@@ -13,25 +13,26 @@ The only required reading; the rest is lookup, listed last (LLP 1115 D7).
    mode are the platform's. A colour or size names a role (`-exact-secondary-label`,
    `font="-exact-footnote"`, `-exact-system-red`); a lookalike of a system control is a
    bug (`bun <exact2>/scripts/no-tells.mjs .` lists literals). The one colour you write
-   is the accent, on the root: a role (`accent-color="-exact-system-indigo"`) or one
-   `light-dark(light, dark)` pair, which controls, tabs, progress, links and
-   `exact:content` follow. Others are unsaid or roles (`-exact-label`,
-   `-exact-secondary-grouped-background`): a hex on text, a page or a card stays put in
-   dark mode while the platform's text and controls change (four apps broke).
-4. **Design your content:** a summary leading the main screen, rows with a hierarchy,
-   bars where numbers compare, an empty state that says what to do; inset-grouped is
-   for settings and forms. `exact:content` draws these ([content-design](recipes/content-design.md)).
+   is the accent, on the root: any system colour (`accent-color="-exact-system-teal"`) or
+   one `light-dark(light, dark)` pair, which controls, tabs, progress, links and
+   `exact:content` follow. Others are unsaid or roles, since a hex stays put in dark
+   mode. A card on a plain page is `-exact-secondary-background`, on a
+   `-exact-grouped-background` page `-exact-secondary-grouped-background`; a surface
+   inside a card is the tertiary role.
+4. **Design your content:** the screen's purpose gets a focal point (big type, a fill,
+   a shape), rows a hierarchy, an empty state what to do, a wide window two columns;
+   inset-grouped is for settings and forms. `exact:content` draws these
+   ([content-design](recipes/content-design.md)).
 
 ## The workflow
 
 ```sh
 bun <exact2>/scripts/exact.mjs new ~/groceries && cd ~/groceries
 bun exact.mjs pattern      # lists the starting apps; `pattern list-detail` writes one
-bun exact.mjs ios          # in the background: the first iOS build takes minutes
+bun exact.mjs ios --prebuild  # the first iOS build: minutes, in the background
 ```
 
-Start from the nearest pattern (`new` wrote `one-screen`) and change it: it compiles
-and passes its tests.
+Start from the nearest pattern: it compiles and passes its tests.
 
 | `bun exact.mjs …` | What it does |
 | --- | --- |
@@ -170,13 +171,14 @@ test "an item is added, a repeat refused, checked off and kept"
 ```
 
 `clock data` lands replies the next `expect` reads; `clock settle` ends transitions;
-`reload` relaunches on the same storage. Every step, and the real-clock drive before
-calling it done: [tests](recipes/tests.md).
+`reload` relaunches on the same storage. Every step, and the real-clock drive to end
+with: [tests](recipes/tests.md).
 
 ## Pitfalls that cost the most
 
-1. **Styling a platform control.** A `background-color`, `border`, `font-size` or
-   `height` on a `button`, field or bar makes it your box; emphasis is
+1. **Styling a platform control.** Paint (`background-color`, `border`, `font-size`,
+   `height`) on a `button`, field or bar still makes it your box. Emphasis is a part
+   (`RoundButton`, `AnswerTile`, `SummaryCard`: `content-design`) or
    `buttonStyle="bordered-prominent"`.
 2. **`width="100%"` with padding overflows** (`content-box`, as in CSS). Drop the width;
    give a `flex=1` field `min-width=0`.
@@ -189,19 +191,18 @@ calling it done: [tests](recipes/tests.md).
 ## Look it up
 
 **A pattern** replaces the recipe beside it: read one or the other. A list, its pushed
-detail, a sheet to create, an alert to delete: `pattern list-detail` (in an app you
+detail, a create sheet, a delete alert: `pattern list-detail` (in an app you
 have, `navigation-stack`). Tabs: `pattern tabs` (`tabs`). A summary, bars, a ring:
 `pattern dashboard` (`content-design`). Your own server: `pattern rest` (`rest-backend`).
 
-**A recipe**, [`recipes/<name>.md`](recipes/): `grouped-form` (forms, settings),
-`after-a-write`, `keyboard-and-focus`, `number-field` (`inputmode="decimal"`),
-`numeric-readout`, `money` (`formatNumber(n, "currency", "USD")`), `dates-and-days`,
-`timers` (`task … every`), `timer-that-survives-relaunch`, `random-and-shuffle`,
-`symbols` (`image "symbol:add"`), `chat-thread`, `persisted-setting` (`state …
-persist`), `files-and-grants` (SQLite too), `fetch-loading-error`,
-`responsive-columns`, `web-look` (wide screens), `tests`, `ios-driving`, `functions`.
+**A recipe**, [`recipes/<name>.md`](recipes/): `grouped-form`, `after-a-write`,
+`keyboard-and-focus`, `number-field` (`inputmode="decimal"`), `numeric-readout`,
+`money` (`formatNumber`), `dates-and-days`, `timers`, `timer-that-survives-relaunch`,
+`random-and-shuffle`, `symbols`, `chat-thread`, `persisted-setting` (`persist`),
+`files-and-grants` (SQLite too), `fetch-loading-error`, `responsive-columns`,
+`web-look` (wide screens), `tests`, `ios-driving`, `functions`.
 
-**Otherwise:** `bun exact.mjs contract vocab <name> <name> …` for any tag, property
-or function; [contract-for-agents](contract-for-agents.md) and
+**Otherwise:** `bun exact.mjs contract vocab <name> <name> …` for any tag, property,
+function or part; [contract-for-agents](contract-for-agents.md) and
 [agent-pitfalls](agent-pitfalls.md) by section; [reference](reference.md) for the data
 module's globals and native hatches; `<exact2>/apps/shelf`, a whole app with tests.

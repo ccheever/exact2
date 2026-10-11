@@ -85,8 +85,7 @@ test "a refused add keeps the text and says why; the next attempt clears it"
   A throw brings no answer: `then` doesn't run and nothing is said (`failure()` is for
   resources only).
 - **Where they type**: under the field, in its row, in `-exact-system-red` and words
-  that say what to do (a section `footer` is always grey on iOS, and a row of text alone
-  drops its colour). It hides while `pending(added)`, so the next attempt starts clean.
+  that say what to do. It hides while `pending(added)`, so the next attempt starts clean.
 - **One at a time.** `not pending(added)` stops a second Enter: a newer send replaces
   the first's reply, not its work, so both would be saved.
 - **Closing a form** is the same `then`: `if saveError == "" and top(nav).name == "add"`,
