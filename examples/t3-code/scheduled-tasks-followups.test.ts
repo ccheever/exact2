@@ -185,12 +185,24 @@ describe('ST-3: the Automations icon buttons show the reference tooltips', () =>
     expect(button).toContain('  inject\n    rem: number\n    hoverTipAt: action');
     expect(button).toContain('hoverTipAt(hoverTipAtFrame(testKey, "tooltip", tip, [], "top", align, frame(testKey), (floor(length(tip) / 48) + 1) * rem + 0.625 * rem, `${testKey}-tooltip`), "trigger", on)');
     expect(button).toContain('action hover(over: bool)\n    hovered = over\n    show(over)');
-    expect(button).toContain('button id=testKey press=press hover=hover focus=show(true) blur=show(false) disabled=disabled aria-label=label testId=testKey');
+    expect(button).toContain('button id=testKey press=pressed hover=hover focus=show(true) blur=show(false) disabled=disabled aria-label=label testId=testKey');
     // No AppKit help tag beside the drawn tooltip.
     expect(button).toContain('title=""');
     const layer = await source('hover-layer.contract');
     expect(layer).toContain('(kind == "tooltip" ? 600 : 0)');
     expect(layer).toContain('derive card = tip.kind != "tip" and tip.kind != "policy" and tip.kind != "tooltip"');
+  });
+  test('a press closes the tooltip before it acts, as TooltipTrigger closeOnClick (Base UI 1.5.0 default true)', async () => {
+    const button = await component('thread-automations.contract', 'AutomationButton');
+    // show(false) first: the press may open Settings, which the hover layer draws above.
+    expect(button).toContain('action pressed\n    show(false)\n    press()');
+    expect(button).not.toContain('press=press ');
+    // The window's close: the trigger's leave ends a shown tooltip at once (a TooltipPopup has no close delay) and stops
+    // one still waiting for its 600 ms (hoverUntil at the current tick, hoverShown false).
+    const window = await source('app-window.contract');
+    expect(window).toContain('else if tip.key == hoverTip.key and hoverOn == part\n      let until = hoverShown ? hoverWait + hoverDelay(tip.kind) : hoverWait');
+    expect(window).toContain('derive hoverShown = hoverTip.key != "" and (hoverOn != "" ? hoverWait == hoverOpen : hoverWait < hoverUntil)');
+    expect(await source('hover-layer.contract')).toContain('fn hoverDelay(kind: string): number = kind == "scopes" ? 100 : (kind == "freshness" or kind == "pr-preview" ? 120 : (kind == "usage" ? 50 : 0))');
   });
   test('the words are the reference TooltipPopups: Manage scheduled tasks, Edit automation, Run now', async () => {
     const section = await component('thread-automations.contract', 'ThreadAutomationsSection');

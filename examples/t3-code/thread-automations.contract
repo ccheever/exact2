@@ -45,7 +45,9 @@ component AutomationGlyph
 // TooltipPopup, so the details panel's scroll never cuts it; pointer hover or keyboard focus shows it (scheduled-tasks-followups
 // ST-3). Agent mode hovers it with `tap <testKey> hover`; the popup's test id is `<testKey>-tooltip`. `align` is where Base UI's
 // collision shift lands it: the layer has no shift (X17, #112), and "Manage scheduled tasks", centred over the heading's
-// button at the panel's right edge, ran past the window (the ST-3 drive), so it ends at the button's right edge.
+// button at the panel's right edge, ran past the window (the ST-3 drive), so it ends at the button's right edge. A press
+// closes the tooltip, or stops one still waiting for its delay, as TooltipTrigger's closeOnClick (true by default) does; it
+// shows again when the pointer next enters, so Edit's and Manage's never linger over the Settings page they open.
 component AutomationButton
   inject
     rem: number
@@ -64,8 +66,11 @@ component AutomationButton
   action hover(over: bool)
     hovered = over
     show(over)
+  action pressed
+    show(false)
+    press()
   view
-    button id=testKey press=press hover=hover focus=show(true) blur=show(false) disabled=disabled aria-label=label testId=testKey width="1.5rem" height="1.5rem" padding=0 flex-shrink=0 border-width=0 border-radius="0.5rem" background-color=(hovered and not disabled ? "light-dark(#0000000e, #ffffff13)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+    button id=testKey press=pressed hover=hover focus=show(true) blur=show(false) disabled=disabled aria-label=label testId=testKey width="1.5rem" height="1.5rem" padding=0 flex-shrink=0 border-width=0 border-radius="0.5rem" background-color=(hovered and not disabled ? "light-dark(#0000000e, #ffffff13)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
       AutomationGlyph(name=icon, size=14, color="light-dark(#71717b, #818181)")
 
 component ThreadAutomationsSection
