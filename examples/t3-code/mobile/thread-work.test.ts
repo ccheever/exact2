@@ -147,6 +147,55 @@ test('search calls preserve named arguments and separate real search results', (
   const web = projected({ type: 'web_search', patterns: ['one', 'two'], results: [{ title: 'Source', url: 'https://example.com', snippet: 'Result' }] });
   expect(mobileThreadActivity(activity, web, clientFor([web]), now, false, '')).toMatchObject({ call: true, body: 'query one, two', output: 'Source\nhttps://example.com\nResult' });
 });
+test('file search headers copy original results without taking command detail ownership', async () => {
+  const file = projected({ type: 'file_search', results: [{ preview: 'needle()', column: 3, line: 12, fileName: 'main.ts' },
+    { preview: 'needleAgain()', fileName: 'other.ts' }], pattern: 'needle' });
+  const client = clientFor([file]), requests: string[] = [];
+  client.scopes = []; client.local.drafts[client.draftKey] = '  ';
+  client.rpc = async (_native, method) => { requests.push(method); return {}; };
+  const before = JSON.stringify(client.projection), props = { ...activity, icon: 'search', label: 'Visible search row' };
+  const collapsed = mobileThreadActivity({ ...props, detailOpen: false }, file, client, now, false, '', 'visit');
+  expect(collapsed.nativeWorkRow).not.toBe('');
+  const configuration = JSON.parse(collapsed.nativeWorkRow), expected = `Searched needle\nneedle\n${JSON.stringify({
+    visibility: 'inherited', sourceThreadId: 'source', sourceItemId: 'item', item: { id: 'item', threadId: 'source', runId: 'run',
+      status: 'completed', startedAt: time, updatedAt: time, type: 'file_search', pattern: 'needle',
+      results: [{ fileName: 'main.ts', line: 12, column: 3, preview: 'needle()' }, { fileName: 'other.ts', preview: 'needleAgain()' }] },
+  }, null, 2)}`;
+  expect(configuration).toMatchObject({ copyText: expected, label: 'Visible search row', symbol: 'magnifyingglass', expanded: false, expandable: true });
+  expect(collapsed).toMatchObject({ nativeCommandDetail: false, nativeWorkDetail: false, body: '', output: '' });
+  setTurnItemOpen(client, activity.id, true);
+  expect(await refreshNextOpenTurnItemDetail(client, native, now)).toBe(false);
+  const expanded = mobileThreadActivity(props, file, client, now, false, '', 'visit');
+  expect(JSON.parse(expanded.nativeWorkRow)).toMatchObject({ copyText: expected, owner: configuration.owner, expanded: true });
+  expect(expanded).toMatchObject({ nativeCommandDetail: false, nativeWorkDetail: false, body: 'pattern needle', output: 'main.ts:12\nneedle()\nother.ts\nneedleAgain()' });
+  const otherVisit = JSON.parse(mobileThreadActivity(props, file, client, now, false, '', 'other-visit').nativeWorkRow);
+  expect(otherVisit.owner).not.toBe(configuration.owner); expect(otherVisit.copyText).toBe(expected);
+  expect(requests).toEqual([]); expect(client.draft).toBe('  '); expect(client.threadId).toBe('thread');
+  expect(JSON.stringify(client.projection)).toBe(before);
+  for (const dark of [false, true]) {
+    const image = mobileThreadActivity({ ...props, iconLight: 'https://example.com/light.png', iconDark: 'https://example.com/dark.png' }, file, client, now, dark, '', 'visit');
+    expect(image.nativeWorkRow).toBe(''); expect(image.iconURL).toBe(`https://example.com/${dark ? 'dark' : 'light'}.png`);
+  }
+  const titled = projected({ type: 'file_search', title: '  exact search  ', pattern: 'Exact search' });
+  const titledCopy = JSON.parse(mobileThreadActivity(props, titled, clientFor([titled]), now, false, '', 'visit').nativeWorkRow).copyText;
+  expect(titledCopy.startsWith('Exact search\n{')).toBe(true);
+  expect(JSON.parse(titledCopy.slice(titledCopy.indexOf('{'))).item.title).toBe('  exact search  ');
+  const empty = projected({ type: 'file_search' });
+  const emptyCopy = JSON.parse(mobileThreadActivity({ ...props, expandable: false }, empty, clientFor([empty]), now, false, '', 'visit').nativeWorkRow);
+  expect(emptyCopy.expandable).toBe(false); expect(emptyCopy.copyText.startsWith('Searched files\n{')).toBe(true);
+  expect(Object.hasOwn(JSON.parse(emptyCopy.copyText.slice(emptyCopy.copyText.indexOf('{'))).item, 'results')).toBe(false);
+  const blank = projected({ type: 'file_search', pattern: '', results: [] });
+  const blankCopy = JSON.parse(mobileThreadActivity(props, blank, clientFor([blank]), now, false, '', 'visit').nativeWorkRow).copyText;
+  expect(blankCopy.startsWith('Searched files\n{')).toBe(true);
+  expect(JSON.parse(blankCopy.slice(blankCopy.indexOf('{'))).item).toMatchObject({ pattern: '', results: [] });
+  const spaced = projected({ type: 'file_search', pattern: '  needle  ' });
+  const spacedCopy = JSON.parse(mobileThreadActivity(props, spaced, clientFor([spaced]), now, false, '', 'visit').nativeWorkRow).copyText;
+  expect(spacedCopy.startsWith('Searched needle\n  needle  \n{')).toBe(true);
+  expect(JSON.parse(spacedCopy.slice(spacedCopy.indexOf('{'))).item.pattern).toBe('  needle  ');
+  const nullable = projected({ type: 'file_search', pattern: null, results: null });
+  const nullCopy = JSON.parse(mobileThreadActivity(props, nullable, clientFor([nullable]), now, false, '', 'visit').nativeWorkRow).copyText;
+  expect(JSON.parse(nullCopy.slice(nullCopy.indexOf('{'))).item).toMatchObject({ pattern: null, results: null });
+});
 test('tool input retains empty and null arguments and nonzero command exit is separate', () => {
   const row = projected({ type: 'dynamic_tool', toolName: 'unknown', input: { clear: '', reset: null, count: 2 } });
   expect(mobileThreadActivity(activity, row, clientFor([row]), now, false, '')).toMatchObject({ body: 'clear ""\nreset null\ncount 2', call: true });
