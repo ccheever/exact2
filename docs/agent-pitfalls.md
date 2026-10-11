@@ -207,12 +207,12 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   by the root's `navigationBack`, and a route that declares one that is disabled
   refuses it (the log says "back gesture refused" and why). A route with no such
   control always goes back (LLP 1115 D5). Fix: enable the control, or leave it out.
-- **The browser's Back leaves the router where it was on the web.** A drive's `tap app
-  history -1` on a pushed `/item/1` left the stack at `/item/1` when the root had no
-  `navigate` handler. Fix: `navigate=follow` on the root and `action follow(url: string)`
-  with `nav = go(nav, url)`, as every pattern has; `one-screen` keeps it with one route,
-  so a second screen gets Back and deep links (LLP 1116.002; two round-4 web apps lost
-  their URL history).
+- **The browser's Forward does nothing on the web.** With no `navigate` handler the
+  browser's Back pops the router by itself (LLP 1115 D5), but Forward to the popped
+  `/item/1` is refused (the log says "navigate … refused") and an in-app link reloads the
+  page. Fix: `navigate=follow` on the root and `action follow(url: string)` with
+  `nav = go(nav, url)`, as every pattern has; `one-screen` keeps it with one route
+  (LLP 1116.002, 1116.003).
 - **A pushed screen's content is cut off and never scrolls, or its large title never
   collapses.** Cause: a route is a box, not a scroller, and `navigationScroll` only
   names one; a title collapses only with the scroller right after the route's
