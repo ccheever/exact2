@@ -240,6 +240,13 @@ Once, on `fb6081a2a` (the final merge; later commits change this record only), `
 | `bun scripts/boot.mjs` | 0 | |
 | `host/apple/build.mjs t3-code-macos --bundle` | 0 | before (`fe0e39c91`), after (`6bb7e084d`) and the retry's (`0af2a208d`) |
 
+Review round 1 (`9ada21cc2`: records only, the sources are `fb6081a2a`'s, so the Bun, tsc, `contract build` and
+`t3-code-macos` rows above stand), `target/r10/checks-rr1.sh`: `git add -A && bun scripts/caps.mjs` 0 (all budgets
+within cap); `cargo build --all-targets --keep-going` 0; `cargo test --lib --bins --tests --no-fail-fast` 0 (3,756
+passed, 0 failed, 36 ignored, 95 suites); `cargo clippy --all-targets --keep-going -- -D warnings` 0; `cargo fmt --all
+-- --check` 0; `bun scripts/boot.mjs` 0. The one Bun test that names `EXACT2-GAPS.md` (`dialog-trap.test.ts`, a comment)
+passes (161).
+
 The AppKit binaries were not run: no module Swift changed, and main's Apple changes since round 9 are the AX roles, the
 link URL, the right-click word, the heading child, the field ring, the popover press walk and an iOS autofocus guard,
 each driven above where the clone meets it.
