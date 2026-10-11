@@ -154,7 +154,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
             started = Native.adopt()
             android.os.Trace.endSection()
         } else {
-            val dir = context.createDeviceProtectedStorageContext().filesDir.absolutePath
+            val dir = context.filesDir.absolutePath
             try { Native.hardwarePictures(hwbuf) } catch (e: UnsatisfiedLinkError) { }
             started = Native.start(window.first, window.second, resources.displayMetrics.density, dir, live)
         }

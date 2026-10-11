@@ -76,6 +76,11 @@ Without a driver the activity no longer does what `Driver` did: show over the ke
 screen on, ask for a 120 Hz display mode, and call `reportFullyDrawn()`. The shell's manifest asks for none of them
 either, so a benchmark that runs on a locked phone declares them in its own.
 
+An app's files (the copied assets, what the app stores, the fonts it writes) are in the app's own files directory,
+which Android keeps encrypted until the phone is first unlocked. The benchmark kept them in device-protected storage
+so that it could run before that; a benchmark that still must run on a phone nobody unlocked needs a reader that
+does so, which this one no longer is.
+
 ## Still the benchmark's
 
 The cut was the smallest one. Left in the reader:
@@ -84,8 +89,6 @@ The cut was the smallest one. Left in the reader:
   and `scenario`, `freeze`, `start`, `kinds` and `live`, with the `BENCH_*` variables they set (`Native.start` takes
   `live`);
 - `startPitchDp`, the tag view (`tag=1`) and the coverage counters (`cover=1`);
-- storage in the device-protected context, which let an app run on a phone that had not been unlocked. The shell is
-  no longer direct-boot aware, so nothing here needs it; an app's files are still kept there;
 - one scroller, "the feed", which a driver's `scroll` moves;
 - comments that speak of the benchmark's apps and its measurements.
 

@@ -84,8 +84,9 @@ open class ExactActivity : Activity() {
         setContentView(root)
     }
 
-    /** Where exact2 keeps the app's files, and the APK's assets are copied. */
-    private val storage: File by lazy { createDeviceProtectedStorageContext().filesDir }
+    /** Where exact2 keeps the app's files, and the APK's assets are copied: the app's own files directory, which
+     * the system keeps encrypted until the phone is first unlocked, as any app's is. */
+    private val storage: File by lazy { filesDir }
     /** A driver was asked for, once ([drive]), and told of the first content once, whatever view draws it again. */
     private var driven = false
     private var ready = false
