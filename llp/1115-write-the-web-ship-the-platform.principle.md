@@ -64,6 +64,13 @@ own on the web). This LLP extends it rather than inventing a second mechanism:
 - **Colours.** Every presentation colour default is a role, never a literal: page background
   (`Canvas` → `systemBackground`/`windowBackgroundColor`), separators (`-exact-separator`),
   links (`LinkText` → the tint on iOS), tint (`AccentColor`).
+  > **Amended by LLP 1116.000 D4 (2026-10-10).** The link role reached only a run with an
+  > `href` in its paragraph; a block `link` inherited, so a `tel:` or `mailto:` value was body
+  > text on the web. On the web a block `link` of text whose colour is unsaid is in the accent
+  > (`var(--exact-accent, AccentColor)`, `host/web/index.html`), as the plain button and the tab
+  > bar are and as `LinkText` is the tint on iOS, and every link shows the pointing hand. One
+  > holding a row or column, or given a `role` or a `buttonStyle`, is the author's row or
+  > button and still inherits; an inline run keeps `LinkText`; the native hosts are unchanged.
 - **Type.** The root font size is the platform's body size (iOS: Dynamic Type body, 17 at the
   default size; macOS: `NSFont.systemFontSize`, 13; the web: 16). Headings resolve to the
   platform's text styles by level (§5 D3).

@@ -299,12 +299,13 @@ try {
     assert.equal(stayed.navigatePresses, 3);
     assert.equal(await evaluate('fixtureBoot'), boot, 'one document across every in-place link');
     const row = { name: 'links in place', documents: 1, clicks: 3, traversals: 2 }; rows.push(row); console.log(JSON.stringify(row));
-    // A link paints and lays out as the bare node the kernel models.
+    // A link lays out as the bare node the kernel models.
     const looks = await evaluate(`[...document.querySelectorAll('[data-testid$="-${key}"]')].filter(el => el.localName === 'a')
       .map(el => { const s = getComputedStyle(el), p = getComputedStyle(el.parentElement); return [el.dataset.testid.replace('-${key}', ''), s.display, s.textDecorationLine, s.cursor, s.color === p.color]; })`);
     assert.deepEqual(looks.filter(([id]) => ['link-post', 'link-person'].includes(id)),
-      // An inline link run is LinkText (LLP 1115); a block link inherits its parent's colour.
-      [['link-post', 'block', 'none', 'default', true], ['link-person', 'inline', 'none', 'default', false]]);
+      // An inline link run is LinkText (LLP 1115); a block link of text is in the accent, not its parent's colour,
+      // and every link points (LLP 1116.000 D4).
+      [['link-post', 'block', 'none', 'pointer', false], ['link-person', 'inline', 'none', 'pointer', false]]);
     // A same-origin path no pattern declares (a file) is the browser's: a new document.
     await tap('link-file'); await until(`location.pathname==='/manifest.json'`);
     assert.notEqual(await evaluate('globalThis.fixtureBoot ?? null'), boot);

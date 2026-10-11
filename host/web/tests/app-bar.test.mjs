@@ -2,7 +2,9 @@
 // navigation glue's projection (navigation.js, which both web targets run)
 // over nodes as the hosts write them. A pushed route's app bar draws Back as
 // iOS draws UIKit's (a route above its stack's root, not a sheet, whose header
-// does not hold the root's `navigationBack` control).
+// does not hold the root's `navigationBack` control), and a block `link` of
+// text is in the accent with the pointing hand while an authored colour, a
+// row inside it, a `role` or a `buttonStyle` keeps the author's look.
 import { test, expect } from 'bun:test';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -27,6 +29,16 @@ const page = readFileSync(resolve(WEB, 'index.html'), 'utf8').match(/<style>[\s\
       <div navigationKey="1" id="r1"><header><h1>People</h1></header></div>
       <div navigationKey="2" id="r2">
         <header style="display:flex;align-items:center"><h2 id="title2">Ada</h2></header>
+        <div id="links" style="color:rgb(1, 2, 3)">
+          <a data-view href="tel:555" id="l-text"><div data-exact-text>555</div></a>
+          <a data-view href="mailto:a@b.c" id="l-symbol"><img alt=""><div data-exact-text>Mail</div></a>
+          <a data-view href="tel:556" id="l-authored" style="color:rgb(204, 0, 0)"><div data-exact-text>Red</div></a>
+          <a data-view href="mailto:r@b.c" id="l-row"><div><img alt=""><div data-exact-text>A row</div></div></a>
+          <a data-view href="mailto:b@b.c" id="l-role" role="button"><div data-exact-text>Button</div></a>
+          <a data-view href="mailto:s@b.c" id="l-style" data-button-style="plain"><div data-exact-text>Styled</div></a>
+          <div style="--exact-accent:rgb(10, 20, 30)"><a data-view href="tel:557" id="l-accent"><div data-exact-text>Tinted</div></a></div>
+          <div data-exact-text>An <a data-view href="/x" id="l-run" style="color:LinkText">inline run</a>.</div>
+        </div>
       </div>
       <div navigationKey="3" id="r3"><header><h2>More</h2></header><button id="back">Done</button></div>
       <div navigationKey="4" id="r4" navigationPresentation="modal"><header><button id="back">Cancel</button><h2>New</h2></header></div>
@@ -109,4 +121,19 @@ check('a pushed route draws Back at its app bar\'s leading edge, and goes back a
     .toEqual(['navigate /', 'navigate /', 'host back 2']);
   // A control elsewhere in the route is what Back presses; only the shown route's Back acts.
   expect(await evaluate(`select('3'); press('r3'); press('r2'); calls.splice(0)`)).toEqual(['pressed r3']);
+}), 30000);
+
+check('a block link of text is in the accent and points; the author\'s look wins', () => inChrome(async (evaluate) => {
+  // A link of text (or a symbol and text) is in the accent, the app's when it names one; an authored colour, a row
+  // inside it, a role or a buttonStyle keeps the author's look; an inline run keeps its LinkText row. Every link points.
+  expect(await evaluate(`['l-text', 'l-symbol', 'l-authored', 'l-row', 'l-role', 'l-style', 'l-accent', 'l-run'].map(id => { const s = getComputedStyle(document.getElementById(id)); return id + ' ' + s.color + ' ' + s.cursor + ' ' + s.display + ' ' + s.textDecorationLine; })`)).toEqual([
+    'l-text rgb(0, 117, 255) pointer block none',
+    'l-symbol rgb(0, 117, 255) pointer block none',
+    'l-authored rgb(204, 0, 0) pointer block none',
+    'l-row rgb(1, 2, 3) pointer block none',
+    'l-role rgb(1, 2, 3) pointer block none',
+    'l-style rgb(1, 2, 3) pointer block none',
+    'l-accent rgb(10, 20, 30) pointer block none',
+    'l-run rgb(0, 0, 238) pointer inline none',
+  ]);
 }), 30000);
