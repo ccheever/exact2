@@ -248,7 +248,8 @@ impl<D: DataSource> Bridge<D> {
     /// D4), as JSON in the output buffer: `{"style","sections":[{"view",
     /// "header","footer","card","spaceAbove","rows":[{"view","custom","symbol","title",
     /// "secondary","subtitle","accessory","target","pressable",
-    /// "destructive","disabled"}]}],"spaceBelow"}`, `null` for a node that is not one.
+    /// "destructive","disabled","titleLook","secondaryLook"}]}],"spaceBelow"}`,
+    /// `null` for a node that is not one. A look is `{"lines","ellipsis"}`.
     /// `accessory` is `none`, `disclosure`, `checkmark`, `toggle` or
     /// `detail`; `target` the toggle's control or the detail's button. Not
     /// a batch: nothing changes.
@@ -258,6 +259,14 @@ impl<D: DataSource> Bridge<D> {
         let opt = |v: &Option<String>, json: &mut String| match v {
             Some(t) => quote(t, json),
             None => json.push_str("null"),
+        };
+        // How a text is set where its author said so (LLP 1116.003 D7).
+        let look = |key: &str, l: &exact_kernel::TextLook, json: &mut String| {
+            json.push_str(key);
+            json.push_str(&format!(
+                "{{\"lines\":{},\"ellipsis\":{}}}",
+                l.lines, l.ellipsis
+            ));
         };
         let list = self
             .host
@@ -301,13 +310,16 @@ impl<D: DataSource> Bridge<D> {
                             Accessory::Detail(id) => ("detail", Some(id)),
                         };
                         json.push_str(&format!(
-                            ",\"subtitle\":{},\"accessory\":\"{accessory}\",\"target\":{},\"pressable\":{},\"destructive\":{},\"disabled\":{}}}",
+                            ",\"subtitle\":{},\"accessory\":\"{accessory}\",\"target\":{},\"pressable\":{},\"destructive\":{},\"disabled\":{}",
                             r.subtitle,
                             target.map_or("null".into(), |t| t.to_string()),
                             r.pressable,
                             r.destructive,
                             r.disabled
                         ));
+                        look(",\"titleLook\":", &r.title_look, &mut json);
+                        look(",\"secondaryLook\":", &r.secondary_look, &mut json);
+                        json.push('}');
                     }
                     json.push_str("]}");
                 }

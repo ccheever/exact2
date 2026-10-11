@@ -903,5 +903,33 @@ final class GroupedListIOSTests: XCTestCase {
         while !text.textRasterReady && Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
         XCTAssertTrue(text.textRasterReady, "what shows is painted, not left blank")
     }
+
+    /// LLP 1116.003 D7, round 5's chat-rooms: a room's last message, its
+    /// subtitle line written `line-clamp=1`, grew the row to 13 lines, as
+    /// UIKit wraps a cell's text unless told. The model's look is the
+    /// author's clamp, and the cell keeps to it; a text that says nothing
+    /// keeps UIKit's.
+    func testAStandardCellsTextKeepsItsLineClamp() throws {
+        let message = String(repeating: "A long last message that says a great deal. ", count: 11)
+        var look = GroupedListModel.Look(lines: 1, ellipsis: true)
+        let p = presenter {
+            var m = self.model()
+            m.sections[0].rows[1] = Row(view: 11, title: "General", secondary: message, subtitle: true, accessory: "disclosure",
+                                        pressable: true, secondaryLook: look)
+            return m
+        }
+        let clamped = try cell(p, 11)
+        let c = try XCTUnwrap(clamped.contentConfiguration as? UIListContentConfiguration)
+        XCTAssertEqual(c.secondaryTextProperties.numberOfLines, 1)
+        XCTAssertEqual(c.secondaryTextProperties.lineBreakMode, .byTruncatingTail, "an ellipsis, as CSS's clamp draws")
+        XCTAssertEqual(c.textProperties.numberOfLines, 0, "the title says nothing: UIKit's")
+        let short = clamped.bounds.height
+        XCTAssertLessThan(short, 80, "one line under the title")
+        look = .init()
+        p.apply(wireBatch([["op": "props", "id": 11, "set": ["testId": "row11"], "clear": [String]()]]))
+        let wrapped = try cell(p, 11)
+        XCTAssertEqual((wrapped.contentConfiguration as? UIListContentConfiguration)?.secondaryTextProperties.numberOfLines, 0)
+        XCTAssertGreaterThan(wrapped.bounds.height, short * 3, "unclamped, every line")
+    }
 }
 #endif

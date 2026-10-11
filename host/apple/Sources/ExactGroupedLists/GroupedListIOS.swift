@@ -41,6 +41,26 @@ extension Runtime {
 
 /// A grouped list as the kernel reads it (`Kernel::grouped_list`).
 struct GroupedListModel: Equatable {
+    /// How a text is set where its author said so (`TextLook`, LLP 1116.003
+    /// D7); the defaults leave it the platform's.
+    struct Look: Equatable {
+        /// The most lines it shows, 0 for any number.
+        var lines = 0
+        /// A line cut short ends in "…", not at the edge.
+        var ellipsis = false
+        init(lines: Int = 0, ellipsis: Bool = false) { self.lines = lines; self.ellipsis = ellipsis }
+        init(json: Any?) {
+            let o = json as? [String: Any] ?? [:]
+            lines = (o["lines"] as? NSNumber)?.intValue ?? 0
+            ellipsis = o["ellipsis"] as? Bool ?? false
+        }
+        /// Onto a cell's text: only what the author said changes UIKit's.
+        func apply(to text: inout UIListContentConfiguration.TextProperties) {
+            guard lines > 0 else { return }
+            text.numberOfLines = lines
+            text.lineBreakMode = ellipsis ? .byTruncatingTail : .byClipping
+        }
+    }
     struct Row: Equatable {
         var view: UInt32
         var custom = false
@@ -53,6 +73,8 @@ struct GroupedListModel: Equatable {
         var pressable = false
         var destructive = false
         var disabled = false
+        var titleLook = Look()
+        var secondaryLook = Look()
     }
     struct Section: Equatable {
         var view: UInt32
@@ -84,7 +106,8 @@ struct GroupedListModel: Equatable {
                            title: r["title"] as? String, secondary: r["secondary"] as? String,
                            subtitle: r["subtitle"] as? Bool ?? false, accessory: r["accessory"] as? String ?? "none",
                            target: id(r["target"]), pressable: r["pressable"] as? Bool ?? false,
-                           destructive: r["destructive"] as? Bool ?? false, disabled: r["disabled"] as? Bool ?? false)
+                           destructive: r["destructive"] as? Bool ?? false, disabled: r["disabled"] as? Bool ?? false,
+                           titleLook: Look(json: r["titleLook"]), secondaryLook: Look(json: r["secondaryLook"]))
             }
             return Section(view: view, header: s["header"] as? String, footer: s["footer"] as? String, rows: rows,
                            card: s["card"] as? Bool ?? true,
@@ -574,6 +597,9 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         }
         c.text = row.title
         c.secondaryText = row.secondary
+        // A `line-clamp` or a line kept whole, as outside a list (D7).
+        row.titleLook.apply(to: &c.textProperties)
+        row.secondaryLook.apply(to: &c.secondaryTextProperties)
         if row.destructive {
             c.textProperties.color = .systemRed
             c.imageProperties.tintColor = .systemRed

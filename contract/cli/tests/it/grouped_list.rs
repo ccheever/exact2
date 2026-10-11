@@ -3,7 +3,7 @@
 //! kernel reads its sections and rows as a native list draws them. Bare row
 //! fixtures exercise LLP 1104's default in the grouped-list context.
 
-use exact_kernel::{Accessory, Color, GroupedRow, Kernel, Offer, PropId, StyleMask};
+use exact_kernel::{Accessory, Color, GroupedRow, Kernel, Offer, PropId, StyleMask, TextLook};
 use exact_runner::{DataError, DataSource, Runner, Value};
 
 struct NoData;
@@ -750,5 +750,49 @@ fn default_buttons_keep_grouped_titles_presses_and_detail_accessories() {
     assert_eq!(
         r.kernel().grouped_list(id(&r, "list")).unwrap().sections[0].rows[1].accessory,
         Accessory::Checkmark
+    );
+}
+
+#[test]
+fn a_standard_cells_text_keeps_its_line_clamp() {
+    // LLP 1116.003 D7, round 5's chat-rooms: a room's last message, a
+    // subtitle line written `line-clamp=1`, grew to 13 lines on iOS, where
+    // UIKit draws the cell's text and wraps every line. The kernel reads how
+    // many lines each text shows and whether a cut line ends in "…", as the
+    // web lays it out; a text that says nothing keeps the platform's.
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"room\"\n      column flex=1 min-width=0\n        text \"General\"\n        text \"A long last message\" line-clamp=1\n      image \"symbol:forward-chevron\"\n    row\n      text \"Title\" line-clamp=2\n      text \"Value\" white-space=\"nowrap\" overflow=\"hidden\" text-overflow=\"ellipsis\"\n    row\n      text \"Kept\" white-space=\"nowrap\"\n      text \"Plain\"");
+    let list = r.kernel().grouped_list(id(&r, "list")).unwrap();
+    let rows = &list.sections[0].rows;
+    let clamped = TextLook {
+        lines: 1,
+        ellipsis: true,
+    };
+    assert_eq!(
+        (rows[0].subtitle, rows[0].title_look, rows[0].secondary_look),
+        (true, TextLook::default(), clamped),
+        "the subtitle line is clamped, the title the platform's"
+    );
+    assert_eq!(rows[0].accessory, Accessory::Disclosure);
+    assert_eq!(
+        (rows[1].title_look, rows[1].secondary_look),
+        (
+            TextLook {
+                lines: 2,
+                ellipsis: true
+            },
+            clamped
+        ),
+        "a clamp of two, and a line kept whole with an ellipsis"
+    );
+    assert_eq!(
+        (rows[2].title_look, rows[2].secondary_look),
+        (
+            TextLook {
+                lines: 1,
+                ellipsis: false
+            },
+            TextLook::default()
+        ),
+        "a line kept whole without one is cut at the edge"
     );
 }

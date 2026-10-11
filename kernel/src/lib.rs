@@ -70,7 +70,7 @@ pub use error::{
     ApplyError, DecodeError, KernelError, LayoutError, StyleDomainError, StyleValueError,
 };
 pub use generated::*;
-pub use grouped::{Accessory, GroupedList, GroupedRow, GroupedSection};
+pub use grouped::{Accessory, GroupedList, GroupedRow, GroupedSection, TextLook};
 pub use handoff::Handoff;
 pub use id::{AxisOffer, Frame, NodeFlags, NodeKey, Offer, ViewId};
 pub use kernel::{HostCover, Kernel, NodeRef, PresentedHeight, StickyConstraint};

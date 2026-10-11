@@ -6,7 +6,9 @@
 //! data; any other row is custom, and the host carries its views.
 
 use crate::control::ControlKind;
-use crate::generated::{Display, FlexDirection, NodeType, PropId};
+use crate::generated::{
+    Display, FlexDirection, NodeType, Overflow, PropId, StyleId, TextOverflow, WhiteSpace,
+};
 use crate::id::ViewId;
 use crate::kernel::{Kernel, NodeRef};
 
@@ -84,6 +86,44 @@ pub struct GroupedRow {
     pub destructive: bool,
     /// `disabled`.
     pub disabled: bool,
+    /// How the title is set where its author said so.
+    pub title_look: TextLook,
+    /// How the second text is set where its author said so.
+    pub secondary_look: TextLook,
+}
+
+/// How a text the platform's list draws is set where its author said so
+/// (LLP 1116.003 D7). The defaults are the platform's: every line, wrapped.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TextLook {
+    /// The most lines it shows, 0 for any number: its `line-clamp`, or 1
+    /// where `white-space: nowrap` keeps it on one line.
+    pub lines: u32,
+    /// Whether a line cut short ends in "…" rather than at the edge: under
+    /// a `line-clamp`, as CSS draws one, or `text-overflow: ellipsis` in a
+    /// box that clips its overflow.
+    pub ellipsis: bool,
+}
+
+impl TextLook {
+    /// The look the text node `node` asks for, as the web lays it out.
+    fn of(node: &NodeRef<'_>) -> TextLook {
+        let clamp = node.style.line_clamp;
+        if clamp > 0 {
+            return TextLook {
+                lines: clamp,
+                ellipsis: true,
+            };
+        }
+        let nowrap =
+            node.computed_row(StyleId::WhiteSpace, |s| s.white_space) == WhiteSpace::Nowrap;
+        TextLook {
+            lines: u32::from(nowrap),
+            ellipsis: nowrap
+                && node.style.text_overflow == TextOverflow::Ellipsis
+                && node.style.overflow_x != Overflow::Visible,
+        }
+    }
 }
 
 /// A symbol image's Apple name: an `sf/` name as written, a role by the
@@ -110,6 +150,16 @@ fn text_of(node: &NodeRef<'_>) -> Option<String> {
     let text: String = node.text_runs().iter().map(|r| &*r.text).collect();
     let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
     (!text.is_empty()).then_some(text)
+}
+
+impl GroupedRow {
+    /// A standard cell's title and second text, and how each is set.
+    fn texts(&mut self, title: &NodeRef<'_>, second: Option<&NodeRef<'_>>) {
+        self.title = text_of(title);
+        self.title_look = TextLook::of(title);
+        self.secondary = second.and_then(text_of);
+        self.secondary_look = second.map(TextLook::of).unwrap_or_default();
+    }
 }
 
 impl Kernel {
@@ -192,8 +242,7 @@ impl Kernel {
         {
             if (1..=2).contains(&parts.len()) && parts.iter().all(|p| p.node_type == NodeType::Text)
             {
-                out.title = text_of(&parts[0]);
-                out.secondary = parts.get(1).and_then(text_of);
+                out.texts(&parts[0], parts.get(1));
                 out.subtitle = true;
             }
             if out.title.is_none() {
@@ -243,12 +292,11 @@ impl Kernel {
             }
         }
         match rest {
-            [title] if title.node_type == NodeType::Text => out.title = text_of(title),
+            [title] if title.node_type == NodeType::Text => out.texts(title, None),
             [title, value]
                 if title.node_type == NodeType::Text && value.node_type == NodeType::Text =>
             {
-                out.title = text_of(title);
-                out.secondary = text_of(value);
+                out.texts(title, Some(value))
             }
             // A `column`, as Contract's sheet styles one; a `row` or a box
             // of texts is the row's own layout.
@@ -261,8 +309,7 @@ impl Kernel {
                 if lines.iter().all(|l| l.node_type == NodeType::Text)
                     && (1..=2).contains(&lines.len())
                 {
-                    out.title = text_of(&lines[0]);
-                    out.secondary = lines.get(1).and_then(text_of);
+                    out.texts(&lines[0], lines.get(1));
                     out.subtitle = true;
                 } else {
                     out.custom = true;
