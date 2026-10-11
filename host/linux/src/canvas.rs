@@ -1460,9 +1460,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
             2 => self.p.pointer_move(x, y, now).map(|_| ()),
             _ => self.p.pointer_cancel(now),
         };
-        if let Err(e) = r {
-            eprintln!("exact: {e}");
-        }
+        self.touched(action, x, y, now, r);
     }
 
     /// A picture announced by `IMAGE_DEF`, once (premultiplied RGBA rows).

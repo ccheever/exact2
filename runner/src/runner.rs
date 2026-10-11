@@ -13,6 +13,7 @@ mod control;
 mod event;
 pub mod faults;
 mod field;
+pub mod foresee;
 pub use field::{FieldSelection, SelectionDirection};
 mod host_kinds;
 mod pointer;
