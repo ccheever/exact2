@@ -440,6 +440,8 @@ component MobileRouteContent
       SettingsThreadPreferences(data=threadPreferences, colors=settingsData.root.colors, roles=settingsData.root.roles, bottom=settingsData.root.bottom, busy=threadPreferencesChangedPending, change=threadPreferenceChange, preference=changePreference)
     else when routeName == "settingsProjectOverview"
       SettingsProjectOverview(data=projectOverview, colors=settingsData.root.colors, roles=settingsData.root.roles, bottom=settingsData.root.bottom, busy=projectRenamedPending, savedRevision=projectSavedRevision, save=renameProject)
+      when focused
+        SettingsHeader(configuration=settingsData.projectHeader, event=settingsHeaderEvent)
     else when routeName == "settingsServer"
       SettingsServer(data=serverSettings, colors=settingsData.root.colors, roles=settingsData.root.roles, danger=look.colors.dangerForeground, bottom=settingsData.root.bottom, change=serverSettingChange, environment=settingsEnvironment)
     else when routeName == "settingsProviders"
