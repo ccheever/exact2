@@ -1,0 +1,109 @@
+# dialog-trap-and-progress-value, review round 1: the element id each instance of a shared control carries
+# before = 808fc26ba (PR #431 before this round: `id=testId` on the shared controls), after = this round (`id=elementId`,
+# "" except where a dialog's focus guard names the control). Read from the Contract sources; one line per call site.
+
+== before
+MediaActions (media-actions.contract: id=testId)
+  media-actions.contract:91  id "file-image-failed"
+  media-actions.contract:96  id "file-image-actions"
+  media-actions.contract:101  id "file-video-actions"
+  media-markdown.contract:43  id (kind == "video" ? "markdown-video-actions" : "markdown-image-actions")
+  media-markdown.contract:78  id (kind == "video" ? "markdown-video-actions" : "markdown-image-actions")
+  r6-media-video.contract:21  id `attachment-video-actions-${id}`
+  timeline-attachments.contract:151  id "image-preview-actions"
+UsagePrimaryButton (pages-usage-dialogs.contract: id=testId)
+  pages-usage-dialogs.contract:108  id "usage-model-set-price"
+UsageGhostIcon (pages-usage-prices.contract: id=testId)
+  pages-usage-prices.contract:52  id "usage-prices-add"
+  pages-usage-prices.contract:114  id `usage-price-${row.id}-reset`
+WelcomePrimary (pages-welcome.contract: id=testId)
+  pages-welcome.contract:278  id "welcome-pair"
+  pages-welcome.contract:290  id "welcome-continue"
+  pages-welcome.contract:368  id "welcome-agents-continue"
+  pages-welcome.contract:444  id "welcome-import"
+WelcomeGhost (pages-welcome.contract: id=testId)
+  pages-welcome.contract:366  id "welcome-another-chatgpt"
+  pages-welcome.contract:387  id "welcome-codex-existing"
+  pages-welcome.contract:396  id `welcome-terminal-${agent.key}`
+  pages-welcome.contract:416  id "welcome-skip-import"
+  pages-welcome.contract:423  id "welcome-select-all"
+  pages-welcome.contract:424  id "welcome-select-none"
+  pages-welcome.contract:443  id "welcome-skip-import"
+  pages-welcome.contract:458  id "welcome-terminal-retry"
+  pages-welcome.contract:459  id "welcome-terminal-close"
+WelcomeDisclosure (pages-welcome.contract: id=testId)
+  pages-welcome.contract:264  id "welcome-add-computer"
+R4Button (r4-git.contract: id=testId)
+  r4-git-publish.contract:118  id "git-publish-done"
+  r4-git-publish.contract:120  id "git-publish-back"
+  r4-git-publish.contract:122  id "git-publish-next"
+  r4-git-publish.contract:124  id "git-publish-submit"
+  r4-git.contract:368  id "git-commit-cancel"
+  r4-git.contract:369  id "git-commit-new-branch"
+  r4-git.contract:370  id "git-commit-submit"
+  r4-git.contract:408  id "git-confirm-abort"
+  r4-git.contract:410  id "git-confirm-continue"
+  r4-git.contract:411  id "git-confirm-feature"
+R4Checkbox (r4-git.contract: id=testId)
+  r4-git.contract:342  id "git-commit-all"
+  r4-git.contract:384  id `git-commit-file-${file.path}`
+PreviewStep (timeline-attachments.contract: id=testId)
+  timeline-attachments.contract:150  id "image-preview-previous"
+  timeline-attachments.contract:176  id "image-preview-next"
+PaletteToggle (palette.contract: no id)
+  palette.contract:452  id (none)
+  palette.contract:453  id (none)
+  palette.contract:454  id (none)
+
+== after
+MediaActions (media-actions.contract: id=elementId)
+  media-actions.contract:93  id (none)
+  media-actions.contract:98  id (none)
+  media-actions.contract:103  id (none)
+  media-markdown.contract:43  id (none)
+  media-markdown.contract:78  id (none)
+  r6-media-video.contract:21  id (none)
+  timeline-attachments.contract:151  id "image-preview-actions"
+UsagePrimaryButton (pages-usage-dialogs.contract: id=elementId)
+  pages-usage-dialogs.contract:108  id "usage-model-set-price"
+UsageGhostIcon (pages-usage-prices.contract: id=elementId)
+  pages-usage-prices.contract:52  id "usage-prices-add"
+  pages-usage-prices.contract:114  id (none)
+WelcomePrimary (pages-welcome.contract: id=elementId)
+  pages-welcome.contract:282  id "welcome-pair"
+  pages-welcome.contract:294  id "welcome-continue"
+  pages-welcome.contract:374  id "welcome-agents-continue"
+  pages-welcome.contract:450  id "welcome-import"
+WelcomeGhost (pages-welcome.contract: id=elementId)
+  pages-welcome.contract:372  id (none)
+  pages-welcome.contract:393  id (none)
+  pages-welcome.contract:402  id (none)
+  pages-welcome.contract:422  id "welcome-skip-import"
+  pages-welcome.contract:429  id (none)
+  pages-welcome.contract:430  id (none)
+  pages-welcome.contract:449  id "welcome-skip-import"
+  pages-welcome.contract:464  id (none)
+  pages-welcome.contract:465  id (none)
+WelcomeDisclosure (pages-welcome.contract: id=elementId)
+  pages-welcome.contract:268  id "welcome-add-computer"
+R4Button (r4-git.contract: id=elementId)
+  r4-git-publish.contract:118  id "git-publish-done"
+  r4-git-publish.contract:120  id (none)
+  r4-git-publish.contract:122  id (none)
+  r4-git-publish.contract:124  id (none)
+  r4-git.contract:372  id (none)
+  r4-git.contract:373  id (none)
+  r4-git.contract:374  id (none)
+  r4-git.contract:412  id "git-confirm-abort"
+  r4-git.contract:414  id (none)
+  r4-git.contract:415  id (none)
+R4Checkbox (r4-git.contract: id=elementId)
+  r4-git.contract:346  id "git-commit-all"
+  r4-git.contract:388  id (none)
+PreviewStep (timeline-attachments.contract: id=elementId)
+  timeline-attachments.contract:150  id "image-preview-previous"
+  timeline-attachments.contract:176  id "image-preview-next"
+PaletteToggle (palette.contract: id=elementId)
+  palette.contract:456  id (none)
+  palette.contract:457  id (none)
+  palette.contract:458  id "palette-regex"
