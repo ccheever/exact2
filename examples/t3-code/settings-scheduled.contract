@@ -126,7 +126,7 @@ component ScheduledPanel
   view
     column width="100%" gap="0.625rem" testId="scheduled-settings"
       row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center" justify-content="space-between" gap="1rem" box-sizing="border-box"
-        text "Scheduled tasks" font-size="0.875rem" line-height="1.25rem" color="light-dark(#262629b3, #f5f5f5b3)" role="heading" aria-level=2
+        text "Scheduled tasks" font-size="0.875rem" font-weight=400 line-height="1.25rem" color="light-dark(#262629b3, #f5f5f5b3)" role="heading" aria-level=2
         button press=open("task", "", "") disabled=(busy or not data.available or not data.writable) id="new-scheduled-task" testId="new-scheduled-task" display="flex" flex-direction="row" align-items="center" gap="0.25rem" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" border-width=0 border-radius="0.5rem" background-color="#00000000" opacity=(busy or not data.available or not data.writable ? 0.64 : 1)
           LucidePlus(size=12, color="light-dark(#71717b, #818181)")
           text "New task" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)"
