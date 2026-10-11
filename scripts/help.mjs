@@ -94,7 +94,7 @@ Ports    none to choose. web: headless Chrome over a pipe; the page on 127.0.0.1
          ${NATIVE_PORTS}
 Runs     to completion, exit 1 when a test fails; nothing is left running.
 Lines    tap, type, expect text|tree|state, clock data|settle|+<ms>, reload, fail|pass fetch:
-         docs/start-here.md "Tests"; all: docs/contract-for-agents.md "Inspection and testing".`,
+         docs/recipes/tests.md; all: docs/contract-grammar.md "Authored tests".`,
     example: 'bun exact.mjs test ios tests/*.test.contract --size 390x844',
   },
   agent: {

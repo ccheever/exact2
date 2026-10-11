@@ -39,7 +39,7 @@ test "Enter adds too; a repeat is refused and keeps its text"
 | Step | What it does |
 | --- | --- |
 | `tap "id"` | Presses it. `tap "Milk"` names a node by its exact text or label; `tap "id" contextmenu` long-presses. |
-| `type "id" "text"` | Sets a field's value; a `select`'s value, a date (`"2026-10-10"`), a checkbox (`"true"`). `type "id" key "Enter"` presses a key. |
+| `type "id" "text"` | Sets a field's value; a `select`'s value, a date (`"2026-10-10"`), a checkbox (`"true"`). `… append` adds to the value; `type "id" key "Enter"` presses a key. |
 | `expect text "id" == "…"` | The node's text, else a control's value, else its descendants' text. |
 | `expect tree has "id"`, `missing` | Whether the node is in the tree (covered routes stay in it). |
 | `expect state a.b == v` | A state, derive or resource field: a number, a string, `true`, `false`, `none` or `[]`. A list index is `items.0 .title` (a space before the field). |
@@ -47,8 +47,12 @@ test "Enter adds too; a repeat is refused and keeps its text"
 | `clock settle` | Runs transitions (a push, a sheet, an alert) to their end. |
 | `clock +5000` | Moves the virtual clock 5 s: timers fire, animations advance. |
 | `reload` | Relaunches on the same storage; the clock starts over at 0. |
-| `fail fetch "<prefix>"`, `pass fetch "<prefix>"` | Fetches to that prefix fail as a lost connection, then stop failing. First in a test, it is armed before the first load. |
+| `fail fetch "<prefix>"`, `pass fetch "<prefix>"` | Fetches to that prefix fail as a lost connection (`times 2`: only the next two), then stop failing. First in a test, it is armed before the first load. |
+| `screenshot ".exact/x.png"`, `resize 800x600` | A picture mid-test, to look at; the window resized mid-test. |
 | `size 390x844`, `epoch "2026-03-14T09:00:00Z"`, `time-zone "Europe/Paris"`, `locale "fr-FR"`, `seed 7` | Launch lines: before a test's steps, or at the top for every test. |
+| `before data` | A launch line: the first step runs before the first data lands (a loading state). |
+
+Every other form (drags, pinches, `pick`, `close`, sounds): [the grammar](../contract-grammar.md#authored-tests).
 
 An `expect` has no `<`, `contains` or `length`: give the app a derive (`derive left =
 length(…)`) and compare it with `==`.
@@ -78,4 +82,5 @@ bun exact.mjs agent ios --storage real1 --epoch now --chrome platform "type draf
 
 Each `clock +N real` waits N ms of real time, so the drive ends. `state` lists what is
 `pending` or `failed`; the iOS screenshot with `--chrome platform … window` shows the
-bars a person sees. An app with a server drives it against the running dev server.
+bars a person sees ([ios-driving](ios-driving.md)). An app with a server drives it
+against the running dev server.
