@@ -87,20 +87,22 @@ final class T3TerminalSessions {
 
     /// Follows a transport's connections: when it reaches an environment, that environment's waiting sessions attach on it.
     func observe(_ other: T3Transport) {
+        let id = ObjectIdentifier(other)
         other.queue.async { [weak self, weak other] in
             guard let other else { return }
+            // A transport that is gone still reports its socket's end, so its route never outlives it.
             other.terminalConnection = { [weak self, weak other] connected, environment in
-                DispatchQueue.main.async { if let other { self?.connectionChanged(other, connected: connected, environment: environment) } }
+                DispatchQueue.main.async { self?.connectionChanged(id, other, connected: connected, environment: environment) }
             }
             guard other.state == "connected" else { return }
             let environment = other.descriptor["environmentId"] as? String ?? ""
-            DispatchQueue.main.async { [weak other] in if let other { self?.connectionChanged(other, connected: true, environment: environment) } }
+            DispatchQueue.main.async { [weak other] in self?.connectionChanged(id, other, connected: true, environment: environment) }
         }
     }
 
     /// The transport that reaches an environment now: the focused one first, else a background environment's.
     func reaching(_ environment: String) -> T3Transport? {
-        if let transport, routes[ObjectIdentifier(transport)]?.environment == environment { return transport }
+        if let transport, let route = routes[ObjectIdentifier(transport)], route.transport === transport, route.environment == environment { return transport }
         return routes.values.first { $0.environment == environment && $0.transport != nil }?.transport
     }
 
@@ -166,10 +168,9 @@ final class T3TerminalSessions {
 
     /// A transport reached an environment (its sessions attach there) or lost its socket (its streams have ended;
     /// another transport that still reaches the environment takes its sessions).
-    private func connectionChanged(_ changed: T3Transport, connected: Bool, environment: String) {
-        let id = ObjectIdentifier(changed)
+    private func connectionChanged(_ id: ObjectIdentifier, _ changed: T3Transport?, connected: Bool, environment: String) {
         let reached = connected ? environment : routes[id]?.environment ?? ""
-        routes[id] = connected && !environment.isEmpty ? Route(transport: changed, environment: environment) : nil
+        if let changed, connected, !environment.isEmpty { routes[id] = Route(transport: changed, environment: environment) } else { routes[id] = nil }
         guard !reached.isEmpty, reaching(reached) != nil else { return }
         for session in sessions.values where session.environment == reached && session.streamId == nil && !session.failed
             && (session.retained || !session.liveViews.isEmpty) { attach(session) }

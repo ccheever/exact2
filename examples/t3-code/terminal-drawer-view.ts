@@ -249,7 +249,10 @@ export function existingThreadKeys(client: T3Client, mounted: readonly string[],
     for (const thread of entry.shell.threads) add(entry.environmentId, str(thread.id));
   }
   // A draft's reserved id (r7-handoff-thread.ts), under the environment its draft key names.
-  for (const [draftKey, threadId] of Object.entries(client.local.composerControls?.draftThreads ?? {})) add(draftKey.slice(0, draftKey.indexOf(':')), threadId);
+  for (const [draftKey, threadId] of Object.entries(client.local.composerControls?.draftThreads ?? {})) {
+    const at = draftKey.indexOf(':');
+    if (at > 0) add(draftKey.slice(0, at), threadId);
+  }
   const listed = new Set([client.environmentId, ...[...source.entries.values()].map(entry => entry.environmentId),
     ...source.wanted(client).map(entry => str(entry.environmentId))].filter(Boolean));
   for (const key of mounted) {

@@ -129,7 +129,7 @@ server, open its thread, ⌘J, type a command, open a thread of This machine and
   two loopback servers as environments A and B): B's session is not attached or written on A's server and waits; B's
   background transport attaches, writes and resizes it on B; after the focus moves to B, A's session is never attached
   on B and attaches on A's background transport. A mutation that puts every session on the focused transport (the
-  base's rule) fails it on 8 assertions. The transport tests that used `env-a` on the `fixture` loopback server now use
+  base's rule) fails it on 12 assertions. The transport tests that used `env-a` on the `fixture` loopback server now use
   `fixture`, and wait for the route before a resize.
 
 ## Not done / not verified
