@@ -30,7 +30,7 @@ enum Job {
         target: Option<Target>,
         source: String,
         args: Vec<Vec<u8>>,
-        snapshot: Vec<(String, String)>,
+        snapshot: Vec<(String, Vec<u8>)>,
         reply: Reply,
     },
     Resume {
@@ -38,12 +38,12 @@ enum Job {
         source: String,
         args: Vec<Vec<u8>>,
         outcome: Outcome,
-        snapshot: Vec<(String, String)>,
+        snapshot: Vec<(String, Vec<u8>)>,
         reply: Reply,
     },
     /// What is still in flight, after a commit that let requests go: the
     /// instance drops the calls it parked for the rest, in turn order.
-    Forgotten(Vec<(Target, String, Vec<Vec<u8>>)>, Vec<(String, String)>),
+    Forgotten(Vec<(Target, String, Vec<Vec<u8>>)>, Vec<(String, Vec<u8>)>),
 }
 
 fn encode_args(args: &[Value]) -> Vec<Vec<u8>> {

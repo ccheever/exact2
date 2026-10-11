@@ -212,6 +212,10 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: native 
         window.presses = 0;
         document.addEventListener('click', e => { if (e.target.tagName === 'BUTTON') window.presses++; });
       });
+      // The page's `bordered` look writes the accent as the label's ink (LLP 1116 D1);
+      // an engine whose ring is `currentColor` draws the UA ring in that ink.
+      const ink = await page.$eval('#native', el => getComputedStyle(el).color);
+      await reference.$eval('#ua', (el, ink) => { el.style.color = ink; }, ink);
       await reference.keyboard.press(tab);
       await page.keyboard.press(tab);
       expect(await page.evaluate(() => document.activeElement.id)).toBe('native');

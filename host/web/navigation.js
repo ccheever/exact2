@@ -51,8 +51,53 @@ function historyURL(path) {
 }
 const stamp = (index, op) => ({ exact: index, id: op.top, url: op.url });
 
-/** The selected route's Back control (1035.001 D1: the `id` the root's `navigationBack` names), pressable or not. */
-const backControl = nav => { const route = selectedRoute(nav); return route && [...route.querySelectorAll("[id]")].find(node => node.id === nav.getAttribute("navigationBack")); };
+/** A route's Back control, the selected route's unless named (1035.001 D1: the `id` the root's `navigationBack` names), pressable or not. */
+const backControl = (nav, route = selectedRoute(nav), name = nav.getAttribute("navigationBack")) => route && name !== null ? route.querySelector(`[id="${CSS.escape(name)}"]`) : undefined;
+// @ref LLP 1116.000 D4 — a pushed route's app bar draws Back, as iOS draws
+// UIKit's system Back button (NavigationBarIOS.swift `prepareRoutes`): a
+// route above its stack's root (a tab's root has none), not itself a sheet
+// (whose Cancel is its Back), whose `header` does not already hold the
+// root's `navigationBack` control, and none when that control is disabled.
+// The button is the header's shadow root's, before its slot, so the header's
+// children stay the renderer's. Its words are the control's when one is
+// named elsewhere in the route (a symbol alone: the chevron alone), else the
+// route beneath's title while it is short, else "Back".
+const BACK = `<style>button{all:unset;display:inline-flex;align-items:center;gap:2px;flex:none;vertical-align:middle;margin-inline:-6px 6px;padding:4px 8px 4px 4px;border-radius:8px;color:var(--exact-accent,AccentColor);cursor:pointer;white-space:nowrap;-webkit-user-select:none;user-select:none}button[hidden],span[hidden]{display:none}button:focus-visible{outline:2px solid var(--exact-accent,AccentColor);outline-offset:1px}button:active>*{opacity:.5}@media (hover:hover){button:hover{background-color:light-dark(#7676801f,#7676803d)}}svg{width:.75em;height:1.25em;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}button:dir(rtl) svg{scale:-1 1}</style><button part="back" type="button"><svg viewBox="6 3 11 18" aria-hidden="true"><path d="M15 5 8 12l7 7"/></svg><span></span></button><slot></slot>`;
+const headerOf = route => [...(route?.children ?? [])].find(child => child.localName === "header");
+function appBarBack(nav, routes, index) {
+  const route = routes[index], header = headerOf(route);
+  if (!header) return;
+  let button = header.shadowRoot?.querySelector('button[part="back"]');
+  const pushed = index > 0 && !["modal", "fullscreen"].includes(route.getAttribute("navigationPresentation")), control = pushed ? backControl(nav, route) : null;
+  // Until the page is interactive the glue disables every control itself (`aria-busy`): not the author's.
+  if (!pushed || header.contains(control) || (control?.matches(":disabled") && !nav.closest('[aria-busy="true"]'))) {
+    if (button) button.hidden = true;
+    return;
+  }
+  if (!button) {
+    if (header.shadowRoot || !header.attachShadow) return; // a shadow root of someone else's
+    header.attachShadow({ mode: "open" }).innerHTML = BACK;
+    button = header.shadowRoot.querySelector("button");
+    button.addEventListener("click", event => { event.stopPropagation(); appBack(header); });
+  }
+  const title = control ? control.textContent.trim() : headerOf(routes[index - 1])?.querySelector("h1, h2, h3, h4, h5, h6, [role=heading]")?.textContent.trim() ?? "";
+  const label = control || (title && title.length <= 14) ? title : "Back", name = control ? control.getAttribute("aria-label") || label || "Back" : label === "Back" ? label : `Back to ${label}`;
+  button.hidden = false; button.lastChild.hidden = !label;
+  if (button.lastChild.textContent !== label) button.lastChild.textContent = label;
+  if (button.getAttribute("aria-label") !== name) button.setAttribute("aria-label", name);
+}
+/** The app bar's Back, pressed: the browser's Back from its route (`popped`), applied at once: the route's control
+ * pressed, else the root's `navigate` with the location beneath, else the runner's own `back` (LLP 1115 D5). The
+ * history follows the commit as it follows any Back the app takes (`commit`). */
+function appBack(header) {
+  const route = header.parentElement, nav = route?.parentElement?.closest("[navigationBack]");
+  if (!nav || route !== selectedRoute(nav)) return;
+  const routes = routesOf(nav), below = routes[routes.indexOf(route) - 1], id = Number(route.getAttribute("navigationKey"));
+  if (!below) return;
+  if (backControl(nav)) { const why = pressBack(nav); if (why) log(`app bar: Back refused: ${why}`); return; }
+  const entry = written[cursor - 1], known = cursor > first && written[cursor]?.id === id && entry?.id === Number(below.getAttribute("navigationKey"));
+  if (!known || navigate(entry.url) === false) hostBack?.(id);
+}
 /** Press the Back control; else why it was not pressed. */
 function pressBack(nav) {
   const route = selectedRoute(nav), control = backControl(nav);
@@ -249,6 +294,7 @@ export const navigation = {
           route.style.visibility = active || covered ? "" : "hidden";
           route.toggleAttribute("data-exact-covered", covered);
           route.inert = !active || !!route.authoredInert;
+          appBarBack(nav, routes, index);
         }
       }
     }
@@ -821,6 +867,46 @@ export function appRootFontSize(value, say, platform = globalThis) {
   if (typeof value !== "number" || !(Math.fround(value) > 0) || !Number.isFinite(Math.fround(value))) return say?.(`setRootFontSize(${JSON.stringify(value) ?? ""}) refused: the root font size is a number of px above 0, or "medium"`);
   if (!rule) { rule = doc.createElement("style"); rule.id = APP_ROOT; doc.head.append(rule); }
   rule.textContent = `:root{font-size:${value}px!important}`;
+}
+// @ref LLP 1116.001 D1.4 — `-exact-fit: shrink`. The browser lays the page out,
+// so it picks the scale the kernel would, by the kernel's rule (kernel/src/
+// layout/fit.rs): the text's min-content width against its room, down to half
+// its size (display text bigger than twice the root's: down to the root size).
+// It draws at it as CSS `zoom` on the element, which scales the text, its runs,
+// line height and letter spacing together and leaves the authored rows alone;
+// a style write clears it and the next pass sets it again.
+export function fitText(el) {
+  el.style.zoom = "";
+  const cs = getComputedStyle(el), px = (v) => parseFloat(v) || 0;
+  if (cs.getPropertyValue("--exact-fit").trim() !== "shrink" || cs.display === "none" || !el.offsetWidth) return;
+  // Layout pixels, through any transform above it (a route sliding in).
+  const k = el.getBoundingClientRect().width / el.offsetWidth || 1;
+  const inset = px(cs.paddingLeft) + px(cs.paddingRight) + px(cs.borderLeftWidth) + px(cs.borderRightWidth);
+  const content = () => el.getBoundingClientRect().width / k - inset, box = content(), width = el.style.width;
+  el.style.width = "min-content"; const natural = content(); el.style.width = width;
+  // Sized by its text, it has its container's room.
+  const up = el.parentElement, ps = up && getComputedStyle(up);
+  const room = box + 0.5 < natural || !up ? box : up.clientWidth - px(ps.paddingLeft) - px(ps.paddingRight) - Math.max(0, px(cs.marginLeft)) - Math.max(0, px(cs.marginRight));
+  if (!(natural > room + 0.01)) return;
+  const size = px(cs.fontSize), root = px(getComputedStyle(document.documentElement).fontSize);
+  el.style.zoom = String(Math.max(size > 0 && root > 0 ? Math.min(0.5, root / size) : 0.5, Math.max(0, room) / natural));
+  zoomed.add(el);
+}
+// What `fitText` scaled: one whose row went (a bound `-exact-fit`) is let go.
+let fitSeen = false, zoomed = new Set();
+/** Whether a style the page writes fits a text: then every pass refits. */
+export const noteFit = (css) => { if (!fitSeen && css?.includes("--exact-fit")) fitSeen = true; };
+/** Every fitted text again: after a tree update, a resize, the fonts' arrival. */
+export function refitTexts() {
+  if (!fitSeen) return;
+  const fitted = new Set(document.querySelectorAll('[style*="--exact-fit"]'));
+  for (const el of zoomed) if (!fitted.has(el)) { el.style.zoom = ""; zoomed.delete(el); }
+  for (const el of fitted) fitText(el);
+}
+/** The JS target's: after each tree update (rt.js `After`), on resize and once the fonts are in. */
+export function installFits(after) {
+  if (fitSeen || typeof document === "undefined" || typeof addEventListener !== "function" || globalThis.__exactRender) return;
+  fitSeen = true; after.push(refitTexts); addEventListener("resize", refitTexts); document.fonts?.ready.then(refitTexts);
 }
 // What `read` gives with the app's rule set aside: the host's own reading.
 function beneathApp(platform, read) {

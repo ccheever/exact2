@@ -298,6 +298,26 @@ final class NavigationTabsIOSTests: XCTestCase {
         XCTAssertEqual(route.view.safeAreaInsets.bottom, before, "the content area held")
     }
 
+    /// The bottom edge under a tab bar (LLP 1116 D2): Second's scroller, its
+    /// route's last child, runs under the bar to the screen's edge, and UIKit
+    /// insets its content by the bar and the home indicator, as a table
+    /// view's under a tab bar is.
+    func testARoutesLastScrollerRunsUnderTheTabBar() throws {
+        let session = try fixture("tabs-edge")
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        tapTab(tabs, 1)
+        until("Second selected") { tabs.selectedIndex == 1 }
+        spin(0.3)
+        let second = try XCTUnwrap((tabs.viewControllers?[1] as? UINavigationController)?.topViewController as? RouteController)
+        let list = try node(session, "list-second"), sv = try XCTUnwrap(list.scroll)
+        XCTAssertFalse(tabs.tabBar.isHidden)
+        XCTAssertEqual(sv.contentInsetAdjustmentBehavior, .always)
+        XCTAssertEqual(list.convert(list.bounds, to: second.view).maxY, second.view.bounds.maxY, accuracy: 0.5, "under the bar")
+        XCTAssertEqual(sv.adjustedContentInset.bottom, second.view.safeAreaInsets.bottom, accuracy: 0.5, "inset by the bar and the home indicator")
+        XCTAssertGreaterThan(sv.adjustedContentInset.bottom, 40, "the bar's height and the indicator's")
+        XCTAssertTrue(second.contentScrollView(for: .bottom) === sv, "the bar's edge follows it")
+    }
+
     func testUnmountingAndRemountingTheViewKeepsEveryTabsStack() throws {
         let session = try fixture("tabs-remount")
         try tapNode(session, "detail")

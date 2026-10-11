@@ -181,6 +181,29 @@ impl Kernel {
                 .collect()
         };
         let parts = shown(row);
+        // A row that lays out as a column (a `column`, LLP 1116 D2) stacks
+        // its parts: one or two texts are the subtitle cell's lines, and
+        // anything else is its own layout.
+        if row.style.display == Display::Flex
+            && matches!(
+                row.style.flex_direction,
+                FlexDirection::Column | FlexDirection::ColumnReverse
+            )
+        {
+            if (1..=2).contains(&parts.len()) && parts.iter().all(|p| p.node_type == NodeType::Text)
+            {
+                out.title = text_of(&parts[0]);
+                out.secondary = parts.get(1).and_then(text_of);
+                out.subtitle = true;
+            }
+            if out.title.is_none() {
+                return GroupedRow {
+                    custom: true,
+                    ..out
+                };
+            }
+            return out;
+        }
         let accessory = |apple: &str| match apple {
             "chevron.forward" | "chevron.right" => Some(Accessory::Disclosure),
             "checkmark" => Some(Accessory::Checkmark),

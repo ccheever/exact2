@@ -83,6 +83,28 @@ extension NodeView {
         }
     }
     static let ariaAttributes = ["AXInvalid", "AXHasPopup", "AXPopupValue", "AXARIACurrent"]
+    /// ARIA's range roles (LLP 1116 D8): a value is `aria-valuenow` between
+    /// `aria-valuemin` and `aria-valuemax`, and the children are
+    /// presentational, so the node is one element. A control's own view
+    /// (a `progress`'s indicator) says its role and value itself.
+    static let rangeRoles: Set<String> = ["progressbar", "slider", "meter", "scrollbar", "spinbutton"]
+    var rangeRole: String? { kind == "control" ? nil : props["accessibilityRole"].flatMap { Self.rangeRoles.contains($0) ? $0 : nil } }
+    /// A range role's numbers, ARIA's 0 and 100 where a bound is unsaid;
+    /// nil with no readable `aria-valuenow` or another role.
+    var rangeNumbers: (now: Double, min: Double, max: Double)? {
+        let number = { (key: String) in self.props[key].flatMap { Double($0.trimmingCharacters(in: .whitespaces)) }.flatMap { $0.isFinite ? $0 : nil } }
+        guard rangeRole != nil, let now = number("accessibilityValueNow") else { return nil }
+        return (now, number("accessibilityValueMin") ?? 0, number("accessibilityValueMax") ?? 100)
+    }
+    /// What the platform speaks for a range role: `aria-valuetext`, else
+    /// its value as a percentage of its bounds, as UIKit's progress view and
+    /// slider speak theirs ("30%"); nil with neither.
+    var rangeValueText: String? {
+        if rangeRole != nil, let text = props["accessibilityValueText"], !text.isEmpty { return text }
+        guard let n = rangeNumbers else { return nil }
+        let fraction = n.max > n.min ? (Swift.min(Swift.max(n.now, n.min), n.max) - n.min) / (n.max - n.min) : 0
+        return NumberFormatter.localizedString(from: NSNumber(value: fraction), number: .percent)
+    }
     var accessibilityVisible: Bool {
         guard paragraphOwner.window != nil, !inert, accessibilityExposed else { return false }
         #if os(macOS)
@@ -213,16 +235,18 @@ enum SegmentFace: Equatable { case image(NodeView), symbol(String), title(String
 extension NodeView {
     /// How this tab shows as a segment, or nil when a segment cannot show
     /// what was authored: exactly one image child is the segment's image;
-    /// text alone, whose words are its accessible name, is its title. An
-    /// icon beside a label, a badge, or any other node keeps the authored
-    /// rendering — the web's, where a role never changes what is drawn.
+    /// text alone is its title — the visible words, with an `aria-label`
+    /// that says more (`Temp`, named `Temperature`) its accessibility label
+    /// (LLP 1116 D6). An icon beside a label, a badge, or any other node
+    /// keeps the authored rendering — the web's, where a role never changes
+    /// what is drawn.
     var segmentFace: SegmentFace? {
         // A native button's face, not views (LLP 1069.011.000 D4): a symbol
-        // alone (named by its label), or a title its label agrees with.
+        // alone (named by its label), or a title.
         if isNativeButton {
             guard let face, face.fits else { return nil }
             if let symbol = face.symbol, face.title == nil { return .symbol(symbol) }
-            if let title = face.title, face.symbol == nil, (props["accessibilityLabel"] ?? title) == title { return .title(title) }
+            if let title = face.title, face.symbol == nil { return .title(title) }
             return nil
         }
         let children = container.subviews.compactMap { $0 as? NodeView }
@@ -231,8 +255,7 @@ extension NodeView {
         if children.contains(where: { $0.props["accessibilityElementsHidden"] == "true" }) { return nil }
         if children.count == 1, children[0].kind == "image" { return .image(children[0]) }
         let text = accessibleText
-        guard !children.isEmpty, !text.isEmpty, children.allSatisfy(\.isParagraph),
-              (props["accessibilityLabel"] ?? text) == text else { return nil }
+        guard !children.isEmpty, !text.isEmpty, children.allSatisfy(\.isParagraph) else { return nil }
         return .title(text)
     }
 }
@@ -320,12 +343,11 @@ extension Presenter {
             // The session's own view holding the focus for its shortcuts (ShortcutsIOS) is no focus a node took,
             // nor is a button's that came from a touch (Safari's buttons take none from a tap): the button that
             // opened a sheet must not keep the sheet's field from its autofocus. A button reached by Tab or
-            // `focus(id)` keeps it, and a canvas HUD button's hand-back to the canvas still holds it pending.
-            func touchFocused(_ view: UIView) -> Bool { (view as? NodeView).map { $0.isButton && $0.focusedByTouch && !$0.returnsPointerFocusToCanvas } == true }
+            // `focus(id)` keeps it.
+            func touchFocused(_ view: UIView) -> Bool { (view as? NodeView).map { $0.isButton && $0.focusedByTouch } == true }
             func hasFocus(_ view: UIView) -> Bool { (view.isFirstResponder && (view as? NodeView)?.canvasInput == nil && !touchFocused(view) && !(view is ExactView)) || view.subviews.contains(where: hasFocus) }
-            if !views.values.contains(where: { $0.isFirstResponder && $0.returnsPointerFocusToCanvas }) { autofocusProcessed.insert(ObjectIdentifier(node)) }
-            guard let window = node.window, !hasFocus(window) else { continue }
             autofocusProcessed.insert(ObjectIdentifier(node))
+            guard let window = node.window, !hasFocus(window) else { continue }
             let target: UIResponder = node.textArea ?? node.field ?? node
             node.focusedByTouch = false // the app's focus now, as Tab's and focus(id)'s
             _ = target.becomeFirstResponder()
@@ -495,11 +517,18 @@ extension Agent {
     func decorateTree(_ reply: [String: Any]) -> [String: Any] {
         var reply = reply
         let focus = (stateSections()["focus"] as? [String: Any])?["logical"] as? Int
+        #if os(iOS) || os(tvOS)
+        // A header node the navigation bar leaves out (LLP 1116 D2).
+        let unshown = presenter.navigation.unshownByBar()
+        #endif
         reply["nodes"] = (reply["nodes"] as? [[String: Any]] ?? []).map { row in
             var row = row
             if let id = row["id"] as? Int, let node = presenter.views[UInt32(id)] {
                 row["focused"] = focus == id
                 if node.props["popover"] != nil { row["open"] = presenter.menus.isOpen(node) }
+                #if os(iOS) || os(tvOS)
+                if let why = unshown[node.id] { row["unshown"] = why }
+                #endif
             }
             return row
         }

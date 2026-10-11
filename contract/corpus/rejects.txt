@@ -196,6 +196,33 @@ component Row
   view
     text s.id
 ---
+== type-persist-child
+# `persist` is the root's (LLP 1116 D5): a child's state lives as long as
+# each of its instances.
+component A
+  view
+    Row()
+component Row
+  state open = false persist
+  view
+    text "r"
+---
+== type-persist-type
+# A list of records is app data: it belongs in a source (LLP 1116 D5).
+shape Item
+  id: string
+component A
+  state items = [Item(id="a")] persist
+  view
+    text "a"
+---
+== syntax-persist-derive
+component A
+  state x = 1
+  derive d = x persist
+  view
+    text "a"
+---
 == type-derive-cycle
 component A
   derive a = b + 1

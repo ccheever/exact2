@@ -233,7 +233,7 @@ final class ElementHatches {
         for entry in nodes.values where entry.told {
             let node = entry.node
             var changed: [String] = []
-            if let sv = node.scroll { changed += NavigationHost.ownedChanges(sv, of: node, collapsing: node.scrollOrigin > 0) }
+            if let sv = node.scroll { changed += NavigationHost.ownedChanges(sv, of: node, insetByUIKit: node.scrollOrigin > 0 || presenter.navigation.insetByUIKit(node)) }
             if let field = node.field, field.delegate !== node { changed.append("the text field's delegate") }
             if let text = node.textArea, text.delegate !== node { changed.append("the text view's delegate") }
             for property in changed {

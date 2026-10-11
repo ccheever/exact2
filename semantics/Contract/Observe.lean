@@ -7,6 +7,10 @@ state in exactly this form; the two texts are compared line by line.
   `== <step>`              the step that produced what follows
   `outcome ok|refused|poisoned`
   `slot <name> <value>`    each root slot, declaration order, mutations last
+  `store <name> <value>`   each persisted state (LLP 1116 D5), declaration
+                           order: what the device's store keeps for it,
+                           which after every commit that stands is the
+                           slot's value
   `derive <name> <value>`  each derive, declaration order
   `resource <name> <value>`
   `queued <name> <count>`   each `queue` mutation's waiting sends
@@ -87,6 +91,8 @@ def lines (p : Program) (label : String) (c : Config) (out : Outcome) (commandsB
     if c.poisoned then head else
     head ++
     ((c.slots.filter fun (x, _) => p.locale != .some x).map fun (x, v) => "slot " ++ x ++ " " ++ value v) ++
+    ((p.states.filter (·.persist)).filterMap fun st => (lookup st.name c.slots).map fun v =>
+      "store " ++ st.name ++ " " ++ value v) ++
     (p.derives.filterMap fun d => (lookup d.name c.settled.derives).map fun v =>
       "derive " ++ d.name ++ " " ++ value v) ++
     (p.resources.filterMap fun r => (lookup r.name c.settled.resources).map fun v =>

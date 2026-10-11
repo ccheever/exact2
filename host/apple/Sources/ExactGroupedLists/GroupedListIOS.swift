@@ -292,6 +292,12 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     private var flipping: UInt32?
     /// A custom cell's height changed since the list was last laid out.
     private var resized = false
+    /// Custom rows whose cell was last sized to nothing: a row with no box
+    /// yet, as one a commit inserts under a sheet has until the sheet gives
+    /// back its geometry (LLP 1116.002 D2). UIKit never shows a cell with no
+    /// height, so never configures it again to learn the row's later size:
+    /// once the row has one, `remeasure` has UIKit measure it anew.
+    private var unsized: Set<UInt32> = []
     private var scrollWasHidden = false
 
     init(owner: NodeView, host: GroupedListHost) {
@@ -339,6 +345,12 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             #if !os(tvOS)
             c.showsSeparators = s?.card ?? true
             #endif
+            #if os(iOS)
+            // A row that names swipe actions swipes as a hand-built list's
+            // cell does (LLP 1116.001 D1): UIKit's actions, a full swipe the first.
+            c.leadingSwipeActionsConfigurationProvider = { [weak self] path in self?.swipeActions(at: path, leading: true) }
+            c.trailingSwipeActionsConfigurationProvider = { [weak self] path in self?.swipeActions(at: path, leading: false) }
+            #endif
             // An authored space above a header is above it: UIKit's top inset
             // there is the header-to-rows gap (§6.4).
             let space = s?.spaceAbove
@@ -365,6 +377,15 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             return section
         }
     }
+
+    #if os(iOS)
+    /// A custom row's swipe actions on one side, as the swipe host offers
+    /// them (`swipeContent`, LLP 1008 §9); nil for any other row.
+    func swipeActions(at path: IndexPath, leading: Bool) -> UISwipeActionsConfiguration? {
+        guard let id = source.itemIdentifier(for: path), rows[id]?.custom == true else { return nil }
+        return host.presenter.swipeActions.configuration(row: id, leading: leading)
+    }
+    #endif
 
     func update(_ next: GroupedListModel) {
         let previous = model, old = rows
@@ -484,6 +505,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         #if !os(tvOS)
         for (id, toggle) in switches { refresh(id, toggle) }
         #endif
+        remeasure()
         if resized { resized = false; collection.collectionViewLayout.invalidateLayout() }
     }
 
@@ -674,16 +696,43 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             carriedOrder.append(id)
         }
         guard let place = carried[id] else { return }
-        // A card-less section has no UIKit separator to stand in for the
-        // row's own border, so the row keeps its full height (§6.2).
-        let separator = card(of: id) ? CGFloat(row.style["border_width_bottom"]?.number ?? 0) : 0
-        let height = max(0, place.frame.height - separator)
+        let height = cellHeight(id, row: place.frame.height)
         // Never invalidated here: a cell is configured inside the data
         // source's update; `mount` lays the list out after it.
         if cell.height != height { cell.height = height; resized = true }
+        if height > 0 { unsized.remove(id) } else { unsized.insert(id) }
         cell.contentView.clipsToBounds = true
         if row.superview !== cell.contentView { cell.contentView.addSubview(row) }
         row.frame = CGRect(origin: CGPoint(x: place.frame.minX, y: 0), size: place.frame.size)
+    }
+
+    /// A custom row's cell height for a row box `height` tall: less the
+    /// separator the cell draws instead of the row's own border. A card-less
+    /// section has no UIKit separator to stand in for it, so the row keeps
+    /// its full height (§6.2).
+    private func cellHeight(_ id: UInt32, row height: CGFloat) -> CGFloat {
+        let separator = card(of: id) ? CGFloat(host.presenter.views[id]?.style["border_width_bottom"]?.number ?? 0) : 0
+        return max(0, height - separator)
+    }
+
+    /// A row whose cell was sized to nothing and that has a box now (the
+    /// sheet over it closed and gave back its geometry) comes into the list
+    /// again: UIKit configures and measures its cell anew, which carries the
+    /// row in at its height.
+    private func remeasure() {
+        unsized = unsized.filter { rows[$0]?.custom == true }
+        let grown = unsized.filter { id in
+            host.presenter.views[id].map { cellHeight(id, row: carried[id]?.frame.height ?? $0.frame.height) > 0 } ?? false
+        }
+        guard !grown.isEmpty else { return }
+        unsized.subtract(grown)
+        // Out and in again: a reload keeps the size the layout learned; an
+        // inserted item starts from the estimate, which shows its cell.
+        let snapshot = source.snapshot()
+        var without = snapshot
+        without.deleteItems(grown.filter { snapshot.indexOfItem($0) != nil })
+        source.apply(without, animatingDifferences: false)
+        source.apply(snapshot, animatingDifferences: false)
     }
 
     /// Every carried row back in its authored place.

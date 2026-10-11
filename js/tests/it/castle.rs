@@ -89,7 +89,7 @@ fn unloaded() -> Module {
 }
 
 fn store() -> Store {
-    Store::new(GRANTS, Vec::<(String, String)>::new())
+    Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new())
 }
 
 fn response(status: u16, body: &str) -> Outcome {
@@ -293,6 +293,58 @@ fn a_body_fetch_refuses_is_refused_before_any_request() {
             );
         }
     }
+}
+
+#[test]
+fn fetch_carries_its_redirect_mode_and_refuses_an_unknown_one() {
+    let mut m = module();
+    m.bind(&contract::compile("component App\n  resource result = redirected(\"manual\") as shape string\n  resource thrown = redirectThrows() as shape string\n  resource aborted = redirectAborted() as shape string\n  view\n    column\n      text result\n      text thrown\n      text aborted\n").unwrap());
+    let mut s = store();
+    for (mode, expected) in [
+        ("", exact_runner::Redirect::Follow),
+        ("follow", exact_runner::Redirect::Follow),
+        ("manual", exact_runner::Redirect::Manual),
+        ("error", exact_runner::Redirect::Error),
+    ] {
+        let request = later(m.answer(&mut s, "redirected", &[Value::str(mode)]).unwrap());
+        assert_eq!(request.redirect, expected, "{mode:?}");
+    }
+    // A manual redirect is the response: its Location is the module's to read.
+    later(
+        m.answer(&mut s, "redirected", &[Value::str("manual")])
+            .unwrap(),
+    );
+    let moved = Outcome::Response(Response {
+        status: 302,
+        headers: vec![("location".into(), "app.example:/callback?code=c0de".into())],
+        body: Vec::new(),
+    });
+    assert_eq!(
+        now(m
+            .parse(&mut s, "redirected", &[Value::str("manual")], moved)
+            .unwrap()),
+        Value::str("302 app.example:/callback?code=c0de")
+    );
+    // An unknown mode is refused before anything is asked of the host.
+    let before = m.in_flight();
+    let error = m
+        .answer(&mut s, "redirected", &[Value::str("sideways")])
+        .unwrap_err();
+    assert!(
+        matches!(&error, DataError::Unavailable(message) if message.contains("redirect")),
+        "{error:?}"
+    );
+    assert_eq!(m.in_flight(), before);
+    // A getter that throws rejects the fetch's promise, so the source's `catch` recovers.
+    assert_eq!(
+        now(m.answer(&mut s, "redirectThrows", &[]).unwrap()),
+        Value::str("recovered: no mode")
+    );
+    assert_eq!(
+        now(m.answer(&mut s, "redirectAborted", &[]).unwrap()),
+        Value::str("TypeError: redirect must be follow, manual or error")
+    );
+    assert_eq!(m.in_flight(), before);
 }
 
 fn event(id: &str, data: &str, coalesced: u32) -> Outcome {
@@ -1028,7 +1080,7 @@ fn a_store_reading_resource_boots_from_its_kept_answer_and_is_asked_again_once_t
 
     // The keychain was cleared underneath: the kept answer shows for a
     // frame, then the engine corrects it.
-    let cleared: Vec<(String, String)> = snapshot
+    let cleared: Vec<(String, Vec<u8>)> = snapshot
         .into_iter()
         .filter(|(n, _)| n != "castle.session")
         .collect();

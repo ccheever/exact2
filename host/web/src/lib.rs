@@ -49,6 +49,7 @@ pub mod link;
 pub mod motion;
 mod pan_velocity;
 pub mod parity;
+mod text_box_css;
 #[cfg(test)]
 mod textflow_tests;
 

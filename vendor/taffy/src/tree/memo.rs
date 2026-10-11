@@ -8,8 +8,8 @@
 //! style, and each child's style and child count: what a parent reads of a
 //! child); an answer that comes from outside the computation (a leaf's
 //! measure, a cache hit, a hidden or replaced box) is a [`Event::Query`]; what
-//! the computation writes is a [`Event::Store`], [`Event::Layout`] or
-//! [`Event::Static`].
+//! the computation writes is a [`Event::Store`], [`Event::Layout`],
+//! [`Event::Static`] or [`Event::Bounds`].
 //!
 //! The algorithms are deterministic in what they read, so a later layout of
 //! an equal root under the same input makes the same first call, and, given
@@ -82,6 +82,8 @@ pub(crate) enum Event {
     Layout { node: u32, layout: Layout },
     /// A static position written.
     Static { node: u32, position: StaticPosition },
+    /// A multi-column container's height bounds written (patch 30).
+    Bounds { node: u32, min: Option<f32>, max: Option<f32> },
     /// The root's result.
     End { output: LayoutOutput },
 }
@@ -145,6 +147,9 @@ impl Event {
             ) => a == b && ai == bi && same_answer(ai, ao, bo),
             (Event::Layout { node: a, layout: x }, Event::Layout { node: b, layout: y }) => a == b && same_layout(x, y),
             (Event::Static { node: a, position: x }, Event::Static { node: b, position: y }) => a == b && x == y,
+            (Event::Bounds { node: a, min: x, max: y }, Event::Bounds { node: b, min: u, max: v }) => {
+                a == b && x == u && y == v
+            }
             (Event::End { output: a }, Event::End { output: b }) => a == b,
             _ => false,
         }
