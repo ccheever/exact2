@@ -9,7 +9,10 @@ import {
   BrowserRecordings, PreviewAutomationRecordingDeadlineExpiredError, PreviewAutomationRecordingTooLargeError, PreviewAutomationRecordingTransferError,
   RECORDING_UPLOAD_MAX_BYTES, uploadBrowserRecording, type RecordingHost, type RecordingUploader,
 } from './browser-recording';
-import { readRecordingRequests, recordingHostError, runRecordingRequest, type RecordingRequest } from './browser-automation-recording';
+import { readRecordingRequests, recordingHostError, runRecordingRequest, serveRecordingRequests, type RecordingRequest } from './browser-automation-recording';
+import { adoptCaptureNative } from './browser-capture';
+import type { T3Client } from './client';
+import type { Native } from './protocol';
 
 const STARTED_AT = '2026-10-11T12:00:00.000Z';
 function fakeRecordings(options: { size?: number } = {}) {
@@ -160,5 +163,25 @@ describe('uploadBrowserRecording', () => {
     expect(failed).toBeInstanceOf(PreviewAutomationRecordingTransferError);
     expect(recordingHostError(expired, { requestId: 'r', operation: 'recordingStop', environmentId: 'env-1', threadId: 'thread-1', tabId: 'tab_1' })).toEqual({
       _tag: 'PreviewAutomationRecordingDeadlineExpiredError', message: 'The recording transfer deadline expired. The saved copy remains on the desktop.', detail: { threadId: 'thread-1' } });
+  });
+});
+
+describe('serveRecordingRequests', () => {
+  it('runs each handed-over request once and sends its outcome to the module through the newest native', async () => {
+    const stop = request('recordingStop');
+    const client = { presentation: { browserAutomation: { recordings: [stop] } }, local: {}, revision: 0 } as unknown as T3Client;
+    const first: unknown[] = [], newest: unknown[] = [];
+    const native = (log: unknown[]): Native => ({ available: true, watch() {}, later: async (value: unknown) => { log.push(value); return { ok: true, generation: 0, value: { accepted: true } }; } } as unknown as Native);
+    adoptCaptureNative(client, native(first));
+    serveRecordingRequests(client);
+    adoptCaptureNative(client, native(newest)); // a newer answer arrived while the stop ran
+    serveRecordingRequests(client); // listed again before the module heard back: not run twice
+    await new Promise(resolve => setTimeout(resolve, 20));
+    const answers = [...first, ...newest].filter(sent => (sent as { op?: string }).op === 'browserAutomation');
+    expect(answers).toEqual([{ op: 'browserAutomation', plan: { answer: stop.key, ok: false, error: {
+      _tag: 'PreviewAutomationExecutionError',
+      message: 'Preview automation request preview-recordingStop found no active recording for tab tab_1 on environment env-1 thread thread-1.',
+      detail: { requestId: 'preview-recordingStop', environmentId: 'env-1', threadId: 'thread-1', tabId: 'tab_1' } } } }]);
+    expect(newest).toHaveLength(1);
   });
 });
