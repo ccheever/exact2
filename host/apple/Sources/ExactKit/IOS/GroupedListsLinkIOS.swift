@@ -39,6 +39,12 @@ package enum GroupedAim { case view(UIView, port: UIScrollView), refused(String)
 /// (LLP 1084 D8).
 package protocol GroupedScroller: UIScrollView {}
 
+extension Presenter {
+    /// A grouped list's collection view scrolled (LLP 1116.003 D7): its
+    /// text is scheduled as any scroller's is (`ScrollPump.scrolled`).
+    package func groupedListScrolled() { scrollPump.scrolled(nil) }
+}
+
 /// The grouped lists module's hooks, installed by the composition.
 package enum GroupedListsLink {
     /// A presenter's grouped lists.

@@ -619,7 +619,7 @@ package final class Presenter {
         scrollPump.settle()
         textRasters.settleVisible(textViews.values.filter { textIsVisible($0) })
     }
-    func requestTextPublication() { scrollPump.requestText() }
+    package func requestTextPublication() { scrollPump.requestText() }
     var onSubmit: ((UInt32) -> Void)?
     var onLoad: ((UInt32) -> Void)?
     var onMessage: ((UInt32, String) -> Void)?

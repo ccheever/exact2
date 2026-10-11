@@ -805,5 +805,103 @@ final class GroupedListIOSTests: XCTestCase {
         try shown(21, 90, "the grown row, after a batch")
         try shown(80, 72, "the new row, after a batch")
     }
+
+    /// LLP 1116.003 D7, round 5's password-generator: at launch the list
+    /// lays out before its box settles, so UIKit configures and shows every
+    /// row of a long list, then keeps the cells that leave its port for
+    /// when they come back. A batch that leaves the list alone gives the
+    /// rows home and carries them again only into the cells shown, so a kept
+    /// cell came back on a scroll without its row, blank until scrolled away
+    /// and back. A cell UIKit shows again is given its row as it shows.
+    func testAKeptCellShowsItsRowWhenItComesBack() throws {
+        var m = model(custom: true)
+        let ids = (100..<112).map { UInt32($0) }
+        m.sections.append(.init(view: 6, header: "Recent", footer: nil, rows: ids.map { Row(view: $0, custom: true, pressable: true) }))
+        let p = presenter({ m }, height: 3000)
+        let view = { (id: Int, kind: String, props: [String: String]) -> [String: Any] in
+            ["op": "create", "id": id, "kind": kind, "props": props, "style": ["text_color": [0, 0, 0, 255], "border_width_bottom": 1.0]]
+        }
+        var ops: [[String: Any]] = [view(6, "view", ["semanticTag": "section"]), view(7, "view", [:]),
+                                    ["op": "create", "id": 95, "kind": "view", "props": [:], "style": [:]]]
+        for (i, id) in ids.enumerated() {
+            ops += [view(Int(id), "button", ["testId": "row\(id)"]), view(Int(id) + 100, "text", ["text": "Row \(i)"]),
+                    ["op": "children", "id": Int(id), "ids": [Int(id) + 100]],
+                    ["op": "frame", "id": Int(id), "x": 16.0, "y": Double(i) * 100, "w": 354.0, "h": 101.0],
+                    ["op": "frame", "id": Int(id) + 100, "x": 16.0, "y": 30.0, "w": 200.0, "h": 21.0]]
+        }
+        ops += [["op": "children", "id": 1, "ids": [2, 3, 6]], ["op": "children", "id": 6, "ids": [7]],
+                ["op": "children", "id": 7, "ids": ids.map { Int($0) }], ["op": "roots", "ids": [1, 95]]]
+        p.apply(wireBatch(ops))
+        let l = try list(p)
+        l.collection.layoutIfNeeded()
+        for id in ids { XCTAssertTrue(p.views[id]?.superview === l.cell(id)?.contentView, "row \(id) shown in the tall box") }
+        // The box settles; the later rows leave the port.
+        p.apply(wireBatch([["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 402.0, "h": 600.0]]))
+        l.collection.layoutIfNeeded()
+        // A batch that touches nothing in the list.
+        p.apply(wireBatch([["op": "props", "id": 95, "set": ["testId": "elsewhere"], "clear": [String]()]]))
+        // Scrolled to the end, every row shown is in its cell.
+        let c = l.collection
+        c.setContentOffset(CGPoint(x: 0, y: max(0, c.contentSize.height + c.adjustedContentInset.bottom - c.bounds.height)), animated: false)
+        c.layoutIfNeeded()
+        var seen = 0
+        for case let cell as GroupedCell in c.visibleCells {
+            guard let id = cell.row, ids.contains(id) else { continue }
+            seen += 1
+            XCTAssertTrue(p.views[id]?.superview === cell.contentView, "row \(id): shown in its cell, not blank")
+        }
+        XCTAssertGreaterThan(seen, 3, "the recent rows are in the port")
+    }
+
+    /// The second half of password-generator's blank rows: a carried row's
+    /// paragraph drawn while the row was home under the hidden scroll paints
+    /// nothing, and may find no worker free. Its cell shows on a scroll of
+    /// the list, outside any batch's text refresh; the list's scroll drives
+    /// the text as its authored scroll's would, and a row carried in asks
+    /// for it, so what shows is painted.
+    func testACarriedRowsTextIsPaintedWhenItsCellShows() throws {
+        let session = ExactApp.shared.makeSession(label: "grouped-text")
+        defer { session.destroy(); RegionTextExecutor.queue.isSuspended = false }
+        var m = model(custom: true)
+        let ids = (100..<112).map { UInt32($0) }
+        m.sections.append(.init(view: 6, header: nil, footer: nil, rows: ids.map { Row(view: $0, custom: true) }))
+        let p = presenter({ m }, on: session.presenter, height: 600)
+        let view = { (id: Int, kind: String) -> [String: Any] in
+            ["op": "create", "id": id, "kind": kind, "props": [:], "style": ["text_color": [0, 0, 0, 255], "border_width_bottom": 1.0]]
+        }
+        var ops: [[String: Any]] = [view(6, "view"), view(7, "view")]
+        for (i, id) in ids.enumerated() {
+            ops += [view(Int(id), "view"),
+                    ["op": "create", "id": Int(id) + 100, "kind": "text", "props": ["text": "Recent password \(i)"], "style": ["font_size": 17.0]],
+                    ["op": "children", "id": Int(id), "ids": [Int(id) + 100]],
+                    ["op": "frame", "id": Int(id), "x": 16.0, "y": Double(i) * 100, "w": 354.0, "h": 101.0],
+                    ["op": "frame", "id": Int(id) + 100, "x": 16.0, "y": 30.0, "w": 300.0, "h": 22.0]]
+        }
+        ops += [["op": "children", "id": 1, "ids": [2, 3, 6]], ["op": "children", "id": 6, "ids": [7]],
+                ["op": "children", "id": 7, "ids": ids.map { Int($0) }]]
+        p.apply(wireBatch(ops))
+        let l = try list(p)
+        l.collection.layoutIfNeeded()
+        // The last row's text has no pixels, and no pump is running.
+        let last = try XCTUnwrap(ids.last), text = try XCTUnwrap(p.views[last + 100])
+        XCTAssertNil(l.cell(last), "the last row is far below the port")
+        RegionTextExecutor.queue.waitUntilAllOperationsAreFinished()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        text.dropTextRaster()
+        p.scrollPump.reset()
+        // A finger scrolls the list to its end (the rows' sizes are learned
+        // as they show, so the end moves until the last one has).
+        let c = l.collection
+        for _ in 0..<8 where l.cell(last).map({ !c.bounds.contains($0.frame) }) ?? true {
+            c.setContentOffset(CGPoint(x: 0, y: max(0, c.contentSize.height + c.adjustedContentInset.bottom - c.bounds.height)), animated: false)
+            c.layoutIfNeeded()
+        }
+        let cell = try XCTUnwrap(l.cell(last), "its cell shows")
+        XCTAssertTrue(text.isDescendant(of: cell.contentView), "carried in")
+        XCTAssertTrue(p.textIsVisible(text))
+        let end = Date().addingTimeInterval(1)
+        while !text.textRasterReady && Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+        XCTAssertTrue(text.textRasterReady, "what shows is painted, not left blank")
+    }
 }
 #endif

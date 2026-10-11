@@ -702,7 +702,14 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         if cell.height != height { cell.height = height; resized = true }
         if height > 0 { unsized.remove(id) } else { unsized.insert(id) }
         cell.contentView.clipsToBounds = true
-        if row.superview !== cell.contentView { cell.contentView.addSubview(row) }
+        if row.superview !== cell.contentView {
+            cell.contentView.addSubview(row)
+            // A paragraph drawn while its row was home, under the hidden
+            // scroll, painted nothing and may have found no room for a
+            // worker; it shows now, outside any batch's refresh when a
+            // cell comes back, so the pump paints it (`refreshVisibleText`).
+            host.presenter.requestTextPublication()
+        }
         row.frame = CGRect(origin: CGPoint(x: place.frame.minX, y: 0), size: place.frame.size)
     }
 
@@ -777,6 +784,27 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         assign(cell, \.isUserInteractionEnabled, !inert)
         assign(cell, \.accessibilityElementsHidden, inert)
     }
+    /// A cell is given its row as it shows (LLP 1116.003 D7). UIKit keeps a
+    /// cell that leaves the port and shows it again without configuring it,
+    /// and a batch since may have given its row home: `mount` carries rows
+    /// only into the cells shown then. At launch the list lays out before
+    /// its box settles, so every row of a long list had a kept cell, and the
+    /// rows scrolled to came up blank until scrolled away and back.
+    func collectionView(_ view: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt path: IndexPath) {
+        guard let cell = cell as? GroupedCell, let id = source.itemIdentifier(for: path), cell.row == id else { return }
+        carry(id, into: cell)
+        interact(cell, id)
+        // Laid out after this pass, as `mount` does after the data source's.
+        if resized {
+            resized = false
+            DispatchQueue.main.async { [weak self] in self?.collection.collectionViewLayout.invalidateLayout() }
+        }
+    }
+    /// The list scrolls in its authored scroll's place, so it drives the
+    /// text as that scroll does: what shows has its pixels before the frame
+    /// commits, and a paragraph still owed them keeps the pump going until
+    /// it shows (a carried row's, drawn while the row was home).
+    func scrollViewDidScroll(_ scrollView: UIScrollView) { host.presenter.groupedListScrolled() }
     func collectionView(_ view: UICollectionView, shouldSelectItemAt path: IndexPath) -> Bool {
         collectionView(view, shouldHighlightItemAt: path)
     }
