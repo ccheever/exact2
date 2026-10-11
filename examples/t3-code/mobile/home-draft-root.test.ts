@@ -88,11 +88,11 @@ test('actual snapshot shares a later disabled catalog with compact Home and side
     expect(arr(snapshot.environments)).toHaveLength(1);
     expect(arr(snapshot.environments)[0]).toMatchObject({ environmentId: 'saved-off', label: 'Saved Mac', enabled: false, status: 'Off' });
     expect(snapshot.ready).toBe(false);
-    for (const [homeVisible, sidebarVisible] of [[true, false], [false, true]]) {
+    for (const [homeVisible, sidebarVisible, surface] of [[true, false, 'compact'], [false, true, 'sidebar']]) {
       const home = obj(await answer('homeView', [snapshot.revision, now, '', 10, true, false, false, false, false,
-        '', '', '', 'repository', 'catalog-root', homeVisible, sidebarVisible, snapshot.environments], {} as never, storage, native));
-      expect(home.emptyTitle).toBe('Environment unavailable'); expect(home.loading).toBe(false);
-      expect(home.items).toEqual([]); expect(home.addEnvironment).toBe(true);
+        '', '', '', 'repository', 'catalog-root', homeVisible, sidebarVisible, snapshot.environments, surface, true], {} as never, storage, native));
+      expect(home.emptyTitle).toBe(surface === 'sidebar' ? 'No threads yet' : 'Environment unavailable'); expect(home.loading).toBe(false);
+      expect(home.items).toEqual([]); expect(home.addEnvironment).toBe(surface !== 'sidebar');
     }
     expect(calls.some(call => call.op === 'connect' || call.op === 'fleetStop' || call.fleet !== undefined)).toBe(false);
   } finally {

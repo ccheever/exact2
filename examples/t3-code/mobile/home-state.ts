@@ -10,6 +10,7 @@ import { mobileClient } from './client';
 import { mobileNewTaskDraftList, mobileNewTaskDraftPresentation } from './mobile-new-task-drafts';
 import type { T3Client } from './shared/client';
 import { liveEnvironments } from './shared/live-streams';
+import { threadSearchPending } from './shared/sidebar-presentation';
 import { fleet, type EnvironmentFleet } from './shared/settings-b-fleet';
 import { mobileHomeActionsObserve, mobileHomeMenu, mobileHomeSwipe } from './home-actions';
 
@@ -35,7 +36,7 @@ export async function mobileToggleShelf(section: string, native?: Native | null)
 
 /** Select only the declared Contract shape; the full projection also has internal counts. */
 export function mobileHomeView(args: unknown[], client: T3Client = mobileClient, background: EnvironmentFleet = fleet) {
-  const [_revision, now, query, settledCount, loaded, workingEnabled, workingExpanded, snoozedExpanded, settledExpanded, environmentId, projectKey, selectedThreadKey, groupingMode, requestRoute, homeVisible, sidebarVisible, environments] = args;
+  const [_revision, now, query, settledCount, loaded, workingEnabled, workingExpanded, snoozedExpanded, settledExpanded, environmentId, projectKey, selectedThreadKey, groupingMode, requestRoute, homeVisible, sidebarVisible, environments, surface, catalogLoaded] = args;
   mobileHomeActionsObserve(String(requestRoute ?? ''), homeVisible === true, sidebarVisible === true, client);
   const order = mobileHomeOrder(client, mobileHomeSources(client, background), Number(now), { workingEnabled: workingEnabled === true, observeReturns: true });
   const drafts = mobileNewTaskDraftList(client).flatMap(record => { const draft = mobileNewTaskDraftPresentation(client, record.key); return draft ? [draft] : []; });
@@ -45,7 +46,8 @@ export function mobileHomeView(args: unknown[], client: T3Client = mobileClient,
     environmentId: String(environmentId ?? ''), projectKey: String(projectKey ?? ''), selectedThreadKey: String(selectedThreadKey ?? ''),
     groupingMode: String(groupingMode ?? 'repository'), preferencesLoaded: loaded === true, workingEnabled: workingEnabled === true, workingExpanded: workingExpanded === true,
     snoozedExpanded: snoozedExpanded === true, settledExpanded: settledExpanded === true }, client, background);
-  const contexts = new Map(liveEnvironments(client, null, background).map(environment => {
+  const live = liveEnvironments(client, null, background);
+  const contexts = new Map(live.map(environment => {
     const endpoint = environment.focused ? client : background.entries.get(environment.key);
     return [environment.environmentId, { origin: endpoint?.origin ?? '', generation: endpoint?.generation ?? 0, connected: environment.connected }] as const;
   }));
@@ -62,6 +64,15 @@ export function mobileHomeView(args: unknown[], client: T3Client = mobileClient,
     const at = item.swipe.gateExpiry > 0 ? item.swipe.gateExpiry + 50 : 0;
     return at > Number(now) && (earliest === 0 || at < earliest) ? at : earliest;
   }, 0);
+  // ThreadNavigationSidebar has a plain list label, separate from HomeScreen's card.
+  const sidebar = surface === 'sidebar', needle = String(query ?? '').trim();
+  const project = result.projects.find(project => project.key === projectKey || project.projectKeys.includes(String(projectKey ?? '')));
+  const searching = needle === client.query.trim() && threadSearchPending(client)
+    && live.some(environment => environment.connected && (!environmentId || environment.environmentId === environmentId));
+  const sidebarEmpty = result.items.length ? '' : catalogLoaded === false ? 'Loading threads…'
+    : needle ? searching ? 'Searching thread messages…' : 'No matching threads'
+    : project ? `No threads in ${project.title}` : 'No threads yet';
   return { nextSwipeRefreshAt, arrangement: homeArrangeSnapshot(client, mobileHomeSources(client, background), Number(now), order), items: result.items, emptyTitle: result.emptyTitle, emptyDetail: result.emptyDetail,
-    loading: result.loading, addEnvironment: result.addEnvironment };
+    ...(sidebar ? { emptyTitle: sidebarEmpty, emptyDetail: '', loading: false, addEnvironment: false }
+      : { loading: result.loading, addEnvironment: result.addEnvironment }) };
 }

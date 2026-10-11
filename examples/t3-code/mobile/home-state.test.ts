@@ -3,6 +3,8 @@ import { mobileHomeView } from './home-state';
 import { T3Client } from './shared/client';
 import { EnvironmentFleet, type FleetEntry } from './shared/settings-b-fleet';
 import { initialShell } from './shared/domain';
+import { runThreadSearch } from './shared/sidebar-presentation';
+import type { Native } from './shared/protocol';
 
 const now = Date.parse('2026-10-07T12:00:00Z');
 const config = { environment: { capabilities: { threadSettlement: true, threadSnooze: true } } };
@@ -88,4 +90,58 @@ test('two Home projections read local drafts without mutation and sidebar menu n
   const draft = first.items[0]!; expect(draft.environmentLabel).toBe('Saved Mac'); expect(first.nextSwipeRefreshAt).toBe(0);
   expect(JSON.parse(draft.nativeMenu)).toEqual({ identity: 'draft-task:new-task:A', requestRoute: 'visit', enabled: true, items: draft.menuItems });
   expect(draft.swipe.primary).toBe(''); expect(first.arrangement.pinned).toEqual([]); expect(first.arrangement.active).toEqual([]);
+});
+
+function emptyView(client: T3Client, background: EnvironmentFleet, input: {
+  surface?: string; query?: string; environment?: string; project?: string; catalogLoaded?: boolean;
+} = {}) {
+  return mobileHomeView([0, now, input.query ?? '', 10, true, false, false, false, false,
+    input.environment ?? '', input.project ?? '', '', 'repository', 'empty-visit', true, true, [],
+    input.surface ?? 'sidebar', input.catalogLoaded ?? true], client, background);
+}
+
+test('unpaired iPad sidebar uses a list label while compact Home keeps the environment card', () => {
+  const client = new T3Client(), background = new EnvironmentFleet();
+  expect(emptyView(client, background)).toMatchObject({ items: [], emptyTitle: 'No threads yet', emptyDetail: '', addEnvironment: false, loading: false });
+  expect(emptyView(client, background, { surface: 'compact' })).toMatchObject({
+    emptyTitle: 'No environments connected', emptyDetail: 'Add an environment to load projects and start coding sessions.', addEnvironment: true,
+  });
+  expect(emptyView(client, background, { catalogLoaded: false, query: 'needle', project: 'gone' })).toMatchObject({
+    emptyTitle: 'Loading threads…', emptyDetail: '', addEnvironment: false, loading: false,
+  });
+  expect(emptyView(client, background, { query: 'needle' }).emptyTitle).toBe('No matching threads');
+});
+
+test('sidebar empty text uses selected logical project and query before environment scope', () => {
+  const f = fixture(); f.client.shell.threads = []; f.remote.shell.threads = [];
+  f.client.shell.projects = [{ id: 'p', title: 'Local', workspaceRoot: '/one', repositoryIdentity: { canonicalKey: 'shared-repo', displayName: 'team/repo' } }];
+  f.remote.shell.projects = [{ id: 'p', title: 'Remote', workspaceRoot: '/two', repositoryIdentity: { canonicalKey: 'shared-repo', displayName: 'team/repo' } }];
+  expect(emptyView(f.client, f.background, { project: 'two:p' }).emptyTitle).toBe('No threads in team/repo');
+  expect(emptyView(f.client, f.background, { environment: 'two' }).emptyTitle).toBe('No threads yet');
+  expect(emptyView(f.client, f.background, { project: 'removed' }).emptyTitle).toBe('No threads yet');
+  expect(emptyView(f.client, f.background, { query: 'x', project: 'two:p' }).emptyTitle).toBe('No matching threads');
+  expect(emptyView(f.client, f.background, { surface: 'compact' })).toMatchObject({
+    emptyTitle: 'No threads yet', emptyDetail: 'Create a task to start a new coding runtime in one of your connected projects.',
+  });
+});
+
+test('sidebar uses the existing pending search only for the displayed query and a connected scope', async () => {
+  const f = fixture(); f.client.shell.threads = []; f.remote.shell.threads = []; f.client.query = 'needle';
+  let finish!: (value: unknown) => void;
+  const native: Native = { available: true, watch() {}, later: async () => await new Promise(resolve => { finish = resolve; }) };
+  const pending = runThreadSearch(f.client, native, 'needle');
+  expect(emptyView(f.client, f.background, { query: 'needle' }).emptyTitle).toBe('Searching thread messages…');
+  expect(emptyView(f.client, f.background, { query: 'x' }).emptyTitle).toBe('No matching threads');
+  f.remote.phase = 'offline';
+  expect(emptyView(f.client, f.background, { query: 'needle', environment: 'two' }).emptyTitle).toBe('No matching threads');
+  finish({ ok: true, generation: f.client.generation, value: { matches: [] } }); await pending;
+  expect(emptyView(f.client, f.background, { query: 'needle' }).emptyTitle).toBe('No matching threads');
+});
+
+test('sidebar empty presentation does not replace visible draft or thread rows', () => {
+  const f = fixture(), before = JSON.stringify([f.client.shell, f.remote.shell]);
+  const compact = emptyView(f.client, f.background, { surface: 'compact' }), sidebar = emptyView(f.client, f.background);
+  expect(sidebar.items).toEqual(compact.items); expect(sidebar.emptyTitle).toBe('');
+  expect(sidebar.emptyDetail).toBe(''); expect(sidebar.addEnvironment).toBe(false);
+  expect(JSON.stringify([f.client.shell, f.remote.shell])).toBe(before);
 });
