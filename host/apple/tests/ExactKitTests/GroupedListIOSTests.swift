@@ -671,14 +671,9 @@ final class GroupedListIOSTests: XCTestCase {
         XCTAssertFalse(s.isOn)
     }
 
-    /// LLP 1116.001 D1: a custom row that names swipe actions (the
-    /// `list-rows` recipe's scroll, in a grouped section) swipes as a
-    /// hand-built list's cell does: UIKit's actions on its list cell, a full
-    /// swipe the first. Its content need not fill the row (the sheet's
-    /// inset and padding), no table is projected, and its controls stay
-    /// hidden while the row is carried (grocery-list, round 3: the row was
-    /// refused and swiped 27 points by its scroll, the action clipped).
-    func testASwipeRowTakesItsListCellsOwnActions() throws {
+    /// A grouped section holding a custom row that names a trailing swipe
+    /// action (row 21: content 22, Delete 23) above a standard row.
+    private func swipeRow(_ onPress: @escaping (UInt32) -> Void = { _ in }) -> Presenter {
         ExactGroupedLists.install()
         let p = Presenter()
         host(p).model = { $0 == 1 ? GroupedListModel(sections: [
@@ -688,8 +683,7 @@ final class GroupedListIOSTests: XCTestCase {
         p.viewport.frame = window.bounds
         window.addSubview(p.viewport)
         window.makeKeyAndVisible()
-        var pressed: [UInt32] = []
-        p.onPress = { pressed.append($0) }
+        p.onPress = onPress
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "list", "props": ["listStyle": "inset-grouped"], "style": ["overflow_y": "scroll"]],
             ["op": "create", "id": 2, "kind": "view", "props": ["semanticTag": "section"], "style": [:]],
@@ -708,6 +702,19 @@ final class GroupedListIOSTests: XCTestCase {
             ["op": "frame", "id": 23, "x": 370.0, "y": 9.0, "w": 60.0, "h": 34.0],
             ["op": "frame", "id": 30, "x": 16.0, "y": 52.0, "w": 354.0, "h": 52.0],
         ]))
+        return p
+    }
+
+    /// LLP 1116.001 D1: a custom row that names swipe actions (the
+    /// `list-rows` recipe's scroll, in a grouped section) swipes as a
+    /// hand-built list's cell does: UIKit's actions on its list cell, a full
+    /// swipe the first. Its content need not fill the row (the sheet's
+    /// inset and padding), no table is projected, and its controls stay
+    /// hidden while the row is carried (grocery-list, round 3: the row was
+    /// refused and swiped 27 points by its scroll, the action clipped).
+    func testASwipeRowTakesItsListCellsOwnActions() throws {
+        var pressed: [UInt32] = []
+        let p = swipeRow { pressed.append($0) }
         let owner = try XCTUnwrap(p.views[21]), delete = try XCTUnwrap(p.views[23])
         XCTAssertNil(p.swipeActions.refusal(of: owner), "a grouped row's content need not fill it")
         XCTAssertTrue(delete.isHidden, "the cell's action stands for the control")
@@ -744,6 +751,43 @@ final class GroupedListIOSTests: XCTestCase {
         p.apply(wireBatch([["op": "props", "id": 2, "set": ["inert": "true"], "clear": [String]()]]))
         XCTAssertNil(l.swipeActions(at: IndexPath(item: 0, section: 0), leading: false), "inert: nothing offered")
         XCTAssertEqual(p.swipeActions.perform(23), false)
+    }
+
+    /// LLP 1116.004 D2 (grocery-list, round 6): a contact in a swipe row
+    /// that leaves the slop toward a side with actions is the swipe's, never
+    /// a press, whether or not UIKit's swipe goes on to begin. Maestro's
+    /// "fast" swipe from the row's checkbox moved nine points, short of
+    /// UIKit's threshold, and the checkbox took it as a tap. The row's claim
+    /// cancels the touch beneath and stands in no one's way; a drag toward
+    /// a side with no actions, or up the list, stays the press's.
+    func testASidewaysDragTowardTheRowsActionsIsTheSwipesNotAPress() throws {
+        let p = swipeRow()
+        let owner = try XCTUnwrap(p.views[21])
+        XCTAssertTrue(owner.isDescendant(of: try cell(p, 21).contentView))
+        let claims = { (owner.gestureRecognizers ?? []).compactMap { $0 as? SwipeActionsHost.SwipeClaim } }
+        let claim = try XCTUnwrap(claims().first, "the row claims its sideways touches")
+        XCTAssertTrue(claim.cancelsTouchesInView, "claiming cancels the press beneath")
+        XCTAssertFalse(claim.delaysTouchesEnded, "a tap's lift is not held back")
+        let swipe = UIPanGestureRecognizer()
+        XCTAssertFalse(claim.canPrevent(swipe), "UIKit's swipe goes on")
+        XCTAssertFalse(claim.canBePrevented(by: swipe))
+        let sides = claim.sides()
+        XCTAssertTrue(sides.left, "a drag to the left reveals the trailing Delete")
+        XCTAssertFalse(sides.right, "no leading action")
+        let decide = { (dx: CGFloat, dy: CGFloat) in
+            SwipeActionsHost.SwipeClaim.decide(dx: dx, dy: dy, slop: CGFloat(Gesture.slop), left: sides.left, right: sides.right)
+        }
+        XCTAssertEqual(decide(-9, 0), .claim, "Maestro's swipe from the checkbox to the screen's tenth")
+        XCTAssertEqual(decide(-48, 2), .claim, "a flick that lifts before UIKit's swipe begins")
+        XCTAssertEqual(decide(-3, 1), .wait, "a tap's wobble is still a tap")
+        XCTAssertEqual(decide(9, 0), .fail, "toward no action: the press stays, as a UIKit cell's")
+        XCTAssertEqual(decide(-3, 9), .fail, "up the list: the scroll's")
+        XCTAssertTrue(SwipeActionsHost.SwipeClaim.drags(UISwitch()), "a switch keeps its own sideways drag")
+        // A batch keeps the one claim; a row that stops swiping drops it.
+        p.apply(wireBatch([["op": "props", "id": 21, "set": ["testId": "swipe-row"], "clear": [String]()]]))
+        XCTAssertEqual(claims().count, 1)
+        p.apply(wireBatch([["op": "props", "id": 21, "set": [String: String](), "clear": ["swipeContent"]]]))
+        XCTAssertTrue(claims().isEmpty)
     }
 
     func testABatchUpdatesTheRowsAndAGoneListGoes() throws {
