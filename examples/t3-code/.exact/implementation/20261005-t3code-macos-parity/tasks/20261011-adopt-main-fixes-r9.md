@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-adopt-main-fixes-r9'
-pr_url:
+pr_url: https://github.com/ccheever/exact2/pull/458
 verified_commit:
 ---
 
@@ -128,12 +128,24 @@ Evidence: [drive.sh](https://raw.githubusercontent.com/ccheever/exact2/333fdfb36
 | --- | --- | --- |
 | AD-1: the branch contains main | pass: `git merge-base --is-ancestor origin/main HEAD` on `40486ea5d` with origin/main `ccc9afd52` (`dd589856e` at the first merge) | Adopted main |
 | AD-1: the framework tree is main's | pass: the step 1 diff is empty on `01ea0020e`, `3c1d3b9c1` and `40486ea5d` | Adopted main |
-| AD-1: the five checks pass on the merged tree | pending (final head) | Tests |
+| AD-1: the five checks pass on the merged tree | pass for this PR on `e15590444`: build, clippy, fmt and boot exit 0; `cargo test` exit 101 with 3,744 passed, 1 failed, 36 ignored (95 suites), and the one failure is main's own: the examples sweep (`button_migration`) reports `apps/color-gallery/app.contract:269:17: styled default button needs appearance="none"`, a button main #440 (`787e8151d`, 2026-10-11) added; the sweep compiled the clone's roots without a failure (91 roots, 1 failure), and outside `examples/t3-code` the tree is main's byte for byte, so main's `cargo test` fails the same way | Tests |
 | AD-1: the clone works | pass: Bun 4,654 pass / 1 skip / 0 fail; strict tsc; contract build; the macOS bundle; AppKit 38 binaries (37 pass, `mermaid` against a scratch server; `snapshot` see below) and `timeline-keyboard`; the drive: every screenshot before and after pixel-identical within 7/255 (`3-settings-general`, `4-settings-providers` exactly), trees identical apart from lane ids, AX trees apart from the scroll bars' role name, no error or refusal in the logs | [shell](https://raw.githubusercontent.com/ccheever/exact2/675d37eeb2cad795276cfb0b5f90623c722e3e52/adopt-main-fixes-r9/1-shell.png), [thread](https://raw.githubusercontent.com/ccheever/exact2/49272cb3c33daa98088b19454c210a0877c0f5fa/adopt-main-fixes-r9/2-thread.png), [Settings › General](https://raw.githubusercontent.com/ccheever/exact2/0bbf3d38944f9b7561bcc386e4ee1d02dee3a7e1/adopt-main-fixes-r9/3-settings-general.png), [Settings › Providers](https://raw.githubusercontent.com/ccheever/exact2/b13f509db6b49a05d4dfe8c62292ece7a2d1e032/adopt-main-fixes-r9/4-settings-providers.png), [Usage](https://raw.githubusercontent.com/ccheever/exact2/747d62664d2eb536270002ebe25d58e64792cbfe/adopt-main-fixes-r9/5-usage.png) |
 | AD-1: each item of step 2 has an outcome | pass: the table above | this record |
 | Every drawn text heading writes its weight (main's D7) | pass: `headings.test.ts` fails on the old `settings-rows.contract` (`settings-rows.contract:174`) and passes on `86d52d68b`; Settings › General's and Providers' titles draw regular, pixel-identical to the before build | Settings images |
 
 ## Tests
+
+Final checks on `e15590444` (the record's last source state; later commits are this record only): `bun test
+examples/t3-code --timeout 60000` 4,654 pass, 1 skip, 0 fail (311 files), exit 0; strict `tsc` exit 0; `bun
+scripts/exact.mjs contract build examples/t3-code/app.contract` exit 0 (6,157 slots, 110,195 nodes, 231 warnings, no
+error); `cargo test -p t3-code-macos --lib` 21 pass (no Rust or Swift of the clone changed; run because main changed
+the host); the bundle builds (`host/apple/build.mjs t3-code-macos --bundle`, exit 0, on `3c1d3b9c1`'s sources); the
+AppKit binaries (README recipe): 36 exit 0 on the first run, `mermaid` passed against a scratch `t3 --mode web` server
+on 16703, `snapshot` exit 133 (the keyboard-layout row below), `timeline-keyboard` PASS; `git add -A && bun
+scripts/caps.mjs` exit 0; `cargo build --all-targets --keep-going` exit 0; `cargo test --lib --bins --tests
+--no-fail-fast` exit 101 (3,744 passed, 1 failed, 36 ignored, 95 suites: main's `apps/color-gallery` in the examples
+sweep, above); `cargo clippy --all-targets --keep-going -- -D warnings` exit 0; `cargo fmt --all -- --check` exit 0;
+`bun scripts/boot.mjs` exit 0. `app.contract`: 1,398 lines.
 
 - `headings.test.ts`: a fourth test, every drawn `text role="heading"` writes `font-weight` (on its line or in its
   `style` class; a text whose `ChatRuns` write their weight counts; `opacity=0` ones draw nothing) and the seven that
@@ -157,6 +169,8 @@ No row needs real input.
 
 ## Next action
 
-The coordinator reviews the draft PR, syncs `STATUS.md` and `plan.md` (round 9 done, main `ccc9afd52` adopted; X49, X55's
+Main's own gate is red on `apps/color-gallery/app.contract:269` (main #440 added a filled button with its own
+`accent-color` that the button migration flags); that is main's to fix, not this PR's, and the T3 branch inherits it
+until main does. The coordinator reviews the draft PR [#458](https://github.com/ccheever/exact2/pull/458), syncs `STATUS.md` and `plan.md` (round 9 done, main `ccc9afd52` adopted; X49, X55's
 `progressbar` part and X73 fixed on main), lands it as a merge or a fast-forward (never a squash), and schedules the
 retirements above (1 is the stacked progress-bar task).
