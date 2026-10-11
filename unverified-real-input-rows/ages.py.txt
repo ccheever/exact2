@@ -1,0 +1,29 @@
+# unverified-real-input-rows UV-1: in a drive's `tree pull-request-timeline` and the full tree after the Code tab's age hover,
+# each relative age and whether a hover handler wraps it (a Tip / LayerTip), plus the hover layer's bubble if one shows.
+import json, re, sys
+AGE = re.compile(r'^(just now|\d+[smhdwy]o? ago|\d+(m|h|d|w|mo|y) ago)$')
+trees = [json.loads(l) for l in open(sys.argv[1])]
+trees = [t for t in trees if t.get('nodes')]
+def report(nodes, label):
+    by = {x['id']: x for x in nodes}
+    rows = []
+    for x in nodes:
+        t = (x.get('props') or {}).get('text', '')
+        if x.get('type') == 'Text' and AGE.match(t):
+            p = by.get(x.get('parent'))
+            rows.append((t, (x.get('props') or {}).get('testId', ''), 'hover' in (p or {}).get('handlers', []), (p or {}).get('props', {}).get('testId', '')))
+    print(label, f'{len(rows)} ages,', sum(1 for r in rows if r[2]), 'wrapped by a hover handler')
+    for r in rows[:12]: print('  ', r)
+for t in trees:
+    first = (t['nodes'][0].get('props') or {}).get('testId', '')
+    if first == 'pull-request-timeline': report(t['nodes'], 'Timeline:')
+for t in trees:
+    ids = {(x.get('props') or {}).get('testId', '') for x in t['nodes']}
+    if any(i.startswith('pull-request-thread-age') for i in ids):
+        nodes = t['nodes']
+        age = [x for x in nodes if (x.get('props') or {}).get('testId', '').startswith('pull-request-thread-age')]
+        bubble = [x for x in nodes if (x.get('props') or {}).get('testId', '').startswith('pull-request-thread-age-tip-') and x['props']['testId'].endswith('-bubble')]
+        texts = [x['props'].get('text') for x in nodes if x.get('type') == 'Text' and any(b['id'] in (x.get('ancestors') or []) for b in bubble)]
+        layer = [x for x in nodes if (x.get('props') or {}).get('testId') == 'hover-layer']
+        print('Code tab, pointer on the age:', [(x['props']['testId'], x['type'], x.get('handlers')) for x in age], '| hover-layer:', len(layer), '| age bubble:', [b['props']['testId'] for b in bubble])
+        break
