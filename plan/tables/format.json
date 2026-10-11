@@ -1221,9 +1221,10 @@
     },
     {
       "name": "formatNumber",
-      "params": ["number", "\"compact\""],
+      "params": ["number", "\"compact\" | \"decimal\" | \"currency\" | \"percent\"", "\"USD\" | \"EUR\" | \"GBP\" | \"JPY\" | \"CNY\" | \"INR\" | \"CAD\" | \"AUD\" | \"NZD\" | \"HKD\" | \"SGD\" | \"CHF\" | \"SEK\" | \"NOK\" | \"DKK\" | \"PLN\" | \"MXN\" | \"BRL\" | \"KRW\" | \"ZAR\" | \"TWD\" | \"ILS\" | \"PHP\" | \"VND\""],
+      "optional": ["\"\""],
       "returns": "string",
-      "_comment": "@ref LLP 1054.000.003 D3/D7/D8: Intl.NumberFormat(\"en-US\", { notation: \"compact\", roundingMode: \"trunc\", signDisplay: \"negative\" }). The linked capability `format`."
+      "_comment": "@ref LLP 1054.000.003 D3/D7/D8: `compact` is Intl.NumberFormat(\"en-US\", { notation: \"compact\", roundingMode: \"trunc\", signDisplay: \"negative\" }). @ref LLP 1116 D8: `decimal` is Intl.NumberFormat(\"en-US\") (grouped, at most three fraction digits), `currency` with an ISO 4217 code { style: \"currency\", currency } (`$1,481.47`, `-$5.00`, the code's own fraction digits), `percent` { style: \"percent\" } (`26%`): each rounds the value's shortest decimal digits half away from zero, as ICU does, and signs a negative zero. The code is written only with `currency`, and the compiler fills `\"\"` for a call that omits it. Every style prints `\"\"` for a non-finite value (D7). The linked capability `format`."
     },
     {
       "name": "frame",

@@ -101,7 +101,12 @@ Inside the exact2 checkout, for its own apps, the same commands are
 Use `build --json` before and after the edit. It returns one JSON array with all
 independent diagnostics it can collect, capped at 20; success is `[]`. Keep the
 exit status: 0 success, 1 compilation/I/O failure, 2 invalid invocation. Read all
-diagnostics, including related locations, before making the next repair.
+diagnostics, including related locations, before making the next repair. Each has
+a `severity`: `"error"` refuses the build; `"warning"` (after the errors, also on a
+success) builds and runs but is not what you meant, such as a header node the iOS
+bar hides (`lower-header-unplaced`), a tab bar of one tab (`lower-single-tab`) or a
+`performanceNow()` time sent to a source (`type-performance-now-persisted`); each
+names its repair, and fixing it is part of the edit.
 
 Formatting is explicit. `fmt --stdout` previews, `fmt --check` checks, and plain
 `fmt` writes. Formatting changes spacing and breaks only: a result that would
@@ -293,7 +298,8 @@ at CSS.
   the web (`end > start` for `"HH:MM"` times). `slice(s, 0, -1)`,
   `replaceAll(s, find, with)` and `toLowerCase(s)` are the web's string methods.
 - Numbers have `floor`, `ceil`, `round` (JavaScript's `Math.round`: `round(-2.5)` is
-  -2), `min`, `max`, `%`, `formatNumber` (`1.2K`), `toFixed` and `formatDecimal`. A
+  -2), `min`, `max`, `%`, `formatNumber` (`"compact"` is `1.2K`, `"decimal"` `1,234.5`,
+  `"percent"` `26%`, `"currency", "USD"` `$1,481.47`), `toFixed` and `formatDecimal`. A
   field's text is a number through `match parseNumber(s) { case some(n) => …, case
   none => … }`: a decimal numeral, trimmed, or `none` (`"12px"`, `""`).
 - Money is a count of cents printed with `formatDecimal(cents, 2)`, which is

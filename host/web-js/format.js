@@ -39,9 +39,33 @@ function plain(x) {
   if (point <= 0) return "0." + "0".repeat(-point) + digits;
   return point >= digits.length ? digits + "0".repeat(point - digits.length) : digits.slice(0, point) + "." + digits.slice(point);
 }
-/** `Intl.NumberFormat("en-US", { notation: "compact", roundingMode: "trunc", signDisplay: "negative" })`: `1.2K`, `0.29`, `10,000T`. */
-export function x_formatNumber(n) {
+// LLP 1116 D8: each code's en-US symbol and fraction digits (runner/src/format.rs `CURRENCIES`).
+const CURRENCIES = { USD: "$2", EUR: "€2", GBP: "£2", JPY: "¥0", CNY: "CN¥2", INR: "₹2", CAD: "CA$2", AUD: "A$2", NZD: "NZ$2",
+  HKD: "HK$2", SGD: "SGD2", CHF: "CHF2", SEK: "SEK2", NOK: "NOK2", DKK: "DKK2", PLN: "PLN2", MXN: "MX$2", BRL: "R$2", KRW: "₩0",
+  ZAR: "ZAR2", TWD: "NT$2", ILS: "₪2", PHP: "₱2", VND: "₫0" };
+/** `decimal`, `currency` and `percent` (runner/src/format.rs `styled`): `Intl.NumberFormat("en-US")`'s, from
+ * `String(n)`'s shortest digits cut half away from zero, grouped by threes, a negative zero signed. */
+function styled(n, style, code) {
+  let sym = "", lo = 0, hi = 3, shift = 0;
+  if (style === "percent") { hi = 0; shift = 2; }
+  if (style === "currency") {
+    const c = CURRENCIES[code] ?? "";
+    sym = c.slice(0, -1); lo = hi = +c.slice(-1);
+    if (/[A-Z]$/.test(sym)) sym += "\u00a0";
+  }
+  let [int, frac = ""] = plain(Math.abs(n)).split(".");
+  const cut = shift + hi, up = frac[cut] >= "5";
+  let ds = int + frac.padEnd(cut, "0").slice(0, cut);
+  if (up) { const k = ds.search(/9*$/); ds = (k ? ds.slice(0, k - 1) + (+ds[k - 1] + 1) : "1") + "0".repeat(ds.length - k); }
+  int = ds.slice(0, ds.length - hi).replace(/^0+(?=\d)/, "");
+  frac = ds.slice(ds.length - hi).replace(/0+$/, "").padEnd(lo, "0");
+  return (n < 0 || Object.is(n, -0) ? "-" : "") + sym + int.replace(/\B(?=(\d{3})+$)/g, ",") + (frac ? "." + frac : "") + (style === "percent" ? "%" : "");
+}
+/** `compact` is `Intl.NumberFormat("en-US", { notation: "compact", roundingMode: "trunc", signDisplay: "negative" })`:
+ * `1.2K`, `0.29`, `10,000T`; the other styles are `styled`'s. */
+export function x_formatNumber(n, style, code) {
   if (!Number.isFinite(n)) return "";
+  if (style !== "compact") return styled(n, style, code);
   if (n === 0) return "0";
   let [int, frac = ""] = plain(Math.abs(n)).split(".");
   if (int === "0") int = "";

@@ -139,13 +139,29 @@ pub struct CompileError {
 }
 
 impl CompileError {
+    /// A warning (LLP 1116 D6): lowering's non-fatal diagnostic, which fails
+    /// no build and no test and is reported after the refusals.
+    pub fn warning(e: contract_lower::LowerError) -> CompileError {
+        CompileError {
+            pass: "warning",
+            ..CompileError::from(e)
+        }
+    }
+
+    /// Whether this is a warning, not a refusal.
+    pub fn is_warning(&self) -> bool {
+        self.pass == "warning"
+    }
+
     /// A machine-readable diagnostic (LLP 1035.005 D2). Columns are one-based
     /// UTF-8 byte offsets with an exclusive end; zero means no source range.
     /// Standalone source has a null file. Every related location owns its file;
-    /// no location is guessed from message text.
+    /// no location is guessed from message text. `severity` is `"error"` for
+    /// a refusal and `"warning"` for a warning (LLP 1116 D6).
     pub fn to_json(&self) -> String {
         serde_json::json!({
             "id": self.id,
+            "severity": if self.is_warning() { "warning" } else { "error" },
             "message": self.message,
             "file": self.file.as_ref().map(|file| file.to_string_lossy()),
             "line": self.span.line,
@@ -168,7 +184,8 @@ impl std::fmt::Display for CompileError {
         if let Some(file) = &self.file {
             write!(f, "{}:", file.display())?;
         }
-        write!(f, "{} [{}] {}", self.span, self.id, self.message)?;
+        let severity = if self.is_warning() { "warning " } else { "" };
+        write!(f, "{} {severity}[{}] {}", self.span, self.id, self.message)?;
         for related in self.related.iter() {
             write!(f, "\n  ")?;
             if let Some(file) = &related.file {
@@ -244,6 +261,29 @@ pub fn compile(src: &str) -> Result<Plan, CompileError> {
         });
     }
     compile_file(file, None)
+}
+
+/// [`compile`], with the warnings beside its result (LLP 1116 D6): every
+/// one the text earns once it type-checks, whether it then compiled or not.
+pub fn compile_warned(src: &str) -> (Result<Plan, CompileError>, Vec<CompileError>) {
+    let mut warned = Vec::new();
+    let result = contract_syntax::parse(src)
+        .map_err(CompileError::from)
+        .and_then(|mut file| {
+            contract_syntax::resolve_clock_timelines(&mut file)?;
+            picker::check(&file, None).map_err(first)?;
+            compile_file_warned(
+                &file,
+                None,
+                None,
+                false,
+                contract_lower::Profile::Web,
+                Some(&mut warned),
+            )
+            .map(|(plan, _)| plan)
+            .map_err(first)
+        });
+    (result, warned)
 }
 
 /// [`compile`] for a terminal entry (LLP 1101): the terminal admission
@@ -516,8 +556,33 @@ pub fn compile_path_all_unchecked(
     path: &Path,
     mapped: bool,
 ) -> Result<(Plan, Option<SourceMap>), Vec<CompileError>> {
-    let src = read_source(path).map_err(|e| vec![e])?;
-    compile_path_checked(path, &src, mapped, false, contract_lower::Profile::Web)
+    compile_path_all_warned(path, mapped).0
+}
+
+/// What a build's result and warnings are: the plan or the refusals, and
+/// beside either the warnings (LLP 1116 D6), which never fail it.
+pub type Warned = (
+    Result<(Plan, Option<SourceMap>), Vec<CompileError>>,
+    Vec<CompileError>,
+);
+
+/// [`compile_path_all_unchecked`], with the warnings beside the result
+/// (LLP 1116 D6): every one the checked file earns, at most
+/// [`contract_lower::MAX_WARNINGS`], whether lowering then succeeded or
+/// refused. A file the type checker refuses has none.
+pub fn compile_path_all_warned(path: &Path, mapped: bool) -> Warned {
+    let mut warned = Vec::new();
+    let result = read_source(path).map_err(|e| vec![e]).and_then(|src| {
+        compile_path_warned(
+            path,
+            &src,
+            mapped,
+            false,
+            contract_lower::Profile::Web,
+            Some(&mut warned),
+        )
+    });
+    (result, warned)
 }
 
 fn app_root(path: &Path) -> Result<PathBuf, Vec<CompileError>> {
@@ -552,6 +617,17 @@ fn compile_path_checked(
     surfaces: bool,
     profile: contract_lower::Profile,
 ) -> Result<(Plan, Option<SourceMap>), Vec<CompileError>> {
+    compile_path_warned(path, src, mapped, surfaces, profile, None)
+}
+
+fn compile_path_warned(
+    path: &Path,
+    src: &str,
+    mapped: bool,
+    surfaces: bool,
+    profile: contract_lower::Profile,
+    warned: Option<&mut Vec<CompileError>>,
+) -> Result<(Plan, Option<SourceMap>), Vec<CompileError>> {
     let app_root = app_root(path)?;
     let (file, sources) = sources::load(path, src, &app_root)?;
     native::check(&file, &app_root).map_err(|all| {
@@ -583,8 +659,19 @@ fn compile_path_checked(
         all
     };
     let strings = strings::load(&app_root, path).map_err(joined)?;
-    let (mut plan, sites) = compile_file_output(&file, Some(&app_root), strings, mapped, profile)
-        .map_err(|all| {
+    let mut own = Vec::new();
+    let compiled = compile_file_warned(
+        &file,
+        Some(&app_root),
+        strings,
+        mapped,
+        profile,
+        warned.is_some().then_some(&mut own),
+    );
+    if let Some(warned) = warned {
+        warned.extend(own.into_iter().map(|e| sources.resolve(e)));
+    }
+    let (mut plan, sites) = compiled.map_err(|all| {
         joined(
             all.into_iter()
                 .map(|e| sources.resolve(e))
@@ -979,6 +1066,21 @@ fn compile_file_output(
     mapped: bool,
     profile: contract_lower::Profile,
 ) -> Result<(Plan, Option<contract_lower::Sites>), Vec<CompileError>> {
+    compile_file_warned(file, asset_root, strings, mapped, profile, None)
+}
+
+/// [`compile_file_output`], adding to `warned`, when given, the warnings of
+/// a file the type checker accepts (LLP 1116 D6), before analysis and
+/// lowering run, so they are reported beside those passes' refusals too. A
+/// compile nobody reads them from does not look for them.
+fn compile_file_warned(
+    file: &File,
+    asset_root: Option<&Path>,
+    strings: Option<std::sync::Arc<contract_types::strings::Strings>>,
+    mapped: bool,
+    profile: contract_lower::Profile,
+    warned: Option<&mut Vec<CompileError>>,
+) -> Result<(Plan, Option<contract_lower::Sites>), Vec<CompileError>> {
     // Each pass runs on what the one before it accepted, and reports all of
     // its own refusals.
     fn each<E: Into<CompileError>>(
@@ -1006,6 +1108,13 @@ fn compile_file_output(
     contract_analyze::check_routes_root(file, true).map_err(CompileError::from)?;
     let checked = contract_types::check_all(file, mapped, contract_lower::tags::style, strings)
         .map_err(|all| with_lint(each(all, hint)))?;
+    if let Some(warned) = warned {
+        warned.extend(
+            contract_lower::warnings(&checked)
+                .into_iter()
+                .map(CompileError::warning),
+        );
+    }
     let analysis =
         contract_analyze::check_all(&checked).map_err(|all| with_lint(each(all, hint)))?;
     contract_lower::lower_all(&checked, &analysis, asset_root, mapped, profile)

@@ -661,7 +661,12 @@ impl Emitter<'_> {
                     exact_plan::Stdlib::from_name(name).filter(|_| !shapes.fns.contains_key(name))
                 {
                     for d in f.omitted(args.len()) {
-                        parts.push(format!("(.num 0x{:016x})", d.to_bits()));
+                        parts.push(match d {
+                            exact_plan::StdlibDefault::Number(n) => {
+                                format!("(.num 0x{:016x})", n.to_bits())
+                            }
+                            exact_plan::StdlibDefault::Str(s) => format!("(.str {})", string(s)),
+                        });
                     }
                 }
                 format!("(.call {} [{}])", string(name), parts.join(", "))

@@ -373,7 +373,15 @@ pub(crate) fn compile(
             // The defaults of trailing optional parameters the call omitted
             // (LLP 1088 D2): the plan's call always carries the full arity.
             for &d in f.omitted(args.len()) {
-                asm.number(d);
+                match d {
+                    exact_plan::StdlibDefault::Number(n) => {
+                        asm.number(n);
+                    }
+                    exact_plan::StdlibDefault::Str(s) => {
+                        let id = l.b.str(s);
+                        asm.str(id);
+                    }
+                }
             }
             asm.call(f);
             match (f, given.first(), given.get(1)) {

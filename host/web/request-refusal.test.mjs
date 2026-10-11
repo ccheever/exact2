@@ -1001,6 +1001,8 @@ test("the JS target refuses a data module's clock, randomness and timers as Herm
       const atInit = answer('atInit', [form]);
       expect(atInit.startsWith(api) && atInit.includes('as an argument'), `${form} at initialization: ${atInit}`).toBe(true);
       expect(() => answer('ambient', [form]), form).toThrow(api);
+      // LLP 1116 D8: randomness names its recipe, in Hermes's words too.
+      if (api === 'Math.random()') expect(atInit).toContain('seed from crypto.getRandomValues in a source (docs/recipes/random-and-shuffle.md)');
     }
     // Explicit inputs keep the language's behavior.
     expect(answer('explicit', [86_400_000, 7])).toBe('1970-01-02T00:00:00.000Z/' + ((Math.imul(7, 1664525) + 1013904223) >>> 0));

@@ -49,6 +49,7 @@ pub mod tags;
 mod timers;
 mod values;
 pub mod vocab;
+mod warnings;
 
 pub use dataset::{data_words, hatch_words};
 pub use error::LowerError;
@@ -58,6 +59,7 @@ pub use lint::lint;
 use lint::{unknown_attr, unknown_tag};
 pub use native::{is_module_tag, module_tags};
 pub use sites::{ButtonSite, Declared, NodeSite, Origin, Sites};
+pub use warnings::{warnings, MAX_WARNINGS};
 
 use contract_analyze::Analysis;
 use contract_syntax::{Attr, Expr, File, FnDecl, Node, Owner, Span};

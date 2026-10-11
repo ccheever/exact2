@@ -460,6 +460,35 @@ test('toFixed and formatDecimal are the runner\'s', async () => {
   expect(x_formatDecimal(-Number.MAX_VALUE, 2)).toBe('-1797693134862315708145274237317043567980705675258449965989174768031572607800285387605895586327668781715404589535143824642343213268894641827684675467035375169860499105765512820762454900903893289440758685084551339423045832369032229481658085593321233482747978262041447231687381771809192998812504040261841248583.68');
 });
 
+// LLP 1116 D8: format.js's `decimal`, `currency` and `percent` are Intl.NumberFormat("en-US")'s, swept against Bun's own
+// Intl: halves at each style's cut, magnitudes from 1e-12 to 1e28, random doubles, every code the roster lists
+// (runner/tests/it/format.rs pins the runner's to rows from the same Intl). Non-finite is "", as every format's is.
+test('decimal, currency and percent numbers are Intl\'s', async () => {
+  const { x_formatNumber } = await import(webJs('format.js'));
+  const roster = JSON.parse(readFileSync(new URL('../../../plan/tables/format.json', import.meta.url), 'utf8')).stdlib
+    .find(f => f.name === 'formatNumber');
+  const codes = roster.params[2].split(' | ').map(c => JSON.parse(c));
+  const nf = options => new Intl.NumberFormat('en-US', options);
+  const styles = [['decimal', '', nf({})], ['percent', '', nf({ style: 'percent' })],
+    ...codes.map(c => ['currency', c, nf({ style: 'currency', currency: c })])];
+  const wrong = [];
+  const check = x => { for (const [style, code, f] of styles) if (x_formatNumber(x, style, code) !== f.format(x)) wrong.push([x, style, code]); };
+  [0, -0, 1, -1, 1.005, 2.675, 1.0005, 999.9995, 0.9995, -0.0001, 1e21, 5e-324, Number.MAX_VALUE, -Number.MAX_VALUE,
+    -881366968154907.25, 9007199254740993].forEach(check);
+  for (let d = 0; d <= 5; d++) for (let k = -1000; k <= 1000; k++) check((k + 0.5) / 10 ** d);
+  let seed = 1;
+  const next = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  for (let i = 0; i < 4000; i++) check((next() - 0.5) * 2 * 10 ** (Math.floor(next() * 40) - 12));
+  const bits = new Float64Array(1), words = new Uint32Array(bits.buffer);
+  for (let i = 0; i < 2000; i++) { words[0] = next() * 2 ** 32; words[1] = next() * 2 ** 32; if (Number.isFinite(bits[0])) check(bits[0]); }
+  expect(wrong.slice(0, 10)).toEqual([]);
+  expect([x_formatNumber(1481.4666, 'currency', 'USD'), x_formatNumber(-5, 'currency', 'USD'), x_formatNumber(0.256, 'percent', ''),
+    x_formatNumber(1234567.891, 'decimal', ''), x_formatNumber(5, 'currency', 'CHF'), x_formatNumber(1250, 'compact', '')])
+    .toEqual(['$1,481.47', '-$5.00', '26%', '1,234,567.891', 'CHF 5.00', '1.2K']);
+  expect([NaN, Infinity, -Infinity].flatMap(x => styles.slice(0, 3).map(([style, code]) => x_formatNumber(x, style, code))))
+    .toEqual(Array(9).fill(''));
+});
+
 // LLP 1088 §9.1: `concat`, and `slice` and `includes` over a list, are the web's array methods (`includes` by
 // SameValueZero), on the caller's budget: each takes its `$s`, traps where the runner's `list_call` does — before it
 // builds — and leaves its own steps in `ST` (one an item kept, or scanned up to the match); text takes none.
