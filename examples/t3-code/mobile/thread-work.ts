@@ -35,6 +35,9 @@ function workDisplayItem(item: Obj): Obj {
   if (item.type === 'file_search' && Array.isArray(item.results)) display.results = item.results.map(result =>
     result !== null && typeof result === 'object' && !Array.isArray(result)
       ? ordered(obj(result), ['fileName', 'line', 'column', 'preview']) : result);
+  if (item.type === 'web_search' && Array.isArray(item.results)) display.results = item.results.map(result =>
+    result !== null && typeof result === 'object' && !Array.isArray(result)
+      ? ordered(obj(result), ['title', 'url', 'snippet']) : result);
   return ordered({ ...display, ...(Object.hasOwn(item, 'source') ? { source: ordered(source, sourceFields) } : {}),
     ...(item.nativeItemRef ? { nativeItemRef: ordered(obj(item.nativeItemRef), ['driver', 'nativeId', 'strength']) } : {}),
     ...(Object.hasOwn(item, 'failure') ? { failure: ordered(failure, ['class', 'message', 'code', 'retryable', 'resetAt']) } : {}),
@@ -43,6 +46,7 @@ function workDisplayItem(item: Obj): Obj {
     'providerTurnId', 'nativeItemRef', 'parentItemId', 'ordinal', 'status', 'title', 'startedAt', 'completedAt', 'updatedAt',
     'type', 'source', 'targetThreadId', 'failure', 'retry', 'input', 'outputOmitted', 'outputIndicatesFailure', 'exitCode',
     ...(item.type === 'file_search' ? ['pattern', 'results'] : []),
+    ...(item.type === 'web_search' ? ['patterns', 'results'] : []),
   ]);
 }
 
@@ -107,11 +111,15 @@ export function mobileThreadActivity(activity: Activity, row: Obj | undefined, c
     activity.label, [title ? `${title.charAt(0).toUpperCase()}${title.slice(1)}` : formatSearchToolLabel(original) ?? 'Searched files', str(original.pattern),
       JSON.stringify({ visibility: row.visibility, sourceThreadId: row.sourceThreadId, sourceItemId: row.sourceItemId,
         item: workDisplayItem(original) }, null, 2)], dark, toolSymbols[activity.icon] ?? 'wrench', activity.expandable === true) : '';
+  const webCopy = original.type === 'web_search' && !iconURL && row ? nativeWorkConfiguration(client, activity.id, routeKey, expanded,
+    activity.label, [title ? `${title.charAt(0).toUpperCase()}${title.slice(1)}` : 'Searched the web', Array.isArray(original.patterns) ? original.patterns.join(', ') : '',
+      JSON.stringify({ visibility: row.visibility, sourceThreadId: row.sourceThreadId, sourceItemId: row.sourceItemId,
+        item: workDisplayItem(original) }, null, 2)], dark, toolSymbols[activity.icon] ?? 'wrench', activity.expandable === true) : '';
   return {
     id: activity.id, nativeWorkRow: prominentError && row ? nativeWorkConfiguration(client, activity.id, routeKey, false,
       warning ? `Usage limit reached.${reset ? ` Retry after ${reset}.` : ''}` : failureSummary,
       [failureSummary, str(failure.message), JSON.stringify({ visibility: row.visibility, sourceThreadId: row.sourceThreadId,
-        sourceItemId: row.sourceItemId, item: workDisplayItem(original) }, null, 2)], dark, 'exclamationmark.circle', false) : commandCopy || searchCopy,
+        sourceItemId: row.sourceItemId, item: workDisplayItem(original) }, null, 2)], dark, 'exclamationmark.circle', false) : commandCopy || searchCopy || webCopy,
     nativeWorkDetail: false, nativeCommandDetail: commandCopy !== '' && call !== null, reasoningBlocks: [], answerPreview: answer ? questionAnswerPreview(answer) : '',
     hasAnswer: answer !== null && hasQuestionAnswer(answer), answerHistory: expanded && answer && row ? answerHistory(answer, client, row, now) : [], label: warning ? `Usage limit reached.${reset ? ` Retry after ${reset}.` : ''}`
       : prominentError ? failureSummary : activity.reasoning && expanded ? activity.status ?? 'Thought' : activity.label,
