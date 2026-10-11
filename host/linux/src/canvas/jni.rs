@@ -224,6 +224,39 @@ macro_rules! canvas_jni {
                 }
             }
 
+            /// The device's settings, whole (LLP 1115.001 D3.1): before
+            /// `start`, from any thread, and on the host's thread again
+            /// whenever one changes. A host that runs on the calling thread
+            /// takes them now; one that boots later starts with them.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_configure(
+                env: *mut JNIEnv,
+                _class: jclass,
+                night: jboolean,
+                font_scale: jfloat,
+                locale: jstring,
+                rtl: jboolean,
+                hour24: jboolean,
+                no_animations: jboolean,
+                bold_text: jboolean,
+                high_contrast: jboolean,
+                touch: jboolean,
+            ) {
+                let device = $crate::presenter::Device {
+                    night: night == JNI_TRUE,
+                    font_scale,
+                    locale: string(env, locale),
+                    rtl: rtl == JNI_TRUE,
+                    hour24: hour24 == JNI_TRUE,
+                    reduced_motion: no_animations == JNI_TRUE,
+                    bold_text: bold_text == JNI_TRUE,
+                    high_contrast: high_contrast == JNI_TRUE,
+                    touch: touch == JNI_TRUE,
+                };
+                $crate::canvas::configure(&device);
+                with(|h| h.configure(&device));
+            }
+
             /// The view's size in pixels and the display's pixels a point,
             /// when either is not what `start` was given.
             #[no_mangle]

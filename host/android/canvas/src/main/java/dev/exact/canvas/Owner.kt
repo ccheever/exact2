@@ -158,6 +158,12 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
         }
     }
 
+    /** The device's settings ([Device]): told before [boot] so the host boots with them (the library loads here, not on
+     * the main thread), and whenever they change, when the host takes them and publishes what they changed. */
+    fun configure(device: Device) {
+        handler.post { device.tell(); if (watching) produce() }
+    }
+
     /** The view is this size after all, or the display's density changed. */
     fun resize(width: Int, height: Int, scale: Float) = call { Native.resize(width, height, scale) }
 

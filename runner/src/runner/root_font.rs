@@ -1,9 +1,9 @@
 //! The root font size (LLP 1069.000 D3): the host reads it from the
 //! platform — Dynamic Type on iOS, the browser's root size on the web, 16
-//! elsewhere — and the app may set its own over it, as `:root { font-size }`
-//! sets one over the browser's setting. It is layout, not a fact: no
-//! resource is asked again, and the commit only re-resolves `rem`/`em` and
-//! what inherits the root's size.
+//! times the font scale on Android, 16 elsewhere — and the app may set its
+//! own over it, as `:root { font-size }` sets one over the browser's
+//! setting. It is layout, not a fact: no resource is asked again, and the
+//! commit only re-resolves `rem`/`em` and what inherits the root's size.
 use super::{DataSource, Runner, RunnerError};
 use exact_kernel::{CommitReceipt, LayoutError};
 use exact_plan::Value;

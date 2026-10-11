@@ -486,9 +486,9 @@ pub struct Painter {
     pub text: Shared,
     /// Device pixels per point.
     pub scale: f32,
-    /// Which appearance a `light-dark()` colour resolves to (LLP 1034 D2).
-    /// This host has no system appearance of its own, so it is whatever the
-    /// app's `setScheme` last said; `light` until it says otherwise.
+    /// Which appearance a `light-dark()` colour resolves to (LLP 1034 D2):
+    /// what the app's `setScheme` last said, else the system's, which the
+    /// device's shell or an agent tells the presenter; `light` until one does.
     pub dark: bool,
     backend: Box<dyn Backend>,
     #[cfg(test)]

@@ -78,6 +78,8 @@ open class ExactActivity : Activity() {
         } else null
         val storage = createDeviceProtectedStorageContext().filesDir
         installAssets(File(storage, "app"))
+        // The device's settings, told before the host boots: its first frame is laid out and painted with them.
+        val device = Device.read(this).also { told = it }
         // asyncboot=0: boot when the view is laid out, on the main thread, to compare. Otherwise now, at the size the
         // view will have (the window less the bars this activity pads by), on a thread that also loads the library:
         // exact2 loads, boots and paints its first frame while Android sets the activity up, and the view takes it
@@ -88,6 +90,7 @@ open class ExactActivity : Activity() {
             val bars = wm.windowInsets.getInsets(android.view.WindowInsets.Type.systemBars())
             val size = wm.bounds.width() to (wm.bounds.height() - bars.top - if (insetBottom) bars.bottom else 0)
             val live = intent.getStringExtra("live").let { it == "1" || it == "true" }
+            owner.configure(device)
             owner.boot(size.first, size.second, resources.displayMetrics.density, storage.absolutePath, live) { ok -> view.ownerStarted(ok) }
             booting = size
         } else if (intent.getStringExtra("asyncboot") != "0") {
@@ -97,10 +100,10 @@ open class ExactActivity : Activity() {
             val live = intent.getStringExtra("live").let { it == "1" || it == "true" }
             val density = resources.displayMetrics.density
             try { Native.hardwarePictures(intent.getStringExtra("hwbuf") != "0") } catch (e: UnsatisfiedLinkError) { }
-            Thread({ Native.startAsync(size.first, size.second, density, storage.absolutePath, live) }, "exact-load")
+            Thread({ device.tell(); Native.startAsync(size.first, size.second, density, storage.absolutePath, live) }, "exact-load")
                 .apply { priority = Thread.MAX_PRIORITY }.start()
             booting = size
-        }
+        } else device.tell()
         driver = drive { dy -> view.scrollBy(dy) }
         view = ExactView(this, intent.getStringExtra("live").let { it == "1" || it == "true" }) {
             run {
@@ -142,22 +145,47 @@ open class ExactActivity : Activity() {
         setContentView(root)
     }
 
-    /** The display's density changed in place (LLP 1115.001 D15.1): the manifest declares it, with the size, night
-     * mode, font scale, locale and keyboard changes, so none of them makes the activity again. A size arrives through
-     * the view's own [ExactView.onSizeChanged]. */
+    /** The device's settings as the host was last told them. */
+    private var told: Device? = null
+
+    /** Read the device's settings and tell the host, whole, when any is not what it was last told (LLP 1115.001
+     * D3.1). */
+    private fun configure() {
+        val now = Device.read(this)
+        if (now == told) return
+        told = now
+        val owner = view.owner
+        if (owner != null) owner.configure(now) else { now.tell(); view.invalidate() }
+    }
+
+    /** The two settings the app is told that are no part of a [android.content.res.Configuration]: "remove
+     * animations" and the 12 or 24-hour clock. Watched while the activity is started; read again when it starts. */
+    private val settings = object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
+        override fun onChange(selfChange: Boolean) = configure()
+    }
+
+    /** A configuration changed in place (LLP 1115.001 D15.1): the manifest declares the size, night mode, font scale,
+     * bold text, locale, density and keyboard changes, so none of them makes the activity again. The settings go to
+     * the host whole ([configure]); a size arrives through the view's own [ExactView.onSizeChanged]. */
     override fun onConfigurationChanged(config: android.content.res.Configuration) {
         super.onConfigurationChanged(config)
+        configure()
         view.densityChanged()
     }
 
     /** The host does its frame work only while the activity is started (LLP 1115.001 D15.2). */
     override fun onStart() {
         super.onStart()
+        contentResolver.registerContentObserver(android.provider.Settings.Global.getUriFor(android.provider.Settings.Global.ANIMATOR_DURATION_SCALE), false, settings)
+        contentResolver.registerContentObserver(android.provider.Settings.System.getUriFor(android.provider.Settings.System.TIME_12_24), false, settings)
+        // What changed while the activity was stopped and is no configuration change.
+        configure()
         view.running(true)
     }
 
     override fun onStop() {
         view.running(false)
+        contentResolver.unregisterContentObserver(settings)
         super.onStop()
     }
 

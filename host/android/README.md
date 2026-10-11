@@ -6,8 +6,8 @@ An app on Android is its Rust, built for `aarch64-linux-android` (`host/linux`: 
 and the paint walk), and this. The Rust records what it paints as an op stream (`host/linux/src/canvas.rs`). The
 reader replays that stream onto Android's own Canvas: a `RenderNode` for each row, scroller and animated layer,
 hardware bitmaps for pictures, `drawGlyphs` for text the Rust has shaped. The two meet at `dev.exact.canvas.Native`,
-whose 33 methods `exact_linux::canvas_jni!(Data)` defines for an app (`host/linux/src/canvas/jni.rs`). Nothing
-versions the stream or those calls, so both sides are built from one commit.
+whose methods `exact_linux::canvas_jni!(Data)` defines for an app (`host/linux/src/canvas/jni.rs`). Nothing versions
+the stream or those calls, so both sides are built from one commit.
 
 | | |
 |---|---|
@@ -92,8 +92,11 @@ The cut was the smallest one. Left in the reader:
 ## Not done
 
 - **Most of LLP 1115.001.** A finger does not scroll, text arrives one key at a time, insets pad the view once, the
-  theme is light, no setting of the device reaches the app, the Rust calls nothing on the platform, and there is no
-  accessibility. Of the lifecycle (D15) the first two parts are built: the manifest declares the configuration changes
+  launch theme is light, the Rust calls nothing on the platform, and there is no accessibility. The device's settings
+  reach the app (D3.1, `Device.kt`, `Native.configure`): night mode, the font scale (the root font size is 16 times
+  it; Material's type ramp is a later stage), the locale, "remove animations", high contrast, and that the screen is
+  a finger's. The layout direction, the 12 or 24-hour clock and bold text cross too and change nothing yet: exact2
+  has no door for them. Of the lifecycle (D15) the first two parts are built: the manifest declares the configuration changes
   the host takes in place, an activity made again adopts the host that runs (`Native.start` on a thread that has
   one), and the host does no frame work while the activity is stopped. Nothing is saved for a process the system
   kills (D15.3).

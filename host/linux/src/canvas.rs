@@ -137,6 +137,9 @@ const IDLE_FRAMES: u64 = 10;
 
 #[path = "canvas/clip.rs"]
 mod clip;
+#[path = "canvas/device.rs"]
+mod device;
+pub use device::configure;
 #[path = "canvas/jni.rs"]
 pub mod jni;
 #[path = "canvas/keys.rs"]
@@ -1097,6 +1100,11 @@ impl<D: DataSource + Default> CanvasHost<D> {
         )?;
         if let Some(e) = error {
             eprintln!("exact: {e}");
+        }
+        let mut p = p;
+        // What the reader read of the device, before the first frame (D3.1).
+        if let Some(e) = device::configured().and_then(|d| p.set_device(&d)) {
+            eprintln!("exact: device: {e}");
         }
         eprintln!(
             "exact: canvas {}x{} px, scale {scale}, boot {:.1} ms",

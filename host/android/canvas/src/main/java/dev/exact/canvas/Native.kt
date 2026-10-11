@@ -16,6 +16,12 @@ object Native {
     @JvmStatic external fun startAsync(width: Int, height: Int, scale: Float, dir: String, live: Boolean)
     /** Wait for [startAsync]'s host and run it on this thread from now on; whether it booted. */
     @JvmStatic external fun adopt(): Boolean
+    /** The device's settings, whole ([Device], LLP 1115.001 D3.1): before [start], from any thread, so the host boots
+     * with them, and again on the host's thread whenever one changes. */
+    @JvmStatic external fun configure(
+        night: Boolean, fontScale: Float, locale: String, rtl: Boolean, hour24: Boolean, noAnimations: Boolean,
+        boldText: Boolean, highContrast: Boolean, touch: Boolean,
+    )
     /** The view is this size after all, at this many pixels a point (the display's density, which may change). */
     @JvmStatic external fun resize(width: Int, height: Int, scale: Float)
     @JvmStatic external fun frame(): ByteBuffer?

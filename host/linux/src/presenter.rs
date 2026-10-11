@@ -101,6 +101,7 @@ mod events_tests;
 #[path = "presenter/visibility_tests.rs"]
 mod visibility_tests;
 
+pub use device::Device;
 use painter::cpu_info;
 pub(crate) use painter::PainterBoot;
 pub use painter::{set_custom_painter, PainterChoice, PainterFactory, PainterInfo};
@@ -176,8 +177,11 @@ pub struct Presenter<D: DataSource> {
     boxes_serial: u64,
     pub(crate) dirty: bool,
     /// The app's `setScheme` (`None`: follow the system) and the system's
-    /// appearance, which only an agent sets here (LLP 1061 D5).
+    /// appearance, which the device's shell says ([`Presenter::set_device`])
+    /// or an agent (LLP 1061 D5); light until either does.
     pub(crate) scheme: (Option<bool>, bool),
+    /// The device's settings as its shell last told them (LLP 1115.001 D3.1).
+    device: Option<Device>,
     /// The viewport segments the agent set (LLP 1078 D7), for `layout.env`;
     /// the posture and counts are the runner's.
     pub(crate) segments: Vec<exact_kernel::Rect>,
@@ -415,6 +419,7 @@ impl<D: DataSource> Presenter<D> {
             dirty: true,
             deferred_collections: None,
             scheme: (None, false),
+            device: None,
             segments: Vec::new(),
             surfaces: Default::default(),
             module: None,
