@@ -144,9 +144,9 @@ component ChatColumn
   view
     column flex=1 min-width=0 min-height=0 height="100%" position="relative" inert=pageCover hatch="t3-frame" data-frame="chat"
       when scheme == "dark"
-        ChatHeader(data=data, shell=shell, keySidebar=settings.keySidebar, rightOpen=((rightPanel or data.diffOpen) and not narrowDiff), detailsOpen=(detailsOpen or details.inline), menuOpen=titleMenuOpen, renaming=renaming, renameText=renameText, toggleSidebar=toggleSidebar, panel=panelUi, details=detailsAct, title=titleUi)
+        ChatHeader(data=data, shell=shell, keySidebar=settings.keySidebar, rightOpen=((rightPanel or data.diffOpen) and not narrowDiff), detailsOpen=(detailsOpen or (details.inline and canvas.cardShown)), menuOpen=titleMenuOpen, renaming=renaming, renameText=renameText, toggleSidebar=toggleSidebar, panel=panelUi, details=detailsAct, title=titleUi)
       else
-        ChatHeader(data=data, shell=shell, keySidebar=settings.keySidebar, rightOpen=((rightPanel or data.diffOpen) and not narrowDiff), detailsOpen=(detailsOpen or details.inline), menuOpen=titleMenuOpen, renaming=renaming, renameText=renameText, toggleSidebar=toggleSidebar, panel=panelUi, details=detailsAct, title=titleUi)
+        ChatHeader(data=data, shell=shell, keySidebar=settings.keySidebar, rightOpen=((rightPanel or data.diffOpen) and not narrowDiff), detailsOpen=(detailsOpen or (details.inline and canvas.cardShown)), menuOpen=titleMenuOpen, renaming=renaming, renameText=renameText, toggleSidebar=toggleSidebar, panel=panelUi, details=detailsAct, title=titleUi)
       when hero
         column flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box"
           when scheme == "dark"
@@ -222,12 +222,12 @@ component ChatColumn
       else
         AlertStack(data=data, dismissed=dismissedProviderBanner, busy=commandPending, dismissProvider=dismissProviderBanner, command=command, openSetup=openProviderSettings)
       // One subtree per scheme: light-dark() inside the card's SVG glyphs does not re-resolve on a scheme flip.
-      // resolveThreadDetailsCardLayout: the card folds to the height above a player resized into it, and leaves when
-      // no readable height (160pt) is left.
+      // resolveThreadDetailsCardLayout: the card folds to the height above a player resized into it, and becomes the header's
+      // popover when no readable height (160pt) is left; its rows fold to the canvas's density (ThreadDetailsCard).
       when details.inline and canvas.cardShown and scheme == "dark"
-        ThreadDetailsInline(details=details, maxHeight=(canvas.ready ? canvas.cardHeight : viewport.height - 76), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
+        ThreadDetailsInline(details=details, density=canvas.density, maxHeight=(canvas.ready ? canvas.cardHeight : viewport.height - 76), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
       when details.inline and canvas.cardShown and scheme != "dark"
-        ThreadDetailsInline(details=details, maxHeight=(canvas.ready ? canvas.cardHeight : viewport.height - 76), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
+        ThreadDetailsInline(details=details, density=canvas.density, maxHeight=(canvas.ready ? canvas.cardHeight : viewport.height - 76), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
 
 // The right panel beside the chat on a wide window: the diff, or the surface chooser.
 component RightPanels

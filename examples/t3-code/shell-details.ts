@@ -96,12 +96,14 @@ export const detailsKey = (client: T3Client) => client.draftKey;
  * Data sources cannot read the clock (Date.now() fails the whole answer): `now` is the window's wall time.
  * The `shellDetails` source. Where chat has room (`wide`), the card docks inline
  * and is open unless this thread closed it (ThreadDetailsCard, upstream
- * 429c625a85); otherwise it is the header's popover, fetched only while open.
+ * 429c625a85); otherwise, or where a floating player leaves it no placement, it is
+ * the header's popover, fetched only while open.
  */
 /** `focused`: the window has the focus and is visible (exactPage(), exact2 #219); the card's Git actions refresh the status when it returns. */
 export async function shellDetails(client: T3Client, native: Native | null | undefined, open: boolean, threadId: string, wide = false, now = 0, rightGap = 0, focused = true) {
   const inline = wide && inlineOpen(client, detailsKey(client));
-  if (!(inline || (open && !wide)) || !native?.available || !client.ready || !client.projectId) {
+  // The popover: chat is narrow, or the floating player left the docked card no placement (ThreadDetailsCard's mode).
+  if (!(inline || open) || !native?.available || !client.ready || !client.projectId) {
     // While the card is closed the stream follows the strip's workspace, or ends when the strip is hidden.
     if (native?.available && client.ready) { await watchVcsStatus(client, native, stripWorkspace(client), now); await refreshVcsOnFocus(client, native, '', focused); }
     return empty;

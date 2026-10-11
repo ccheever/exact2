@@ -424,8 +424,9 @@ describe('one highlight: the pointer and the keys move one focus (audit-wave-fol
     expect(wrong).toEqual([]);
     // A floor, so a pattern that stops matching the uses fails here (146 at audit-wave-followups-4).
     expect(checked).toBeGreaterThan(140);
-    // Only the device rail draws its rows beside their KeyMenu (a key at a focused row reaches no menu; the record's "Found, not changed").
-    expect([...besides]).toEqual(['r6-device.contract']);
+    // No menu draws its rows beside its KeyMenu (device-player-compact-and-rail-keys DR-1: the device rail's were, so a
+    // key at a focused row reached no menu).
+    expect([...besides]).toEqual([]);
   });
 
   test('the menus whose rows their owner draws: one focused row, the door on entering, the popup on leaving', async () => {
