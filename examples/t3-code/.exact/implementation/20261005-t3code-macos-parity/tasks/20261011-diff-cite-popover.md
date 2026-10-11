@@ -184,3 +184,34 @@ cleared); thread "Timeline verification". Never send a message (no ⌘↵, no Re
   `citedMessageId` (diff-review.ts) predates this task, and View source reads both.
 - A press on the composer chip's label is the reference's link to the cited text ("View cited assistant text: …"); the
   clone's composer chip label takes no press (the timeline's chips do).
+
+## Checks
+
+On the final head (after merging `origin/feat(example)/t3-code` at `e91bdc8af`, main's adoption round 10):
+
+| Check | Exit | Note |
+| --- | --- | --- |
+| `bun test examples/t3-code --timeout 60000` | 0 | 4684 pass, 1 skip, 0 fail (314 files) |
+| strict `tsc` (README command) | 0 | |
+| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | `app.contract` 1,398 lines (unchanged); 113,005 nodes, 29,668,080 bytes (+2.5% for the word and code texts' Cite and highlight arms) |
+| `cargo test -p t3-code-macos --lib` | 0 | 21 passed |
+| AppKit `macos/tests/composer` (README recipe) | 0 | 64 tests, 0 failures (`citationpress.swift` 6, `ComposerSendPressTests` 1 new) |
+| `host/apple/build.mjs t3-code-macos --bundle` | 0 | on the merged head (the merge brought main's round 10) |
+| `git add -A && bun scripts/caps.mjs` | 0 | all budgets within cap |
+| `cargo build --all-targets --keep-going` | 0 | |
+| `cargo test --lib --bins --tests --no-fail-fast` | 0 | 3,756 passed, 0 failed |
+| `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | |
+| `cargo fmt --all -- --check` | 0 | |
+| `bun scripts/boot.mjs` | 0 | |
+
+## Not done / not verified
+
+- Real-input steps A to G above (the coordinator's session); F's fix (X84) was measured with a probe app, not seen live in
+  the clone.
+- Clearing a code block's selection after Cite: blocked on #274 (`removeAllRanges`).
+- The selection rectangle (#274) and following a timeline scroll (#127): declared differences.
+- X84: a new framework gap, recorded in `EXACT2-GAPS.md`, not filed.
+
+## Next action
+
+Review the draft PR; the real-input steps in the coordinator's session.
