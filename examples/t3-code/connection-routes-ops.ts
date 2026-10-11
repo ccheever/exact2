@@ -6,6 +6,7 @@
 // store and the walk are T3SavedEnvironments and T3Routes.swift.
 import { arr, obj, str, type Obj } from './domain';
 import { ClientError, bridgeReply, type Native } from './protocol';
+import { letGo } from './let-go';
 import {
   connectionRouteAddress, connectionRouteLabel, isLearned, mergeLearnedRoutes, registerRoute, reorderRoutes, routesAfterRemoving,
   savedRoutes, storedRoute, type ConnectionRoute, type RouteSshTarget,
@@ -70,7 +71,12 @@ export async function learnRoutes(native: Native, fleet: Learner, focused: Focus
     const activeRoute = routes.find(route => route.id === live.activeRouteId);
     if (!activeRoute) continue;
     const next = mergeLearnedRoutes({ entry: { environmentId: live.environmentId, label: str(saved.label), routes }, activeRoute, reported, allowInsecure: true });
-    if (next) fleet.saved = await writeRoutes(native, live.environmentId, next, live.fleet);
+    if (!next) continue;
+    // One environment's failed write (its fleet transport stopped since the pass read it: "That environment is not
+    // connected.") leaves the others to learn; the next pass learns its routes again (the reference learns per
+    // environment, supervisor.ts learnRoutesFrom).
+    try { fleet.saved = await writeRoutes(native, live.environmentId, next, live.fleet); }
+    catch (error) { if (letGo(error)) throw error; }
   }
 }
 

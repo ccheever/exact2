@@ -47,6 +47,16 @@ final class RouteTests: XCTestCase {
             }
         }
     }
+    /// This Mac's first private IPv4 (10/8, 172.16/12, 192.168/16, not loopback): what the server reports as its LAN
+    /// address (DirectEndpoints.ts). The fixture socket listens on every interface, so the address reaches it.
+    private func privateIPv4() -> String? {
+        let addresses = (try? T3NetworkInterfaces.system())?.values.flatMap { $0 } ?? []
+        return addresses.first(where: { address in
+            let parts = address.address.split(separator: ".").compactMap { Int($0) }
+            guard address.family == "IPv4", !address.isInternal, parts.count == 4 else { return false }
+            return parts[0] == 10 || (parts[0] == 172 && (16...31).contains(parts[1])) || (parts[0] == 192 && parts[1] == 168)
+        })?.address
+    }
     private func route(_ origin: String, credential: String? = nil, learned: Bool = false) -> [String: Any] {
         ["id": learned ? "learned:fixture:\(origin)@\(credential ?? origin)" : origin, "origin": origin, "kind": "", "learned": learned, "credential": credential ?? origin]
     }
@@ -118,12 +128,7 @@ final class RouteTests: XCTestCase {
     /// token goes out only after the address answered as this environment. The fixture socket listens on every
     /// interface, so this Mac's own private IPv4 reaches it; without one the test skips.
     func testALearnedPlainHttpLanRouteConnectsWithTheTokenItBorrows() throws {
-        let addresses = (try? T3NetworkInterfaces.system())?.values.flatMap { $0 } ?? []
-        guard let lan = addresses.first(where: { address in
-            let parts = address.address.split(separator: ".").compactMap { Int($0) }
-            guard address.family == "IPv4", !address.isInternal, parts.count == 4 else { return false }
-            return parts[0] == 10 || (parts[0] == 172 && (16...31).contains(parts[1])) || (parts[0] == 192 && parts[1] == 168)
-        })?.address else { throw XCTSkip("This Mac has no private IPv4 address.") }
+        guard let lan = privateIPv4() else { throw XCTSkip("This Mac has no private IPv4 address.") }
         let socket = try R3Socket(), port = socket.port, log = Log()
         let home = "http://127.0.0.1:\(port)", learned = "http://\(lan):\(port)", learnedId = "learned:fixture:\(learned)@\(home)"
         // The paired loopback route is down (a stopped proxy); the learned LAN address answers.
@@ -150,12 +155,7 @@ final class RouteTests: XCTestCase {
     /// requests the better-route check; the 60 s timer is not what moves it.
     func testALearnedRouteAboveTheOneInUseTakesOverAtOnce() throws {
         guard ProcessInfo.processInfo.environment["T3_ROUTE_CHECK_INTERVAL_MS"] == nil else { throw XCTSkip("Needs the 60 s default interval.") }
-        let addresses = (try? T3NetworkInterfaces.system())?.values.flatMap { $0 } ?? []
-        guard let lan = addresses.first(where: { address in
-            let parts = address.address.split(separator: ".").compactMap { Int($0) }
-            guard address.family == "IPv4", !address.isInternal, parts.count == 4 else { return false }
-            return parts[0] == 10 || (parts[0] == 172 && (16...31).contains(parts[1])) || (parts[0] == 192 && parts[1] == 168)
-        })?.address else { throw XCTSkip("This Mac has no private IPv4 address.") }
+        guard let lan = privateIPv4() else { throw XCTSkip("This Mac has no private IPv4 address.") }
         let socket = try R3Socket(), port = socket.port, log = Log()
         // The route in use stands for a tailnet or public address; `localhost` reaches the same fixture socket.
         let home = "http://localhost:\(port)", learned = "http://\(lan):\(port)", learnedId = "learned:fixture:\(learned)@\(home)"
