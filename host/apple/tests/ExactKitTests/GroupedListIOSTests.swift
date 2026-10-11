@@ -715,5 +715,95 @@ final class GroupedListIOSTests: XCTestCase {
         p.apply(wireBatch([["op": "roots", "ids": []], ["op": "destroy", "id": 1]]))
         XCTAssertNil(host(p).lists[1])
     }
+
+    /// LLP 1116.002 D2, round 4's countdowns: the commit that lands while a
+    /// sheet covers the list (the saved event's refresh, before `then`
+    /// closes the form) inserts a row and a sibling section, the "next up"
+    /// card, and grows a row; the sheet holds their boxes until it closes.
+    /// All of it shows on the batch that closes the sheet, not after the
+    /// screen is left: a cell first sized to nothing is one UIKit never
+    /// shows again, and a box given back to a row that a layout pass in that
+    /// batch carried again is the row's, not one the next `restore` undoes.
+    func testWhatACommitInsertsUnderASheetShowsWhenItCloses() throws {
+        var m = model(custom: true)
+        let p = presenter { m }
+        // The list's route where navigation hosts one: a controller's view in
+        // a scene's window, which UIKit presents a sheet over.
+        let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+        let screen = scene.map { UIWindow(windowScene: $0) } ?? UIWindow()
+        screen.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        let owner = UIViewController(), background = UIViewController()
+        screen.rootViewController = owner
+        screen.makeKeyAndVisible()
+        window.isHidden = true
+        window = screen
+        addTeardownBlock { owner.presentedViewController?.dismiss(animated: false); screen.isHidden = true }
+        p.viewport.frame = owner.view.bounds
+        owner.view.addSubview(p.viewport)
+        owner.addChild(background)
+        background.view.frame = owner.view.bounds
+        owner.view.addSubview(background.view)
+        background.didMove(toParent: owner)
+        let route = try XCTUnwrap(p.views[1])
+        background.view.addSubview(route)
+        // The sheet's route, and the document's first root once the list's
+        // route has left it (the closing batch changes its viewport fit).
+        p.apply(wireBatch([
+            ["op": "create", "id": 90, "kind": "view", "props": ["navigationPresentation": "modal"], "style": [:]],
+            ["op": "create", "id": 95, "kind": "view", "props": [:], "style": [:]],
+            ["op": "roots", "ids": [95]],
+        ]))
+        p.modals.present(try XCTUnwrap(p.views[90]), navigation: UIViewController(), from: background, node: route, preceding: nil, owner: owner)
+        XCTAssertEqual(p.modals.routes.count, 1, "the sheet is up")
+
+        // The refresh, under the sheet: a "next up" section first, a new row
+        // under the others, and row 21 grown. The sheet holds every box.
+        m.sections.insert(.init(view: 69, header: nil, footer: nil, rows: [Row(view: 71, custom: true)]), at: 0)
+        m.sections[2].rows.append(Row(view: 80, custom: true, pressable: true))
+        let view = { (id: Int, kind: String, props: [String: String]) -> [String: Any] in
+            ["op": "create", "id": id, "kind": kind, "props": props, "style": ["text_color": [0, 0, 0, 255], "border_width_bottom": 1.0]]
+        }
+        p.apply(wireBatch([
+            view(69, "view", ["semanticTag": "section"]), view(70, "view", [:]), view(71, "view", ["testId": "next-up"]),
+            view(72, "text", ["text": "NEXT UP"]), view(80, "button", ["testId": "row80"]), view(81, "text", ["text": "Holiday"]),
+            ["op": "children", "id": 1, "ids": [69, 2, 3]], ["op": "children", "id": 69, "ids": [70]], ["op": "children", "id": 70, "ids": [71]],
+            ["op": "children", "id": 71, "ids": [72]], ["op": "children", "id": 5, "ids": [20, 21, 80]], ["op": "children", "id": 80, "ids": [81]],
+            ["op": "frame", "id": 69, "x": 0.0, "y": 0.0, "w": 402.0, "h": 120.0],
+            ["op": "frame", "id": 70, "x": 16.0, "y": 10.0, "w": 370.0, "h": 101.0],
+            ["op": "frame", "id": 71, "x": 0.0, "y": 0.0, "w": 370.0, "h": 101.0],
+            ["op": "frame", "id": 72, "x": 16.0, "y": 20.0, "w": 100.0, "h": 20.0],
+            ["op": "frame", "id": 21, "x": 16.0, "y": 52.0, "w": 354.0, "h": 91.0],
+            ["op": "frame", "id": 80, "x": 16.0, "y": 143.0, "w": 354.0, "h": 73.0],
+            ["op": "frame", "id": 81, "x": 16.0, "y": 26.0, "w": 100.0, "h": 21.0],
+        ]))
+        for id: UInt32 in [71, 80, 21] { XCTAssertTrue(p.modals.holdsGeometry(id), "the sheet holds #\(id)'s box") }
+        XCTAssertEqual(p.views[80]?.frame.height, 0, "no box yet")
+
+        // The batch that closes it, as navigation's sync does mid-batch; UIKit
+        // laid the list out in that batch, carrying its shown rows again.
+        let l = try list(p)
+        p.onViewportFit = {
+            l.mount()
+            p.modals.closeTop(animated: false)
+        }
+        p.apply(wireBatch([["op": "props", "id": 95, "set": ["viewportFit": "cover"], "clear": [String]()]]))
+        p.onViewportFit = nil
+        XCTAssertTrue(p.modals.routes.isEmpty, "the sheet closed")
+        func shown(_ id: UInt32, _ height: CGFloat, _ what: String) throws {
+            let cell = try self.cell(p, id), row = try XCTUnwrap(p.views[id])
+            XCTAssertTrue(row.superview === cell.contentView, "\(what): carried into its cell")
+            XCTAssertEqual(cell.bounds.height, height, accuracy: 0.5, "\(what): the row less its separator")
+            XCTAssertTrue(l.collection.bounds.intersects(cell.frame), "\(what): in the list's port")
+        }
+        try shown(71, 100, "the next-up card")
+        try shown(80, 72, "the new row")
+        try shown(21, 90, "the grown row")
+        // The next batch gives the rows back and carries them again at
+        // their boxes, the ones the sheet held.
+        p.apply(wireBatch([["op": "props", "id": 95, "set": ["testId": "root"], "clear": [String]()]]))
+        XCTAssertEqual(p.views[21]?.frame.height ?? 0, 91, accuracy: 0.5, "the replayed box, kept")
+        try shown(21, 90, "the grown row, after a batch")
+        try shown(80, 72, "the new row, after a batch")
+    }
 }
 #endif
