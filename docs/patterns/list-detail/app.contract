@@ -118,7 +118,7 @@ component App
                 text "Save"
             list id="add-form" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
               section
-                // The message sits in the field's row, under the field: a footer is grey on iOS.
+                // The message sits in the field's row, under the field.
                 row
                   column flex=1 min-width=0 gap=4
                     input appearance="none" value=draftTitle input=editTitle placeholder="Title" aria-label="Title"

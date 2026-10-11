@@ -179,6 +179,38 @@ final class NativeContextsIOSTests: XCTestCase {
         XCTAssertEqual(rebuilt.selectedSegmentIndex, 0, "a rebuilt control shows the selection")
     }
 
+    /// LLP 1116.003 (r5 weather: "ExactSegmentedControl covers its middle"):
+    /// a real touch on a tab a segmented control draws aims at its segment,
+    /// the control taking the touch, never at the hidden authored tab.
+    func testARealTouchAimsAtTheSegmentItsControlDraws() throws {
+        let session = ExactApp.shared.makeSession(label: "segment-aim")
+        defer { session.destroy() }
+        let p = session.presenter
+        let faces: [UInt32: ButtonFace] = [2: face("Day"), 3: face("Week"), 4: face("Month")]
+        p.buttonFace = { faces[$0] ?? ButtonFace() }
+        let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+        window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        window.frame = CGRect(x: 0, y: 0, width: 400, height: 400)
+        window.rootViewController = UIViewController()
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        p.viewport.frame = window.bounds
+        window.rootViewController?.view.addSubview(p.viewport)
+        var ops = view(1, ["accessibilityRole": "tablist"])
+        for (i, id) in [2, 3, 4].enumerated() { ops += native(id, ["accessibilityRole": "tab"], x: Double(i) * 100, w: 100) }
+        p.apply(wireBatch(ops + [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "roots", "ids": [1]]]))
+        let control = try XCTUnwrap(p.views[1]?.subviews.compactMap { $0 as? UISegmentedControl }.first)
+        control.layoutIfNeeded()
+        let reply = Agent(session: session).aim(["id": 3, "aim": ["press": true]])
+        if (reply["error"] as? String)?.contains("foreground") == true { throw XCTSkip("the test host is in the background: a real touch's aim refuses it") }
+        let aim = try XCTUnwrap(reply["aim"] as? [String: Any], "\(reply)")
+        let w = try XCTUnwrap(aim["window"] as? [Double])
+        let local = control.convert(CGPoint(x: w[0], y: w[1]), from: nil)
+        XCTAssertTrue(control.bounds.contains(local), "on the control: \(local)")
+        XCTAssertEqual(Int(local.x / (control.bounds.width / 3)), 1, "on Week, the middle segment: \(local)")
+        XCTAssertEqual(aim["hit"] as? Int, 1, "the touch lands in the tablist's node: \(aim)")
+    }
+
     func testAMenuRowsSymbolIsItsItemsImageNativeOrCustom() throws {
         let p = presenter(
             view(1, ["popover": "auto", "id": "menu", "accessibilityRole": "menu"])

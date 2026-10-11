@@ -37,6 +37,34 @@ The generator fails closed: a row it cannot validate is a build error. A second
 copy of any table anywhere is a defect — the TypeScript encoder, when it exists,
 reads the same file.
 
+> **Amended by LLP 1115 (2026-10-09).** `rules/RULES.md` §Scope now reads "write the
+> web, ship the platform". **Layout defaults and names are still CSS's**, as every
+> example in the paragraph below is. A **presentation default** (a colour, a text
+> size, a control's look, what a press shows) is the platform's: the table names a
+> role or an `auto` that each host resolves (LLP 1095; LLP 1115 §3). The presentation
+> deviations from CSS that LLP 1115 made, declared here once:
+>
+> - the root font size is the host's body size (17 iOS at the default Dynamic Type
+>   size, 13 macOS, the reader's setting on the web), set through
+>   `Kernel::set_root_font_size`; the table's 16 is what a host that sets none shows;
+> - `font-size` takes a text style (`-exact-title1`, …) that the kernel resolves
+>   against that root, and a `role="heading"` is lowered to one by its level;
+> - `hr` is one solid edge in the separator role, not Chrome's two shades;
+> - an `href` run is `LinkText` and is not underlined;
+> - an unset root background is the platform's, never a fixed white;
+> - a pushed route has the platform's Back whether or not one is authored;
+> - a custom pressable that declares no press feedback dims while held on iOS.
+>
+> And one layout deviation, recorded here because it holds on every host and not only
+> the terminal it was made for (LLP 1101 D3): `ch` and `lh` are a fixed 8 × 16 cell
+> (`kernel/src/style/cells.rs`), where CSS's `ch` is the `0` advance of the element's
+> font and `lh` its line height.
+>
+> Where a later paragraph of this spec still states a presentation default as Chrome's
+> (`hr`'s shading, a bare `button` as `appearance: none`, `-exact-tint-color`
+> "initially opaque black", `-exact-press-scale`, `keyboardDismissMode`, which hosts
+> present dialogs), LLP 1115.000 Appendix B says what holds now.
+
 **Defaults live in the table, once, and they are CSS's.** The style table's
 `default` column is both the storage initializer and the semantic default; there is
 no separate profile authority yet (0486's layout profile becomes relevant when a
