@@ -638,29 +638,56 @@ component Row
 
 #[test]
 fn an_untyped_helper_is_typed_by_its_calls() {
-    let src = r#"component App
+    for body in [
+        r#"    if k == "ArrowDown"
+      move(1, 0)
+    if k == "ArrowRight"
+      move(0, 1)"#,
+        r#"    if k == ""
+      let ignored = k
+    else
+      let dr = k == "ArrowDown" ? 1 : 0
+      let dc = k == "ArrowRight" ? 1 : 0
+      move(dr, dc)"#,
+        r#"    match some(k)
+      case some(key)
+        if key != ""
+          let dr = key == "ArrowDown" ? 1 : 0
+          let dc = key == "ArrowRight" ? 1 : 0
+          move(dr, dc)
+      case none
+        let ignored = k"#,
+        r#"    match (k == "" ? some(k) : none)
+      case some(key)
+        let ignored = key
+      case none
+        let dr = k == "ArrowDown" ? 1 : 0
+        let dc = k == "ArrowRight" ? 1 : 0
+        move(dr, dc)"#,
+    ] {
+        let src = format!(
+            r#"component App
   state r = 0
   state c = 0
   action move(dr, dc)
     r = r + dr
     c = c + dc
   action clipKey(k: string)
-    if k == "ArrowDown"
-      move(1, 0)
-    if k == "ArrowRight"
-      move(0, 1)
+{body}
   view
     column
       button press=clipKey("ArrowDown") testId="down"
         text "down"
       button press=clipKey("ArrowRight") testId="right"
         text "right"
-      text `${r} ${c}` testId="at"
-"#;
-    let mut r = boot(src);
-    press(&mut r, "down");
-    press(&mut r, "right");
-    assert_eq!(text_of(&r, "at"), "1 1");
+      text `${{r}} ${{c}}` testId="at"
+"#
+        );
+        let mut r = boot(&src);
+        press(&mut r, "down");
+        press(&mut r, "right");
+        assert_eq!(text_of(&r, "at"), "1 1", "{body}");
+    }
 }
 
 #[test]

@@ -249,6 +249,23 @@ pub(super) fn check(
     arg_types(name, given, &own[*curried..], scope, shapes)
 }
 
+/// Whether this action can refine a callee, following the same statement
+/// positions as `each_call`, never a call's body (the callee's own).
+fn has_call(body: &[Stmt]) -> bool {
+    body.iter().any(|stmt| match stmt {
+        Stmt::Call { .. } => true,
+        Stmt::If {
+            then, otherwise, ..
+        } => has_call(then) || has_call(otherwise),
+        Stmt::Match { some, none, .. } => has_call(&some.1) || has_call(none),
+        Stmt::Let { .. }
+        | Stmt::Assign { .. }
+        | Stmt::Command { .. }
+        | Stmt::Send { .. }
+        | Stmt::Refresh { .. } => false,
+    })
+}
+
 /// Each call in `body` (not in a call's body: that is its callee's own),
 /// with the scope where it stands: what [`refine`] types parameters from.
 fn each_call<'b>(
@@ -298,6 +315,9 @@ fn each_call<'b>(
 pub(super) fn refine(c: &Component, ct: &mut ComponentTypes, types: &Types) {
     let shapes = &types.shapes;
     for ai in 0..c.actions.len() {
+        if !has_call(&c.actions[ai].body) {
+            continue;
+        }
         let mut scope = types.component_scope(c, ct);
         scope.push(
             c.actions[ai]

@@ -712,3 +712,17 @@ owed for it.
 - **Not regenerated.** The `Apps/` embeddings were already stale on the
   base (new event shapes); none calls an action, and the emitter writes
   them the same on base and stage 2.
+
+**Call-refinement scope construction, 2026-10-11.** An action with no call in
+its own `if` or `match` branches cannot refine a callee, so the pass skips its
+scratch component and parameter scopes. A call's body is still its callee's;
+call-bearing actions keep fresh scopes in declaration order. On a frozen
+258-file T3 Code desktop input, two baseline normal compilations took
+173.053 to 179.676 s and two with the guard took 156.709 to 157.575 s in ABBA order.
+All four plans and source maps were byte-identical; two observations per side
+do not establish a general speedup or a memory reduction. The existing call
+inference fixture also covers calls in either `if` and `match` arm.
+Default-member build, Clippy, formatting, caps, and boot passed. Three test
+failures from an uninstalled workspace package cleared after a frozen install
+and rerunning the two affected targets. The Lean differential check could not
+run because Lake was unavailable.
