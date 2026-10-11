@@ -1151,7 +1151,7 @@ column navigationKey=`${e.id}` navigationScroll="inbox-list" position="absolute"
 column navigationKey=`${e.id}` navigationScroll="list" position="absolute" inset=0 display="flex" flex-direction="column"
   header
     text "Shopping List" role="heading" aria-level=1
-    text `${left} items left`
+    text `${left} ${left == 1 ? "item" : "items"} left`
     button press=add aria-label="Add Item"
       image "symbol:add"
   scroll id="list" flex=1 min-height=0

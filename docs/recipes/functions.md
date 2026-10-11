@@ -48,11 +48,13 @@ component Shelf
   derive anyDone = includes(map(books, b => b.done), true)
   derive allDone = not includes(map(books, b => b.done), false)
   derive firstUnread = indexOf(map(books, b => b.done), false)
+  derive unread = length(filter(books, b => not b.done))
   view
     column padding=16 gap=8
       text (match found { case some(b) => b.title, case none => "Not found" }) testId="found"
       text `${length(filter(books, b => b.done))} of ${length(books)} read` testId="count"
       text (anyDone and not allDone ? `Next: book ${firstUnread + 1}` : "") testId="next"
+      text `${unread} ${unread == 1 ? "book" : "books"} to go` testId="left"
 ```
 
 ```contract-test
@@ -60,8 +62,11 @@ test "find, some, every and count are compositions"
   expect text "found" == "Emma"
   expect text "count" == "1 of 2 read"
   expect text "next" == "Next: book 2"
+  expect text "left" == "1 book to go"
 ```
 
+- A count chooses its noun by the number, so it never reads "1 books":
+  `${n} ${n == 1 ? "book" : "books"}` (`Intl.PluralRules` is this choice).
 - `find` is `first(filter(…))`, `some` is `includes(map(…), true)`, `every` is
   `not includes(map(…), false)`, `findIndex` is `indexOf(map(…), true)`.
 - Sorting, grouping, sums and other maths (`sort`, `reduce`, `pow`, `abs`) happen in the
