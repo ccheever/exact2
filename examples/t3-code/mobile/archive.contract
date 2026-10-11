@@ -95,11 +95,11 @@ component Archive
   action dragged(key: string, allowed: bool, dx: number, dy: number)
     if allowed and not pending
       if dragKey == key or dy >= -10 and dy <= 10
+        let start = dragKey == key ? offset : openKey == key ? -116 : 0
         if dragKey != key
-          offset = openKey == key ? -116 : 0
           dragKey = key
           openKey = ""
-        offset = max(32 - width, min(0, offset + dx))
+        offset = max(32 - width, min(0, start + dx))
   action released(key: string, environmentId: string, projectId: string, threadId: string, vx: number, vy: number)
     if dragKey == key
       if offset <= 0 - max(160, (width - 32) * 0.58)
