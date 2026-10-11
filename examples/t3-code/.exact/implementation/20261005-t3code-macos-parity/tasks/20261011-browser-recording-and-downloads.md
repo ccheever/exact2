@@ -1,8 +1,8 @@
 ---
 name: 20261011-browser-recording-and-downloads
 plan: 20261005-t3code-macos-parity
-implementation: in-progress
-verification: unverified
+implementation: implemented
+verification: verified-with-unverified-rows
 delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
@@ -67,6 +67,116 @@ declared differences (X1 path B)", Part 3 "Downloads", Part 5 "Recording (part 3
 - BR-3: `apps/desktop/src/preview/Manager.ts` `setAudioMuted`; `apps/web/src/components/RightPanelTabs.tsx`
   `tabMuteMenuItem`.
 
+## Cause and fix
+
+**BR-1.** The previewAutomation host (T3BrowserAutomation, `T3BrowserAutomationRecording.swift`) waits for the tab as for
+every operation (`requireReadyTab`; a stop does not wait), lists the request in its status
+(`presentation.browserAutomation.recordings`, with the request's host deadline) and answers `previewAutomation.respond`
+with the outcome the data module sends back (`browserAutomation` with `answer`), or with an execution error once the
+deadline passes with none. The data module (`browser-automation-recording.ts`) runs the reference's two cases on part
+3's lifecycle, the client's one `BrowserRecordings`, so the agent's recording is the Capture button's: `recordingStart`
+answers `{tabId, recording: true, startedAt}` (an already running one its own start; the same server tab under another
+page is the conflict, answered as the operation's failure, as `PreviewAutomationOperationError.fromCause` does);
+`recordingStop` resolves the tab (`resolveBrowserRecordingStopTarget`), stops it, saves the artifact and, as the server
+asks (`transferToEnvironment`), uploads the file once (`stopBrowserRecordingForUpload`, `uploadBrowserRecording`), then
+answers the artifact with its `uploadedAttachmentId`, which the server claims; nothing recording is
+`PreviewAutomationRecordingNotActiveError`. The upload is native (`browserRecordingUpload`: `attachments.createUploadUrl`
+on the request's connection, then the saved file's bytes through the transport's `uploadAttachment`), so the file never
+crosses the data module; it keeps the request's deadline (the module's clock) and reports whether a failure came past it
+(the deadline error) or not (the transfer error). The contracts' three transfer errors now carry the contracts' messages.
+
+Two things the live drives found, each fixed before the next drive:
+- *The lifecycle cannot run detached from the shell's answers* (drive after-1: the start timed out at the host deadline,
+  no `record arm`). A native call belongs to the answer whose continuation makes it: a let-go answer's are refused, and a
+  given answer's wait for the next settle. The panel now projects a serial for each handed-over request
+  (`shell.panel.automationRecording`); `app.contract`'s `automationRecording` task sends
+  `shelllocal:surface-browser-automation-recording` on a queued mutation (`automationRecordingServed`), and that send's
+  answer runs every listed request to its end, as the Capture button's send runs its recording.
+- *A module request with a top-level `fleet` goes to the fleet* (drive after-2: the recording was saved, the stop
+  failed): `T3Module.later` routes any request naming one, even an empty one. The upload's connection is now
+  `connection: {generation, fleet}`, guarded by a Bun row.
+
+**BR-2.** `T3BrowserDownloads.agentDriven` (Manager.ts `agentDrivenWebContents`) is set by the host's control session for
+every action but the read-only ones (`READ_ONLY_CONTROL_ACTIONS`: snapshot, wait for) and cleared by a navigation
+(`T3BrowserSession.navigate`, the URL bar's and the agent's, as Manager.ts `navigate`) and by a person's press or key on
+the page: a local `NSEvent` monitor in `T3BrowserSessions` (`humanInput`) hit-tests a mouse press, or reads the key
+window's first responder for a key, and hands back the page it lands on. The agent's native input goes straight to the
+page's view (`T3BrowserAutomationInput`), never through the application's queue, so the monitor hears only the person
+(the reference's preload reports trusted `pointerdown`/`keydown` and skips the agent's expected ones). A download from an
+agent-driven page goes to the artifact directory as `browser-download-<id>-<name>` with no dialog; any other asks with the
+save sheet (`askWhere`); an agent-mode run, which shows nothing modal, still saves every download. Nothing is shown or
+returned about a download, as in the reference; the tab's report and the host log name who started it (`by`).
+
+**BR-3.** Confirmed: no public WebKit API mutes a page. Every public header of the macOS 27.0 SDK's WebKit (221 files)
+has only the camera and microphone capture states and `WKWebExtensionTab.setMuted(_:for:)`, a method of a protocol the app
+implements when an extension asks it to mute its own tab; `WKWebView` answers `_setPageMuted:` and `_mediaMutedState` as
+SPI only. The declared difference stays (`EXACT2-GAPS.md` Part 5 "Mute", re-dated).
+
+## Acceptance results
+
+| Row | Result | Proof |
+| --- | --- | --- |
+| BR-1 | pass, agent mode, end to end through the lane server's MCP endpoint (the lane's fake ACP agent, the thread's MCP credential, no real provider): before (feature tip), `preview_recording_start` and `_stop` answer errors and nothing records; after, the start answers `{tabId: "tab_1", recording: true, startedAt}`, the Capture button shows Stop recording (red, with the dot) while the agent records, the stop answers the artifact (`video/mp4;codecs=avc1`, 303,982 bytes) at a path in the server's attachments that the agent reads back as an MP4 of that size, and a second stop is the not-active error; reference, the same results (its recording shows on the floating preview's dot: the agent's tab floats there, part 3's declared presentation difference). Bun 13 rows, AppKit 7 rows (`BrowserRecordingHandOffTests`) | [recording](https://raw.githubusercontent.com/ccheever/exact2/dc2df06fcd0e3dbc0bb859ebb79743f2b270389a/browser-recording-and-downloads/br1-recording.png), [chrome row](https://raw.githubusercontent.com/ccheever/exact2/6f5f16654d8b9627a4de242fd2bd97aff23f520a/browser-recording-and-downloads/br1-recording-chrome.png), [results](https://raw.githubusercontent.com/ccheever/exact2/0922b3af79a83f5757a811110c3351576897f24c/browser-recording-and-downloads/br1-done.png), [tool results](https://raw.githubusercontent.com/ccheever/exact2/64eafb1f6a42328c5d1d99f8303fc1eea377d696/browser-recording-and-downloads/br1-e2e-record.txt) |
+| BR-2 | pass (AppKit, the page's save dialogs on, a person's input through `NSApplication.sendEvent`): the agent's click on a download link saves `browser-download-<id>-export.csv` in the artifact directory with no sheet; a person's click asks with the save sheet before and after the agent drove the page; a snapshot and a wait leave the page the person's; a navigation hands it back. Before (the same test file against the feature tip's modules): the agent's download asks with the sheet (6 assertions fail). Two mutations (no hand-back on a person's press; reading marks the page) each fail it. Live: the agent's download in the after drive logs `by=agent`; the reference saved its agent's download without a dialog | [AppKit before/after](https://raw.githubusercontent.com/ccheever/exact2/dd1c08bc4e7cf386edefbcf7c6c83c1b03338eec/browser-recording-and-downloads/br2-appkit-record.txt) |
+| BR-3 | confirmed SPI-only; declared difference kept | [headers and SPI](https://raw.githubusercontent.com/ccheever/exact2/1e3c700a2dff252e37923cfb78f687a381b35a39/browser-recording-and-downloads/br3-record.txt) |
+| BR-2 under a real pointer | open: real-input step 1 | below |
+
+Drives (agent mode, 1280×840): before = the evidence-base bundle (`6db5cadea`) on lane `browser-recording-and-downloads-before`; after = this branch's bundle of `266c552a4` on lane `browser-recording-and-downloads-3` (the app code of the final head but for `f02e62e82`, which removes an unused Swift error case and updates a test); reference = T3 Code (Electron) `1e2ecbd975` on the lane's reference home over CDP. Lane scripts: [fake ACP agent](https://raw.githubusercontent.com/ccheever/exact2/573f0cc9404dcd980de60f82c8387fbbc92175f6/browser-recording-and-downloads/lane-fake-acp.mjs.txt), [fixture](https://raw.githubusercontent.com/ccheever/exact2/dee1157de63bb85d21b82c71882963703d8bbc1b/browser-recording-and-downloads/lane-fixture.mjs.txt), [lane setup](https://raw.githubusercontent.com/ccheever/exact2/e4f7867823ffa443f80d1b6175dd9336bbd66f71/browser-recording-and-downloads/lane-setup.sh.txt), [drive](https://raw.githubusercontent.com/ccheever/exact2/8c3c60e05d89686e6d886307aba09d017d902d27/browser-recording-and-downloads/drive.sh.txt). In agent mode the recording's `startedAt` reads the agent's virtual clock (`2026-01-01T00:00:00.001Z`); a person's app reads the wall clock (`composerNow`).
+
+## Real-input batch steps
+
+Launch this branch's bundle as a lane copy (its own bundle id, the lane home outside any git checkout) on a home seeded
+with `lane-setup.sh` (the "Lane browser agent" fake ACP agent as the only provider), with the lane fixture
+(`FIXTURE_PORT=16443 bun lane-fixture.mjs`) running. Never send a message to a real provider.
+
+1. **BR-2, a person's download after the agent's.** In a new thread send `rec http://127.0.0.1:16443/rec`. When the reply
+   lists the results, `<home>/userdata/browser-artifacts` holds `browser-download-…-export.csv` (the agent's click) and no
+   dialog showed. Click "Export CSV" in the Browser tab with the real pointer. Expected (reference): a save sheet asks,
+   named `export.csv`; Cancel; no new file in the artifact directory. Then type a letter into the page's Name field and
+   click "Export CSV" again: the sheet asks again.
+2. **BR-1, a person's Stop during the agent's recording.** Send `rec http://127.0.0.1:16443/rec` again; while the reply is
+   pending (the agent holds the recording about 12 s), click the red Capture button (Stop recording). Expected
+   (reference's shared lifecycle): "Recording saved" with Reveal in Finder and Copy path; the agent's
+   `preview_recording_stop` then answers the not-active error in its reply.
+
+## Tests
+
+- `browser-automation-recording.test.ts` (13): the handed-over requests read defensively; start answers the status and
+  the Capture button's recordings show it; stop answers the saved, uploaded artifact once; a local stop; not active (none,
+  or another tab named); a conflict and a missing page; a failed transfer removes its pending upload; the 50 MiB and
+  deadline errors with the contracts' messages; the panel's serial; the send runs each request once through its own
+  native; the upload's request shape (no top-level `fleet`); the contract's queued send and task.
+- `browser-automation.test.ts` (+1): a recording stop lists the thread's sessions first and names its current tab.
+- AppKit `macos/tests/browser-automation`: `BrowserRecordingHandOffTests` (7: the start waits for the tab and answers the
+  data module's outcome once; no page times out as the overlay wait; the stop is handed over at once and a host error
+  passes through; no answer fails at the host deadline; the upload mints a pending file attachment and sends the saved
+  bytes on the request's connection or fleet; a file outside the artifact directory and a spent budget mint nothing; a
+  rejected transfer names its pending attachment and remove deletes it) and `BrowserDownloadTests` (3, above); the part-5
+  error row now reads the hand-off.
+
+## Checks
+
+On the final head (`f02e62e82` plus this record; the Bun suite, tsc and the contract build ran on `266c552a4`, and `f02e62e82` changed only Swift and an AppKit test):
+
+| Check | Exit | Note |
+| --- | --- | --- |
+| `bun test examples/t3-code --timeout 60000` | 0 | 4667 pass, 1 skip, 0 fail (312 files) |
+| strict `tsc` (README command) | 0 | |
+| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | `app.contract` 1,407 lines; 28,820,686 bytes |
+| AppKit `browser-automation`, `browser`, `browser-capture` (README recipe) | 0 | 36, 29 and 34 tests, 0 failures |
+| `cargo test -p t3-code-macos --lib` | 0 | 21 passed |
+| `git add -A && bun scripts/caps.mjs` | 0 | all budgets within cap |
+| `cargo build --all-targets --keep-going` | 0 | |
+| `cargo test --lib --bins --tests --no-fail-fast` | 0 | 3,679 passed, 0 failed, 34 ignored |
+| `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | |
+| `cargo fmt --all -- --check` | 0 | |
+| `bun scripts/boot.mjs` | 0 | |
+
+## Not done / not verified
+
+- Real-input steps 1 and 2 (a person's save sheet and a person's Stop during the agent's recording need a real pointer;
+  the coordinator's session).
+
 ## Next action
 
-Build BR-1 and BR-2, record BR-3, then the drive and the checks.
+The coordinator's real-input steps 1-2; the PR stays a draft until the coordinator flips it.
