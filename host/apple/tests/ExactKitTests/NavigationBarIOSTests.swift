@@ -271,6 +271,55 @@ final class NavigationBarIOSTests: XCTestCase {
         XCTAssertFalse(journal(session).contains("back gesture refused"))
     }
 
+    /// LLP 1116 D6: a root that names no Back control (`navigationBack`
+    /// left out, which the compiler lowers to the empty name) keeps the
+    /// native stack, and a pushed route's system Back goes by the root's
+    /// `navigate` even where an element is `id="back"`: no control is named.
+    func testARootThatNamesNoBackControlKeepsTheNativeStackAndTheSystemBack() throws {
+        let session = try fixture("bar-unnamed-back", module: false)
+        let root = try node(session, "navigation")
+        root.props["navigationBack"] = ""
+        let agent = Agent(session: session)
+        XCTAssertNil(agent.tap(["id": Int(try node(session, "detail").id)])["error"])
+        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        until("Detail is pushed onto the native stack") { nav.viewControllers.count == 2 && nav.transitionCoordinator == nil }
+        let detail = try XCTUnwrap(nav.topViewController), home = nav.viewControllers[0]
+        XCTAssertFalse(nav.isNavigationBarHidden)
+        XCTAssertFalse(detail.navigationItem.hidesBackButton, "the system Back, with no control named")
+        XCTAssertEqual(home.navigationItem.backButtonDisplayMode, .default, "no authored control shapes it")
+        XCTAssertEqual(detail.navigationItem.leftBarButtonItems?.first?.accessibilityIdentifier, "back", "Detail's `id=\"back\"` button is an item like any other")
+        XCTAssertTrue(session.presenter.navigation.canInvokeBack)
+        let pop = try XCTUnwrap(nav.interactivePopGestureRecognizer)
+        XCTAssertTrue(session.presenter.navigation.popMayBegin(pop, from: CGPoint(x: 4, y: 400), in: nav.view, velocity: CGPoint(x: 600, y: 20)))
+        nav.popViewController(animated: true)
+        until("the root's navigate went back and the stack follows the router") {
+            (state(session, "nav") as? [String: Any]).map { (($0["tabs"] as? [[String: Any]])?.first?["stack"] as? [Any])?.count == 1 } ?? false
+        }
+        spin(0.2)
+        XCTAssertEqual(nav.viewControllers.count, 1)
+        XCTAssertEqual(journal(session).components(separatedBy: "(follow)").count - 1, 1, "navigate once")
+        XCTAssertEqual(backs(session), 0, "nothing named, nothing pressed")
+    }
+
+    /// LLP 1116 D2: a bar item's, the search field's, a title segment's and
+    /// a tab bar item's `accessibilityIdentifier` is its authored `testId`,
+    /// so XCUITest and Maestro address them as any other node.
+    func testBarItemsTheSearchFieldSegmentsAndTabsCarryTheirTestIds() throws {
+        let session = try fixture("bar-test-ids", module: false)
+        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        let top = try XCTUnwrap(nav.topViewController)
+        let items = (top.navigationItem.leftBarButtonItems ?? []) + (top.navigationItem.rightBarButtonItems ?? [])
+        XCTAssertEqual(Set(items.compactMap(\.accessibilityIdentifier)), ["badge-item", "menu-item", "compose-home"])
+        XCTAssertEqual(top.navigationItem.searchController?.searchBar.searchTextField.accessibilityIdentifier, "header-search")
+        let control = try XCTUnwrap(top.navigationItem.titleView as? LabelledSegmentedControl)
+        XCTAssertEqual(control.accessibilityIdentifier, "header-segments")
+        control.layoutIfNeeded()
+        XCTAssertEqual(control.segmentViews.map(\.accessibilityIdentifier), ["segment-all", "segment-missed"])
+        XCTAssertEqual(control.segmentViews.map(\.accessibilityLabel), [nil, nil], "no name of their own: UIKit's, their words")
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        XCTAssertEqual(tabs.viewControllers?.map(\.tabBarItem.accessibilityIdentifier), ["tab-home", "tab-second"])
+    }
+
     /// LLP 1115 D5 with no `navigate` handler on the root: the button and
     /// the edge swipe still go, and a completed pop is the runner's own
     /// `back` (`host back` in the journal), with nothing dispatched.

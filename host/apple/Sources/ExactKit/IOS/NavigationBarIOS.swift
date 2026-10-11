@@ -27,6 +27,9 @@ struct HatchSource: Equatable {
 struct HeaderShape: Equatable {
     struct Item: Equatable {
         let id: UInt32, title: String, symbol: String?, label: String?, disabled: Bool
+        /// The button's `testId`: the item's `accessibilityIdentifier`, so
+        /// XCUITest and Maestro address it as any other node (LLP 1116 D2).
+        let testId: String?
         /// A face drawn from the button's one filled box (an avatar or a
         /// badge: a shape holding a text or a symbol), when the button has
         /// one: the item's image, in the box's own colours and corners.
@@ -61,6 +64,7 @@ struct HeaderShape: Equatable {
                 walk(button)
             }
             id = button.id
+            testId = button.props["testId"]
             badge = button.isNativeButton ? nil : BadgeFace(button)
             menu = button.props["popovertargetaction"] == "hide" ? nil : button.props["popovertarget"]
             self.symbol = symbol
@@ -80,7 +84,7 @@ struct HeaderShape: Equatable {
             }
         }
         /// Everything a bar item is made from.
-        var source: String { "\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(prominent):\(badge?.source ?? ""):\(menu ?? ""):\(tint ?? [])" }
+        var source: String { "\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(prominent):\(badge?.source ?? ""):\(menu ?? ""):\(tint ?? []):\(testId ?? "")" }
     }
     let header: NodeView
     let title: String
@@ -95,6 +99,11 @@ struct HeaderShape: Equatable {
     /// What the heading's group holds besides it (an avatar, a subtitle) and
     /// whether pressing it does something: the item's title, richer (§9.10).
     let group: HeaderTitle?
+    /// The header's nodes the bar places (`presents`): the heading, every
+    /// item's button (the Back control's too), the search field, the
+    /// tablist when it has tabs for the segmented title, and what the title
+    /// shows of the heading's group.
+    let placed: [NodeView]
 
     /// `back` names the stack's Back control, left to UIKit's back button
     /// when there is one (`backIsUIKits`): the root of a presented stack
@@ -134,7 +143,17 @@ struct HeaderShape: Equatable {
         trailing = after
         self.search = search
         self.segments = segments
-        group = HeaderTitle(header: header, heading: headings[0], tap: tap, apart: items + [search, segments].compactMap { $0 })
+        let group = HeaderTitle(header: header, heading: headings[0], tap: tap, apart: items + [search, segments].compactMap { $0 })
+        self.group = group
+        let tablist = segments.flatMap { HeaderShape.titleTabs($0).isEmpty ? nil : $0 }
+        placed = [headings[0]] + items + [search, tablist].compactMap { $0 } + (HeaderShape.presented(group, segments: segments)?.placed ?? [])
+    }
+
+    /// The tabs of a header's tablist the segmented title shows (§9.8).
+    static func titleTabs(_ list: NodeView) -> [NodeView] {
+        list.container.subviews.compactMap { $0 as? NodeView }.filter {
+            $0.isButton && $0.props["accessibilityRole"] == "tab" && $0.handlers.contains("press")
+        }
     }
 
     static func == (a: HeaderShape, b: HeaderShape) -> Bool {
@@ -286,7 +305,7 @@ final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate
 /// The header's tablist as a route's title view (§9.8), kept beside the
 /// controller rather than in it.
 final class TitleSegments: NSObject {
-    let control = UISegmentedControl()
+    let control = LabelledSegmentedControl()
     /// What it was last sized for: its titles and the traits that size text.
     private(set) var sized: (titles: [String], traits: [AnyHashable])?
     let press: SegmentPress
@@ -514,9 +533,7 @@ extension NavigationHost {
     /// does (LLP 1035.001 D10). The heading stays the item's title, which
     /// the back button on the next route reads.
     private func segmentedTitle(_ list: NodeView?, in c: RouteController) {
-        let tabs = list?.container.subviews.compactMap { $0 as? NodeView }.filter {
-            $0.isButton && $0.props["accessibilityRole"] == "tab" && $0.handlers.contains("press")
-        } ?? []
+        let tabs = list.map(HeaderShape.titleTabs) ?? []
         guard !tabs.isEmpty else {
             if let old = c.titleSegments?.control, c.navigationItem.titleView === old { c.navigationItem.titleView = nil }
             c.titleSegments = nil
@@ -526,7 +543,12 @@ extension NavigationHost {
         c.titleSegments = segments
         let control = segments.control
         segments.press.tabs = tabs.map(\.id)
-        let titles = tabs.map(\.accessibleName)
+        // A tab's words are its segment's title, an `aria-label` that says
+        // otherwise its label (LLP 1116 D6), as in the content's segments.
+        let titles = tabs.map { tab in
+            if case .title(let words)? = tab.segmentFace { return words }
+            return tab.accessibleName
+        }
         if control.numberOfSegments != titles.count {
             control.removeAllSegments()
             segments.press.settled = UISegmentedControl.noSegment
@@ -540,6 +562,8 @@ extension NavigationHost {
         if control.selectedSegmentIndex != selected, !pending { control.selectedSegmentIndex = selected }
         if control.selectedSegmentIndex == selected { segments.press.settled = selected }
         control.accessibilityIdentifier = list?.props["testId"]
+        control.segmentLabels = tabs.map(SegmentHost.segmentLabel)
+        control.segmentIDs = tabs.map { $0.props["testId"] }
         segments.fit(titles)
         if c.navigationItem.titleView !== control { c.navigationItem.titleView = control }
     }
@@ -569,7 +593,9 @@ extension NavigationHost {
         // The Contract's value wins unless the reader is typing it.
         let value = field.props["value"] ?? ""
         if !bar.isFirstResponder, bar.text != value { bar.text = value }
-        bar.accessibilityIdentifier = field.props["testId"]
+        // The field itself, which XCUITest finds as a search field and a
+        // person types in, carries the test id (LLP 1116 D2).
+        if bar.searchTextField.accessibilityIdentifier != field.props["testId"] { bar.searchTextField.accessibilityIdentifier = field.props["testId"] }
         #endif
     }
 
@@ -652,6 +678,7 @@ extension NavigationHost {
                 ?? UIBarButtonItem(title: i.title, style: .plain, target: press, action: action)
         }
         item.accessibilityLabel = i.label ?? (i.title.isEmpty ? nil : i.title)
+        item.accessibilityIdentifier = i.testId
         item.isEnabled = !i.disabled
         // The authored `color` of a plain item's face; a prominent item's
         // tint is its fill, which `color` is not.

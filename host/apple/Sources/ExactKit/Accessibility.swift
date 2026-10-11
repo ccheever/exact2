@@ -213,16 +213,18 @@ enum SegmentFace: Equatable { case image(NodeView), symbol(String), title(String
 extension NodeView {
     /// How this tab shows as a segment, or nil when a segment cannot show
     /// what was authored: exactly one image child is the segment's image;
-    /// text alone, whose words are its accessible name, is its title. An
-    /// icon beside a label, a badge, or any other node keeps the authored
-    /// rendering — the web's, where a role never changes what is drawn.
+    /// text alone is its title — the visible words, with an `aria-label`
+    /// that says more (`Temp`, named `Temperature`) its accessibility label
+    /// (LLP 1116 D6). An icon beside a label, a badge, or any other node
+    /// keeps the authored rendering — the web's, where a role never changes
+    /// what is drawn.
     var segmentFace: SegmentFace? {
         // A native button's face, not views (LLP 1069.011.000 D4): a symbol
-        // alone (named by its label), or a title its label agrees with.
+        // alone (named by its label), or a title.
         if isNativeButton {
             guard let face, face.fits else { return nil }
             if let symbol = face.symbol, face.title == nil { return .symbol(symbol) }
-            if let title = face.title, face.symbol == nil, (props["accessibilityLabel"] ?? title) == title { return .title(title) }
+            if let title = face.title, face.symbol == nil { return .title(title) }
             return nil
         }
         let children = container.subviews.compactMap { $0 as? NodeView }
@@ -231,8 +233,7 @@ extension NodeView {
         if children.contains(where: { $0.props["accessibilityElementsHidden"] == "true" }) { return nil }
         if children.count == 1, children[0].kind == "image" { return .image(children[0]) }
         let text = accessibleText
-        guard !children.isEmpty, !text.isEmpty, children.allSatisfy(\.isParagraph),
-              (props["accessibilityLabel"] ?? text) == text else { return nil }
+        guard !children.isEmpty, !text.isEmpty, children.allSatisfy(\.isParagraph) else { return nil }
         return .title(text)
     }
 }
@@ -495,11 +496,18 @@ extension Agent {
     func decorateTree(_ reply: [String: Any]) -> [String: Any] {
         var reply = reply
         let focus = (stateSections()["focus"] as? [String: Any])?["logical"] as? Int
+        #if os(iOS) || os(tvOS)
+        // A header node the navigation bar leaves out (LLP 1116 D2).
+        let unshown = presenter.navigation.unshownByBar()
+        #endif
         reply["nodes"] = (reply["nodes"] as? [[String: Any]] ?? []).map { row in
             var row = row
             if let id = row["id"] as? Int, let node = presenter.views[UInt32(id)] {
                 row["focused"] = focus == id
                 if node.props["popover"] != nil { row["open"] = presenter.menus.isOpen(node) }
+                #if os(iOS) || os(tvOS)
+                if let why = unshown[node.id] { row["unshown"] = why }
+                #endif
             }
             return row
         }
