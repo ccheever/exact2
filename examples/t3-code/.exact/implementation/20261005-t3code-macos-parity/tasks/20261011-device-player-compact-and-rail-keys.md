@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-device-player-compact-and-rail-keys
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/464
 verified_commit: null
 ---
 
@@ -194,8 +194,8 @@ On `d6e29bcde` (merged with `origin/feat(example)/t3-code`, already up to date),
 
 ## Delivery
 
-Draft pull request into `feat(example)/t3-code` (see `pr_url`).
+Draft pull request [#464](https://github.com/ccheever/exact2/pull/464) into `feat(example)/t3-code`.
 
 ## Next action
 
-The coordinator reviews the draft PR, runs the real-input steps in the next batch, and merges it.
+The coordinator reviews draft PR [#464](https://github.com/ccheever/exact2/pull/464), runs the real-input steps in the next batch, and merges it.
