@@ -1,0 +1,111 @@
+#!/bin/zsh
+# unverified-real-input-rows: one agent-mode drive of the clone. Usage: drive.sh before|after. Not committed.
+# before: the feature tip's build in the evidence base worktree (eb9752918); after: this worktree's bundle. Same steps and
+# size; UV-1's age target differs only in name (before: the LayerTip box pull-request-thread-age-tip-<id>, after: the
+# age's own pull-request-thread-age-<id>). Needs `bun fixture.mjs start` (the GitHub lane's server on 17163 behind the
+# proxy on 17164); starts tone.mjs on 17165 for UV-4 and stops it after. Each run opens a fresh agent store (wizard first).
+MODE=$1
+U=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-unverified-real-input-rows
+A=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit
+S=$U/target/uv/shots/$MODE; rm -rf $S; mkdir -p $S
+if [ "$MODE" = before ]; then ROOTDIR=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-evidence-base; LANE=unverified-real-input-rows-before; AGE=pull-request-thread-age-tip-PRRC_kwDOU_luzM77Tefg
+else ROOTDIR=$U; LANE=unverified-real-input-rows; AGE=pull-request-thread-age-PRRC_kwDOU_luzM77Tefg; fi
+AUTHOR=pull-request-thread-author-tip-PRRC_kwDOU_luzM77Tefg
+export PATH=$HOME/.bun-1.4.2/bin:$PATH
+# A fresh lane server each drive: the server numbers preview tabs from tab_1 per process (newPreviewTabSequence).
+( cd $U/target/uv && bun fixture.mjs stop && bun fixture.mjs start ) > $S/fixture.log 2>&1 || exit 1
+PAIR=$(cat $U/target/uv/pairing-url); rm -f $U/target/uv/pairing-url
+bun $U/target/uv/tone.mjs 17165 > $S/tone.log 2>&1 &
+TONE=$!; echo "tone pid $TONE" > $S/pids.txt
+rm -f $A/lanes/$LANE/logs/opened-urls.txt
+ops=(
+  "clock +15000 real"
+  "screenshot $S/00-start.png window"
+  # A development build refuses an embedded server outside 16000-16999 (T3LocalBackend.laneRange), so this lane's 17162
+  # starts none: the welcome wizard pairs the GitHub lane (through the proxy) and that server is the focused one.
+  "type welcome-pairing-link $PAIR" "clock +500 real"
+  "tap welcome-pair" "clock +12000 real"
+  "tap welcome-continue" "clock +4000 real"
+  "tap welcome-agents-continue" "clock +6000 real"
+  "tap welcome-skip-import" "clock +4000 real"
+  "tap Dismiss" "clock +1000 real"
+  "screenshot $S/01-paired-draft.png window"
+  # UV-4: a Browser tab plays a tone; Mute tab; a second tab; the first shown again.
+  "tap toggle-right-panel" "clock +2000 real"
+  "tap surface-browser" "clock +3000 real"
+  "type browser-url http://127.0.0.1:17165/a" "type browser-url key Enter" "clock +4000 real"
+  "tap browser-page mouse" "clock +3000 real"
+  "screenshot $S/uv4-1-playing.png window"
+  "tree panel-tab-strip"
+  "tap panel-tab-browser:tab_1 contextmenu" "clock +1200 real"
+  "screenshot $S/uv4-2-tab-menu.png window"
+  "tap tab-menu-toggle-mute" "clock +2000 real"
+  "screenshot $S/uv4-3-muted.png window"
+  "tree panel-tab-strip"
+  "tap panel-add-surface" "clock +1000 real"
+  "tap add-surface-browser" "clock +3000 real"
+  "type browser-url http://127.0.0.1:17165/b" "type browser-url key Enter" "clock +4000 real"
+  "screenshot $S/uv4-4-second-tab.png window"
+  "tree panel-tab-strip"
+  "clock +3000 real"
+  "tree panel-tab-strip"
+  "tap tab-browser:tab_1" "clock +3000 real"
+  "screenshot $S/uv4-5-first-again.png window"
+  "tree panel-tab-strip"
+  "clock +2000 real"
+  "tree panel-tab-strip"
+  "tap open-pull-requests" "clock +6000 real"
+  # UV-1: #168's Code tab, the open thread off the diff: the author, then the age.
+  "type pull-requests-search #168" "clock +6000 real"
+  "tap pr-row-168" "clock +6000 real"
+  "tap pull-request-tab-code" "clock +15000 real"
+  "tap pull-request-code-orphans-toggle" "clock +1500 real"
+  "tap $AUTHOR hover" "clock +1000 real"
+  "screenshot $S/uv1-1-author.png window"
+  "tap $AGE hover" "clock +1500 real"
+  "screenshot $S/uv1-2-age.png window"
+  "tree"
+  # UV-1's sibling: the Timeline's ages.
+  "tap pull-request-tab-timeline" "clock +5000 real"
+  "screenshot $S/uv1-3-timeline.png window"
+  "tree pull-request-timeline"
+  # UV-2: #115 (its viewed read fails), #132 (the proxy says the host keeps no viewed record), #169 (511 files, a withheld patch).
+  "type pull-requests-search #115" "clock +6000 real"
+  "tap pr-row-115" "clock +6000 real"
+  "tap pull-request-tab-code" "clock +15000 real"
+  "tap pull-request-code-viewed-error-tip hover" "clock +1000 real"
+  "screenshot $S/uv2-1-viewed-error.png window"
+  "tree"
+  "type pull-requests-search #132" "clock +6000 real"
+  "tap pr-row-132" "clock +6000 real"
+  "tap pull-request-tab-code" "clock +15000 real"
+  "tap pull-request-code-viewed-here-tip hover" "clock +1000 real"
+  "screenshot $S/uv2-2-viewed-here.png window"
+  "tree"
+  # UV-3: #132's Summary, the comment naming c46352e by its full SHA: onto the link, away, a click.
+  "tap pull-request-tab-summary" "clock +5000 real"
+  "tap c46352e hover" "clock +1000 real"
+  "screenshot $S/uv3-1-commit-on.png window"
+  "tree"
+  "tap pull-requests-search hover" "clock +1000 real"
+  "screenshot $S/uv3-2-commit-away.png window"
+  "tap c46352e" "clock +2000 real"
+  "screenshot $S/uv3-3-commit-click.png window"
+  "logs"
+  "type pull-requests-search #169" "clock +6000 real"
+  "tap pr-row-169" "clock +6000 real"
+  "tap pull-request-tab-code" "clock +25000 real"
+  "tap pull-request-code-viewed-short-tip hover" "clock +1000 real"
+  "screenshot $S/uv2-3-viewed-short.png window"
+  "tree"
+  "tap pull-request-code-withheld-tip hover" "clock +1000 real"
+  "screenshot $S/uv2-4-withheld.png window"
+  "tree"
+  "logs" "state"
+)
+print -rl -- "${ops[@]//$PAIR/<pairing link>}" > $S/ops.txt
+CLONE_STORAGE=audit-uvrir-$MODE-$(date +%H%M%S) EXACT_ROOT=$ROOTDIR $A/clone-drive.sh $LANE 17160 --epoch $(date -u +%Y-%m-%dT%H:%M:%SZ) --time-zone Asia/Seoul "${ops[@]}" > $S/drive.jsonl 2> $S/drive.err
+echo "drive exit $?" >> $S/pids.txt
+kill $TONE 2>/dev/null; echo "tone stopped" >> $S/pids.txt
+cp $A/lanes/$LANE/logs/opened-urls.txt $S/ 2>/dev/null
+cat $S/pids.txt
