@@ -105,51 +105,37 @@ const files: Files = { fs: { mkdir: async () => undefined, readFile: async () =>
 const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
 
 describe('the reply link menu hookup', () => {
-  test("every Markdown web link node and the pull request link carry the menu; the root names the op", async () => {
+  test("every Markdown link node and the pull request link carry the menu; the root names the op", async () => {
     const markdown = await source('markdown.contract');
     const lines = markdown.split('\n');
     const links = lines.filter(line => line.includes('press=linkOpen("link", run.href)'));
     expect(links.length).toBe(4);
     expect(links.filter(line => line.includes('contextmenu=linkMenu(run.href)')).length).toBe(4);
-    // FlowRuns: a link's first word is the link node with its globe inside (ChatMarkdown's `<a>` holds the favicon), named
-    // with the whole link; the link's other words are hidden from assistive tech when it has that node, which their
-    // label says (a link that starts with a code span has none, and its label is "") (realinput-1010g RG-4).
+    // FlowRuns: a link's first run is the link node, named with the whole link; a web link's favicon is inside it
+    // (ChatMarkdown's `<a>` holds the favicon), and so is a code span the link starts with (reply-links RL-3). Any link
+    // that is not a pull request link has it: a mailto, irc, xmpp or fragment link too (RL-1, RL-2), whose press opens
+    // nothing and whose menu is the shell's (the TS side, tested below).
     const start = lines.find(line => line.trimStart().startsWith('link href=run.href press=linkOpen("link", run.href)'));
     expect(start).toContain('contextmenu=linkMenu(run.href) aria-label=run.label');
-    expect(markdown).toMatch(/link href=run\.href press=linkOpen\("link", run\.href\)[^\n]*\n {12}box [^\n]*\n {14}TimelineIcon\(name="globe"[^\n]*\n {12}text run\.text white-space="pre"/);
-    const words = lines.filter(line => line.trimStart().startsWith('text run.text href=run.href press=linkOpen("link", run.href) contextmenu=linkMenu(run.href)') && line.includes('white-space="pre"'));
-    expect(words.length).toBe(1);
-    expect(words[0]).toContain('aria-hidden=(run.label != "")');
-    // A code span inside a web link ("linked `$verify`") after its first word is hidden as its words are; not in a link
-    // that starts with code or in a pull request link (each of its words is its own link).
-    expect(markdown).toContain('box aria-hidden=(run.kind == "link" and run.label != "" and webLink(run.href) and length(filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href)) == 0) height="1.421875rem"');
+    expect(markdown).toContain('when run.kind == "link-start" and linkRun(run, chips)\n          link href=run.href');
+    expect(markdown).toMatch(/link href=run\.href press=linkOpen\("link", run\.href\)[^\n]*\n {12}when webLink\(run\.href\)\n {14}box [^\n]*\n {16}TimelineIcon\(name="globe"[^\n]*\n {12}when not run\.mono\n {14}text run\.text white-space="pre"[^\n]*\n {12}else\n {14}text run\.text margin-top="0\.153125rem" font-family="ui-monospace"/);
+    // A web link's later word or code span: one pressable box with the link's menu, hidden from assistive tech when the
+    // link node names it (RG-4); a code span inside it is pressable too (RL-3).
+    expect(markdown).toMatch(/when run\.kind == "link" and linkRun\(run, chips\) and webLink\(run\.href\)\n {10}box press=linkOpen\("link", run\.href\) contextmenu=linkMenu\(run\.href\) aria-hidden=\(run\.label != ""\)[^\n]*\n {12}when not run\.mono\n {14}text run\.text white-space="pre"[^\n]*\n {12}else\n {14}text run\.text font-family="ui-monospace"/);
+    // Any other code span: plain; a mailto or fragment link's later one is hidden as its words are, a pull request
+    // link's is not (each of its words is its own link).
+    expect(markdown).toContain('when run.mono and not (linkRun(run, chips) and (run.kind == "link-start" or webLink(run.href)))\n          box aria-hidden=(run.kind == "link" and run.label != "" and not webLink(run.href)) height="1.421875rem"');
+    expect(markdown).toContain('fn linkRun(run: ChatRun, chips: list<ChipView>): bool = (run.kind == "link" or run.kind == "link-start") and length(filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href)) == 0');
     expect(markdown).toMatch(/shape ChatRun\n(?: {2}[^\n]*\n)*? {2}label: string\n/);
-    // Only a web link has the menu (ChatMarkdown: `if (!href || !faviconHost) return;`): each handler sits under a branch
-    // that asserts webLink(run.href), so a mailto, irc, xmpp or fragment link leaves its click to the shell's menu.
-    const indent = (line: string) => line.length - line.trimStart().length;
-    const branches = (at: number) => {
-      const chain: string[] = [];
-      for (let i = at - 1, depth = indent(lines[at]!); i >= 0 && depth > 0; i--) {
-        if (lines[i]!.trim() === '' || indent(lines[i]!) >= depth) continue;
-        depth = indent(lines[i]!); chain.push(lines[i]!.trim());
-        // An `else` stands for the negation of the `when` just above it.
-        if (lines[i]!.trim() === 'else') { const when = lines.slice(0, i).reverse().find(line => indent(line) === depth)!; chain.push(`not ${when.trim()}`); }
-      }
-      return chain;
-    };
     const handlers = lines.flatMap((line, at) => line.includes('contextmenu=linkMenu(run.href)') ? [at] : []);
     expect(handlers.length).toBe(5);
-    for (const at of handlers) {
-      const chain = branches(at);
-      if (chain.includes('component PrLinkRun')) continue;
-      expect(chain.some(branch => /^when (.* and )?webLink\(run\.href\)$/.test(branch))).toBe(true);
-      expect(chain.some(branch => branch.startsWith('not when webLink') || branch.startsWith('else'))).toBe(false);
-    }
-    // FlowRuns: a link-start run of any other link is plain link text, with no favicon and no handler.
-    const plain = lines.findIndex(line => line.includes('text run.text href=(run.kind == "link" or run.kind == "link-start" ? run.href : "") white-space="pre"'));
+    // FlowRuns: prose, an emptied anchor's text and a mailto or fragment link's later words carry no href, so a click on
+    // them follows nothing (the host would hand a mailto URL to the mail app), and no handler.
+    const plain = lines.findIndex(line => line.includes('text run.text aria-hidden=(run.kind == "link" and run.label != "") white-space="pre"'));
     expect(plain).toBeGreaterThan(0);
+    expect(lines[plain]).not.toContain('href=');
     expect(lines[plain]).not.toContain('contextmenu=');
-    expect(branches(plain).some(branch => branch.endsWith('and not (run.kind == "link-start" and webLink(run.href))'))).toBe(true);
+    expect(lines[plain - 1]).toContain('and run.kind != "link-start" and not (run.kind == "link" and webLink(run.href))');
     expect(markdown).toContain('contextmenu=linkMenu(run.href) hover=hover role="link"'); // PrLinkRun: a pull request link, a web link by construction
     expect(markdown).toMatch(/component PrLinkRun\n {2}inject\n {4}rem: number\n {4}hoverTipAt: action\n {4}linkMenu: action\n/);
     expect(markdown.match(/ {2}inject\n {4}linkOpen: action\n {4}linkMenu: action\n/g)?.length).toBe(2);
@@ -178,6 +164,7 @@ describe('the reply link menu hookup', () => {
     calls.length = 0;
     await owner.command('chatlocal:link-menu', '', 'mailto:a@b.c', 0, native, files);
     expect(menus()).toEqual([]);
+    expect(calls.filter(call => call.op === 'shellMenu').length).toBe(1); // reply-links: the shell's menu for the click
     pick = null;
     await owner.command('chatlocal:link-menu', 'page', 'https://example.test', 0, native, files);
     expect(menus()).toEqual([['Open in system browser', 'Copy Link']]);

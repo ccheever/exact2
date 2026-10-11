@@ -58,11 +58,11 @@ describe('sent-message context chips', () => {
       ['./fixture.txt:3', 't3-file:./fixture.txt:3'], ['/repo/fixture.txt:3', 't3-file:/repo/fixture.txt:3'], ['a.ts#L3', 't3-file:a.ts#L3'],
       ['C:\\repo\\a.ts:3', 't3-file:C:\\repo\\a.ts:3'], ['C:/repo/a.ts', 't3-file:C:/repo/a.ts'], ['file:///repo/a.ts', 't3-file:file:///repo/a.ts'],
       ['https://example.com/a:b', 'https://example.com/a:b'], ['mailto:me@example.com', 'mailto:me@example.com'], ['xmpp:me@example.com', 'xmpp:me@example.com'],
-      ['tel:123', NO_HREF], ['javascript:alert(1)', NO_HREF], ['data:text/plain,hi', NO_HREF], ['ftp://example.com/a', NO_HREF], ['#section', ''],
+      ['tel:123', NO_HREF], ['javascript:alert(1)', NO_HREF], ['data:text/plain,hi', NO_HREF], ['ftp://example.com/a', NO_HREF], ['#section', '#section'],
       ['//example.com/a', '//example.com/a'], ['t3-context://v1/file/f1', 't3-context://v1/file/f1'],
     ];
     expect(table.map(([href]) => [href, markdownLinkHref(href)])).toEqual(table);
-    expect([markdownImageHref('a.png:3'), markdownImageHref('shots/a.png'), markdownImageHref('data:image/png;base64,AA')]).toEqual(['', 't3-file:shots/a.png', '']);
+    expect([markdownImageHref('a.png:3'), markdownImageHref('shots/a.png'), markdownImageHref('data:image/png;base64,AA'), markdownImageHref('#shot')]).toEqual(['', 't3-file:shots/a.png', '', '']);
   });
   test('an assistant quote reads its quote cut at 64 characters and "View source" opens the cited thread', () => {
     const quote = 'q'.repeat(70);
