@@ -42,11 +42,13 @@ final class PopoverMacTests: XCTestCase {
         NSEvent.keyEvent(with: up ? .keyUp : .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
             windowNumber: window.windowNumber, context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: repeatKey, keyCode: 53)!
     }
-    private func pointer(_ p: Presenter, _ type: NSEvent.EventType, _ node: NodeView) {
+    private func mouse(_ p: Presenter, _ type: NSEvent.EventType, _ node: NodeView) -> NSEvent {
         let point = node.convert(NSPoint(x: node.bounds.midX, y: node.bounds.midY), to: nil)
-        let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0,
+        return NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0,
             windowNumber: p.viewport.window!.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!
-        p.menus.pointer(event)
+    }
+    private func pointer(_ p: Presenter, _ type: NSEvent.EventType, _ node: NodeView) {
+        p.menus.pointer(mouse(p, type, node))
     }
 
     func testFormKeepsItsFieldAndFocusAndDoesNotTrapTab() throws {
@@ -130,6 +132,29 @@ final class PopoverMacTests: XCTestCase {
         pointer(p, .leftMouseUp, p.views[6]!)
         XCTAssertFalse(p.menus.isOpen(pop))
         XCTAssertTrue(window.firstResponder === p.views[6])
+    }
+    /// LLP 1005 §Events: a press in an open popover with no pointer node of
+    /// its own goes to the innermost authored ancestor that hears one, as on
+    /// the web, though the popover's view is in the top layer; a
+    /// popover that hears one keeps the press.
+    func testAPressInAPopoverReachesItsAuthoredAncestorsPointerdown() {
+        let p = fixture(), pop = p.views[3]!, row = p.views[5]!
+        p.views[1]!.handlers = ["pointerdown", "pointerup"]
+        var log: [String] = []
+        p.onPointer = { id, kind, _ in log.append("\(kind == .down ? "down" : kind == .up ? "up" : "move") \(id)") }
+        p.press(2)
+        XCTAssertFalse(row.isDescendant(of: p.views[1]!), "the popover's view is in the top layer")
+        row.mouseDown(with: mouse(p, .leftMouseDown, row))
+        XCTAssertEqual(p.pointerHeld, 1)
+        row.mouseUp(with: mouse(p, .leftMouseUp, row))
+        XCTAssertEqual(log, ["down 1", "up 1"])
+        XCTAssertFalse(p.menus.isOpen(pop), "the row's own press still ran")
+        pop.handlers = ["pointermove"]
+        p.press(2)
+        row.mouseDown(with: mouse(p, .leftMouseDown, row))
+        XCTAssertEqual(p.pointerHeld, 3, "the popover hears the pointer and keeps the press")
+        row.mouseUp(with: mouse(p, .leftMouseUp, row))
+        XCTAssertEqual(log, ["down 1", "up 1"])
     }
     func testRemovalInertAndResetRetireTheTopLayer() {
         let p = fixture(), pop = p.views[3]!
