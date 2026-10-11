@@ -109,17 +109,27 @@ export async function closeWindowsBrowser(child, cdp, exited, profile, terminate
 /** Where a web drive's named scratch store lives (`--storage <name>`), kept between drives as a native one is (dash,
  * weather, kanban: a second drive opened an empty store): Chrome's profile for it, beside the native stores' cache
  * (agent-test.mjs `storeBase`), and the port its page is served on — an origin's storage is its host and port's, so
- * one name is one port, from its hash, below the ephemeral range. */
+ * one name is one port, from its hash, below the ephemeral range. A store is its app's: its id's and its directory's
+ * (LLP 1116.004 D8: a bake-off's contacts read an earlier round's `contacts.json`, written under the same default
+ * id and store name), so two apps of one id never open each other's. */
 /** The store a drive with `env` uses: the driver's environment under the drive's own, as `runTests` places and removes
- * it and a native host sees it (review b5-c 3). */
-export const driveStore = (appId, storage, env, platform = process.platform) => {
+ * it and a native host sees it (review b5-c 3). `app` is resolveApp's: its `id` and `dir`. */
+export const driveStore = (app, storage, env, platform = process.platform) => {
   const launched = { ...process.env, ...(env ?? {}) };
-  return webStore(appId, storage, launched, launched.HOME || homedir(), platform);
+  return webStore(app, storage, launched, launched.HOME || homedir(), platform);
 };
-export function webStore(appId, storage, env = process.env, home = homedir(), platform = process.platform) {
+/** An app directory's twelve hex digits, which name its development stores: a drive's profiles here, and the
+ * page's own storage in a development web build (host/web-js/build.mjs `DEVELOPMENT_STORE`). `dir` is canonical
+ * (resolveApp's, through symlinks), so one app has one digest however it was reached. */
+export const appDigest = dir => createHash('sha256').update(dir).digest('hex').slice(0, 12);
+/** A host file as a development web build ships it for the app at `dir`: its `DEVELOPMENT_STORE` names the app's
+ * own store (storage-environment.js, rt.js `Kept`). A release ships the file as written, null: the id alone. */
+export const developmentStore = (code, dir) => code.replaceAll('const DEVELOPMENT_STORE = null;', `const DEVELOPMENT_STORE = ${JSON.stringify(appDigest(dir))};`);
+export function webStore({ id, dir }, storage, env = process.env, home = homedir(), platform = process.platform) {
+  if (!id || !dir) throw new Error('webStore: an app\'s id and directory name its store');
   const cache = platform === 'darwin' ? resolve(home, 'Library/Caches') : env.XDG_CACHE_HOME?.startsWith('/') ? env.XDG_CACHE_HOME : resolve(home, '.cache');
-  const base = resolve(cache, 'exact', appId, 'agent-web');
-  return { base, profile: resolve(base, storage), port: 20000 + createHash('sha256').update(`${appId}/${storage}`).digest().readUInt32BE(0) % 28000 };
+  const digest = appDigest(dir), base = resolve(cache, 'exact', id, `agent-web-${digest}`);
+  return { base, profile: resolve(base, storage), port: 20000 + createHash('sha256').update(`${id}/${digest}/${storage}`).digest().readUInt32BE(0) % 28000 };
 }
 
 /** One browser lookup for the agent and its tests: an explicit override,
