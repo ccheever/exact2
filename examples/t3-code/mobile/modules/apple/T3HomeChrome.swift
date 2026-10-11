@@ -113,6 +113,8 @@ private final class T3HomeChromeView: ExactNativeInstance {
     private let searchDelegate = T3SearchDelegate()
     private let fieldDelegate = T3FieldDelegate()
     private var searchController: UISearchController?
+    private var previousSearchPlacement: UINavigationItem.SearchBarPlacement?
+    private var previousSearchToolbarIntegration: Bool?
     private var settingQuery = false
     private var workspaceHidden = false
     private var statusWork: DispatchWorkItem?
@@ -225,8 +227,17 @@ private final class T3HomeChromeView: ExactNativeInstance {
         search.searchResultsUpdater = searchDelegate; search.searchBar.delegate = searchDelegate
         search.searchBar.placeholder = "Search"; search.searchBar.autocapitalizationType = .none
         search.searchBar.searchTextField.accessibilityIdentifier = "home-search-text"
-        route.controller.navigationItem.searchController = search
-        route.controller.navigationItem.hidesSearchBarWhenScrolling = false
+        let item = route.controller.navigationItem
+        if config?.layout == "sidebar" {
+            previousSearchPlacement = item.preferredSearchBarPlacement
+            item.preferredSearchBarPlacement = .stacked
+            if #available(iOS 26.0, *) {
+                previousSearchToolbarIntegration = item.searchBarPlacementAllowsToolbarIntegration
+                item.searchBarPlacementAllowsToolbarIntegration = false
+            }
+        }
+        item.searchController = search
+        item.hidesSearchBarWhenScrolling = false
         route.controller.definesPresentationContext = true
         searchController = search
     }
@@ -350,9 +361,16 @@ private final class T3HomeChromeView: ExactNativeInstance {
     private func removeSearch() {
         settingQuery = true
         searchController?.searchResultsUpdater = nil; searchController?.searchBar.delegate = nil
-        if let searchController, route?.controller.navigationItem.searchController === searchController {
-            route?.controller.navigationItem.searchController = nil
+        if let searchController, let item = route?.controller.navigationItem, item.searchController === searchController {
+            if let previousSearchPlacement, item.preferredSearchBarPlacement == .stacked {
+                item.preferredSearchBarPlacement = previousSearchPlacement
+            }
+            if #available(iOS 26.0, *), let previousSearchToolbarIntegration, !item.searchBarPlacementAllowsToolbarIntegration {
+                item.searchBarPlacementAllowsToolbarIntegration = previousSearchToolbarIntegration
+            }
+            item.searchController = nil
         }
+        previousSearchPlacement = nil; previousSearchToolbarIntegration = nil
         searchController = nil; field?.delegate = nil; field?.resignFirstResponder(); field = nil
         bar?.removeFromSuperview(); bar = nil; filter = nil; compose = nil; dismiss = nil
         width = nil; keyboardBottom = nil; restingBottom = nil; glassLeading = nil; glassTrailing = nil
