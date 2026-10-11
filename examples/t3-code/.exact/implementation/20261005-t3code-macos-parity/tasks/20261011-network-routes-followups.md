@@ -95,11 +95,16 @@ No new declared difference.
 
 ## Tests
 
-- `network-routes-followups.test.ts` (new, 5): the view's open rule; after a failed Restart and enable the Connections page
-  (open and closed) and the bare projection keep the serial, so `network:on:0` no longer opens the dialog; the same for
-  Create pairing link; learnRoutes writes the focused environment's routes to the focused transport (LAN learned ahead of the
-  tailnet route in use, borrowing its token) and a background environment's to its fleet transport. Before (the closed page's
-  `emptyNetworkView()` put back): the two NR-2 cases fail ("Expected: 1, Received: 0"; "Expected: false, Received: true").
+- `network-routes-followups.test.ts` (new, 6): NetworkDialogs' own open rules, read from
+  `connections-network-dialogs.contract` and run (each `when` of its view as JavaScript over `remove` and `net`), open each
+  dialog on its name and serial and opened it again over the old closed page; after a failed Restart and enable the open
+  Connections page opened the dialog before and not after, and the closed page and the bare projection keep the serial, so
+  the rule no longer opens it; the same for Create pairing link; learnRoutes writes the focused environment's routes to the
+  focused transport (LAN learned ahead of the tailnet route in use, borrowing its token) and a background environment's to
+  its fleet transport; one background environment whose fleet transport stopped since the pass read it ("That environment is
+  not connected.") does not keep the next from learning. Before (the closed page's `emptyNetworkView()` put back): the two
+  NR-2 cases fail; with the contract's rule reworded to open on `network:on:0` too, the Appearance case fails; without the
+  per-environment catch, the last case fails ("That environment is not connected.").
 - `macos/tests/transport/routes.swift` (AppKit, +2): `testALearnedPlainHttpLanRouteConnectsWithTheTokenItBorrows` (the walk
   over this Mac's private IPv4 with the paired loopback route down: the descriptor first with no credential, then the borrowed
   token; passes on the base too) and `testALearnedRouteAboveTheOneInUseTakesOverAtOnce` (setRoutes with a learned LAN route
@@ -120,9 +125,40 @@ Each lane's `desktop-settings.json` sat in a read-only directory (NR-2's failure
 | NR-1 | pass (agent mode + AppKit + Bun): before, 3, 6, 10 and 15 s after pairing the row reads "via Tailscale · Connected", Tailscale "In use", the learned LAN route listed above it unused; after, from 3 s "via LAN · Connected", LAN "In use" and "· found automatically", as the reference (3 s). AppKit: the walk over a learned plain-HTTP LAN route sends the descriptor request with no credential, then the borrowed token (both builds); a learned route above the one in use takes over within 5 s (after; before, still on the old route with no request to the LAN address) | [image](https://raw.githubusercontent.com/ccheever/exact2/915699e6a20caa3dbf84b8bdd2ebff4256e16f61/network-routes-followups/nr1-learned-lan-route.png), [record](https://raw.githubusercontent.com/ccheever/exact2/5fd0822dbbc03154f5b6ffae6fc2598525e690bf/network-routes-followups/nr-record.txt) |
 | NR-2 | pass (agent mode + Bun): Restart and enable fails with the IPC error in the row and the toast and the dialog closes (all three); then Appearance: before, "Enable network access?" opens again; after, no dialog three seconds later, as the reference. Bun: the closed page keeps the serials (before: 0) | [failed](https://raw.githubusercontent.com/ccheever/exact2/572688dab5430153fd87ecf20f1fdd0358c179bc/network-routes-followups/nr2-failed.png), [Appearance](https://raw.githubusercontent.com/ccheever/exact2/6b3070c3ac8eea0b5ab81eabbee37a686f8b24e3/network-routes-followups/nr2-appearance.png), [record](https://raw.githubusercontent.com/ccheever/exact2/5fd0822dbbc03154f5b6ffae6fc2598525e690bf/network-routes-followups/nr-record.txt) |
 
+## Review round 1 (2026-10-12)
+
+An independent review found three should-fix problems; all three are fixed
+([text before/after](https://raw.githubusercontent.com/ccheever/exact2/a25e8ced7abb00d56ded958e70d6af03f89880ce/network-routes-followups/review-r1.txt)).
+
+| Finding | Fix |
+| --- | --- |
+| A failed fleet write dropped learning for the rest of the sync pass: a background environment's `setRoutes` (`fleet: <key>`) throws "That environment is not connected." when its transport stopped since the pass read it, and the only catch was around the whole `learnRoutes` | `learnRoutes` catches each environment's write on its own (a let-go answer still propagates); the next pass learns that environment again. Bun case added; it fails without the catch |
+| The private-IPv4 selection was copied word for word in both new AppKit tests | One private helper, `privateIPv4()`, beside `status` / `until` (`macos/tests/transport/routes.swift`) |
+| The NR-2 Bun test checked a hand-written predicate tied to the contract by a string `toContain` | The test reads NetworkDialogs' `when` rules from the contract and runs them over the views the pages answer (`openDialogs`); the string check is gone. A reworded rule (one that opens on `network:on:0`) fails the Appearance case |
+
+No UI change: no new drive; the images above stand.
+
 ## Checks
 
-On the final head (`origin/feat(example)/t3-code` merged at `6db5cadea`, nothing new on it):
+Review round 1, on the final head (`origin/feat(example)/t3-code` merged at `e91bdc8af`):
+
+| Check | Exit | Note |
+| --- | --- | --- |
+| `bun test examples/t3-code --timeout 60000` | 0 | 4674 pass, 1 skip, 0 fail (314 files) |
+| strict `tsc` (README command) | 0 | |
+| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | 28,865,666 bytes; `app.contract` 1,398 lines (unchanged) |
+| `cargo test -p t3-code-macos --lib` | 0 | 21 passed |
+| AppKit `macos/tests/transport` (README recipe) | 0 | 64 tests, 0 failures (both NR-1 tests pass with the shared helper) |
+| `git add -A && bun scripts/caps.mjs` | 0 | all budgets within cap |
+| `cargo build --all-targets --keep-going` | 0 | |
+| `cargo test --lib --bins --tests --no-fail-fast` | 0 | 3,756 passed, 0 failed, 36 ignored |
+| `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | |
+| `cargo fmt --all -- --check` | 0 | |
+| `bun scripts/boot.mjs` | 0 | |
+
+The bundle was not rebuilt and the app not driven again: this round changes no UI (an error path, tests).
+
+Before review round 1 (`origin/feat(example)/t3-code` merged at `6db5cadea`, nothing new on it):
 
 | Check | Exit | Note |
 | --- | --- | --- |
@@ -159,6 +195,8 @@ None: both rows are agent mode (no native menu, drag or OS dialog).
 the takeover waited for the 60 s timer, and a background environment never checked) and NR-2 traced (the closed page's
 serials); both fixed with Bun and AppKit tests; ATS probed with a bundle; the before build driven once, the reference driven,
 the branch bundle built and driven once; images composed and uploaded; the final checks; draft PR #463.
+2026-10-12: review round 1: a failed fleet write stays with its environment, NR-2's test runs the contract's own open rules,
+one private-IPv4 helper in the AppKit tests; `origin/feat(example)/t3-code` merged at `e91bdc8af`; the final checks again.
 
 ## Next action
 
