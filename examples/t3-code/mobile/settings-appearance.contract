@@ -100,10 +100,10 @@ component SettingsAppearance
                 button press=change("bothThemeIds", card.id) disabled=(not data.ready)
                   position="absolute" top=0 right=0 bottom=0 left=0 padding=0 border-radius=24
                   aria-label=`${card.label} theme` aria-selected=card.selected testId=`settings-theme-${card.id}`
-                row align-items="center" justify-content="center" gap=7 padding-top=3.5 padding-bottom=3.5
+                row align-items="center" justify-content="center" gap=7 padding-top=3.5 padding-bottom=3.5 pointer-events="none"
                   each orb in card.orbs key=orb.mode
                     button press=change(orb.mode == "light" ? "lightThemeId" : "darkThemeId", card.id) disabled=(not data.ready)
-                      width=66 height=66 padding=0 box-sizing="border-box" border-radius=9999 border-width=3 border-style="solid"
+                      width=66 height=66 padding=0 box-sizing="border-box" border-radius=9999 border-width=3 border-style="solid" pointer-events="auto"
                       border-color=(orb.selected ? data.colors.primary : "transparent") align-items="center" justify-content="center" position="relative"
                       aria-label=`${card.label} ${orb.mode} theme` aria-selected=orb.selected testId=`settings-theme-${orb.key}`
                       SettingsThemeOrb(orb=orb)
