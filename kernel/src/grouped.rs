@@ -12,7 +12,7 @@ use crate::generated::{
 };
 use crate::id::ViewId;
 use crate::kernel::{Kernel, NodeRef};
-use crate::style::{Color, ColorValue};
+use crate::style::{roles, Color, ColorValue};
 
 /// A grouped list as a host draws it.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -110,7 +110,7 @@ pub struct TextLook {
     /// a `line-clamp`, as CSS draws one, or `text-overflow: ellipsis` in a
     /// box that clips its overflow.
     pub ellipsis: bool,
-    /// Its `color`, when it is not one Contract's sheet writes.
+    /// Its `color`, when it is not the one Contract's sheet writes there.
     pub color: Option<ColorValue>,
     /// Its font, when its size, weight, style, family or numerals are not
     /// the sheet's.
@@ -132,47 +132,79 @@ pub struct TextFont {
     pub numeric: u8,
 }
 
-/// The size and weight Contract's sheet writes for a text in a slot
+/// The size, weight and colour Contract's sheet writes for a text in a slot
 /// (`contract/lower/src/grouped.rs`, LLP 1084 §2), standing in for the
-/// platform's font there: a title, a value beside it and a header 17
-/// points (the header semibold), a subtitle line 15, a footer 13.
+/// platform's there: a title, a value beside it and a header 17 points (the
+/// header semibold), a subtitle line 15, a footer 13; a title in UIKit's
+/// label colour (its red in a destructive row), any other text in its
+/// secondary label.
 #[derive(Clone, Copy)]
 struct Slot {
     size: f32,
     weight: u16,
+    color: SheetColor,
 }
 const TITLE: Slot = Slot {
     size: 17.0,
     weight: 400,
+    color: LABEL,
+};
+/// A destructive row's title.
+const DESTRUCTIVE: Slot = Slot {
+    color: RED,
+    ..TITLE
+};
+/// A value beside the title.
+const VALUE: Slot = Slot {
+    color: SECONDARY,
+    ..TITLE
 };
 const SUBTITLE: Slot = Slot {
     size: 15.0,
     weight: 400,
+    color: SECONDARY,
 };
 const HEADER: Slot = Slot {
     size: 17.0,
     weight: 600,
+    color: SECONDARY,
 };
 const FOOTER: Slot = Slot {
     size: 13.0,
     weight: 400,
+    color: SECONDARY,
 };
 
-/// The colours the sheet writes, UIKit's label, secondary label and red
-/// (LLP 1084 §2): a text in one of them left its colour unsaid, which is
-/// the platform's. Compared as the pairs Contract lowers them to, so only
-/// those exact colours match.
-const SHEET_COLORS: [ColorValue; 3] = [
-    ColorValue::LightDark(Color::rgba(0, 0, 0, 255), Color::rgba(255, 255, 255, 255)),
-    ColorValue::LightDark(
-        Color::rgba(0x3c, 0x3c, 0x43, 0x99),
-        Color::rgba(0xeb, 0xeb, 0xf5, 0x99),
-    ),
-    ColorValue::LightDark(
-        Color::rgba(0xff, 0x38, 0x3c, 255),
-        Color::rgba(0xff, 0x42, 0x45, 255),
-    ),
-];
+/// A colour the sheet writes for a text (LLP 1084 §2). A text in its slot's
+/// left its colour unsaid, which is the platform's; any other is its
+/// author's, the role the sheet writes for another slot included.
+#[derive(Clone, Copy)]
+enum SheetColor {
+    /// A role (LLP 1095 D2), by its name in the schema.
+    Role(&'static str),
+    /// A pair, compared as Contract lowers it, so only that exact colour
+    /// matches.
+    Pair(ColorValue),
+}
+const LABEL: SheetColor = SheetColor::Role("label");
+const SECONDARY: SheetColor = SheetColor::Role("secondary-label");
+/// The sheet's red, the pair it still lowers to.
+const RED: SheetColor = SheetColor::Pair(ColorValue::LightDark(
+    Color::rgba(0xff, 0x38, 0x3c, 255),
+    Color::rgba(0xff, 0x42, 0x45, 255),
+));
+
+impl SheetColor {
+    fn is(self, color: ColorValue) -> bool {
+        match (self, color) {
+            (SheetColor::Role(name), ColorValue::Role(id)) => {
+                roles::role_of(id).is_some_and(|r| r.name == name)
+            }
+            (SheetColor::Pair(pair), color) => pair == color,
+            _ => false,
+        }
+    }
+}
 
 impl TextLook {
     /// The look the text node `node` asks for in `slot`, as the web lays it
@@ -204,7 +236,7 @@ impl TextLook {
             || font.family != 0
             || font.numeric != 0;
         let mut look = TextLook {
-            color: (!SHEET_COLORS.contains(&s.text_color)).then_some(s.text_color),
+            color: (!slot.color.is(s.text_color)).then_some(s.text_color),
             font: said.then_some(font),
             ..TextLook::default()
         };
@@ -252,9 +284,10 @@ impl GroupedRow {
     /// second a subtitle under the title, else a value beside it.
     fn texts(&mut self, title: &NodeRef<'_>, second: Option<&NodeRef<'_>>, subtitle: bool) {
         self.title = text_of(title);
-        self.title_look = TextLook::of(title, TITLE);
+        let slot = if self.destructive { DESTRUCTIVE } else { TITLE };
+        self.title_look = TextLook::of(title, slot);
         self.secondary = second.and_then(text_of);
-        let slot = if subtitle { SUBTITLE } else { TITLE };
+        let slot = if subtitle { SUBTITLE } else { VALUE };
         self.secondary_look = second.map(|n| TextLook::of(n, slot)).unwrap_or_default();
         self.subtitle = subtitle;
     }
