@@ -122,8 +122,10 @@ func agentReady() {
 
 /// The one screen: the view fills the controller's view; the plan boots at
 /// the view's first layout (`ExactView.fit`).
-/// The build's launch colour (the manifest's `launch`), else white.
-let launchColor = UIColor(named: "ExactLaunch") ?? .white
+/// The build's launch colour (the manifest's `launch`); unset, the
+/// platform's background, as the system's own launch screen then is and
+/// the view under it (`ExactView`): never a fixed white (LLP 1115 D2).
+let launchColor = UIColor(named: "ExactLaunch") ?? .platformBackground
 
 final class Controller: UIViewController {
     #if os(tvOS)
