@@ -399,7 +399,8 @@ pub(crate) fn decode(kind: u8, plus: f32, x: u8, y: u8) -> Option<Dimension> {
 
 fn resolve_segment(var: SegmentVar, x: u8, y: u8, plus: f32, env: &Env) -> Dimension {
     match env.segment(x, y) {
-        Some(rect) => Dimension::Points(var.of(rect) + plus),
+        // As for safe-area sums, only the completed length is range-clamped.
+        Some(rect) => Dimension::Points((var.of(rect) + plus).clamp(f32::MIN, f32::MAX)),
         None => Dimension::Auto,
     }
 }
