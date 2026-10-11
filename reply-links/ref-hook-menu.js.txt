@@ -1,0 +1,11 @@
+(() => {
+  const { Menu } = require('electron');
+  const log = (globalThis.__rl = globalThis.__rl ?? []);
+  if (!globalThis.__rlMenu) {
+    globalThis.__rlMenu = true;
+    Menu.prototype.popup = function () {
+      log.push(['menu.popup', this.items.map((i) => i.type === 'separator' ? '---' : `${i.label || i.role}${i.enabled === false ? ' (disabled)' : ''}`)]);
+    };
+  }
+  return 'ok';
+})()
