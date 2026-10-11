@@ -560,10 +560,15 @@ test('a read the device cannot vouch for asks the server; offline it says so', a
     const first = await jo.read<{ body: string }[]>('oldest', {}, Date.now());
     expect(first.server).toBe(true);
     expect(first.data!.length).toBe(5);
+    const whole = await jo.readAll<{ body: string }>('oldest', {}, Date.now());
+    expect([whole.length, whole.complete, whole.offline]).toEqual([5, true, false]);
     await offline(async () => {
       const partial = await jo.read<{ body: string }[]>('oldest', {}, Date.now());
       expect(partial.offline).toBe(true);
       expect(partial.complete).not.toBe(true);
+      // readAll keeps what each page said: these rows are not all of them.
+      const rows = await jo.readAll<{ body: string }>('oldest', {}, Date.now());
+      expect([rows.complete, rows.offline]).toEqual([false, true]);
     });
   } else {
     // The device vouched for it (complete coverage): then it must be the truth.

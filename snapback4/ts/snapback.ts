@@ -36,6 +36,11 @@ export interface Read<T = Json> {
   [key: string]: unknown;
 }
 
+/** Every row of a query (`readAll`), and whether that is all of them:
+ * `complete` false when a page was not the whole answer; `offline` true when
+ * a page was the device's partial with the server unreached. */
+export type Rows<T> = T[] & { complete: boolean; offline: boolean };
+
 /** A write as admitted: kept and predicted on this device, sent by a round;
  * or refused by the device itself (its prediction refused it, as the server
  * would on the same rows), which is final: never sent, and `outcome(id)` and
@@ -321,15 +326,21 @@ export class Snapback {
   /** Every page of a paged query (`next` cursors passed back as `args.c`;
    * the first page sends no cursor, so an unpaged query reads whole).
    * `limit`, if given, refuses a query that holds more rows than that; by
-   * default every row is read, and only a cursor that does not advance stops. */
-  async readAll<T = Json>(name: string, args: Args, now: number, cursor = 'c', limit = Infinity): Promise<T[]> {
-    const rows: T[] = [];
+   * default every row is read, and only a cursor that does not advance stops.
+   * The rows say whether they are the whole answer: `complete` is false when
+   * any page was not (rows past a sync horizon, a capped scan, or the
+   * device's partial with the server unreached, which also sets `offline`).
+   * Show such a list as partial, never as all there is. */
+  async readAll<T = Json>(name: string, args: Args, now: number, cursor = 'c', limit = Infinity): Promise<Rows<T>> {
+    const rows = Object.assign([] as T[], { complete: true, offline: false });
     const seen = new Set<string>();
     let next: string | null = null;
     do {
       const page: Read<T[]> = await this.read<T[]>(name, next === null ? args : { ...args, [cursor]: next }, now);
       if (page.denied) throw Object.assign(new Error(`${page.denied.code}: ${page.denied.message}`), { refusal: page.denied });
       if (!Array.isArray(page.data)) throw new Error(`${name}: not on this device yet`);
+      if (page.complete === false || page.offline === true) rows.complete = false;
+      if (page.offline === true) rows.offline = true;
       rows.push(...page.data);
       next = page.next ?? null;
       if (rows.length > limit) throw new Error(`${name}: more than ${limit} rows`);

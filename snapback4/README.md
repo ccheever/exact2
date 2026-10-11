@@ -329,6 +329,8 @@ const renewed = await db.refreshSession(now);          // near expiresAt: keep r
   still queued here. Unreached, a usable partial comes back marked
   `offline: true`, and a placeholder (`speculative`, `loading`) comes back as
   `loading` with `offline: true`: show it as unavailable, never as zero.
+  `readAll` keeps the same facts for every page it read: its rows carry
+  `complete` (false when any page was not the whole answer) and `offline`.
 - **A round that ends `ok` delivered the outbox; it does not say each write
   was accepted.** `outcome(id)` does: `sent` with `result`, `failed` with
   `why` (the refusal's code, such as one the mutation `require`s), or
