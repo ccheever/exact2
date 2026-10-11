@@ -108,6 +108,23 @@ is Expo `@exponathan/t3-code` / ASC app `6821176299`; no final accepted IPA or
 EAS submission has been produced. TestFlight delivery follows functional,
 visual and performance acceptance rather than replacing it.
 
+[observed] A current-main audit at `5f50e987` confirms that URL schemes and
+file-opening declarations work, while the draft `share_target` declaration is
+rejected. The generated iOS build has no Share Extension/App Group packaging
+path. Existing draft LLP1114.006 already owns that framework decision;
+[issue 473](https://github.com/ccheever/exact2/issues/473) adds the tested
+manifest reproduction and T3 as another consumer. The local incoming-share
+inbox does not establish an OS share-sheet handoff. No framework patch or
+availability claim follows from this audit.
+
+[open] The final release's encryption declaration still needs a complete
+archive inventory. The native builder already accepts
+`EXACT_NON_EXEMPT_ENCRYPTION`, but the source graph includes the Hermes
+executor's ring-backed WebCrypto as well as Swift's OS services. Swift HTTPS
+and Keychain usage alone cannot establish the complete binary's classification.
+No declaration or upload was made. The read-only source inventory is retained
+in `t3-eas-destination-20261011/delivery-check/encryption-source-audit.md`.
+
 ## Initial implementation evidence
 
 [observed] M0 established a Contract root, a TypeScript source importing the
