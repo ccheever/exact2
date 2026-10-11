@@ -1,9 +1,9 @@
 ---
 name: 20261011-network-routes-followups
 plan: 20261005-t3code-macos-parity
-implementation: in-progress
+implementation: implemented
 verification: unverified
-delivery: none
+delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-network-routes-followups
@@ -51,3 +51,86 @@ The user decided on 2026-10-11 that these two leftovers are built now, matching 
 - NR-2: `apps/web/src/components/settings/ConnectionsSettings.tsx` `handleDesktopServerExposureChange` (closes the dialog
   on success and on failure), the network access `AlertDialog` (`open={isDesktopServerExposureDialogOpen}`,
   `onOpenChangeComplete` clears the pending mode).
+
+## What the reference does (read and driven, lane `network-routes-followups`, base port 16500)
+
+- NR-1: the server reports the numeric private and tailnet IPv4s it is bound to, plain HTTP (`DirectEndpoints.ts`); the
+  desktop page is not https, so `allowInsecureRoutes` is true and `mergeLearnedRoutes` saves each new address as a learned
+  route whose id names the credential it borrows (`learned:<env>:<origin>@<owner>`), placed by kind (LAN ahead of tailnet).
+  `learnRoutesFrom` then asks `requestBetterRouteCheck`: a learned route that ranks above the one in use is preflighted at
+  once (`checkRoute`, then `resolver.prepare`, which reads `credentials.get(credentialConnectionId(id))`) and the
+  supervisor moves to it. Driven: Route Lab (a lane T3 server bound to every interface on 16503) added at its tailnet
+  address `http://100.81.153.22:16503`; three seconds later the row reads "via LAN · Connected · 2 routes", LAN "In use" and
+  "· found automatically", Tailscale second.
+- NR-2: `handleDesktopServerExposureChange` closes the dialog on success and on failure
+  (`setIsDesktopServerExposureDialogOpen(false)`), and the closed AlertDialog clears the pending mode. Driven with the lane's
+  `desktop-settings.json` in a read-only directory: Restart and enable fails with the IPC error in the row and the toast,
+  the dialog closes, and Appearance shows no dialog (no `alertdialog` in the page three seconds later).
+
+## Cause and fix
+
+**NR-1.** The record's premise no longer held at the base: since 2026-10-08 (`fix-provider-auth-state`) `T3Endpoint`
+accepts remote `http`, so the transport walks a learned plain-HTTP LAN route and reads the token it borrows (the new AppKit
+test passes on the base modules). App Transport Security is not in the way either: a bundle with the clone's ATS keys
+(`NSAllowsArbitraryLoadsInWebContent` only) loads `http://192.168.181.76` and `http://100.81.153.22` with `URLSession`
+and refuses only a dotted host name (`localtest.me`, -1022); the server reports IP literals only. What differed is when
+the credential reaches the learned route: the clone checked a better route only on its 60 s timer, on app activation or on
+a network change, and a background environment (the fleet transport an added environment gets) that had connected over its
+only route scheduled no timer at all, so it stayed "via Tailscale" with the LAN route listed above it. Before: the drive's
+row read "via Tailscale · Connected", Tailscale "In use", 15 s after pairing. Fix: `setRoutes` on a connected transport
+asks the better-route check at once (`T3Transport+Routes.swift`; the preflight reads the borrowed token only after the
+descriptor matched, as before), and `learnRoutes` writes a background environment's routes through its own fleet transport
+(`fleet: <key>`, `connection-routes-ops.ts`), so that transport reloads and checks them. A user's reorder takes the same
+path, which also moves to a route dropped above the one in use at once (the reference reconnects over the new order). The
+stale notes (T3Routes.swift, connection-routes.ts, T3Endpoint's "provisional: user decision pending") now say what holds.
+
+**NR-2.** The section's dialogs open while the root's `connectionRemove` names them with their serial
+(`network:on:<networkSerial>`, `pairing:create:<createSerial>`, …) and close when the serial moves; the root keeps the value.
+The Connections resource answers for a closed page (any other Settings page) with `emptyNetworkView()`, whose serials are 0,
+so `network:on:0` matched again and the dialog opened over Appearance. A successful Create pairing link came back the same
+way. Fix: `closedNetworkView()` (`connections-network.ts`) carries the serials; the closed page and `networkProjection`'s
+unmanaged view use it, so no closed dialog of the section matches again.
+
+No new declared difference.
+
+## Tests
+
+- `network-routes-followups.test.ts` (new, 5): the view's open rule; after a failed Restart and enable the Connections page
+  (open and closed) and the bare projection keep the serial, so `network:on:0` no longer opens the dialog; the same for
+  Create pairing link; learnRoutes writes the focused environment's routes to the focused transport (LAN learned ahead of the
+  tailnet route in use, borrowing its token) and a background environment's to its fleet transport. Before (the closed page's
+  `emptyNetworkView()` put back): the two NR-2 cases fail ("Expected: 1, Received: 0"; "Expected: false, Received: true").
+- `macos/tests/transport/routes.swift` (AppKit, +2): `testALearnedPlainHttpLanRouteConnectsWithTheTokenItBorrows` (the walk
+  over this Mac's private IPv4 with the paired loopback route down: the descriptor first with no credential, then the borrowed
+  token; passes on the base too) and `testALearnedRouteAboveTheOneInUseTakesOverAtOnce` (setRoutes with a learned LAN route
+  ahead of the route in use: connected over it within 5 s, no timer). Before (the base `setRoutes`): the second fails, still
+  on `localhost` with no request to the LAN address.
+
+## Acceptance results
+
+Drives (agent mode, 1280×840, one session each with clone-drive.sh's lane environment, script `nrdrive.mjs` not
+committed): before on `t3-code-evidence-base` at `6db5cadea` (lane `network-routes-followups-before`), after on this
+branch's bundle (lane `network-routes-followups`); the reference over CDP on lane `network-routes-followups` (backend
+16500, CDP 16501). Route Lab: a lane T3 server from the pinned runtime, isolated home, bound to every interface on 16503
+(it reports `http://192.168.181.76:16503/` LAN and `http://100.81.153.22:16503/` tailnet), paired at the tailnet address.
+Each lane's `desktop-settings.json` sat in a read-only directory (NR-2's failure). Images are before | after | reference.
+
+| Row | Result | Proof |
+| --- | --- | --- |
+| NR-1 | pass (agent mode + AppKit + Bun): before, 3, 6, 10 and 15 s after pairing the row reads "via Tailscale · Connected", Tailscale "In use", the learned LAN route listed above it unused; after, from 3 s "via LAN · Connected", LAN "In use" and "· found automatically", as the reference (3 s). AppKit: the walk over a learned plain-HTTP LAN route sends the descriptor request with no credential, then the borrowed token (both builds); a learned route above the one in use takes over within 5 s (after; before, still on the old route with no request to the LAN address) | [image](https://raw.githubusercontent.com/ccheever/exact2/915699e6a20caa3dbf84b8bdd2ebff4256e16f61/network-routes-followups/nr1-learned-lan-route.png), [record](https://raw.githubusercontent.com/ccheever/exact2/5fd0822dbbc03154f5b6ffae6fc2598525e690bf/network-routes-followups/nr-record.txt) |
+| NR-2 | pass (agent mode + Bun): Restart and enable fails with the IPC error in the row and the toast and the dialog closes (all three); then Appearance: before, "Enable network access?" opens again; after, no dialog three seconds later, as the reference. Bun: the closed page keeps the serials (before: 0) | [failed](https://raw.githubusercontent.com/ccheever/exact2/572688dab5430153fd87ecf20f1fdd0358c179bc/network-routes-followups/nr2-failed.png), [Appearance](https://raw.githubusercontent.com/ccheever/exact2/6b3070c3ac8eea0b5ab81eabbee37a686f8b24e3/network-routes-followups/nr2-appearance.png), [record](https://raw.githubusercontent.com/ccheever/exact2/5fd0822dbbc03154f5b6ffae6fc2598525e690bf/network-routes-followups/nr-record.txt) |
+
+## Real-input batch steps
+
+None: both rows are agent mode (no native menu, drag or OS dialog).
+
+## Progress
+
+2026-10-12: record created; the reference read; NR-1 traced (the base already walks and authenticates a learned LAN route;
+the takeover waited for the 60 s timer, and a background environment never checked) and NR-2 traced (the closed page's
+serials); both fixed with Bun and AppKit tests; ATS probed with a bundle; the before build driven once, the reference driven,
+the branch bundle built and driven once; images composed and uploaded.
+
+## Next action
+
+Review and merge.
