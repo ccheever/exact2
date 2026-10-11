@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-network-routes-followups
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/463
 verified_commit: null
 ---
 
@@ -120,6 +120,35 @@ Each lane's `desktop-settings.json` sat in a read-only directory (NR-2's failure
 | NR-1 | pass (agent mode + AppKit + Bun): before, 3, 6, 10 and 15 s after pairing the row reads "via Tailscale · Connected", Tailscale "In use", the learned LAN route listed above it unused; after, from 3 s "via LAN · Connected", LAN "In use" and "· found automatically", as the reference (3 s). AppKit: the walk over a learned plain-HTTP LAN route sends the descriptor request with no credential, then the borrowed token (both builds); a learned route above the one in use takes over within 5 s (after; before, still on the old route with no request to the LAN address) | [image](https://raw.githubusercontent.com/ccheever/exact2/915699e6a20caa3dbf84b8bdd2ebff4256e16f61/network-routes-followups/nr1-learned-lan-route.png), [record](https://raw.githubusercontent.com/ccheever/exact2/5fd0822dbbc03154f5b6ffae6fc2598525e690bf/network-routes-followups/nr-record.txt) |
 | NR-2 | pass (agent mode + Bun): Restart and enable fails with the IPC error in the row and the toast and the dialog closes (all three); then Appearance: before, "Enable network access?" opens again; after, no dialog three seconds later, as the reference. Bun: the closed page keeps the serials (before: 0) | [failed](https://raw.githubusercontent.com/ccheever/exact2/572688dab5430153fd87ecf20f1fdd0358c179bc/network-routes-followups/nr2-failed.png), [Appearance](https://raw.githubusercontent.com/ccheever/exact2/6b3070c3ac8eea0b5ab81eabbee37a686f8b24e3/network-routes-followups/nr2-appearance.png), [record](https://raw.githubusercontent.com/ccheever/exact2/5fd0822dbbc03154f5b6ffae6fc2598525e690bf/network-routes-followups/nr-record.txt) |
 
+## Checks
+
+On the final head (`origin/feat(example)/t3-code` merged at `6db5cadea`, nothing new on it):
+
+| Check | Exit | Note |
+| --- | --- | --- |
+| `bun test examples/t3-code --timeout 60000` | 0 | 4658 pass, 1 skip, 0 fail (312 files) |
+| strict `tsc` (README command) | 0 | |
+| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | 28,820,298 bytes; `app.contract` 1,398 lines (unchanged) |
+| `cargo test -p t3-code-macos --lib` | 0 | 21 passed |
+| AppKit `macos/tests/transport` (README recipe) | 0 | 64 tests, 0 failures (RouteTests 9, two new) |
+| `git add -A && bun scripts/caps.mjs` | 0 | all budgets within cap |
+| `cargo build --all-targets --keep-going` | 0 | |
+| `cargo test --lib --bins --tests --no-fail-fast` | 0 | 3,679 passed, 0 failed |
+| `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | |
+| `cargo fmt --all -- --check` | 0 | |
+| `bun scripts/boot.mjs` | 0 | |
+| `host/apple/build.mjs t3-code-macos --bundle` | 0 | once, before the live drive (the app code of `393326063`, unchanged since) |
+
+## Not done / not verified
+
+None.
+
+## Seen while building, not a finding row
+
+- With these changes, reordering routes so that another route sits above the one in use moves the session to that route at once,
+  if its preflight passes. The reference reconnects over the new order every time (`replaceRoutesLocked` → `installEntryLocked`).
+  Reordering that keeps the route in use first keeps the live session here.
+
 ## Real-input batch steps
 
 None: both rows are agent mode (no native menu, drag or OS dialog).
@@ -129,7 +158,7 @@ None: both rows are agent mode (no native menu, drag or OS dialog).
 2026-10-12: record created; the reference read; NR-1 traced (the base already walks and authenticates a learned LAN route;
 the takeover waited for the 60 s timer, and a background environment never checked) and NR-2 traced (the closed page's
 serials); both fixed with Bun and AppKit tests; ATS probed with a bundle; the before build driven once, the reference driven,
-the branch bundle built and driven once; images composed and uploaded.
+the branch bundle built and driven once; images composed and uploaded; the final checks; draft PR #463.
 
 ## Next action
 
