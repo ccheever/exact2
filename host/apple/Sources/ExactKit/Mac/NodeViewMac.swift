@@ -357,7 +357,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
     package override func accessibilityChildren() -> [Any]? {
         if props["accessibilityElementsHidden"] == "true" { return [] }
-        return actsAsButton || props["accessibilityRole"] == "img" ? nil : textAccessibilityChildren() ?? super.accessibilityChildren()
+        return actsAsButton || props["accessibilityRole"] == "img" || rangeRole != nil ? nil : textAccessibilityChildren() ?? super.accessibilityChildren()
     }
     /// What VoiceOver reaches, as the web's accessibility tree and iOS's
     /// traits have it: a pressable is a button — a link, checkbox, radio or
@@ -380,6 +380,20 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         } else if role == "group" || role == "radiogroup" {
             setAccessibilityElement(true)
             setAccessibilityRole(role == "radiogroup" ? .radioGroup : .group)
+        } else if let range = rangeRole {
+            // A range role is one element, its value between its bounds and
+            // its `aria-valuetext` the description, as WebKit serves a drawn
+            // one (LLP 1116 D8). Only a change is written: each posts.
+            let axRole: NSAccessibility.Role = ["slider": .slider, "meter": .levelIndicator, "scrollbar": .scrollBar, "spinbutton": .incrementor][range] ?? .progressIndicator
+            setAccessibilityElement(true)
+            if accessibilityRole() != axRole { setAccessibilityRole(axRole) }
+            let n = rangeNumbers
+            let now = n.map { NSNumber(value: $0.now) }, low = n.map { NSNumber(value: $0.min) }, high = n.map { NSNumber(value: $0.max) }
+            if (accessibilityValue() as? NSNumber) != now { setAccessibilityValue(now) }
+            if (accessibilityMinValue() as? NSNumber) != low { setAccessibilityMinValue(low) }
+            if (accessibilityMaxValue() as? NSNumber) != high { setAccessibilityMaxValue(high) }
+            let text = props["accessibilityValueText"].flatMap { $0.isEmpty ? nil : $0 }
+            if accessibilityValueDescription() != text { setAccessibilityValueDescription(text) }
         }
     }
     /// Where an image source resolves, as a page resolves `src`: an `http(s)`

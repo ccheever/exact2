@@ -1,0 +1,23 @@
+test "each tab keeps its own stack"
+  tap "places-2"
+  clock settle
+  expect text "about-places" == "Cliffside trails above the Golden Gate."
+  tap "tab-saved"
+  expect state nav.tab == "saved"
+  tap "tab-places"
+  expect tree has "about-places"
+
+test "a saved place shows under Saved, and stays saved after a relaunch"
+  tap "tab-saved"
+  expect text "saved-empty" == "Nothing saved yet. Open a place and tap the bookmark."
+  tap "tab-places"
+  tap "places-1"
+  clock settle
+  tap "save-places"
+  expect state saved.0 == "1"
+  tap "tab-saved"
+  tap "saved-1"
+  clock settle
+  expect text "about-saved" == "A sunny hillside with a view of downtown."
+  reload
+  expect state saved.0 == "1"

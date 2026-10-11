@@ -1,6 +1,7 @@
 # macOS: Escape closes no `popover="auto"` after an action's `blur()`, because the window itself is then the first responder
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by #446
 **Systems:** host/apple macOS, popover, focus
 **Severity:** P3
 **Author:** daehyeon-mun (T3 Code clone)

@@ -61,7 +61,7 @@ pub mod transform;
 pub mod txn;
 pub mod wire;
 
-pub use control::{Choice, ControlKind, PressFace, Range};
+pub use control::{Choice, ControlKind, PressFace, Progress, Range};
 pub use control_measurement::{
     ButtonFaceStyle, ButtonFonts, ButtonImagePlacement, ButtonMeasure, ButtonMeasureRequest,
     ControlFont, ControlTextStyles, FieldChrome, FieldChromeRequest, FieldKind,
@@ -88,8 +88,8 @@ pub use style::{
 pub use text::case::link as link_text_transform;
 pub use text::case::{linked_lowercase, lowercase_bounded, Lowercase};
 pub use text::{
-    Markup, MonospaceMeasurer, ParagraphStamp, TextMeasureRequest, TextMeasurer, TextMetrics,
-    TextRun, TextStyle,
+    Markup, MonospaceMeasurer, OverEdge, ParagraphStamp, TextEdges, TextMeasureRequest,
+    TextMeasurer, TextMetrics, TextRun, TextStyle, UnderEdge,
 };
 pub use transform::TransformDragBinding;
 pub use txn::{CommitReceipt, Exit, MAX_DEPTH};

@@ -81,7 +81,8 @@ placeholder's name and its value as `toString` prints it. -/
 def unsupportedTy (name : String) (ts : List Ty) : Option Ty :=
   if name = "formatTime" ∨ name = "formatDate" then
     match ts with | [.number, .number, .string] => .some .string | _ => .none
-  else if name = "formatNumber" then match ts with | [.number, .string] => .some .string | _ => .none
+  else if name = "formatNumber" then
+    match ts with | [.number, .string, .string] => .some .string | _ => .none
   else if name = "toFixed" ∨ name = "formatDecimal" then
     match ts with | [.number, .number] => .some .string | _ => .none
   else if name = "t" then

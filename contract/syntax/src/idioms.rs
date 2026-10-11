@@ -7,7 +7,7 @@
 /// clock is the web's `performance.now()`, so it wears that name, and the
 /// date is the boot instant plus it.
 // @ref LLP 1109 D1 — `now()` read as `Date.now()`; deleted, not deprecated.
-pub const NOW_REFUSED: &str = "`now()` is not in Contract: write `performanceNow()` for durations and timers (milliseconds on the runner's clock since boot, the web's `performance.now()`), or `time.epochAtZero + performanceNow()` for the date, with `resource time = exactTime() as shape Clock` declared and `shape Clock` holding `epochAtZero: number`";
+pub const NOW_REFUSED: &str = "`now()` is not in Contract: write `performanceNow()` for durations and timers (milliseconds since this launch of the app, restarting at 0 on every launch, the web's `performance.now()`), or `time.epochAtZero + performanceNow()` for the date, with `resource time = exactTime() as shape Clock` declared and `shape Clock` holding `epochAtZero: number`";
 
 /// The fix for `recv.name(…)`, or for `recv.name` read as a field of a value
 /// that has none: Contract has no methods.
@@ -58,8 +58,8 @@ pub fn refusal(name: &str) -> Option<String> {
                 "`{name}` is refused (LLP 1017.003: lists have `map`, `filter`, `join`, `concat`, `slice`, `includes` and `indexOf`): write {instead}, or compute it in the data source and hand the view the result"
             )
         }
-        "reduce" | "reduceRight" | "findLast" | "sort" | "toSorted" | "flatMap" | "flat"
-        | "forEach" | "reverse" | "toReversed" => format!(
+        "reduce" | "reduceRight" | "findLast" | "sort" | "sortBy" | "toSorted" | "flatMap"
+        | "flat" | "forEach" | "reverse" | "toReversed" => format!(
             "`{name}` is refused (LLP 1017.003: lists have `map`, `filter`, `join`, `concat`, `slice`, `includes` and `indexOf`); compute it in the data source and hand the view the result, as the crypto port keeps `lo` and `hi` beside its series"
         ),
         // @ref LLP 1088 D7.4 — the web's string and list spellings an agent
@@ -73,6 +73,10 @@ pub fn refusal(name: &str) -> Option<String> {
         "padStart" | "padEnd" => format!(
             "`{name}` is not in Contract (LLP 1088 D2 defers it): pad in the data module, or align with CSS (`text-align`, a fixed `width`)"
         ),
+        // Round 2's builders looked for `pow` (LLP 1116.000 D5).
+        "pow" | "sqrt" | "abs" => format!(
+            "`{name}` is not in Contract: `x * x` is a square and `max(x, -x)` a magnitude; compute other maths in the data source and hand the view the result"
+        ),
         "toUpperCase" => "display casing is CSS: `text-transform=\"uppercase\"`; Contract has no `toUpperCase` (LLP 1088 D2)".into(),
         "Number" | "parseInt" | "parseFloat" => format!(
             "write `parseNumber(s)` for `{name}`: `some(n)` for a decimal number in the text (`\" 12.5 \"`, `\"-3\"`, `\"1e3\"`), `none` for anything else (`\"\"`, `\"12px\"`, hex), so `match parseNumber(s)` handles a field's text (LLP 1102 §3.1)"
@@ -84,6 +88,7 @@ pub fn refusal(name: &str) -> Option<String> {
         // The roster's substring search under the web's name since
         // 2026-09-28; a hint, not a second spelling: `contains` does not compile.
         "contains" => "write `includes(s, t)`, or `includes(xs, x)` for a list: the roster's search wears the web's name, `String.prototype.includes` and `Array.prototype.includes` (LLP 1006 §Expressions, renamed from `contains` 2026-09-28); `startsWith(s, t)` and `endsWith(s, t)` are the web's too".into(),
+        "toLocaleString" => "`toLocaleString` is not in Contract: `formatNumber(n, \"decimal\")` is `Intl.NumberFormat(\"en-US\")`'s grouped number (`1,234.5`), `formatNumber(n, \"currency\", \"USD\")` its money (`$1,481.47`) and `formatNumber(n, \"percent\")` its percent (`26%`); `formatDate` prints a date (LLP 1116 D8)".into(),
         "toPrecision" | "toExponential" => format!(
             "`{name}` is not in Contract: `toFixed(x, digits)` is the web's fixed-decimal format (`toFixed(2.5, 1)` is `\"2.5\"`), `formatDecimal(cents, 2)` prints a count of cents exactly, and `formatNumber(n, \"compact\")` prints a count as `1.2K` (LLP 1102 §3.2)"
         ),

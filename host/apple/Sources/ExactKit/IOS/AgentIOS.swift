@@ -196,7 +196,7 @@ extension Agent {
         let keyboardContainer = presenter.modals.coordinateView ?? presenter.session?.view
         let keyboardTop = keyboardContainer.flatMap { presenter.keyboardGuideTop(in: $0) }
         var keyboard: [String: Any] = ["visible": keyboardTop != nil, "overlap": Agent.r2(presenter.keyboardInset),
-                                       "policy": presenter.interactiveWidget ?? "resizes-visual", "interactive": presenter.interactiveKeyboardDrag]
+                                       "policy": presenter.keyboardPolicy, "interactive": presenter.interactiveKeyboardDrag]
         if let top = keyboardTop, let container = keyboardContainer {
             keyboard["top"] = Agent.r2(vp.convert(CGPoint(x: 0, y: top), from: container).y - vp.contentOffset.y)
         }
@@ -448,15 +448,16 @@ extension Agent {
     /// inline only as far as it takes) — unanimated, as far as each one's
     /// range allows; their delegates tell the app, as a finger's scroll does.
     /// In view is what a person sees: inside the scroll view's insets, as the
-    /// presenter's own reveal of a focused field measures it, so the bars and,
-    /// under the default `interactive-widget`, the keyboard (the viewport's
-    /// bottom inset) are out of view. `overlays-content` insets nothing, so
-    /// there the keyboard's top bounds it (LLP 1086.000.000 D2).
+    /// presenter's own reveal of a focused field measures it, so the bars and
+    /// the keyboard are out of view: the viewport ends at its top
+    /// (`resizes-content`, the default) or is inset by it (`resizes-visual`).
+    /// `overlays-content` insets nothing, so there the keyboard's top bounds
+    /// it (LLP 1086.000.000 D2).
     func reveal(_ req: [String: Any]) -> [String: Any] {
         guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         let from = box(v)
         // The keyboard's top in the window, as the presenter last applied it.
-        let keyboard = presenter.interactiveWidget == "overlays-content" ? presenter.keyboardTop : nil
+        let keyboard = presenter.keyboardPolicy == "overlays-content" ? presenter.keyboardTop : nil
         var scrolled = false
         for case let sv as UIScrollView in sequence(first: v.superview, next: { $0?.superview }).compactMap({ $0 }) where sv.isScrollEnabled {
             let frame = v.convert(v.bounds, to: sv), mid = CGPoint(x: frame.midX, y: frame.midY), i = sv.adjustedContentInset
@@ -482,6 +483,11 @@ extension Agent {
     }
 
     func tap(_ req: [String: Any]) -> [String: Any] {
+        // A header node the app's navigation bar leaves out is not there to
+        // tap, whatever the agent's chrome paints (LLP 1116 D2).
+        if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)], let why = presenter.navigation.unshownByBar()[node.id] {
+            return ["error": "tap #\(id)\(node.props["testId"].map { " [\($0)]" } ?? ""): \(why)"]
+        }
         if let reply = touchForm(req) { return reply }
         if view(req)?.placedAncestor?.placementHidden == true { return ["error": "placed child is hidden"] }
         if req["phase"] == nil, req["wheel"] == nil,
@@ -697,24 +703,23 @@ extension Agent {
         var took = false
         while let cur = f {
             if let node = cur as? NodeView, let field = (node.textArea as UIView?) ?? node.field { if !field.isFirstResponder { _ = field.becomeFirstResponder() }; took = true; break }
+            // A node settles the press's focus as a finger's does
+            if let node = cur as? NodeView { node.focusForPress(target: action); took = true; break }
+            // A native module's responder takes it, unless under `retainFocus`
             if cur.canBecomeFirstResponder {
-                // Under `retainFocus` the press takes nothing (`touchesEnded`).
-                if !presenter.contextRetainsFocus(cur) { if !cur.isFirstResponder { if let node = cur as? NodeView { node.takeTouchFocus() } else { _ = cur.becomeFirstResponder() } }; took = true }
+                if !presenter.contextRetainsFocus(cur) { if !cur.isFirstResponder { _ = cur.becomeFirstResponder() }; took = true }
                 break
             }
-            // A pressed node handles touchesEnded without forwarding it to
-            // its parent. An enclosing key handler must not steal the editor.
-            if cur === action { break }
             f = cur.superview
         }
-        // Nothing took the focus: the field being edited loses it (a page
-        // blurs its input on a click anywhere else), and the keyboard goes.
-        if !took && !presenter.contextRetainsFocus(n ?? v) { presenter.viewport.endEditing(true) }
+        // Nothing settled the focus, as in `focusForPress`: the text being
+        // edited loses it, and any other focus stays.
+        if !took && presenter.hasKeyboardEditor && !presenter.contextRetainsFocus(n ?? v) { presenter.viewport.endEditing(true) }
         var pressed: Any = NSNull()
         // An iPad's hardware keys held through the tap (gallery F20).
         let held = (req["modifiers"] as? String).map { $0.hasSuffix("+") || $0.isEmpty ? $0 : $0 + "+" } ?? ""
         if let element { presenter.press(element, held: held); pressed = Int(element) }
-        if let action, presenter.views[action.id] === action { presenter.press(action.id, held: held); action.finishPointerPress(); pressed = Int(action.id) }
+        if let action, presenter.views[action.id] === action { presenter.press(action.id, held: held); pressed = Int(action.id) }
         var reply: [String: Any] = ["tapped": Int(v.id), "at": at, "pressed": pressed]
         // Its middle reaches a control inside it: the tap landed beside it.
         if let avoided { reply["avoided"] = ["middle": [Agent.r2(b.midX), Agent.r2(b.midY)], "pressing": avoided.pressing ?? NSNull(), "what": avoided.described] as [String: Any] }
@@ -1085,8 +1090,26 @@ extension Agent {
         let captured = presenter.views.values.filter { Capture.web[$0.id] != nil || $0.kind == "canvas" }
         for node in captured { node.setNeedsDisplay(); node.layer.displayIfNeeded() }
         session.natives.redrawForCapture()
+        // Header nodes the app's navigation bar leaves out, as the agent's
+        // chrome paints them: struck through in red (LLP 1116 D2).
+        let unshown = presenter.navigation.unshownByBar().keys.sorted().compactMap { presenter.views[$0] }.filter {
+            $0.window != nil && !$0.isHidden && $0.bounds.width > 0 && $0.bounds.height > 0
+        }
         let png = UIGraphicsImageRenderer(size: size, format: format).pngData { _ in
             captureView.drawHierarchy(in: CGRect(origin: .zero, size: size), afterScreenUpdates: true)
+            UIColor.systemRed.setStroke()
+            for node in unshown {
+                let r = node.convert(node.bounds, to: captureView).insetBy(dx: -1, dy: -1)
+                let outline = UIBezierPath(rect: r)
+                outline.lineWidth = 2
+                outline.setLineDash([4, 3], count: 2, phase: 0)
+                outline.stroke()
+                let strike = UIBezierPath()
+                strike.move(to: CGPoint(x: r.minX, y: r.maxY))
+                strike.addLine(to: CGPoint(x: r.maxX, y: r.minY))
+                strike.lineWidth = 1.5
+                strike.stroke()
+            }
         }
         Capture.capturing = false
         #if !targetEnvironment(simulator)
@@ -1099,6 +1122,10 @@ extension Agent {
         var r: [String: Any] = ["screenshot": path, "w": Agent.r2(size.width), "h": Agent.r2(size.height), "scale": Agent.r2(scale)]
         if req["window"] as? Bool == true { r["window"] = true }
         if loading > 0 { r["imagesPending"] = loading }
+        if !unshown.isEmpty {
+            r["unshown"] = unshown.map { n -> [String: Any] in ["id": Int(n.id), "testId": n.props["testId"] ?? NSNull()] }
+            r["unshownNote"] = "struck through in red: \(NavigationHost.unshownReason)"
+        }
         // The software keyboard is not in the capture and the app may stand above it (LLP 1102 §3.17):
         // say so, where the image alone reads as a shortened screen.
         let container = session.presenter.modals.coordinateView ?? session.view

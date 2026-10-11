@@ -16,7 +16,8 @@
 //   edge swipe, and the sheet swipes down, with nothing written for either;
 // - `dialog role="alertdialog"` is the system alert, `contextPopover` the
 //   long-press menu, `swipeTrailing` the row's swipe action, `refresh=` the
-//   pull-to-refresh, and `progress` the activity indicator.
+//   pull-to-refresh, `progress` the activity indicator, and `progress value=`
+//   the progress bar.
 //
 // The tint is the platform's: the app names none, so every bar button, control,
 // selected tab and star is the system's accent. (A root `accent-color` would tint
@@ -751,22 +752,14 @@ component Empty
       text title role="heading" aria-level=3 text-align="center"
       text message color="-exact-secondary-label" text-align="center" testId=`${tid}-message`
 
-// A determinate progress bar, 0 to 100, in the system fill and the tint.
-// `progress value=… max=…` is refused today (no UIProgressView yet), so this is
-// drawn, in roles only.
+// A determinate progress bar, 0 to 100, across its column: the platform's own
+// (`UIProgressView` in the tint, LLP 1116 D8), which says its value itself.
 component Meter
   props
     value: number
     tid: string
   view
-    row height=4
-      border-radius=2
-      overflow="hidden"
-      background-color="-exact-fill"
-      role="progressbar"
-      aria-label=`${value}%`
-      testId=tid
-      row width=`${value}%` background-color="AccentColor"
+    progress value=value max=100 width="100%" testId=tid
 
 // Five stars, filled to the rating, in the tint.
 component Stars

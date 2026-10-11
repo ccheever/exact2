@@ -27,6 +27,7 @@ mod geometry;
 mod lists;
 mod literals;
 mod media;
+mod persist;
 /// Router declaration checking and compile-time path expansion (LLP 1038 D2/D3).
 pub mod placeholder;
 mod posts;
@@ -169,6 +170,8 @@ fn roster_spelling(f: Stdlib, spec: &str) -> &str {
         (Stdlib::Length | Stdlib::IsEmpty, "any") => "string | list",
         (Stdlib::ToString, "any") => "number | string | bool",
         (Stdlib::First | Stdlib::At, "any") => "list",
+        // The ISO 4217 codes `"currency"` takes (LLP 1116 D8), too many to spell here.
+        (Stdlib::FormatNumber, code) if code.starts_with("\"USD\"") => "\"USD\" | \"EUR\" | …",
         _ => spec,
     }
 }
@@ -895,6 +898,9 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                     }
                 }
                 routes::location(f, args, shapes)?;
+                if f == Stdlib::FormatNumber {
+                    literals::currency_code(args, *span)?;
+                }
                 match (f, given.first()) {
                     // `first(list<T>)` is `option<T>` (LLP 1054.000 C4).
                     (Stdlib::First, Some(Ty::List(item))) => Ty::Option(item.clone()),
@@ -1289,6 +1295,7 @@ fn check_with_sites(
         });
     }
     check_root(file, &mut types, &expanded, &mut sink);
+    persist::check(file, &types, &expanded, &mut sink);
     // What lowering lowers: each caller's names renamed apart from what its
     // callees read, after the checks spoke in the author's (LLP 1089 D7).
     contract_syntax::hygiene(&mut expanded, file);

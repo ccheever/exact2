@@ -76,8 +76,13 @@ extension RegionTextSource {
         let runs = rows.compactMap(run)
         guard runs.count == rows.count, let strut = run(strutRow),
               runs.reduce(0, { $0 + $1.text.utf8.count }) <= 8 * 1024 * 1024 else { return nil }
-        return capture(Spec(runs: runs, align: wire["align"] as? Int ?? 0,
+        var spec = Spec(runs: runs, align: wire["align"] as? Int ?? 0,
             lineClamp: wire["lineClamp"] as? Int ?? 0, color: [0,0,0,255],
-            overflowWrap: wire["overflowWrap"] as? Int ?? 0, strut: strut), engine: engine)
+            overflowWrap: wire["overflowWrap"] as? Int ?? 0, strut: strut)
+        // CSS `text-box`: a region's paragraph is trimmed as any other
+        spec.textBoxTrim = wire["textBoxTrim"] as? Int ?? 0
+        spec.textBoxOver = wire["textBoxOver"] as? Int ?? 0
+        spec.textBoxUnder = wire["textBoxUnder"] as? Int ?? 0
+        return capture(spec, engine: engine)
     }
 }

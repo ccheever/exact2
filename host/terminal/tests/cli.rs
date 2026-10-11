@@ -179,3 +179,29 @@ fn native_cell_look_keeps_bare_fields_and_authored_ink() {
         );
     }
 }
+
+/// LLP 1116 D8: a determinate `progress` is a row of blocks, `█` to its
+/// value and `░` after, across its box (HTML's 10em).
+#[test]
+fn a_progress_bar_is_a_row_of_blocks() {
+    let dir = std::env::temp_dir().join(format!("exact-terminal-cli-{}-bar", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("app.contract");
+    std::fs::write(
+        &path,
+        "component App\n  view\n    column\n      progress value=3 max=4\n",
+    )
+    .unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_exact-terminal"))
+        .arg(&path)
+        .args(["--size", "40x6", "--inline", "print"])
+        .output()
+        .expect("runs");
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(text.contains("███████████████░░░░░"), "{text}");
+}

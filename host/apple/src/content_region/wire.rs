@@ -68,10 +68,14 @@ pub(super) fn request(kernel: &Kernel, p: &Pending, known: u64) -> Result<String
             exact_kernel::OverflowWrap::BreakWord => 1,
             exact_kernel::OverflowWrap::Anywhere => 2,
         };
+        // CSS `text-box`, as an ordinary paragraph's request carries it
         let _ = write!(
             out,
-            ",\"align\":{align},\"lineClamp\":{},\"overflowWrap\":{wrap},\"strut\":{{",
-            r.paragraph.line_clamp
+            ",\"align\":{align},\"lineClamp\":{},\"overflowWrap\":{wrap},\"textBoxTrim\":{},\"textBoxOver\":{},\"textBoxUnder\":{},\"strut\":{{",
+            r.paragraph.line_clamp,
+            r.paragraph.text_box_trim as u8,
+            r.paragraph.text_box_edge.over() as u8,
+            r.paragraph.text_box_edge.under() as u8
         );
         metric(r.paragraph.strut, &mut out);
         out.push('}');

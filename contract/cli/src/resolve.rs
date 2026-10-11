@@ -6,7 +6,10 @@
 use std::path::{Path, PathBuf};
 
 /// The modules every app can name without installing anything.
-const BUILTINS: &[(&str, &str)] = &[("exact:motion", include_str!("../../lib/motion.contract"))];
+const BUILTINS: &[(&str, &str)] = &[
+    ("exact:motion", include_str!("../../lib/motion.contract")),
+    ("exact:content", include_str!("../../lib/content.contract")),
+];
 
 /// Where a loaded source came from: what bounds its own relative uses, and
 /// what a capture or a watch must take with it.
