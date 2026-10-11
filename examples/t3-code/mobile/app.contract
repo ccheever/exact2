@@ -1,7 +1,8 @@
+use HtmlRenderContext, HtmlRenderResult, htmlRenderReply from "./html-render.contract"
 use ThreadSubmissionInput, ThreadSubmissionResult, ThreadSubmission, ThreadLocalColors from "./thread-send-root.contract"
 use threadSubmissionNoticeMessage, changeNoticeMessage, voiceNoticeMessage, filesNoticeMessage, informationNoticeMessage, settingNoticeMessage, automationNoticeMessage from "./mobile-root-notices.contract"
 use TerminalAttachChange, SnapshotRead from "./app-shapes.contract"
-use PairingUi, pairingUiScan, followedLocation, settingsEventPlan, pairingCameraPlan, mediaUiInitial, mediaUiOpen, mediaUiRetry, documentReplyPlan, mediaReplyPlan, TerminalCaptureSelection, terminalCaptureStart, terminalCaptureSelect, terminalCaptureAttached, ArchiveFilters, archiveFiltersChange, ArchiveDeleteTarget, GitForm, gitFormField, gitFormBranches from "./mobile-root-state.contract"
+use pairingReplyPlan, modelReplyPlan, taskReplyPlan, PairingUi, pairingUiScan, followedLocation, settingsEventPlan, pairingCameraPlan, mediaUiInitial, mediaUiOpen, mediaUiRetry, documentReplyPlan, mediaReplyPlan, TerminalCaptureSelection, terminalCaptureStart, terminalCaptureSelect, terminalCaptureAttached, ArchiveFilters, archiveFiltersChange, ArchiveDeleteTarget, GitForm, gitFormField, gitFormBranches from "./mobile-root-state.contract"
 use IncomingShareInbox, IncomingSharePresentation from "./incoming-share-shapes.contract"
 use MobileKeyboard, MobileKeyboardSnapshot, MobileKeyboardResult from "./mobile-keyboard.contract"
 use MobileGitFeedback, MobileGitFeedbackSnapshot, MobileGitFeedbackResult from "./git-overview.contract"
@@ -602,7 +603,16 @@ component App
     if not pending(changed) and not pending(threadSubmissionChanged)
       send threadSubmissionChanged = threadSubmissionAction(threadSubmissionInput, op, id, value, threadSubmission.expectedOwner, `${top(nav).id}`, wallTime.epochAtZero + now())
   resource threadLook = threadColors(appearance.scheme, appearance.themeId) as shape ThreadColors
-  resource threadData = threadView(data.revision, wallTime.epochAtZero + elapsed, appearance.scheme, top(nav).params.threadEnvironment, top(nav).params.threadId, startsWith(top(nav).name, "thread"), `${top(nav).id}`, top(nav).name) as shape ThreadSnapshot
+  resource htmlRenderContext = htmlRenderContext(top(nav).name, `${top(nav).id}`, top(nav).params.threadEnvironment, top(nav).params.threadId, searchParam(top(nav), "htmlRender"), top(nav).params.attachmentId, mediaUi.readVersion, data.revision) as shape HtmlRenderContext
+  mutation htmlRenderChanged as shape HtmlRenderResult queue refreshes threadData, documentData then didHtmlRender
+  action didHtmlRender
+    let result = htmlRenderReply(htmlRenderChanged)
+    if result.received and result.requestRoute == `${top(nav).id}` and result.context == htmlRenderContext.context
+      showMobileNotice("Page", result.message)
+      if result.openKey != "" and result.attachmentId != "" and not htmlRenderContext.full and length(filter(threadData.rows, row => row.htmlRender.identifier == result.identifier and row.htmlRender.key == result.openKey)) > 0
+        mediaUi = mediaUiOpen(mediaUi, wallTime.epochAtZero + now())
+        nav = push(nav, path("threadMedia", data.environmentId, data.threadId, result.attachmentId) + "?htmlRender=" + encodeURIComponent(result.openKey))
+  resource threadData = threadView(data.revision, wallTime.epochAtZero + elapsed, appearance.scheme, top(nav).params.threadEnvironment, top(nav).params.threadId, startsWith(top(nav).name, "thread"), `${top(nav).id}`, top(nav).name, htmlRenderContext.context, workspace.contentSettledWidth - workspace.chatHorizontalPadding * 2, appearance.themeId) as shape ThreadSnapshot
   resource queueData = queueSnapshot(`${top(nav).id}`, top(nav).name == "threadQueue" and workspaceRouteReady, wallTime.epochAtZero + elapsed, data.revision) as shape MobileQueueSnapshot
   mutation queuePrepared as shape Change refreshes queueData
   task prepareQueueThumbnails when top(nav).name == "threadQueue" and workspaceRouteReady and queueData.visit == `${top(nav).id}` and queueData.thumbnailRequest != "" and not pending(queuePrepared) key=`${queueData.owner}:${queueData.visit}:${queueData.thumbnailRequest}`
@@ -649,7 +659,9 @@ component App
       if not pending(outboxChanged)
         send outboxChanged = outboxAction("retry", id, wallTime.epochAtZero + now())
     else if top(nav).params.threadEnvironment == data.environmentId and top(nav).params.threadId == data.threadId
-      if op == "fork-response"
+      if op == "html-render"
+        send htmlRenderChanged = htmlRenderEvent(htmlRenderContext.context, id, value, `${top(nav).id}`, htmlRenderContext.full)
+      else if op == "fork-response"
         if not pending(selected) and not pending(routeSelected)
           haptic("selection")
           send selected = threadFork(id, value, `${top(nav).id}`)
@@ -1018,7 +1030,7 @@ component App
     else if value == "preview" or value == "source"
       filePreview = value == "preview" ? fileData.path : ""
   derive mediaActive = top(nav).name == "threadMedia" or top(nav).name == "threadDraftMedia" or top(nav).name == "newTaskMedia"
-  derive mediaScope = top(nav).name == "threadMedia" ? "transcript" : "composer"
+  derive mediaScope = top(nav).name == "threadMedia" ? (htmlRenderContext.full ? "html-render" : "transcript") : "composer"
   state mediaContentOwner = ""
   state mediaUi = mediaUiInitial()
   state audioRaw = ""
@@ -1032,11 +1044,11 @@ component App
     send audioChanged = audioAction(documentData.identifier, value)
   resource mediaViewerData = attachmentNativePreview(mediaUi.nativeSource) as shape MediaPreviewSnapshot
   derive mediaRouteKey = `${top(nav).id}:${mediaUi.readVersion}`
-  resource documentData = attachmentDocument(mediaScope, top(nav).params.attachmentId, mediaRouteKey, mediaUi.rendered, appearance.scheme, mediaActive and mediaData.kind == "file", mediaData.identifier, mediaUi.readAt > 0 ? mediaUi.readAt : wallTime.epochAtZero, taskGuardOwner, taskGuardRoute) as shape AttachmentDocumentSnapshot
+  resource documentData = attachmentDocument(mediaScope, top(nav).params.attachmentId, mediaRouteKey, mediaUi.rendered, appearance.scheme, mediaActive and mediaData.kind == "file", mediaData.identifier, mediaUi.readAt > 0 ? mediaUi.readAt : wallTime.epochAtZero, taskGuardOwner, taskGuardRoute, htmlRenderContext.context, htmlRenderContext.key, appearance.themeId, mediaUi.nativeOpen, htmlRenderContext.full ? wallTime.epochAtZero + max(elapsed, now()) : 0) as shape AttachmentDocumentSnapshot
   resource documentMenu = attachmentMenu(documentData, settingsAppearance.codeWordBreak) as shape AttachmentDocumentMenu
   mutation documentChanged as shape AttachmentDocumentAction refreshes data then didDocumentAction
   action documentAction(value: string)
-    send documentChanged = attachmentDocumentAction(value, mediaScope, top(nav).params.attachmentId, mediaRouteKey, documentData, taskGuardOwner, taskGuardRoute)
+    send documentChanged = attachmentDocumentAction(value, mediaScope, top(nav).params.attachmentId, mediaRouteKey, documentData, taskGuardOwner, taskGuardRoute, htmlRenderContext.context, htmlRenderContext.key)
   action documentNativeEvent(value: string)
     send documentChanged = attachmentNativeEvent(value, documentData.identifier)
   action didDocumentAction
@@ -1049,7 +1061,7 @@ component App
       send preferenceChanged = preferenceChange("codeWordBreak", settingsAppearance.codeWordBreak ? "false" : "true")
   action retryDocument
     mediaUi = mediaUiRetry(mediaUi, wallTime.epochAtZero + now())
-  resource mediaData = mediaPreview(mediaScope, top(nav).params.attachmentId, mediaRouteKey, newTaskActive ? data.environmentId : top(nav).params.threadEnvironment, newTaskActive ? "" : top(nav).params.threadId, mediaActive, data.environmentId, data.threadId, data.generation, taskGuardOwner, taskGuardRoute, mediaContentOwner, composerAttachments.contentOwner) as shape MediaPreviewSnapshot
+  resource mediaData = mediaPreview(mediaScope, top(nav).params.attachmentId, mediaRouteKey, newTaskActive ? data.environmentId : top(nav).params.threadEnvironment, newTaskActive ? "" : top(nav).params.threadId, mediaActive, data.environmentId, data.threadId, data.generation, taskGuardOwner, taskGuardRoute, mediaContentOwner, composerAttachments.contentOwner, htmlRenderContext.context, htmlRenderContext.key) as shape MediaPreviewSnapshot
   mutation mediaCompleted as shape MediaCompletion then didMediaComplete
   action mediaComplete(value: string)
     send mediaCompleted = mediaCompletion(value, mediaData.identifier)
@@ -1178,15 +1190,11 @@ component App
     if not pending(modelChanged)
       send modelChanged = composerAction(kind, id, value, taskGuardOwner, taskGuardRoute, `${top(nav).id}`)
   action didModelChange
-    match modelChanged
-      case some(result)
-        if result.requestRoute == `${top(nav).id}`
-          if result.message != ""
-            send notice = alert("info", "Could not update model", result.message)
-          else if result.closed or top(nav).name == "newTaskModelOption" or top(nav).name == "threadModelOption" or top(nav).name == "newTaskRuntime" or top(nav).name == "threadRuntime"
-            nav = back(nav)
-      case none
-        modelQuery = modelQuery
+    let result = modelReplyPlan(modelChanged)
+    if result.hasReply and result.requestRoute == `${top(nav).id}`
+      showMobileNotice("Could not update model", result.message)
+      if result.message == "" and (result.closed or top(nav).name == "newTaskModelOption" or top(nav).name == "threadModelOption" or top(nav).name == "newTaskRuntime" or top(nav).name == "threadRuntime")
+        nav = back(nav)
   action editModelQuery(value: string)
     modelQuery = value
   action toggleLegacy(expected: string, value: bool)
@@ -1211,25 +1219,23 @@ component App
       newTaskOperation = kind
       send taskChanged = newTaskAction(newTaskFlow.owner, `${top(nav).id}`, kind, id, value, wallTime.epochAtZero + now())
   action didTaskChange
-    match taskChanged
-      case some(result)
-        if result.requestRoute == `${top(nav).id}`
-          if newTaskOperation != "draft" and newTaskOperation != "send" and newTaskOperation != "send-alternate"
-            newTaskContextRevision = newTaskContextRevision + 1
-          if result.message != ""
-            send notice = alert("info", (result.alertTitle != "" ? result.alertTitle : newTaskOperation == "scratch" ? "Could not start without a project" : "Could not update task"), result.message)
-          else if result.submitted
-            nav = open(nav, path("thread", result.environmentId, result.threadId))
-          else if result.nextLocation == "@close"
-            nav = back(go(nav, path("newTask")))
-          else if result.nextLocation == "/"
-            nav = replace(go(nav, path("newTask")), path("home"))
-          else if result.nextLocation != ""
-            nav = push(nav, result.nextLocation)
-          else if newTaskOperation == "environment" or newTaskOperation == "branch"
-            nav = back(nav)
-      case none
-        newTaskOperation = ""
+    let result = taskReplyPlan(taskChanged, newTaskOperation)
+    if not result.hasReply
+      newTaskOperation = ""
+    else if result.requestRoute == `${top(nav).id}`
+      if result.contextDelta != 0
+        newTaskContextRevision = newTaskContextRevision + result.contextDelta
+      showMobileNotice(result.alertTitle, result.message)
+      if result.navigation == "thread"
+        nav = open(nav, path("thread", result.environmentId, result.threadId))
+      else if result.navigation == "close"
+        nav = back(go(nav, path("newTask")))
+      else if result.navigation == "home"
+        nav = replace(go(nav, path("newTask")), path("home"))
+      else if result.navigation == "push"
+        nav = push(nav, result.nextLocation)
+      else if result.navigation == "back"
+        nav = back(nav)
   action editNewDraft(value: string, owner: string)
     send taskDraftChanged = newTaskAction(newTaskFlow.owner, `${top(nav).id}`, "draft", owner, value, wallTime.epochAtZero + now())
   mutation taskDraftChanged as shape NewTaskFlowResult refreshes data, newTaskData
@@ -1347,16 +1353,11 @@ component App
     pairingUi = PairingUi(pairingUi, submitted=true)
     send changed = command(targetEnvironment == "" ? "environment-add" : "environment-add-route", pairingUi.host, pairingUi.code, targetEnvironment, taskGuardOwner, taskGuardRoute)
   action didChange
-    match changed
-      case some(result)
-        let pairingSucceeded = pairingUi.submitted and result.message == "" and top(nav).name == "connect"
-        pairingUi = PairingUi(pairingUi, formError=result.message, expanded=(lastOperation == "save" and result.message == "" ? "" : pairingUi.expanded), host=(pairingUi.submitted and result.message == "" ? "" : pairingUi.host), code=(pairingUi.submitted and result.message == "" ? "" : pairingUi.code), submitted=false)
-        if result.message != "" and (lastOperation == "thread-action" or lastOperation == "attachments")
-          send notice = alert("info", "Could not complete action", result.message)
-        if pairingSucceeded
-          nav = back(nav)
-      case none
-        pairingUi = PairingUi(pairingUi, submitted=false)
+    let result = pairingReplyPlan(pairingUi, changed, lastOperation)
+    pairingUi = result.next
+    showMobileNotice("Could not complete action", result.message)
+    if result.succeeded and top(nav).name == "connect"
+      nav = back(nav)
   mutation followed as shape AppLink then didFollow
   state launchRouteId = `${top(nav).id}`
   state launchLocation = top(nav).url
@@ -1477,7 +1478,7 @@ component App
             MobileRouteContent(
               threadHeaderConfiguration=(threadHeader.ready ? threadHeader.configuration : ""), workingControl=workingControl, threadHeaderAction=threadHeaderAction, terminalMountReady=(threadHeader.pendingLaunch == "" and not pending(threadHeaderChanged)), queueData=queueData, gitData=gitData, gitBranchesData=gitBranchesData, gitCommitMessage=gitForm.message, gitNewBranch=gitForm.branch, gitWorktreeBase=gitForm.worktreeBase, gitWorktreeBranch=gitForm.worktreeBranch, gitLook=gitLook, gitAction=gitAction, gitBranchAction=gitBranchAction, gitField=gitField, refreshGit=refreshGit, openGit=openGit, toggleInspector=toggleInspector, homeEpochAtZero=wallTime.epochAtZero, refreshHomeClock=tick, routeName=entry.name, routeId=`${entry.id}`, modelOption=entry.params.modelOption, modelOptionTitle=searchParam(entry, "title"), focused=(entry.id == top(nav).id), notificationSettings=notificationSettings, viewport=viewport, workspace=workspace, voiceFocus=voiceFocus, voiceData=voiceData, voiceLook=voiceLook, appearance=appearance, look=look,
               data=data, detail=detail, informationRoute=informationRoute, informationData=informationData, informationLegal=informationLegal, settingsData=settingsData, settingsAppearance=settingsAppearance, settingsChoice=settingsChoice, threadPreferences=threadPreferences, projectOverview=projectOverview, serverSettings=serverSettings, providerAccounts=providerAccounts, automationData=automationData, scheduledHeader=scheduledHeader, layout=layout, chrome=chrome, threadLook=threadLook, threadData=threadData, previewLook=previewLook, browserData=browserData, devicesData=devicesData, browserMenus=browserMenus, devicesMenus=devicesMenus, terminalData=terminalData,
-              terminalCapture=terminalCapture, reviewLook=reviewLook, reviewData=reviewData, filesData=filesData, fileData=fileData, audioData=audioData, mediaViewerData=mediaViewerData, documentData=documentData, documentMenu=documentMenu, mediaData=mediaData, composerAttachments=composerAttachments, composerLook=composerLook, addProjectData=addProjectData, addProjectLook=addProjectLook, editAddProject=editAddProject, browseAddProject=browseAddProject, actAddProject=actAddProject, openAddProject=openAddProject, newTaskClone=newTaskClone, newTaskCloneLook=newTaskCloneLook, modelData=modelData, newTaskFlow=newTaskFlow, newTaskData=newTaskData, archiveLook=archiveLook, archiveData=archiveData, agentLook=agentLook, agents=agents, homeLook=homeLook, home=home, informationQuery=informationQuery, projectSavedRevision=projectSavedRevision, composerFocused=composerFocused,
+              terminalCapture=terminalCapture, reviewLook=reviewLook, reviewData=reviewData, filesData=filesData, fileData=fileData, audioData=audioData, mediaViewerData=mediaViewerData, documentData=documentData, documentMenu=documentMenu, htmlRenderContext=htmlRenderContext, mediaData=mediaData, composerAttachments=composerAttachments, composerLook=composerLook, addProjectData=addProjectData, addProjectLook=addProjectLook, editAddProject=editAddProject, browseAddProject=browseAddProject, actAddProject=actAddProject, openAddProject=openAddProject, newTaskClone=newTaskClone, newTaskCloneLook=newTaskCloneLook, modelData=modelData, newTaskFlow=newTaskFlow, newTaskData=newTaskData, archiveLook=archiveLook, archiveData=archiveData, agentLook=agentLook, agents=agents, homeLook=homeLook, home=home, informationQuery=informationQuery, projectSavedRevision=projectSavedRevision, composerFocused=composerFocused,
               reviewComment=reviewComment, filesQuery=filesQuery, filePreview=(filePreview == fileData.path), fileMenu=fileMenu.configuration, mediaNativeOpen=mediaUi.nativeOpen, mediaNativeError=mediaUi.nativeError, modelQuery=modelQuery, modelLegacy=modelLegacy, modelFilterOwner=modelFilterOwner, newTaskQuery=newTaskQuery, branchQuery=branchQuery, archiveChrome=archiveChrome, host=pairingUi.host, code=pairingUi.code, formError=pairingUi.formError, expanded=pairingUi.expanded, scannerOpen=pairingUi.scannerOpen, cameraStatus=pairingUi.cameraStatus, composerExpanded=(composerExpanded and (composerEditor == `thread-composer-${entry.id}` or composerReturn.editorId == `thread-composer-${entry.id}`)), archiveDataPending=(pending(archiveRead)), archivedPending=(pending(archived)), automationChangedPending=(pending(automationChanged)),
               changedPending=(pending(changed) or pending(threadSubmissionChanged)), detailChangedPending=(pending(detailChanged)), modelChangedPending=(pending(modelChanged)), projectRenamedPending=(pending(projectRenamed)), taskChangedPending=(pending(taskChanged)), threadPreferencesChangedPending=(pending(threadPreferencesChanged)), toggleSidebar=toggleSidebar, openNewTask=openNewTask, voiceAction=voiceAction, informationCommand=informationCommand, informationSearch=informationSearch, openInformation=openInformation, threadPreferenceChange=threadPreferenceChange, renameProject=renameProject, automationAction=automationAction, serverSettingChange=serverSettingChange, providerAction=providerAction, providerField=providerField, providerSignOut=providerSignOut, settingsEnvironment=settingsEnvironment, changePreference=changePreference, settingsHeaderEvent=settingsHeaderEvent, openSetting=openSetting, homeEvent=homeEvent,
               richComposer=richComposer, richComposerAction=richComposerAction, richComposerEvent=richComposerEvent, richComposerMessage=richComposerMessage, threadSubmission=threadSubmission, threadLocalLook=threadLocalLook, threadLocalCommand=threadLocalCommand, editDraft=editDraft, composerFocus=composerFocus, threadAction=threadAction, browserAction=browserAction, devicesAction=devicesAction, browserMenu=browserMenu, devicesMenu=devicesMenu, openBrowser=openBrowser, openDevices=openDevices, terminalAction=terminalAction, terminalMenuConfiguration=terminalData.sourceJSON, terminalMenuEvent=terminalEvent, terminalEvent=terminalEvent, selectTerminalLine=selectTerminalLine, attachTerminalOutput=attachTerminalOutput, openReview=openReview, reviewAction=reviewAction, refreshReview=refreshReview, loadReviewFiles=loadReviewFiles, editReviewComment=editReviewComment, submitReviewComment=submitReviewComment,

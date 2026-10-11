@@ -3,10 +3,12 @@ import { describe, expect, test } from 'bun:test';
 import { T3Client } from './shared/client';
 import { arr, type Obj } from './shared/domain';
 import { chatLocal, transcriptRows } from './shared/timeline-presentation';
+import { timelineEntries } from './shared/timeline-rows';
 import type { Native } from './shared/protocol';
 import { mobileThread, mobileThreadRows, mobileThreadComposer, mobileThreadBlocks } from './thread';
 import { mobileCodeTokens } from './thread-highlight';
 import { mobileModelSelectionReady, mobileModelSelectionUnavailable } from './model-availability';
+import { htmlRenderFileName, htmlRenderFrameHeight, htmlRenderFromToolItem, htmlRenderReferencesEqual, readHtmlRenderReference } from './html-render';
 
 const now = Date.parse('2026-10-07T12:00:00Z');
 const at = (seconds: number) => new Date(now + seconds * 1000).toISOString();
@@ -192,6 +194,181 @@ describe('mobile V2 transcript presentation', () => {
     expect(blocks.map(block => block.kind)).toEqual(['markdown', 'code', 'markdown']);
     expect(blocks[1]?.tokens.map(token => token.text).join('')).toBe('const a = 1;');
     expect(mobileCodeTokens('<unknown>', 'unregistered-language', true).map(token => token.text).join('')).toBe('<unknown>');
+  });
+});
+
+describe('HTML render metadata foundation', () => {
+  const page = { attachmentId: 'source-thread-page.html', title: 'Revenue', height: 420 };
+  const output = { htmlRender: page, message: 'Shown above the reply.' };
+  const read = (value: unknown, extra: Obj = {}) => htmlRenderFromToolItem(item('render', 'dynamic_tool',
+    { toolName: 'mcp__t3-code__html_render', output: value, ...extra }));
+
+  test('reads provider envelopes and qualified tool identities without mutating compact projection data', () => {
+    for (const [toolName, value] of [
+      ['mcp__t3-code__html_render', [{ type: 'text', text: JSON.stringify(output) }]],
+      ['t3-code.html_render', { structuredContent: output, content: [] }],
+      ['t3-code-thread_1_html_render', JSON.stringify(output)],
+      ['html_render', output],
+      ['html_render completed', { content: [{ text: { text: JSON.stringify(output) } }] }],
+    ] as const) {
+      const compact = item('render', 'dynamic_tool', { toolName, output: value, outputOmitted: true });
+      const before = structuredClone(compact);
+      expect(htmlRenderFromToolItem(compact)).toEqual(page);
+      expect(compact).toEqual(before);
+    }
+  });
+
+  test('requires a successful original dynamic render rather than another tool or activity status', () => {
+    for (const extra of [
+      { type: 'command_execution' }, { status: 'inProgress' }, { status: 'running' }, { status: 'failed' },
+      { toolName: 'mcp__other__html_render' }, { toolName: 'mcp__t3-code__html_preview' },
+      { toolName: 't3-code-thread_html_render_extra' }, { toolName: null },
+    ]) expect(read(output, extra)).toBeUndefined();
+    expect(read(output, { outputOmitted: true })).toEqual(page);
+  });
+
+  test('keeps the first result data and nullish envelope precedence without searching later results', () => {
+    const second = { htmlRender: { ...page, title: 'Other page' } };
+    expect(read([{ text: output }, { text: second }])).toEqual(page);
+    expect(read([{ text: '{}' }, { text: output }])).toBeUndefined();
+    expect(read([{ text: 'not JSON' }, { text: output }])).toEqual(page);
+    expect(read({ structuredContent: output, content: second })).toEqual(page);
+    expect(read({ structuredContent: null, content: output })).toEqual(page);
+    expect(read({ structuredContent: false, content: output })).toBeUndefined();
+    expect(read({ result: output })).toBeUndefined();
+  });
+
+  test('accumulates exact failure markers across envelopes and later content blocks', () => {
+    for (const failure of [{ isError: true }, { is_error: true }, { _tag: 'OrchestratorMcpFailure' },
+      { error: { message: 'Failed' } }, { error: false }]) {
+      expect(read({ ...failure, structuredContent: output })).toBeUndefined();
+      expect(read([{ text: output }, { text: failure }])).toBeUndefined();
+    }
+    expect(read({ ...output, error: null, isError: false, _tag: 'OtherFailure' })).toEqual(page);
+  });
+
+  test('enforces UTF-8 and cumulative parsed-byte budgets, not an unrelated decoded-body limit', () => {
+    const json = JSON.stringify(output), bytes = new TextEncoder().encode(json).byteLength;
+    expect(read(json + ' '.repeat(16_384 - bytes))).toEqual(page);
+    expect(read(json + ' '.repeat(16_385 - bytes))).toBeUndefined();
+    const multibyte = JSON.stringify({ ...output, unused: '😄'.repeat(5000) });
+    expect(multibyte.length).toBeLessThan(16_384);
+    expect(read(multibyte)).toBeUndefined();
+    expect(read([{ text: json + ' '.repeat(9000 - bytes) }, { text: '{}' + ' '.repeat(8998) }])).toBeUndefined();
+    expect(read({ ...output, unused: 'x'.repeat(30_000) })).toEqual(page);
+  });
+
+  test('bounds envelope depth, block count and total visited nodes even after finding a render', () => {
+    const wrap = (count: number) => Array.from({ length: count }).reduce<unknown>(value => ({ content: value }), output);
+    expect(read(wrap(4))).toEqual(page);
+    expect(read(wrap(5))).toBeUndefined();
+    expect(read(Array.from({ length: 32 }, () => ({ text: output })))).toEqual(page);
+    expect(read(Array.from({ length: 33 }, () => ({ text: output })))).toBeUndefined();
+    const nodes = (atLimit: boolean) => Array.from({ length: 32 }, (_, index) => ({
+      text: Array.from({ length: atLimit && index === 0 ? 2 : 3 }, () => ({ text: output })),
+    }));
+    expect(read(nodes(true))).toEqual(page); // 1 root + 32 inner arrays + 95 result objects.
+    expect(read(nodes(false))).toBeUndefined();
+    const cycle: Obj = {}; cycle.content = cycle;
+    expect(read(cycle)).toBeUndefined();
+  });
+
+  test('normalizes title and height while preserving non-UUID attachment identity', () => {
+    const original = { attachmentId: ' parent page.html ', title: '  ' + 'é'.repeat(210) + '  ', height: 420.6,
+      heights: [[10000, 5000], [1, 0], [390, 300.4]] };
+    const before = structuredClone(original), normalized = readHtmlRenderReference(original);
+    expect(normalized).toEqual({ attachmentId: ' parent page.html ', title: 'é'.repeat(200), height: 421,
+      heights: [[1, 80], [390, 300], [10000, 2000]] });
+    expect(original).toEqual(before);
+    expect(readHtmlRenderReference({ ...page, title: '   ', height: -9 })).toEqual({ ...page, title: 'HTML', height: 80 });
+    for (const value of [null, { ...page, attachmentId: '' }, { ...page, attachmentId: 'x'.repeat(257) },
+      { ...page, title: null }, { ...page, height: '420' }, { ...page, height: NaN }, { ...page, height: Infinity }]) {
+      expect(readHtmlRenderReference(value)).toBeUndefined();
+    }
+  });
+
+  test('omits an invalid optional measurement table without losing the published page', () => {
+    for (const heights of [[], [[0, 300]], [[10001, 300]], [[390.5, 300]], [[390, NaN]], [[390, '300']],
+      [[390, 300, 1]], [[390, 300], ['728', 400]], Array.from({ length: 25 }, (_, i) => [i + 1, 300])]) {
+      expect(readHtmlRenderReference({ ...page, heights })).toEqual(page);
+    }
+    expect(readHtmlRenderReference({ ...page, heights: Array.from({ length: 24 }, (_, i) => [i + 1, 300]) })?.heights).toHaveLength(24);
+  });
+
+  test('uses taller responsive neighbors and author-requested scrolling caps at real frame widths', () => {
+    const measured = readHtmlRenderReference({ ...page, height: 1500, heights: [[728, 1403], [390, 1290], [1000, 1660]] })!;
+    expect(htmlRenderFrameHeight(measured, 320)).toBe(1290);
+    expect(htmlRenderFrameHeight(measured, 559)).toBe(1403);
+    expect(htmlRenderFrameHeight(measured, 728)).toBe(1403);
+    expect(htmlRenderFrameHeight(measured, 1400)).toBe(1660);
+    const responsive = readHtmlRenderReference({ ...page, height: 2000, heights: [[520, 900], [640, 450]] })!;
+    expect(htmlRenderFrameHeight(responsive, 590)).toBe(900);
+    expect(htmlRenderFrameHeight(responsive, 640)).toBe(450);
+    expect(htmlRenderFrameHeight({ ...measured, height: 1403 }, 728, 1415)).toBe(1415);
+    expect(htmlRenderFrameHeight(measured, 728, 5000)).toBe(2000);
+    expect(htmlRenderFrameHeight({ ...measured, height: 600 }, 1400, 1415)).toBe(600);
+    expect(htmlRenderFrameHeight(page, 728, 900)).toBe(420);
+    expect(htmlRenderFrameHeight(page, 728, 300)).toBe(300);
+  });
+
+  test('compares all normalized identity fields and builds a safe readable HTML filename', () => {
+    const measured = readHtmlRenderReference({ ...page, heights: [[728, 600], [390, 450]] })!;
+    expect(htmlRenderReferencesEqual(measured, structuredClone(measured))).toBe(true);
+    for (const changed of [{ ...measured, title: 'Other' }, { ...measured, attachmentId: 'other' },
+      { ...measured, height: 421 }, { ...measured, heights: [[390, 450]] as const }]) {
+      expect(htmlRenderReferencesEqual(measured, changed)).toBe(false);
+    }
+    expect(htmlRenderReferencesEqual(page, { ...page, heights: [] })).toBe(true);
+    expect(htmlRenderFileName('  Revenue / FY:26\u0000  ')).toBe('Revenue FY 26.html');
+    expect(htmlRenderFileName('  /:*?"<>|  ')).toBe('Page.html');
+    expect(htmlRenderFileName('x'.repeat(121))).toBe('x'.repeat(120) + '.html');
+  });
+});
+
+describe('dedicated HTML transcript rows', () => {
+  const page = (id: string, extra: Obj = {}) => item(id, 'dynamic_tool', { toolName: 't3-code.html_render',
+    output: { htmlRender: { attachmentId: `asset-${id}`, title: 'Report', height: 420 } }, ...extra });
+  test('classifies before work grouping and preserves source order and inherited identity', () => {
+    const client = fixture([user('Make a report'), page('page'), answer('Done')]);
+    const row = arr(client.projection.visibleTurnItems)[1]!;
+    row.visibility = 'inherited'; row.sourceThreadId = 'parent';
+    const before = structuredClone(client.projection);
+    const source = transcriptRows(client, true);
+    expect(source.map(value => value.kind)).toEqual(['user', 'html-render', 'assistant']);
+    expect(source[1]).toMatchObject({ id: JSON.stringify(['parent', 'page']), runId: 'r1',
+      htmlRenderKey: JSON.stringify(['inherited', 'parent', 'page']) });
+    expect(mobileThreadRows(client, now)[1]).toMatchObject({ kind: 'html-render', activities: [], media: [] });
+    expect(client.projection).toEqual(before);
+  });
+  test('HTML survives turn and superseded-attempt folds while ordinary work can remain folded', () => {
+    const client = fixture([user('Make a report'), item('tool', 'command_execution', { input: 'pwd', output: '/repo', exitCode: 0, nodeId: 'old' }),
+      page('page', { nodeId: 'old' }), answer('Done')], { attempts: [{ id: 'old-attempt', runId: 'r1', rootNodeId: 'old', status: 'superseded' }], nodes: [] });
+    const rows = transcriptRows(client, true);
+    expect(rows.filter(row => row.kind === 'html-render')).toHaveLength(1);
+    expect(rows.find(row => row.kind === 'html-render')?.id).toBe(JSON.stringify(['t1', 'page']));
+    expect(rows.some(row => row.id === JSON.stringify(['t1', 'tool']))).toBe(false);
+    expect(rows.some(row => row.kind === 'attempt' || row.kind === 'work')).toBe(true);
+  });
+  test('incomplete, failed, preview-only and non-HTML tool outputs keep ordinary work classification', () => {
+    const values = [page('running', { status: 'in_progress' }), page('failed', { status: 'failed' }),
+      page('preview', { toolName: 't3-code.html_preview' }), page('error', { output: { isError: true, content: { htmlRender: { attachmentId: 'bad', title: 'Bad', height: 80 } } } })];
+    const client = fixture(values), entries = timelineEntries({ rows: arr(client.projection.visibleTurnItems), attempts: [], nodes: [] });
+    expect(entries).toHaveLength(values.length);
+    expect(entries.every(entry => entry.kind === 'work')).toBe(true);
+  });
+  test('fallback fold duration uses a trailing HTML entry creation time', () => {
+    const client = fixture([user('Make a report'), item('tool', 'command_execution', { input: 'pwd', output: '/repo', exitCode: 0 }),
+      answer('Done'), page('page', { startedAt: at(11), updatedAt: at(20) })],
+      { runs: [{ id: 'r1', status: 'completed', startedAt: null, completedAt: at(20) }] });
+    expect(transcriptRows(client, true).find(row => row.kind === 'work')?.title).toBe('Worked for 11s');
+    expect(transcriptRows(client, true).at(-1)?.kind).toBe('html-render');
+  });
+  test('explicit run timing wins over the trailing HTML entry creation time', () => {
+    const client = fixture([user('Make a report'), item('tool', 'command_execution', { input: 'pwd', output: '/repo', exitCode: 0 }),
+      answer('Done'), page('page', { startedAt: at(11), updatedAt: at(20) })],
+      { runs: [{ id: 'r1', status: 'completed', startedAt: at(0), completedAt: at(20) }] });
+    expect(transcriptRows(client, true).find(row => row.kind === 'work')?.title).toBe('Worked for 20s');
+    expect(transcriptRows(client, true).at(-1)?.kind).toBe('html-render');
   });
 });
 

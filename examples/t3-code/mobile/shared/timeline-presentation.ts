@@ -305,6 +305,8 @@ function present(row: Row, context: PresentContext): Message {
     }
     case 'attempt': return { ...base, kind: 'attempt', title: 'Superseded attempt', detail: 'Partial output retained', expanded: row.expanded, groupId: row.attemptId, runId: row.runId };
     case 'compaction': return { ...base, kind: 'compaction', title: row.label, live: row.active, icon: 'minimize', activities: [keyedLabel(row, row.label)] };
+    case 'html-render': return { ...base, kind: 'html-render', runId: str(row.entry.item.runId),
+      htmlRenderKey: JSON.stringify([str(row.entry.row.visibility), row.entry.row.sourceThreadId, row.entry.row.sourceItemId]) };
     case 'plan': {
       const markdown = str(row.entry.item.markdown);
       return { ...base, kind: 'plan', title: proposedPlanTitle(markdown) ?? 'Proposed plan', body: planBody(markdown), runId: str(row.entry.item.runId),

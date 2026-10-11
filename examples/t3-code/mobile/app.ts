@@ -1,3 +1,6 @@
+import { mobileHtmlRenderContext, mobileHtmlRenderEvent, mobileHtmlRenderCanOpen,
+  mobileHtmlRenderDocumentSource, mobileHtmlRenderSelection } from './html-render-owner';
+import { mobileHtmlRenderDocument, mobileHtmlRenderDocumentAction } from './html-render-document';
 import { mobileComposerRootSnapshot, mobileComposerRootAction } from './composer-root';
 import { mobileThreadSendRootSnapshot, mobileThreadSendRootAction } from './thread-send-root';
 import { mobileThreadForkObserveRoute, mobileThreadForkAction } from './thread-fork';
@@ -68,7 +71,7 @@ import { machineKind } from './shared/connections';
 import { mobileClearClientCaches } from './mobile-cache-controls';
 import { mobileCacheFleetDisplays } from './mobile-client-cache-fleet';
 import { mobileShelves, mobileToggleShelf, mobileHomeView } from './home-state';
-import { mobileThreadLocalColors, mobileTheme, mobileHomeColors, mobileThreadColors, mobileComposerColors, mobileArchiveColors, mobileAgentColors } from './design';
+import { mobileHtmlRenderTheme, mobileThreadLocalColors, mobileTheme, mobileHomeColors, mobileThreadColors, mobileComposerColors, mobileArchiveColors, mobileAgentColors } from './design';
 import { mobilePreferencesResource, mobileSavePreference, mobileApplyAppearance, normalizeMobilePreferences, resolveMobileAppearance } from './settings-preferences';
 import { settingsAppearanceView, settingsChoices } from './settings-appearance';
 import { mobileArchiveCommand, mobileArchiveRead, mobileArchiveScope, mobileArchiveView } from './archive';
@@ -97,6 +100,23 @@ function storageEnvironments() {
 
 // Each generated source has its own checked result type; no union assertion crosses the ABI.
 const sources: Sources = {
+  htmlRenderContext: (args, _store, storage, nativeInput) => {
+    sourceNative('htmlRenderContext', args, nativeInput);
+    return mobileHtmlRenderContext(mobileClient, str(args[0]), str(args[1]), str(args[2]), str(args[3]),
+      str(args[4]), str(args[5]), Number(args[6]));
+  },
+  htmlRenderEvent: async (args, _store, storage, nativeInput) => {
+    const native = sourceNative('htmlRenderEvent', args, nativeInput), context = str(args[0]), key = str(args[1]);
+    const raw = str(args[2]), requestRoute = str(args[3]), nested = args[4] !== true;
+    let parsed; try { parsed = obj(JSON.parse(raw)); } catch { parsed = {}; }
+    const identifier = str(parsed.identifier);
+    const result = { received: true, context, requestRoute, identifier, revision: 0, openKey: '', attachmentId: '', message: '' };
+    if (!native?.available) return result;
+    const event = await mobileHtmlRenderEvent(mobileClient, context, key, nested, identifier, raw, native);
+    if (!event.openKey || !mobileHtmlRenderCanOpen(mobileClient, context, key, identifier)) return { ...result, ...event, openKey: '' };
+    const selected = mobileHtmlRenderSelection(mobileClient, event.openKey);
+    return { ...result, ...event, attachmentId: selected?.reference.attachmentId ?? '', openKey: selected ? event.openKey : '' };
+  },
   composerRoot: args => mobileComposerRootSnapshot(mobileClient, args[0], args[1]),
   composerRootAction: async (args, _store, suppliedStorage, nativeInput) => {
     const input = sourceNative('composerRootAction', args, nativeInput);
@@ -460,6 +480,9 @@ const sources: Sources = {
     if (newTaskGuard('attachmentDocument', args)?.() === false) return EMPTY_ATTACHMENT_DOCUMENT;
     const native = sourceNative('attachmentDocument', args, nativeInput);
     if (args[5] !== true || !args[6]) return EMPTY_ATTACHMENT_DOCUMENT;
+    if (args[0] === 'html-render') return mobileHtmlRenderDocument(mobileClient, str(args[10]), str(args[11]), str(args[1]),
+      args[3] === true, mobileHtmlRenderTheme(str(args[4]), str(args[12])), mobileThreadColors(str(args[4]), str(args[12])).iconSubtle,
+      Number(args[14]), native, args[13] === true);
     return mobileAttachmentDocument(String(args[0]), String(args[1]), String(args[2]), args[3] === true, args[4] === 'dark', Number(args[7]), false, native);
   },
   attachmentNativePreview: (args, _store, storage, nativeInput) => {
@@ -478,12 +501,17 @@ const sources: Sources = {
   },
   attachmentDocumentAction: (args, _store, storage, nativeInput) => {
     const native = sourceNative('attachmentDocumentAction', args, nativeInput);
+    if (args[1] === 'html-render') return mobileHtmlRenderDocumentAction(mobileClient, str(args[7]), str(args[8]), str(args[2]),
+      str(args[0]), args[4] as AttachmentDocumentSnapshot, native);
     return mobileAttachmentDocumentAction(String(args[0]), String(args[1]), String(args[2]), String(args[3]), args[4] as AttachmentDocumentSnapshot, native, storage!);
   },
   mediaPreview: (args, _store, storage, nativeInput) => {
     if (newTaskGuard('mediaPreview', args)?.() === false) return { identifier: '', name: '', kind: '', sourceJSON: '', ready: false, error: '' };
     const native = sourceNative('mediaPreview', args, nativeInput);
     if (args[5] !== true) return { identifier: '', name: '', kind: '', sourceJSON: '', ready: false, error: '' };
+    if (args[0] === 'html-render') return native?.available
+      ? mobileHtmlRenderDocumentSource(mobileClient, str(args[13]), str(args[14]), str(args[1]), native)
+      : { identifier: '', name: '', kind: '', sourceJSON: '', ready: false, error: 'Open this page on your iPhone or iPad.' };
     return mobileMediaPrepare(String(args[0] ?? ''), String(args[1] ?? ''), String(args[2] ?? ''), native, mobileClient, String(args[3] ?? ''), String(args[4] ?? ''), String(args[11] ?? ''));
   },
   mediaCompletion: (args, _store, storage, nativeInput) => {
@@ -772,7 +800,7 @@ async function newTaskFlow(args: unknown[], native?: Native | null) {
 }
 
 async function threadView(args: unknown[], native?: Native | null) {
-  const [_revision, time, scheme, environmentId, threadId, active, visit, routeName] = args;
+  const [_revision, time, scheme, environmentId, threadId, active, visit, routeName, htmlContext, contentWidth, themeId] = args;
   mobileThreadForkObserveRoute(mobileClient, str(visit), active === true && routeName === 'thread'
     && environmentId === mobileClient.environmentId && threadId === mobileClient.threadId);
   const queued = mobileOutboxThread(active === true ? str(environmentId) : '', active === true ? str(threadId) : '', Number(time), scheme === 'dark');
@@ -783,7 +811,8 @@ async function threadView(args: unknown[], native?: Native | null) {
     const preparing = mobileOutboxThread(str(environmentId), str(threadId), Number(time), scheme === 'dark');
     if (preparing) return preparing;
   }
-  const view = mobileThread(Number(time), scheme === 'dark', mobileClient, matched && routeName === 'thread' ? str(visit) : '', matched);
+  const view = mobileThread(Number(time), scheme === 'dark', mobileClient, matched && routeName === 'thread' ? str(visit) : '', matched, { context: str(htmlContext),
+    width: Number(contentWidth) || 0, theme: mobileHtmlRenderTheme(str(scheme), str(themeId)), iconColor: mobileThreadColors(str(scheme), str(themeId)).iconSubtle });
   if (matched) return view;
   return { ...view, title: '', loaded: false, loading: active === true, rows: [], approvals: [],
     emptyTitle: active ? 'Loading thread' : '', emptyDetail: '', readsNeeded: false,

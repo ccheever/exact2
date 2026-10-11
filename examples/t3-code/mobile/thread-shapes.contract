@@ -54,6 +54,7 @@ shape ThreadActivity
   nativeWorkRow: string
   nativeWorkDetail: bool
   nativeCommandDetail: bool
+use HtmlRenderSnapshot from "./html-render.contract"
 shape ThreadRow
   id: string
   kind: string
@@ -73,6 +74,7 @@ shape ThreadRow
   failed: bool
   live: bool
   activities: list<ThreadActivity>
+  htmlRender: HtmlRenderSnapshot
   media: list<ThreadMedia>
   first: bool
   last: bool

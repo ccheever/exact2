@@ -22,6 +22,7 @@ shape AttachmentDocumentSnapshot
   renderedMode: string
   activeMode: string
   sourceJSON: string
+  htmlRenderSource: string
   uri: string
   draft: bool
   rows: list<ReviewRow>
@@ -41,6 +42,8 @@ component MobileAttachmentDocument
     wrap: bool
     retry: action
     nativeEvent: action
+    htmlEvent: action
+    htmlKey: string
     nativeError: string
   view
     column flex=1 min-height=0 background-color=colors.sheet font-family="DM Sans"
@@ -54,8 +57,13 @@ component MobileAttachmentDocument
         column flex=1 align-items="center" justify-content="center" gap=10.5
           t3-archive-spinner spinner-tint=colors.icon width=20 height=20
           text "Loading file..." font-size=14 color=colors.muted
+      else when data.activeMode == "html" and data.htmlRenderSource != ""
+        t3-document-html media-source=data.htmlRenderSource change=htmlEvent flex=1 min-height=0
       else when data.activeMode == "html"
-        t3-document-html media-source=data.sourceJSON change=nativeEvent flex=1 min-height=0
+        when htmlKey == ""
+          t3-document-html media-source=data.sourceJSON change=nativeEvent flex=1 min-height=0
+        else
+          view flex=1 min-height=0
       else
         when data.truncated
           column padding-left=14 padding-right=14 padding-top=7 padding-bottom=7 border-bottom-width=1 border-bottom-style="solid" border-bottom-color=colors.border background-color=colors.card
