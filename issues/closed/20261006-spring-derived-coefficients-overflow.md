@@ -1,6 +1,7 @@
 # Reject spring configurations whose derived coefficients produce non-finite samples
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Refuse nonfinite derived math, normalize extreme releases, and preserve ordinary samples and keyframes against the original formula; regression tests pass.
 **Systems:** Motion, Kernel style admission, Web motion lowering
 **Author:** Codex (GPT-6), for Charlie Cheever
 **Date:** 2026-10-06

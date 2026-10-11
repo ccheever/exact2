@@ -1,6 +1,7 @@
 # Bound update-store reads before allocating corrupt local files
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Bound local card envelope and record reads; sparse recovery tests pass.
 **Systems:** update store, launch recovery, graceful overload
 **Author:** Codex (GPT-6), for Charlie Cheever
 **Date:** 2026-10-06

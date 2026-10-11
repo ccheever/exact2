@@ -603,6 +603,7 @@ fn bound_transition_stacking_matches_kernel() {
         "-exact-spring(300, 30, 0)",
         "-exact-spring(300, 30)",
         "-exact-spring(300, 30, 1e309)",
+        "-exact-spring(100, 1e200, 1)",
     ];
     for property in properties {
         for easing in easings {
@@ -614,6 +615,7 @@ fn bound_transition_stacking_matches_kernel() {
     for count in [8, 9] {
         values.push(vec!["opacity 1s"; count].join(", "));
     }
+    values.push("opacity 1s linear, color -exact-spring(100, 1e200, 1)".into());
     for count in [64, 65] {
         values.push(format!("200ms linear({})", vec!["0"; count].join(",")));
     }
