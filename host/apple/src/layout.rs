@@ -248,6 +248,20 @@ impl<D: DataSource> Host<D> {
                     }
                 }
             }
+            // A fitted paragraph's scale moves with its layout (LLP 1116.001 D1.4).
+            let fit = fit_scale(&node);
+            if m.props.get("fitScale") != fit.as_ref() {
+                match fit {
+                    Some(scale) => {
+                        batch.props(id, &[("fitScale", scale.clone())], &[]);
+                        m.props.insert("fitScale".into(), scale);
+                    }
+                    None => {
+                        batch.props(id, &[], &["fitScale"]);
+                        m.props.remove("fitScale");
+                    }
+                }
+            }
             let field_content = node.field_content_rect();
             if (self.layout_withheld && node.node_type == NodeType::TextInput)
                 || m.field_content != field_content

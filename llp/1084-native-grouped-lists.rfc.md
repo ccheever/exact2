@@ -153,7 +153,7 @@ Colours are `light-dark()` pairs of §2's values.
 - **Symbols on the web are role paths in a 24-unit box** (LLP 1035.004.000), so a sheet-sized chevron draws a little smaller there than UIKit's glyph. An `sf/` name draws nothing on the web or Linux, as everywhere.
 - **A custom row's width is the kernel's.** In a wider UIKit layout margin (an iPad, landscape), its views keep the sheet's 16-pt inset, while UIKit's own cells follow the margin.
 - **The large-title collapse (LLP 1075.003 §3.7) does not follow a grouped list.** It follows the route's authored scroll, which this list hides. The route's `setContentScrollView` would need to be the collection view (§7).
-- **Swipe actions (`swipeContent`) on a grouped list's rows are not projected into its cells.**
+- ~~**Swipe actions (`swipeContent`) on a grouped list's rows are not projected into its cells.**~~ Closed 2026-10-11 (LLP 1116.001 D1): a row that names them takes its list cell's own swipe, UIKit's actions from `trailingSwipeActionsConfigurationProvider` and its leading twin, a full swipe performing the first. The swipe host keeps the row's controls hidden while the list carries it and makes no table (`SwipeActionsIOS.swift`, `GroupedListIOS.swift`).
 - **A part hidden by a class's `display: none` is counted by the sheet.** The sheet sees only a literal `display="none"` written on the part. A class is applied when that part is lowered, after the row's parts are counted, so the kernel and the sheet can disagree about which text is the title. Write the attribute, or use `when`.
 - **The 35.33-pt first gap goes only to a section written first.** A first section under `when`, `match` or `each` may share its body with others or follow nothing, so it gets the 17.33-pt gap.
 - **A custom row takes no cell highlight.** Its carried views keep their own touch handling, so its press, press feedback and nested controls stay the author's.
@@ -310,5 +310,5 @@ gaps, a titled section's header 20 under the card above).
 
 - **`sidebar` and `sidebarPlain`.** These are UIKit's other two appearances. They wait for an iPad or Mac consumer.
 - **The large title.** The route's content scroll view (LLP 1075.003 §3.7) should be the collection view when a grouped list is the scroller after the header.
-- **Swipe actions on rows.** `UICollectionLayoutListConfiguration`'s own `trailingSwipeActionsConfigurationProvider` would replace the one-row table for a grouped list's rows.
+- ~~**Swipe actions on rows.**~~ Built 2026-10-11 (LLP 1116.001 D1; §6.2's entry).
 - **The Signal Clone.** Its `Section`, `Row` and `ActionRow` become a grouped list. That is a change in the clone's repository, not this one.

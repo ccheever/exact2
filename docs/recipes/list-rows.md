@@ -76,7 +76,23 @@ test "search, filter, swipe and the long-press menu"
   large title. A `tablist` in the content (text tabs, no `aria-controls`) is a
   segmented control.
 - The swipe is a horizontal snap scroll naming its content and its trailing action; on
-  iOS the action is UIKit's own swipe action.
+  iOS the action is UIKit's own swipe action, and a full swipe performs the first one.
+- In a grouped list (`list appearance="auto"`) the same scroll is a section's row, and
+  on iOS it swipes as its list cell, as Settings' and Mail's rows do. The section
+  already insets the row, so leave the scroll's `width` unsaid there and give it
+  `padding-right=0` (a scroll's padding is inside its port, where the action would show
+  at rest on the web); the content keeps the row's trailing inset:
+
+  ```text
+  scroll swipeContent=`row-${n.id}` swipeTrailing=`delete-${n.id}` padding-right=0
+    overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory"
+    row id=`row-${n.id}` width="100%" flex-shrink=0 scroll-snap-align="start"
+      padding-right=16 box-sizing="border-box"
+      text n.title
+    button id=`delete-${n.id}` destructive=true press=remove(n.id) aria-label="Delete"
+      flex-shrink=0 scroll-snap-align="start"
+      image "symbol:delete"
+  ```
 - `contextPopover` names one menu every row shares, and the row's own `contextmenu`
   action runs first, so the menu acts on `aimed`. On iOS the menu is `UIMenu`.
 - A symbol-only button needs an `aria-label`; a destructive one says `destructive=true`.

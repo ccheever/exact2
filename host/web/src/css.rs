@@ -355,6 +355,13 @@ fn css_text_in(
                     push_text!(&mut out, "--exact-press-haptic:{};", kind);
                 }
             }
+            // @ref LLP 1116.001 D1.4 — not CSS: the browser lays the text out,
+            // and navigation.js `fitText` scales it by the kernel's rule.
+            (StyleId::Fit, RowValue::Enum(kind)) => {
+                if *kind != "none" {
+                    push_text!(&mut out, "--exact-fit:{};", kind);
+                }
+            }
             // Written with `rotate` and `translate` (LLP 1077 D8), never alone:
             // nothing of their own to write, and nothing skipped (kanban F30).
             (StyleId::RotateAxis | StyleId::TranslateZ | StyleId::TranslatePercent, _) => {}
@@ -1370,6 +1377,18 @@ mod declaration_tests {
         assert_eq!(text, "rotate:3deg;--exact-press-haptic:impact-medium;");
         assert!(skipped.is_empty(), "{skipped:?}");
         assert_eq!(css(&[(StyleId::PressHaptic, t("none"))], &[]), "");
+    }
+
+    /// `-exact-fit` is the custom property navigation.js `fitText` reads
+    /// (LLP 1116.001 D1.4); its initial value writes nothing.
+    #[test]
+    fn fit_is_navigations_property() {
+        let t = |s: &str| StyleValue::Text(s.into());
+        assert_eq!(
+            css(&[(StyleId::Fit, t("shrink"))], &[]),
+            "--exact-fit:shrink;"
+        );
+        assert_eq!(css(&[(StyleId::Fit, t("none"))], &[]), "");
     }
 
     /// The feedback's separate factor leaves the row's scale and

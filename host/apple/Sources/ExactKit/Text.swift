@@ -25,6 +25,19 @@ import CExact
 import CoreText
 
 /// One styled run: what changes glyph metrics.
+extension Run {
+    /// This run at `scale` of its size, in the kernel's f32 arithmetic
+    /// (`TextStyle::scaled`, LLP 1116.001 D1.4: a fitted paragraph).
+    func scaled(_ scale: Float) -> Run {
+        guard scale != 1 else { return self }
+        var run = self
+        run.size = CGFloat(Float(size) * scale)
+        run.lineHeight = lineHeight.map { CGFloat(Float($0) * scale) }
+        run.letterSpacing = CGFloat(Float(letterSpacing) * scale)
+        return run
+    }
+}
+
 package struct Run: Hashable {
     package var text: String
     package var size: CGFloat

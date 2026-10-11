@@ -25,6 +25,27 @@ fn a_style_shows_its_rows_codec_and_default() {
     assert!(out.contains("dimension, default 0"), "{out}");
 }
 
+/// LLP 1116.001 D1.4: a name Exact invents starts with a dash, and is still
+/// a name (`vocab -exact-fit`), not a flag; the platforms' spellings point at it.
+#[test]
+fn an_exact_name_is_looked_up_and_the_platforms_spellings_name_it() {
+    let out = stdout(&vocab(&["-exact-fit"]));
+    assert!(out.contains("-exact-fit: style attribute"), "{out}");
+    assert!(out.contains("enum none|shrink, default none"), "{out}");
+    assert!(out.contains("adjustsFontSizeToFitWidth"), "{out}");
+    for old in ["adjustsFontSizeToFit", "minimumScaleFactor"] {
+        let output = vocab(&[old]);
+        assert_eq!(output.status.code(), Some(1), "{output:?}");
+        let err = String::from_utf8(output.stderr).unwrap();
+        assert!(err.contains("`-exact-fit`"), "{err}");
+    }
+    assert_eq!(
+        vocab(&["-x"]).status.code(),
+        Some(2),
+        "a short dash is a flag"
+    );
+}
+
 #[test]
 fn a_handler_and_a_tag_say_what_they_are() {
     assert!(stdout(&vocab(&["press"])).contains("press: handler attribute"));

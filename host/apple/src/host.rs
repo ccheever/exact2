@@ -1425,6 +1425,13 @@ fn kind_for(node: &NodeRef<'_>) -> &'static str {
 }
 
 /// Props by their own names, as strings.
+/// @ref LLP 1116.001 D1.4 — the scale the kernel draws a fitted paragraph
+/// at, which Swift multiplies its runs' sizes by: none at full size.
+pub(super) fn fit_scale(node: &NodeRef<'_>) -> Option<String> {
+    let scale = node.fit_scale();
+    (node.node_type == NodeType::Text && scale != 1.0).then(|| style::num(scale))
+}
+
 fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
     for (id, value) in node.props.iter() {
@@ -1443,6 +1450,9 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
         out.insert(PropId::Text.name().to_string(), shown);
     }
     style::glass_auto_props(node, &mut out); // LLP 1053.000.000.000 D2
+    if let Some(scale) = fit_scale(node) {
+        out.insert("fitScale".into(), scale);
+    }
     if node.node_type == NodeType::List && node.props.bool(PropId::Virtualized) == Some(true) {
         // The runner preserves collection anchors and follows the end using
         // sequence-checked corrections. Eager native autoscroll would compete.

@@ -29,7 +29,10 @@ pub fn run(args: &[String]) -> ExitCode {
                 return ExitCode::SUCCESS;
             }
             "--json" => json = true,
-            _ if !arg.starts_with('-') => names.push(arg.as_str()),
+            // A vendor-prefixed name (`-exact-fit`, `-webkit-line-clamp`) is a name, not a flag.
+            _ if !arg.starts_with('-') || (arg.len() > 2 && !arg.starts_with("--")) => {
+                names.push(arg.as_str())
+            }
             _ => {
                 eprintln!("{USAGE}");
                 return ExitCode::from(2);
@@ -193,6 +196,9 @@ fn one_text(name: &str) -> bool {
         }
         if name == "title" {
             println!("  on `head`, the document's title; elsewhere HTML's advisory text, the platform's tooltip (prop title, str)");
+        }
+        if name == "-exact-fit" {
+            println!("  on a `text`: \"shrink\" draws a line too wide for its box smaller until it fits, down to half its size, as UIKit's adjustsFontSizeToFitWidth (a timer's readout at the largest text size); with `white-space=\"nowrap\"` the whole line fits, else its longest word (LLP 1116.001 D1.4)");
         }
     }
     if !value_of.is_empty() {

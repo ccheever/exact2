@@ -492,7 +492,10 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   not exactly the scroll's size, and `logs` says which rule failed (`swipeContent on
   #243 is refused: swipeContent "row" is 390x68, not the row's 390x68.5 border box`):
   a border on the scroll itself shrinks it, so put a hairline on the content (Splitter
-  DIARY, rough 10).
+  DIARY, rough 10). A grouped list's row is exempt (its list cell swipes), but there
+  `width="100%"` on the scroll runs past the card by the section's 16-pt inset and
+  clips the content's last control on every host: use `list-rows`' grouped form
+  (grocery-list DIARY, issue 2, about 15 minutes, round 3).
 
 - **A `swiperight` hears nothing from a finger on iOS.** A mouse drag fires it on
   the web and macOS, in a drive and in a test, while a real touch on an iPhone
