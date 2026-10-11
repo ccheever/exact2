@@ -23,7 +23,7 @@ const BROKEN = `component CheckFixture
       row testId="card" padding=12 border-radius=12 background-color="-exact-secondary-grouped-background"
         text testId="faint" color="#bbbbbb" "Faint text in a card"
       button testId="go" press=toggle buttonStyle="bordered-prominent"
-        text "Go"
+        text "Go" color="white"
       text testId="clip" width=60 height=20 overflow="hidden" "A long label that will not fit"
       text testId="ellipsis" width=60 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" "A long label with an ellipsis"
       column testId="stage" position="relative" height=60
@@ -147,7 +147,8 @@ test('a page with every finding class has each found, by testId, in the scheme i
     expect(l.fits).toBeUndefined();
     expect(l.ellipsis).toBeUndefined(); // an ellipsis the author asked for
     expect(l.go).toBeUndefined(); // white on the light accent reads
-    // In dark the card shows and the faint text reads on it; the label on the pale dark accent does not.
+    // In dark the card shows and the faint text reads on it; the author's white label on the pale
+    // dark accent does not (unsaid, the web picks black there: LLP 1116.003 D3.1).
     expect(d.card).toBeUndefined();
     expect(d.faint).toBeUndefined();
     expect(d.go).toEqual(['contrast']);
