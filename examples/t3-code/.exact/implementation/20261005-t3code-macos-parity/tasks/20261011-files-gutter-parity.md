@@ -163,8 +163,9 @@ UI change:
   [#430](https://github.com/ccheever/exact2/pull/430) (branch `issues/t3-clone-gap-repeating-hatch`, the user's
   2026-10-10 process for a new framework gap); `EXACT2-GAPS.md` and FG-3's rows link it. The plan has no X record for it
   yet: the coordinator merges #430, adds the mapping row to the plan's `issues/README.md` and tells Charlie.
-- Checks: main `bun scripts/issue.mjs check` and caps pass; this branch's change is Markdown only (the five checks once,
-  below).
+- Checks: on #430's branch `bun scripts/issue.mjs check` and caps pass. This branch's change is Markdown only (no test
+  reads either file), so the Bun suite, tsc and `contract build` were not re-run; the five checks on `a87104d10`, all
+  exit 0: cargo build, cargo test (3679 pass / 0 fail / 34 ignored), clippy, fmt, caps, boot.
 
 ## Real-input batch steps
 
