@@ -41,7 +41,7 @@ export function homeChromeView(args: unknown[]) {
 
 // @ref llp/1109.002-design-system-parity.spec.md#user-preference-and-accessibility-scaling
 export function settingsRoot(args: unknown[]) {
-  const [serialized, systemScheme, rows, safeBottom, routeKey, selectionJSON] = args;
+  const [serialized, systemScheme, rows, safeBottom, routeKey, selectionJSON, , projectRouteKey] = args;
   const preferences = normalizeMobilePreferences(serialized);
   const appearance = resolveMobileAppearance(preferences, str(systemScheme));
   const scope = settingsScope(rows, selectionJSON, preferences.projectGroupingMode);
@@ -49,6 +49,7 @@ export function settingsRoot(args: unknown[]) {
     enabledRoutes: ['SettingsThreads', 'SettingsProjectOverview', 'SettingsEnvironments', 'SettingsAppearance', 'SettingsKeyboard', 'SettingsFollowUp', 'SettingsOrganization', 'SettingsArchive', 'SettingsProviderAccounts', 'SettingsScheduledTasks', 'SettingsUsage', 'SettingsAbout', ...Object.keys(MOBILE_SERVER_ROUTES)],
     scope, preferences, scheme: appearance.scheme, themeId: appearance.themeId, safeBottom: Number(safeBottom) || 0 }),
     header: settingsHeaderConfiguration(str(routeKey), true, scope),
+    projectHeader: JSON.stringify({ ...obj(JSON.parse(settingsHeaderConfiguration(str(projectRouteKey), false, scope))), back: false }),
     environmentIds: JSON.stringify(scope.selected.map(environment => environment.environmentId)),
     serverScope: JSON.stringify({ environmentIds: scope.scoped.map(environment => environment.environmentId),
       members: scope.selection.projectKey ? scope.scoped.flatMap(environment =>

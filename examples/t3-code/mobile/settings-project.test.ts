@@ -5,6 +5,7 @@ import { environmentSources } from './shared/connections';
 import { fleet, environmentKey, type FleetEntry } from './shared/settings-b-fleet';
 import type { Native } from './shared/protocol';
 import { mobileProjectOverview, mobileProjectGlyph, mobileProjectIdentity, mobileProjectMembers, mobileProjectProjection, mobileProjectRename } from './settings-project';
+import { answer } from './app';
 const scope={environmentIds:['a','b'],members:[{environmentId:'a',id:'p'},{environmentId:'b',id:'p'}],projectLabel:'Group'};
 function source(id:string){return environmentSources({environmentId:id,origin:`https://${id}.test`,connection:'connected',statusMessage:'',scopes:[],config:{}},[{environmentId:id,origin:`https://${id}.test`}],new Map())[0]!;}
 const projects=(name='repo')=>[{id:'p',title:name,workspaceRoot:'/work/repo',repositoryIdentity:{name:'repo',displayName:'owner/repo'}}];
@@ -59,4 +60,31 @@ test('overview icon targets the first filtered checkout and does not request sig
   members[0]!.project.projectIcon={kind:'emoji',emoji:'🌲'};
   expect(mobileProjectProjection(scope,[source('b')],members,new Set()).faviconTarget.key).toBe('');
  } finally {mobileClient.shellLoaded=priorLoaded;}
+});
+
+test('Project overview scope is bound to its own visit without replacing Back or closing the child', async () => {
+ const f=transport(), oldLoaded=mobileClient.shellLoaded;
+ const oldConfig=mobileClient.config, entry=[...fleet.entries.values()][0]!, oldEntryConfig=entry.config;
+ mobileClient.shellLoaded=true;mobileClient.config={projectScope:true};entry.config={projectScope:true};
+ const rows=['a','b'].map(environmentId=>({environmentId,label:environmentId.toUpperCase(),state:'connected',url:`https://${environmentId}.test`,machine:'laptop'}));
+ const prepare=(selection:string,visit='overview-1')=>answer('settingsRoot',['{}','light',rows,0,'settings-root',selection,0,visit]);
+ try {
+  const initial=prepare(''), first=obj(JSON.parse(initial.projectHeader));
+  const project=obj((first.projects as Obj[])[0]);expect(typeof project.id).toBe('string');
+  const selected=answer('settingsScopeEvent',[JSON.stringify({kind:'project',value:project.id}),'{}','',rows]);
+  expect(selected.close).toBe(false);
+  const scoped=prepare(selected.selection), header=obj(JSON.parse(scoped.projectHeader));
+  expect(obj(JSON.parse(scoped.header))).toMatchObject({routeKey:'settings-root',close:true});
+  expect(header).toMatchObject({routeKey:'overview-1',close:false,back:false,filtered:true,projectKey:project.id});
+  expect(header.addActionID).toBeUndefined();
+  expect((header.projects as Obj[]).find(row=>row.id===project.id)?.selected).toBe(true);
+  expect(obj(JSON.parse(prepare(selected.selection,'overview-2').projectHeader)).routeKey).toBe('overview-2');
+  const all=answer('settingsScopeEvent',[JSON.stringify({kind:'project',value:''}),'{}',selected.selection,rows]);
+  expect(all.close).toBe(false);
+  const cleared=prepare(all.selection), clearedHeader=obj(JSON.parse(cleared.projectHeader));
+  expect(clearedHeader).toMatchObject({routeKey:'overview-1',close:false,back:false,projectKey:'',projectLabel:'All projects'});
+  const data=await mobileProjectOverview(cleared.serverScope,f.native);
+  expect(data.empty).toBe(true);expect(data.emptyMessage).toBe('This project has no checkout on the selected connected environments. Change the filter above.');
+  expect(f.calls.some(call=>call.method==='projects.mutate'||call.op==='writePreferences')).toBe(false);
+ } finally {mobileClient.shellLoaded=oldLoaded;mobileClient.config=oldConfig;entry.config=oldEntryConfig;}
 });

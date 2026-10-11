@@ -26,6 +26,7 @@ shape SettingsView
   environmentIds: string
   root: SettingsRootData
   header: string
+  projectHeader: string
 shape SettingsScopeEvent
   selection: string
   close: bool

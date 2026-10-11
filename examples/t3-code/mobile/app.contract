@@ -294,7 +294,7 @@ component App
       nav = push(nav, location)
   state settingsSelection = ""
   derive settingsRouteKey = match first(filter(stack(nav), route => route.name == "settings")) { case some(route) => `${route.id}`, case none => "settings" }
-  resource settingsData = settingsRoot(preferences.serialized, viewport.prefersColorScheme, data.environments, layout.safeBottom, settingsRouteKey, settingsSelection, data.revision) as shape SettingsView
+  resource settingsData = settingsRoot(preferences.serialized, viewport.prefersColorScheme, data.environments, layout.safeBottom, settingsRouteKey, settingsSelection, data.revision, `${top(nav).id}`) as shape SettingsView
   resource settingsAppearance = settingsAppearance(preferences.serialized, viewport.prefersColorScheme, preferences.ready, layout.safeBottom) as shape SettingsAppearanceData
   resource settingsChoice = settingsChoices(top(nav).params.settingsChoice, preferences.serialized, preferences.ready) as shape SettingsChoicesData
   resource threadPreferences = threadPreferences(top(nav).name == "settingsThreads", settingsData.serverScope, preferences.serialized, preferences.ready, data.revision) as shape ThreadPreferencesData
