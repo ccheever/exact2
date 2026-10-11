@@ -101,3 +101,23 @@ test('a web test run asks the backend its app fetches first', async () => {
     expect(loopbackOrigins(resolve(dist, 'none'))).toEqual([]);
   } finally { server.close(); rmSync(dist, { recursive: true, force: true }); }
 });
+
+// A named port a page just let go of is asked again for a moment; one held for good is refused.
+test('a named port still held is asked again, then refused', async () => {
+  const { listenOn } = await import('./agent-launch.mjs');
+  const { createServer } = await import('node:http');
+  const holder = createServer(), port = await listenOn(holder, 0);
+  try {
+    const next = createServer(), started = Date.now();
+    setTimeout(() => holder.close(), 300);
+    expect(await listenOn(next, port)).toBe(port);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(250);
+    const third = createServer();
+    await expect(listenOn(third, port, '127.0.0.1', 300)).rejects.toMatchObject({ code: 'EADDRINUSE' });
+    // A port the OS handed out is in its ephemeral range, which a named port's refusal names where it can read it.
+    const said = await listenOn(createServer(), port, '127.0.0.1', 0, true).catch((e) => e.message);
+    expect(said).toContain(`port ${port} (--port or EXACT_PORT) is in use`);
+    if (process.platform === 'linux') expect(said).toContain("in this machine's ephemeral range");
+    next.close();
+  } finally { holder.close(); }
+});

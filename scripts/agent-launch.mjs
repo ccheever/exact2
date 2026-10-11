@@ -179,6 +179,27 @@ export function webPort(flag, env = process.env) {
   return port;
 }
 
+/** Listen on `port` (0: any free one). A named port still held is asked again for `ms`: the run's last page, or the
+ * last run's, can still be letting go of it (app farm wave 1: "port in use" between runs). `named` (`--port`/EXACT_PORT)
+ * says so in the refusal, and when the port is in Linux's ephemeral range, which any outgoing connection can borrow. */
+export async function listenOn(server, port, host = '127.0.0.1', ms = port ? 2000 : 0, named = false) {
+  for (const end = Date.now() + ms; ; await new Promise((r) => setTimeout(r, 100))) {
+    try {
+      return await new Promise((ok, fail) => {
+        const listening = () => { server.off('error', failed); ok(server.address().port); }, failed = (e) => { server.off('listening', listening); fail(e); };
+        server.once('error', failed).once('listening', listening).listen(port, host);
+      });
+    }
+    catch (e) {
+      if (e.code === 'EADDRINUSE' && Date.now() < end) { server.close(() => {}); continue; }
+      if (e.code !== 'EADDRINUSE' || !named) throw e;
+      let range = null; try { range = readFileSync('/proc/sys/net/ipv4/ip_local_port_range', 'utf8').trim().split(/\s+/).map(Number); } catch {}
+      const borrowed = range && port >= range[0] && port <= range[1] ? `; it is in this machine's ephemeral range (${range[0]}–${range[1]}), which outgoing connections borrow for a while, so a port outside it is steadier` : '';
+      throw Object.assign(new Error(`port ${port} (--port or EXACT_PORT) is in use: another drive or program holds it${borrowed}`), { code: e.code });
+    }
+  }
+}
+
 /** A launching Chrome's stderr, unfiltered: the last lines, and the first fatal one, which the native stack trace
  * after it pushes out of any tail (app farm 082: "Socket path too long" under a long TMPDIR read as a bare stack). */
 export function launchLog(limit = 8) {

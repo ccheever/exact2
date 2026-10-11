@@ -7,7 +7,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { backLayer, chromium, launchFacts, netOptions, refuseStale, staleError, warnStale, webChanges, withEpoch, withFaults } from './agent-launch.mjs';
+import { backLayer, chromium, launchFacts, listenOn, netOptions, refuseStale, staleError, warnStale, webChanges, withEpoch, withFaults } from './agent-launch.mjs';
 import { deliverClipboard, pasteChord } from './agent-keys.mjs';
 import { pageAim } from './agent-aim.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
@@ -91,9 +91,7 @@ async function files({ plan, pageURL, app, webDist, port }) {
     serveStatic(dist, req, res);
   });
   // `--port`/EXACT_PORT (agent-launch.mjs `webPort`), else a free one.
-  await new Promise((ok, fail) => { server.once('error', fail); server.listen(port ?? 0, '127.0.0.1', ok); }).catch((e) => {
-    throw e.code === 'EADDRINUSE' ? new Error(`port ${port} (--port or EXACT_PORT) is in use: another drive or program holds it; name another`) : e;
-  });
+  await listenOn(server, port ?? 0, '127.0.0.1', undefined, port != null);
   return { js, server, planBuild, url: pageURL ?? `http://127.0.0.1:${server.address().port}/` };
 }
 
