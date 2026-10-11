@@ -17,40 +17,53 @@ is handed to whoever drives it. Pinned to Snapback4 **0.4.16**
 
 ## From TypeScript
 
-### Mount it and build the wasm
+### Set it up: one block
 
-Two steps, both from the app's directory (the one holding `app.json`). An
-app made by `exact new` has both, with this checkout's paths filled in, in its
-`AGENTS.md`.
+From the app's directory (the one holding `app.json`), with the backend in
+the directory above it (`snapback/schema.q`, and `snapback4@0.4.16`
+installed there: `bun add snapback4@0.4.16` or `npm i snapback4@0.4.16`,
+then `bunx snapback4 check` once, which writes `snapback/generated/`). An app made by `exact new` has this
+block, with this checkout's path filled in, in its `AGENTS.md`:
 
-1. Mount the driver in `app.json`. The path is relative to the app's
-   directory, never absolute (the native bake refuses one), and it counts
-   the `../` from there: for an app at `~/work/lane/app` beside a checkout at
-   `~/work/exact2` it is `../../exact2/snapback4/ts`. Run in the app's
-   directory, `bun -e "console.log(require('path').relative('.',
-   '<exact2>/snapback4/ts'))"` prints it.
+```sh
+EXACT2=/path/to/exact2                  # this checkout
+EXACT2="$EXACT2" bun -e '
+const fs = require("fs"), path = require("path");
+const app = JSON.parse(fs.readFileSync("app.json", "utf8"));
+const sources = ((app.typescript ??= {}).sources ??= {});
+sources.snapback4 = path.relative(".", path.join(process.env.EXACT2, "snapback4/ts"));
+if (fs.existsSync("../snapback/generated/api.ts")) sources.backend = "../snapback/generated";
+fs.writeFileSync("app.json", JSON.stringify(app, null, 2) + "\n");
+console.log("app.json: " + JSON.stringify({ typescript: app.typescript }));
+console.log("app.ts must say: export const appId = " + JSON.stringify(app.app.id) + ";");'
+node "$EXACT2/snapback4/web/build.mjs" assets/snapback4.wasm
+```
 
-   ```json
-   "typescript": { "sources": { "snapback4": "../../exact2/snapback4/ts" } }
-   ```
+It does three things, each of which can be done by hand:
 
+1. **Mounts the driver** in `app.json`, as a path relative to the app's
+   directory, never absolute (the native bake refuses one): for an app at
+   `~/work/lane/app` beside a checkout at `~/work/exact2`,
+   `"typescript": { "sources": { "snapback4": "../../exact2/snapback4/ts" } }`.
    A path that is not there fails the web build with the directory it was
    resolved from, the full path, and this checkout's path from the app.
-
-2. Build the device the page loads into the app's `assets/` (the output path
-   is from the current directory), and its glue, which every host's bake
-   type-checks:
-
-   ```sh
-   node <exact2>/snapback4/web/build.mjs assets/snapback4.wasm   # no argument writes only the glue
-   ```
-
-   The first build compiles the client for a few minutes; later ones take
-   seconds. The web host serves `assets/snapback4.wasm` at
+2. **Mounts the backend's generated operations** (`"backend":
+   "../snapback/generated"`), when they are there, so `app.ts` can import
+   `api` from `./backend/api.ts` (["Typed operations"](#typed-operations)).
+   Its `snapback4/contract` types are read from the `snapback4` package
+   installed above that directory. Rerun the block after the backend first
+   writes `snapback/generated/`, or add the line.
+3. **Builds the device** the page loads into `assets/` (the output path is
+   from the current directory) and its glue, which every host's bake
+   type-checks. The first build compiles the client for a few minutes; later
+   ones take seconds. The web host serves `assets/snapback4.wasm` at
    `/assets/snapback4.wasm`, the driver's default (`Snapback.open`'s `wasm`
    names another). A web build of an app that mounts the driver without it
-   says so, with this command. It is pinned to Snapback4
-0.4.16: install that version of `snapback4` for the server.
+   says so, with this command.
+
+It prints the `appId` line `app.ts` needs: `app.json`'s `"app": { "id" }`,
+which `exact new` set from the directory's name. The two must match. The
+driver is pinned to Snapback4 0.4.16: install that version for the server.
 
 ### Time
 
@@ -184,8 +197,9 @@ component Guestbook
 ```ts
 import type { Answer, Result, Sources } from './app.contract.d.ts';
 import { Snapback, refused } from './snapback4/snapback.ts';
+import { api } from './backend/api.ts';                 // the backend's generated operations, mounted
 
-export const appId = 'com.example.guestbook';
+export const appId = 'com.example.app';                 // app.json's "app": { "id" }, as the setup block prints it
 const origin = 'http://127.0.0.1:4400';
 export const grants = `net.fetch ${origin}\nsqlite.open app:/data`;
 
@@ -195,8 +209,6 @@ export const grants = `net.fetch ${origin}\nsqlite.open app:/data`;
 const personas = Snapback.switcher((persona: string) => ({ app: appId, name: `guestbook-${persona}`, origin,
   viewer: `dev:${persona}`, headers: () => ({ 'x-snapback-persona': persona }) }));
 
-type Row = { id: string; author: string; body: string; pending?: boolean };
-
 // Results are keyed by source name: `Result<'notes'>`, `Result<'post'>`. Put
 // the type on the callback `use` runs, where the object is returned: there an
 // undeclared field fails the build (TS2353 names it); on the outer arrow, a
@@ -204,7 +216,7 @@ type Row = { id: string; author: string; body: string; pending?: boolean };
 const sources: Sources = {
   notes: ([persona, now], _store, storage, native) => personas.use(persona, storage, native, async (db): Promise<Result<'notes'>> => {
     const round = await db.sync();                      // offline is fine once synced
-    const read = await db.read<Row[]>('recent', {}, now);
+    const read = await db.read(api.recent, {}, now);   // rows typed by the schema, `pending` included
     if (read.denied) throw refused(read.denied);        // failure(board): `offline`, or `error` with "CODE: message"
     // Project each row onto the shape: an answer's extra fields are refused
     // (a row spread, `{ ...row }`, keeps every field the type check cannot see).
@@ -220,7 +232,8 @@ const sources: Sources = {
     // Write, sync, and the write's fate in one call: `sent` with the mutation's
     // result (here the new row's id), `failed` with the refusal's code, or
     // `pending` when the round did not reach the server (kept; sent later).
-    const fate = await db.send<{ id: string }>('post', { body }, now);
+    // The handle checks `{ body }` against the mutation's arguments.
+    const fate = await db.send(api.post, { body }, now);
     if (fate.state === 'failed') return { ok: false, message: `Refused: ${fate.why?.code}`, id: '' };
     if (fate.state === 'sent') return { ok: true, message: 'Posted.', id: fate.result?.id ?? '' };
     return { ok: true, message: 'Saved on this device; it sends when online.', id: '' };
@@ -272,11 +285,10 @@ test "offline, a note is kept, then delivered on reconnect"
   expect text "sending" == "0 sending"
 ```
 
-`app.json` mounts the driver (`"typescript": { "sources": { "snapback4":
-"<this checkout>/snapback4/ts" } }`), `bun add snapback4@0.4.16` installs the
-server, and `node <this checkout>/snapback4/web/build.mjs assets/snapback4.wasm`
-builds the device. Built and tested as written against 0.4.16 (2026-10-11):
-both tests pass, and pass again on the data a first run leaves.
+The app is `bun <this checkout>/scripts/exact.mjs new app`, run in the
+backend's directory, then wired by the setup block above (both mounts, and
+the device). Built that way and tested as written against 0.4.16
+(2026-10-11): both tests pass, and pass again on the data a first run leaves.
 
 ### Ports: the Snapback origin and the page's own
 
@@ -293,6 +305,32 @@ serves `web`, `test web` and `agent web` on exactly that port, else a free
 one. It never changes the origin the app fetches, and `--port` on `test web`
 is the page's, not the server's. On a machine that assigns you ports, take
 one for `snapback4 dev --port` and the origin, and another for `EXACT_PORT`.
+
+### Typed operations
+
+`snapback4 check` (and `dev`) writes `snapback/generated/api.ts`: `api`, a
+handle per query and mutation, typed by the schema. Mount that directory
+(the setup block does, as `backend`) and pass a handle where a name goes:
+
+```ts
+import { api } from './backend/api.ts';
+const read = await db.read(api.recent, {}, now);     // Read<{ id, author, body, at, pending? }[]>
+const rows = await db.readAll(api.recent, {}, now);  // the same rows, every page
+const fate = await db.send(api.post, { body }, now); // fate.result: { id: string }
+```
+
+The arguments are checked against the operation's (an unknown field fails
+the build: TS2353 names it), the answer is the server's type, and a query's
+handle is refused where a mutation goes. `write(api.post, …)` takes one
+too. A name still works (`db.read<Row[]>('recent', {}, now)`), typed by
+hand. `api.ts` imports its types from `snapback4/contract`; the build reads
+them from the `snapback4` package installed above `snapback/generated`
+(the backend's), so nothing else is installed in the app. With no
+`snapback4` above it the build fails with `backend/api.ts: error TS2307:
+Cannot find module 'snapback4/contract'` (listed after the errors it causes
+in `app.ts`: install the package, not types by hand). Rows still map onto
+the Contract shape field by field: the generated row has fields (`at`,
+`pending`) the shape may not.
 
 ### Open, sync, read, write
 
