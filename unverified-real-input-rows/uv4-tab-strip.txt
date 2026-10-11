@@ -1,0 +1,20 @@
+unverified-real-input-rows UV-4 (agent mode), the panel tab strip after each step: tab chip title (the page puts the tone's currentTime in it) and the audio button's label.
+Fixture: target/uv/tone.mjs on 127.0.0.1:17165 (/a a 90 s quiet tone, /b a quiet page). Steps: Browser tab /a, a mouse press on the page (Play), tab menu > Mute tab, + > Browser /b, wait 3 s, the first chip, wait 2 s.
+
+AFTER (this branch)
+tree 1 (clock 54500): tab-audio-browser:tab_1: Mute Tone 6.5s; tab-browser:tab_1: Tone 6.5s
+tree 2 (clock 57700): tab-audio-browser:tab_1: Unmute Tone 10.0s muted; tab-browser:tab_1: Tone 10.0s muted
+tree 3 (clock 65700): tab-audio-browser:tab_1: Unmute Tone 11.2s paused muted; tab-browser:tab_1: Tone 11.2s paused muted; tab-browser:tab_2: Quiet page
+tree 4 (clock 68700): tab-audio-browser:tab_1: Unmute Tone 11.2s paused muted; tab-browser:tab_1: Tone 11.2s paused muted; tab-browser:tab_2: Quiet page
+tree 5 (clock 71700): tab-audio-browser:tab_1: Unmute Tone 13.9s muted; tab-browser:tab_1: Tone 13.9s muted; tab-browser:tab_2: Quiet page
+tree 6 (clock 73700): tab-audio-browser:tab_1: Unmute Tone 15.9s muted; tab-browser:tab_1: Tone 15.9s muted; tab-browser:tab_2: Quiet page
+
+BEFORE (feature tip, the same code)
+tree 1 (clock 54500): tab-audio-browser:tab_1: Mute Tone 6.5s; tab-browser:tab_1: Tone 6.5s
+tree 2 (clock 57700): tab-audio-browser:tab_1: Unmute Tone 10.0s muted; tab-browser:tab_1: Tone 10.0s muted
+tree 3 (clock 65700): tab-audio-browser:tab_1: Unmute Tone 11.2s paused muted; tab-browser:tab_1: Tone 11.2s paused muted; tab-browser:tab_2: Quiet page
+tree 4 (clock 68700): tab-audio-browser:tab_1: Unmute Tone 11.2s paused muted; tab-browser:tab_1: Tone 11.2s paused muted; tab-browser:tab_2: Quiet page
+tree 5 (clock 71700): tab-audio-browser:tab_1: Unmute Tone 13.9s muted; tab-browser:tab_1: Tone 13.9s muted; tab-browser:tab_2: Quiet page
+tree 6 (clock 73700): tab-audio-browser:tab_1: Unmute Tone 16.0s muted; tab-browser:tab_1: Tone 16.0s muted; tab-browser:tab_2: Quiet page
+
+Behind tab 2 the muted chip stays and the media pauses (11.2 s, twice): WebKit pauses a muted element whose page is out of the window, declared in EXACT2-GAPS (Browser surface, Mute); shown again it plays on (13.9 s, then 15.9 s).
