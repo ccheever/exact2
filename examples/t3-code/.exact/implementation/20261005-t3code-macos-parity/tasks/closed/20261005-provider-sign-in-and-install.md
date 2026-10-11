@@ -214,7 +214,7 @@ buttons (`settings-shortcuts.contract` `keyboard-dispatch`), in every dialog, no
 ## Next action
 
 Review and merge PR #238 into `feat(example)/t3-code`. The remaining verification and each
-item's disposition are tracked in [provider sign-in verification follow-up](../20261008-provider-sign-in-verification-followup.md).
+item's disposition are tracked in [provider sign-in verification follow-up](20261008-provider-sign-in-verification-followup.md).
 The app-wide focus finding has its own [dialog shortcut focus task](20261008-dialog-shortcut-focus.md).
 Cursor remains unverified until tested with a Pro account; Google/ACP and real-account
 sign-out/change also remain unverified. Publishing [X49](../../issues/closed/20261007-x49-progress-value-accessibility.md)

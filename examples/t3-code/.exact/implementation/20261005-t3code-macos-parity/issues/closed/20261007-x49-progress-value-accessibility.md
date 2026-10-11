@@ -34,7 +34,7 @@ The bar is drawn as a track and a fill whose width is the percentage (`provider-
 text match the reference; VoiceOver reads the percentage as a description, not as the control's value, and the agent
 tree shows the label only. Once main carries ARIA range values, `ProviderRuntimeRow` swaps `aria-description` for
 `aria-valuenow`, `aria-valuemin`, `aria-valuemax` and `aria-valuetext`; the open
-[provider-sign-in-verification-followup](../../tasks/20261008-provider-sign-in-verification-followup.md) holds that row.
+[provider-sign-in-verification-followup](../../tasks/closed/20261008-provider-sign-in-verification-followup.md) holds that row.
 
 ## Evidence and history
 

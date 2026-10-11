@@ -20,7 +20,7 @@ generic oracle/trace infrastructure or full T0 matrix.
 ## Provider sign-in follow-ups, 2026-10-08
 
 PR #238's unverified rows and deferred decisions are preserved in
-[provider sign-in verification follow-up](tasks/20261008-provider-sign-in-verification-followup.md).
+[provider sign-in verification follow-up](tasks/closed/20261008-provider-sign-in-verification-followup.md) (closed 2026-10-11, its rest in `STATUS.md` "Known differences").
 The remaining app-wide focus finding is [dialog shortcut focus](tasks/closed/20261008-dialog-shortcut-focus.md).
 These stay separate from merging the provider implementation; existing ownership of URL auth
 (provider-settings-upkeep) and progress accessibility (X49) is unchanged.
@@ -133,8 +133,7 @@ these user decisions have changed the tickets:
   (#290, #312, #308, #307 and #310 have merged), so the root stays well under the 1,500-line cap (1,478 at `ec32c8c37`, about 1,488
   with #307); Charlie's ruling on #108 and main PR #327's audit name it the remedy. [browser-surface](tasks/closed/20261005-browser-surface.md),
   after the root rewrite.
-- Waiting: `provider-sign-in-verification-followup` (its X49 row waits for main fix of #279: approved, no fix in
-  progress); `installed-font-picker` (X48, [#318](https://github.com/ccheever/exact2/issues/318): design pending, no owner selection). The deferred rows of the next real-input batch are listed in
+- Waiting: `installed-font-picker` (X48, [#318](https://github.com/ccheever/exact2/issues/318): design pending, no owner selection). The deferred rows of the next real-input batch are listed in
   `examples/t3-code/STATUS.md`.
 - Main PR [#327](https://github.com/ccheever/exact2/pull/327) (open, 2026-10-08) fixes #315 (X63), #316 (X64), #322 (X62),
   #280 (X52), #284 (X50) and #281 (X51); it is partial for #292 and #282 and withdrew #291, #317 (X65) and #320 (X67);

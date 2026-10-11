@@ -32,7 +32,7 @@ Excluded: sign-in and install (`20261005-provider-sign-in-and-install`), Codex m
 PR #238 handoff (2026-10-08): the reference
 `ProviderSettingsPanel.environment.test.tsx:584` URL-auth action case was excluded from
 provider-sign-in-and-install. It remains owned here by the URL auth acceptance row below;
-see [verification follow-up](../20261008-provider-sign-in-verification-followup.md).
+see [verification follow-up](20261008-provider-sign-in-verification-followup.md).
 
 ## Context and guidance
 
