@@ -496,18 +496,32 @@ fn the_kept_budget_counts_identity_and_value_but_not_context() {
         1,
         "large context is absent from the entry"
     );
+    let kept_answer = |r: &Runner<Source>| r.store.kept(&kept::kept_name("answer")).is_some();
+    assert!(kept_answer(&r));
     r.act("car", vec![large.clone()]).unwrap();
-    assert_eq!(
-        answer_writes(&r),
-        1,
-        "large identity exceeds the entry budget"
+    assert!(
+        !kept_answer(&r),
+        "large identity exceeds the entry budget, and the older answer is forgotten rather than shown stale"
     );
-    r.data.value = large;
+    assert_eq!(answer_writes(&r), 2, "the forgetting is a write");
     r.act("car", vec![Value::str("A")]).unwrap();
+    assert!(kept_answer(&r));
+    r.data.value = large;
+    r.act("car", vec![Value::str("B")]).unwrap();
+    assert!(!kept_answer(&r), "large answer exceeds the entry budget");
+    let said: Vec<&str> = r
+        .journal()
+        .filter(|l| l.contains("too big to keep:"))
+        .collect();
     assert_eq!(
-        answer_writes(&r),
+        said.len(),
         1,
-        "large answer exceeds the entry budget"
+        "an answer too big to keep is said once: {said:?}"
+    );
+    assert!(
+        said[0].contains("more than 4096 bytes (4 KiB)") && said[0].contains("under 4 KiB"),
+        "{}",
+        said[0]
     );
 }
 
@@ -690,4 +704,24 @@ fn a_kept_seed_failed_by_a_refused_activation_stays_failed_across_context() {
     assert_eq!(r.data.asks.len(), asks);
     assert!(r.failed_args[0].is_some());
     shows(&r, "kept");
+}
+
+#[test]
+fn a_refused_commit_does_not_forget_a_kept_answer() {
+    let mut r = seeded();
+    r.data.ready = true;
+    r.data_ready().unwrap();
+    let kept_answer = |r: &Runner<Source>| r.store.kept(&kept::kept_name("answer")).is_some();
+    assert!(kept_answer(&r));
+    r.data.value = Value::str(&"x".repeat(5000));
+    assert!(matches!(
+        r.act("refuse", vec![Value::str("B")]),
+        Err(RunnerError::Trap(_))
+    ));
+    assert!(
+        kept_answer(&r),
+        "the refused commit's forgetting is rolled back"
+    );
+    r.act("car", vec![Value::str("B")]).unwrap();
+    assert!(!kept_answer(&r), "a commit that stands forgets it");
 }
