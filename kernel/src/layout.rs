@@ -334,6 +334,13 @@ impl LayoutMirror for Unmirrored {
 }
 
 impl LayoutTree {
+    /// A multi-column container's `min-height` and `max-height` as its last
+    /// final layout resolved and applied them, border box: a larger minimum
+    /// raises the maximum (Taffy patch 30).
+    pub(crate) fn multicol_bounds(&self, node: NodeId) -> (Option<f32>, Option<f32>) {
+        self.taffy.multicol_bounds(node)
+    }
+
     /// An empty tree.
     pub fn new() -> Self {
         // Frames are CSS pixel geometry, not a host's raster grid. Rounding
