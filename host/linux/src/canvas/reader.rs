@@ -4,7 +4,7 @@
 //! @ref LLP 1115.001 D15.1 (configuration changes are handled in place; an
 //! activity made again adopts the running host)
 
-use super::{device, layer, pending, CanvasHost, Recorder};
+use super::{colors, device, layer, pending, CanvasHost, Recorder};
 use exact_runner::DataSource;
 
 impl<D: DataSource + Default> CanvasHost<D> {
@@ -56,6 +56,11 @@ impl<D: DataSource + Default> CanvasHost<D> {
         self.paint_by = None;
         self.travel = crate::travel::Travel::default();
         self.forget_chrome();
+        // The device's colours as the new reader read them: a wallpaper
+        // changed while the last one was stopped is a new palette (D4).
+        if let Some(palette) = colors::palette() {
+            self.p.set_palette(&palette);
+        }
         match device::windowed(size, scale) {
             Some(told) => self.set_window(told),
             None => self.resize(size, scale),

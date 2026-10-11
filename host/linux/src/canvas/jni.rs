@@ -293,6 +293,28 @@ macro_rules! canvas_jni {
                 with(|h| h.set_window(told));
             }
 
+            /// The device's colours (LLP 1115.001 D4): Material 3's colour
+            /// roles as the reader resolved them, twelve light and then the
+            /// same twelve dark, ARGB, in `presenter::Material`'s order.
+            /// Before `start`, from any thread, so the host boots resolving
+            /// every role by them, and on the host's thread again whenever
+            /// one changes. Any other count of colours is ignored.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_colors(
+                env: *mut JNIEnv,
+                _class: jclass,
+                roles: jintArray,
+            ) {
+                let n = ((**env).GetArrayLength.expect("jni"))(env, roles).max(0);
+                let mut words = vec![0i32; n as usize];
+                ((**env).GetIntArrayRegion.expect("jni"))(env, roles, 0, n, words.as_mut_ptr());
+                let Some(palette) = $crate::presenter::Palette::from_words(&words) else {
+                    return;
+                };
+                $crate::canvas::colors(palette);
+                with(|h| h.set_colors(&palette));
+            }
+
             /// What the reader draws around the page, when that is not what
             /// this last returned (else null): where the page is in the
             /// window (x, y, width, height, pixels), the colour behind it

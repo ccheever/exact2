@@ -91,8 +91,10 @@ pub struct PlatformColor {
 /// every reference under the traits it is showing (style, Increased
 /// Contrast) and reports the whole set again whenever they change, so what
 /// the kernel resolves itself — paint motion, gradients, SVG scenes and
-/// filters — is the platform's colour, not a snapshot of the fallback. A
-/// host that reports nothing (Linux, headless) keeps the fallback pair.
+/// filters — is the platform's colour, not a snapshot of the fallback. The
+/// Apple hosts report their named colours; Android reports the device's
+/// Material colours, role by role (LLP 1115.001 D4). A host that reports
+/// nothing (desktop Linux, headless) keeps the fallback pair.
 /// One platform per process, so one table.
 static REPORTED: RwLock<BTreeMap<(u8, u16, bool), Color>> = RwLock::new(BTreeMap::new());
 

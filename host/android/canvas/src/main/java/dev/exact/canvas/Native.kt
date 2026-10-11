@@ -22,6 +22,11 @@ object Native {
         night: Boolean, fontScale: Float, locale: String, rtl: Boolean, hour24: Boolean, noAnimations: Boolean,
         boldText: Boolean, highContrast: Boolean, touch: Boolean, touchSlop: Float,
     )
+    /** The device's colours ([Palette], LLP 1115.001 D4): Material 3's colour roles as the reader resolved them for
+     * this device, twelve under the light scheme and then the same twelve under the dark one, ARGB. Before [start],
+     * from any thread, so the host boots resolving every colour role by them, and again on the host's thread whenever
+     * one changes. */
+    @JvmStatic external fun colors(roles: IntArray)
     /** The window (LLP 1115.001 D3.3): its size in pixels, the display's pixels a point, and the system's raw insets
      * in pixels, sixteen numbers: top, right, bottom, left for the system bars, then the display cutout, the software
      * keyboard and the system's gestures. Before [start], from any thread, so the host boots laid out in it, and on

@@ -169,6 +169,12 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
         handler.post { device.tell(); if (watching) produce() }
     }
 
+    /** The device's colours ([Palette]): told before [boot] so the host's first frame is in them, and whenever they
+     * change, when the host paints the page again. */
+    fun colors(roles: IntArray) {
+        handler.post { Native.colors(roles); if (watching) produce() }
+    }
+
     /** The window ([Native.window]): told before [boot] so the host is laid out in it from its first frame, and
      * whenever its size, the display's density or an inset changes, when the host lays the page out again. */
     fun window(width: Int, height: Int, scale: Float, insets: IntArray) {

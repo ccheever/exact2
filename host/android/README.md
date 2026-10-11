@@ -11,7 +11,7 @@ the stream or those calls, so both sides are built from one commit.
 
 | | |
 |---|---|
-| `canvas/` | the reader, an Android library, package `dev.exact.canvas`: `ExactActivity`, `ExactView`, `Native`, `Player` (the replay), `Owner` (exact2 on a thread of its own), `Layers`, `Natives` (hosted views), `Keys` |
+| `canvas/` | the reader, an Android library, package `dev.exact.canvas`: `ExactActivity`, `ExactView`, `Native`, `Player` (the replay), `Owner` (exact2 on a thread of its own), `Layers`, `Natives` (hosted views), `Keys`, `Scrolling`, `Device` and `Palette` (what the device says) |
 | `app/` | the shell: one activity over the reader, packaging the app that `-Papp=<name>` names |
 | `gradlew`, `gradle/` | the Gradle wrapper (9.8.0), committed. Its jar is Gradle's own (sha256 `238e777f…`, as services.gradle.org publishes it) and the distribution's sha256 is pinned in `gradle-wrapper.properties` |
 
@@ -152,6 +152,58 @@ Not built of D7:
 - A pressable under the finger shows its press at the down, not after the platform's tap delay, so a row may flash
   as a scroll starts.
 
+## The device's colours (LLP 1115.001 D4)
+
+An app's colour roles (`Canvas`, `-exact-secondary-label`, `AccentColor` and the rest, LLP 1095) are the device's
+Material 3 colours, light and dark, from its dynamic palette. Nothing is tabled: the reader resolves them on the
+device and tells exact2, which reports them through the door the Apple host reports its own through
+(`roles::set_reported`).
+
+**What the reader resolves** (`Palette.kt`): twelve Material roles under each scheme, with the platform's own
+resources and no library. From Android 14 the platform has each as a colour of its own
+(`android.R.color.system_primary_light`, `system_surface_container_high_dark`, …) and nothing is derived. Android 12
+and 13 have only the tonal palettes, so each role is the tone Material's scheme gives it:
+
+| Role | Palette | Tone, light | Tone, dark |
+|---|---|---|---|
+| `primary` | `system_accent1` | 40 | 80 |
+| `onPrimary` | `system_accent1` | 100 | 20 |
+| `secondaryContainer` | `system_accent2` | 90 | 30 |
+| `surface` | `system_neutral1` | 98 | 6 |
+| `onSurface` | `system_neutral1` | 10 | 90 |
+| `onSurfaceVariant` | `system_neutral2` | 30 | 80 |
+| `surfaceContainerLow` | `system_neutral1` | 96 | 10 |
+| `surfaceContainer` | `system_neutral1` | 94 | 12 |
+| `surfaceContainerHigh` | `system_neutral1` | 92 | 17 |
+| `surfaceContainerHighest` | `system_neutral1` | 90 | 22 |
+| `outlineVariant` | `system_neutral2` | 80 | 30 |
+| `error` | none: Material's baseline error | `#B3261E` | `#F2B8B5` |
+
+A palette has a swatch for tones 100, 99, 95, 90, 80 … 10 and 0 (`system_neutral1_100` is tone 90). A tone between
+them (98, 96, 94, 92, 6, 12, 17, 22) is the palette's colour at that lightness, which the platform computes
+(`ColorStateList.withLStar`).
+
+**The call.** `Native.colors(IntArray)`: the twelve roles light and then the same twelve dark, ARGB, in the order of
+the table (`presenter::Material`). Told before the host boots, so its first frame is in them, and again whenever what
+the reader reads is not what it last told: each time a reader is made (the activity made, or started after a stop) and
+on every configuration change. A new wallpaper changes the palette; the activity does not declare that change
+(`assetsPaths`), so Android makes it again and its reader, adopting the host that runs, tells the new palette. Both
+schemes are always told: night mode chooses between them in exact2.
+
+**Which of Exact's roles is which** is exact2's to say, in `host/linux/src/presenter/palette.rs`, which has D4's
+table and the four rows it adds. A report paints the page again; a role D4 leaves out (the system hues but red and
+blue) keeps its table pair.
+
+**One accent.** A control, a focus ring and a filled button paint in the node's `accent-color` where it sets one, else
+in `AccentColor` as reported, with `AccentColorText` drawn on it (a check, a switch's thumb, a filled button's title):
+the device's `primary` and `onPrimary`. The painter's own blue is desktop Linux's alone, where nothing is reported.
+The controls' shapes are still the desktop painter's (D9).
+
+**The launch window.** From Android 14 the launch theme names the platform's `system_surface_light` and
+`system_surface_dark` (`res/values-v34`, `values-night-v34`), the colour the first frame's unsaid background has, with
+the bars' icons set for it. On Android 12 and 13 the platform has no `surface` to name in a theme, and the launch
+window is the device theme's own day or night background (`?android:attr/colorBackground`).
+
 ## Still the benchmark's
 
 The cut was the smallest one. Left in the reader:
@@ -168,6 +220,7 @@ The cut was the smallest one. Left in the reader:
 
 - **Most of LLP 1115.001.** Text arrives one key at a time, the Rust calls nothing on the platform, and there is no
   accessibility. What is built of it:
+  - *The device's colours* (D4, colours only): the section above. The type ramp is not reported yet.
   - *A finger scrolls* (D7.1 to D7.3): the section above, with what is not built of it.
   - *An authored swipe yields the system's edges* (D7.5): a swipe row's own gesture does not start from the sides
     the system's Back gesture starts from, by the system-gesture insets `Native.window` tells, in place of the fixed
