@@ -19,7 +19,7 @@ import UIKit
 extension NodeView {
     /// The handlers that make a node focusable: the web's rule that only a
     /// focusable element hears these (a clipboard event goes to the focus).
-    static let focusEvents: Set<String> = ["focus", "blur", "key", "copy", "cut", "paste"]
+    static let focusEvents: Set<String> = ["focus", "blur", "key", "keyup", "copy", "cut", "paste"]
 
     /// The event an edit action is, and the node that hears it here. A
     /// field's or text area's is its editor's (`fieldClipboard`).
