@@ -5,8 +5,8 @@ as symptom → cause → what to do, with where it was found. Delete the entry i
 change that fixes the footgun, or that makes the compiler, runtime or driver
 diagnose it. **Candidate diagnostic** marks one that could become a check cheaply.
 
-> **Lookup reference; start at [start-here.md](start-here.md).** Its last section names
-> the pitfalls that cost agents the most. Search this list by symptom (`grep -n`) when
+> **Lookup reference; start at [start-here.md](start-here.md).** It names the pitfalls
+> that cost agents the most, and its [recipes](recipes/) avoid the rest. Search this list by symptom (`grep -n`) when
 > something compiles and misbehaves; don't read it front to back.
 
 This list holds what the [agent guide](contract-for-agents.md)'s rules don't make obvious.
@@ -53,11 +53,6 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   deliberately light-only design, write `color-scheme="light"` on the root, which
   holds the whole app in light as `overrideUserInterfaceStyle` does. (Shelf port,
   2026-10-09.)
-- **On iOS the whole window scrolls when the keyboard opens, and the header goes
-  with it.** Cause: without `interactive-widget`, the root is not resized for the
-  keyboard. Fix: `interactive-widget="resizes-content"` on the root, or
-  `overlays-content` with a `role="toolbar" toolbarPlacement="keyboard"` for a
-  toolbar that rides the keyboard without relayout (LLP 1008 §9.1). (Signal Clone.)
 
 - **The app is wider than the window, and its tests still pass.** A root with
   `width="100%"` and `padding=24` is 48 points too wide: sizes are `content-box`, as
@@ -212,6 +207,12 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   by the root's `navigationBack`, and a route that declares one that is disabled
   refuses it (the log says "back gesture refused" and why). A route with no such
   control always goes back (LLP 1115 D5). Fix: enable the control, or leave it out.
+- **The browser's Forward does nothing on the web.** With no `navigate` handler the
+  browser's Back pops the router by itself (LLP 1115 D5), but Forward to the popped
+  `/item/1` is refused (the log says "navigate … refused") and an in-app link reloads the
+  page. Fix: `navigate=follow` on the root and `action follow(url: string)` with
+  `nav = go(nav, url)`, as every pattern has; `one-screen` keeps it with one route
+  (LLP 1116.002, 1116.003).
 - **A pushed screen's content is cut off and never scrolls, or its large title never
   collapses.** Cause: a route is a box, not a scroller, and `navigationScroll` only
   names one; a title collapses only with the scroller right after the route's
@@ -241,6 +242,22 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   [`apps/shelf`](../apps/shelf/app.contract), the recipe, and run `bun
   scripts/no-tells.mjs <app>`, which lists every literal colour, font size and weight
   left. (Exact-new iOS app feedback, 2026-10-04; LLP 1115.)
+- **Dark mode is unreadable: white text on a light card, labels lost on a light page.**
+  Cause: a brand written as hex on a page, a card or text (`#f3f5f1`, `#ffffff`,
+  `#18392d`); it stays the same in dark mode while the platform's text and controls
+  turn dark. Four of round 4's five hex-heavy bake-off apps broke so. Fix: the one
+  authored colour is the accent on the root, a role (`accent-color="-exact-system-indigo"`)
+  or one `light-dark(light, dark)` pair; surfaces and text are roles (`-exact-label`)
+  or unsaid. Look in both schemes: `"prefer prefers-color-scheme dark"` as a drive's
+  first op. (LLP 1116.002 D1.)
+- **A card is white on a white page in light mode.** Cause:
+  `-exact-secondary-grouped-background` (white in light) on a plain page (white), as
+  start-here once suggested; two round-5 apps' cards vanished so. Fix: surfaces in
+  pairs. A card on a plain page is `-exact-secondary-background` (light grey, dark
+  grey); on a `-exact-grouped-background` page (light grey, black) it is
+  `-exact-secondary-grouped-background` (white, dark grey); a surface inside a card is
+  the tertiary role of its pair (`-exact-tertiary-background`,
+  `-exact-tertiary-grouped-background`). (LLP 1116.003 D3.3.)
 - **The agent's screenshots and tree don't show the native bars.** Under
   `scripts/agent.mjs` the navigation bar, tab bar, `UIMenu`s and header search are
   not presented; the authored header, tablist and popover paint instead, by default.
@@ -293,20 +310,18 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 - **A grouped-list row you lay out loses its side insets, or its content runs off the
   card.** Cause: the sheet gives a custom row (a `row` that is not a title/value row)
   its padding, and `padding="12px 0"` replaces all four sides, so the row's content
-  starts and ends at the card's edge; its children are a flex row, so a `column` or a
-  bar inside takes no width either. Fix: write `padding-top`/`padding-bottom` only, and
-  put the content in a `column flex=1` (`apps/shelf`'s Progress and Yearly Goal rows).
-  (Shelf recipe, 2026-10-10.)
+  starts and ends at the card's edge; a `row`'s children are a flex row, so a `column`
+  or a bar inside takes no width either. Fix: put the content in a `column flex=1`
+  (`apps/shelf`'s Progress and Yearly Goal rows), which the sheet keeps 15 from the
+  card and the separator, or make the row itself a `column`, which stacks its children
+  (LLP 1116 D2); to choose that space write the row's `padding-top`/`padding-bottom`
+  only, which replaces the column's. (Shelf recipe, 2026-10-10.)
 - **A text field or `textarea` in a grouped-list row draws a rounded box inside the
   card.** Cause: a native field keeps its own border wherever it is (`UITextField`'s
   rounded rect); a settings-style form's fields have none. Fix: `appearance="none"` on
   a field that is a grouped-list row's content, as `apps/shelf`'s add sheet does.
   **Candidate fix:** the iOS host could drop the border of a field carried into a
   list cell. (Shelf recipe, 2026-10-10.)
-- **A section `footer`'s colour is ignored.** A validation message written
-  `color="-exact-system-red"` in a footer shows in the footer's grey on iOS: the list
-  reads the footer's text, not its colour. Leave it grey (`apps/shelf` does) or put the
-  message in a row. (Shelf recipe, 2026-10-10.)
 
 ## Actions
 
@@ -348,7 +363,11 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   read (`analyze-call-stale-read`), naming both lines. Fix: pass the value the
   helper should see, `follow(next)`, or a `let` bound before the assignment for
   the old one. (Spreadsheet F21 and Files F27 diaries, where a copied block was
-  the workaround.)
+  the workaround.) In the action's own body the same read is a warning,
+  `analyze-read-after-assign`: `now = performanceNow()` then `if now >= endsAt`
+  tests the last tick's time (focus-timer's phases changed 250 ms late in two
+  bake-off rounds). Fix: `let stamp = performanceNow()`, `now = stamp`, and read
+  `stamp`.
 
 - **A delete or save is lost when the page reloads right after it.** An action that
   `send`s a write and navigates away in the same commit passes every test, but a
@@ -495,7 +514,10 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   not exactly the scroll's size, and `logs` says which rule failed (`swipeContent on
   #243 is refused: swipeContent "row" is 390x68, not the row's 390x68.5 border box`):
   a border on the scroll itself shrinks it, so put a hairline on the content (Splitter
-  DIARY, rough 10).
+  DIARY, rough 10). A grouped list's row is exempt (its list cell swipes), but there
+  `width="100%"` on the scroll runs past the card by the section's 16-pt inset and
+  clips the content's last control on every host: use `list-rows`' grouped form
+  (grocery-list DIARY, issue 2, about 15 minutes, round 3).
 
 - **A `swiperight` hears nothing from a finger on iOS.** A mouse drag fires it on
   the web and macOS, in a drive and in a test, while a real touch on an iPhone
@@ -687,12 +709,6 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   the viewer's zone, or pass `--locale` and `--time-zone` on a drive (`locale` and
   `time-zone` lines in a test file) so both agree and the run stays reproducible.
   (Depot, 2026-10-05.)
-
-- **An iOS screenshot right after a tap shows a segmented control on its old
-  segment.** The tree says the new one is selected. Cause: UIKit animates the
-  selection on real time, and `clock +N` does not move it. Fix: `clock +1000 real`
-  before the screenshot (it moves the app's clock that second too, so a timer due in
-  it fires). (Authoring bench, t1-tip on iOS, 2026-10-05.)
 
 - **The same test passes on the web and fails on iOS at a date past `max`.** Cause:
   the runner refuses a date, time or datetime outside `min`/`max` (the agent says the

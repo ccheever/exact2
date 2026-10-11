@@ -128,26 +128,35 @@ How the design keeps those numbers:
 - **Edits land in about a tenth of a second.** On a fresh app made by `exact new`, a
   saved Contract or TypeScript edit was rebuilt and in the page in 99 ms.
 
-### 3. The web is the standard
+### 3. Write the web, ship the platform
 
-When a default, a property name, a value, or a behavior could follow CSS or follow
-something else (React Native's Yoga, UIKit, AppKit), Exact follows CSS, even where a
-CSS reset would usually override it.
+What you write is CSS: the vocabulary, the layout model, the development loop. What you
+leave unsaid is the platform's: controls, colour, type, motion, gestures, the keyboard
+and accessibility come out as an app built by hand with UIKit or AppKit would have them,
+and on the web as a carefully built web app would. What you write wins. The order is
+author, then platform, then CSS's default, and one test settles a dispute: would someone
+who knows the platform notice? ([LLP 1115](llp/1115-write-the-web-ship-the-platform.principle.md))
 
-- A bare node is `display: block`, `box-sizing: content-box`, `flex-direction: row`,
+- Layout is CSS's, because a person can't see a layout default, only its result. A bare
+  node is `display: block`, `box-sizing: content-box`, `flex-direction: row`,
   `flex-shrink: 1`, the same as a bare `<div>`.
-- Properties are CSS's: `font-size`, `object-fit`, `text-overflow`, `line-clamp`,
-  `light-dark()`, `env(safe-area-inset-top)`. The compiler refuses an alias and names
-  the web's spelling.
-- The browser is the parity oracle. Native layout, Canvas 2D, SVG, gradients, and
-  motion are checked against what Chrome draws.
+- Names are CSS's, because names are what you write: `font-size`, `object-fit`,
+  `text-overflow`, `line-clamp`, `light-dark()`, `env(safe-area-inset-top)`. The compiler
+  refuses an alias and names the web's spelling.
+- Unsaid presentation is the platform's. Text is the system's label colour and size (17
+  points on an iPhone, 13 on a Mac, the reader's setting in a browser), a `button` is the
+  system's button, a pushed screen has the system's Back. An app that says less looks
+  more at home.
+- The browser is the parity oracle for layout and for what you wrote. Native layout
+  given the same inputs, Canvas 2D, SVG, gradients, and authored motion are checked
+  against what Chrome draws.
 - The web is also the development loop. You work on the seconds-long web loop, and the
   native hosts are swept behind you.
-- Any unavoidable deviation is declared, with its reason, in
+- Any unavoidable deviation in layout is declared, with its reason, in
   [`llp/1001-kernel-v1.spec.md`](llp/1001-kernel-v1.spec.md). For example, Taffy has no
   `position: static`.
 
-Following the web doesn't mean the lowest common denominator. Where a platform can do
+Writing the web doesn't mean the lowest common denominator. Where a platform can do
 more (real HTML in an SVG `foreignObject` on the web, MapKit through a native module on
 Apple), Exact lets it.
 
@@ -320,7 +329,7 @@ on each host in its own session; for a copy you launched yourself, use
 ## Contract
 
 An agent building an app starts at [start-here.md](docs/start-here.md), the only
-required reading. For more, read the complete [guide for humans](docs/contract-for-humans.md),
+required reading, then looks up the [recipe](docs/recipes/) for each question. For more, read the complete [guide for humans](docs/contract-for-humans.md),
 or look things up in the [guide for agents](docs/contract-for-agents.md) or the
 [grammar and vocabulary reference](docs/contract-grammar.md).
 
@@ -481,8 +490,8 @@ This list lives in memory. To keep it across launches, give `app.ts` a grant lik
   only by acting on authored nodes, as a person would.
 
 These limits serve the principles. An agent can't wire up a data race it can't write.
-A plan with no JavaScript in it starts fast. A view written in CSS's own words means
-the same thing on every host.
+A plan with no JavaScript in it starts fast. A view written in CSS's own words lays out
+the same on every host and looks at home on each.
 
 ### The compiler talks back
 
@@ -508,7 +517,11 @@ Each app lives in [`apps/<name>/`](apps). Run one on the web with
 `bun host/apple/build.mjs <name>-apple --run`, and on iOS by adding `--ios`. All of
 these screenshots come from the web host, taken by `scripts/agent.mjs`.
 
-To learn from, read these four first:
+To learn from, start with [Shelf](apps/shelf), the recipe app. It names no colour and no
+font size, and `scripts/no-tells.mjs` holds it to that, so it shows what an app that
+leaves presentation to the platform looks like on each host. Then read these four for
+what each teaches. They were written before [LLP 1115](llp/1115-write-the-web-ship-the-platform.principle.md)
+and paint their own colours and sizes, so take their structure, not their style:
 
 | App | What it teaches |
 |---|---|

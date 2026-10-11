@@ -169,6 +169,7 @@ export function render(op, r) {
   if (op === 'ax' || (op === 'tree' && r.ax)) return renderAx(r); // LLP 1080.002 D9
   const q = JSON.stringify;
   switch (op) {
+    case 'check': return r.text; // LLP 1116.003 D8 (agent-check.mjs)
     case 'tree': {
       const entities = Array.isArray(r.entities) ? r.entities : r.nodes?.some((n) => n.components) ? r.nodes : null;
       if (entities) return [`epoch ${r.epoch} · incarnation ${r.incarnation} · clock ${r.clock} ms · tick ${r.tick} · ${entities.length} entities`, ...entities.map((e) => `${'  '.repeat(e.depth ?? 0)}${e.name ?? ''}#${e.id} (${(e.components ?? []).join(', ')})${e.tags?.length ? ' ' + e.tags.join(' ') : ''}`), ...(r.truncated ? ['(truncated)'] : [])].join('\n');
@@ -177,7 +178,7 @@ export function render(op, r) {
       for (const n of r.nodes) {
         const depth = Math.max(0, n.depth - rootDepth);
         const p = n.props ?? {};
-        lines.push(`${'  '.repeat(depth)}${n.type}#${n.id}${p.testId != null ? ` [${p.testId}]` : ''}${p.hatch != null ? ` hatch=${q(p.hatch)}` : ''}${p.text != null ? ` ${q(p.text)}` : ''}${p.value != null ? ` value=${q(p.value)}` : ''}${p.accessibilityLabel != null ? ` label=${q(p.accessibilityLabel)}` : ''}${p.checked != null ? ` checked=${p.checked}` : ''}${n.focused ? " [focused]" : ""}${n.inactive ? " [inactive]" : ""}${n.world ? ` world{${n.world.name}} · ${n.world.entities} entities · tick ${n.world.tick}` : ""}${n.handlers?.length ? ` (${n.handlers.join(', ')})` : ''}${n.url != null ? ` url=${q(n.url)} loading=${n.loading}` : ''}`);
+        lines.push(`${'  '.repeat(depth)}${n.type}#${n.id}${p.testId != null ? ` [${p.testId}]` : ''}${p.hatch != null ? ` hatch=${q(p.hatch)}` : ''}${p.text != null ? ` ${q(p.text)}` : ''}${p.value != null ? ` value=${q(p.value)}` : ''}${p.accessibilityLabel != null ? ` label=${q(p.accessibilityLabel)}` : ''}${p.checked != null ? ` checked=${p.checked}` : ''}${n.focused ? " [focused]" : ""}${n.inactive ? " [inactive]" : ""}${n.unshown ? " [not in the iOS bar: hidden in the app]" : ""}${n.world ? ` world{${n.world.name}} · ${n.world.entities} entities · tick ${n.world.tick}` : ""}${n.handlers?.length ? ` (${n.handlers.join(', ')})` : ''}${n.url != null ? ` url=${q(n.url)} loading=${n.loading}` : ''}`);
         for (const g of n.guest ?? []) lines.push(`${'  '.repeat(depth + g.depth + 1)}[guest] ${g.tag}${g.id != null ? `#${g.id}` : ''}${g.testId != null ? ` [${g.testId}]` : ''}${g.text != null ? ` ${q(g.text)}` : ''}`);
       }
       return lines.join('\n');

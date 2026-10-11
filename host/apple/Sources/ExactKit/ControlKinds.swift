@@ -9,8 +9,9 @@ enum ControlKinds {
     static let indexed = ["type:checkbox", "type:radio", "type:select", "type:range", "type:date", "type:time", "type:datetime-local", "type:button"]
     static let dates: Set<String> = ["date", "time", "datetime-local"]
     /// The chrome index's key for a `progress`, the platform's activity
-    /// indicator (LLP 1069.001, amended 2026-10-07): a view, not a control,
-    /// so its own pass, outside `indexed`.
+    /// indicator (LLP 1069.001, amended 2026-10-07) or, with a `value`, its
+    /// progress bar (LLP 1116 D8): a view, not a control, so its own pass,
+    /// outside `indexed`.
     static let progress = "type:progress"
     /// `switch`, `checkbox`, or the `type` prop's value (`radio`, a select, …).
     static func kind(_ props: [String: String]) -> String {
@@ -55,6 +56,22 @@ struct RangeSpec {
     static func format(_ v: Double) -> String {
         v == v.rounded() && abs(v) < 1e15 ? String(Int64(v)) : String(v)
     }
+}
+
+/// A determinate progress's `value` and `max` by HTML's rules
+/// (`exact_kernel::Progress`, LLP 1116 D8): `max` is 1 unless it reads as a
+/// number above 0; `value` is 0 unless it reads as one, held to 0 and `max`.
+struct ProgressSpec {
+    var value = 0.0, max = 1.0
+
+    init(_ props: [String: String]) {
+        let number = { (s: String?) in s.flatMap { Double($0.trimmingCharacters(in: .whitespaces)) }.flatMap { $0.isFinite ? $0 : nil } }
+        max = number(props["max"]).flatMap { $0 > 0 ? $0 : nil } ?? 1
+        value = Swift.min(Swift.max(number(props["value"]) ?? 0, 0), max)
+    }
+
+    /// How much of the bar is filled, 0 to 1.
+    var fraction: Double { value / max }
 }
 
 /// A date control's value in HTML's format, read and written as the

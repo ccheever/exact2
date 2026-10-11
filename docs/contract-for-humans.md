@@ -1,8 +1,9 @@
 # Contract: a guide for humans
 
 Contract describes an application's interface, state, and interactions. Exact
-compiles it for the web and native hosts. You write the view once; CSS names and
-web behavior are the default across those hosts. Network access, persistent
+compiles it for the web and native hosts. You write the view once, in CSS's names
+and layout; what you leave unsaid (controls, colour, type, how a press or a scroll
+feels) is each platform's own (LLP 1115). Network access, persistent
 storage, and substantial computation belong in a TypeScript or Rust data module.
 
 This guide describes the implementation on `main` on 2026-10-02, including
@@ -289,8 +290,9 @@ component Snapshot
       text `${count}/${observed}` testId="value"
 ```
 
-After the first press, the text is `1/0`. The local `before` saw the old count.
-To reuse a newly computed value, compute it once first:
+After the first press, the text is `1/0`. The local `before` saw the old count,
+and the compiler warns of the read (`analyze-read-after-assign`). To reuse a newly
+computed value, compute it once first:
 
 ```text
 action step
@@ -376,7 +378,7 @@ inside parentheses. The compiler checks tags, attributes, leaf-node children,
 and handler signatures.
 
 ```text
-text "Heading" font-size=24
+text "Heading" role="heading"
 image "/assets/photo.jpg" width=120 height=80 object-fit="cover"
 Card(title="Heading", selected=selected)
 ```
@@ -964,7 +966,13 @@ one, as a radiogroup names itself by its visible heading) wins over `aria-label`
 this one) and `aria-description` are its description. `aria-invalid`,
 `aria-required`, `aria-haspopup` and `aria-current` (a navigation link's
 `"page"`, a wizard's `"step"`) take their ARIA words or a bool; UIKit has no
-property for those four, so iOS exposes none of them.
+property for those four, so iOS exposes none of them. A drawn range —
+`role="progressbar"`, `"slider"`, `"meter"`, `"scrollbar"` or `"spinbutton"` —
+takes `aria-valuenow`, `aria-valuemin` and `aria-valuemax` (numbers; ARIA's 0
+and 100 where a bound is unsaid) and `aria-valuetext`: it is one element, its
+children unread, and its value is the platform's (UIKit's `accessibilityValue`
+as a percentage, "30%", or the text; AppKit's value, minimum and maximum, the
+text its description). A `progress` or `input type="range"` says its own value.
 Leave font sizes, colours and control metrics unsaid and the platform supplies them;
 what you set on a node wins.
 
@@ -1022,8 +1030,8 @@ keeps it from its ancestors' `key` handlers with `stopPropagation()`
 
 The complete event inventory and payload groups are in the
 [event reference](contract-grammar.md#events). HTML controls include `select` and
-`option`, and `progress` with no `value`, the platform's activity indicator
-([activity](contract-grammar.md#activity-progress)); inspect [the control tests](../contract/cli/tests/it/controls.rs) for
+`option`, and `progress`: with `value` and `max` the platform's progress bar,
+with no `value` its activity indicator ([progress](contract-grammar.md#progress-progress)); inspect [the control tests](../contract/cli/tests/it/controls.rs) for
 the checkbox/switch, radio, range, select and date/time conventions instead of
 assuming a browser Event object. `input type="radio"` is HTML's: the radios of
 one `name` are a group, exclusive, and the arrow keys move the check among them.
@@ -1299,8 +1307,9 @@ keeps no host awake. The action runs at the deadline exactly, so it clears the
 toast without testing the time again. Gates and keys read state, never `performanceNow()`
 (LLP 1092).
 
-`performanceNow()` reads milliseconds since boot on the runner's clock (the driver's clock
-under the agent); it is not a date. For the date, read the reserved `exactTime`
+`performanceNow()` reads milliseconds since this launch of the app on the runner's clock (it
+restarts at 0 on every launch; the driver's clock under the agent); it is not a date, and
+anything stored or sent takes `time.epochAtZero + performanceNow()` instead. For the date, read the reserved `exactTime`
 source and add `time.epochAtZero + performanceNow()`. There is no `now()`; the
 compiler refuses it and names both. Advancing the clock alone does not
 necessarily trigger rendering: a derive using `performanceNow()` reevaluates when a later

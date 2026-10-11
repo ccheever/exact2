@@ -32,6 +32,7 @@ use std::time::Duration;
 use tiny_skia::Pixmap;
 
 mod addressed_tap;
+mod ahead;
 mod arrange;
 mod arrange_geometry;
 mod clock;
@@ -119,6 +120,8 @@ pub struct Presenter<D: DataSource> {
     pending_dev: Option<crate::fetch::Generation>,
     pending_update: bool,
     text: Shared,
+    /// A touch down's press, to lay out ahead (`ahead.rs`).
+    ahead: Option<ahead::Ahead>,
     pub(crate) brush: Painter,
     viewport: (f32, f32),
     scroll: BTreeMap<ViewId, (f32, f32)>,
@@ -382,6 +385,7 @@ impl<D: DataSource> Presenter<D> {
             group: None,
             brush: Painter::new(text.clone(), scale, backend),
             text,
+            ahead: None,
             viewport,
             scroll: BTreeMap::new(),
             page: (0.0, 0.0),

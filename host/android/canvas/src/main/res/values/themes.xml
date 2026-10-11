@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The launch window is the app's own white page, not an icon on a splash (Android 12+ always shows a starting
+         window): exact2's first frame (~60 ms after the tap) replaces it with nothing to fade from. -->
+    <style name="ExactLaunch" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowSplashScreenBackground">#FFFFFF</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@android:color/transparent</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">#FFFFFF</item>
+    </style>
+</resources>

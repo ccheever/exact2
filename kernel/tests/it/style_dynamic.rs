@@ -691,9 +691,14 @@ fn every_row_writes_its_own_field_and_no_other() {
             .map(|name| StyleValue::Text((*name).into()))
             .chain(candidates.iter().cloned());
         let mut written = None;
+        // A row whose one value is its initial one (`outline-style`'s
+        // `none`, LLP 1104 D6) is written by marking it.
+        let only_initial = names.len() == 1;
         for value in values {
             let mut s = base.clone();
-            if s.set_dynamic(id, &value).is_ok() && s.get(id) != base.get(id) {
+            if s.set_dynamic(id, &value).is_ok()
+                && (s.get(id) != base.get(id) || (only_initial && s.mask.has(id)))
+            {
                 written = Some(s);
                 break;
             }

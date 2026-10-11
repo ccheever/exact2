@@ -11,6 +11,10 @@
 
 Fix admitted role mappings and implicit live announcements first; amend LLP 1080.003 D3 for modal subtree projection alongside #282. Check actual AppKit tree/VoiceOver; ARIA modality is not keyboard containment.
 
+2026-10-10, LLP 1116 D8 (`43f6d298c`): the `progressbar` part landed. A drawn range role (`progressbar`, `slider`, `meter`, `scrollbar`, `spinbutton`) is one AppKit element with its role, value, minimum and maximum (`NodeViewMac.updateRoleAccessibility`, `AccessibilityTests.testARangeRoleIsOneElementWithItsValue`). `status`, `alert` and the modal dialog remain.
+
+2026-10-12, #457: `status`, `alert`, `dialog` and `alertdialog` landed. On macOS each role is AppKit's group with WebKit's subrole (`AXApplicationStatus`, `AXApplicationAlert`, `AXApplicationDialog`, `AXApplicationAlertDialog`; a `dialog` element's implicit role too), named only by its author and read by `tree --ax` as its role; a paragraph's words are static texts between its links, each word once; a role removed at runtime leaves a plain view. On Apple hosts `status` and `alert` are live regions by their roles (polite, assertive; an explicit `aria-live` wins), and an alert also speaks as it appears after launch (`AccessibilityTests.testStatusAndAlertAreLiveRegionGroups`, `testAnAlertSpeaksAsItAppears`, `testADialogElementIsADialogGroup`, `testARemovedRoleLeavesAPlainView`, `AccessibilityTreeMacTests.testDialogRolesAndAStatusWithALinkReadAsTheWebsTree`). What remains is the `aria-modal` subtree projection and `tree --ax`'s `modal` on macOS (LLP 1080.003 D3 amendment, with #282), and a VoiceOver spot check.
+
 Transferred at exact2 `5e8da7027` on 2026-10-09. This preserves reported evidence; this triage has not reproduced or fixed the runtime behavior. The current scope and Charlie's decisions below supersede conflicting proposals/acceptance in the original report. This file is the live issue after the GitHub copy is closed.
 
 ## Original report

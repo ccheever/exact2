@@ -135,6 +135,52 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertTrue(item.titleView === hatches, "the hatch's title view is left alone")
     }
 
+    /// LLP 1116 D2 (amending LLP 1075.003 §9.10): a heading the header holds
+    /// directly takes the first text after it as its subtitle, UIKit's own
+    /// on iOS 26 (a drawn title view before). A second text is not the
+    /// bar's: the agent marks it in its tree and screenshot and refuses a
+    /// tap on it, by the rule the bar follows (`HeaderShape.presents`).
+    func testAHeadingTheHeaderHoldsDirectlyTakesTheFirstTextAfterItAsItsSubtitle() throws {
+        let session = try fixture("basics-direct-subtitle")
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        let nav = try XCTUnwrap(tabs.selectedViewController as? UINavigationController)
+        try tapNode(session, "open-plain")
+        until("Plain pushed") { nav.viewControllers.count == 2 && nav.transitionCoordinator == nil }
+        spin(0.3)
+        let plain = try XCTUnwrap(nav.topViewController as? RouteController)
+        let item = plain.navigationItem
+        XCTAssertEqual(item.title, "Plain")
+        if #available(iOS 26.0, *) {
+            XCTAssertEqual(item.subtitle, "No Back control", "UIKit's own subtitle")
+            XCTAssertNil(item.titleView, "nothing drawn: no avatar, no press")
+        } else {
+            let view = try XCTUnwrap(item.titleView as? HeaderTitleView, "a subtitle before iOS 26 is a drawn title view")
+            XCTAssertEqual(view.subtitle.text, "No Back control")
+        }
+        XCTAssertTrue(try node(session, "header-plain").isHidden, "the bar shows the header; iOS does not paint it")
+        // What the bar leaves out, as the agent reports it.
+        let unshown = session.presenter.navigation.unshownByBar()
+        let aside = try node(session, "aside-plain")
+        XCTAssertEqual(unshown[aside.id], NavigationHost.unshownReason)
+        for shown in ["header-plain", "title-plain", "subtitle-plain", "compose-plain"] {
+            XCTAssertNil(unshown[try node(session, shown).id], "\(shown) is the bar's")
+        }
+        let agent = Agent(session: session)
+        let tap = agent.tap(["id": Int(aside.id)])
+        XCTAssertTrue((tap["error"] as? String)?.contains("the iOS navigation bar does not show this node") == true, "\(tap)")
+        let rows = agent.decorateTree(["nodes": [["id": Int(aside.id)], ["id": Int(try node(session, "subtitle-plain").id)]]])["nodes"] as? [[String: Any]]
+        XCTAssertEqual(rows?.first?["unshown"] as? String, NavigationHost.unshownReason)
+        XCTAssertNil(rows?.last?["unshown"])
+        // A heading in a wrapper with a bar item (Chat's press group aside)
+        // and a box before a direct heading are not avatars: Home's badge
+        // button is an item, and its title stays UIKit's.
+        nav.popViewController(animated: false)
+        spin(0.3)
+        let home = try XCTUnwrap(nav.topViewController)
+        XCTAssertFalse(home.navigationItem.titleView is HeaderTitleView, "Home's segments keep the title view")
+        if #available(iOS 26.0, *) { XCTAssertNil(home.navigationItem.subtitle, "Home has no text after its heading") }
+    }
+
     func testARoutePushedWhileTheTablistIsHiddenHidesTheTabBar() throws {
         let session = try fixture("basics-tabbar")
         let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
@@ -254,12 +300,69 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertEqual(list.convert(list.bounds, to: chat.view).minY, 0, accuracy: 0.5, "it starts under the bar")
         XCTAssertEqual(sv.adjustedContentInset.top, chat.view.safeAreaInsets.top, accuracy: 0.5, "inset to the bar's bottom")
         XCTAssertFalse(nav.isNavigationBarHidden)
+        // Its route's last child, it runs to the screen's bottom edge too, and
+        // UIKit insets it by the home indicator (LLP 1116 D2): no band of the
+        // route's background under it.
+        XCTAssertTrue(journal(session).contains("scrolls its content to the bottom edge"))
+        XCTAssertGreaterThan(chat.view.safeAreaInsets.bottom, 0, "a home indicator to go under")
+        XCTAssertEqual(list.convert(list.bounds, to: chat.view).maxY, chat.view.bounds.maxY, accuracy: 0.5, "it ends at the screen's edge")
+        XCTAssertEqual(sv.adjustedContentInset.bottom, chat.view.safeAreaInsets.bottom, accuracy: 0.5, "inset by the home indicator")
+        XCTAssertTrue(chat.contentScrollView(for: .bottom) === sv, "the bottom edge follows it")
         let css = { sv.contentOffset.y + sv.adjustedContentInset.top }
         XCTAssertEqual(css(), 0, accuracy: 0.5, "at rest, CSS 0")
         list.pendingScrollTop = 80
         list.applyPendingScroll()
         spin(0.3)
         XCTAssertEqual(css(), 80, accuracy: 0.5, "an authored offset lands as the browser's")
+    }
+
+    /// The bottom edge (LLP 1116 D2): Detail's scroller has the "Open in"
+    /// row under it, which keeps its place above the tab bar, the scroller
+    /// no inset of UIKit's.
+    func testAFooterUnderTheScrollerKeepsTheBottomCover() throws {
+        let session = try fixture("basics-footer")
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        let nav = try XCTUnwrap(tabs.selectedViewController as? UINavigationController)
+        try tapNode(session, "detail")
+        until("Detail pushed") { nav.viewControllers.count == 2 && nav.transitionCoordinator == nil }
+        spin(0.3)
+        let detail = try XCTUnwrap(nav.topViewController as? RouteController)
+        let list = try node(session, "list-detail"), footer = try node(session, "open-above-card")
+        let sv = try XCTUnwrap(list.scroll)
+        if #available(iOS 18.0, *) { XCTAssertFalse(tabs.isTabBarHidden, "Detail shows the tab bar") }
+        XCTAssertEqual(sv.contentInsetAdjustmentBehavior, .never)
+        XCTAssertEqual(sv.adjustedContentInset.bottom, 0)
+        XCTAssertEqual(footer.convert(footer.bounds, to: detail.view).maxY, detail.view.bounds.maxY - detail.view.safeAreaInsets.bottom,
+                       accuracy: 0.5, "the footer stays above the tab bar")
+        XCTAssertNil(detail.contentScrollView(for: .bottom))
+    }
+
+    /// A route that paints no background shows what the web shows through
+    /// it — the root's (LLP 1116 D2: `-exact-grouped-background` on the root
+    /// under every screen, and under the home indicator) — light and dark,
+    /// written again when a batch changes it; its own background wins.
+    func testARouteWithoutABackgroundShowsTheRootsUnderIt() throws {
+        let session = try fixture("basics-backdrop")
+        let (_, _, chat) = try chat(session)
+        let root = try node(session, "navigation")
+        let rgb = { (style: UIUserInterfaceStyle) -> [Int] in
+            let c = chat.view.backgroundColor?.resolvedColor(with: UITraitCollection(userInterfaceStyle: style)) ?? .clear
+            var v: (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
+            c.getRed(&v.0, green: &v.1, blue: &v.2, alpha: &v.3)
+            return [v.0, v.1, v.2, v.3].map { Int(($0 * 255).rounded()) }
+        }
+        let colour = { (v: [Double]) in BatchValue.array(v.map { .number($0) }) }
+        XCTAssertEqual(rgb(.light), [255, 255, 255, 255], "its own white")
+        chat.node.style["background_color"] = nil
+        root.style["background_color"] = .array([colour([242, 242, 247, 255]), colour([28, 28, 30, 255])])
+        chat.paintBackdrop()
+        XCTAssertEqual(rgb(.light), [242, 242, 247, 255], "the root's, light")
+        XCTAssertEqual(rgb(.dark), [28, 28, 30, 255], "the root's, dark")
+        XCTAssertEqual(chat.view.convert(chat.view.bounds, to: nil).maxY, try XCTUnwrap(chat.view.window).bounds.maxY,
+                       "under the home indicator too")
+        chat.node.style["background_color"] = colour([0, 0, 255, 255])
+        chat.paintBackdrop()
+        XCTAssertEqual(rgb(.light), [0, 0, 255, 255], "the route's own wins")
     }
 
     func testARouteWithNoHeaderHasNoBarAndTheBarFollowsAPop() throws {
@@ -292,6 +395,42 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertTrue(chat.navigationItem.titleView is HeaderTitleView)
     }
 
+
+    /// A scroller UIKit insets lays its content out between those insets
+    /// (LLP 1116.000 D1.2): Chat's column, its tall box gone, fills the port
+    /// and its last line rests above the home indicator, with no scroll by
+    /// the insets; with the tall box back the end still lands there, and the
+    /// scroller still runs to the screen's edge, its content passing under.
+    func testAScrollerUIKitInsetsLaysItsContentOutBetweenTheInsets() throws {
+        let session = try fixture("basics-inset")
+        let (_, _, chat) = try chat(session)
+        let list = try node(session, "list-chat")
+        let sv = try XCTUnwrap(list.scroll)
+        let inset = sv.adjustedContentInset
+        XCTAssertGreaterThan(inset.top, 0, "under the bar")
+        XCTAssertGreaterThan(inset.bottom, 0, "over the home indicator")
+        until("the kernel has the scroller's insets") {
+            session.presenter.navigation.covers[list.id] == .inset(top: inset.top, bottom: inset.bottom)
+        }
+        let bottom = chat.view.bounds.maxY - chat.view.safeAreaInsets.bottom
+        let tall = { session.presenter.views.values.contains { $0.props["testId"] == "tall-chat" } }
+        try tapNode(session, "toggle-short-chat")
+        until("the tall box went") { !tall() }
+        spin(0.3)
+        let end = try node(session, "chat-end")
+        XCTAssertEqual(end.convert(end.bounds, to: chat.view).maxY, bottom - 12, accuracy: 0.5,
+                       "the filled column's last line rests above the home indicator, past its 12 of padding")
+        XCTAssertEqual(sv.contentSize.height + inset.bottom - sv.bounds.height, -inset.top, accuracy: 0.5,
+                       "a page that fits its port does not scroll by the insets")
+        try tapNode(session, "toggle-short-chat")
+        until("the tall box is back") { tall() }
+        spin(0.3)
+        XCTAssertEqual(list.convert(list.bounds, to: chat.view).maxY, chat.view.bounds.maxY, accuracy: 0.5, "it still runs to the edge")
+        list.pendingScrollTop = 100_000
+        list.applyPendingScroll()
+        spin(0.3)
+        XCTAssertEqual(end.convert(end.bounds, to: chat.view).maxY, bottom - 12, accuracy: 0.5, "at its end, as UIKit insets it")
+    }
 
     /// A real interactive pop from Photo, driven by a percent-driven
     /// transition (UIKit's own coordinator, as a finger's edge swipe has):

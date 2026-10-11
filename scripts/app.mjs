@@ -1222,7 +1222,7 @@ export function awaitBuildOutput(app, path, waiting) {
   }
 }
 
-function claimLive(text) {
+export function claimLive(text) {
   let claim;
   try { claim = JSON.parse(text); } catch { return true; } // unreadable: never guess
   if (!Number.isSafeInteger(claim.pid) || claim.pid <= 0) return true;

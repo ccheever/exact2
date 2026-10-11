@@ -336,7 +336,7 @@ describe('provider setup in the clone', () => {
     await fake.press('setup:install-start', fake.runtime().token);
     expect(fake.calls).toEqual([{ method: 'provider.install.start', payload: { instanceId } }]);
     fake.emit('install', { ...idle(), operationId: 'op-1', phase: 'downloading', downloadedBytes: 12_345_678, totalBytes: 45_600_000 });
-    expect(fake.runtime()).toMatchObject({ statusMessage: 'Downloading 12.3 MB of 45.6 MB.', progressValue: 12_345_678, progressMax: 45_600_000, progressPercent: 27.1, showCancel: true, showInstall: false, showRemove: false });
+    expect(fake.runtime()).toMatchObject({ statusMessage: 'Downloading 12.3 MB of 45.6 MB.', progressValue: 12_345_678, progressMax: 45_600_000, showCancel: true, showInstall: false, showRemove: false });
     await fake.press('setup:install-cancel', fake.runtime().token);
     expect(fake.calls.at(-1)).toEqual({ method: 'provider.install.cancel', payload: { instanceId, operationId: 'op-1' } });
     fake.emit('install', { ...idle(), operationId: 'op-1', phase: 'extracting' });

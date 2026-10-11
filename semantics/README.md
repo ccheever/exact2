@@ -715,6 +715,35 @@ What it does not carry, as restrictions:
 - The component-level semantics (`Contract.CompSem`) refuses both, so
   `difftest expansion` writes and reads programs without them.
 
+## Persisted state (LLP 1116 D5)
+
+A root `state … persist` starts from the device's store: `Oracle.stored`,
+each persisted state's kept value by name, which `restore` (Runtime.lean)
+takes at boot where it `conforms` to the state's type, else the
+initializer's value stands. The store is part of the oracle because it is
+the device's, as every answer there is: `Reachable` quantifies over it, so
+every theorem holds whatever a device kept, and `SlotOrigin` gains the
+stored value of its type as a third origin of a persisted state's boot value
+(`restore_cases`, `restore_conforms`). Each step's observation adds a
+`store <name> <value>` line per persisted state after the slots: what the
+runner's store keeps for it, decoded (`Runner::persisted`), against the
+slot's value in the semantics, since after every commit that stands the
+store holds the slot's value. The oracle text carries the store as
+`stored <name> <value>` lines.
+
+A corpus test starts from an empty store, as an authored test does. Each
+corpus case whose program persists a state runs again as `<name> (stored)`
+on a store the oracle fills from its seed: per state nothing, a value of its
+type, or one of another kind (`Oracle::with_store`), with the case's events
+and no `expect`s. Random programs mark about a third of the root states of a
+persistable type `persist` (drawn apart from the program's own generator)
+and always run on a filled store. `--js` hands the JS target the same store
+as its `localStorage` (`persist.js`) and compares its `store` lines too.
+
+The store's text, its 16 KB bound, and the compiler's refusal of `persist`
+on other types (`type-persist-type`, `type-persist-child`) are the runner's
+and the compiler's: the semantics takes decoded values and any type.
+
 ## What the semantics leaves out
 
 Geometry reads (`frame(id)`, `measure(id)`: where layout put a node) are

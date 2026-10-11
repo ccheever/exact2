@@ -1134,8 +1134,11 @@ impl Painter {
                     );
                     let at_end = || exact_runner::FieldSelection::at_end(value);
                     self.field_caret(&field, caret, selection.unwrap_or_else(at_end), ts);
-                    let accent = control::accent(node, self.dark).unwrap_or(control::ACCENT);
-                    self.field_ring(field_shape.as_ref().unwrap_or(&outer), accent, ts);
+                    // LLP 1104 D6: `outline: none` (the row's one value) draws no ring.
+                    if !node.style.mask.has(exact_kernel::StyleId::OutlineStyle) {
+                        let accent = control::accent(node, self.dark).unwrap_or(control::ACCENT);
+                        self.field_ring(field_shape.as_ref().unwrap_or(&outer), accent, ts);
+                    }
                 }
             }
             NodeType::Svg => self.svg(walk, node, rect, content, ts),
@@ -1162,7 +1165,11 @@ impl Painter {
                 self.range_control(node, content, ts, walk.scene.chosen.get(&node.id))
             }
             NodeType::Control if node.props.str(PropId::Type) == Some("progress") => {
-                control::progress(self.backend.as_mut(), node, content, ts, self.dark)
+                if node.props.get(PropId::Value).is_some() {
+                    control::progress_bar(self.backend.as_mut(), node, content, ts, self.dark)
+                } else {
+                    control::progress(self.backend.as_mut(), node, content, ts, self.dark)
+                }
             }
             NodeType::Control if node.props.str(PropId::Type) == Some("button") => {
                 let face = walk.scene.kernel.press_face(node.id).unwrap_or_default();
@@ -1315,6 +1322,8 @@ pub fn text_spec(s: &StyleProps, text: &str) -> Spec {
         white_space: s.white_space,
         direction: s.direction,
         text_indent: s.text_indent,
+        text_box_trim: s.text_box_trim,
+        text_box_edge: s.text_box_edge,
     }
     .collapse_white_space()
 }

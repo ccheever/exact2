@@ -317,7 +317,7 @@ impl TextEngine {
             ordinary.resident_capacity_bytes = cache::capacities(&ordinary);
             return Rc::new(ordinary);
         }
-        let height = result.height;
+        let mut height = result.height;
         let mut layouts = Lines {
             faces: data.faces.clone(),
             ..Lines::default()
@@ -491,6 +491,21 @@ impl TextEngine {
             .map(|f| f.x + f.width)
             .fold(0.0_f32, f32::max)
             .ceil();
+        // CSS `text-box-trim`, as an unflowed paragraph has it.
+        let cut = super::shaping::text_box_trim(
+            &source.spec,
+            &layouts,
+            &mut self.catalog.borrow_mut(),
+            &baselines,
+            height,
+            // A line flow pushed below an obstacle loses only its own space above the edge
+            fragments.first().map_or(0.0, |f| f.y),
+        );
+        super::shaping::trim_lines(cut, &mut height, &mut baselines, &mut bottoms);
+        // The fragments move with the lines they hold
+        for f in &mut fragments {
+            f.y -= cut.0;
+        }
         let mut p = Paragraph {
             source,
             record: std::cell::OnceCell::from(Arc::new(layouts)),
