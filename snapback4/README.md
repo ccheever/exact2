@@ -133,7 +133,7 @@ component Guestbook
   state draft = ""
   state notice = ""
   resource time = exactTime() as shape Clock
-  resource board = notes(persona, time.epochAtZero + performanceNow()) as shape Board
+  resource board = notes(persona, time.epochAtZero + performanceNow()) as shape Board else empty(message="Connecting…")
   mutation posted as shape Ack queue refreshes board then afterPost
   derive banner = match failure(board) {
     case some(f) => f.code == "offline" ? "You're offline" : `Couldn't load notes (${f.message})`,
@@ -208,13 +208,10 @@ const sources: Sources = {
     return { online: round.ok, message: round.ok ? '' : 'Offline: showing what this device keeps',
       latest: notes.length ? `${notes[0].author}: ${notes[0].body}` : '',
       sending: notes.filter(note => note.pending).length, notes };
-  }).catch(error => {
-    // At build (bake) time there is no storage and no native module: the
-    // client refuses with code 'bake' on every executor; the app asks again
-    // when it runs.
-    if ((error as { code?: string }).code === 'bake') return { online: false, message: 'Connecting…', latest: '', sending: 0, notes: [] };
-    throw error;                                        // the view shows it through failure(board)
   }),
+  // At build (bake) there is no storage or native module: `use` rejects with
+  // code 'bake', and a resource whose source lets it through shows its
+  // `else empty(…)` until the app runs and asks again. No catch is needed.
   post: ([persona, body, now], _store, storage, native): Promise<Result<'post'>> => personas.use(persona, storage, native, async db => {
     // Write, sync, and the write's fate in one call: `sent` with the mutation's
     // result (here the new row's id), `failed` with the refusal's code, or
