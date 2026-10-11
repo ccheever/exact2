@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-unverified-real-input-rows
-pr_url: PR_URL_PENDING
+pr_url: https://github.com/ccheever/exact2/pull/426
 verified_commit: null
 ---
 
