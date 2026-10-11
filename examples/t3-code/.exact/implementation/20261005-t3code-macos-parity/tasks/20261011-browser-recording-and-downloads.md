@@ -96,6 +96,21 @@ Two things the live drives found, each fixed before the next drive:
   failed): `T3Module.later` routes any request naming one, even an empty one. The upload's connection is now
   `connection: {generation, fleet}`, guarded by a Bun row.
 
+Review of 2026-10-12 (two should-fix findings, fixed in `1c4ae3191`):
+- *One queued send held a later request behind an earlier one.* A queued send waits for the reply before it, and each
+  send's answer waited for every running request, so thread B's `preview_recording_start` listed during thread A's
+  `preview_recording_stop` (a large upload's budget is about 118.5 s) could not start before A's send replied, and failed
+  at its own 13.5 s host deadline; the reference's `handleRequest` runs each request on its own. The window now has four
+  queued sends (`automationRecordingServed0`-`3`); the panel projects `{serial, slot}`, `slot` naming a send whose answer
+  runs nothing (`automationRecordingView`), the task sends on it, and each send's answer waits only for the requests it
+  started. Only a fifth request in flight at once waits, behind one of the four (declared in `EXACT2-GAPS.md` part 5
+  "Recording (part 3)": a Contract's mutations are declared, and a mutation's sends replace or queue).
+- *The agent's send counted as the person's use of the panel.* `shelllocal:surface-browser-automation-recording` went
+  through `surfaceLocal`, which created the viewed thread's panel state, bumped its `userRevision` and installed the
+  terminal and browser cleanups, so an agent request served before the panel was restored made `restoreRightPanel`
+  skip the saved panel and `syncRightPanels` delete it. The op now returns at the top of `surfaceLocal`, before the
+  panel is read.
+
 **BR-2.** `T3BrowserDownloads.agentDriven` (Manager.ts `agentDrivenWebContents`) is set by the host's control session for
 every action but the read-only ones (`READ_ONLY_CONTROL_ACTIONS`: snapshot, wait for) and cleared by a navigation
 (`T3BrowserSession.navigate`, the URL bar's and the agent's, as Manager.ts `navigate`) and by a person's press or key on
@@ -116,12 +131,12 @@ SPI only. The declared difference stays (`EXACT2-GAPS.md` Part 5 "Mute", re-date
 
 | Row | Result | Proof |
 | --- | --- | --- |
-| BR-1 | pass, agent mode, end to end through the lane server's MCP endpoint (the lane's fake ACP agent, the thread's MCP credential, no real provider): before (feature tip), `preview_recording_start` and `_stop` answer errors and nothing records; after, the start answers `{tabId: "tab_1", recording: true, startedAt}`, the Capture button shows Stop recording (red, with the dot) while the agent records, the stop answers the artifact (`video/mp4;codecs=avc1`, 303,982 bytes) at a path in the server's attachments that the agent reads back as an MP4 of that size, and a second stop is the not-active error; reference, the same results (its recording shows on the floating preview's dot: the agent's tab floats there, part 3's declared presentation difference). Bun 13 rows, AppKit 7 rows (`BrowserRecordingHandOffTests`) | [recording](https://raw.githubusercontent.com/ccheever/exact2/dc2df06fcd0e3dbc0bb859ebb79743f2b270389a/browser-recording-and-downloads/br1-recording.png), [chrome row](https://raw.githubusercontent.com/ccheever/exact2/6f5f16654d8b9627a4de242fd2bd97aff23f520a/browser-recording-and-downloads/br1-recording-chrome.png), [results](https://raw.githubusercontent.com/ccheever/exact2/0922b3af79a83f5757a811110c3351576897f24c/browser-recording-and-downloads/br1-done.png), [tool results](https://raw.githubusercontent.com/ccheever/exact2/64eafb1f6a42328c5d1d99f8303fc1eea377d696/browser-recording-and-downloads/br1-e2e-record.txt) |
+| BR-1 | pass, agent mode, end to end through the lane server's MCP endpoint (the lane's fake ACP agent, the thread's MCP credential, no real provider): before (feature tip), `preview_recording_start` and `_stop` answer errors and nothing records; after, the start answers `{tabId: "tab_1", recording: true, startedAt}`, the Capture button shows Stop recording (red, with the dot) while the agent records, the stop answers the artifact (`video/mp4;codecs=avc1`, 303,982 bytes) at a path in the server's attachments that the agent reads back as an MP4 of that size, and a second stop is the not-active error; reference, the same results (its recording shows on the floating preview's dot: the agent's tab floats there, part 3's declared presentation difference). Bun 16 rows, AppKit 7 rows (`BrowserRecordingHandOffTests`). Review of 2026-10-12: a start listed during another thread's stop now runs on a free send and answers before that stop's upload ends (before: after it), and the agent's send leaves the viewed thread's unrestored panel alone (before: `userRevision` 1, the saved panel deleted, restore skipped); the live drive after-4 repeats after-3's results on the four sends | [recording](https://raw.githubusercontent.com/ccheever/exact2/dc2df06fcd0e3dbc0bb859ebb79743f2b270389a/browser-recording-and-downloads/br1-recording.png), [chrome row](https://raw.githubusercontent.com/ccheever/exact2/6f5f16654d8b9627a4de242fd2bd97aff23f520a/browser-recording-and-downloads/br1-recording-chrome.png), [results](https://raw.githubusercontent.com/ccheever/exact2/0922b3af79a83f5757a811110c3351576897f24c/browser-recording-and-downloads/br1-done.png), [tool results](https://raw.githubusercontent.com/ccheever/exact2/64eafb1f6a42328c5d1d99f8303fc1eea377d696/browser-recording-and-downloads/br1-e2e-record.txt), [review fixes before/after](https://raw.githubusercontent.com/ccheever/exact2/b6fd4c148a2bbbef0e5cebddbde98dd64ae4c845/browser-recording-and-downloads/review-fixes-record.txt) ([scenario](https://raw.githubusercontent.com/ccheever/exact2/23802748fb476759d132f2244134d38b37b456a4/browser-recording-and-downloads/review-fixes-scenario.ts.txt)), [drive after-4](https://raw.githubusercontent.com/ccheever/exact2/eab5959d9cf3c27004c0dde0ef80aaa353ea47c7/browser-recording-and-downloads/review-fixes-drive.txt) |
 | BR-2 | pass (AppKit, the page's save dialogs on, a person's input through `NSApplication.sendEvent`): the agent's click on a download link saves `browser-download-<id>-export.csv` in the artifact directory with no sheet; a person's click asks with the save sheet before and after the agent drove the page; a snapshot and a wait leave the page the person's; a navigation hands it back. Before (the same test file against the feature tip's modules): the agent's download asks with the sheet (6 assertions fail). Two mutations (no hand-back on a person's press; reading marks the page) each fail it. Live: the agent's download in the after drive logs `by=agent`; the reference saved its agent's download without a dialog | [AppKit before/after](https://raw.githubusercontent.com/ccheever/exact2/dd1c08bc4e7cf386edefbcf7c6c83c1b03338eec/browser-recording-and-downloads/br2-appkit-record.txt) |
 | BR-3 | confirmed SPI-only; declared difference kept | [headers and SPI](https://raw.githubusercontent.com/ccheever/exact2/1e3c700a2dff252e37923cfb78f687a381b35a39/browser-recording-and-downloads/br3-record.txt) |
 | BR-2 under a real pointer | open: real-input step 1 | below |
 
-Drives (agent mode, 1280×840): before = the evidence-base bundle (`6db5cadea`) on lane `browser-recording-and-downloads-before`; after = this branch's bundle of `266c552a4` on lane `browser-recording-and-downloads-3` (the app code of the final head but for `f02e62e82`, which removes an unused Swift error case and updates a test); reference = T3 Code (Electron) `1e2ecbd975` on the lane's reference home over CDP. Lane scripts: [fake ACP agent](https://raw.githubusercontent.com/ccheever/exact2/573f0cc9404dcd980de60f82c8387fbbc92175f6/browser-recording-and-downloads/lane-fake-acp.mjs.txt), [fixture](https://raw.githubusercontent.com/ccheever/exact2/dee1157de63bb85d21b82c71882963703d8bbc1b/browser-recording-and-downloads/lane-fixture.mjs.txt), [lane setup](https://raw.githubusercontent.com/ccheever/exact2/e4f7867823ffa443f80d1b6175dd9336bbd66f71/browser-recording-and-downloads/lane-setup.sh.txt), [drive](https://raw.githubusercontent.com/ccheever/exact2/8c3c60e05d89686e6d886307aba09d017d902d27/browser-recording-and-downloads/drive.sh.txt). In agent mode the recording's `startedAt` reads the agent's virtual clock (`2026-01-01T00:00:00.001Z`); a person's app reads the wall clock (`composerNow`).
+Drives (agent mode, 1280×840): before = the evidence-base bundle (`6db5cadea`) on lane `browser-recording-and-downloads-before`; after = this branch's bundle of `266c552a4` on lane `browser-recording-and-downloads-3` (the app code of the final head but for `f02e62e82`, which removes an unused Swift error case and updates a test); reference = T3 Code (Electron) `1e2ecbd975` on the lane's reference home over CDP. Lane scripts: [fake ACP agent](https://raw.githubusercontent.com/ccheever/exact2/573f0cc9404dcd980de60f82c8387fbbc92175f6/browser-recording-and-downloads/lane-fake-acp.mjs.txt), [fixture](https://raw.githubusercontent.com/ccheever/exact2/dee1157de63bb85d21b82c71882963703d8bbc1b/browser-recording-and-downloads/lane-fixture.mjs.txt), [lane setup](https://raw.githubusercontent.com/ccheever/exact2/e4f7867823ffa443f80d1b6175dd9336bbd66f71/browser-recording-and-downloads/lane-setup.sh.txt), [drive](https://raw.githubusercontent.com/ccheever/exact2/8c3c60e05d89686e6d886307aba09d017d902d27/browser-recording-and-downloads/drive.sh.txt). After the review fixes, after-4 = this branch's bundle of `d51b8d9fc` on lane `browser-recording-and-downloads-4`, the same drive: start, the clicks, the stop's 281,551-byte MP4 read back, the second stop's error, all as in after-3; the three requests ran on send 0 in turn (the panel's projection ends at `{serial: 3, slot: 0}`). In agent mode the recording's `startedAt` reads the agent's virtual clock (`2026-01-01T00:00:00.001Z`); a person's app reads the wall clock (`composerNow`).
 
 ## Real-input batch steps
 
@@ -141,11 +156,13 @@ with `lane-setup.sh` (the "Lane browser agent" fake ACP agent as the only provid
 
 ## Tests
 
-- `browser-automation-recording.test.ts` (13): the handed-over requests read defensively; start answers the status and
+- `browser-automation-recording.test.ts` (16): the handed-over requests read defensively; start answers the status and
   the Capture button's recordings show it; stop answers the saved, uploaded artifact once; a local stop; not active (none,
   or another tab named); a conflict and a missing page; a failed transfer removes its pending upload; the 50 MiB and
-  deadline errors with the contracts' messages; the panel's serial; the send runs each request once through its own
-  native; the upload's request shape (no top-level `fleet`); the contract's queued send and task.
+  deadline errors with the contracts' messages; the panel's serial; a request listed while another send's request runs
+  starts at once on a free send and answers first; with all four sends running, a new one waits behind one of them; the
+  send runs each request once through its own native; the upload's request shape (no top-level `fleet`); the contract's
+  four queued sends and task; the send is not the person's use of the panel (no panel state, no `userRevision`).
 - `browser-automation.test.ts` (+1): a recording stop lists the thread's sessions first and names its current tab.
 - AppKit `macos/tests/browser-automation`: `BrowserRecordingHandOffTests` (7: the start waits for the tab and answers the
   data module's outcome once; no page times out as the overlay wait; the stop is handed over at once and a host error
@@ -179,4 +196,5 @@ On the final head (`f02e62e82` plus this record; the Bun suite, tsc and the cont
 
 ## Next action
 
-The coordinator's real-input steps 1-2; the PR stays a draft until the coordinator flips it.
+The coordinator's real-input steps 1-2 and a review of the 2026-10-12 fixes; the PR stays a draft until the coordinator
+flips it.
