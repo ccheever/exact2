@@ -82,9 +82,9 @@ component ComposerChoices
           min-height=49 padding-left=14 padding-right=14 padding-top=10.5 padding-bottom=10.5 background-color=colors.groupedCard
           border-bottom-width=(choice.last ? 0 : 1) border-bottom-style="solid" border-bottom-color=colors.borderSubtle
           row align-items="center" gap=10.5
-            column flex=1 min-width=0 gap=3.5
+            column flex=1 min-width=0 gap=1.75
               text choice.label font-size=16 line-height="23px" font-weight=500 color=colors.foreground
               when length(choice.description) > 0
-                text choice.description font-size=13 line-height="17px" color=colors.muted
+                text choice.description font-size=14 line-height="17.5px" color=colors.muted
             when choice.selected
               t3-symbol symbol-name="checkmark" point-size=16 symbol-weight="semibold" symbol-tint=colors.icon width=16 height=16
