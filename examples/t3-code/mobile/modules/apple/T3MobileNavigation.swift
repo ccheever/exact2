@@ -36,8 +36,9 @@ enum T3MobileNavigation {
             item.compactAppearance = browserAppearance(bar.compactAppearance ?? bar.standardAppearance)
             item.compactScrollEdgeAppearance = browserAppearance(bar.compactScrollEdgeAppearance ?? bar.standardAppearance)
         }
-        // The model root owns its title appearance; child routes keep their own defaults.
-        if route.element("model-settings-title") != nil, let bar = route.navigation?.controller.navigationBar {
+        // ThreadSettingsSheet's nested stack uses 17-point bold titles for its root and choices.
+        if route.element("model-settings-title") != nil || route.element("model-choice-title") != nil,
+           let bar = route.navigation?.controller.navigationBar {
             func modelAppearance(_ existing: UINavigationBarAppearance?) -> UINavigationBarAppearance {
                 let result = existing?.copy() as? UINavigationBarAppearance ?? UINavigationBarAppearance()
                 result.titleTextAttributes[.font] = UIFont.systemFont(ofSize: 17, weight: .bold)
