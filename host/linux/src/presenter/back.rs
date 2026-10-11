@@ -18,6 +18,10 @@
 //! takes it, and the shell leaves the app. A node that merely has
 //! `id="back"` is not a Back control: the root names it.
 //!
+//! Who asks: Android's system Back (`canvas/keys.rs`), and on a desktop
+//! (LLP 1115.000 D5.4) a mouse's back button and the keys a desktop goes
+//! Back by ([`Presenter::back_key`]), whose default action it is.
+//!
 //! Before the route come the soft keyboard, which Android closes itself, and
 //! the top layer (an open menu, dialog or sheet closes: D6 step 2), which
 //! this presenter does not have yet (D10): it attaches at the head of
@@ -117,6 +121,44 @@ impl<D: DataSource> Presenter<D> {
             true => Back::Navigate(root, beneath),
             false => Back::Pop(visit),
         })
+    }
+
+    /// Whether the key `name` (`KeyboardEvent.key`), with the modifiers held
+    /// now, is one a desktop goes Back by (LLP 1115.000 D5.4): Alt+Left, as a
+    /// browser and GTK's and Qt's apps take it, or a keyboard's own Back key
+    /// (the web's `BrowserBack`, evdev's `KEY_BACK`) whatever is held.
+    pub(crate) fn back_key(&self, name: &str) -> bool {
+        let held = self.modifiers();
+        name == "BrowserBack"
+            || name == "ArrowLeft" && held.alt && !(held.shift || held.ctrl || held.meta)
+    }
+
+    /// A Back key's keydown, after the page's shortcuts: Back is its default
+    /// action, as a browser's Alt+Left is. The `key` handlers at the focus
+    /// and above hear it first, and one that prevents it keeps the key (an
+    /// editor's own Alt+Left); a field's caret never takes it. A held key's
+    /// repeats go back no further. With nowhere to go back to nothing
+    /// happens: a desktop app is not left by its Back key.
+    pub(crate) fn back_key_down(&mut self, name: &str, code: &str, repeat: bool, now_ms: f64) {
+        let kernel = self.host.kernel();
+        let hears = self.focus.is_some_and(|id| {
+            self.display.allows(kernel, id)
+                && kernel
+                    .node(id)
+                    .is_some_and(|n| !crate::surfaces::controls::disabled_control(&n))
+        });
+        if hears {
+            let (error, prevented) = self.key_event(EventKind::Key, name, code, repeat, now_ms);
+            if let Some(e) = error {
+                eprintln!("exact: {e}");
+            }
+            if prevented {
+                return;
+            }
+        }
+        if !repeat {
+            self.system_back(now_ms);
+        }
     }
 
     /// Whether system Back would be taken now: what a shell's back callback

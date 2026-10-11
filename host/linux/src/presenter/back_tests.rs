@@ -1,5 +1,6 @@
 //! System Back, in order (LLP 1115.001 D6): the authored control, the root's
-//! `navigate`, the runner's own `back`, and who takes nothing.
+//! `navigate`, the runner's own `back`, and who takes nothing; and a
+//! desktop's Back keys, whose default action it is (LLP 1115.000 D5.4).
 use super::*;
 use exact_runner::{DataError, Value};
 
@@ -19,8 +20,15 @@ const APP: &str = r#"routes nav
 component App
   state pressed = 0
   state followed = 0
+  state kept = 0
   action open
     nav = push(nav, "/detail")
+  action keep(k: string, e: KeyboardEvent)
+    if k == "ArrowLeft" and e.altKey
+      kept = kept + 1
+      preventDefault()
+  action claim
+    kept = kept + 10
   action back
     pressed = pressed + 1
     nav = back(nav)
@@ -158,4 +166,96 @@ fn a_node_that_only_has_the_id_back_is_no_back_control() {
     open(&mut q);
     assert!(q.system_back(2.), "the visit beneath is still gone back to");
     assert!(!on_detail(&q));
+}
+
+/// A key at the device, down and up, inside the modifiers `held` (each its
+/// code and its name), as the display loop and VNC deliver them.
+fn device_key(p: &mut Presenter<Nothing>, held: &[(&str, &str)], key: &str) {
+    for (code, name) in held {
+        p.hardware_key(code, name, true, false);
+    }
+    p.hardware_key(key, key, true, false);
+    p.hardware_key(key, key, false, false);
+    for (code, name) in held.iter().rev() {
+        p.hardware_key(code, name, false, false);
+    }
+}
+const ALT: &[(&str, &str)] = &[("AltLeft", "Alt")];
+
+#[test]
+fn a_desktops_back_keys_go_back_in_the_same_order() {
+    // Nothing focused, no control, no `navigate`: the runner's own back.
+    let mut p = boot("", "text \"no control here\"");
+    device_key(&mut p, ALT, "ArrowLeft"); // nowhere to go: the app stays as it is
+    open(&mut p);
+    device_key(&mut p, &[], "ArrowLeft");
+    assert!(on_detail(&p), "a bare arrow is no Back");
+    device_key(
+        &mut p,
+        &[("ShiftLeft", "Shift"), ("AltLeft", "Alt")],
+        "ArrowLeft",
+    );
+    assert!(on_detail(&p), "nor is Alt+Left under another modifier");
+    device_key(&mut p, ALT, "ArrowLeft");
+    assert!(!on_detail(&p), "Alt+Left popped the route");
+    // The keyboard's own Back key, here to the control the root names.
+    let mut p = boot("navigationBack=\"back\" navigate=follow", BUTTON);
+    open(&mut p);
+    device_key(&mut p, &[], "BrowserBack");
+    assert!(!on_detail(&p));
+    assert_eq!(slot(&mut p, "pressed"), 1);
+    assert_eq!(slot(&mut p, "followed"), 0);
+    // A held key goes back once: its repeats pop nothing more.
+    let again = "button press=open testId=\"again\"\n              text \"Again\"";
+    let mut p = boot("navigate=follow", again);
+    open(&mut p);
+    let button = id(&p, "again").unwrap();
+    p.dispatch_press(button, 1., false);
+    p.hardware_key("AltLeft", "Alt", true, false);
+    p.hardware_key("ArrowLeft", "ArrowLeft", true, false);
+    p.hardware_key("ArrowLeft", "ArrowLeft", true, true);
+    p.hardware_key("ArrowLeft", "ArrowLeft", false, false);
+    p.hardware_key("AltLeft", "Alt", false, false);
+    assert_eq!(slot(&mut p, "followed"), 1, "one visit back, of two");
+}
+
+#[test]
+fn back_is_its_keys_default_action_after_the_authors() {
+    // In a text field Alt+Left goes back; the caret's keys are the bare arrows.
+    let mut p = boot("navigate=follow", "input value=\"abc\" testId=\"field\"");
+    open(&mut p);
+    let field = id(&p, "field").unwrap();
+    assert_eq!(p.set_focus(Some(field), 1.), None);
+    device_key(&mut p, &[], "ArrowLeft");
+    assert!(on_detail(&p));
+    device_key(&mut p, ALT, "ArrowLeft");
+    assert!(!on_detail(&p));
+    assert_eq!(slot(&mut p, "followed"), 1);
+    // A `key` handler at the focus that prevents the default keeps the key.
+    let editor = "box key=keep tabindex=0 testId=\"editor\" width=100 height=40";
+    let mut p = boot("navigate=follow", editor);
+    open(&mut p);
+    let editor = id(&p, "editor").unwrap();
+    assert_eq!(p.set_focus(Some(editor), 1.), None);
+    device_key(&mut p, ALT, "ArrowLeft");
+    assert!(on_detail(&p), "the editor's own Alt+Left");
+    assert_eq!(slot(&mut p, "kept"), 1);
+    assert_eq!(slot(&mut p, "followed"), 0);
+    // A button that declares the chord takes it before Back, focus or none.
+    let claimed = "button aria-keyshortcuts=\"Alt+ArrowLeft\" press=claim testId=\"claim\"\n              text \"Older\"";
+    let mut p = boot("navigate=follow", claimed);
+    open(&mut p);
+    device_key(&mut p, ALT, "ArrowLeft");
+    assert!(on_detail(&p), "the page's shortcut, not Back");
+    assert_eq!(slot(&mut p, "kept"), 10);
+    // The agent's key is the same key: a drive asks for Back as a person does.
+    let mut p = boot("", "text \"no control here\"");
+    open(&mut p);
+    let detail = id(&p, "detail").unwrap();
+    let reply = crate::agent::handle(
+        &mut p,
+        &format!(r#"{{"op":"type","id":{detail},"key":"Alt+ArrowLeft"}}"#),
+    );
+    assert!(reply.contains("\"typed\""), "{reply}");
+    assert!(!on_detail(&p), "the drive's Alt+Left popped the route");
 }

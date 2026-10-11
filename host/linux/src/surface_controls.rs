@@ -370,6 +370,9 @@ impl<D: DataSource> Presenter<D> {
         } else if down && code == "Tab" {
             // From no focus, Tab takes the first stop (LLP 1088 D7.3).
             self.key_down("Tab", self.host.now());
+        } else if down && self.back_key(key) {
+            // And a Back key goes back (LLP 1115.000 D5.4).
+            self.key_down_with(key, code, repeat, self.host.now());
         }
         if code == "Escape"
             && self.focus.is_some_and(|id| {
