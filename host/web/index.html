@@ -5,6 +5,10 @@
 <base href="/">
 <title>Exact</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- LLP 1116 D8: the page's icon, so a browser never asks for /favicon.ico.
+     Both web builds put the app's first manifest icon here; this neutral
+     square is the icon of an app that declares none. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3.5' fill='%238e8e93'/%3E%3C/svg%3E">
 <!-- Fetched in parallel with glue.js: its import, and the wasm it fetches
      (`fetch` is cors/same-origin; so is `crossorigin` here, same URL). -->
 <link rel="modulepreload" href="./navigation.js">
