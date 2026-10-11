@@ -94,32 +94,34 @@ final class T3MobilePreferences {
 import UIKit
 
 /// App-owned rendering for upstream FontSizeSliderRow's 4pt track and 26pt thumb.
-/// UIKit supplies tracking/accessibility; no framework slider appearance is changed.
+/// Touch direction follows the source slider; UIKit still draws its track/thumb.
 final class T3SettingsSlider: ExactNativeInstance {
     static let factory = ExactNativeFactory { props, events in
         let view = T3SettingsSlider(events: events); try view.setProps(props); return view
     }
     private let slider = T3PreferenceSlider()
+    private let input = T3PreferenceSliderInput()
     private var increment: Float = 1
     private var committed: Float = 0
-    override var view: UIView { slider }
-    override var focusTarget: UIView? { slider }
+    override var view: UIView { input }
+    override var focusTarget: UIView? { input }
     override init(events: ExactNativeEvents) {
         super.init(events: events)
-        slider.isContinuous = false
-        slider.accessibilityTraits = .adjustable
-        slider.addAction(UIAction { [weak self] _ in self?.commit() }, for: .valueChanged)
-        slider.adjust = { [weak self] direction in
+        slider.isUserInteractionEnabled = false; slider.isAccessibilityElement = false
+        slider.autoresizingMask = [.flexibleWidth, .flexibleHeight]; input.addSubview(slider)
+        input.adjust = { [weak self] direction in
             guard let self, self.slider.isEnabled else { return }
+            self.input.cancelTracking()
             self.slider.value += Float(direction) * self.increment; self.commit()
         }
-        slider.tap = { [weak self] x in
+        input.position = { [weak self] x, finished in
             guard let self, self.slider.isEnabled else { return }
             let usable = self.slider.bounds.width - 26
             let fraction = usable > 0 ? min(1, max(0, (x - 13) / usable)) : 0
             self.slider.value = self.slider.minimumValue + Float(fraction) * (self.slider.maximumValue - self.slider.minimumValue)
-            self.commit()
+            if finished { self.commit() }
         }
+        input.rollback = { [weak self] in guard let self else { return }; self.slider.setValue(self.committed, animated: true) }
     }
     override func setProps(_ props: [String: String]) throws {
         guard let low = Float(props["minimum"] ?? ""), let high = Float(props["maximum"] ?? ""),
@@ -129,10 +131,11 @@ final class T3SettingsSlider: ExactNativeInstance {
         }
         slider.minimumValue = low; slider.maximumValue = high; increment = step
         committed = min(high, max(low, value))
-        if !slider.isTracking { slider.value = committed }
+        input.isEnabled = props["enabled"] == "true"
+        if !input.isDragging { slider.value = committed }
         slider.isEnabled = props["enabled"] == "true"
-        slider.accessibilityLabel = props["slider-label"] ?? "Font size"
-        slider.accessibilityValue = "\(committed) pt"
+        input.accessibilityLabel = props["slider-label"] ?? "Font size"
+        input.accessibilityValue = "\(committed) pt"
         slider.minimumTrackTintColor = T3PreferenceColors.color(props["active-color"])
         slider.maximumTrackTintColor = T3PreferenceColors.color(props["inactive-color"])
         let thumb = UIGraphicsImageRenderer(size: CGSize(width: 34, height: 36)).image { context in
@@ -151,7 +154,7 @@ final class T3SettingsSlider: ExactNativeInstance {
             slider.minimumValue + ((slider.value - slider.minimumValue) / increment).rounded() * increment))
         slider.setValue(value, animated: true)
         guard value != committed else { return }
-        committed = value; slider.accessibilityValue = "\(value) pt"
+        committed = value; input.accessibilityValue = "\(value) pt"
         UISelectionFeedbackGenerator().selectionChanged()
         events.change(String(value))
     }
@@ -160,34 +163,125 @@ final class T3SettingsSlider: ExactNativeInstance {
         switch input {
         case .text(let value):
             guard let number = Float(value), number.isFinite else { throw ExactNativeRefusal("Font size must be a finite number.") }
+            self.input.cancelTracking()
             slider.value = number; commit()
         case .key(let key, let phase):
             guard ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].contains(key) else { throw ExactNativeRefusal("Unsupported font size slider key.") }
             guard phase != "up" else { return }
+            self.input.cancelTracking()
             if key == "Home" { slider.value = slider.minimumValue }
             else if key == "End" { slider.value = slider.maximumValue }
             else { slider.value += ["ArrowLeft", "ArrowDown"].contains(key) ? -increment : increment }
             commit()
         }
     }
-    override func destroy() { slider.adjust = nil; slider.tap = nil }
+    override func destroy() {
+        input.isEnabled = false; input.adjust = nil; input.position = nil; input.rollback = nil
+    }
 }
 private final class T3PreferenceSlider: UISlider {
-    var adjust: ((Int) -> Void)?
-    var tap: ((CGFloat) -> Void)?
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped(_:))))
-    }
-    required init?(coder: NSCoder) { nil }
     override func trackRect(forBounds bounds: CGRect) -> CGRect { CGRect(x: bounds.minX, y: bounds.midY - 2, width: bounds.width, height: 4) }
     override func thumbRect(forBounds bounds: CGRect, trackRect rect: CGRect, value: Float) -> CGRect {
         let fraction = maximumValue > minimumValue ? CGFloat((value - minimumValue) / (maximumValue - minimumValue)) : 0
         return CGRect(x: bounds.minX + fraction * max(0, bounds.width - 26) - 4, y: bounds.midY - 16, width: 34, height: 36)
     }
-    override func accessibilityIncrement() { adjust?(1) }
-    override func accessibilityDecrement() { adjust?(-1) }
-    @objc private func tapped(_ gesture: UITapGestureRecognizer) { if gesture.state == .ended { tap?(gesture.location(in: self).x) } }
+}
+/// A plain hit target lets the enclosing scroll view cancel a vertical contact.
+private final class T3PreferenceSliderInput: UIView {
+    var adjust: ((Int) -> Void)?
+    var position: ((CGFloat, Bool) -> Void)?
+    var rollback: (() -> Void)?
+    private(set) var isDragging = false
+    private let drag = T3PreferenceSliderDrag(target: nil, action: nil)
+    private let tap = UITapGestureRecognizer(target: nil, action: nil)
+    var isEnabled = true {
+        didSet {
+            guard isEnabled != oldValue else { return }
+            if !isEnabled { cancelTracking() }
+            drag.isEnabled = isEnabled; tap.isEnabled = isEnabled
+            accessibilityTraits = isEnabled ? .adjustable : [.adjustable, .notEnabled]
+        }
+    }
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isAccessibilityElement = true; accessibilityTraits = .adjustable
+        drag.addTarget(self, action: #selector(dragged(_:)))
+        tap.addTarget(self, action: #selector(tapped(_:))); tap.require(toFail: drag)
+        addGestureRecognizer(drag); addGestureRecognizer(tap)
+    }
+    required init?(coder: NSCoder) { nil }
+    func cancelTracking() {
+        if isDragging { isDragging = false; rollback?() }
+        let enabled = isEnabled
+        drag.isEnabled = false; tap.isEnabled = false
+        drag.isEnabled = enabled; tap.isEnabled = enabled
+    }
+    override func accessibilityIncrement() { if isEnabled { adjust?(1) } }
+    override func accessibilityDecrement() { if isEnabled { adjust?(-1) } }
+    @objc private func tapped(_ gesture: UITapGestureRecognizer) {
+        if isEnabled, gesture.state == .ended { position?(gesture.location(in: self).x, true) }
+    }
+    @objc private func dragged(_ gesture: T3PreferenceSliderDrag) {
+        switch gesture.state {
+        case .began, .changed:
+            guard isEnabled else { return }
+            isDragging = true; position?(gesture.point.x, false)
+        case .ended:
+            guard isEnabled, isDragging else { return }
+            isDragging = false; position?(gesture.point.x, true)
+        case .cancelled, .failed:
+            if isDragging { isDragging = false; rollback?() }
+        default: break
+        }
+    }
+}
+private struct T3SliderDragState {
+    enum Phase { case waiting, dragging, rejected }
+    let origin: CGPoint
+    private(set) var phase = Phase.waiting
+    mutating func move(to point: CGPoint) -> Phase {
+        guard phase == .waiting else { return phase }
+        if abs(point.y - origin.y) > 12 { phase = .rejected }
+        else if abs(point.x - origin.x) > 8 { phase = .dragging }
+        return phase
+    }
+}
+private final class T3PreferenceSliderDrag: UIGestureRecognizer {
+    private var held: UITouch?
+    private var contact: T3SliderDragState?
+    private(set) var point = CGPoint.zero
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesBegan(touches, with: event)
+        guard held == nil, touches.count == 1, let touch = touches.first else {
+            state = state == .possible ? .failed : .cancelled; return
+        }
+        held = touch; point = touch.location(in: view); contact = T3SliderDragState(origin: point)
+    }
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesMoved(touches, with: event)
+        guard let held, touches.contains(held) else { return }
+        point = held.location(in: view)
+        switch contact?.move(to: point) {
+        case .dragging: state = state == .possible ? .began : .changed
+        case .rejected: state = .failed
+        default: break
+        }
+    }
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesEnded(touches, with: event)
+        guard let held, touches.contains(held) else { return }
+        point = held.location(in: view)
+        state = state == .began || state == .changed ? .ended : .failed
+    }
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesCancelled(touches, with: event)
+        state = state == .possible ? .failed : .cancelled
+    }
+    override func reset() { super.reset(); held = nil; contact = nil }
+    override func shouldBeRequiredToFail(by other: UIGestureRecognizer) -> Bool {
+        guard let scroll = other.view as? UIScrollView, other === scroll.panGestureRecognizer else { return false }
+        return view?.isDescendant(of: scroll) == true
+    }
 }
 private enum T3PreferenceColors {
     static func color(_ value: String?) -> UIColor {
