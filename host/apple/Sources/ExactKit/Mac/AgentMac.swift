@@ -1045,16 +1045,30 @@ extension Agent {
     /// The system appearance (LLP 1061 D5). AppKit has no layer beneath the
     /// app's own appearance (`setScheme`'s `NSApp.appearance`): the agent's
     /// stands in it while the app follows the system, and an app that
-    /// returns to `system` later shows the Mac's own again.
+    /// returns to `system` later shows the Mac's own again. Every session
+    /// tells its runner, as for any other preference.
     func systemScheme(dark: Bool) {
         let following = NSApp.appearance == nil || NSApp.appearance === Agent.systemAppearance
         Agent.systemAppearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         if following { NSApp.appearance = Agent.systemAppearance }
+        DisplayPreferences.changed()
     }
     var systemDark: Bool {
         (Agent.systemAppearance ?? NSApp.effectiveAppearance).bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
     }
-    nonisolated(unsafe) static var systemAppearance: NSAppearance?
+    /// The agent's system appearance, the whole process's; `nil` follows the
+    /// Mac. Under the agent it is set at launch (`launchAppearance`): its
+    /// first reader is a session's first boot, before the window draws.
+    nonisolated(unsafe) static var systemAppearance: NSAppearance? = ExactEnv.agentMode ? launchAppearance() : nil
+    /// Light, as `prefer` would set it, never the machine's (LLP 1069.007 D2),
+    /// and the app's while it follows the system: so the first boot tells
+    /// the runtime the scheme the window draws, and the first `prefer`
+    /// changes only what it names.
+    static func launchAppearance() -> NSAppearance? {
+        let light = NSAppearance(named: .aqua)
+        if let app = NSApp, app.appearance == nil { app.appearance = light }
+        return light
+    }
     /// `prefer contrast more` (LLP 1095 D7): the high-contrast variant of the
     /// system appearance, so views redraw and platform colours resolve as
     /// Increase Contrast shows them.
