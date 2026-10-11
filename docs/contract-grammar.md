@@ -125,6 +125,13 @@ or `min()`, `max()` and `clamp()` over px, insets and viewport lengths
 (`clamp(15px, env(safe-area-inset-bottom), 60px)`; LLP 1001 §2). Anything else
 is `lower-attr-value`, with the kernel's reason.
 
+`-exact-fit="shrink"` on a `text` (CSS has no such property; LLP 1116.001 D1.4) draws
+a line too wide for its content box at the scale that fits: its whole line under
+`white-space="nowrap"`, else its longest word. It shrinks down to half its size, and
+a display size (more than twice the root font size) down to the root size; below that
+it overflows, as UIKit's `adjustsFontSizeToFitWidth` truncates. The kernel picks the
+scale and every host draws at it; `"none"`, the default, never shrinks.
+
 A `sound` names a WAV under the app's `assets/` (LLP 1096 D1): 16-bit integer
 or 32-bit float PCM (or `WAVE_FORMAT_EXTENSIBLE` naming one), one or two
 channels, 8–96 kHz, at most 10 s. The compiler reads its header and refuses

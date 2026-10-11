@@ -137,6 +137,15 @@ impl TextStyle {
         s.style()
     }
 
+    /// This style drawn at `scale` of its size: its font size, a resolved
+    /// line height and its letter spacing (LLP 1116.001 D1.4, a fitted text).
+    pub fn scaled(mut self, scale: f32) -> Self {
+        self.font_size *= scale;
+        self.line_height = self.line_height.map(|h| h * scale);
+        self.letter_spacing *= scale;
+        self
+    }
+
     /// The run style carried by a node's style rows.
     pub fn from_style(s: &StyleProps) -> Self {
         TextStyle {

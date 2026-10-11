@@ -194,6 +194,14 @@ impl<'a> NodeRef<'a> {
         runs
     }
 
+    /// The scale this paragraph is drawn at, as its last layout chose it
+    /// (`-exact-fit: shrink`, LLP 1116.001 D1.4): 1 unless it was shrunk to
+    /// fit its box. [`Self::text_runs`] are at it already; a host that draws
+    /// from the style rows multiplies their sizes by it.
+    pub fn fit_scale(&self) -> f32 {
+        self.arena.fit_scale(self.slot)
+    }
+
     /// Child wire ids, in order.
     pub fn children(&self) -> Vec<ViewId> {
         self.arena

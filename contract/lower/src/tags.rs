@@ -801,6 +801,11 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "alignSelf" => "align-self",
         "boxSizing" => "box-sizing",
         "fit" | "objectFit" => "object-fit",
+        // UIKit's, SwiftUI's and React Native's shrink-to-fit (LLP 1116.001 D1.4).
+        "adjustsFontSizeToFitWidth"
+        | "adjustsFontSizeToFit"
+        | "minimumScaleFactor"
+        | "minimumFontScale" => "-exact-fit",
         "justify" | "justifyContent" => "justify-content",
         "overflowX" => "overflow-x",
         "overflowY" => "overflow-y",

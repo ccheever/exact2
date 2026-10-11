@@ -118,6 +118,10 @@ extension NodeView {
                 }
             }
         }
+        // A fitted paragraph is drawn at the scale the kernel's layout chose
+        // for it, as it was measured (`-exact-fit`, LLP 1116.001 D1.4).
+        let fit = props["fitScale"].flatMap(Float.init) ?? 1
+        if fit != 1 { runs = runs.map { $0.scaled(fit) } }
         let whiteSpace = ["pre-wrap": 1, "nowrap": 2, "pre-line": 3, "pre": 4][style["white_space"]?.string ?? ""] ?? 0
         // CSS collapses white space before shaping, as the measurer does in
         // Rust with the same function (LLP 1053 G5); Markdown keeps its lines.
@@ -127,7 +131,7 @@ extension NodeView {
         let clips = (style["overflow_x"]?.string).map { $0 != "visible" } ?? false
         var spec = Spec(runs: runs, align: align, lineClamp: lineClamp,
                         color: textChannels("text_color", dark: night) ?? SystemColor.canvasTextChannels(dark: night, contrast: contrast),
-                        overflowWrap: style["overflow_wrap"]?.string == "anywhere" ? 2 : style["overflow_wrap"]?.string == "break-word" ? 1 : 0, direction: rtl ? 1 : 0, whiteSpace: whiteSpace, strut: textRun(""))
+                        overflowWrap: style["overflow_wrap"]?.string == "anywhere" ? 2 : style["overflow_wrap"]?.string == "break-word" ? 1 : 0, direction: rtl ? 1 : 0, whiteSpace: whiteSpace, strut: textRun("").scaled(fit))
         spec.ellipsis = lineClamp == 0 && clips && style["text_overflow"]?.string == "ellipsis"
         spec.source = source
         spec.textIndent = CGFloat(Float(number("text_indent")))

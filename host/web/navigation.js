@@ -868,6 +868,46 @@ export function appRootFontSize(value, say, platform = globalThis) {
   if (!rule) { rule = doc.createElement("style"); rule.id = APP_ROOT; doc.head.append(rule); }
   rule.textContent = `:root{font-size:${value}px!important}`;
 }
+// @ref LLP 1116.001 D1.4 — `-exact-fit: shrink`. The browser lays the page out,
+// so it picks the scale the kernel would, by the kernel's rule (kernel/src/
+// layout/fit.rs): the text's min-content width against its room, down to half
+// its size (display text bigger than twice the root's: down to the root size).
+// It draws at it as CSS `zoom` on the element, which scales the text, its runs,
+// line height and letter spacing together and leaves the authored rows alone;
+// a style write clears it and the next pass sets it again.
+export function fitText(el) {
+  el.style.zoom = "";
+  const cs = getComputedStyle(el), px = (v) => parseFloat(v) || 0;
+  if (cs.getPropertyValue("--exact-fit").trim() !== "shrink" || cs.display === "none" || !el.offsetWidth) return;
+  // Layout pixels, through any transform above it (a route sliding in).
+  const k = el.getBoundingClientRect().width / el.offsetWidth || 1;
+  const inset = px(cs.paddingLeft) + px(cs.paddingRight) + px(cs.borderLeftWidth) + px(cs.borderRightWidth);
+  const content = () => el.getBoundingClientRect().width / k - inset, box = content(), width = el.style.width;
+  el.style.width = "min-content"; const natural = content(); el.style.width = width;
+  // Sized by its text, it has its container's room.
+  const up = el.parentElement, ps = up && getComputedStyle(up);
+  const room = box + 0.5 < natural || !up ? box : up.clientWidth - px(ps.paddingLeft) - px(ps.paddingRight) - Math.max(0, px(cs.marginLeft)) - Math.max(0, px(cs.marginRight));
+  if (!(natural > room + 0.01)) return;
+  const size = px(cs.fontSize), root = px(getComputedStyle(document.documentElement).fontSize);
+  el.style.zoom = String(Math.max(size > 0 && root > 0 ? Math.min(0.5, root / size) : 0.5, Math.max(0, room) / natural));
+  zoomed.add(el);
+}
+// What `fitText` scaled: one whose row went (a bound `-exact-fit`) is let go.
+let fitSeen = false, zoomed = new Set();
+/** Whether a style the page writes fits a text: then every pass refits. */
+export const noteFit = (css) => { if (!fitSeen && css?.includes("--exact-fit")) fitSeen = true; };
+/** Every fitted text again: after a tree update, a resize, the fonts' arrival. */
+export function refitTexts() {
+  if (!fitSeen) return;
+  const fitted = new Set(document.querySelectorAll('[style*="--exact-fit"]'));
+  for (const el of zoomed) if (!fitted.has(el)) { el.style.zoom = ""; zoomed.delete(el); }
+  for (const el of fitted) fitText(el);
+}
+/** The JS target's: after each tree update (rt.js `After`), on resize and once the fonts are in. */
+export function installFits(after) {
+  if (fitSeen || typeof document === "undefined" || typeof addEventListener !== "function" || globalThis.__exactRender) return;
+  fitSeen = true; after.push(refitTexts); addEventListener("resize", refitTexts); document.fonts?.ready.then(refitTexts);
+}
 // What `read` gives with the app's rule set aside: the host's own reading.
 function beneathApp(platform, read) {
   const rule = platform.document.getElementById?.(APP_ROOT);
