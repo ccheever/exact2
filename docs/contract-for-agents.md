@@ -776,7 +776,11 @@ component Items
 `offline`, `timeout`, `refused` and `storage` reach the view only when the
 TypeScript module lets the `fetch` or storage rejection through (rethrows it, or
 does not catch it): an error it makes of its own, one for an HTTP 500 among
-them, is `error`. `bun scripts/agent.mjs web "fail fetch https://api…"` fails
+them, is `error`. Its own error keeps its `message`, and `failure(x).message`
+is that text, so a code the module puts first (`NOT_MANAGER: …`, as the
+snapback4 driver's `refused` throws a server's refusal) is the view's to
+branch on with `startsWith(f.message, "NOT_MANAGER:")`; `code` stays one of
+the six. `bun scripts/agent.mjs web "fail fetch https://api…"` fails
 those fetches as a lost connection, so the banner says "You're offline".
 
 `with` takes one or more expressions, before `as shape`, and appends them to the

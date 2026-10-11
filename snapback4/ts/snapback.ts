@@ -59,6 +59,13 @@ export interface Refused { id: string; op: string; args: Json; argsOmitted?: boo
 /** What became of a write. `result` is the server's, while remembered. */
 export interface Outcome<R = Json> { id: string; state: 'pending' | 'sent' | 'failed' | 'unknown'; seq?: number; result?: R; why?: Refusal }
 
+/** What `send` came to: the write's fate after its round, and the round
+ * (absent when the device refused the write, which then never went out).
+ * `pending` only when that round did not reach the server or was refused
+ * (`round.offline`, `round.retry`, `round.denied`): the write is kept and
+ * the next round sends it. */
+export type Sent<R = Json> = Outcome<R> & { round?: Round };
+
 /** A session as Snapback mints it; `expiresAt` in milliseconds. */
 export interface Session { principal: string; kind: string; token: string; expiresAt: number }
 
@@ -113,9 +120,29 @@ export interface Options {
   wasm?: string;
 }
 
+/** The error to throw for a refusal (a read's `denied`, a round's), as the
+ * driver throws its own: its `message` is `CODE: message` and it carries
+ * `refusal` and `code`. A source that lets it through fails its resource,
+ * and `failure(x)` says why on every host: `code` `offline` for `E_OFFLINE`
+ * (the server was not reached, as a lost `fetch` is), else `error`, whose
+ * `message` begins with the refusal's code, so the view can branch with
+ * `startsWith(f.message, "NOT_MANAGER:")`. `failure(x).code` itself is
+ * Exact's closed list, never a Snapback code.
+ *
+ *   const read = await db.read<Row[]>('board', {}, now);
+ *   if (read.denied) throw refused(read.denied);
+ */
+export function refused(why: Refusal): Error {
+  const error = Object.assign(new Error(`${why.code}: ${why.message}`), { refusal: why, code: why.code });
+  // What `failure(x)` reads as `offline` on every host (host/web-js/shape.js
+  // and js/src/prelude.js `failureCode`): a fetch's `Network` rejection.
+  if (why.code === 'E_OFFLINE') Object.assign(error, { name: 'FetchError', kind: 'Network' });
+  return error;
+}
+
 function ok<T>(answer: Request): T {
   const denied = answer.denied as Refusal | undefined;
-  if (denied) throw Object.assign(new Error(`${denied.code}: ${denied.message}`), { refusal: denied });
+  if (denied) throw refused(denied);
   return answer.ok as T;
 }
 
@@ -176,7 +203,7 @@ function pageOf(options: Options): Page {
 }
 
 function refusal(code: string, message: string, extra: Partial<Refusal> = {}): Error {
-  return Object.assign(new Error(`${code}: ${message}`), { refusal: { code, message, ...extra } as Refusal });
+  return refused({ code, message, ...extra } as Refusal);
 }
 
 async function openPartition(options: Options, path: string, page: Page): Promise<Partition> {
@@ -269,9 +296,10 @@ export class Snapback {
   private async ready(): Promise<void> {
     if (this.partition.opened) return;
     const round = await this.sync();
-    if (!this.partition.opened) {
-      throw refusal('E_OFFLINE', `this device has never synced and the server was not reached${round.denied ? ` (${round.denied.code}: ${round.denied.message})` : ''}; connect once to open it (in a test, let the app sync once, with \`clock data\`, before \`fail fetch\`)`, { retryable: true });
-    }
+    if (this.partition.opened) return;
+    // The server's own refusal (a session it does not take) is that refusal.
+    if (round.denied && round.offline !== true && round.denied.code !== 'E_OFFLINE') throw refused(round.denied);
+    throw refusal('E_OFFLINE', `this device has never synced and the server was not reached${round.denied ? ` (${round.denied.code}: ${round.denied.message})` : ''}; connect once to open it (in a test, let the app sync once, with \`clock data\`, before \`fail fetch\`)`, { family: 'transport', retryable: true });
   }
 
   /** A named query. The device answers it from its partition, unless it
@@ -337,7 +365,7 @@ export class Snapback {
     let next: string | null = null;
     do {
       const page: Read<T[]> = await this.read<T[]>(name, next === null ? args : { ...args, [cursor]: next }, now);
-      if (page.denied) throw Object.assign(new Error(`${page.denied.code}: ${page.denied.message}`), { refusal: page.denied });
+      if (page.denied) throw refused(page.denied);
       if (!Array.isArray(page.data)) throw new Error(`${name}: not on this device yet`);
       if (page.complete === false || page.offline === true) rows.complete = false;
       if (page.offline === true) rows.offline = true;
@@ -370,14 +398,31 @@ export class Snapback {
     return ok<Write | Outcome>(await this.call({ op: 'write', name, args: args as Request, now: at, ...(key === undefined ? {} : { key }) }));
   }
 
+  /** Write, sync, and answer what became of the write: a mutation source's
+   * one call. `write` only admits (it never sends), so an `outcome` asked
+   * before a round is `pending`; `send` runs the round between them. `sent`
+   * carries the server's `result`; `failed` its `why` (a `require … else
+   * CODE`'s code, `E_RULE`), or the device's when it refused at once;
+   * `pending` means the round did not deliver it (offline: kept, and sent
+   * by the next round). `key` is `write`'s idempotency key. */
+  async send<R = Json>(name: string, args: Args, now: number, key?: string): Promise<Sent<R>> {
+    const written = await this.write(name, args, now, key as string);
+    if (written.state !== 'pending') return written as Sent<R>;
+    const round = await this.sync();
+    return { ...await this.outcome<R>(written.id), round };
+  }
+
   /** The id a write with this idempotency key has (or would have). */
   async writeId(key: string): Promise<string> {
     return ok<string>(await this.call({ op: 'write_id', key }));
   }
 
-  /** What became of a write: `pending` while unsent, `sent` or `failed`
-   * (the server's verdict, or the device's at `write`), `unknown` if this
-   * device never admitted it. */
+  /** What became of a write: `pending` until a round sends it, `sent` or
+   * `failed` (the server's verdict, or the device's at `write`), `unknown`
+   * if this device never admitted it. It reads; it never sends. A `sync()`
+   * that ends `ok`, asked for after the write, has sent it, so its outcome
+   * is then `sent` or `failed` (however many other sources sync at once);
+   * `send` is write, sync and outcome in one call. */
   async outcome<R = Json>(id: string): Promise<Outcome<R>> {
     return ok<Outcome<R>>(await this.call({ op: 'outcome', id }));
   }

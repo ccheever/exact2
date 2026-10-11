@@ -83,6 +83,10 @@ table members:
 mutation join(role: enum('member', 'lead')):
   return insert members { person: viewer, role }
 
+query leads():
+  require exists members[person = viewer, role = 'lead'] else NOT_LEAD
+  return members first 5 by .id
+
 mutation approve(body: text <=50):
   require exists members[person = viewer, role = 'lead'] else NOT_LEAD
   row = insert messages { author: viewer, body, at: now }
@@ -346,6 +350,62 @@ test('a failed save after the server answered keeps the answer and never resends
   expect(rows.filter(r => r.body === 'answered, then the disk failed').map(r => r.pending === true)).toEqual([false]);
   await kim.close();
 }, 60_000);
+
+test('a sync after a write settles it while other sources sync at once; send is all three; refusals reach failure(x)', async () => {
+  const { failureCode } = await import('../../host/web-js/shape.js');
+  const { refused } = await import('./snapback.ts');
+  const db = await open('nell', join(scratch, 'nell'));
+  expect(await db.sync()).toEqual({ ok: true });
+  // Three resources syncing and reading over and over, on a slow link.
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    await new Promise(r => setTimeout(r, Math.random() * 15));
+    return realFetch(input as never, init);
+  }) as typeof fetch;
+  let stop = false;
+  const sources = [0, 1, 2].map(async () => {
+    while (!stop) { await db.sync(); await db.read('inbox', {}, Date.now()); await new Promise(r => setTimeout(r, Math.random() * 10)); }
+  });
+  try {
+    for (let i = 0; i < 6; i++) {
+      // write admits only: asked at once, its fate is pending.
+      const written = await db.write('send', { body: `busy ${i}` }, Date.now());
+      expect((await db.outcome(written.id)).state).toBe('pending');
+      // A round asked for after the write sends it, whatever runs meanwhile.
+      expect(await db.sync()).toEqual({ ok: true });
+      expect((await db.outcome(written.id)).state).toBe('sent');
+    }
+    const sent = await db.send<{ id: string }>('send', { body: 'in one call' }, Date.now());
+    expect([sent.state, sent.round]).toEqual(['sent', { ok: true }]);
+    expect(typeof sent.result?.id).toBe('string');
+    // The server's refusal, with the mutation's own code.
+    const empty = await db.send('send', { body: '' }, Date.now());
+    expect([empty.state, empty.why?.code]).toEqual(['failed', 'EMPTY']);
+  } finally { stop = true; await Promise.all(sources); globalThis.fetch = realFetch; }
+  // Offline, send keeps the write and says why it is still pending.
+  globalThis.fetch = (async () => { throw new TypeError('offline'); }) as unknown as typeof fetch;
+  try {
+    const kept = await db.send('send', { body: 'later' }, Date.now());
+    expect([kept.state, kept.round?.offline]).toEqual(['pending', true]);
+  } finally { globalThis.fetch = realFetch; }
+  expect((await db.send('send', { body: 'now' }, Date.now())).state).toBe('sent');
+  expect((await db.status()).queued).toEqual([]);
+
+  // A query's `require … else CODE`, thrown as the driver throws it: the
+  // code leads the message failure(x) shows, under the closed code `error`.
+  const read = await db.read('leads', {}, Date.now());
+  expect(read.denied?.code).toBe('NOT_LEAD');
+  const error = refused(read.denied!);
+  expect([error.message.startsWith('NOT_LEAD: '), (error as { code?: string }).code, failureCode(error)]).toEqual([true, 'NOT_LEAD', 'error']);
+  await expect(db.readAll('leads', {}, Date.now())).rejects.toThrow(/^NOT_LEAD: /);
+  // Unreached is `offline`, as a lost fetch is.
+  expect(failureCode(refused({ code: 'E_OFFLINE', message: 'not reached' }))).toBe('offline');
+  const never = await open('olive', join(scratch, 'olive'), 'http://127.0.0.1:9');
+  const unreached = await never.read('inbox', {}, Date.now()).catch(e => e as Error);
+  expect([unreached.message.startsWith('E_OFFLINE: '), failureCode(unreached)]).toEqual([true, 'offline']);
+  await never.close();
+  await db.close();
+}, 120_000);
 
 test('a closed client refuses every call; closing twice is harmless', async () => {
   const lou = await open('lou', join(scratch, 'lou'));

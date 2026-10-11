@@ -54,8 +54,9 @@ app made by `exact new` has both, with this checkout's paths filled in, in its
 
 ### Time
 
-A data module has no clock. Declare the host's clock as a resource and pass
-milliseconds since the epoch into every source that reads or writes:
+A data module has no clock (`Date.now()` in one fails the build, with this
+repair). Declare the host's clock as a resource and pass milliseconds since
+the epoch into every source that reads or writes:
 
 ```
 shape Clock
@@ -135,7 +136,7 @@ component Guestbook
   resource board = notes(persona, time.epochAtZero + performanceNow()) as shape Board
   mutation posted as shape Ack queue refreshes board then afterPost
   derive banner = match failure(board) {
-    case some(f) => f.code == "offline" ? "You're offline" : `Couldn't load notes (${f.code})`,
+    case some(f) => f.code == "offline" ? "You're offline" : `Couldn't load notes (${f.message})`,
     case none => ""
   }
   task live mount
@@ -182,7 +183,7 @@ component Guestbook
 
 ```ts
 import type { Answer, Result, Sources } from './app.contract.d.ts';
-import { Snapback } from './snapback4/snapback.ts';
+import { Snapback, refused } from './snapback4/snapback.ts';
 
 export const appId = 'com.example.guestbook';
 const origin = 'http://127.0.0.1:4400';
@@ -201,7 +202,7 @@ const sources: Sources = {
   notes: ([persona, now], _store, storage, native): Promise<Result<'notes'>> => personas.use(persona, storage, native, async db => {
     const round = await db.sync();                      // offline is fine once synced
     const read = await db.read<Row[]>('recent', {}, now);
-    if (read.denied) throw new Error(`${read.denied.code}: ${read.denied.message}`);
+    if (read.denied) throw refused(read.denied);        // failure(board): `offline`, or `error` with "CODE: message"
     // Project each row onto the shape: an answer's extra fields are refused.
     const notes = (read.data ?? []).map(row => ({ id: row.id, author: row.author, body: row.body, pending: row.pending === true }));
     return { online: round.ok, message: round.ok ? '' : 'Offline: showing what this device keeps',
@@ -215,12 +216,10 @@ const sources: Sources = {
     throw error;                                        // the view shows it through failure(board)
   }),
   post: ([persona, body, now], _store, storage, native): Promise<Result<'post'>> => personas.use(persona, storage, native, async db => {
-    const written = await db.write('post', { body }, now);
-    if (written.state === 'failed') return { ok: false, message: `Refused: ${written.why.code}`, id: '' };
-    await db.sync();
-    // A round that ends ok delivered the outbox; the write's own fate is here,
-    // with the mutation's result (here the new row's id) once it was sent.
-    const fate = await db.outcome<{ id: string }>(written.id);
+    // Write, sync, and the write's fate in one call: `sent` with the mutation's
+    // result (here the new row's id), `failed` with the refusal's code, or
+    // `pending` when the round did not reach the server (kept; sent later).
+    const fate = await db.send<{ id: string }>('post', { body }, now);
     if (fate.state === 'failed') return { ok: false, message: `Refused: ${fate.why?.code}`, id: '' };
     if (fate.state === 'sent') return { ok: true, message: 'Posted.', id: fate.result?.id ?? '' };
     return { ok: true, message: 'Saved on this device; it sends when online.', id: '' };
@@ -234,7 +233,11 @@ export const answer: Answer = (source, args, store, storage, native) =>
 and `epoch now` dates them as the server does; `test web` asks the origin
 before it starts, and refuses to run with nothing listening there). Each test
 opens the app fresh, but the server keeps what earlier tests wrote, so each
-test creates what it asserts on. A `select` is driven with
+test creates what it asserts on. A `--memory` server starts empty: rows the
+app cannot write itself (an `owners` or `staff` table a rule reads) go in
+before the run, as the system, with `POST <origin>/seed` and a body such as
+`[{"table":"owners","row":{"id":"o1","person":"dev:alice"}}]` (`snapback4
+guide wire`, "Development doors"). A `select` is driven with
 `type`; the offline test proves delivery after `pass fetch`, not only that
 the write was kept:
 
@@ -271,7 +274,7 @@ test "offline, a note is kept, then delivered on reconnect"
 `app.json` mounts the driver (`"typescript": { "sources": { "snapback4":
 "<this checkout>/snapback4/ts" } }`), `bun add snapback4@0.4.16` installs the
 server, and `node <this checkout>/snapback4/web/build.mjs assets/snapback4.wasm`
-builds the device. Built and tested as written against 0.4.16 (2026-10-08):
+builds the device. Built and tested as written against 0.4.16 (2026-10-11):
 both tests pass, and pass again on the data a first run leaves.
 
 ### Ports: the Snapback origin and the page's own
@@ -301,9 +304,10 @@ const db = await Snapback.open({ app: appId, name: `inbox-${persona}`, origin, v
   storage, native });                                  // Exact's own `storage` and `native`, as the source receives them
 await db.sync();                                       // open on first sync, page, send the outbox
 const inbox = await db.read('inbox', {}, now);         // the device answers; pending rows say so
-const sent = await db.write('send', { body }, now);    // kept and predicted now, sent by the next sync
+const written = await db.write('send', { body }, now); // kept and predicted now, sent by the next sync
 await db.sync();
-const fate = await db.outcome(sent.id);                // 'sent' with the server's result, or 'failed' and why
+const fate = await db.outcome(written.id);             // 'sent' with the server's result, or 'failed' and why
+const same = await db.send('send', { body }, now);     // the three lines above in one call (and the round)
 if (await db.poll(0)) await db.sync();                 // the server's head moved
 const renewed = await db.refreshSession(now);          // near expiresAt: keep renewed.session at once
 ```
@@ -349,11 +353,32 @@ const renewed = await db.refreshSession(now);          // near expiresAt: keep r
   `loading` with `offline: true`: show it as unavailable, never as zero.
   `readAll` keeps the same facts for every page it read: its rows carry
   `complete` (false when any page was not the whole answer) and `offline`.
-- **A round that ends `ok` delivered the outbox; it does not say each write
-  was accepted.** `outcome(id)` does: `sent` with `result`, `failed` with
-  `why` (the refusal's code, such as one the mutation `require`s), or
-  `pending` while unsent. `refusals()` lists every refused write with its
-  input until `dismiss()`.
+- **`write` only admits; a round sends.** `outcome(id)` asked before a
+  round is `pending`. A `sync()` asked for after the write, that ends `ok`,
+  has sent it (whatever other sources sync meanwhile), so the outcome is
+  then `sent` with `result` or `failed` with `why` (the refusal's code, such
+  as one the mutation `require`s, or `E_RULE`); it is `pending` after a
+  round only when that round did not end `ok` (offline, `retry`, a refused
+  session). A mutation source calls `send(name, args, now)`, which is
+  write, sync and outcome in one, and answers that round as `round`.
+  `refusals()` lists every refused write with its input until `dismiss()`.
+- **Failures in the view.** A resource's source that throws fails it, and
+  `failure(x)` says why. Its `code` is Exact's closed list (`offline`,
+  `error`, …, the same on every host), never a Snapback code; throw a
+  refusal with `refused(why)` (`if (read.denied) throw refused(read.denied)`)
+  and it is `offline` when the server was not reached (`E_OFFLINE`), else
+  `error`, with `failure(x).message` the refusal's `CODE: message` on every
+  host: branch on a query's `require … else NOT_MANAGER` with
+  `startsWith(f.message, "NOT_MANAGER:")`, or return the code in the
+  shape's own field. The driver's own refusals are thrown the same way:
+  `readAll` throws a page's (where `read` answers `denied`), and a first
+  read that cannot reach the server throws `E_OFFLINE`. A mutation's
+  refusal is not a failure: it is the outcome's `why`.
+- **Typing a helper.** `db` in `personas.use(…, async db => …)` is a
+  `Snapback`: annotate a helper's parameter as that (`import { Snapback,
+  type Outcome } from './snapback4/snapback.ts'`), never `any` or a
+  narrowed `{ read(…) }`, which drop the generics (`db.read<Row[]>` then
+  fails the bake with TS2347 or TS2558).
 - **A write the device refuses fails at once, and that is final.** When the
   device's own rows refuse a write as the server would (a row rule's
   `E_RULE`, a `require` code such as `NOT_LEAD` over synced rows), `write()`
@@ -382,7 +407,10 @@ const renewed = await db.refreshSession(now);          // near expiresAt: keep r
   board.notes key=note.id` with ``testId=`note-${i}` ``, as the guestbook
   does: `expect text "note-0" == …`), by what it shows (`tap "<its exact
   text or label>"`), or through a derive of the row the test made (the
-  mutation's reply id, or the newest row, as the guestbook's `latest`).
+  mutation's reply id, or the newest row, as the guestbook's `latest`). A
+  button on a row passes the row's id to its action: `button
+  press=remove(note.id)` with `action remove(id: string)`, whose `send`
+  carries it to the source.
 - **Live updates.** A data answer has a bounded life and tests settle on
   answers, so do not hold a long `poll(20)` inside a resource. Drive
   freshness from Contract: a `task` that calls an action every few seconds,
