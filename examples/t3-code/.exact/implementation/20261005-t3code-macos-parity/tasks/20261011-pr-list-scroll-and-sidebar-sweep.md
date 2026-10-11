@@ -58,3 +58,97 @@ framework gap, write a minimal one-file repro for the coordinator to file on mai
   `ThreadHoverCardPopup` under one `TooltipProvider` (`delay={150} closeDelay={0}`);
   `apps/web/src/components/Sidebar.pointer.ts` `SidebarPointerSensor` (`keydown` Escape → `cancel`, `finish`, the
   swallowed release click).
+
+## Cause and fix
+
+**PS-1 (X58): no clone change; the agent driver's first `prefer` was the cause.** Reproduced on the feature tip's build
+with the GitHub lane (99 open pull requests) paired through Settings › Connections: after `tap pull-requests-scroll
+wheel 0 1200` the list's scroll node (`layout pull-requests-search` → `node.scroll`) stood at `sy 1200`; after `prefer
+has-focus false` / `prefer has-focus true` the search field and the scroll were new nodes (ids 2595 → 5708, 2589 → 5702)
+at `sy 0`. The runner's trace shows why, at that `prefer`: `preferences (1 asked again) → epoch 33 (+3131 −3131 ~7)`,
+three thousand nodes replaced, not a list read. `state` before and after: `device.prefersColorScheme` and the
+`scheme` derive went `dark` → `light`. This Mac is set to Dark (`AppleInterfaceStyle Dark`); an agent session starts
+with the runtime told `dark` (`DisplayPreferences.systemDark` reads the user default while `Agent.systemAppearance` is
+nil) while its window draws in Aqua, and every `prefer` calls `systemContrast`, which sets `Agent.systemAppearance` from
+the window's effective appearance (Aqua) and re-tells the preferences: `light`. The clone mounts the Pull Requests page
+once per scheme (`PagesCover`: `when scheme == "dark"`, as its surfaces with `light-dark()` SVG glyphs are), so the page
+mounts again and its scroll starts at the top. pr-list-live-refresh's investigation A and attempt 4 were each the
+session's first `prefer`; B and C (no `prefer`) kept the place. With one `prefer` made first, refocus after refocus keeps
+the place on the same scroll node, the list's read included (two reads of 72 KB each in the trace, `sy 1200` kept). A
+read held off by the 10 s rule, the minute tick and Refresh behave the same (Refresh's own top is the agent's `tap`,
+which scrolls its target into view first). A real refocus tells only the page facts (`didBecomeKey` →
+`Session.tellPage`): the real-input steps below confirm it. One-file repro (this branch's exact2, `exact new`, macOS
+agent): see "Framework problem met".
+
+**PS-2 (X13): built in the clone.** The reference (trusted CDP mouse and key events): moving onto Settle swaps the row's
+card for the "Settle thread" tooltip; the press closes it; past 6 px the list takes `**:pointer-events-none`, so nothing
+is hovered and nothing pops up while the rows arm; Escape cancels (no row armed, the row under the pointer `:hover`);
+the release applies nothing; the next pointer move opens that row's card. The clone before: the press's `focus`
+(`focus=hoverCard("", false)`) only moved the overlays off (`sidebarHoverY = -10000`), leaving the window's hover on the
+pressed row, so a press on a button that already held the focus (any second sweep from the same button) kept the card
+up through the sweep, and after a cancelled release the pressed row, not the one under the pointer, was hovered (the
+host keeps the pressed row hovered through a pan and hovers nothing new until the pointer moves). Now:
+
+- ThreadSection's first arming calls the root's `sidebarHover(hoverId, false)` (handed down as `unhover`), so the card
+  or a control's tooltip closes as the sweep takes over, whatever the focus did.
+- A cancel keeps the row under the pointer as its rows' hover (`sweepRest`), through the release, until the window's
+  hover count (`sidebarHoverSeq`, bumped by every sidebar hover event) moves on or the pointer leaves the section
+  (`hover=sectionHover`); `fn sweepRowHover` chooses (none while live, the resting row, else the window's). No card
+  opens until the pointer moves, as the reference's.
+- Escape stays r12's window shortcut (`sweep-cancel-<section>`, only while live): the reference hears it from anywhere
+  in the document, which a `key` handler on the section would not; the cancelled release sends `|cancel|` and the client
+  applies nothing (r12-sidebar.test.ts).
+
+## Framework problem met
+
+- **The agent's first `prefer` flips the reported system appearance (X58, filing for the coordinator).** One-file app
+  (`bun scripts/exact.mjs new`, `bun exact.mjs mac` on this branch's exact2), on a Mac set to Dark:
+
+  ```text
+  shape Viewport
+    width: number
+    height: number
+    prefersColorScheme: string
+    prefersReducedMotion: bool
+  shape Page
+    hasFocus: bool
+    visibilityState: string
+  shape Row
+    n: number
+  shape Rows
+    items: list<Row>
+
+  component X58app
+    resource viewport = exactViewport() as shape Viewport
+    resource page = exactPage() as shape Page
+    resource rows = rows() as shape Rows
+    view
+      main testId="root" width="100%" height="100%" display="flex" flex-direction="column"
+        text `scheme ${viewport.prefersColorScheme}, focus ${page.hasFocus}` testId="facts"
+        when viewport.prefersColorScheme == "dark"
+          scroll testId="list" flex=1 min-height=0
+            each r in rows.items key=r.n
+              text `dark row ${r.n}` testId=`row-${r.n}` height=24
+        else
+          scroll testId="list" flex=1 min-height=0
+            each r in rows.items key=r.n
+              text `light row ${r.n}` testId=`row-${r.n}` height=24
+  ```
+
+  (`app.ts`: `rows: () => ({ items: Array.from({ length: 100 }, (_, n) => ({ n })) })`.) Drive: `bun exact.mjs agent
+  macos --size 600x500 "clock +2000 real" "layout row-10" "tap list wheel 0 600" "layout row-10" "prefer has-focus false"
+  "prefer has-focus true" "layout row-10" "tap list wheel 0 600" "prefer has-focus false" "prefer has-focus true"
+  "layout row-10"`. Result: the window draws Aqua while the text reads "scheme dark, focus true" (dark rows); after the
+  wheel the list is at `sy 600`; after the first `prefer` (which names only `has-focus`) the trace says `preferences (1
+  asked again) → epoch 3 (+101 −101 ~2)`, the list is a new node (3 → 104) at `sy 0` and reads "light row …"; the second
+  pair of `prefer`s keeps `sy 600`. Expected: a `prefer` that does not name `prefers-color-scheme` leaves it as it is
+  ("A fact not named stays as it is", `Agent.prefer`), and an agent session starts with the scheme its window draws.
+  Code: `DisplayPreferences.systemDark` (user default while `Agent.systemAppearance` is nil) versus
+  `AgentMac.systemContrast` (called by every `prefer`, it sets `Agent.systemAppearance` from the window's effective
+  appearance). Clone workaround: none needed (a drive that measures a scroll across `prefer` makes one `prefer` first).
+- **A child component's action cannot call an action prop whose value is a parent component's action** (found while
+  building PS-2): ThreadSection calling `hoverCard(…)` (the window's `sidebarHover`) failed `contract build` with
+  `[type-cannot-infer] cannot infer the type of parameter @capture:108:a11:0`; the hidden captures the inliner gives a
+  component's actions (`contract/syntax/src/inline.rs`, `@capture:{n}:a{pi}:{j}`, `ty: None`) are untyped there. A root
+  action handed down as it is works (the fix calls the root's `sidebarHover`). Not a parity gap; the message names an
+  internal parameter. For the coordinator to judge.
