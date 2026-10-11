@@ -550,11 +550,13 @@ package final class SwipeActionsHost {
                 }
                 action.accessibilityLabel = host.label(target)
                 if target.isNativeButton {
-                    // A native action (LLP 1069.011.000 D6): its accent, or
-                    // UIKit's colour for its style (grey; LLP 1115 D4); a
-                    // destructive one sets none, whatever its accent (UIKit's
-                    // red); its symbol, recorded for discovery as a snapshot is.
-                    if !destructive, target.style["accent_color"]?.isSystemColor == false,
+                    // A native action (LLP 1069.011.000 D6): the accent its
+                    // author wrote on it (LLP 1115.000 D2), or UIKit's colour
+                    // for its style (grey; LLP 1115 D4), which an accent it
+                    // only inherits leaves; a destructive one sets none,
+                    // whatever its accent (UIKit's red); its symbol, recorded
+                    // for discovery as a snapshot is.
+                    if !destructive, target.wrote("accent_color"),
                        let accent = target.channels("accent_color").map({ TextEngine.color($0) }) {
                         action.backgroundColor = accent
                     }

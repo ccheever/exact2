@@ -22,25 +22,41 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         return p
     }
 
-    /// §2, "inherited is unsaid": a row is a node's own only when it differs
-    /// from the nearest node above it, and is not a platform colour.
-    func testOwnColourIsWhatDiffersFromTheNodeAbove() throws {
-        let canvasText: [String: Any] = ["sys": "labelColor", "c": [[0, 0, 0, 255], [255, 255, 255, 255]]]
+    /// §2 and LLP 1115.000 D2: a colour is a node's own when its author
+    /// wrote it there, which the style says row by row (`written`). So a
+    /// platform colour and one equal to the parent's are the node's own; a
+    /// colour it only inherits, or one the compiler implied (a sheet's, a
+    /// link's), is not, whatever its value.
+    func testOwnColourIsWhatItsAuthorWrote() throws {
+        let red: [String: Any] = ["sys": "systemRedColor", "c": [[255, 56, 60, 255], [255, 66, 69, 255]]]
+        let page = [17, 17, 17, 255], wrote = ["text_color"]
         let p = presenter([
-            ["op": "create", "id": 1, "kind": "view", "props": ["id": "n1"], "style": ["text_color": [17, 17, 17, 255]]],
-            ["op": "create", "id": 2, "kind": "view", "props": ["id": "n2"], "style": ["text_color": [17, 17, 17, 255]]],
-            ["op": "create", "id": 3, "kind": "view", "props": ["id": "n3"], "style": ["text_color": [181, 86, 43, 255]]],
-            ["op": "create", "id": 4, "kind": "view", "props": ["id": "n4"], "style": ["text_color": canvasText]],
+            ["op": "create", "id": 1, "kind": "view", "props": ["id": "n1"], "style": ["text_color": page, "written": wrote]],
+            ["op": "create", "id": 2, "kind": "view", "props": ["id": "n2"], "style": ["text_color": page]],
+            ["op": "create", "id": 3, "kind": "view", "props": ["id": "n3"], "style": ["text_color": [181, 86, 43, 255], "written": wrote]],
+            ["op": "create", "id": 4, "kind": "view", "props": ["id": "n4"], "style": ["text_color": red, "written": wrote]],
             ["op": "create", "id": 5, "kind": "view", "props": ["id": "n5"]],
-            ["op": "children", "id": 1, "ids": [2, 3, 4, 5]],
+            ["op": "create", "id": 6, "kind": "view", "props": ["id": "n6"], "style": ["text_color": page, "written": wrote]],
+            ["op": "create", "id": 7, "kind": "view", "props": ["id": "n7"], "style": ["text_color": [0, 122, 255, 255], "background_color": page, "written": ["background_color"]]],
+            ["op": "children", "id": 1, "ids": [2, 3, 4, 5, 6, 7]],
             ["op": "roots", "ids": [1]],
         ])
-        XCTAssertNotNil(try XCTUnwrap(p.views[1]).ownColor("text_color"), "the page's colour is the page's own")
-        XCTAssertNil(try XCTUnwrap(p.views[2]).ownColor("text_color"), "inherited")
-        XCTAssertEqual(try XCTUnwrap(p.views[3]).ownColor("text_color")?.numbers, [181, 86, 43, 255])
+        func own(_ id: UInt32) throws -> BatchValue? { try XCTUnwrap(p.views[id]).ownColor("text_color") }
+        XCTAssertNotNil(try own(1), "the page's colour is the page's own")
+        XCTAssertNil(try own(2), "inherited: the value, and no word that it was written")
+        XCTAssertEqual(try own(3)?.numbers, [181, 86, 43, 255])
         XCTAssertNotNil(try XCTUnwrap(p.views[3]).ownUIColor("text_color"))
-        XCTAssertNil(try XCTUnwrap(p.views[4]).ownColor("text_color"), "a platform colour is the platform's")
-        XCTAssertNil(try XCTUnwrap(p.views[5]).ownColor("text_color"), "no row")
+        XCTAssertEqual(try own(4)?.isSystemColor, true, "a platform colour its author wrote is its own")
+        var (r, g, b, a): (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
+        try XCTUnwrap(try XCTUnwrap(p.views[4]).ownUIColor("text_color")).getRed(&r, green: &g, blue: &b, alpha: &a)
+        XCTAssertTrue(r > 0.9 && g < 0.4 && b < 0.4 && a == 1, "UIKit's red, as it draws now: \([r, g, b, a])")
+        XCTAssertNil(try own(5), "no row")
+        XCTAssertEqual(try own(6)?.numbers, [17, 17, 17, 255], "written, though equal to its parent's")
+        XCTAssertNil(try own(7), "a colour the compiler implied differs from the parent's and is not the author's")
+        XCTAssertNotNil(try XCTUnwrap(p.views[7]).ownColor("background_color"), "beside a row that is")
+        // A restyle replaces the word with the rows.
+        p.apply(wireBatch([["op": "style", "id": 3, "style": ["text_color": [181, 86, 43, 255]]]]))
+        XCTAssertNil(try own(3), "the same colour, no longer written")
     }
 
     /// D2: a page with no background shows the platform's, not white.

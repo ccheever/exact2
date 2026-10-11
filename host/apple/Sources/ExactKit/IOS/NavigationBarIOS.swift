@@ -46,9 +46,9 @@ struct HeaderShape: Equatable {
         /// as LLP 1069.011.000 D2 maps `NSToolbarItem`.
         let prominent: Bool
         /// The colour the author gave the item's face, light and dark: a
-        /// symbol's tint, else a `color` set on the button itself. Nil
-        /// (UIKit's tint, the platform default) for an inherited or
-        /// platform colour.
+        /// symbol's tint, else a `color` written on the button itself. Nil
+        /// (UIKit's tint, the platform default) for a colour the button
+        /// only inherits or the compiler implied.
         let tint: [[Double]]?
         init(_ button: NodeView) {
             var symbol: String?, text = "", ink: (NodeView, String)?
@@ -77,11 +77,12 @@ struct HeaderShape: Equatable {
             label = button.props["accessibilityLabel"] ?? face?.label
             disabled = button.disabled
             prominent = ["filled", "bordered-prominent", "prominent-glass", "prominent-clear-glass"].contains(face?.style ?? "")
-            // The platform's tint unless the button says otherwise: a
-            // symbol's own tint, or a `color` set on the button rather than
-            // inherited from the page (the same as the nearest node above).
-            let symbolTint = ink?.1 == "tint_color" ? ink?.0.style["tint_color"] : nil
-            let row = symbolTint.flatMap { $0.isSystemColor ? nil : $0 } ?? button.ownColor("text_color")
+            // The platform's tint unless the author said otherwise (LLP
+            // 1115.000 D2): a tint written on the symbol, else a `color`
+            // written on the button, a platform colour as much as a literal.
+            // One the button only inherits, or a sheet wrote, is unsaid.
+            let symbolTint = ink?.1 == "tint_color" ? ink?.0.ownColor("tint_color") : nil
+            let row = symbolTint ?? button.ownColor("text_color")
             if let row, let light = row.channels(dark: false), let dark = row.channels(dark: true) {
                 tint = [light, dark]
             } else {
