@@ -129,4 +129,12 @@ describe('the views', () => {
     expect(inline).toContain('MediaActions(source=source, tip=tip, local=local, elementId="", testId=(kind == "video" ? "markdown-video-actions" : "markdown-image-actions"))\n        MediaUnavailableLabel');
     expect(inline).toContain('image url aria-label=alt error=broke');
   });
+  test('an image alone in its block that cannot load keeps its 16:9 frame with the label in it (ChatMarkdownImage standalone)', () => {
+    const block = media.slice(media.indexOf('component MarkdownMedia\n'), media.indexOf('component MarkdownInlineMedia'));
+    expect(block.match(/MediaFailedFrame\(alt=alt\)/g)).toHaveLength(2);
+    expect(block).not.toContain('MediaUnavailableLabel(alt=alt, video=false)');
+    const frame = media.slice(media.indexOf('component MediaFailedFrame'), media.indexOf('component MarkdownMedia\n'));
+    expect(frame).toContain('max-width="30rem" aspect-ratio="16 / 9"');
+    expect(frame).toContain('role="alert"');
+  });
 });
