@@ -169,6 +169,9 @@ The cut was the smallest one. Left in the reader:
 - **Most of LLP 1115.001.** Text arrives one key at a time, the Rust calls nothing on the platform, and there is no
   accessibility. What is built of it:
   - *A finger scrolls* (D7.1 to D7.3): the section above, with what is not built of it.
+  - *An authored swipe yields the system's edges* (D7.5): a swipe row's own gesture does not start from the sides
+    the system's Back gesture starts from, by the system-gesture insets `Native.window` tells, in place of the fixed
+    20 points the other hosts yield. With a button for Back there is no such edge, and nothing is yielded.
   - *Edge to edge* (D3.3, D3.4, D3.6). The reader tells exact2 the window's size, the display's density and the
     system's raw insets (bars, cutout, keyboard, gestures; `Native.window`) and pads nothing. exact2 says where the
     page is, what colour is behind it and whether its scheme is dark (`Native.chrome`); the reader puts the view

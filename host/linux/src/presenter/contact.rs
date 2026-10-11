@@ -339,6 +339,10 @@ impl<D: DataSource> Presenter<D> {
             return Ok(false);
         }
         let mut rest = self.candidates(hit);
+        // A swipe yields the edge the system's own gesture starts from.
+        if self.in_gesture_edge(x) {
+            rest.retain(|c| !matches!(c, Candidate::Swipe(_)));
+        }
         let arrange = rest
             .iter()
             .find(|c| matches!(c, Candidate::Arrange(_)))

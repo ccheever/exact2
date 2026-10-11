@@ -35,8 +35,8 @@ pub struct Window {
     /// The software keyboard.
     pub keyboard: [f32; 4],
     /// The edges the system's own gestures start from (Back's sides, Home's
-    /// bottom). Kept for the stage that yields an authored edge swipe to
-    /// them (D7.5); nothing reads it yet.
+    /// bottom). An authored swipe yields the sides to them (D7.5,
+    /// [`Presenter::in_gesture_edge`]).
     pub gestures: [f32; 4],
 }
 
@@ -186,6 +186,22 @@ impl<D: DataSource> Presenter<D> {
             background: authored.unwrap_or_else(|| crate::paint::page_color(dark)),
             dark,
         }
+    }
+
+    /// Whether a contact down at `x` (viewport points) starts in a side of
+    /// the window the system's own gesture starts from: Back's, on a phone
+    /// with gesture navigation. An authored swipe yields that edge to it
+    /// (LLP 1115.001 D7.5; LLP 1057.001 precedence rule 1), by the width the
+    /// system says it is: nothing on a phone with a button for Back, and
+    /// nothing on a host whose shell told no window, where no system
+    /// gesture starts from a side. (UIKit and the web yield a fixed width,
+    /// `exact_motion::gesture::SWIPE_EDGE`.)
+    pub(super) fn in_gesture_edge(&self, x: f32) -> bool {
+        let Some(window) = self.window.window else {
+            return false;
+        };
+        let at = self.window.frame.map_or(0.0, |frame| frame[0]) + x;
+        at < window.gestures[3] || at >= window.size.0 - window.gestures[1]
     }
 
     /// `layout.env`'s insets (LLP 1012 §1): the four safe-area insets the

@@ -224,3 +224,54 @@ fn a_window_that_is_no_window_is_refused() {
     assert!(p.window().is_none());
     assert_eq!(p.chrome().frame, [0., 0., 400., 800.]);
 }
+
+const SWIPE_ROW: &str = r#"component App
+  state count = 0
+  action reply
+    count = count + 1
+  view
+    column width=400 height=500
+      box testId="row" width=400 height=100 swiperight=reply touch-action="pan-y" transition="translate -exact-spring(300, 30, 1)"
+        text "swipe me"
+      text `${count}` testId="count"
+"#;
+
+/// A swipe of 100 points to the right along the row, from `x`: how many
+/// times its `swiperight` has fired after it.
+fn swiped(p: &mut Presenter<Nothing>, x: f32, at: f64) -> String {
+    let _ = p.pointer_down(x, 40., at).unwrap();
+    for step in 1..=10 {
+        let _ = p.pointer_move(x + 10. * step as f32, 40., at + step as f64 * 10.);
+    }
+    let _ = p.pointer_up(x + 100., 40., at + 110.);
+    let k = p.host().kernel();
+    let count = k.node_by_key(k.find_by_test_id("count")[0]).unwrap();
+    count
+        .props
+        .str(PropId::Text)
+        .unwrap_or_default()
+        .to_string()
+}
+
+#[test]
+fn an_authored_swipe_yields_the_edges_the_systems_gesture_starts_from() {
+    // No shell told a window (desktop Linux): no system gesture, no edge.
+    let mut p = boot(SWIPE_ROW);
+    assert_eq!(swiped(&mut p, 5., 0.), "1");
+    // A phone with gesture navigation: 12 points each side are Back's.
+    let mut p = boot(SWIPE_ROW);
+    assert!(p.set_window(phone()).is_none());
+    assert!(p.in_gesture_edge(11.) && !p.in_gesture_edge(12.));
+    assert!(p.in_gesture_edge(388.) && !p.in_gesture_edge(387.));
+    assert_eq!(swiped(&mut p, 5., 0.), "0", "the system's edge: no swipe");
+    assert_eq!(swiped(&mut p, 20., 1000.), "1", "past it: the row's");
+    // A phone with a button for Back has no such edge: the row swipes
+    // from the very side, where a fixed width would have refused it.
+    let mut p = boot(SWIPE_ROW);
+    let buttons = Window {
+        gestures: [30., 0., 48., 0.],
+        ..phone()
+    };
+    assert!(p.set_window(buttons).is_none());
+    assert_eq!(swiped(&mut p, 5., 0.), "1");
+}
