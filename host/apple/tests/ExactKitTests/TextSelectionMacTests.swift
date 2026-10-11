@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import CExact
 import CoreText
 import XCTest
 @testable import ExactKit
@@ -9,25 +10,33 @@ import XCTest
 /// into a field, on another pressable or on the ground still clears it (#132).
 final class TextSelectionMacTests: XCTestCase {
     private var window: NSWindow!
-    override func tearDown() { window?.makeFirstResponder(nil); window?.close(); window = nil }
+    private var session: ExactSession?
+    override func tearDown() { window?.makeFirstResponder(nil); window?.close(); window = nil; session?.destroy(); session = nil }
 
-    private func fixture() -> Presenter {
+    /// `measured`: a session's presenter, whose text engine lays the text
+    /// out, so a point finds the word under it (a bare one finds offset 0).
+    private func fixture(measured: Bool = false) -> Presenter {
         _ = NSApplication.shared
-        let p = Presenter()
+        if measured { session = ExactApp.shared.makeSession(label: "text-selection") }
+        let p = session?.presenter ?? Presenter()
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
                           styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = p.viewport
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view"],
-            ["op": "create", "id": 2, "kind": "text", "handlers": ["selectionchange"], "props": ["text": "Alpha beta gamma"]],
+            ["op": "create", "id": 2, "kind": "text", "handlers": ["selectionchange"], "props": ["text": "Alpha beta gamma"], "style": ["font_size": 16.0]],
             ["op": "create", "id": 3, "kind": "button", "handlers": ["press"], "props": ["accessibilityLabel": "Cite"]],
             ["op": "create", "id": 4, "kind": "text", "props": ["text": "Cite"]],
             ["op": "create", "id": 5, "kind": "text", "props": ["text": "Another paragraph"]],
             ["op": "create", "id": 6, "kind": "input", "props": ["value": ""]],
             ["op": "create", "id": 7, "kind": "view", "handlers": ["press"]],
-            ["op": "children", "id": 1, "ids": [2, 3, 5, 6, 7]],
+            ["op": "create", "id": 8, "kind": "view", "handlers": ["contextmenu"]],
+            ["op": "create", "id": 9, "kind": "text", "handlers": ["selectionchange"], "props": ["text": "Row words"]],
+            ["op": "create", "id": 10, "kind": "text", "handlers": ["selectionchange", "contextmenu"], "props": ["text": "Menu words"]],
+            ["op": "children", "id": 1, "ids": [2, 3, 5, 6, 7, 8, 10]],
             ["op": "children", "id": 3, "ids": [4]],
+            ["op": "children", "id": 8, "ids": [9]],
             ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 400, "h": 300],
             ["op": "frame", "id": 2, "x": 10, "y": 10, "w": 300, "h": 20],
@@ -36,6 +45,9 @@ final class TextSelectionMacTests: XCTestCase {
             ["op": "frame", "id": 5, "x": 10, "y": 100, "w": 300, "h": 20],
             ["op": "frame", "id": 6, "x": 10, "y": 140, "w": 200, "h": 30],
             ["op": "frame", "id": 7, "x": 10, "y": 190, "w": 100, "h": 30],
+            ["op": "frame", "id": 8, "x": 10, "y": 230, "w": 300, "h": 24],
+            ["op": "frame", "id": 9, "x": 0, "y": 2, "w": 300, "h": 20],
+            ["op": "frame", "id": 10, "x": 10, "y": 265, "w": 300, "h": 20],
         ]))
         return p
     }
@@ -81,15 +93,15 @@ final class TextSelectionMacTests: XCTestCase {
         turn()
     }
     private func turn() { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) }
-    /// Drag across the first paragraph, from above its first line (offset 0)
-    /// to just below its last (its end).
-    private func select(_ p: Presenter) throws {
-        let text = try XCTUnwrap(p.views[2])
+    /// Drag across a paragraph, the first unless named, from above its
+    /// first line (offset 0) to just below its last (its end).
+    private func select(_ p: Presenter, _ id: UInt32 = 2, _ expected: String = "Alpha beta gamma") throws {
+        let text = try XCTUnwrap(p.views[id])
         let from = text.convert(NSPoint(x: 1, y: -1), to: nil), to = text.convert(NSPoint(x: 299, y: 21), to: nil)
         text.mouseDown(with: mouse(.leftMouseDown, from))
         text.mouseDragged(with: mouse(.leftMouseDragged, to))
         text.mouseUp(with: mouse(.leftMouseUp, to))
-        XCTAssertEqual(p.selection.selectedText(), "Alpha beta gamma")
+        XCTAssertEqual(p.selection.selectedText(), expected)
         XCTAssertTrue(window.firstResponder === text)
     }
 
@@ -208,19 +220,40 @@ final class TextSelectionMacTests: XCTestCase {
         XCTAssertEqual(p.selection.selectedText(), text, "a triple click is still the paragraph")
     }
 
+    /// X76 by MAC-16's rule: a secondary click outside the selection takes
+    /// the word a double click at the same point takes, by the text
+    /// system's boundaries ("hello" without its comma, a word of a Japanese
+    /// sentence), so the two never disagree.
+    func testASecondaryClickSelectsTheWordADoubleClickSelects() throws {
+        let text = "Say hello, world. 今日は良い天気ですね"
+        let (session, node) = laidOut(text)
+        defer { session.destroy() }
+        let p = session.presenter
+        for (index, fraction) in [(5, 0.5), (8, 0.8), (9, 0.5), (11, 0.2), (15, 0.8), (19, 0.8)] as [(Int, CGFloat)] {
+            let at = try glyph(node, index)
+            let point = node.convert(NSPoint(x: at.x + at.width * fraction, y: 10), to: nil)
+            p.selection.begin(node, event: mouse(.leftMouseDown, point, clicks: 2))
+            let word = p.selection.selectedText()
+            p.selection.clear()
+            let right = try XCTUnwrap(NSEvent.mouseEvent(with: .rightMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                         windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+            XCTAssertTrue(p.selection.secondaryClick(node, event: right, answered: {}), "a laid-out paragraph places the click at once")
+            XCTAssertFalse(word.isEmpty)
+            XCTAssertEqual(p.selection.selectedText(), word, "character \(index) at \(fraction) of its width")
+        }
+    }
+
     /// A secondary click on selected text, with no authored `contextmenu`,
-    /// is a read-only text view's menu (LLP 1115 D8); elsewhere, none.
+    /// is a read-only text view's menu (LLP 1115 D8) for the selection.
     func testASecondaryClickOnSelectedTextIsTheTextMenu() throws {
         let p = fixture()
-        let text = try XCTUnwrap(p.views[2]), other = try XCTUnwrap(p.views[5])
+        let text = try XCTUnwrap(p.views[2])
         let point = text.convert(NSPoint(x: 20, y: 10), to: nil)
         let right = NSEvent.mouseEvent(with: .rightMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                        windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!
-        XCTAssertNil(text.menu(for: right), "no selection, no menu")
         try select(p)
         let menu = try XCTUnwrap(text.menu(for: right))
         XCTAssertEqual(menu.items.filter { !$0.isSeparatorItem }.map(\.title), ["Look Up “Alpha beta gamma”", "Copy", "Speech"])
-        XCTAssertNil(other.menu(for: right), "a paragraph outside the selection has none")
         XCTAssertTrue(text.validRequestor(forSendType: .string, returnType: nil) as AnyObject? === text, "Services can take the selection")
         let board = NSPasteboard(name: .init("exact.test.services"))
         XCTAssertTrue(text.writeSelection(to: board, types: [.string]))
@@ -229,6 +262,150 @@ final class TextSelectionMacTests: XCTestCase {
         NSPasteboard.general.clearContents()
         _ = (copy.target as? NSObject)?.perform(copy.action, with: copy)
         XCTAssertEqual(NSPasteboard.general.string(forType: .string), "Alpha beta gamma")
+    }
+
+    /// X76: a secondary click on a word outside the selection selects that
+    /// word, the one a double click selects, before the text menu opens for
+    /// it, as Chrome and an `NSTextView` do on a Mac; inside the selection
+    /// it keeps it. Unselectable text keeps what is selected and opens
+    /// nothing, and an authored `contextmenu` on the text or above it runs
+    /// instead and selects nothing, as in Chrome (the web host prevents the
+    /// browser's menu, and Chrome selects only for its own).
+    func testASecondaryClickSelectsTheWordUnderItThenOpensTheTextMenu() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "the agent opens no native menu")
+        let p = fixture(measured: true)
+        window.orderFrontRegardless()
+        var heard: [String] = []
+        p.onSelectionChange = { id, text, start, end in heard.append("\(id) \(start)-\(end):\(text)") }
+        var authored: [UInt32] = []
+        p.onClipboard = { id, kind, _ in if kind == 10 { authored.append(id) } }
+        var menus: [(titles: [String], copy: Bool, heard: String?)] = []
+        let center = NotificationCenter.default
+        let observer = center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+            guard let menu = note.object as? NSMenu else { return }
+            menus.append((menu.items.filter { !$0.isSeparatorItem }.map(\.title), menu.items.first { $0.title == "Copy" }?.isEnabled == true, heard.last))
+            RunLoop.current.perform(inModes: [.eventTracking, .default]) { menu.cancelTracking() }
+        }
+        defer { center.removeObserver(observer) }
+        // The button down and up through the window, as a mouse's are routed.
+        func rightClick(_ id: UInt32, at local: NSPoint) throws {
+            let point = try XCTUnwrap(p.views[id]).convert(local, to: nil)
+            for type in [NSEvent.EventType.rightMouseDown, .rightMouseUp] {
+                window.sendEvent(try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                                  windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1,
+                                                                  pressure: type == .rightMouseDown ? 1 : 0)))
+            }
+            turn()
+        }
+        let text = try XCTUnwrap(p.views[2]), layout = try XCTUnwrap(text.paragraphLayout())
+        // The middle of the characters `range` covers in "Alpha beta gamma".
+        func on(_ location: Int, _ length: Int) throws -> NSPoint {
+            let rect = try XCTUnwrap(layout.selectionRects(NSRange(location: location, length: length), align: text.paragraphSpec().align,
+                                                           in: text.paragraphBox(), dirty: text.bounds).first)
+            return NSPoint(x: rect.midX, y: rect.midY)
+        }
+        try rightClick(2, at: on(1, 1))
+        XCTAssertEqual(p.selection.selectedText(), "Alpha", "the word under the pointer")
+        XCTAssertTrue(window.firstResponder === text, "which takes the focus, as a double click does")
+        XCTAssertEqual(menus.last?.titles, ["Look Up “Alpha”", "Copy", "Speech"])
+        XCTAssertEqual(menus.last?.copy, true)
+        XCTAssertEqual(menus.last?.heard, "2 0-5:Alpha", "its selectionchange before the menu opens")
+        try rightClick(2, at: on(3, 1))
+        XCTAssertEqual(p.selection.selectedText(), "Alpha", "inside the selection it stays")
+        XCTAssertEqual(heard, ["2 0-5:Alpha"])
+        XCTAssertEqual(menus.count, 2)
+        try rightClick(2, at: on(13, 1))
+        XCTAssertEqual(p.selection.selectedText(), "gamma", "another word outside it")
+        XCTAssertEqual(heard, ["2 0-5:Alpha", "2 11-16:gamma"])
+        XCTAssertEqual(menus.last?.titles.first, "Look Up “gamma”")
+        try select(p)
+        try rightClick(2, at: on(7, 1))
+        XCTAssertEqual(p.selection.selectedText(), "Alpha beta gamma", "a word inside a longer selection keeps it")
+        XCTAssertEqual(menus.last?.titles.first, "Look Up “Alpha beta gamma”")
+        XCTAssertEqual(menus.count, 4)
+        try rightClick(4, at: NSPoint(x: 10, y: 10))
+        XCTAssertEqual(p.selection.selectedText(), "Alpha beta gamma", "a button's label selects nothing")
+        XCTAssertEqual(menus.count, 4, "and opens nothing")
+        let count = heard.count
+        try rightClick(9, at: NSPoint(x: 10, y: 10))
+        try rightClick(10, at: NSPoint(x: 10, y: 10))
+        XCTAssertEqual(authored, [8, 10], "an ancestor's contextmenu, then the text's own")
+        XCTAssertEqual(p.selection.selectedText(), "Alpha beta gamma", "neither selects a word")
+        XCTAssertEqual(heard.count, count)
+        try select(p, 9, "Row words")
+        try rightClick(9, at: NSPoint(x: 10, y: 10))
+        XCTAssertEqual(authored, [8, 10, 8], "selected text under an authored contextmenu hears it too")
+        XCTAssertEqual(p.selection.selectedText(), "Row words")
+        XCTAssertEqual(menus.count, 4, "and no text menu opens over it")
+    }
+
+    /// X76 on a reader paragraph whose caret cache misses the point (here a
+    /// line outside the band its worker rastered; in use, a line too long
+    /// for that cache): the click opens no menu itself, the raster worker
+    /// places it, and then the word under it is selected, or the selection
+    /// under it kept, and the menu opens for that.
+    func testASecondaryClickTheReaderMustPlaceOpensTheMenuOncePlaced() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "the agent opens no native menu")
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "text-selection-reader")
+        self.session = session
+        let p = session.presenter
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = p.viewport
+        window.orderFrontRegardless()
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+        let node = NodeView(id: 12345, kind: "text", presenter: p)
+        node.applyStyle(["font_size": 16.0, "line_height": "24px"])
+        node.applyProps(set: ["text": String(repeating: "reader scroll ahead words ", count: 4000)], clear: [])
+        node.frame = NSRect(x: 0, y: 0, width: 600, height: 100000)
+        node.prepareToMount()
+        scroll.documentView = node; p.root.addSubview(scroll)
+        var request = ExactMeasureRequest()
+        request.view = node.id; request.strut.font_size = 16
+        request.strut.has_line_height = 1; request.strut.line_height = 24
+        let reader = RegionReaderParagraph(request, bytes: 100000)
+        session.text.readerParagraphs[node.id] = reader
+        reader.update(node)
+        // Each wait is for its event; the bound only stops one that never comes.
+        func until(_ seconds: TimeInterval, _ done: () -> Bool) {
+            let hang = Date(timeIntervalSinceNow: seconds)
+            while !done() && Date() < hang { RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001)) }
+        }
+        until(300) { reader.raster != nil }
+        let height: CGFloat = try XCTUnwrap(reader.accepted?.metadata.height)
+        var menus: [String] = []
+        let center = NotificationCenter.default
+        let observer = center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+            guard let menu = note.object as? NSMenu else { return }
+            menus.append(menu.items.first?.title ?? "")
+            RunLoop.current.perform(inModes: [.eventTracking, .default]) { menu.cancelTracking() }
+        }
+        defer { center.removeObserver(observer) }
+        // The first word of the line at `fraction` of the text's height.
+        func rightClick(_ fraction: CGFloat) -> NSMenu? {
+            let box = node.contentBox()
+            let local = NSPoint(x: box.minX + 4, y: box.minY + floor(height * fraction / 24) * 24 + 12)
+            XCTAssertNil(reader.offset(at: local, node: node), "the caret cache misses the point")
+            return node.menu(for: NSEvent.mouseEvent(with: .rightMouseDown, location: node.convert(local, to: nil), modifierFlags: [],
+                                                     timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                                     context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!)
+        }
+        XCTAssertNil(rightClick(0.5), "nothing is known yet to open a menu over")
+        until(60) { menus.count == 1 }
+        let word = p.selection.selectedText(), first = p.selection.range(node)
+        XCTAssertTrue(["reader", "scroll", "ahead", "words"].contains(word), "the word the worker placed it on, not \"\(word)\"")
+        XCTAssertEqual(menus, ["Look Up “\(word)”"], "its menu opens once it is placed")
+        XCTAssertNil(rightClick(0.5))
+        until(60) { menus.count == 2 }
+        XCTAssertEqual(p.selection.range(node), first, "inside the selection it stays")
+        XCTAssertEqual(menus.last, "Look Up “\(word)”")
+        XCTAssertNil(rightClick(0.75), "the selection elsewhere opens no menu for itself")
+        until(60) { menus.count == 3 }
+        let second = try XCTUnwrap(p.selection.range(node))
+        XCTAssertGreaterThan(second.location, NSMaxRange(try XCTUnwrap(first)), "the word under the later point")
+        XCTAssertEqual(menus.last, "Look Up “\(p.selection.selectedText())”")
     }
 }
 #endif
