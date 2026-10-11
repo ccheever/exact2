@@ -1,7 +1,8 @@
 //! LLP 1115 D3: a heading is the platform's text style for its level (1
 //! `title1`, 2 `title2`, 3 `title3`, 4 and on `headline`), read from the
 //! schema's ramp at the root font size (the platform's body size), so it
-//! follows Dynamic Type as Apple's own ramp does. A written `font-size` or
+//! follows Dynamic Type as Apple's own ramp does, at the style's emphasized
+//! weight (LLP 1116 D7: bold for a title, `headline`'s semibold). A written `font-size` or
 //! `font-weight` wins; an inherited one does not. `font` takes a text style
 //! as WebKit's `font: -apple-system-headline` does.
 use exact_kernel::{Kernel, RowValue, StyleId};
@@ -17,7 +18,7 @@ impl DataSource for NoData {
 
 const SOURCE: &str = r#"component App
   view
-    column font-size=30 font-weight=700
+    column font-size=30 font-weight=300
       text testId="h1" role="heading" aria-level=1 "One"
       text testId="h2" role="heading" "Two"
       text testId="h3" role="heading" aria-level=3 "Three"
@@ -75,12 +76,14 @@ fn a_heading_is_its_levels_text_style_at_the_root_size_unless_written() {
     assert_eq!(size(&r, "chosen"), 20.0, "a choice of levels, of styles");
     assert_eq!(
         weight(&r, "h1"),
-        400.0,
-        "a title's weight, not the parent's"
+        700.0,
+        "a title's emphasized weight, not the parent's"
     );
+    assert_eq!(weight(&r, "h2"), 700.0);
+    assert_eq!(weight(&r, "h3"), 700.0);
     assert_eq!(weight(&r, "h5"), 600.0, "headline is semibold");
     assert_eq!(size(&r, "sized"), 20.0, "the author's size wins");
-    assert_eq!(weight(&r, "sized"), 400.0);
+    assert_eq!(weight(&r, "sized"), 700.0);
     assert_eq!(size(&r, "weighted"), 28.0);
     assert_eq!(weight(&r, "weighted"), 800.0, "the author's weight wins");
     assert_eq!(size(&r, "plain"), 30.0, "a non-heading inherits");

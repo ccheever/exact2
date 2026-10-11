@@ -50,7 +50,10 @@
   #exact-root [data-exact-text] a[data-view] { display: inline; }
   /* A text node with a heading level is an <h1>–<h6> for the accessibility
      tree; its box is a bare div's, so the UA's heading margins, size and
-     weight go. The node's own style rows, inline, still win. */
+     weight go. A heading's look is its own style rows, which lowering writes
+     from its level: the platform's text style at its emphasized weight, bold
+     for a title (LLP 1115 D3; LLP 1116 D7), the same rows on every host. They
+     win here, inline or as the JS target's classes, as an author's do. */
   h1, h2, h3, h4, h5, h6 { margin: 0; font-size: inherit; font-weight: inherit; }
   #exact-root button:not([data-native]):focus-visible,
   #exact-root input:not([data-native]):focus-visible,
