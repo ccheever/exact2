@@ -1,0 +1,78 @@
+dialog-trap-and-progress-value DT-1: where the focus goes (agent drives of the clone: before eb9752918, after this branch;
+reference T3 Code 1e2ecbd975 over CDP). Clone: the agent focus.logical; reference: document.activeElement.
+
+Command palette: Tab from the field
+  before:    palette-row-actions:new-thread
+  after:     palette-input
+  reference: DIV "Actions New thread in Verification fixtu"
+
+Command palette: Shift+Tab from the field
+  before:    palette-backdrop (OUTSIDE the dialog)
+  after:     palette-input
+  reference: INPUT[Search commands, projects, and threads...]
+
+Quit Brave to import: Shift+Tab from Cancel
+  before:    device-hosts-add (OUTSIDE the dialog)
+  after:     browser-import-x
+  reference: BUTTON[Close]
+
+Quit Brave to import: Tab from the X
+  before:    toast-secondary-2 (OUTSIDE the dialog)
+  after:     browser-import-cancel
+  reference: BUTTON "Cancel"
+
+Import from Chrome: Shift+Tab from the first tile
+  before:    device-hosts-add (OUTSIDE the dialog)
+  after:     browser-import-x
+  reference: BUTTON[Close]
+
+Import from Chrome: Tab from the X
+  before:    toast-secondary-2 (OUTSIDE the dialog)
+  after:     browser-import-tile-Default
+  reference: BUTTON "Personal 5 cookies"
+
+Remove “Firefox”?: Shift+Tab from Cancel
+  before:    device-hosts-add (OUTSIDE the dialog)
+  after:     browser-profile-remove-confirm
+  reference: BUTTON "Remove profile"
+
+Remove “Firefox”?: Tab from Remove profile
+  before:    toast-secondary-2 (OUTSIDE the dialog)
+  after:     browser-profile-remove-cancel
+  reference: BUTTON "Cancel"
+
+Add device host: Shift+Tab from Name
+  before:    device-host-name
+  after:     device-host-close
+  reference: BUTTON[Close]
+
+Add device host: Tab from the X
+  before:    toast-secondary-2 (OUTSIDE the dialog)
+  after:     device-host-name
+  reference: INPUT[Mac mini]
+
+Add provider: Tab from the X
+  before:    toast-secondary-2 (OUTSIDE the dialog)
+  after:     wizard-step-0
+  reference: BUTTON[Provider, step 1] "1 Provider"
+
+Add a CLIProxyAPI hub: Shift+Tab from Hub URL
+  before:    usage-hub-url
+  after:     usage-hub-close
+  reference: BUTTON[Close]
+
+Add a CLIProxyAPI hub: Tab from Cancel
+  before:    toast-secondary-2 (OUTSIDE the dialog)
+  after:     usage-hub-close
+  reference: BUTTON[Close]
+
+Add a theme: Shift+Tab from the search field
+  before:    add-theme-query
+  after:     add-theme-close
+  reference: INPUT
+
+Add a theme: Tab from the X
+  before:    toast-secondary-2 (OUTSIDE the dialog)
+  after:     add-theme-query
+  reference: INPUT[Search Open VSX themes]
+
