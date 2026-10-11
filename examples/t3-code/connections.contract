@@ -28,6 +28,7 @@ use kmOpenKey from "./menu-keys.contract"
 use KeyMenuOpen from "./menu-keys.contract"
 use kmBump from "./menu-keys.contract"
 use FocusGuard from "./dialog-trap.contract"
+use DialogOpenFocus from "./dialog-trap.contract"
 
 // animate-status-pulse: full, then half opacity in six steps.
 keyframes cnStatusPulse
@@ -354,7 +355,7 @@ component EnvironmentRow
             when tip == "switch"
               CnTooltip(tip=environment.switchTip, tipId=`environment-switch-tip-${environment.environmentId}`, above=20)
           box position="relative"
-            button popovertarget=`environment-menu-${environment.environmentId}-popup` key=triggerKey focus=keyArm(true) blur=keyArm(false) class=PvIconButton aria-label=`More actions for ${environment.label}` disabled=busy testId=`environment-menu-${environment.environmentId}` title=""
+            button id=`environment-menu-${environment.environmentId}` popovertarget=`environment-menu-${environment.environmentId}-popup` key=triggerKey focus=keyArm(true) blur=keyArm(false) class=PvIconButton aria-label=`More actions for ${environment.label}` disabled=busy testId=`environment-menu-${environment.environmentId}` title=""
               PvIcon(name="ellipsis", size=14, color="light-dark(#71717b, #818181)")
             KeyMenuOpen(menuId=`environment-menu-${environment.environmentId}-popup`, armed=keyArmed, opened=keyOpened)
             CnMenu(menuId=`environment-menu-${environment.environmentId}-popup`, label=`More actions for ${environment.label}`, width=196, endAlign=24, offsetX=0, offsetY=0, items=menuItems, keyed=keyed)
@@ -437,6 +438,7 @@ component EnvironmentRemoveDialog
       column width="100%" max-width="28rem" box-sizing="border-box" padding="1.5rem" gap="1rem" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" role="alertdialog" aria-label=`Remove ${environment.label} from this device?` testId="environment-remove-dialog"
         // The focus trap (dialog-trap.contract).
         FocusGuard(guardId="environment-remove-guard-start", target="environment-remove-confirm")
+        DialogOpenFocus(target="environment-remove-cancel")
         column gap="0.5rem"
           text `Remove ${environment.label} from this device?` font-size="1.125rem" line-height="1.5rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
           text "This forgets its pairing, credentials, and cached threads here. Switch it off instead to keep it saved." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
@@ -522,6 +524,7 @@ component AddEnvironmentDialog
   view
     column class=CnOverlay testId="connection-overlay"
       column width="100%" max-width="48rem" max-height=(viewportHeight - 2 * rem) box-sizing="border-box" padding="1.5rem" gap="1rem" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" position="relative" role="dialog" aria-label=(routeTarget == "" ? "Add Environment" : `Add a route to ${routeLabel}`) testId="connection-dialog"
+        DialogOpenFocus(target="connection-mode-remote")
         column gap="0.5rem"
           text (routeTarget == "" ? "Add Environment" : `Add a route to ${routeLabel}`) font-size="1.25rem" line-height="1.25rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
           text (routeTarget == "" ? "Pair another environment to this client." : "Pair this machine again over another address, such as its Tailscale name. It joins the existing routes instead of adding a second machine.") font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"

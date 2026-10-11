@@ -11,6 +11,7 @@ use kmOpenKey from "./menu-keys.contract"
 use KeyMenuOpen from "./menu-keys.contract"
 use kmBump from "./menu-keys.contract"
 use FocusGuard from "./dialog-trap.contract"
+use DialogOpenFocus from "./dialog-trap.contract"
 use Icon from "./icons.contract"
 
 component PlanCard
@@ -43,7 +44,7 @@ component PlanCard
             text "Plan" flex-shrink=0 height="1.125rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.375rem" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)" background-color="light-dark(#f4f4f5, #ffffff12)"
             text message.title role="heading" aria-level=3 min-width=0 line-clamp=1 font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
           column position="relative" flex-shrink=0
-            button popovertarget=`plan-menu-${message.id}` key=triggerKey focus=keyArm(true) blur=keyArm(false) aria-label="Plan actions" testId=`plan-actions-${message.id}` width="1.5rem" height="1.5rem" padding=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+            button id=`plan-actions-${message.id}` popovertarget=`plan-menu-${message.id}` key=triggerKey focus=keyArm(true) blur=keyArm(false) aria-label="Plan actions" testId=`plan-actions-${message.id}` width="1.5rem" height="1.5rem" padding=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
               TimelineIcon(name="ellipsis", size=16, color="light-dark(#71717b, #818181)")
             KeyMenuOpen(menuId=`plan-menu-${message.id}`, armed=keyArmed, opened=keyOpened)
             column id=`plan-menu-${message.id}` popover="auto" position="absolute" margin-top="0.25rem" width="12.5rem" margin-left="-11rem"
@@ -97,6 +98,7 @@ component PlanSaveDialog
       column position="relative" width="100%" max-width="36rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-label="Save plan to workspace" testId="plan-save-dialog"
         // The focus trap (dialog-trap.contract): the path, Cancel, Save, then the X.
         FocusGuard(guardId="plan-save-guard-start", target="plan-save-close")
+        DialogOpenFocus(target="plan-save-path")
         column gap="0.5rem" padding="1.5rem" padding-bottom="1rem" box-sizing="border-box"
           text "Save plan to workspace" font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
           text `Enter a path relative to ${root != "" ? root : "the workspace"}.` font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"

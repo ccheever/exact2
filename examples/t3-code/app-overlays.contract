@@ -35,6 +35,8 @@ use R9CheckoutDialog from "./r9-connect.contract" // lane r9-connect
 use PrDetailView from "./pages-pr-detail.contract"
 use PrActionLayers from "./pages-pr-actions.contract"
 use FocusGuard from "./dialog-trap.contract"
+use DialogOpenFocus from "./dialog-trap.contract"
+use DialogFinalFocus from "./dialog-trap.contract"
 
 // The T3Code window's overlays, moved out of app.contract, which keeps the state, resources and
 // actions: each component takes the root names it reads as props of the same names.
@@ -58,6 +60,7 @@ component ProjectPicker
         column width="100%" max-width="27.5rem" max-height=(viewport.height - 6 * rem) padding="1.125rem" gap="0.75rem" border-radius="1rem" class=Surface border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #252525)" box-sizing="border-box" role="dialog" aria-label="Choose project" testId="project-dialog"
           // The focus trap (dialog-trap.contract), as the clone's other dialogs keep theirs: Add project, Close, then each project's two buttons.
           FocusGuard(guardId="project-dialog-guard-start", target=(length(data.projects) > 0 and not commandPending ? `project-dialog-pick-${length(data.projects) - 1}` : "project-dialog-close"))
+          DialogOpenFocus(target=(data.connected ? "project-dialog-add" : "project-dialog-close"))
           row align-items="center" gap="0.75rem"
             text "Projects" font-size="1.0625rem" font-weight=600 class=Ink flex=1
             button id="project-dialog-add" press=paletteShow("command", "add-project") class=Control disabled=(not data.connected) testId="project-dialog-add"
@@ -185,6 +188,9 @@ component WindowOverlays
     R4GitLayers(details=details, windowHeight=viewport.height, act=detailsAct, local=chatLocal)
     R6PrLayers(details=details, scheme=scheme, act=detailsAct, local=chatLocal) // lane r6-pr: the Merge AlertDialog
     PrActionLayers(actions=prDetail.actions, ref=prDetail.ref, dark=(scheme == "dark"), act=prAct, local=chatLocal) // pr-header-actions-and-stacks: the panel's confirmations
+    // The git card's dialogs (Publish, Commit, and the default-branch confirm a commit can lead to) give the focus back
+    // to the quick action or the options menu's trigger, whichever opened the first (dialog-trap.contract DialogFinalFocus).
+    DialogFinalFocus(open=(details.ready and details.git.dialog != ""), target=details.git.dialogFrom)
     when details.ready and details.git.dialog == "publish"
       R4PublishDialog(git=details.git, cwd=details.cwd, act=detailsAct, local=chatLocal)
     // lane r9-connect: the branch pickers' PullRequestThreadDialog (r9-connect.contract).
@@ -192,6 +198,7 @@ component WindowOverlays
       R9CheckoutDialog(checkout=shell.prCheckout, viewportWidth=viewport.width, viewportHeight=viewport.height, dark=(scheme == "dark"), local=chatLocal, command=command)
     when titleMenuOpen
       TitleMenu(items=shell.titleMenu, children=shell.titleSubmenu, x=titleMenuX, y=titleMenuY, serial=titleMenuSerial, pick=titleMenuPick, ui=titleUi)
+    DialogFinalFocus(open=(data.revertPending != ""), target=`edit-from-${data.revertPending}`)
     when data.revertPending != ""
       RevertDialog(busy=commandPending, answer=answerRevert)
     when data.imagePreviewId != ""
@@ -201,6 +208,7 @@ component WindowOverlays
     // r4-composer: a shelf video's expanded preview (r4-composer.contract).
     each video in data.composerVideoPreview key=video.id
       VideoPreviewDialog(preview=video, windowWidth=viewport.width, windowHeight=viewport.height, command=command)
+    DialogFinalFocus(open=data.planSaveOpen, target=`plan-actions-${data.planSaveRow}`)
     when data.planSaveOpen
       PlanSaveDialog(path=data.planSavePath, root=data.planSaveRoot, saving=data.planSaving, local=chatLocal)
     when shell.panel.deviceSetup

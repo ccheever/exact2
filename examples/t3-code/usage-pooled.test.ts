@@ -575,3 +575,19 @@ describe('the reset confirm gives the segment the focus back (#298 item 12)', ()
     expect(await source('usage-bars.contract')).toContain('button id="reset-credit-cancel" press=command(`${prefix}-reset-cancel`, target, "", 0) key=fromCancel autofocus=true disabled=busy aria-keyshortcuts="Escape"');
   });
 });
+
+// dialog-initial-focus-and-model-prices MP-1: UsagePage renders its price dialog whatever the metric, so the environment
+// menu's Model prices opens it on Limits too (the clone presented the prices only on Cost and Tokens).
+describe('Model prices on every metric', () => {
+  it('opens on Limits as on Cost and Tokens, and closes on each', async () => {
+    const rig = new Rig(laptop(), null);
+    expect((await rig.page({ metric: 'limits' })).prices.open).toBe(false);
+    await rig.command('usage-prices-open');
+    for (const metric of ['limits', 'cost', 'tokens']) {
+      const prices = (await rig.page({ metric })).prices;
+      expect([metric, prices.open, prices.selectionLabel]).toEqual([metric, true, 'All environments']);
+    }
+    await rig.command('usage-prices-close');
+    for (const metric of ['limits', 'cost']) expect([metric, (await rig.page({ metric })).prices.open]).toEqual([metric, false]);
+  });
+});

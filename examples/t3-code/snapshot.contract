@@ -18,6 +18,7 @@ use kmOpenKey from "./menu-keys.contract"
 use KeyMenuOpen from "./menu-keys.contract"
 use kmBump from "./menu-keys.contract"
 use FocusGuard from "./dialog-trap.contract"
+use DialogOpenFocus from "./dialog-trap.contract"
 
 style SnapSectionTitle
   font-size="0.875rem" font-weight=400 line-height="1.25rem" color="light-dark(#262629b3, #f5f5f5b3)"
@@ -171,7 +172,7 @@ component SnapshotPanel
       column class=SnapCard
         SnapRow(title="SnapShots", description="Capture a window and attach it to your current draft.", status=(busy ? "Updating capture settings…" : data.statusText), first=true, rowId="snap-shot-enabled")
           when data.setupLabel != ""
-            button press=setup class=SnapOutlineXs disabled=busy testId="snapshot-setup" opacity=(busy ? 0.64 : 1)
+            button id="snapshot-setup" press=setup class=SnapOutlineXs disabled=busy testId="snapshot-setup" opacity=(busy ? 0.64 : 1)
               text data.setupLabel class=SnapLabelXs
           SnapSwitch(checked=(data.enabled or setupOpen), label="Enable snapshots", disabled=(busy or not data.captureAvailable), switchId="snapshot-enabled", toggle=toggle)
         when data.enabled and data.captureAvailable
@@ -332,6 +333,7 @@ component SnapshotSetup
         // The focus trap (dialog-trap.contract): the shortcut or the permissions, Advanced, the footer, then the X. While
         // busy the X is not drawn and Advanced (after an error) is the one stop left; with none the guard keeps the focus.
         FocusGuard(guardId="snapshot-setup-guard-start", target=(busy ? (error != "" ? "snapshot-setup-advanced" : "") : "snapshot-setup-close"))
+        DialogOpenFocus(target=(busy ? (error != "" ? "snapshot-setup-advanced" : "") : (data.setupReady and not back ? "snapshot-setup-record" : (not data.screenRecording ? "snapshot-permission-screen-allow" : (not data.accessibility ? "snapshot-permission-accessibility-allow" : (error != "" ? "snapshot-setup-advanced" : "snapshot-setup-cancel"))))))
         column padding-top="1.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-bottom="0.75rem" gap="0.5rem" box-sizing="border-box"
           text "Set up snapshots" font-size="1.25rem" font-weight=600 line-height="1.25rem" class=SnapInk role="heading" aria-level=2
           row gap="0.25rem" padding="0.25rem" border-radius="0.875rem" background-color="light-dark(#fcfcfc, #ffffff0a)" box-shadow="0 0 0 1px light-dark(#0000000d, #ffffff0d)" role="list" aria-label="Setup progress"

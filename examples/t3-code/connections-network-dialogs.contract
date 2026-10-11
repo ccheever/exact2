@@ -4,6 +4,7 @@ use CnTooltip from "./settings-b-kit.contract"
 use PvField from "./providers-kit.contract"
 use NetworkView from "./connections-network.contract"
 use NetReveal from "./connections-network.contract"
+use DialogOpenFocus from "./dialog-trap.contract"
 
 // The dialogs of Settings → Connections › This machine (20261005-this-machine-network-access;
 // ConnectionsSettings.tsx): "Enable/Disable network access?" and "Disable Tailscale HTTPS?"
@@ -121,6 +122,7 @@ component NetworkAccessDialog
   view
     column class=NdOverlay animation="ndFadeIn 200ms ease-in-out" -exact-exit-animation="ndFadeOut 200ms ease-in-out" testId="network-access-overlay"
       column class=NdPopup max-width="32rem" animation="ndPopupIn 200ms ease-in-out" -exact-exit-animation="ndPopupOut 200ms ease-in-out" role="alertdialog" aria-modal=true aria-label=(enabling ? "Enable network access?" : "Disable network access?") testId="network-access-dialog"
+        DialogOpenFocus(target="network-access-cancel")
         column gap="0.5rem" padding="1.5rem" box-sizing="border-box"
           text (enabling ? "Enable network access?" : "Disable network access?") font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2 testId="network-access-title"
           text (enabling ? "Let your other devices connect to T3 Code over the network. Pair devices to give them access. T3 Code will restart." : "Devices connected over your local network will disconnect. Existing tunnels, such as T3 Connect or Tailscale HTTPS, keep working. T3 Code will restart.") font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #8f8f8f)" testId="network-access-body"
@@ -153,6 +155,7 @@ component TailscaleDisableDialog
   view
     column class=NdOverlay animation="ndFadeIn 200ms ease-in-out" -exact-exit-animation="ndFadeOut 200ms ease-in-out" testId="tailscale-disable-overlay"
       column class=NdPopup max-width="32rem" animation="ndPopupIn 200ms ease-in-out" -exact-exit-animation="ndPopupOut 200ms ease-in-out" role="alertdialog" aria-modal=true aria-label="Disable Tailscale HTTPS?" testId="tailscale-disable-dialog"
+        DialogOpenFocus(target="tailscale-disable-cancel")
         column gap="0.5rem" padding="1.5rem" box-sizing="border-box"
           text "Disable Tailscale HTTPS?" font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
           text "T3 Code will restart the local backend without Tailscale Serve." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #8f8f8f)"
@@ -216,6 +219,7 @@ component TailscaleSetupDialog
   view
     column class=NdOverlay animation="ndFadeIn 200ms ease-in-out" -exact-exit-animation="ndFadeOut 200ms ease-in-out" testId="tailscale-setup-overlay"
       column class=NdPopup animation="ndPopupIn 200ms ease-in-out" -exact-exit-animation="ndPopupOut 200ms ease-in-out" role="dialog" aria-modal=true aria-label="Set up Tailscale HTTPS?" testId="tailscale-setup-dialog"
+        DialogOpenFocus(target="tailscale-port")
         column gap="0.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" padding-bottom="0.75rem" box-sizing="border-box"
           text "Set up Tailscale HTTPS?" font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
           text "T3 Code will restart the local backend with Tailscale Serve enabled and ask Tailscale to proxy HTTPS traffic to this backend." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #8f8f8f)"
@@ -313,6 +317,7 @@ component CreatePairingDialog
   view
     column class=NdOverlay animation="ndFadeIn 200ms ease-in-out" -exact-exit-animation="ndFadeOut 200ms ease-in-out" testId="create-pairing-overlay"
       column class=NdPopup animation="ndPopupIn 200ms ease-in-out" -exact-exit-animation="ndPopupOut 200ms ease-in-out" role="dialog" aria-modal=true aria-label="Create pairing link" testId="create-pairing-dialog"
+        DialogOpenFocus(target="pairing-label")
         column gap="0.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" padding-bottom="0.75rem" box-sizing="border-box"
           text "Create pairing link" font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
           text "Generate a one-time link that another device can use to pair with this backend as an authorized client." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #8f8f8f)"
@@ -390,6 +395,7 @@ component PairingRevealDialog
   view
     column class=NdOverlay animation="ndFadeIn 200ms ease-in-out" -exact-exit-animation="ndFadeOut 200ms ease-in-out" testId="pairing-reveal-overlay"
       column class=NdPopup animation="ndPopupIn 200ms ease-in-out" -exact-exit-animation="ndPopupOut 200ms ease-in-out" role="dialog" aria-modal=true aria-label=reveal.title testId="pairing-reveal-dialog"
+        DialogOpenFocus(target="pairing-reveal-value")
         column gap="0.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" padding-bottom="0.75rem" box-sizing="border-box"
           text reveal.title font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
           text reveal.description font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #8f8f8f)"

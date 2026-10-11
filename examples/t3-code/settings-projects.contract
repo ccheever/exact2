@@ -153,9 +153,9 @@ component ProjectsPanel
             // ProjectFavicon size-6, then Choose icon (ProjectIconPickerDialog) and Choose file (ProjectFaviconPickerDialog).
             row flex-shrink=0 gap="0.5rem" align-items="center"
               ProjectIconMark(kind=data.iconKind, d=data.iconD, ink=data.iconInk, surface=data.iconSurface, text=data.iconText, textWidth=data.iconTextWidth, emoji=data.iconEmoji, src=data.faviconSrc, size=24)
-              button press=open("project-icon", "", "") disabled=busy aria-label="Choose a project icon" testId="project-choose-icon" class=PjOutline
+              button id="project-choose-icon" press=open("project-icon", "", "") disabled=busy aria-label="Choose a project icon" testId="project-choose-icon" class=PjOutline
                 text "Choose icon" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
-              button press=open("project-favicon", "", "") disabled=busy aria-label="Choose a project icon file" testId="project-choose-file" class=PjOutline
+              button id="project-choose-file" press=open("project-favicon", "", "") disabled=busy aria-label="Choose a project icon file" testId="project-choose-file" class=PjOutline
                 text "Choose file" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
         column width="100%" gap="0.625rem" testId="project-new-threads"
           row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center"
@@ -184,7 +184,7 @@ component ProjectsPanel
                   column flex=1 min-width=0 gap="0.25rem"
                     text member.environment font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
                     text member.path font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" max-width="36rem"
-                  button press=open("project-remove-member", member.id, member.title) disabled=busy aria-label=`Remove checkout ${member.path}` testId=`remove-checkout-${member.id}` display="flex" flex-direction="row" align-items="center" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)"
+                  button id=`remove-checkout-${member.id}` press=open("project-remove-member", member.id, member.title) disabled=busy aria-label=`Remove checkout ${member.path}` testId=`remove-checkout-${member.id}` display="flex" flex-direction="row" align-items="center" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)"
                     text "Remove" font-size="0.875rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
         column width="100%" gap="0.625rem" testId="project-danger"
           row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center"
@@ -194,7 +194,7 @@ component ProjectsPanel
               column flex=1 min-width=0 gap="0.25rem"
                 text data.removeTitle font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
                 text data.removeDescription font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" max-width="36rem"
-              button press=open("project-remove", data.removeTarget, data.key) disabled=busy testId="remove-project" display="flex" flex-direction="row" align-items="center" gap="0.375rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)"
+              button id="remove-project" press=open("project-remove", data.removeTarget, data.key) disabled=busy testId="remove-project" display="flex" flex-direction="row" align-items="center" gap="0.375rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)"
                 LucideTrash2(size=16, color="light-dark(#c10007, #ff6467)")
                 text data.removeLabel font-size="0.875rem" font-weight=500 color="light-dark(#c10007, #ff6467)"
 
@@ -291,7 +291,7 @@ component ProjectActionsSection
                   CnSeparator()
                   each script in data.importable key=script.key
                     ImportScriptItem(keysId="import-scripts-menu-keys", script=script, scope=data.actionScope, busy=busy, raw=raw)
-            button press=open("project-action", "", "") disabled=(busy or not data.actionsWritable) testId="add-project-action" display="flex" flex-direction="row" align-items="center" gap="0.25rem" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" border-radius="0.5rem" background-color="light-dark(#ffffff, #ffffff08)" box-shadow="0 1px 2px #0000000d"
+            button id="add-project-action" press=open("project-action", "", "") disabled=(busy or not data.actionsWritable) testId="add-project-action" display="flex" flex-direction="row" align-items="center" gap="0.25rem" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" border-radius="0.5rem" background-color="light-dark(#ffffff, #ffffff08)" box-shadow="0 1px 2px #0000000d"
               CnGlyph(name="plus", size=14, color="light-dark(#71717b, #818181)")
               text "Add action" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
         when data.actionsMixed
@@ -361,7 +361,7 @@ component ProjectActionRow
       row flex-shrink=0 gap="0.5rem" align-items="center"
         when item.shortcut != ""
           text item.shortcut font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId=`project-action-shortcut-${item.id}`
-        button press=open("project-action", item.id, item.name) focus=focusGear(true) blur=focusGear(false) aria-label=`Edit ${item.name}` disabled=(busy or not writable) opacity=(hovered or focused ? 1 : 0) testId=`edit-project-action-${item.id}` width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+        button id=`edit-project-action-${item.id}` press=open("project-action", item.id, item.name) focus=focusGear(true) blur=focusGear(false) aria-label=`Edit ${item.name}` disabled=(busy or not writable) opacity=(hovered or focused ? 1 : 0) testId=`edit-project-action-${item.id}` width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
           CnGlyph(name="settings", size=14, color="light-dark(#71717b, #818181)")
 
 // Button variant="outline" size="sm": h-7, px 9, radius 8, border-input, bg-popover, shadow-xs/5.
