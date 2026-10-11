@@ -936,3 +936,19 @@ reference's are 2 pt every 8. Framework gap filed on main by [#430](https://gith
 `contract build`; Chrome paints one `repeating-linear-gradient` on the scroller with `background-attachment: local`
 unbroken across rows of any height). Goes when Contract paints that (or a row can place its background in its list's
 content coordinates): then the list carries the reference's gradient and the empty side shows it.
+
+## Code colours: every grammar loaded from the start (declared difference)
+
+Task `20261011-code-highlighting-languages`. The reference colours code through one shared Shiki highlighter
+(`apps/web/src/lib/syntaxHighlighting.ts`, @pierre/diffs `getSharedHighlighter`) that loads a language, with the
+grammars its module embeds, the first time something asks for it, and keeps it for the rest of the session. A grammar
+that embeds another lazily (markdown's fences, `embeddedLangsLazy`) therefore colours that part only once the other
+language has been loaded in this window, and a grammar that injects into others (`injectTo`: vue's `markdown-vue`,
+ts-tags' `es-tag-*`, angular's templates) reaches them only after its own language has been opened. The clone holds
+every grammar of Shiki's bundle (235 languages; `r12-render-grammar.ts`, parsed on first use) as one registry with
+everything loaded: a markdown file's ` ```sh ` fence is coloured from the start, where a fresh reference window paints it
+plain until a shell text has been highlighted (lane images `markdown-*.png` of the task's PR), and only a root
+language's own module injects into it. Not a framework limit: the reference's result depends on the window's history.
+Modelling it would mean keeping the set of languages asked for in the session and resolving an include to another
+grammar only when that grammar is in it (with vscode-textmate's skip of a rule whose patterns all went missing,
+evaluated then instead of when generated); the task's PR asks whether to.
