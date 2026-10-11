@@ -1,0 +1,25 @@
+reply-links: plan size of app.contract (bun scripts/exact.mjs contract build examples/t3-code/app.contract), 2026-10-11
+
+| Build | Bytes | Change | Nodes | Regions |
+| feature tip (0292f4364, the code of eb9752918) | 28,585,446 | | 109,609 | 43,686 |
+| first design (v1): a separate mailto/fragment link branch, a separate pressable code-box branch, a press on a table cell's mailto run | 29,468,125 | +882,679 | 110,169 | 44,106 |
+|   v1 without the code-box branch | 29,089,619 | the code-box branch: 378,506 | | |
+|   v1 without the mailto/fragment link branch | 29,275,123 | that branch: 193,002 | | |
+|   v1 without the table cell's press | 29,159,845 | that press: 308,280 | | |
+|   v1 with the PR filter out of the link test | 29,466,133 | the filter: 1,992 | | |
+|   v1 without one `when` inside the link node | 29,461,817 | a `when` with no node: 6,308 | | |
+| final (a56f127ff): every link's first run is the one link node (its favicon under `when webLink`), a code span drawn inside it or inside the web link's pressable box; the mailto/fragment link's menu goes to the shell through the module (`shellMenu`) | 28,708,013 | +122,567 | 110,029 | 43,966 |
+|   the final with RL-3 taken out (RL-1, RL-2 alone) | 28,586,467 | RL-1 + RL-2: +1,021; RL-3: +121,546 | 109,609 | 43,826 |
+
+Reading: a new handler site in FlowRuns (140 inlined uses) costs about 1 KB per use, a new node about 0.2 KB, a `when`
+with no node about 45 bytes; the final design adds no handler site (the mailto/fragment link reuses the link node and its
+menu, the code span reuses the link node and the web link's later-word handler, now a box holding the word or the code span)
+and three nodes per FlowRuns use (two code-span texts and that box).
+
+RL-3 is +121.5 KB, over the record's "about 100 KB" and under its 300 KB ceiling, so it is built. A cheaper shape that leaves
+a code span out of the link node (the link node holding only the favicon, the code span the web link's pressable box after
+it) would save one node per use but leaves a link that starts with a code span as a favicon-sized link (or an empty one for
+a mailto link); not built.
+
+The press on a table cell's mailto run (308 KB: ChatRuns has many more inlined uses) is not built: a click on a mailto link
+in a Markdown table cell still goes to the host's own link following (see the record's "Seen while building").
