@@ -231,7 +231,7 @@ component ${title.replaceAll(' ', '')}
             text "${title}" role="heading" aria-level=1
             button press=like aria-label=(liked ? "Unlike" : "Like") testId="like"
               image (liked ? "symbol:heart-fill" : "symbol:heart")
-          scroll id="content" flex=1 min-height=0
+          scroll id="content" flex=1 min-height=0 padding=16
             text greeting.text testId="greeting"
 `,
     'app.test.contract': `test "the greeting loads"

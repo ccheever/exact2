@@ -1,11 +1,11 @@
 # LLP 1116: What the bake-off asks of Exact2 — round 1
 
 **Type:** RFC (a decision brief; per Charlie's standing instruction for long programs, the author decides and logs, and each decision lands as its own commit so it can be vetoed)
-**Status:** Draft r2, 2026-10-10. Both reviewers found r1 ready with changes, reviewing blind: GPT-6 Astra (xhigh) and Grok 4.7 (xhigh), direction and architecture only (`llp/reviews/rfc-2026-10-10-1116-r1.{astra,grok}.md`). r2 folds in their changes (§R); there are no further rounds.
+**Status:** Built, 2026-10-10 (§12, as built). Draft r2 was the plan. Both reviewers found r1 ready with changes, reviewing blind: GPT-6 Astra (xhigh) and Grok 4.7 (xhigh), direction and architecture only (`llp/reviews/rfc-2026-10-10-1116-r1.{astra,grok}.md`). r2 folds in their changes (§R); there are no further rounds.
 **Systems:** the agent-facing docs (`docs/start-here.md`, `exact new`'s `AGENTS.md`, a new `docs/recipes/`), the app CLI (`scripts/exact.mjs`, the generated `exact.mjs`, `scripts/agent*.mjs`), Contract lowering (`contract/lower`: headings, header projection checks, a warning channel), the web host's stylesheet (`host/web/index.html`, `host/web/src/element.rs`, `host/web-js`), the iOS host (`host/apple/Sources/ExactKit/IOS/`: navigation covers, header projection, keyboard avoidance, accessibility identifiers), the runner's store (persisted state), the stdlib roster (`formatNumber` styles), the kernel's `progress` control
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-10
-**Implementer:** Claude (Opus 5.5) lanes, one per decision
+**Implementer:** Claude (Opus 5.5), eight lanes on `bake/1116-*`, integrated on `bake/1116-integration` (§12)
 **Related:** LLP 1115 (write the web, ship the platform; D7 the one required read); LLP 1102 (the authoring bench; §3.8 `storage.kv`); LLP 1109 (the app farm); LLP 1104 and LLP 1069.011 (the web's default button); LLP 1069.001 (web control sizes); LLP 1075.003 (native controls: the header and its bar, §9.10); LLP 1084 (grouped lists); LLP 1071 (the JS target); the bake-off's own records, `~/bakeoff/rounds/r1/` (`records/`, `grades/`, `analysis/batch-{a,b,c}.md`, `findings.md`)
 
 ## R. Reviews, and what r2 changed
@@ -535,3 +535,20 @@ All in parallel, one lane each (r2: quality is the binding gap, so it does not w
 Each lane runs the five checks, plus the async lane's suites for what it touches (the web JS
 target's conformance for D1, `build.mjs --test --ios` for D2). Each lands as its own commit,
 naming its D.
+
+## 12. As built (2026-10-10)
+
+Eight lanes built this RFC in parallel, each in its own worktree and on its own branch
+(`bake/1116-*`). Each was merged into `bake/1116-integration` with the five checks run on
+the result.
+
+| D | What landed | Decided while building |
+|---|---|---|
+| D1 | `host/web/index.html`, all in `:where()` or custom properties so the author wins:<br>• buttons (unsaid, `bordered`, `gray`); `destructive` in red<br>• segmented content tabs; the root tab bar's selected tab<br>• a drawn switch; field- and select-sized controls<br>• the header as an app bar<br>• the alert dialog<br>• the label's min-content floor<br>Amendments to LLP 1115 §3, 1069.011 D2, 1104 D8, 1069.001 D1/D5, 1084 §143. `docs/recipes/web-look.md`. | The switch box is re-recorded at 38×22 (WebKit's size, which Linux already paints), not Chrome's 13×13, because any drawn switch needs `appearance: none`, which changes Chrome's box. The select rows are re-recorded the same way. 60 placements match the kernel in Chrome, Firefox and WebKit. |
+| D2 | iOS:<br>• the bottom cover drops when a route's last child is a vertical scroller (it runs to the screen's edge, content inset)<br>• the route's own background is painted, or the nearest ancestor's<br>• a `column` in a grouped row keeps its direction (fixed in lowering, so every host)<br>• keyboard `resizes-content` by default (`interactive-widget="resizes-visual"` opts out)<br>• the checkbox is the checklist circle<br>• a header's first text after the heading is the bar's subtitle<br>• `testId` is the `accessibilityIdentifier` of bar items, the search field, segments and tab items<br>• the driver marks header nodes the bar does not present, and fails `tap`/`expect` on them<br>• the keyboard no longer rises over a `select` menu after a press | Content runs under the tab bar in tab apps too (UIKit-correct). The keyboard-over-menu cause was press focus, not the create. Segment labels are written on `UISegment` views, which are private, for want of a public API. macOS keeps its fallback on a label mismatch. |
+| D3 | `docs/start-here.md`, 701 → 230 lines (35.5 → 12.3 KB). 16 recipes, compiled by the doc check and each run as an app. The generated `AGENTS.md`, 11.6 → 3.7 KB; `feedback status` prints the diary. `performanceNow()` is "since this launch". `no-tells` allows a size with `tabular-nums`. | The core is 230 lines, not 150: about 100 are a one-screen example that compiles and runs. The generated `AGENTS.md` offers "your own REST server or Snapback". |
+| D4 | `scripts/help.mjs`. Every verb answers `--help`/`-h` (20–40 ms, starts nothing). The scripts refuse unknown flags, naming theirs. A test checks each verb's flag list against what its script parses. | — |
+| D5 | `state … persist`: compiler, plan flag, runner (restored at slot creation, kept after each commit that stands). Stores: web `localStorage`; Apple `UserDefaults` (the kv store under the agent); Linux a kv scope. The Lean semantics gains `Oracle.stored`, the proofs build, and difftest has stored variants. `docs/recipes/persisted-setting.md`. | The key is `exact.state.<name>`, which no grant reaches. A prerendered page shows the declared value until its module boots (QUEUE). |
+| D6 | The warning channel (`"severity": "warning"` in `contract build --json`; never fails). Warnings: `lower-header-unplaced`, `lower-single-tab`, `type-performance-now-persisted` (sends and persisted states). System Back without `navigationBack`, fixed in the compiler: the first `navigationKey` root takes the empty Back name. Segments keep the native control on a label mismatch. | Over the 24 round-1 apps the warnings fire exactly where the graders found the bugs, and they are silent on this repository's apps. |
+| D7 | Headings: 700 for title1–title3; headline stays 600. | — |
+| D8 | `formatNumber(n, "decimal" \| "percent" \| "currency", "<code>")` across roster, types, runner, JS target and Lean: 0 differences from `Intl` in 1.87M + 265k cases. A determinate `progress value= max=` on the web, iOS, macOS, Linux and the terminal, with `aria-valuenow/min/max`. The `Math.random` and unknown-symbol refusals name their repairs. A favicon. | Currency codes are a fixed list of 24 ISO literals. The `<progress>` box is Chrome's fixed 10em × 1em on every host (recorded), and the host's bar is drawn in it. |
