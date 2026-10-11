@@ -28,7 +28,7 @@ component MobileRootHeader
   derive modelChoice = routeName == "threadModelOption" or routeName == "newTaskModelOption" or routeName == "threadRuntime" or routeName == "newTaskRuntime"
   view
     header height=44 flex-shrink=0 align-items="center" justify-content="space-between"
-      when sidebarAvailable and routeName != "threadBrowser" and routeName != "home" and routeName != "threadQueue" and routeName != "thread" and routeName != "newTaskDraft"
+      when sidebarAvailable and routeName != "threadBrowser" and routeName != "home" and routeName != "threadQueue" and routeName != "thread" and routeName != "newTaskDraft" and routeName != "newTask" and not startsWith(routeName, "settings")
         button id="workspace-sidebar-toggle" press=toggleSidebar aria-label=(sidebarVisible ? "Hide sidebar" : "Show sidebar") aria-pressed=sidebarVisible
           t3-symbol symbol-name="sidebar.left" point-size=20 symbol-tint=iconColor width=20 height=20
       when routeName == "newTaskDraft"
