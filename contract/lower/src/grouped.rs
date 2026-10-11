@@ -637,6 +637,58 @@ fn row(node: &Node, separated: bool) -> Node {
             }
         }
     }
+    // A `column` row keeps its direction (LLP 1116 D2): its children stack
+    // as written, from the text's margin, centred in the cell's height, and
+    // a subtitle cell's 15 above and below (52 high for one line). One or two
+    // texts are the subtitle cell's lines, which the kernel reads as one;
+    // anything else is the author's own layout.
+    if column_row(tag, attrs) {
+        let stack = text_lines(children).is_some_and(|(low, high)| low >= 1 && high <= 2);
+        let mut rows = context;
+        rows.extend([
+            s("display", "flex", span),
+            s("flex-direction", "column", span),
+            s("justify-content", "center", span),
+            n("gap", if stack { 0.0 } else { 8.0 }, span),
+            n("min-height", 22.0, span),
+            n("margin-left", 16.0, span),
+            n("padding-right", 16.0, span),
+            n("padding-top", 15.0, span),
+            n("padding-bottom", 15.0, span),
+            n(
+                "border-bottom-width",
+                if separated { 1.0 } else { 0.0 },
+                span,
+            ),
+            s("border-bottom-style", "solid", span),
+            s("border-bottom-color", SEPARATOR, span),
+            n("margin-bottom", if separated { -1.0 } else { 0.0 }, span),
+            n("font-size", 17.0, span),
+            attr("color", tint(LABEL), span),
+            s("text-align", "left", span),
+        ]);
+        rows.extend(attrs.iter().cloned());
+        let Node::Element {
+            positional,
+            instance,
+            ..
+        } = node
+        else {
+            unreachable!()
+        };
+        return Node::Element {
+            tag: tag.clone(),
+            positional: positional.clone(),
+            attrs: rows,
+            children: if stack {
+                stack_lines(children)
+            } else {
+                children.clone()
+            },
+            span,
+            instance: *instance,
+        };
+    }
     let sheet = vec![
         s("display", "flex", span),
         s("flex-direction", "row", span),
@@ -935,22 +987,33 @@ fn text_stack(children: &[Node]) -> bool {
             rest = before;
         }
     }
-    // One or two texts, a `when` showing one of them included.
-    fn lines(nodes: &[Node]) -> Option<(usize, usize)> {
-        nodes.iter().try_fold((0, 0), |(low, high), c| match c {
-            Node::Element { tag, .. } if tag == "text" && hidden(c) => Some((low, high)),
-            Node::Element { tag, .. } if tag == "text" => Some((low + 1, high + 1)),
-            Node::When {
-                then, otherwise, ..
-            } => {
-                let (a, b) = (lines(then)?, lines(otherwise)?);
-                Some((low + a.0.min(b.0), high + a.1.max(b.1)))
-            }
-            _ => None,
-        })
-    }
     matches!(rest, [Node::Element { tag, children, .. }]
-        if tag == "column" && lines(children).is_some_and(|(low, high)| low >= 1 && high <= 2))
+        if tag == "column" && text_lines(children).is_some_and(|(low, high)| low >= 1 && high <= 2))
+}
+
+/// How many texts `nodes` show, fewest and most, a `when` showing one of
+/// them included; `None` when anything else is among them.
+fn text_lines(nodes: &[Node]) -> Option<(usize, usize)> {
+    nodes.iter().try_fold((0, 0), |(low, high), c| match c {
+        Node::Element { tag, .. } if tag == "text" && hidden(c) => Some((low, high)),
+        Node::Element { tag, .. } if tag == "text" => Some((low + 1, high + 1)),
+        Node::When {
+            then, otherwise, ..
+        } => {
+            let (a, b) = (text_lines(then)?, text_lines(otherwise)?);
+            Some((low + a.0.min(b.0), high + a.1.max(b.1)))
+        }
+        _ => None,
+    })
+}
+
+/// Whether a row lays out as a column: a `column`, or a row whose authored
+/// `flex-direction` is a literal column; a `button`'s parts stay a row.
+fn column_row(tag: &str, attrs: &[Attr]) -> bool {
+    match attrs.iter().rev().find(|a| a.name == "flex-direction") {
+        Some(a) => matches!(&a.value, Expr::Str(v, _) if v.starts_with("column")),
+        None => tag == "column",
+    }
 }
 
 /// A title over a subtitle: UIKit's subtitle cell, 15 above and below, the
@@ -968,6 +1031,27 @@ fn subtitle(node: &Node) -> Node {
         return node.clone();
     };
     let at = *span;
+    let parts = stack_lines(children);
+    let mut rows = vec![
+        n("flex-grow", 1.0, at),
+        n("min-width", 0.0, at),
+        n("padding-top", 15.0, at),
+        n("padding-bottom", 15.0, at),
+    ];
+    rows.extend(attrs.iter().cloned());
+    Node::Element {
+        tag: tag.clone(),
+        positional: positional.clone(),
+        attrs: rows,
+        children: parts,
+        span: at,
+        instance: *instance,
+    }
+}
+
+/// A subtitle stack's lines: the title in the row's size and colour, the
+/// second line 15 points in the secondary colour.
+fn stack_lines(children: &[Node]) -> Vec<Node> {
     // The second line, whether written or shown by a condition: a text
     // after the first shown one, chosen by the condition where the arms
     // differ (as `part` counts a row's texts).
@@ -1027,20 +1111,5 @@ fn subtitle(node: &Node) -> Node {
         }
     }
     let mut texts = Count::Known(0);
-    let parts = children.iter().map(|c| line(c, &mut texts)).collect();
-    let mut rows = vec![
-        n("flex-grow", 1.0, at),
-        n("min-width", 0.0, at),
-        n("padding-top", 15.0, at),
-        n("padding-bottom", 15.0, at),
-    ];
-    rows.extend(attrs.iter().cloned());
-    Node::Element {
-        tag: tag.clone(),
-        positional: positional.clone(),
-        attrs: rows,
-        children: parts,
-        span: at,
-        instance: *instance,
-    }
+    children.iter().map(|c| line(c, &mut texts)).collect()
 }

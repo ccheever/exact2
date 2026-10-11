@@ -412,6 +412,60 @@ fn round_three_shapes() {
 }
 
 #[test]
+fn a_column_row_keeps_its_direction() {
+    // LLP 1116 D2: a `column` straight in a section stacks its children, as
+    // it does anywhere else (two bake-off apps saw one laid out as a strip):
+    // two texts are the subtitle cell; a form of its own is the author's.
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    column testId=\"pair\"\n      text \"Title\" testId=\"t1\"\n      text \"Detail\" testId=\"t2\"\n    column testId=\"form\"\n      text \"How did you feel?\" testId=\"q\"\n      row testId=\"choices\"\n        button press=go\n          text \"A\"\n      text \"Okay\" testId=\"answer\"\n    column testId=\"one\"\n      text \"Alone\"");
+    let k = r.kernel();
+    let frame = |t: &str| k.node(id(&r, t)).unwrap().frame;
+    let rows = &k.grouped_list(id(&r, "list")).unwrap().sections[0].rows;
+    assert_eq!(
+        (
+            rows[0].title.as_deref(),
+            rows[0].secondary.as_deref(),
+            rows[0].subtitle,
+            rows[0].custom
+        ),
+        (Some("Title"), Some("Detail"), true, false),
+        "two texts in a column are the subtitle cell, as in a `button`'s column"
+    );
+    assert!(
+        rows[1].custom,
+        "a column of anything else is its own layout"
+    );
+    let (t1, t2) = (frame("t1"), frame("t2"));
+    assert!(
+        t2.y >= t1.y + t1.height,
+        "the second line under the first: {t1:?} {t2:?}"
+    );
+    assert_eq!(t1.x, t2.x, "both at the text's margin");
+    assert!(t2.height < t1.height, "the 15-pt second line");
+    let (q, choices, answer) = (frame("q"), frame("choices"), frame("answer"));
+    assert!(
+        choices.y >= q.y + q.height && answer.y >= choices.y + choices.height,
+        "stacked: {q:?} {choices:?} {answer:?}"
+    );
+    assert_eq!(
+        frame("form").x,
+        32.0,
+        "16 into the card, as a row without an icon"
+    );
+    assert_eq!(
+        frame("one").height,
+        53.0,
+        "one line: a cell's 52 and its separator"
+    );
+    let own = boot("list appearance=\"auto\" flex=1\n  section\n    column flex-direction=\"row\" testId=\"strip\"\n      text \"A\" testId=\"a\"\n      text \"B\" testId=\"b\"");
+    let k = own.kernel();
+    let (a, b) = (
+        k.node(id(&own, "a")).unwrap().frame,
+        k.node(id(&own, "b")).unwrap().frame,
+    );
+    assert_eq!(a.y, b.y, "the author's `flex-direction` stands");
+}
+
+#[test]
 fn a_hidden_text_in_a_subtitle_column_and_a_hidden_first_line() {
     let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go\n      column testId=\"stack\"\n        text \"Gone\" display=\"none\"\n        text \"Privacy\"\n        text \"Screen lock\"\n    button press=go testId=\"row\"\n      column\n        when dark\n          text \"Privacy\"\n        text \"Screen lock\" testId=\"lock\"");
     assert!(
