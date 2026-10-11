@@ -1,0 +1,26 @@
+[
+ {
+  "label": "content search: open",
+  "active": "INPUT[role=combobox][Search in work]",
+  "insideDialog": true,
+  "dialog": "Search project contents"
+ },
+ {
+  "label": "content search: Tab from the field",
+  "active": "BUTTON[Match case] \"Aa\"",
+  "insideDialog": true,
+  "dialog": "Search project contents"
+ },
+ {
+  "label": "content search: Shift+Tab from the field",
+  "active": "BUTTON[Use regular expression] \".*\"",
+  "insideDialog": true,
+  "dialog": "Search project contents"
+ },
+ {
+  "label": "content search: Tab from Use regular expression",
+  "active": "INPUT[role=combobox][Search in work]",
+  "insideDialog": true,
+  "dialog": "Search project contents"
+ }
+]
