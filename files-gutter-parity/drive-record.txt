@@ -1,0 +1,109 @@
+files-gutter-parity: the agent drives of the clone (scripts/agent.mjs macos through target/t3-audit/clone-drive.sh), 1280x840,
+the same 83 ops in each build (drive.sh below), exit 0 each.
+
+Builds: before = the feature tip eb9752918 as built in the never-edited worktree t3-code-evidence-base (lane
+files-gutter-parity-before, storage audit-fgp2-before); after = this branch's bundle (lane files-gutter-parity, storage
+audit-fgp2-after). Clone server on 16102: the clone's development build takes only lane ports 16000-16999 (T3LocalBackend
+laneRange), so the given base 17100 left its server "refused" (the first before attempt stopped at `tap
+thread-verify-timeline` with no project). Both lanes point Codex and Claude at missing binaries (clone-t3-home settings).
+
+After drives: run 1 (bundle from 43e001290) showed every row as the reference except one difference it found: the Files
+draft opened without the focus (a pressable node takes the focus on macOS and autofocus waits while a node holds it; the
+reference's draft is focused). 31f17a3c6 lets go of the focus at the gutter's release; run 2 (the one retry, bundle from
+31f17a3c6) is the after drive below: the draft opens focused, as the reference's.
+
+Every difference between the builds also covers x 598.5..659.5 y 145..158.5: the provider banner names each lane's own
+missing Codex path. Otherwise:
+  4a-chip-open                     x 598.5..659.5 y 145.0..158.5
+  4b-diff-gutter-press             x 153.5..659.5 y 145.0..722.0
+  3-split-light                    x 598.5..1010.5 y 124.0..284.0
+  1-files-hover-light              x 598.5..784.5 y 100.0..158.5
+  2c-files-click-light             x 598.5..774.5 y 100.0..158.5
+  2a-files-drag-held-light         x 598.5..784.5 y 100.0..158.5
+  2b-files-drag-released-light     x 598.5..1012.0 y 100.0..234.0
+  4c-chip-open-files               x 153.5..784.5 y 100.0..722.0
+  4d-files-gutter-press            x 598.5..1012.0 y 100.0..184.0
+  1-files-hover-dark               x 598.5..784.5 y 100.0..158.5
+  2a-files-drag-held-dark          x 598.5..784.5 y 100.0..158.5
+  2b-files-drag-released-dark      x 598.5..1012.0 y 100.0..234.0
+  3-split-dark                     x 598.5..1010.5 y 124.0..284.0
+
+Colours in the after shots (2x pixels, the most common in each box):
+  "+" on hovered line 1, light (x 764.5..784.5, y 100..120): #009fff x1340, #ffffff x100, #96d0ff x24, #1ca2ff x23
+  "+" on hovered line 1, dark: #009fff x1340, #111111 x100, #175888 x24, #0499f6 x23
+  split empty side, light, code part (x 790..1000, y 100..240): #fcfcfc x75590, #e6e6e6 x9744, #fafafa x4900, #fbfbfb x4893
+  split empty side, light, gutter part (x 742..770): #f8f8f8 x12992, #fcfcfc x2596
+  split empty side, dark, code part: #0a0a0a x75171, #0b0b0b x9784, #1d1d1d x9748, #141414 x4884
+  split empty side, dark, gutter part: #131313 x12992, #0a0a0a x2596
+  before split empty side, light: #e4e4e4 x97453, #fcfcfc x17126
+
+=== drive.sh
+#!/bin/zsh
+# files-gutter-parity: one agent drive of the clone. Usage: drive.sh before|after
+# Clone server on 16102: the development build takes lane ports 16000-16999 only (T3LocalBackend laneRange), so not 17102.
+# before: the feature tip eb9752918 built in t3-code-evidence-base (never edited); after: this worktree's bundle. Same steps, 1280x840.
+MODE=$1
+A=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit
+W=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-files-gutter-parity
+S=$W/target/fgp/drive/$MODE; mkdir -p $S
+if [ "$MODE" = before ]; then ROOTDIR=/Users/daehyeonmun/orca/workspaces/exact2/t3-code-evidence-base; LANE=files-gutter-parity-before; else ROOTDIR=$W; LANE=files-gutter-parity; fi
+F=.agents/skills/verify/SKILL.md
+ops=(
+  "clock +20000 real" "clock +3000 real"
+  "tap thread-verify-timeline" "clock +2500 real"
+  "tap details-changes" "clock +10000 real"
+  'tap "Dismiss notification"' "clock +1500 real"
+  "tap \"Expand $F\"" "clock +4000 real"
+  # FG-4: a skill chip's details beside the Diff panel, then a press on the gutter's number 2.
+  'type composer $frontend-design now' "clock +1500 real"
+  "tap composer mouse at 60 12" "clock +1000 real"
+  "screenshot $S/4a-chip-open.png window"
+  "tap diff-line-$F-additions-2" "clock +1500 real"
+  "screenshot $S/4b-diff-gutter-press.png window"
+  "tap diff-line-$F-additions-2" "clock +1000 real"
+  # FG-3: split view, light.
+  "tap diff-split" "clock +2000 real"
+  "screenshot $S/3-split-light.png window"
+  "tap diff-stacked" "clock +1500 real"
+  # FG-1, FG-2: the Files preview, light.
+  "tap panel-add-surface" "clock +1500 real"
+  "tap add-surface-files" "clock +4000 real"
+  "tap tree-fixture.txt" "clock +4000 real"
+  "tap file-line-1 hover" "clock +1000 real"
+  "screenshot $S/1-files-hover-light.png window"
+  "tap file-line-1" "clock +1500 real"
+  "screenshot $S/2c-files-click-light.png window"
+  "tap diff-comment-cancel" "clock +1000 real"
+  "tap file-line-1 drag to file-line-2 mouse over 400 during \"clock +1500 real\" \"screenshot $S/2a-files-drag-held-light.png window\""
+  "clock +1500 real"
+  "screenshot $S/2b-files-drag-released-light.png window"
+  "tap file-line-1" "clock +1000 real"
+  "tap diff-comment-cancel" "clock +1000 real"
+  # FG-4 on the Files gutter (the gutter now hears pointerdown): the chip's details close.
+  "tap composer mouse at 60 12" "clock +1000 real"
+  "screenshot $S/4c-chip-open-files.png window"
+  "tap file-line-1" "clock +1500 real"
+  "screenshot $S/4d-files-gutter-press.png window"
+  "tap diff-comment-cancel" "clock +1000 real"
+  # Dark: the Files tab opened again in dark (a live switch leaves some texts light, X-scheme), then split view.
+  "prefer prefers-color-scheme dark" "clock +1500 real"
+  "tap close-tab-file:fixture.txt" "clock +1500 real"
+  "tap panel-add-surface" "clock +1500 real"
+  "tap add-surface-files" "clock +4000 real"
+  "tap tree-fixture.txt" "clock +4000 real"
+  "tap file-line-1 hover" "clock +1000 real"
+  "screenshot $S/1-files-hover-dark.png window"
+  "tap file-line-1 drag to file-line-2 mouse over 400 during \"clock +1500 real\" \"screenshot $S/2a-files-drag-held-dark.png window\""
+  "clock +1500 real"
+  "screenshot $S/2b-files-drag-released-dark.png window"
+  "tap file-line-1" "clock +1000 real"
+  "tap diff-comment-cancel" "clock +1000 real"
+  "tap tab-diff" "clock +2000 real"
+  "tap diff-split" "clock +2500 real"
+  "screenshot $S/3-split-dark.png window"
+  "tap diff-stacked" "clock +1000 real"
+  "prefer prefers-color-scheme light" "clock +1000 real"
+)
+print -rl -- "${ops[@]}" > $S/ops.txt
+EXACT_ROOT=$ROOTDIR CLONE_STORAGE=audit-fgp2-$MODE $A/clone-drive.sh $LANE 16100 "${ops[@]}" > $S/drive.jsonl 2> $S/drive.err
+echo "exit $?"
