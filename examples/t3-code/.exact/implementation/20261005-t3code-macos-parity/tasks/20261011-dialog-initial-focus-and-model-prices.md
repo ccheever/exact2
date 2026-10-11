@@ -90,7 +90,37 @@ prices X, "Add model price" + and the Apply to chevron. The glyph's colour is no
 appearance the window draws, as New task's X is; it still mounts again per scheme, because an SVG's `light-dark()` does
 not follow an appearance flip.
 
-## Acceptance results
+**Review fix (PR #438 review): the focus goes back as a dialog closes (DF-3).** Base UI's FloatingFocusManager also gives
+the focus back on close (`returnFocus: finalFocus`, left at its default in every dialog but the palette and the expanded
+image): to the trigger, else to what held the focus as the dialog opened. Once DF-1 moved the focus into the popup, closing
+a dialog removed the focused node, and a keyboard user was left with nothing focused (before DF-1 the focus had stayed on
+the opener behind the popup).
+
+- `dialog-trap.contract` `DialogFinalFocus(open, target)`: an invisible box beside the `when` that mounts a dialog (outside
+  the popup, so it outlives it), 2 wide while `open` and 1 wide while not; its `resize` after the layout that removed the
+  popup moves the focus to `target` as it was when the dialog opened (so a subject cleared on close, a hub or a task id,
+  still names its opener). Dialogs that open one another under one `open` (Add provider then Continue with ChatGPT, a
+  model's dialog then Model prices from its Set price, Commit then its default-branch confirm) give it back once, when
+  the last closes. No framework change.
+- 17 boxes cover 23 of the 50 modal popups and 5 of SettingsConfirm's callers, each naming the control that opens it:
+  Add provider, Continue with ChatGPT, Add hub and Remove hub (`add-provider`, `add-usage-hub`, the hub's Remove); remove
+  an environment (its row's ⋯) or a route (its ×); Set up snapshots (the switch or Set up, whichever opened it); Restore
+  defaults; Background activity (its select), Add theme, a theme's or a collection's Remove, Add/Edit device host (Add
+  host, or the host's ⋯); Install update; New task (New task, or the task's ⋯ for Edit), Remove project, Remove checkout,
+  Add/Edit Action, the thread card's Add project script (its button, or the scripts menu's toggle), project icon and
+  favicon (Choose icon, Choose file); the Add Action editor's Delete confirm (Delete); a theme's Update confirm (its Update);
+  Model prices and a model's dialog (the environment menu's trigger, or the model's row); the git card's Publish, Commit
+  and default-branch confirm (the quick action or the options menu's trigger, whichever opened it: `r4-git-actions.ts`
+  keeps `opener`, the view `dialogFrom`); Revert (the message's Edit from here); Save plan (the plan's ⋯: the view keeps
+  `planSaveRow`); Merge (the row's Merge); the pull request stack's dialog (the stack menu's trigger). The openers that had
+  only a testId take it as their element id.
+- 15 popups and the shared confirms' other callers already gave it back with their own `focus()` (AppConfirm's four
+  callers, the sidebar's SettingsConfirms, Custom snooze, Reconnect ChatGPT, reset credit, the network dialogs, Add
+  environment, This machine, the PR action confirm, the palette, the SSH prompt, the browser import wizard and profile
+  removal); `dialog-trap.test.ts` names each.
+- The other 10 popups and 6 confirm callers have no opener the view can name and still leave nothing focused as they close:
+  Known differences below.
+
 
 | Row | Result | Proof |
 | --- | --- | --- |
@@ -98,6 +128,7 @@ not follow an appearance flip.
 | DF-2 | pass: all 50 modal popups take the focus on opening (48 by `DialogOpenFocus`, 2 by #409's task), checked by `dialog-trap.test.ts` (50 per-dialog tests; removing one `DialogOpenFocus` fails its test). The agent drive's sample: Add a CLIProxyAPI hub opened with nothing focused before, in Hub URL after, as the reference. The reference over CDP, as the clone's targets: Add environment (the Remote link card), Add hub (Hub URL), Add a theme (its search), the command palette (its field) | [add-hub](https://raw.githubusercontent.com/ccheever/exact2/f33381f32c8a2a9ed8ab5e7b6c30adbb75d792b8/dialog-initial-focus-and-model-prices/df2-add-hub.png), [focus read-outs](https://raw.githubusercontent.com/ccheever/exact2/6beb167e17fd7ea1035ee0b2ad141c2c27341da1/dialog-initial-focus-and-model-prices/focus-before-after.txt) |
 | MP-1 | pass: Model prices opens on Limits (light and dark), as on Cost and Tokens, and as the reference; Limits' view cost unchanged | [limits light](https://raw.githubusercontent.com/ccheever/exact2/51c659471a99a7dcc8cf3090fae5e0f1e02f58f5/dialog-initial-focus-and-model-prices/mp1-limits-light.png), [limits dark](https://raw.githubusercontent.com/ccheever/exact2/71e67755ec4c153ab74907cf90efeb3146d69bdd/dialog-initial-focus-and-model-prices/mp1-limits-dark.png), [cost](https://raw.githubusercontent.com/ccheever/exact2/77c115d34c57464a16b2a0a6c010aca93fcb88b3/dialog-initial-focus-and-model-prices/mp1-limits-cost.txt) |
 | MP-2 | pass: the X, + and chevron draw at launch in the light window (before: none of the three); dark unchanged; as the reference | [model prices at launch](https://raw.githubusercontent.com/ccheever/exact2/705b24317427f9ada1ab25304124848a95410a61/dialog-initial-focus-and-model-prices/df1-mp2-model-prices-launch.png), [cost dark](https://raw.githubusercontent.com/ccheever/exact2/fb3db9bcad6dff280975204504791a7fe2c46bfc/dialog-initial-focus-and-model-prices/mp2-cost-dark.png), [limits dark](https://raw.githubusercontent.com/ccheever/exact2/71e67755ec4c153ab74907cf90efeb3146d69bdd/dialog-initial-focus-and-model-prices/mp1-limits-dark.png) |
+| DF-3 (review: final focus) | pass for the dialogs it covers (agent drive and `dialog-focus.test.contract`, no click before the first key; reference over CDP). Before: New task, Add hub, Add provider and Model prices each closed with Escape left nothing focused, and Enter did nothing (Model prices' Escape also left the Usage page). After: the focus goes back to New task, Add hub, Add provider and the environment menu's trigger, where Enter opens Add provider, New task and the menu again, as the reference's (Add provider, New task, "All environments" after Escape). `dialog-focus.test.contract`: 3 of 3 pass after, 3 of 3 fail before | [model prices Escape, Enter](https://raw.githubusercontent.com/ccheever/exact2/8e9c04f7326e468d69acc8dd91f52373a8e3bc5f/dialog-initial-focus-and-model-prices/final-focus-model-prices.png), [focus read-outs, reference, test runs and tools](https://raw.githubusercontent.com/ccheever/exact2/c40db7cdec560e36dea050b43c1e8083673c9e91/dialog-initial-focus-and-model-prices/final-focus.txt) |
 | DF-1 under real keys | implemented, not verified (real input reserved for the coordinator's final session): Real-input batch steps below | — |
 
 Drives: the evidence base `ff1eb4ceb` (`t3-code-evidence-base`, lane `dialog-initial-focus-and-model-prices-before`) and
@@ -109,6 +140,18 @@ focusmap.py, compose.py, limits-bench.ts and the reference scripts](https://raw.
 
 ## Known differences (after this task)
 
+- No final focus for 10 modal popups and 6 confirm callers (X53, #282, #327): the project picker (six controls open it),
+  the image, video and diagram previews (several kinds of opener; the view keeps only the media), the pull request
+  checkout (either branch picker), Device setup (it opens itself from either surface menu), the legacy sidebar's dialogs
+  and its two confirms and the archived row's delete confirm (native context menus on rows that hold no focus; the
+  `archive-delete` editor has no opener at all), the welcome wizard (at launch), the ChatGPT plan notice and the pairing
+  reveal (they show themselves), the SIGKILL confirm (it keeps only the pid) and the server-update confirm (a notice's
+  action). They close with nothing focused, as every dialog did before this review fix. The clone cannot read which
+  element held the focus when a dialog opened; HTML's `showModal()` remembers it and `close()` gives it back, so they
+  get it, and the boxes go, once the host carries `showModal`/`close` (#327).
+- Opened by a pointer, a reference dialog without a DialogTrigger gives the focus back to what held it before (macOS
+  Chromium does not focus a clicked button: Add hub went back to Add provider, focused by the dialog before it); the
+  clone gives it to the opener, with no ring after a pointer. Opened from a key the two agree.
 - The focus a dialog takes on opening shows no ring (a pointer opened it), as the reference's `:focus-visible`; under
   agent keys the clone draws no ring on the X after Shift+Tab either (the focus is there: `state`), which the real-input
   step checks.
@@ -118,6 +161,14 @@ focusmap.py, compose.py, limits-bench.ts and the reference scripts](https://raw.
 
 ## Tests
 
+- Review fix: `dialog-trap.test.ts` "every modal dialog gives the focus back as it closes (Base UI's finalFocus)": the
+  mechanism; never inside a popup; one test per modal popup (50, and each caller of SettingsConfirm and AppConfirm): a
+  `DialogFinalFocus` naming its opener (every literal and template head an element id), its own `focus()`, or the reason
+  it has none; every `DialogFinalFocus` is one of those (17); the snapshot setup's and the git card's openers.
+  `dialog-final-focus.test.ts`: the git card's `dialogFrom` (menu, then quick action) and Save plan's `planSaveRow`.
+  `dialog-focus.test.contract` (run by the agent against the app, `clone-drive.sh --test`): the `resize` path at run time:
+  Add provider (its focus on opening, Tab, Enter; Escape, then Enter opens it again), New task (Escape, Enter) and Model
+  prices on Limits (it opens; Escape, then Enter opens the environment menu); 3 pass on this branch, 3 fail on the base.
 - `dialog-trap.test.ts`, "every modal dialog takes the focus as it opens (Base UI's initialFocus)": the mechanism; one
   test per modal popup (50: one `DialogOpenFocus`, right inside the popup, every literal target an element id; the
   default target is the popup's first stop, the start guard's or key wrap's; the reference's named and autofocused
@@ -140,13 +191,14 @@ exit 0; `cargo fmt --all -- --check` exit 0; `bun scripts/boot.mjs` exit 0. No R
 On a lane copy of this branch's bundle, light appearance (System Settings › Appearance › Light) and then once in dark:
 
 1. Settings › Providers › Add provider (click the button). Without clicking in the dialog: press Tab. Expect the ring on
-   "2 Identity". Press Shift+Tab twice: the ring on the X. Escape.
-2. Settings › Scheduled Tasks › New task (click). Press Tab: the caret in Name. Shift+Tab twice: the ring on the X.
+   "2 Identity". Press Shift+Tab twice: the ring on the X. Escape: the ring on Add provider (DF-3); Enter opens it again;
    Escape.
+2. Settings › Scheduled Tasks › New task (click). Press Tab: the caret in Name. Shift+Tab twice: the ring on the X.
+   Escape: the ring on New task.
 3. Usage › the environment menu (breadcrumb) › Model prices, on Cost and then on Limits: the dialog opens on both, with
    its X, the + after "Cache write" and the chevron after "All environments" drawn. Press Tab: the ring on +. Shift+Tab
-   twice: the ring on the X. Escape.
-4. Settings › Providers › Add hub (click), then type a letter at once: it lands in Hub URL.
+   twice: the ring on the X. Escape: the Usage page stays, the ring on "All environments"; Enter opens its menu.
+4. Settings › Providers › Add hub (click), then type a letter at once: it lands in Hub URL. Escape: the ring on Add hub.
 
 ## Next action
 

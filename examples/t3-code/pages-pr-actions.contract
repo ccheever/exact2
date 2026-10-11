@@ -23,6 +23,7 @@ use KeyMenuOpen from "./menu-keys.contract"
 use kmBump from "./menu-keys.contract"
 use hoverTipAtFrame from "./hover-layer.contract" // fix-hover-cards
 use DialogOpenFocus from "./dialog-trap.contract"
+use DialogFinalFocus from "./dialog-trap.contract"
 
 keyframes paSpin
   from rotate=0
@@ -442,6 +443,8 @@ component PrActionLayers
   view
     when actions.dialogOpen
       PrActionDialog(actions=actions, ref=ref, dark=dark, act=act, local=local)
+    // The stack's Dialog gives the focus back to the stack menu's trigger (dialog-trap.contract DialogFinalFocus).
+    DialogFinalFocus(open=actions.stack.dialogOpen, target="pull-request-stack")
     when actions.stack.dialogOpen
       PrStackDialog(stack=actions.stack, ref=ref, dark=dark, act=act, local=local)
 

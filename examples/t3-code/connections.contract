@@ -355,7 +355,7 @@ component EnvironmentRow
             when tip == "switch"
               CnTooltip(tip=environment.switchTip, tipId=`environment-switch-tip-${environment.environmentId}`, above=20)
           box position="relative"
-            button popovertarget=`environment-menu-${environment.environmentId}-popup` key=triggerKey focus=keyArm(true) blur=keyArm(false) class=PvIconButton aria-label=`More actions for ${environment.label}` disabled=busy testId=`environment-menu-${environment.environmentId}` title=""
+            button id=`environment-menu-${environment.environmentId}` popovertarget=`environment-menu-${environment.environmentId}-popup` key=triggerKey focus=keyArm(true) blur=keyArm(false) class=PvIconButton aria-label=`More actions for ${environment.label}` disabled=busy testId=`environment-menu-${environment.environmentId}` title=""
               PvIcon(name="ellipsis", size=14, color="light-dark(#71717b, #818181)")
             KeyMenuOpen(menuId=`environment-menu-${environment.environmentId}-popup`, armed=keyArmed, opened=keyOpened)
             CnMenu(menuId=`environment-menu-${environment.environmentId}-popup`, label=`More actions for ${environment.label}`, width=196, endAlign=24, offsetX=0, offsetY=0, items=menuItems, keyed=keyed)

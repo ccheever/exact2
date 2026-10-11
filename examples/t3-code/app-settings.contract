@@ -58,6 +58,7 @@ use SbSshHosts from "./connections.contract"
 use Snapshot from "./shapes.contract"
 use Viewport from "./shapes.contract"
 use SidebarWindowRail from "./r5-shell.contract"
+use DialogFinalFocus from "./dialog-trap.contract"
 use TipCard from "./shell-tip.contract"
 
 // The T3Code window's Settings view and dialogs, moved out of app.contract, which keeps the state,
@@ -336,6 +337,11 @@ component SettingsWindow
           // SidebarUpdatePill's "Check for updates" (side top), centred on the pill 24pt in from the nav's edge.
           row position="absolute" left=(sidebarWidth - 14 * rem) width="25rem" bottom="2.5rem" justify-content="center" pointer-events="none" z-index=140
             TipCard(label="Check for updates", shown=updateTipHover)
+    // Each dialog gives the focus back to the control that opened it as it closes (dialog-trap.contract DialogFinalFocus).
+    DialogFinalFocus(open=(settingsThemeDialog == "background-activity" or settingsThemeDialog == "import" or settingsThemeDialog == "remove"), target=(settingsThemeDialog == "background-activity" ? "setting-background-activity" : (settingsThemeDialog == "import" ? "add-theme" : `theme-remove-${settingsThemeSubject}`)))
+    DialogFinalFocus(open=settingsCore.hostEditor.open, target=(settingsCore.hostEditor.title == "Add device host" ? "device-hosts-add" : `device-host-options-${settingsCore.hostEditor.id}`))
+    DialogFinalFocus(open=settingsRestoreOpen, target="settings-restore-defaults")
+    DialogFinalFocus(open=settingsCore.updateConfirm, target="setting-version-update")
     when settingsOpen and (settingsThemeDialog != "" or settingsCore.archiveConfirm.id != "" or settingsCore.saOpen)
       SettingsADialogs(core=settingsCore, kind=settingsThemeDialog, subject=settingsThemeSubject, viewportHeight=viewport.height, busy=commandPending, error=modalError, menu=settingsMenu, openMenu=coreMenu, close=coreThemeDialog("", ""), commit=coreChange, change=coreThemeChange, raw=restRaw, rest=rest, local=restLocal)
     when settingsOpen and settingsRestoreOpen
@@ -366,7 +372,11 @@ component ProjectDialogs
     scheme: string
     sbSet: action
     taskBase: action
+    // The thread details card's scripts: its Add project script button, or the scripts menu's toggle once it has one.
+    cardScripts: bool
   view
+    // Each editor gives the focus back to the control that opened it as it closes (dialog-trap.contract DialogFinalFocus).
+    DialogFinalFocus(open=(restEditor == "task" or restEditor == "project-remove" or restEditor == "project-remove-member" or restEditor == "project-action" or restEditor == "card-action" or restEditor == "project-icon" or restEditor == "project-favicon"), target=(restEditor == "task" ? (restSubject == "" ? "new-scheduled-task" : `task-actions-${restSubject}`) : (restEditor == "project-remove" ? "remove-project" : (restEditor == "project-remove-member" ? `remove-checkout-${restSubject}` : (restEditor == "project-action" ? (restSubject == "" ? "add-project-action" : `edit-project-action-${restSubject}`) : (restEditor == "card-action" ? (cardScripts ? "details-script-actions" : "details-add-script") : (restEditor == "project-icon" ? "project-choose-icon" : "project-choose-file")))))))
     SettingsRestDialogs(editor=restEditor, subject=restSubject, label=restLabel, scheduled=scheduled, projects=projectsSettings, busy=commandPending, error=modalError, rest=rest, raw=restRaw, close=restClose, taskBase=taskBase)
     when restEditor == "project-action"
       ProjectActionDialog(data=projectsSettings, subject=restSubject, busy=commandPending, error=modalError, raw=restRaw, close=restClose)
@@ -387,6 +397,7 @@ component SettingsModals
     commandPending: bool
     modalError: string
     snapshotSetupWasEnabled: bool
+    snapshotSetupFrom: string
     showSnapshotSetup: action
     toggleSnapshots: action
     changeSnapshot: action
@@ -431,6 +442,9 @@ component SettingsModals
     // local-primary-environment: the Local environment switch's command (settingsCommand: the dialog stays open while it runs).
     localCommand: action
   view
+    // Each dialog gives the focus back to the control that opened it as it closes (dialog-trap.contract DialogFinalFocus).
+    DialogFinalFocus(open=snapshotSetupOpen, target=snapshotSetupFrom)
+    DialogFinalFocus(open=(providerDialog == "add" or providerDialog == "chatgpt" or providerDialog == "hub" or providerDialog == "hub-remove"), target=(providerDialog == "hub" ? "add-usage-hub" : (providerDialog == "hub-remove" ? `remove-usage-hub-${providerTarget}` : "add-provider")))
     when snapshotSetupOpen
       SnapshotSetup(data=snapshotSettings, busy=commandPending, error=modalError, wasEnabled=snapshotSetupWasEnabled, close=showSnapshotSetup(false), toggle=toggleSnapshots, change=changeSnapshot, record=recordSnapshotShortcut, saveShortcut=saveSnapshotShortcut)
     when connecting
@@ -475,6 +489,10 @@ component SettingsModals
       LocalEnvironmentDialog(title=connectionsPage.thisMachine.dialogTitle, body=connectionsPage.thisMachine.dialogBody, confirmLabel=connectionsPage.thisMachine.dialogConfirm, destructive=connectionsPage.thisMachine.enabled, busy=commandPending, error=connectionsPage.thisMachine.error, still=viewport.prefersReducedMotion, cancel=connectionAskRemove(""), confirm=localCommand("local-environment", "", connectionsPage.thisMachine.enabled ? "off" : "on"))
     // Network access, Tailscale HTTPS, Create pairing link and the reveal dialog (connections-network-dialogs.contract).
     NetworkDialogs(net=connectionsPage.network, remove=connectionRemove, ask=connectionAskRemove, command=localCommand, busy=commandPending, still=viewport.prefersReducedMotion)
+    each environment in connectionsPage.environments key=environment.key
+      DialogFinalFocus(open=(connectionRemove == environment.key), target=`environment-menu-${environment.environmentId}`)
+      each route in environment.routes key=route.id
+        DialogFinalFocus(open=(connectionRemove != "" and route.target == connectionRemove), target=`environment-route-remove-${environment.environmentId}-${route.id}`)
     when connectionRemove != ""
       each environment in connectionsPage.environments key=environment.key
         when environment.key == connectionRemove

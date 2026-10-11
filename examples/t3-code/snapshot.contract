@@ -172,7 +172,7 @@ component SnapshotPanel
       column class=SnapCard
         SnapRow(title="SnapShots", description="Capture a window and attach it to your current draft.", status=(busy ? "Updating capture settings…" : data.statusText), first=true, rowId="snap-shot-enabled")
           when data.setupLabel != ""
-            button press=setup class=SnapOutlineXs disabled=busy testId="snapshot-setup" opacity=(busy ? 0.64 : 1)
+            button id="snapshot-setup" press=setup class=SnapOutlineXs disabled=busy testId="snapshot-setup" opacity=(busy ? 0.64 : 1)
               text data.setupLabel class=SnapLabelXs
           SnapSwitch(checked=(data.enabled or setupOpen), label="Enable snapshots", disabled=(busy or not data.captureAvailable), switchId="snapshot-enabled", toggle=toggle)
         when data.enabled and data.captureAvailable

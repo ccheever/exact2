@@ -49,3 +49,28 @@ component DialogOpenFocus
         focus(target)
   view
     box aria-hidden=true resize=laidOut position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none"
+
+// Base UI's Dialog gives the focus back as it closes (FloatingFocusManager's `returnFocus`, DialogPopup's `finalFocus`
+// left at its default): to its trigger, else to what held the focus as it opened. The clone's popup goes with its `when`,
+// and the focus inside it with it, so a keyboard user was left with nothing focused. A DialogFinalFocus stands beside
+// the `when` that mounts a dialog (outside it, so it outlives the popup) with that dialog's `open` and the element that
+// opens it: an invisible box 2 wide while the dialog is open and 1 wide while it is shut, whose `resize` (after the layout
+// that removed the popup) moves the focus to `target` as it was when the dialog opened (a subject cleared on close keeps
+// its opener). Dialogs that open one another under one `open` (a wizard's next dialog) give it back once, when the last
+// closes. A layout under `display: none` (0 wide) changes nothing. `dialog-trap.test.ts` lists every dialog's final focus.
+component DialogFinalFocus
+  props
+    open: bool
+    target: string
+  state shown = false
+  state back = ""
+  action laidOut(width: number, height: number)
+    if width >= 2 and not shown
+      shown = true
+      back = target
+    else if width == 1 and shown
+      shown = false
+      if back != ""
+        focus(back)
+  view
+    box aria-hidden=true resize=laidOut position="absolute" left=0 top=0 width=(open ? 2 : 1) height=1 opacity=0 pointer-events="none"

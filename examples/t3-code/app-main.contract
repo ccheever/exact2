@@ -44,6 +44,7 @@ use BrowserMiniPlayer from "./browser-capture.contract"
 use ChatCanvasView from "./chat-canvas.contract"
 use ShellDetails from "./shell-shapes.contract"
 use ThreadDetailsInline from "./shell-details.contract"
+use DialogFinalFocus from "./dialog-trap.contract"
 
 // The T3Code window's main view, moved out of app.contract, which keeps the state, resources and
 // actions: each component takes the root names it reads as props of the same names.
@@ -354,6 +355,9 @@ component PagesCover
     // usage-pooled-view: a pooled segment's reset credit confirm, outside its popover (UsageLimitsPooled RedeemableSegmentPopup).
     when pageCover and utilityPage == "usage" and usageConfirmOpen
       ResetCreditDialog(prefix="pageslocal:usage-pool", target=usage.pooled.confirm, busy=commandPending, command=usageConfirm)
+    // Model prices and a model's dialog (which opens Model prices from its Set price) give the focus back to what opened
+    // the first of them as the last closes (dialog-trap.contract DialogFinalFocus).
+    DialogFinalFocus(open=(pageCover and utilityPage == "usage" and (usage.prices.open or usage.detail.open)), target=(usage.detail.open ? `usage-model-${usage.detail.key}` : "usage-environment"))
     when pageCover and utilityPage == "usage" and usage.prices.open
       UsagePricesLayer(page=usage, scheme=scheme, viewportHeight=viewport.height, busy=commandPending, op=pagesOp)
     when pageCover and utilityPage == "usage" and usage.detail.open and not usage.prices.open
