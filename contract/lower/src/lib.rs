@@ -675,6 +675,7 @@ impl<'a> Lowerer<'a> {
                     svg::coerce_lengths(tag, svg::in_svg(self.svg_depth > 0, parent_tag), expanded);
                 let expanded = lengths.as_deref().unwrap_or(expanded);
                 self.check_svg(tag, parent_tag, expanded, *span)?;
+                shorthands::check_text_box(tag, parent_tag, expanded)?;
                 // @ref LLP 1034 §8 — an inline run paints in its paragraph's
                 // scheme: no host gives a run an appearance of its own.
                 if tag == "text" && parent_tag == Some("text") {
@@ -1262,6 +1263,9 @@ impl<'a> Lowerer<'a> {
                 ),
                 a.span,
             );
+        }
+        if let Some(why) = shorthands::text_box_trim_refusal(&a.name, tag, module) {
+            return err("lower-attr-tag", why, a.span);
         }
         if a.name == "alt" && tag != "image" {
             return err(
