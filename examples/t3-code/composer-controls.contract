@@ -16,6 +16,7 @@ use StripPrBadge from "./r7-handoff.contract" // lane r7-handoff
 use AttachmentUrl from "./timeline-attachments.contract" // composer-fidelity G12a
 use NoticeMachines from "./auto-balance.contract" // auto-balance
 use UsageLimitsBody, UsageAccountLabel from "./usage-bars.contract" // usage-reset-and-feedback
+use ProgressValue from "./progress-value.contract"
 
 // The composer footer and its docked banners (lane composer-controls): the
 // toolbar controls (ComposerControl.tsx "sm"/"xs"), the primary actions
@@ -688,8 +689,11 @@ component ComposerMenus
                 text "Context Window" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717a, #818181)"
                 text (data.composer.contextPercent != "" ? `${data.composer.contextPercent} · ${data.composer.contextUsed}/${data.composer.contextMax}` : data.composer.contextUsed) font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#52525b, #a1a1aa)"
               when data.composer.contextMax != ""
-                box width="100%" height="0.375rem" border-radius="0.1875rem" overflow="hidden" background-color="light-dark(#f4f4f599, #ffffff0f)" role="progressbar" aria-label="Context window usage"
-                  box height="0.375rem" border-radius="0.1875rem" width=`${data.composer.contextPercent == "" ? "0%" : data.composer.contextPercent}` background-color=(data.composer.contextOver ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717ab8, #818181b8)")
+                box width="100%" height="0.375rem" position="relative"
+                  // The drawn bar; its value reaches assistive technology through ProgressValue (progress-value.contract).
+                  box width="100%" height="0.375rem" border-radius="0.1875rem" overflow="hidden" background-color="light-dark(#f4f4f599, #ffffff0f)" aria-hidden=true
+                    box height="0.375rem" border-radius="0.1875rem" width=`${data.composer.contextPercent == "" ? "0%" : data.composer.contextPercent}` background-color=(data.composer.contextOver ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717ab8, #818181b8)")
+                  ProgressValue(label=data.composer.contextValueLabel, progressId="context-window-value")
               when data.composer.contextTotal != ""
                 row width="100%" justify-content="space-between"
                   text "Total processed" font-size="0.6875rem" line-height="1rem" color="light-dark(#52525b, #a1a1aa)"

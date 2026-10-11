@@ -7,6 +7,7 @@ use CorePalette from "./settings-core.contract"
 use SettingsGhost from "./settings-core.contract"
 use ThemeCard from "./settings-core.contract"
 use ThemeOrb from "./settings-core.contract"
+use FocusGuard from "./dialog-trap.contract"
 
 // role="group" "Light and dark theme variants", 80pt tall: each mode's selected variant
 // at left 50% ± 52, its short label under it with "+N", and the fan of 28pt children.
@@ -63,6 +64,8 @@ component CollectionRemoveDialog
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #090909a3)" testId="theme-remove-collection-overlay"
       column width="100%" max-width="32rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="alertdialog" aria-label=`Remove themes from “${card.label}”?` testId="theme-remove-collection"
+        // The focus trap (dialog-trap.contract): the themes, Cancel, then Remove while it is enabled.
+        FocusGuard(guardId="theme-remove-collection-guard-start", target=(busy or card.picked == 0 ? "theme-remove-collection-cancel" : "theme-remove-collection-confirm"))
         column gap="0.5rem" padding="1.5rem" box-sizing="border-box"
           text `Remove themes from “${card.label}”?` font-size="1.25rem" font-weight=600 line-height="1.5rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
           text "Select the variants you want to remove. You can restore them by importing the extension again." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
@@ -70,8 +73,8 @@ component CollectionRemoveDialog
             text error font-size="0.75rem" line-height="1.125rem" color="light-dark(#dc2626, #f87171)" role="alert" testId="theme-remove-collection-error"
         scroll max-height="18rem" width="100%"
           box display="grid" grid-template-columns="repeat(2, minmax(0, 1fr))" gap="0.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-bottom="1.5rem" box-sizing="border-box" width="100%"
-            each option in card.removal key=option.themeId
-              button press=pick("theme-pick", `${card.id}|${option.themeId}`) role="checkbox" aria-checked=option.checked aria-label=option.label class=SettingsGhost position="relative" display="flex" flex-direction="column" align-items="center" justify-content="center" gap="0.5rem" min-height="7rem" min-width=0 padding="0.75rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(option.checked ? pal.accent : pal.cardBorder) background-color=(option.checked ? pal.tileActive : pal.highlight) testId=`theme-remove-pick-${option.themeId}`
+            each option, i in card.removal key=option.themeId
+              button id=`theme-remove-pick-${i}` press=pick("theme-pick", `${card.id}|${option.themeId}`) role="checkbox" aria-checked=option.checked aria-label=option.label class=SettingsGhost position="relative" display="flex" flex-direction="column" align-items="center" justify-content="center" gap="0.5rem" min-height="7rem" min-width=0 padding="0.75rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(option.checked ? pal.accent : pal.cardBorder) background-color=(option.checked ? pal.tileActive : pal.highlight) testId=`theme-remove-pick-${option.themeId}`
                 box position="absolute" right="0.5rem" top="0.5rem" width="1rem" height="1rem" border-radius="0.25rem" border-width=1 border-style="solid" border-color=(option.checked ? pal.accent : pal.input) background-color=(option.checked ? pal.accent : pal.field) box-sizing="border-box" display="flex" align-items="center" justify-content="center"
                   when option.checked
                     CoreIcon(name="check", size=12, color=pal.accentText)
@@ -82,10 +85,11 @@ component CollectionRemoveDialog
                         ThemeOrbView(orb=orb, id=`remove-${option.themeId}-${orb.mode}`, ring=pal.thumb)
                 text option.label font-size="0.875rem" font-weight=500 line-height="1.25rem" text-align="center" color=pal.text line-clamp=1 max-width="100%"
         row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#f9f9f9b8, #ffffff06)"
-          button press=close disabled=busy aria-keyshortcuts="Escape" testId="theme-remove-collection-cancel" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2.25rem" padding-left="0.8125rem" padding-right="0.8125rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)"
+          button id="theme-remove-collection-cancel" press=close disabled=busy aria-keyshortcuts="Escape" testId="theme-remove-collection-cancel" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2.25rem" padding-left="0.8125rem" padding-right="0.8125rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)"
             text "Cancel" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
-          button press=change("theme-remove-many", "", card.pickedIds) disabled=(busy or card.picked == 0) testId="theme-remove-collection-confirm" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2.25rem" padding-left="0.8125rem" padding-right="0.8125rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 opacity=(busy or card.picked == 0 ? 0.64 : 1) background-color="light-dark(#dc2626, #dc2626)"
+          button id="theme-remove-collection-confirm" press=change("theme-remove-many", "", card.pickedIds) disabled=(busy or card.picked == 0) testId="theme-remove-collection-confirm" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2.25rem" padding-left="0.8125rem" padding-right="0.8125rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 opacity=(busy or card.picked == 0 ? 0.64 : 1) background-color="light-dark(#dc2626, #dc2626)"
             text (card.picked > 0 ? `Remove selected (${card.picked})` : "Remove selected") font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
+        FocusGuard(guardId="theme-remove-collection-guard-end", target=(length(card.removal) > 0 ? "theme-remove-pick-0" : "theme-remove-collection-cancel"))
 
 // The ball: a mode-tinted base with the accent glow and a soft action tint, blurred 3px at 1.1x.
 component ThemeOrbView
