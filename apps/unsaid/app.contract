@@ -1,0 +1,19 @@
+// A page that says nothing about its look (LLP 1115 D7): a heading, a
+// paragraph, a button and a field, with no colour, font or size written.
+// What shows is the platform's: the page and its text follow the device's
+// scheme, and the text its font scale. A fixture for a host's defaults,
+// built for Android's Canvas host first (LLP 1115.001 D3; `android/`).
+component Unsaid
+  state name = ""
+  state pressed = 0
+  action press
+    pressed = pressed + 1
+  action rename(value)
+    name = value
+  view
+    main testId="unsaid" display="flex" flex-direction="column" gap=12 padding=16
+      text "Nothing written" role="heading" aria-level=1 testId="heading"
+      text "This page writes no colour, font or size. Its background and its text follow the device's scheme, and the text follows the device's font scale." testId="paragraph"
+      button press=press testId="button"
+        text `Pressed ${pressed}`
+      input value=name input=rename placeholder="A field" aria-label="A field" testId="field"

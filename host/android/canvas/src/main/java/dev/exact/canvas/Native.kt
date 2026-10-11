@@ -6,13 +6,13 @@ import java.nio.ByteBuffer
 /** exact2 on the main thread: layout, shaping and the paint walk, recorded as Canvas ops. */
 object Native {
     init { System.loadLibrary("exactcanvas") }
-    /** Boot the app's host on the calling thread; whether it booted. Where a host already runs on this thread (the
-     * activity was made again in this process, LLP 1115.001 D15.1) nothing boots: that host is adopted at this size
-     * and scale, and paints everything again for the reader that calls, which has none of the last one's rows, faces
-     * or pictures. */
+    /** Boot the app's host on the calling thread, in a window of this size in pixels ([window] told its insets);
+     * whether it booted. Where a host already runs on this thread (the activity was made again in this process,
+     * LLP 1115.001 D15.1) nothing boots: that host is adopted in this window, and paints everything again for the
+     * reader that calls, which has none of the last one's rows, faces or pictures. */
     @JvmStatic external fun start(width: Int, height: Int, scale: Float, dir: String, live: Boolean): Boolean
-    /** [start] on a thread of its own, at the size the view is expected to have; [adopt] takes the host. Where a host
-     * already runs in this process nothing boots, and [adopt] adopts that one as [start] does. */
+    /** [start] on a thread of its own; [adopt] takes the host. Where a host already runs in this process nothing
+     * boots, and [adopt] adopts that one as [start] does. */
     @JvmStatic external fun startAsync(width: Int, height: Int, scale: Float, dir: String, live: Boolean)
     /** Wait for [startAsync]'s host and run it on this thread from now on; whether it booted. */
     @JvmStatic external fun adopt(): Boolean
@@ -22,8 +22,15 @@ object Native {
         night: Boolean, fontScale: Float, locale: String, rtl: Boolean, hour24: Boolean, noAnimations: Boolean,
         boldText: Boolean, highContrast: Boolean, touch: Boolean,
     )
-    /** The view is this size after all, at this many pixels a point (the display's density, which may change). */
-    @JvmStatic external fun resize(width: Int, height: Int, scale: Float)
+    /** The window (LLP 1115.001 D3.3): its size in pixels, the display's pixels a point, and the system's raw insets
+     * in pixels, sixteen numbers: top, right, bottom, left for the system bars, then the display cutout, the software
+     * keyboard and the system's gestures. Before [start], from any thread, so the host boots laid out in it, and on
+     * the host's thread again whenever any of it changes. The reader pads nothing: [chrome] says where the page is. */
+    @JvmStatic external fun window(width: Int, height: Int, scale: Float, insets: IntArray)
+    /** What the reader draws around the page, when that is not what this last returned (else null): where the page is
+     * in the window (x, y, width, height, in pixels), the colour behind it and in the edges it keeps out of (ARGB),
+     * and 1 when its scheme is dark (the bars' icons are then light). */
+    @JvmStatic external fun chrome(): IntArray?
     @JvmStatic external fun frame(): ByteBuffer?
     @JvmStatic external fun poll(): Boolean
     @JvmStatic external fun animating(): Boolean

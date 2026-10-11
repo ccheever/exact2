@@ -257,17 +257,55 @@ macro_rules! canvas_jni {
                 with(|h| h.configure(&device));
             }
 
-            /// The view's size in pixels and the display's pixels a point,
-            /// when either is not what `start` was given.
+            /// The window (LLP 1115.001 D3.3): its size in pixels, the
+            /// display's pixels a point, and sixteen raw insets in pixels,
+            /// four (top, right, bottom, left) each for the system bars,
+            /// the display cutout, the software keyboard and the system's
+            /// gestures. Before `start`, from any thread, so the host boots
+            /// laid out in it, and on the host's thread again whenever any
+            /// of it changes. The reader pads nothing itself: `chrome` says
+            /// where the page is.
             #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_resize(
-                _env: *mut JNIEnv,
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_window(
+                env: *mut JNIEnv,
                 _class: jclass,
                 width: jint,
                 height: jint,
                 scale: jfloat,
+                insets: jintArray,
             ) {
-                with(|h| h.resize((width as u32, height as u32), scale));
+                let mut told = $crate::canvas::Told {
+                    size: (width.max(0) as u32, height.max(0) as u32),
+                    scale,
+                    insets: [0; 16],
+                };
+                let n = ((**env).GetArrayLength.expect("jni"))(env, insets).clamp(0, 16);
+                ((**env).GetIntArrayRegion.expect("jni"))(
+                    env,
+                    insets,
+                    0,
+                    n,
+                    told.insets.as_mut_ptr(),
+                );
+                $crate::canvas::window(told);
+                with(|h| h.set_window(told));
+            }
+
+            /// What the reader draws around the page, when that is not what
+            /// this last returned (else null): where the page is in the
+            /// window (x, y, width, height, pixels), the colour behind it
+            /// (ARGB), and 1 when its scheme is dark.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_chrome(
+                env: *mut JNIEnv,
+                _class: jclass,
+            ) -> jintArray {
+                let Some(chrome) = with(|h| h.chrome()).flatten() else {
+                    return std::ptr::null_mut();
+                };
+                let arr = ((**env).NewIntArray.expect("jni"))(env, 6);
+                ((**env).SetIntArrayRegion.expect("jni"))(env, arr, 0, 6, chrome.as_ptr());
+                arr
             }
 
             /// A new op stream as a direct ByteBuffer over Rust memory (valid until

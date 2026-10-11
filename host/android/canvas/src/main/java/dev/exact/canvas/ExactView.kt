@@ -111,8 +111,12 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
     private var taken = false
     /** The last take was a move: no new drawing, only the groups' translations. */
     private var moved = false
-    /** The size exact2 is booting at on its own thread ([Native.startAsync] or [Owner.boot]), or null: it boots here. */
-    var booting: Pair<Int, Int>? = null
+    /** exact2 is booting on a thread of its own ([Native.startAsync] or [Owner.boot]); false: it boots here. */
+    var booting = false
+    /** The window's size in pixels, which a host that boots here boots in ([Native.start]). */
+    var window = 0 to 0
+    /** What the host says to draw around the page ([Native.chrome]), when exact2 runs here: told as it changes. */
+    var chrome: (IntArray) -> Unit = {}
     /** exact2's own thread, when it has one ([Owner]); null: exact2 runs here, on the main thread. */
     internal var owner: Owner? = null
     /** Scrolls sent to the owner that no published stream includes yet, and the feed's group with its translation in
@@ -139,30 +143,20 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
     /** The last stream applied changed only nodes the view's drawing references: no need to draw the view again. */
     private var quiet = false
 
-    /** The pixels a point the host paints at: the display's density when it was last told ([densityChanged]). */
-    private var density = resources.displayMetrics.density
-
+    /** The view's size is never told to exact2 (LLP 1115.001 D3.3): the activity tells it the window and its insets,
+     * the presenter places the page in it, and the view is laid out there ([ExactActivity.chrome]). */
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         main.width = w; main.height = h
-        val o = owner
-        if (o != null) {
-            // The owner booted at the size expected; the view's own, if that was not it.
-            if (w > 0 && h > 0 && booting != (w to h)) { booting = w to h; o.resize(w, h, density) }
-            return
-        }
-        if (w == 0 || h == 0) return
-        if (started) { Native.resize(w, h, density); pump(); return }
-        val expected = booting
-        if (expected != null) {
+        if (owner != null || started || w == 0 || h == 0) return
+        if (booting) {
             // exact2 booted (and painted its first frame) while the activity was set up.
             android.os.Trace.beginSection("exact adopt")
             started = Native.adopt()
             android.os.Trace.endSection()
-            if (started && (expected.first != w || expected.second != h)) Native.resize(w, h, density)
         } else {
             val dir = context.createDeviceProtectedStorageContext().filesDir.absolutePath
             try { Native.hardwarePictures(hwbuf) } catch (e: UnsatisfiedLinkError) { }
-            started = Native.start(w, h, density, dir, live)
+            started = Native.start(window.first, window.second, resources.displayMetrics.density, dir, live)
         }
         // Executor replies and decoded images wake the main looper; poll drains them.
         val queue = Looper.getMainLooper().queue
@@ -181,17 +175,6 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
     /** The host's wake descriptors this view watches on the main looper (owner=0), until it leaves its window: a view
      * made after it (the activity made again) watches its own, and this one must not take that one's streams. */
     private val wakes = ArrayList<ParcelFileDescriptor>()
-
-    /** The display's density changed while the activity stayed (LLP 1115.001 D15.1): the host paints at it from the
-     * next frame, laid out for as many points as the same pixels now are. */
-    fun densityChanged() {
-        val now = resources.displayMetrics.density
-        if (now == density) return
-        density = now
-        if (!started || width == 0 || height == 0) return
-        val o = owner
-        if (o != null) o.resize(width, height, now) else { Native.resize(width, height, now); pump() }
-    }
 
     /** Whether the activity is started. Stopped, the view asks for no frame (LLP 1115.001 D15.2): no turn at a vsync,
      * no timer, no layer sampled; the first frame after it starts again shows what changed meanwhile. */
@@ -688,6 +671,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         val fresh = Native.frame()
         android.os.Trace.endSection()
         fresh ?: return false
+        Native.chrome()?.let(chrome)
         val stream = fresh.order(ByteOrder.LITTLE_ENDIAN).asIntBuffer()
         if (stream.limit() > 0 && stream.get(0) == 22) {
             applyMove(stream)

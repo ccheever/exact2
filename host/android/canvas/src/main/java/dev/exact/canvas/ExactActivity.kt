@@ -33,8 +33,6 @@ open class ExactActivity : Activity() {
     /** The app has text fields: keys and the software keyboard reach it ([Keys]), and system Back presses its
      * `id="back"` control (the app's library exports Native.key, editing and back). */
     protected open val input = false
-    /** The view stops above the navigation bar (the content area), not only below the status bar. */
-    protected open val insetBottom = false
     /**
      * The seam a driver attaches at ([Drive]); the default attaches none. Called once, in [onCreate], when the host
      * has begun to boot and before the view is made: a driver sets the window up and reads its own launch extras
@@ -64,6 +62,7 @@ open class ExactActivity : Activity() {
         // platform's fade, to compare): the first frame is what shows.
         if (intent.getStringExtra("splashfade") != "1") splashScreen.setOnExitAnimationListener { it.remove() }
         if (!again) environment()
+        edgeToEdge()
         // owner=0: exact2 on the main thread (booting on its own thread first unless asyncboot=0). Otherwise exact2
         // lives on a thread of its own from boot on ([Owner]), started here so it loads exact2's library while the
         // assets are checked.
@@ -80,30 +79,32 @@ open class ExactActivity : Activity() {
         installAssets(File(storage, "app"))
         // The device's settings, told before the host boots: its first frame is laid out and painted with them.
         val device = Device.read(this).also { told = it }
-        // asyncboot=0: boot when the view is laid out, on the main thread, to compare. Otherwise now, at the size the
-        // view will have (the window less the bars this activity pads by), on a thread that also loads the library:
-        // exact2 loads, boots and paints its first frame while Android sets the activity up, and the view takes it
-        // when it is laid out.
-        var booting: Pair<Int, Int>? = null
+        // The window as it is now, with the system's raw insets (D3.3): told before the host boots too, so the page is
+        // laid out where it will be shown. The view's own size is never told: the presenter places the page.
+        val metrics = windowManager.currentWindowMetrics
+        val size = metrics.bounds.width() to metrics.bounds.height()
+        val density = resources.displayMetrics.density
+        val edges = edges(metrics.windowInsets)
+        toldWindow = Triple(size, density, edges.toList())
+        // asyncboot=0: boot when the view is laid out, on the main thread, to compare. Otherwise now, on a thread that
+        // also loads the library: exact2 loads, boots and paints its first frame while Android sets the activity up,
+        // and the view takes it when it is laid out.
+        var booting = false
+        val live = intent.getStringExtra("live").let { it == "1" || it == "true" }
         if (owner != null) {
-            val wm = windowManager.currentWindowMetrics
-            val bars = wm.windowInsets.getInsets(android.view.WindowInsets.Type.systemBars())
-            val size = wm.bounds.width() to (wm.bounds.height() - bars.top - if (insetBottom) bars.bottom else 0)
-            val live = intent.getStringExtra("live").let { it == "1" || it == "true" }
+            owner.chrome = { c -> chrome(c) }
             owner.configure(device)
-            owner.boot(size.first, size.second, resources.displayMetrics.density, storage.absolutePath, live) { ok -> view.ownerStarted(ok) }
-            booting = size
+            owner.window(size.first, size.second, density, edges)
+            owner.boot(size.first, size.second, density, storage.absolutePath, live) { ok -> view.ownerStarted(ok) }
+            booting = true
         } else if (intent.getStringExtra("asyncboot") != "0") {
-            val wm = windowManager.currentWindowMetrics
-            val bars = wm.windowInsets.getInsets(android.view.WindowInsets.Type.systemBars())
-            val size = wm.bounds.width() to (wm.bounds.height() - bars.top - if (insetBottom) bars.bottom else 0)
-            val live = intent.getStringExtra("live").let { it == "1" || it == "true" }
-            val density = resources.displayMetrics.density
             try { Native.hardwarePictures(intent.getStringExtra("hwbuf") != "0") } catch (e: UnsatisfiedLinkError) { }
-            Thread({ device.tell(); Native.startAsync(size.first, size.second, density, storage.absolutePath, live) }, "exact-load")
-                .apply { priority = Thread.MAX_PRIORITY }.start()
-            booting = size
-        } else device.tell()
+            Thread({
+                device.tell(); Native.window(size.first, size.second, density, edges)
+                Native.startAsync(size.first, size.second, density, storage.absolutePath, live)
+            }, "exact-load").apply { priority = Thread.MAX_PRIORITY }.start()
+            booting = true
+        } else { device.tell(); Native.window(size.first, size.second, density, edges) }
         driver = drive { dy -> view.scrollBy(dy) }
         view = ExactView(this, intent.getStringExtra("live").let { it == "1" || it == "true" }) {
             run {
@@ -114,6 +115,8 @@ open class ExactActivity : Activity() {
             }
         }
         view.booting = booting
+        view.window = size
+        view.chrome = { c -> chrome(c) }
         view.owner = owner
         owner?.editingChanged = { view.keys?.focusChanged() }
         Exact.answered = { view.onPublished() }
@@ -123,7 +126,10 @@ open class ExactActivity : Activity() {
                 if (Exact.back()) view.invalidate() else finish()
             }
         }
-        val root = FrameLayout(this).apply { setBackgroundColor(Color.WHITE) }
+        // No background of its own: the window's shows behind the page, the launch theme's surface until the host says
+        // the page's ([chrome]).
+        val root = FrameLayout(this)
+        this.root = root
         val elements = Natives(this, File(storage, "app"), modules, video)
         natives = elements
         view.natives = elements
@@ -138,11 +144,81 @@ open class ExactActivity : Activity() {
             })
         } else root.addView(ticker, FrameLayout.LayoutParams(1, 1))
         view.ticker = ticker
-        root.setOnApplyWindowInsetsListener { v, insets ->
-            val bars = insets.getInsets(android.view.WindowInsets.Type.systemBars())
-            v.setPadding(0, bars.top, 0, if (insetBottom) bars.bottom else 0); insets
+        // The raw insets go to the host whenever they change, and the window's size when it does; nothing is padded
+        // here (D3.3).
+        root.setOnApplyWindowInsetsListener { _, insets -> window(insets); insets }
+        root.addOnLayoutChangeListener { _, l, t, r, b, ol, ot, or, ob ->
+            if (r - l != or - ol || b - t != ob - ot) root.rootWindowInsets?.let { window(it) }
         }
         setContentView(root)
+    }
+
+    private lateinit var root: FrameLayout
+
+    /** The app is edge to edge (LLP 1115.001 D3.4): the window reaches under transparent system bars and into the
+     * display's cutout, and the software keyboard is an inset the host is told, not a pan of the window. Android 15
+     * does most of this to every app that targets it; the calls make it so from Android 12 on. */
+    @Suppress("DEPRECATION")
+    private fun edgeToEdge() {
+        window.setDecorFitsSystemWindows(false)
+        window.statusBarColor = Color.TRANSPARENT
+        window.navigationBarColor = Color.TRANSPARENT
+        window.isStatusBarContrastEnforced = false
+        window.isNavigationBarContrastEnforced = false
+        window.attributes = window.attributes.apply {
+            layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+        }
+        window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+    }
+
+    /** The system's raw insets as the host takes them ([Native.window]): top, right, bottom, left for the system
+     * bars, the display cutout, the software keyboard and the system's gestures, in pixels. */
+    private fun edges(insets: android.view.WindowInsets): IntArray {
+        val out = IntArray(16)
+        val kinds = intArrayOf(
+            android.view.WindowInsets.Type.systemBars(), android.view.WindowInsets.Type.displayCutout(),
+            android.view.WindowInsets.Type.ime(), android.view.WindowInsets.Type.systemGestures(),
+        )
+        for ((k, kind) in kinds.withIndex()) {
+            val i = insets.getInsets(kind)
+            out[k * 4] = i.top; out[k * 4 + 1] = i.right; out[k * 4 + 2] = i.bottom; out[k * 4 + 3] = i.left
+        }
+        return out
+    }
+
+    /** The window's size, density and insets as the host was last told them. */
+    private var toldWindow: Triple<Pair<Int, Int>, Float, List<Int>>? = null
+
+    /** Tell the host the window, whole, when its size, the display's density or any inset is not what it was last
+     * told (LLP 1115.001 D3.3). The host answers with where the page is ([chrome]). */
+    private fun window(insets: android.view.WindowInsets) {
+        val size = if (root.width > 0 && root.height > 0) root.width to root.height
+            else windowManager.currentWindowMetrics.bounds.let { it.width() to it.height() }
+        val density = resources.displayMetrics.density
+        val edges = edges(insets)
+        val now = Triple(size, density, edges.toList())
+        if (now == toldWindow) return
+        toldWindow = now
+        val owner = view.owner
+        if (owner != null) owner.window(size.first, size.second, density, edges)
+        else { Native.window(size.first, size.second, density, edges); view.invalidate() }
+    }
+
+    /** What the host says to draw around the page ([Native.chrome]): the page's place in the window (x, y, width and
+     * height in pixels), where the view and the hosted views under it are put; the colour behind the page and in the
+     * edges it keeps out of, which is the window's background; and whether its scheme is dark, which the bars' icons
+     * follow (light icons over a dark page). */
+    private fun chrome(c: IntArray) {
+        for (child in listOf<View>(view, natives ?: return)) {
+            child.layoutParams = FrameLayout.LayoutParams(c[2], c[3]).apply {
+                gravity = android.view.Gravity.TOP or android.view.Gravity.LEFT
+                leftMargin = c[0]; topMargin = c[1]
+            }
+        }
+        window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(c[4]))
+        val light = android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
+            android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
+        window.insetsController?.setSystemBarsAppearance(if (c[5] != 0) 0 else light, light)
     }
 
     /** The device's settings as the host was last told them. */
@@ -166,11 +242,12 @@ open class ExactActivity : Activity() {
 
     /** A configuration changed in place (LLP 1115.001 D15.1): the manifest declares the size, night mode, font scale,
      * bold text, locale, density and keyboard changes, so none of them makes the activity again. The settings go to
-     * the host whole ([configure]); a size arrives through the view's own [ExactView.onSizeChanged]. */
+     * the host whole ([configure]), and the window with its density ([window]); a new size or new insets arrive
+     * through the root's own listeners as well. */
     override fun onConfigurationChanged(config: android.content.res.Configuration) {
         super.onConfigurationChanged(config)
         configure()
-        view.densityChanged()
+        root.rootWindowInsets?.let { window(it) }
     }
 
     /** The host does its frame work only while the activity is started (LLP 1115.001 D15.2). */
@@ -201,7 +278,7 @@ open class ExactActivity : Activity() {
         natives = null
         if (Exact.reader?.get() !== this) return
         Exact.reader = null
-        Exact.owner?.let { it.published = {}; it.editingChanged = {} }
+        Exact.owner?.let { it.published = {}; it.editingChanged = {}; it.chrome = {} }
         Exact.answered = {}
     }
 

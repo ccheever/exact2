@@ -1,0 +1,26 @@
+# The Unsaid fixture on Android's Canvas host (LLP 1076 §3.3), as
+# apps/caltrain/android is Caltrain: one library with the runner, the kernel,
+# the baked plan (written by build.rs, never committed) and the host's JNI,
+# which the reader (host/android) loads as libexactcanvas.so. It asks nothing
+# of a data source, so it borrows Hello's, which answers nothing. Off Android
+# the library is empty.
+[package]
+name = "unsaid-android"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The Unsaid fixture on Android's Canvas host: the library the reader loads"
+publish = false
+build = "build.rs"
+
+[lib]
+crate-type = ["cdylib"]
+
+[target.'cfg(target_os = "android")'.dependencies]
+hello-data = { path = "../../hello/data" }
+exact-linux = { path = "../../../host/linux" }
+
+[build-dependencies]
+hello-data = { path = "../../hello/data" }
+contract = { path = "../../../contract/cli" }
+exact-bake = { path = "../../../bake" }

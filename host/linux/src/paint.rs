@@ -750,6 +750,7 @@ impl Painter {
     ) -> Result<Frame, String> {
         let started = std::time::Instant::now();
         self.viewport = viewport;
+        self.backend.page(page_color(self.dark));
         let partial = if let Some(previous) = self
             .damage
             .pixels
@@ -1380,6 +1381,17 @@ pub fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
         }
     }
     (w, h)
+}
+
+/// The page's own colour under a scheme: the `Canvas` role, the platform's
+/// surface where a host reported one and the role's pair elsewhere. What an
+/// unset background shows (LLP 1115 D2), never white under a dark scheme.
+pub fn page_color(dark: bool) -> [u8; 4] {
+    static CANVAS: std::sync::LazyLock<Option<u8>> =
+        std::sync::LazyLock::new(|| exact_kernel::style::roles::role("Canvas"));
+    CANVAS.map_or([255; 4], |id| {
+        rgba(exact_kernel::ColorValue::Role(id).resolve(dark))
+    })
 }
 
 /// A kernel color's channels.

@@ -164,8 +164,15 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
         handler.post { device.tell(); if (watching) produce() }
     }
 
-    /** The view is this size after all, or the display's density changed. */
-    fun resize(width: Int, height: Int, scale: Float) = call { Native.resize(width, height, scale) }
+    /** The window ([Native.window]): told before [boot] so the host is laid out in it from its first frame, and
+     * whenever its size, the display's density or an inset changes, when the host lays the page out again. */
+    fun window(width: Int, height: Int, scale: Float, insets: IntArray) {
+        handler.post { Native.window(width, height, scale, insets); if (watching) produce() }
+    }
+
+    /** Called on the main thread with what the host says to draw around the page ([Native.chrome]) when that
+     * changed: asked after each stream, so it is drawn with the frame it belongs to. */
+    @Volatile var chrome: (IntArray) -> Unit = {}
 
     /** Whether the activity is started. While it is stopped the host does no frame work (LLP 1115.001 D15.2): no
      * turn at a vsync, no timer, no stream. Replies are still drained as they arrive ([Native.poll]), so what they
@@ -306,6 +313,7 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
             queue.add(Pub(ints, ints.limit() > 0 && ints.get(0) == 22, seq, Native.feed()))
             if (!notifying.getAndSet(true)) main.post { notifying.set(false); published() }
         }
+        Native.chrome()?.let { c -> main.post { chrome(c) } }
         val now = Native.editing()
         if (now != editing) { editing = now; main.post { editingChanged() } }
         schedule()

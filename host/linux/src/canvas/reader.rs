@@ -1,18 +1,16 @@
-//! What the reader says of itself after boot: its view's size, the
-//! display's density, and that it is a new reader of a host that runs.
+//! A reader that takes a host that runs (its activity was made again), and
+//! the size of one that tells no window.
 //!
 //! @ref LLP 1115.001 D15.1 (configuration changes are handled in place; an
 //! activity made again adopts the running host)
 
-use super::{layer, pending, CanvasHost, Recorder};
+use super::{device, layer, pending, CanvasHost, Recorder};
 use exact_runner::DataSource;
 
 impl<D: DataSource + Default> CanvasHost<D> {
-    /// The view is `size` pixels at `scale` pixels a point: not the size the
-    /// reader booted at, a rotation or a resize, or the display's density
-    /// changed (the same pixels are then another number of points, and
-    /// every kept row is recorded again at the new scale).
-    pub fn resize(&mut self, size: (u32, u32), scale: f32) {
+    /// The page fills `size` pixels at `scale` pixels a point: a reader
+    /// that told no window ([`CanvasHost::set_window`]) and so no insets.
+    fn resize(&mut self, size: (u32, u32), scale: f32) {
         if !scale.is_finite() || scale <= 0.0 {
             return;
         }
@@ -39,7 +37,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
     /// destroyed in the background and shown again), and its view has none
     /// of what the last one was sent. Nothing boots. The recorder starts
     /// from nothing, so the next stream defines every face, picture, row
-    /// and layer again, at the size and scale the new view has; the app's
+    /// and layer again, in the window the new reader told; the app's
     /// state, its routes and its scroll offsets are as they were.
     pub fn adopt(&mut self, size: (u32, u32), scale: f32) {
         self.p.reader_replaced(Box::new(Recorder::new()));
@@ -57,7 +55,11 @@ impl<D: DataSource + Default> CanvasHost<D> {
         self.quiet = None;
         self.paint_by = None;
         self.travel = crate::travel::Travel::default();
-        self.resize(size, scale);
+        self.forget_chrome();
+        match device::windowed(size, scale) {
+            Some(told) => self.set_window(told),
+            None => self.resize(size, scale),
+        }
         self.force = true;
         eprintln!(
             "exact: canvas adopted by a new reader, {}x{} px, scale {scale}",
