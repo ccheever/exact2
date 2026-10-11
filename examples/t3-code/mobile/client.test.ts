@@ -199,7 +199,7 @@ describe('pinned shared sources', () => {
       return { name, local, pin };
     });
     const objects = copies.map(copy => `${copy.pin}:examples/t3-code/${copy.name}`);
-    objects.push('758e03d8c48f086698e9cbf2da838da7ccb16ad2:examples/t3-code/composer-editor.ts');
+    objects.push('db560228e1cb2ad00c9cbff76ed8d22a05438249:examples/t3-code/composer-editor.ts');
     const result = Bun.spawnSync(['git', 'cat-file', '--batch'], {
       cwd: directory, stdin: new TextEncoder().encode(objects.join('\n') + '\n'),
     });
@@ -266,7 +266,7 @@ describe('pinned shared sources', () => {
         const source = bodies[copies.length]!;
         const pick = source.slice(source.indexOf('const contextPickStamp ='), source.indexOf('const CLOSED:'))
           .replace('client.snapshotOwner, client.draftKey, client.draft]);', 'client.snapshotOwner, client.draftKey, mobileNewTaskDraftCurrent(client)?.createdAt, client.draft]);');
-        expected = "// Mobile additive context selection export from shared commit 758e03d8c48f086698e9cbf2da838da7ccb16ad2.\nimport { mobileNewTaskDraftCurrent } from '../mobile-new-task-drafts';\n" + expected
+        expected = "// Mobile additive context selection export from shared commit db560228e1cb2ad00c9cbff76ed8d22a05438249.\nimport { mobileNewTaskDraftCurrent } from '../mobile-new-task-drafts';\n" + expected
           .replace('  trigger: EditorTrigger | null; rows: MenuRow[]; owner: string;', '  trigger: EditorTrigger | null; rows: MenuRow[]; owner: string;\n  pickStamp?: string;')
           .replace('const CLOSED:', pick + 'const CLOSED:')
           .replace("async function editorView(client: T3Client, native: Native | null | undefined, now: number): Promise<Omit<ComposerEditorView, 'drawer'>> {\n  const entry = cache(client);", "async function editorView(client: T3Client, native: Native | null | undefined, now: number): Promise<Omit<ComposerEditorView, 'drawer'>> {\n  const pickStamp = contextPickStamp(client), entry = cache(client);")

@@ -1,6 +1,6 @@
 // GAP 001: bake cannot capture parent imports. Remove this copy when ancestor mounts work.
 // Adapted body from examples/t3-code/composer-editor.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
-// Mobile additive context selection export from shared commit 758e03d8c48f086698e9cbf2da838da7ccb16ad2.
+// Mobile additive context selection export from shared commit db560228e1cb2ad00c9cbff76ed8d22a05438249.
 import { mobileNewTaskDraftCurrent } from '../mobile-new-task-drafts';
 // The prompt editor's projection and commands. The native editor
 // (T3ComposerEditor.swift) reports the trigger at the caret; this builds the
