@@ -1,0 +1,61 @@
+#!/bin/zsh
+# dialog-trap-and-progress-value: one agent drive of the clone's dialogs, the same ops before and after. Each read-out is
+# Tab past a dialog's last stop or Shift+Tab before its first: `type <stop> key Tab` (the agent focuses <stop>, then
+# the key goes to it), or a key sent to a box that takes no focus (the focus stays where it is). After each key:
+# state (focus.logical), tree (ids), layout (frames) and a window screenshot. The lane's fixture browser home only.
+# Usage: drive.sh <before|after> <worktree> [lane suffix]. Output: drive-<which>.jsonl in this folder.
+D=${0:A:h}; WHICH=$1; WT=$2; SUF=${3:-}
+LANE=dialog-trap-and-progress-value$SUF; [ "$WHICH" = before ] && LANE=dialog-trap-and-progress-value-before$SUF
+S=$D/../shots; mkdir -p $S
+export T3_BROWSER_IMPORT_HOME=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit/lanes/import-wizard-initial-focus/browser-home
+r() { print -rl -- "clock +600 real" "state" "tree" "layout" "screenshot $S/$WHICH-$1.png window"; }
+ops=(
+  "clock +20000 real" "clock +5000 real"
+  # G. The command palette (CommandDialog): Tab and Shift+Tab from its field.
+  "type t3-code key Meta+K" "clock +1500 real" "state" "tree"
+  "type palette-input key Tab" ${(f)"$(r palette-tab)"}
+  "type palette-input key Shift+Tab" ${(f)"$(r palette-shift-tab)"}
+  "type palette-input key Escape" "clock +1000 real"
+  "tap connection-settings" "clock +1500 real" "tap settings-integrations" "clock +2500 real"
+  # A1. The import wizard's quit step (Brave running): Shift+Tab from Cancel (realinput-1010h), Tab from the X.
+  "tap browser-profiles-add" "clock +1500 real" "tap browser-import-source-brave" "clock +2500 real" "state" "tree"
+  "type browser-import-cancel key Shift+Tab" ${(f)"$(r quit-shift-tab-cancel)"}
+  "type browser-import-x key Tab" ${(f)"$(r quit-tab-x)"}
+  "tap browser-import-cancel" "clock +1500 real"
+  # A2. Configure (Chrome): the first tile holds the focus as it opens; Shift+Tab from it, Tab from the X.
+  "tap browser-profiles-add" "clock +1500 real" "tap browser-import-source-chrome" "clock +2500 real" "state" "tree"
+  "type browser-import-overlay key Shift+Tab" ${(f)"$(r configure-shift-tab-first)"}
+  "type browser-import-x key Tab" ${(f)"$(r configure-tab-x)"}
+  "tap browser-import-cancel" "clock +1500 real"
+  # A3. Remove “Firefox”? (AlertDialog): import the fixture's Firefox first.
+  "tap browser-profiles-add" "clock +1500 real" "tap browser-import-source-firefox" "clock +2500 real"
+  "tap browser-import-run" "clock +5000 real" "tap browser-import-done" "clock +2000 real"
+  "tap \"Firefox options\"" "clock +1500 real" "tap \"Remove profile and data\"" "clock +2000 real" "state" "tree"
+  "type browser-profile-remove-cancel key Shift+Tab" ${(f)"$(r remove-shift-tab-cancel)"}
+  "type browser-profile-remove-confirm key Tab" ${(f)"$(r remove-tab-confirm)"}
+  "tap browser-profile-remove-cancel" "clock +1500 real"
+  # A4. Add device host (DeviceHostEditor).
+  "tap device-hosts-add" "clock +1500 real" "state" "tree"
+  "type device-host-name key Shift+Tab" ${(f)"$(r host-shift-tab-name)"}
+  "type device-host-close key Tab" ${(f)"$(r host-tab-x)"}
+  "tap device-host-cancel" "clock +1500 real"
+  # B1. Add provider (AddProviderInstanceDialog): Tab from the X.
+  "tap settings-providers" "clock +2500 real"
+  "tap add-provider" "clock +1500 real" "state" "tree"
+  "type close-add-provider-x key Tab" ${(f)"$(r provider-tab-x)"}
+  "tap close-add-provider-x" "clock +1500 real"
+  # B2. Add a CLIProxyAPI hub (AddUsageLimitSourceDialog): Save is disabled while the fields are empty.
+  "tap add-usage-hub" "clock +1500 real" "state" "tree"
+  "type usage-hub-url key Shift+Tab" ${(f)"$(r hub-shift-tab-url)"}
+  "type usage-hub-cancel key Tab" ${(f)"$(r hub-tab-cancel)"}
+  "tap usage-hub-cancel" "clock +1500 real"
+  # D1. Add a theme (ThemeImportDialog).
+  "tap settings-appearance" "clock +2000 real"
+  "tap add-theme" "clock +2000 real" "state" "tree"
+  "type add-theme-query key Shift+Tab" ${(f)"$(r theme-shift-tab-query)"}
+  "type add-theme-close key Tab" ${(f)"$(r theme-tab-x)"}
+  "tap add-theme-cancel" "clock +1500 real"
+)
+cd $D
+EXACT_ROOT=$WT /Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-audit/clone-drive.sh $LANE 16140 "${ops[@]}" > drive-$WHICH.jsonl 2> drive-$WHICH.err
+echo "exit $?"
