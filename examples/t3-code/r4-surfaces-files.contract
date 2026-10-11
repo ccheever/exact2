@@ -349,10 +349,13 @@ component R4CodeRow
       local((plus ? "surface-files-comment-gutter" : e.shiftKey ? "surface-files-comment-drag-shift" : "surface-files-comment-drag"), path, `${line.line}`)
     else if e.buttons == 1
       local("surface-files-comment-press", path, "")
+  // The release lets go of the focus the press gave the gutter cell (a pressable node takes it on macOS), so the draft
+  // that opens takes it (DiffDraftCard's autofocus), as FilePreviewPanel's beginComment blurs and focuses the draft.
   action move(e: PointerEvent)
     // A held pointer's moves carry its button; a hover after an up this node never heard ends the drag.
     if dragging and e.buttons == 0
       dragging = false
+      blur()
       local("surface-files-comment-end", path, "")
     else if dragging
       let hit = match elementFromPoint(e.clientX, e.clientY) { case some(id) => id, case none => "" }
@@ -362,9 +365,11 @@ component R4CodeRow
   action up(e: PointerEvent)
     if dragging
       dragging = false
+      blur()
       local("surface-files-comment-end", path, "")
   action comment
     if not open
+      blur()
       begin(line.line)
   view
     row id=`fl:${line.line}:${path}` width="100%" align-items="flex-start" hover=hover position="relative"

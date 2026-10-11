@@ -85,6 +85,14 @@ describe('FG-2: a drag over the numbers selects lines, and the draft opens at th
     expect(parseFileLineId('dl:additions:12:src/a.ts')).toBeNull();
     expect(parseFileLineId('fl:0:a.txt')).toBeNull();
   });
+  test('the release and a press that opens the draft let go of the focus the press gave the gutter, so the draft takes it', () => {
+    // A pressable node takes the focus on macOS, and autofocus waits while a node holds it (the after drive's first run:
+    // the draft opened without the focus); FilePreviewPanel's beginComment blurs and the draft's textarea autofocuses.
+    expect(code).toContain('  action up(e: PointerEvent)\n    if dragging\n      dragging = false\n      blur()\n      local("surface-files-comment-end", path, "")');
+    expect(code).toContain('    if dragging and e.buttons == 0\n      dragging = false\n      blur()\n      local("surface-files-comment-end", path, "")');
+    expect(code).toContain('  action comment\n    if not open\n      blur()\n      begin(line.line)');
+    expect(source('diff-comments.contract')).toContain('textarea id="diff-comment-draft-text" value=text input=edit key=keys focus=focusIn blur=focusOut autofocus=true');
+  });
   test('a click on a number selects its line and opens the draft under it at the release', async () => {
     const h = harness();
     await h.op('drag', '3');
