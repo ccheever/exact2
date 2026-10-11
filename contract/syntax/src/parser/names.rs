@@ -165,6 +165,24 @@ impl Parser {
         Ok(())
     }
 
+    /// `persist` after a state's initializer (LLP 1116 D5): where it is
+    /// written. A derive has nothing of its own to keep.
+    pub(super) fn persist_word(&mut self, w: &str, name: &str) -> R<Option<Span>> {
+        if !self.at_ident("persist") {
+            return Ok(None);
+        }
+        if w != "state" {
+            return self.err(
+                "syntax-persist-derive",
+                format!(
+                    "a derive is recomputed from what it reads, so `derive {name}` has nothing \
+                     to keep: write `persist` on the `state` it reads"
+                ),
+            );
+        }
+        Ok(Some(self.next().span))
+    }
+
     /// A name a binder introduces, or one that refers to a binder's name: any
     /// word but the sixteen reserved ones.
     pub(super) fn ident(&mut self) -> R<(String, Span)> {

@@ -152,6 +152,19 @@ running as the user can read `~/Library`). Flattening them would make the
 token permanently worse than native on macOS; DEFERRED's "deliberately
 worse" list is explicit, and this would not belong on it.
 
+*As built 2026-10-10 (LLP 1116 D5):* the `plain` tier's consumer is
+`state … persist`. The runner keeps each persisted state under the
+runner-owned name `exact.state.<name>` (beside `exact.kept.`, never
+granted) as JSON text, takes it at boot where it decodes to the slot's type,
+and keeps the slot's value after every commit that stands (`Store::keep`,
+no revision: no store-reading resource re-answers). The web keeps it in
+`localStorage` under that name (the wasm host's `store` op says
+`"tier":"plain"`; the JS target's `persist.js`), Apple in the app's
+`UserDefaults` domain through CoreFoundation's preferences
+(`host/apple/src/defaults.rs`; agent mode and tests in the kv store's
+`exact.state` scope), Linux in the kv file store's `exact.state` scope
+under the app's data directory.
+
 The web's single backend for both is the declared deviation: the web has no
 secret store. A word on the exposure: `localStorage` tokens are dangerous on
 the web because of third-party script; this page is `glue.js` and a wasm,

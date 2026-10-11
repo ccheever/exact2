@@ -24,7 +24,7 @@
 //! under `target/difftest/expansion/` with its script shrunk.
 
 use crate::script::Case;
-use crate::{compile, leanrun, observe, oracle, seed_of, work_dir};
+use crate::{compile, leanrun, observe, oracle, work_dir};
 use std::path::Path;
 
 /// How one case ended.
@@ -82,7 +82,7 @@ fn prepare(case: &Case, i: usize) -> Result<Prepared, Verdict> {
     };
     let flat = flat.map_err(|e| Verdict::Emit(e.to_string()))?;
     let comp = comp.map_err(|e| Verdict::Emit(e.to_string()))?;
-    let oracle = oracle::Oracle::new(&plan, seed_of(&case.name));
+    let oracle = oracle::Oracle::for_case(&plan, case);
     let (_, data) = observe::run(plan, oracle, &case.events);
     Ok(Prepared {
         flat,

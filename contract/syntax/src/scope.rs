@@ -270,6 +270,7 @@ impl Rewriter<'_> {
             provides,
             slot: _,
             states,
+            persist: _,
             derives,
             resources,
             mutations,

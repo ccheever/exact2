@@ -259,11 +259,16 @@ impl Emitter<'_> {
                 Some(contract_syntax::Owner::Instance) => (".none".into(), true),
                 Some(contract_syntax::Owner::Root) | None => (".none".into(), false),
             };
+            // A persisted root state (LLP 1116 D5) says so; the rest keep
+            // the default, so an embedding without one reads as before.
+            let persist = matches!(owners.get(i), Some(contract_syntax::Owner::Root) | None)
+                && root.persists(&s.name);
             states.push(format!(
-                "{{ name := {}, ty := {}, init := {}, owner := {owner}, late := {late} }}",
+                "{{ name := {}, ty := {}, init := {}, owner := {owner}, late := {late}{} }}",
                 string(&s.name),
                 ty(&ct.slots[i]),
-                self.expr(&s.expr)?
+                self.expr(&s.expr)?,
+                if persist { ", persist := true" } else { "" }
             ));
         }
         if root.states.len() <= locale_at {

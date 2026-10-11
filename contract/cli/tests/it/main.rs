@@ -74,6 +74,7 @@ mod overlay;
 mod packages;
 mod pan;
 mod pan_release;
+mod persist;
 mod picker;
 mod placeholder;
 mod pointer;

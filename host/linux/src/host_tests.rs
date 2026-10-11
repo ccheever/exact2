@@ -40,7 +40,19 @@ fn named_agent_storage_keeps_a_secret_across_a_relaunch() {
     };
     assert!(persist_store_writes(app, &[write("platformer.best", Some("22050"))]).is_empty());
     assert!(persist_store_writes(app, &[write("exact.kept.score", Some("9"))]).is_empty());
+    // A persisted state (LLP 1116 D5) is a preference in its own kv scope.
+    let tip = write("exact.state.tipPercent", Some("22"));
+    assert!(persist_store_writes(app, &[tip]).is_empty());
     let again = store_snapshot(app, false);
+    assert!(
+        again.contains(&("exact.state.tipPercent".into(), "22".into())),
+        "{again:?}"
+    );
+    let secrets = crate::picker::secret_root(app).unwrap().join("secrets");
+    assert!(
+        !secrets.join("exact.state.tipPercent").exists(),
+        "never a secret"
+    );
     assert!(
         again.contains(&("platformer.best".into(), "22050".into())),
         "{again:?}"

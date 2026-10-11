@@ -655,7 +655,7 @@ every instance initialized as it first renders. -/
 def cboot (p : CProgram) (o : Oracle) : CConfig × Outcome :=
   let rp := rootProgram p
   let empty := CConfig.empty
-  match initSlots rp with
+  match initSlots rp o with
   | .error e => (empty, .refused e)
   | .ok slots =>
     match startTimers rp slots with

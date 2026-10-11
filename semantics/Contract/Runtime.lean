@@ -182,6 +182,10 @@ structure Oracle where
   /-- Host facts, by resource: what a resource whose source the host
   answers itself (`exactViewport`, `exactPage`, …) holds. -/
   facts : List (String × Value) := []
+  /-- The device's store at launch (LLP 1116 D5): each persisted state's
+  kept value, by the state's name, as the host read it before boot — the
+  device's, like every answer here. A fresh install's is empty. -/
+  stored : List (String × Value) := []
   deriving Inhabited
 
 def Oracle.ask (o : Oracle) (src : String) (args : List Value) (resource : String := "") :
@@ -843,10 +847,19 @@ def nextCommit (p : Program) (o : Oracle) (c : Config) (m : String) : Config × 
           | .error e => ({ c₀ with slots, settled := st, poisoned := true, queued := [], stalled := [],
                                     nexts := [] }, .poisoned e)
 
+/-- A root slot's boot value (LLP 1116 D5): for a persisted state, the
+store's value when it is one of the state's type; otherwise `v`, the
+initializer's (a value of another shape is ignored, as the runner keeps
+the initializer's and journals it). -/
+def restore (p : Program) (o : Oracle) (st : StateDecl) (v : Value) : Value :=
+  match st.persist, lookup st.name o.stored with
+  | true, .some w => if conforms p w st.ty then w else v
+  | _, _ => v
+
 /-- The root slots at boot, in declaration order (an initializer reads the
 slots before it), then the mutations' (`none`). A late slot holds `()`
 until boot settlement is done (the runner's slots start as unit). -/
-def initSlots (p : Program) : Result (List (String × Value)) := do
+def initSlots (p : Program) (o : Oracle) : Result (List (String × Value)) := do
   let slots ← p.states.foldlM (fun slots st => do
       if st.owner.isSome then return slots
       if st.late then return slots ++ [(st.name, Value.unit)]
@@ -859,8 +872,33 @@ def initSlots (p : Program) : Result (List (String × Value)) := do
       let env : Env := { prog := p, slots, now := 0 }
       let v ← eval fuel env false [] st.init
       if !conforms p v st.ty then throw (.refused s!"slot `{st.name}` initialized with the wrong type")
-      pure (slots ++ [(st.name, v)])) []
+      pure (slots ++ [(st.name, restore p o st v)])) []
   pure (slots ++ p.mutations.map (·.name, Value.none))
+
+/-- A restored value is of the state's type when the initializer's is. -/
+theorem restore_conforms {p : Program} {o : Oracle} {st : StateDecl} {v : Value}
+    (h : conforms p v st.ty = true) : conforms p (restore p o st v) st.ty = true := by
+  unfold restore
+  split
+  · split
+    · assumption
+    · exact h
+  · exact h
+
+/-- A restored value is the initializer's, or the store's for a persisted
+state, of its type. -/
+theorem restore_cases (p : Program) (o : Oracle) (st : StateDecl) (v : Value) :
+    restore p o st v = v ∨ (st.persist = true ∧ lookup st.name o.stored = .some (restore p o st v) ∧
+      conforms p (restore p o st v) st.ty = true) := by
+  unfold restore
+  cases hp : st.persist <;> cases hl : lookup st.name o.stored
+  · exact .inl rfl
+  · exact .inl rfl
+  · exact .inl rfl
+  · rename_i w
+    by_cases hc : conforms p w st.ty = true
+    · simp [hc]
+    · simp only [hc]; exact .inl rfl
 
 /-- The timers boot starts, one per task. -/
 def startTimers (p : Program) (slots : List (String × Value)) : Result (List Timer) :=
@@ -894,7 +932,7 @@ def Config.empty : Config := { slots := [], settled := {}, store := [], view := 
 render, and start the timers. -/
 def boot (p : Program) (o : Oracle) : Config × Outcome :=
   let empty := Config.empty
-  match initSlots p with
+  match initSlots p o with
   | .error e => (empty, .refused e)
   | .ok slots =>
     match startTimers p slots with
