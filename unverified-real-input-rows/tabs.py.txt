@@ -1,0 +1,15 @@
+# unverified-real-input-rows: the panel tab strip's chips (title, audio button) from each `tree panel-tab-strip` of a drive.
+import json, sys
+n = 0
+for line in open(sys.argv[1]):
+    d = json.loads(line)
+    nodes = d.get('nodes')
+    if not nodes or not any((x.get('props') or {}).get('testId') == 'panel-tab-strip' for x in nodes[:3]): continue
+    n += 1
+    out = []
+    for x in nodes:
+        p = x.get('props') or {}
+        t = p.get('testId', '')
+        if t.startswith('tab-audio-') or (t.startswith('tab-browser') ):
+            out.append(f"{t}: {p.get('accessibilityLabel')}")
+    print(f'tree {n} (clock {d.get("clock")}):', '; '.join(out))
