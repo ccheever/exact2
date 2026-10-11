@@ -169,6 +169,8 @@ fn roster_spelling(f: Stdlib, spec: &str) -> &str {
         (Stdlib::Length | Stdlib::IsEmpty, "any") => "string | list",
         (Stdlib::ToString, "any") => "number | string | bool",
         (Stdlib::First | Stdlib::At, "any") => "list",
+        // The ISO 4217 codes `"currency"` takes (LLP 1116 D8), too many to spell here.
+        (Stdlib::FormatNumber, code) if code.starts_with("\"USD\"") => "\"USD\" | \"EUR\" | …",
         _ => spec,
     }
 }
@@ -895,6 +897,9 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                     }
                 }
                 routes::location(f, args, shapes)?;
+                if f == Stdlib::FormatNumber {
+                    literals::currency_code(args, *span)?;
+                }
                 match (f, given.first()) {
                     // `first(list<T>)` is `option<T>` (LLP 1054.000 C4).
                     (Stdlib::First, Some(Ty::List(item))) => Ty::Option(item.clone()),

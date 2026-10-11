@@ -293,7 +293,8 @@ at CSS.
   the web (`end > start` for `"HH:MM"` times). `slice(s, 0, -1)`,
   `replaceAll(s, find, with)` and `toLowerCase(s)` are the web's string methods.
 - Numbers have `floor`, `ceil`, `round` (JavaScript's `Math.round`: `round(-2.5)` is
-  -2), `min`, `max`, `%`, `formatNumber` (`1.2K`), `toFixed` and `formatDecimal`. A
+  -2), `min`, `max`, `%`, `formatNumber` (`"compact"` is `1.2K`, `"decimal"` `1,234.5`,
+  `"percent"` `26%`, `"currency", "USD"` `$1,481.47`), `toFixed` and `formatDecimal`. A
   field's text is a number through `match parseNumber(s) { case some(n) => …, case
   none => … }`: a decimal numeral, trimmed, or `none` (`"12px"`, `""`).
 - Money is a count of cents printed with `formatDecimal(cents, 2)`, which is

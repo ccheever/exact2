@@ -244,3 +244,66 @@ fn money_is_format_decimal_and_a_measure_is_to_fixed() {
     let e = contract::compile("component A\n  view\n    text toFixed(\"1.5\", 2)\n").unwrap_err();
     assert_eq!(e.id, "type-argument", "{e}");
 }
+
+/// LLP 1116 D8: a bill's grouped total, its currency and a share as a
+/// percent, through the compiler and the runner: Intl's `en-US` forms, the
+/// code written with `"currency"` only, and listed.
+#[test]
+fn a_total_its_currency_and_a_share() {
+    let src = r#"component App
+  state total = 1481.4666
+  state share = 0.256
+  action refund
+    total = -5
+  view
+    column
+      text formatNumber(total, "decimal") testId="grouped"
+      text formatNumber(total, "currency", "USD") testId="usd"
+      text formatNumber(total, "currency", "JPY") testId="yen"
+      text formatNumber(share, "percent") testId="share"
+"#;
+    let plan = contract::compile(src).unwrap();
+    assert_eq!(exact_runner::uses(&plan).to_string(), "format");
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(text(&r, "grouped"), "1,481.467");
+    assert_eq!(text(&r, "usd"), "$1,481.47");
+    assert_eq!(text(&r, "yen"), "¥1,481");
+    assert_eq!(text(&r, "share"), "26%");
+    r.act("refund", vec![]).unwrap();
+    assert_eq!(text(&r, "usd"), "-$5.00");
+    for (call, says) in [
+        (
+            r#"formatNumber(total, "currency")"#,
+            "names its currency: an ISO 4217 code",
+        ),
+        (
+            r#"formatNumber(total, "decimal", "USD")"#,
+            r#"written only with `"currency"`"#,
+        ),
+        (
+            r#"formatNumber(total, "currency", "XYZ")"#,
+            r#"given `"XYZ"`"#,
+        ),
+        (r#"formatNumber(total, "money")"#, r#"given `"money"`"#),
+    ] {
+        let e =
+            contract::compile(&src.replace(r#"formatNumber(total, "decimal")"#, call)).unwrap_err();
+        assert_eq!(e.id, "type-format-style", "{call}: {e}");
+        assert!(e.message.contains(says), "{call}: {e}");
+    }
+    let e = contract::compile("component A\n  view\n    text formatNumber(1)\n").unwrap_err();
+    assert_eq!(e.id, "type-arity", "{e}");
+    assert!(
+        e.message.contains(
+            r#"formatNumber(number, "compact" | "decimal" | "currency" | "percent", "USD" | "EUR" | …?)"#
+        ),
+        "{e}"
+    );
+}
