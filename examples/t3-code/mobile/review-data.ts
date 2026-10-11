@@ -302,7 +302,7 @@ export async function mobileReviewAction(owner: string, op: string, id: string, 
       else if (op === 'line' || op === 'extend' || op === 'range-start') {
         if (state.commentOpen && state.pick?.composerOwner === mobileComposerTarget(client).owner || !Number.isInteger(n) || !diffReviewLines(file.file)[n]) throw new ClientError('That line is unavailable.');
         const composerOwner = mobileComposerTarget(client).owner;
-        const extending = (op === 'extend' || state.ranging) && state.pick?.composerOwner === composerOwner && state.pick.path === id && state.pick.sectionId === state.selected;
+        const extending = op !== 'range-start' && (op === 'extend' || state.ranging) && state.pick?.composerOwner === composerOwner && state.pick.path === id && state.pick.sectionId === state.selected;
         const anchor = extending ? state.pick!.anchor : n;
         state.pick = { composerOwner, sectionId: state.selected, path: id, anchor, start: Math.min(anchor, n), end: Math.max(anchor, n) };
         state.ranging = op === 'range-start';
