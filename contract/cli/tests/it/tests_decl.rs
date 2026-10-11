@@ -66,6 +66,41 @@ fn expect_value_says_text_reads_a_controls_value() {
 }
 
 #[test]
+fn an_assertion_word_from_elsewhere_names_its_rewrite() {
+    let refused = |src: &str| contract::tests(&format!("test \"t\"\n  {src}\n")).unwrap_err();
+    let e = refused("expect tree lacks \"banner\"");
+    assert_eq!(e.id, "syntax-expected-step", "{e}");
+    assert!(
+        e.message
+            .contains("not `lacks`; for a node that is not there, write `expect tree missing"),
+        "{e}"
+    );
+    let e = refused("expect tree contains \"banner\"");
+    assert!(
+        e.message
+            .contains("not `contains`; it matches a testId only"),
+        "{e}"
+    );
+    for src in [
+        "expect text \"row\" contains \"UPS\"",
+        "expect text \"row\" != \"UPS\"",
+    ] {
+        let e = refused(src);
+        assert_eq!(e.id, "syntax-expected-step", "{e}");
+        assert!(
+            e.message
+                .starts_with("`expect text` compares the whole text with `==`"),
+            "{e}"
+        );
+        assert!(e.message.contains("descendants' joined"), "{e}");
+    }
+    assert!(contract::tests(
+        "test \"t\"\n  expect tree missing \"banner\"\n  expect text \"row\" == \"UPS\"\n"
+    )
+    .is_ok());
+}
+
+#[test]
 fn the_apps_tests_parse() {
     let src = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),

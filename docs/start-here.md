@@ -184,7 +184,7 @@ Every step, launch lines (`epoch "…"`) and `verify`'s flags are on the card.
 | To assert | Write | Not |
 | --- | --- | --- |
 | A node is there, or not | `expect tree has "<testId>"`, `expect tree missing "<testId>"` | `lacks`, `contains`, `not has`. It matches a `testId` only, never a label or text, unlike `tap` |
-| A node's text | `expect text "<testId>" == "the whole text"` | `contains`, `!=`. The text is compared whole |
+| A node's text | `expect text "<testId>" == "the whole text"` | `contains`, `!=`. The text is compared whole, and a node with no text of its own reads its descendants' joined: a row's testId reads its buttons' labels too, so put the testId on the text node |
 | State | `expect state lib.notes.0 .title == "Milk"` (a space after a list index), `== []`, `== none`, `== true` | an expression on the right |
 | A failed request | `expect text` on what the view shows from `failed(x)` or `failure(x)` | `failed(m)` of a mutation: it takes a resource, and a mutation answers its failure as a result (`ok: false`) |
 

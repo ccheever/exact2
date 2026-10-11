@@ -244,6 +244,7 @@ epoch now
 test "a note posts, and another persona sees it"
   clock data
   expect text "status" == "Synced"
+  expect tree missing "banner"
   type "draft" "hello from alice"
   tap "post"
   clock data
