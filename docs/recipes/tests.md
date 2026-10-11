@@ -23,12 +23,17 @@ test "add, check off, and keep it across a relaunch"
   expect text "left" == "0 items left"
   screenshot ".exact/after-reload.png"
 
-test "Enter in the field adds too"
+test "Enter adds too; a repeat is refused and keeps its text"
   type "draft" "Eggs"
   type "draft" key "Enter"
   clock data
   expect state groceries.items.0 .title == "Eggs"
   expect state draft == ""
+  type "draft" "eggs"
+  type "draft" key "Enter"
+  clock data
+  expect text "add-error" == "Eggs is already on the list."
+  expect state draft == "eggs"
 ```
 
 | Step | What it does |
@@ -51,6 +56,9 @@ length(…)`) and compare it with `==`.
 - `clock data` after any input whose reply the next `expect` reads (the web often
   answers in time without it, iOS doesn't). `clock settle` after opening or closing a
   sheet, an alert or a push, and before tapping inside an alert.
+- Test the refusal as well as the success: drive the write that is refused, `clock
+  data`, then expect the reason and the text kept. A lost connection is `fail fetch
+  "<prefix>"` before the write ([rest-backend](rest-backend.md)).
 - Never wait in real time (`clock +1000 real`) in a test. A test that reads the date
   pins `epoch` and `time-zone`; the driver's own are 2026-01-01T00:00:00Z, UTC, seed 1.
 - Give every screen its own ids: covered routes stay mounted, so a shared `testId`

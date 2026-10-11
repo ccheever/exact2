@@ -58,8 +58,9 @@ shape Item
 shape Items
   items: list<Item>
 
-shape Ack
+shape Reply
   ok: bool
+  error: string
 
 shape Time
   epochAtZero: number
@@ -70,15 +71,19 @@ component Groceries
   state draft = ""
   resource time = exactTime() as shape Time
   resource groceries = loadItems() as shape Items else empty()
-  mutation saved as shape Ack queue refreshes groceries
+  mutation added as shape Reply refreshes groceries then afterAdd
+  mutation saved as shape Reply queue refreshes groceries
   derive left = length(filter(groceries.items, i => not i.done))
+  derive addError = match added { case some(r) => r.error, case none => "" }
 
   action edit(v: string)
     draft = v
   action add
     let title = trim(draft)
     if title != ""
-      send saved = addItem(title, time.epochAtZero + performanceNow())
+      send added = addItem(title, time.epochAtZero + performanceNow())
+  action afterAdd
+    if addError == ""
       draft = ""
   action toggle(id: string, done: bool)
     send saved = setDone(id, done)
@@ -97,6 +102,8 @@ component Groceries
               row
                 input appearance="none" value=draft input=edit submit=add placeholder="Add an item"
                   aria-label="New item" enterkeyhint="done" testId="draft" flex=1 min-width=0
+              footer
+                text (pending(added) ? "" : addError) testId="add-error"
             section
               each i in groceries.items key=i.id
                 row
@@ -120,8 +127,12 @@ component Groceries
   case none => … }`. No truthiness. A record copy is `Shape(old, field=value)`.
   Events pass captured arguments, then the payload (`change=toggle(i.id)` gets the bool).
 - **Data.** A `resource` is a reactive read (`pending(x)`, `failed(x)`); a `mutation` a
-  write, which `queue` keeps in order and `refreshes` follows with a read. Only the
-  root declares them; child components take `props`.
+  write, which `queue` keeps in order, `refreshes` follows with a read and `then` with
+  an action once its reply lands. Only the root declares them; child components take `props`.
+- **After a write**, clear the field or close the form in the `then` action, only on an
+  ok reply; a refusal (`ok: false` and words) keeps the text and shows under the field
+  ([after-a-write](recipes/after-a-write.md)). A one-field add stays on the list; a
+  form of more fields is a sheet ([navigation-stack](recipes/navigation-stack.md)).
 
 **The data module** answers each source with exactly its declared shape (an extra field
 fails the resource). It reaches only what its `grants` name, one line each (`fs.write
@@ -149,13 +160,15 @@ async function load(storage: Storage): Promise<Item[]> {
 async function save(storage: Storage, next: Item[]): Promise<Result<'addItem'>> {
   items = next;
   await storage.fs.atomicWriteFile(FILE, new TextEncoder().encode(JSON.stringify(next)));
-  return { ok: true };
+  return { ok: true, error: '' };
 }
 
 const sources: Sources = {
   loadItems: async (_args, _store, storage) => ({ items: await load(storage) }),
   addItem: async ([title, at], _store, storage) => {
     const all = await load(storage), id = String(Math.max(0, ...all.map((i) => Number(i.id))) + 1);
+    const same = all.find((i) => i.title.toLowerCase() === title.toLowerCase());
+    if (same) return { ok: false, error: `${same.title} is already on the list.` }; // a refusal is a reply too
     return save(storage, [...all, { id, title, done: false, addedAt: at }]);
   },
   setDone: async ([id, done], _store, storage) => save(storage, (await load(storage)).map((i) => (i.id === id ? { ...i, done } : i))),
@@ -167,12 +180,17 @@ export const answer: Answer = (source, args, store, storage, native) => sources[
 storage, after the first data has landed:
 
 ```contract-test
-test "an item is added, checked off and kept"
+test "an item is added, a repeat refused, checked off and kept"
   expect text "left" == "Nothing on the list."
   type "draft" "Milk"
   tap "add"
   clock data
   expect text "left" == "1 item left"
+  type "draft" "milk"
+  tap "add"
+  clock data
+  expect text "add-error" == "Milk is already on the list."
+  expect text "draft" == "milk"
   tap "done-1"
   clock data
   reload
@@ -191,8 +209,9 @@ same storage. Every form, and the real-clock drive before calling it done: [test
    `buttonStyle="bordered"` or `"bordered-prominent"`.
 2. **`width="100%"` with padding overflows** (`content-box`, as in CSS). Drop the width;
    give a `flex=1` field `min-width=0`.
-3. **Text in a `header` besides its heading and buttons** isn't in the iOS bar. Put a
-   count or status in the content, and errors in words, never raw codes.
+3. **A `header` holds a heading, one text after it and buttons** (and a search field
+   or a `tablist`). That text is the iOS bar's subtitle (a count, a status); anything
+   else isn't in the bar. Errors are words, never raw codes.
 4. **A drive without `--storage <name>`** refuses storage, so the app looks empty.
 5. **Trusting green tests.** They pass on a layout that spills off the screen, and on
    the virtual clock. Look at screenshots, iOS with `--chrome platform` and
@@ -215,6 +234,7 @@ same storage. Every form, and the real-clock drive before calling it done: [test
 - The network: [fetch-loading-error](recipes/fetch-loading-error.md); your own server: [rest-backend](recipes/rest-backend.md).
 - Columns that wrap on a phone: [responsive-columns](recipes/responsive-columns.md).
 - How it looks on the web: [web-look](recipes/web-look.md).
+- After a write: clear or close on an ok reply, a refusal in words: [after-a-write](recipes/after-a-write.md).
 
 ## Look it up, when no recipe covers it
 
