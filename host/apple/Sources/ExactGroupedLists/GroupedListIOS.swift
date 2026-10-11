@@ -172,6 +172,23 @@ final class GroupedListHost: GroupedLists {
     /// button): the agent finds it in UIKit's cell, not the hidden row.
     func draws(_ id: UInt32) -> Bool { list(drawing: id) != nil }
 
+    /// The agent's reveal (r5 password generator): a row a list draws, or a
+    /// view in a custom row, scrolled to by its cell in the collection view,
+    /// as a finger scrolls the list. A row with no cell yet has its views in
+    /// the hidden authored scroll, whose offset moves nothing on screen.
+    func reveal(_ id: UInt32, port: (UIScrollView) -> CGRect) -> Bool? {
+        if let (list, row) = list(drawing: id) { return list.reveal(row.view, inner: nil, port: port(list.collection)) }
+        guard let node = presenter.views[id] else { return nil }
+        var at: UIView? = node
+        while let view = at {
+            if let row = view as? NodeView, let list = lists.values.first(where: { $0.model.sections.contains { $0.rows.contains { $0.view == row.id && $0.custom } } }) {
+                return list.reveal(row.id, inner: node.convert(node.bounds, to: row), port: port(list.collection))
+            }
+            at = view.superview
+        }
+        return nil
+    }
+
     /// Where a real finger aimed at `node` lands, for a row this host draws
     /// (LLP 1080.000 D4): the row's cell; on its toggle's control, the cell's
     /// switch; on its detail button's, that accessory, with the collection
@@ -511,6 +528,33 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
 
     func cell(_ id: UInt32) -> UICollectionViewCell? {
         source.indexPath(for: id).flatMap { collection.cellForItem(at: $0) }
+    }
+
+    /// Row `id`'s middle, or the middle of `inner` (a box in the row's own
+    /// space), scrolled to the middle of `port` when outside it, unanimated
+    /// and inside the scrollable range; its cell made and its views carried.
+    /// A row never shown has an estimated place until its cell sizes it, so
+    /// it is measured again after each move, at most three times.
+    func reveal(_ id: UInt32, inner: CGRect?, port: CGRect) -> Bool {
+        guard let path = source.indexPath(for: id) else { return false }
+        // The port as it sits in the bounds, which move as the list scrolls.
+        let seen = port.offsetBy(dx: 0, dy: -collection.bounds.minY)
+        var scrolled = false
+        for _ in 0..<3 {
+            collection.layoutIfNeeded()
+            guard let frame = collection.layoutAttributesForItem(at: path)?.frame else { break }
+            let mid = CGPoint(x: frame.midX, y: frame.minY + (inner?.midY ?? frame.height / 2))
+            let now = seen.offsetBy(dx: 0, dy: collection.bounds.minY)
+            if now.minY <= mid.y && mid.y < now.maxY { break }
+            let i = collection.adjustedContentInset
+            let y = min(max(collection.contentOffset.y + mid.y - now.midY, -i.top), max(-i.top, collection.contentSize.height + i.bottom - collection.bounds.height))
+            guard y != collection.contentOffset.y else { break }
+            collection.contentOffset.y = y
+            scrolled = true
+        }
+        collection.layoutIfNeeded()
+        mount()
+        return scrolled
     }
 
     /// The control a row's accessory shows: its switch, or UIKit's detail

@@ -24,12 +24,16 @@ bun exact.mjs agent ios --storage s1 --chrome platform "tap add-item" "clock set
 | `clock +1500 real` | Waits real time, for a write on the real clock; never in a test. |
 | `"prefer prefers-color-scheme dark"` | Dark mode, as the drive's first op (`simctl ui … appearance` does not reach the drive). |
 | `--timing platform` | UIKit's transitions keep their own timing (default: frozen). |
-| `--touch platform` | Every tap a real touch, through the XCTest runner. |
+| `--touch platform` | Every tap and drag a real touch, through the XCTest runner, aimed where UIKit draws the target: a bar item, a segment, a list's cell. |
 | `--sim <udid\|name>`, `EXACT_SIM` | Which simulator, for `ios` and the drive alike; several booted iPhones are refused, not guessed. |
 | `--device`, `--phone <udid\|name>` | A connected iPhone, after `bun exact.mjs ios --device`. |
 
 - Drive by `testId`, never by coordinates. A `testId` on a bar button, the search field,
   a segment or a tab is its `accessibilityIdentifier`.
+- `tap` and `type` scroll a target that is out of view, or under a bar or the keyboard,
+  into view first, a grouped list's row included: never restructure a screen for the driver.
+- Without `--touch platform`, `tap <scroll or list> drag 0 -300` scrolls it as a finger
+  would, with no fling; any other drag is refused, naming the flag.
 - `tree --ax` prints the accessibility tree as VoiceOver reads it.
 - `bun exact.mjs ios --run` opens the app in Simulator.app, to look by hand.
 - Before calling it done, drive each write once on the real clock:

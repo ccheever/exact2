@@ -101,6 +101,14 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
       s.contact = down.contact === false ? null : { x: down.at[0], y: down.at[1] };
       if (Number.isFinite(down.clock)) s.now = down.clock;
     }
+    if (down.delivery === 'unsupported' && ['ios', 'host-ios'].includes(host)) {
+      // iOS holds no contact across requests: a drag on a scroller is what the scroll view's pan ends with, its content
+      // moved with the finger (LLP 1116.003); any other drag is refused, never answered `unsupported` as a success.
+      if (during.length) throw new Error('drag: during needs the finger held down, which only --touch platform does on iOS (LLP 1080.000 §11)');
+      const r = await carrier.ask({ op: 'tap', id: node.id, scrollDrag: [dx, dy], ...(from ? { from: start } : {}) });
+      if (r.error) throw new Error(r.error);
+      return noted(await s.tagged({ ...r, target, ...(scrolled ? { scrolled } : {}), drag: said, carrier: host, mode: timing }), await reorderNotes(s, mark));
+    }
     if (down.delivery === 'unsupported') {
       const { phase: _, ...refused } = down;
       return s.tagged({ ...refused, drag: said, reason: `${down.reason ?? 'no held contact'}; a real drag is --touch platform's (LLP 1080.000 §11)` });

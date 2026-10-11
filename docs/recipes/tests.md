@@ -74,13 +74,16 @@ Tests run on a virtual clock, and pass while a real write hangs or a layout spil
 the screen. Drive each write once on the real clock, in bounded steps, and look:
 
 ```sh
-bun exact.mjs agent web --storage real1 --epoch now "type draft Milk" "tap add" "clock +1500 real" \
-  state "reload" "clock +1500 real" state "screenshot .exact/real-web.png"
+bun exact.mjs agent web --storage real1 --epoch now "type draft Milk" "tap add" "clock +1500 real" state
+bun exact.mjs agent web --storage real1 --epoch now "clock +1500 real" state "screenshot .exact/real-web.png"
 bun exact.mjs agent ios --storage real1 --epoch now --chrome platform "type draft Milk" "tap add" \
-  "clock +1500 real" "reload" "clock +1500 real" state "screenshot .exact/real-ios.png window"
+  "clock +1500 real" state
+bun exact.mjs agent ios --storage real1 --epoch now --chrome platform "clock +1500 real" state \
+  "screenshot .exact/real-ios.png window"
 ```
 
-Each `clock +N real` waits N ms of real time, so the drive ends. `state` lists what is
+The second drive on the same `--storage` is the relaunch: `reload` is a test line, not
+a drive's op. Each `clock +N real` waits N ms of real time, so the drive ends. `state` lists what is
 `pending` or `failed`; the iOS screenshot with `--chrome platform … window` shows the
 bars a person sees ([ios-driving](ios-driving.md)). An app with a server drives it
 against the running dev server. A test has no colour scheme, so look at one drive in

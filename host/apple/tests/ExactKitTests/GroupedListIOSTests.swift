@@ -597,6 +597,47 @@ final class GroupedListIOSTests: XCTestCase {
         XCTAssertEqual((shown?.contentConfiguration as? UIListContentConfiguration)?.text, "Profile")
     }
 
+    /// LLP 1116.003 (r5 password generator: `tap history-0` refused, a
+    /// different UIKit view "covering its middle" each time): the agent's
+    /// reveal scrolls the list UIKit draws to a row with no cell yet, by
+    /// that row's cell, and carries a custom row's views into it, so the tap
+    /// lands on them. The hidden authored scroll, which moves nothing on
+    /// screen, stays where it is.
+    func testRevealScrollsTheListToARowWithNoCellYet() throws {
+        ExactGroupedLists.install()
+        let session = ExactApp.shared.makeSession(label: "grouped-reveal")
+        defer { session.destroy() }
+        let p = presenter({ self.model(custom: true) }, on: session.presenter, height: 150)
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        let l = try list(p)
+        l.collection.layoutIfNeeded()
+        XCTAssertNil(l.cell(21), "below the list's port, the custom row has no cell")
+        let row = try XCTUnwrap(p.views[21])
+        XCTAssertFalse(row.isDescendant(of: l.collection), "its views wait in the hidden scroll")
+        let agent = Agent(session: session)
+        let reply = agent.reveal(["id": 21])
+        XCTAssertNil(reply["error"], "\(reply)")
+        XCTAssertEqual(reply["scrolled"] as? Bool, true, "\(reply)")
+        let cell = try XCTUnwrap(l.cell(21), "the list scrolled to it by its cell: \(reply)")
+        XCTAssertTrue(row.isDescendant(of: cell), "and carried its views in")
+        let port = l.collection.bounds.inset(by: l.collection.adjustedContentInset)
+        let mid = row.convert(CGPoint(x: row.bounds.midX, y: row.bounds.midY), to: l.collection)
+        XCTAssertTrue(port.contains(mid), "its middle is in the list's port: \(mid) in \(port)")
+        XCTAssertEqual(p.views[1]?.scroll?.contentOffset.y ?? 0, 0, "the hidden scroll stays")
+        XCTAssertNil(agent.tap(["id": 21])["error"])
+        XCTAssertEqual(pressed, [21], "the tap pressed the row it revealed")
+        // A standard row, scrolled away again: by its cell too, then selected.
+        l.collection.setContentOffset(CGPoint(x: 0, y: -l.collection.adjustedContentInset.top), animated: false)
+        l.collection.layoutIfNeeded()
+        XCTAssertNil(l.cell(20))
+        XCTAssertEqual(agent.reveal(["id": 20])["scrolled"] as? Bool, true)
+        XCTAssertNotNil(l.cell(20))
+        let selected = agent.tap(["id": 20])
+        XCTAssertNil(selected["error"], "\(selected)")
+        XCTAssertEqual(pressed, [21, 20])
+    }
+
     func testAWheelOnARowScrollsTheListUIKitDraws() throws {
         let p = presenter { self.model() }
         let l = try list(p)
