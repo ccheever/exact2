@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-code-highlighting-languages
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/466
 verified_commit: null
 ---
 
@@ -125,8 +125,9 @@ Drives: before on `t3-code-evidence-base` at `6db5cadea` (lane `code-highlightin
 branch's bundle (the app code of `60a281a74`; lane `code-highlighting-languages`), the reference T3 Code `1e2ecbd975` on the
 same lane (CDP 16541), each with the Verification fixture project pointed at a lane-private copy of
 `verify-runtime/project` holding the six files at its root (a tree id with a slash reads as an agent part), both lanes'
-Codex and Claude at missing binaries. Exit 0 each; one run each (the before drive's first two tries stopped at the drive
-script's ids, before any after drive).
+Codex and Claude at missing binaries. Exit 0 each (the before drive's first two tries stopped at the drive script's ids,
+before any after drive). The one retry re-drove the merged head's bundle (`7272f6ab8`, main adoption round 9 merged):
+exit 0, and the code area of all twelve images is pixel-identical to the first after drive's.
 
 ## Real-input batch steps
 
@@ -146,7 +147,23 @@ None: the rows are colours, which the agent drive's `screenshot … window` read
 
 ## Checks
 
-(filled in below after the final run)
+Run once on the merged head `7272f6ab8` (this branch with `origin/feat(example)/t3-code` `fe0e39c91`, main adoption
+round 9 included); the record and test-reset commit after it (`7efe6ce1f`) changed tests and docs only.
+
+| Check | Exit | Note |
+| --- | --- | --- |
+| `bun test examples/t3-code --timeout 60000` | 1, then 0 | first run 4,675 pass, 1 fail: `r12-render-residuals.test.ts` "c as Shiki paints it" got the heuristic colours because an earlier app test left slicing on and c's first use deferred; the three highlight test files now reset slicing before each test; rerun 4,676 pass, 0 fail (312 files) |
+| strict `tsc` (README command) | 0 | |
+| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | 28,864,485 bytes (28,820,298 at `6db5cadea`; the difference is the merged feature tip's, the plan holds no grammar data); `app.contract` 1,398 lines |
+| `cargo test -p t3-code-macos --lib`, AppKit binaries | not run | no Rust or Swift changed |
+| `git add -A && bun scripts/caps.mjs` | 0 | all budgets within cap; the ten grammar data files are generated (skipped), each under 1,500 lines anyway |
+| `cargo build --all-targets --keep-going` | 0 | |
+| `cargo test --lib --bins --tests --no-fail-fast` | 101 | 3,744 passed, 1 failed, 36 ignored (95 suites): `contract` `button_migration::every_app_corpus_and_example_compiles_and_the_button_migration_is_complete` on main's `apps/color-gallery/app.contract:269` ("styled default button needs appearance=\"none\""), inherited from main (#440) as the adoption record `20261011-adopt-main-fixes-r9` AD-1 records; nothing of this branch |
+| `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | |
+| `cargo fmt --all -- --check` | 0 | |
+| `bun scripts/boot.mjs` | 0 | |
+| `EXACT_APP_DIR=… bun host/apple/build.mjs t3-code-macos --bundle` | 0 | before the live drive on the app code of `60a281a74`, and again on the merged head (`app.js` 15,595,069 B, `app.hbc` 13,221,875 B, bake `app.plan` 28,898,301 B), which the retry drove |
+| `gen-grammar.mjs --check`, `gen-grammar.test.ts` | 0 | the data is the generator's, byte for byte |
 
 ## Not done / not verified
 
@@ -174,7 +191,7 @@ None.
 
 ## Delivery
 
-Draft PR (below).
+Draft PR [#466](https://github.com/ccheever/exact2/pull/466) into `feat(example)/t3-code`.
 
 ## Next action
 
