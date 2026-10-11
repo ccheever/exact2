@@ -187,6 +187,82 @@ fn pan_types_its_actions_untyped_parameters() {
     );
 }
 
+/// A handler whose payload does not fit its action's count is refused at
+/// the binding with analysis's arity refusal, whether the action's
+/// parameters are typed or not: analysis never runs after the type stage
+/// refuses, so the type stage says it for an action the miscount leaves
+/// untyped, ahead of a body that reads such a parameter.
+#[test]
+fn a_miscounted_handler_is_refused_at_its_binding_typed_or_not() {
+    let all = |src: &str| {
+        contract::compile_path_source_all(std::path::Path::new("app.contract"), src, false)
+            .map(|_| ())
+            .expect_err(src)
+    };
+    let app = |actions: &str, view: &str| {
+        format!("component App\n  state n = 0\n  resource items = rows() as shape list<string>\n{actions}  view\n    {view}\n")
+    };
+    let reorder = "list id=\"arrange\" virtualized=true height=200 reorderdrop=drop\n      each x in items key=x\n        column reorderFor=\"arrange\"\n          text x";
+    let cases = [
+        // (untyped, typed, view, the binding's column)
+        (
+            "act(a, b: number)",
+            "act(a: string, b: number)",
+            "input change=act",
+            11,
+        ),
+        (
+            "act(k, extra: number)",
+            "act(k: string, extra: number)",
+            "input key=act",
+            11,
+        ),
+        (
+            "rel(a, vx, vy: string)",
+            "rel(a: number, vx: number, vy: string)",
+            "box panrelease=rel",
+            9,
+        ),
+        ("drag(x)", "drag(x: number)", "box pan=drag", 9),
+        (
+            "drop(item, before, e: number)",
+            "drop(item: string, before: option<string>, e: number)",
+            reorder,
+            51,
+        ),
+    ];
+    for (untyped, typed, view, col) in cases {
+        let typed = all(&app(&format!("  action {typed}\n    n = 1\n"), view));
+        let src = app(&format!("  action {untyped}\n    n = 1\n"), view);
+        let untyped = all(&src);
+        assert_eq!(untyped.len(), 1, "{src}\n{untyped:#?}");
+        assert_eq!(
+            untyped[0].id, "analyze-handler-arity",
+            "{src}\n{untyped:#?}"
+        );
+        assert_eq!(
+            (untyped[0].span.line, untyped[0].span.col),
+            (7, col),
+            "{src}"
+        );
+        assert_eq!(untyped[0].message, typed[0].message, "{src}");
+    }
+    let reads = app(
+        "  action act(a, b: number)\n    n = a.x\n",
+        "input change=act",
+    );
+    let reads = all(&reads);
+    assert_eq!(reads[0].id, "analyze-handler-arity", "{reads:#?}");
+    let drop = all(&app(
+        "  action drop(item, before, e: number)\n    n = 1\n",
+        reorder,
+    ));
+    assert_eq!(
+        drop[0].message,
+        "`reorderdrop=drop` calls `drop` with `item` (string), `before` (option<string>); declare `action drop(item: string, before: option<string>)`, or `action drop(item: string, before: option<string>, event: ReorderEvent)` for its `ReorderEvent`"
+    );
+}
+
 /// The other drags and the drop: each types its action as `pan` does, and
 /// a child's action bound to it calls its parent component's action.
 #[test]

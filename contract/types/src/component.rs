@@ -211,10 +211,27 @@ pub(crate) fn check_component(
     // Row initializers have just resolved the lifted child slots. Curried
     // action-prop arguments must see those types too, not the earlier scope.
     let scope = types.component_scope(c, &ct);
-    sink.keep_unit(refine_params_from_view(&c.view, &scope, c, &mut ct, shapes));
+    let mut miscounted = Vec::new();
+    sink.keep_unit(refine_params_from_view(
+        &c.view,
+        &scope,
+        c,
+        &mut ct,
+        shapes,
+        &mut miscounted,
+    ));
     // Then the calls in action bodies (LLP 1089 D8), before any body is checked.
     crate::calls::refine(c, &mut ct, types);
     share_captures(c, &mut ct);
+    // A handler whose payload does not fit its action, which it left with
+    // a parameter untyped: its arity refusal, at the handler, before any
+    // body reads that parameter. Analysis gives it when every parameter is
+    // typed, and never runs after this stage refuses.
+    for (ai, e) in &miscounted {
+        if !ct.actions[*ai].iter().all(Ty::is_complete) {
+            sink.push(e.clone());
+        }
+    }
     // Action bodies: writes refine slots; assignments must unify. Two
     // rounds, so a `send` whose argument is a state a later action writes
     // (`state q = none`, typed by `q = some(s)`) records the written type
@@ -350,6 +367,10 @@ pub(crate) fn check_component(
     }
     let mut said = Vec::new();
     for (ai, a) in c.actions.iter().enumerate() {
+        // Said at its handler, above.
+        if miscounted.iter().any(|(i, _)| *i == ai) {
+            continue;
+        }
         for (i, p) in a.params.iter().enumerate() {
             if ct.actions[ai][i].is_complete() || said.contains(&p.name) {
                 continue;
@@ -462,6 +483,7 @@ fn refine_params_from_view(
     c: &Component,
     ct: &mut ComponentTypes,
     shapes: &Shapes,
+    miscounted: &mut Vec<(usize, TypeError)>,
 ) -> Result<(), TypeError> {
     for n in nodes {
         match n {
@@ -479,7 +501,8 @@ fn refine_params_from_view(
                 // A text field's `select` is HTML's, its selection the
                 // `InputEvent` (x2apps codeedit #2); the Markdown editor's
                 // carries its formats.
-                let field = contract_syntax::payload_control(tag, attrs) == Some("field");
+                let payload_control = contract_syntax::payload_control(tag, attrs);
+                let field = payload_control == Some("field");
                 // A file input's `change` carries the picked files (LLP
                 // 1069.002 D3); its `cancel`, nothing.
                 let file = control == Some("file");
@@ -640,9 +663,35 @@ fn refine_params_from_view(
                             // The payload types the last parameters. When
                             // their count is off, it may land on the wrong
                             // ones (a `reorderdrop` action's third, not a
-                            // `ReorderEvent`): a clash there is analysis's
-                            // arity refusal, which spells what fits.
+                            // `ReorderEvent`): a clash there is no type
+                            // mistake but analysis's arity refusal, which
+                            // spells what fits. This stage says it for an
+                            // action the miscount leaves untyped
+                            // (`check_component`), as analysis never runs
+                            // then. A bound `type` leaves the payload
+                            // unknown, its count too.
                             let counted = args.len() + payload.len() == ct.actions[ai].len();
+                            let unknown = payload.is_empty()
+                                && bound_type
+                                && matches!(a.name.as_str(), "change" | "input");
+                            if !counted && !unknown && !miscounted.iter().any(|(i, _)| *i == ai) {
+                                let params: Vec<(String, Ty)> = (c.actions[ai].params.iter())
+                                    .map(|p| p.name.clone())
+                                    .zip(ct.actions[ai].iter().cloned())
+                                    .collect();
+                                let arg_types: Vec<Option<Ty>> =
+                                    args.iter().map(|x| infer(x, scope, shapes).ok()).collect();
+                                let message = crate::handler_arity_message(
+                                    &a.name,
+                                    payload_control,
+                                    name,
+                                    args,
+                                    &params,
+                                    &arg_types,
+                                );
+                                let (id, span) = ("analyze-handler-arity", a.span);
+                                miscounted.push((ai, TypeError { id, message, span }));
+                            }
                             let start = ct.actions[ai].len().saturating_sub(payload.len());
                             for (offset, ty) in payload.into_iter().enumerate() {
                                 let last = start + offset;
@@ -668,10 +717,10 @@ fn refine_params_from_view(
                         }
                     }
                 }
-                refine_params_from_view(children, scope, c, ct, shapes)?;
+                refine_params_from_view(children, scope, c, ct, shapes, miscounted)?;
             }
             Node::Use { args, children, .. } => {
-                refine_params_from_view(children, scope, c, ct, shapes)?;
+                refine_params_from_view(children, scope, c, ct, shapes, miscounted)?;
                 for a in args {
                     let _ = a;
                 }
@@ -679,8 +728,8 @@ fn refine_params_from_view(
             Node::When {
                 then, otherwise, ..
             } => {
-                refine_params_from_view(then, scope, c, ct, shapes)?;
-                refine_params_from_view(otherwise, scope, c, ct, shapes)?;
+                refine_params_from_view(then, scope, c, ct, shapes, miscounted)?;
+                refine_params_from_view(otherwise, scope, c, ct, shapes, miscounted)?;
             }
             Node::Each {
                 var,
@@ -692,7 +741,7 @@ fn refine_params_from_view(
                 if let Ok(Ty::List(item)) = infer(list, scope, shapes) {
                     let mut inner = scope.clone();
                     inner.push_each(var, index.as_deref(), *item);
-                    refine_params_from_view(body, &inner, c, ct, shapes)?;
+                    refine_params_from_view(body, &inner, c, ct, shapes, miscounted)?;
                 }
             }
             Node::Match {
@@ -704,11 +753,11 @@ fn refine_params_from_view(
                 if let Ok(Ty::Option(item)) = infer(subject, scope, shapes) {
                     let mut inner = scope.clone();
                     inner.push_region(Some((some.0.clone(), Ref::Bound(0), *item)));
-                    refine_params_from_view(&some.1, &inner, c, ct, shapes)?;
+                    refine_params_from_view(&some.1, &inner, c, ct, shapes, miscounted)?;
                 }
                 let mut none_scope = scope.clone();
                 none_scope.push_region(None);
-                refine_params_from_view(none, &none_scope, c, ct, shapes)?;
+                refine_params_from_view(none, &none_scope, c, ct, shapes, miscounted)?;
             }
         }
     }
