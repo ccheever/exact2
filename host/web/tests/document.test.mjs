@@ -518,6 +518,48 @@ for (const concern of ['defaults', 'nowrap', 'clamp', 'floor', 'disabled accent'
   }, {html});
 });
 
+// LLP 1116.003 D3.1: the ink on an accent fill is white until white falls
+// under 3:1 against the accent as the scheme resolves it, then black: a pale
+// dark-scheme accent (event-rsvp's, recipe-finder's) takes black there; the
+// unsaid accent and the destructive red keep white; an authored colour wins.
+browserCheck('the ink on an accent fill is chosen for contrast in each scheme', async () => {
+  const shell = readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8');
+  const cases = {
+    pale: ['bordered-prominent', '--exact-accent:light-dark(#6652c5, #b5a4ff);'],
+    salmon: ['filled', '--exact-accent:light-dark(#b74e2e, #f49d7d);'],
+    teal: ['prominent-glass', '--exact-accent:light-dark(#16766c, #74d6c5);'],
+    unsaid: ['bordered-prominent', ''],
+    blue: ['filled', '--exact-accent:light-dark(#007aff, #0a84ff);'],
+    destructive: ['bordered-prominent', '', 'data-destructive="true"'],
+    authored: ['bordered-prominent', '--exact-accent:#b5a4ff;color:rgb(255, 0, 0);'],
+    disabled: ['bordered-prominent', '--exact-accent:#b5a4ff;', 'disabled'],
+  };
+  const buttons = scheme => Object.entries(cases).map(([id, [look, style, extra = '']]) =>
+    `<button id="${scheme}-${id}" data-native data-button-style="${look}" style="display:grid;${style}" ${extra}><span data-exact-text>Going</span></button>`).join('');
+  const html = shell.replace('<div id="exact-root"></div>', `<div id="exact-root"><div style="color-scheme:light">${buttons('light')}</div><div style="color-scheme:dark">${buttons('dark')}</div><span id="gray" style="color:GrayText"></span></div>`).replace('<script type="module" src="./glue.js"></script>', '');
+  await withDocument('/', async tab => {
+    const page = await tab(true);
+    await page.until("document.readyState === 'complete'", 'accent fill fixture');
+    const ink = await page(`(() => { const x = document.createElement('canvas').getContext('2d', {willReadFrequently: true});
+      const rgb = e => { x.clearRect(0, 0, 1, 1); x.fillStyle = getComputedStyle(e).color; x.fillRect(0, 0, 1, 1); const [r, g, b] = x.getImageData(0, 0, 1, 1).data; return r + ',' + g + ',' + b; };
+      return Object.fromEntries([...document.querySelectorAll('button, #gray')].map(e => [e.id, rgb(e)])); })()`);
+    const [white, black] = ['255,255,255', '0,0,0'];
+    expect(ink['light-pale']).toBe(white);
+    expect(ink['dark-pale']).toBe(black);
+    expect(ink['light-salmon']).toBe(white);
+    expect(ink['dark-salmon']).toBe(black);
+    expect(ink['light-teal']).toBe(white);
+    expect(ink['dark-teal']).toBe(black);
+    for (const scheme of ['light', 'dark']) {
+      expect(ink[`${scheme}-unsaid`]).toBe(white);
+      expect(ink[`${scheme}-blue`]).toBe(white);
+      expect(ink[`${scheme}-destructive`]).toBe(white);
+      expect(ink[`${scheme}-authored`]).toBe('255,0,0');
+      expect(ink[`${scheme}-disabled`]).toBe(ink.gray);
+    }
+  }, {html});
+});
+
 // LLP 1116.001 D1: a date, time or local date-time control takes the text
 // field's look (a 1 px line, 8 px corners, the field's background, 36 px
 // tall at the body size) in light and dark, as a border box the kernel

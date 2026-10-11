@@ -107,6 +107,16 @@
   #exact-root button:is([data-button-style="glass"], [data-button-style="prominent-glass"]) { backdrop-filter: blur(20px) saturate(150%) !important; background: light-dark(#ffffffb3, #262629b3); color: CanvasText; box-shadow: 0 8px 24px #0000000d, inset 0 0 1px light-dark(#ffffffcc, #ffffff33); }
   #exact-root button:is([data-button-style="clear-glass"], [data-button-style="prominent-clear-glass"]) { backdrop-filter: blur(10px) saturate(120%) !important; background: light-dark(#ffffff26, #ffffff1a); color: CanvasText; box-shadow: inset 0 0 1px light-dark(#ffffffcc, #ffffff33); }
   #exact-root button:is([data-button-style="prominent-glass"], [data-button-style="prominent-clear-glass"]) { background: color-mix(in srgb, var(--exact-accent, AccentColor) 85%, transparent); --exact-button-accent-fill: color-mix(in srgb, var(--exact-accent) 85%, transparent); color: #fff; }
+  /* LLP 1116.003 D3.1: the ink on the accent's fill is white, as UIKit draws
+     it, until white falls under WCAG's 3:1 for a control's label against the
+     accent as this scheme resolves it (relative luminance above 0.3, CIE
+     lightness 61.65), where black has at least 7:1. A pale dark-scheme accent
+     (light-dark(#6652c5, #b5a4ff)) takes black; the system blue and red, in
+     either scheme, keep white. An authored colour wins (inline, or the JS
+     target's classes). */
+  @supports (color: lab(from red l a b)) {
+    #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"], [data-button-style="prominent-glass"], [data-button-style="prominent-clear-glass"]) { color: lab(from var(--exact-accent, AccentColor) calc((61.65 - l) * 1e6 + 100) 0 0 / 1); }
+  }
   /* LLP 1116 D1: `bordered` and `gray`, the unsaid button, as Apple draws
      them: a neutral fill under the accent's ink, darker under the pointer
      and while pressed (when the face also dims, as above). `destructive` is
