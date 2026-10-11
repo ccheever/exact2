@@ -52,7 +52,7 @@ export function mobileWorkspaceOverlay(name: string) {
   return name.startsWith('settings') || name.startsWith('newTask') || name.startsWith('addProject') || [
     'homeArrange', 'archive', 'connections', 'connect', 'environments', 'environmentDetail', 'connectOnboarding',
     'threadAgents', 'threadQueue', 'threadReviewComment', 'threadBrowser', 'threadDevices',
-    'threadModel', 'threadModelOption', 'threadRuntime', 'threadModelFilter',
+    'threadModel', 'threadModelOption', 'threadRuntime',
     // Source terminal output is local presentation, represented by an Exact route.
     'threadTerminalCapture', 'gitOverview', 'gitCommit', 'gitBranches', 'gitConfirm',
   ].includes(name);
