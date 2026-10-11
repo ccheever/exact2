@@ -92,7 +92,7 @@ async function checkAt(host, app, size, store, shots) {
     });
   } finally {
     await s.close();
-    if (host === 'web') await removeBrowserProfile(driveStore(app.id, store).profile).catch(() => {});
+    if (host === 'web') await removeBrowserProfile(driveStore(app, store).profile).catch(() => {});
   }
 }
 
@@ -203,7 +203,7 @@ async function main(argv) {
   const tag = `r${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
   if (host === 'web') {
     const [{ driveStore }, { sweepTestStores }] = await Promise.all([import('./agent-launch.mjs'), import('./agent-test.mjs')]);
-    sweepTestStores(driveStore(app.id, 'verify').base, 'verify');
+    sweepTestStores(driveStore(app, 'verify').base, 'verify');
   }
   const launch = (size, n) => checkAt(host, app, size, host === 'web' ? `verify.${tag}.t${n}` : 'verify', shots)
     .catch((e) => [{ size: null, label: size ? size.join('x') : host, error: e.message }]);
