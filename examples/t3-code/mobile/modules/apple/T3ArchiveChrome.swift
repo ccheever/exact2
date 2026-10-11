@@ -157,6 +157,7 @@ private final class T3ArchiveChromePort: ExactNativeInstance {
             return button
         }
         let filter = button("line.3.horizontal.decrease.circle", "Archived thread options", "archive-filter") {}
+        filter.preferredMenuElementOrder = .priority
         filter.menu = menu(); filter.showsMenuAsPrimaryAction = true; self.filter = filter
         let dismiss = button("xmark", "Dismiss search keyboard", "archive-search-dismiss") { [weak self] in self?.field?.resignFirstResponder() }
         dismiss.alpha = 0; dismiss.isHidden = true; self.dismiss = dismiss
