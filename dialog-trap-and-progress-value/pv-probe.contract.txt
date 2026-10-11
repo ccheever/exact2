@@ -1,0 +1,22 @@
+// dialog-trap-and-progress-value probe (not committed): PV-1's two markups for `tree --ax` on the macOS host. Before: the
+// clone's drawn box (role="progressbar", the percentage as aria-description). After: the drawn box aria-hidden and
+// ProgressValue (copied verbatim from examples/t3-code/progress-value.contract) beside it.
+component PvProbe
+  view
+    column padding=20 gap=16 width="100%"
+      text "Before"
+      box width=224 height=4
+        box width="100%" height=4 border-radius=999 overflow="hidden" background-color="#e4e4e7" role="progressbar" aria-label="Antigravity download" aria-description="30%" testId="provider-runtime-progress-before"
+          box width="30%" height="100%" background-color="#27272a"
+      text "After"
+      box width=224 height=4 position="relative"
+        box width="100%" height=4 border-radius=999 overflow="hidden" background-color="#e4e4e7" aria-hidden=true testId="provider-runtime-progress-after"
+          box width="30%" height="100%" background-color="#27272a"
+        ProgressValue(label="Antigravity download, 30%", progressId="provider-runtime-progress-value-after")
+
+component ProgressValue
+  props
+    label: string
+    progressId: string
+  view
+    progress aria-label=label position="absolute" left=0 top=0 width="100%" height="100%" opacity=0 pointer-events="none" testId=progressId
