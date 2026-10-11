@@ -1,8 +1,8 @@
 # Start here: building an app with Exact
 
 The only required reading (LLP 1115 D7). The rest is lookup: a short [recipe](recipes/)
-per question (listed at the end), `bun exact.mjs contract vocab <name>` for any tag or
-property, and the long guides by section only for what no recipe covers.
+per question (listed at the end), `bun exact.mjs contract vocab <name>` for any tag,
+property or function, and the long guides by section only for what no recipe covers.
 
 ## The idea
 
@@ -226,19 +226,19 @@ same storage. Every form, and the real-clock drive before calling it done: [test
 - Tabs, when the app has at least two: [tabs](recipes/tabs.md).
 - A main screen that isn't a settings list: [content-design](recipes/content-design.md).
 - A form or settings screen, pickers, switches, validation: [grouped-form](recipes/grouped-form.md).
+- After a write: clear or close on an ok reply, a refusal in words: [after-a-write](recipes/after-a-write.md).
+- The keyboard: Return that submits, `blur()`, the next field: [keyboard-and-focus](recipes/keyboard-and-focus.md).
 - A number field: `inputmode="decimal"` gives the iPhone's number pad: [number-field](recipes/number-field.md).
 - A big number: its `font-size` with `font-variant-numeric="tabular-nums"`: [numeric-readout](recipes/numeric-readout.md).
-- Money, `$1,481.47`: `formatNumber(dollars, "currency", "USD")` ([money](recipes/money.md)).
-- Dates, day keys, "today": [dates-and-days](recipes/dates-and-days.md).
+- Money, `$1,481.47`: `formatNumber(dollars, "currency", "USD")` ([money](recipes/money.md)); dates, day keys, "today": [dates-and-days](recipes/dates-and-days.md).
+- Ticking, start and stop, a countdown (`task … every`): [timers](recipes/timers.md).
 - Time that outlives a launch: store `time.epochAtZero + performanceNow()`; `performanceNow()` restarts at 0 on every launch: [timer-that-survives-relaunch](recipes/timer-that-survives-relaunch.md).
 - Randomness: a seed from `crypto.getRandomValues` in a source: [random-and-shuffle](recipes/random-and-shuffle.md).
 - A chat that stays at the newest message: `scrollFollowEnd=true`: [chat-thread](recipes/chat-thread.md).
 - Icons: `image "symbol:add"` (a role), any SF Symbol as `symbol:sf/<name>`: [symbols](recipes/symbols.md).
-- A remembered setting: [persisted-setting](recipes/persisted-setting.md).
+- A remembered setting: [persisted-setting](recipes/persisted-setting.md); a collection in a file or SQLite, and its grants: [files-and-grants](recipes/files-and-grants.md).
 - The network: [fetch-loading-error](recipes/fetch-loading-error.md); your own server: [rest-backend](recipes/rest-backend.md).
-- Columns that wrap on a phone: [responsive-columns](recipes/responsive-columns.md).
-- How it looks on the web; list and detail side by side when wide: [web-look](recipes/web-look.md).
-- After a write: clear or close on an ok reply, a refusal in words: [after-a-write](recipes/after-a-write.md).
+- Columns that wrap on a phone: [responsive-columns](recipes/responsive-columns.md); the web, and list and detail side by side when wide: [web-look](recipes/web-look.md).
 
 ## Look it up, when no recipe covers it
 
@@ -246,9 +246,9 @@ same storage. Every form, and the real-clock drive before calling it done: [test
 | --- | --- |
 | Is a tag, attribute or property accepted | `bun exact.mjs contract vocab <name>` |
 | Every test step and drive operation | [tests](recipes/tests.md); [grammar: authored tests](contract-grammar.md#authored-tests) |
-| Every standard function | [grammar: standard functions](contract-grammar.md#standard-functions-and-intrinsics) |
+| Every standard function; one function's rules | [functions](recipes/functions.md); `bun exact.mjs contract vocab <name>` |
 | Any other declaration or its semantics | [contract-for-agents](contract-for-agents.md), by its contents |
 | Compiles but lays out or behaves wrong | [agent-pitfalls](agent-pitfalls.md), by section |
-| Data module globals, storage, grants, SQLite | [reference](reference.md#what-a-data-module-can-use); [human guide](contract-for-humans.md#writing-the-data-module) |
+| Data module globals, storage, grants, SQLite | [files-and-grants](recipes/files-and-grants.md); [reference](reference.md#what-a-data-module-can-use) |
 | Native code for what Contract can't say | [reference: access hatches](reference.md#access-hatches) |
 | A whole iPhone app with tabs and tests | [`apps/shelf`](../apps/shelf/app.contract) |
