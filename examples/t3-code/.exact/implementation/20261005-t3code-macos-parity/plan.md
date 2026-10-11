@@ -277,7 +277,11 @@ differences", not to new tasks. Later that day the user asked to fix the Known d
 [unverified-real-input-rows](tasks/closed/20261011-unverified-real-input-rows.md) (#426, `6becef789`) merged; framework
 gap [X83](issues/closed/20261011-x83-repeating-hatch-across-list-rows.md) moved to main (main PR #430). One final
 session, `realinput-1011a` (the bundle of `ff1eb4ceb`), passed 14 of 21 steps; dialogs that open with nothing focused,
-⌘⇧F and the steps the lane could not reach are in `STATUS.md` "Known differences". Open: nothing that can move; main adoption round 9 waits for main #327, and the held tasks below wait on
+⌘⇧F and the steps the lane could not reach are in `STATUS.md` "Known differences". The user then asked to fix four of
+them: [dialog-initial-focus-and-model-prices](tasks/closed/20261011-dialog-initial-focus-and-model-prices.md) (#438,
+`976fce617`) and [search-key-and-timeline-commit-title](tasks/closed/20261011-search-key-and-timeline-commit-title.md)
+(#439, `a55c9e7c5`) merged, and a short session, `realinput-1011b` (the bundle of `a55c9e7c5`), passed every step; ⌘⇧F
+is taken by this Mac before any app (the reference and Xcode lose it too), so the clone did not change for it. Open: nothing that can move; main adoption round 9 waits for main #327, and the held tasks below wait on
 main.
 New local framework draft: [X70](issues/closed/20261010-x70-aria-disabled-focusable.md) (kept
 local, as the user chose for X69). User decisions of 2026-10-10: #99's clean delivery is not in this session; PG-10 runs in

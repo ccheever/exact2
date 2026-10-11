@@ -101,12 +101,23 @@ Records: `.exact/implementation/20261005-t3code-macos-parity/` (`plan.md` "Statu
 
 ### Next real-input batch
 
-**Real-input sessions ended with `realinput-1011a` (the user's decisions, 2026-10-11: `realinput-1010h` was to be the last;
-the user then asked for one more after the Known-differences wave).** Rows
+**Real-input sessions ended with `realinput-1011b` (the user's decisions, 2026-10-11: `realinput-1010h` was to be the last;
+the user then asked for one more after the Known-differences wave, `realinput-1011a`, and a short one after the four
+fixes that followed it).** Rows
 that did not run stay unverified and are listed in "Known differences" below; build observations go there too, not to new
 tasks.
 
-2026-10-11, after #426, #427, #431 and #434 merged (`realinput-1011a`, the final session; the bundle of `ff1eb4ceb` in lane
+2026-10-11, after #438 and #439 merged (`realinput-1011b`, the short session after the four fixes; the bundle of
+`a55c9e7c5` in lane ri1011b-1, real keys and pointer; light and dark from the lane app's own Appearance setting, never
+System Settings). Passed: the dialogs' focus on opening and closing (Add provider, New task, Model prices on Cost and on
+Limits with its X, + and chevron drawn, Add hub; light and dark) and the Timeline's commit titles at rest, blue under
+the pointer, a click opening the Code tab. ⇧⌘F opened nothing in the clone, in the reference T3 Code (Alpha) lane or in
+Xcode: this Mac takes the key before any app, so it is no difference and nothing in the clone changed for it. Both
+records are closed. Evidence: `realinput-1011b/` on t3-code-evidence
+([notes](https://raw.githubusercontent.com/ccheever/exact2/3b465b823cf4e98e219cf1944de7837d45e58fbc/realinput-1011b/00-1011b-notes.txt), [dialogs, light](https://raw.githubusercontent.com/ccheever/exact2/9ce4d1a1bf4a42ef094e0eed621d0840475e27c0/realinput-1011b/DF-light-steps-1-4.png),
+[⇧⌘F in three apps](https://raw.githubusercontent.com/ccheever/exact2/698195a5ef4998d6025571610296132a879ce94f/realinput-1011b/SK1-shift-cmd-f-clone-reference-xcode.png), [Timeline, light](https://raw.githubusercontent.com/ccheever/exact2/f6036b62d23f370c11e014ce4509b3e297422f89/realinput-1011b/TC1-light-rest-hover-click.png)).
+
+2026-10-11, after #426, #427, #431 and #434 merged (`realinput-1011a`; the bundle of `ff1eb4ceb` in lane
 ri1011a-1, real keys and pointer; the input source was ABC, switched by the user). 14 of 21 steps passed: the Files '+',
 click and drag (FG-1, FG-2), a Files number closing a skill chip's details (FG-4's Files half), the four reply link steps
 (RL-1..RL-3, accessibility), the dialog traps of Brave, Chrome, Remove profile, Add hub and New task, ⌘K, the four
@@ -170,11 +181,12 @@ inside a link ([reply-links](.exact/implementation/20261005-t3code-macos-parity/
 rows ([unverified-real-input-rows](.exact/implementation/20261005-t3code-macos-parity/tasks/closed/20261011-unverified-real-input-rows.md), #426), checked in `realinput-1011a`.
 The rows below are what stays.
 
-2026-10-11, after `realinput-1011a`: the user asked to fix four of them. In progress:
-[dialog-initial-focus-and-model-prices](.exact/implementation/20261005-t3code-macos-parity/tasks/20261011-dialog-initial-focus-and-model-prices.md) (the dialogs that open
-with nothing focused, and `QUEUE.md`'s two Model prices rows) and
-[search-key-and-timeline-commit-title](.exact/implementation/20261005-t3code-macos-parity/tasks/20261011-search-key-and-timeline-commit-title.md) (⌘⇧F, and the
-Timeline commit title in "Found, not in scope"). Their real-input rows go to one short session after them.
+2026-10-11, after `realinput-1011a`: the user asked to fix four of them. Fixed and merged: the dialogs that opened with
+nothing focused, which now also give the focus back on closing, and `QUEUE.md`'s two Model prices rows
+([dialog-initial-focus-and-model-prices](.exact/implementation/20261005-t3code-macos-parity/tasks/closed/20261011-dialog-initial-focus-and-model-prices.md), #438), and the Timeline's
+commit title ([search-key-and-timeline-commit-title](.exact/implementation/20261005-t3code-macos-parity/tasks/closed/20261011-search-key-and-timeline-commit-title.md), #439); ⌘⇧F
+turned out to be taken by this Mac before any app (the reference and Xcode lose it too), so its row is gone. Checked in
+`realinput-1011b`.
 
 | Where | Clone | Reference | Source |
 | --- | --- | --- | --- |
@@ -182,10 +194,12 @@ Timeline commit title in "Found, not in scope"). Their real-input rows go to one
 | A reply's `#fragment` link | A link; a click keeps the thread | The hash router leaves the thread for a new-thread draft | [reply-links](.exact/implementation/20261005-t3code-macos-parity/tasks/closed/20261011-reply-links.md) RL-2; kept by choice (the user was asked; can be taken later) |
 | A `mailto:` link in a reply's Markdown table cell | A click hands it to the mail app | Opens nothing | The same record; stopping it grows the plan by 308 KB |
 | The ContextMenu key (or VoiceOver's show menu) on a focused `mailto:`, `irc:`, `xmpp:` or `#fragment` link | No menu | The shell's menu at the link | The same record; a Mac keyboard has no ContextMenu key |
-| Dialogs that open with nothing focused (Add provider, Model prices; New task until a click) | Under real keys, Tab and Shift+Tab reach none of their stops | Base UI focuses the dialog on open, and the trap wraps | `realinput-1011a` DT-5, DT-6, DT-8; cause not traced; [dialog-trap-and-progress-value](.exact/implementation/20261005-t3code-macos-parity/tasks/closed/20261011-dialog-trap-and-progress-value.md) |
-| ⌘⇧F (project content search) | Under real keys it opened nothing, from the composer or the timeline | Opens the search | `realinput-1011a` DT-7; cause not traced |
-| Smaller Tab-order differences in dialogs | ⌘K: Tab stays on the field; Add a theme: Shift+Tab goes to the X; a `select`, time or date input is no Tab stop (X52) | The results list (a Chromium scroller); its hidden file input; Tab stops | The same record, "Known differences (after this task)" |
-| Progress bars (provider install, usage) to VoiceOver | The percentage is in a busy indicator's name ("Antigravity download, 27%"), not a progress value; not heard under VoiceOver (no bar in the lane) | A `progress` element whose value assistive technology reads | X49, X55; main `issues/20261009-aria-range-accessibility-values.md` (open); the same record PV-1 |
+| Closing a dialog whose opener the view cannot name: 10 modal popups (the project picker, the image, video and diagram previews, the PR checkout, Device setup, the legacy sidebar's dialogs, the welcome wizard, the ChatGPT plan notice, the pairing reveal) and 6 confirms (the two legacy ones, archived-thread delete, SIGKILL, server update) | The focus is left nowhere | Base UI gives the focus back to what held it when the dialog opened | X53 (#282, #327): the clone cannot read the focus a dialog opened from; `showModal()`/`close()` would carry it; [dialog-initial-focus-and-model-prices](.exact/implementation/20261005-t3code-macos-parity/tasks/closed/20261011-dialog-initial-focus-and-model-prices.md) |
+| Closing a dialog opened by a pointer | The focus goes to the opener, with no ring | Gives it back to what held it before (macOS Chromium does not focus a clicked button: Add hub went back to Add provider) | The same record; opened from a key the two agree |
+| Custom model prices open while the appearance turns dark | Its title "Custom model prices" stays in the light colour (the other texts turn) | Turns | The same record, found while building, not investigated; a dialog opened in dark draws it right |
+| A pull request Timeline's "Pull request opened" row | The actor's avatar | The pull request glyph (`IconMarker`) | [search-key-and-timeline-commit-title](.exact/implementation/20261005-t3code-macos-parity/tasks/closed/20261011-search-key-and-timeline-commit-title.md), seen while building |
+| Smaller Tab-order differences in dialogs | ⌘K: Tab stays on the field; Add a theme: Shift+Tab goes to the X; a `select`, time or date input is no Tab stop (X52) | The results list (a Chromium scroller); its hidden file input; Tab stops | [dialog-trap-and-progress-value](.exact/implementation/20261005-t3code-macos-parity/tasks/closed/20261011-dialog-trap-and-progress-value.md), "Known differences (after this task)" |
+| Progress bars (provider install, usage) to VoiceOver | The percentage is in a busy indicator's name ("Antigravity download, 27%"), not a progress value; not heard under VoiceOver (no bar in the lane) | A `progress` element whose value assistive technology reads | X49, X55; main `issues/20261009-aria-range-accessibility-values.md` (open); [dialog-trap-and-progress-value](.exact/implementation/20261005-t3code-macos-parity/tasks/closed/20261011-dialog-trap-and-progress-value.md) PV-1 |
 | Provider sign-in, not verified with a real account | Gemini CLI (ACP) "Log in with Google": Google refused the client for this account; Cursor: no Pro account (a free account gets `403 plan_required`). Antigravity's Google sign-in, real Sign out and Codex's Change account passed (2026-10-08) | — | [provider-sign-in-verification-followup](.exact/implementation/20261005-t3code-macos-parity/tasks/closed/20261008-provider-sign-in-verification-followup.md), closed |
 | Not compared | The subscription trace (subscriptions, unsubscriptions, refresh calls) and reference pixel pairs for #238's matrix: no oracle or trace tooling (decision of 2026-10-06) | — | The same record |
 | Real input, not verified | #261's reaction pill tooltip, #307's Usage popover email tooltip and the press on its padding, #311's PR-link card (wait for main #327, X62); the Diff panel's gutter press closing a skill chip's details (FG-4) and split view's stripes (`realinput-1011a`'s lane had no diff); Add device host's trap (its hub was not installed) | — | Tests and agent drives cover them |
@@ -194,5 +208,5 @@ Timeline commit title in "Found, not in scope"). Their real-input rows go to one
 
 | Found by (date) | Bug | Steps | Measured |
 | --- | --- | --- | --- |
-| `realinput-1011a`, 2026-10-11 | A pull request Timeline commit title stays invisible until the pointer is over it | A PR's Timeline tab, a commit row, the pointer elsewhere | [image](https://raw.githubusercontent.com/ccheever/exact2/2610719c6267c52ddaaa45274a12a74110dadfdc/realinput-1011a/UV1-timeline-ages-no-tip.png) |
+| `realinput-1011a`, 2026-10-11 | A pull request Timeline commit title stays invisible until the pointer is over it | A PR's Timeline tab, a commit row, the pointer elsewhere | [image](https://raw.githubusercontent.com/ccheever/exact2/2610719c6267c52ddaaa45274a12a74110dadfdc/realinput-1011a/UV1-timeline-ages-no-tip.png). Fixed by #439 (`a55c9e7c5`; the row's button now lies over its texts, X82), checked in `realinput-1011b` |
 | browser-surface-automation (#346), 2026-10-09 | While Settings › Integrations is open, the data module asks `server.getConfig`, `server.getSettings` and `device.list` again and again. The `integrations` resource (`integrationsPage`, keyed on `data.revision`) is re-asked after every answer, and the runner stays busy, so a 3-s agent wait takes 35-40 s. Pre-existing: the base `d564a5c02` has it. | Build the app; launch it on a lane (any connected environment); open Settings (`connection-settings`) › Integrations (`settings-integrations`); wait 30 s; count the lane server's `ws.rpc.server.getConfig` / `getSettings` / `device.list` spans in `userdata/logs/server.trace.ndjson*` (the trace rotates every ~10 MB). Leaving Settings stops it within seconds. | Base: 26.4/s each over 60.9 s. #346's branch: 13.0/s each over 70.2 s ([record](https://raw.githubusercontent.com/ccheever/exact2/056511fac8d7d0b99ec4df0d5906f358cc39be2e/browser-surface-automation/settings-loop.txt)). **In review:** [fix-settings-integrations-loop](.exact/implementation/20261005-t3code-macos-parity/tasks/closed/20261009-fix-settings-integrations-loop.md) (draft [#353](https://github.com/ccheever/exact2/pull/353)). Cause: each answer sent `device.list { inspectOnly }`, whose inspection the server publishes to the device-state stream the app holds; that event bumped `data.revision`, which re-asked the page. The page now reads the connection's server config and device-state stream, as the reference does. Base `c603c22d6`: 25.5/s each; branch: 0 in 30 s ([record](https://raw.githubusercontent.com/ccheever/exact2/e84540a35484258e3e15ced0fd7e15e87ce81db4/fix-settings-integrations-loop/settings-loop.txt)). | Fixed by #353 (`950e8e2e5`).

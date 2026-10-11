@@ -2,13 +2,13 @@
 name: 20261011-search-key-and-timeline-commit-title
 plan: 20261005-t3code-macos-parity
 implementation: implemented
-verification: verified-with-unverified-rows
-delivery: draft-pr
+verification: verified
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-search-key-and-timeline-commit-title
 pr_url: https://github.com/ccheever/exact2/pull/439
-verified_commit: null
+verified_commit: a55c9e7c5
 ---
 
 # ⌘⇧F under real keys, and the Timeline's commit titles
@@ -114,7 +114,7 @@ compiler (not portable to iOS and Linux).
 | SK-1 | in-app path pass, cause outside the app: before and after (the same key code) ⇧⌘F through `NSApplication.sendEvent` opens the project search from the window, the composer and after DT-7's sequence; the real key's loss traced to the system's enabled symbolic hot key 157 (⇧⌘F). Under real keys: open, step 1 | [sk-record.txt](https://raw.githubusercontent.com/ccheever/exact2/929c8e609688683ab3f465bc2a751b229896f5ee/search-key-and-timeline-commit-title/sk-record.txt) |
 | SK-2 | pass: every reference binding listed against the app's path and this Mac's hot keys and Services; none lost in the app. Bun guard (5 pass). AppKit guard `macos/tests/real-key-chords` (3 tests, 45 chords × 2 focuses through `NSApplication.sendEvent`): after, pass with the app active and its window key and pass with the screen locked; before (the same test against the feature tip's modules), pass; two mutations fail it | [sk-record.txt](https://raw.githubusercontent.com/ccheever/exact2/929c8e609688683ab3f465bc2a751b229896f5ee/search-key-and-timeline-commit-title/sk-record.txt) |
 | TC-1 | pass (agent drive, `screenshot … window`, light and dark, reference): before, every commit title blank at rest and drawn only after hover; after, drawn at rest in the ink colour, blue under the pointer, as the reference; a mouse click on the title and on the row's middle opens the Code tab on that commit | [light](https://raw.githubusercontent.com/ccheever/exact2/f1a0fff3b8840975e292d53ac7704604e426ecd8/search-key-and-timeline-commit-title/tc1-light.png), [dark](https://raw.githubusercontent.com/ccheever/exact2/5bc3bc8bc7bbaf99b5a1b45efc9b13628f157534/search-key-and-timeline-commit-title/tc1-dark.png), [press](https://raw.githubusercontent.com/ccheever/exact2/e65626aeeb9a9dd653ed3bc54a4a01ba0bbb683a/search-key-and-timeline-commit-title/tc1-after-press.png) |
-| SK-1 and TC-1 under real keys and pointer | open: real-input steps 1-4 | — |
+| SK-1 and TC-1 under real keys and pointer | see "Real-input results" (`realinput-1011b`) | below |
 
 Drives (agent mode, 1280×840, the GitHub lane's primary server on 16323 paired through Settings › Connections, PR #168):
 before on the evidence worktree at `ff1eb4ceb`, after on this branch's bundle (`91ccd8abb`'s app code); the reference is
@@ -178,15 +178,33 @@ changed no UI (the contract change is a comment), so the live drive and its imag
 
 ## Not done / not verified
 
-- SK-1 under real keys: whether the key reaches the process, and whether the reference loses it too (steps 1-3). Blocker:
-  real input is the coordinator's final session.
-- TC-1 under a real pointer (step 4). Same blocker.
+None: real-input steps 1-4 ran in `realinput-1011b` (below).
 
 ## Seen while building, not a finding row
 
 - The Timeline's "Pull request opened" row shows the actor's avatar in the clone; the reference's LifecycleEvent shows
   the pull request glyph (IconMarker) — visible in the TC-1 images.
 
+## Real-input results
+
+`realinput-1011b` (2026-10-11, the short session the user asked for after this task and search-key-and-timeline-commit-title; the bundle of `a55c9e7c5`, the tip after #438 and #439, in lane copy ri1011b-1 on port 16971, real keys and pointer; the input source was ABC, read only, and input stopped once while it showed 2-Set Korean until the user switched it back). Light and dark were set with the lane app's own Settings › Appearance, not System Settings, which the session never changes. Notes: [00-1011b-notes.txt](https://raw.githubusercontent.com/ccheever/exact2/3b465b823cf4e98e219cf1944de7837d45e58fbc/realinput-1011b/00-1011b-notes.txt).
+
+| Step | Result | Evidence |
+| --- | --- | --- |
+| 1, SK-1 from the composer | ⇧⌘F opens no project search; `R8_KEYS_LOG` has no `key=f flags=1179648` line | [images](https://raw.githubusercontent.com/ccheever/exact2/698195a5ef4998d6025571610296132a879ce94f/realinput-1011b/SK1-shift-cmd-f-clone-reference-xcode.png), [log](https://raw.githubusercontent.com/ccheever/exact2/1353ada0dc64e5cbe7c727ec0b6dae608e0a29d2/realinput-1011b/SK1-all.txt) |
+| 2, SK-1 from the window | The same | the same |
+| 3, SK-1 control | ⇧⌘F opens nothing in the reference T3 Code (Alpha) lane either, from its composer or its window, nor in Xcode's editor, where the Find menu binds it to Find in Workspace: the key is taken before any app on this Mac, as Cause and fix says (hot key 157 has no explicit entry in `com.apple.symbolichotkeys`, read only). ⇧⌘M in the clone's composer opens the model picker | the same, [⇧⌘M](https://raw.githubusercontent.com/ccheever/exact2/fef3447b067804a1726bb582b5c6f3ef7ffba315/realinput-1011b/SK1-shift-cmd-m-model-picker.png) |
+| 4, TC-1 | Pass, light and dark: every commit title drawn at rest; the title under the pointer turns blue; a click on "Revise the first entry" opens the Code tab scoped to that commit | [light](https://raw.githubusercontent.com/ccheever/exact2/f6036b62d23f370c11e014ce4509b3e297422f89/realinput-1011b/TC1-light-rest-hover-click.png), [dark](https://raw.githubusercontent.com/ccheever/exact2/b2db81449895ba32ad6f14280a9df74466d3e112/realinput-1011b/TC1-dark-rest-hover-click.png) |
+
+`R8_KEYS_LOG` cannot settle step 1 or 2 by itself: it wrote lines only for ⌘A and ⌘V in Settings text fields, and none
+for a ⌘K that opened the palette or the ⇧⌘M that opened the picker. The evidence that the system takes ⇧⌘F is the three
+apps failing alike. Nothing in the clone changes for SK-1.
+
+## Delivery
+
+Merged on 2026-10-11 as `a55c9e7c5` (#439, squash) after an independent review and its repair (the AppKit guard
+`macos/tests/real-key-chords`, the 78-rule count, X82's workaround named). Before the merge #438 and #439 were combined on `827e9fcf8` with no conflict, and the Bun suite (4653 pass, 1 skip, 0 fail), strict tsc, the contract build (28,820,298 bytes) and caps passed on that tree, which is the merged tip's (`a55c9e7c5`).
+
 ## Next action
 
-Coordinator: review #439; run real-input steps 1-4 in the next short session.
+None. Closed after `realinput-1011b`; what stays open is listed in `STATUS.md` "Known differences" (the user's decision of 2026-10-11: no new tasks from real-input failures).

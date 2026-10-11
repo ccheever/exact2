@@ -2,13 +2,13 @@
 name: 20261011-dialog-initial-focus-and-model-prices
 plan: 20261005-t3code-macos-parity
 implementation: implemented
-verification: partial
-delivery: draft-pr
+verification: verified
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-dialog-initial-focus-and-model-prices
 pr_url: https://github.com/ccheever/exact2/pull/438
-verified_commit: null
+verified_commit: a55c9e7c5
 ---
 
 # Dialogs that open with nothing focused, and the Model prices dialog
@@ -208,7 +208,24 @@ On a lane copy of this branch's bundle, light appearance (System Settings › Ap
    twice: the ring on the X. Escape: the Usage page stays, the ring on "All environments"; Enter opens its menu.
 4. Settings › Providers › Add hub (click), then type a letter at once: it lands in Hub URL. Escape: the ring on Add hub.
 
+## Real-input results
+
+`realinput-1011b` (2026-10-11, the short session the user asked for after this task and search-key-and-timeline-commit-title; the bundle of `a55c9e7c5`, the tip after #438 and #439, in lane copy ri1011b-1 on port 16971, real keys and pointer; the input source was ABC, read only, and input stopped once while it showed 2-Set Korean until the user switched it back). Light and dark were set with the lane app's own Settings › Appearance, not System Settings, which the session never changes. Notes: [00-1011b-notes.txt](https://raw.githubusercontent.com/ccheever/exact2/3b465b823cf4e98e219cf1944de7837d45e58fbc/realinput-1011b/00-1011b-notes.txt).
+
+| Step | Result | Evidence |
+| --- | --- | --- |
+| 1, Add provider (DF-1, DF-3) | Pass, light and dark: opens on "1 Provider"; Tab rings "2 Identity"; Shift+Tab ×2 rings the X; Escape rings Add provider; Enter opens it again | [light](https://raw.githubusercontent.com/ccheever/exact2/9ce4d1a1bf4a42ef094e0eed621d0840475e27c0/realinput-1011b/DF-light-steps-1-4.png), [dark](https://raw.githubusercontent.com/ccheever/exact2/8d1d2be678267be34bd584eba7379e78b8067a1e/realinput-1011b/DF-dark-steps-1-4.png) |
+| 2, New task | Pass, light and dark: opens on Runs on; Tab puts the caret in Name; Shift+Tab ×2 rings the X; Escape rings New task | the same |
+| 3, Model prices on Cost and on Limits (MP-1, MP-2) | Pass, light and dark: opens on both, its X, + and chevron drawn; Tab rings +; Shift+Tab ×2 rings the X; Escape keeps the Usage page with the ring on "All environments"; Enter opens its menu | the same |
+| 4, Add hub | Pass, light and dark: a letter typed at once lands in Hub URL; Escape rings Add hub | the same |
+
+The first switch to dark missed the radio (scrolled off); that run was discarded and step 1 run again in dark.
+
+## Delivery
+
+Merged on 2026-10-11 as `976fce617` (#438, squash) after an independent review and its repair (DF-3, X53's row, the
+run-time test). Before the merge #438 and #439 were combined on `827e9fcf8` with no conflict, and the Bun suite (4653 pass, 1 skip, 0 fail), strict tsc, the contract build (28,820,298 bytes) and caps passed on that tree, which is the merged tip's (`a55c9e7c5`).
+
 ## Next action
 
-Coordinator: review the draft PR (the review's three findings are fixed: DF-3, X53's row, the run-time test); run the
-Real-input batch steps in the final session.
+None. Closed after `realinput-1011b`; what stays open is listed in `STATUS.md` "Known differences" (the user's decision of 2026-10-11: no new tasks from real-input failures).
