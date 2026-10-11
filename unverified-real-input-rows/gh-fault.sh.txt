@@ -1,0 +1,16 @@
+#!/bin/sh
+# unverified-real-input-rows UV-2 (the viewed-error tip): the real GitHub CLI, except that a GraphQL read of
+# viewerViewedState for a pull request whose number is listed in viewed-fault (one per line, beside this file) fails,
+# as a host outage of that one read would. Every other call goes to the real gh unchanged. Not committed.
+D=$(cd "$(dirname "$0")" && pwd)
+if [ -f "$D/viewed-fault" ]; then
+  case "$*" in
+    *viewerViewedState*)
+      for n in $(cat "$D/viewed-fault"); do
+        for a in "$@"; do
+          if [ "$a" = "number=$n" ]; then echo "HTTP 502: Bad Gateway (https://api.github.com/graphql)" >&2; exit 1; fi
+        done
+      done;;
+  esac
+fi
+exec /opt/homebrew/bin/gh "$@"
