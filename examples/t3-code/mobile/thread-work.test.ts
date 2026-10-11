@@ -147,6 +147,53 @@ test('search calls preserve named arguments and separate real search results', (
   const web = projected({ type: 'web_search', patterns: ['one', 'two'], results: [{ title: 'Source', url: 'https://example.com', snippet: 'Result' }] });
   expect(mobileThreadActivity(activity, web, clientFor([web]), now, false, '')).toMatchObject({ call: true, body: 'query one, two', output: 'Source\nhttps://example.com\nResult' });
 });
+test('web search headers copy original patterns and results without changing detail ownership', async () => {
+  const web = projected({ type: 'web_search', results: [{ snippet: 'Result', url: 'https://example.com', title: 'Source' },
+    { url: 'https://other.test' }], patterns: ['  one  ', 'two'] });
+  const client = clientFor([web]), requests: string[] = [];
+  client.scopes = []; client.local.drafts[client.draftKey] = '  ';
+  client.rpc = async (_native, method) => { requests.push(method); return {}; };
+  const before = JSON.stringify(client.projection), props = { ...activity, icon: 'globe', label: 'Visible web row' };
+  const collapsed = mobileThreadActivity({ ...props, detailOpen: false }, web, client, now, false, '', 'visit');
+  expect(collapsed.nativeWorkRow).not.toBe('');
+  const configuration = JSON.parse(collapsed.nativeWorkRow), expected = `Searched the web\n  one  , two\n${JSON.stringify({
+    visibility: 'inherited', sourceThreadId: 'source', sourceItemId: 'item', item: { id: 'item', threadId: 'source', runId: 'run',
+      status: 'completed', startedAt: time, updatedAt: time, type: 'web_search', patterns: ['  one  ', 'two'],
+      results: [{ title: 'Source', url: 'https://example.com', snippet: 'Result' }, { url: 'https://other.test' }] },
+  }, null, 2)}`;
+  expect(configuration).toMatchObject({ copyText: expected, label: 'Visible web row', symbol: 'globe', expanded: false, expandable: true });
+  expect(collapsed).toMatchObject({ nativeCommandDetail: false, nativeWorkDetail: false, body: '', output: '' });
+  setTurnItemOpen(client, activity.id, true);
+  expect(await refreshNextOpenTurnItemDetail(client, native, now)).toBe(false);
+  const expanded = mobileThreadActivity(props, web, client, now, false, '', 'visit');
+  expect(JSON.parse(expanded.nativeWorkRow)).toMatchObject({ copyText: expected, owner: configuration.owner, expanded: true });
+  expect(expanded).toMatchObject({ nativeCommandDetail: false, nativeWorkDetail: false, body: 'query   one  , two',
+    output: 'Source\nhttps://example.com\nResult\n\nhttps://other.test' });
+  const otherVisit = JSON.parse(mobileThreadActivity(props, web, client, now, false, '', 'other-visit').nativeWorkRow);
+  expect(otherVisit.owner).not.toBe(configuration.owner); expect(otherVisit.copyText).toBe(expected);
+  expect(requests).toEqual([]); expect(client.draft).toBe('  '); expect(client.threadId).toBe('thread');
+  expect(JSON.stringify(client.projection)).toBe(before);
+  for (const dark of [false, true]) {
+    const image = mobileThreadActivity({ ...props, iconLight: 'https://example.com/light.png', iconDark: 'https://example.com/dark.png' }, web, client, now, dark, '', 'visit');
+    expect(image.nativeWorkRow).toBe(''); expect(image.iconURL).toBe(`https://example.com/${dark ? 'dark' : 'light'}.png`);
+  }
+  const titled = projected({ type: 'web_search', title: '  searched docs  ', patterns: ['Searched docs'] });
+  const titledCopy = JSON.parse(mobileThreadActivity(props, titled, clientFor([titled]), now, false, '', 'visit').nativeWorkRow).copyText;
+  expect(titledCopy.startsWith('Searched docs\n{')).toBe(true);
+  expect(JSON.parse(titledCopy.slice(titledCopy.indexOf('{'))).item.title).toBe('  searched docs  ');
+  const absent = projected({ type: 'web_search' });
+  const absentCopy = JSON.parse(mobileThreadActivity({ ...props, expandable: false }, absent, clientFor([absent]), now, false, '', 'visit').nativeWorkRow);
+  expect(absentCopy.expandable).toBe(false); expect(absentCopy.copyText.startsWith('Searched the web\n{')).toBe(true);
+  const absentItem = JSON.parse(absentCopy.copyText.slice(absentCopy.copyText.indexOf('{'))).item;
+  expect(Object.hasOwn(absentItem, 'patterns')).toBe(false); expect(Object.hasOwn(absentItem, 'results')).toBe(false);
+  const empty = projected({ type: 'web_search', patterns: [], results: [] });
+  const emptyCopy = JSON.parse(mobileThreadActivity(props, empty, clientFor([empty]), now, false, '', 'visit').nativeWorkRow).copyText;
+  expect(emptyCopy.startsWith('Searched the web\n{')).toBe(true);
+  expect(JSON.parse(emptyCopy.slice(emptyCopy.indexOf('{'))).item).toMatchObject({ patterns: [], results: [] });
+  const separators = projected({ type: 'web_search', patterns: ['', ''] });
+  const separatorCopy = JSON.parse(mobileThreadActivity(props, separators, clientFor([separators]), now, false, '', 'visit').nativeWorkRow).copyText;
+  expect(separatorCopy.startsWith('Searched the web\n, \n{')).toBe(true);
+});
 test('file search headers copy original results without taking command detail ownership', async () => {
   const file = projected({ type: 'file_search', results: [{ preview: 'needle()', column: 3, line: 12, fileName: 'main.ts' },
     { preview: 'needleAgain()', fileName: 'other.ts' }], pattern: 'needle' });
