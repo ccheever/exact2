@@ -883,6 +883,8 @@ export function pattern(args, say = console.log) {
 function main(argv) {
   const [verb, name, ...rest] = argv;
   if (!verb || verb === '--help' || verb === '-h' || verb === 'help') return console.log(USAGE);
+  // Help before any work (`setup --help` installed, `new --help` wrote an app); the compiler answers its own.
+  if (verb !== 'contract' && argv.some(arg => arg === '--help' || arg === '-h')) return console.log(USAGE);
   if (verb === 'setup') return setup({check: name === '--check'});
   if (verb === 'list') return list();
   // The compiler parses its own flags; its help is printed here, so asking compiles nothing (LLP 1116 D4).

@@ -12,6 +12,16 @@ import { delimiter, dirname, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 
 const out = process.argv[2];
+// Help before any work: `--help` was taken as the output path, after minutes of building (app farm 016).
+if (out === '--help' || out === '-h' || out?.startsWith('-')) {
+  console[out === '--help' || out === '-h' ? 'log' : 'error'](`usage: node snapback4/web/build.mjs [<output.wasm>]
+  Builds Snapback4's web device (the wasm an app serves) and its wasm-bindgen glue (snapback4/ts/generated/).
+  The output is a path from the current directory; run it from the app's directory:
+    node <exact2>/snapback4/web/build.mjs assets/snapback4.wasm
+  The web host serves assets/snapback4.wasm at /assets/snapback4.wasm, the driver's default.
+  With no output it writes only the glue, which every host's bake type-checks.`);
+  process.exit(out === '--help' || out === '-h' ? 0 : 2);
+}
 const workspace = resolve(import.meta.dirname, '..');
 // One absolute directory for Cargo (run in the workspace) and the paths below.
 const target = resolve(process.env.SNAPBACK4_TARGET_DIR ?? resolve(workspace, 'target'));

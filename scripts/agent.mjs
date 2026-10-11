@@ -1385,8 +1385,8 @@ export async function main(argv, injected = {}) {
   guardFlags(flags.test ? 'test' : 'agent', rest, { parsed: true }); // --help, or a flag parseFlags left (never an op)
   if (flags.sim) process.env.EXACT_SIM = flags.sim; // the simulator, named as EXACT_SIM names it (devices.mjs `simulator`)
   const [host, ...ops] = rest;
-  const browser = flags.browser ?? (host === 'web' ? process.env.EXACT_WEB_BROWSER : undefined);
-  if (host && flags.test) {
+  const browser = flags.browser ?? (host === 'web' ? process.env.EXACT_WEB_BROWSER : undefined), help = argv.includes('--help') || argv.includes('-h'); // help before any work
+  if (host && flags.test && !help) {
     // A test's `drag` on an iOS simulator is a real gesture by itself; `--touch platform` makes every tap one too (LLP 1080.000).
     if (flags.touch && !['agent', 'platform'].includes(flags.touch)) throw new Error(`--touch ${flags.touch} is not taken with --test: a test's \`drag\` is a real gesture by itself on an iOS simulator; --touch platform makes every tap one too (LLP 1080.000)`);
     const r = await runTests({ host, browser, file: flags.test, plan: flags.plan, app: flags.app, size: flags.size, device: flags.device, phone: flags.phone, url: flags.url, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch, failFetch: flags.failFetch, storage: flags.storage, touch: flags.touch, chrome: flags.chrome, scale: flags.scale, port: flags.port });
