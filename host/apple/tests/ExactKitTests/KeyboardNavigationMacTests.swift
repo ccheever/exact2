@@ -27,20 +27,7 @@ final class KeyboardNavigationMacTests: XCTestCase {
     /// `tabindex=-1` (8, `skipped`), a field (9, `b`) and a native button
     /// with `tabindex=0` (10).
     private func fixture() -> Presenter {
-        _ = NSApplication.shared
-        let p = Presenter()
-        var face = ButtonFace(); face.title = "Go"
-        p.buttonFace = { _ in face }
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 500), styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.autorecalculatesKeyViewLoop = false
-        window.contentView = p.viewport
-        func row(_ id: Int, _ kind: String, _ props: [String: String] = [:], handlers: [String] = [], style: [String: Any] = [:]) -> [[String: Any]] {
-            [["op": "create", "id": id, "kind": kind, "props": props, "handlers": handlers, "style": style],
-             ["op": "frame", "id": id, "x": 10, "y": id * 40, "w": 200, "h": 30]]
-        }
-        var ops: [[String: Any]] = [["op": "create", "id": 1, "kind": "view"], ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 400, "h": 500]]
-        ops += row(2, "input", ["value": "", "id": "a"])
+        var ops = row(2, "input", ["value": "", "id": "a"])
         ops += row(3, "control", ["type": "button", "id": "native"], handlers: ["press"], style: ["appearance": "auto"])
         ops += row(4, "button", ["id": "custom"], handlers: ["press"])
         ops += row(5, "view", ["id": "card"], handlers: ["press"])
@@ -49,10 +36,25 @@ final class KeyboardNavigationMacTests: XCTestCase {
         ops += row(8, "view", ["id": "skipped", "tabIndex": "-1"])
         ops += row(9, "input", ["value": "", "id": "b"])
         ops += row(10, "control", ["type": "button", "id": "nativeStop", "tabIndex": "0"], handlers: ["press"], style: ["appearance": "auto"])
-        ops += [["op": "children", "id": 1, "ids": [2, 3, 4, 5, 6, 7, 8, 9, 10]], ["op": "roots", "ids": [1]]]
-        p.apply(wireBatch(ops))
+        return page(ops + [["op": "children", "id": 1, "ids": [2, 3, 4, 5, 6, 7, 8, 9, 10]]])
+    }
+    /// A page (1) in a window of its own, holding what `ops` create.
+    private func page(_ ops: [[String: Any]]) -> Presenter {
+        _ = NSApplication.shared
+        let p = Presenter()
+        var face = ButtonFace(); face.title = "Go"
+        p.buttonFace = { _ in face }
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 500), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.autorecalculatesKeyViewLoop = false
+        window.contentView = p.viewport
+        p.apply(wireBatch([["op": "create", "id": 1, "kind": "view"], ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 400, "h": 500]] + ops + [["op": "roots", "ids": [1]]]))
         p.flushKeyViewLoop()
         return p
+    }
+    private func row(_ id: Int, _ kind: String, _ props: [String: String] = [:], handlers: [String] = [], style: [String: Any] = [:]) -> [[String: Any]] {
+        [["op": "create", "id": id, "kind": kind, "props": props, "handlers": handlers, "style": style],
+         ["op": "frame", "id": id, "x": 10, "y": id * 40, "w": 200, "h": 30]]
     }
 
     /// The stops Tab visits from the viewport, once around, by node id.
@@ -105,6 +107,37 @@ final class KeyboardNavigationMacTests: XCTestCase {
         XCTAssertTrue(window.firstResponder === p.views[8])
         try tab(p, shift: true)
         XCTAssertTrue(window.firstResponder === p.views[7], "back to the stop before it")
+    }
+
+    /// A focused `tabindex=-1` box is where Tab starts, as on the web (HTML's
+    /// sequential focus navigation starting point): Tab goes to the next stop
+    /// after it in tree order, its own first button when it holds some, and
+    /// Shift-Tab to the stop before it, a positive `tabindex` included; with
+    /// none before it, to the loop's last, as Tab wraps to its first
+    /// (issues/20261010-macos-tab-from-a-focused-box.md).
+    func testTabFromAFocusedBoxThatIsNoStop() throws {
+        keyboardNavigation(true)
+        // A box (2) holding two buttons (3, 4), a button (5), a second box (6), and a button with tabindex=1 (7).
+        var ops = row(2, "view", ["id": "box", "tabIndex": "-1"]) + row(3, "button", ["id": "first"], handlers: ["press"])
+        ops += row(4, "button", ["id": "last"], handlers: ["press"]) + row(5, "button", ["id": "after"], handlers: ["press"])
+        ops += row(6, "view", ["id": "q", "tabIndex": "-1"]) + row(7, "button", ["id": "pos", "tabIndex": "1"], handlers: ["press"])
+        let p = page(ops + [["op": "children", "id": 2, "ids": [3, 4]], ["op": "children", "id": 1, "ids": [2, 5, 6, 7]]])
+        XCTAssertEqual(stops(p), [7, 3, 4, 5], "tabindex=1 first; the boxes never")
+        p.focusElement(["box"])
+        try tab(p)
+        XCTAssertTrue(window.firstResponder === p.views[3], "Tab from the box: its first button")
+        p.focusElement(["box"])
+        try tab(p, shift: true)
+        XCTAssertTrue(window.firstResponder === p.views[5], "no stop before it: the loop's last, not the tree's (7)")
+        p.focusElement(["q"])
+        try tab(p)
+        XCTAssertTrue(window.firstResponder === p.views[7], "the next stop in tree order")
+        p.focusElement(["q"])
+        try tab(p, shift: true)
+        XCTAssertTrue(window.firstResponder === p.views[5])
+        p.focusElement(["first"])
+        try tab(p, shift: true)
+        XCTAssertTrue(window.firstResponder === p.views[7], "Shift-Tab from a stop passes over the box")
     }
 
     func testOnTabReachesEveryControl() throws {

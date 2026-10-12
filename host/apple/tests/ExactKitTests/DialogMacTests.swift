@@ -459,6 +459,35 @@ final class DialogMacTests: XCTestCase {
         p.dialogs.close(p.views[3]!)
     }
 
+    /// A node in the dialog that holds the focus and is no stop, a
+    /// `tabindex=-1` box an action focused, is where Tab starts, as on the
+    /// page: the stop after it in tree order, and Shift-Tab the one before
+    /// it, not the trap's first and last
+    /// (issues/20261010-macos-tab-from-a-focused-box.md).
+    func testTabFromAFocusedBoxThatIsNoStopInTheDialog() throws {
+        let p = fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 6, "kind": "view", "props": ["tabIndex": "-1"]],
+            ["op": "create", "id": 7, "kind": "button"],
+            ["op": "children", "id": 6, "ids": [7]],
+            ["op": "children", "id": 3, "ids": [4, 6, 5]],
+            ["op": "frame", "id": 6, "x": 10, "y": 45, "w": 200, "h": 30],
+            ["op": "frame", "id": 7, "x": 0, "y": 0, "w": 80, "h": 30],
+        ]))
+        p.press(2)
+        let box = try XCTUnwrap(p.views[6])
+        XCTAssertTrue(window.makeFirstResponder(box))
+        XCTAssertTrue(p.dialogs.key(key(48)))
+        XCTAssertTrue(window.firstResponder === p.views[7], "Tab from the box: its button, not the dialog's first stop")
+        XCTAssertTrue(window.makeFirstResponder(box))
+        XCTAssertTrue(p.dialogs.key(key(48, modifiers: .shift)))
+        XCTAssertTrue(p.views[4]!.field?.currentEditor() === window.firstResponder, "Shift-Tab: the field before it, not the dialog's last stop")
+        XCTAssertTrue(window.makeFirstResponder(p.views[3]!))
+        XCTAssertTrue(p.dialogs.key(key(48, modifiers: .shift)))
+        XCTAssertTrue(window.firstResponder === p.views[5], "the dialog itself: Shift-Tab to its last stop")
+        p.dialogs.close(p.views[3]!)
+    }
+
     func testExplicitInsetsAndNestedDialogs() {
         let p = fixture()
         p.views[3]!.applyStyle(["left": 12, "bottom": ["pct": 10, "px": 8]])

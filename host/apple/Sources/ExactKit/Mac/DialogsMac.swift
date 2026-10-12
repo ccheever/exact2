@@ -189,16 +189,24 @@ final class DialogHost {
         }
         return nil
     }
-    private func candidates(_ dialog: NodeView) -> [NSView] {
-        guard let presenter else { return [] }
-        var nodes: [NodeView] = []
+    /// The dialog's stops in tree order, and how many of them come before
+    /// `start` when it is one of the dialog's nodes.
+    private func stops(_ dialog: NodeView, start: NodeView? = nil) -> (nodes: [NodeView], before: Int?) {
+        guard let presenter else { return ([], nil) }
+        var nodes: [NodeView] = [], before: Int?
         func walk(_ node: NodeView) {
             guard !node.inert, !node.disabled, !node.isHidden else { return }
+            if node === start { before = nodes.count }
             if Presenter.tabbable(node) { nodes.append(node) }
             for case let child as NodeView in node.container.subviews { walk(child) }
             for popover in presenter.menus.following(node) { walk(popover) }
         }
         walk(dialog)
+        return (nodes, before)
+    }
+    private func candidates(_ dialog: NodeView) -> [NSView] { candidates(stops(dialog).nodes) }
+    private func candidates(_ nodes: [NodeView]) -> [NSView] {
+        guard let presenter else { return [] }
         return nodes.enumerated().sorted { a, b in
             let ai = a.element.tabOrder, bi = b.element.tabOrder
             let ap = ai > 0 ? ai : Int.max, bp = bi > 0 ? bi : Int.max
@@ -231,8 +239,19 @@ final class DialogHost {
         // Return is the default button's, when the dialog has one (LLP 1115.000 D7.3).
         if pressDefault(event, in: dialog) { return true }
         if event.type == .keyDown, event.keyCode == 48 {
-            let choices = candidates(dialog)
-            guard let window = dialog.window, !choices.isEmpty else { enterFocus(); return true }
+            // A node that holds the focus and is no stop (the dialog itself, a `tabindex=-1` box) is where Tab
+            // starts, as on the page (KeyViewLoopMac.swift's starts): the stop after it in tree order, Shift-Tab
+            // the one before it, and past either end the trap's first or last.
+            let start = dialog.window.flatMap { presenter?.keyTarget($0.firstResponder) }.flatMap { Presenter.tabbable($0) ? nil : $0 }
+            let (nodes, before) = stops(dialog, start: start)
+            let choices = candidates(nodes)
+            guard let window = dialog.window, let presenter, !choices.isEmpty else { enterFocus(); return true }
+            let backwards = event.modifierFlags.contains(.shift)
+            if let before {
+                window.makeFirstResponder(backwards ? (before > 0 ? presenter.keyView(of: nodes[before - 1]) : choices[choices.count - 1])
+                    : (before < nodes.count ? presenter.keyView(of: nodes[before]) : choices[0]))
+                return true
+            }
             let current = focusOwner(window).flatMap { owner -> Int? in
                 var ancestor: NSView? = owner
                 while let view = ancestor {
@@ -242,7 +261,6 @@ final class DialogHost {
                 }
                 return nil
             }
-            let backwards = event.modifierFlags.contains(.shift)
             let index = current.map { ($0 + (backwards ? choices.count - 1 : 1)) % choices.count }
                 ?? (backwards ? choices.count - 1 : 0)
             window.makeFirstResponder(choices[index])
