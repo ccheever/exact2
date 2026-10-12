@@ -507,7 +507,10 @@ component PrFiltersMenu
   // popover only while the focus is in the window's content, so a real second Escape closed nothing (an agent's
   // `type <row> key Escape` focuses the row first, which is why the drive passed). The rest box lies outside both
   // KeyMenus and the submenu's row, so ↓ there still moves nothing, and it draws no ring (not pressable). EXACT2-GAPS
-  // X73: the box goes when the host closes an auto popover on Escape at any focus.
+  // X73: main #446 has the host close an auto popover on Escape at any focus, but the box stays until a popover close
+  // event (X66, #319): when that Escape closes Filters, the focus inside the popover goes back to the Filters button,
+  // as the reference's FloatingFocusManager returns it from BODY; after `blur()` nothing would be focused
+  // (adopt-main-fixes-r10 RT-4, decided (b)).
   state subLeft = false
   action rowLeft(name: string)
     if sub == name

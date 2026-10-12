@@ -263,31 +263,46 @@ component ThreadSection
     sweepKeys = ""
     sweepRest = join(map(filter(rows, (t) => frame(`row-${t.id}`).y <= sweepAt and frame(`row-${t.id}`).y + frame(`row-${t.id}`).height > sweepAt), (t) => t.hoverKey), "")
     sweepRestSeq = hoverSeq
+  // A press on another row, or the first move after the last sweep's release (sweepEpoch), starts a sweep: fresh, as
+  // the reference's startActionSweep makes a new closure per press. An action reads the values from before it, so the
+  // start's values and this move's offset are bound first and every slot is written from them (adopt-main-fixes-r10:
+  // the old body read what its start branch reset, so a sweep kept the last one's offset, origin, verb, armed rows and
+  // cancel, and each move armed the rows of the move before; sidebar-sweep.test.ts).
   action sweep(id: string, verb: string, dx: number, dy: number)
-    if sweepId != id or sweepEpoch != data.sidebar.sweepEpoch
+    let fresh = sweepId != id or sweepEpoch != data.sidebar.sweepEpoch
+    let mode = fresh ? verb : sweepVerb
+    let cancelled = fresh ? false : sweepCancelled
+    let armed = fresh ? "" : sweepKeys
+    let originY = fresh ? frame(`sweep-${id}`).y + frame(`sweep-${id}`).height / 2 : sweepY
+    let originTop = fresh ? frame(`row-${id}`).y : sweepTop
+    let lo = fresh ? frame("thread-list").y + scrollY : sweepLo
+    let hi = fresh ? frame("thread-list").y + scrollY + frame("thread-list").height - 1 : sweepHi
+    let movedX = (fresh ? 0 : sweepDx) + dx
+    let movedY = (fresh ? 0 : sweepDy) + dy
+    let at = min(max(originY + movedY, lo), hi)
+    if fresh
       sweepId = id
       sweepVerb = verb
       sweepEpoch = data.sidebar.sweepEpoch
-      sweepKeys = ""
       sweepCancelled = false
       sweepRest = ""
-      sweepDx = 0
-      sweepDy = 0
-      sweepY = frame(`sweep-${id}`).y + frame(`sweep-${id}`).height / 2
-      sweepTop = frame(`row-${id}`).y
-      sweepLo = frame("thread-list").y + scrollY
-      sweepHi = frame("thread-list").y + scrollY + frame("thread-list").height - 1
-    sweepDx = sweepDx + dx
-    sweepDy = sweepDy + dy
-    sweepAt = min(max(sweepY + sweepDy, sweepLo), sweepHi)
-    if not sweepCancelled and (sweepKeys != "" or sweepDx * sweepDx + sweepDy * sweepDy >= 36)
+      sweepY = originY
+      sweepTop = originTop
+      sweepLo = lo
+      sweepHi = hi
+    sweepDx = movedX
+    sweepDy = movedY
+    sweepAt = at
+    if not cancelled and (armed != "" or movedX * movedX + movedY * movedY >= 36)
       // SidebarPointerSensor's onStart: the list stops taking the pointer (`**:pointer-events-none`), so a row's card or
       // a control's tooltip closes as the sweep takes over (X13), whether or not the press moved the focus (the
       // buttons' `focus` only moves them off). It calls the root's half of the hover: an action here can call only
       // an action the root hands down as it is, not the window's `sidebarHover` (its hidden captures are untyped).
-      if sweepKeys == ""
+      if armed == ""
         unhover(hoverId, false)
-      sweepKeys = `|${join(map(filter(rows, (t) => (sweepVerb == "settle" ? t.canSettle : sweepVerb == "unsettle" ? t.canUnsettle : t.canWake) and (sweepAt >= sweepTop ? frame(`row-${t.id}`).y >= sweepTop and frame(`row-${t.id}`).y <= sweepAt : frame(`row-${t.id}`).y <= sweepTop and frame(`row-${t.id}`).y + frame(`row-${t.id}`).height + 1 > sweepAt)), (t) => t.id), "|")}|`
+      sweepKeys = `|${join(map(filter(rows, (t) => (mode == "settle" ? t.canSettle : mode == "unsettle" ? t.canUnsettle : t.canWake) and (at >= originTop ? frame(`row-${t.id}`).y >= originTop and frame(`row-${t.id}`).y <= at : frame(`row-${t.id}`).y <= originTop and frame(`row-${t.id}`).y + frame(`row-${t.id}`).height + 1 > at)), (t) => t.id), "|")}|`
+    else if fresh
+      sweepKeys = ""
   derive rows = filter(threads, (t) => t.section == section)
   derive count = section == "settled" ? data.sidebar.settledCount : section == "snoozed" ? data.sidebar.snoozedCount : data.sidebar.workingCount
   derive expanded = section == "settled" ? data.sidebar.settledExpanded : section == "snoozed" ? data.sidebar.snoozedExpanded : data.sidebar.workingExpanded

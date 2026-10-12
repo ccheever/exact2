@@ -57,6 +57,9 @@ extension NodeView {
         let label = props["accessibilityLabel"] ?? visibleParagraphText
         #if os(macOS)
         setAccessibilityElement(true)
+        // A live-region or dialog role is a group holding these words (`updateRoleAccessibility`).
+        guard groupSubrole == nil else { return }
+        if accessibilitySubrole() != nil { setAccessibilitySubrole(nil) }
         if let level = headingLevel {
             // The heading role WebKit exposes (AppKit's constant from macOS
             // 26), its level the value, as a `<h1>`–`<h6>` has on the web.
@@ -85,13 +88,22 @@ extension NodeView {
         return paragraph.selectionRects(NSRange(location: lo, length: hi - lo), align: spec.align, in: contentBox(), dirty: bounds)
     }
     func textAccessibilityChildren() -> [Any]? {
-        let interactive = inlineText.filter { !$0.run(dark: drawsDark).hidden && (!($0.props["href"] ?? "").isEmpty || !$0.handlers.isEmpty || $0.props["accessibilityLabel"] != nil) }
-        guard !interactive.isEmpty else { return nil }
-        let text = paragraphText as NSString
-        let children: [Any] = interactive.map { InlineAccessibility(owner: self, run: $0, text: text) }
         #if os(macOS)
-        return children
+        // Made at the first ask and kept until the runs change (`inlineText`):
+        // an element made per ask is invalid to another process, VoiceOver
+        // included, as it is in a hand-built view (X78). A group-role
+        // paragraph's words are kept the same way, and made again when it
+        // becomes or stops being a group or, with no runs, its text changes.
+        let key = inlineAccessibilityKey
+        let children: [NSAccessibilityElement]
+        if let kept = inlineAccessibility, kept.key == key { children = kept.elements } else {
+            children = key == nil ? inlineElements() : groupElements()
+            inlineAccessibility = (key, children)
+        }
+        return children.isEmpty && key == nil ? nil : children
         #else
+        let children: [Any] = inlineElements()
+        guard !children.isEmpty else { return nil }
         let paragraph = UIAccessibilityElement(accessibilityContainer: self)
         paragraph.accessibilityLabel = props["accessibilityLabel"] ?? visibleParagraphText
         paragraph.accessibilityLanguage = presenter?.documentLanguage
@@ -100,9 +112,68 @@ extension NodeView {
         return [paragraph] + children
         #endif
     }
+    private var interactiveRuns: [InlineText] {
+        inlineText.filter { !$0.run(dark: drawsDark).hidden && (!($0.props["href"] ?? "").isEmpty || !$0.handlers.isEmpty || $0.props["accessibilityLabel"] != nil) }
+    }
+    private func inlineElements() -> [InlineAccessibility] {
+        let interactive = interactiveRuns
+        guard !interactive.isEmpty else { return [] }
+        let text = paragraphText as NSString
+        return interactive.map { InlineAccessibility(owner: self, run: $0, text: text) }
+    }
+    #if os(macOS)
+    /// What a paragraph's kept elements were made from besides its runs: nil
+    /// unless its role is a group, then its text when it has no runs.
+    private var inlineAccessibilityKey: String? {
+        guard isParagraph, groupSubrole != nil else { return nil }
+        return inlineText.isEmpty ? visibleParagraphText : ""
+    }
+    /// A paragraph whose role is a group (`updateRoleAccessibility`) holds
+    /// its words as WebKit's does: a static text for each stretch between
+    /// its links and the links themselves, in reading order, so no word is
+    /// read twice.
+    private func groupElements() -> [NSAccessibilityElement] {
+        guard !inlineText.isEmpty else { return [ParagraphWords(owner: self, text: visibleParagraphText, runs: [])] }
+        let text = paragraphText as NSString
+        let links = Set(interactiveRuns.map(\.id))
+        var children: [NSAccessibilityElement] = [], words: [InlineText] = []
+        func stretch() {
+            let said = words.map(\.text).joined()
+            if !said.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { children.append(ParagraphWords(owner: self, text: said, runs: words)) }
+            words = []
+        }
+        for run in inlineText {
+            if links.contains(run.id) { stretch(); children.append(InlineAccessibility(owner: self, run: run, text: text)) }
+            else if run.paints, !run.run(dark: drawsDark).hidden { words.append(run) }
+        }
+        stretch()
+        return children
+    }
+    #endif
 }
 
 #if os(macOS)
+/// Words a group-role paragraph holds: a static text of its runs `runs`
+/// between two links, or its whole text when it has no runs.
+private final class ParagraphWords: NSAccessibilityElement, AgentOwned {
+    weak var owner: NodeView?
+    let runs: [UInt32]
+    var agentViewId: UInt32? { owner?.id }
+    init(owner: NodeView, text: String, runs: [InlineText]) {
+        self.owner = owner; self.runs = runs.map(\.id)
+        super.init()
+        setAccessibilityParent(owner)
+        setAccessibilityRole(.staticText)
+        setAccessibilityValue(text)
+        setAccessibilityLabel(text)
+    }
+    override func accessibilityFrame() -> NSRect {
+        guard let owner, let window = owner.window else { return .zero }
+        guard !runs.isEmpty else { return window.convertToScreen(owner.convert(owner.contentBox(), to: nil)) }
+        let rect = runs.compactMap { owner.presenter?.inlineText($0) }.flatMap(owner.inlineRects).reduce(CGRect.null) { $0.union($1) }
+        return rect.isNull ? .zero : window.convertToScreen(owner.convert(rect, to: nil))
+    }
+}
 private final class InlineAccessibility: NSAccessibilityElement, AgentOwned {
     weak var owner: NodeView?
     package let id: UInt32

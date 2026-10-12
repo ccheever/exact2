@@ -65,7 +65,8 @@ describe('PS-2: the rows a sweep passes over, and after it (sweepRowHover)', () 
     const section = await component('sidebar.contract', 'ThreadSection');
     const sweep = action(section, 'sweep');
     // The 6 pt rule arms the sweep; its first arming closes the window's hover (whatever the press did to the focus).
-    expect(sweep).toMatch(/if not sweepCancelled and \(sweepKeys != "" or sweepDx \* sweepDx \+ sweepDy \* sweepDy >= 36\)\n(\s*\/\/[^\n]*\n)*\s*if sweepKeys == ""\n\s*unhover\(hoverId, false\)\n\s*sweepKeys = /);
+    // (`armed` is the sweep's rows from before this move, "" on a fresh sweep: sidebar-sweep.test.ts runs it.)
+    expect(sweep).toMatch(/if not cancelled and \(armed != "" or movedX \* movedX \+ movedY \* movedY >= 36\)\n(\s*\/\/[^\n]*\n)*\s*if armed == ""\n\s*unhover\(hoverId, false\)\n\s*sweepKeys = /);
     // `unhover` is the root's sidebarHover handed down as it is, which clears the hover it is told about.
     const windowText = await source('app-window.contract');
     expect(windowText.match(/hoverSeq=sidebarHoverSeq, unhover=sidebarHoverRoot, /g)?.length).toBe(2);

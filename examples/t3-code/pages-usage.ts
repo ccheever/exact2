@@ -21,39 +21,16 @@ const HOUR = 3_600_000;
 // ── Formatting (usageFormat.ts) ─────────────────────────────────────────────
 
 const group = (digits: string) => digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-/** A non-negative finite number's shortest decimal digits (Number's own), as whole and fraction parts without an exponent. */
-function plainDigits(value: number): [string, string] {
-  const [mantissa = '0', exponent = '0'] = String(value).split('e');
-  const [lead = '0', tail = ''] = mantissa.split('.');
-  const shift = Number(exponent), digits = lead + tail, point = lead.length + shift;
-  if (point <= 0) return ['0', '0'.repeat(-point) + digits];
-  if (point >= digits.length) return [digits + '0'.repeat(point - digits.length), ''];
-  return [digits.slice(0, point), digits.slice(point)];
-}
-/** Adds one to a string of decimal digits. */
-function incremented(digits: string): string {
-  let out = '', carry = 1;
-  for (let index = digits.length - 1; index >= 0; index -= 1) {
-    const sum = Number(digits[index]) + carry;
-    out = String(sum % 10) + out;
-    carry = sum >= 10 ? 1 : 0;
-  }
-  return carry ? `1${out}` : out;
-}
 /**
- * usageFormat.ts CURRENCY (`Intl.NumberFormat` en-US USD, two fraction digits): ICU rounds the number's shortest
+ * usageFormat.ts CURRENCY (`Intl.NumberFormat` en-US USD, two fraction digits). ICU rounds the number's shortest
  * decimal digits half away from zero (`halfExpand`), so 0.825 is $0.83 where `toFixed` rounds the binary value
- * (0.8249…) down. Formatted here rather than by `Intl`: Hermes's Apple Intl (NSNumberFormatter) rounds half to even
- * and printed $0.82 too (EXACT2-GAPS X72). A negative amount, -0 included, keeps its sign as ICU's does.
+ * (0.8249…) down. Hermes's Apple `Intl` rounded half to even ($0.82) until main #447 (X72) gave the Apple prelude
+ * ICU's rounding; the clone formatted USD itself until then (adopt-main-fixes-r10 RT-3).
  */
+let currency: Intl.NumberFormat | undefined; // made at the first amount, not as the module loads
 export function formatUsd(value: number): string {
-  const sign = value < 0 || Object.is(value, -0) ? '-' : '';
-  if (Number.isNaN(value)) return '$NaN';
-  if (!Number.isFinite(value)) return `${sign}$∞`;
-  const [whole, fraction] = plainDigits(Math.abs(value));
-  const cents = `${fraction}00`.slice(0, 2);
-  const rounded = Number(fraction[2] ?? '0') >= 5 ? incremented(`${whole}${cents}`).padStart(3, '0') : `${whole}${cents}`;
-  return `${sign}$${group(rounded.slice(0, -2).replace(/^0+(?=\d)/, ''))}.${rounded.slice(-2)}`;
+  currency ??= new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return currency.format(value);
 }
 export function formatCount(value: number): string { return group(String(Math.round(value))); }
 const trim = (value: number) => {

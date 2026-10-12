@@ -1,6 +1,7 @@
 # macOS: a heading inside a button is not exposed, because the host makes every button an accessibility leaf
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by #451
 **Systems:** host/apple macOS, accessibility
 **Severity:** P3
 **Author:** daehyeon-mun (T3 Code clone)

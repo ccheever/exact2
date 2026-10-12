@@ -344,7 +344,7 @@ final class TerminalDrawerTests: XCTestCase {
     }
 
     func testAttachEventsFoldAsTheReferenceReducer() {
-        let session = T3TerminalSession(key: "k", threadId: "thread-1", terminalId: "term-1")
+        let session = T3TerminalSession(key: "k", environment: "env-a", threadId: "thread-1", terminalId: "term-1")
         sessions.apply(["type": "snapshot", "snapshot": ["history": "hello", "status": "running", "label": "Terminal 1"]], to: session)
         XCTAssertEqual([session.status, "\(session.version)", "\(session.lifecycleVersion)", session.output.text], ["running", "1", "0", "hello"])
         sessions.apply(["type": "output", "data": " world"], to: session)

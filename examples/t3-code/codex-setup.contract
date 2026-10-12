@@ -201,7 +201,8 @@ component CodexSetupRow
               when setup.email != ""
                 CodexSignedIn(email=setup.email, placeholder=setup.emailPlaceholder, instanceId=setup.instanceId)
               else
-                text setup.description max-width="36rem" font-size="0.75rem" line-height="1.125rem" role="status" aria-live="polite" color="light-dark(#70707acc, #818181cc)" testId=`codex-description-${setup.instanceId}`
+                // SettingsRow's description, plain text in the reference (CodexSetupSection.tsx accountDescription): no live role.
+                text setup.description max-width="36rem" font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" testId=`codex-description-${setup.instanceId}`
           when setup.kind == "managed"
             row flex-shrink=0 min-width=0 gap="0.5rem" align-items="center" flex-wrap="wrap" justify-content=(wide ? "flex-end" : "flex-start")
               when setup.control == "waiting"
@@ -260,7 +261,8 @@ component CodexWelcomeCard
             when setup.help == "toggle"
               CodexHelpToggle(label="Complete sign-in in your browser.", open=helpOpen, instanceId=setup.instanceId, toggle=toggleHelp)
             else
-              text setup.description font-size="0.75rem" line-height="1.21875rem" role="status" aria-live="polite" color="light-dark(#71717b, #818181)" testId=`welcome-codex-description-${setup.instanceId}`
+              // CodexWelcomeCard's description, plain text in the reference: no live role.
+              text setup.description font-size="0.75rem" line-height="1.21875rem" color="light-dark(#71717b, #818181)" testId=`welcome-codex-description-${setup.instanceId}`
         row flex-shrink=0 gap="0.5rem" align-items="center" justify-content="flex-end"
           when setup.kind == "preparing"
             CodexGhost(label="Cancel", muted=true, small=false, disabled=true, icon="", target="", testId=`welcome-codex-cancel-${setup.instanceId}`, press=op("setup:codex-cancel-any", setup.target, setup.token, "", false), first=false)

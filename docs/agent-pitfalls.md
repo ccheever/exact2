@@ -207,12 +207,12 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   by the root's `navigationBack`, and a route that declares one that is disabled
   refuses it (the log says "back gesture refused" and why). A route with no such
   control always goes back (LLP 1115 D5). Fix: enable the control, or leave it out.
-- **The browser's Back leaves the router where it was on the web.** A drive's `tap app
-  history -1` on a pushed `/item/1` left the stack at `/item/1` when the root had no
-  `navigate` handler. Fix: `navigate=follow` on the root and `action follow(url: string)`
-  with `nav = go(nav, url)`, as every pattern has; `one-screen` keeps it with one route,
-  so a second screen gets Back and deep links (LLP 1116.002; two round-4 web apps lost
-  their URL history).
+- **The browser's Forward does nothing on the web.** With no `navigate` handler the
+  browser's Back pops the router by itself (LLP 1115 D5), but Forward to the popped
+  `/item/1` is refused (the log says "navigate … refused") and an in-app link reloads the
+  page. Fix: `navigate=follow` on the root and `action follow(url: string)` with
+  `nav = go(nav, url)`, as every pattern has; `one-screen` keeps it with one route
+  (LLP 1116.002, 1116.003).
 - **A pushed screen's content is cut off and never scrolls, or its large title never
   collapses.** Cause: a route is a box, not a scroller, and `navigationScroll` only
   names one; a title collapses only with the scroller right after the route's
@@ -247,9 +247,17 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   `#18392d`); it stays the same in dark mode while the platform's text and controls
   turn dark. Four of round 4's five hex-heavy bake-off apps broke so. Fix: the one
   authored colour is the accent on the root, a role (`accent-color="-exact-system-indigo"`)
-  or one `light-dark(light, dark)` pair; surfaces and text are roles
-  (`-exact-secondary-grouped-background`, `-exact-label`) or unsaid. Look in both
-  schemes: `"prefer prefers-color-scheme dark"` as a drive's first op. (LLP 1116.002 D1.)
+  or one `light-dark(light, dark)` pair; surfaces and text are roles (`-exact-label`)
+  or unsaid. Look in both schemes: `"prefer prefers-color-scheme dark"` as a drive's
+  first op. (LLP 1116.002 D1.)
+- **A card is white on a white page in light mode.** Cause:
+  `-exact-secondary-grouped-background` (white in light) on a plain page (white), as
+  start-here once suggested; two round-5 apps' cards vanished so. Fix: surfaces in
+  pairs. A card on a plain page is `-exact-secondary-background` (light grey, dark
+  grey); on a `-exact-grouped-background` page (light grey, black) it is
+  `-exact-secondary-grouped-background` (white, dark grey); a surface inside a card is
+  the tertiary role of its pair (`-exact-tertiary-background`,
+  `-exact-tertiary-grouped-background`). (LLP 1116.003 D3.3.)
 - **The agent's screenshots and tree don't show the native bars.** Under
   `scripts/agent.mjs` the navigation bar, tab bar, `UIMenu`s and header search are
   not presented; the authored header, tablist and popover paint instead, by default.
@@ -314,13 +322,6 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   a field that is a grouped-list row's content, as `apps/shelf`'s add sheet does.
   **Candidate fix:** the iOS host could drop the border of a field carried into a
   list cell. (Shelf recipe, 2026-10-10.)
-- **A section `footer`'s colour is ignored, and so is a text-only row's.** A validation
-  message written `color="-exact-system-red"` in a footer shows in the footer's grey on
-  iOS: the list reads the footer's text, not its colour; a row holding only the text is
-  a standard cell, which drops its colour and font too. Fix: the message goes in the
-  field's row, under the field: `row` > `column flex=1 min-width=0 gap=4` > the field,
-  then `when error != ""` a `text … font="-exact-footnote" color="-exact-system-red"`
-  (`docs/patterns/list-detail`). (Shelf recipe, 2026-10-10; LLP 1116.002.)
 
 ## Actions
 
@@ -362,7 +363,11 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   read (`analyze-call-stale-read`), naming both lines. Fix: pass the value the
   helper should see, `follow(next)`, or a `let` bound before the assignment for
   the old one. (Spreadsheet F21 and Files F27 diaries, where a copied block was
-  the workaround.)
+  the workaround.) In the action's own body the same read is a warning,
+  `analyze-read-after-assign`: `now = performanceNow()` then `if now >= endsAt`
+  tests the last tick's time (focus-timer's phases changed 250 ms late in two
+  bake-off rounds). Fix: `let stamp = performanceNow()`, `now = stamp`, and read
+  `stamp`.
 
 - **A delete or save is lost when the page reloads right after it.** An action that
   `send`s a write and navigates away in the same commit passes every test, but a
@@ -704,12 +709,6 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   the viewer's zone, or pass `--locale` and `--time-zone` on a drive (`locale` and
   `time-zone` lines in a test file) so both agree and the run stays reproducible.
   (Depot, 2026-10-05.)
-
-- **An iOS screenshot right after a tap shows a segmented control on its old
-  segment.** The tree says the new one is selected. Cause: UIKit animates the
-  selection on real time, and `clock +N` does not move it. Fix: `clock +1000 real`
-  before the screenshot (it moves the app's clock that second too, so a timer due in
-  it fires). (Authoring bench, t1-tip on iOS, 2026-10-05.)
 
 - **The same test passes on the web and fails on iOS at a date past `max`.** Cause:
   the runner refuses a date, time or datetime outside `min`/`max` (the agent says the
