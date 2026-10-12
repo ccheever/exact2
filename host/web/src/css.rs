@@ -1403,7 +1403,9 @@ mod declaration_tests {
     /// (LLP 1116.001 D1.4); its initial value writes nothing.
     #[test]
     fn fit_is_navigations_property() {
-        let t = |s: &str| StyleValue::Text(s.into());
+        fn t(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
         assert_eq!(
             css(&[(StyleId::Fit, t("shrink"))], &[]),
             "--exact-fit:shrink;"
