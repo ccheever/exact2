@@ -42,6 +42,29 @@ final class T3BrowserSessions {
         self.agent = agent
         announce = changed
     }
+    deinit { if let monitor = humanInputMonitor { NSEvent.removeMonitor(monitor) } }
+
+    /// Manager.ts handleHumanInput (browser-recording-and-downloads BR-2): a person's press or key on a page hands it back
+    /// from the agent, so its next download asks where (T3BrowserDownloads). The application's event queue carries only
+    /// the person's input: the agent's native events go straight to the page's view (T3BrowserAutomationInput).
+    private var humanInputMonitor: Any?
+    private func watchHumanInput() {
+        guard humanInputMonitor == nil else { return }
+        humanInputMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown]) { [weak self] event in
+            self?.humanInput(event)
+            return event
+        }
+    }
+    func humanInput(_ event: NSEvent) {
+        guard let window = event.window, let content = window.contentView else { return }
+        let target: NSView?
+        if event.type == .keyDown { target = window.firstResponder as? NSView }
+        else { target = content.hitTest(content.superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow) }
+        guard let target else { return }
+        for session in sessions.values where target === session.web || target.isDescendant(of: session.web) {
+            session.downloads.handBack(event.type == .keyDown ? "key" : "pointer")
+        }
+    }
 
     /// One `t3.status` per run-loop turn, however many page facts changed in it.
     func publish() {
@@ -87,6 +110,7 @@ final class T3BrowserSessions {
         session.downloads.directory = { [weak self] in self?.artifactDirectory ?? FileManager.default.temporaryDirectory }
         session.dialogs = !agent
         sessions[id] = session
+        watchHumanInput()
         created?(session)
         if let zoom { session.setZoom(zoom) }
         if let size, size.width > 0, size.height > 0 { session.web.setFrameSize(size) }

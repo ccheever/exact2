@@ -440,11 +440,13 @@ final class BrowserAutomationTests: XCTestCase {
         XCTAssertEqual(overlay["_tag"] as? String, "PreviewAutomationTimeoutError", "no page within the host budget")
         XCTAssertLessThanOrEqual((overlay["detail"] as? [String: Any])?["timeoutMs"] as? Int ?? 9_999, 480)
         page()
-        let stop = error(run(plan("recordingStop")))
+        // The recording operations go to the data module (browser-recording-and-downloads; recording.swift): with none to
+        // answer, the hand-off ends at the host deadline as the operation's failure.
+        let stop = error(run(plan("recordingStop", timeoutMs: 2_000)))
         XCTAssertEqual(stop["_tag"] as? String, "PreviewAutomationExecutionError")
-        XCTAssertEqual(stop["message"] as? String, "Preview automation request preview-3 found no active recording for tab tab-1 on environment env-1 thread thread-1.")
-        let start = error(run(plan("recordingStart")))
-        XCTAssertEqual(start["_tag"] as? String, "PreviewAutomationExecutionError", "recording is part 3's: capture unavailable")
+        XCTAssertEqual(stop["message"] as? String, "Preview automation recordingStop request preview-3 failed on environment env-1 thread thread-1 (tab tab-1).")
+        let start = error(run(plan("recordingStart", timeoutMs: 2_000)))
+        XCTAssertEqual(start["_tag"] as? String, "PreviewAutomationExecutionError")
         let planned = error(run(plan("navigate", extra: ["failure": ["_tag": "PreviewAutomationTabNotFoundError", "message": "planned", "detail": ["requestId": "x"]]])))
         XCTAssertEqual(planned["message"] as? String, "planned", "a failure the data module planned is answered as it is")
         let unsized = error(run(plan("resize", ["mode": "preset", "preset": "iphone-se"], extra: ["viewport": ["_tag": "preset", "presetId": "iphone-se"]])))
@@ -699,7 +701,12 @@ final class BrowserAutomationTests: XCTestCase {
 
 _ = NSApplication.shared
 NSApp.setActivationPolicy(.accessory)
-let suite = XCTestSuite(forTestCaseClass: BrowserAutomationTests.self)
+// browser-recording-and-downloads: the recording hand-off (recording.swift) and agent-driven downloads (downloads.swift).
+let suite = XCTestSuite(name: "browser-automation")
+// `T3_AUTOMATION_SUITES` (class names, comma-separated) runs only those.
+let only = Set((ProcessInfo.processInfo.environment["T3_AUTOMATION_SUITES"] ?? "").split(separator: ",").map(String.init))
+for testCase in [BrowserAutomationTests.self, BrowserRecordingHandOffTests.self, BrowserDownloadTests.self] as [XCTestCase.Type]
+where only.isEmpty || only.contains(String(describing: testCase)) { suite.addTest(XCTestSuite(forTestCaseClass: testCase)) }
 suite.run()
 let run = suite.testRun!
 print("Executed \(run.executionCount) tests, with \(run.totalFailureCount) failures")
