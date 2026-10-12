@@ -42,11 +42,11 @@ fn symbols_admit_roles_and_opaque_sf_names_but_refuse_misspelled_roles() {
     contract::compile("component App\n  state selected = true\n  view\n    button role=\"tab\" aria-selected=selected\n      text \"Questions\"\n").unwrap();
     for role in [
         "",
-        "chevron.backward",
         "Search",
         "serach",
-        "bookmark.fill",
-        "checkmark-circle",
+        "bookmark.filled",
+        "trash.slash",
+        "checkmark-circle-slash",
     ] {
         let error = contract::compile(&format!(
             "component App\n  view\n    image \"symbol:{role}\"\n"

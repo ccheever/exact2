@@ -679,6 +679,134 @@ fn a_dialog_a_popover_and_a_modal_route_are_not_named() {
     assert_eq!(warned(sheet), []);
 }
 
+const SYMBOL_ALIAS: &str = "lower-symbol-alias";
+
+// @ref LLP 1116.007 D3.1 — a role also answers to Apple's name for it (dotted, dashed or
+// underscored) and to the schema's aliases: the plan carries the role, and a warning names it.
+// Round 9: 12 of 24 builders guessed one of these names and rebuilt.
+#[test]
+fn symbols_answer_to_apple_names_and_aliases_and_the_plan_carries_the_role() {
+    for (written, role) in [
+        ("gearshape", "settings"),
+        ("gear", "settings"),
+        ("trash", "delete"),
+        ("plus", "add"),
+        ("xmark", "close"),
+        ("chevron.right", "forward-chevron"),
+        ("chevron-right", "forward-chevron"),
+        ("chevron.forward", "forward-chevron"),
+        ("chevron_left", "back"),
+        ("checkmark.circle.fill", "select-fill"),
+        ("checkmark-circle-fill", "select-fill"),
+        ("checkmark.circle", "select"),
+        ("square.and.arrow.up", "share"),
+        ("magnifyingglass", "search"),
+        ("bell", "notifications"),
+        ("bell.fill", "notifications-fill"),
+        ("house", "home"),
+        ("house.fill", "home-fill"),
+        ("star.fill", "star-fill"),
+        ("sign-out", "sign-out"),
+    ] {
+        let (plan, warnings) = contract::compile_warned(&format!(
+            "component App\n  view\n    image \"symbol:{written}\"\n"
+        ));
+        let plan = plan.unwrap_or_else(|e| panic!("{written}: {e}"));
+        let has = |s: &str| plan.strings.iter().any(|x| x == s);
+        assert!(
+            has(&format!("symbol:{role}")),
+            "{written}: {:?}",
+            plan.strings
+        );
+        assert!(
+            written == role || !has(&format!("symbol:{written}")),
+            "{written}"
+        );
+        // The warning is the role, written; the role itself is silent.
+        let said: Vec<_> = warnings
+            .iter()
+            .map(|w| (w.id.as_str(), w.message.as_str()))
+            .collect();
+        if written == role {
+            assert!(said.is_empty(), "{said:?}");
+        } else {
+            let message = format!("symbol `{written}` is the role `{role}`: write `symbol:{role}`");
+            assert_eq!(said, [("lower-symbol-alias", message.as_str())]);
+            assert!(
+                warnings[0].is_warning() && warnings[0].span.line == 3,
+                "{:?}",
+                warnings[0]
+            );
+        }
+    }
+    // Each arm of a choice is its role, and warns once; an unknown name in an arm is refused.
+    let (plan, warnings) = contract::compile_warned(
+        "component App\n  state on = false\n  view\n    button press=toggle aria-label=\"Mark\"\n      image (on ? \"symbol:checkmark.circle.fill\" : \"symbol:circle\")\n  action toggle\n    on = not on\n",
+    );
+    assert!(plan
+        .unwrap()
+        .strings
+        .iter()
+        .any(|s| s == "symbol:select-fill"));
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    let error = contract::compile(
+        "component App\n  state on = false\n  view\n    image (on ? \"symbol:gearshape\" : \"symbol:gearsh\")\n",
+    )
+    .unwrap_err();
+    assert!(
+        error.to_string().contains("symbol `gearsh` is not a role"),
+        "{error}"
+    );
+    // An alias keeps the distinctions the roles make: a symbol no role draws is no alias.
+    for name in [
+        "lock.fill",
+        "trash.fill",
+        "exclamationmark.triangle",
+        "user",
+        "check-circle",
+        "paperplane.fill",
+    ] {
+        let error = contract::compile(&format!(
+            "component App\n  view\n    image \"symbol:{name}\"\n"
+        ))
+        .unwrap_err();
+        assert!(error.to_string().contains("not a role"), "{name}: {error}");
+    }
+    // `sf/` stays distinct: Apple's name, opaque, and no warning.
+    let (plan, warnings) =
+        contract::compile_warned("component App\n  view\n    image \"symbol:sf/gearshape\"\n");
+    assert!(plan
+        .unwrap()
+        .strings
+        .iter()
+        .any(|s| s == "symbol:sf/gearshape"));
+    assert!(warnings.is_empty(), "{warnings:?}");
+}
+
+#[test]
+fn a_symbol_by_another_spelling_than_its_role_is_named_with_the_role() {
+    // LLP 1116.007 D3.1: `symbol:trash` builds as the role `delete`, and says so.
+    // A component used twice is one line; each literal arm of a choice is its own.
+    let src = "component App\n  state on = false\n  view\n    column\n      Chip()\n      Chip()\n      image (on ? \"symbol:gearshape\" : \"symbol:settings\")\n      image \"symbol:sf/trash\"\n      image \"symbol:delete\"\n      image \"symbol:checkmark.circle.fill\"\ncomponent Chip\n  view\n    image \"symbol:trash\" width=16\n";
+    assert_eq!(
+        warned(src),
+        [
+            (SYMBOL_ALIAS.to_string(), 13),
+            (SYMBOL_ALIAS.to_string(), 7),
+            (SYMBOL_ALIAS.to_string(), 10)
+        ]
+    );
+    let (_, warnings) = contract::compile_warned(src);
+    assert_eq!(
+        warnings[0].message,
+        "symbol `trash` is the role `delete`: write `symbol:delete`"
+    );
+    assert_eq!(
+        warnings[2].message,
+        "symbol `checkmark.circle.fill` is the role `select-fill`: write `symbol:select-fill`"
+    );
+}
+
 const LEVEL: &str = "lower-level-without-heading";
 
 #[test]

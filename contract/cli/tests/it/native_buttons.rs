@@ -174,6 +174,11 @@ fn the_style_is_a_name_in_the_table_on_a_native_button_only() {
 #[test]
 fn its_face_is_a_title_a_symbol_or_both() {
     boot(&app("button appearance=\"auto\" press=go aria-label=\"Add\"\n  image (busy ? \"symbol:close\" : \"symbol:add\")"));
+    // A role by Apple's name for it or an alias (LLP 1116.007 D3.1).
+    boot(&app(
+        "button appearance=\"auto\" press=go aria-label=\"Settings\"\n  image \"symbol:gearshape\"",
+    ));
+    boot(&app("button appearance=\"auto\" press=go aria-label=\"Add\"\n  image (busy ? \"symbol:xmark\" : \"symbol:plus\")"));
     // An SF Symbol by name, literal or computed (LLP 1035.004.000).
     boot(&app("button appearance=\"auto\" press=go aria-label=\"Send\"\n  image \"symbol:sf/paperplane.fill\""));
     boot(&app("button appearance=\"auto\" press=go\n  image `symbol:sf/${busy ? \"hourglass\" : \"paperplane\"}`\n  text \"Send\""));

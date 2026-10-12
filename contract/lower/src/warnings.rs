@@ -45,6 +45,7 @@ pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
         let (children, in_root, back): (Vec<&Node>, bool, Option<&str>) = match node {
             Node::Element {
                 tag,
+                positional,
                 attrs,
                 children,
                 ..
@@ -52,6 +53,10 @@ pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
                 // A component used twice is inlined twice: one line for its source.
                 let span = node.span();
                 let fresh = seen.insert((span.source_id, span.line, span.col, span.end_col));
+                // @ref LLP 1116.007 D3.1 — a symbol by another spelling than its role.
+                if let (true, "image", Some(source)) = (fresh, tag.as_str(), positional.first()) {
+                    out.extend(crate::symbols::aliases(source));
+                }
                 let button = (tag == "button")
                     .then(|| roles::unlabelled_button(attrs, children, span))
                     .flatten();

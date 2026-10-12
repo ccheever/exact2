@@ -972,7 +972,7 @@ fn face_counts(
                         let symbol = |s: &str| {
                             s.strip_prefix("symbol:").is_some_and(|r| {
                                 r.strip_prefix("sf/").map_or_else(
-                                    || exact_kernel::generated::symbol(r).is_some(),
+                                    || exact_kernel::generated::symbol_role(r).is_some(),
                                     |name| !name.is_empty(),
                                 )
                             })

@@ -278,6 +278,11 @@ impl Lowerer<'_> {
                     first.span(),
                 );
             };
+            // @ref LLP 1116.007 D3.1 — a symbol by another spelling is its role.
+            let role = (prop == exact_kernel::PropId::ImageSource)
+                .then(|| crate::symbols::roles(first))
+                .flatten();
+            let first = role.as_ref().unwrap_or(first);
             let (code, ty) = self.typed_code(first, scope, locals)?;
             values::check_prop_value(tag, first, first.span(), prop, &ty)?;
             bindings.push(prop_row(prop, code, true));

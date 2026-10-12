@@ -28,7 +28,9 @@ The roles: `add`, `close`, `back`, `forward-chevron`, `compose`, `pencil`, `dele
 `layers`, `photo`, `camera`, `microphone`, `waveform`, `speaker`, `speaker-mute`,
 `play`, `pause`, `stop`, `skip-back-15`, `skip-forward-15`, `repeat`, `reorder`,
 `sparkles`, `moon`, and more `-fill`s (`home-fill`, `person-fill`, `play-fill`…). An
-unknown role is refused with the full list.
+unknown role is refused with the full list. A role also answers to its SF Symbols name and
+common aliases (`gearshape`, `gear`, `trash`, `chevron-right`, `checkmark.circle.fill`): it builds as
+the role, with a warning that names it (`lower-symbol-alias`).
 
 - A role draws on every host. `symbol:sf/<name>` (`sf/arrow.clockwise`,
   `sf/cloud.sun.rain`) draws on Apple only, and is blank on the web and Linux; a tab or
