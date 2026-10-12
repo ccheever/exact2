@@ -72,6 +72,9 @@ pub(super) struct State {
     frame: Option<[f32; 4]>,
     /// The keyboard's overlap with the frame the page would have without it.
     pub(super) keyboard: f32,
+    /// The field to keep in view once the page has been painted in the
+    /// viewport a keyboard left it ([`Presenter::reveal_owed`]).
+    reveal: Option<ViewId>,
 }
 
 impl<D: DataSource> Presenter<D> {
@@ -157,11 +160,31 @@ impl<D: DataSource> Presenter<D> {
             error = self.resize(frame[2], frame[3]);
         }
         error = error.or(self.set_safe_area(env));
-        // The field being edited stays above the keyboard.
+        // The field being edited stays above the keyboard. Where a picture
+        // is shown, the boxes a reveal goes by are that picture's, painted
+        // before the keyboard rose: the field is kept in view once the page
+        // has been painted in its new viewport.
         if let Some(field) = self.focus.filter(|_| rose) {
-            self.keep_in_view(field);
+            match self.display.attached() {
+                true => self.window.reveal = Some(field),
+                false => self.keep_in_view(field),
+            }
         }
         error
+    }
+
+    /// After a picture is shown: the field a keyboard rose under is kept in
+    /// view by that picture's boxes, the first that have the port the
+    /// keyboard left.
+    // Only a host that shows pictures calls it (`display_complete`).
+    #[cfg_attr(
+        not(any(target_os = "linux", target_os = "android", test)),
+        allow(dead_code)
+    )]
+    pub(super) fn reveal_owed(&mut self) {
+        if let Some(field) = self.window.reveal.take() {
+            self.keep_in_view(field);
+        }
     }
 
     /// What the shell draws around the page; on a host that told no window,
