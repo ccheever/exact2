@@ -12,15 +12,19 @@
 // A chosen button presses its authored button by view id once, on the turn
 // after the sheet has ended, and only while the alert still showed what is
 // there (as the chooser's menu does, ChooserMac.swift). Any other shape is
-// presented as before: a chooser is the `NSMenu`, the rest is painted. An
-// alert has no outside (LLP 1115.000 D13.4): a click on the window behind the
-// sheet does nothing and Escape presses the cancel, which is the `closedby`
-// lowering implies for the shape, `closerequest`. So a `dialog` whose author
-// wrote `closedby="any"` is not presented as one: it is the painted dialog
-// over its dimmed page, which a click outside dismisses (DialogsMac.swift);
-// and under `closedby="none"` the cancel is given no Escape. The
-// agent sees the same alert: a tap on an authored button presses the alert's
-// button, and Return and Escape go to the sheet (AgentMac.swift).
+// no alert: a chooser is the `NSMenu`, and the rest is a sheet or a popover
+// holding its own subtree (LLP 1115.002 D7; SheetsMac.swift,
+// PopoversMac.swift). An alert has no outside (LLP 1115.000 D13.4): a click
+// on the window behind the sheet does nothing and Escape presses the cancel,
+// which is the `closedby` lowering implies for the shape, `closerequest`. So
+// a `dialog` whose author wrote `closedby="any"` is not presented as one: it
+// is the dialog's own sheet, which a click on the window behind it dismisses;
+// and under `closedby="none"` the cancel is given no Escape. Asked for while
+// a dialog is open, the alert is a sheet on that dialog's sheet (on the
+// page's window AppKit would hold it back until the first had gone), and
+// its rows are its own, not inert under the dialog beneath. The agent sees
+// the same alert: a tap on an authored button presses the alert's button,
+// and Return and Escape go to the sheet (AgentMac.swift).
 #if os(macOS)
 import AppKit
 

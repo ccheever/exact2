@@ -180,6 +180,13 @@ final class PopoverNativeMacTests: XCTestCase {
         XCTAssertEqual(p.menus.following(try f.node("tags")).map(\.id), [pop.id])
         try f.press("tags")
         XCTAssertFalse(p.menus.isOpen(pop))
+        // AppKit shows no popover against a window that is not on screen: painted there too.
+        p.menus.painted = false
+        f.window.orderOut(nil)
+        try f.press("tags")
+        XCTAssertTrue(p.menus.isOpen(pop) && p.menus.windowed.isEmpty)
+        XCTAssertTrue(pop.isDescendant(of: p.viewport))
+        try f.press("tags")
     }
 }
 #endif
