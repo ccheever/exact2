@@ -24,7 +24,7 @@ import { takeRowDrops } from './legacy-sidebar-drop';
 import { threadOps } from './client-ops-threads';
 import type { OpOut } from './client-ops';
 import { terminalUiStore } from './terminal-ui-state';
-import { contractComponent } from './contract-component-fixture';
+import { contractComponent, type Env } from './contract-action-fixture';
 
 const at = (minute: number) => `2026-03-09T10:${String(minute).padStart(2, '0')}:00.000Z`;
 const files: Files = { fs: { async mkdir() {}, async atomicWriteFile() {}, async readFile() { return new ArrayBuffer(0); } } };
@@ -36,6 +36,20 @@ const repo = { provider: 'github', canonicalKey: 'github.com/acme/app', displayN
 const PR = 'https://github.com/acme/app/pull/7';
 const linked = (url = PR) => [{ host: 'github.com', repository: 'acme/app', number: 7, url, source: 'manual', linkedAt: at(1), stack: null,
   snapshot: { state: 'open', title: 'Ship it', headBranch: 'feat', baseBranch: 'main', isDraft: false, updatedAt: at(1), syncedAt: at(1) } }];
+
+// A legacy component run by contract-action-fixture.ts as the host mounts it: its state, its props (a test changes them as
+// a batch would) and the host's functions; `view` is its state and derives, `drawn` whether a line of its view is drawn.
+interface Mounted { props: Obj; act(action: string, ...args: unknown[]): void; readonly view: Env; drawn(marker: string): boolean }
+const mount = (name: string, props: Obj, host: Obj): Mounted => {
+  const component = contractComponent('legacy-sidebar.contract', name), state = component.state();
+  const scope = () => ({ ...host, ...props });
+  return {
+    props,
+    act: (action, ...args) => component.call(action, state, scope(), args),
+    get view() { return { ...state, ...component.derives(state, scope()) }; },
+    drawn: marker => component.drawn(marker, state, scope()),
+  };
+};
 
 interface Rig { client: T3Client; native: Native; ops: Obj[]; rpcs: { method: string; payload: Obj }[]; opened: string[]; drafts: string[] }
 /** A real client on `local` (thread-1 open unless said), its server answering preview and dispatch calls, its module recording ops. */
@@ -136,7 +150,7 @@ describe('LS-1: the pull request glyph (handlePrClick)', () => {
     expect(rows.find(row => row.id === 'thread-2')).toMatchObject({ prTooltip: 'PR #7 - Open: Ship it', prPending: false });
     expect(rows.find(row => row.id === 'thread-3')).toMatchObject({ prTooltip: 'PR #7, status pending', prPending: true });
     const view = readFileSync(new URL('./legacy-sidebar.contract', import.meta.url), 'utf8');
-    expect(view).toContain('button cursor="pointer" press=run("legacy-pr", t.id, page) dblclick=nested("pr")');
+    expect(view).toContain('button cursor="pointer" press=run("legacy-pr", t.id, page) dblclick=nested focus=within("pr", true)');
   });
 });
 
@@ -231,7 +245,7 @@ describe('LS-2 on a background environment: its own stream, and its thread opens
 describe('LS-7 (found while building): the row\'s tooltips', () => {
   const view = readFileSync(new URL('./legacy-sidebar.contract', import.meta.url), 'utf8');
   test('the title, the worktree glyph, the collapsed project\'s status and the controls carry the reference\'s tooltips', () => {
-    expect(view).toContain('LegacyTitleTip(label=t.title, relay=innerHover)');
+    expect(view).toContain('LegacyTitleTip(label=t.title, tipId=`legacy-tip-title-${t.id}`, relay=innerHover)');
     expect(view).toContain('Tip(label=t.worktreeLabel, side="top"');
     expect(view).toContain('Tip(label=p.statusLabel, side="top"');
     expect(view).toContain('Tip(label=(t.prPending ? "" : t.prTooltip)');
@@ -241,7 +255,7 @@ describe('LS-7 (found while building): the row\'s tooltips', () => {
   // a row on its title would hover the title's tooltip and not the row: Archive stayed hidden and a press there opened the
   // thread (the first after drive). Every tooltip trigger inside a row tells the row, as group-hover holds for the whole row.
   test('every tooltip trigger inside a thread row or a project header tells the row the pointer is on it', () => {
-    const thread = view.slice(view.indexOf('component LegacyThread'), view.indexOf('component LegacyTitleTip'));
+    const thread = view.slice(view.indexOf('component LegacyThread'), view.indexOf('// A legacy row\'s or project header\'s tooltip trigger'));
     const project = view.slice(view.indexOf('component LegacyProject'), view.indexOf('// SidebarThreadRow'));
     for (const [row, triggers] of [[thread, 6], [project, 2]] as const) { // thread: title, pull request, port, worktree, terminal, Archive
       expect(row).toContain('action innerHover(value: bool)\n    inner = value');
@@ -252,8 +266,40 @@ describe('LS-7 (found while building): the row\'s tooltips', () => {
     for (const tip of ['component LegacyTitleTip', 'component LegacyRowTip']) {
       const body = view.slice(view.indexOf(tip), view.indexOf('\n  view', view.indexOf(tip)));
       expect(body).toContain('relay: action');
-      expect(body).toContain('over = value\n    relay(value)');
+      expect(body).toContain('action setOver(value: bool)\n    relay(value)');
     }
+  });
+  // Review round 2: the thread list clips its rows (overflow hidden, the reference's, for autoAnimate), which cut a bubble
+  // drawn beside each project's first row. The reference portals every TooltipPopup; the window's hover layer is the clone's.
+  test('review 2: the row\'s and the header\'s tooltips are drawn by the window\'s hover layer, so the list\'s clip does not cut them', () => {
+    const rows = view.slice(view.indexOf('component LegacyProject'), view.indexOf('// The rename field reports its focus'));
+    expect(rows).not.toContain('TipBubble(');
+    expect(view).toContain('border-color="light-dark(#e4e4e7, #ffffff14)" overflow="hidden"'); // the list still clips
+    expect(rows.match(/(?:LegacyRowTip|LegacyTitleTip)\([^\n]*tipId=`legacy-tip-(\w+)-\$\{[tp]\.(?:id|key)\}`/g) ?? []).toHaveLength(8);
+    const tips: unknown[][] = [], relayed: boolean[] = [];
+    const host = { rem: 16, hoverTipAt: (...args: unknown[]) => { tips.push(args); }, frame: (id: string) => ({ id, x: 40, y: 200, width: 12, height: 12 }),
+      legacyTip: (text: string, side: string, align: string, at: Obj, rem: number, testId: string) => ({ key: 'legacy-tip', kind: 'tooltip', text, side, align, at, rem, testId }) };
+    const tip = mount('LegacyRowTip', { label: 'Open localhost:5173', side: 'top', align: 'center', tipId: 'legacy-tip-port-t1', shown: true, relay: (value: boolean) => { relayed.push(value); } }, host);
+    tip.act('setOver', true);
+    tip.act('setOver', false);
+    expect(relayed).toEqual([true, false]);
+    expect(tips).toEqual([[{ key: 'legacy-tip', kind: 'tooltip', text: 'Open localhost:5173', side: 'top', align: 'center', at: { id: 'legacy-tip-port-t1', x: 40, y: 200, width: 12, height: 12 }, rem: 16, testId: 'legacy-tip-port-t1-bubble' }, 'trigger', true],
+      [{ key: 'legacy-tip', kind: 'tooltip', text: 'Open localhost:5173', side: 'top', align: 'center', at: { id: 'legacy-tip-port-t1', x: 40, y: 200, width: 12, height: 12 }, rem: 16, testId: 'legacy-tip-port-t1-bubble' }, 'trigger', false]]);
+    const quiet = mount('LegacyRowTip', { label: '', side: 'top', align: 'center', tipId: 'legacy-tip-archive-t1', shown: true, relay() {} }, host);
+    quiet.act('setOver', true); // Archive with confirmation: no tooltip
+    expect(tips).toHaveLength(2);
+    expect(view).toContain('fn legacyTip(label: string, side: string, align: string, at: Geometry, rem: number, testId: string): HoverTip = hoverTipAtFrame("legacy-tip", "tooltip", label');
+  });
+  test('review 2: the row or header the pointer is on closes a legacy tooltip a gone trigger left; Archive\'s press closes its own', () => {
+    const tips: unknown[][] = [], runs: unknown[][] = [];
+    const host = { performanceNow: () => 0, run: (...args: unknown[]) => { runs.push(args); }, hoverTipAt: (...args: unknown[]) => { tips.push(args); }, legacyTipOff: () => ({ key: 'legacy-tip' }) };
+    const row = mount('LegacyThread', { reduced: false, page: '', busy: false, legacy: { confirmArchive: false }, t: { id: 't1', running: false, renaming: false, prIcon: '', portLabel: '' } }, host);
+    row.act('hover', true);
+    row.act('archive');
+    const header = mount('LegacyProject', { reduced: false, p: { key: 'k', expanded: true, statusLabel: '' }, legacy: {}, now: 0, page: '', busy: false }, host);
+    header.act('hover', true);
+    expect(tips).toEqual([[{ key: 'legacy-tip' }, 'trigger', false], [{ key: 'legacy-tip' }, 'trigger', false], [{ key: 'legacy-tip' }, 'trigger', false]]);
+    expect(runs).toEqual([['legacy-archive', 't1', '']]);
   });
   test('the worktree tooltip names the worktree by its last segment (formatWorktreePathForDisplay), then the branch', () => {
     const { client } = rig({ threads: [thread('thread-1'), thread('wt', { worktreePath: '/work/.t3/worktrees/app-feature', branch: 'feature/x' }), thread('plain', { worktreePath: '/work/.t3/worktrees/solo' })] });
@@ -329,7 +375,8 @@ describe('LS-4: Archive and New thread in the tab order (group-focus-within)', (
   const project = view.slice(view.indexOf('component LegacyProject'), view.indexOf('// SidebarThreadRow'));
   test('Archive stays mounted (opacity 0, no pointer) and shows on hover or while the focus is in the row', () => {
     expect(thread).toContain('derive revealed = (pointed or inside) and not t.running');
-    expect(thread).toContain('when not t.running\n            box position="absolute" right="0.125rem" top="0.25rem" opacity=(revealed ? 1 : 0) pointer-events=(revealed ? "auto" : "none")');
+    expect(thread).toContain('        box position="absolute" right="0.125rem" top="0.25rem" opacity=(revealed ? 1 : 0) pointer-events=(revealed ? "auto" : "none")');
+    expect(thread).toContain('shown=(not confirmShown and not t.running), relay=innerHover)\n            when not confirmShown and not t.running\n              button cursor="pointer" press=archive');
     expect(thread).not.toContain('when over and not t.running');
     for (const target of ['press=open(t.id, "click")', 'press=run("legacy-pr"', 'press=run("legacy-port"', 'press=archive']) {
       const at = thread.indexOf(target);
@@ -475,54 +522,69 @@ describe('review: a thread change focuses the composer (ChatView\'s effect on ac
 });
 
 describe('review: a row\'s hover and focus as the host reports them (LegacyThread, LegacyProject run)', () => {
-  const view = readFileSync(new URL('./legacy-sidebar.contract', import.meta.url), 'utf8');
   const clock = { now: 1000 };
-  const host = (runs: unknown[][] = []) => ({ performanceNow: () => clock.now, preventDefault() {}, run: (...args: unknown[]) => { runs.push(args); }, open() {}, local() {} });
-  const row = (t: Obj = {}, confirmArchive = true, runs: unknown[][] = []) => contractComponent(view, 'LegacyThread', { reduced: false, page: '', busy: false, legacy: { confirmArchive },
-    t: { id: 't1', title: 'Fix', active: false, selected: false, running: false, renaming: false, prIcon: 'git-pull-request', portLabel: '', worktree: false, ...t } }, host(runs));
+  const tips: unknown[][] = [];
+  // The host's functions and the hover layer's (T3Window `hoverTipAt`; `legacyTip` and `legacyTipOff` are the file's fns).
+  const host = (runs: unknown[][] = []): Obj => ({ performanceNow: () => clock.now, preventDefault() {}, stopPropagation() {}, run: (...args: unknown[]) => { runs.push(args); }, open() {}, local() {},
+    hoverTipAt: (...args: unknown[]) => { tips.push(args); }, rem: 16, frame: (id: string) => ({ id, x: 0, y: 0, width: 12, height: 12 }),
+    legacyTip: (text: string, side: string, align: string, at: Obj, rem: number, testId: string) => ({ key: 'legacy-tip', kind: 'tooltip', text, side, align, at, testId }),
+    legacyTipOff: () => ({ key: 'legacy-tip' }) });
+  const row = (t: Obj = {}, confirmArchive = true, runs: unknown[][] = []) => mount('LegacyThread', { reduced: false, page: '', busy: false, legacy: { confirmArchive },
+    t: { id: 't1', title: 'Fix', active: false, selected: false, running: false, renaming: false, prIcon: 'git-pull-request', portLabel: '', worktree: false, terminalCount: 0, ...t } }, host(runs));
+  // A tooltip trigger of `owner` (LegacyRowTip), its relay into the owner's `innerHover`.
+  const trigger = (owner: Mounted, label: string) => mount('LegacyRowTip', { label, side: 'top', align: 'center', tipId: `tip-${label}`, shown: true, offset: 16,
+    relay: (value: boolean) => owner.act('innerHover', value) }, host());
   // The host hovers one node at a time: moving onto a trigger leaves the row and enters the trigger at one instant.
-  const ontoTrigger = (run: ReturnType<typeof row>) => { run.act('hover', false); run.act('innerHover', true); };
+  const ontoTrigger = (run: Mounted) => { run.act('hover', false); run.act('innerHover', true); };
+  // After a batch the host hit-tests the resting pointer (MouseChainMac `hoverUnderPointer`): the node it had hovered hears
+  // its leave only while that node still exists (Presenter `send` drops one for a destroyed node). `at` is the trigger's
+  // line in the owner's view; its `when` arms say whether the batch destroyed it.
+  const relayout = (owner: Mounted, at: string, tip: Mounted) => { if (owner.drawn(at)) tip.act('setOver', false); };
+  const archiveAt = 'LegacyRowTip(label=(legacy.confirmArchive', statusAt = 'LegacyRowTip(label=p.statusLabel';
 
   test('the row that opened its thread shows its time again once the composer took the focus and the pointer left', () => {
     const run = row();
     run.act('hover', true);
     run.act('within', 'row', true); // a mouse press makes the row's button first responder
-    expect(run.scope.revealed).toBe(true);
+    expect(run.view.revealed).toBe(true);
     run.act('within', 'row', false); // the composer takes the focus
     clock.now += 100;
     run.act('hover', false);
-    expect(run.scope.revealed).toBe(false);
+    expect(run.view.revealed).toBe(false);
   });
   test('a collapsed project\'s status trigger that goes as a press expands it leaves the header unhovered after the pointer leaves', () => {
-    const header = contractComponent(view, 'LegacyProject', { reduced: false, p: { key: 'k', expanded: false, statusLabel: 'Working' }, legacy: {}, now: 0, page: '', busy: false }, host());
+    const header = mount('LegacyProject', { reduced: false, p: { key: 'k', expanded: false, statusLabel: 'Working' }, legacy: {}, now: 0, page: '', busy: false }, host());
+    const status = trigger(header, 'Working');
     header.act('hover', true);
-    ontoTrigger(header);
-    expect(header.scope.pointed).toBe(true);
-    // The press expands the project: the status box and its trigger go with no leave; the host's hit-test after the
-    // layout hovers the header itself again.
+    header.act('hover', false); status.act('setOver', true);
+    expect(header.view.pointed).toBe(true);
+    // The press expands the project; the host's hit-test after the layout hovers the header itself again.
+    header.props.p = { ...(header.props.p as Obj), expanded: true };
+    relayout(header, statusAt, status);
     header.act('hover', true);
     header.act('hover', false);
-    expect(header.scope.pointed).toBe(false);
-    expect(header.scope.revealed).toBe(false);
+    expect(header.view.pointed).toBe(false);
+    expect(header.view.revealed).toBe(false);
   });
   test('Archive\'s trigger replaced by Confirm, then the pointer leaving: no hover, no Confirm, the time shown', () => {
-    const runs: unknown[][] = [], run = row({}, true, runs);
+    const runs: unknown[][] = [], run = row({}, true, runs), archive = trigger(run, '');
     run.act('hover', true);
-    ontoTrigger(run); // Archive's tooltip trigger
+    run.act('hover', false); archive.act('setOver', true); // Archive's tooltip trigger
     run.act('within', 'archive', true);
     run.act('archive');
     run.act('within', 'confirm', true); // autofocus
-    expect(run.scope.confirmShown).toBe(true);
+    expect(run.view.confirmShown).toBe(true);
+    relayout(run, archiveAt, archive);
     run.act('hover', true); // the host's hit-test after the layout: Confirm has no hover handler, the row has
-    expect(run.scope.inner).toBe(false);
+    expect(run.view.inner).toBe(false);
     clock.now += 100;
     run.act('hover', false);
-    expect(run.scope.pointed).toBe(false);
-    expect(run.scope.confirmShown).toBe(false); // handleMouseLeave
-    expect(run.scope.revealed).toBe(false); // Confirm went with the focus: no control of the row holds it
+    expect(run.view.pointed).toBe(false);
+    expect(run.view.confirmShown).toBe(false); // handleMouseLeave
+    expect(run.view.revealed).toBe(false); // Confirm went with the focus: no control of the row holds it
     clock.now += 500;
     run.act('hover', true); // back later: the confirmation stays ended
-    expect(run.scope.confirming).toBe(false);
+    expect(run.view.confirming).toBe(false);
     expect(runs).toEqual([]);
   });
   test('the pointer moving from Confirm onto the title, a trigger, keeps the confirmation; leaving the row from there ends it', () => {
@@ -531,10 +593,10 @@ describe('review: a row\'s hover and focus as the host reports them (LegacyThrea
     run.act('archive');
     clock.now += 100;
     ontoTrigger(run); // the title's tooltip trigger, within the row
-    expect(run.scope.confirmShown).toBe(true);
+    expect(run.view.confirmShown).toBe(true);
     clock.now += 100;
     run.act('innerHover', false); // out of the row from the title
-    expect(run.scope.confirmShown).toBe(false);
+    expect(run.view.confirmShown).toBe(false);
   });
   test('handleBlurCapture: the focus moving to another control of the row keeps Confirm; leaving the row ends it', () => {
     const run = row();
@@ -542,33 +604,84 @@ describe('review: a row\'s hover and focus as the host reports them (LegacyThrea
     run.act('archive');
     run.act('within', 'confirm', true);
     run.act('within', 'confirm', false); run.act('within', 'pr', true); // ⇧Tab to the pull request link, one instant
-    expect(run.scope.confirmShown).toBe(true);
+    expect(run.view.confirmShown).toBe(true);
     run.act('within', 'pr', false); // Tab on, out of the row
-    expect(run.scope.confirmShown).toBe(false);
+    expect(run.view.confirmShown).toBe(false);
     clock.now += 100;
     run.act('within', 'row', true); // the focus comes back later: the confirmation stays ended
-    expect(run.scope.confirming).toBe(false);
-    expect(run.scope.revealed).toBe(true);
+    expect(run.view.confirming).toBe(false);
+    expect(run.view.revealed).toBe(true);
   });
   test('a focused control that goes away (the port\'s server stops, the thread starts running, a rename) counts as left', () => {
     const port = row({ portLabel: 'Open localhost:5173' });
     port.act('within', 'port', true);
-    expect(port.scope.inside).toBe(true);
-    port.scope.t = { ...(port.scope.t as Obj), portLabel: '' };
-    expect(port.scope.inside).toBe(false);
+    expect(port.view.inside).toBe(true);
+    port.props.t = { ...(port.props.t as Obj), portLabel: '' };
+    expect(port.view.inside).toBe(false);
     const renamed = row();
     renamed.act('within', 'row', true);
-    renamed.scope.t = { ...(renamed.scope.t as Obj), renaming: true };
+    renamed.props.t = { ...(renamed.props.t as Obj), renaming: true };
     renamed.act('within', 'rename', true); // the field's autofocus
-    renamed.scope.t = { ...(renamed.scope.t as Obj), renaming: false }; // Enter saved it; the field went with no blur
-    expect(renamed.scope.inside).toBe(false);
-    expect(renamed.scope.revealed).toBe(false);
+    renamed.props.t = { ...(renamed.props.t as Obj), renaming: false }; // Enter saved it; the field went with no blur
+    expect(renamed.view.inside).toBe(false);
+    expect(renamed.view.revealed).toBe(false);
   });
   test('without confirmation Archive archives at once', () => {
     const runs: unknown[][] = [], run = row({}, false, runs);
     run.act('archive');
     expect(runs).toEqual([['legacy-archive', 't1', '']]);
-    expect(run.scope.confirmShown).toBe(false);
+    expect(run.view.confirmShown).toBe(false);
+  });
+
+  // Review round 2 (B2): the row re-sorts in the batch that takes its trigger away, so the host hovers another row and
+  // never this one again; only the trigger's own leave can let go of the pointer.
+  test('review 2: the pointer on Archive as a new message runs the thread and re-sorts it to the top: the row lets go', () => {
+    const run = row(), archive = trigger(run, 'Archive');
+    run.act('hover', true);
+    run.act('hover', false); archive.act('setOver', true);
+    expect(run.view.pointed).toBe(true);
+    run.props.t = { ...(run.props.t as Obj), running: true }; // and the row moved: another row is under the pointer now
+    relayout(run, archiveAt, archive);
+    expect(run.view.pointed).toBe(false); // not painted hovered while it runs
+    run.props.t = { ...(run.props.t as Obj), running: false };
+    expect(run.view.revealed).toBe(false); // the run over: its time, not Archive, until the pointer crosses it
+  });
+  test('review 2: a collapsed project\'s status trigger that goes as the projects re-sort lets go of the header', () => {
+    const header = mount('LegacyProject', { reduced: false, p: { key: 'k', expanded: false, statusLabel: 'Working' }, legacy: {}, now: 0, page: '', busy: false }, host());
+    const status = trigger(header, 'Working');
+    header.act('hover', true);
+    header.act('hover', false); status.act('setOver', true);
+    header.props.p = { ...(header.props.p as Obj), statusLabel: '' }; // its run ended; the project moved down the list
+    relayout(header, statusAt, status);
+    expect(header.view.pointed).toBe(false);
+    expect(header.view.revealed).toBe(false);
+  });
+  test('review 2: every trigger of a row and a header keeps its box (display none) while it is not drawn', () => {
+    const view = readFileSync(new URL('./legacy-sidebar.contract', import.meta.url), 'utf8');
+    const thread = view.slice(view.indexOf('component LegacyThread'), view.indexOf('// A legacy row\'s or project header\'s tooltip trigger'));
+    const project = view.slice(view.indexOf('component LegacyProject'), view.indexOf('// SidebarThreadRow'));
+    const shown = [...`${thread}${project}`.matchAll(/LegacyRowTip\([^\n]*shown=([^\n]*?), relay=innerHover\)\n( *)when (.+)/g)].map(m => [m[1], m[3]]);
+    expect(shown).toEqual([['(t.prIcon != "")', 't.prIcon != ""'], ['(t.portLabel != "")', 't.portLabel != ""'], ['t.worktree', 't.worktree'],
+      ['(t.terminalCount > 0)', 't.terminalCount > 0'], ['(not confirmShown and not t.running)', 'not confirmShown and not t.running'],
+      ['(not p.expanded and p.statusLabel != "")', 'not p.expanded and p.statusLabel != ""']]);
+    expect(view).toContain('box id=tipId testId=tipId position="relative" hover=setOver flex-shrink=0 display=(shown ? "flex" : "none")');
+    // Each trigger's box is drawn whatever its trigger's state: only the row (a rename) or the row's going takes it.
+    const run = row({ prIcon: '', running: true, terminalCount: 0 });
+    run.act('archive');
+    for (const at of ['tipId=`legacy-tip-pr-', 'tipId=`legacy-tip-port-', 'tipId=`legacy-tip-worktree-', 'tipId=`legacy-tip-terminal-', 'tipId=`legacy-tip-archive-']) expect(run.drawn(at)).toBe(true);
+  });
+  test('review 2: a double-click on the pull request link after its first click moved the focus to the composer: the row is not focused', () => {
+    const run = row();
+    run.act('hover', true);
+    run.act('within', 'pr', true); // the first mousedown focuses the link
+    run.act('within', 'pr', false); // its click opened the thread; `sidebar:opened:focus` gave the composer the focus
+    run.act('nested', 'pr'); // the second click's dblclick, on the link
+    clock.now += 100;
+    run.act('hover', false);
+    expect(run.view.inside).toBe(false);
+    expect(run.view.revealed).toBe(false); // its time, not Archive
+    const view = readFileSync(new URL('./legacy-sidebar.contract', import.meta.url), 'utf8');
+    expect(view.match(/dblclick=nested /g) ?? []).toHaveLength(2); // the pull request and the port: no rename under them
   });
 });
 
