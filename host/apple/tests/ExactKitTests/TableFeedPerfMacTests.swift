@@ -4,7 +4,9 @@
 // moves into a cell once and out once, and neither arrangement mounts more
 // than a window of rows. What is timed is a measurement, written where
 // `EXACT_TABLE_PERF` says and asserted nowhere: this Mac is shared, and a
-// frame's time under another lane's build is not this code's.
+// frame's time under another lane's build is not this code's. So each
+// frame's work is given as processor time too, which waiting for a core
+// does not lengthen.
 #if os(macOS)
 import AppKit
 import XCTest
@@ -49,6 +51,18 @@ final class TableFeedPerfMacTests: XCTestCase {
                           name, s.count, s[0], q(0.5), q(0.9), q(0.95), q(0.99), s[s.count - 1], over(8.33), over(13.33), over(16.67))
         }
     }
+    /// A frame's time three ways. On a shared machine the wall's time is
+    /// mostly waiting for a core; the processor's time is the work.
+    private struct Frames {
+        var wall = Times(), main = Times(), process = Times()
+        mutating func add(_ frame: (wall: Double, main: Double, process: Double)) {
+            wall.ms.append(frame.wall); main.ms.append(frame.main); process.ms.append(frame.process)
+        }
+        func lines(_ name: String) -> [String] {
+            [main.line("\(name), the main thread's processor time"), process.line("\(name), every thread's processor time"), wall.line("\(name), by the wall")]
+        }
+    }
+    private static func processor(_ clock: clockid_t) -> Double { Double(clock_gettime_nsec_np(clock)) / 1_000_000 }
     private static func load() -> String {
         var loads = [Double](repeating: 0, count: 3)
         getloadavg(&loads, 3)
@@ -59,15 +73,15 @@ final class TableFeedPerfMacTests: XCTestCase {
     /// the port moves, the turn's queued work runs (the pump's slice, a
     /// report's continuation), the window lays out and draws, the layer
     /// tree is committed.
-    private func frame(_ f: TableFixture, to y: CGFloat) -> Double {
-        let began = CACurrentMediaTime()
+    private func frame(_ f: TableFixture, to y: CGFloat) -> (wall: Double, main: Double, process: Double) {
+        let began = CACurrentMediaTime(), main = Self.processor(CLOCK_THREAD_CPUTIME_ID), process = Self.processor(CLOCK_PROCESS_CPUTIME_ID)
         f.clip.scroll(to: NSPoint(x: 0, y: y))
         f.list.scroll!.reflectScrolledClipView(f.clip)
         RunLoop.main.run(mode: .default, before: Date())
         f.presenter.pump()
         f.window.displayIfNeeded()
         CATransaction.flush()
-        return (CACurrentMediaTime() - began) * 1000
+        return ((CACurrentMediaTime() - began) * 1000, Self.processor(CLOCK_THREAD_CPUTIME_ID) - main, Self.processor(CLOCK_PROCESS_CPUTIME_ID) - process)
     }
 
     /// The travels, each a list of offsets a frame apart at `hz`.
@@ -114,30 +128,30 @@ final class TableFeedPerfMacTests: XCTestCase {
         // The work of each frame, one after another with no waiting: what the main thread does for a frame.
         say("\n== work per frame on the main thread (the port moved, the turn's queued work, layout, drawing, the commit)")
         for (travel, offsets) in travels(table, hz: hz) {
-            var times = ["table": Times(), "today": Times()]
+            var times = ["table": Frames(), "today": Frames()]
             for (name, f) in both + both.reversed() {
                 f.scroll(to: offsets[0])
-                for y in offsets { times[name]!.ms.append(frame(f, to: y)) }
+                for y in offsets { times[name]!.add(frame(f, to: y)) }
                 f.settle()
             }
             say("  \(travel), twice each; \(Self.load())")
-            for name in ["table", "today"] { say("    \(times[name]!.line(name))") }
+            for name in ["table", "today"] { times[name]!.lines(name).forEach { say("    \($0)") } }
         }
-        var ends = ["table": Times(), "today": Times()], after = ["table": Times(), "today": Times()]
+        var ends = ["table": Frames(), "today": Frames()], after = ["table": Frames(), "today": Frames()]
         for round in 0..<3 {
             for (name, f) in round % 2 == 0 ? both : both.reversed() {
                 f.scroll(to: CGFloat(round) * 1_000)
-                ends[name]!.ms.append(frame(f, to: f.document.frame.height - f.clip.bounds.height))
-                for _ in 0..<20 { after[name]!.ms.append(frame(f, to: f.document.frame.height - f.clip.bounds.height)) }
-                ends[name]!.ms.append(frame(f, to: CGFloat(round) * 1_000))
-                for _ in 0..<20 { after[name]!.ms.append(frame(f, to: CGFloat(round) * 1_000)) }
+                ends[name]!.add(frame(f, to: f.document.frame.height - f.clip.bounds.height))
+                for _ in 0..<20 { after[name]!.add(frame(f, to: f.document.frame.height - f.clip.bounds.height)) }
+                ends[name]!.add(frame(f, to: CGFloat(round) * 1_000))
+                for _ in 0..<20 { after[name]!.add(frame(f, to: CGFloat(round) * 1_000)) }
                 f.settle()
             }
         }
         say("  a jump to the end and a jump back, three times; \(Self.load())")
         for name in ["table", "today"] {
-            say("    \(ends[name]!.line("\(name), the frame of the jump"))")
-            say("    \(after[name]!.line("\(name), the 20 frames after each"))")
+            ends[name]!.lines("\(name), the frame of the jump").forEach { say("    \($0)") }
+            after[name]!.lines("\(name), the 20 frames after each").forEach { say("    \($0)") }
         }
         say("  the feed, over all of it: \(table.feed.moves) moves of a row between the document and a cell, \(table.feed.noted) row heights told to the table")
 
