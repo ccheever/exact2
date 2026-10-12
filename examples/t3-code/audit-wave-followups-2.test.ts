@@ -60,7 +60,7 @@ function wakingNative() {
     later: async (request: Obj) => { if (request.op === 'r10Wake') wakes.push(String(request.topic)); return { ok: true, value: {} }; } } as unknown as Native;
   return { module, wakes, watched };
 }
-const KEY = 'env:new';
+const KEY = 'new'; // a new task's dialog key, whatever its environment (scheduled-tasks-followups ST-1)
 const picker = (query: string, ref = '', project = 'p1') => `key=${encodeURIComponent(KEY)}&project=${project}&ref=${encodeURIComponent(ref)}&query=${encodeURIComponent(query)}`;
 
 describe('FV-1, FV-2: the scheduled task\'s base-branch picker', () => {
@@ -165,7 +165,7 @@ describe('FV-1, FV-2: the scheduled task\'s base-branch picker', () => {
 
   test('FV-2: the picker sends its search to the root, and the search starts empty each time it opens or the project changes', async () => {
     const contract = await source('settings-scheduled.contract');
-    expect(contract).toContain('      lookupBase(taskPicker(draft.key, projectId, baseRef, value))');
+    expect(contract).toContain('      lookupBase(taskPicker(draft.key, chosenProject, baseRef, value))');
     expect(contract).toContain('button press=openRefs popovertarget="task-branch-menu"');
     expect(contract).toContain('scroll max-height="14rem" width="100%" hatch="t3-anchor" data-anchor="scroll:task-refs"');
     expect(contract).not.toContain('includes(ref.search, refSearch)');
