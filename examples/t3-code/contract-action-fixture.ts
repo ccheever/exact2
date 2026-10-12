@@ -2,7 +2,8 @@
 // (docs/contract-for-agents.md: a read sees the value from before the action, a `let` is visible after its line, the
 // last write to a slot wins), for tests of a drag's state (not a test file). Main's `analyze-read-after-assign`
 // (LLP 1116.003 D6) finds an action reading a slot its start branch has just reset; sidebar-sweep.test.ts and
-// queued-drag.test.ts run the bodies that had it. Statements: `let`, a slot write, `if` / `else if` / `else`.
+// queued-drag.test.ts run the bodies that had it. Statements: `let`, a slot write, `if` / `else if` / `else`, and a
+// call of a function in scope (an action prop such as ThreadSection's `unhover`), which runs when its line does.
 import { readFileSync } from 'node:fs';
 
 export type Env = Record<string, unknown>;
@@ -63,6 +64,9 @@ function run(nodes: Node[], outer: Env, slots: Set<string>, writes: Env, owner: 
     } else if ((m = /^(\w+) = (.+)$/.exec(line))) {
       if (!slots.has(m[1]!)) throw new Error(`${m[1]} is not ${owner} state`);
       writes[m[1]!] = value(m[2]!, env);
+    } else if ((m = /^(\w+)\((.*)\)$/.exec(line)) && typeof env[m[1]!] === 'function') {
+      // A call to an action prop (pr-list-scroll-and-sidebar-sweep: `unhover`, the root's half of the window's hover).
+      (env[m[1]!] as (...args: unknown[]) => void)(...(value(`[${m[2]!}]`, env) as unknown[]));
     } else {
       throw new Error(`unsupported statement: ${line}`);
     }
