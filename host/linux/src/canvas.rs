@@ -135,6 +135,8 @@ static SLOTS: std::sync::LazyLock<bool> =
 /// from the decoded picture, a copy rather than a decode.
 const IDLE_FRAMES: u64 = 10;
 
+#[path = "canvas/access.rs"]
+mod access;
 #[path = "canvas/agent.rs"]
 pub mod agent;
 #[path = "canvas/clip.rs"]
