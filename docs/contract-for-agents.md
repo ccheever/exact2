@@ -2226,7 +2226,8 @@ calls `preventDefault()` keeps it open and the test goes on to the app's "Save
 changes?"; macOS and the web), `back` (the platform's Back: a dialog's cancel,
 a sheet's dismissal, the pushed route popped; a refusal is a note, nothing to
 go back from fails),
-`screenshot "file"`, `expect tree has|missing "id"`, `expect text "id" == "…"`
+`screenshot "file"`, `expect tree has|missing "id"`, `expect disabled|enabled "id"` (a control's
+`disabled`; a `tap` on a disabled one fails its step on every host), `expect text "id" == "…"`
 (the node's text; a control's value, so a `select` reads its chosen value, not its
 options, and a checkbox with a `checked` binding `true` or `false`; else its descendants' — a button's label — else a field's value), and
 `expect state name == <number|string|bool|none|[]>`, where `name` may go on into

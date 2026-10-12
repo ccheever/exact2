@@ -7,7 +7,7 @@ import { createServer } from 'node:http';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runTests, serverRequest, textExpectation, treeExpectation } from './agent-test.mjs';
+import { disabledExpectation, refuseDisabled, runTests, serverRequest, textExpectation, treeExpectation } from './agent-test.mjs';
 import { axFindings } from './agent-ax.mjs';
 import { withEpoch } from './agent-launch.mjs';
 import { serveBuildTree } from '../host/web/serve.mjs';
@@ -49,6 +49,23 @@ test('present means shown in the app; missing is the tree\'s', () => {
   expect(treeExpectation(nodes, 'gone', true).message).toBe('expected testId "gone" present, it was absent');
   expect(treeExpectation(nodes, 'gone', false)).toBeNull();
   expect(treeExpectation(nodes, 'tagline', false).message).toBe('expected testId "tagline" absent, it was present');
+});
+
+// LLP 1116.010 D3 (chat-rooms and password-generator, round 12): a disabled control is asserted, and pressing one fails the step.
+test('expect disabled and enabled read the prop every host\'s tree carries; a press on a disabled control is refused, a hover is not', async () => {
+  const tree = [{ id: 1, props: { testId: 'send', disabled: true } }, { id: 2, props: { testId: 'arm' } }, { id: 3, props: { testId: 'native', disabled: 'true' } }];
+  expect(disabledExpectation(tree, 'send', true)).toBeNull();
+  expect(disabledExpectation(tree, 'native', true)).toBeNull();
+  expect(disabledExpectation(tree, 'arm', false)).toBeNull();
+  expect(disabledExpectation(tree, 'send', false).message).toBe('expected "send" enabled, it was disabled');
+  expect(disabledExpectation(tree, 'arm', true).message).toBe('expected "arm" disabled, it was enabled');
+  expect(disabledExpectation(tree, 'gone', true).message).toBe('expected "gone" disabled, no view carries that testId');
+  const s = { op: async (req) => ({ nodes: tree.filter((n) => n.id === req.target) }) };
+  await expect(refuseDisabled(s, { id: 1 }, 'send', {})).rejects.toThrow('send is disabled: a press does nothing');
+  await expect(refuseDisabled(s, { id: 3 }, 'native', { dblclick: true })).rejects.toThrow('native is disabled');
+  await refuseDisabled(s, { id: 2 }, 'arm', {});
+  await refuseDisabled(s, { id: 1 }, 'send', { hover: true });
+  await refuseDisabled(s, { id: 1, entity: 'unit' }, 'send', {});
 });
 
 test('an active screen\'s node is read before a covered one\'s', () => {

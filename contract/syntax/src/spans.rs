@@ -128,7 +128,7 @@ record_variants! {
         Size { width, height, span }, Epoch { value, span }, TimeZone { zone, span },
         Locale { tag, span }, Seed { seed, span }, BeforeData { span }, FailFetch { prefix, times, span }, PassFetch { prefix, span }, Request { method, path, body, persona, span }, Type { target, text, append, span }, Key { target, key, phase, duration, span },
         Pick { target, paths, span }, Clipboard { target, edit, text, span },
-        Clock { arg, span }, Reload { span }, Close { span }, Back { span }, Resize { width, height, span }, Screenshot { path, span }, ExpectTree { target, present, span },
+        Clock { arg, span }, Reload { span }, Close { span }, Back { span }, Resize { width, height, span }, Screenshot { path, span }, ExpectTree { target, present, span }, ExpectDisabled { target, disabled, span },
         ExpectText { target, value, span }, ExpectState { name, value, span },
         ExpectSound { src, present, at, gain, ends, by, span },
         ExpectMediaSession { field, value, span }, ExpectMediaSessionAction { action, present, span },

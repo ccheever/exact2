@@ -570,6 +570,41 @@ fn only_a_tests_leading_fail_fetch_overrides_the_files() {
 }
 
 #[test]
+fn a_test_asserts_that_a_control_is_disabled_or_enabled() {
+    // LLP 1116.010 D3: `expect disabled "id"` and `expect enabled "id"`, each one testId.
+    let src = "test \"t\"\n  expect disabled \"send\"\n  tap \"arm\"\n  expect enabled \"send\"\n";
+    let tests = contract::tests(src).unwrap();
+    let steps = &tests[0].steps;
+    assert!(
+        matches!(&steps[0], Step::ExpectDisabled { target, disabled: true, .. } if target == "send")
+    );
+    assert!(
+        matches!(&steps[2], Step::ExpectDisabled { target, disabled: false, .. } if target == "send")
+    );
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.contains(
+            "{\"op\":\"expect-disabled\",\"target\":\"send\",\"disabled\":true,\"line\":2}"
+        ),
+        "{json}"
+    );
+    assert!(
+        json.contains(
+            "{\"op\":\"expect-disabled\",\"target\":\"send\",\"disabled\":false,\"line\":4}"
+        ),
+        "{json}"
+    );
+    for (src, line) in [
+        ("test \"t\"\n  expect disabled send\n", 2),
+        ("test \"t\"\n  expect enabled\n", 2),
+        ("test \"t\"\n  expect disabled \"a\" \"b\"\n", 2),
+    ] {
+        let e = contract::tests(src).unwrap_err();
+        assert_eq!(e.span.line, line, "{src}: {e}");
+    }
+}
+
+#[test]
 fn a_test_writes_through_the_apps_server_as_another_person() {
     // LLP 1116.006 D8: method, a path under the server the app calls (or a
     // whole URL), a JSON body that may span lines, and the persona.

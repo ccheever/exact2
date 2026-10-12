@@ -368,6 +368,16 @@ pub enum Step {
         /// Where.
         span: Span,
     },
+    /// `expect disabled "testId"` / `expect enabled "testId"` (LLP 1116.010 D3): whether
+    /// the control the node names is disabled (its `disabled` attribute).
+    ExpectDisabled {
+        /// The node, by `testId`.
+        target: String,
+        /// `disabled`, or `enabled`.
+        disabled: bool,
+        /// Where.
+        span: Span,
+    },
     /// `expect text "testId" == "value"`: the node's text — its `text` prop,
     /// else its descendants' text in order (the web's `textContent`), else a
     /// field's value.
@@ -1397,6 +1407,7 @@ impl Step {
             | Step::Resize { span, .. }
             | Step::Screenshot { span, .. }
             | Step::ExpectTree { span, .. }
+            | Step::ExpectDisabled { span, .. }
             | Step::ExpectText { span, .. }
             | Step::ExpectState { span, .. }
             | Step::ExpectSound { span, .. }

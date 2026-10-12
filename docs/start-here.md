@@ -45,8 +45,7 @@ bun exact.mjs ios --prebuild  # the first iOS build: minutes, in the background
 |`web`, `ios --run`|For a person watching: its URL, rebuilds on save; a simulator.|
 
 `verify`, `test web` and `agent` build and serve their own copy: no dev server. Run `verify` after each edit, `verify ios` at milestones. A screen you
-want checked or captured is a test's end; `verify --shots <dir>` copies its screenshots;
-a drive takes any others (`resize`, `prefer …`, `screenshot`).
+want checked or captured is a test's end; a drive takes any others (`resize`, `prefer …`, `screenshot`).
 Keep scratch files in `.exact/` (any other new file makes the build stale).
 
 ## One screen: the view, its data, its test
@@ -170,9 +169,9 @@ test "an item is added, a repeat refused, checked off and kept"
 ```
 
 Steps: `tap "id"`, `type "id" "text"` or `type "id" key "Enter"`, `expect text "id" == "…"`,
-`expect tree has|missing "id"`, `expect state a.0 .b == v`, `clock data`
-`|settle` `|+ms`, `reload`, `back`, `fail fetch "/p"`
-and `pass fetch`. Launch lines (`epoch "…"`, `time-zone "…"`, `size 390x844`), the rest: `tests`.
+`expect tree has|missing "id"`, `expect disabled|enabled "id"`, `expect state a.0 .b == v`,
+`clock data|settle|+ms`, `reload`, `back`, `fail fetch "/p"`, `pass fetch`. Launch lines
+(`epoch "…"`, `time-zone "…"`, `size 390x844`), the rest: `tests`.
 
 ## Pitfalls that cost the most
 

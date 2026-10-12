@@ -1014,6 +1014,13 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                     q(target, &mut s);
                     s.push_str(&format!(",\"present\":{present}"));
                 }
+                Step::ExpectDisabled {
+                    target, disabled, ..
+                } => {
+                    s.push_str("{\"op\":\"expect-disabled\",\"target\":");
+                    q(target, &mut s);
+                    s.push_str(&format!(",\"disabled\":{disabled}"));
+                }
                 Step::ExpectText { target, value, .. } => {
                     s.push_str("{\"op\":\"expect-text\",\"target\":");
                     q(target, &mut s);
