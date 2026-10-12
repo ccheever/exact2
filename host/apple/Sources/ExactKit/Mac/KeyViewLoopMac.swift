@@ -48,7 +48,7 @@ extension Presenter {
     func keyView(of v: NodeView) -> NSView {
         if v.kind == "native", let target = session?.natives.focusTarget(v) { return target }
         if v.isNativeButton, let button = controls.controls[v.id] as? NativeButtonMac { return button }
-        return v.textArea ?? v.field ?? v
+        return v.textArea ?? v.field ?? v.nativeValueControl ?? v
     }
 
     /// Rebuild the key-view loop if a batch left it stale, or the Keyboard
@@ -156,7 +156,7 @@ extension Presenter {
     static func tabbable(_ v: NodeView) -> Bool {
         if v.formDisabled || v.cssVisibilityHidden { return false }
         if let index = v.explicitTabIndex, index < 0 { return false }
-        if v.field != nil || v.textArea != nil { return true }
+        if v.field != nil || v.textArea != nil || v.isDateOrSelect { return true }
         if v.kind == "native", v.presenter?.session?.natives.focusTarget(v) != nil { return true }
         if v.isButton || v.kind == "toggle" || v.pressable { return v.explicitTabIndex != nil || KeyboardNavigation.on || v.takesKeysOfItsOwn }
         return v.canBecomeKeyView

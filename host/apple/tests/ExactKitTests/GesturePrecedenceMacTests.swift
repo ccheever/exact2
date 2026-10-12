@@ -187,9 +187,7 @@ final class GesturePrecedenceMacTests: XCTestCase {
         let node = p.views[1]!
         for right in [0.0, 5.0, 10.0] { node.mouseMoved(with: event(.mouseMoved, node, right: right)) }
         XCTAssertEqual(log, [], "nothing until the frame")
-        let frame = expectation(description: "a display frame")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { frame.fulfill() }
-        wait(for: [frame], timeout: 2)
+        p.flushHoverMove() // the driver's display frame, independent of a window server tick
         XCTAssertEqual(log, ["move 1"], "one move a frame")
         XCTAssertEqual(xs.last, 110, "the latest")
         node.mouseMoved(with: event(.mouseMoved, node, right: 20))

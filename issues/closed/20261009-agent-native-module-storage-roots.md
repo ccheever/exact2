@@ -1,6 +1,7 @@
 # Agent drives: a native module's data folder ignores `--storage`, so its files do not survive a relaunch (macOS)
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** PR #327: native modules use named agent data/cache/tmp roots across relaunch and FRESH clears them
 **Systems:** agent, host/apple, native modules
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)

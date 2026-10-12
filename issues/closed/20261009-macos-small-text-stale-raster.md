@@ -1,6 +1,7 @@
 # macOS: a paragraph that shrinks below the text-raster size keeps painting its old lines
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** PR #327: shrinking below the raster threshold retires accepted ink and repaints current text
 **Systems:** host/apple macOS, text raster
 **Severity:** P1
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)
