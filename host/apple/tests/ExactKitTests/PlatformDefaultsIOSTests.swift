@@ -243,6 +243,31 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         XCTAssertEqual(try mode(3), .interactive)
     }
 
+    /// LLP 1115.000 D11.6: a button's `aria-keyshortcuts` is a key command
+    /// that carries the button's name, so holding ⌘ on an iPad lists it. A
+    /// command with no title is not listed, and Exact's had none.
+    func testAShortcutsKeyCommandCarriesItsButtonsName() throws {
+        let p = presenter([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "button", "handlers": ["press"], "props": ["accessibilityKeyShortcuts": "Meta+n", "accessibilityLabel": "New Note"]],
+            ["op": "create", "id": 3, "kind": "button", "handlers": ["press"], "props": ["accessibilityKeyShortcuts": "Meta+Shift+f Escape"]],
+            ["op": "children", "id": 1, "ids": [2, 3]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 100.0, "h": 44.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 50.0, "w": 100.0, "h": 44.0],
+        ])
+        let commands = p.shortcutCommands(#selector(UIResponder.resignFirstResponder))
+        let named = try XCTUnwrap(commands.first { $0.input == "n" && $0.modifierFlags == .command })
+        XCTAssertEqual(named.title, "New Note", "the command's title is its button's name")
+        XCTAssertEqual(named.discoverabilityTitle, "New Note", "which is what the ⌘ overlay lists")
+        XCTAssertTrue(named.wantsPriorityOverSystemBehavior)
+        // A button with no name has nothing to be listed by.
+        let bare = try XCTUnwrap(commands.first { $0.input == "f" })
+        XCTAssertEqual(bare.title, "")
+        XCTAssertEqual(commands.count, 3)
+    }
+
     /// Only one scroll view answers the status bar, or UIKit scrolls none:
     /// with no routes and a page that does not scroll, the first vertical
     /// scroller; a horizontal one and the viewport are off.
