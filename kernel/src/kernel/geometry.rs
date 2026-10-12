@@ -115,6 +115,11 @@ impl Kernel {
         use taffy::style::{Dimension, LengthPercentage, LengthPercentageAuto};
         let (frame, _) = self.laid_out_frame(key)?;
         let slot = key.index;
+        // A block's root has no parent to stand in for: its used size is
+        // its content's already (`Kernel::host_block_size`).
+        if self.arena.blocks.holds(slot) {
+            return None;
+        }
         let tree_ref = self.layout.as_deref().and_then(LayoutMirror::tree_ref)?;
         let parent = self.arena.parent(slot);
         let holder = parent.map(|p| (p, self.arena.taffy(p).map(|n| tree_ref.layout(n))));
@@ -273,7 +278,9 @@ impl Kernel {
 
     /// The root `slot` is laid out under, when nothing between them was
     /// `display: none` when last laid out (a batch since may have changed a
-    /// `display`; the layout last shown hasn't).
+    /// `display`; the layout last shown hasn't). A subtree a host gave a
+    /// containing block is laid out from the node that has it (LLP
+    /// 1115.002 D8.2), whose flag says whether anything above hid it.
     fn root_above(&self, slot: u32) -> Option<u32> {
         let mut top = slot;
         let mut at = Some(slot);
@@ -282,6 +289,12 @@ impl Kernel {
                 return None;
             }
             top = s;
+            if self.arena.blocks.holds(s) {
+                while let Some(above) = self.arena.parent(top) {
+                    top = above;
+                }
+                return self.arena.is_root(top).then_some(s);
+            }
             at = self.arena.parent(s);
         }
         self.arena.is_root(top).then_some(top)

@@ -560,6 +560,9 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
     if name == "accept" {
         doc["note"] = "On input type=file, omit, leave empty, or use */* for any file; specific types are media or app file_handlers types".into();
     }
+    if name == "buttonStyle" {
+        doc["note"] = vocab::BUTTON_DEFAULT_NOTE.into();
+    }
     doc
 }
 
@@ -660,6 +663,8 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
                     ", one of {}",
                     exact_kernel::generated::BUTTON_STYLES.join("|")
                 );
+                // LLP 1115.000 D14.5: a presentation default is the platform's, said per host.
+                return vec![line, vocab::BUTTON_DEFAULT_NOTE.into()];
             }
             if name == "accept" {
                 return vec![line, "on input type=file: omit, leave empty, or use */* for any file; specific types are media or app file_handlers types".into()];

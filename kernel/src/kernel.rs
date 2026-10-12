@@ -13,7 +13,7 @@ use crate::error::{KernelError, LayoutError};
 use crate::export::{self, NodeRow};
 use crate::generated::{BoxSizing, Display, NodeType, PropId, StyleId, StyleMask, StyleProps};
 use crate::id::{Frame, NodeFlags, NodeKey, Offer, ViewId};
-use crate::layout::{self, LayoutMirror, LayoutReceipt, LayoutTree, Unmirrored};
+use crate::layout::{LayoutMirror, LayoutReceipt, LayoutTree, Unmirrored};
 use crate::props::PropList;
 use crate::selector::SelectorIndex;
 use crate::style::{uses_env, ColorValue, Dimension, Env, Rect, RowValue};
@@ -21,6 +21,7 @@ use crate::text::{MonospaceMeasurer, TextMeasurer, TextRun, TextStyle};
 
 use crate::txn::{self, CommitReceipt, Target};
 use crate::wire::{self, Op};
+mod block;
 mod cover;
 mod document;
 mod environment;
@@ -32,6 +33,8 @@ mod row_memo;
 mod sticky;
 mod trim;
 
+pub(crate) use block::{apply as apply_block, publication_start, Blocks};
+pub use block::{BlockAxis, HostBlock};
 pub use cover::HostCover;
 pub(crate) use cover::{
     apply as apply_cover, children_changed as cover_children_changed, published_extent,
@@ -422,6 +425,9 @@ impl Kernel {
         profile: crate::region::RegionProfile,
     ) -> Result<bool, KernelError> {
         self.mirror();
+        if binding.is_some() && self.arena.blocks.any() {
+            return Err(LayoutError::HostBlock("no content region beside a block").into());
+        }
         if binding.is_some() && engine(&mut self.layout).has_presented_height() {
             return Err(LayoutError::ContentRegion(
                 "clear the presented height before region registration",
@@ -568,25 +574,14 @@ impl Kernel {
         }
         self.replace_env(self.arena.env().with_viewport(offer))?;
         engine(&mut self.layout).present_heights(&self.arena, presented);
-        let result = match layout::compute(
-            &mut self.arena,
-            engine(&mut self.layout),
-            self.measurer.as_mut(),
-            slot,
-            offer,
-        ) {
+        // The root, then each subtree a host gave a block (LLP 1115.002 D8.2).
+        let result = match self.lay_out_roots(slot, offer) {
             ok @ Ok(_) => ok,
             Err(LayoutError::Engine(_)) => {
                 // The engine tree is derived state: rebuild it from the columns and retry once.
                 self.layout = Some(Box::new(LayoutTree::rebuild(&mut self.arena)));
                 engine(&mut self.layout).present_heights(&self.arena, presented);
-                layout::compute(
-                    &mut self.arena,
-                    engine(&mut self.layout),
-                    self.measurer.as_mut(),
-                    slot,
-                    offer,
-                )
+                self.lay_out_roots(slot, offer)
             }
             Err(e) => Err(e),
         };
@@ -656,6 +651,7 @@ impl Kernel {
                 &kernel.arena,
                 kernel.measurer.as_mut(),
             )?;
+            kernel.lay_out_blocks_unpublished(slot)?;
             owners
                 .iter()
                 .map(|node| {
@@ -1022,6 +1018,8 @@ impl std::fmt::Debug for Kernel {
     }
 }
 
+#[cfg(test)]
+mod block_tests;
 #[cfg(test)]
 mod presented_height_tests;
 

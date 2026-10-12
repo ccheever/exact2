@@ -118,6 +118,43 @@ final class NativeButtonsIOSTests: XCTestCase {
         XCTAssertEqual(named.first?["role"] as? String, "button")
     }
 
+    /// What `testADestructiveButtonDrawsInThePlatformsRedUnlessTheAuthorPaintedIt`
+    /// leaves unheld (LLP 1115.000 D15's measurements on iOS 27): the red is the configuration's base colour and not a
+    /// transformer's, so what UIKit draws is `systemRed` in each scheme and,
+    /// for a disabled one, the grey of a disabled button UIKit configured
+    /// itself; and the prop paints it when it arrives and stops when it leaves.
+    func testADestructiveButtonIsRedAsDrawnGreyWhenDisabledAndFollowsItsProp() throws {
+        let plain = face("Delete", style: "plain", ios: "plain")
+        let p = presenter(box(1) + native(2, ["destructive": "true"]) + native(3) + native(6, ["destructive": "true", "disabled": "true"])
+                          + [["op": "children", "id": 1, "ids": [2, 3, 6]], ["op": "roots", "ids": [1]]],
+                          faces: [2: plain, 3: plain, 6: plain])
+        XCTAssertEqual(try button(p, 2).configuration?.baseForegroundColor, .systemRed)
+        XCTAssertNil(try button(p, 3).configuration?.baseForegroundColor, "not destructive: UIKit's own ink")
+        var hand = UIButton.Configuration.plain(); hand.title = "Delete"
+        let uikit = UIButton(configuration: hand)
+        uikit.isEnabled = false
+        window.addSubview(uikit)
+        for scheme in [UIUserInterfaceStyle.light, .dark] {
+            window.overrideUserInterfaceStyle = scheme
+            window.updateTraitsIfNeeded()
+            for b in [try button(p, 2), try button(p, 6), uikit] {
+                b.setNeedsUpdateConfiguration(); b.updateConfiguration(); b.layoutIfNeeded()
+            }
+            XCTAssertEqual(rgba(try button(p, 2).titleLabel?.textColor, scheme), rgba(.systemRed, scheme), "\(scheme.rawValue)")
+            XCTAssertEqual(rgba(try button(p, 6).titleLabel?.textColor, scheme), rgba(uikit.titleLabel?.textColor, scheme), "disabled, \(scheme.rawValue)")
+            XCTAssertNotEqual(rgba(try button(p, 6).titleLabel?.textColor, scheme), rgba(.systemRed, scheme), "disabled is not red, \(scheme.rawValue)")
+        }
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["destructive": "true"]]]))
+        XCTAssertEqual(try button(p, 3).configuration?.baseForegroundColor, .systemRed)
+        p.apply(wireBatch([["op": "props", "id": 3, "clear": ["destructive"]]]))
+        XCTAssertNil(try button(p, 3).configuration?.baseForegroundColor)
+    }
+    private func rgba(_ color: UIColor?, _ scheme: UIUserInterfaceStyle) -> [Int] {
+        var (r, g, b, a): (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
+        color?.resolvedColor(with: UITraitCollection(userInterfaceStyle: scheme)).getRed(&r, green: &g, blue: &b, alpha: &a)
+        return [r, g, b, a].map { Int(($0 * 255).rounded()) }
+    }
+
     func testItsActionPressesOnceItsOwnOrAnAncestorsHandler() throws {
         let p = presenter(box(1, handlers: ["press"]) + native(2) + native(3, handlers: []) + native(4, ["disabled": "true"])
                           + [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "roots", "ids": [1]]],

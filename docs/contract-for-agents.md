@@ -1084,6 +1084,11 @@ On macOS, iOS and the web, an action can call `showModal(id)` or `close(id)`
 for a `dialog`. macOS and the web follow the invoker's modal focus path; iOS
 presents the dialog as an alert. Bare `close()` still closes the window.
 
+With no `buttonStyle` a button is the platform's default: plain tinted text on
+iOS, a push button on macOS, bordered on the web. Say what the action is:
+`buttonStyle="filled"` on the screen's main action, `"bordered"` on one that
+must read as a button, nothing on a secondary or inline one; and
+`destructive=true` on one that deletes, which iOS draws in the system red.
 `buttonStyle` needs a native button; on a default button that comes out bare,
 `lower-button-style` names the first reason and says to remove it or write
 `appearance="none"` without `buttonStyle`. It is a styleable host-policy prop;
@@ -1451,8 +1456,9 @@ work. Use the command's working fixture and inspect its host result.
 
 Declare at most one `routes <slot>` in the app's root file. Each row names an
 absolute path pattern, optional tab membership, parentage by indentation, and
-optional rendering/activation policies. `notfound` is a bare fallback. Do not
-redeclare the implicit router state with `state`.
+optional rendering/activation policies. `notfound` is a bare fallback: with none, the
+compiler writes it and a "Page not found" screen with a way home (the location keeps its URL);
+write it to draw your own. Do not redeclare the implicit router state with `state`.
 
 Assign the results of `open`, `push`, `replace`, `go`, `select`, or `back` to that
 router state. Use `path("route", args…)` to construct checked locations. A

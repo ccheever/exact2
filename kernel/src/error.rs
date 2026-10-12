@@ -316,6 +316,8 @@ pub enum ApplyError {
 pub enum LayoutError {
     /// Explicit region registration/publication refused; no fake ready metrics.
     ContentRegion(&'static str),
+    /// A host's containing block refused (LLP 1115.002 D8.2).
+    HostBlock(&'static str),
     /// A definite available-space offer is infinite or NaN.
     InvalidOffer,
     /// The id is not live.

@@ -14,6 +14,7 @@ mod header_box;
 mod height_drag;
 mod holds;
 mod host;
+mod host_block;
 mod inherited;
 mod layout_refusal;
 mod paint;

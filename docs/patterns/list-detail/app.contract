@@ -5,7 +5,7 @@
 // delete (`askRemove`, `remove`, the dialog), the notes (the shape's field, the sheet's and
 // the detail's sections), or the lock (the shape's `locked`, `setLock`, the badge, the
 // switch and Delete's reason).
-use Badge from "exact:content"
+use Badge, EmptyState from "exact:content"
 
 routes nav
   items "/"
@@ -23,6 +23,7 @@ shape Reply
   error: string
 
 fn titleOf(items: list<Item>, id: string): string = match first(filter(items, i => i.id == id)) { case some(i) => i.title, case none => "" }
+fn found(items: list<Item>, id: string): bool = length(filter(items, i => i.id == id)) > 0
 
 component App
   state draftTitle = ""
@@ -75,8 +76,8 @@ component App
         when e.name == "items"
           column navigationKey=`${e.id}` navigationScroll="items-list" position="absolute" inset=0
             display="flex" flex-direction="column"
-            header display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
-              text "Starter" role="heading" aria-level=1
+            header display="flex" align-items="center" padding="8px 16px"
+              text "Starter" role="heading" aria-level=1 flex=1
               button press=openAdd aria-label="Add Item" testId="add-item"
                 image "symbol:add"
             list id="items-list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
@@ -98,10 +99,16 @@ component App
           column navigationKey=`${e.id}` navigationScroll="item-detail" position="absolute" inset=0
             display="flex" flex-direction="column"
             header display="flex" align-items="center" padding="8px 16px"
-              text titleOf(lib, e.params.id) role="heading" aria-level=2 testId="detail-title"
-            list id="item-detail" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
-              each it in filter(lib, x => x.id == e.params.id) key=it.id
-                ItemSections(item=it, setLock=setLock, askRemove=askRemove)
+              text (found(lib, e.params.id) or pending(lib) ? titleOf(lib, e.params.id) : "Not Found") role="heading" aria-level=2 testId="detail-title"
+            // An id that names nothing (a stale link, /item/999) says so, once the list has loaded.
+            when found(lib, e.params.id) or pending(lib)
+              list id="item-detail" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
+                each it in filter(lib, x => x.id == e.params.id) key=it.id
+                  ItemSections(item=it, setLock=setLock, askRemove=askRemove)
+            else
+              EmptyState(symbol="symbol:alert", title="No such item", message="It may have been deleted.")
+                button press=back buttonStyle="filled" testId="missing-back"
+                  text "Back to Items"
         when e.name == "add"
           column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="add-form" position="absolute" inset=0
             header display="flex" align-items="center" justify-content="space-between" padding="8px 16px"

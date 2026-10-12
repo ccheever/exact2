@@ -224,7 +224,7 @@ extension ControlHost {
             toolTip: owner.props["title"] ?? (face.title == nil ? owner.authoredLabel : nil))
         guard button.written != written else { return }
         if !face.known, button.written?.face.style != face.style {
-            presenter.session?.log("buttonStyle `\(face.style)` is not a button style; drawing bordered")
+            presenter.session?.log("buttonStyle `\(face.style ?? "")` is not a button style; drawing bordered")
         }
         button.written = written
         let (look, glass) = ButtonConfigurationMac.apply(face, to: button, appearance: owner.effectiveAppearance, accent: accent, destructive: destructive, red: red)
@@ -251,12 +251,12 @@ extension ControlHost {
         var standIns = rows.compactMapValues { ($0 as? [String: Any])?["standIn"] as? String }
         let mapped = ButtonFace.drawn(face.macos)
         if mapped.standIn || mapped.name != button.drawn {
-            standIns["buttonStyle"] = "AppKit draws \(button.drawn) for \(face.style)"
+            standIns["buttonStyle"] = "AppKit draws \(button.drawn) for \(face.style ?? "")"
         }
         if !button.isEnabled, button.written?.accent != nil, button.bezelColor != nil {
             standIns["accent-color"] = "AppKit applies its disabled bezel tint despite the authored accent"
         }
-        return ["view": "NSButton", "style": face.style, "drawn": button.drawn, "title": face.title as Any,
+        return ["view": "NSButton", "style": face.style as Any, "drawn": button.drawn, "title": face.title as Any,
                 "symbol": face.symbol as Any, "enabled": button.isEnabled,
                 "rows": rows, "standIns": standIns, "imagePosition": button.imagePosition.rawValue,
                 "pointerEvents": button.written?.interactive == false ? "none" : "auto",

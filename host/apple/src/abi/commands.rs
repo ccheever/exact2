@@ -164,7 +164,8 @@ impl<D: DataSource> Bridge<D> {
     /// "ios","iosBefore26","macos","known"}` — `button` false (and the rest
     /// empty) for a node that is not a button, the symbol as the platform
     /// names it, the style's row of the `buttonStyles` table (`bordered` for a
-    /// name not in it). Not a batch: nothing changes.
+    /// name not in it); with no `buttonStyle` written, `"style":null` and no
+    /// platform column (`button::face_json`). Not a batch: nothing changes.
     pub fn press_face(&mut self, view: u32) -> u32 {
         let json = self.host.as_ref().map_or_else(
             || "{\"button\":false}".into(),
@@ -174,8 +175,7 @@ impl<D: DataSource> Bridge<D> {
                 let rows = kernel.button_face_style(view);
                 let style = kernel
                     .node(view)
-                    .and_then(|n| n.props.str(exact_kernel::PropId::ButtonStyle))
-                    .unwrap_or("bordered");
+                    .and_then(|n| n.props.str(exact_kernel::PropId::ButtonStyle));
                 crate::button::face_json(face.as_ref(), rows.as_ref(), style)
             },
         );

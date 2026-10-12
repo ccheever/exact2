@@ -240,8 +240,10 @@ pub struct ButtonMeasureRequest {
     pub face: crate::PressFace,
     /// Resolved rows with authored masks.
     pub style: ButtonFaceStyle,
-    /// Name from buttonStyles; bordered when absent.
-    pub button_style: String,
+    /// The `buttonStyle` its author wrote, a name from `buttonStyles`;
+    /// `None` when they wrote none, which each host draws as its platform's
+    /// own default (LLP 1115.000 D15).
+    pub button_style: Option<String>,
     /// Offered border-box width; hosts answer height-for-width.
     pub width: crate::AxisOffer,
 }
