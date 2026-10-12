@@ -1020,7 +1020,7 @@ reuse, stale-key absence, and preservation of an unrelated survivor context.
 ## Patch 33: a flex item's length in its container's main size is clamped by its maximum — to upstream
 
 **Implementer:** Claude (Opus 5.5), 2026-10-12, for issue X86
-(`issues/20261012-column-height-ignores-leaf-max-height.md`).
+(`issues/closed/20261012-column-height-ignores-leaf-max-height.md`).
 
 `determine_container_main_size` sums the items' lengths for a container
 whose main size is automatic. Three of its sites took an item's flex base
