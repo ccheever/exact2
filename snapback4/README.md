@@ -86,9 +86,8 @@ above it): `bun exact.mjs snapback`. Either one:
 It names the `appId` line `app.ts` needs when the two disagree: `app.json`'s
 `"app": { "id" }`, which `exact new` set from the directory's name. Last it
 says the server to start, `bunx snapback4 dev --port <n>` above. The driver is
-pinned to Snapback4 0.4.16: install that version for the server. A new app
-made this way and tested as written against 0.4.16 (2026-10-12): both of the
-guestbook's tests pass.
+pinned to Snapback4 0.4.16: install that version for the server. The reset
+and generic file cases below require 0.4.24 and its matched device build.
 
 ### Personas and password accounts
 
@@ -385,8 +384,8 @@ test "offline, a note is kept, then delivered on reconnect"
 ```
 
 The app is `bun <this checkout>/scripts/exact.mjs new app --snapback`, run in
-the backend's directory, which writes these four files and wires them. Built that way and tested as written against 0.4.16
-(2026-10-11): both tests pass, and pass again on the data a first run leaves.
+the backend’s directory, which writes these files when there is no existing
+schema and wires their mounts and device.
 
 ### Tests share the server
 

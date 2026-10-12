@@ -39,7 +39,11 @@ bun exact.mjs ios --prebuild  # the first iOS build: minutes, in the background
 For shared server data, `bun <exact2>/scripts/exact.mjs new app --snapback
 [--port <n>]` from the backend’s directory writes a guestbook and wires its
 driver, generated operations and device. The origin defaults to 4400.
-`bun exact.mjs snapback` wires an existing app; see [the guide](../snapback4/README.md).
+`bun exact.mjs snapback` wires an existing app. With an existing schema, the
+starter app is kept: write its sources for those generated operations.
+`snapback --port <n>` moves a loopback origin, grants and test fetch prefixes
+together. Password sign-in, stored sessions and refresh with Contract time are
+in [the adapter guide](../snapback4/README.md#personas-and-password-accounts).
 
 Start from the nearest pattern. `exact.mjs` runs from any directory: a file you
 name is found where you are, else in the app, and it says which it took. Your
@@ -133,10 +137,14 @@ component Groceries
   children take `props`.
 - **Refreshes.** Include every resource the write changes (`refreshes groceries, counts`).
 
-**The data module** answers each source with exactly its declared shape (an extra field
-fails a resource or voids a mutation’s reply; its slot keeps its old value), reaches only what its `grants` name, and answers a failed fetch as data
+**The data module** answers each source with exactly its declared shape: an extra
+field fails a resource or voids a mutation’s reply, whose slot keeps its old value.
+Type the function returning a reply (`Promise<Result<'post'>>`) so the build names
+an extra field. It reaches only what its `grants` name and answers failed fetches as data
 ([fetch-loading-error](recipes/fetch-loading-error.md)). The clock and randomness are
-refused there; time comes as an argument.
+refused there; time comes as an argument. A date from a value works
+(`new Date(ms)`, `Intl.DateTimeFormat`). `console.log` appears in the agent’s
+`logs` and its last lines in a failed test’s notes.
 
 ```ts
 import type { Answer, Result, Sources, Storage } from './app.contract.d.ts';
@@ -187,6 +195,20 @@ test "an item is added, a repeat refused, checked off and kept"
 ```
 
 Every step, launch lines (`epoch "…"`) and `verify`'s flags are on the card.
+
+A Snapback app needs its backend running before `test web`: the runner checks
+loopback origins in `app.ts`’s `net.fetch` grants and refuses a Snapback run if
+none listens. Start `snapback4 dev` on that origin’s port, seeded if needed;
+`EXACT_PORT` sets the page’s port and never moves the backend.
+
+Each test opens empty app storage; backend rows survive tests and runs unless
+`fresh` at the file’s top (or leading a test) empties `snapback4 dev` before each
+test. This uses `POST /dev/reset` (Snapback4 **0.4.24**, `dev` only, not yet on npm).
+`fresh "seed.json"` then seeds it with `[{"table": …, "row": {…}}]`, from a path
+relative to the test file. A server lacking reset fails the test.
+
+Server ids are unique, not ordered. Sort by time; tests can reach rows by text
+or position (`each t, i in tasks key=t.id`, ``testId=`task-${i}` ``).
 
 | To assert | Write | Not |
 | --- | --- | --- |

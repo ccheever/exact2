@@ -12,7 +12,7 @@ import { createInterface } from 'node:readline';
 import type { Change, SqliteStorage } from './web.ts';
 import type { MutationOp, QueryOp } from './snapback.ts';
 
-const binary = process.env.SNAPBACK4_BIN ?? resolve(import.meta.dir, '../../node_modules/.bin/snapback4');
+const binary = process.env.SNAPBACK4_BIN ?? resolve(import.meta.dir, `../../node_modules/snapback4-${process.platform}-${process.arch}/snapback4${process.platform === 'win32' ? '.exe' : ''}`);
 const version = /snapback4 (\d+)\.(\d+)\.(\d+)/.exec(spawnSync(binary, ['--version'], { encoding: 'utf8' }).stdout);
 const has024 = Boolean(version && (Number(version[1]) > 0 || Number(version[2]) > 4 || (Number(version[2]) === 4 && Number(version[3]) >= 24)));
 // Published 0.4.16 has no file schema type or dev reset; keep their cases for 0.4.24.
@@ -933,7 +933,7 @@ test('password accounts on serve: signup, reopen, refresh, login, logout and iso
       let output = '';
       for (const stream of [serve.stdout!, serve.stderr!]) stream.on('data', chunk => {
         output += String(chunk);
-        const ready = /SNAPBACK4_READY .*url=(http:\/\/127\.0\.0\.1:\d+)/.exec(output);
+        const ready = /SNAPBACK4_READY .*url=(http:\/\/127\.0\.0\.1:\d+)/.exec(output) ?? /^(http:\/\/127\.0\.0\.1:\d+)$/m.exec(output);
         if (ready) done(ready[1]);
       });
       serve.on('error', fail);
