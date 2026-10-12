@@ -111,6 +111,7 @@ role on a box (`lower-dialog-role`), an `aria-level` with no `role="heading"`
 (`lower-level-without-heading`), screens swapped by a `when` in an app with no
 `routes` (`lower-screen-by-state`), a count before a plural noun, `${n} cards`
 (`lower-count-plural`), a
+symbol by an alias, not its role (`lower-symbol-alias`), a
 `performanceNow()` time sent to a source (`type-performance-now-persisted`), a
 state read after its own action assigned it (`analyze-read-after-assign`) or a
 literal colour that stays the same in dark mode (`lower-colour-one-scheme`, every

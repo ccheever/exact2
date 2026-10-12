@@ -12,10 +12,9 @@ The only required reading; the rest is lookup.
    <exact2>/scripts/no-tells.mjs .` lists literals). The one colour you write is the
    accent, on the root: a system colour (`accent-color="-exact-system-teal"`) or a
    `light-dark(light, dark)` pair. A card is `-exact-secondary-background`
-   (`-exact-secondary-grouped-background` on a grouped page). White text on a filled
-   control (prominent button, `RoundButton`) reads on blue, indigo, purple, pink, red,
-   brown, gray; green, mint, teal, cyan, yellow, orange are under 2.6:1 and `check`
-   refuses it.
+   (`-exact-secondary-grouped-background` on a grouped page). White text on a prominent
+   button reads on blue, indigo, purple, pink, red, brown, gray, not on green, mint, teal,
+   cyan, yellow, orange (under 2.6:1: `check` refuses it; `RoundButton` takes black there).
 3. **Design your content:** a focal point (big type, a fill, a shape), a hierarchy in
    rows, an empty state with its next step; inset-grouped is for settings and forms.
    `use X from "exact:content"` draws them (`none` for an option):
@@ -186,7 +185,7 @@ locale seed`. The rest: `tests`.
 
 ## Look it up
 
-Open a recipe (`recipes/<name>.md`) when you write that part, not before; one a feature.
+Open a recipe (`recipes/<name>.md`) when you write that part, not before: one per feature.
 
 |The app has|Read|
 |---|---|

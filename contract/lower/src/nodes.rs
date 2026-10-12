@@ -184,6 +184,8 @@ impl Lowerer<'_> {
         let first = parent_tag.is_none() && arm.is_none() && order == 0;
         let back = self.nav_place.unnamed(first, expanded, *span);
         let expanded = back.as_deref().unwrap_or(expanded);
+        let unsplit = self.unsplit(expanded, children, *span);
+        let expanded = unsplit.as_deref().unwrap_or(expanded);
         values::check_glass_group(&t, expanded)?;
         let has = |names: &[&str]| expanded.iter().any(|a| names.contains(&a.name.as_str()));
         let parent_stacks = !matches!(parent_tag, Some("row") | Some("canvas"));
@@ -278,6 +280,11 @@ impl Lowerer<'_> {
                     first.span(),
                 );
             };
+            // @ref LLP 1116.007 D3.1 — a symbol by another spelling is its role.
+            let role = (prop == exact_kernel::PropId::ImageSource)
+                .then(|| crate::symbols::roles(first))
+                .flatten();
+            let first = role.as_ref().unwrap_or(first);
             let (code, ty) = self.typed_code(first, scope, locals)?;
             values::check_prop_value(tag, first, first.span(), prop, &ty)?;
             bindings.push(prop_row(prop, code, true));

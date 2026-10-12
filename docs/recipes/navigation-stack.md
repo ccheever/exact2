@@ -1,8 +1,8 @@
 # Recipe: a navigation stack
 
 A list that pushes a detail, a Cancel/Save sheet and an alert (`pattern list-detail`).
-A second screen is a route; swapping screens with `when` over state gets no Back, links, reload
-or split (`lower-screen-by-state`). Each route block fills its `when`.
+A second screen is a route (`when` over state gets no Back, links or split). Each route block
+fills its `when`.
 
 A route's `header` is its bar when first in the route with one heading (the title: large at
 `aria-level=1`, inline at 2); buttons before it lead, after it trail. A pushed route without
@@ -142,6 +142,6 @@ test "add, open, delete after asking"
 - Covered routes stay mounted: no two screens share a `testId`. In tests, `clock settle` after a
   push, sheet or alert, `clock data` before reading a save; `back` cancels the alert, dismisses
   the sheet, pops the detail.
-- A wide window (900 px up) shows the list beside its detail by itself; `pattern list-detail`'s
-  `follow` replaces the shown detail instead of stacking one, and `navigationSplit="none"` keeps
-  the list pushed.
+- A wide window (900 px up) shows the list beside its detail when its rows push (a `link`, or a
+  `press` that writes the router; a chevron alone is decoration); `pattern list-detail`'s
+  `follow` replaces the shown detail; `navigationSplit="none"` keeps it pushed.

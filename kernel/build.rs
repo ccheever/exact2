@@ -21,6 +21,8 @@ struct Schema {
     styles: Vec<StyleRow>,
     opcodes: Vec<OpcodeRow>,
     symbols: Vec<[String; 3]>,
+    #[serde(rename = "symbolAliases")]
+    symbol_aliases: Vec<[String; 2]>,
     materials: Vec<[String; 7]>,
     #[serde(rename = "buttonStyles")]
     button_styles: Vec<[String; 5]>,
@@ -163,6 +165,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
         writeln!(w, "{role:?} => Some(({apple:?}, {path:?}, {filled})),").unwrap();
     }
     writeln!(w, "_ => None, }} }}").unwrap();
+    write_symbol_role(w, schema);
     // @ref LLP 1053.000 D4 — `backgroundMaterial`'s vocabulary.
     writeln!(
         w,

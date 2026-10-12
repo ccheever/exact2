@@ -535,6 +535,8 @@ fn symbol(node: &Node) -> Option<&str> {
     match (tag.as_str(), positional.first()) {
         ("image", Some(Expr::Str(src, _))) => {
             let role = src.strip_prefix("symbol:")?;
+            // @ref LLP 1116.007 D3.1 — whichever way the role is spelled.
+            let role = exact_kernel::generated::symbol_role(role).unwrap_or(role);
             Some(match role {
                 "forward-chevron" => "chevron.forward",
                 "checkmark" => "checkmark",

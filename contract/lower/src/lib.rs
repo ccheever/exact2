@@ -47,6 +47,7 @@ mod stmts;
 mod strings;
 pub mod style_names;
 mod svg;
+mod symbols;
 pub mod tags;
 mod timers;
 mod values;
@@ -981,6 +982,13 @@ impl<'a> Lowerer<'a> {
                     &glass
                 } else if let Some(width) = values::split_width(prop, &a.value) {
                     glass = width;
+                    &glass
+                // @ref LLP 1116.007 D3.1 — a symbol by another spelling is its role.
+                } else if let Some(role) = (prop == exact_kernel::PropId::ImageSource)
+                    .then(|| symbols::roles(&a.value))
+                    .flatten()
+                {
+                    glass = role;
                     &glass
                 } else {
                     &a.value

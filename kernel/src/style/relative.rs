@@ -48,8 +48,9 @@ impl Unit {
 }
 
 /// A text style's id by its written name: `-exact-<name>` or its WebKit
-/// alias, ASCII case-insensitively, as CSS matches keywords.
-/// @ref LLP 1115 D3
+/// alias, ASCII case-insensitively, as CSS matches keywords. An Exact role's
+/// trailing number may follow a hyphen: `-exact-title-1` is `-exact-title1`.
+/// @ref LLP 1115 D3, LLP 1116.007 D3.2
 pub fn text_style(name: &str) -> Option<u8> {
     let name = name.trim_matches(['\t', '\n', '\u{c}', '\r', ' ']);
     let exact = name
@@ -59,10 +60,22 @@ pub fn text_style(name: &str) -> Option<u8> {
     crate::TEXT_STYLES
         .iter()
         .position(|s| {
-            exact.is_some_and(|n| n.eq_ignore_ascii_case(s.name))
+            exact.is_some_and(|n| same_role(n, s.name))
                 || (!s.alias.is_empty() && name.eq_ignore_ascii_case(s.alias))
         })
         .map(|i| i as u8)
+}
+
+/// Whether `written` is the role `name`, or `name` with a hyphen before its
+/// last digit (`title-1` for `title1`).
+fn same_role(written: &str, name: &str) -> bool {
+    written.eq_ignore_ascii_case(name)
+        || written.rsplit_once('-').is_some_and(|(stem, number)| {
+            number.len() == 1
+                && name.len() == stem.len() + 1
+                && name.ends_with(number)
+                && name.as_bytes()[..stem.len()].eq_ignore_ascii_case(stem.as_bytes())
+        })
 }
 
 /// The size of text style `id` where the root font size is `root`: the
@@ -454,6 +467,30 @@ mod tests {
             "an Exact role is written -exact-"
         );
         assert_eq!(text_style("-exact-title9"), None);
+        // LLP 1116.007 D3.2: round 9's builders hyphenated the number.
+        for (written, name) in [
+            ("-exact-title-1", "-exact-title1"),
+            ("-exact-title-2", "-exact-title2"),
+            ("-exact-title-3", "-exact-title3"),
+            ("-exact-caption-1", "-exact-caption1"),
+            (" -EXACT-Caption-2 ", "-exact-caption2"),
+        ] {
+            assert_eq!(text_style(written), text_style(name), "{written}");
+            assert!(text_style(written).is_some(), "{written}");
+        }
+        for refused in [
+            "-exact-title-4",
+            "-exact-body-1",
+            "-exact-title--1",
+            "-exact--title1",
+            "-exact-large-title-1",
+            "-exact-title-12",
+            "-exact-large-1itle",
+            "-apple-system-title-1",
+        ] {
+            assert_eq!(text_style(refused), None, "{refused}");
+        }
+        assert_eq!(text_style("-exact-large-title"), Some(0));
         assert_eq!(parse("-exact-title1"), Some((Unit::TextStyle(title1), 1.0)));
         // iOS at the default Dynamic Type (17), the Mac (13), the web (16).
         assert_eq!(text_style_size(title1, 17.0), 28.0);

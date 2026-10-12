@@ -2,7 +2,7 @@
 //! literal style value by the kernel's own row parser, a computed one and a
 //! prop by type (LLP 1017 P1a).
 
-use crate::{err, media, tags, vocab, FontUse, LowerError};
+use crate::{err, media, symbols, tags, vocab, FontUse, LowerError};
 use contract_syntax::{Attr, Expr, Span, UnOp};
 use contract_types::{Ref, Scope, Shapes, Ty};
 use exact_kernel::{PropId, StyleId, StyleProps, StyleValue, StyleValueError};
@@ -1146,21 +1146,7 @@ pub(crate) fn check_prop_value(
         }
     }
     if prop == PropId::ImageSource {
-        if let Expr::Str(source, _) = value {
-            if let Some(role) = source.strip_prefix("symbol:") {
-                if !role.starts_with("sf/") && exact_kernel::generated::symbol(role).is_none() {
-                    return err(
-                        "lower-attr-value",
-                        format!(
-                            "symbol `{role}` is not a role; roles: {}; or name any SF Symbol as `symbol:sf/<name>` (`symbol:sf/{}`), drawn on Apple and blank elsewhere, so a tab or button that must show everywhere takes a role",
-                            exact_kernel::generated::SYMBOL_ROLES.join(", "),
-                            if role.is_empty() { "star.fill" } else { role }
-                        ),
-                        span,
-                    );
-                }
-            }
-        }
+        symbols::check(value, span)?;
     }
     if want == tags::PropTy::Int {
         if let Some(number) = numeric_literal(value) {

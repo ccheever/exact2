@@ -175,10 +175,12 @@ component Badge
 // own button drawn as an 80-point circle, so its press, focus and disabled
 // look are the platform's. `tint` is its fill: `none` the neutral grey with
 // the label's ink (Lap, Reset), or a colour role: the accent
-// (`some("AccentColor")`) or a state (`-exact-system-green` to start,
-// `-exact-system-red` to stop), whose ink the host chooses for contrast, as
-// on any filled button. Two sit at the ends of a `row
-// justify-content="space-between"` under the readout.
+// (`some("AccentColor")`) or a state (`-exact-system-red` to stop), whose
+// white ink the platform chooses, as on any filled button. The light system
+// hues, green (to start), mint, teal, cyan, yellow and orange, fail 4.5:1
+// under white (green is 2.2:1), so their label is black in either scheme,
+// as AnswerTile's green takes dark ink (LLP 1116.007 D3.3). Two sit at the
+// ends of a `row justify-content="space-between"` under the readout.
 component RoundButton
   props
     label: string
@@ -189,10 +191,16 @@ component RoundButton
   view
     match tint
       case some(t)
-        button press=press disabled=disabled testId=testId buttonStyle="filled"
-          accent-color=(t == "AccentColor" ? "inherit" : t)
-          -exact-corner-style="capsule" width=80 height=80 padding="0 6px" flex-shrink=0
-          text label white-space="nowrap"
+        when includes(["-exact-system-green", "-exact-system-mint", "-exact-system-teal", "-exact-system-cyan", "-exact-system-yellow", "-exact-system-orange"], t)
+          button press=press disabled=disabled testId=testId buttonStyle="filled"
+            accent-color=t color="light-dark(black, black)"
+            -exact-corner-style="capsule" width=80 height=80 padding="0 6px" flex-shrink=0
+            text label white-space="nowrap"
+        else
+          button press=press disabled=disabled testId=testId buttonStyle="filled"
+            accent-color=(t == "AccentColor" ? "inherit" : t)
+            -exact-corner-style="capsule" width=80 height=80 padding="0 6px" flex-shrink=0
+            text label white-space="nowrap"
       case none
         button press=press disabled=disabled testId=testId buttonStyle="gray"
           color=(disabled ? "-exact-tertiary-label" : "-exact-label")

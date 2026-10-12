@@ -178,7 +178,8 @@ component App
 ```
 
 - A window 900 px wide or more on the web shows the list beside its detail, as a split view
-  does, with nothing to write: the first route's rows push and draw the `forward-chevron`. A
+  does, with nothing to write: the first route's rows push (a `link`, or a `press` that writes the
+  router) and draw the `forward-chevron`; a chevron on a row that only selects is decoration. A
   phone pushes. A row pressed while a detail shows pushes another; to swap the detail instead,
   `open` replaces when one shows: `nav = top(nav).name == "recipe" ? replace(nav,
   path("recipe", name)) : push(nav, path("recipe", name))`.

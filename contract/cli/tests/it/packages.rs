@@ -587,8 +587,11 @@ component App
     column testId="root" width=400 height=900
       row justify-content="space-between"
         RoundButton(label="Lap", tint=none, press=add(1), disabled=false, testId="lap")
-        RoundButton(label="Start", tint=some("-exact-system-green"), press=add(10), disabled=false, testId="start")
+        RoundButton(label="Stop", tint=some("-exact-system-red"), press=add(10), disabled=false, testId="start")
         RoundButton(label="Reset", tint=none, press=add(100), disabled=true, testId="reset")
+      row justify-content="space-between"
+        RoundButton(label="Go", tint=some("-exact-system-green"), press=add(1000), disabled=false, testId="go")
+        RoundButton(label="Wait", tint=some("-exact-system-yellow"), press=add(10000), disabled=true, testId="wait")
       each a in ["Lima", "Quito", "Bogota", "Caracas"] key=a
         AnswerTile(label=a, status=(picked == "" ? (a == "Caracas" ? "selected" : "idle") : a == "Quito" ? "correct" : a == picked ? "wrong" : "dimmed"), press=pick(a), testId=a)
 "#,
@@ -616,7 +619,7 @@ component App
     // or the neutral grey.
     for (id, style, accent) in [
         ("lap", "gray", None),
-        ("start", "filled", Some(named("-exact-system-green"))),
+        ("start", "filled", Some(named("-exact-system-red"))),
     ] {
         let b = k.node(at(k, id)).unwrap();
         assert_eq!(b.node_type, NodeType::Control, "{id}");
@@ -630,6 +633,34 @@ component App
     }
     let reset = k.node(at(k, "reset")).unwrap();
     assert_eq!(reset.props.bool(PropId::Disabled), Some(true));
+    // LLP 1116.007 D3.3: a light system hue fails 4.5:1 under the filled
+    // button's white ink (green's is 2.2:1), so its label is black in either
+    // scheme; the other tints keep the platform's own ink.
+    for (id, label, hue, disabled) in [
+        ("go", "Go", "-exact-system-green", false),
+        ("wait", "Wait", "-exact-system-yellow", true),
+    ] {
+        let b = k.node(at(k, id)).unwrap();
+        assert_eq!(b.node_type, NodeType::Control, "{id}");
+        assert_eq!(
+            b.props.get(PropId::ButtonStyle),
+            Some(&PropValue::Str("filled".into())),
+            "{id}"
+        );
+        assert_eq!(b.style.accent_color, Some(named(hue)), "{id}");
+        assert_eq!((b.frame.width, b.frame.height), (80.0, 80.0), "{id}");
+        assert_eq!(b.props.bool(PropId::Disabled), Some(disabled), "{id}");
+        assert_eq!(b.child_nodes().next().unwrap().text_runs()[0].text, label);
+        assert!(
+            matches!(b.style.text_color, ColorValue::LightDark(l, d) if l == d),
+            "{id}: {:?}",
+            b.style.text_color
+        );
+    }
+    assert!(!matches!(
+        k.node(at(k, "start")).unwrap().style.text_color,
+        ColorValue::LightDark(..)
+    ));
     // Its press is the author's action, with its captured arguments.
     let (lap, start) = (at(k, "lap"), at(k, "start"));
     r.dispatch(lap, exact_runner::Event::Press).unwrap();

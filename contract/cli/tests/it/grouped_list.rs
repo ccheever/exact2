@@ -860,6 +860,14 @@ fn default_buttons_keep_grouped_titles_presses_and_detail_accessories() {
     );
 }
 
+// @ref LLP 1116.007 D3.1 — the chevron by another spelling is still the disclosure.
+#[test]
+fn a_chevron_by_another_spelling_is_the_disclosure_accessory() {
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"open\"\n      text \"Open\"\n      image \"symbol:chevron-right\"");
+    let list = r.kernel().grouped_list(id(&r, "list")).unwrap();
+    assert_eq!(list.sections[0].rows[0].accessory, Accessory::Disclosure);
+}
+
 #[test]
 fn a_standard_cells_text_keeps_its_line_clamp() {
     // LLP 1116.003 D7, round 5's chat-rooms: a room's last message, a
