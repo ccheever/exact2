@@ -6,7 +6,7 @@
 **Severity:** P3
 **Author:** Daehyeon Mun (via the T3 Code clone)
 **Date:** 2026-10-11
-**Related:** https://github.com/ccheever/exact2/pull/468 (T3 Code clone task pr-list-scroll-and-sidebar-sweep, PS-1); the clone's `examples/t3-code/EXACT2-GAPS.md` X58; LLP 1069.007 D2 (display preferences come from the driver, `light` by default, "applied at launch rather than on the first `prefer`") and its "As built" list; LLP 1061 D5 (`prefer`); issues/20261011-macos-scheme-switch-stale-text-raster.md (it notes "The agent pins light at its first operation")
+**Related:** https://github.com/ccheever/exact2/pull/468 (T3 Code clone task pr-list-scroll-and-sidebar-sweep, PS-1); the clone's `examples/t3-code/EXACT2-GAPS.md` X58; LLP 1069.007 D2 (display preferences come from the driver, `light` by default, "applied at launch rather than on the first `prefer`") and its "As built" list; LLP 1061 D5 (`prefer`); issues/closed/20261011-macos-scheme-switch-stale-text-raster.md (it notes "The agent pins light at its first operation")
 
 ## Summary
 
