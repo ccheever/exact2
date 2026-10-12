@@ -85,6 +85,25 @@ final class HoverDuringDragMacTests: XCTestCase {
         XCTAssertTrue(p.hovered === p.views[5])
     }
 
+    /// Chrome fires a move's boundary events before the move, and the web
+    /// host sends the held node's `pointermove` at the next frame
+    /// (`host/web-js/pointer.js`): the leave and the enter come first.
+    func testTheLeaveAndTheEnterComeBeforeTheHeldRowsMove() {
+        let p = rows(Dictionary(uniqueKeysWithValues: (2...6).map { ($0, ["hover", "pointerdown", "pointermove", "pointerup"]) }))
+        var log: [String] = []
+        p.onHover = { log.append("\($0)\($1 ? "+" : "-")") }
+        p.onPointer = { id, kind, _ in log.append("\(id)\(kind == .down ? "v" : kind == .up ? "^" : "m")") }
+        let a1 = p.views[2]!
+        a1.mouseMoved(with: event(.mouseMoved, p, y: 20))
+        a1.mouseDown(with: event(.leftMouseDown, p, y: 20))
+        log.removeAll()
+        a1.mouseDragged(with: event(.leftMouseDragged, p, y: 60))
+        a1.mouseDragged(with: event(.leftMouseDragged, p, y: 100))
+        XCTAssertEqual(log, ["2-", "3+", "2m", "3-", "4+", "2m"], "each drag's leave and enter, then the held row's move")
+        a1.mouseUp(with: event(.leftMouseUp, p, y: 100))
+        XCTAssertEqual(log.last, "2^")
+    }
+
     func testAGestureThatTookThePointerKeepsTheHoverUntilTheUp() {
         let p = rows([2: ["hover", "pan"]])
         var log: [String] = []

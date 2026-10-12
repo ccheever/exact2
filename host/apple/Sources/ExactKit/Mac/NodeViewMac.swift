@@ -1382,11 +1382,15 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
     package override func mouseDragged(with event: NSEvent) {
         if contextClicked { return rightMouseDragged(with: event) }
-        pointerDragged(event)
+        if inert || isSurfaceControl || ownsSurfaceControl || canvasInput != nil { pointerDragged(event) }
         guard !inert else { return }
         if isSurfaceControl || ownsSurfaceControl { _ = control("move", point: local(event.locationInWindow), timestamp: event.timestamp); return }
         if canvasInput?.pointer(event, phase: "move") == true { return }
-        defer { hoverDragged(event) } // after the chain, which may take the contact
+        // The hover's leave and enter, then the held node's move, as Chrome's
+        // boundary events precede the move; both before the chain, as a
+        // gesture's capture holds the hover from the next event (X80).
+        hoverDragged(event)
+        pointerDragged(event)
         inlinePressed = nil
         // A gesture that engages ends the press (the chain clears `pressed`).
         if presenter?.mouseChain.drag(event) == true { return }

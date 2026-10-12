@@ -76,7 +76,10 @@ final class MouseChain {
     }
     /// The node a gesture that engaged took the contact on. The web's
     /// recognizers capture the pointer there (`setPointerCapture`), and
-    /// Chrome keeps a captured pointer's hover on its target (X80).
+    /// Chrome keeps a captured pointer's hover on its target (X80). The
+    /// web's pan, transform and height drags capture at the down when no
+    /// press or undecided swipe lies between; this one holds from the drag
+    /// after the gesture engages, so until then the hover follows the hit.
     var captor: NodeView? { order.first { $0.engaged }?.armed }
     /// Indices of the armed candidates (non-nil depths), innermost first, then by rank.
     static func ordered(_ depths: [Int?]) -> [Int] {
@@ -167,7 +170,8 @@ extension NodeView {
     /// and the one under it at the up stays hovered. The tracking areas
     /// report none of it (they lack `.enabledDuringMouseDrag`, which a
     /// synthesized drag never exercises), so each drag is hit-tested as a
-    /// move is; a gesture that engaged keeps it on its node (`captor`).
+    /// move is. A gesture that engaged on an earlier drag keeps it on its
+    /// node (`captor`): a capture takes effect at the next event.
     func hoverDragged(_ event: NSEvent) {
         guard let presenter = holdPresenter, presenter.trackedPointerEvent !== event else { return }
         presenter.trackedPointerEvent = event
