@@ -264,21 +264,23 @@ extension Presenter {
     func hoverAt(_ point: NSPoint) -> NodeView? {
         guard let content = viewport.window?.contentView,
               viewport.bounds.contains(viewport.convert(point, from: nil)) else {
-            setHoverPath([]); return nil
+            setHoverPath([]); pointerCursor(over: nil, at: point); return nil
         }
         let hit = content.hitTest(content.superview?.convert(point, from: nil) ?? point)
         var path: [NodeView] = []
         var leaf: NodeView?
+        var region = false
         var view = hit?.isDescendant(of: viewport) == true ? hit : nil
         while let current = view {
             if let node = current as? NodeView, !node.inert {
                 if leaf == nil { leaf = node }
                 path.append(node)
-            }
+            } else if leaf == nil, current is RegionSurfaceMac { region = true }
             view = current.superview
         }
         let run = leaf.flatMap { $0.inlineTarget(at: $0.local(point), handler: "hover") }
         setHoverPath(path, inline: run?.id)
+        pointerCursor(over: leaf, at: point, region: region)
         return leaf
     }
     func trackPointer(_ event: NSEvent) {
