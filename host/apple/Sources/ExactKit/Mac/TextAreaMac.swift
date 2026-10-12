@@ -159,8 +159,14 @@ package final class TextArea: NSTextView {
 }
 
 extension NodeView {
+    /// The caret: the author's `caret-color`, else AppKit's own (LLP 1115.000
+    /// D7.9). CSS's `auto` is the text's colour, and a bare field's caret was
+    /// that; a Mac's is the accent. Measured on macOS 27.0, light and dark:
+    /// a plain `NSTextView`'s and an `NSTextField`'s editor's
+    /// `insertionPointColor`, and `NSTextInsertionIndicator`'s colour, are
+    /// `textInsertionPointColor`, which is the accent the person chose.
     var caretColor: NSColor {
-        color("caret_color", isNativeTextControl ? color("accent_color", .controlAccentColor) : color("text_color", .textColor))
+        color("caret_color", color("accent_color", .textInsertionPointColor))
     }
 
     /// `autocorrect` as the author wrote it; nil when they said nothing (the
