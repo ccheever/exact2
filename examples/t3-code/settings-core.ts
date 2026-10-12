@@ -142,7 +142,7 @@ export function applyDeviceSetting(local: LocalPrefs, key: string, value: string
   }
   return false;
 }
-/** Reference "Restore device defaults": every device-local General/Appearance value. */
+/** Every device-local key off its default, KEPT_ON_RESTORE's and Plan mode's too; restoreLabels lists only RESTORE_ROWS' of them. */
 export function changedDeviceLabels(local: LocalPrefs): string[] {
   const prefs = local.clientSettings || decodeClientPrefs({});
   const labels: string[] = [];
