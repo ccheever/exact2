@@ -37,7 +37,21 @@ package final class Presenter {
         chrome.note(view.id, props: view.props)
         if view.disabled { view.showFieldFocus(false) }
         // HTML's `title`: the platform's tooltip (studio diary R24).
-        if view.toolTip != view.props["title"] { view.toolTip = view.props["title"] }
+        // An icon-only button's help tag is its label (LLP 1115 wave 1), as
+        // a toolbar item's is; settled once the batch has mounted its face.
+        if view.isButton && !view.isNativeButton && view.props["title"] == nil && view.authoredLabel != nil { pendingTips.insert(view.id) }
+        else if view.toolTip != view.props["title"] { view.toolTip = view.props["title"] }
+    }
+    /// Custom buttons with a label and no `title`, whose help tag waits for
+    /// the batch to mount their content.
+    var pendingTips: Set<UInt32> = []
+    func settleTips() {
+        for id in pendingTips {
+            guard let view = views[id] else { continue }
+            let tip = view.props["title"] ?? (view.accessibleText.isEmpty ? view.authoredLabel : nil)
+            if view.toolTip != tip { view.toolTip = tip }
+        }
+        pendingTips.removeAll()
     }
     /// Views carrying an indexed prop, in id order (the passes' old order was
     /// a dictionary's, which is none).
@@ -85,7 +99,9 @@ package final class Presenter {
     /// The native menu arm (LLP 1021 D3).
     lazy var menus = MenuHost(presenter: self)
     lazy var dialogs = DialogHost(self)
+    lazy var alerts = AlertHost(self)
     lazy var navigation = NavigationHost(presenter: self)
+    lazy var backSwipe = BackSwipe(self)
     /// SVG scenes and CSS animations (LLP 1055 D4, D7).
     let svg = SvgHost()
     /// Boxes under CSS `filter`, drawn again after each batch (LLP 1055.000 D14).
@@ -130,7 +146,9 @@ package final class Presenter {
         viewport.automaticallyAdjustsContentInsets = false
         viewport.contentInsets = NSEdgeInsetsZero
         viewport.drawsBackground = true
-        viewport.backgroundColor = .white
+        // LLP 1115 D2: an unset page background is the platform's window
+        // background, which follows Dark Mode, never a fixed white.
+        viewport.backgroundColor = .windowBackgroundColor
         viewport.contentView.postsBoundsChangedNotifications = true
         // LLP 1050.000 stage 1: a collection reports its travel and builds
         // ahead in the pump's slices.
@@ -644,6 +662,17 @@ package final class Presenter {
     /// The ⌘ chord that last ended a composition (`endComposition`, KeyEvents.swift).
     var composedChord: NSEvent?
 
+    /// `showModal(id)`, `close(id)` from an action (LLP 1115 D6): a
+    /// `dialog` by its id, in the session's top layer as its invoker's
+    /// `command="show-modal"` puts it (DialogsMac).
+    func dialogCommand(_ name: String, _ id: String) {
+        guard let dialog = carrying("tag:dialog").first(where: { $0.props["id"] == id }) else {
+            if name == "showModal" { session?.log("showModal \(id) refused: no dialog has that id") }
+            return
+        }
+        if name == "showModal" { dialogs.show(dialog) } else { dialogs.close(dialog) }
+    }
+
     /// The action's focus(html-id), delivered only after the batch is mounted.
     func focusElement(_ args: [Any], selectText: Bool = false) {
         guard args.count == 1, let name = args.first as? String,
@@ -1105,11 +1134,13 @@ package final class Presenter {
         }
         if !flights.isEmpty { flightsBatchApplied() }
         navigation.sync(batch, reparented: reparented)
+        if !pendingTips.isEmpty { settleTips() }
         fitDocument()
         // The page's canvas colour is the first root's background — what
         // shows beyond a document shorter than the viewport, as a browser
         // paints the root element's background over the whole canvas.
-        let color = (root.subviews.first as? NodeView)?.color("background_color", .white) ?? .white
+        // Unset, the platform's window background (LLP 1115 D2).
+        let color = (root.subviews.first as? NodeView)?.color("background_color", .windowBackgroundColor) ?? .windowBackgroundColor
         if viewport.backgroundColor != color { viewport.backgroundColor = color }
         let first = root.subviews.first as? NodeView
         let fit = first?.props["viewportFit"]

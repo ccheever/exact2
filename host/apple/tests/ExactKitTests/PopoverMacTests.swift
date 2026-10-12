@@ -15,6 +15,11 @@ final class PopoverMacTests: XCTestCase {
         window.isReleasedWhenClosed = false
         window.contentView = p.viewport
         windows.append(window)
+        build(p)
+        window.makeFirstResponder(p.views[2])
+        return p
+    }
+    private func build(_ p: Presenter) {
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view"],
             ["op": "create", "id": 2, "kind": "button", "props": ["popovertarget": "form"]],
@@ -32,18 +37,18 @@ final class PopoverMacTests: XCTestCase {
             ["op": "frame", "id": 5, "x": 10, "y": 80, "w": 80, "h": 30],
             ["op": "frame", "id": 6, "x": 10, "y": 10, "w": 80, "h": 30],
         ]))
-        window.makeFirstResponder(p.views[2])
-        return p
     }
     private func key(_ window: NSWindow, up: Bool = false, repeatKey: Bool = false) -> NSEvent {
         NSEvent.keyEvent(with: up ? .keyUp : .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
             windowNumber: window.windowNumber, context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: repeatKey, keyCode: 53)!
     }
-    private func pointer(_ p: Presenter, _ type: NSEvent.EventType, _ node: NodeView) {
+    private func mouse(_ p: Presenter, _ type: NSEvent.EventType, _ node: NodeView) -> NSEvent {
         let point = node.convert(NSPoint(x: node.bounds.midX, y: node.bounds.midY), to: nil)
-        let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0,
+        return NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0,
             windowNumber: p.viewport.window!.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!
-        p.menus.pointer(event)
+    }
+    private func pointer(_ p: Presenter, _ type: NSEvent.EventType, _ node: NodeView) {
+        p.menus.pointer(mouse(p, type, node))
     }
 
     func testFormKeepsItsFieldAndFocusAndDoesNotTrapTab() throws {
@@ -128,6 +133,29 @@ final class PopoverMacTests: XCTestCase {
         XCTAssertFalse(p.menus.isOpen(pop))
         XCTAssertTrue(window.firstResponder === p.views[6])
     }
+    /// LLP 1005 §Events: a press in an open popover with no pointer node of
+    /// its own goes to the innermost authored ancestor that hears one, as on
+    /// the web, though the popover's view is in the top layer; a
+    /// popover that hears one keeps the press.
+    func testAPressInAPopoverReachesItsAuthoredAncestorsPointerdown() {
+        let p = fixture(), pop = p.views[3]!, row = p.views[5]!
+        p.views[1]!.handlers = ["pointerdown", "pointerup"]
+        var log: [String] = []
+        p.onPointer = { id, kind, _ in log.append("\(kind == .down ? "down" : kind == .up ? "up" : "move") \(id)") }
+        p.press(2)
+        XCTAssertFalse(row.isDescendant(of: p.views[1]!), "the popover's view is in the top layer")
+        row.mouseDown(with: mouse(p, .leftMouseDown, row))
+        XCTAssertEqual(p.pointerHeld, 1)
+        row.mouseUp(with: mouse(p, .leftMouseUp, row))
+        XCTAssertEqual(log, ["down 1", "up 1"])
+        XCTAssertFalse(p.menus.isOpen(pop), "the row's own press still ran")
+        pop.handlers = ["pointermove"]
+        p.press(2)
+        row.mouseDown(with: mouse(p, .leftMouseDown, row))
+        XCTAssertEqual(p.pointerHeld, 3, "the popover hears the pointer and keeps the press")
+        row.mouseUp(with: mouse(p, .leftMouseUp, row))
+        XCTAssertEqual(log, ["down 1", "up 1"])
+    }
     func testRemovalInertAndResetRetireTheTopLayer() {
         let p = fixture(), pop = p.views[3]!
         p.press(2)
@@ -165,6 +193,49 @@ final class PopoverMacTests: XCTestCase {
         XCTAssertTrue(p.dialogs.key(key(window)))
         XCTAssertNil(p.dialogs.active)
         other.menus.reset()
+    }
+    /// `blur()` leaves the window itself the first responder, and Escape
+    /// still closes the auto popover, as the web's close request does with
+    /// BODY focused. Of two sessions in one window, only the one whose
+    /// shortcuts hear the window's keys then closes its own; a focus in a
+    /// view outside the session keeps its Escape.
+    func testEscapeAfterBlurClosesOnlyTheSessionThatOwnsTheWindowsKeys() throws {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        windows.append(window)
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: 400))
+        window.contentView = content
+        let sessions = (0..<2).map { i -> ExactSession in
+            let session = ExactApp.shared.makeSession(label: "popover-blur-\(i)")
+            let view = ExactView(session: session)
+            view.frame = NSRect(x: 500 * CGFloat(i), y: 0, width: 500, height: 400)
+            content.addSubview(view)
+            build(session.presenter)
+            return session
+        }
+        defer { sessions.forEach { $0.destroy() } }
+        let first = sessions[0].presenter, second = sessions[1].presenter
+        let outside = NSTextField(frame: NSRect(x: 0, y: 0, width: 80, height: 24))
+        content.addSubview(outside)
+        first.press(2)
+        second.press(2)
+        XCTAssertTrue(first.menus.isOpen(first.views[3]!))
+        XCTAssertTrue(second.menus.isOpen(second.views[3]!))
+        XCTAssertTrue(window.makeFirstResponder(outside))
+        XCTAssertFalse(first.menus.key(key(window)), "a focus outside the session keeps its Escape")
+        XCTAssertFalse(second.menus.key(key(window)))
+        XCTAssertTrue(window.makeFirstResponder(first.views[4]!.field))
+        first.blurElement([])
+        XCTAssertTrue(window.firstResponder === window, "blur() focuses no node")
+        XCTAssertFalse(second.menus.key(key(window)), "the window's keys are the first session's")
+        XCTAssertTrue(second.menus.isOpen(second.views[3]!))
+        XCTAssertTrue(first.menus.key(key(window)))
+        XCTAssertFalse(first.menus.isOpen(first.views[3]!))
+        XCTAssertTrue(first.menus.key(key(window, up: true)))
+        XCTAssertTrue(window.firstResponder === window, "the focus stays on no node, as the web's on BODY")
+        XCTAssertTrue(second.menus.isOpen(second.views[3]!))
     }
     func testCompositionOwnsEscapeAndNoAutofocusLeavesFocusAtTheInvoker() throws {
         let p = fixture(), window = p.viewport.window!
@@ -388,7 +459,7 @@ final class PopoverMacTests: XCTestCase {
         defer { center.removeObserver(begin); center.removeObserver(end) }
         p.press(2)
         let done = Date(timeIntervalSinceNow: 5)
-        while pressed.isEmpty && Date() < done { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02)) }
+        while pressed.isEmpty && Date() < done { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
         turn()
         XCTAssertNotNil(seen, "the menu tracked")
         XCTAssertEqual(pressed, [11], "Share, once")

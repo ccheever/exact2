@@ -58,9 +58,9 @@ extension NodeView {
     var ringsFocus: Bool { !isNativeButton && (isButton || pressable) }
 
     /// A focused pressable's ring, AppKit's exterior one around its rounded
-    /// box, as Chrome outlines a focused `<button>` or `tabindex` box. AppKit
-    /// draws no mask whose bounds are empty, which keeps it off a box that
-    /// is not pressable, a field (its own ring) and a focus that is not
+    /// box, as AppKit rings an `NSButton` the keyboard moved the focus to.
+    /// AppKit draws no mask whose bounds are empty, which keeps it off a box
+    /// that is not pressable, a field (its own ring) and a focus that is not
     /// visible.
     var bareFieldFocused: Bool {
         !isNativeTextControl && (field?.currentEditor() != nil || (textArea != nil && window?.firstResponder === textArea))

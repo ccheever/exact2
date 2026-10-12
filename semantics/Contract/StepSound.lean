@@ -694,7 +694,7 @@ theorem advance_sound {p : Program} (hp : WellTyped p) {o c t c' out}
 
 /-! ## Boot -/
 
-theorem initSlots_present {p : Program} {s} (h : initSlots p = .ok s) : SlotsPresent p s := by
+theorem initSlots_present {p : Program} {o : Oracle} {s} (h : initSlots p o = .ok s) : SlotsPresent p s := by
   simp only [initSlots, Except.bind_ok_iff, Except.pure_ok_iff] at h
   obtain ⟨s0, hs0, rfl⟩ := h
   have hI := foldlM_inv_rest

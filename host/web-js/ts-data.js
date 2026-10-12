@@ -6,7 +6,7 @@
 // IndexedDB under a handle the store holds; its code is fetched on first
 // use); `openAuthSession` is auth.js.
 import * as source from '__APP_TS__';
-import { createSecretFacade, hasGrant, setAppGrantSet } from './admission.js';
+import { createSecretFacade, hasGrant, inOverlay, overlaying, setAppGrantSet } from './admission.js';
 import { tsGrantSet } from './admission-data.js';
 import { answering, files as bodyFiles } from './ts-fetch.js';
 import { sourceTypes } from './names.js';
@@ -137,9 +137,9 @@ const pageModule = () => page ??= load().then(m => m.pageModule({
 }));
 const native = Object.freeze({
   get available() { return true; },
-  call() { throw new Error('native.call: the web has no synchronous module call; use native.later'); },
-  watch(topic) { if (!watching) throw new Error('native.watch outside an answer'); const t = String(topic); (watched.get(t) ?? watched.set(t, new Set()).get(t)).add(watching); },
-  later: request => pageModule().then(p => p.later(request)),
+  call() { if (overlaying.on) throw inOverlay('native.call()'); throw new Error('native.call: the web has no synchronous module call; use native.later'); },
+  watch(topic) { if (overlaying.on) throw inOverlay('native.watch()'); if (!watching) throw new Error('native.watch outside an answer'); const t = String(topic); (watched.get(t) ?? watched.set(t, new Set()).get(t)).add(watching); },
+  later: request => overlaying.on ? Promise.reject(inOverlay('native.later()')) : pageModule().then(p => p.later(request)),
 });
 // App storage as a source sees it (`storage`, LLP 1027.001): `fs` and
 // `sqlite` over the web host's own adapters (`storage-fs.js`,
@@ -183,6 +183,7 @@ function landed(op, ok, value) {
   op.reject(error);
 }
 function queued(what, run) {
+  if (overlaying.on) return Promise.reject(inOverlay(`storage.${what.split(' ')[0]}()`)); // `what` is the method, then its path
   if (head && queue.length >= MAX_QUEUED) {
     journal.push(`t=${clock.now} storage refused: full (${what})`);
     return Promise.reject(Object.assign(new Error(`storage queue full: ${MAX_QUEUED} operations wait`), { kind: 'Unavailable', code: 'full' }));
@@ -336,6 +337,19 @@ export function install(data, mixed = false, modules = null) {
   // answer is the Rust module's, not ready until it loads; rust-data.js
   // then asks it first and this module for what it calls unknown.
   data.answer = mixed ? (name, args, store, target) => { try { return ts(name, args, store, target); } catch { return null; } } : ts;
+  // An overlay (`overlay.js`): what a resource shows while writes affect it, in overlay mode; `undefined` without one.
+  overlaying.say = line => journal.push(`t=${clock.now} ${line}`);
+  data.overlay = source.overlay && ((name, args, answer, writes) => {
+    const types = sourceTypes[name]; if (!types) return undefined;
+    const keep = [], ws = writes.map(w => { const t = sourceTypes[w.source]; return Object.freeze({ id: w.id, mutation: w.mutation, source: w.source, answered: w.answered,
+      args: w.args.map((a, i) => named(a, t?.[0][i])), ...(w.reply === undefined ? {} : { reply: named(w.reply, t?.[1]) }), keep: () => { if (!keep.includes(w.id)) keep.push(w.id); } }); });
+    overlaying.on = true;
+    try {
+      const v = source.overlay(name, args.map((a, i) => named(a, types[0][i])), named(answer, types[1]), ws);
+      if (v && typeof v.then === 'function') throw new Error('an overlay returned a promise: it runs synchronously inside a commit and cannot await; compute its value from `answer` and `writes` and return it');
+      return v === undefined ? undefined : { value: conv(checked(name, v, types[1]), types[1], `overlay ${name}`), keep };
+    } finally { overlaying.on = false; }
+  });
   data.ts = ts;
   for (const f of data.q.splice(0)) f();
 }

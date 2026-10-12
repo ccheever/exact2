@@ -61,6 +61,10 @@ extension Agent {
 
     var presenter: Presenter { session.presenter }
 
+    /// A sheet is a route in the window here, with no native presentation
+    /// to wait for (the iOS host's `awaitModalTransitions`).
+    @discardableResult func awaitModalTransitions(bound: TimeInterval = 2) -> Bool { true }
+
     /// AppKit animates nothing here that a seek does not move, but for a
     /// list's smooth correction under platform timing, the clip view's
     /// animator (LLP 1070.000 §11): the fixed point is where it lands.
@@ -135,6 +139,8 @@ extension Agent {
                 navigation["closedby"] = selected.props["closedby"] ?? NSNull()
             }
         }
+        // The platform's Back (LLP 1115.000 D5.1): how it goes now, or null.
+        navigation["back"] = presenter.navigation.backObservation
         // @ref LLP 1038 D11 — last op, never inferred from route props.
         navigation["url"] = session.routerOp?["url"] ?? NSNull()
         navigation["popover"] = presenter.menus.observation ?? NSNull()
@@ -312,7 +318,7 @@ extension Agent {
         }
         if let leaf = host.symbolView {
             let source = host.imageSource ?? "", name = host.props["symbolName"] ?? ""
-            let points = max(0, host.number("font_size", 16))
+            let points = max(0, host.number("font_size", PageFacts.defaultRootFontSize))
             let size = leaf.image?.size ?? CGSize(width: points, height: points)
             var symbol: [String: Any] = ["renderer": String(describing: Swift.type(of: leaf)), "source": source, "name": name, "found": host.symbolFound, "intrinsic": [Agent.r2(size.width), Agent.r2(size.height)], "frame": rect(box(leaf))]
             if !host.symbolFound { symbol["reason"] = source == "symbol:sf/" ? "empty" : name.isEmpty ? "role" : "os" }
@@ -478,6 +484,13 @@ extension Agent {
     }
 
     func tap(_ req: [String: Any]) -> [String: Any] {
+        // An alert's buttons are AppKit's (LLP 1115.000 D7.6): a tap on an
+        // authored button of it presses the alert's, and nothing behind its
+        // sheet takes one.
+        if presenter.alerts.presented != nil, let id = req["id"] as? Int, let node = presenter.views[UInt32(id)] {
+            guard req["phase"] == nil, let activated = presenter.alerts.click(node) else { return ["error": "view \(id) is behind an alert"] }
+            return activated ? ["tapped": id, "delivery": "host-activation", "native": "NSAlert"] : ["error": "alert button #\(id) is unavailable"]
+        }
         if let node = view(req), presenter.dialogs.blocks(node) { return ["error": "view \(node.id) is blocked by a modal dialog"] }
         if view(req)?.placedAncestor?.placementHidden == true { return ["error": "placed child is hidden"] }
         if req["phase"] == nil, req["wheel"] == nil,
@@ -489,7 +502,7 @@ extension Agent {
                 return ["error": "tap #\(node.id): its middle is outside the viewport; scroll it into view first"]
             }
         }
-        if req["phase"] == nil, req["wheel"] == nil, req["x"] == nil, req["y"] == nil, req["mouse"] == nil, req["auxclick"] == nil, req["clicks"] == nil,
+        if req["phase"] == nil, req["wheel"] == nil, req["x"] == nil, req["y"] == nil, req["at"] == nil, req["mouse"] == nil, req["auxclick"] == nil, req["clicks"] == nil,
            let id = req["id"] as? UInt32, let run = presenter.inlineText(id), let node = presenter.textHost(id) {
             guard node.window != nil, !node.inert, !node.disabled, !run.hidden else { return ["error": "inline node #\(id) is unavailable"] }
             if req["hover"] as? Bool != true, node.activateInline(id) { return ["tapped": Int(id), "delivery": "host-activation", "native": "inline-text"] }
@@ -535,8 +548,11 @@ extension Agent {
             return CGPoint(x: raw[0], y: raw[1])
         }()
         if req["at"] != nil, localAt == nil { return ["error": "at needs two finite numbers"] }
-        let p = localAt.map { v.convert($0, to: nil) } ?? clip.convert(NSPoint(x: (req["x"] as? Double ?? center.x) + clip.bounds.origin.x, y: (req["y"] as? Double ?? center.y) + clip.bounds.origin.y), to: nil)
-        let at = localAt.map { [Agent.r2($0.x), Agent.r2($0.y)] } ?? [Agent.r2(req["x"] as? Double ?? center.x), Agent.r2(req["y"] as? Double ?? center.y)]
+        // An inline run's `at` is from its first visible fragment's top left, as
+        // `tapPoint` reads it (the run has no view; its paragraph's origin is another run's).
+        let inlineAt = localAt != nil && (req["id"] as? Int).map({ presenter.inlineText(UInt32($0)) != nil }) == true ? tapPoint(req, node: v) : nil
+        var p = inlineAt.map { clip.convert(NSPoint(x: $0.x + clip.bounds.origin.x, y: $0.y + clip.bounds.origin.y), to: nil) } ?? localAt.map { v.convert($0, to: nil) } ?? clip.convert(NSPoint(x: (req["x"] as? Double ?? center.x) + clip.bounds.origin.x, y: (req["y"] as? Double ?? center.y) + clip.bounds.origin.y), to: nil)
+        var at = localAt.map { [Agent.r2($0.x), Agent.r2($0.y)] } ?? [Agent.r2(req["x"] as? Double ?? center.x), Agent.r2(req["y"] as? Double ?? center.y)]
         if req["wheel"] == nil,
            !clip.bounds.contains(clip.convert(p, from: nil)) {
             return ["error": "tap #\(v.id): its middle is outside the viewport; scroll it into view first"]
@@ -646,6 +662,18 @@ extension Agent {
             session.presenter.settlePump()
             return ["tapped": Int(node.id), "at": at, "drop": paths.count, "delivery": "presenter"]
         }
+        // Named, a plain click presses what it names (`AgentAddressedTap.swift`):
+        // its own press, never a control inside it that its middle reaches.
+        var avoided: PressReach?
+        if localAt == nil, ["x", "y", "clicks", "dblclick", "contextmenu", "auxclick", "mouse"].allSatisfy({ req[$0] == nil }),
+           (req["id"] as? Int).map({ presenter.inlineText(UInt32($0)) == nil }) == true {
+            let window = { (q: CGPoint) in clip.convert(NSPoint(x: q.x + clip.bounds.origin.x, y: q.y + clip.bounds.origin.y), to: nil) }
+            switch Agent.addressedAim(v, middle: center, area: b.intersection(CGRect(origin: .zero, size: clip.bounds.size)), reach: { q in pressReach(v, at: window(q), in: win) }) {
+            case .refused(let refusal): return refusal.reply
+            case .at(let q, let middle):
+                if let middle { avoided = middle; p = window(q); at = [Agent.r2(q.x), Agent.r2(q.y)] }
+            }
+        }
         // The modifiers held through the click (gallery F20: shift-click).
         guard let held = Agent.heldModifiers(req) else { return ["error": "tap: modifiers are Shift, Control, Alt and Meta, joined by +"] }
         // A right click (minesweeper F8), or the middle button's (`auxclick`,
@@ -687,7 +715,10 @@ extension Agent {
                 NSApp.sendEvent(up)
             }
         }
-        return ["tapped": Int(v.id), "at": at, "delivery": "platform"]
+        var reply: [String: Any] = ["tapped": Int(v.id), "at": at, "delivery": "platform"]
+        // Its middle reaches a control inside it: the click landed beside it.
+        if let avoided { reply["avoided"] = ["middle": [Agent.r2(center.x), Agent.r2(center.y)], "pressing": avoided.pressing ?? NSNull(), "what": avoided.described] as [String: Any] }
+        return reply
     }
 
     private func nativeType(_ v: NodeView, _ req: [String: Any], token: UInt32? = nil) -> [String: Any] {
@@ -707,6 +738,14 @@ extension Agent {
     /// Set an input's text as typing does: the field editor, all selected,
     /// the text inserted — the delegate hears one change with the new value.
     func type(_ req: [String: Any]) -> [String: Any] {
+        // An alert's sheet holds the keys while it is up (LLP 1115.000 D7.6):
+        // Return is its default button's, Escape its cancel's, whatever is named.
+        if presenter.alerts.presented != nil {
+            guard let key = req["key"] as? String else { return ["error": "an alert is up: only a key reaches it"] }
+            let typed = req["id"] ?? NSNull()
+            if req["phase"] as? String == "up" { return ["typed": typed, "key": key, "phase": "up", "delivery": "unhandled", "native": "NSAlert"] }
+            return ["typed": typed, "key": key, "delivery": presenter.alerts.key(key) ? "host-activation" : "unhandled", "native": "NSAlert"]
+        }
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         guard presenter.toolbar.visible(v), !v.inert else { return ["error": "view \(v.id) is hidden or inert"] }
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
@@ -928,6 +967,21 @@ extension Agent {
         return image
     }
 
+    /// `image`, the window server's picture of `window`, with the window's
+    /// sheet drawn where it sits: a sheet (an alert's) is a window of its
+    /// own, which the picture of one window leaves out.
+    private static func withSheet(_ image: CGImage, of window: NSWindow) -> CGImage {
+        guard let sheet = window.attachedSheet, let picture = ownWindowImage(sheet.windowNumber), window.frame.width > 0,
+              let context = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return image }
+        let scale = CGFloat(image.width) / window.frame.width
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        context.draw(picture, in: CGRect(x: (sheet.frame.minX - window.frame.minX) * scale, y: (sheet.frame.minY - window.frame.minY) * scale,
+                                         width: CGFloat(picture.width), height: CGFloat(picture.height)))
+        return context.makeImage() ?? image
+    }
+
     /// Whether the window server's picture holds nothing. A display that is
     /// asleep, or a locked screen, still answers, with a transparent picture
     /// a pixel or two short of the window: no picture, not a wrong one. An
@@ -965,7 +1019,8 @@ extension Agent {
             CATransaction.flush()
             let refresh = 1 / Double(max(30, window.screen?.maximumFramesPerSecond ?? 60))
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 2 * refresh + 0.004))
-            guard let image = Self.ownWindowImage(window.windowNumber) else { return ["error": "the window server gave no picture of window \(window.windowNumber); a display that is asleep or a locked screen gives an empty one"] }
+            guard let alone = Self.ownWindowImage(window.windowNumber) else { return ["error": "the window server gave no picture of window \(window.windowNumber); a display that is asleep or a locked screen gives an empty one"] }
+            let image = Self.withSheet(alone, of: window)
             guard let png = NSBitmapImageRep(cgImage: image).converting(to: .sRGB, renderingIntent: .default)?.representation(using: .png, properties: [:]) else { return ["error": "no PNG"] }
             do { try png.write(to: URL(fileURLWithPath: path)) } catch { return ["error": "write \(path): \(error)"] }
             var r: [String: Any] = ["screenshot": path, "window": true, "w": Agent.r2(v.bounds.width), "h": Agent.r2(v.bounds.height), "scale": Agent.r2(window.backingScaleFactor)]

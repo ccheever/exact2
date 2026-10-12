@@ -21,6 +21,7 @@ pub mod collection;
 mod deps;
 mod document;
 mod find;
+mod foresee;
 mod region;
 mod text;
 
@@ -32,6 +33,7 @@ pub(crate) use deps::{Deps, Input, Reads as DepReads};
 pub use document::{DocNode, DocTree, DocTreeError};
 use exact_kernel::{NodeType, Op, StyleProps, ViewId};
 use exact_plan::{ArmsId, BindingKind, Items, NodesId, Plan, RegionKind, RegionsId, Value};
+pub use foresee::Mount;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
@@ -995,7 +997,7 @@ impl NodeInst {
                 }
                 BindingKind::Style => {
                     let p = patch.get_or_insert_with(Box::default);
-                    match bridge::set_plan_style(p, binding.id, &value, plan) {
+                    match bridge::set_binding_style(p, binding, &value, plan) {
                         // Unlinked, the plan names no rule: it was refused at
                         // boot (LLP 1047.001 D5).
                         Ok(exact_kernel::StyleId::Animation) => {

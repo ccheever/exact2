@@ -54,7 +54,7 @@
     {
       "id": 12,
       "name": "Video",
-      "_comment": "@ref LLP 1042: HTML's `video`, and its `audio` (`semanticTag` audio, LLP 1042 \u00a78): one media node, one player per host."
+      "_comment": "@ref LLP 1042: HTML's `video`, and its `audio` (`semanticTag` audio, LLP 1042 §8): one media node, one player per host."
     },
     {
       "id": 13,
@@ -128,7 +128,7 @@
     {
       "id": 29,
       "name": "SvgClipPath",
-      "_comment": "@ref LLP 1055.000 D10: SVG 2 `clipPath`, referenced by `clip-path: url(#\u2026)`, never painted."
+      "_comment": "@ref LLP 1055.000 D10: SVG 2 `clipPath`, referenced by `clip-path: url(#…)`, never painted."
     },
     {
       "id": 30,
@@ -157,7 +157,7 @@
     {
       "id": 35,
       "name": "SvgForeignObject",
-      "_comment": "@ref LLP 1055.000 D13, \u00a78 ruling 5: SVG 2 `foreignObject`, real HTML inside an `svg` on the web; native hosts refuse it by name and draw nothing."
+      "_comment": "@ref LLP 1055.000 D13, §8 ruling 5: SVG 2 `foreignObject`, real HTML inside an `svg` on the web; native hosts refuse it by name and draw nothing."
     },
     {
       "id": 36,
@@ -581,19 +581,25 @@
       "id": 219,
       "name": "dataset",
       "kind": "str",
-      "_comment": "@ref LLP 1075.003 \u00a73.3: a node's data-* words as one JSON object of strings, keys sorted (the NativeProps opcode); data-<word> attributes on the web, read by a native hatch."
+      "_comment": "@ref LLP 1075.003 §3.3: a node's data-* words as one JSON object of strings, keys sorted (the NativeProps opcode); data-<word> attributes on the web, read by a native hatch."
     },
     {
       "id": 220,
       "name": "navigationScroll",
       "kind": "str",
-      "_comment": "@ref LLP 1075.003 \u00a73.5: the HTML id of the route's content scroll view, resolved inside the route as its Back control is."
+      "_comment": "@ref LLP 1075.003 §3.5: the HTML id of the route's content scroll view, resolved inside the route as its Back control is."
+    },
+    {
+      "id": 262,
+      "name": "navigationSplit",
+      "kind": "str",
+      "_comment": "@ref LLP 1116.004 D1.2: on a stack's root route, \"none\" keeps a wide window's stack pushed, and a positive width (CSS px, points) is the list column's when the stack splits, splitting a list the host's rule does not find; unsaid, a list whose rows push splits at 320."
     },
     {
       "id": 221,
       "name": "accessibilityControls",
       "kind": "str",
-      "_comment": "@ref LLP 1075.003 \u00a73.7: aria-controls, the HTML id of the element a control controls; a tab names its tabpanel."
+      "_comment": "@ref LLP 1075.003 §3.7: aria-controls, the HTML id of the element a control controls; a tab names its tabpanel."
     },
     {
       "id": 222,
@@ -610,7 +616,7 @@
       "id": 223,
       "name": "scrollStart",
       "kind": "str",
-      "_comment": "@ref LLP 1010 \u00a76.5: `scroll-start` on a virtualized list, `start` (the default) or `end` \u2014 where it opens."
+      "_comment": "@ref LLP 1010 §6.5: `scroll-start` on a virtualized list, `start` (the default) or `end` — where it opens."
     },
     {
       "id": 224,
@@ -1337,7 +1343,7 @@
       "id": 230,
       "name": "enterKeyHint",
       "kind": "str",
-      "_comment": "HTML's `enterkeyhint` (feed F25): what a software keyboard's enter key says \u2014 enter, done, go, next, previous, search or send. The web writes the attribute; iOS sets the field's return key; a host with no software keyboard (macOS, Linux, a desktop browser) has nothing to label."
+      "_comment": "HTML's `enterkeyhint` (feed F25): what a software keyboard's enter key says — enter, done, go, next, previous, search or send. The web writes the attribute; iOS sets the field's return key; a host with no software keyboard (macOS, Linux, a desktop browser) has nothing to label."
     },
     {
       "id": 231,
@@ -1385,13 +1391,13 @@
       "id": 238,
       "name": "contextPopover",
       "kind": "str",
-      "_comment": "LLP 1021 \u00a75.1: the HTML `id` of the popover a node's context menu shows (a long press, a secondary click). iOS presents it as `UIContextMenuInteraction` (its menu rows the `UIMenu`, its `contextPreview` row the preview); macOS as an `NSMenu` at the click; the web opens the popover anchored to the node; Linux shows nothing. A declared deviation: HTML retired its `contextmenu` attribute."
+      "_comment": "LLP 1021 §5.1: the HTML `id` of the popover a node's context menu shows (a long press, a secondary click). iOS presents it as `UIContextMenuInteraction` (its menu rows the `UIMenu`, its `contextPreview` row the preview); macOS as an `NSMenu` at the click; the web opens the popover anchored to the node; Linux shows nothing. A declared deviation: HTML retired its `contextmenu` attribute."
     },
     {
       "id": 239,
       "name": "contextPreview",
       "kind": "bool",
-      "_comment": "LLP 1021 \u00a75.1: this row of a context popover is the menu's preview (on iOS the preview controller's view, sized by its layout), not a menu item; its `press` is what tapping the preview does (UIKit's commit). Elsewhere it is an ordinary row."
+      "_comment": "LLP 1021 §5.1: this row of a context popover is the menu's preview (on iOS the preview controller's view, sized by its layout), not a menu item; its `press` is what tapping the preview does (UIKit's commit). Elsewhere it is an ordinary row."
     },
     {
       "id": 240,
@@ -1421,7 +1427,7 @@
       "id": 244,
       "name": "mediaTitle",
       "kind": "str",
-      "_comment": "@ref LLP 1098 D1: `metadata=MediaMetadata(\u2026)`'s `title` on an `audio` or `video`, which makes the element a media session claimant. The web's `navigator.mediaSession.metadata`, Apple's `MPNowPlayingInfoCenter`; Linux and Windows keep the record."
+      "_comment": "@ref LLP 1098 D1: `metadata=MediaMetadata(…)`'s `title` on an `audio` or `video`, which makes the element a media session claimant. The web's `navigator.mediaSession.metadata`, Apple's `MPNowPlayingInfoCenter`; Linux and Windows keep the record."
     },
     {
       "id": 245,
@@ -1469,7 +1475,7 @@
       "id": 252,
       "name": "autocomplete",
       "kind": "str",
-      "_comment": "HTML's `autocomplete` on an input or textarea (LLP 1102 \u00a73.6): the web writes the attribute; iOS and macOS set the field's text content type from its last field token (`email`, `username`, `current-password`, `new-password`, `one-time-code`, `name`, `tel`, `postal-code`, ...), over the one `type` implies; `off` clears it; a token the platform has no type for leaves `type`'s."
+      "_comment": "HTML's `autocomplete` on an input or textarea (LLP 1102 §3.6): the web writes the attribute; iOS and macOS set the field's text content type from its last field token (`email`, `username`, `current-password`, `new-password`, `one-time-code`, `name`, `tel`, `postal-code`, ...), over the one `type` implies; `off` clears it; a token the platform has no type for leaves `type`'s."
     },
     {
       "id": 254,
@@ -1482,6 +1488,30 @@
       "name": "statusBarAnimation",
       "kind": "str",
       "_comment": "@ref LLP 1105 D1: `none` (default) or `fade`, the change to this node's `statusBarStyle`."
+    },
+    {
+      "id": 256,
+      "name": "accessibilityValueNow",
+      "kind": "str",
+      "_comment": "@ref LLP 1116 D8: ARIA's `aria-valuenow`, a range role's current value (`progressbar`, `slider`, `meter`, `scrollbar`, `spinbutton`), a number as HTML writes it. With `aria-valuemin` and `aria-valuemax` (ARIA's defaults 0 and 100) it is the value each platform's accessibility hears: the DOM's attribute, UIKit's `accessibilityValue` as a percentage, AppKit's value with its minimum and maximum. `aria-valuetext` (`accessibilityValueText`) is spoken instead where it is set."
+    },
+    {
+      "id": 257,
+      "name": "accessibilityValueMin",
+      "kind": "str",
+      "_comment": "@ref LLP 1116 D8: ARIA's `aria-valuemin`, as `accessibilityValueNow`."
+    },
+    {
+      "id": 258,
+      "name": "accessibilityValueMax",
+      "kind": "str",
+      "_comment": "@ref LLP 1116 D8: ARIA's `aria-valuemax`, as `accessibilityValueNow`."
+    },
+    {
+      "id": 259,
+      "name": "navigationBar",
+      "kind": "str",
+      "_comment": "@ref LLP 1115.000 D5.2: a route's say over the platform's navigation bar, `none` (a full-bleed screen: no bar, and the edge swipe still pops) or `auto` (the default: the route's header as the bar, else the system Back alone on a pushed route). iOS reads it; hosts with no bar of their own ignore it."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
@@ -1539,6 +1569,13 @@
         "capsule"
       ],
       "default": "dynamic"
+    },
+    "TextFit": {
+      "values": [
+        "none",
+        "shrink"
+      ],
+      "default": "none"
     },
     "FlexDirection": {
       "values": [
@@ -1867,7 +1904,7 @@
       "default": "fill"
     },
     "WhiteSpace": {
-      "_comment": "@ref LLP 1053 \u00a70 G5: the shorthand of white-space-collapse \u00d7 text-wrap-mode (normal = collapse wrap, pre-wrap = preserve wrap, nowrap = collapse nowrap, pre-line = preserve-breaks wrap, pre = preserve nowrap).",
+      "_comment": "@ref LLP 1053 §0 G5: the shorthand of white-space-collapse × text-wrap-mode (normal = collapse wrap, pre-wrap = preserve wrap, nowrap = collapse nowrap, pre-line = preserve-breaks wrap, pre = preserve nowrap).",
       "values": [
         "normal",
         "pre-wrap",
@@ -1878,7 +1915,7 @@
       "default": "normal"
     },
     "FontVariantNumeric": {
-      "_comment": "@ref LLP 1053 \u00a70 G4: the keywords of the font_variant_numeric row, not a wire enum. normal is 0; tabular-nums is bit 0 (1), the OpenType tnum feature of the chosen face. Other CSS values are refused by name.",
+      "_comment": "@ref LLP 1053 §0 G4: the keywords of the font_variant_numeric row, not a wire enum. normal is 0; tabular-nums is bit 0 (1), the OpenType tnum feature of the chosen face. Other CSS values are refused by name.",
       "values": [
         "normal",
         "tabular-nums"
@@ -1908,7 +1945,7 @@
       "default": "auto"
     },
     "AnimationTrigger": {
-      "_comment": "@ref LLP 1055 D13: when a node's `animation`s start. view (the default): inside a row a virtualized list mounted out of its port, when that row first shows in the port (held until then as `animation-play-state: paused` holds them); anywhere else, as none. none: when the node is inserted (CSS Animations 1 \u00a73).",
+      "_comment": "@ref LLP 1055 D13: when a node's `animation`s start. view (the default): inside a row a virtualized list mounted out of its port, when that row first shows in the port (held until then as `animation-play-state: paused` holds them); anywhere else, as none. none: when the node is inserted (CSS Animations 1 §3).",
       "values": [
         "view",
         "none"
@@ -1923,7 +1960,7 @@
       "default": "scroll"
     },
     "ColorScheme": {
-      "_comment": "@ref LLP 1034 \u00a78: `normal` is the initial value (the surrounding scheme); an author writes `light` or `dark`.",
+      "_comment": "@ref LLP 1034 §8: `normal` is the initial value (the surrounding scheme); an author writes `light` or `dark`.",
       "values": [
         "normal",
         "light",
@@ -2208,7 +2245,7 @@
       "default": "balance"
     },
     "BreakBetween": {
-      "_comment": "@ref LLP 1093 D3/D4: CSS `break-before`/`break-after` in a multi-column flow (Fragmentation 3 \u00a73.1). column forces a break; avoid and avoid-column make a break there a last choice. The page and region values are refused by the compiler.",
+      "_comment": "@ref LLP 1093 D3/D4: CSS `break-before`/`break-after` in a multi-column flow (Fragmentation 3 §3.1). column forces a break; avoid and avoid-column make a break there a last choice. The page and region values are refused by the compiler.",
       "values": [
         "auto",
         "avoid",
@@ -2218,7 +2255,7 @@
       "default": "auto"
     },
     "BreakInside": {
-      "_comment": "@ref LLP 1093 D4: CSS `break-inside` (Fragmentation 3 \u00a73.2): avoid and avoid-column make every break inside the box a last choice. avoid-page and avoid-region are refused by the compiler.",
+      "_comment": "@ref LLP 1093 D4: CSS `break-inside` (Fragmentation 3 §3.2): avoid and avoid-column make every break inside the box a last choice. avoid-page and avoid-region are refused by the compiler.",
       "values": [
         "auto",
         "avoid",
@@ -2227,16 +2264,46 @@
       "default": "auto"
     },
     "Hyphens": {
-      "_comment": "CSS `hyphens` (Text 3 \u00a75.4, the reader diary). manual: a soft hyphen (U+00AD) is a break that shows a hyphen; none: it is not a break, so the kernel's runs carry U+034F in its place (as invisible, the same length in UTF-8 and UTF-16, no break opportunity); auto: also the hyphenation points of the document's language, where the host has a dictionary (the web, Apple; Linux has none and declares it, LLP 1001).",
+      "_comment": "CSS `hyphens` (Text 3 §5.4, the reader diary). manual: a soft hyphen (U+00AD) is a break that shows a hyphen; none: it is not a break, so the kernel's runs carry U+034F in its place (as invisible, the same length in UTF-8 and UTF-16, no break opportunity); auto: also the hyphenation points of the document's language, where the host has a dictionary (the web, Apple; Linux has none and declares it, LLP 1001).",
       "values": [
         "none",
         "manual",
         "auto"
       ],
       "default": "manual"
+    },
+    "TextBoxTrim": {
+      "_comment": "CSS `text-box-trim` (Inline Layout 3 §4.1): trim the first formatted line's over edge (trim-start), the last line's under edge (trim-end), or both, to `text-box-edge`. Not inherited.",
+      "values": [
+        "none",
+        "trim-start",
+        "trim-end",
+        "trim-both"
+      ],
+      "default": "none"
+    },
+    "TextBoxEdge": {
+      "_comment": "CSS `text-box-edge` (Inline Layout 3 §4.2): the over edge (text, cap or ex) and the under edge (text or alphabetic) a trim cuts to, as one value: `cap alphabetic` is cap-alphabetic; one keyword is that over edge with a text under edge; auto is text text. Contract writes CSS's two words. Inherited.",
+      "values": [
+        "auto",
+        "text",
+        "cap",
+        "ex",
+        "text-alphabetic",
+        "cap-alphabetic",
+        "ex-alphabetic"
+      ],
+      "default": "auto"
+    },
+    "OutlineStyle": {
+      "_comment": "@ref LLP 1104 D6: CSS `outline-style`, bounded to `none`, CSS's initial value, which an author writes to take a text field's focus ring off. The other line styles are refused by name.",
+      "values": [
+        "none"
+      ],
+      "default": "none"
     }
   },
-  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points, 3-6 an env(safe-area-inset-top/right/bottom/left) length with the f32 the points added, 7 calc(<percent> \u00b1 <px>) with a second f32 the points, 8-13 an env(viewport-segment-width/height/top/left/bottom/right x y) length with the f32 the points added and then two u8 indices x then y \u2014 LLP 1078 D3; 14-23 viewport vw/vh/vmin/vmax/svw/svh/lvw/lvh/dvw/dvh with f32 the percentage; 24 a min()/max()/clamp() with a zero f32 and then its tree \u2014 style/compare.rs, LLP 1001 \u00a72) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | auto-color (u8: 0 auto, 1 followed by color) | color2 (rgba8 rgba8) | tracks (CSS grid-template grammar Taffy can lay out: none, named lines, px, %, fr, auto, min/max-content, fit-content(), minmax(), and fixed/auto-fill/auto-fit repeat(); canonical CSS text on the wire) | placement (CSS grid placement: auto, nonzero numeric or named lines and positive numeric or named spans; canonical CSS text on the wire) | aspect-ratio (CSS text: auto, a ratio, or both) | background-image (CSS text: none or one gradient, LLP 1066) | paint (CSS text: none, currentcolor, or a colour) | dasharray (CSS text: none or a list of numbers) | transform (CSS text: a transform list) | paint-order (CSS text: normal, or fill/stroke/markers) | marker (CSS text: none or url(#id)) | transform-origin (CSS text: one to three lengths, percentages or keywords) | animations (`_animations`) | drag-timeline, animation-timeline, animation-range, timeline-scope (CSS text: the four timeline rows, LLP 1057.003) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. Every length row (each dimension, line-height, font-size, letter-spacing, the gaps, border widths and radii, shape-margin) also takes CSS `rem` and `em` through `set_dynamic`; the row holds the pixels the kernel resolves at the end of each commit against the host's root font size (LLP 1069.000 D3), so every reader and the wire see pixels. Every length row also takes CSS `ch` and `lh` at a fixed 8\u00d716 px cell (LLP 1101 D3). terminal: how a terminal entry admits the row (LLP 1101 \u00a74) \u2014 cell (lengths only in `ch`/`lh`, a percentage, `auto` or 0), admit, or quantize (the host approximates it); a row without one is refused in a terminal entry. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance \u2014 a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults \u2014 this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard). A colour row's default may name a role from `colors` (`\"CanvasText\"`), as CSS's initial `color` is a system colour; a host with the platform's colour shows that, never a snapshot (LLP 1095 stage 2).",
+  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points, 3-6 an env(safe-area-inset-top/right/bottom/left) length with the f32 the points added, 7 calc(<percent> ± <px>) with a second f32 the points, 8-13 an env(viewport-segment-width/height/top/left/bottom/right x y) length with the f32 the points added and then two u8 indices x then y — LLP 1078 D3; 14-23 viewport vw/vh/vmin/vmax/svw/svh/lvw/lvh/dvw/dvh with f32 the percentage; 24 a min()/max()/clamp() with a zero f32 and then its tree — style/compare.rs, LLP 1001 §2) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | auto-color (u8: 0 auto, 1 followed by color) | color2 (rgba8 rgba8) | tracks (CSS grid-template grammar Taffy can lay out: none, named lines, px, %, fr, auto, min/max-content, fit-content(), minmax(), and fixed/auto-fill/auto-fit repeat(); canonical CSS text on the wire) | placement (CSS grid placement: auto, nonzero numeric or named lines and positive numeric or named spans; canonical CSS text on the wire) | aspect-ratio (CSS text: auto, a ratio, or both) | background-image (CSS text: none or one gradient, LLP 1066) | paint (CSS text: none, currentcolor, or a colour) | dasharray (CSS text: none or a list of numbers) | transform (CSS text: a transform list) | paint-order (CSS text: normal, or fill/stroke/markers) | marker (CSS text: none or url(#id)) | transform-origin (CSS text: one to three lengths, percentages or keywords) | animations (`_animations`) | drag-timeline, animation-timeline, animation-range, timeline-scope (CSS text: the four timeline rows, LLP 1057.003) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. Every length row (each dimension, line-height, font-size, letter-spacing, the gaps, border widths and radii, shape-margin) also takes CSS `rem` and `em` through `set_dynamic`; the row holds the pixels the kernel resolves at the end of each commit against the host's root font size (LLP 1069.000 D3), so every reader and the wire see pixels. Every length row also takes CSS `ch` and `lh` at a fixed 8×16 px cell (LLP 1101 D3). terminal: how a terminal entry admits the row (LLP 1101 §4) — cell (lengths only in `ch`/`lh`, a percentage, `auto` or 0), admit, or quantize (the host approximates it); a row without one is refused in a terminal entry. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance — a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults — this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard). A colour row's default may name a role from `colors` (`\"CanvasText\"`), as CSS's initial `color` is a system colour; a host with the platform's colour shows that, never a snapshot (LLP 1095 stage 2).",
   "styles": [
     {
       "bit": 0,
@@ -2963,7 +3030,7 @@
       "field": "wrap_flow",
       "codec": "enum:WrapFlow",
       "layout": true,
-      "_comment": "@ref LLP 1043.000 \u00a73 D1: only absolute + both excludes. Ignored on non-absolute nodes; other wire values behave as auto."
+      "_comment": "@ref LLP 1043.000 §3 D1: only absolute + both excludes. Ignored on non-absolute nodes; other wire values behave as auto."
     },
     {
       "bit": 93,
@@ -3285,7 +3352,7 @@
       "bit": 138,
       "field": "mix_blend_mode",
       "codec": "enum:MixBlendMode",
-      "_comment": "@ref LLP 1055.000 D19, \u00a78 ruling 6: mix-blend-mode and isolation on SVG elements; the web, macOS and Linux blend, iOS declares it unsupported.",
+      "_comment": "@ref LLP 1055.000 D19, §8 ruling 6: mix-blend-mode and isolation on SVG elements; the web, macOS and Linux blend, iOS declares it unsupported.",
       "cold": true
     },
     {
@@ -3307,7 +3374,7 @@
       "bit": 141,
       "field": "background_image",
       "codec": "background-image",
-      "_comment": "@ref LLP 1066: CSS `background-image` \u2014 `none`, or one linear-gradient()/radial-gradient(). Painted over background-color, clipped as the background is.",
+      "_comment": "@ref LLP 1066: CSS `background-image` — `none`, or one linear-gradient()/radial-gradient(). Painted over background-color, clipped as the background is.",
       "cold": true
     },
     {
@@ -3339,7 +3406,7 @@
       "codec": "auto-color",
       "inherited": true,
       "default": "auto",
-      "_comment": "@ref LLP 1069.001 D6: CSS `accent-color`, the tint of a form control (a checkbox's fill, a switch's on track); auto is the platform's."
+      "_comment": "@ref LLP 1069.001 D6: CSS `accent-color`, the tint of a form control (a checkbox's fill, a switch's on track); auto is the platform's. LLP 1116.001 D2: also its subtree's tint, which the `@tint` roles at full strength (`AccentColor`, `LinkText`) resolve to beneath it (`roles::follows_accent`): iOS sets it as the view's `tintColor`, the web reads the `--exact-accent` written beside it."
     },
     {
       "bit": 146,
@@ -3561,7 +3628,7 @@
       "bit": 176,
       "field": "position_area",
       "codec": "enum:PositionArea",
-      "_comment": "@ref LLP 1021 D2, \u00a75: CSS `position-area` on an invoker-anchored popover (its implicit anchor is the invoker; no anchor-name, position-anchor or position-try). A subset: none (D2's rule, top-left at the invoker's bottom-left), the top and bottom rows spanning right or all, center, and `right span-bottom` (a submenu: top-left at the invoker's top-right); `top` is `top span-all`, as in CSS. Clamped to the viewport; never flipped.",
+      "_comment": "@ref LLP 1021 D2, §5: CSS `position-area` on an invoker-anchored popover (its implicit anchor is the invoker; no anchor-name, position-anchor or position-try). A subset: none (D2's rule, top-left at the invoker's bottom-left), the top and bottom rows spanning right or all, center, and `right span-bottom` (a submenu: top-left at the invoker's top-right); `top` is `top span-all`, as in CSS. Clamped to the viewport; never flipped.",
       "cold": true
     },
     {
@@ -3591,7 +3658,7 @@
         0,
         0
       ],
-      "_comment": "CSS `translate`'s percentages, of the node's own border box (chess diary #4: `-50% -50%` centres a box), set with the lengths by the one `translate` attribute: the used x is `translate.x + translate_percent.x / 100 \u00d7 width`, y likewise, resolved where the box's size is known (the presenter, at paint). The engine animates both rows as one `translate` value, its percentages componentwise as CSS interpolates a `calc()`.",
+      "_comment": "CSS `translate`'s percentages, of the node's own border box (chess diary #4: `-50% -50%` centres a box), set with the lengths by the one `translate` attribute: the used x is `translate.x + translate_percent.x / 100 × width`, y likewise, resolved where the box's size is known (the presenter, at paint). The engine animates both rows as one `translate` value, its percentages componentwise as CSS interpolates a `calc()`.",
       "cold": true
     },
     {
@@ -3609,7 +3676,7 @@
       "admitsAuto": true,
       "layout": true,
       "default": "auto",
-      "_comment": "@ref LLP 1093 D1: CSS `column-width`, a length or auto (no percentage, as CSS). The used count and width are Multi-column Layout 1 \u00a73.4's, over the content-box width and the gap. The gap is `column-gap` when set, else the element's own font size (CSS's `normal`, 1em)."
+      "_comment": "@ref LLP 1093 D1: CSS `column-width`, a length or auto (no percentage, as CSS). The used count and width are Multi-column Layout 1 §3.4's, over the content-box width and the gap. The gap is `column-gap` when set, else the element's own font size (CSS's `normal`, 1em)."
     },
     {
       "bit": 182,
@@ -3622,14 +3689,14 @@
       "field": "column_rule_width",
       "codec": "f32",
       "default": 3,
-      "_comment": "@ref LLP 1093 \u00a71, D7: CSS `column-rule-width`; `thin`, `medium` (the initial value) and `thick` are 1, 3 and 5 points.",
+      "_comment": "@ref LLP 1093 §1, D7: CSS `column-rule-width`; `thin`, `medium` (the initial value) and `thick` are 1, 3 and 5 points.",
       "cold": true
     },
     {
       "bit": 184,
       "field": "column_rule_style",
       "codec": "enum:BorderStyle",
-      "_comment": "@ref LLP 1093 \u00a71, D7: CSS `column-rule-style`, the styles the hosts paint for borders; the others are refused by the compiler.",
+      "_comment": "@ref LLP 1093 §1, D7: CSS `column-rule-style`, the styles the hosts paint for borders; the others are refused by the compiler.",
       "cold": true
     },
     {
@@ -3688,7 +3755,7 @@
       "terminal": "admit",
       "codec": "enum:ColorScheme",
       "inherited": true,
-      "_comment": "@ref LLP 1034 \u00a78: CSS `color-scheme` on a subtree, `light` or `dark`: `light-dark()`, platform colours and native materials below resolve in that scheme. Initial `normal`, the surrounding scheme (the app's, or an ancestor's)."
+      "_comment": "@ref LLP 1034 §8: CSS `color-scheme` on a subtree, `light` or `dark`: `light-dark()`, platform colours and native materials below resolve in that scheme. Initial `normal`, the surrounding scheme (the app's, or an ancestor's)."
     },
     {
       "bit": 193,
@@ -3703,7 +3770,7 @@
       "rare": true,
       "codec": "dimension",
       "default": 0,
-      "_comment": "@ref LLP 1010 \u00a76.9: CSS `scroll-padding-*`, the scrollport inset that `scrollIntoView` aligns within. Read by a virtualized list's `scrollIntoView` (the runner, the JS target) and written as CSS on the web; nothing else reads it."
+      "_comment": "@ref LLP 1010 §6.9: CSS `scroll-padding-*`, the scrollport inset that `scrollIntoView` aligns within. Read by a virtualized list's `scrollIntoView` (the runner, the JS target) and written as CSS on the web; nothing else reads it."
     },
     {
       "bit": 195,
@@ -3739,10 +3806,42 @@
       "codec": "enum:ControlCornerStyle",
       "_comment": "@ref LLP 1069.011.001 D9, D15: -exact-corner-style, a native button's named corners; an authored border-radius wins. An unset mask leaves the platform's corners alone.",
       "cold": true
+    },
+    {
+      "bit": 200,
+      "field": "fit",
+      "rare": true,
+      "terminal": "admit",
+      "codec": "enum:TextFit",
+      "text": true,
+      "layout": true,
+      "_comment": "@ref LLP 1116.001 D1.4: not CSS. -exact-fit: shrink is UIKit's adjustsFontSizeToFitWidth with a minimumScaleFactor on a text: when its longest unbreakable run (its whole line under white-space: nowrap) is wider than its content box, the kernel measures it at the scale that fits, down to half its size (display text bigger than twice the root font size: down to the root size), and publishes that scale (Kernel::fit_scale), at which every host draws it. Opt-in; a terminal draws whole cells."
+    },
+    {
+      "bit": 201,
+      "field": "text_box_trim",
+      "codec": "enum:TextBoxTrim",
+      "text": true,
+      "layout": true
+    },
+    {
+      "bit": 202,
+      "field": "text_box_edge",
+      "codec": "enum:TextBoxEdge",
+      "inherited": true,
+      "text": true,
+      "layout": true
+    },
+    {
+      "bit": 203,
+      "field": "outline_style",
+      "terminal": "admit",
+      "codec": "enum:OutlineStyle",
+      "_comment": "@ref LLP 1104 D6: CSS `outline-style` on a text field (`input`, `textarea`). An unset mask is the platform's focus ring, as the UA sheet's `:focus-visible` outline is the browser's: the ring the OS draws for a native field, the one Exact draws for a bare one. `none` takes it off on every host, and Tab order and accessibility stay. A terminal draws no ring. Not inherited, as in CSS."
     }
   ],
-  "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 -exact-tint-color, 23 box-shadow \u2014 LLP 1062; 24, box-shadow's colour alone, is refused; 25 is CSS's `border-color` shorthand; 26 is a path's `d`, LLP 1055.000 D15), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",
-  "_animations": "The `animation` row is CSS `animation` (LLP 1055 D5): count u8 (\u22648), then per animation name (str), duration f32 s, delay f32 s, easing (as `_transitions`, never a spring), iteration count f32 (+inf is `infinite`), direction u8 (0 normal, 1 reverse, 2 alternate, 3 alternate-reverse), fill u8 (0 none, 1 forwards, 2 backwards, 3 both), paused u8, then its keyframes: count u8 (\u226432), per keyframe offset f32 in [0,1], easing flag u8 (0 the animation's, 1 followed by an easing), count u8, per value property u8 (as `Property`), then its components as f32: one, four for `translate` (x and y lengths in points, then x and y percentages of the box), three for `box-shadow` (offset x, y and blur, in points; its colour is the next value, `box-shadow`'s colour half), four for a colour (premultiplied sRGB red, green, blue, alpha; LLP 1055.000 D6), a colour then u8 1 and four more for the dark half of a `light-dark()` pair, else u8 0 (LLP 1062 D9). Its Rust type lives in exact-motion; the kernel owns the bytes.",
+  "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (≤8), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 -exact-tint-color, 23 box-shadow — LLP 1062; 24, box-shadow's colour alone, is refused; 25 is CSS's `border-color` shorthand; 26 is a path's `d`, LLP 1055.000 D15), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4×f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count×(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",
+  "_animations": "The `animation` row is CSS `animation` (LLP 1055 D5): count u8 (≤8), then per animation name (str), duration f32 s, delay f32 s, easing (as `_transitions`, never a spring), iteration count f32 (+inf is `infinite`), direction u8 (0 normal, 1 reverse, 2 alternate, 3 alternate-reverse), fill u8 (0 none, 1 forwards, 2 backwards, 3 both), paused u8, then its keyframes: count u8 (≤32), per keyframe offset f32 in [0,1], easing flag u8 (0 the animation's, 1 followed by an easing), count u8, per value property u8 (as `Property`), then its components as f32: one, four for `translate` (x and y lengths in points, then x and y percentages of the box), three for `box-shadow` (offset x, y and blur, in points; its colour is the next value, `box-shadow`'s colour half), four for a colour (premultiplied sRGB red, green, blue, alpha; LLP 1055.000 D6), a colour then u8 1 and four more for the dark half of a `light-dark()` pair, else u8 0 (LLP 1062 D9). Its Rust type lives in exact-motion; the kernel owns the bytes.",
   "_opcodes": "The closed wire-visible op list for EXWF frame revision 1. There is no op count on the wire; consumers iterate by validated lengths.",
   "opcodes": [
     {
@@ -4133,6 +4232,31 @@
       "camera",
       "camera",
       "M3 8h4l2-3h6l2 3h4v12H3ZM16 13.5a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z"
+    ],
+    [
+      "star",
+      "star",
+      "M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9Z"
+    ],
+    [
+      "star-fill",
+      "star.fill",
+      "M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9Z"
+    ],
+    [
+      "minus",
+      "minus",
+      "M5 12h14"
+    ],
+    [
+      "chart",
+      "chart.bar",
+      "M4 20h16M6 20v-7h3v7M10.5 20V5h3v15M15 20v-10h3v10"
+    ],
+    [
+      "sparkles",
+      "sparkles",
+      "M10 3l1.8 5.2L17 10l-5.2 1.8L10 17l-1.8-5.2L3 10l5.2-1.8ZM18 14l.9 2.1L21 17l-2.1.9L18 20l-.9-2.1L15 17l2.1-.9Z"
     ]
   ],
   "_symbols": "[role, Apple system symbol name, browser SVG path in a 24-unit box]. The path is stroked; a filled state is its own role, `<role>-fill` for Apple's `<name>.fill`, whose path is a filled silhouette (even-odd, so a cutout is a subpath). Portable roles only; symbol:sf/<name> passes an opaque name directly to Apple (LLP 1035.004.000), without a table entry. The sf namespace is reserved.",
@@ -4570,7 +4694,7 @@
     [
       "LinkText",
       "",
-      "linkColor",
+      "@tint",
       "linkColor",
       "#007aff",
       "#0984ff"
@@ -4894,6 +5018,266 @@
       "systemGrayColor",
       "#8e8e93",
       "#8e8e93"
+    ]
+  ],
+  "_textStyles": "@ref LLP 1115 D3: the platform's text styles, written `-exact-<name>` (or the WebKit alias) as a `font-size` and lowered from a heading's level. Each row: the name, WebKit's `-apple-system-*` alias or empty, UIFont's and NSFont's TextStyle, the weight, and the size at each body size in `textStyleBodies` (the root font size the host sets). The ramp is Apple's: 13 is the Mac's (NSFont.preferredFont, macOS 11), 14 to 53 iOS Dynamic Type's categories xSmall to AX5 (17 is Large, the default; the web's 16 reads Small's row). A root between two bodies interpolates; outside, the nearest row scales.",
+  "textStyleBodies": [
+    13,
+    14,
+    15,
+    16,
+    17,
+    19,
+    21,
+    23,
+    28,
+    33,
+    40,
+    47,
+    53
+  ],
+  "textStyles": [
+    [
+      "large-title",
+      "",
+      "largeTitle",
+      "largeTitle",
+      400,
+      [
+        26,
+        31,
+        32,
+        33,
+        34,
+        36,
+        38,
+        40,
+        44,
+        48,
+        52,
+        56,
+        60
+      ]
+    ],
+    [
+      "title1",
+      "-apple-system-title1",
+      "title1",
+      "title1",
+      400,
+      [
+        22,
+        25,
+        26,
+        27,
+        28,
+        30,
+        32,
+        34,
+        38,
+        43,
+        48,
+        53,
+        58
+      ]
+    ],
+    [
+      "title2",
+      "-apple-system-title2",
+      "title2",
+      "title2",
+      400,
+      [
+        17,
+        19,
+        20,
+        21,
+        22,
+        24,
+        26,
+        28,
+        34,
+        39,
+        44,
+        50,
+        56
+      ]
+    ],
+    [
+      "title3",
+      "-apple-system-title3",
+      "title3",
+      "title3",
+      400,
+      [
+        15,
+        17,
+        18,
+        19,
+        20,
+        22,
+        24,
+        26,
+        31,
+        37,
+        43,
+        49,
+        55
+      ]
+    ],
+    [
+      "headline",
+      "-apple-system-headline",
+      "headline",
+      "headline",
+      600,
+      [
+        13,
+        14,
+        15,
+        16,
+        17,
+        19,
+        21,
+        23,
+        28,
+        33,
+        40,
+        47,
+        53
+      ]
+    ],
+    [
+      "body",
+      "-apple-system-body",
+      "body",
+      "body",
+      400,
+      [
+        13,
+        14,
+        15,
+        16,
+        17,
+        19,
+        21,
+        23,
+        28,
+        33,
+        40,
+        47,
+        53
+      ]
+    ],
+    [
+      "callout",
+      "",
+      "callout",
+      "callout",
+      400,
+      [
+        12,
+        13,
+        14,
+        15,
+        16,
+        18,
+        20,
+        22,
+        26,
+        32,
+        38,
+        44,
+        51
+      ]
+    ],
+    [
+      "subheadline",
+      "-apple-system-subheadline",
+      "subheadline",
+      "subheadline",
+      400,
+      [
+        11,
+        12,
+        13,
+        14,
+        15,
+        17,
+        19,
+        21,
+        25,
+        30,
+        36,
+        42,
+        49
+      ]
+    ],
+    [
+      "footnote",
+      "-apple-system-footnote",
+      "footnote",
+      "footnote",
+      400,
+      [
+        10,
+        12,
+        12,
+        12,
+        13,
+        15,
+        17,
+        19,
+        23,
+        27,
+        33,
+        38,
+        44
+      ]
+    ],
+    [
+      "caption1",
+      "-apple-system-caption1",
+      "caption1",
+      "caption1",
+      400,
+      [
+        10,
+        11,
+        11,
+        11,
+        12,
+        14,
+        16,
+        18,
+        22,
+        26,
+        32,
+        37,
+        43
+      ]
+    ],
+    [
+      "caption2",
+      "-apple-system-caption2",
+      "caption2",
+      "caption2",
+      400,
+      [
+        10,
+        11,
+        11,
+        11,
+        11,
+        13,
+        15,
+        17,
+        20,
+        24,
+        29,
+        34,
+        40
+      ]
     ]
   ]
 }

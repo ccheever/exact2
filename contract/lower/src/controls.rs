@@ -337,8 +337,9 @@ pub(crate) fn tag(kind: &str, t: Tag) -> Tag {
 
 /// A range's `value`, `min`, `max` and `step` as HTML's strings: a number
 /// literal is written as one, a bound number through `toString` (LLP
-/// 1069.001 D4: the props are strings on the wire, typed per control).
-/// `None` when nothing needs rewriting.
+/// 1069.001 D4: the props are strings on the wire, typed per control); so
+/// too a determinate `progress`'s `value` and `max`, and ARIA's range
+/// values on any element (LLP 1116 D8). `None` when nothing needs rewriting.
 pub(crate) fn range_attrs(
     tag: &str,
     control: Option<&str>,
@@ -354,10 +355,13 @@ pub(crate) fn range_attrs(
     let names: &[&str] = match control {
         Some("range") => &["value", "min", "max", "step"],
         None if number => &["min", "max", "step"],
-        _ => return None,
+        None if tag == "progress" => &["value", "max"],
+        _ => &[],
     };
+    let aria = ["aria-valuenow", "aria-valuemin", "aria-valuemax"];
     let numeric = |a: &contract_syntax::Attr| {
-        names.contains(&a.name.as_str()) && !matches!(a.value, Expr::Str(..))
+        (names.contains(&a.name.as_str()) || aria.contains(&a.name.as_str()))
+            && !matches!(a.value, Expr::Str(..))
     };
     if !attrs.iter().any(numeric) {
         return None;
@@ -400,11 +404,13 @@ pub(crate) fn check_nesting(tag: &str, parent: Option<&str>, span: Span) -> Resu
     Ok(())
 }
 
-/// `progress` (LLP 1069.001, amended 2026-10-07) is HTML's indeterminate
-/// one only: no `value` or `max`, which would make it a determinate bar
-/// Exact does not draw yet; no `type`, which is the kind it is; and no
-/// children, since every host draws the indicator HTML's fallback content
-/// stands in for.
+/// `progress` is HTML's (LLP 1069.001, amended 2026-10-07; LLP 1116 D8):
+/// with a `value`, the determinate bar, `max` its top (1 unsaid); without
+/// one, the indeterminate activity indicator, where a `max` means nothing
+/// and is refused. No `type`, which is the kind it is; no ARIA range
+/// values, which its `value` and `max` are (`aria-valuetext` stays: the
+/// words a reader speaks); and no children, since every host draws the
+/// control HTML's fallback content stands in for.
 pub(crate) fn check_progress(
     tag: &str,
     attrs: &[contract_syntax::Attr],
@@ -413,14 +419,16 @@ pub(crate) fn check_progress(
     if tag != "progress" {
         return Ok(());
     }
-    if let Some(a) = attrs
-        .iter()
-        .find(|a| matches!(a.name.as_str(), "value" | "max" | "type"))
-    {
+    let valued = attrs.iter().any(|a| a.name == "value");
+    if let Some(a) = attrs.iter().find(|a| match a.name.as_str() {
+        "type" | "aria-valuenow" | "aria-valuemin" | "aria-valuemax" => true,
+        "max" => !valued,
+        _ => false,
+    }) {
         let why = match a.name.as_str() {
-            "type" => "it is always the activity indicator",
-            "value" => "a `value` makes HTML's determinate progress bar, which Exact does not draw yet; without one it is the platform's activity indicator",
-            _ => "`max` belongs to HTML's determinate progress bar, which Exact does not draw yet; without a `value` it is the platform's activity indicator",
+            "type" => "it is the platform's progress bar with a `value` and its activity indicator without one".to_string(),
+            "max" => "`max` is the top of the bar a `value` makes; without one it is the platform's activity indicator".to_string(),
+            name => format!("its `value` and `max` are its range, which every platform reads (`{name}` is for a drawn `role=\"progressbar\"`)"),
         };
         return err(
             "lower-attr-tag",
@@ -431,7 +439,7 @@ pub(crate) fn check_progress(
     if let Some(child) = children.first() {
         return err(
             "lower-void",
-            "`progress` takes no children: it is the platform's activity indicator (name it with `aria-label`)",
+            "`progress` takes no children: it is the platform's own control (name it with `aria-label`)",
             child.span(),
         );
     }
@@ -469,11 +477,8 @@ impl Lowerer<'_> {
         } else {
             self.fixed(false, "switch")
         };
-        bindings.push(BindingsRow {
-            kind: BindingKind::Prop,
-            id: id as u16,
-            expr,
-        });
+        // The word is the author's.
+        bindings.push(crate::prop_row(id, expr, true));
         Ok(true)
     }
 }
@@ -491,11 +496,8 @@ pub(crate) fn derived_rows(bindings: &mut Vec<BindingsRow>) -> bool {
     else {
         return false;
     };
-    bindings.push(BindingsRow {
-        kind: BindingKind::Prop,
-        id: PropId::AccessibilityChecked as u16,
-        expr,
-    });
+    let checked = PropId::AccessibilityChecked;
+    bindings.push(crate::prop_row(checked, expr, crate::IMPLIED));
     true
 }
 
@@ -698,20 +700,26 @@ impl Lowerer<'_> {
                         "a native button's `type` is `\"button\"`: it is what makes it one".into(),
                     )
                 }
-                // Its fixed role yields to a tab's or a menu item's (LLP 1069.011.000 D4, D5).
+                // Its fixed role yields to a tab's, a radio's (a radio group's
+                // segment, LLP 1116.004 D5.2) or a menu item's (LLP 1069.011.000 D4, D5).
                 "role"
                     if !literals(&a.value).is_some_and(|roles| {
                         roles.iter().all(|r| {
                             matches!(
                                 *r,
-                                "button" | "tab" | "menuitem" | "menuitemcheckbox" | "menuitemradio"
+                                "button"
+                                    | "tab"
+                                    | "radio"
+                                    | "menuitem"
+                                    | "menuitemcheckbox"
+                                    | "menuitemradio"
                             )
                         })
                     }) =>
                 {
                     return refuse(
                         "lower-button-context",
-                        format!("a native button's role is `button`, `tab`, `menuitem`, `menuitemcheckbox` or `menuitemradio`, written as a literal or a choice: {alternative}"),
+                        format!("a native button's role is `button`, `tab`, `radio`, `menuitem`, `menuitemcheckbox` or `menuitemradio`, written as a literal or a choice: {alternative}"),
                     )
                 }
                 "backgroundMaterial" | "glassGroup" => {

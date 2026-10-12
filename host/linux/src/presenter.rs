@@ -31,14 +31,18 @@ use std::sync::Arc;
 use std::time::Duration;
 use tiny_skia::Pixmap;
 
+mod addressed_tap;
+mod ahead;
 mod arrange;
 mod arrange_geometry;
+mod back;
 mod clock;
 mod collection;
 mod commands;
 mod contact;
 mod control;
 mod delivery;
+mod device;
 mod display_frame;
 mod events;
 mod field;
@@ -72,6 +76,7 @@ mod links;
 mod preferences;
 mod retained_action;
 mod reveal;
+mod scrollers;
 mod shortcuts;
 #[cfg(target_os = "android")]
 pub(crate) mod still;
@@ -79,10 +84,13 @@ mod swipe;
 mod transform;
 mod transform_geometry;
 mod typing;
+mod window;
 
 #[cfg(test)]
 #[path = "presenter/collection_tests.rs"]
 mod collection_tests;
+#[cfg(test)]
+mod kept_rows_tests;
 
 #[cfg(test)]
 #[path = "presenter/swipe_tests.rs"]
@@ -96,9 +104,13 @@ mod events_tests;
 #[path = "presenter/visibility_tests.rs"]
 mod visibility_tests;
 
+pub use device::Device;
 use painter::cpu_info;
 pub(crate) use painter::PainterBoot;
 pub use painter::{set_custom_painter, PainterChoice, PainterFactory, PainterInfo};
+pub use pointer::PointerKind;
+pub use scrollers::{Scroller, Under, PAGE};
+pub use window::{Chrome, Window};
 
 /// The presenter: one host, its painter, and the host state.
 pub struct Presenter<D: DataSource> {
@@ -116,6 +128,8 @@ pub struct Presenter<D: DataSource> {
     pending_dev: Option<crate::fetch::Generation>,
     pending_update: bool,
     text: Shared,
+    /// A touch down's press, to lay out ahead (`ahead.rs`).
+    ahead: Option<ahead::Ahead>,
     pub(crate) brush: Painter,
     viewport: (f32, f32),
     scroll: BTreeMap<ViewId, (f32, f32)>,
@@ -169,8 +183,19 @@ pub struct Presenter<D: DataSource> {
     boxes_serial: u64,
     pub(crate) dirty: bool,
     /// The app's `setScheme` (`None`: follow the system) and the system's
-    /// appearance, which only an agent sets here (LLP 1061 D5).
+    /// appearance, which the device's shell says ([`Presenter::set_device`])
+    /// or an agent (LLP 1061 D5); light until either does.
     pub(crate) scheme: (Option<bool>, bool),
+    /// The device's settings as its shell last told them (LLP 1115.001 D3.1).
+    device: Option<Device>,
+    /// What the pointer is, and how far it moves before a contact is a
+    /// drag: a mouse and the shared slop until a shell says (D7.4).
+    pointer_kind: PointerKind,
+    slop: f64,
+    /// The shell's window, its insets, and the page's place in it (D3.3).
+    window: window::State,
+    /// What a shell that scrolls by itself was told of its scrollers (D7.3).
+    reader: scrollers::Reader,
     /// The viewport segments the agent set (LLP 1078 D7), for `layout.env`;
     /// the posture and counts are the runner's.
     pub(crate) segments: Vec<exact_kernel::Rect>,
@@ -379,6 +404,7 @@ impl<D: DataSource> Presenter<D> {
             group: None,
             brush: Painter::new(text.clone(), scale, backend),
             text,
+            ahead: None,
             viewport,
             scroll: BTreeMap::new(),
             page: (0.0, 0.0),
@@ -407,6 +433,11 @@ impl<D: DataSource> Presenter<D> {
             dirty: true,
             deferred_collections: None,
             scheme: (None, false),
+            device: None,
+            pointer_kind: PointerKind::Mouse,
+            slop: exact_motion::gesture::SLOP,
+            window: Default::default(),
+            reader: Default::default(),
             segments: Vec::new(),
             surfaces: Default::default(),
             module: None,
@@ -690,7 +721,10 @@ impl<D: DataSource> Presenter<D> {
         self.executor
             .forget(|ticket| self.host.runner().holds(ticket));
         if !self.host.has_ordered_request_refusals() {
-            self.executor.resume_ordered();
+            for (ticket, reason) in self.executor.resume_ordered() {
+                self.host.refuse_request(ticket, reason, true);
+                self.executor.notify();
+            }
         }
         self.cancel_removed_controls();
         self.forget_replaced_choices();
@@ -802,6 +836,8 @@ impl<D: DataSource> Presenter<D> {
                 }
                 Ok(())
             }
+            // A re-ask: settled in its ordered place, no work (LLP 1041 §8.4).
+            exact_runner::Dispatch::Again => self.executor.again(&r),
             exact_runner::Dispatch::Host(_) | exact_runner::Dispatch::Missing => {
                 self.executor.run(r, None)
             }
@@ -930,12 +966,14 @@ impl<D: DataSource> Presenter<D> {
         let mut boxes: Vec<PaintedBox> = self.boxes().to_vec();
         boxes.sort_by_key(|b| b.id);
         let mut s = String::new();
-        // LLP 1012 §1: this host has no safe area or software keyboard; its
-        // fold is whatever the agent preferred (LLP 1078 D7).
+        // LLP 1012 §1: the insets a device's shell told (`window.rs`; zeros
+        // on a host with none, which has no safe area or software keyboard);
+        // the fold is whatever the agent preferred (LLP 1078 D7).
         let fold = self.host.runner().viewport().fold;
+        let [top, right, bottom, left, keyboard] = self.env_insets().map(|v| num(r2(v)));
         let _ = write!(
             s,
-            "{{\"clock\":{},\"viewport\":{{\"w\":{},\"h\":{}}},\"env\":{{\"safe-area-inset-top\":0,\"safe-area-inset-right\":0,\"safe-area-inset-bottom\":0,\"safe-area-inset-left\":0,\"keyboard-inset-height\":0,\"device-posture\":\"{}\",\"horizontal-viewport-segments\":{},\"vertical-viewport-segments\":{},\"viewport-segments\":[",
+            "{{\"clock\":{},\"viewport\":{{\"w\":{},\"h\":{}}},\"env\":{{\"safe-area-inset-top\":{top},\"safe-area-inset-right\":{right},\"safe-area-inset-bottom\":{bottom},\"safe-area-inset-left\":{left},\"keyboard-inset-height\":{keyboard},\"device-posture\":\"{}\",\"horizontal-viewport-segments\":{},\"vertical-viewport-segments\":{},\"viewport-segments\":[",
             num(clock),
             num(r2(vw)),
             num(r2(vh)),
@@ -1086,60 +1124,6 @@ impl<D: DataSource> Presenter<D> {
                     && self.display.allows(self.host.kernel(), b.id)
             })
             .find_map(|b| self.svg_hit(b, x, y))
-    }
-
-    /// The agent's `tap`: a press at the node's center through the same
-    /// path a pointer takes.
-    pub fn tap(&mut self, id: ViewId) -> Result<String, String> {
-        self.boxes();
-        if self.host.route_visibility(id).1 || self.placement_hidden(id) {
-            return Err(format!("view {id} is hidden or inert"));
-        }
-        if crate::navigation::popover_invoker(self.host.kernel(), id) {
-            return Err(crate::navigation::POPOVER_UNSUPPORTED.into());
-        }
-        let b = self
-            .box_of(id)
-            .ok_or_else(|| format!("no view {id} on screen"))?;
-        let (x, y) = crate::paint::tap_point(self.host.kernel(), &b).unwrap_or_else(|| b.center());
-        let mut hit = self.hit(x, y);
-        while hit.is_some() && hit != Some(id) {
-            hit = hit.and_then(|n| self.host.kernel().node(n).and_then(|n| n.parent));
-        }
-        if hit != Some(id) {
-            return Err(format!(
-                "view {id} is covered or not hit at its projected center"
-            ));
-        }
-        let now = self.host.now();
-        let actual = self.hit(x, y).and_then(|hit| {
-            self.control_target(hit)
-                .or_else(|| self.handler_target(hit, EventKind::Press))
-        });
-        if let Some(actual) = actual.filter(|actual| {
-            *actual != id
-                && !self.drawn_in(*actual, id)
-                && self
-                    .control_target(id)
-                    .or_else(|| self.handler_target(id, EventKind::Press))
-                    != Some(*actual)
-        }) {
-            return Err(format!(
-                "view {id} activates view {actual} at its projected center"
-            ));
-        }
-        let mark = self.hatch_pointer_mark(crate::hatches::Phase::Down, x, y);
-        let activated = self.press_at(x, y, now);
-        self.hatch_tapped(mark, x, y);
-        if actual.is_some() && activated.is_none() {
-            return Err(format!("view {id} did not accept activation"));
-        }
-        let id = activated.unwrap_or(id);
-        Ok(format!(
-            "{{\"tapped\":{id},\"at\":[{},{}]}}",
-            num(r2(x)),
-            num(r2(y))
-        ))
     }
 
     /// A wheel at a point (the web's sign: a positive `dy` scrolls down).

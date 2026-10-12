@@ -297,7 +297,7 @@ impl<D: DataSource> Host<D> {
         width: f32,
         height: f32,
         carried: Option<&Carried>,
-        snapshot: Vec<(String, String)>,
+        snapshot: Vec<(String, Vec<u8>)>,
         secrets: Option<Platform>,
     ) -> Result<(Host<D>, String), HostError> {
         let (mut host, batch) = Host::boot_stored_after_decode(
@@ -331,7 +331,7 @@ impl<D: DataSource> Host<D> {
         measurer: Box<dyn TextMeasurer>,
         viewport: exact_runner::Viewport,
         carried: Option<&Carried>,
-        snapshot: Vec<(String, String)>,
+        snapshot: Vec<(String, Vec<u8>)>,
         secrets: Option<Box<dyn crate::store::KeptStore>>,
         compat: Option<&str>,
         delivery: Option<&'static crate::delivery::Hooks>,
@@ -369,7 +369,7 @@ impl<D: DataSource> Host<D> {
         measurer: Box<dyn TextMeasurer>,
         viewport: exact_runner::Viewport,
         carried: Option<&Carried>,
-        snapshot: Vec<(String, String)>,
+        snapshot: Vec<(String, Vec<u8>)>,
         secrets: Option<Box<dyn crate::store::KeptStore>>,
         compat: Option<&str>,
         delivery: Option<&'static crate::delivery::Hooks>,
@@ -884,6 +884,22 @@ impl<D: DataSource> Host<D> {
         self.now_ms = now_ms.max(self.now_ms);
         // At the event's time: an action's `performanceNow()` is the host's (LLP 1096 D3).
         let a = self.runner.dispatch_at(view, event, self.now_ms);
+        self.commit(&a.receipts, a.error.map(|e| format!("{e:?}")))
+    }
+
+    /// The platform's own Back from visit `id` (LLP 1115 D5), at `now_ms`.
+    pub fn host_back(&mut self, id: u64, now_ms: f64) -> String {
+        let mut a = self.runner.advance_timed(now_ms.max(self.now_ms));
+        self.now_ms = a.now_ms.max(self.now_ms);
+        if a.error.is_none() {
+            match self.runner.host_back(id) {
+                Ok(receipt) => a.receipts.extend(receipt.map(|receipt| Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                })),
+                Err(e) => a.error = Some(e),
+            }
+        }
         self.commit(&a.receipts, a.error.map(|e| format!("{e:?}")))
     }
 
@@ -1409,6 +1425,13 @@ fn kind_for(node: &NodeRef<'_>) -> &'static str {
 }
 
 /// Props by their own names, as strings.
+/// @ref LLP 1116.001 D1.4 — the scale the kernel draws a fitted paragraph
+/// at, which Swift multiplies its runs' sizes by: none at full size.
+pub(super) fn fit_scale(node: &NodeRef<'_>) -> Option<String> {
+    let scale = node.fit_scale();
+    (node.node_type == NodeType::Text && scale != 1.0).then(|| style::num(scale))
+}
+
 fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
     for (id, value) in node.props.iter() {
@@ -1427,6 +1450,9 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
         out.insert(PropId::Text.name().to_string(), shown);
     }
     style::glass_auto_props(node, &mut out); // LLP 1053.000.000.000 D2
+    if let Some(scale) = fit_scale(node) {
+        out.insert("fitScale".into(), scale);
+    }
     if node.node_type == NodeType::List && node.props.bool(PropId::Virtualized) == Some(true) {
         // The runner preserves collection anchors and follows the end using
         // sequence-checked corrections. Eager native autoscroll would compete.

@@ -101,6 +101,27 @@ pub fn set_plan_style(
     set_style(patch, id, value, plan.stacks.len())
 }
 
+/// [`set_plan_style`] for one of `plan`'s style bindings, with what the
+/// binding says of the row: whether its author wrote it on this node
+/// (@ref LLP 1115.000 D2). The kernel keeps that beside the row.
+pub fn set_binding_style(
+    patch: &mut StyleProps,
+    binding: &exact_plan::BindingsRow,
+    value: &Value,
+    plan: &exact_plan::Plan,
+) -> Result<StyleId, BridgeError> {
+    let style = set_plan_style(patch, binding.id, value, plan)?;
+    // Both ways: a later binding for the same row is the winner, and an
+    // implied winner takes an earlier written bit off (a compiled plan
+    // has one binding a row; a built one may not).
+    if binding.written {
+        patch.written.set(style);
+    } else {
+        patch.written.clear(style);
+    }
+    Ok(style)
+}
+
 /// Set style row `id` on `patch` from `value`.
 pub fn set_style(
     patch: &mut StyleProps,
@@ -228,6 +249,31 @@ mod tests {
             );
         }
         assert!(set_plan_style(&mut style, color, &Value::str("#fff"), &plan).is_ok());
+    }
+
+    /// LLP 1115.000 D2: where two bindings set one row the node has the
+    /// winner's bit, an implied winner's too. A compiled plan has one
+    /// binding a row, but validation admits two.
+    #[test]
+    fn a_later_binding_for_the_same_row_brings_its_own_written_bit() {
+        let plan = exact_plan::Plan::default();
+        let row = |written| exact_plan::BindingsRow {
+            kind: exact_plan::BindingKind::Style,
+            id: StyleId::TextColor as u16,
+            expr: Default::default(),
+            written,
+        };
+        let mut style = StyleProps::default();
+        set_binding_style(&mut style, &row(true), &Value::str("#ff0000"), &plan).unwrap();
+        assert!(style.written.has(StyleId::TextColor));
+        set_binding_style(&mut style, &row(false), &Value::str("#0000ff"), &plan).unwrap();
+        assert!(style.mask.has(StyleId::TextColor), "the row is still set");
+        assert!(
+            !style.written.has(StyleId::TextColor),
+            "the implied winner takes the written bit off"
+        );
+        set_binding_style(&mut style, &row(true), &Value::str("#00ff00"), &plan).unwrap();
+        assert!(style.written.has(StyleId::TextColor));
     }
 
     #[test]

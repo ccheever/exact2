@@ -28,25 +28,40 @@ final class BorderParityMacTests: XCTestCase {
         return BorderParity.bytes(ctx)
     }
 
-    /// The window server's picture of the node (its layer properties and
-    /// sublayers where Core Animation says the box, `BoxLayerMac.swift`),
-    /// as the parity smokes see a Mac window; nil where no window server
-    /// answers (a process may read its own windows without permission).
-    private func onScreen(_ style: NodeStyle, dark: Bool, page: CGColor) -> [UInt8]? {
+    /// The window server's picture of each style's node, as the parity smokes
+    /// see a Mac window (its layer properties and sublayers where Core
+    /// Animation says the box, `BoxLayerMac.swift`). Every node is a
+    /// presenter's root in a 100×70 cell that clips as a window of its own
+    /// would, so one window, one wait and one capture serve a whole page;
+    /// nil where no window server answers (a process may read its own
+    /// windows without permission).
+    private func onScreen(_ styles: [NodeStyle], dark: Bool, page: CGColor) -> [[UInt8]]? {
         _ = NSApplication.shared
-        let p = Presenter()
-        let window = NSWindow(contentRect: NSRect(x: 40, y: 40, width: 100, height: 70), styleMask: [.borderless], backing: .buffered, defer: false)
+        let columns = min(styles.count, 10), rows = (styles.count + columns - 1) / columns
+        let size = NSSize(width: 100 * columns, height: 70 * rows)
+        let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: 40, y: 40), size: size), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.backgroundColor = NSColor(cgColor: page)
         window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
-        window.contentView = p.root
-        let node = NodeView(id: 1, kind: "view", presenter: p)
-        node.frame = NSRect(x: 0, y: 0, width: 100, height: 70)
-        p.root.addSubview(node); p.views[1] = node
-        node.applyStyle(style)
+        let grid = NSView(frame: NSRect(origin: .zero, size: size))
+        window.contentView = grid
+        var nodes: [NodeView] = [], presenters: [Presenter] = []
+        for (i, style) in styles.enumerated() {
+            let p = Presenter()
+            // Cells from the top left, in the grid's bottom-up coordinates.
+            p.root.frame = NSRect(x: CGFloat(i % columns) * 100, y: size.height - CGFloat(i / columns + 1) * 70, width: 100, height: 70)
+            p.root.wantsLayer = true
+            p.root.layer?.masksToBounds = true
+            grid.addSubview(p.root)
+            let node = NodeView(id: 1, kind: "view", presenter: p)
+            node.frame = NSRect(x: 0, y: 0, width: 100, height: 70)
+            p.root.addSubview(node); p.views[1] = node
+            node.applyStyle(style)
+            nodes.append(node); presenters.append(p)
+        }
         window.orderFrontRegardless()
-        defer { window.orderOut(nil) }
-        node.display()
+        defer { window.orderOut(nil); withExtendedLifetime(presenters) {} }
+        for node in nodes { node.display() }
         CATransaction.flush()
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.15))
         typealias Create = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
@@ -56,13 +71,28 @@ final class BorderParityMacTests: XCTestCase {
               let image = unsafeBitCast(sym, to: Create.self)(.null, 1 << 3, UInt32(window.windowNumber), 1 << 0)?.takeRetainedValue(),
               !Agent.emptyPicture(image)
         else { return nil }
-        let ctx = BorderParity.canvas(page)
-        ctx.saveGState()
-        ctx.translateBy(x: 0, y: 70); ctx.scaleBy(x: 1, y: -1)
-        ctx.interpolationQuality = .high
-        ctx.draw(image, in: CGRect(x: 0, y: 0, width: 100, height: 70))
-        ctx.restoreGState()
-        return BorderParity.bytes(ctx)
+        let scale = CGFloat(image.width) / size.width
+        return styles.indices.map { i in
+            let cell = CGRect(x: CGFloat(i % columns) * 100 * scale, y: CGFloat(i / columns) * 70 * scale, width: 100 * scale, height: 70 * scale)
+            let ctx = BorderParity.canvas(page)
+            ctx.saveGState()
+            ctx.translateBy(x: 0, y: 70); ctx.scaleBy(x: 1, y: -1)
+            ctx.interpolationQuality = .high
+            ctx.draw(image.cropping(to: cell)!, in: CGRect(x: 0, y: 0, width: 100, height: 70))
+            ctx.restoreGState()
+            return BorderParity.bytes(ctx)
+        }
+    }
+
+    /// A page's cases on screen, in the order `check` asks for them: the
+    /// first ask, which names the page's appearance, pictures them all.
+    private func onScreen(_ cases: [BorderParity.Case]) -> (NodeStyle, Bool, CGColor) -> [UInt8] {
+        var pictures: [[UInt8]] = [], next = 0
+        return { [self] _, dark, page in
+            if pictures.isEmpty { pictures = onScreen(cases.map(\.style), dark: dark, page: page)! }
+            defer { next += 1 }
+            return pictures[next]
+        }
     }
 
     /// On screen, where the box is layers: the same Chrome pictures. A
@@ -70,7 +100,7 @@ final class BorderParityMacTests: XCTestCase {
     /// antialiased edge a little (the drawn cases measure 1–2.2 mean there),
     /// so the band is wider than the drawing tests'.
     func testEveryCaseMatchesChromeOnScreen() throws {
-        guard onScreen([:], dark: false, page: CGColor(gray: 1, alpha: 1)) != nil else { throw XCTSkip("no window server picture (no window server, or its display is asleep or the screen locked)") }
+        guard onScreen([[:]], dark: false, page: CGColor(gray: 1, alpha: 1)) != nil else { throw XCTSkip("no window server picture (no window server, or its display is asleep or the screen locked)") }
         // The window server blends a translucent layer in the display's
         // space. sRGB and Display P3 share sRGB's transfer curve, so their
         // blends are Chrome's; a display that does not (an HDMI dummy's EDID
@@ -84,9 +114,9 @@ final class BorderParityMacTests: XCTestCase {
             throw XCTSkip("the display's transfer curve is not sRGB's (\(NSScreen.main?.localizedName ?? "?"): sRGB 0.5 is \(gray[0])); translucent blends on it are not Chrome's")
         }
         let band = (mean: 3.0, over: 4.0)
-        var failures = BorderParity.check(flipped: false, dark: false, band: band) { onScreen($0, dark: $1, page: $2)! }
-        failures += GradientParity.check(dark: false, band: band) { onScreen($0, dark: $1, page: $2)! }
-        failures += GradientParity.check(dark: true, band: band) { onScreen($0, dark: $1, page: $2)! }
+        var failures = BorderParity.check(flipped: false, dark: false, band: band, render: onScreen(BorderParity.cases(flipped: false)))
+        failures += GradientParity.check(dark: false, band: band, render: onScreen(GradientParity.cases()))
+        failures += GradientParity.check(dark: true, band: band, render: onScreen(GradientParity.cases()))
         XCTAssert(failures.isEmpty, failures.joined(separator: "\n"))
     }
 

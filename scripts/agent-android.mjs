@@ -2,12 +2,13 @@
 // (`aarch64-linux-android`, the host's Android-gated code, bionic, the phone's
 // own fonts) and run headless under `adb shell`, where the agent protocol is
 // the Linux host's own (LLP 1012 over stdio, `host/linux/src/agent.rs`). It
-// drives the app's runner, kernel and painter on Android; it is not the
-// Android lane's Canvas reader (LLP 1076 §3.3), which paints through its own
-// Kotlin view.
+// drives the app's runner, kernel and painter on Android; it is not the Canvas
+// reader (LLP 1076 §3.3, `host/android`), which paints through its own Kotlin
+// view and which nothing drives yet.
 //
-//   bun scripts/agent-android.mjs build <app>     build the app's Linux crate for Android
-//   bun scripts/agent.mjs android --app <app> …   drive it on the first adb device or emulator
+//   bun scripts/agent-android.mjs build <app>         build the app's Linux crate for Android
+//   bun scripts/agent.mjs android --app <app> …       drive it on the first adb device or emulator
+//   bun scripts/agent-android.mjs build <app> --apk   the app on the Canvas reader, as an APK (host/android/README.md)
 //
 // An app with a TypeScript data module also needs the Android Hermes bundle:
 // `bun scripts/hermes-android.mjs build` once (scripts/hermes-android.mjs).
@@ -19,11 +20,12 @@
 // otherwise: the GPU painter needs a real GPU's Vulkan (an emulator's
 // SwiftShader crashes it).
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
-import { HOST_DEV, linuxBuild, resolveApp } from './app.mjs';
+import { HOST_DEV, injectedProfiles, linuxBuild, resolveApp } from './app.mjs';
 import { hermesAndroidBundle } from './hermes-android.mjs';
+import { guardFlags } from './help.mjs';
 
 export const ANDROID_TARGET = 'aarch64-linux-android';
 /** The oldest Android the binary runs on (the NDK's clang wrapper names it). */
@@ -116,19 +118,48 @@ export function androidDeploy(app, bin, env) {
   };
 }
 
+/** The Gradle project that holds the Canvas reader and the shell that packages one app with it. */
+const READER = resolve(import.meta.dir, '../host/android');
+
+/** The app on the Canvas reader, as an APK: its `android/` crate (a cdylib over `exact_linux::canvas_jni!`) built
+ * for the phone's ABI and put, with the app's assets, where the Gradle shell packages them (host/android/app), then
+ * `:app:assembleRelease`. Gradle wants a JDK (17 or newer) and the SDK's platform. The APK's path, or null. */
+function buildApk(app, env) {
+  const crate = app.crate('android');
+  if (!existsSync(resolve(app.dir, 'android/Cargo.toml'))) throw new Error(`${app.dir} has no android/ crate: the app's library for the Canvas host (apps/caltrain/android is one)`);
+  const cargo = spawnSync('cargo', ['build', ...injectedProfiles(app), '--profile', HOST_DEV, '-p', crate, '--target', ANDROID_TARGET], { cwd: app.workspace ?? app.dir, env, stdio: 'inherit' });
+  if (cargo.status !== 0) return null;
+  const staged = resolve(READER, 'app/build', app.name, 'rust');
+  rmSync(staged, { recursive: true, force: true });
+  mkdirSync(resolve(staged, 'jniLibs/arm64-v8a'), { recursive: true });
+  // The reader loads one name whatever the app; the plan names `assets/…` under the APK's `app/`.
+  copyFileSync(resolve(app.target, ANDROID_TARGET, HOST_DEV, `lib${crate.replaceAll('-', '_')}.so`), resolve(staged, 'jniLibs/arm64-v8a/libexactcanvas.so'));
+  if (existsSync(resolve(app.dir, 'assets'))) cpSync(resolve(app.dir, 'assets'), resolve(staged, 'assets/app/assets'), { recursive: true });
+  const gradle = spawnSync(resolve(READER, 'gradlew'), [':app:assembleRelease', `-Papp=${app.name}`, `-PappDir=${app.dir}`], { cwd: READER, env: { ...env, ANDROID_HOME: androidSdk(env) }, stdio: 'inherit' });
+  return gradle.status === 0 ? resolve(READER, 'app/build', app.name, 'outputs/apk/release/app-release.apk') : null;
+}
+
 if (import.meta.main) {
-  const [verb, name] = process.argv.slice(2);
+  const args = guardFlags('android', process.argv.slice(2));
+  const [verb, name] = args.filter((arg) => !arg.startsWith('--'));
   if (verb !== 'build' || !name) {
-    console.error('usage: bun scripts/agent-android.mjs build <app>   (then: bun scripts/agent.mjs android --app <app> …)');
+    console.error('usage: bun scripts/agent-android.mjs build <app> [--apk]   (then: bun scripts/agent.mjs android --app <app> …; --apk: the app on the Canvas reader, host/android/README.md)');
     process.exit(2);
   }
-  const installed = spawnSync('rustup', ['target', 'list', '--installed'], { cwd: resolveApp(name).dir, encoding: 'utf8' }).stdout ?? '';
-  if (!installed.split('\n').includes(ANDROID_TARGET)) {
+  // Without rustup (a toolchain installed by hand) Cargo names a missing target itself.
+  const rustup = spawnSync('rustup', ['target', 'list', '--installed'], { cwd: resolveApp(name).dir, encoding: 'utf8' });
+  if (rustup.status === 0 && !rustup.stdout.split('\n').includes(ANDROID_TARGET)) {
     console.error(`the toolchain has no ${ANDROID_TARGET} target: rustup target add ${ANDROID_TARGET} (once, in the app's directory so its pinned toolchain gets it)`);
     process.exit(1);
   }
-  const app = resolveApp(name), [cmd, ...args] = androidBuild(app);
-  const built = spawnSync(cmd, args, { cwd: app.workspace ?? app.dir, env: { ...androidToolchainEnv(), CARGO_TARGET_DIR: app.target }, stdio: 'inherit' });
+  const app = resolveApp(name), env = { ...androidToolchainEnv(), CARGO_TARGET_DIR: app.target };
+  if (args.includes('--apk')) {
+    const apk = buildApk(app, env);
+    if (apk) console.log(apk);
+    process.exit(apk ? 0 : 1);
+  }
+  const [cmd, ...rest] = androidBuild(app);
+  const built = spawnSync(cmd, rest, { cwd: app.workspace ?? app.dir, env, stdio: 'inherit' });
   if (built.status === 0) console.log(androidBinary(app));
   process.exit(built.status ?? 1);
 }

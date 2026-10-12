@@ -2,7 +2,7 @@
 // consult it — the wasm host's `request`, the JS target's `fetchWith`, and
 // `fetchEarly`, which starts no GET a fault will fail.
 import { afterEach, expect, test } from 'bun:test';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -12,14 +12,14 @@ import { request } from './http-body.js';
 import { fetchWith } from '../web-js/admission.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const target = resolve(process.env.CARGO_TARGET_DIR || resolve(ROOT, 'target'), `debug/exact-web-js${process.platform === 'win32' ? '.exe' : ''}`);
+const built = spawnSync('cargo', ['build', '-q', '-p', 'exact-web-js'], { cwd: ROOT, encoding: 'utf8' });
+if (built.status !== 0) throw new Error(built.stderr || 'grant normalizer build failed');
 function normalized(spec) {
   const scratch = mkdtempSync(resolve(tmpdir(), 'exact-grants-'));
   const input = resolve(scratch, 'grants.txt');
   writeFileSync(input, spec);
-  const target = resolve(process.env.CARGO_TARGET_DIR || resolve(ROOT, 'target'), 'debug/exact-web-js');
-  const result = existsSync(target)
-    ? spawnSync(target, ['normalize-grants', input], { cwd: ROOT, encoding: 'utf8' })
-    : spawnSync('cargo', ['run', '-q', '-p', 'exact-web-js', '--', 'normalize-grants', input], { cwd: ROOT, encoding: 'utf8' });
+  const result = spawnSync(target, ['normalize-grants', input], { cwd: ROOT, encoding: 'utf8' });
   rmSync(scratch, { recursive: true });
   if (result.status !== 0) throw new Error(result.stderr || 'grant normalizer failed');
   return JSON.parse(result.stdout);

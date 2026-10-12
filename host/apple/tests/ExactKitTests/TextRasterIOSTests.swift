@@ -45,7 +45,7 @@ final class TextRasterIOSTests: XCTestCase {
         RegionTextExecutor.queue.isSuspended = false
         RegionTextExecutor.queue.waitUntilAllOperationsAreFinished()
         let end = Date().addingTimeInterval(2)
-        while p.textRasters.inFlight > 0 && Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+        while p.textRasters.inFlight > 0 && Date() < end { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01)) }
     }
 
     func testAlignedExtentsKeepTheirPhysicalPixelSpan() {

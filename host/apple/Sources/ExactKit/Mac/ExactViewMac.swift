@@ -105,6 +105,19 @@ public final class ExactView: NSView {
         return session(in: content) === self
     }
 
+    /// The trackpad's swipe back from a pushed route (LLP 1115.000 D5.1,
+    /// `BackSwipe`): the page's scroll view passes a sideways gesture up
+    /// here when it is pinned for it and this says a swipe may be tracked.
+    public override func wantsScrollEventsForSwipeTracking(on axis: NSEvent.GestureAxis) -> Bool {
+        axis == .horizontal && session.presenter.navigation.canGoBack
+    }
+    public override func scrollWheel(with event: NSEvent) {
+        if !session.presenter.backSwipe.scroll(event) { super.scrollWheel(with: event) }
+    }
+    public override func swipe(with event: NSEvent) {
+        if !session.presenter.backSwipe.swiped(deltaX: event.deltaX) { super.swipe(with: event) }
+    }
+
     public override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if session.presenter.menus.key(event) || session.presenter.dialogs.key(event) { return true }
         if ownsShortcutFocus(), session.presenter.shortcuts.perform(event) { return true }

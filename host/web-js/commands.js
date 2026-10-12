@@ -40,7 +40,11 @@ export const commands = say => ({
   reload: () => location.reload(),
   // `window.close()` (studio diary R17): a browser closes only a window a
   // script opened, and says so in its console otherwise.
-  close: () => window.close(),
+  // `close(id)` is a dialog's (LLP 1101.001 P5): HTMLDialogElement's.
+  close: id => id == null ? window.close() : modal(id, say, "close"),
+  // `showModal(id)` from an action (LLP 1115 D6): the dialog's own, or an
+  // alertdialog popover's showPopover, as the native hosts present either.
+  showModal: id => modal(id, say, "showModal"),
   // A JS build links no update store (facts.js `exactDelivery`): the page
   // loaded the newest root, and nothing is ever staged.
   deliveryCheck: () => say("delivery: no update store on the web; the page loaded the newest root"),
@@ -54,4 +58,11 @@ function media(say, id, name, seconds) {
   const e = document.getElementById(id);
   if (!e?.$media) return say(`${name} "${id}" refused: ${e ? "not a video or audio" : "no live node with that id"}`);
   e.$media.command(name, seconds);
+}
+
+function modal(id, say, method) {
+  const e = document.getElementById(id);
+  if (e instanceof HTMLDialogElement) { if (method === "close") e.close(); else if (!e.open) e.showModal(); return; }
+  if (e?.popover != null && e.getAttribute("role") === "alertdialog") { if (method === "close") e.hidePopover(); else if (!e.matches(":popover-open")) e.showPopover(); return; }
+  if (method === "showModal") say(`showModal "${id}" refused: no dialog or alertdialog popover has that id`);
 }

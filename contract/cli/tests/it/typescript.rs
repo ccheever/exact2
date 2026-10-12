@@ -95,7 +95,7 @@ impl Fixture {
 
     fn check(&self, text: &str) -> Output {
         self.write("app.ts", text);
-        Command::new("bun")
+        Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
             .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../node_modules/.bin/tsc"))
             .args([
                 "--noEmit",

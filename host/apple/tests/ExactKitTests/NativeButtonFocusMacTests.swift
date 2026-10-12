@@ -43,6 +43,7 @@ final class NativeButtonFocusMacTests: XCTestCase {
     /// Override only the process's AppKit query; never change the person's preferences.
     /// AppKit's key-view eligibility and traversal are exercised with both answers.
     func testTabAndShiftTabUseOnlyTheNativeOwnerWithKeyboardNavigationOnAndOff() throws {
+        _ = NSApplication.shared  // NSApp, read below before any fixture creates it
         let method = try XCTUnwrap(class_getInstanceMethod(NSApplication.self, #selector(getter: NSApplication.isFullKeyboardAccessEnabled)))
         let original = method_getImplementation(method)
         defer { method_setImplementation(method, original) }
@@ -103,21 +104,27 @@ final class NativeButtonFocusMacTests: XCTestCase {
         XCTAssertNil(p.focusedNode)
     }
 
-    func testSpaceAndReturnPressExactlyOnceAndCancellationPreventsTheAction() throws {
+    /// LLP 1115.000 D7.3: Space presses the focused control, once. Return is
+    /// the default button's, and outside a dialog there is none: a merely
+    /// focused button does nothing with it (DefaultButtonMacTests holds the
+    /// default). A key the app prevented does nothing more.
+    func testSpacePressesTheFocusedButtonOnceReturnDoesNotAndCancellationPreventsTheAction() throws {
         let p = try fixture()
         var pressed: [UInt32] = [], heard: [UInt32] = []
         p.onPress = { pressed.append($0) }
         p.onKey = { id, _ in heard.append(id) }
-        for (chars, code) in [(" ", UInt16(49)), ("\r", UInt16(36))] {
-            for target in ["first", "bare", "last"] {
-                p.focusElement([target])
-                let count = pressed.count
-                deliver(p, try key(chars, code))
-                deliver(p, try key(chars, code, up: true))
-                XCTAssertEqual(pressed.count, count + 1)
-                XCTAssertEqual(pressed.last, target == "last" ? 4 : 1, "a handlerless button activates its ancestor")
-                XCTAssertEqual(p.focusedNode?.props["id"], target, "activation preserves the button's owner")
-            }
+        for target in ["first", "bare", "last"] {
+            p.focusElement([target])
+            let count = pressed.count
+            deliver(p, try key(" ", 49))
+            deliver(p, try key(" ", 49, up: true))
+            XCTAssertEqual(pressed.count, count + 1)
+            XCTAssertEqual(pressed.last, target == "last" ? 4 : 1, "a handlerless button activates its ancestor")
+            XCTAssertEqual(p.focusedNode?.props["id"], target, "activation preserves the button's owner")
+            deliver(p, try key("\r", 36))
+            deliver(p, try key("\r", 36, up: true))
+            XCTAssertEqual(pressed.count, count + 1, "\(target): Return presses no merely focused button")
+            XCTAssertEqual(p.focusedNode?.props["id"], target)
         }
         p.focusElement(["first"])
         p.onKey = { id, _ in heard.append(id); p.defaultPrevented = true }

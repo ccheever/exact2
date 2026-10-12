@@ -1,6 +1,6 @@
 //! Style rows → CSS declarations.
 //!
-//! @ref `rules/RULES.md` §Scope (the web is the standard: a row's CSS name is
+//! @ref LLP 1115 §2 (names stay CSS: a row's CSS name is
 //! the row's name with `-` for `_`, and its value the CSS value; the few rows
 //! that are not one CSS property each are listed here by hand)
 //! @ref LLP 1002 D2 (`transition` as CSS; a spring is the one declared
@@ -11,6 +11,9 @@
 //! reaches the page with no change here unless it needs a unit or a name
 //! this table does not know — in which case it is skipped and named in
 //! [`Skipped`], never guessed.
+
+mod fonts;
+pub use fonts::{font_alias, font_family_names};
 
 use exact_kernel::style::ColorValue;
 use exact_kernel::{Color, Dimension, Display, Overflow, RowValue, StyleId, StyleProps};
@@ -55,8 +58,23 @@ fn css_text_in(
         let Some((unit, n)) = style.relative.get(id).filter(|_| relative) else {
             return false;
         };
-        num_into(out, n);
-        out.push_str(if unit == Unit::Rem { "rem" } else { "em" });
+        match unit {
+            Unit::Rem => {
+                num_into(out, n);
+                out.push_str("rem");
+            }
+            Unit::Em => {
+                num_into(out, n);
+                out.push_str("em");
+            }
+            // @ref LLP 1115 D3 — a text style is the ramp's size at CSS's
+            // `medium`, in `rem`, so it follows the browser's root size.
+            Unit::TextStyle(_) => {
+                let medium = exact_kernel::style::relative::MEDIUM;
+                num_into(out, n * unit.basis(medium, medium) / medium);
+                out.push_str("rem");
+            }
+        }
         true
     };
     let mut out = String::new();
@@ -284,6 +302,9 @@ fn css_text_in(
                 });
                 out.push(';');
             }
+            (StyleId::TextBoxEdge, RowValue::Enum(edge)) => {
+                crate::text_box_css::push_edge(edge, &mut out)
+            }
             (StyleId::LineClamp, RowValue::Number(n)) => {
                 if *n > 0.0 {
                     // The legacy clamp requires an old flex box and clipping. It
@@ -338,6 +359,13 @@ fn css_text_in(
             (StyleId::PressHaptic, RowValue::Enum(kind)) => {
                 if *kind != "none" {
                     push_text!(&mut out, "--exact-press-haptic:{};", kind);
+                }
+            }
+            // @ref LLP 1116.001 D1.4 — not CSS: the browser lays the text out,
+            // and navigation.js `fitText` scales it by the kernel's rule.
+            (StyleId::Fit, RowValue::Enum(kind)) => {
+                if *kind != "none" {
+                    push_text!(&mut out, "--exact-fit:{};", kind);
                 }
             }
             // Written with `rotate` and `translate` (LLP 1077 D8), never alone:
@@ -1371,6 +1399,18 @@ mod declaration_tests {
         assert_eq!(css(&[(StyleId::PressHaptic, t("none"))], &[]), "");
     }
 
+    /// `-exact-fit` is the custom property navigation.js `fitText` reads
+    /// (LLP 1116.001 D1.4); its initial value writes nothing.
+    #[test]
+    fn fit_is_navigations_property() {
+        let t = |s: &str| StyleValue::Text(s.into());
+        assert_eq!(
+            css(&[(StyleId::Fit, t("shrink"))], &[]),
+            "--exact-fit:shrink;"
+        );
+        assert_eq!(css(&[(StyleId::Fit, t("none"))], &[]), "");
+    }
+
     /// The feedback's separate factor leaves the row's scale and
     /// authored transition list intact; 1 needs no effect.
     #[test]
@@ -1434,44 +1474,4 @@ mod declaration_tests {
             list.css().replace(" grow,", " grow-exact-press,")
         );
     }
-}
-
-/// CSS family aliases for declared fonts; local families keep their CSS names.
-pub fn font_alias(plan: &exact_plan::Plan, family: exact_plan::FamiliesId) -> String {
-    let row = plan.familie(family);
-    if row.faces.len == 0 {
-        return plan.str(row.name).into();
-    }
-    let i = plan
-        .stacks
-        .iter()
-        .position(|s| {
-            s.members.len == 1
-                && plan.stack_member(s.members.iter().next().unwrap()).family == Some(family)
-        })
-        .unwrap_or(8 + family.0 as usize);
-    format!("ExactPlanStack{i}")
-}
-
-/// Every stack's complete CSS fallback list in authored order.
-pub fn font_family_names(plan: &exact_plan::Plan) -> Vec<String> {
-    plan.stacks
-        .iter()
-        .map(|stack| {
-            stack
-                .members
-                .iter()
-                .map(|id| {
-                    let member = plan.stack_member(id);
-                    match member.kind {
-                        exact_plan::StackMemberKind::Family => {
-                            css_string(&font_alias(plan, member.family.unwrap()))
-                        }
-                        generic => generic_stack(generic.name()).into(),
-                    }
-                })
-                .collect::<Vec<String>>()
-                .join(", ")
-        })
-        .collect()
 }

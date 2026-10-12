@@ -617,6 +617,11 @@ impl Batch {
             s.push_str(",\"bodyFrom\":");
             quote(path, &mut s);
         }
+        // Absent is `follow` (http-body.js)
+        if r.request.redirect != exact_runner::Redirect::Follow {
+            s.push_str(",\"redirect\":");
+            quote(r.request.redirect.name(), &mut s);
+        }
         s.push_str(",\"body\":\"");
         s.push_str(&exact_runner::agent::base64(&r.request.body));
         s.push_str("\",\"cache\":\"");
@@ -633,13 +638,23 @@ impl Batch {
 
     /// `{"op":"store","tier":"secret","name":…,"value":…|null}` — a secret
     /// the app kept or forgot (LLP 1018 D1), for the page to persist after
-    /// the commit (`localStorage` under `exact.secret.<name>`).
+    /// the commit (`localStorage` under `exact.secret.<name>`); `"plain"`
+    /// for a persisted state (LLP 1116 D5), kept under its own name. A kept
+    /// answer's bytes go as base64, since `localStorage` holds text.
     pub fn store(&mut self, w: &exact_runner::StoreWrite) {
-        let mut s = String::from("{\"op\":\"store\",\"tier\":\"secret\",\"name\":");
+        let tier = if w.name.starts_with(exact_runner::Store::STATE) {
+            "plain"
+        } else {
+            "secret"
+        };
+        let mut s = format!("{{\"op\":\"store\",\"tier\":\"{tier}\",\"name\":");
         quote(&w.name, &mut s);
         s.push_str(",\"value\":");
         match &w.value {
-            Some(v) => quote(v, &mut s),
+            Some(v) if w.name.starts_with(exact_runner::Store::KEPT) => {
+                quote(&exact_runner::agent::base64(v), &mut s)
+            }
+            Some(v) => quote(&String::from_utf8_lossy(v), &mut s),
             None => s.push_str("null"),
         }
         s.push('}');
@@ -913,5 +928,45 @@ mod quote_tests {
             super::quote(s, &mut quoted);
             assert!(a.starts_with(&format!("[{quoted},")), "{a}");
         }
+    }
+}
+
+#[cfg(test)]
+mod store_tests {
+    use exact_runner::StoreWrite;
+
+    /// A kept answer's bytes cross `localStorage` as base64 and come back
+    /// whole; a secret is its text.
+    #[test]
+    fn a_kept_answers_bytes_round_trip_through_the_page() {
+        let bytes = vec![0, 255, b'|', 0x80, b'\0'];
+        let mut batch = super::Batch::new();
+        batch.store(&StoreWrite {
+            name: "exact.kept.answer".into(),
+            value: Some(bytes.clone()),
+        });
+        batch.store(&StoreWrite {
+            name: "token".into(),
+            value: Some(b"s3cret".to_vec()),
+        });
+        let out = batch.finish(None, false, 0.0, None);
+        assert!(
+            out.contains("\"name\":\"exact.kept.answer\",\"value\":\"AP98gAA=\""),
+            "{out}"
+        );
+        assert!(
+            out.contains("\"name\":\"token\",\"value\":\"s3cret\""),
+            "{out}"
+        );
+        // An older build's hex is kept empty: never used, and still forgettable
+        let page = "exact.kept.answer\0AP98gAA=\0token\0s3cret\0exact.kept.hex\0!!";
+        assert_eq!(
+            crate::abi::page_snapshot(page.as_bytes()),
+            [
+                ("exact.kept.answer".to_string(), bytes),
+                ("token".to_string(), b"s3cret".to_vec()),
+                ("exact.kept.hex".to_string(), Vec::new())
+            ]
+        );
     }
 }

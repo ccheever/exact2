@@ -23,6 +23,7 @@ final class NativeButtonMac: NSButton {
         var pressed: String?
         var appearance: String
         var interactive: Bool
+        var toolTip: String?
     }
     var written: Written?
     /// Whether it draws glass: the glass bezel, in the macOS 26 design.
@@ -56,11 +57,23 @@ final class NativeButtonMac: NSButton {
             else { window.selectNextKeyView(self) }
             return
         }
-        if name == " " || name == "Enter" {
+        // Space presses the focused control. Return is the default button's
+        // (LLP 1115.000 D7.3): a dialog's took it before it came here
+        // (`DialogHost.key`), and a merely focused button does nothing with it.
+        if name == " " {
             performClick(nil)
             return
         }
+        if name == "Enter" { return }
         super.keyDown(with: event)
+    }
+    /// Return's press of a dialog's default button: AppKit's own click, its
+    /// flash included, with the focus left where it is, as AppKit leaves it.
+    private(set) var pressingAsDefault = false
+    func pressAsDefault() {
+        pressingAsDefault = true
+        defer { pressingAsDefault = false }
+        performClick(nil)
     }
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard written?.interactive != false else { return nil }
@@ -112,7 +125,9 @@ extension NodeView {
     /// one), as iOS resolves it. The clicked button keeps its single focus
     /// owner while the action bubbles, unless a `retainFocus` ancestor
     /// preserves the previous owner. Then `press` and the canvas's pointer return.
-    func activateNative() {
+    /// `focusing` is false for Return's press of the default button, which
+    /// leaves the focus where it is.
+    func activateNative(focusing: Bool = true) {
         guard let presenter, !disabled, !inert else { return }
         let click = convert(NSPoint(x: bounds.midX, y: bounds.midY), to: nil)
         var target: NodeView?
@@ -130,7 +145,7 @@ extension NodeView {
         }
         // Keep the innermost eligible owner's focus while the press bubbles.
         // A handler on an ancestor must not become a second stop for this button.
-        if !retainsFocus {
+        if focusing, !retainsFocus {
             let responder = presenter.keyView(of: self)
             if responder.acceptsFirstResponder { window?.makeFirstResponder(responder) }
             else if target != nil { window?.makeFirstResponder(nil) }
@@ -151,7 +166,8 @@ extension ControlHost {
     }
 
     @objc func nativePressed(_ sender: NSControl) {
-        (sender as? NativeButtonMac)?.owner?.activateNative()
+        guard let button = sender as? NativeButtonMac else { return }
+        button.owner?.activateNative(focusing: !button.pressingAsDefault)
     }
 
     /// Its look, face, accent, enabled state and accessibility, written only
@@ -161,9 +177,13 @@ extension ControlHost {
         let written = NativeButtonMac.Written(
             face: face, accent: accent, enabled: !owner.disabled,
             label: owner.authoredLabel ?? face.title, testId: owner.props["testId"],
-            selected: owner.props["accessibilitySelected"] == "true", expanded: owner.props["accessibilityExpanded"],
+            selected: owner.props["accessibilitySelected"] == "true" || owner.checkedRole.map { $0.role == "radio" && $0.checked } == true,
+            expanded: owner.props["accessibilityExpanded"],
             pressed: owner.pressedState, appearance: owner.effectiveAppearance.name.rawValue,
-            interactive: owner.style["pointer_events"]?.string != "none")
+            interactive: owner.style["pointer_events"]?.string != "none",
+            // HTML's `title`, else an icon-only button's label: AppKit's help
+            // tag, as a toolbar item's label is (LLP 1115 wave 1).
+            toolTip: owner.props["title"] ?? (face.title == nil ? owner.authoredLabel : nil))
         guard button.written != written else { return }
         if !face.known, button.written?.face.style != face.style {
             presenter.session?.log("buttonStyle `\(face.style)` is not a button style; drawing bordered")
@@ -173,9 +193,12 @@ extension ControlHost {
         button.isEnabled = written.enabled
         button.setAccessibilityLabel(written.label)
         button.setAccessibilityIdentifier(written.testId)
+        if button.toolTip != written.toolTip { button.toolTip = written.toolTip }
         button.setAccessibilitySelected(written.selected)
         if let expanded = written.expanded { button.setAccessibilityExpanded(expanded == "true") }
         button.setAccessibilityToggle(written.pressed, else: .button)
+        // A `radio` is AXRadioButton, its value whether it is checked (a radio group's segment kept as authored).
+        if let checked = owner.checkedRole, checked.role == "radio" { button.setAccessibilityChecked(checked.role, checked.checked) }
         button.drawn = look
         if button.isGlass != glass {
             button.isGlass = glass

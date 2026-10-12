@@ -101,7 +101,7 @@ final class ContextMenuMacTests: XCTestCase {
         defer { center.removeObserver(observer) }
         XCTAssertTrue(p.routeKey(contextKey(window), focused: true))
         let deadline = Date(timeIntervalSinceNow: 5)
-        while !heard.contains("pick 4") && Date() < deadline { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02)) }
+        while !heard.contains("pick 4") && Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
         XCTAssertTrue(tracked)
         XCTAssertEqual(heard, ["key ContextMenu", "context", "pick 4"])
         XCTAssertEqual(sample.prefix(4).compactMap(Double.init), [60, 15, 0, 0])

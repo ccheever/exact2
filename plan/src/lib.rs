@@ -257,13 +257,29 @@ impl Plan {
                 });
             }
         }
-        // A late slot is a root slot: an owned one is its instance's.
+        // A late slot is a root slot: an owned one is its instance's. A
+        // persisted one is an authored root slot of a small setting (LLP
+        // 1116 D5).
         for (i, slot) in self.slots.iter().enumerate() {
-            if slot.late && (slot.owner.is_some() || self.locale == Some(SlotsId(i as u32))) {
+            let here = Some(SlotsId(i as u32));
+            if slot.late && (slot.owner.is_some() || self.locale == here) {
                 return Err(PlanError::BadReference {
                     table: "slots",
                     row: i as u32,
                     field: "late",
+                });
+            }
+            if slot.persist
+                && (slot.owner.is_some()
+                    || slot.late
+                    || self.locale == here
+                    || self.router == here
+                    || !self.persistable(slot.ty))
+            {
+                return Err(PlanError::BadReference {
+                    table: "slots",
+                    row: i as u32,
+                    field: "persist",
                 });
             }
         }
@@ -535,6 +551,20 @@ impl Plan {
         Ok(())
     }
 
+    /// Whether a slot of type `ty` may be persisted (LLP 1116 D5): a number,
+    /// string or bool, or an option or list of one.
+    pub fn persistable(&self, ty: TypesId) -> bool {
+        let scalar = |t: TypesId| {
+            matches!(
+                self.type_(t).kind,
+                TypeKind::Number | TypeKind::String | TypeKind::Bool
+            )
+        };
+        let t = self.type_(ty);
+        scalar(ty)
+            || (matches!(t.kind, TypeKind::Option | TypeKind::List) && t.elem.is_some_and(scalar))
+    }
+
     /// The region whose instance frame holds an owned slot's value: its
     /// owning arm's region. `None` for a root slot.
     pub fn owner_region(&self, slot: &SlotsRow) -> Option<RegionsId> {
@@ -618,11 +648,17 @@ impl std::fmt::Display for PlanError {
 impl std::error::Error for PlanError {}
 
 /// Sources answered by the runner, with a result shape selected by each reader.
+pub const RUNNER_OWNED_SOURCES: &[&str] = &[
+    "exactDelivery",
+    "exactViewport",
+    "exactPage",
+    "exactSurface",
+    "exactTime",
+];
+
+/// Whether the runner answers `name` ([`RUNNER_OWNED_SOURCES`]).
 pub fn runner_owned_source(name: &str) -> bool {
-    matches!(
-        name,
-        "exactDelivery" | "exactViewport" | "exactPage" | "exactSurface" | "exactTime"
-    )
+    RUNNER_OWNED_SOURCES.contains(&name)
 }
 
 impl Plan {

@@ -23,6 +23,8 @@ use std::collections::BTreeMap;
 mod activation;
 #[path = "arrange.rs"]
 mod arrange;
+#[path = "back.rs"]
+mod back;
 #[path = "content_region/host.rs"]
 mod content;
 #[path = "hatches/host.rs"]
@@ -551,6 +553,21 @@ impl<D: DataSource> Host<D> {
         feedback: exact_runner::CollectionFeedback,
     ) -> Result<bool, String> {
         self.collection_feedback_filled(feedback, exact_runner::CollectionFill::default())
+    }
+
+    /// [`exact_runner::Runner::collection_shown`]; whether it committed.
+    #[cfg(target_os = "android")]
+    pub(crate) fn collection_shown(&mut self, view: ViewId, offset: f64) -> Result<bool, String> {
+        match self.runner.collection_shown(view, offset) {
+            Ok(mut result) if !result.receipts.is_empty() => {
+                for timed in &mut result.receipts {
+                    timed.at_ms = self.now_ms;
+                }
+                self.commit(&result.receipts, None).map_or(Ok(true), Err)
+            }
+            Ok(_) => Ok(false),
+            Err(error) => Err(format!("collection shown: {error:?}")),
+        }
     }
 
     /// [`Host::collection_feedback`] with a fill: the list's velocity and a
@@ -1472,10 +1489,6 @@ impl<D: DataSource> Host<D> {
             .preorder_where(&self.runner.roots(), |_, _| true)
     }
 }
-
-/// The kv scope the runner's kept answers live in, beside secrets
-/// (LLP 1027 D4). The same scope Apple's store writes.
-const KEPT: &str = "exact.kept";
 
 #[cfg(test)]
 #[path = "host_tests.rs"]

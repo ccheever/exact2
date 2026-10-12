@@ -193,6 +193,35 @@ pub(crate) enum NavPlace {
 }
 
 impl NavPlace {
+    /// @ref LLP 1116 D6, LLP 1115 D5 — the first root carrying a
+    /// `navigationKey` is the navigation root with or without
+    /// `navigationBack`. One that names no Back control is given the empty
+    /// name, which no element's `id` carries: every host and the runner
+    /// find the root by that attribute, and the platform's Back from a
+    /// route is then the root's `navigate`, else the router's own `back`.
+    pub(crate) fn unnamed(
+        &self,
+        first_root: bool,
+        attrs: &[Attr],
+        span: Span,
+    ) -> Option<Vec<Attr>> {
+        let has = |name: &str| attrs.iter().any(|a| a.name == name);
+        (first_root
+            && matches!(self, NavPlace::Outside)
+            && has("navigationKey")
+            && !has("navigationBack"))
+        .then(|| {
+            let mut attrs = attrs.to_vec();
+            attrs.push(Attr {
+                name: "navigationBack".into(),
+                value: Expr::Str(String::new(), span),
+                span,
+                written: crate::IMPLIED,
+            });
+            attrs
+        })
+    }
+
     /// The place of `tag`'s children, or the refusal of a route `tag` that
     /// no host would find here.
     pub(crate) fn enter(
@@ -204,6 +233,24 @@ impl NavPlace {
     ) -> Result<NavPlace, LowerError> {
         let has = |name: &str| attrs.iter().any(|a| a.name == name);
         let path = |p: &[String]| [p, &[tag.to_string()]].concat();
+        // @ref LLP 1115.000 D5.2 — the bar is each route's, so `navigationBar`
+        // is a route's word: on the root or on a box inside a screen no host
+        // reads it, and the screen would keep the bar it meant to drop.
+        if has("navigationBar") && (!has("navigationKey") || has("navigationBack")) {
+            let on = if has("navigationKey") {
+                "the navigation root"
+            } else {
+                "an element with no `navigationKey`"
+            };
+            return err(
+                "lower-route-bar",
+                format!("`navigationBar` is on {on}, where no host reads it: it belongs to a route (an element with a `navigationKey`, a child of the navigation root or of a `role=\"tabpanel\"` in it) and says whether that one screen shows the platform's navigation bar. Move it onto each route that draws its own chrome (docs/recipes/navigation-stack.md)"),
+                attrs
+                    .iter()
+                    .find(|a| a.name == "navigationBar")
+                    .map_or(span, |a| a.span),
+            );
+        }
         if has("navigationKey") && has("navigationBack") {
             return Ok(NavPlace::RootChild(vec![tag.to_string()]));
         }
@@ -225,7 +272,7 @@ impl NavPlace {
             };
             return err(
                 "lower-route-place",
-                format!("this `{tag}` has a `navigationKey` but sits at `{shown} > {tag}`; the hosts find a route only as a child of the navigation root (the element with `navigationBack`) or of a `role=\"tabpanel\"` in it, so this one is never shown. Move the wrapper's layout onto the route or inside it (docs/contract-for-agents.md, \"Tabs and stacks\")"),
+                format!("this `{tag}` has a `navigationKey` but sits at `{shown} > {tag}`; the hosts find a route only as a child of the navigation root (the first root with a `navigationKey`) or of a `role=\"tabpanel\"` in it, so this one is never shown. Move the wrapper's layout onto the route or inside it (docs/contract-for-agents.md, \"Tabs and stacks\")"),
                 span,
             );
         }

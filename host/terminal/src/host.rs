@@ -923,6 +923,8 @@ impl<D: DataSource> Host<D> {
         self.focus = None;
         self.focus(restore.filter(|r| self.runner.kernel().node(*r).is_some()));
         self.changed();
+        // Restoring no focus can be a no-op; the hidden rows still need retiring.
+        self.settle_collections();
     }
 
     /// The open top layer's height in rows, if one is open.

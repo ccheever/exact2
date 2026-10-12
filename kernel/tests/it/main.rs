@@ -19,6 +19,7 @@ mod cover;
 mod env;
 mod export;
 mod fit_content_native;
+mod fit_text;
 mod flow;
 mod flow_auto;
 mod flow_rows;

@@ -393,7 +393,10 @@ fn tool(
             ..Entry::default()
         });
         if ask {
-            let (summary, lines) = preview.clone().unwrap_or_default();
+            let (summary, lines) = preview
+                .as_ref()
+                .map(|(s, l, _)| (s.clone(), l.clone()))
+                .unwrap_or_default();
             s.approval = crate::state::Approval {
                 id: id.clone(),
                 tool: name.into(),
@@ -459,7 +462,15 @@ fn tool(
         drop(s);
         shared.changed();
     }
-    let done = tools::run(name, input, &turn.cancel);
+    let done = if needs && matches!(name, "write_file" | "edit_file") {
+        match preview.as_ref().and_then(|(_, _, edit)| edit.as_ref()) {
+            Some(Ok(edit)) => tools::run_prepared(name, edit, &turn.cancel),
+            Some(Err(error)) => tools::Done::error(error.clone()),
+            None => tools::Done::error("cannot prepare approved edit"),
+        }
+    } else {
+        tools::run(name, input, &turn.cancel)
+    };
     let mut s = shared.lock();
     if !s.current(turn) {
         return None;

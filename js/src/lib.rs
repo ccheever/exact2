@@ -592,6 +592,14 @@ impl Module {
         self.storage_wait = wait;
     }
 
+    /// Native storage operations started and not yet returned: a test of
+    /// giving up waits for the work it gave up on to end before reading
+    /// what that work did not write (LLP 1069.002 A1.5).
+    #[doc(hidden)]
+    pub fn storage_in_flight(&self) -> usize {
+        self.storage.as_ref().map_or(0, |s| s.context.in_flight())
+    }
+
     /// The heap ceiling for the next [`Module::load`].
     pub fn set_max_heap(&mut self, bytes: u32) {
         self.max_heap = bytes;
@@ -619,6 +627,18 @@ impl Module {
     /// Answers awaiting a fetch the host has yet to fulfil.
     pub fn in_flight(&self) -> usize {
         self.parked.len() + self.streams.len()
+    }
+
+    /// How many calls the prelude still tracks, parked or not: a diagnostic
+    /// (a call whose answer failed for good is unlinked from it, LLP 1041
+    /// §8.4 Q5). `None` when the module is not loaded.
+    pub fn calls_open(&mut self) -> Option<usize> {
+        let engine = self.engine.as_mut()?;
+        engine
+            .call("__exact_calls_open", ["", "", ""])
+            .ok()?
+            .parse()
+            .ok()
     }
 
     /// Decode once, retaining metadata for async dispatch and the typed answer
@@ -862,6 +882,99 @@ impl Module {
         answer
     }
 
+    /// The module's `overlay` for `source(args)`: `answer` with `writes`
+    /// laid over it, called synchronously with no answer current and every effect
+    /// refused. `None` when the module exports none or it returns
+    /// `undefined`.
+    fn overlay(
+        &mut self,
+        source: &str,
+        args: &[Value],
+        answer: &Value,
+        writes: &[exact_runner::Write<'_>],
+    ) -> Result<Option<exact_runner::Overlaid>, DataError> {
+        if self.engine.is_none() {
+            return Ok(None);
+        }
+        let Some(sig) = self.sigs.get(source) else {
+            return Err(DataError::UnknownSource(source.to_string()));
+        };
+        let json = |value: &Value, shape: &Shape| {
+            to_json(value, shape)
+                .map_err(|_| DataError::BadArguments(format!("`{source}`'s overlay input")))
+        };
+        let args_json = Json::Array(
+            args.iter()
+                .zip(&sig.params)
+                .map(|(a, shape)| json(a, shape))
+                .collect::<Result<_, _>>()?,
+        );
+        let mut list = Vec::with_capacity(writes.len());
+        for write in writes {
+            let Some(wsig) = self.sigs.get(write.source) else {
+                return Err(DataError::UnknownSource(write.source.to_string()));
+            };
+            let mut entry = serde_json::Map::new();
+            entry.insert("id".into(), Json::from(write.id));
+            entry.insert("mutation".into(), Json::from(write.mutation));
+            entry.insert("source".into(), Json::from(write.source));
+            entry.insert("answered".into(), Json::from(write.answered));
+            entry.insert(
+                "args".into(),
+                Json::Array(
+                    write
+                        .args
+                        .iter()
+                        .zip(&wsig.params)
+                        .map(|(a, shape)| json(a, shape))
+                        .collect::<Result<_, _>>()?,
+                ),
+            );
+            if let Some(reply) = write.reply {
+                entry.insert("reply".into(), json(reply, &wsig.result)?);
+            }
+            list.push(Json::Object(entry));
+        }
+        let payload = serde_json::json!({ "answer": json(answer, &sig.result)?, "writes": list });
+        let started = Instant::now();
+        let engine = self.engine.as_mut().expect("checked above");
+        let text = engine
+            .call(
+                "__exact_overlay",
+                [source, &args_json.to_string(), &payload.to_string()],
+            )
+            .map_err(|e| DataError::Unavailable(format!("`{source}`'s overlay threw: {e}")))?;
+        let took_ms = started.elapsed().as_secs_f64() * 1e3;
+        if took_ms > self.budget_ms {
+            return Err(DataError::Unavailable(format!(
+                "`{source}`'s overlay took {took_ms:.1} ms, over the {} ms budget",
+                self.budget_ms
+            )));
+        }
+        let reply: Json = serde_json::from_str(&text)
+            .map_err(|e| DataError::Unavailable(format!("`{source}`'s overlay: {e}")))?;
+        let keep = reply
+            .get("keep")
+            .and_then(Json::as_array)
+            .map(|ids| ids.iter().filter_map(Json::as_u64).collect())
+            .unwrap_or_default();
+        match reply.get("tag").and_then(Json::as_u64) {
+            Some(0) => from_json(reply.get("value").unwrap_or(&Json::Null), &sig.result)
+                .map(|value| Some(exact_runner::Overlaid { value, keep }))
+                .map_err(|e| {
+                    DataError::Failed(
+                        FailureCode::Shape,
+                        format!("`{source}`'s overlay is outside its shape: {e}"),
+                    )
+                }),
+            Some(4) => Ok(None),
+            _ => Err(DataError::Unavailable(format!(
+                "`{source}`'s overlay failed: {}",
+                reply.get("message").and_then(Json::as_str).unwrap_or("")
+            ))),
+        }
+    }
+
     /// Continue an answer: fulfil its fetch, drain, settle.
     fn resume(
         &mut self,
@@ -891,7 +1004,13 @@ impl Module {
         self.retired.remove(&call);
         if ticket == WAITING {
             if let Outcome::Failed { message, .. } = &outcome {
-                return Err(DataError::Unavailable(message.clone()));
+                // The answer ends here: its call is unlinked from the
+                // prelude's bookkeeping, so its pending fetches are dropped
+                // with it (LLP 1041 §8.4, Q5). A continuation the shared
+                // promise still runs is not cancelled by this.
+                let message = message.clone();
+                self.forget_calls(vec![call]);
+                return Err(DataError::Unavailable(message));
             }
         } else {
             self.progress += 1; // a delivery: what a waiting answer waits for

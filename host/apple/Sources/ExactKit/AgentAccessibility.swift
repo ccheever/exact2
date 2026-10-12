@@ -295,12 +295,20 @@ extension Presenter {
             popup = (a("AXHasPopup") as? Bool) == true ? (a("AXPopupValue") as? String ?? "true") : nil
         }
     }
+    /// AppKit's navigation order, read untyped: it is declared as elements
+    /// of the `NSAccessibilityElement` protocol, which the class of that name
+    /// (a paragraph's links and words) does not formally adopt, and an
+    /// unoptimized build traps on a typed read holding one.
+    static func navigationOrder(_ o: NSObject) -> [Any]? {
+        let read = NSSelectorFromString("accessibilityChildrenInNavigationOrder")
+        return o.responds(to: read) ? o.perform(read)?.takeUnretainedValue() as? [Any] : nil
+    }
     static func axFacts(_ obj: AnyObject) -> AxFacts? {
         if let v = obj as? NSView {
             var f = AxFacts(role: v.accessibilityRole()?.rawValue, subrole: v.accessibilitySubrole()?.rawValue, label: v.accessibilityLabel(), title: v.accessibilityTitle(),
                            help: v.accessibilityHelp(), value: v.accessibilityValue(), enabled: v.accessibilityAttributeValue(.enabled) as? Bool ?? true, focused: v.isAccessibilityFocused(),
                            selected: v.isAccessibilitySelected(), element: v.isAccessibilityElement(), expanded: v.isAccessibilityExpanded(), frame: v.accessibilityFrame(), identifier: v.accessibilityIdentifier(),
-                           children: v.accessibilityChildrenInNavigationOrder() ?? v.accessibilityChildren() ?? [], required: v.isAccessibilityRequired())
+                           children: navigationOrder(v) ?? v.accessibilityChildren() ?? [], required: v.isAccessibilityRequired())
             f.aria { v.accessibilityAttributeValue(NSAccessibility.Attribute(rawValue: $0)) }
             return f
         }
@@ -308,7 +316,7 @@ extension Presenter {
             return AxFacts(role: e.accessibilityRole()?.rawValue, subrole: e.accessibilitySubrole()?.rawValue, label: e.accessibilityLabel(), title: e.accessibilityTitle(),
                            help: e.accessibilityHelp(), value: e.accessibilityValue(), enabled: e.accessibilityAttributeValue(.enabled) as? Bool ?? true, focused: e.isAccessibilityFocused(),
                            selected: e.isAccessibilitySelected(), element: e.isAccessibilityElement(), expanded: e.isAccessibilityExpanded(), frame: e.accessibilityFrame(), identifier: e.accessibilityIdentifier(),
-                           children: e.accessibilityChildrenInNavigationOrder() ?? e.accessibilityChildren() ?? [])
+                           children: navigationOrder(e) ?? e.accessibilityChildren() ?? [])
         }
         guard let o = obj as? NSObject else { return nil }
         func a(_ name: String) -> Any? { o.accessibilityAttributeValue(NSAccessibility.Attribute(rawValue: name)) }
@@ -397,6 +405,9 @@ extension Presenter {
         // Nor a progress trait: a `progress`'s indicator (LLP 1069.001,
         // amended 2026-10-07) is ARIA's busy `progressbar` by its class.
         if obj is UIActivityIndicatorView, forced == nil { e["role"] = "progressbar"; states["busy"] = true }
+        if obj is UIProgressView, forced == nil { e["role"] = "progressbar" } // LLP 1116 D8
+        // A drawn range role says its role by ARIA's (LLP 1116 D8).
+        if let node = obj as? NodeView, forced == nil, let range = node.rangeRole { e["role"] = range }
         e["interactive"] = forced == nil && (o.accessibilityRespondsToUserInteraction || editable || names.contains("button") || names.contains("link") || names.contains("adjustable"))
         if let actions = o.accessibilityCustomActions, !actions.isEmpty { e["actions"] = actions.prefix(16).compactMap { cut($0.name) } }
         native["role"] = names
@@ -431,8 +442,12 @@ extension Presenter {
         let r = f.role ?? "AXUnknown"
         let mapped = ["AXButton": "button", "AXLink": "link", "AXHeading": "heading", "AXTextField": "textbox", "AXTextArea": "textbox",
                       "AXCheckBox": f.subrole == "AXSwitch" ? "switch" : "checkbox", "AXRadioButton": "radio", "AXRadioGroup": "radiogroup",
-                      "AXSlider": "slider", "AXPopUpButton": "combobox", "AXStaticText": "text", "AXGroup": "group", "AXImage": "image", "AXList": "list",
-                      "AXBusyIndicator": "progressbar", "AXProgressIndicator": "progressbar"][r]
+                      "AXSlider": "slider", "AXPopUpButton": "combobox", "AXStaticText": "text", "AXImage": "image", "AXList": "list",
+                      // A live-region or dialog role is a group by its subrole, as WebKit serves one.
+                      "AXGroup": ["AXApplicationStatus": "status", "AXApplicationAlert": "alert", "AXApplicationDialog": "dialog",
+                                  "AXApplicationAlertDialog": "alertdialog"][f.subrole ?? ""] ?? "group",
+                      "AXBusyIndicator": "progressbar", "AXProgressIndicator": "progressbar",
+                      "AXLevelIndicator": "meter", "AXScrollBar": "scrollbar", "AXIncrementor": "spinbutton"][r]
         e["role"] = forced ?? mapped ?? r
         if r == "AXHeading", let level = f.value as? Int { states["level"] = level }
         // A spinning indicator is AppKit's busy one (LLP 1069.001, amended 2026-10-07).

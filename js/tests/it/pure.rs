@@ -19,7 +19,7 @@ fn pure_utilities_match_the_web_executor() {
         return;
     }
     let script = concat!(env!("OUT_DIR"), "/pure.js");
-    let reference = Command::new("bun")
+    let reference = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .args(["--input-type=module", "-e", CHROME_UTILITIES])
         .env("EXACT_PURE_SCRIPT", script)
         .env("CHROME", chrome)
@@ -140,7 +140,7 @@ fn large_native_strings_preserve_json_semantics_and_call_ownership() {
         ))
         .unwrap();
         let shape = Shape::from_plan(&plan, plan.sources[0].ty).unwrap();
-        let reference = Command::new("bun")
+        let reference = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
             .args(["-e", &format!("require({}); process.stdout.write(JSON.stringify(globalThis.exact.answer('transfer',[{}])))", serde_json::to_string(script).unwrap(), serde_json::to_string(mode).unwrap())])
             .output()
             .unwrap();

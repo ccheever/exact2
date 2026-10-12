@@ -1,0 +1,156 @@
+//! What the emitted program says about a plan's resources.
+use exact_runner::{DataError, DataSource, Value};
+
+struct Answers;
+impl DataSource for Answers {
+    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+        match source {
+            "preview" => Ok(Value::Number(1.0)),
+            "full" => Ok(Value::Number(2.0)),
+            _ => Err(DataError::UnknownSource(source.into())),
+        }
+    }
+}
+
+/// Review B4: an `else` row's build-time answer is the bake's for every
+/// launch (the runner never asks it again), so the JS target receives it
+/// settled (`res`'s last argument), while the resource it stands in for
+/// keeps its build-time answer as a first frame to ask again at launch.
+#[test]
+fn an_else_row_is_settled_and_its_owner_is_a_bake() {
+    let plan = contract::compile(
+        "component App\n  resource full = full() as shape number else preview()\n  view\n    text `${full}`\n",
+    )
+    .unwrap();
+    let plan = contract::bake(plan, Answers).unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    let rows: Vec<&str> = js
+        .split("const r_")
+        .skip(1)
+        .map(|s| s.split(';').next().unwrap())
+        .collect();
+    let owner = rows
+        .iter()
+        .find(|r| r.contains("\"full\""))
+        .expect("full's row");
+    let other = rows
+        .iter()
+        .find(|r| !r.contains("\"full\""))
+        .expect("the else row");
+    assert!(other.ends_with(",1)"), "the else row is settled: {other}");
+    assert!(
+        !owner.ends_with(",1)"),
+        "the owner is a bake to ask again: {owner}"
+    );
+}
+
+/// The runner answers its own sources: the program marks their resources, so
+/// the overlay never lays a write over one (overlay.js).
+#[test]
+fn a_runner_owned_resource_is_marked() {
+    let plan = contract::compile(
+        "shape Time\n  epochAtZero: number\ncomponent App\n  resource time = exactTime() as shape Time\n  resource full = full() as shape number\n  view\n    text `${full}/${time.epochAtZero}`\n",
+    )
+    .unwrap();
+    let plan = contract::bake(plan, Answers).unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    let rows: Vec<&str> = js.split("const r_").skip(1).collect();
+    let time = rows
+        .iter()
+        .find(|r| r.contains("\"exactTime\""))
+        .expect("time's row");
+    let full = rows
+        .iter()
+        .find(|r| r.contains("\"full\""))
+        .expect("full's row");
+    assert!(time.contains(".r.owned=true;"), "{time}");
+    assert!(!full.contains(".r.owned"), "{full}");
+}
+
+/// LLP 1104 D6: `outline="none"` is the field's own `outline-style`, in its
+/// class, which outranks the base sheet's `:focus-visible` restore
+/// (`#exact-root#exact-root .cN` over `#exact-root input:…`); a bound one is
+/// written where it changes, and a field without it declares none.
+#[test]
+fn outline_none_is_a_fields_own_declaration() {
+    let plan = contract::compile(
+        "component App\n  state t = \"\"\n  state quiet = true\n  action w(v: string)\n    t = v\n  view\n    column\n      textarea value=t input=w outline=\"none\"\n      input value=t input=w outline=(quiet ? \"none\" : none)\n      input value=t input=w\n",
+    )
+    .unwrap();
+    let out = crate::emit::emit(&plan, false, false).unwrap();
+    assert!(
+        out.css.starts_with("#exact-root#exact-root{"),
+        "{}",
+        out.css
+    );
+    assert_eq!(
+        out.css.matches("outline-style:none").count(),
+        1,
+        "{}",
+        out.css
+    );
+    let class = out
+        .css
+        .split(".c")
+        .find(|c| c.contains("outline-style:none"))
+        .unwrap();
+    let class = class.split('{').next().unwrap();
+    assert!(
+        out.js.contains(&format!("\"textarea\",{class},")),
+        "the textarea's class: {}",
+        out.js
+    );
+    assert_eq!(
+        out.js.matches("\"outline-style\"").count(),
+        1,
+        "the bound one: {}",
+        out.js
+    );
+}
+
+/// LLP 1116 D8: a literal `value` on a `progress` is its `<progress>`'s
+/// attribute, as a bound one is its property; without it the browser draws
+/// an indeterminate bar.
+#[test]
+fn a_literal_progress_value_is_its_attribute() {
+    let plan = contract::compile(
+        "component App\n  view\n    column\n      progress value=0.4 max=1 aria-label=\"Done\"\n",
+    )
+    .unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    let at = js.find("\"progress\"").expect("a <progress>");
+    let made = js[at..].split(';').next().unwrap();
+    assert!(made.contains("\"value\":\"0.4\""), "{made}");
+    assert!(made.contains("\"max\":\"1\""), "{made}");
+}
+
+/// LLP 1116.004 D5.2: a radio group of radios is native buttons whose shell
+/// look is the segmented control, and its page loads the input piece, which
+/// gives it the arrow keys and one Tab stop, even when its radios are bare.
+#[test]
+fn a_radio_group_is_native_radios_and_loads_the_input_piece() {
+    let group = |attrs: &str| {
+        let plan = contract::compile(&format!(
+            "component App\n  state v = 1\n  action pick(n: number)\n    v = n\n  view\n    row role=\"radiogroup\" aria-label=\"Size\"\n      button role=\"radio\" aria-checked=(v == 1) press=pick(1) {attrs}\n        text \"S\"\n      button role=\"radio\" aria-checked=(v == 2) press=pick(2) {attrs}\n        text \"M\"\n"
+        ))
+        .unwrap();
+        crate::emit::emit(&plan, false, false).unwrap().js
+    };
+    let js = group("");
+    let radio = js
+        .split("const e")
+        .find(|made| made.contains("\"role\":\"radio\""))
+        .expect("a radio");
+    assert!(radio.contains("\"button\""), "{radio}");
+    assert!(
+        radio.contains("\"data-button-style\":\"bordered\""),
+        "a native radio: {radio}"
+    );
+    assert!(js.contains("pressFeedback()"), "{js}");
+    let bare = group("appearance=\"none\"");
+    assert!(!bare.contains("data-button-style"), "{bare}");
+    assert!(
+        bare.contains("pressFeedback()"),
+        "the group alone loads it: {bare}"
+    );
+}

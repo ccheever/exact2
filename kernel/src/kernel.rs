@@ -33,7 +33,9 @@ mod sticky;
 mod trim;
 
 pub use cover::HostCover;
-pub(crate) use cover::{children_changed as cover_children_changed, header_inset};
+pub(crate) use cover::{
+    apply as apply_cover, children_changed as cover_children_changed, published_extent,
+};
 pub use sticky::StickyConstraint;
 
 /// How many receipts the kernel retains for late readers.
@@ -124,12 +126,26 @@ impl<'a> NodeRef<'a> {
     /// The node whose own row supplies `id` here: this node when it sets the
     /// row; for a row the schema marks inherited, the nearest logical ancestor
     /// that does; `None` when the initial value applies (LLP 1035.000 D1).
-    /// Authored presence stays in `style.mask`; this is where a computed
-    /// value came from.
+    /// Which rows are set stays in `style.mask`, and which of those the
+    /// author wrote in `style.written`; this is where a computed value came
+    /// from.
     pub fn source_of(&self, id: StyleId) -> Option<ViewId> {
         self.arena
             .inherited_source(self.slot, id)
             .map(|s| self.arena.local_id(s))
+    }
+
+    /// Whether the author wrote the value this node computes for `id`
+    /// (LLP 1115.000 D2): the row that supplies it ([`NodeRef::source_of`])
+    /// is one its author wrote, on this node or on the ancestor an inherited
+    /// row comes from. False for an initial value and for a row the compiler
+    /// implied. `style.written` is the node's own rows alone, which is what
+    /// a control asks (a colour it only inherits is not its own); this is
+    /// what a text asks, whose colour and font CSS takes from its box.
+    pub fn says(&self, id: StyleId) -> bool {
+        self.arena
+            .inherited_source(self.slot, id)
+            .is_some_and(|s| self.arena.style(s).written.has(id))
     }
 
     /// CSS's computed value of a row: the own row; else, for an inherited
@@ -214,6 +230,14 @@ impl<'a> NodeRef<'a> {
         let mut runs = Vec::new();
         self.arena.text_runs(self.slot, &mut runs);
         runs
+    }
+
+    /// The scale this paragraph is drawn at, as its last layout chose it
+    /// (`-exact-fit: shrink`, LLP 1116.001 D1.4): 1 unless it was shrunk to
+    /// fit its box. [`Self::text_runs`] are at it already; a host that draws
+    /// from the style rows multiplies their sizes by it.
+    pub fn fit_scale(&self) -> f32 {
+        self.arena.fit_scale(self.slot)
     }
 
     /// Child wire ids, in order.

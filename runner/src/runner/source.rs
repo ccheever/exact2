@@ -201,6 +201,38 @@ pub struct InFlight<'a> {
     pub continuation: Option<u64>,
 }
 
+/// One send to a mutation that declares `refreshes` on the resource being
+/// overlaid ([`DataSource::overlay`]), in send order.
+#[derive(Debug, Clone, Copy)]
+pub struct Write<'a> {
+    /// The send's id: distinct for every send, stable while it waits,
+    /// runs and lands.
+    pub id: u64,
+    /// The mutation's name.
+    pub mutation: &'a str,
+    /// The source the send asked.
+    pub source: &'a str,
+    /// Its arguments as sent.
+    pub args: &'a [Value],
+    /// Its reply once landed; `None` while it is pending.
+    pub reply: Option<&'a Value>,
+    /// Landed, and the answer was asked after it landed: the answer should
+    /// include it. An overlay that finds it does not yet (a server that is
+    /// not read-after-write consistent) lays it over and keeps it.
+    pub answered: bool,
+}
+
+/// What an overlay shows ([`DataSource::overlay`]): the value, and the
+/// answered writes ([`Write::answered`]) the answer does not include yet,
+/// which go on showing. Every other answered write is retired.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Overlaid {
+    /// What the resource shows.
+    pub value: Value,
+    /// The ids of answered writes still to show.
+    pub keep: Vec<u64>,
+}
+
 /// What a request answers: a resource or a mutation, by its index in the
 /// plan. The runner keeps at most one request in flight per target (LLP
 /// 1016 D5), so an executor that parks a call until its reply comes keys
@@ -498,6 +530,24 @@ pub trait DataSource {
     /// Its reply and any Store writes are discarded, never committed here.
     fn forgotten(&mut self, store: &Store, in_flight: &[InFlight<'_>]) {
         let _ = (store, in_flight);
+    }
+
+    /// What `source(args)` shows while `writes` affect it: `answer` with
+    /// the writes laid over it, as the source knows they change it (rows
+    /// added or removed, counts moved). Synchronous and without effects;
+    /// called inside settlement whenever the answer, its arguments or the
+    /// writes change, and only while there are writes. `None` shows the
+    /// answer and retires every answered write. A source that forwards to
+    /// another forwards this too.
+    fn overlay(
+        &mut self,
+        source: &str,
+        args: &[Value],
+        answer: &Value,
+        writes: &[Write<'_>],
+    ) -> Result<Option<Overlaid>, DataError> {
+        let _ = (source, args, answer, writes);
+        Ok(None)
     }
 
     /// A handle another thread may trigger to stop this source's running

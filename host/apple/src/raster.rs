@@ -162,6 +162,7 @@ pub fn session_control(id: u64, op: u32) {
         2 => core.resume(),
         3 => core.shutdown(),
         4 => core.trim(),
+        5 => return core.wake(),
         _ => return,
     }
     let removed = {
@@ -204,6 +205,7 @@ pub fn request(id: u64, d: RasterDemand) -> u64 {
                 height: d.height,
             },
             variant: d.variant,
+            crop: Crop::default(),
         },
         metadata: Metadata {
             natural: PixelSize {
@@ -280,7 +282,9 @@ pub fn next_decode(timeout_ms: u32) -> RasterWork {
     let permit = if timeout_ms == 0 {
         gate.next_decode()
     } else {
-        gate.wait_decode(Duration::from_millis(u64::from(timeout_ms.min(1000))))
+        // A wake with no decode returns too, so the worker reads the header
+        // of a source queued meanwhile.
+        gate.wait_work(Duration::from_millis(u64::from(timeout_ms.min(1000))))
     };
     let Some(permit) = permit else {
         return RasterWork::default();

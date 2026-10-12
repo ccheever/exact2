@@ -7,7 +7,8 @@
 // fold are scrolled into view before their taps. The options carry no `value`,
 // so each one's value is its label (HTML). The two `progress`es are the
 // page's drawn ring, at its 20 × 20 default and sized (LLP 1069.001,
-// amended 2026-10-07).
+// amended 2026-10-07); the third, with a `value`, is HTML's own bar at its
+// UA box, following the range (LLP 1116 D8).
 component Controls
   state pick = "Alpha"
   state day = ""
@@ -44,6 +45,7 @@ component Controls
       row gap=8
         progress testId="busy" aria-label="Loading"
         progress testId="busy-large" width=37 height=37 color="#007aff"
+      progress value=level max=10 testId="level-bar" aria-label="Level"
       text `${pick} ${day} ${hour} ${level} ${agreed} ${far} ${inner}` testId="values"
       scroll testId="inner-scroll" height=80
         box height=300

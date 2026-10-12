@@ -732,12 +732,30 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         }
         quote(name, &mut s);
         s.push(':');
-        match runner.resource(name) {
+        match runner.shown_resource(name) {
             Some(v) => typed_json(plan, row.ty, v, &mut s),
             None => s.push_str("null"),
         }
     }
     s.push('}');
+    // The writes shown over resources until they end or are answered.
+    let writes = runner.writes();
+    if !writes.is_empty() {
+        s.push_str(",\"writes\":[");
+        for (i, (id, mutation, landed)) in writes.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            s.push_str(&format!("{{\"id\":{id},\"mutation\":"));
+            quote(mutation, &mut s);
+            s.push_str(if *landed {
+                ",\"landed\":true}"
+            } else {
+                ",\"landed\":false}"
+            });
+        }
+        s.push(']');
+    }
     // Why each failed resource failed (app farm round 1: a shape refusal
     // showed only in the journal while the view kept its placeholder).
     let failed = runner.failed_resources();

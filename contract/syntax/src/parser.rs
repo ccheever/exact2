@@ -590,6 +590,7 @@ impl Parser {
                 name: aname,
                 value,
                 span: aspan,
+                written: true,
             });
         }
         self.newline()?;
@@ -652,6 +653,7 @@ impl Parser {
             provides: Vec::new(),
             slot: false,
             states: Vec::new(),
+            persist: Vec::new(),
             derives: Vec::new(),
             resources: Vec::new(),
             mutations: Vec::new(),
@@ -741,6 +743,12 @@ impl Parser {
                             let expr = self.expr()?;
                             let none = matches!(expr, Expr::None(_));
                             self.type_annotation(&w, &name, if none { "as none" } else { "as" })?;
+                            if let Some(span) = self.persist_word(&w, &name)? {
+                                c.persist.push(Persist {
+                                    name: name.clone(),
+                                    span,
+                                });
+                            }
                             self.newline()?;
                             let b = Binding {
                                 name,
@@ -1317,6 +1325,7 @@ impl Parser {
                     name,
                     value,
                     span: aspan,
+                    written: true,
                 });
             } else if matches!(self.peek_kind(), TokenKind::Ident(name) if name == "autofocus") {
                 let aspan = self.next().span;
@@ -1330,6 +1339,7 @@ impl Parser {
                     name: "autofocus".into(),
                     value: Expr::Bool(true, aspan),
                     span: aspan,
+                    written: true,
                 });
             } else if continuation {
                 return self.err(
@@ -1371,7 +1381,12 @@ impl Parser {
             let (name, span) = self.field_name()?;
             self.expect_punct("=")?;
             let value = self.expr()?;
-            out.push(Attr { name, value, span });
+            out.push(Attr {
+                name,
+                value,
+                span,
+                written: true,
+            });
             if !self.eat_punct(",") {
                 break;
             }

@@ -17,7 +17,12 @@ fn code(b: &mut PlanBuilder, emit: impl FnOnce(&mut Asm)) -> exact_plan::Code {
     b.code(a)
 }
 fn binding(kind: BindingKind, id: u16, expr: exact_plan::Code) -> BindingsRow {
-    BindingsRow { kind, id, expr }
+    BindingsRow {
+        kind,
+        id,
+        expr,
+        written: true,
+    }
 }
 fn plan(n: usize, row_state: bool, follow: bool) -> Plan {
     plan_with(n, row_state, follow, false)
@@ -493,6 +498,11 @@ fn binary_feedback_roundtrips_and_rejects_malformed_reports() {
     assert_eq!(
         CollectionFeedback::decode_with_fill(&filled).unwrap(),
         (f.clone(), fill)
+    );
+    let lean = CollectionFill { lean: true, ..fill };
+    assert_eq!(
+        CollectionFeedback::decode_with_fill(&f.encode_with(lean).unwrap()).unwrap(),
+        (f.clone(), lean)
     );
     assert_eq!(
         CollectionFeedback::decode_with_fill(&bytes).unwrap().1,

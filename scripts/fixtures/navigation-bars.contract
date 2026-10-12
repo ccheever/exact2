@@ -1,0 +1,54 @@
+// LLP 1115.000 D5: on iOS the navigation bar is each route's, and Back is
+// always there (NavigationBasicsIOSTests). One stack that opens on a route
+// with no header, and the routes pushed over it:
+//
+// - `start`, the stack's first route, has no header: nothing to go back to,
+//   no bar;
+// - `detail` has a header of one heading: the bar, its title and UIKit's Back;
+// - `plain` has no header, and `twin` a header of two headings, which is no
+//   bar's and paints in the page: each gets the system Back alone;
+// - `own` has no header and draws its own Back control, which the system's
+//   Back presses;
+// - `viewer` draws its own Back control too and says it has no bar
+//   (`navigationBar="none"`): a full-bleed screen;
+// - `sheet` is a modal route with no header: the first route of its own
+//   presented stack.
+//
+// Every route offers a button to each of the others.
+routes nav
+  start "/"
+    detail "/detail"
+    plain "/plain"
+    twin "/twin"
+    own "/own"
+    viewer "/viewer"
+    sheet "/sheet"
+
+component NavigationBars
+  state backs = 0
+  action open(name: string)
+    nav = push(nav, "/" + name)
+  action back
+    backs = backs + 1
+    nav = back(nav)
+  action follow(url: string)
+    nav = go(nav, url)
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow testId="app" width="100%" height="100%"
+      each e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` navigationBar=(e.name == "viewer" ? "none" : "auto") navigationPresentation=(e.name == "sheet" ? "modal" : "") testId=`route-${e.name}` position="absolute" inset=0 display="flex" flex-direction="column"
+          when e.name == "detail"
+            header testId="header-detail" display="flex" align-items="center" padding="8px 16px"
+              text "Detail" role="heading" aria-level=2
+          when e.name == "twin"
+            header testId="header-twin" display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
+              text "Left" role="heading" aria-level=2
+              text "Right" role="heading" aria-level=2
+          column testId=`content-${e.name}` flex=1 min-height=0 padding=16 gap=8
+            when e.name == "own" or e.name == "viewer"
+              button id="back" press=back testId=`${e.name}-back` align-self="flex-start"
+                text "Close"
+            text `backs ${backs}` testId=`${e.name}-backs`
+            each l in ["detail", "plain", "twin", "own", "viewer", "sheet"] key=l
+              button press=open(l) testId=`${e.name}-open-${l}`
+                text l

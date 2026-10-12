@@ -26,6 +26,7 @@ fn main() {
         "src/pure.js",
         "src/standard.js",
         "src/prelude.js",
+        "src/intl.js",
     ] {
         println!("cargo:rerun-if-changed={source}");
     }
@@ -91,11 +92,16 @@ fn main() {
     // Ibex installs PURE | CRYPTO | ABORT first. These are only Exact's
     // trusted policy and data-seam layers; application bytecode follows after
     // Adapter::capture_intrinsics() and Adapter::harden().
-    let prelude = ["src/pure.js", "src/standard.js", "src/prelude.js"]
-        .iter()
-        .map(|source| std::fs::read_to_string(manifest.join(source)).expect("prelude source"))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let prelude = [
+        "src/pure.js",
+        "src/standard.js",
+        "src/prelude.js",
+        "src/intl.js",
+    ]
+    .iter()
+    .map(|source| std::fs::read_to_string(manifest.join(source)).expect("prelude source"))
+    .collect::<Vec<_>>()
+    .join("\n");
     let prelude = if target_os == "windows" {
         "globalThis.__exact_windows_storage = true;\n".to_owned() + &prelude
     } else {
@@ -132,6 +138,8 @@ fn main() {
         "storage",
         "pure",
         "spin",
+        "shared-load",
+        "overlay",
     ] {
         let source = manifest.join(format!("tests/fixtures/{name}.ts"));
         println!("cargo:rerun-if-changed={}", source.display());

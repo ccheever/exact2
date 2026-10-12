@@ -150,8 +150,8 @@ A send to a queue mutation `m` is **asked** in the sending commit only when
 `m` is **free** (D3) and no earlier send of `m` was made in this commit.
 Otherwise it joins `m`'s queue as its source and argument values, evaluated
 where the send stands (LLP 1005 §6): kanban's tap sends the label it was
-tapped for. Only an asked send calls the source, re-reads `refreshes` and
-hands out a request. The queue is in the commit's `Checkpoint`
+tapped for. Only an asked send calls the source and hands out a
+request. The queue is in the commit's `Checkpoint`
 (`commit.rs:18–30`), so a refused action adds nothing to it.
 
 ### D3 — When a mutation is free; the `next` commit
@@ -230,6 +230,10 @@ at once would land in one commit, and `then` would see only the second.
 
 ### D4 — What each part of the model does with a queue
 
+- **A waiting send's write** shows from its send, as a send in flight does,
+  when `m` declares `refreshes` (LLP 1054.000.000 D1);
+  one whose ask is refused at its `next` ends, stops showing in that commit,
+  and the resources it showed in are asked again.
 - **`pending(m)`** is true while a send of `m` is in flight or waits. It is
   false once a reply has landed and nothing waits, even while that reply's
   `then` is armed. Sending while `pending` is how a queue is fed: `not
@@ -239,9 +243,10 @@ at once would land in one commit, and `then` would see only the second.
   reply set it. The 2026-09-27 ruling (once per advance, the latest) agrees,
   because no second reply can land before the `then` runs.
   `analyze-then-self-send` stays (§8).
-- **`refreshes`** re-reads when a send is asked, with the resources'
-  arguments in that commit, not the queued body's; it forces again at each
-  reply. A send that only joins the queue reads nothing.
+- **`refreshes`** asks nothing at a send, asked or waiting: its write shows
+  through the data module's overlay (LLP 1054.000.000 D1). It forces the
+  resources at each reply, with their arguments in that commit, not the
+  queued body's.
 - **Assignment.** `m = none` writes the slot and forgets nothing. The reply
   in flight and every waiting send's reply still land and overwrite it.
   A mutation that must drop a late reply (a session) does not declare

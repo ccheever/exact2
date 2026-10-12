@@ -230,6 +230,31 @@ mod tests {
     use crate::{StyleId, StyleMask, StyleValue};
 
     #[test]
+    fn overlay_sharing_preserves_explicit_authorship() {
+        let mut base = StyleProps::default();
+        base.set_dynamic(StyleId::Width, &StyleValue::Number(10.0))
+            .unwrap();
+        base.set_dynamic(StyleId::Height, &StyleValue::Number(20.0))
+            .unwrap();
+        base.written = base.mask;
+        let mut shared = SharedStyles::default();
+        let authored = shared.intern(base.clone());
+        let mut patch = StyleProps::default();
+        patch
+            .set_dynamic(StyleId::Width, &StyleValue::Number(10.0))
+            .unwrap();
+        let implied = shared.patch(&base, &patch);
+        assert!(!Rc::ptr_eq(&authored, &implied));
+        assert!(!implied.written.has(StyleId::Width));
+        assert!(implied.written.has(StyleId::Height));
+        patch.written = patch.mask;
+        assert!(Rc::ptr_eq(&authored, &shared.patch(&implied, &patch)));
+        let cleared = shared.clear(&authored, StyleMask::of(StyleId::Width));
+        assert!(!cleared.written.has(StyleId::Width));
+        assert!(cleared.written.has(StyleId::Height));
+    }
+
+    #[test]
     fn style_edits_share_exactly_the_materialized_result() {
         let values = [
             StyleValue::Number(0.0),
@@ -338,6 +363,14 @@ mod tests {
         b.mask.set(crate::StyleId::Height);
         let z = shared.intern(b);
         assert!(!Rc::ptr_eq(&x, &z));
+        // The same row its author wrote is another style (LLP 1115.000 D2):
+        // one node's bit is never another's.
+        let mut written = a.clone();
+        written.written.set(crate::StyleId::Width);
+        let w = shared.intern(written.clone());
+        assert!(!Rc::ptr_eq(&x, &w));
+        assert!(w.written.has(crate::StyleId::Width) && !x.written.has(crate::StyleId::Width));
+        assert!(Rc::ptr_eq(&w, &shared.intern(written)));
         // -0 and 0 compare equal but encode apart: never shared.
         let mut c = StyleProps::default();
         c.width = Dimension::Points(-0.0);
@@ -350,8 +383,8 @@ mod tests {
             &shared.intern(StyleProps::default()),
             &shared.default
         ));
-        assert_eq!(shared.len(), 4);
-        drop((x, y, z, c, d));
+        assert_eq!(shared.len(), 5);
+        drop((x, y, z, w, c, d));
         shared.trim();
         assert_eq!(shared.len(), 0);
     }

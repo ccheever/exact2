@@ -220,7 +220,7 @@ and native must answer too:
 |---|---|---|---|
 | `Canvas` | `systemBackgroundColor` | `textBackgroundColor` | as is |
 | `CanvasText` | `labelColor` | `textColor` | as is |
-| `LinkText` | `linkColor` | `linkColor` | as is |
+| `LinkText` | the inherited `tintColor` (LLP 1115 §3: UIKit draws text links in the tint; was `linkColor`) | `linkColor` | as is |
 | `GrayText` | `tertiaryLabelColor` | `disabledControlTextColor` | as is |
 | `Highlight`, `HighlightText` | the tint at 0.2 alpha (stand-in), `labelColor` | `selectedTextBackgroundColor`, `selectedTextColor` | as is |
 | `AccentColor`, `AccentColorText` | the inherited `tintColor`, white | `controlAccentColor`, `alternateSelectedControlTextColor` | as is |
@@ -803,6 +803,9 @@ recommendation on that basis; the maintainer decides.
      inheritance, `currentcolor`, motion), not for a native platform's
      palette values, and each such difference is declared in LLP 1001. Confirm
      this reading of "the web is the standard" for colour values.
+   > **Settled by LLP 1115 (2026-10-09).** The platform wins on that platform:
+   > author > platform > CSS default. Unsaid motion is the platform's too, so "motion"
+   > above now means motion the author wrote.
 
 **From stage 2 (D8–D11, §10):**
 
@@ -950,6 +953,14 @@ paint keeps SVG's initials (`fill` black), as the web does.
   (`@tint` in the schema) resolve in the kernel to one tint per process, as
   the presenter reports it; a report without them keeps the last. What the
   presenter draws itself uses each view's own tint.
+  > **Amended by LLP 1116.001 D2 (2026-10-11).** The tint at full strength
+  > (`AccentColor`, `LinkText`) is the nearest `accent-color` a node or an
+  > ancestor sets, else the platform's, as UIKit's inherited `tintColor` is:
+  > iOS sets an authored accent as the view's `tintColor`, and an SVG paint
+  > naming the tint crosses as `{"sys": "@tint"}` so its view resolves it;
+  > the web writes the role as `var(--exact-accent, AccentColor)`, which
+  > reads back as the role (`roles::follows_accent`). macOS keeps the system
+  > accent, which AppKit gives no view tint to override.
 - A session's first report corrects what boot resolved without motion; only
   later reports transition. A box filter's `drop-shadow` crosses resolved
   for both appearances (`p`, and `pd` when dark differs), and each view

@@ -27,9 +27,11 @@ theorem paused_bool : ∀ c, Reachable videoPlayer c → SlotIn "paused" IsBool 
   · simp only [videoPlayer, List.mem_cons, List.mem_nil_iff, or_false] at hst
     repeat' first | (rcases hst with rfl | hst) | subst hst
     all_goals simp at hn
-    rcases hv with ⟨h, -⟩ | ⟨_, hv⟩
+    -- The third origin is a persisted state's stored value: not this state.
+    rcases hv with ⟨h, -⟩ | ⟨_, hv⟩ | ⟨h, -⟩
     · cases h
     · rw [EvalR.bool_iff] at hv; exact ⟨_, hv⟩
+    · cases h
   · simp [videoPlayer] at hm
   · simp [videoPlayer] at hr
 

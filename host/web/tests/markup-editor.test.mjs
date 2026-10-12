@@ -1,5 +1,5 @@
 // @ref LLP 1045 D1/D5/D6 — native DOM edits, controlled source and shared undo.
-import { test, expect } from 'bun:test';
+import { afterAll, test, expect } from 'bun:test';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { chromium as installed } from '../../../scripts/agent-launch.mjs';
@@ -33,17 +33,26 @@ async function editor(engine, source, drive) {
         window.ready = true;
       </script>`, { headers: { 'content-type': 'text/html' } });
   } });
-  const browser = await playwright[engine].launch({ headless: true, ...(engine === 'chromium' ? { executablePath: chrome.executable } : {}) });
+  const context = await (await browser(engine)).newContext();
   try {
-    const page = await browser.newPage();
+    const page = await context.newPage();
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(`http://127.0.0.1:${server.port}/`);
     await page.waitForFunction(() => window.ready);
     await drive(page, page.locator('#editor'));
     expect(errors).toEqual([]);
-  } finally { await browser.close(); server.stop(true); }
+  } finally { await context.close(); server.stop(true); }
 }
+
+// One browser per engine for this file; each editor above gets a context of
+// its own (its page, its undo, its storage), closed when it is done.
+const launched = new Map();
+function browser(engine) {
+  if (!launched.has(engine)) launched.set(engine, playwright[engine].launch({ headless: true, ...(engine === 'chromium' ? { executablePath: chrome.executable } : {}) }));
+  return launched.get(engine);
+}
+afterAll(async () => { for (const b of launched.values()) await (await b.catch(() => null))?.close(); });
 
 for (const engine of engines) {
   test(`${engine}: browser Select All includes hidden syntax`, async () => {

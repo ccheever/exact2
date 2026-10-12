@@ -370,6 +370,9 @@ impl<D: DataSource> Presenter<D> {
         } else if down && code == "Tab" {
             // From no focus, Tab takes the first stop (LLP 1088 D7.3).
             self.key_down("Tab", self.host.now());
+        } else if down && self.back_key(key) {
+            // And a Back key goes back (LLP 1115.000 D5.4).
+            self.key_down_with(key, code, repeat, self.host.now());
         }
         if code == "Escape"
             && self.focus.is_some_and(|id| {
@@ -420,10 +423,23 @@ impl<D: DataSource> Presenter<D> {
         let (id, sx, sy) = if continuing {
             self.control_contact?
         } else {
-            let id = q["id"].as_u64()? as u32;
-            let id = self.control_target(id)?;
+            let named = q["id"].as_u64()? as u32;
+            let id = self.control_target(named)?;
             let (x, y, w, h) = self.rect_of(id)?;
-            (id, x + w / 2., y + h / 2.)
+            // `at`: a point in the named node's box, from its top left (LLP 1012 §1).
+            match q["at"].as_array().map(|a| {
+                (
+                    a.first().and_then(|v| v.as_f64()),
+                    a.get(1).and_then(|v| v.as_f64()),
+                )
+            }) {
+                Some((Some(ax), Some(ay))) => {
+                    let (nx, ny, ..) = self.rect_of(named)?;
+                    (id, nx + ax as f32, ny + ay as f32)
+                }
+                Some(_) => return Some(json!({"error":"tap at needs two finite numbers"})),
+                None => (id, x + w / 2., y + h / 2.),
+            }
         };
         let x = q["x"]
             .as_f64()
@@ -590,7 +606,10 @@ impl<D: DataSource> Presenter<D> {
     }
 
     /// A press moves focus to the nearest focusable node at or above `hit`,
-    /// except that a canvas press leaves an editor focused.
+    /// except that a canvas press leaves an editor focused. A finger's press
+    /// gives the focus without its ring (LLP 1115.001 D7.6: no focus ring in
+    /// touch mode, as the web's `:focus-visible`); a mouse's shows it, as it
+    /// did, and so does a focus a key or the app moves there after.
     fn focus_for_press(&mut self, hit: ViewId, now_ms: f64) {
         let mut focus = Some(hit);
         while let Some(id) = focus {
@@ -599,6 +618,9 @@ impl<D: DataSource> Presenter<D> {
             }
             focus = self.host.kernel().node(id).and_then(|n| n.parent);
         }
+        let ringless = focus.filter(|_| self.direct());
+        self.dirty |= self.brush.ringless != ringless;
+        self.brush.ringless = ringless;
         let editing = self.surfaces.wants_input(hit)
             && self
                 .focus

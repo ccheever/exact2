@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The launch window is the platform's own surface for the scheme (LLP 1115.001 D3.6), not an icon on a splash
+         (Android 12+ always shows a starting window): the device's light theme here, its dark one in values-night.
+         exact2's first frame (~60 ms after the tap) replaces it, and from then on the window's background is the
+         colour the host says is behind the page (ExactActivity.chrome). -->
+    <style name="ExactLaunch" parent="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+        <item name="android:windowSplashScreenBackground">?android:attr/colorBackground</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@android:color/transparent</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@android:color/transparent</item>
+    </style>
+    <!-- A scroller's indicator (Scrolling.Indicator): a view with the scrollbars View draws for one that scrolls,
+         as android:scrollbars gives a ScrollView its. The thumb, its size and its fade are the theme's. -->
+    <style name="ExactScrollbars">
+        <item name="android:scrollbars">vertical|horizontal</item>
+    </style>
+</resources>

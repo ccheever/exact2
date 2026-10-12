@@ -91,7 +91,7 @@ impl Collection {
             .window_led(
                 feedback.offset,
                 feedback.port_main,
-                lead(feedback.port_main, fill.velocity),
+                lead(feedback.port_main, fill),
                 [focus.as_deref(), interaction.as_deref()],
             )
             .map_err(index_error)?;

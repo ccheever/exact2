@@ -176,7 +176,7 @@ fn layout<const PAINT: bool>(
             if cluster == "\n" || cluster == "\r\n" {
                 out.word(&mut word);
                 out.newline();
-            } else if cluster.chars().all(char::is_whitespace) {
+            } else if breakable_space(cluster) {
                 out.word(&mut word);
                 if out.keeps || out.cols > 0 {
                     out.push(Cluster {
@@ -254,7 +254,7 @@ pub(crate) fn visit_preserved(
                 col = 0;
                 return;
             }
-            let (text, cols) = if cluster.chars().all(char::is_whitespace) {
+            let (text, cols) = if breakable_space(cluster) {
                 (" ", 1)
             } else if cluster.chars().any(char::is_control) {
                 ("\u{fffd}", 1)
@@ -265,6 +265,11 @@ pub(crate) fn visit_preserved(
             col += cols;
         });
     }
+}
+
+fn breakable_space(cluster: &str) -> bool {
+    cluster.chars().all(char::is_whitespace)
+        && !matches!(cluster, "\u{a0}" | "\u{202f}" | "\u{2007}" | "\u{feff}")
 }
 
 /// LLP 1104 D7: the terminal drops the symbol and paints the title, or
@@ -381,6 +386,7 @@ mod tests {
             "\nfirst\r\nsecond\nthird\n",
             "a\tb\u{1b}c\u{7}d ",
             "界é 👩🏽‍💻 🇺🇸 ｱ\nend  ",
+            "a\u{a0}b\u{202f}c\u{2007}d\u{feff}e",
         ] {
             for split in (0..=text.len()).filter(|&i| text.is_char_boundary(i)) {
                 let runs = [&text[..split], &text[split..]].map(|text| TextRun {
@@ -712,5 +718,137 @@ mod tests {
                 "one word may span runs"
             );
         }
+    }
+    #[test]
+    fn nonbreaking_spaces_stay_in_the_word() {
+        let mut paragraph = Paragraph::from_style(&StyleProps::default());
+        for space in ['\u{a0}', '\u{202f}', '\u{2007}', '\u{feff}'] {
+            let text = format!("XX{space}YY");
+            let runs = [TextRun {
+                text: text.as_str().into(),
+                style: paragraph.strut,
+            }];
+            for white_space in [
+                WhiteSpace::Normal,
+                WhiteSpace::Nowrap,
+                WhiteSpace::Pre,
+                WhiteSpace::PreWrap,
+                WhiteSpace::PreLine,
+            ] {
+                paragraph.white_space = white_space;
+                paragraph.overflow_wrap = OverflowWrap::Normal;
+                let lines = wrap(&runs, &paragraph, Some(4), false);
+                assert_eq!(lines.len(), 1, "{space:?}, {white_space:?}");
+                assert_eq!(lines[0].cols(), 5);
+                assert_eq!(lines[0].glyphs[2].text, space.to_string());
+                paragraph.overflow_wrap = OverflowWrap::Anywhere;
+                let lines = wrap(&runs, &paragraph, Some(4), false);
+                if matches!(white_space, WhiteSpace::Nowrap | WhiteSpace::Pre) {
+                    assert_eq!(lines.len(), 1);
+                    assert_eq!(lines[0].cols(), 5);
+                } else {
+                    assert_eq!(lines.len(), 2);
+                    assert_eq!(lines[0].cols(), 4);
+                    assert_eq!(lines[1].cols(), 1);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn ordinary_spaces_tabs_and_newlines_keep_their_breaks() {
+        let mut paragraph = Paragraph::from_style(&StyleProps::default());
+        for (text, white_space) in [
+            ("XX YY", WhiteSpace::Normal),
+            ("XX\tYY", WhiteSpace::PreWrap),
+            ("XX\nYY", WhiteSpace::PreWrap),
+        ] {
+            paragraph.white_space = white_space;
+            let runs = [TextRun {
+                text: text.into(),
+                style: paragraph.strut,
+            }];
+            let lines = wrap(&runs, &paragraph, Some(4), false);
+            assert_eq!(lines.len(), 2, "{text:?}");
+            assert!(lines[0].cols() >= 2, "{text:?}");
+            assert_eq!(
+                lines[1]
+                    .glyphs
+                    .iter()
+                    .map(|g| g.text.as_str())
+                    .collect::<String>(),
+                "YY"
+            );
+        }
+    }
+
+    #[test]
+    fn unicode_spaces_and_preserved_carriage_returns_break() {
+        let mut paragraph = Paragraph::from_style(&StyleProps::default());
+        for (text, white_space, expected) in [
+            ("XX\u{2009}YY", WhiteSpace::Normal, "YY"),
+            ("XX\u{3000}YY", WhiteSpace::Normal, "YY"),
+            ("XX\rYY", WhiteSpace::PreWrap, "YY"),
+        ] {
+            paragraph.white_space = white_space;
+            let runs = [TextRun {
+                text: text.into(),
+                style: paragraph.strut,
+            }];
+            let lines = wrap(&runs, &paragraph, Some(4), false);
+            assert_eq!(lines.len(), 2, "{text:?}");
+            assert_eq!(
+                lines[1]
+                    .glyphs
+                    .iter()
+                    .map(|g| g.text.as_str())
+                    .collect::<String>(),
+                expected,
+                "{text:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn original_tokenizer_keeps_unicode_space_and_crlf_behavior() {
+        let mut paragraph = Paragraph::from_style(&StyleProps::default());
+        for space in ['\u{2009}', '\u{3000}'] {
+            let source = format!("XX{space}YY");
+            let runs = [TextRun {
+                text: source.as_str().into(),
+                style: paragraph.strut,
+            }];
+            let lines = wrap(&runs, &paragraph, Some(4), false);
+            assert_eq!(
+                lines.iter().map(|line| line.cols()).collect::<Vec<_>>(),
+                [2, 2],
+                "{space:?}"
+            );
+            assert_eq!(
+                lines[0]
+                    .glyphs
+                    .iter()
+                    .map(|g| g.text.as_str())
+                    .collect::<String>(),
+                "XX"
+            );
+            assert_eq!(
+                lines[1]
+                    .glyphs
+                    .iter()
+                    .map(|g| g.text.as_str())
+                    .collect::<String>(),
+                "YY"
+            );
+        }
+        paragraph.white_space = WhiteSpace::PreWrap;
+        let runs = [TextRun {
+            text: "A\r\nB".into(),
+            style: paragraph.strut,
+        }];
+        let lines = wrap(&runs, &paragraph, Some(80), false);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].glyphs[0].text, "A");
+        assert_eq!(lines[1].glyphs[0].text, "B");
     }
 }

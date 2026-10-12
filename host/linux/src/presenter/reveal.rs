@@ -116,6 +116,19 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 
+    /// Keep `id` in view where the viewport ends sooner than it did (a
+    /// software keyboard rose under the field being edited): each scroll
+    /// container above it, then the page, moves only as far as it must, the
+    /// web's `scrollIntoView` with `nearest` on both axes.
+    pub(super) fn keep_in_view(&mut self, id: ViewId) {
+        self.scroll_into(id, |t, p| {
+            (
+                aligned("nearest", t.0, t.0 + t.2, p.0, p.2) - p.0,
+                aligned("nearest", t.1, t.1 + t.3, p.1, p.3) - p.1,
+            )
+        });
+    }
+
     /// Each scroll container above `id`, innermost first, then the page,
     /// moves by what `by(target, port)` asks (viewport coordinates), clamped
     /// to its travel.

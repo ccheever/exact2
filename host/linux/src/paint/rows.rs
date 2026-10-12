@@ -18,6 +18,8 @@ use exact_kernel::NodeKey;
 pub struct Dirty {
     hard: Vec<NodeKey>,
     moved: Vec<NodeKey>,
+    /// Nodes a commit bound to another item (LLP 1078).
+    renewed: Vec<NodeKey>,
 }
 
 impl Dirty {
@@ -26,6 +28,7 @@ impl Dirty {
         self.hard.extend(&r.touched);
         self.hard.extend(&r.created);
         self.hard.extend(&r.destroyed);
+        self.renewed.extend(&r.renewed);
     }
 
     /// A layout's moved frames, and paragraphs whose exclusions changed.
@@ -179,6 +182,18 @@ impl Painter {
                 self.rows.kept.get_mut(&row).expect("found").stale = true;
             }
         }
+        // A row bound to another item is a new row (LLP 1078): its kept
+        // recording is the other item's, and a backend told the row was that
+        // one draws it in the row's place until the new one is made. The
+        // Canvas reader did, for as long as no stream followed: a rebound
+        // row coming into view showed the item it had been, in a slot that
+        // item's height left short (easy at 3,000 dp/s toward the start: up
+        // to five frames, three times in two seconds).
+        for key in dirty.renewed {
+            if let Some(row) = self.rows.kept.remove(&key) {
+                self.rows.freed.push(row.id);
+            }
+        }
         let mut seen = IdSet::default();
         for key in dirty.moved {
             if !seen.insert(key) {
@@ -188,6 +203,13 @@ impl Painter {
                 self.rows.suspect.insert(row);
             }
         }
+    }
+
+    /// The backend has none of the kept rows any more (it is another one, or
+    /// its reader was made again): none is drawn from a recording and none
+    /// is freed, each is recorded again as a new row.
+    pub(crate) fn forget_rows(&mut self) {
+        self.rows = Rows::default();
     }
 
     /// At a walk's start: whether rows are kept this walk.
@@ -352,8 +374,13 @@ impl Painter {
         if let Some(dst) = object_fit(img.natural(), node.style.object_fit, content) {
             let shown = (walk.scene.presented)(node.id);
             let tint = image_tint(node, &shown, self.dark);
-            self.backend
-                .image(img, dst, &[Shape::rect(content), outer], ts, tint);
+            self.backend.image(
+                img,
+                img.placed(dst),
+                &[Shape::rect(content), outer],
+                ts,
+                tint,
+            );
         }
     }
 

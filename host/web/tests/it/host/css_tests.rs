@@ -215,8 +215,8 @@ fn the_transition_row_lowers_to_css_transition_and_springs_are_named() {
         "linear(0 0%,0.9 50%,1 100%)"
     );
     // This row is behind DerefMut; it cannot be a StyleProps initializer.
-    #[allow(clippy::field_reassign_with_default)]
     let mut s = exact_kernel::StyleProps::default();
+    #[allow(clippy::field_reassign_with_default)]
     s.transition = rows;
     s.mask.set(exact_kernel::StyleId::Transition);
     let (css, skipped) = css_text(&s, &[]);
@@ -323,6 +323,19 @@ fn relative_lengths_are_pixels_live_and_units_ahead_of_time() {
         assert!(live.contains(&live_decl), "{live_decl} in {live}");
         assert!(ahead.contains(&ahead_decl), "{ahead_decl} in {ahead}");
     }
+}
+
+/// LLP 1115 D3: a text style is the ramp's pixels live, and the ramp's size
+/// at CSS's `medium` in `rem` ahead of time, so the browser's root scales it.
+#[test]
+fn a_text_style_is_pixels_live_and_rem_ahead_of_time() {
+    use exact_kernel::{StyleId, StyleProps, StyleValue};
+    let mut s = StyleProps::default();
+    s.set_dynamic(StyleId::FontSize, &StyleValue::Text("-exact-title1".into()))
+        .unwrap();
+    assert!(css_text(&s, &[]).0.contains("font-size:27px;"));
+    let ahead = exact_web::css::css_text_relative(&s, &[]).0;
+    assert!(ahead.contains("font-size:1.6875rem;"), "{ahead}");
 }
 
 /// LLP 1001 §2 (2026-10-07): a `min()`, `max()` or `clamp()` length lowers to

@@ -2,9 +2,11 @@
 // alertdialog popover of the chooser's shape ("The chooser": actions, at most
 // one hide-only cancel, text rows as its message), popped up against its
 // invoker by its `position-area` (ChooserMac.swift); a picked item presses on
-// the next turn, once. Other popovers move their actual subtree into
+// the next turn, once. One in the alert shape (text, a cancel, at most three
+// buttons) is `NSAlert` instead, under the agent too (LLP 1115.000 D7.6,
+// AlertsMac.swift). Other popovers move their actual subtree into
 // the session's top layer, including native editors. The agent uses that
-// same painted presentation for every shape.
+// same painted presentation for every shape but the alert.
 #if os(macOS)
 import AppKit
 
@@ -159,6 +161,10 @@ final class MenuHost: NSObject {
         let ancestor = entries.last { contains($0.popover, source) || contains($0.popover, pop) }
         while let last = entries.last, last !== ancestor { close(last.popover, restoreFocus: false) }
         guard live(pop), live(source), connected(pop), connected(source) else { return }
+        // A confirmation in the alert shape is the platform's alert, a sheet
+        // on the window (LLP 1115.000 D7.6, AlertsMac.swift); a chooser is
+        // the menu below.
+        if isConfirmation(pop), presenter.alerts.isOpen(pop) || presenter.alerts.present(pop, from: source) { return }
         let entry = Entry(pop, source: source, previous: focusOwner(window))
         presentations[pop.id, default: 0] += 1
         revalidate()
@@ -327,8 +333,14 @@ final class MenuHost: NSObject {
             if event.type == .keyUp { escapeHeld = false }
             return true
         }
-        guard let owner = focusOwner(window), let viewport = presenter?.viewport,
-              owner === viewport || owner.isDescendant(of: viewport) else { return false }
+        // The focus in this session's viewport, or in no view (the window
+        // itself, after `blur()`) when this session hears the window's keys:
+        // the web's close request reaches an auto popover with BODY focused,
+        // and of several sessions in the window one takes it.
+        guard let viewport = presenter?.viewport else { return false }
+        if let owner = focusOwner(window) {
+            guard owner === viewport || owner.isDescendant(of: viewport) else { return false }
+        } else if presenter?.session?.view?.ownsShortcutFocus() == false { return false }
         guard let last = entries.last, (window.firstResponder as? NSTextInputClient)?.hasMarkedText() != true else { return false }
         if event.type == .keyDown, !event.isARepeat {
             escapeHeld = true

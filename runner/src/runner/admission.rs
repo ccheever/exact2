@@ -5,11 +5,85 @@ use crate::failure::Failure;
 use crate::FailureKind;
 
 impl<D: DataSource> Runner<D> {
+    /// Ask `which` resources again in one commit — what a host fact that
+    /// changed does, such as the delivery facts `set_delivery` hands the
+    /// runner (LLP 1030 D7). A refusal puts the store, the slots, and every
+    /// settled resource back as they were, and fails what was owed an ask
+    /// ([`Runner::commit_again`]). `None` when the list is empty — there
+    /// was nothing to ask.
+    pub(super) fn recommit(
+        &mut self,
+        which: Vec<usize>,
+        what: &str,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
+        if which.is_empty() {
+            return Ok(None);
+        }
+        self.commit_again(which, what).map(Some)
+    }
+
+    /// [`Runner::recommit`]'s one commit, even when it asks nothing again:
+    /// a pending set that changed outside a commit still reaches the view.
+    /// When it is refused for a reason other than an answer (the app's own
+    /// gate, a derive) while reconciling asks are owed, those resources are
+    /// marked failed, keeping what they show, and a further commit publishes
+    /// that; `refresh` asks them again, as after a failed reply. Asking them
+    /// at every later commit would refuse each one.
+    pub(super) fn commit_again(
+        &mut self,
+        which: Vec<usize>,
+        what: &str,
+    ) -> Result<CommitReceipt, RunnerError> {
+        let what = format!("{what} ({} asked again)", which.len());
+        let was_poisoned = self.poisoned;
+        let checkpoint = self.checkpoint(false);
+        self.refresh_next.extend(which);
+        let result = if self.poisoned {
+            Err(RunnerError::Poisoned)
+        } else {
+            self.settle(false)
+                .and_then(|_| self.gate_step())
+                .and_then(|_| self.update())
+        };
+        self.conclude(checkpoint, &result, was_poisoned);
+        self.arm_next(result.is_ok());
+        self.log_outcome(&what, &result, was_poisoned);
+        match result {
+            Err(e) if !self.poisoned && !self.reconciling.is_empty() => {
+                let owed = std::mem::take(&mut self.reconciling);
+                self.give_up(&owed, &e);
+                self.commit_again(Vec::new(), "the reads a refused commit owed")
+            }
+            result => result,
+        }
+    }
+
+    /// Marks each resource in `owed` failed, with the refusal as the
+    /// reason: it keeps what it shows and is not asked again until `refresh`.
+    pub(super) fn give_up(&mut self, owed: &[usize], why: &RunnerError) {
+        for &i in owed {
+            self.failed_args[i] = self.resources[i].as_ref().map(|s| s.args.clone());
+            self.failed_why[i] = Some(Failure::error(format!(
+                "the commit that asked it again was refused: {why:?}"
+            )));
+            self.awaiting[i] = false;
+            self.refresh_next.retain(|r| *r != i);
+            // An older ask still in flight would answer over the failure
+            self.forget_ticket(Target::Resource(i));
+        }
+        self.sync_pending_flags();
+    }
+
     /// Record a host admission refusal on a still-current ticket. Repeating
     /// refusals cannot grow a queue: there is at most one ticket per target.
     pub fn refuse_request(&mut self, ticket: u64, reason: &'static str, ordered: bool) {
         if let Some(pending) = self.pending.iter_mut().find(|p| p.ticket == ticket) {
             pending.refusal = Some((reason, ordered));
+        } else if self.is_background(ticket) {
+            // The module's background round: settled through its own
+            // completion, so its ticket is let go and, if ordered, the host's
+            // fence lifts once it has (a host would otherwise wait on it).
+            self.background.refusal = Some((ticket, reason, ordered));
         }
     }
 
@@ -23,10 +97,24 @@ impl<D: DataSource> Runner<D> {
         if let Some(settled) = crate::auth::take_any_settled(self) {
             return Some(settled);
         }
-        let pending = self.pending.iter_mut().find(|p| {
+        let at = self.pending.iter().position(|p| {
             p.refusal
                 .is_some_and(|(_, ordered)| !ordered || allow_ordered)
-        })?;
+        });
+        // The background round's refusal, in its turn among the others.
+        if let Some((ticket, reason)) = self.background_refusal(allow_ordered) {
+            if at.is_none_or(|at| ticket < self.pending[at].ticket) {
+                self.background.refusal = None;
+                return Some((
+                    ticket,
+                    Outcome::Failed {
+                        kind: FailureKind::Refused,
+                        message: reason.into(),
+                    },
+                ));
+            }
+        }
+        let pending = &mut self.pending[at?];
         let (reason, ordered) = pending.refusal.take().unwrap();
         pending.refused = ordered;
         Some((
@@ -52,11 +140,11 @@ impl<D: DataSource> Runner<D> {
         target: Target,
         why: Failure,
     ) -> Result<Option<CommitReceipt>, RunnerError> {
-        let (failed_args, ask_again) = self
+        let (failed_args, ask_again, write) = self
             .pending
             .iter()
             .find(|p| p.ticket == ticket)
-            .map(|p| (Some(p.args.clone()), p.ask_again))
+            .map(|p| (Some(p.args.clone()), p.ask_again, p.write))
             .unwrap_or_default();
         self.pending.retain(|p| p.ticket != ticket);
         self.forgot = true;
@@ -77,7 +165,11 @@ impl<D: DataSource> Runner<D> {
                 }
                 "it keeps its last value"
             }
-            Target::Mutation(_) => "it is not retried",
+            Target::Mutation(m) => {
+                // Its write ends, and what it showed in is asked again.
+                self.end_write(m, write);
+                "it is not retried"
+            }
         };
         let what = format!("request {ticket} ({name}) failed and is no longer pending: {next}");
         self.log(what.clone());
@@ -89,14 +181,19 @@ impl<D: DataSource> Runner<D> {
 
     /// The host must keep later ordered admissions behind these refusals.
     pub fn has_ordered_request_refusals(&self) -> bool {
-        self.pending
-            .iter()
-            .any(|p| p.refusal.is_some_and(|(_, ordered)| ordered))
+        self.background
+            .refusal
+            .is_some_and(|(ticket, _, ordered)| ordered && self.is_background(ticket))
+            || self
+                .pending
+                .iter()
+                .any(|p| p.refusal.is_some_and(|(_, ordered)| ordered))
     }
 
     /// More refused admissions need a future host pump.
     pub fn has_request_refusals(&self, allow_ordered: bool) -> bool {
         self.auth.has_settled_for(|t| self.holds(t))
+            || self.background_refusal(allow_ordered).is_some()
             || self.pending.iter().any(|p| {
                 p.refusal
                     .is_some_and(|(_, ordered)| !ordered || allow_ordered)

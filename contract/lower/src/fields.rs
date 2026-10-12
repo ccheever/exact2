@@ -41,6 +41,18 @@ fn field(tag: &str, attrs: &[Attr]) -> bool {
     }
 }
 
+/// `outline="none"` takes a text field's focus ring off (LLP 1104 D6), and
+/// only a text field's: no host removes another element's ring yet (a
+/// button's, a checkbox's, a `tabindex` box's), so the name is refused there
+/// rather than honoured on the web alone. A Markdown editor is a `textarea`.
+pub(crate) fn outline_refusal(name: &str, tag: &str, control: Option<&str>) -> Option<String> {
+    let field = control == Some("field") || tag == "textarea";
+    (matches!(name, "outline" | "outline-style") && !field).then(|| {
+        let what = control.filter(|_| tag == "input").map_or(format!("`{tag}`"), |c| format!("an `input` of type `{c}`"));
+        format!("`{name}` takes a text field's focus ring off (`input` of a text type, `textarea`), and nothing else's yet: no host removes the ring of {what}")
+    })
+}
+
 /// CSS UI 4 §7.2.1's appearance-disabling longhands that Contract has.
 pub(crate) fn disables(id: StyleId) -> bool {
     use StyleId::*;
@@ -124,12 +136,15 @@ impl Lowerer<'_> {
                 });
             }
         }
-        if !native || (explicit.is_none() && !rows.is_empty()) {
-            bindings.push(BindingsRow {
-                kind: BindingKind::Style,
-                id: StyleId::Appearance as u16,
-                expr: self.fixed(true, "none"),
-            });
+        // A field that is never native whose author wrote `appearance="none"`
+        // already has that row, and it is the author's (LLP 1115.000 D2): an
+        // implied one after it would win and take the bit off.
+        let said = !native
+            && appearance
+                .is_some_and(|a| a.written && matches!(&a.value, Expr::Str(v, _) if v == "none"));
+        if (!native && !said) || (native && explicit.is_none() && !rows.is_empty()) {
+            let none = self.fixed(true, "none");
+            bindings.push(crate::style_row(StyleId::Appearance, none, crate::IMPLIED));
         }
         Ok(())
     }

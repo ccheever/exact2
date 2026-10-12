@@ -196,6 +196,16 @@ impl Collection {
     /// rebound 14 rows of 72). The next row the window needs takes the
     /// farthest of them, and a turn back finds them as they were. The rest,
     /// and every one without `hold`, are destroyed.
+    ///
+    /// A slice that leaves `more` rows of its window for the next holds as
+    /// many of them, however far: they are those rows. Travel of more than a
+    /// viewport between passes (a window that leads, a pass each sixth step
+    /// at 24,000 dp/s) takes the rows behind it two viewports past the port
+    /// before a pass sees them, so they all retire in the first slice, which
+    /// builds only its limit: the rest were destroyed there, and the slices
+    /// after it built their rows from nothing (easy at 24,000 dp/s: 135
+    /// builds in 661 mounts, against 18 without a lead).
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn build_needed(
         &mut self,
         u: &mut Update<'_>,
@@ -203,6 +213,7 @@ impl Collection {
         mut retiring: Vec<Mounted>,
         mut kept: Vec<(f64, String, Mounted)>,
         hold: Option<(f64, f64)>,
+        more: usize,
         frames: &[Frame],
     ) -> Result<Vec<(f64, String, Mounted)>, InstanceError> {
         let mut gone = Vec::new();
@@ -239,6 +250,11 @@ impl Collection {
             .take(HOLD)
             .take_while(|m| hold.is_some() && far(self, m) <= reach)
             .count();
+        let held = if hold.is_some() {
+            held.max(more.min(spares.len()))
+        } else {
+            held
+        };
         for mut mounted in spares.drain(..held) {
             mounted.held = true;
             let text = super::super::ident(&mounted.row.key, mounted.row.dup).expect("validated");

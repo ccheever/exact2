@@ -71,7 +71,8 @@ pub struct NodeArena {
     /// node's own space (width, height), Taffy's `content_size`.
     contents: Vec<(f32, f32)>,
     /// Host intrinsic size: a replaced element's natural size or a projected
-    /// tablist's native control size; `None` before measurement or after removal.
+    /// tablist's or radio group's native control size; `None` before
+    /// measurement or after removal.
     intrinsic: Vec<Option<(f32, f32)>>,
     /// What a host container covers of a box (LLP 1075.003 §3.5): a few
     /// route nodes at most, so a list by slot rather than a column (and not a
@@ -89,6 +90,9 @@ pub struct NodeArena {
     control_styles: Option<Box<[StyleProps; 10]>>,
     pub(crate) field_content: IdMap<u32, Frame>,
     pub(crate) button_bases: IdMap<u32, Option<f32>>,
+    /// The scale each fitted paragraph's last layout chose, below 1 only
+    /// (`-exact-fit: shrink`, LLP 1116.001 D1.4; `layout::fit`).
+    pub(crate) fit_scales: IdMap<u32, f32>,
     pub(crate) document_language: String,
     pub(crate) document_style: StyleProps,
     // Current metadata only: O(arena slot high-water), never revision history.
@@ -137,6 +141,7 @@ impl Clone for NodeArena {
             control_styles: self.control_styles.clone(),
             field_content: self.field_content.clone(),
             button_bases: self.button_bases.clone(),
+            fit_scales: self.fit_scales.clone(),
             document_language: self.document_language.clone(),
             document_style: self.document_style.clone(),
             text_revisions: vec![TextRevisions::default(); self.text_revisions.len()],
@@ -186,6 +191,7 @@ impl NodeArena {
         self.renew_text_namespace();
         self.field_content.clear();
         self.button_bases.clear();
+        self.fit_scales.clear();
         self.flow.clear();
         self.exclusion_slots.clear();
         self.frag = Default::default();
@@ -619,11 +625,30 @@ impl NodeArena {
     /// (the UA sheet's `pre` and `pre-wrap`), so a collapsing row preserves here.
     /// @ref LLP 1053 §0 G5
     pub fn paragraph(&self, slot: u32) -> crate::text::Paragraph {
+        self.paragraph_at(slot, self.fit_scale(slot))
+    }
+
+    /// The scale a fitted paragraph is drawn at, as its last layout chose
+    /// it (LLP 1116.001 D1.4): 1 for any other node. An inline run's is its
+    /// paragraph's.
+    pub fn fit_scale(&self, slot: u32) -> f32 {
+        if self.fit_scales.is_empty() {
+            return 1.0;
+        }
+        let owner = self.measure_owner(slot);
+        self.fit_scales.get(&owner).copied().unwrap_or(1.0)
+    }
+
+    /// [`Self::paragraph`] at `scale` of its size, its strut included.
+    pub(crate) fn paragraph_at(&self, slot: u32, scale: f32) -> crate::text::Paragraph {
         let mut paragraph =
             crate::text::Paragraph::from_rows(&self.styles[slot as usize], |rows, take| {
                 self.copy_inherited(slot, rows, take)
             });
         paragraph.markup = self.markup(slot);
+        if scale != 1.0 {
+            paragraph.strut = paragraph.strut.scaled(scale);
+        }
         if self.node_types[slot as usize] == NodeType::TextInput
             && !paragraph.white_space.model().preserves()
         {
@@ -639,7 +664,14 @@ impl NodeArena {
     /// painter (LLP 1064 D5) — except a field's, which shows what was typed
     /// (the web's form controls reset the row), and Markdown source, which a
     /// host expands itself.
+    /// A fitted paragraph's runs are at the scale its layout chose.
     pub fn text_runs<'a>(&'a self, slot: u32, out: &mut Vec<TextRun<'a>>) {
+        self.text_runs_at(slot, self.fit_scale(slot), out);
+    }
+
+    /// [`Self::text_runs`] at `scale` of their size (a fit's measurement).
+    pub(crate) fn text_runs_at<'a>(&'a self, slot: u32, scale: f32, out: &mut Vec<TextRun<'a>>) {
+        let start = out.len();
         let rows = crate::text::RunRows::from_rows(&self.styles[slot as usize], |rows, take| {
             self.copy_inherited(slot, rows, take)
         });
@@ -649,6 +681,11 @@ impl NodeArena {
             out,
             &mut crate::text::case::WordBoundary::default(),
         );
+        if scale != 1.0 {
+            for run in &mut out[start..] {
+                run.style = run.style.scaled(scale);
+            }
+        }
     }
 
     fn text_runs_after<'a>(
@@ -838,6 +875,7 @@ impl NodeArena {
         self.frag.forget(slot);
         self.relative_slots.remove(slot);
         self.button_bases.remove(&slot);
+        self.fit_scales.remove(&slot);
         self.sticky_slots.remove(slot);
         self.layout_dirty.remove(slot);
         self.flow.remove(&slot);
@@ -1205,6 +1243,7 @@ mod tests {
             (StyleId::MarkerMid, text("url(#a)")),
             (StyleId::MarkerEnd, text("url(#a)")),
             (StyleId::ColorInterpolationFilters, text("sRGB")),
+            (StyleId::TextBoxEdge, text("cap-alphabetic")),
         ];
         let mut covered = StyleMask::EMPTY;
         for (id, value) in samples {

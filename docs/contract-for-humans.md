@@ -1,8 +1,9 @@
 # Contract: a guide for humans
 
 Contract describes an application's interface, state, and interactions. Exact
-compiles it for the web and native hosts. You write the view once; CSS names and
-web behavior are the default across those hosts. Network access, persistent
+compiles it for the web and native hosts. You write the view once, in CSS's names
+and layout; what you leave unsaid (controls, colour, type, how a press or a scroll
+feels) is each platform's own (LLP 1115). Network access, persistent
 storage, and substantial computation belong in a TypeScript or Rust data module.
 
 This guide describes the implementation on `main` on 2026-10-02, including
@@ -94,12 +95,12 @@ component Counter
   action reset
     count = 0
   view
-    column padding=24 gap=12
-      text `Count: ${count}` testId="count" font-size=24
+    column gap=12
+      text `Count: ${count}` role="heading" aria-level=1 testId="count"
       row gap=8
-        button press=increment testId="increment" padding=12
+        button press=increment testId="increment"
           text "Add one"
-        button press=reset testId="reset" padding=12
+        button press=reset testId="reset"
           text "Reset"
 ```
 
@@ -189,9 +190,9 @@ logical line. Element attributes may continue on deeper-indented lines:
 
 ```text
 text title
-  font-size=24
-  font-weight=700
-  color="#243044"
+  role="heading"
+  aria-level=2
+  color="-exact-secondary-label"
 ```
 
 An attribute continuation starts with `name=`. A child starts with a tag or a
@@ -289,8 +290,9 @@ component Snapshot
       text `${count}/${observed}` testId="value"
 ```
 
-After the first press, the text is `1/0`. The local `before` saw the old count.
-To reuse a newly computed value, compute it once first:
+After the first press, the text is `1/0`. The local `before` saw the old count,
+and the compiler warns of the read (`analyze-read-after-assign`). To reuse a newly
+computed value, compute it once first:
 
 ```text
 action step
@@ -376,7 +378,7 @@ inside parentheses. The compiler checks tags, attributes, leaf-node children,
 and handler signatures.
 
 ```text
-text "Heading" font-size=24
+text "Heading" role="heading"
 image "/assets/photo.jpg" width=120 height=80 object-fit="cover"
 Card(title="Heading", selected=selected)
 ```
@@ -477,7 +479,7 @@ and a descendant's typed `inject` section:
 ```contract
 component App
   provide
-    accent = "#3355aa"
+    accent = "-exact-system-indigo"
   view
     Label(title="Hello")
 
@@ -506,7 +508,7 @@ component App
 component Card
   slot
   view
-    column padding=16 border-radius=12 background-color="#eeeeee"
+    column padding=16 border-radius=12 background-color="-exact-secondary-background"
       children
 ```
 
@@ -566,9 +568,10 @@ component Items
       text notice testId="notice"
 ```
 
-The `refreshes items` clause re-reads `items` when the mutation is sent (an answer
-the source gives at once shows immediately) and forces it again when the reply
-lands. `then afterSave` runs a parameterless action in its own commit at the
+The `refreshes items` clause asks `items` again when the reply lands. To show the
+save before then, the data module exports an `overlay` for `loadItems` (the [agent
+guide](contract-for-agents.md#optimistic-writes-the-overlay) has the pattern).
+`then afterSave` runs a parameterless action in its own commit at the
 host's next clock advance, once for every answer that landed before it, so it
 reads the latest answer (the agent driver lands it at the end of the input
 that settled the answer). It does not run for a failure that brought no answer,
@@ -706,8 +709,8 @@ component ReadingList
         notice = ""
   view
     column padding=24 gap=12
-      text "Reading list" font-size=28 font-weight=700
-      text quote.text color="#6b7280" testId="quote"
+      text "Reading list" role="heading" aria-level=1
+      text quote.text color="-exact-secondary-label" testId="quote"
       row gap=8
         input value=draft input=edit submit=add placeholder="A book" aria-label="New book" testId="title" flex=1
         button press=add testId="add"
@@ -908,7 +911,7 @@ A reusable `style` contains literal style values:
 ```contract
 style Panel
   padding=16 gap=8 border-radius=12
-  background-color="#f0f2f5"
+  background-color="-exact-secondary-background"
 
 component App
   view
@@ -963,8 +966,15 @@ one, as a radiogroup names itself by its visible heading) wins over `aria-label`
 this one) and `aria-description` are its description. `aria-invalid`,
 `aria-required`, `aria-haspopup` and `aria-current` (a navigation link's
 `"page"`, a wizard's `"step"`) take their ARIA words or a bool; UIKit has no
-property for those four, so iOS exposes none of them.
-Font sizes, touch targets, focus behavior, and contrast remain author decisions.
+property for those four, so iOS exposes none of them. A drawn range —
+`role="progressbar"`, `"slider"`, `"meter"`, `"scrollbar"` or `"spinbutton"` —
+takes `aria-valuenow`, `aria-valuemin` and `aria-valuemax` (numbers; ARIA's 0
+and 100 where a bound is unsaid) and `aria-valuetext`: it is one element, its
+children unread, and its value is the platform's (UIKit's `accessibilityValue`
+as a percentage, "30%", or the text; AppKit's value, minimum and maximum, the
+text its description). A `progress` or `input type="range"` says its own value.
+Leave font sizes, colours and control metrics unsaid and the platform supplies them;
+what you set on a node wins.
 
 Declare bundled fonts at file scope:
 
@@ -1020,8 +1030,8 @@ keeps it from its ancestors' `key` handlers with `stopPropagation()`
 
 The complete event inventory and payload groups are in the
 [event reference](contract-grammar.md#events). HTML controls include `select` and
-`option`, and `progress` with no `value`, the platform's activity indicator
-([activity](contract-grammar.md#activity-progress)); inspect [the control tests](../contract/cli/tests/it/controls.rs) for
+`option`, and `progress`: with `value` and `max` the platform's progress bar,
+with no `value` its activity indicator ([progress](contract-grammar.md#progress-progress)); inspect [the control tests](../contract/cli/tests/it/controls.rs) for
 the checkbox/switch, radio, range, select and date/time conventions instead of
 assuming a browser Event object. `input type="radio"` is HTML's: the radios of
 one `name` are a group, exclusive, and the arrow keys move the check among them.
@@ -1185,14 +1195,16 @@ component App
   view
     main navigationKey=`${current.id}` navigationBack="back" navigate=followLink width="100%" height="100%"
       each e in stack(nav) key=e.id
-        column navigationKey=`${e.id}` position="absolute" inset=0 gap=8 background-color="#ffffff"
-          text e.name testId=`route-${e.id}`
+        column navigationKey=`${e.id}` position="absolute" inset=0 gap=8
+          header
+            when e.name == "item"
+              button id="back" press=back testId=`back-${e.id}`
+                text "Back"
+            text e.name role="heading" aria-level=1 testId=`route-${e.id}`
           when e.name == "item"
             text e.params.id
           button press=showItem testId=`open-${e.id}`
             text "Open item"
-          button id="back" press=back testId=`back-${e.id}`
-            text "Back"
 ```
 
 A navigation stack is built this way: one row per entry of `stack(nav)`, keyed by
@@ -1295,8 +1307,9 @@ keeps no host awake. The action runs at the deadline exactly, so it clears the
 toast without testing the time again. Gates and keys read state, never `performanceNow()`
 (LLP 1092).
 
-`performanceNow()` reads milliseconds since boot on the runner's clock (the driver's clock
-under the agent); it is not a date. For the date, read the reserved `exactTime`
+`performanceNow()` reads milliseconds since this launch of the app on the runner's clock (it
+restarts at 0 on every launch; the driver's clock under the agent); it is not a date, and
+anything stored or sent takes `time.epochAtZero + performanceNow()` instead. For the date, read the reserved `exactTime`
 source and add `time.epochAtZero + performanceNow()`. There is no `now()`; the
 compiler refuses it and names both. Advancing the clock alone does not
 necessarily trigger rendering: a derive using `performanceNow()` reevaluates when a later

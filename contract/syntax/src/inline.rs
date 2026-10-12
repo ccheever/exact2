@@ -237,6 +237,7 @@ fn expand_with_sites(
         provides: source.provides.clone(),
         slot: source.slot,
         states: source.states.clone(),
+        persist: source.persist.clone(),
         derives: source.derives.clone(),
         resources: source.resources.clone(),
         mutations: source.mutations.clone(),
@@ -774,6 +775,7 @@ fn inline_nodes(
                         name: a.name.clone(),
                         value: subst_expr(&a.value, subst),
                         span: a.span,
+                        written: a.written,
                     })
                     .collect(),
                 children: inline_nodes(children, subst, ctx)?,
@@ -865,6 +867,7 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
                         name: a.name.clone(),
                         value: renamed_locals(&a.value, map),
                         span: a.span,
+                        written: a.written,
                     })
                     .collect(),
                 children: rename_nodes(children, map, n),
@@ -884,6 +887,7 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
                         name: a.name.clone(),
                         value: renamed_locals(&a.value, map),
                         span: a.span,
+                        written: a.written,
                     })
                     .collect(),
                 children: rename_nodes(children, map, n),

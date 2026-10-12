@@ -25,6 +25,14 @@ extension NodeView {
         if case .object(let o) = row, o["sys"]?.string == "@tint" { return nil }
         return channels("tint_color").map(TextEngine.color)
     }
+    /// Whether a colour row is the platform's accent (`AccentColor`, iOS's
+    /// inherited `tintColor`) rather than a colour of its own. An unset
+    /// `tint-color` is its initial value, `AccentColor`.
+    package func followsTint(_ key: String) -> Bool {
+        guard let row = style[key] else { return key == "tint_color" }
+        guard case .object(let o) = row else { return false }
+        return o["sys"]?.string?.hasPrefix("@tint") == true
+    }
     /// The accent a `nil` `symbolTint` follows, for an API that needs a colour.
     var inheritedTint: PlatformColor {
         #if os(iOS) || os(tvOS)

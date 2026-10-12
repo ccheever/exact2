@@ -1,0 +1,43 @@
+// `state … persist` (LLP 1116 D5): a persisted state starts from the
+// device's store where it holds a value of the state's type, else from its
+// initializer; after every commit that stands the store holds the state's
+// value (each step's `store` lines). A test starts from an empty store;
+// the `(stored)` variant runs the same steps on one the oracle fills.
+component App
+  state tip = 18 persist
+  state units = "C" persist
+  state last = none persist
+  state recent = [1] persist
+  state zero = 0
+  derive shown = `${tip}% ${units}`
+  action more
+    tip = tip + 1
+  action toggle
+    units = units == "C" ? "F" : "C"
+    last = some(units)
+  action push
+    recent = concat(recent, [tip])
+  action refuse
+    tip = 99
+    zero = 1 / zero
+  view
+    column
+      text shown testId="shown"
+      button "more" press=more testId="more"
+      button "toggle" press=toggle testId="toggle"
+      button "push" press=push testId="push"
+      button "refuse" press=refuse testId="refuse"
+
+test "the store follows the state"
+  expect text "shown" == "18% C"
+  tap "more"
+  tap "toggle"
+  tap "push"
+  expect state tip == 19
+  expect state units == "F"
+
+test "a refused commit keeps nothing"
+  tap "refuse"
+  expect state tip == 18
+  tap "more"
+  expect state tip == 19

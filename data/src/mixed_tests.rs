@@ -495,6 +495,7 @@ fn run(dispatch: Dispatch) -> Outcome {
             rx.recv_timeout(std::time::Duration::from_secs(5))
                 .expect("a reply")
         }
+        Dispatch::Again => Dispatch::again_outcome(),
         Dispatch::Held => panic!("held"),
         Dispatch::Host(_) => panic!("host"),
         Dispatch::Missing => panic!("missing"),
@@ -523,7 +524,7 @@ fn a_worker_child_orders_every_member_that_shares_a_secret_and_commits_through_p
     assert_eq!(mixed.placement(), Placement::Worker);
     let mut store = Store::new(
         "secret.keep js\nsecret.keep rust\nsecret.keep shared",
-        [("shared".to_string(), "before".to_string())],
+        [("shared".to_string(), "before".into())],
     );
     // Nothing ran at `answer`: both calls are recorded, both answer later.
     let a = token(mixed.answer(&mut store, "jssecret", &[]).unwrap());
@@ -659,7 +660,7 @@ fn a_placed_source_runs_its_turns_on_its_own_thread_and_the_runner_commits_them(
     assert_eq!(placed.placement(), Placement::Worker);
     let mut store = Store::new(
         "secret.keep rust\nsecret.keep shared",
-        [("shared".to_string(), "s".to_string())],
+        [("shared".to_string(), "s".into())],
     );
     let arg = Value::str("arg");
     let t = token(
@@ -1437,4 +1438,26 @@ fn a_loading_pair_wakes_once_when_either_loading_half_finishes() {
         fire(second);
         assert_eq!(wakes.load(Ordering::SeqCst), 1, "one wake for the pair");
     }
+}
+
+#[test]
+fn a_worker_child_s_overlay_shows_the_answer_and_says_so_once() {
+    let mut mixed = Mixed::new(
+        Proxy::new(Source::new("js")),
+        Source::new("rust"),
+        &["jssecret", "js"],
+        &["rustsecret", "rust"],
+    )
+    .unwrap();
+    assert_eq!(mixed.placement(), Placement::Worker);
+    for _ in 0..2 {
+        let shown = mixed.overlay("jssecret", &[], &Value::str("answer"), &[]);
+        assert!(matches!(shown, Ok(None)));
+    }
+    let told: Vec<String> = mixed
+        .take_logs()
+        .into_iter()
+        .filter(|l| l.starts_with("overlay: jssecret"))
+        .collect();
+    assert_eq!(told.len(), 1, "{told:?}");
 }

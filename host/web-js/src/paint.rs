@@ -202,8 +202,8 @@ pub fn binding(plan: &Plan, kind: NodeType, b: &BindingsRow) -> Option<(String, 
                 .filter_map(|name| {
                     let transition = exact_motion::Transitions::parse(name).ok()?;
                     // This row is behind DerefMut; it cannot be a StyleProps initializer.
-                    #[allow(clippy::field_reassign_with_default)]
                     let mut style = StyleProps::default();
+                    #[allow(clippy::field_reassign_with_default)]
                     style.transition = transition;
                     style.mask.set(StyleId::Transition);
                     Some((name, own(&style).policy))

@@ -6,7 +6,7 @@ mod caltrain;
 
 #[test]
 fn browser_fixture_serves_every_on_demand_host_module_without_chrome() {
-    let result = Command::new("bun")
+    let result = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .args(["--input-type=module", "-e", PROBE])
         .env("EXACT_MODULE_ROUTES_ONLY", "1")
         .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
@@ -31,7 +31,7 @@ fn browser_modules_guard_their_own_builtins_and_refuse_bad_candidates() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let ec_pair =
         exact_data::crypto::generate_p256(&exact_runner::Store::new("", []), true).unwrap();
-    let result = Command::new("bun")
+    let result = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .args(["--input-type=module", "-e", PROBE])
         .env("CHROME", chrome)
         .env(
@@ -1070,7 +1070,7 @@ fn browser_portable_storage_shares_fieldnotes_data_and_enforces_scope() {
         eprintln!("browser storage sweep unavailable: set CHROME");
         return;
     }
-    let result = Command::new("bun")
+    let result = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .args(["--input-type=module", "-e", PROTOCOL_PROBE])
         .env("CHROME", chrome)
         .env("EXACT_GRANT_SETS", grant_sets())

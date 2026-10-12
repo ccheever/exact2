@@ -18,6 +18,14 @@ use std::sync::{Arc, Mutex, RwLock};
 pub fn role(text: &str) -> Option<u8> {
     let text = text.trim();
     let lower = text.to_ascii_lowercase();
+    // The tint as the web writes it, `var(--exact-accent, <name>)`, reads
+    // back as the named role (`reference_css`).
+    if let Some(name) = lower
+        .strip_prefix("var(--exact-accent,")
+        .and_then(|rest| rest.strip_suffix(')'))
+    {
+        return role(name).filter(|&id| follows_accent(id));
+    }
     let exact = match lower.strip_prefix("var(--exact-") {
         Some(rest) => Some(&rest[..rest.find([',', ')'])?]),
         None => lower.strip_prefix("-exact-"),
@@ -111,6 +119,15 @@ static GENERATION: AtomicU64 = AtomicU64::new(0);
 /// The reported table's generation (see [`set_reported`]).
 pub fn reported_generation() -> u64 {
     GENERATION.load(Ordering::Acquire)
+}
+
+/// Whether a role is the tint itself (`@tint` on iOS, at full strength:
+/// `AccentColor`, `LinkText`), which resolves to the nearest `accent-color`
+/// a node or an ancestor sets, else the platform's (LLP 1116.001 D2), as
+/// UIKit's inherited `tintColor` does: iOS sets an authored accent as the
+/// view's tint, the web reads `--exact-accent`.
+pub fn follows_accent(id: u8) -> bool {
+    role_of(id).is_some_and(|r| r.ios == "@tint")
 }
 
 /// Whether a role is the app's tint (`@tint` on a platform: `AccentColor`,
@@ -304,7 +321,10 @@ pub fn parse_platform(text: &str) -> Option<ColorValue> {
 /// colour as is; an Exact role as `var(--exact-<role>, <fallback>)`, which a
 /// page's sheet may define (WebKit's own dynamic colour) and which reads
 /// back as the role; a `-exact-platform-color()` as its web colour, else its
-/// fallback, and on the wire as itself.
+/// fallback, and on the wire as itself. A role that is the tint
+/// ([`follows_accent`]) is the nearest `accent-color` for the browser,
+/// `var(--exact-accent, <name>)` (the custom property the web host writes
+/// beside `accent-color`), and its name on the wire.
 pub(crate) fn reference_css(out: &mut String, c: ColorValue, mode: ColorText) {
     match c {
         ColorValue::Role(id) => {
@@ -312,7 +332,11 @@ pub(crate) fn reference_css(out: &mut String, c: ColorValue, mode: ColorText) {
                 out.push_str("transparent");
                 return;
             };
-            if is_css_system(r) {
+            if is_css_system(r) && mode == ColorText::Css && follows_accent(id) {
+                out.push_str("var(--exact-accent, ");
+                out.push_str(r.name);
+                out.push(')');
+            } else if is_css_system(r) {
                 out.push_str(r.name);
             } else {
                 out.push_str("var(--exact-");
@@ -475,13 +499,28 @@ mod tests {
             ColorValue::parse_light_dark(&css),
             Some(ColorValue::Role(id))
         );
-        css.clear();
-        reference_css(
-            &mut css,
-            ColorValue::Role(role("LinkText").unwrap()),
-            ColorText::Css,
-        );
-        assert_eq!(css, "LinkText");
+        // The tint is the nearest accent for the browser, its name on the
+        // wire, and reads back as itself (LLP 1116.001 D2).
+        for name in ["LinkText", "AccentColor"] {
+            let tint = ColorValue::Role(role(name).unwrap());
+            css.clear();
+            reference_css(&mut css, tint, ColorText::Css);
+            assert_eq!(css, format!("var(--exact-accent, {name})"));
+            assert_eq!(ColorValue::parse_light_dark(&css), Some(tint));
+            css.clear();
+            reference_css(&mut css, tint, ColorText::Wire);
+            assert_eq!(css, name);
+        }
+        for name in ["Highlight", "CanvasText", "ButtonText"] {
+            css.clear();
+            reference_css(
+                &mut css,
+                ColorValue::Role(role(name).unwrap()),
+                ColorText::Css,
+            );
+            assert_eq!(css, name, "not the tint at full strength");
+        }
+        assert_eq!(role("var(--exact-accent, CanvasText)"), None);
     }
 
     #[test]

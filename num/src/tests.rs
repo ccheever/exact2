@@ -20,6 +20,19 @@ fn check(s: &str) {
     }
 }
 
+/// Runs `check` on every case, the cases split across the machine's cores.
+/// A sweep's cases are independent and drawn first, in order, so the sweep
+/// checks the same cases on any number of threads.
+pub(crate) fn par<T: Sync>(cases: &[T], check: impl Fn(&T) + Sync) {
+    let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
+    std::thread::scope(|scope| {
+        for chunk in cases.chunks(cases.len().div_ceil(threads).max(1)) {
+            let check = &check;
+            scope.spawn(move || chunk.iter().for_each(check));
+        }
+    });
+}
+
 /// xorshift64*: deterministic, dependency-free.
 struct Rng(u64);
 
@@ -174,33 +187,31 @@ fn boundaries_match_std() {
 #[test]
 fn printed_floats_read_back_as_std_reads_them() {
     let mut rng = Rng(0x9e37_79b9_7f4a_7c15);
+    let mut texts = Vec::new();
     for _ in 0..20_000 {
         let x = f64::from_bits(rng.next());
         if x.is_nan() {
             continue;
         }
-        for s in [
+        texts.extend([
             format!("{x}"),
             format!("{x:e}"),
             format!("{x:?}"),
             format!("{x:.3e}"),
             format!("{x:.25e}"),
-        ] {
-            check(&s);
-        }
+        ]);
         let y = f32::from_bits(rng.next() as u32);
         if y.is_nan() {
             continue;
         }
-        for s in [
+        texts.extend([
             format!("{y}"),
             format!("{y:e}"),
             format!("{y:.2e}"),
             format!("{y:.12e}"),
-        ] {
-            check(&s);
-        }
+        ]);
     }
+    par(&texts, |s| check(s));
 }
 
 #[test]
@@ -236,6 +247,7 @@ fn random_decimal_text_matches_std() {
 #[test]
 fn halfway_points_round_to_even_as_std_does() {
     let mut rng = Rng(0xdead_beef_cafe_f00d);
+    let mut texts = Vec::new();
     for _ in 0..20_000 {
         // An f64 mantissa m (53 bits) and the midpoint (2m + 1) * 2^(e - 1),
         // written exactly: an integer, or (2m + 1) * 5^j / 10^j.
@@ -249,7 +261,7 @@ fn halfway_points_round_to_even_as_std_does() {
             let digits = odd * 5u128.pow(j);
             format!("{digits}e-{j}")
         };
-        check(&text);
+        texts.push(text.clone());
         for tail in ["0000000000000000000001", "9999999999999999999999"] {
             let (mantissa, exp) = text.split_once('e').unwrap_or((&text, ""));
             let bumped = format!(
@@ -260,7 +272,7 @@ fn halfway_points_round_to_even_as_std_does() {
                     format!("e{exp}")
                 }
             );
-            check(&bumped);
+            texts.push(bumped);
         }
         // An f32 midpoint the same way.
         let m = (1u32 << 23) | (rng.next() as u32 >> 9);
@@ -272,8 +284,9 @@ fn halfway_points_round_to_even_as_std_does() {
             let j = (1 - e) as u32;
             format!("{}e-{j}", odd * 5u128.pow(j))
         };
-        check(&text);
+        texts.push(text);
     }
+    par(&texts, |s| check(s));
 }
 
 #[test]

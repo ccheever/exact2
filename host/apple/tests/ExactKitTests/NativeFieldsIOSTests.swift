@@ -10,7 +10,7 @@ final class NativeFieldsIOSTests: XCTestCase {
     // component Fieldless / view / box testId="fieldless" width=100 height=100
     // Compiled fixture has no data/module dependencies: preparation must still
     // supply a valid control environment even when no control is in the plan.
-    private var fieldlessPlan: Data { Data(base64Encoded: "RVhQTAUAAABnZf+ljAD4K0FuZh8Xnef/GA1E2ggCJPIAAAAA//////////8BAAAACQAAAGZpZWxkbGVzcxIAAAAEKAIAAAAAKAAAAAAAAABZQCgAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAQAAAAEAAAABAAAAAgAAAAEAAAADAAAAAQAAAAQAAAABAAAABQAAAAEAAAAGAAAAAQAAAAcAAAABAAAACAAAAAH/////Av////8D/////wT/////Bf////8G/////wf/////CP////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAD//////////wAAAAAAAAAAAwAAAAAAAAAAAAAA/////wMAAAAACwACAAAABgAAAAEAAAgAAAAKAAAAAQEACAAAAAoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==")! }
+    private var fieldlessPlan: Data { Data(base64Encoded: "RVhQTAUAAAAoP5pgsA4NjwMBWFudXAPqGA1E2ggCJPIAAAAA//////////8BAAAACQAAAGZpZWxkbGVzcxIAAAAEKAIAAAAAKAAAAAAAAABZQCgAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAQAAAAEAAAABAAAAAgAAAAEAAAADAAAAAQAAAAQAAAABAAAABQAAAAEAAAAGAAAAAQAAAAcAAAABAAAACAAAAAH/////Av////8D/////wT/////Bf////8G/////wf/////CP////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAD//////////wAAAAAAAAAAAwAAAAAAAAAAAAAA/////wMAAAAACwACAAAABgAAAAEBAAAIAAAACgAAAAEBAQAIAAAACgAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==")! }
 
     func testInitialSelectedPlanLaunchAndReplacementOfARunningFieldlessPlan() throws {
         let app = ExactApp.shared
@@ -72,11 +72,19 @@ final class NativeFieldsIOSTests: XCTestCase {
                     let exact = cache.answer(request, font: font)
                     XCTAssertEqual(exact.provisional, 0)
                     if kind != 3 {
-                        let control = UITextField()
-                        control.borderStyle = .roundedRect
+                        // A search field is UIKit's search field, its clear
+                        // button's room kept (LLP 1115).
+                        let control: UITextField
+                        if kind == 2 {
+                            let search = UISearchTextField()
+                            search.clearButtonMode = .always
+                            control = search
+                        } else {
+                            control = UITextField()
+                            control.borderStyle = .roundedRect
+                        }
                         control.font = font
                         control.isSecureTextEntry = kind == 1
-                        if kind == 2 { control.keyboardType = .webSearch }
                         control.text = "Hg"
                         XCTAssertGreaterThanOrEqual(exact.minimum_height, Float(font.lineHeight))
                         // Probe constrained frames independently of the cache,
@@ -153,6 +161,85 @@ final class NativeFieldsIOSTests: XCTestCase {
         field.applyStyle(["appearance": .string("none"), "padding_left": .number(10)])
         XCTAssertEqual(native.borderStyle, .none)
         XCTAssertEqual(native.frame, field.contentBox())
+    }
+    /// LLP 1115: a bare (`appearance="none"`) field's placeholder is UIKit's
+    /// `placeholderText`, which follows Increase Contrast, while the field's
+    /// `color` is not its own (§2, LLP 1115.000 D2): no row, or a colour its
+    /// author did not write on it, as the one a grouped list's row gives its
+    /// field. A colour written on the field is the ink its placeholder
+    /// mutes, the platform's label colour and the row's own colour included.
+    func testABareFieldsPlaceholderIsUIKitsUntilItsColourIsWritten() throws {
+        let session = ExactApp.shared.makeSession(label: "bare-field-placeholder")
+        defer { session.destroy() }
+        let row = NodeView(id: 2, kind: "view", presenter: session.presenter)
+        let field = NodeView(id: 1, kind: "input", presenter: session.presenter)
+        field.bounds = CGRect(x: 0, y: 0, width: 240, height: 44)
+        row.addSubview(field)
+        field.applyProps(set: ["placeholder": "Name"], clear: [])
+        let native = try XCTUnwrap(field.field)
+        func ink() -> UIColor? { native.attributedPlaceholder?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? UIColor }
+        let wrote: BatchValue = .array([.string("text_color")])
+        field.applyStyle(["appearance": .string("none")])
+        XCTAssertEqual(native.borderStyle, .none)
+        XCTAssertEqual(ink(), .placeholderText, "no colour row")
+        let label: BatchValue = .object(["sys": .string("labelColor"), "c": .array([.array([.number(0), .number(0), .number(0), .number(255)]), .array([.number(255), .number(255), .number(255), .number(255)])])])
+        field.applyStyle(["appearance": .string("none"), "text_color": label])
+        XCTAssertEqual(ink(), .placeholderText, "the label colour it was given is not a `color` its author wrote")
+        let rust: BatchValue = .array([.number(181), .number(86), .number(43), .number(255)])
+        row.applyStyle(["text_color": rust, "written": wrote])
+        field.applyStyle(["appearance": .string("none"), "text_color": rust])
+        XCTAssertEqual(ink(), .placeholderText, "the row's colour, inherited, is not the field's own")
+        func muted(_ want: [Double], _ why: String) throws {
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            XCTAssertTrue(try XCTUnwrap(ink()).getRed(&r, green: &g, blue: &b, alpha: &a))
+            for (got, want) in zip([r, g, b, a], want + [0.30]) { XCTAssertEqual(got, want, accuracy: 0.01, "\(why): \([r, g, b, a])") }
+        }
+        field.applyStyle(["appearance": .string("none"), "text_color": rust, "written": wrote])
+        try muted([181.0 / 255, 86.0 / 255, 43.0 / 255], "the row's colour, written on the field too, is its own ink")
+        field.applyStyle(["appearance": .string("none"), "text_color": .array([.number(43), .number(86), .number(181), .number(255)]), "written": wrote])
+        try muted([43.0 / 255, 86.0 / 255, 181.0 / 255], "the field's own ink, muted")
+        field.applyStyle(["appearance": .string("none"), "text_color": .array([.number(43), .number(86), .number(181), .number(255)])])
+        XCTAssertEqual(ink(), .placeholderText, "the same colour from a sheet (no word that its author wrote it) is not")
+    }
+    /// LLP 1115 wave 2: an in-content search field is `UISearchTextField`'s
+    /// look — its fill and magnifier behind the editing field, the text
+    /// clear of the magnifier, the clear button while editing where UIKit's
+    /// sits — and stops being one when its type or appearance changes.
+    func testSearchFieldIsUIKitsSearchField() throws {
+        let session = ExactApp.shared.makeSession(label: "native-search-field")
+        defer { session.destroy() }
+        let node = NodeView(id: 1, kind: "input", presenter: session.presenter)
+        node.bounds = CGRect(x: 0, y: 0, width: 300, height: 36)
+        node.applyProps(set: ["type": "search", "placeholder": "Search"], clear: [])
+        node.applyStyle(["font_size": .number(17)])
+        let probe = UISearchTextField(frame: node.bounds)
+        probe.font = .preferredFont(forTextStyle: .body)
+        probe.clearButtonMode = .always
+        probe.text = "Hg"
+        let content = probe.textRect(forBounds: node.bounds)
+        XCTAssertGreaterThan(content.minX, 20, "UIKit's text clears its magnifier")
+        node.applyFieldContent(["rect": [content.minX, content.minY, content.width, content.height].map(Double.init)])
+        let field = try XCTUnwrap(node.field)
+        let chrome = try XCTUnwrap(node.searchChrome)
+        XCTAssertEqual(field.borderStyle, .none, "the search chrome draws the field, not a rounded rect")
+        XCTAssertEqual(field.clearButtonMode, .whileEditing)
+        XCTAssertEqual(chrome.frame, field.frame)
+        XCTAssertFalse(chrome.isUserInteractionEnabled)
+        XCTAssertTrue(chrome.accessibilityElementsHidden)
+        XCTAssertNotNil(chrome.leftView, "the magnifier")
+        XCTAssertEqual(node.subviews.firstIndex(of: chrome).map { $0 < node.subviews.firstIndex(of: field)! }, true, "behind the field")
+        XCTAssertGreaterThan(field.textRect(forBounds: field.bounds).minX, chrome.leftViewRect(forBounds: field.bounds).maxX - 1, "the text clears the magnifier")
+        XCTAssertEqual(field.clearButtonRect(forBounds: field.bounds), chrome.clearButtonRect(forBounds: field.bounds))
+        XCTAssertLessThanOrEqual(field.textRect(forBounds: field.bounds).maxX, field.clearButtonRect(forBounds: field.bounds).minX + 1, "the text never runs under the clear button")
+        node.applyProps(set: ["type": "text"], clear: [])
+        XCTAssertNil(node.searchChrome)
+        XCTAssertEqual(field.borderStyle, .roundedRect)
+        XCTAssertEqual(field.clearButtonMode, .never)
+        node.applyProps(set: ["type": "search"], clear: [])
+        XCTAssertNotNil(node.searchChrome)
+        node.applyStyle(["appearance": .string("none")])
+        XCTAssertNil(node.searchChrome, "appearance: none is the author's field")
+        XCTAssertEqual(field.clearButtonMode, .never)
     }
     func testNativeTextareaExtendsTheFieldLookAndHonoursContentRect() throws {
         let session = ExactApp.shared.makeSession(label: "native-textarea-mappings")
