@@ -45,6 +45,8 @@ pub struct Llp {
     corpus: HashMap<String, Arc<OnceLock<Corpus>>>,
     /// The document open now, parsed: what a refusal falls back to.
     open: Option<(PathBuf, Document)>,
+    /// Query-independent `page` values for the document open now.
+    page_cache: Option<page::Cache>,
     /// Roots handed out as continuation tokens and not yet taken.
     inflight: HashMap<u64, String>,
     next: u64,
@@ -384,7 +386,10 @@ impl Llp {
                 };
                 if self.open.as_ref().map(|(p, _)| p != &path).unwrap_or(true) {
                     match self.read(&path, &root) {
-                        Ok(doc) => self.open = Some((path.clone(), doc)),
+                        Ok(doc) => {
+                            self.open = Some((path.clone(), doc));
+                            self.page_cache = None;
+                        }
                         Err(message) => {
                             return match &self.open {
                                 Some((open, doc)) => {
@@ -412,6 +417,7 @@ impl Llp {
                         match self.read(&path, &root) {
                             Ok(doc) => {
                                 self.open = Some((path, doc));
+                                self.page_cache = None;
                                 String::new()
                             }
                             Err(message) => message,
@@ -423,6 +429,7 @@ impl Llp {
                     let empty = Document::default();
                     return page::value(Path::new(""), &empty, &Self::nowhere(), &message);
                 };
+                let mut page_cache = self.page_cache.take();
                 let entries = self.entries(&root);
                 let at = entries.iter().position(|e| &e.path == open);
                 let neighbour = |i: Option<usize>| {
@@ -441,7 +448,10 @@ impl Llp {
                     find: &find,
                     local: &local,
                 };
-                page::value(open, doc, &place, &message)
+                let answer =
+                    page::value_reusing(open, &root, doc, &place, &message, &mut page_cache);
+                self.page_cache = page_cache;
+                answer
             }
             other => nothing_open(&format!("no source {other}")),
         }
