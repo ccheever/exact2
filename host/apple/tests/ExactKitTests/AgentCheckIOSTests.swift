@@ -182,6 +182,56 @@ final class AgentCheckIOSTests: XCTestCase {
         XCTAssertEqual(try item(10)["x"] as? Double, 96, "b starts inside a: the driver finds them overlapping")
     }
 
+    /// LLP 1116.009 D5 (focus-timer, recipe-finder, round 11): a box whose content fits its parent and whose written padding
+    /// (content-box sizing) pushes it past the parent's content edge is observed, with the cause; border-box, a box that fits,
+    /// padding the author did not write, and a parent that scrolls sideways on purpose are not. The presenter is never told a
+    /// width, so the cause is read from the frames.
+    func testAPaddedBoxPastItsParentIsObservedWithItsCause() throws {
+        let fill: [Double] = [200, 200, 200, 255]
+        let written: [String: Any] = ["written": ["padding_left", "padding_right"]]
+        // A press handler keeps each box a view of its own (an inert leaf box is a layer in its parent's, LLP 1068 §6.1).
+        func box(_ id: Int, _ style: [String: Any]) -> [String: Any] { ["op": "create", "id": id, "kind": "view", "handlers": ["press"], "style": style.merging(["background_color": fill]) { a, _ in a }] }
+        let column: [String: Any] = ["display": "flex", "padding_left": 16.0, "padding_right": 16.0]
+        let pads: [String: Any] = ["padding_left": 24.0, "padding_right": 24.0]
+        let agent = mounted([
+            box(1, [:]),
+            box(10, column), box(2, pads.merging(written) { a, _ in a }),
+            box(3, pads.merging(written) { a, _ in a }.merging(["box_sizing": "border-box"]) { a, _ in a }),
+            box(4, pads.merging(written) { a, _ in a }), box(5, pads),
+            box(11, [:]), box(6, pads.merging(written) { a, _ in a }),
+            box(12, ["overflow_x": "auto", "written": ["overflow_x"]]), box(7, pads.merging(written) { a, _ in a }),
+            box(13, ["overflow_x": "auto"]), box(8, pads.merging(written) { a, _ in a }), // a `scroll`'s own auto is the platform's
+            ["op": "children", "id": 1, "ids": [10, 11, 12, 13]],
+            ["op": "children", "id": 10, "ids": [2, 3, 4, 5]],
+            ["op": "children", "id": 11, "ids": [6]],
+            ["op": "children", "id": 12, "ids": [7]],
+            ["op": "children", "id": 13, "ids": [8]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 800.0],
+            ["op": "frame", "id": 10, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0],
+            ["op": "frame", "id": 2, "x": 16.0, "y": 0.0, "w": 416.0, "h": 40.0],   // 368 of content and 48 of padding in 368
+            ["op": "frame", "id": 3, "x": 16.0, "y": 50.0, "w": 368.0, "h": 40.0],  // border-box: it fits
+            ["op": "frame", "id": 4, "x": 16.0, "y": 100.0, "w": 200.0, "h": 40.0], // room to spare
+            ["op": "frame", "id": 5, "x": 16.0, "y": 150.0, "w": 416.0, "h": 40.0], // the padding is not the author's
+            ["op": "frame", "id": 11, "x": 0.0, "y": 420.0, "w": 400.0, "h": 60.0],
+            ["op": "frame", "id": 6, "x": 0.0, "y": 0.0, "w": 400.0, "h": 40.0],    // fits
+            ["op": "frame", "id": 12, "x": 0.0, "y": 500.0, "w": 400.0, "h": 60.0],
+            ["op": "frame", "id": 7, "x": 0.0, "y": 0.0, "w": 448.0, "h": 40.0],    // past, in a pager the author scrolls
+            ["op": "frame", "id": 13, "x": 0.0, "y": 580.0, "w": 400.0, "h": 60.0],
+            ["op": "frame", "id": 8, "x": 0.0, "y": 0.0, "w": 448.0, "h": 40.0],    // past, in a view that scrolls by default
+        ])
+        let reply = agent.check([:])
+        XCTAssertNil(reply["error"], "\(reply)")
+        let items = try XCTUnwrap(reply["items"] as? [[String: Any]])
+        let padded = try XCTUnwrap(items.first { $0["id"] as? Int == 2 }?["padded"] as? [String: Any], "#2 in \(items)")
+        XCTAssertEqual(padded["by"] as? Int, 10)
+        XCTAssertEqual(padded["dx"] as? Double, 48, "416 wide in a 368-wide content box")
+        XCTAssertEqual(padded["pad"] as? Double, 48)
+        XCTAssertNil(padded["width"], "the presenter is told no width")
+        XCTAssertEqual((items.first { $0["id"] as? Int == 8 }?["padded"] as? [String: Any])?["by"] as? Int, 13, "#8 in \(items)")
+        for id in [3, 4, 5, 6, 7] { XCTAssertNil(items.first { $0["id"] as? Int == id }?["padded"], "#\(id) is not padding past its parent") }
+    }
+
     /// LLP 1116.006 D5: a text stands on the nearest fill painted under it —
     /// its own box's (a rounded bubble, whose corners show the page), a
     /// bubble column's, the page's — in each scheme; and a row its scroller

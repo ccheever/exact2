@@ -4,8 +4,9 @@
 // or a clip cuts it, a control and who sized it (UIKit's own controls at
 // their own size are the platform's), what a finger at its middle reaches at
 // rest (a bar, the keyboard, a sheet, another node) and whether a scroller
-// could move it clear, a filled box's fill and edge, and how far a view runs
-// past the viewport's sides. UIKit's own labels (a native button's title, a
+// could move it clear, a filled box's fill and edge, how far a view runs
+// past the viewport's sides, and a percentage width its own padding pushes
+// past its parent (LLP 1116.009 D5). UIKit's own labels (a native button's title, a
 // segment's, a list cell's) are text too. Read from the view tree, never a
 // second model; the background under a text is the nearest fill painted
 // under it (LLP 1116.006 D5), else the driver's, from a capture of the
@@ -195,8 +196,28 @@ extension Agent {
             return c
         }
 
+        /// A box whose content fits its parent and whose own padding (content-box sizing) pushes it past the parent's content
+        /// edge (LLP 1116.009 D5; focus-timer and recipe-finder, round 11: `width="100%"` with padding). The presenter is
+        /// never told a width (the kernel sized the box and the frame carries it), so the cause is read from the geometry: the
+        /// padding is what the author wrote (`written`), the content is no wider than the parent's, and the border box is.
+        /// A parent that scrolls sideways because its author wrote `overflow-x` is on purpose (a `scroll` view's own `auto` is the
+        /// platform's: its row is not in `written`), and only a plain box or a scroll view holds the box (a list's rows are the
+        /// platform's). The web's `widerThanParent` (host/web-js/check.js) is the same
+        /// rule, which there also reads the written percentage.
+        func paddedWidth(_ n: NodeView, in p: NodeView) -> [String: Any]? {
+            let written = Set(n.style["written"]?.array?.compactMap(\.string) ?? [])
+            guard ["view", "scroll"].contains(n.kind), ["view", "scroll"].contains(p.kind),
+                  written.contains("padding_left") || written.contains("padding_right"),
+                  n.style["box_sizing"]?.string != "border-box",
+                  !["absolute", "fixed"].contains(n.style["position_type"]?.string ?? ""),
+                  !(["scroll", "auto"].contains(p.style["overflow_x"]?.string ?? "") && (p.style["written"]?.array?.contains(.string("overflow_x")) ?? false)) else { return nil }
+            let pad = n.number("padding_left") + n.number("padding_right"), room = p.contentBox().width, past = n.bounds.width - room
+            guard pad > 0.5, past > 1.5, n.bounds.width - pad <= room + 1.5 else { return nil }
+            return ["by": Int(p.id), "dx": Double(r2(past)), "pad": Double(r2(pad))]
+        }
+
         // Preorder over what is shown, so a view past the viewport's side is named and not each of its children.
-        func walk(_ v: UIView, alpha: CGFloat, held: Bool) {
+        func walk(_ v: UIView, alpha: CGFloat, held: Bool, parent: NodeView? = nil) {
             guard !v.isHidden, v.alpha > 0.01, v.layer.opacity > 0.01 else { return }
             let a = alpha * v.alpha * CGFloat(v.layer.opacity)
             var heldBelow = held
@@ -207,11 +228,12 @@ extension Agent {
                     var item: [String: Any] = rect(b).merging(["id": Int(n.id)]) { x, _ in x }
                     let past = max(b.maxX - port.maxX, port.minX - b.minX)
                     if !held, past > 1, !pinned(n, upTo: scope) { item["outX"] = r2(past); heldBelow = true }
+                    if let parent, let padded = paddedWidth(n, in: parent) { item["padded"] = padded }
                     if n.isParagraph { paragraph(n, b, alpha: a, into: &item) }
                     control(n, into: &item)
                     if item["control"] != nil || item["text"] != nil, let c = cover(n, b), item["control"] != nil || c["kind"] as? String != "offscreen" { item["cover"] = c }
                     if item["text"] == nil, item["control"] == nil { fill(n, b, alpha: a, into: &item) } else { presented(n, b, into: &item) }
-                    if item.keys.contains(where: { ["text", "control", "fill", "outX"].contains($0) }) { items.append(item) }
+                    if item.keys.contains(where: { ["text", "control", "fill", "outX", "padded"].contains($0) }) { items.append(item) }
                 } else if b.width > 0, b.height > 0, b.maxX > port.minX, b.minX < port.maxX {
                     // Off the screen: only a control out of reach (past its top or bottom, and nothing scrolls to it) is anything.
                     var item: [String: Any] = rect(b).merging(["id": Int(n.id)]) { x, _ in x }
@@ -224,7 +246,7 @@ extension Agent {
                 nativeLabel(label, alpha: a, into: &items)
                 return
             } else if v is UITextField || v is UITextView { return }
-            for s in v.subviews { walk(s, alpha: a, held: heldBelow) }
+            for s in v.subviews { walk(s, alpha: a, held: heldBelow, parent: (v as? NodeView) ?? parent) }
         }
 
         func paragraph(_ n: NodeView, _ b: CGRect, alpha: CGFloat, into item: inout [String: Any]) {
