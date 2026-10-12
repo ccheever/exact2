@@ -290,7 +290,7 @@ describe('LS-7 (found while building): the row\'s tooltips', () => {
     expect(tips).toHaveLength(2);
     expect(view).toContain('fn legacyTip(label: string, side: string, align: string, at: Geometry, rem: number, testId: string): HoverTip = hoverTipAtFrame("legacy-tip", "tooltip", label');
   });
-  test('review 2: the row or header the pointer is on closes a legacy tooltip a gone trigger left; Archive\'s press closes its own', () => {
+  test('review 2: the row or header the pointer is on closes a legacy tooltip a gone trigger left; Archive\'s press and a right-click close their own', () => {
     const tips: unknown[][] = [], runs: unknown[][] = [];
     const host = { performanceNow: () => 0, run: (...args: unknown[]) => { runs.push(args); }, hoverTipAt: (...args: unknown[]) => { tips.push(args); }, legacyTipOff: () => ({ key: 'legacy-tip' }) };
     const row = mount('LegacyThread', { reduced: false, page: '', busy: false, legacy: { confirmArchive: false }, t: { id: 't1', running: false, renaming: false, prIcon: '', portLabel: '' } }, host);
@@ -298,8 +298,12 @@ describe('LS-7 (found while building): the row\'s tooltips', () => {
     row.act('archive');
     const header = mount('LegacyProject', { reduced: false, p: { key: 'k', expanded: true, statusLabel: '' }, legacy: {}, now: 0, page: '', busy: false }, host);
     header.act('hover', true);
-    expect(tips).toEqual([[{ key: 'legacy-tip' }, 'trigger', false], [{ key: 'legacy-tip' }, 'trigger', false], [{ key: 'legacy-tip' }, 'trigger', false]]);
-    expect(runs).toEqual([['legacy-archive', 't1', '']]);
+    row.act('openMenu');
+    header.act('openMenu');
+    expect(tips).toEqual(Array.from({ length: 5 }, () => [{ key: 'legacy-tip' }, 'trigger', false]));
+    expect(runs).toEqual([['legacy-archive', 't1', ''], ['legacy-thread-menu', 't1', ''], ['legacy-project-menu', 'k', '']]);
+    const view = readFileSync(new URL('./legacy-sidebar.contract', import.meta.url), 'utf8');
+    expect(view.match(/contextmenu=openMenu /g) ?? []).toHaveLength(2);
   });
   test('the worktree tooltip names the worktree by its last segment (formatWorktreePathForDisplay), then the branch', () => {
     const { client } = rig({ threads: [thread('thread-1'), thread('wt', { worktreePath: '/work/.t3/worktrees/app-feature', branch: 'feature/x' }), thread('plain', { worktreePath: '/work/.t3/worktrees/solo' })] });
