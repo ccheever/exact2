@@ -32,6 +32,18 @@ const ACCENT: &str = "AccentColor";
 const SEPARATOR: &str = "-exact-separator";
 const RED: &str = "-exact-system-red";
 
+/// The sizes the sheet writes are text styles (LLP 1115 D3, LLP 1115.000
+/// D3.3), so its text follows the root font size as a hand-built list's
+/// follows the platform's body size: a row and a header at the body style
+/// (17 on iOS at the default size, 13 on the Mac, 16 on the web), a second
+/// line at the subheadline (15, 11, 14), a footer at the footnote (13, 10,
+/// 12). The row's metrics beside them stay iOS's points: 52-point rows and
+/// 26-point corners are iOS's shape, and scaling them would not make them
+/// the Mac's, whose own list is separate work.
+const BODY: &str = "-exact-body";
+const SUBHEADLINE: &str = "-exact-subheadline";
+const FOOTNOTE: &str = "-exact-footnote";
+
 /// The gap UIKit leaves where a section has no header or no footer.
 const SECTION_GAP: f64 = 17.33;
 /// The gap above an inset or grouped list's first section without a header.
@@ -444,7 +456,7 @@ fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerE
             n("padding-right", if inset { 32.0 } else { 16.0 }, span),
             n("padding-top", if footer { 8.0 } else { 10.0 }, span),
             n("padding-bottom", if footer { 6.0 } else { 10.0 }, span),
-            n("font-size", if footer { 13.0 } else { 17.0 }, span),
+            s("font-size", if footer { FOOTNOTE } else { BODY }, span),
             s("color", SECONDARY, span),
         ];
         if !footer {
@@ -689,7 +701,7 @@ fn row(node: &Node, separated: bool) -> Node {
             s("border-bottom-style", "solid", span),
             s("border-bottom-color", SEPARATOR, span),
             n("margin-bottom", if separated { -1.0 } else { 0.0 }, span),
-            n("font-size", 17.0, span),
+            s("font-size", BODY, span),
             attr("color", tint(LABEL), span),
             s("text-align", "left", span),
         ]);
@@ -751,7 +763,7 @@ fn row(node: &Node, separated: bool) -> Node {
         s("border-bottom-style", "solid", span),
         s("border-bottom-color", SEPARATOR, span),
         n("margin-bottom", if separated { -1.0 } else { 0.0 }, span),
-        n("font-size", 17.0, span),
+        s("font-size", BODY, span),
         attr("color", tint(LABEL), span),
         s("text-align", "left", span),
     ];
@@ -1083,7 +1095,7 @@ fn stacks(node: &Node) -> bool {
 /// A stack of lines in a row that is not the subtitle cell, with `sheet`
 /// (its margins): its texts are drawn as the subtitle cell draws its lines
 /// (LLP 1116.000 D3.2), the first a title in the row's size and colour, a
-/// later one 15 points in the secondary colour. It is presentation left
+/// later one the subheadline in the secondary colour. It is presentation left
 /// unsaid, which is the platform's (LLP 1115): a text's own `font`,
 /// `font-size` or `color` replaces the row it names, as the author's rows
 /// replace the sheet's, and so does the stack's own (`stack_lines`).
@@ -1116,7 +1128,7 @@ fn stack_of_lines(node: &Node, sheet: Vec<Attr>) -> Node {
 }
 
 /// A title over a subtitle: UIKit's subtitle cell, 15 above and below, the
-/// second line 15 points in the secondary colour.
+/// second line the subheadline in the secondary colour.
 fn subtitle(node: &Node) -> Node {
     let Node::Element {
         tag,
@@ -1149,7 +1161,7 @@ fn subtitle(node: &Node) -> Node {
 }
 
 /// A subtitle stack's lines: the title in the row's size and colour, the
-/// second line 15 points in the secondary colour. A size or colour the
+/// second line the subheadline in the secondary colour. A size or colour the
 /// stack's author wrote (`own`, its rows) reaches its lines, which the
 /// sheet's would otherwise replace; a class or a style may say either.
 fn stack_lines(children: &[Node], own: &[Attr]) -> Vec<Node> {
@@ -1197,7 +1209,8 @@ fn stack_lines(children: &[Node], own: &[Attr]) -> Vec<Node> {
             }
             Node::Element { tag, span, .. } if tag == "text" && !hidden(c) => {
                 let at = *span;
-                let size = |title: bool| Expr::Number(if title { 17.0 } else { 15.0 }, at);
+                let size =
+                    |title: bool| Expr::Str(if title { BODY } else { SUBHEADLINE }.into(), at);
                 let colour =
                     |title: bool| Expr::Str(if title { LABEL } else { SECONDARY }.into(), at);
                 let choose = |c: &Expr, a: Expr, b: Expr| {
@@ -1206,7 +1219,7 @@ fn stack_lines(children: &[Node], own: &[Attr]) -> Vec<Node> {
                 let (mut sheet, next) = match texts.clone() {
                     Count::Known(0) => (Vec::new(), Count::Known(1)),
                     Count::Known(count) => (
-                        vec![n("font-size", 15.0, at), s("color", SECONDARY, at)],
+                        vec![s("font-size", SUBHEADLINE, at), s("color", SECONDARY, at)],
                         Count::Known(count + 1),
                     ),
                     Count::Cond(c, a, b) => (
