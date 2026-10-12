@@ -240,12 +240,13 @@ Ports    none. Runs to completion.`,
   contract: {
     line: 'the Contract compiler: build, types, vocab, fmt, symbols …',
     usage: 'bun exact.mjs contract <subcommand> …      (paths from where you run it)',
-    common: ['contract build <file> --json · contract vocab <name>…    diagnostics · any tag, property or colour role'],
+    common: ['contract build <file> --json · contract vocab <name>…    diagnostics · any tag, property or colour role (no name: the card)'],
     flags: [],
     body: `  build <file.contract> [-o <file.plan>] [--json] [--map]   --json: [] or each diagnostic with its range
   types <file.contract> [-o <app.d.ts>]   the types app.ts imports (build app.contract, test, web refresh them)
-  vocab [--json] [<name> …]               the tags, attributes, CSS properties and functions Contract takes;
-                                          each name's entry in turn, exit 1 if one is unknown
+  vocab [--json] [--all] [<name> …]       no name: the card, what an app writes, in one read (--all: every
+                                          tag, attribute, CSS property and function); each name's entry in
+                                          turn, exit 1 if one is unknown
   fmt [--check | --stdout] <file.contract> · fmt --uses <file.contract>
   symbols <file.contract> [--name <name>] · sources <file.contract>
   test <file.test.contract>               the compiled tests, as JSON (bun exact.mjs test runs them)

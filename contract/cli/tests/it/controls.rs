@@ -545,6 +545,72 @@ fn a_number_fields_bounds_take_numbers_as_a_ranges_do() {
     }
 }
 
+/// LLP 1116.010 D3: a negative literal is a number as a positive one is, in
+/// a field's bounds (the decimal pad's ± key comes of a negative `min`) and in a
+/// style (`margin-top=-8` is -8 px), and a text field's bounds take numbers.
+#[test]
+fn a_negative_literal_is_a_number_as_a_positive_one_is() {
+    let r = boot(
+        r#"component App
+  state n = "3"
+  action edit(v: string)
+    n = v
+  view
+    column margin-top=-8
+      input value=n input=edit type="text" inputmode="decimal" min=-999999999999999 max=999 testId="pad" aria-label="Pad"
+      input value=n input=edit inputmode="decimal" min=-0.5 step=-1e-3 testId="plain" aria-label="Plain"
+      input type="number" value=n input=edit min=-40 max=40 step=-0.5 testId="number" aria-label="Number"
+      input type="number" value=n input=edit min=-1e300 max=1e300 testId="wide" aria-label="Wide"
+      input type="range" min=-5 max=5 step=-0.5 value=1 testId="range" aria-label="Range"
+      input value=n input=edit min=40 testId="positive" aria-label="Positive"
+"#,
+    );
+    let prop = |id: &str, p: PropId| {
+        r.kernel()
+            .node(view_of(&r, id))
+            .unwrap()
+            .props
+            .str(p)
+            .map(str::to_owned)
+    };
+    assert_eq!(
+        prop("pad", PropId::Min).as_deref(),
+        Some("-999999999999999")
+    );
+    assert_eq!(prop("pad", PropId::Max).as_deref(), Some("999"));
+    assert_eq!(prop("plain", PropId::Min).as_deref(), Some("-0.5"));
+    assert_eq!(prop("plain", PropId::Step).as_deref(), Some("-0.001"));
+    assert_eq!(prop("number", PropId::Min).as_deref(), Some("-40"));
+    assert_eq!(prop("number", PropId::Max).as_deref(), Some("40"));
+    assert_eq!(prop("number", PropId::Step).as_deref(), Some("-0.5"));
+    assert_eq!(prop("wide", PropId::Min).as_deref(), Some("-1e+300"));
+    assert_eq!(prop("wide", PropId::Max).as_deref(), Some("1e+300"));
+    assert_eq!(prop("range", PropId::Min).as_deref(), Some("-5"));
+    assert_eq!(prop("range", PropId::Step).as_deref(), Some("-0.5"));
+    // The positive literal on a text field is the same text of a number.
+    assert_eq!(prop("positive", PropId::Min).as_deref(), Some("40"));
+    // A style takes it as CSS's negative length: -8 px, a constant.
+    let root = r.kernel().node(view_of(&r, "pad")).unwrap().parent.unwrap();
+    assert_eq!(
+        r.kernel().node(root).unwrap().style.margin_top,
+        exact_kernel::Dimension::Points(-8.0)
+    );
+    // The same plan as the positive literal, bar the sign: the negative is
+    // folded to a constant, not computed.
+    let plan = |v: &str| {
+        contract::compile(&format!(
+            "component App\n  view\n    column margin-top={v}\n      text \"x\"\n"
+        ))
+        .unwrap()
+        .encode()
+        .len()
+    };
+    assert_eq!(plan("-8"), plan("8"));
+    // A bound number is still written at run time; a text field's `textarea` is no bound.
+    let e = contract::compile("component App\n  view\n    textarea min=-2\n").unwrap_err();
+    assert!(format!("{e:?}").contains("lower-attr"), "{e:?}");
+}
+
 const VOLUME: &str = r#"component App
   state volume = 40
   state scale = 1

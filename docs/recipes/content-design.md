@@ -5,7 +5,7 @@
   purpose gets a focal point: large type, a fill (the accent or a system colour), room.
 - **Emphasis is a part, not paint on a control.** A `background-color`, `border` or
   `font-size` on a `button` makes it your own box; the parts keep a button's semantics, a
-  44-point target and legible ink. `contract vocab <Part>` gives each one's props:
+  44-point target and legible ink. `contract vocab <Part>` gives each one's props and a call to paste:
   `RoundButton`, `AnswerTile`, `SummaryCard`, `RingProgress`, `StatBar`, `RowText`, `Badge`,
   `DoneMark`, `EmptyState`.
 - **A status is a `Badge`** ("Full" beside the title). **An action that can't be taken is

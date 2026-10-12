@@ -13,6 +13,7 @@
 //! entries of a tag or attribute of the same name (`concepts.md`, LLP
 //! 1116.004 D5.1).
 
+mod card;
 mod concepts;
 
 use concepts::Concept;
@@ -24,10 +25,11 @@ use exact_kernel::{PropId, StyleId};
 use serde_json::{json, Value};
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: contract vocab [--json] [<name> …]";
+const USAGE: &str = "usage: contract vocab [--json] [--all] [<name> …]\n  no name: the card, what an app writes, in one read; --all: every tag, attribute and function\n  names: each one's entry in turn (exit 1 if one is unknown); --json: everything, as JSON";
 
 pub fn run(args: &[String]) -> ExitCode {
     let mut json = false;
+    let mut all = false;
     let mut names = Vec::new();
     for arg in args {
         match arg.as_str() {
@@ -36,6 +38,7 @@ pub fn run(args: &[String]) -> ExitCode {
                 return ExitCode::SUCCESS;
             }
             "--json" => json = true,
+            "--all" => all = true,
             // A vendor-prefixed name (`-exact-fit`, `-webkit-line-clamp`) is a name, not a flag.
             _ if !arg.starts_with('-') || (arg.len() > 2 && !arg.starts_with("--")) => {
                 names.push(arg.as_str())
@@ -51,8 +54,12 @@ pub fn run(args: &[String]) -> ExitCode {
             println!("{:#}", everything());
             ExitCode::SUCCESS
         }
-        [] => {
+        [] if all => {
             print!("{}", listing());
+            ExitCode::SUCCESS
+        }
+        [] => {
+            print!("{}", card::card());
             ExitCode::SUCCESS
         }
         [name] if json => {
@@ -108,11 +115,15 @@ struct Entry {
 }
 
 /// A component of a built-in library (`exact:content`'s `RoundButton`), read
-/// from its source: its props, and the comment above it (LLP 1116.003 D4).
+/// from its source: its props, the comment above it (LLP 1116.003 D4), and the
+/// call that comment ends with (`// Call: EmptyState(…)`, LLP 1116.010 D3): one
+/// that works as written, which a test compiles for every part, so it cannot
+/// drift from the props.
 struct Part {
     module: &'static str,
     props: Vec<String>,
     about: String,
+    call: Option<String>,
 }
 
 const PARTS: &[(&str, &str)] = &[("exact:content", include_str!("../../lib/content.contract"))];
@@ -127,9 +138,17 @@ fn part(name: &str) -> Option<Part> {
             .iter()
             .rposition(|l| !l.starts_with("//"))
             .map_or(0, |i| i + 1);
-        let about: Vec<&str> = lines[first..at]
+        let comment: Vec<&str> = lines[first..at]
             .iter()
             .map(|l| l.trim_start_matches('/').trim())
+            .collect();
+        let call = comment
+            .iter()
+            .find_map(|l| l.strip_prefix("Call:"))
+            .map(|c| c.trim().to_owned());
+        let about: Vec<&str> = comment
+            .into_iter()
+            .filter(|l| !l.starts_with("Call:"))
             .collect();
         let mut props = Vec::new();
         let mut rest = lines[at + 1..].iter().skip_while(|l| l.trim() != "props");
@@ -143,6 +162,7 @@ fn part(name: &str) -> Option<Part> {
             module,
             props,
             about: about.join(" "),
+            call,
         })
     })
 }
@@ -221,7 +241,8 @@ fn one_json(name: &str) -> (Value, bool) {
         doc["function"] = function_json(f);
     }
     if let Some(p) = part {
-        doc["part"] = json!({ "module": p.module, "props": p.props, "about": p.about });
+        doc["part"] =
+            json!({ "module": p.module, "props": p.props, "about": p.about, "call": p.call });
     }
     if let Some(c) = concept {
         // A name the web has and Contract refuses (`every`) says so beside it.
@@ -268,6 +289,9 @@ fn one_text(name: &str, shown: &mut Vec<&'static str>) -> bool {
         );
         println!("  props {}", p.props.join(", "));
         println!("  {}", p.about);
+        if let Some(call) = &p.call {
+            println!("  call {call}");
+        }
     }
     if let Some(t) = tags::tag(name) {
         println!("{name}: tag, {}", tag_text(&t));
@@ -282,6 +306,9 @@ fn one_text(name: &str, shown: &mut Vec<&'static str>) -> bool {
         }
         if let Some(only) = only_on(name) {
             println!("  only on {only}");
+        }
+        if matches!(name, "min" | "max" | "step") {
+            println!("  on an `input` a number of either sign is written as its text: `min=-40`, `step=0.5`, `max=1e6` (LLP 1116.010 D3); a decimal pad (`inputmode=\"decimal\"`) with a negative `min` has the ± key");
         }
         if name == "markup" {
             println!("  \"markdown\" or \"none\" (the default): a `text` reads its string as Markdown, a `textarea` edits it (LLP 1045)");

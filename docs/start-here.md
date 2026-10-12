@@ -17,14 +17,10 @@ The only required reading; the rest is lookup.
    cyan, yellow, orange (`check` refuses it, under 2.6:1; `RoundButton` tints them).
 3. **Design your content:** a focal point (big type, a fill, a shape), a hierarchy in
    rows, an empty state with its next step; inset-grouped is for settings and forms.
-   `use X from "exact:content"` draws them (`none` for an option):
-   - `RoundButton(label, tint, press, disabled, testId)`: Start, Stop
-   - `AnswerTile(label, status, press, testId)`: a choice; `status` is `"idle"`,
-     `"selected"`, `"correct"`, `"wrong"` or `"dimmed"`
-   - `SummaryCard(label, value, detail, progress, symbol)`: the one number, shown once
-   - `RingProgress` and `StatBar(label, value, fraction, tint)`
-   - `RowText(title, detail, value)`, `Badge(label, tint)` a status, `DoneMark(caption, done)`
-   - `EmptyState(symbol, title, message)` over your `button`
+   `use X from "exact:content"` draws them; the card gives each one's call (`none` for an option):
+   - `RoundButton`: Start, Stop. `AnswerTile`: a choice; `status` is `"idle"`, `"selected"`,
+     `"correct"`, `"wrong"` or `"dimmed"`. `SummaryCard`: the one number, shown once
+   - `RingProgress`, `StatBar`, `RowText`, `Badge` a status, `DoneMark`; `EmptyState` over your `button`
 4. **A wide window:** tabs (a sidebar) and a list whose rows push (beside its detail) need no
    code. One number and its buttons is a centred column (`max-width=420`); a dashboard is
    wrapping cards (`flex="1 1 320px"`).
@@ -169,10 +165,7 @@ test "an item is added, a repeat refused, checked off and kept"
   expect text "left" == "0 items left"
 ```
 
-Steps: `tap "id"`, `type "id" "text"` or `type "id" key "Enter"`, `expect text "id" == "…"`,
-`expect tree has|missing "id"`, `expect state a.0 .b == v`, `clock data`
-`|settle` `|+ms`, `reload`, `back`, `fail fetch "/p"`
-and `pass fetch`. Launch lines (`epoch "…"`, `time-zone "…"`, `size 390x844`), the rest: `tests`.
+Every step is on the card, launch lines (`epoch "…"`) too; the recipe `tests` has the rest.
 
 ## Pitfalls that cost the most
 
@@ -211,5 +204,7 @@ Start from the nearest pattern, a tested app with what the recipes teach; a reci
 
 The others are named for their topic: `dates-and-days`, `timers`, `money`, `symbols`…
 
-**Otherwise:** `contract vocab <name> …` answers any tag, property or how-to;
-`docs/contract-for-agents.md` and `reference.md` by section; `apps/shelf` is a whole app.
+**Otherwise:** run `bun exact.mjs contract vocab` once for the card (every function, the tags with
+their attributes and events, each part's call, the test steps, the agent's operations), then write;
+`contract vocab <name> …` answers a name it leaves out; `docs/contract-for-agents.md` and `reference.md`
+by section; `apps/shelf` is a whole app.

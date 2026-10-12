@@ -246,9 +246,11 @@ is an ordinary name there, so `action searchKey(key: string)` and `action refres
 compile. Shape fields, named arguments and members take any word
 ([grammar](contract-grammar.md#lexical-rules)).
 
-`contract vocab` lists every built-in tag, attribute, CSS property and standard
-function the compiler accepts, with each property's value kind and default and each
-function's signature; `contract vocab <name>` answers for one (a function's rules and
+`contract vocab` prints the card, what an app writes in one read (at most 8 KB: every
+function, the tags with their attributes and events, each part's call, the test steps,
+the agent's operations); `contract vocab --all` lists every built-in tag, attribute, CSS
+property and standard function the compiler accepts, with each property's value kind and
+default and each function's signature; `contract vocab <name>` answers for one (a function's rules and
 an example too: `contract vocab formatDate`), or says what to write instead
 (`contract vocab sort`). Check there before guessing at CSS or a function.
 
