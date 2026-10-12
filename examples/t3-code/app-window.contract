@@ -372,15 +372,11 @@ component T3Window
     if chipShown and e.buttons == 1 and not (e.clientX >= frame("chip-popover").x and e.clientX < frame("chip-popover").x + frame("chip-popover").width and e.clientY >= frame("chip-popover").y and e.clientY < frame("chip-popover").y + frame("chip-popover").height)
       chipClose(false)
     // device-player-compact-and-rail-keys DP-2: the thread details popover in the chat column closes on a primary press
-    // outside it, as Base UI's outside press. Its backdrop takes the column's presses but the floating player's, which lies
-    // above it: a press beside the column (the sidebar, the right panel, the terminal drawer) or on the player (its pill
-    // buttons, its screen, its resize edges 0.25rem out) closes it here. Over a right panel sheet the popover is the
-    // window's, whose backdrop takes every press.
-    if detailsOpen and not detailsSheet and e.buttons == 1
-      let column = frame("chat-column")
-      let edge = data.look.fontSize / 4
-      if not (e.clientX >= column.x and e.clientX < column.x + column.width and e.clientY >= column.y and e.clientY < column.y + column.height) or (canvas.mini.show and e.clientX >= column.x + canvas.mini.x - edge and e.clientX < column.x + canvas.mini.x + canvas.mini.width + edge and e.clientY >= column.y + canvas.mini.top - edge and e.clientY < column.y + canvas.mini.top + canvas.mini.height + edge)
-        detailsAct("dismiss", "", "")
+    // outside it, as Base UI's outside press. Its backdrop takes the column's presses and the terminal drawer's under it,
+    // the floating player its own (ChatColumn `outside`); a press beside the column (the sidebar, the right panel) closes
+    // it here. Over a right panel sheet the popover is the window's, whose backdrop takes every press.
+    if detailsOpen and not detailsSheet and e.buttons == 1 and (e.clientX < (data.sidebarOpen ? sidebarWidth : 0) or e.clientX >= (data.sidebarOpen ? sidebarWidth : 0) + conversationWidth)
+      detailsAct("dismiss", "", "")
   // Over a right panel sheet (a narrow window) the thread details popover is the window's, above the sheet (WindowOverlays).
   derive detailsSheet = detailsOpen and narrowDiff and (rightPanel or shell.panel.open or data.diffOpen)
   action outsidePressUp

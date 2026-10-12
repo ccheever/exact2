@@ -153,23 +153,33 @@ describe('DP-2: the card becomes the header\'s popover where no placement is lef
     expect(window).toContain('detailsSheet=detailsSheet, detailsDensity=canvas.density');
     const layer = await component('shell-details.contract', 'ThreadDetailsPanel');
     expect(layer).toContain('z-index=35 testId="thread-details-layer"');
-    expect(await component('r6-device.contract', 'R6DeviceMiniPlayer')).toContain('z-index=40 role="region" aria-label="Floating device preview"');
-    // Outside presses close it, as Base UI's: the backdrop takes the column's presses; the window closes it on a primary
-    // press beside the chat column (the sidebar, the right panel, the terminal drawer) or on the floating player, which lies
-    // above the backdrop (its pill buttons, its screen, its resize edges); a drag on the player too, as its gesture starts.
-    // Over a right panel sheet the window's popover has a window-wide backdrop, so the rule stands aside.
+    expect(await component('r6-device.contract', 'R6DeviceMiniPlayer')).toContain('z-index=40 pointerdown=pressDown role="region" aria-label="Floating device preview"');
+    // Outside presses close it, as Base UI's: the backdrop takes the column's presses and, `below` the column, the terminal
+    // drawer's; the floating player, which lies above the backdrop, closes it on its own primary press (its pill buttons,
+    // its screen, its resize edges); the window on a press beside the chat column (the sidebar, the right panel). A drag
+    // on the player closes it too, as its gesture starts. Over a right panel sheet the window's popover has a window-wide
+    // backdrop, so the window's rule stands aside.
     expect(root).toContain('    canvasGestureValue = value\n    detailsOpen = detailsOpen and value == ""');
     const press = under(window, 'action outsidePressDown(e: PointerEvent)').join('\n');
-    expect(press).toContain('    if detailsOpen and not detailsSheet and e.buttons == 1\n      let column = frame("chat-column")\n      let edge = data.look.fontSize / 4\n');
-    expect(press).toContain('if not (e.clientX >= column.x and e.clientX < column.x + column.width and e.clientY >= column.y and e.clientY < column.y + column.height) or (canvas.mini.show and e.clientX >= column.x + canvas.mini.x - edge and e.clientX < column.x + canvas.mini.x + canvas.mini.width + edge and e.clientY >= column.y + canvas.mini.top - edge and e.clientY < column.y + canvas.mini.top + canvas.mini.height + edge)\n        detailsAct("dismiss", "", "")');
+    expect(press).toContain('    if detailsOpen and not detailsSheet and e.buttons == 1 and (e.clientX < (data.sidebarOpen ? sidebarWidth : 0) or e.clientX >= (data.sidebarOpen ? sidebarWidth : 0) + conversationWidth)\n      detailsAct("dismiss", "", "")');
     // The right panel's details button is drawn only on a sheet, under the window's backdrop: no exception names it.
     expect(press).not.toContain('panel-toggle-details');
     for (const file of ['r4-surfaces.contract', 'shell-panels.contract']) expect(await source(file)).not.toContain('id="panel-toggle-details"');
+    expect(column).toContain('R6DeviceMiniPlayer(mini=shell.panel.deviceMini, frame=canvas.mini, still=viewport.prefersReducedMotion, local=chatLocal, gesture=canvasGesture, outside=detailsAct("dismiss", "", ""))');
+    expect(column).toContain('BrowserMiniPlayer(mini=shell.panel.browserMini, frame=canvas.mini, canvasWidth=canvas.containerWidth, local=chatLocal, gesture=canvasGesture, outside=detailsAct("dismiss", "", ""))');
+    for (const [file, name, root_] of [['r6-device.contract', 'R6DeviceMiniPlayer', 'z-index=40 pointerdown=pressDown role="region" aria-label="Floating device preview"'],
+      ['browser-capture.contract', 'BrowserMiniPlayer', 'z-index=40 hover=overPlayer pointermove=movePlayer pointerdown=pressDown role="region" aria-label="Floating browser preview"']] as const) {
+      const player = await component(file, name);
+      expect(player).toContain('  action pressDown(e: PointerEvent)\n    if e.buttons == 1\n      outside()');
+      expect(player).toContain(root_);
+    }
     expect(root).toContain('op != "ui:changes" and op != "dismiss")');
-    // The column's frame is the press's bounds; its z-index lays it, and so the popover, over the terminal drawer under it
-    // (the reference's popover is portaled over the drawer), at the reference's height (100dvh − 6.5rem).
-    expect(column).toContain('    column id="chat-column" flex=1 min-width=0 min-height=0 height="100%" position="relative" z-index=1 inert=pageCover hatch="t3-frame" data-frame="chat"');
-    expect(column.split('ThreadDetailsPanel(details=details, density=canvas.density, right=13, maxHeight=(viewport.height - 104),').length - 1).toBe(2);
+    // The column's z-index lays it, and so the popover, over the terminal drawer under it (the reference's popover is
+    // portaled over the drawer), at the reference's height (100dvh − 6.5rem); its backdrop reaches the window's foot.
+    expect(column).toContain('    column flex=1 min-width=0 min-height=0 height="100%" position="relative" z-index=1 inert=pageCover hatch="t3-frame" data-frame="chat"');
+    expect(column.split('ThreadDetailsPanel(details=details, density=canvas.density, right=13, below=(canvas.ready ? max(0, viewport.height - 52 - canvas.containerHeight) : 0), maxHeight=(viewport.height - 104),').length - 1).toBe(2);
+    expect(overlays.split('ThreadDetailsPanel(details=details, density=detailsDensity, right=13, below=0,').length - 1).toBe(2);
+    expect(layer).toContain('box position="absolute" left=0 top=0 right=0 bottom=(0 - below) z-index=35 testId="thread-details-layer"');
     const stack = under(window, 'column flex=1 min-width=0 height="100%" // terminal-drawer');
     expect([stack.findIndex(line => line.includes('ChatColumn(')), stack.findIndex(line => line.includes('TerminalDrawer('))]).toEqual([0, 1]);
     // The header's button is pressed for the presentation it toggles (selectThreadPanelOpen).

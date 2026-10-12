@@ -42,13 +42,16 @@ use kmOpenTarget from "./menu-keys.contract"
 use kmEndKeyed from "./menu-keys.contract"
 
 // The popover presentation, with its click-away backdrop: drawn in the chat column (app-main.contract ChatColumn),
-// under the floating player; a press beside the column or on the player closes it too (app-window.contract outsidePressDown).
+// under the floating player, which closes it on its own press; a press beside the column closes it too
+// (app-window.contract outsidePressDown).
 component ThreadDetailsPanel
   props
     details: ShellDetails
     // ThreadDetailsCard's density (chat-canvas-view.ts): full, compact or essential.
     density: string
     right: number
+    // How far the click-away backdrop reaches below its holder: the terminal drawer under the chat column.
+    below: number
     maxHeight: number
     editorsOpen: bool
     act: action
@@ -57,7 +60,7 @@ component ThreadDetailsPanel
     // prefers-reduced-motion: the running automation's dot stays still.
     still: bool
   view
-    box position="absolute" left=0 top=0 right=0 bottom=0 z-index=35 testId="thread-details-layer"
+    box position="absolute" left=0 top=0 right=0 bottom=(0 - below) z-index=35 testId="thread-details-layer"
       button press=act("toggle", "", "") aria-label="Close thread details" aria-keyshortcuts="Escape" testId="thread-details-backdrop" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" title=""
       column position="absolute" top="3.75rem" right=right width="16.5rem" max-height=maxHeight box-sizing="border-box" border-radius="1.375rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" overflow="hidden" role="dialog" aria-label="Thread details" testId="thread-details"
         DetailsBody(details=details, density=density, inline=false, maxHeight=maxHeight, editorsOpen=editorsOpen, act=act, local=local, still=still)

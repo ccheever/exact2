@@ -115,6 +115,8 @@ component BrowserMiniPlayer
     canvasWidth: number
     local: action
     gesture: action
+    // A primary press on the player: outside the thread details popover under it (Base UI's outside press; ChatColumn).
+    outside: action
   // The pointer over the player (its box's hover) and the part of it under the pointer (its `pointermove`): the pill
   // shows on the handle and stays while the pointer is on its box (the group's hover takes the pill in while it shows).
   state over = false
@@ -147,6 +149,9 @@ component BrowserMiniPlayer
     tipAt = slot
   action shutTip(id: string)
     tipShut = id
+  action pressDown(e: PointerEvent)
+    if e.buttons == 1
+      outside()
   action focusPill(id: string, value: bool)
     pillFocus = value ? id : (pillFocus == id ? "" : pillFocus)
   action pan(direction: string, dx: number, dy: number)
@@ -172,7 +177,7 @@ component BrowserMiniPlayer
   derive edge = 0.25 * rem
   derive corner = 0.5 * rem
   view
-    box position="absolute" left=frame.x top=frame.top width=frame.width height=frame.height z-index=40 hover=overPlayer pointermove=movePlayer role="region" aria-label="Floating browser preview" testId="browser-mini-player"
+    box position="absolute" left=frame.x top=frame.top width=frame.width height=frame.height z-index=40 hover=overPlayer pointermove=movePlayer pointerdown=pressDown role="region" aria-label="Floating browser preview" testId="browser-mini-player"
       column position="absolute" left=0 top=0 right=0 bottom=0 border-radius=frame.radius overflow="hidden" background-color="light-dark(#f4f4f5, #1a1a1a)" box-shadow="0 25px 50px -12px #00000059"
         t3-browser tab=mini.runtimeId url=mini.url profile=mini.profileId environment=mini.environment aria-label="Browser page" testId="browser-mini-page" position="absolute" left=0 top=0 right=0 bottom=0
         when not mini.hasWebContents
