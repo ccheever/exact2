@@ -39,7 +39,8 @@ is handed to whoever drives it. Pinned to Snapback4 **0.4.16**
 >   and each key has its own partition `name`.
 > - **Tests.** `epoch now` in the test file (the server keeps real time);
 >   `snapback4 dev` listening before `test web`; `clock data` before `fail
->   fetch`; a fresh server per run, or per file
+>   fetch`; `fresh` for an empty server before each test, once snapback4
+>   has `POST /dev/reset`, else a fresh server per run or per file
 >   (["Tests share the server"](#tests-share-the-server)).
 
 ## From TypeScript
@@ -273,7 +274,8 @@ test creates what it asserts on (["Tests share the server"](#tests-share-the-ser
 app cannot write itself (an `owners` or `staff` table a rule reads) go in
 before the run, as the system, with `POST <origin>/seed` and a body such as
 `[{"table":"owners","row":{"id":"o1","person":"dev:alice"}}]` (`snapback4
-guide wire`, "Development doors"). A `select` is driven with
+guide wire`, "Development doors"), or before each test with a `fresh
+"seed.json"` line once the server has `POST /dev/reset`. A `select` is driven with
 `type`; the offline test proves delivery after `pass fetch`, not only that
 the write was kept:
 
@@ -319,15 +321,39 @@ each wrote. A later test sees an earlier test's rows and a second run sees
 the first's: a total is off, a `unique` code answers `CODE_TAKEN`, a position
 holds another test's row. A failed test whose server already held commits
 when it began says so in a note, counting those from before the run and
-those from earlier tests in it. Two ways out, which combine:
+those from earlier tests in it. Three ways out:
 
+- **Each test starts empty: `fresh`.** A `fresh` line at the top of the
+  test file (or leading one test) empties the `snapback4 dev` server the
+  app fetches before each test, through the server's development door
+  `POST /dev/reset` (the app's tables and derived data; it answers
+  `{reset, seeded, generation}`); `fresh "seed.json"` then seeds it, as the
+  system, with that file's rows, a path from the test file:
+  `[{"table": "owners", "row": {"id": "o1", "person": "dev:alice"}}]`.
+
+  ```
+  epoch now
+  fresh
+
+  test "a new board has no notes"
+    clock data
+    expect tree missing "note-0"
+  ```
+
+  The door is snapback4's, and 0.4.22 does not have it: there it answers
+  404 and each test fails saying the server is older than the door. Until
+  the release that adds it, use the per-file server below. Tried against a
+  stand-in with the door's contract in front of 0.4.22 (2026-10-12): two
+  tests that each assert theirs is the only note pass with `fresh` and
+  fail without it.
 - **Each test owns its rows.** It writes a code or name no other test uses
   and asserts on that: newest first (`note-0` in a `last … by byTime` list),
   or through its own reply (the guestbook's `notice`, a derive of the reply's
   id). Never a total of a shared table, or "the list is empty". The
   guestbook's tests are of this kind, so they pass again on what a first run
   leaves.
-- **Each test file gets its own empty server.** Put a test that counts, or
+- **Each test file gets its own empty server** (until `fresh` has its
+  door). Put a test that counts, or
   needs a table empty, in a file of its own (`tests/*.test.contract`), and
   run each file against a fresh `--memory` server, seeded first, with an
   app verb. `test-fresh.mjs` in the app's directory (the backend's above it,
@@ -372,9 +398,8 @@ process.exit(failed ? 1 : 0);
   assert a total of one, run twice, all pass; in one file on one server the
   second test fails, and a rerun fails all three.
 
-`test web` has no reset between the tests of a file: Snapback has no door
-that empties a server, and a hook would be a new `test web` flag
-(QUEUE.md).
+With a snapback4 that has `POST /dev/reset`, `fresh` does in one line what
+this verb does per file, per test and with no restart; delete the verb then.
 
 ### Ports: the Snapback origin and the page's own
 

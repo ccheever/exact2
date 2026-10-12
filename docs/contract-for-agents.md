@@ -2283,7 +2283,9 @@ test "an action uses its computed next value"
 This test goes with the complete example above. A test opens with its launch
 lines — `size 1200x800`, `epoch "2026-09-21T12:00:00Z"`, `time-zone
 "America/New_York"`, `locale "fr-FR"`, `seed 7`, the driver's flags of those
-names — written first in the test or, for every test, at the top of the file.
+names, and `fresh` (the Snapback dev server emptied first, `fresh
+"seed.json"` seeded from a file; snapback4/README.md) — written first in the
+test or, for every test, at the top of the file.
 Before the first step (and after a `reload`) the driver waits for the app's data
 as `clock data` does: its data module activated and every request launch started
 (a store's open, a fetch) answered, the clock unmoved and no timer fired, so a

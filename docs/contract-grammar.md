@@ -402,6 +402,7 @@ launch        = "size" NUMBER "x" NUMBER NL          (* written 1200x800 *)
               | "time-zone" STRING NL                (* an IANA zone, "America/New_York" *)
               | "locale" STRING NL                   (* a BCP 47 tag, "fr-FR" *)
               | "seed" NUMBER NL                     (* 0 through 2^32 - 1 *)
+              | "fresh" [ STRING ] NL                (* the Snapback dev server emptied first, seeded from the file *)
               | "before" "data" NL                   (* the first step does not wait for data *)
               | "fail" "fetch" STRING [ "times" NUMBER ] NL ; (* armed before the first data load *)
 step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu"
@@ -454,7 +455,13 @@ name its own; either way they override the drive's flags. A file whose
 assertions depend on the date says so in the file. `epoch now` is the machine's
 clock, read once as each test launches, for a test whose app talks to a live
 backend on real time (`snapback4 dev`); its dates differ run to run, so its
-expects do not name them. Before the first step, and
+expects do not name them. `fresh` empties each `snapback4 dev` server the app
+fetches (a loopback `net.fetch` grant) before the test opens, through the
+server's development door `POST /dev/reset`; `fresh "seed.json"` then seeds it
+with that file's `[{"table": …, "row": {…}}]` (a path from the test file). At
+the top of the file it runs before every test. A server without the door (a
+snapback4 older than the release that adds it answers 404) fails the test,
+saying so. Before the first step, and
 after a `reload`, the driver waits for the app's data as `clock data` does (its
 module activated, every request in flight answered and each answer's `then`
 landed, the clock unmoved); `before data` skips the wait. `fail fetch "<prefix>"`

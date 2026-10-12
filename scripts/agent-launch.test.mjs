@@ -103,6 +103,52 @@ test('a web test run asks the backend its app fetches first', async () => {
   } finally { server.close(); rmSync(dist, { recursive: true, force: true }); }
 });
 
+// `fresh` (the author's ruling of 2026-10-12, via the sb4 app farm): before a test, each snapback4 dev server the app
+// fetches is emptied through `POST /dev/reset`, seeded from the line's file; a server without the door (404, as 0.4.22
+// answers) refuses the test, saying what to do. Stub servers stand in for snapback4 dev, old and new.
+test('fresh empties each snapback4 dev server through its reset door, and refuses one without it', async () => {
+  const { resetBackends, freshRows } = await import('./agent-test.mjs');
+  const { createServer } = await import('node:http');
+  const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { resolve } = await import('node:path');
+  const posted = [];
+  const serve = (handler) => new Promise((ok) => { const server = createServer(handler).listen(0, '127.0.0.1', () => ok(server)); });
+  const json = (res, status, body) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
+  let generation = 1;
+  const door = await serve((req, res) => {
+    if (req.url === '/dev/status') return json(res, 200, { storeId: 'a1', generation, personas: ['alice'] });
+    if (req.url !== '/dev/reset' || req.method !== 'POST') return json(res, 404, {});
+    let body = ''; req.on('data', (c) => { body += c; }).on('end', () => {
+      const rows = body ? JSON.parse(body) : [];
+      posted.push(rows);
+      json(res, 200, { reset: true, seeded: rows.length, generation: ++generation });
+    });
+  });
+  const old = await serve((req, res) => req.url === '/dev/status' ? json(res, 200, { storeId: 'b2' })
+    : json(res, 404, { denied: { code: 'E_OP', message: 'no route /dev/reset; operations are POST /q/<op> and POST /m/<op>' } }));
+  const other = await serve((req, res) => json(res, 404, {}));
+  const at = (server) => `http://127.0.0.1:${server.address().port}`;
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-fresh-'));
+  try {
+    // An origin that is no snapback4 dev server is left alone; the one that is, emptied, then seeded.
+    expect(await resetBackends([at(other), at(door)])).toEqual([`${at(door)} reset to generation 2`]);
+    writeFileSync(resolve(dir, 'seed.json'), JSON.stringify([{ table: 'owners', row: { id: 'o1', person: 'dev:alice' } }]));
+    const rows = freshRows(resolve(dir, 'app.test.contract'), 'seed.json');
+    expect(await resetBackends([at(door)], rows)).toEqual([`${at(door)} reset to generation 3, 1 row seeded`]);
+    expect(posted).toEqual([[], rows]);
+    expect(freshRows('x.test.contract', null)).toBe(null);
+    writeFileSync(resolve(dir, 'bad.json'), '{"table":"owners"}');
+    expect(() => freshRows(resolve(dir, 'a.test.contract'), 'bad.json')).toThrow(/bad\.json is not a list of \{"table": "…", "row": \{…\}\}/);
+    expect(() => freshRows(resolve(dir, 'a.test.contract'), 'none.json')).toThrow(/none\.json: no such file/);
+    // A snapback4 older than the door, nothing to reset, and nothing listening each refuse with what to do.
+    await expect(resetBackends([at(old)])).rejects.toThrow(/has no reset door \(POST \/dev\/reset answered 404: .*E_OP.*older than the snapback4 that adds it/);
+    await expect(resetBackends([at(other)])).rejects.toThrow(`fresh: no snapback4 dev server at ${at(other)}`);
+    await expect(resetBackends([])).rejects.toThrow(/net\.fetch grants: none/);
+    await expect(resetBackends(['http://127.0.0.1:1'])).rejects.toThrow(/nothing answered at http:\/\/127\.0\.0\.1:1 .*snapback4 dev --port 1/);
+  } finally { for (const s of [door, old, other]) s.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
 // A mutation's refused reply is named with why, from either runner's line (sb4 farm wave 6, E3); a resource's is not.
 test("a mutation whose reply was refused is named with the field its shape lacks", async () => {
   const { refusedReplies } = await import('./agent-test.mjs');

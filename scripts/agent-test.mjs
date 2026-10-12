@@ -173,6 +173,37 @@ export async function backendHead(origin, ms = 1000) {
     return Number.isInteger(changes?.seq) ? changes.seq : null;
   } catch { return null; }
 }
+// @ref LLP 1086 D13 — `fresh` (the author's ruling of 2026-10-12, via the sb4 app farm): a test file's per-test reset.
+/** Before a test opens, each snapback4 dev server the app fetches is emptied through its development door, `POST
+ * /dev/reset` (dev only: the app's tables and derived data emptied; a body of `[{table, row}]` seeds it after; it answers
+ * `{reset: true, seeded, generation}`). An origin that is no snapback4 dev server (no `/dev/status` with a `storeId`) is
+ * left alone. Nothing to reset, an origin that does not answer, or a server older than the door (404) refuses the test
+ * with what to do. Returns a line for each server reset. */
+export async function resetBackends(origins, rows = null, ms = 10000) {
+  const said = [];
+  for (const origin of origins) {
+    let status;
+    try { const r = await fetch(`${origin}/dev/status`, { signal: AbortSignal.timeout(ms) }); status = r.ok ? await r.json().catch(() => null) : null; }
+    catch (e) { throw new Error(`fresh: nothing answered at ${origin} (${e.cause?.code ?? e.message}): start \`snapback4 dev --port ${new URL(origin).port || 80}\` there first`); }
+    if (typeof status?.storeId !== 'string') continue;
+    const r = await fetch(`${origin}/dev/reset`, { method: 'POST', signal: AbortSignal.timeout(ms), ...(rows ? { headers: { 'content-type': 'application/json' }, body: JSON.stringify(rows) } : {}) });
+    const text = await r.text();
+    if (r.status === 404) throw new Error(`fresh: the snapback4 dev server at ${origin} has no reset door (POST /dev/reset answered 404: ${text.slice(0, 160)}); it is older than the snapback4 that adds it. Update snapback4 in the backend's directory, or drop \`fresh\` and give each test file its own server (snapback4/README.md, "Tests share the server")`);
+    let reply = null; try { reply = JSON.parse(text); } catch { /* said below */ }
+    if (!r.ok || reply?.reset !== true) throw new Error(`fresh: POST ${origin}/dev/reset answered ${r.status}: ${text.slice(0, 300)}`);
+    said.push(`${origin} reset to generation ${reply.generation}${rows ? `, ${reply.seeded} row${reply.seeded === 1 ? '' : 's'} seeded` : ''}`);
+  }
+  if (!said.length) throw new Error(`fresh: no snapback4 dev server at ${origins.length ? origins.join(', ') : 'any loopback origin the app fetches (its web build\'s net.fetch grants: none)'}; \`fresh\` empties one before each test`);
+  return said;
+}
+/** A `fresh` line's seed file, a path from the test file: a JSON list of `{table, row}`. */
+export function freshRows(file, seed) {
+  if (seed == null) return null;
+  const path = resolve(dirname(resolve(file)), seed);
+  let rows; try { rows = JSON.parse(readFileSync(path, 'utf8')); } catch (e) { throw new Error(`fresh ${JSON.stringify(seed)}: ${path}: ${e.code === 'ENOENT' ? 'no such file' : e.message}`); }
+  if (!Array.isArray(rows) || rows.some((r) => typeof r?.table !== 'string' || r.row === null || typeof r.row !== 'object')) throw new Error(`fresh ${JSON.stringify(seed)}: ${path} is not a list of {"table": "…", "row": {…}}`);
+  return rows;
+}
 /** The note a failed test gets when the backend held commits as it began: from before the run, from earlier tests. */
 export function sharedBackendNote(origin, before, earlier) {
   const n = (k) => `${k} commit${k === 1 ? '' : 's'}`;
@@ -280,6 +311,8 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
   // The Snapback dev servers the tests share, and each one's head before the first test (`backendHead`).
   const shared = host === 'web' && !url && mountsSnapback(resolveApp(app)) ? loopbackOrigins(resolve(webDist ?? defaultWebDist())) : [];
   const atStart = await Promise.all(shared.map((o) => backendHead(o)));
+  // What `fresh` resets: every loopback origin the app's web build fetches (its net.fetch grants).
+  const backends = url ? [] : loopbackOrigins(resolve(webDist ?? defaultWebDist()));
   // Cargo owns target selection and freshness, including CARGO_TARGET_DIR.
   const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'test', resolve(file)], { cwd: root, encoding: 'utf8' });
   if (c.status !== 0) throw new Error(c.stderr?.trim() || c.error?.message || 'contract test compiler failed');
@@ -303,17 +336,17 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     // The drive's `--fail-fetch` is every test's, with its own leading `fail fetch` lines added (LLP 1103 D3).
     const facts = { size, seed, locale, timeZone, epoch, failFetch };
     const lines = [];
-    let beforeData = false, leading = 0;
+    let beforeData = false, leading = 0, reset = null;
     // `fail fetch` lines that lead the steps are armed before the app's first data load (LLP 1103 D3).
     const armed = new Map(); // prefix -> the line that armed it with a count
     // Advice beside the verdict, never a failure: a `fail fetch` armed before the app's data first loaded (app farm
     // round 2: six builds read the failed first load as a broken app; a client that must sync once cannot open offline).
     const notes = [], shots = []; // `shots`: the paths of the test's own `screenshot` steps (verify --shots copies them)
-    const heads = await Promise.all(shared.map((o) => backendHead(o)));
     for (const st of granted.length ? t.steps : []) if ((st.op === 'fail-fetch' || st.op === 'pass-fetch') && !granted.some((o) => o.startsWith(st.prefix) || st.prefix.startsWith(o))) notes.push(`line ${st.line}: \`${st.op.replace('-', ' ')} ${JSON.stringify(st.prefix)}\` names no origin app.ts fetches (its net.fetch grants: ${granted.join(', ')}), so it changes nothing`);
     const early = (st) => notes.push(`line ${st.line}: \`fail fetch ${JSON.stringify(st.prefix)}\` is armed before the app has loaded its data, so every first load to it fails; a client that must sync once before it works offline (Snapback4's) cannot open its data at all. To test going offline after a load, put \`clock data\` before it; a launch with no network is what it tests as written`);
     for (const st of t.steps) {
       if (st.op === 'before-data') beforeData = true;
+      else if (st.op === 'fresh') reset = st;
       else if (st.op === 'fail-fetch') { early(st); facts.failFetch = [facts.failFetch, st.times == null ? st.prefix : `${st.prefix}\t${st.times}`].filter(Boolean).join('\n'); if (st.times != null) armed.set(st.prefix, st.line); }
       else if (st.op === 'size') facts.size = [st.width, st.height];
       else if (LAUNCH[st.op]) facts[LAUNCH[st.op]] = st.value;
@@ -329,6 +362,12 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       results.push({ name: t.name, failures: [`${t.name}: ${lines.length ? `line ${lines.join(', ')}` : "the drive's launch flags"}: ${e.message}`] });
       continue;
     }
+    // `fresh`: the backend emptied (and seeded) before the app opens; a refusal fails this test at its line.
+    if (reset) try { await resetBackends(backends, freshRows(file, reset.seed)); } catch (e) {
+      results.push({ name: t.name, failures: [`${t.name}: line ${reset.line}: ${e.message}`], notes });
+      continue;
+    }
+    const heads = await Promise.all(shared.map((o) => backendHead(o)));
     // A drag on an iOS simulator is the touch runner's real gesture (LLP 1080.000 §11; chat2 diary: an authored
     // test could not drag there); every other step stays the agent's. A phone has no runner yet: its drag says so.
     // `--touch platform` makes every tap a real touch too (splitter rough 12: a test of what a finger reaches).
@@ -423,7 +462,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
           if (INPUTS.has(st.op)) await settleFired();
           if (st.op === 'type') { typed.add(st.target); touched.add(st.target); } else if (INPUTS.has(st.op) || st.op === 'reload') typed.clear();
           switch (st.op) {
-            case 'size': case 'epoch': case 'time-zone': case 'locale': case 'seed': case 'before-data': break; // the session opened with it
+            case 'size': case 'epoch': case 'time-zone': case 'locale': case 'seed': case 'before-data': case 'fresh': break; // the session opened with it
             // A driver fault (LLP 1103): a leading one was a launch line; a later one arms (or re-arms) now, a `pass` stops it.
             case 'fail-fetch': {
               if (n < leading) break;
@@ -563,7 +602,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       // A window the test closed took its session (on macOS, the app) with it: nothing is left to close but the carrier.
       await s.close().catch((e) => { if (closedAt == null) throw e; });
     }
-    if (failures.length) shared.forEach((o, i) => { if (heads[i] > 0 && atStart[i] != null) notes.push(sharedBackendNote(o, atStart[i], heads[i] - atStart[i])); });
+    if (failures.length && !reset) shared.forEach((o, i) => { if (heads[i] > 0 && atStart[i] != null) notes.push(sharedBackendNote(o, atStart[i], heads[i] - atStart[i])); });
     // The README says `epoch now` (sb4 farm wave 7, E1: 013 found it only in prose).
     if (failures.length && fixedDate && atStart.some((h) => h != null)) notes.push('this test ran on the fixed date 2026-01-01T00:00:00Z while snapback4 dev keeps real time: if what failed reads a time (a deadline, an age, a window), the server\'s and the app\'s disagree; write `epoch now` at the top of the test file (snapback4/README.md, "Time")');
     results.push({ name: t.name, failures, notes, ...(shots.length ? { shots } : {}), ...(end ? { end } : {}), ...(end?.keep ? { store } : {}) });

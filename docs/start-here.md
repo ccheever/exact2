@@ -258,3 +258,8 @@ reading the current date in a data module is refused.
 
 `console.log` in a source appears in the agent’s `logs`; a failed test’s
 notes show its last lines.
+
+`fresh` at the file’s top (or leading a test) empties its `snapback4 dev` server
+via `POST /dev/reset` before each test. `fresh "seed.json"` then seeds it with
+`[{"table": …, "row": {…}}]`, from a path relative to the test file. Without
+`fresh`, backend rows survive tests and runs. A server lacking reset fails the test.

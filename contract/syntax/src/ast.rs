@@ -286,6 +286,17 @@ pub enum Step {
         /// Where.
         span: Span,
     },
+    /// `fresh` or `fresh "seed.json"`: before the test opens, the Snapback
+    /// dev server the app fetches is emptied (`POST /dev/reset`), and seeded
+    /// with the file's `[{table, row}]` when one is named (a path from the
+    /// test file). At a file's top level, before every test in it (the
+    /// author's ruling of 2026-10-12, via the sb4 app farm).
+    Fresh {
+        /// The seed file, as written.
+        seed: Option<String>,
+        /// Where.
+        span: Span,
+    },
     /// `seed 7`: the session's `exactTime().seed`, `--seed`.
     Seed {
         /// A whole number from 0 through 2^32 − 1.
@@ -1388,6 +1399,7 @@ impl Step {
             | Step::TimeZone { span, .. }
             | Step::Locale { span, .. }
             | Step::Seed { span, .. }
+            | Step::Fresh { span, .. }
             | Step::BeforeData { span }
             | Step::FailFetch { span, .. }
             | Step::PassFetch { span, .. }

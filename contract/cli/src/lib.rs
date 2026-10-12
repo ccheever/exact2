@@ -906,6 +906,13 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                 Step::Seed { seed, .. } => {
                     s.push_str(&format!("{{\"op\":\"seed\",\"value\":{seed}"));
                 }
+                Step::Fresh { seed, .. } => {
+                    s.push_str("{\"op\":\"fresh\",\"seed\":");
+                    match seed {
+                        Some(path) => q(path, &mut s),
+                        None => s.push_str("null"),
+                    }
+                }
                 Step::Type {
                     target,
                     text,

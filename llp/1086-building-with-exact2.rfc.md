@@ -441,6 +441,26 @@ notes' backend paragraph describes a wired app, else how to wire one.
 the Cargo paths. Not done: native linking of `exact_snapback4::Module` (the
 farm's apps are driven on the web).
 
+### D13. `fresh`: a test file empties the backend before each test
+
+**Author ruling 2026-10-12, via the sb4 app farm** (wave 4: 091; wave 7:
+E1, six builds, 49 minutes, the largest Exact item: a run's tests share one
+`snapback4 dev` and every write before it). `fresh` is a launch line of the
+test grammar (`contract/syntax` `Step::Fresh`; the JSON step `{op: "fresh",
+seed}`): at a file's top level it applies to every test, leading a test to
+that test, and `fresh "seed.json"` names a seed file from the test file's
+directory. Before each such test opens, `scripts/agent-test.mjs`
+`resetBackends` asks each loopback origin the app's web build fetches (its
+`net.fetch` grants) for `/dev/status`; each that is a `snapback4 dev`
+server (a `storeId`) gets `POST /dev/reset`, with the file's
+`[{table, row}]` as the body when one is named. The door is snapback4's
+(dev only: the app's tables and derived data emptied, then seeded; it
+answers `{reset: true, seeded, generation}`); it is not in 0.4.22, which
+answers 404, and a 404 fails the test naming the older server and the
+per-file workaround. No `test web --fresh` flag: the line says it in the
+file, as `epoch now` does. Until a snapback4 with the door is pinned, the
+README keeps the per-file server (`test-fresh.mjs`); delete it then.
+
 ## 3. Implementation order
 
 1. Land `origin/tuft/diary-fixes` (D4's prerequisite).

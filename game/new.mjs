@@ -724,8 +724,9 @@ hand-written HTTP; read ${readme} before changing data code. ${api} The backend 
 (\`snapback4\`) and the generated operations (\`backend\`, \`../snapback/generated\`); \`assets/snapback4.wasm\` is the
 device the page loads; \`app.ts\` names the origin and grants it. After the first \`bunx snapback4 check\` above, or
 after exact2 moves, run \`bun exact.mjs snapback\`: it mounts what is there and builds the device again. \`test web\`
-talks to a running \`bunx snapback4 dev --port <the origin's port>\` above: start it first. A failure's
-\`failure(x).reason\` is the refusal's code (\`f.reason == "NOT_MANAGER"\`).`;
+talks to a running \`bunx snapback4 dev --port <the origin's port>\` above: start it first; \`fresh\` at the top of a
+test file empties it before each test (snapback4's \`POST /dev/reset\`; the README says which versions have it). A
+failure's \`failure(x).reason\` is the refusal's code (\`f.reason == "NOT_MANAGER"\`).`;
   return `A backend: an app that keeps shared, server-authoritative data (accounts, other people's rows, offline writes
 that sync) uses Snapback 4 through this checkout's first-party client, never hand-written HTTP: read ${readme} before
 any data code. ${api} Wire it once with \`bun exact.mjs snapback\`, with the backend in the directory above (its

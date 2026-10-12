@@ -360,6 +360,37 @@ fn a_test_waits_for_the_apps_data_unless_it_says_before_data() {
 }
 
 #[test]
+fn fresh_resets_the_backend_before_each_test_it_leads() {
+    // The author's ruling of 2026-10-12 (sb4 app farm): a launch line, at the
+    // top for every test or leading one, with an optional seed file.
+    let src = "fresh\n\ntest \"a\"\n  tap \"x\"\n\ntest \"b\"\n  fresh \"fixtures/seed.json\"\n  tap \"y\"\n";
+    let tests = contract::tests(src).unwrap();
+    assert!(matches!(&tests[0].steps[0], Step::Fresh { seed: None, .. }));
+    assert!(
+        matches!(&tests[1].steps[0], Step::Fresh { seed: Some(s), .. } if s == "fixtures/seed.json")
+    );
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.starts_with(
+            "[{\"name\":\"a\",\"steps\":[{\"op\":\"fresh\",\"seed\":null,\"line\":1},"
+        ),
+        "{json}"
+    );
+    assert!(
+        json.contains("{\"name\":\"b\",\"steps\":[{\"op\":\"fresh\",\"seed\":\"fixtures/seed.json\",\"line\":7},"),
+        "{json}"
+    );
+    for (src, line) in [
+        ("test \"t\"\n  tap \"a\"\n  fresh\n", 3),
+        ("test \"t\"\n  fresh 7\n", 2),
+        ("fresh\nfresh \"s.json\"\n", 2),
+    ] {
+        let e = contract::tests(src).unwrap_err();
+        assert_eq!(e.span.line, line, "{src}: {e}");
+    }
+}
+
+#[test]
 fn a_test_resizes_the_window_mid_test() {
     // reader: repagination on resize is driven, not polled for by hand.
     let tests =
