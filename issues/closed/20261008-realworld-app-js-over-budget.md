@@ -1,6 +1,7 @@
 # RealWorld's shipped app.js is 38.7 KiB against its 38 KiB budget
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Charlie ruled (2026-10-12): budget raised 38 → 45 KiB in scripts/metrics.mjs with the reason beside it (43.45 KiB shipped at fe5b26798, grown by real features; the file-body path already links by use); the link-by-use cut hunt is a QUEUE.md line
 **Systems:** scripts/metrics.mjs (`JS_TARGET_KIB`), host/web-js (the JS target), apps/realworld
 **Author:** Claude (Opus 5.5), for Charlie Cheever
 **Date:** 2026-10-08
