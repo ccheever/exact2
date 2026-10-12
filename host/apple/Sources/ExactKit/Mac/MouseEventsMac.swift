@@ -106,6 +106,19 @@ extension NodeView {
         return action || menu
     }
 
+    /// A Control-click is the Mac's secondary click (X85): Chrome sends it as
+    /// `contextmenu` and no `click`. AppKit asks the view under it for
+    /// `menu(for:)` and, given none, sends `mouseDown`. Where a node from
+    /// here up answers it (`contextMenuAuthored`), its down, drags and
+    /// release take a right-click's path (`rightMouseDown`) with the primary
+    /// button and Control the event holds, and nothing presses. Selectable
+    /// text with none above had its menu from `menu(for:)` (#454); anywhere
+    /// else it stays a click with Control held.
+    func contextClick(_ event: NSEvent) -> Bool {
+        contextClicked = event.type == .leftMouseDown && event.modifierFlags.contains(.control) && contextMenuAuthored
+        return contextClicked
+    }
+
     /// Whether run `id`'s own `contextmenu` answers a context request.
     func inlineAnswersContextMenu(_ id: UInt32) -> Bool {
         guard let presenter, presenter.inlineEnabled(id) else { return false }

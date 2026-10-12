@@ -568,8 +568,9 @@ extension NodeView: NSServicesMenuRequestor {
     }
     /// Whether a node from here up runs an authored `contextmenu` or
     /// `contextPopover` for a secondary click, as `dispatchContextMenu` does
-    /// on the event's way up the responder chain.
-    private var contextMenuAuthored: Bool {
+    /// on the event's way up the responder chain (a Control-click's too,
+    /// `contextClick`).
+    var contextMenuAuthored: Bool {
         guard let presenter else { return false }
         var next: NSView? = self
         while let view = next {

@@ -893,6 +893,9 @@ canvas surface=ink(points) pointerdown=begin pointermove=stroke touch-action="no
 
 A `contextmenu` (a right-click, a long press) offers the same record: on a Mac
 and in a browser on one it comes on the button's down, after its `pointerdown`.
+A Control-click there is a secondary click too: where a `contextmenu` or
+`contextPopover` answers it, it holds the primary button and Control, and
+nothing presses.
 On macOS, the unmodified `ContextMenu` key opens it at the focused node's
 visible centre, after `key` handlers run, with `buttons=0` and `pressure=0`.
 A `key` handler's `preventDefault()` cancels it. The nearest `contextmenu`
