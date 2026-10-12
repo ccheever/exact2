@@ -113,6 +113,25 @@ in a code block's horizontal scroller left the focus in the composer, and that s
 D2 and E1). (3) Following the cited text when the timeline scrolls while the comment is open (X22, #127): the frame is
 the action's snapshot. All in `EXACT2-GAPS.md` "Cite and the citation comment".
 
+**Review round (2026-10-12).** An independent review of the PR found four problems; the reference was checked again over
+CDP for each behavior (`ref-r3.mjs`, R1 to R4). (1) After a press outside the comment on ground that takes no focus, the
+reference's `finalFocus` finds `document.activeElement` on the body and calls `onRestoreFocus`: the caret goes back into
+"Message" after the chip (R1: nothing changed, closed; R2: "draft kept" committed; both `focus Message`). The clone's
+close (`editorChipClose`) and commit (`editorChipFinish` with `focus: false`) gave nothing the focus. Now
+`T3ComposerChipPress` gives the prompt the focus after the chip whenever a citation's comment closes with the focus nowhere
+(the window, or a view that is no key view: a paragraph takes it only to select text, the web's body) or in the popover;
+a control the press focused, the prompt's text included, keeps it. (2) The X33 row of `EXACT2-GAPS.md` said no clear is
+needed after citing; it now names the code block exception (#274), and "Cite and the citation comment" has a bullet for it.
+(3) A comment held open past 8,000 characters while the prompt has the focus: in the reference it stays open through a press
+in the prompt and a keystroke there (R3, the draft kept), and Escape there closes it as Base UI's escape-key dismissal
+(`resolveAssistantCitationCommentDismissal`: "close"), which keeps even the chip Cite just inserted (R3: three chips) and,
+with nothing focused, gives "Message" the focus (R4). In the clone a keystroke closed the native press (`textChanged`), the
+draft lost, and the window's Escape cancelled (after Cite: removed the chip). Now a citation's press is left to the app's
+settle on an edit (it follows its chip by its source link and closes when the chip goes, as the reference's node view keeps
+its popover by its `citeKey`), the prompt's own Escape leaves it alone, and the window's Escape sends `chip-cite-escape`:
+the native editor treats it as the editor's Cancel when the focus is in the comment's textarea, else as escape-key's close
+(no removal, the focus as above). (4) ⌘↵ save-and-send's live key route is listed under Not done with its blocker.
+
 **X84 (new, not filed).** A column's automatic height takes a `field-sizing="content"` textarea's whole content height,
 its `max-height` aside: live, an 8,001-character comment made the popover 16,000 pt tall and blank (run 2, F1). A probe
 app on macOS measured it (a 320-wide column, the textarea clamped at 130 pt, the column 16,018 pt) and the workaround: the
@@ -170,6 +189,13 @@ cleared); thread "Timeline verification". Never send a message (no ⌘↵, no Re
   stream against the reference's (collapsed), a selection across inline code and one in a code block giving the
   reference's selector, and the `selectionchange` and frame wiring.
 - `diff-review.test.ts`: Cite opens the comment after the insert (and not when the composer refuses the quote).
+- Review round: `diff-cite-popover.test.ts` (16) adds the window's Escape (`chip-cite-escape`, the request the native editor
+  decides on) and escape-key's close past the limit; `composer-chip-popover.test.ts` the window's Escape arm. AppKit
+  `citationpress.swift` (7) adds `testAPressThatLeavesTheFocusNowhereGivesItToThePromptAfterTheChip` (the close and the
+  commit after a press on the ground give the prompt the focus after the chip; a focused control keeps it; Escape in the
+  textarea removes the chip after Cite, in the prompt or with nothing focused it keeps it) and, in the Cite test, an edit in
+  the prompt leaving the comment open and following its chip, the prompt's Escape leaving it, the chip's removal closing it.
+  `target/dcp/r3-probe` runs the same steps on the PR head's sources and this round's (before/after text below).
 - `composer-chip-popover.test.ts`, `dialog-trap.test.ts`, `external-link-menu.test.ts`: updated for the shapes and texts
   this changes (the chip's new fields, the window's Escape, the popover listed as a Popover, the word texts' new arms).
 - AppKit `macos/tests/composer` (`citationpress.swift`, 6, and `ComposerSendPressTests`, 1): the label and query parsing;

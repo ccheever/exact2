@@ -99,7 +99,8 @@ describe('DC-1: the citation chip\'s comment popover', () => {
     await citationCommentLocal(pencil.native, 'chip-cite-escape', '7', 'a draft past the limit'.repeat(400));
     expect(pencil.finishes()).toEqual([{ op: 'editorChipFinish', seq: 7, focus: true, send: false, escape: true }]);
     const window = await source('app-window.contract');
-    expect(window).toContain('  action chipEscape\n    if chip.kind == "citation"\n      chipClosed = chip.seq\n      editorOp("chip-cite-escape", `${chip.seq}`, "")');
+    // The popover is not hidden first: its textarea must still hold the focus when the native editor looks (run 3 found it).
+    expect(window).toContain('  action chipEscape\n    if chip.kind == "citation"\n      editorOp("chip-cite-escape", `${chip.seq}`, "")\n    else');
   });
 
   test('only the comment the window showed; past 8,000 characters nothing is saved', async () => {
