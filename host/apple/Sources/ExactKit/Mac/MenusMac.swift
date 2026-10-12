@@ -15,6 +15,8 @@ final class MenuHost: NSObject {
     private final class Entry {
         let popover: NodeView
         weak var source: NodeView?
+        /// The run of `source` that opened it as its context menu (X77): its anchor.
+        let run: UInt32?
         weak var parent: NSView?
         weak var previous: NSView?
         var index: Int
@@ -25,8 +27,8 @@ final class MenuHost: NSObject {
         var menu: NSMenu?
         /// An alertdialog presented as a menu: what each action showed.
         var confirmation: Confirmation?
-        init(_ popover: NodeView, source: NodeView, previous: NSView?) {
-            self.popover = popover; self.source = source; self.previous = previous
+        init(_ popover: NodeView, source: NodeView, previous: NSView?, run: UInt32?) {
+            self.popover = popover; self.source = source; self.previous = previous; self.run = run
             parent = popover.superview
             index = parent?.subviews.firstIndex(of: popover) ?? 0
             frame = popover.frame; value = popover.props["popover"]
@@ -127,8 +129,13 @@ final class MenuHost: NSObject {
         }
     }
     /// A native invoker anchors to its actual button frame, including AppKit's
-    /// alignment insets, rather than the node's layout box (D13).
-    func anchor(_ source: NodeView, in view: NSView) -> NSRect {
+    /// alignment insets, rather than the node's layout box (D13); a run of
+    /// a paragraph, to its lines' bounds, as an inline element's box is.
+    func anchor(_ source: NodeView, in view: NSView, run: UInt32? = nil) -> NSRect {
+        if let run, let text = presenter?.inlineText(run) {
+            let lines = source.inlineRects(text).reduce(CGRect.null) { $0.union($1) }
+            if !lines.isNull { return source.convert(lines, to: view) }
+        }
         if let button = presenter?.controls.controls[source.id] as? NativeButtonMac {
             return button.convert(button.bounds, to: view)
         }
@@ -168,7 +175,7 @@ final class MenuHost: NSObject {
         for pick in picking where !valid(pick) { pick.cancelled = true }
         picking.removeAll { $0.cancelled }
     }
-    func show(_ pop: NodeView, from source: NodeView) {
+    func show(_ pop: NodeView, from source: NodeView, run: UInt32? = nil) {
         guard let presenter, !isOpen(pop), live(pop), live(source), pop.props["popover"] != nil,
               connected(pop), connected(source), !pop.inert, !source.inert, !source.disabled,
               pop.style["display"]?.string != "none", let window = presenter.viewport.window,
@@ -187,7 +194,7 @@ final class MenuHost: NSObject {
         // on the window (LLP 1115.000 D7.6, AlertsMac.swift); a chooser is
         // the menu below.
         if isConfirmation(pop), presenter.alerts.isOpen(pop) || presenter.alerts.present(pop, from: source) { return }
-        let entry = Entry(pop, source: source, previous: focusOwner(window))
+        let entry = Entry(pop, source: source, previous: focusOwner(window), run: run)
         presentations[pop.id, default: 0] += 1
         revalidate()
         if !ExactEnv.agentMode {
@@ -230,18 +237,20 @@ final class MenuHost: NSObject {
     /// popped up at the click, after the node's own `contextmenu` has run
     /// (both fire), on the next turn as a button menu's. Its preview row is
     /// not an item: a Mac's context menu has no preview. Under the agent the
-    /// popover opens painted, anchored to the node (D4).
-    func context(_ source: NodeView, at point: NSPoint) {
-        guard let name = source.props["contextPopover"] else { return }
+    /// popover opens painted, anchored to the node (D4). `run` names a run
+    /// of `source` whose own `contextPopover` it is (X77).
+    func context(_ source: NodeView, at point: NSPoint, run: UInt32? = nil) {
+        guard let name = contextPopover(source, run: run) else { return }
         RunLoop.main.perform(inModes: [.common]) { [weak self, weak source] in
-            guard let self, let presenter = self.presenter, let source, self.live(source), source.props["contextPopover"] == name,
-                  !source.disabled, !source.inert, !self.hidden(source), source.window === presenter.viewport.window else { return }
+            guard let self, let presenter = self.presenter, let source, self.live(source), self.contextPopover(source, run: run) == name,
+                  !source.disabled, !source.inert, !self.hidden(source), source.window === presenter.viewport.window,
+                  run.map(presenter.inlineEnabled) ?? true else { return }
             guard let pop = presenter.carrying("popover").first(where: { $0.props["id"] == name && !self.isConfirmation($0) }) else {
                 presenter.session?.log("context menu \(name) refused: no popover has that id")
                 return
             }
             while let last = self.entries.last { self.close(last.popover, restoreFocus: false) }
-            if ExactEnv.agentMode { self.show(pop, from: source); return }
+            if ExactEnv.agentMode { self.show(pop, from: source, run: run); return }
             // A new presentation only if it has an item: it retires picks of the last.
             guard pop.container.subviews.contains(where: { ($0 as? NodeView).map { $0.isButton && $0.props["contextPreview"] != "true" } ?? false }) else { return }
             self.presentations[pop.id, default: 0] += 1
@@ -249,6 +258,11 @@ final class MenuHost: NSObject {
             let menu = self.menu(of: pop)
             self.track(menu, at: point, in: source)
         }
+    }
+    /// The popover `source`'s context menu shows, or its run `run`'s.
+    private func contextPopover(_ source: NodeView, run: UInt32?) -> String? {
+        guard let run else { return source.props["contextPopover"] }
+        return presenter?.textHost(run) === source ? presenter?.inlineText(run)?.props["contextPopover"] : nil
     }
     /// Where a menu presenting `pop` pops up in `source`: its top-left, by
     /// the popover's `position-area` and margins as its painted box would
@@ -346,7 +360,7 @@ final class MenuHost: NSObject {
         for entry in entries where entry.menu == nil {
             guard let source = entry.source else { continue }
             entry.layer.frame = presenter.viewport.bounds
-            let anchor = anchor(source, in: entry.layer)
+            let anchor = anchor(source, in: entry.layer, run: entry.run)
             var box = entry.frame
             box.origin = PositionArea.origin(PositionArea.of(entry.popover), anchor: anchor, size: box.size,
                                              margins: PositionArea.margins(of: entry.popover), in: entry.layer.bounds)

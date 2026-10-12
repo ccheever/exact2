@@ -1435,7 +1435,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // menu opens.
         pointerPressed(event)
         let canvas = canvasInput?.pointer(event, phase: "down") == true
-        if dispatchContextMenu(at: convert(event.locationInWindow, from: nil), sample: pointerSample(event)) { return }
+        if inlineContextMenu(event) || dispatchContextMenu(at: convert(event.locationInWindow, from: nil), sample: pointerSample(event)) { return }
         if !canvas { super.rightMouseDown(with: event) }
     }
     package override func scrollWheel(with event: NSEvent) {

@@ -492,6 +492,103 @@ final class ContextMenuMacTests: XCTestCase {
         XCTAssertEqual(heard, ["checked 31 true"], "a plain click still checks it")
     }
 
+    /// X77: a run is no view, but the web's run is an element, and a
+    /// secondary click on it (a right-click, a Control-click) runs the
+    /// nearest run's own `contextmenu` from the run's first line's top left,
+    /// as Chrome measures an inline element, then its `contextPopover`'s
+    /// menu, and ends there. A run with none leaves the paragraph's handler,
+    /// and plain words #454's word and text menu. Show menu on a run's
+    /// element opens its `contextPopover` too (X84 ran only its action).
+    func testASecondaryClickOnARunRunsTheNearestRunsContextMenu() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "the agent opens no native menu")
+        let p = presenter(inSession: true), window = try XCTUnwrap(windows.last)
+        func run(_ id: Int, _ text: String, parent: Int, _ props: [String: String] = [:], _ handlers: [String] = []) -> [String: Any] {
+            ["id": id, "parent": parent, "paint": !text.isEmpty, "props": props.merging(["text": text]) { $1 }, "handlers": handlers, "style": ["font_size": 18.0]]
+        }
+        p.apply(wireBatch([
+            ["op": "create", "id": 8, "kind": "text", "handlers": ["contextmenu"], "style": ["font_size": 18.0]],
+            ["op": "paragraph", "id": 8, "runs": [run(81, "Write ", parent: 8), run(82, "the list", parent: 8, ["href": "mailto:list@example.test"], ["contextmenu"]),
+                                                 run(83, " or ", parent: 8), run(84, "the team", parent: 8, [:], ["press"]), run(85, "", parent: 8, [:], ["contextmenu"]),
+                                                 run(86, " inner", parent: 85), run(87, " menu", parent: 8, ["contextPopover": "m"])]],
+            ["op": "frame", "id": 8, "x": 20, "y": 80, "w": 460, "h": 28],
+            ["op": "create", "id": 10, "kind": "text", "style": ["font_size": 18.0]],
+            ["op": "paragraph", "id": 10, "runs": [run(101, "Alpha beta ", parent: 10), run(102, "gamma", parent: 10, [:], ["contextmenu"])]],
+            ["op": "frame", "id": 10, "x": 20, "y": 130, "w": 300, "h": 28],
+            ["op": "children", "id": 9, "ids": [1, 2, 8, 10]],
+        ]))
+        p.viewport.layoutSubtreeIfNeeded()
+        window.orderFrontRegardless()
+        var heard: [String] = [], sample: [String] = []
+        p.onClipboard = { id, kind, line in
+            guard kind == 10 else { return }
+            heard.append("contextmenu \(id)")
+            sample = line.components(separatedBy: ",")
+        }
+        p.onPress = { heard.append("press \($0)") }
+        let center = NotificationCenter.default
+        let observer = center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+            guard let menu = note.object as? NSMenu else { return }
+            heard.append("menu " + (menu.items.first?.title ?? ""))
+            RunLoop.current.perform(inModes: [.eventTracking, .default]) { menu.cancelTracking() }
+        }
+        defer { center.removeObserver(observer) }
+        // The middle of run `id`'s first line, and that line, in its paragraph.
+        func middle(_ id: UInt32) throws -> (paragraph: NodeView, point: NSPoint, line: NSRect) {
+            let paragraph = try XCTUnwrap(p.textHost(id)), line = try XCTUnwrap(paragraph.inlineRects(try XCTUnwrap(p.inlineText(id))).first)
+            return (paragraph, NSPoint(x: line.midX, y: line.midY), line)
+        }
+        func secondary(_ id: UInt32, control: Bool = false) throws -> [String] {
+            let m = try middle(id), at = m.paragraph.convert(m.point, to: nil)
+            heard = []
+            if control { click(window, at: at, flags: .control) } else {
+                for type in [NSEvent.EventType.rightMouseDown, .rightMouseUp] {
+                    NSApp.sendEvent(try XCTUnwrap(NSEvent.mouseEvent(with: type, location: at, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                                     windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1,
+                                                                     pressure: type == .rightMouseDown ? 1 : 0)))
+                }
+            }
+            // A `contextPopover`'s menu opens on the next turn; the rest is heard at once.
+            let deadline = Date(timeIntervalSinceNow: 5)
+            while heard.isEmpty && Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
+            turn()
+            return heard
+        }
+        let list = try middle(82)
+        XCTAssertEqual(try secondary(82), ["contextmenu 82"], "the link run's own; not its paragraph's")
+        XCTAssertEqual(Double(sample[0]) ?? -1, Double(list.point.x - list.line.minX), accuracy: 0.01, "from the run's first line")
+        XCTAssertEqual(Double(sample[1]) ?? -1, Double(list.point.y - list.line.minY), accuracy: 0.01)
+        XCTAssertEqual(sample[2], "2", "the secondary button held")
+        XCTAssertEqual(try secondary(82, control: true), ["contextmenu 82"], "a Control-click is the same, and follows no link")
+        XCTAssertEqual(sample[2], "1", "the primary button held")
+        XCTAssertEqual(sample.last, "Control+")
+        let team = try middle(84)
+        XCTAssertEqual(try secondary(84), ["contextmenu 8"], "a run with none: the paragraph's")
+        XCTAssertEqual(Double(sample[0]) ?? -1, Double(team.point.x - team.paragraph.contentBox().minX), accuracy: 0.01, "from the paragraph's box")
+        XCTAssertEqual(try secondary(86), ["contextmenu 85"], "a run inside one that answers: the outer run's")
+        XCTAssertEqual(try secondary(87), ["menu Pin"], "a run's contextPopover")
+        XCTAssertEqual(try secondary(87, control: true), ["menu Pin"])
+        XCTAssertEqual(try secondary(102, control: true), ["contextmenu 102"], "a run's own beside plain words")
+        XCTAssertEqual(p.selection.selectedText(), "", "and selects nothing, as in Chrome")
+        heard = []
+        click(window, at: team.paragraph.convert(team.point, to: nil))
+        XCTAssertEqual(heard, ["press 84"], "a plain click still presses")
+        let alpha = try XCTUnwrap(p.views[10]), word = NSPoint(x: alpha.contentBox().minX + 6, y: alpha.contentBox().midY)
+        heard = []
+        click(window, at: alpha.convert(word, to: nil), flags: .control)
+        let deadline = Date(timeIntervalSinceNow: 5)
+        while heard.isEmpty && Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
+        XCTAssertEqual(heard, ["menu Look Up “Alpha”"], "plain words: the word's text menu (#454)")
+        // Show menu on the runs' elements: each one's own, its contextPopover too.
+        let elements = try XCTUnwrap(p.views[8]?.accessibilityChildren() as? [NSAccessibilityElement])
+        XCTAssertEqual(elements.map { $0.accessibilityLabel() }, ["the list", "the team", " inner", " menu"])
+        XCTAssertEqual(try elements.map { try offered($0) }, [["AXPress", "AXShowMenu"], ["AXPress"], ["AXPress", "AXShowMenu"], ["AXPress", "AXShowMenu"]])
+        heard = []
+        XCTAssertTrue(elements[3].accessibilityPerformShowMenu())
+        let shown = Date(timeIntervalSinceNow: 5)
+        while heard.isEmpty && Date() < shown { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
+        XCTAssertEqual(heard, ["menu Pin"], "show menu on the run's element")
+    }
+
     func testContextMenuDoesNotOpenForDisabledInertHiddenOrRemovedSources() throws {
         let changes: [(String, [String: Any])] = [
             ("disabled", ["op": "props", "id": 1, "set": ["disabled": "true"]]),

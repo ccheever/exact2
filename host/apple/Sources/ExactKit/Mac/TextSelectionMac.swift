@@ -721,7 +721,7 @@ extension NodeView {
 extension NodeView: NSServicesMenuRequestor {
     package override func menu(for event: NSEvent) -> NSMenu? {
         guard isParagraph, let selection = presenter?.selection, !contextMenuAuthored,
-              inlineTarget(at: local(event.locationInWindow), handler: "contextmenu") == nil else { return super.menu(for: event) }
+              inlineContextTarget(at: local(event.locationInWindow)) == nil else { return super.menu(for: event) }
         if event.type == .rightMouseDown || (event.type == .leftMouseDown && event.modifierFlags.contains(.control)),
            !selection.secondaryClick(self, event: event, answered: {
                // The reader's worker placed the click: its menu opens on the

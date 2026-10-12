@@ -5,7 +5,7 @@
 **Severity:** P3
 **Author:** Daehyeon Mun (via the T3 Code clone)
 **Date:** 2026-10-12
-**Related:** T3 PR #474 (reply-links-reference-behavior); https://github.com/ccheever/exact2/blob/feat(example)/t3-code/examples/t3-code/EXACT2-GAPS.md (X77's note); LLP 1115.000 D7.2 (Tab follows the Mac's Keyboard navigation setting); `issues/20261010-macos-inline-run-contextmenu.md` (X77); `issues/20261012-macos-voiceover-show-menu.md` (X84, main PR #483); main PR #327
+**Related:** T3 PR #474 (reply-links-reference-behavior); https://github.com/ccheever/exact2/blob/feat(example)/t3-code/examples/t3-code/EXACT2-GAPS.md (X77's note); LLP 1115.000 D7.2 (Tab follows the Mac's Keyboard navigation setting); `issues/closed/20261010-macos-inline-run-contextmenu.md` (X77); `issues/20261012-macos-voiceover-show-menu.md` (X84, main PR #483); main PR #327
 
 ## Summary
 
@@ -110,3 +110,5 @@ hardware keyboard; Linux; a run that wraps across lines; a focus ring on a run.
   key raises the run's `contextmenu` at the run (with X77). A host test covers forward and backward order, a run that
   wraps, and a paragraph with two runs.
 - The web's order is unchanged.
+
+2026-10-12: X77's fix (#491, which closes that issue) makes a secondary click reach a run's `contextmenu` and `contextPopover` on macOS. The ContextMenu key at a focused run is left to this decision. A run with `press` and no `href` is the same question: the web build gives every pressable `tabindex=0` (`host/web-js/src/emit.rs`), so Chrome can focus such a run (not driven), while macOS gives it no focus.
