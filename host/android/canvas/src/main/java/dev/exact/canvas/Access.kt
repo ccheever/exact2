@@ -417,10 +417,13 @@ internal class Access(private val host: View) {
         if (!value.isNullOrEmpty() && !info.isPassword) e.put("value", value)
         info.tooltipText?.let { e.put("description", it.toString()) }
         return e.put("states", states).put("interactive", info.isClickable || info.isCheckable || field || AccessibilityNodeInfo.ACTION_SCROLL_FORWARD in actions || AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD in actions)
-            .put("frame", org.json.JSONObject().put("x", ((box.left - at[0]) / density).toDouble()).put("y", ((box.top - at[1]) / density).toDouble())
-                .put("w", (box.width() / density).toDouble()).put("h", (box.height() / density).toDouble()).put("source", "accessibility"))
+            .put("frame", org.json.JSONObject().put("x", points(box.left - at[0], density)).put("y", points(box.top - at[1], density))
+                .put("w", points(box.width(), density)).put("h", points(box.height(), density)).put("source", "accessibility"))
             .put("native", native)
     }
+
+    /** Pixels as points, to a hundredth, as the other hosts' frames are. */
+    private fun points(px: Int, density: Float): Double = Math.round(px / density * 100.0) / 100.0
 
     private fun focus(id: Int): Boolean {
         if (focused == id) return false
