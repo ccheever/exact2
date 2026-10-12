@@ -258,4 +258,22 @@ extension NodeView {
         return true
     }
 }
+
+extension NSControl {
+    /// X85 on AppKit's own controls (a native button, checkbox, switch,
+    /// radio, range, select or date field): a Control-click that a
+    /// `contextmenu` or `contextPopover` from the control's node up answers
+    /// takes the right-click's path from that node (`contextClick`), and the
+    /// control's tracking never starts, so it checks, moves or opens
+    /// nothing; AppKit sends the release on to the node. Chrome sends
+    /// `contextmenu` from each, and changes none but a range, whose down
+    /// moves its value first.
+    func contextClicked(_ event: NSEvent) -> Bool {
+        var view = superview
+        while let at = view, !(at is NodeView) { view = at.superview }
+        guard let node = view as? NodeView, node.contextClick(event) else { return false }
+        node.rightMouseDown(with: event)
+        return true
+    }
+}
 #endif

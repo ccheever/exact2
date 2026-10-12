@@ -139,5 +139,6 @@ final class SelectField: NSPopUpButton {
         if owner?.nativeValueTab(event, control: self) == true { return }
         super.keyDown(with: event)
     }
+    override func mouseDown(with event: NSEvent) { if !contextClicked(event) { super.mouseDown(with: event) } }
 }
 #endif

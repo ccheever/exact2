@@ -16,6 +16,7 @@ final class RadioCell: NSButtonCell {
 final class RadioButtonMac: NSButton {
     override class var cellClass: AnyClass? { get { RadioCell.self } set {} }
     override var acceptsFirstResponder: Bool { false }
+    override func mouseDown(with event: NSEvent) { if !contextClicked(event) { super.mouseDown(with: event) } }
 
     convenience init() {
         self.init(frame: .zero)
