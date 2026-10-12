@@ -1,6 +1,7 @@
 # macOS: an inline text run's `contextmenu` never runs; only a node's own handler does
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by #491
 **Systems:** host/apple macOS, pointer events, agent
 **Severity:** P2
 **Author:** daehyeon-mun (T3 Code clone)
@@ -121,3 +122,5 @@ focused link run, iOS (a long press), Linux, and real hardware input (the agent'
   `contextmenu view <run> (runMenu)` line. `tap run contextmenu` does the same.
 - `tap p2 at 106 14` still shows `run press=1`, and the node and link `contextmenu` counts are unchanged.
 - A macOS XCTest covers a secondary click on an inline run that declares `contextmenu`.
+
+2026-10-12: #491 fixes the right-click, the Control-click, show menu on a run's element (its `contextPopover` too) and the agent's `tap <run> contextmenu`. Left out, a decision: the ContextMenu key at a focused run, since a run takes no keyboard focus on macOS (the key reaches its paragraph).
