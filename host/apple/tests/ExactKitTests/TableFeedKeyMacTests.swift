@@ -74,7 +74,7 @@ final class TableFeedKeyMacTests: XCTestCase {
         f.settle()
     }
     /// Letters, digits and spaces typed one key after another, quicker than a type-select forgets.
-    private func type(_ text: String, in f: TableFixture) {
+    private func typing(_ text: String, in f: TableFixture) {
         let codes: [Character: UInt16] = ["r": 15, "o": 31, "w": 13, " ": 49, "1": 18, "2": 19, "9": 25]
         for character in text { key(codes[character]!, String(character), in: f) }
     }
@@ -182,7 +182,7 @@ final class TableFeedKeyMacTests: XCTestCase {
         // Typing selects the next row whose text begins with what was typed,
         // among the rows that are mounted: the feed has no text for the others.
         XCTAssertTrue(f.table.allowsTypeSelect)
-        type("row 2", in: f)
+        typing("row 2", in: f)
         let found = try XCTUnwrap(f.cells[f.table.selectedRow]?.row, "typing selected a mounted row (\(f.table.selectedRow))")
         XCTAssertEqual(f.table.selectedRow, 20, "the next row after the selected one whose text begins \"Row 2\"")
         XCTAssertTrue(try f.node("title-\(f.item(found))").accessibleText.hasPrefix("Row 2"))
@@ -191,7 +191,7 @@ final class TableFeedKeyMacTests: XCTestCase {
         // every row's text, would select row 9,999.
         XCTAssertNil(f.mounted[9_999])
         RunLoop.main.run(until: Date().addingTimeInterval(1.5)) // the type-select forgets what was typed
-        type("row 9999", in: f)
+        typing("row 9999", in: f)
         XCTAssertNotEqual(f.table.selectedRow, 9_999)
         XCTAssertNotNil(f.mounted[f.table.selectedRow], "the selection is on a mounted row (\(f.table.selectedRow))")
     }
@@ -383,6 +383,46 @@ final class TableFeedKeyMacTests: XCTestCase {
         click(try f.node("bump-3"), in: f)
         XCTAssertTrue(f.status.contains("presses 2 bumps 2 "), f.status)
         XCTAssertEqual(f.table.selectedRow, 6)
+    }
+
+    /// The gate's other clicks are made in a key window. These are the
+    /// click that brings a window forward, which AppKit gives a view only
+    /// if it accepts the first mouse: a table does, a button does, a field does.
+    func testTheClickThatBringsTheWindowForwardSelectsARowAndPressesAControlInIt() throws {
+        let f = try keyed()
+        let other = NSWindow(contentRect: NSRect(x: 700, y: 300, width: 200, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
+        other.isReleasedWhenClosed = false
+        self.other = other
+        /// A click on `view` while another window is key.
+        func first(_ view: NSView) {
+            other.makeKeyAndOrderFront(nil)
+            pump { other.isKeyWindow }
+            XCTAssertFalse(f.window.isKeyWindow)
+            click(view, in: f)
+            pump(1) { f.window.isKeyWindow }
+            XCTAssertTrue(f.window.isKeyWindow, "the click brought the window forward")
+        }
+        // A person's clicks first, then the driver's rule, under which every click counts (its window is never key).
+        let was = NodeView.everyClickCounts
+        defer { NodeView.everyClickCounts = was }
+        for (round, every) in [false, true].enumerated() {
+            NodeView.everyClickCounts = every
+            let note = every ? "every click counts" : "AppKit's rule"
+            let row = 6 + round, presses = 1 + round, bumps = 1 + round
+            first(try f.node("title-\(row)"))
+            XCTAssertEqual(f.table.selectedRow, row, "\(note): the click selected the row")
+            XCTAssertTrue(f.status.hasPrefix("opened \(row) presses \(presses) "), "\(note): and pressed it, \(f.status)")
+            first(try f.node("bump-3"))
+            XCTAssertTrue(f.status.contains("presses \(presses) bumps \(bumps) "), "\(note): a button in a row took the click, \(f.status)")
+            XCTAssertEqual(f.table.selectedRow, row, note)
+            first(try f.node("check-3"))
+            XCTAssertTrue(f.status.contains("bumps \(bumps) on \(round == 0) "), "\(note): a checkbox in a row took the click, \(f.status)")
+            let field = try XCTUnwrap(try f.node("field-3").field)
+            first(field)
+            XCTAssertNotNil(field.currentEditor(), "\(note): a field in a row took the click and the keyboard")
+            XCTAssertEqual(f.table.selectedRow, row, note)
+            XCTAssertTrue(f.window.makeFirstResponder(f.table))
+        }
     }
 }
 
