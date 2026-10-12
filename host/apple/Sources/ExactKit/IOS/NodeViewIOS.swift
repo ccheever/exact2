@@ -1164,7 +1164,10 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             }
             applyPadBar() // a pad's missing keys its field asks for: ±, Done (LLP 1116.003 D7)
             // HTML's `enterkeyhint` labels the return key (feed F25); UIKit
-            // has no `previous`, which keeps the default.
+            // has no `previous`, which keeps the default. Unsaid, the label
+            // is the system's, with a `submit` handler too: Go for a field
+            // that submits was Safari's rule for a form (LLP 1115.000 D9.3).
+            // The system's for a search field is Search, as `UISearchBar`'s.
             switch props["enterKeyHint"] {
             case "done": f.returnKeyType = .done
             case "go": f.returnKeyType = .go
@@ -1172,7 +1175,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             case "search": f.returnKeyType = .search
             case "send": f.returnKeyType = .send
             case "enter", "previous": f.returnKeyType = .default
-            default: f.returnKeyType = handlers.contains("submit") ? .go : .default
+            default: f.returnKeyType = type == "search" ? .search : .default
             }
             f.isEnabled = !disabled
             if isNativeTextControl { styleNativeField() }

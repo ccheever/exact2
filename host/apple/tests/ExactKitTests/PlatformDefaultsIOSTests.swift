@@ -128,6 +128,28 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         XCTAssertFalse(editors[2].isFirstResponder, "Next from the last field puts the keyboard away")
     }
 
+    /// LLP 1115.000 D9.3: the Return key's label is the system's unless
+    /// `enterkeyhint` names another. A `submit` handler does not make it Go,
+    /// which was Safari's rule for a form.
+    func testReturnsLabelIsTheSystemsUnlessTheAuthorNamesOne() throws {
+        let (_, fields, editors) = try threeFields()
+        fields[0].handlers = ["change", "submit"]
+        fields[0].applyProps(set: ["placeholder": "Add"], clear: [])
+        XCTAssertEqual(editors[0].returnKeyType, .default, "a field that submits keeps the system's Return")
+        fields[0].applyProps(set: ["enterKeyHint": "go"], clear: [])
+        XCTAssertEqual(editors[0].returnKeyType, .go, "an authored Go is Go")
+        fields[0].applyProps(set: ["enterKeyHint": "send"], clear: [])
+        XCTAssertEqual(editors[0].returnKeyType, .send)
+        fields[0].applyProps(set: [:], clear: ["enterKeyHint"])
+        XCTAssertEqual(editors[0].returnKeyType, .default, "the word taken away: the system's again")
+        // The system's label for a search field is Search, as UISearchBar's
+        // own field has it; `enter` asks for the plain key there too.
+        fields[1].applyProps(set: ["type": "search"], clear: [])
+        XCTAssertEqual(editors[1].returnKeyType, .search)
+        fields[1].applyProps(set: ["enterKeyHint": "enter"], clear: [])
+        XCTAssertEqual(editors[1].returnKeyType, .default)
+    }
+
     /// D9.2: a field's `submit` runs before the keyboard goes, and the field
     /// keeps the keyboard only when that action focused it again: an "add
     /// another" field stays up and never loses the focus on the way (no
