@@ -210,7 +210,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     const armed = new Map(); // prefix -> the line that armed it with a count
     // Advice beside the verdict, never a failure: a `fail fetch` armed before the app's data first loaded (app farm
     // round 2: six builds read the failed first load as a broken app; a client that must sync once cannot open offline).
-    const notes = [];
+    const notes = [], shots = []; // `shots`: the paths of the test's own `screenshot` steps (verify --shots copies them)
     const early = (st) => notes.push(`line ${st.line}: \`fail fetch ${JSON.stringify(st.prefix)}\` is armed before the app has loaded its data, so every first load to it fails; a client that must sync once before it works offline (Snapback4's) cannot open its data at all. To test going offline after a load, put \`clock data\` before it; a launch with no network is what it tests as written`);
     for (const st of t.steps) {
       if (st.op === 'before-data') beforeData = true;
@@ -365,7 +365,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
             // The platform's Back (LLP 1116.006 D4): an open dialog's cancel, else the top sheet's dismissal, else the pushed
             // route popped. Nothing to go back from fails the step; a Back the app refuses (a disabled control, closedby="none") is a note.
             case 'back': { const r = await s.back(); delivered(r); if (r?.refused) notes.push(`line ${st.line}: back refused: ${r.refused}`); input = st.line; break; }
-            case 'screenshot': await s.screenshot(st.path); break;
+            case 'screenshot': await s.screenshot(st.path); shots.push(resolve(st.path)); break;
             case 'expect-tree': {
               const tree = await s.tree();
               const f = treeExpectation(tree.nodes, st.target, st.present);
@@ -438,7 +438,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       // A window the test closed took its session (on macOS, the app) with it: nothing is left to close but the carrier.
       await s.close().catch((e) => { if (closedAt == null) throw e; });
     }
-    results.push({ name: t.name, failures, notes, ...(end ? { end } : {}), ...(end?.keep ? { store } : {}) });
+    results.push({ name: t.name, failures, notes, ...(shots.length ? { shots } : {}), ...(end ? { end } : {}), ...(end?.keep ? { store } : {}) });
     if (base && !end?.keep) rmSync(resolve(base, store), { recursive: true, force: true });
   }
   const failed = results.filter((r) => r.failures.length).length;

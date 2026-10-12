@@ -43,6 +43,6 @@ test (pin `epoch` and `time-zone`); give every screen its own ids.
 ends on, light and dark at a phone and a desktop width (clipped text, covered controls, small
 targets, overflow, low contrast, a card that does not show), then relaunches once on real time
 and says whether the first screen shows what the test stored. Screenshots are in
-`.exact/verify/`, named by test. A clean `verify` is done; a screen no test ends on is not
+`.exact/verify/`, named by test; `verify --shots <dir>` copies them, a test's `screenshot "x.png"` too. A clean `verify` is done; a screen no test ends on is not
 checked, so end a test there. To find out why something fails, drive by hand (`agent web
 --storage s1 …`; `"clock +1500 real"` waits real time).

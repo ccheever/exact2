@@ -64,7 +64,7 @@ component Shared
 ```ts
 import type { Answer, Result, Sources } from './app.contract.d.ts';
 
-export const appId = 'com.example.shared'; // exact new writes this line
+export const appId = 'com.example.shared';
 export const API = 'http://127.0.0.1:8787'; // the server's one address
 export const grants = `net.fetch ${API}`;
 
@@ -110,9 +110,9 @@ test "another person's item arrives on the poll; the persona is kept"
   expect state persona == "Grace"
 ```
 
-- **`test` and `verify` run the server themselves** on an empty database: it starts server.ts with `DB`
-  naming a scratch file (`new Database(process.env.DB ?? 'data.db')`) and stops it after; a
-  server already answering is refused: stop yours.
+- **`test` and `verify` run the server** on an empty database named by `DB`, which server.ts
+  must read (`new Database(process.env.DB ?? 'data.db')`) or they refuse; stop yours first.
+  `agent` starts it too, a database per `--storage`.
 - **A second person is a test line**: `request POST "/items" {...} as grace` sends `Authorization:
   Bearer grace` (a persona's token is its name); then `clock +4000` (the poll), `clock data`.
 - **A persona switcher is a `radiogroup`** kept with `persist`, never a disabled button,
