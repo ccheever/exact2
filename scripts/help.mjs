@@ -156,6 +156,9 @@ each test's named by the test, the relaunch's): look at them at milestones.
 Runs     to completion: exit 1 when the build, a test, a launch or the relaunch fails; the
          findings (check's, the relaunch's) and the compiler's warnings are counted, never
          fail it. A screen no test ends on is not checked: end a test there.
+Server   an app with its own (server.ts, the rest pattern's): verify runs it where app.ts calls
+         it, on an empty database (DB=.exact/verify/db.sqlite), through the relaunch, then stops
+         it; one already answering there (a dev server) is refused, named, never written to.
 Ports    none to choose: test's and agent's (headless Chrome over a pipe; a simulator's socket).`,
     example: 'bun exact.mjs verify            # bun exact.mjs verify ios at a milestone',
   },
@@ -247,7 +250,7 @@ Ports    none. Runs to completion: exit 0 when it compiled.`,
 app.test.contract here (and what else it needs: rest's server.ts and test.mjs) with this
 app's id and name, then the types app.ts imports. A file still as exact new or a pattern
 wrote it is replaced; one you edited is refused unless --force. Each pattern passes its own
-tests and no-tells; rest's run with bun exact.mjs api-test web, which starts its server.
+tests and no-tells; rest's run with bun exact.mjs api-test web or verify, which run its server.
 Ports    none. Runs to completion.`,
     example: 'bun exact.mjs pattern list-detail && bun exact.mjs test web',
   },

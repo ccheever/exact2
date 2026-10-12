@@ -1,22 +1,25 @@
 # Recipe: your own REST server
 
 A list shared through a small Bun server: `fetch` with a bearer token, polling with a
-`task`, every failure answered as words, and a fresh database for each test run.
+`task`, every failure answered as words, and an empty database for each test run.
 
-**`server.ts`**, started with `bun server.ts` (`bun:sqlite`; a persona is a token):
+**`server.ts`**, started with `bun server.ts` (`bun:sqlite`; a persona's token is its name).
+It listens where app.ts calls it: the address is in one place, app.ts's `API`.
 
 ```typescript
 import { Database } from 'bun:sqlite';
+import { API } from './app.ts';
 
-const db = new Database(process.env.DB ?? 'data.db'); // DB=:memory: for a test run
+const db = new Database(process.env.DB ?? 'data.db'); // verify and api-test name an empty one
 db.run('CREATE TABLE IF NOT EXISTS items (id INTEGER PRIMARY KEY, title TEXT NOT NULL, by TEXT NOT NULL)');
-const PEOPLE: Record<string, string> = { 'token-ada': 'Ada', 'token-grace': 'Grace' };
+const PEOPLE: Record<string, string> = { ada: 'Ada', grace: 'Grace' };
 const person = (req: Request) => PEOPLE[req.headers.get('authorization')?.replace('Bearer ', '') ?? ''];
 // The web app's page is another origin: every answer, and the preflight, allows it.
 const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization, content-type' };
 const send = (body: unknown, status = 200) => Response.json(body, { status, headers: CORS });
 
-Bun.serve({ hostname: '127.0.0.1', port: 8787, routes: {
+const { hostname, port } = new URL(API);
+Bun.serve({ hostname, port: Number(port), routes: {
   '/health': () => new Response('ok'),
   '/items': {
     OPTIONS: () => new Response(null, { status: 204, headers: CORS }),
@@ -98,9 +101,9 @@ component Shared
 import type { Answer, Result, Sources } from './app.contract.d.ts';
 
 export const appId = 'com.example.shared'; // exact new writes this line
-const API = 'http://127.0.0.1:8787';
+export const API = 'http://127.0.0.1:8787'; // the server's address, its one place
 export const grants = `net.fetch ${API}`;
-const TOKEN = 'token-ada'; // a real sign-in keeps its token with `secret.keep token` and store.set
+const TOKEN = 'ada'; // a real sign-in keeps its token with `secret.keep token` and store.set
 
 type Answered = { ok: true; body: unknown } | { ok: false; error: string };
 async function call(path: string, init: RequestInit = {}): Promise<Answered> {
@@ -155,19 +158,19 @@ test "an item is added for everyone; a refusal and a lost server are said in wor
   expect text "draft" == ""
 ```
 
-**`test.mjs`** gives every test run its own server and an empty database, so a test
-never meets rows the dev server or another run left. Name it in `app.json` (`"commands":
-{"api-test": ["bun", "test.mjs"]}`) and run `bun exact.mjs api-test web`:
+**`verify` runs the server itself**, on an empty database: it finds server.ts (or
+server/index.ts, or app.json's `commands.server`), starts it with `DB` naming a scratch
+file at the address app.ts calls, keeps it through the tests, their end screens and the
+relaunch, then stops it and removes the file. Your data.db is never touched. A server
+already answering there, your dev server, is refused in one line naming its pid: stop it
+first. `bun exact.mjs api-test web` runs `test` the same way; its `test.mjs` (in
+`app.json`'s `"commands": {"api-test": ["bun", "test.mjs"]}`) is a few lines:
 
 ```js
-const up = () => fetch('http://127.0.0.1:8787/health').then((r) => r.ok, () => false);
-if (await up()) throw new Error('port 8787 is in use: stop the dev server first, so the tests get an empty database');
-const server = Bun.spawn(['bun', 'server.ts'], { env: { ...process.env, DB: ':memory:' }, stdio: ['ignore', 'inherit', 'inherit'] });
-for (let i = 0; !(await up()); i++) { if (i > 50) throw new Error('server.ts did not start'); await Bun.sleep(100); }
-const tests = Bun.spawn(['bun', 'exact.mjs', 'test', ...process.argv.slice(2)], { stdio: ['inherit', 'inherit', 'inherit'] });
-const code = await tests.exited;
-server.kill();
-process.exit(code);
+if (!process.env.EXACT2) throw new Error('run it as bun exact.mjs api-test web');
+const { withAppServer } = await import(`${process.env.EXACT2}/scripts/verify.mjs`);
+process.exit(await withAppServer(import.meta.dir, () =>
+  Bun.spawn(['bun', 'exact.mjs', 'test', ...process.argv.slice(2)], { cwd: import.meta.dir, stdio: ['inherit', 'inherit', 'inherit'] }).exited));
 ```
 
 - Every failure is an answer the view shows in words: the server's own `error`, or a
@@ -176,8 +179,10 @@ process.exit(code);
   add keeps its text ([after-a-write](after-a-write.md)).
 - `task poll mount` with `every(4000, pull)` polls; `refreshes items` reads again
   after each write. A failed poll keeps the last list (`last`) under its message.
-- The grant names the server's origin, `http://127.0.0.1:8787`. On the web the page is
-  another origin, so the server answers CORS (the `OPTIONS` preflight too). A phone
-  reaches the Mac by its LAN address or HTTPS, granted instead.
-- Before calling it done, run `verify` with the dev server up: its tests write to it, and
-  its relaunch reads it back on real time ([tests](tests.md), "Before you call it done").
+- The grant names the server's origin, app.ts's `API`. On the web the page is another
+  origin, so the server answers CORS (the `OPTIONS` preflight too). A phone reaches the
+  Mac by its LAN address or HTTPS: change `API`, and the server listens there too.
+- Before calling it done, stop the dev server and run `verify`: it runs the server on an
+  empty database, its tests write to that, and its relaunch reads it back on real time
+  ([tests](tests.md), "Before you call it done"). A test's `fail fetch` names the same
+  address as app.ts.
