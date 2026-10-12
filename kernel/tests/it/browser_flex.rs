@@ -611,7 +611,7 @@ fn a_column_is_as_tall_as_its_items_clamped_by_max_height() {
         ]
     };
     let clipped = "max-height:160px;overflow:hidden";
-    let mut cases: Vec<(&str, Vec<(u32, u32, Rows)>, Vec<u32>, Images, Frames)> = vec![
+    let cases: Vec<(&str, Vec<(u32, u32, Rows)>, Vec<u32>, Images, Frames)> = vec![
         (
             "C: a text leaf at max-height",
             in_row(clipped),
@@ -787,7 +787,7 @@ fn a_column_is_as_tall_as_its_items_clamped_by_max_height() {
         ),
     ];
     let mut failures = Vec::new();
-    for (name, nodes, text_ids, images, want) in cases.drain(..) {
+    for (name, nodes, text_ids, images, want) in cases {
         let texts: Vec<(u32, &str)> = text_ids.iter().map(|id| (*id, prose)).collect();
         let k = lay_out_with(props(&css_rows("width:800px")), nodes, &texts, images);
         failures.extend(mismatches(name, &k, want));
