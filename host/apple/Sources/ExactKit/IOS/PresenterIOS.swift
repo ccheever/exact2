@@ -1000,11 +1000,17 @@ package final class Presenter {
         // dimmed, deaf to a finger); judge it again where it shows, in its cell.
         if groupedLists?.carriesRows == true { segments.sync() }
         positionContexts()
+        let ariaMoved = Set(batch.ops.filter { $0.op == .children }.flatMap(\.ids).filter { id in
+            guard let node = views[id] else { return false }
+            return node.accessibilityTraits.contains(.notEnabled) != (node.disabled || node.ariaUnavailable)
+        })
+        let ariaProps = batch.ops.filter { $0.op == .props && ($0.props["accessibilityDisabled"] != nil || $0.clear.contains("accessibilityDisabled")) }.map(\.id)
+        let disabledRoots = Set(ariaProps).union(ariaMoved)
         // Finish controls and frames before UIKit synchronously lays out the destination.
         afterBatch { [weak self] in
             guard let self else { return }
             if !rowsOnly || navigation.syncOwed { navigation.sync(batch) }
-            syncAccessibility(changed: changed)
+            syncAccessibility(changed: changed.union(ariaMoved), disabledRoots: disabledRoots)
         }
         #if os(iOS)
         syncScrollsToTop()

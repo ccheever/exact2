@@ -114,7 +114,8 @@ extension MenuHost {
         if !owner.message.isEmpty { menu.addItem(.separator()) }
         for (index, entry) in owner.actions.enumerated() {
             guard let row = entry.node else { continue }
-            let item = NSMenuItem(title: entry.title, action: #selector(choose(_:)), keyEquivalent: "")
+            let item = AccessibleMenuItem(title: entry.title, action: #selector(choose(_:)), keyEquivalent: "")
+            item.owner = row
             item.target = self
             item.representedObject = Choice(owner, index)
             item.state = row.props["accessibilityChecked"] == "true" ? .on : .off

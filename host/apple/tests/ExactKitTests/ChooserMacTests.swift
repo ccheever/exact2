@@ -84,6 +84,20 @@ final class ChooserMacTests: XCTestCase {
         }
     }
 
+    func testARIAUnavailableChoiceIsAXDisabledButStillChosen() throws {
+        let p = chooser(props: [3: ["accessibilityDisabled": "true"]])
+        defer { p.menus.reset() }
+        let (_, menu) = try owner(p)
+        let item = menu.items[1]
+        XCTAssertTrue(item.isEnabled)
+        XCTAssertEqual(item.accessibilityAttributeValue(.enabled) as? Bool, false)
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        try send(item)
+        turn()
+        XCTAssertEqual(pressed, [3])
+    }
+
     func testEachItemPressesItsOwnRowOnce() throws {
         for (index, expected) in [(1, [UInt32(3)]), (2, [4]), (3, [])] {
             let p = chooser(props: [5: ["disabled": "true"]])

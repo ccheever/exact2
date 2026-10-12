@@ -272,6 +272,33 @@ final class GroupedListIOSTests: XCTestCase {
         XCTAssertEqual(flips.map(\.1), [false, false])
     }
 
+    func testToggleAccessoryCarriesARIAUnavailableAndStaysOperable() throws {
+        let p = presenter { self.model() }
+        let accessory = try XCTUnwrap(switches(try cell(p, 12)).first)
+        let authored = try XCTUnwrap(p.controls.controls[13] as? UISwitch)
+        XCTAssertTrue(accessory !== authored)
+        XCTAssertFalse(accessory.accessibilityTraits.contains(.notEnabled))
+
+        p.apply(wireBatch([["op": "props", "id": 13, "set": ["accessibilityDisabled": "true"]]]))
+        XCTAssertTrue(authored.accessibilityTraits.contains(.notEnabled))
+        XCTAssertTrue(accessory.accessibilityTraits.contains(.notEnabled), "VoiceOver reaches the accessory")
+        XCTAssertTrue(accessory.isEnabled)
+        var flips: [Bool] = []
+        p.onChecked = { _, checked in flips.append(checked) }
+        accessory.setOn(false, animated: false)
+        accessory.sendActions(for: .valueChanged)
+        XCTAssertEqual(flips, [false], "ARIA state preserves the exposed switch's input")
+        XCTAssertTrue(accessory.accessibilityTraits.contains(.notEnabled), "refresh after input keeps the ARIA state")
+
+        p.apply(wireBatch([["op": "props", "id": 13, "set": ["accessibilityDisabled": "false"]]]))
+        XCTAssertFalse(accessory.accessibilityTraits.contains(.notEnabled))
+        p.apply(wireBatch([["op": "props", "id": 12, "set": ["accessibilityDisabled": "true"]],
+                           ["op": "props", "id": 13, "clear": ["accessibilityDisabled"]]]))
+        XCTAssertTrue(accessory.accessibilityTraits.contains(.notEnabled), "the authored row's state is inherited")
+        p.apply(wireBatch([["op": "props", "id": 12, "set": ["accessibilityDisabled": "false"]]]))
+        XCTAssertFalse(accessory.accessibilityTraits.contains(.notEnabled), "an ancestor change refreshes the accessory")
+    }
+
     /// LLP 1080.000 D4: a real finger aimed at what a list draws lands on
     /// UIKit's view, not the hidden authored node: a row's cell, its
     /// toggle's switch, its detail button; never the row for a control

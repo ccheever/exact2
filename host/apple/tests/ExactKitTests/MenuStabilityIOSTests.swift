@@ -45,5 +45,19 @@ final class MenuStabilityIOSTests: XCTestCase {
         p.apply(wireBatch([["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 399.0]]))
         XCTAssertTrue(try menu(p) === before, "an open menu would reload")
     }
+
+    func testARIAUnavailableMenuInvokerAndActionKeepInputEnabled() throws {
+        let p = presenter()
+        p.apply(wireBatch([
+            ["op": "props", "id": 2, "set": ["accessibilityDisabled": "true"]],
+            ["op": "props", "id": 4, "set": ["accessibilityDisabled": "true"]],
+        ]))
+        let invoker = try XCTUnwrap(p.views[2])
+        let button = try XCTUnwrap(invoker.subviews.compactMap { $0 as? UIButton }.first { $0.showsMenuAsPrimaryAction })
+        XCTAssertTrue(button.isEnabled)
+        XCTAssertTrue(button.accessibilityTraits.contains(.notEnabled))
+        let action = try XCTUnwrap(p.menus.items(of: try XCTUnwrap(p.views[3])).first as? UIAction)
+        XCTAssertFalse(action.attributes.contains(.disabled))
+    }
 }
 #endif

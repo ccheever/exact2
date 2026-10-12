@@ -60,6 +60,29 @@ final class PresenceIOSTests: XCTestCase {
         wait(for: [delivered], timeout: 2)
     }
 
+    func testARIAUnavailableProjectedTabsStayEnabledForInput() throws {
+        let p = tabBarFixture()
+        defer { p.reset(); window.isHidden = true }
+        p.apply(wireBatch([["op": "props", "id": 11, "set": ["accessibilityDisabled": "true"]]]))
+        let owner = try XCTUnwrap(p.views[10])
+        let bar = try XCTUnwrap(owner.subviews.compactMap { $0 as? UITabBar }.first)
+        let item = try XCTUnwrap(bar.items?.first)
+        XCTAssertTrue(item.isEnabled)
+        XCTAssertTrue(item.accessibilityTraits.contains(.notEnabled), "the projected item speaks as disabled")
+
+        p.apply(wireBatch([
+            ["op": "children", "id": 11, "ids": [14]],
+            ["op": "children", "id": 12, "ids": [16]],
+        ]))
+        let control = try XCTUnwrap(p.segments.control(of: 10) as? LabelledSegmentedControl)
+        control.layoutIfNeeded()
+        XCTAssertTrue(control.isEnabledForSegment(at: 0))
+        XCTAssertTrue(try XCTUnwrap(control.segmentViews.first).accessibilityTraits.contains(.notEnabled), "the projected segment speaks as disabled")
+        p.apply(wireBatch([["op": "props", "id": 11, "set": ["accessibilityDisabled": "false"]]]))
+        control.layoutIfNeeded()
+        XCTAssertFalse(try XCTUnwrap(control.segmentViews.first).accessibilityTraits.contains(.notEnabled))
+    }
+
     func testTabBarReportsItsHeightAndAlwaysFillsTheKernelBox() throws {
         let p = tabBarFixture()
         var reports: [CGSize?] = []

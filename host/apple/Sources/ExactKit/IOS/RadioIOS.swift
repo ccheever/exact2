@@ -32,7 +32,7 @@ final class ExactRadio: ExactCheckbox {
     override func updateAccessibility() {
         var traits: UIAccessibilityTraits = .button
         if isOn { traits.insert(.selected) }
-        if !isEnabled { traits.insert(.notEnabled) }
+        if !isEnabled || ariaUnavailable { traits.insert(.notEnabled) }
         accessibilityTraits = traits
         accessibilityValue = nil
     }

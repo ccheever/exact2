@@ -281,6 +281,33 @@ accessibility exclusion. The browser uses HTML inertness; iOS enforces the
 subtree boundary and its modal-confirmation exception (LLP 1035.001 D3).
 AppKit/Linux subtree enforcement remains open; the declaration alone is not
 cross-host support.
+
+**ARIA disabled (Charlie ruling, 2026-10-11; implementation: ariadisabled lane).**
+Contract carries `aria-disabled` as a boolean state on controls and elements
+with a role. It reports an unavailable control to accessibility, including
+AppKit's `AXEnabled=false` and UIKit's `.notEnabled` trait, but does not change
+focus, Tab order, rendering, or event dispatch. Press still runs; the author
+guards an unavailable action. The web writes `aria-disabled="true"` or
+`"false"` and lets the browser supply its accessibility semantics. HTML
+`disabled` retains its separate focus and input behavior. Linux retains
+focus and press behavior; its agent has no native accessibility tree to serve.
+The state is inherited by accessible descendants, including native controls
+and inline links, and refreshes when the ancestor changes. A descendant's
+`aria-disabled=false` overrides an unavailable ancestor. Lifted UIKit routes
+inherit through their authored tab panel, and ancestor changes refresh them.
+When an Apple host projects a node into a native segment, UIKit bar item,
+pressable title or grouped-list switch, the exposed replacement carries this
+accessibility state while its input remains enabled. AppKit menu items do too. UIKit menu rows
+and alert actions are a deviation: their public disabled states also suppress
+selection, and the action model objects do not expose accessibility traits
+on the presented row or button. They read as enabled while `aria-disabled`
+still leaves their input enabled.
+The standard macOS toolbar item is a current deviation: AppKit exposes its
+private item viewer rather than the public `NSToolbarItem`, so its projected
+button does not yet carry ARIA disabled (issue `20261011-aria-disabled-is-lost-in-macos`).
+That issue also tracks UIKit popovers lifted out of an unavailable ancestor:
+their accessibility inheritance still follows the presented parent.
+
 `retainFocus` (prop 55, boolean, absent/false by default) lets a button
 retain the existing editing session on a tap, including a button with gesture
 handlers and no press action. Messages uses it on bubbles and reaction badges

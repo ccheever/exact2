@@ -416,5 +416,22 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         XCTAssertLessThan(fill[2], 60, "in the accent: \(fill)")
         XCTAssertEqual(on(0.12, 0.12)[0], 0, "still a circle")
     }
+
+    func testARIAUnavailableCheckboxKeepsItsTraitAfterRefusedChange() throws {
+        let p = presenter([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "control", "props": ["type": "checkbox", "checked": "false", "accessibilityDisabled": "true"],
+             "handlers": ["change"]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]],
+        ])
+        let box = try XCTUnwrap(p.controls.controls[2] as? ExactCheckbox)
+        XCTAssertTrue(box.accessibilityTraits.contains(.notEnabled))
+        box.isOn = true
+        p.syncAccessibility()
+        box.isOn = false // The action left `checked` false, so the host restores it.
+        XCTAssertTrue(box.isEnabled, "ARIA state leaves input enabled")
+        XCTAssertFalse(box.isOn)
+        XCTAssertTrue(box.accessibilityTraits.contains(.notEnabled))
+    }
 }
 #endif

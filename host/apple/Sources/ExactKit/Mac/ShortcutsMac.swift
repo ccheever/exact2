@@ -219,8 +219,9 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
             let shortcut = declarations(view).first(where: { $0.modifiers.contains(.command) })
             guard shortcut != nil || presenter?.toolbar.contains(view) == true else { continue }
             live.insert(view.id)
-            let item = items[view.id] ?? NSMenuItem(title: "", action: #selector(activate(_:)), keyEquivalent: "")
+            let item = items[view.id] ?? AccessibleMenuItem(title: "", action: #selector(activate(_:)), keyEquivalent: "")
             items[view.id] = item
+            (item as? AccessibleMenuItem)?.owner = view
             item.title = title(view)
             // A symbol a button shows is its item's image (LLP 1069.011.000 D7).
             item.image = view.isButton ? view.face?.symbol.flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: nil) } : nil

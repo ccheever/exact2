@@ -211,10 +211,11 @@ private final class InlineAccessibility: NSAccessibilityElement, AgentOwned {
         if let href = run.props["href"] { setAccessibilityURL(URL(string: href)) }
     }
     override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
-        super.accessibilityAttributeNames() + [NSAccessibility.Attribute(rawValue: "AXLanguage")]
+        super.accessibilityAttributeNames() + [NSAccessibility.Attribute(rawValue: "AXLanguage"), .enabled]
     }
     override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
         if attribute.rawValue == "AXLanguage" { return owner?.presenter?.documentLanguage }
+        if attribute == .enabled, owner?.presenter?.inlineAriaUnavailable(id) == true { return false }
         return super.accessibilityAttributeValue(attribute)
     }
     override func accessibilityFrame() -> NSRect {
@@ -241,6 +242,7 @@ private final class InlineAccessibility: UIAccessibilityElement, AgentOwned {
         accessibilityLanguage = owner.presenter?.documentLanguage
         accessibilityLabel = run.props["accessibilityLabel"] ?? text.substring(with: run.range)
         accessibilityTraits = (run.props["href"] ?? "").isEmpty ? .staticText : .link
+        if owner.presenter?.inlineAriaUnavailable(id) == true { accessibilityTraits.insert(.notEnabled) }
     }
     override var accessibilityFrame: CGRect {
         get {

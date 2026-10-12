@@ -1079,3 +1079,22 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   draws the face. If the row was designed around bare text tabs, write
   `appearance="none"` on those tabs. Native Fixture's header needed this
   after buttons became native by default. (LLP 1059 D2a, LLP 1104 D9.)
+
+- **An AppKit segment's AX child lookup can recurse through its control.**
+  Asking the native cell for `AXChildren` while an `NSSegmentedControl`
+  overrides its children re-enters the control's override, even when the
+  query began at `super.accessibilityChildren()`. Expose the native children
+  temporarily during that lookup; test the exposed segment's AX attributes.
+
+- **UIKit menu and alert actions are models, not accessibility elements.**
+  Setting or testing `accessibilityTraits` on `UIAction`, `UIMenu` or
+  `UIAlertAction` does not change what VoiceOver reads from the presented row
+  or button. UIKit's public disabled states also stop selection. Test the
+  presented accessibility element when claiming an ARIA projection; leave
+  `aria-disabled` actions selectable and declare the UIKit deviation.
+
+- **AppKit's `setAccessibilityEnabled(false)` does not make a control's
+  `AXEnabled` false.** Check the exposed control and its cell with
+  `accessibilityAttributeValue(.enabled)` or `tree --ax`; checkbox, radio,
+  popup, slider and date cells keep reporting enabled until they answer that
+  attribute themselves. `NSSwitch` has no cell.

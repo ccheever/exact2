@@ -38,6 +38,23 @@ extension NodeView {
         return text.isEmpty ? nil : text
     }
     var accessibleName: String { authoredLabel ?? accessibleText }
+    /// ARIA disabled applies to focusable descendants, without changing input.
+    package var ariaUnavailable: Bool {
+        #if os(macOS)
+        var ancestor: NSView? = self
+        #else
+        var ancestor: UIView? = self
+        #endif
+        while let view = ancestor {
+            if let value = (view as? NodeView)?.props["accessibilityDisabled"] { return value == "true" }
+            #if os(macOS)
+            ancestor = presenter?.menus.parent(of: view) ?? view.superview
+            #else
+            ancestor = (view as? NodeView).flatMap { presenter?.navigation.logicalParent(of: $0) } ?? view.superview
+            #endif
+        }
+        return false
+    }
     /// A button to assistive technology: a `button`, or a box whose ARIA
     /// role is `button` or `link`, as the web's tree has a `div` with one
     /// (chat F14: a message bubble with `role="button"` was no button natively).
@@ -68,13 +85,14 @@ extension NodeView {
         }
         return props["accessibilityHint"].flatMap { $0.isEmpty ? nil : $0 }
     }
-    /// The ARIA states AppKit has no property for, under the attribute
-    /// names browsers serve them by: WebKit's `AXInvalid` (onboarding F22),
+    /// The ARIA states served under AppKit attribute names: `AXEnabled`
+    /// for ARIA disabled, WebKit's `AXInvalid` (onboarding F22),
     /// Chromium's `AXHasPopup` and `AXPopupValue` (spreadsheet F20), WebKit's
     /// `AXARIACurrent` (Depot: a navigation link's `aria-current`). A
     /// `false` (or absent) state serves none.
     func ariaAttribute(_ name: String) -> Any? {
         switch name {
+        case "AXEnabled": return ariaUnavailable ? false : nil
         case "AXInvalid": return props["accessibilityInvalid"].flatMap { ["", "false"].contains($0) ? nil : $0 }
         case "AXHasPopup": return props["accessibilityHasPopup"].flatMap { ["", "false"].contains($0) ? nil : true }
         case "AXPopupValue": return props["accessibilityHasPopup"].flatMap { ["", "false"].contains($0) ? nil : $0 == "true" ? "menu" : $0 }
@@ -82,7 +100,7 @@ extension NodeView {
         default: return nil
         }
     }
-    static let ariaAttributes = ["AXInvalid", "AXHasPopup", "AXPopupValue", "AXARIACurrent"]
+    static let ariaAttributes = ["AXEnabled", "AXInvalid", "AXHasPopup", "AXPopupValue", "AXARIACurrent"]
     /// ARIA's live-region roles with an implicit `aria-live` (WAI-ARIA 1.2):
     /// `status` is polite, `alert` assertive.
     static let liveRoles = ["status": "polite", "alert": "assertive"]
@@ -160,6 +178,8 @@ extension NodeView {
         // A control's typed values are what AppKit serves its cell.
         let target: NSView = field ?? presenter?.controls.controls[id] ?? textArea as NSView? ?? self
         let required = props["accessibilityRequired"] == "true"
+        let enabled = !disabled && !ariaUnavailable
+        if target.isAccessibilityEnabled() != enabled { target.setAccessibilityEnabled(enabled) }
         if target.accessibilityHelp() != description { target.setAccessibilityHelp(description) }
         if target.isAccessibilityRequired() != required { target.setAccessibilityRequired(required) }
         // An `input`'s `aria-label` names its field, as a text area's names it.
@@ -167,6 +187,8 @@ extension NodeView {
         #else
         // UIKit has no property for `aria-required`, `aria-invalid`, `aria-haspopup` or `aria-current`.
         let target: UIView = field ?? presenter?.controls.controls[id] ?? textArea as UIView? ?? self
+        if disabled || ariaUnavailable { target.accessibilityTraits.insert(.notEnabled) }
+        else { target.accessibilityTraits.remove(.notEnabled) }
         if target.accessibilityHint != description { target.accessibilityHint = description }
         #endif
     }
@@ -374,7 +396,7 @@ extension Presenter {
     /// views a batch touched and their ancestors — a button's name reads its
     /// subtree — plus every live region and pending autofocus; nil reads
     /// every view.
-    func syncAccessibility(changed: Set<UInt32>? = nil) {
+    func syncAccessibility(changed: Set<UInt32>? = nil, disabledRoots: Set<UInt32> = []) {
         guard Thread.isMainThread else {
             DispatchQueue.main.async { [weak self] in self?.syncAccessibility() }
             return
@@ -382,7 +404,25 @@ extension Presenter {
         let nodes: [NodeView]
         if let changed {
             let indexed = chrome.ids("accessibilityLive").union(chrome.ids("role:status")).union(chrome.ids("role:alert")).union(chrome.ids("autofocus"))
-            nodes = changed.union(indexed).compactMap { views[$0] }.sorted { $0.id < $1.id }
+            var ids = changed.union(indexed)
+            if !disabledRoots.isEmpty {
+                for node in views.values {
+                    #if os(macOS)
+                    var ancestor: NSView? = node
+                    #else
+                    var ancestor: UIView? = node
+                    #endif
+                    while let view = ancestor {
+                        if let owner = view as? NodeView, disabledRoots.contains(owner.id) { ids.insert(node.id); break }
+                        #if os(macOS)
+                        ancestor = menus.parent(of: view)
+                        #else
+                        ancestor = (view as? NodeView).flatMap { navigation.logicalParent(of: $0) } ?? view.superview
+                        #endif
+                    }
+                }
+            }
+            nodes = ids.compactMap { views[$0] }.sorted { $0.id < $1.id }
         } else {
             autofocusProcessed.formIntersection(Set(views.values.map { ObjectIdentifier($0) }))
             nodes = views.values.sorted(by: { $0.id < $1.id })

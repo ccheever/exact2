@@ -1180,7 +1180,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             f.isEnabled = !disabled
             if isNativeTextControl { styleNativeField() }
         }
-        if disabled { accessibilityTraits.insert(.notEnabled) } else { accessibilityTraits.remove(.notEnabled) }
+        if disabled || ariaUnavailable { accessibilityTraits.insert(.notEnabled) } else { accessibilityTraits.remove(.notEnabled) }
         accessibilityIdentifier = props["testId"]
         accessibilityLabel = props["accessibilityLabel"]
         updateTextAccessibility()

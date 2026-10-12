@@ -36,7 +36,7 @@ final class TabDelegateProxy: NSObject, UITabBarControllerDelegate {
 /// A tab bar item an authored tab supplies: its symbol, if it has one, and
 /// its label (a text-only tab is a title-only item).
 private struct TabFace: Equatable {
-    let base: String?, title: String, disabled: Bool
+    let base: String?, title: String, disabled: Bool, accessibilityDisabled: Bool
     /// A filled box holding a text among the tab's children: the item's
     /// badge (LLP 1075.003 §9.9), as the web paints it on the tab.
     let badge: String?
@@ -57,6 +57,7 @@ private struct TabFace: Equatable {
         base = symbol.map { $0.hasSuffix(".fill") ? String($0.dropLast(5)) : $0 }
         title = label
         disabled = tab.disabled
+        accessibilityDisabled = tab.ariaUnavailable
     }
     /// A shown box with a visible fill whose only child (views and flat
     /// leaves alike) is one shown, non-empty text: that text. A pill around
@@ -242,7 +243,7 @@ extension NavigationHost {
         // A tab's test id is its item's identifier, which XCUITest and
         // Maestro address it by (LLP 1116 D2); without one, its symbol or title.
         let ids = zip(tabs.tabs, faces).map { tab, face in tab.props["testId"] ?? face.base ?? face.title }
-        let signature = zip(faces, ids).map { face, id in "\(id)|\(face.base ?? "")|\(face.title)|\(face.disabled)|\(face.badge ?? "")" }
+        let signature = zip(faces, ids).map { face, id in "\(id)|\(face.base ?? "")|\(face.title)|\(face.disabled)|\(face.accessibilityDisabled)|\(face.badge ?? "")" }
         for (index, (nav, face)) in zip(navs, faces).enumerated() where !tabItems.indices.contains(index) || tabItems[index] != signature[index] {
             let item: UITabBarItem = nav.tabBarItem
             let image = face.base.flatMap { UIImage(systemName: $0) }
@@ -251,6 +252,8 @@ extension NavigationHost {
             item.selectedImage = face.base.flatMap { UIImage(systemName: $0 + ".fill") } ?? image
             item.accessibilityIdentifier = ids[index]
             item.isEnabled = !face.disabled
+            if face.disabled || face.accessibilityDisabled { item.accessibilityTraits.insert(.notEnabled) }
+            else { item.accessibilityTraits.remove(.notEnabled) }
             // An authored badge, or one it just lost; a badge a hatch set on
             // a tab that never authored one is left alone.
             let had = tabItems.indices.contains(index) && !tabItems[index].hasSuffix("|")

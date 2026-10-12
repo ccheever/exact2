@@ -1229,7 +1229,13 @@ package final class Presenter {
         // The nodes this batch touched and the views above them, as iOS
         // passes them: a full pass sorted every view in the session on
         // every batch, a list's scroll included.
-        syncAccessibility(changed: touchedAndAbove(batch.ops.lazy.filter { Self.accessibilityOps.contains($0.op) }.map(\.id)))
+        let changed = touchedAndAbove(batch.ops.lazy.filter { Self.accessibilityOps.contains($0.op) }.map(\.id)).union(reparented)
+        let ariaProps = batch.ops.filter { $0.op == .props && ($0.props["accessibilityDisabled"] != nil || $0.clear.contains("accessibilityDisabled")) }.map(\.id)
+        let disabledRoots = Set(ariaProps).union(reparented.filter { id in
+            guard let node = views[id] else { return false }
+            return node.isAccessibilityEnabled() != (!node.disabled && !node.ariaUnavailable)
+        })
+        syncAccessibility(changed: changed, disabledRoots: disabledRoots)
         _ = chrome.takeChangedNames()
     }
 

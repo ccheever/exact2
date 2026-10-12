@@ -7,7 +7,7 @@ import AppKit
 
 /// A radio's cell: a click leaves its state alone and only sends the
 /// action, so the host sees the state from before the click and decides.
-final class RadioCell: NSButtonCell {
+final class RadioCell: AriaButtonCellMac {
     override var nextState: Int { state.rawValue }
 }
 
@@ -17,6 +17,10 @@ final class RadioButtonMac: NSButton {
     override class var cellClass: AnyClass? { get { RadioCell.self } set {} }
     override var acceptsFirstResponder: Bool { false }
     override func mouseDown(with event: NSEvent) { if !contextClicked(event) { super.mouseDown(with: event) } }
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        if attribute == .enabled, ariaUnavailableFromNode { return false }
+        return super.accessibilityAttributeValue(attribute)
+    }
 
     convenience init() {
         self.init(frame: .zero)

@@ -80,6 +80,33 @@ fn aria_pressed_refuses_a_word_aria_does_not_have_and_a_number() {
     }
 }
 
+#[test]
+fn aria_disabled_is_accepted_on_a_button_and_focusable_role() {
+    let mut r = boot(
+        "component App\n  state unavailable = false\n  action block\n    unavailable = true\n  view\n    column\n      button aria-disabled=\"true\" press=block testId=\"button\"\n        text \"Check for updates\"\n      box role=\"button\" tabindex=0 aria-disabled=unavailable press=block testId=\"role\"\n        text \"Other\"\n",
+    );
+    let disabled = |r: &Runner<NoData>, id: &str| {
+        r.kernel()
+            .node(view_of(r, id))
+            .unwrap()
+            .props
+            .bool(PropId::AccessibilityDisabled)
+    };
+    assert_eq!(disabled(&r, "button"), Some(true));
+    assert_eq!(disabled(&r, "role"), Some(false));
+    assert_eq!(
+        r.kernel()
+            .node(view_of(&r, "button"))
+            .unwrap()
+            .props
+            .bool(PropId::Disabled),
+        None
+    );
+    let button = view_of(&r, "button");
+    r.dispatch(button, Event::Press).unwrap();
+    assert_eq!(disabled(&r, "role"), Some(true));
+}
+
 /// `aria-modal` (LLP 1080.003) lowers to `accessibilityModal` and follows
 /// its state; Signal Clone's call screen and menus had no way to say it.
 #[test]

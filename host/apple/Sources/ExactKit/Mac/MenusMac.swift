@@ -10,6 +10,14 @@
 #if os(macOS)
 import AppKit
 
+final class AccessibleMenuItem: NSMenuItem {
+    weak var owner: NodeView?
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        if attribute == .enabled, owner?.ariaUnavailable == true { return false }
+        return super.accessibilityAttributeValue(attribute)
+    }
+}
+
 final class MenuHost: NSObject {
     private(set) weak var presenter: Presenter?
     private final class Entry {
@@ -462,7 +470,8 @@ final class MenuHost: NSObject {
         return menu
     }
     private func menuItem(of row: NodeView, action: Selector?) -> NSMenuItem {
-        let item = NSMenuItem(title: title(of: row), action: action, keyEquivalent: "")
+        let item = AccessibleMenuItem(title: title(of: row), action: action, keyEquivalent: "")
+        item.owner = row
         if #available(macOS 14.4, *), row.isNativeButton {
             item.title = row.face?.shown ?? ""
             item.subtitle = row.face?.subtitle

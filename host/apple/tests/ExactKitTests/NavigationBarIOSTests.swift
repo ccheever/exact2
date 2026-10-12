@@ -304,6 +304,32 @@ final class NavigationBarIOSTests: XCTestCase {
         }
     }
 
+    func testARIAUnavailableHeaderItemStaysPressableAndIsSpokenDisabled() throws {
+        let session = try fixture("aria-header-item", module: false)
+        let button = try node(session, "compose-home")
+        session.presenter.apply(wireBatch([["op": "props", "id": Int(button.id), "set": ["accessibilityDisabled": "true"]]]))
+        let top = try XCTUnwrap(session.presenter.navigation.primaryNavigation?.topViewController)
+        let item = try XCTUnwrap(top.navigationItem.rightBarButtonItems?.first { $0.accessibilityLabel == "Compose" })
+        XCTAssertTrue(item.isEnabled)
+        XCTAssertTrue(item.accessibilityTraits.contains(.notEnabled))
+        try tap(item)
+        until("ARIA-unavailable bar item still presses") { state(session, "composed") as? Double == 1 }
+        session.presenter.apply(wireBatch([["op": "props", "id": Int(button.id), "set": ["accessibilityDisabled": "false"]]]))
+        let restored = try XCTUnwrap(top.navigationItem.rightBarButtonItems?.first { $0.accessibilityLabel == "Compose" })
+        XCTAssertFalse(restored.accessibilityTraits.contains(.notEnabled))
+    }
+
+    func testARIAUnavailableHeaderTabCarriesStateToTitleSegment() throws {
+        let session = try fixture("aria-header-segment", module: false)
+        let tab = try node(session, "segment-missed")
+        session.presenter.apply(wireBatch([["op": "props", "id": Int(tab.id), "set": ["accessibilityDisabled": "true"]]]))
+        let top = try XCTUnwrap(session.presenter.navigation.primaryNavigation?.topViewController)
+        let control = try XCTUnwrap(top.navigationItem.titleView as? LabelledSegmentedControl)
+        control.layoutIfNeeded()
+        XCTAssertTrue(control.isEnabledForSegment(at: 1))
+        XCTAssertTrue(try XCTUnwrap(control.segmentViews.last).accessibilityTraits.contains(.notEnabled))
+    }
+
     func testAPushedRouteShowsBackAsTheAuthoredControlAndAPopPressesItOnce() throws {
         let session = try fixture("bar-push", module: false)
         let agent = Agent(session: session)

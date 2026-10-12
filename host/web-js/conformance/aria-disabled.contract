@@ -1,0 +1,12 @@
+// ARIA changes accessibility state, not focus or event dispatch.
+component ARIADisabled
+  state last = "-"
+  action note(name: string)
+    last = name
+  view
+    column testId="root" width=520 height=160 padding=24 gap=12
+      text `last press: ${last}` testId="out"
+      row gap=8
+        button "First" press=note("first") testId="first"
+        button "Check for updates" aria-disabled=true press=note("update") testId="update"
+        button "Last" press=note("last") testId="last"

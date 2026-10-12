@@ -646,6 +646,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "aria-selected" => AttrTarget::Prop(p("accessibilitySelected")),
         "aria-expanded" => AttrTarget::Prop(p("accessibilityExpanded")),
         "aria-pressed" => AttrTarget::Prop(p("accessibilityPressed")),
+        "aria-disabled" => AttrTarget::Prop(p("accessibilityDisabled")),
         "aria-modal" => AttrTarget::Prop(p("accessibilityModal")),
         "aria-hidden" => AttrTarget::Prop(p("accessibilityElementsHidden")),
         "aria-invalid" => AttrTarget::Prop(p("accessibilityInvalid")), // onboarding F22, spreadsheet F20

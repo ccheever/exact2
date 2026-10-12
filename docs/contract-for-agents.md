@@ -968,6 +968,16 @@ property names, invented CSS aliases, or unknown HTML tags. Read the schema and
 tag mapping for admitted properties and units. CSS standard behavior does not
 imply that every browser API is implemented on every host.
 
+For a control that should remain a Tab stop but be announced as unavailable,
+write `aria-disabled=true`. It does not stop `press`; check the unavailable
+state in the action. Descendant controls and inline links inherit this
+accessibility state unless they explicitly say `aria-disabled=false`. HTML
+`disabled=true` removes a form control from focus.
+Projected Apple segments, UIKit bar items and titles, and AppKit menu items keep
+that accessibility state on the native item people encounter. UIKit menu rows
+and alert actions stay selectable but read as enabled; UIKit's public disabled
+states would stop their input.
+
 `class=Style` applies literal style values; node attributes win. Conditional
 classes select two named styles with `class=(condition ? A : B)`. Computed values
 go on nodes. There is no selector cascade, dynamic style object, or arbitrary
