@@ -113,5 +113,41 @@ final class BarBandIOSTests: XCTestCase {
         XCTAssertEqual(box(nav.navigationBar).maxY, expanded, accuracy: 1, "the title kept still")
         try assertBelow(nav, control)
     }
+
+    /// LLP 1116.007 D5: the route's scroll is an inset-grouped list, so the
+    /// route is on the grouped background, bar to bottom edge, as a
+    /// hand-built `UITableViewController`'s screen is: the band the switcher
+    /// sits in is the list's grey, not the page's white (round 9's polls:
+    /// "a white header block over the grouped-grey list"). The compiler
+    /// supplies the role, so each scheme resolves its own.
+    func testARouteThatScrollsAGroupedListIsOnTheGroupedBackgroundUnderTheSwitcher() throws {
+        let session = try fixture()
+        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        let route = try XCTUnwrap(nav.topViewController as? RouteController)
+        let window = try XCTUnwrap(self.window)
+        let switcher = box(try node("persona"))
+        let band = CGPoint(x: 4, y: switcher.midY), above = CGPoint(x: 4, y: box(nav.navigationBar).midY)
+        let list = box(try node("board"))
+        let beside = CGPoint(x: 4, y: list.maxY - 20)
+        // The window's pixel at `point`, as its layers draw it in `scheme`.
+        let pixel = { (point: CGPoint, scheme: UIUserInterfaceStyle) -> [Int] in
+            window.overrideUserInterfaceStyle = scheme
+            self.spin(0.3)
+            var rgba = [UInt8](repeating: 0, count: 4)
+            rgba.withUnsafeMutableBytes { raw in
+                guard let ctx = CGContext(data: raw.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                          space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
+                ctx.translateBy(x: -point.x, y: -point.y)
+                window.layer.render(in: ctx)
+            }
+            return rgba.prefix(3).map { Int($0) }
+        }
+        XCTAssertEqual(route.view.backgroundColor?.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)), UIColor.systemGroupedBackground.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)))
+        for (scheme, grey) in [(UIUserInterfaceStyle.light, [242, 242, 247]), (.dark, [0, 0, 0])] {
+            XCTAssertEqual(pixel(beside, scheme), grey, "the list's own grey, \(scheme.rawValue)")
+            XCTAssertEqual(pixel(band, scheme), grey, "the band at the switcher's side is the list's, \(scheme.rawValue)")
+            XCTAssertEqual(pixel(above, scheme), grey, "and under the bar, \(scheme.rawValue)")
+        }
+    }
 }
 #endif
