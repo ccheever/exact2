@@ -565,9 +565,10 @@ component App
 
 /// LLP 1116.003 D4: emphasis is a part. `RoundButton` is the platform's own
 /// button as an 80-point circle, filled with its `tint` (the neutral grey
-/// for `none`); `AnswerTile` is a tile whose status is its fill, legible in
-/// both schemes: the green under dark ink, the red under white, whatever the
-/// app's scheme. Both pass their press, `disabled` and `testId` through.
+/// for `none`, the hue at low opacity for a light one); `AnswerTile` is a
+/// tile whose status is its fill, legible in both schemes: the green under
+/// dark ink, the red under white, whatever the app's scheme. Both pass their
+/// press, `disabled` and `testId` through.
 #[test]
 fn exact_content_draws_round_buttons_and_answer_tiles() {
     use exact_kernel::style::roles::role;
@@ -633,29 +634,33 @@ component App
     }
     let reset = k.node(at(k, "reset")).unwrap();
     assert_eq!(reset.props.bool(PropId::Disabled), Some(true));
-    // LLP 1116.007 D3.3: a light system hue fails 4.5:1 under the filled
-    // button's white ink (green's is 2.2:1), so its label is black in either
-    // scheme; the other tints keep the platform's own ink.
-    for (id, label, hue, disabled) in [
-        ("go", "Go", "-exact-system-green", false),
-        ("wait", "Wait", "-exact-system-yellow", true),
+    // LLP 1116.008 D6: a light system hue fails 4.5:1 under the filled
+    // button's white ink (green's is 2.2:1) and looks off-platform under black
+    // (trivia's teal Start), so it draws the platform's tinted style, the hue at
+    // low opacity under the label's own ink (the tertiary label once disabled,
+    // as the neutral button's); the other tints keep the platform's filled look.
+    for (id, label, hue, disabled, ink) in [
+        ("go", "Go", "-exact-system-green", false, "-exact-label"),
+        (
+            "wait",
+            "Wait",
+            "-exact-system-yellow",
+            true,
+            "-exact-tertiary-label",
+        ),
     ] {
         let b = k.node(at(k, id)).unwrap();
         assert_eq!(b.node_type, NodeType::Control, "{id}");
         assert_eq!(
             b.props.get(PropId::ButtonStyle),
-            Some(&PropValue::Str("filled".into())),
+            Some(&PropValue::Str("tinted".into())),
             "{id}"
         );
         assert_eq!(b.style.accent_color, Some(named(hue)), "{id}");
         assert_eq!((b.frame.width, b.frame.height), (80.0, 80.0), "{id}");
         assert_eq!(b.props.bool(PropId::Disabled), Some(disabled), "{id}");
         assert_eq!(b.child_nodes().next().unwrap().text_runs()[0].text, label);
-        assert!(
-            matches!(b.style.text_color, ColorValue::LightDark(l, d) if l == d),
-            "{id}: {:?}",
-            b.style.text_color
-        );
+        assert_eq!(b.style.text_color, named(ink), "{id}");
     }
     assert!(!matches!(
         k.node(at(k, "start")).unwrap().style.text_color,
