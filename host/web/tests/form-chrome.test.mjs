@@ -114,6 +114,9 @@ check('a disabled button looks disabled in every style and scheme, whatever its 
       const [on, off] = [await look(evaluate, `${s}-${style}-on`), await look(evaluate, `${s}-${style}-off`)];
       expect([s, style, off.color]).toEqual([s, style, gray]); // the browser's disabled ink, never the accent's
       expect(off.color).not.toBe(on.color);
+      // LLP 1116.007 D3.10: the unsaid button's ink is the label's (`ButtonText`, as iOS 27 draws `.gray()` and
+      // `.bordered()`), never the accent's: a light system accent was 1.3:1 to 2.5:1 on its grey fill.
+      if (style === 'gray' || style === 'bordered') expect([s, style, on.color]).toEqual([s, style, s === 'light' ? 'rgb(0, 0, 0)' : 'rgb(255, 255, 255)']);
       // Where the style fills with the accent, the neutral fill instead; a neutral or glass style keeps its own.
       if (['filled', 'bordered-prominent', 'tinted', 'bordered-tinted'].includes(style)) {
         expect([s, style, off.background]).toEqual([s, style, NEUTRAL[s]]);
