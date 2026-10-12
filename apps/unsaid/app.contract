@@ -31,12 +31,24 @@
 // then Done, which submits) and ten more with nothing bound to them, so the
 // form is longer than the screen. Nothing says how a field looks or types:
 // on Android each is the platform's own field.
+//
+// The fifth button opens the top layer (LLP 1115.001 D10): a confirmation
+// with a cancel and a destructive action, one with three buttons, and one
+// menu of four rows (a symbol, a separator, a destructive row that asks
+// first) opened four ways: by the button at the end of a row, by holding
+// the row, and by a button at the page's bottom and one in its corner, where
+// the menu has to open upward and end at its button's end. The text under
+// the heading says what was chosen. A field on the page shows a surface
+// over a text field, and opens the confirmation when `ask` is typed into
+// it, the keyboard still up. Nothing says how a confirmation or a menu
+// looks: on Android each is a window of the platform's, in Material's form.
 routes nav
   home "/"
     next "/next"
     rows "/rows"
     colours "/colours"
     form "/form"
+    surfaces "/surfaces"
 
 component Unsaid
   state name = ""
@@ -57,6 +69,8 @@ component Unsaid
   state second = ""
   state last = ""
   state sent = ""
+  state chose = "Nothing chosen yet"
+  state asked = ""
   derive ten = split("0 1 2 3 4 5 6 7 8 9", " ")
   derive forty = concat(concat(ten, ten), concat(ten, ten))
   derive cards = map(concat(ten, ten), (x, i) => i)
@@ -88,6 +102,19 @@ component Unsaid
     name = value
   action openForm
     nav = push(nav, "/form")
+  action openSurfaces
+    nav = push(nav, "/surfaces")
+  action choose(what: string)
+    chose = `Chose: ${what}`
+  action aim(what: string)
+    chose = `Held: ${what}`
+  // A destructive choice asks first: the confirmation, from any action.
+  action ask
+    showModal("confirm")
+  action askTyped(value)
+    asked = value
+    if value == "ask"
+      showModal("confirm")
   action setPlain(value)
     plain = value
   action setEmail(value)
@@ -136,6 +163,28 @@ component Unsaid
               text "Open the device's colours"
             button press=openForm testId="open-form"
               text "Open a form"
+            button press=openSurfaces testId="open-surfaces"
+              text "Open the top layer"
+          when e.name == "surfaces"
+            column display="flex" flex-direction="column" height="100%" gap=12
+              text "The top layer" role="heading" aria-level=1 testId="surfaces-heading"
+              text chose testId="chose"
+              input value=asked input=askTyped placeholder="Type ask to be asked" aria-label="Type ask" testId="ask-field"
+              button press=ask testId="ask"
+                text "Delete something"
+              button commandfor="three" command="show-modal" testId="ask-three"
+                text "Leave with changes"
+              row display="flex" align-items="center" gap=12
+                button press=choose("the row") contextmenu=aim("the row") contextPopover="row-menu" flex=1 text-align="start" testId="held"
+                  text "A row: hold it, or use its button"
+                button popovertarget="row-menu" aria-label="More" testId="more"
+                  image "symbol:more"
+              column flex=1
+              row display="flex" align-items="center" justify-content="space-between"
+                button popovertarget="row-menu" testId="more-bottom"
+                  text "A menu at the bottom"
+                button popovertarget="row-menu" aria-label="More, in the corner" testId="more-corner"
+                  image "symbol:more"
           when e.name == "colours"
             column gap=10 accent-color=(authored ? "light-dark(#ad1457, #f48fb1)" : "auto") testId="colours"
               text "The device's colours" role="heading" aria-level=1 testId="colours-heading"
@@ -237,6 +286,34 @@ component Unsaid
                     when i > 1
                       button press=pick(i) width="100%" height=56 box-sizing="border-box" text-align="start" testId=`row-${i}`
                         text `Row ${i}`
+      // The top layer's surfaces, declared once at the root: two confirmations
+      // (the label is the title, the text the message, Cancel the closing
+      // button with no `press`) and the menu every invoker above names.
+      dialog id="confirm" role="alertdialog" aria-label="Delete it?"
+        text "This cannot be undone."
+        button press=choose("Delete") destructive=true commandfor="confirm" command="close" testId="confirm-delete"
+          text "Delete"
+        button commandfor="confirm" command="close" testId="confirm-cancel"
+          text "Cancel"
+      dialog id="three" role="alertdialog" aria-label="Save your changes?"
+        text "You have changed this page. Leaving now loses what you changed."
+        button press=choose("Save") commandfor="three" command="close" testId="three-save"
+          text "Save"
+        button press=choose("Discard") destructive=true commandfor="three" command="close" testId="three-discard"
+          text "Discard"
+        button commandfor="three" command="close" testId="three-cancel"
+          text "Cancel"
+      column id="row-menu" popover="auto" role="menu" aria-label="Row"
+        button press=choose("Rename") popovertarget="row-menu" popovertargetaction="hide" testId="menu-rename"
+          image "symbol:pencil"
+          text "Rename"
+        button press=choose("Share") popovertarget="row-menu" popovertargetaction="hide" testId="menu-share"
+          text "Share"
+        button press=choose("Pin to the top") popovertarget="row-menu" popovertargetaction="hide" testId="menu-pin"
+          text "Pin to the top"
+        hr
+        button press=ask destructive=true popovertarget="row-menu" popovertargetaction="hide" testId="menu-delete"
+          text "Delete…"
 
 // A card in a background role, labelled in the role that reads on it.
 component Swatch
