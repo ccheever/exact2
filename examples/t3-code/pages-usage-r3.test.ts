@@ -169,9 +169,10 @@ test('the dialog keeps typed text: seeds hold while an input is on screen, and S
 
 test('menus that size to their content measure their rows as the reference lays them out', async () => {
   const { textWidth, checkMenuWidth } = await import('./pages-text-width');
-  expect(textWidth('Daehyeon’s MacBook Pro', 14)).toBeCloseTo(164.2, 0);
-  // The reference popup is 269.3pt wide for this environment and its "Ready".
-  expect(checkMenuWidth([{ label: 'All environments', status: '' }, { label: 'Daehyeon’s MacBook Pro', status: 'Ready' }])).toBe(270);
+  expect(textWidth('Morgan’s MacBook Pro', 14)).toBeCloseTo(148.7, 0);
+  // The reference popup measured 269.3pt for a 164.2pt machine name and its "Ready"; the same rule gives 254 for this
+  // 148.7pt fixture name (the label plus the row's fixed insets and the status column).
+  expect(checkMenuWidth([{ label: 'All environments', status: '' }, { label: 'Morgan’s MacBook Pro', status: 'Ready' }])).toBe(254);
   expect(checkMenuWidth([{ label: 'A', status: '' }])).toBe(160);
 });
 
