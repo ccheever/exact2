@@ -125,6 +125,15 @@ final class KeyScrollMacTests: XCTestCase {
         // An arrow there is the scroller's all the same.
         button.keyDown(with: down)
         XCTAssertEqual(at(list), 10)
+        // Space at a focused box inside a pressable goes up to the pressable, which it presses.
+        let inner = NodeView(id: 6, kind: "view", presenter: p)
+        inner.props = ["tabIndex": "0"]
+        inner.frame = NSRect(x: 0, y: 0, width: 40, height: 20)
+        button.container.addSubview(inner); p.views[6] = inner
+        XCTAssertTrue(window.makeFirstResponder(inner))
+        inner.keyDown(with: space())
+        XCTAssertEqual(pressed, [4, 4])
+        XCTAssertEqual(at(list), 10, "and scrolls nothing")
     }
 }
 #endif
