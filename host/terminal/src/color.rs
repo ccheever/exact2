@@ -1,8 +1,6 @@
 //! Terminal colour depth and palette reduction (LLP 1101 D5).
 
 use crate::grid::Rgb;
-use std::fmt::Write as _;
-
 /// The output palette; `exactSurface("terminal").colors` reports its bit depth.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(u8)]
@@ -87,23 +85,41 @@ impl ColorDepth {
     }
 
     pub(crate) fn write(self, out: &mut String, rgb: Rgb, background: bool) {
-        let base = if background { 48 } else { 38 };
         match self {
             Self::Monochrome => {}
             Self::TrueColor => {
+                out.push_str(if background { "48;2;" } else { "38;2;" });
                 let Rgb(r, g, b) = rgb;
-                let _ = write!(out, "{base};2;{r};{g};{b};");
+                push_u8(out, r);
+                out.push(';');
+                push_u8(out, g);
+                out.push(';');
+                push_u8(out, b);
+                out.push(';');
             }
             Self::Ansi256 => {
-                let _ = write!(out, "{base};5;{};", self.index(rgb));
+                out.push_str(if background { "48;5;" } else { "38;5;" });
+                push_u8(out, self.index(rgb));
+                out.push(';');
             }
             Self::Ansi16 => {
                 let i = self.index(rgb);
                 let code = if background { 40 } else { 30 } + i % 8 + if i >= 8 { 60 } else { 0 };
-                let _ = write!(out, "{code};");
+                push_u8(out, code);
+                out.push(';');
             }
         }
     }
+}
+
+fn push_u8(out: &mut String, value: u8) {
+    if value >= 100 {
+        out.push(char::from(b'0' + value / 100));
+    }
+    if value >= 10 {
+        out.push(char::from(b'0' + value / 10 % 10));
+    }
+    out.push(char::from(b'0' + value % 10));
 }
 
 const ANSI: [Rgb; 16] = [
@@ -146,6 +162,15 @@ fn distance(a: Rgb, b: Rgb) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn push_u8_matches_standard_conversion() {
+        for value in u8::MIN..=u8::MAX {
+            let mut out = String::new();
+            push_u8(&mut out, value);
+            assert_eq!(out, value.to_string());
+        }
+    }
 
     #[test]
     fn environment_detection_is_conservative_and_no_color_wins() {
