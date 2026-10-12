@@ -5,7 +5,7 @@
 **Severity:** P2
 **Author:** Daehyeon Mun (via the T3 Code clone)
 **Date:** 2026-10-12
-**Related:** T3 PR #474 (reply-links-reference-behavior); https://github.com/ccheever/exact2/blob/feat(example)/t3-code/examples/t3-code/EXACT2-GAPS.md (X85); `issues/closed/20261010-macos-right-click-selects-no-word.md` (#454, the same `menu(for:)`); `issues/20261010-macos-inline-run-contextmenu.md` (X77); docs/contract-grammar.md ("A `contextmenu` (a right-click, a long press) …")
+**Related:** T3 PR #474 (reply-links-reference-behavior); https://github.com/ccheever/exact2/blob/feat(example)/t3-code/examples/t3-code/EXACT2-GAPS.md (X85); `issues/closed/20261010-macos-right-click-selects-no-word.md` (#454, the same `menu(for:)`); `issues/20261010-macos-inline-run-contextmenu.md` (X77); `issues/20261012-macos-inline-link-run-tab-stop.md` (#484, an inline link run takes no keyboard focus); docs/contract-grammar.md ("A `contextmenu` (a right-click, a long press) …")
 
 ## Summary
 
