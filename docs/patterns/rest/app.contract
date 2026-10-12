@@ -1,7 +1,9 @@
 // Starter: list-detail over your own REST server (server.ts), polled, every failure in words.
-// app.ts fetches with a bearer token and answers a refusal or a lost server as data. `bun
-// server.ts` serves the dev loop; `verify` and `bun exact.mjs api-test web` run it themselves,
-// on an empty database. A smaller app deletes what it doesn't need: the wide split
+// app.ts fetches with a bearer token, the persona's name, and answers a refusal or a lost server
+// as data. Who is signed in is a segmented control (a `radiogroup`), kept with `persist` across
+// launches. `bun server.ts` serves the dev loop; `verify` and `bun exact.mjs api-test web` run
+// it themselves, on an empty database. A smaller app deletes what it doesn't need: the persona
+// switcher (`persona`, `signIn`, the radiogroup, the `persona` argument of every source), the wide split
 // (`viewport`, `wide`, the `when wide` column), the delete (`askRemove`, `remove`, the
 // dialog, the server's DELETE), the notes (the shape's field, the sections, the server's column),
 // or the lock (the shape's `locked`, `setLock`, the badge, the switch, the server's PATCH).
@@ -36,7 +38,8 @@ component App
   state draftTitle = ""
   state draftNotes = ""
   state submitted = false
-  resource lib = loadItems() as shape Items else empty(ok=true)
+  state persona = "Ada" persist
+  resource lib = loadItems(persona) as shape Items else empty(ok=true)
   resource viewport = exactViewport() as shape Viewport
   mutation added as shape Reply refreshes lib then afterSave
   mutation removed as shape Reply refreshes lib
@@ -55,6 +58,8 @@ component App
 
   action pull
     refresh lib
+  action signIn(p: string)
+    persona = p
   action openAdd
     draftTitle = ""
     draftNotes = ""
@@ -73,17 +78,17 @@ component App
   action save
     submitted = true
     if trim(draftTitle) != "" and not pending(added)
-      send added = addItem(trim(draftTitle), trim(draftNotes))
+      send added = addItem(persona, trim(draftTitle), trim(draftNotes))
   // The sheet closes only on an ok reply; a refusal keeps it open, saying why.
   action afterSave
     if saveError == "" and top(nav).name == "add"
       nav = back(nav)
   action setLock(on: bool)
-    send lockSaved = lockItem(selected, on)
+    send lockSaved = lockItem(persona, selected, on)
   action askRemove
     showModal("remove")
   action remove
-    send removed = removeItem(selected)
+    send removed = removeItem(persona, selected)
     nav = back(nav)
 
   view
@@ -99,6 +104,12 @@ component App
               text "Starter" role="heading" aria-level=1
               button press=openAdd aria-label="Add Item" testId="add-item"
                 image "symbol:add"
+            // Who is signed in: a segmented control, its choice kept across launches.
+            column padding="0 16px 8px"
+              row role="radiogroup" aria-label="Signed in as"
+                each p in ["Ada", "Grace"] key=p
+                  button role="radio" aria-checked=(persona == p) press=signIn(p) testId=`persona-${p}` flex=1
+                    text p
             // A failed poll or a refused delete, in red above the list it is about.
             when listError != ""
               text listError font="-exact-footnote" color="-exact-system-red" padding="8px 16px 0" testId="list-error"
