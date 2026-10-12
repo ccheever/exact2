@@ -97,8 +97,8 @@ hardware keyboard; Linux; a run that wraps across lines; a focus ring on a run.
 - Whatever is decided for "off" should hold for a `link` node and a link run alike, so that an author's choice between
   the two does not change who can reach the link.
 - No open or closed issue on main covers it. `issues/20261009-macos-controls-default-tab-order.md` is about dates and
-  selects, `issues/20261010-macos-tab-from-a-focused-box.md` about a focused box that is no stop, and X77's issue about
-  a run's `contextmenu`. The GitHub issues do not cover it either. Main PR #327 (head `14493d253`) changes
+  selects, `issues/closed/20261010-macos-tab-from-a-focused-box.md` about a focused box that is no stop, and X77's
+  issue about a run's `contextmenu`. The GitHub issues do not cover it either. Main PR #327 (head `14493d253`) changes
   `FocusMac.swift` for dates and selects only.
 
 ## Acceptance criteria

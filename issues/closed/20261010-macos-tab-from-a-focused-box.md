@@ -1,12 +1,21 @@
 # macOS: Tab from a focused box that is no Tab stop (tabindex=-1) goes nowhere
 
 **Status:** Closed
-**Resolution:** fixed by #490
+**Resolution:** fixed by #490, with Keyboard Navigation on (LLP 1115.000 D7.2); with it off, the default, the repro's buttons are no stops and Tab from the box stays
 **Systems:** host/apple macOS, focus, keyboard
 **Severity:** P2
 **Author:** daehyeon-mun (T3 Code clone)
 **Date:** 2026-10-10
 **Related:** https://github.com/ccheever/exact2/blob/feat(example)/t3-code/examples/t3-code/.exact/implementation/20261005-t3code-macos-parity/issues/closed/20261010-x79-macos-tab-from-a-focused-box.md; docs/contract-grammar.md ("Focus order: `tabindex`"); LLP 1088 D7.3; issues/20261009-gui-dialog-action-commands.md (the focus trap, a different gap)
+
+## Current scope
+
+Re-read under LLP 1115.000 D7 on 2026-10-12, as its D7 asks. Tab honours Keyboard Navigation (D7.2): off, the
+Mac's default and the agent's from launch, a button is no stop, so the repro below has no stop for Tab to reach and
+the focus stays on `popup` and on `box2`. That is D7.2, not this gap. The acceptance criteria hold with it on: start
+each drive with `prefer keyboard-navigation true` (`state.focus.keyboardNavigation` reads it). #490 fixed the parts
+that still differed from Chrome then: Tab and Shift+Tab from such a box inside an open modal `dialog`, and Shift+Tab
+from one with no stop before it in tree order.
 
 ## Summary
 
