@@ -365,7 +365,7 @@ launch        = "size" NUMBER "x" NUMBER NL          (* written 1200x800 *)
               | "epoch" ( STRING | NUMBER | "now" ) NL (* "2026-09-21T12:00:00Z", Unix ms, or now *)
               | "time-zone" STRING NL                (* an IANA zone, "America/New_York" *)
               | "locale" STRING NL                   (* a BCP 47 tag, "fr-FR" *)
-              | "seed" NUMBER NL                     (* 0 through 2^53 - 1 *)
+              | "seed" NUMBER NL                     (* 0 through 2^32 - 1 *)
               | "before" "data" NL                   (* the first step does not wait for data *)
               | "fail" "fetch" STRING [ "times" NUMBER ] NL ; (* armed before the first data load *)
 step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu"

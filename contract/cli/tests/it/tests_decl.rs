@@ -255,11 +255,16 @@ fn a_file_and_a_test_carry_their_launch_facts() {
         ("test \"t\"\n  epoch today\n", 2),
         ("test \"t\"\n  epoch \"now\"\n", 2),
         ("test \"t\"\n  seed 1.5\n", 2),
+        ("test \"t\"\n  seed 4294967296\n", 2),
         ("test \"t\"\n  time-zone UTC\n", 2),
     ] {
         let e = contract::tests(src).unwrap_err();
         assert_eq!(e.span.line, line, "{src}: {e}");
     }
+    // The launch seed is below 2^32 on every host (LLP 1116.005 D5).
+    let e = contract::tests("test \"t\"\n  seed 4294967296\n").unwrap_err();
+    assert!(e.message.contains("0 through 2^32 - 1"), "{e}");
+    assert!(contract::tests("test \"t\"\n  seed 4294967295\n").is_ok());
 }
 
 #[test]

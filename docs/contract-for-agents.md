@@ -1609,7 +1609,8 @@ in 1970, and one stored is meaningless after a relaunch. Anything stored or sent
 `epochAtZero` (Unix milliseconds when `performanceNow()` read zero), `utcOffset` (minutes east
 of UTC), `locale` (BCP 47), `timeZone` (IANA), `resolvedLocale` (the language of
 the string table the app shows, `""` with no tables) and `seed` (a whole number
-drawn once per launch). A read does not itself schedule a future render, and a
+below 2^32, drawn once per launch, so `%` and `>>> 0` take all of it; mix a round
+into it in 32-bit steps, as the [random recipe](recipes/random-and-shuffle.md) does). A read does not itself schedule a future render, and a
 derive that reads `performanceNow()` is not read again as time passes, and when it is read
 again differs by host. For a displayed value that must follow the clock, keep the
 time in state that a timer's action (`task … every`) writes. Prefer `clock settle` to waiting for a transition in real time.

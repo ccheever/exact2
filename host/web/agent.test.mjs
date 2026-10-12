@@ -490,11 +490,11 @@ test('a timer whose request never lands cannot hold the clock: past the deadline
 
 test('launch setup supplies fixed defaults and carries CLI overrides to every host', () => {
   expect(launchFacts({})).toEqual({seed:1, locale:'en-US', timeZone:'UTC', epoch:Date.UTC(2026, 0, 1)});
-  const {flags, rest} = parseFlags(['web', '--browser', 'firefox', '--seed', '9007199254740991', '--locale', 'fr-ca', '--time-zone', 'America/Toronto', '--epoch', '2026-09-21T14:13:20Z', 'tree']);
+  const {flags, rest} = parseFlags(['web', '--browser', 'firefox', '--seed', '4294967295', '--locale', 'fr-ca', '--time-zone', 'America/Toronto', '--epoch', '2026-09-21T14:13:20Z', 'tree']);
   expect(rest).toEqual(['web', 'tree']);
   expect(flags.browser).toBe('firefox');
   const facts = launchFacts(flags);
-  expect(facts).toEqual({seed:9007199254740991, locale:'fr-CA', timeZone:'America/Toronto', epoch:1790000000000});
+  expect(facts).toEqual({seed:4294967295, locale:'fr-CA', timeZone:'America/Toronto', epoch:1790000000000});
   expect(launchFacts({epoch:'1790000000000'}).epoch).toBe(1790000000000);
   const time = timeReporter(new URLSearchParams({agent:'1', ...facts}), new Proxy({}, {get() { throw new Error('agent read the platform'); }}));
   expect(time(60000)).toEqual([1790000000000, -240]);
@@ -507,9 +507,9 @@ test('launch setup supplies fixed defaults and carries CLI overrides to every ho
   expect(launchFacts({env:launchEnvironment(facts)})).toEqual(facts);
   const params = new URLSearchParams({agent:'1', ...facts});
   const report = placeReporter(params, new Proxy({}, {get() { throw new Error('agent read the platform'); }}));
-  expect(report()).toBe(['fr-CA', 'America/Toronto', 9007199254740991].join('\0'));
-  expect(report()).toBe(report());
-  for (const seed of [-1, 0.5, NaN, Infinity, 9007199254740992]) expect(() => launchFacts({seed})).toThrow('seed:');
+  expect([report(), report()]).toEqual(Array(2).fill(['fr-CA', 'America/Toronto', 4294967295].join('\0')));
+  for (const seed of [-1, 0.5, NaN, Infinity, 4294967296]) for (const f of [() => launchFacts({seed}), () => placeReporter(new URLSearchParams({agent:'1', seed:String(seed)}))()]) expect(f).toThrow('seed: a whole number from 0 through 2^32 - 1'); // below 2^32 on every host (LLP 1116.005 D5): refused by the driver and the page,
+  for (let i = 0, drawn; i < 64; i++) expect([(drawn = placeReporter(new URLSearchParams()))(), Number(drawn().split('\0')[2]) < 2 ** 32]).toEqual([drawn(), true]); // and drawn below it, once a launch
   expect(() => launchFacts({locale:'en_US'})).toThrow();
   expect(() => launchFacts({timeZone:'Not/AZone'})).toThrow();
 });
@@ -659,7 +659,7 @@ test('ordinary web reloads keep the launch seed', async () => {
   f.navigator = { language: 'fr-FR' };
   f.Intl = { DateTimeFormat: () => ({ resolvedOptions: () => ({timeZone:'Europe/Paris'}) }) };
   let draws = 0;
-  f.crypto = { getRandomValues: bytes => { bytes.set([0, ++draws]); return bytes; } };
+  f.crypto = { getRandomValues: words => { words.set([++draws]); return words; } }; // one 32-bit word (LLP 1116.005 D5)
   f.wasm.exact_set_place = wire => { reported.push(wire); return '{"ops":[]}'; };
   await f.boot(null);
   await f.boot(new Uint8Array([1]));
