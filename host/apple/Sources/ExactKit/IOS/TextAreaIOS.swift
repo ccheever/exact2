@@ -317,13 +317,18 @@ extension NodeView {
         } else { area.frame = contentBox() }
         #endif
     }
-    /// The app's value into the editor: nothing while text is being composed
-    /// (held until the composition ends), else the changed middle only, with
-    /// the selection carried through (LLP 1045 D5).
+    /// The app's value into the editor: the changed middle only, with the
+    /// selection carried through (LLP 1045 D5). The value the editor already
+    /// shows changes nothing, so a composition and its selection stand. A
+    /// different one replaces the text and ends a composition (LLP 1115.001
+    /// D8's rule, `FieldComposition.swift`): what was marked is text, and
+    /// the value lands on that.
     func writeValue(_ value: String, into f: UITextView) {
-        if (f.text ?? "").utf16.elementsEqual(value.utf16) { pendingValue = nil; return }
-        if f.markedTextRange != nil { pendingValue = value; return }
-        pendingValue = nil
+        if (f.text ?? "").utf16.elementsEqual(value.utf16) { return }
+        // A text view says its text changed as it unmarks: still the text the
+        // app was told, so nothing is said, and then the value is the app's.
+        if f.markedTextRange != nil { f.unmarkText() }
+        toldText = nil
         guard let edit = minimalTextEdit(from: f.text ?? "", to: value) else { return }
         // Native undo ranges refer to the old buffer. An external edit has
         // no position map for those ranges; discard only this view's history.
@@ -344,8 +349,7 @@ extension NodeView {
     package func textViewDidChange(_ textView: UITextView) {
         if let editor = (textView as? TextArea)?.markup, editor.applying || editor.styling { return }
         textView.setNeedsDisplay()
-        if !disabled { presenter?.typed(id, textView.text ?? "", input: handlers.contains("input")) }
-        if textView.markedTextRange == nil, let held = pendingValue { writeValue(held, into: textView) }
+        if !disabled { typedText(textView.text ?? "") }
         configureMarkup()
         restyleMarkup()
         publishMarkupSelection()

@@ -41,11 +41,6 @@ extension NodeView {
         return (kind, node)
     }
 
-    /// Whether a field's editor would be heard for `action`: the node or an ancestor has the handler.
-    func hearsFieldClipboard() -> Bool {
-        [#selector(copy(_:)), #selector(cut(_:)), #selector(paste(_:))].contains { clipboardHearer($0) != nil }
-    }
-
     /// The `copy`, `cut` or `paste` this field's or text area's editor is
     /// about to perform, heard by the nearest handler (the node or an
     /// ancestor), the paste with the pasteboard's text or `text` in its

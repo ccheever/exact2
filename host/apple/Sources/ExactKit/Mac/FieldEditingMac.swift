@@ -34,14 +34,49 @@ extension NodeView {
         if handlers.contains("blur") { presenter?.blur(id) }
     }
     @objc package func controlTextDidChange(_ obj: Notification) {
-        if let editor = field?.currentEditor() as? NSTextView, !editor.hasMarkedText(), let held = pendingValue { writeValue(held, into: editor) }
+        // What AppKit says of the app's own value going in is not typing.
+        if writingValue { return }
         if props["emojiPicker"] == "true", let field {
             let value = field.stringValue
             field.stringValue = ""
             if !disabled, EmojiSelection.accepts(value) { presenter?.typed(id, value, input: handlers.contains("input")) }
             return
         }
-        if !disabled { presenter?.typed(id, field?.stringValue ?? "", input: handlers.contains("input")) }
+        if !disabled { typedText(field?.stringValue ?? "") }
+    }
+    /// What an input method has marked in `editor` becomes text, now: a ⌘
+    /// chord's keydown, or the app's different value, ends the composition.
+    /// The input method is asked to let go of it first, which it answers
+    /// by inserting the text, and what it leaves marked is committed
+    /// (Firefox's `CommitIMEComposition`; committing first could insert the
+    /// syllable twice).
+    func commitComposition(in editor: NSTextView) {
+        settlingComposition(editor) {
+            editor.inputContext?.discardMarkedText()
+            if editor.hasMarkedText() { editor.unmarkText() }
+        }
+    }
+    /// Marked text is committed in steps: `unmarkText` takes it out of the
+    /// text and inserts it again, and an input context told to let go does
+    /// the same. The steps are not changes for the app to hear, so `body`
+    /// runs with them unheard, and its result is heard once, if it is not
+    /// the text the app knows (`typedText`).
+    func settlingComposition(_ editor: NSTextView, _ body: () -> Void) {
+        let writing = writingValue
+        writingValue = true
+        body()
+        writingValue = writing
+        if !writing, !disabled { typedText(editor.string) }
+    }
+    /// The text an input method is composing in this node's editor changed
+    /// (`setMarkedText`, which `FieldEditor` and `TextArea` say here). AppKit
+    /// posts no change for it, only for the commit; the app hears the
+    /// editor's text with the marked text in it at each change, as on every
+    /// host (`FieldComposition.swift`). An emoji picker's field composes nothing.
+    func markedTextChanged(_ editor: NSTextView) {
+        guard !writingValue, !disabled, props["emojiPicker"] != "true" else { return }
+        if editor === textArea { editor.needsDisplay = true }
+        typedText(editor.string)
     }
     /// The ring Exact draws for a focused field (LLP 1104 D6): its border,
     /// painted by the box painter (`boxPlan`) two points wide in the focus

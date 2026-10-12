@@ -1,14 +1,18 @@
 // A controlled `value` written into a native editor, the way a person would
 // have typed it: only the changed middle is replaced, so the selection and
-// undo survive, and nothing is written while text is being composed.
+// undo survive.
 //
 // The app's value is authoritative; the editor's buffer is what the person
 // sees. When they differ the host replaces the shortest middle that makes
-// them equal and carries the selection through that replacement. A write
-// that arrives during IME composition (marked text) is held and applied when
-// the composition ends, so a marked range is never torn.
+// them equal and carries the selection through that replacement. A write of
+// the value the editor already shows changes nothing, so the echo of a
+// controlled input never tears a marked range; a different value written
+// while an input method composes ends the composition first, on what was
+// marked as text (`FieldComposition.swift`; it was held until the
+// composition ended).
 //
 // @ref LLP 1045 D5 — the write-back fix that leads slice 2.
+// @ref LLP 1115.001 D8 — a different value ends a composition.
 import Foundation
 
 /// The shortest replacement that turns `old` into `new`, in UTF-16 units.

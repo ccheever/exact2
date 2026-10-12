@@ -5,11 +5,14 @@
 import UIKit
 
 extension NodeView {
-    /// As `writeValue(_:into:)` for a text view: composition defers the write,
-    /// and the caret is carried through the changed middle.
+    /// As `writeValue(_:into:)` for a text view: the value the field already
+    /// shows changes nothing, so a composition and its selection stand; a
+    /// different one ends a composition (what was marked is text) and
+    /// replaces the text, the caret carried through the changed middle.
     func writeValue(_ value: String, into f: UITextField) {
-        if f.markedTextRange != nil { pendingValue = value; return }
-        pendingValue = nil
+        if (f.text ?? "").utf16.elementsEqual(value.utf16) { return }
+        if f.markedTextRange != nil { f.unmarkText() }
+        toldText = nil
         guard let edit = minimalTextEdit(from: f.text ?? "", to: value) else { return }
         var selection = NSRange(location: (f.text ?? "").utf16.count, length: 0)
         if let r = f.selectedTextRange {
@@ -23,18 +26,15 @@ extension NodeView {
     }
     @objc func fieldChanged() {
         if props["emojiPicker"] == "true", let field {
-            if field.markedTextRange == nil, let held = pendingValue { writeValue(held, into: field) }
             let value = field.text ?? ""
             field.text = ""
             if !disabled, EmojiSelection.accepts(value) { presenter?.typed(id, value, input: handlers.contains("input")) }
             return
         }
-        // The textarea's order (`textViewDidChange`): the text the field now
-        // holds is reported first, and only then does a value held while
-        // composing apply. Writing it first reported the composing text —
-        // 你好 committed as "nihao".
-        if !disabled { presenter?.typed(id, field?.text ?? "", input: handlers.contains("input")) }
-        if let f = field, f.markedTextRange == nil, let held = pendingValue { writeValue(held, into: f) }
+        // UIKit says so at each change, the text an input method has marked
+        // included: the app hears the field's text as it stands
+        // (`FieldComposition.swift`).
+        if !disabled { typedText(field?.text ?? "") }
     }
     @objc package func textFieldDidBeginEditing(_ textField: UITextField) {
         presenter?.collections.pinsChanged()

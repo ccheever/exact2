@@ -1094,6 +1094,22 @@ extended), and when `setSelectionRange` changes the selection, collapsed
 included; typing and a plain caret move do not fire it. Its payload is the
 `InputEvent`.
 
+While an input method composes in a text field or a textarea (Japanese kana
+before its kanji, pinyin, a Korean syllable), `input` fires at every change
+with the composing text in the value, as the DOM's does, on every host that
+composes (the web, macOS, iOS, Android): "に", "にほ", "にほん", then "日本". Contract has no `compositionstart`,
+`compositionend` or `isComposing`, so an action cannot tell composing text
+from committed text; it is handed the field's value and should treat it as
+that. On macOS and iOS the commit of what is composed as it stands changes no
+text and is not another `input`; `change` is still the end of the editing.
+An action that writes the value it was handed back (a controlled input)
+changes nothing in the field, and the composition goes on. One that writes a
+different value (trimmed, upper-cased, cut to a length) replaces the text and
+ends the composition on macOS, iOS and Android; on the web it is the
+browser's own assignment to `value` (the wasm target alone holds it until the
+composition ends). So an action that rewrites what is typed breaks typing
+through an input method: rewrite at `change`, or not at all.
+
 `setSelectionRange(id, start, end)` and `setSelectionRange(id, start, end,
 direction)` are the field's own method, by its `id`, after the commit's tree
 is in place (so a `value` written beside it is there first). It does not
@@ -1133,9 +1149,9 @@ macOS, iOS and iPadOS with a hardware keyboard, Linux):
   printable ones in a field included. On macOS and iOS, keys an input
   method is composing are its own, but for two: a modifier's own press and
   release (so a Shift let go mid-syllable is still a keyup), and a ⌘ chord,
-  whose keydown commits the composed text first: the field's `input` hears
-  the text, then the chord's `key` handlers run and read the value Chrome's
-  would (there the page's value already holds the composed text). A
+  whose keydown commits the composed text first: the chord's `key` handlers
+  then run on committed text and read the value Chrome's would, which the
+  field's `input` heard as it was composed (the commit is not heard again). A
   composer's ⌘Enter `key` action sends what was typed. On macOS such a chord
   presses no `aria-keyshortcuts` button, as the web's skip a key that came
   composing. On the web, Chrome hands the `key` handlers every key while

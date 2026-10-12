@@ -72,6 +72,17 @@ package final class TextArea: NSTextView {
         return ok
     }
 
+    /// AppKit posts no change while text is marked: the owner hears each one
+    /// here, and a commit's steps as one (`settlingComposition`).
+    package override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+        owner?.markedTextChanged(self)
+    }
+    package override func unmarkText() {
+        guard let owner else { super.unmarkText(); return }
+        owner.settlingComposition(self) { super.unmarkText() }
+    }
+
     package override func insertTab(_ sender: Any?) {
         if markup != nil { super.insertTab(sender) } else { window?.selectNextKeyView(self) }
     }
@@ -217,13 +228,18 @@ extension NodeView {
         textArea = f
         textAreaScroll = scroller
     }
-    /// The app's value into the editor: nothing while text is being composed
-    /// (held until the composition ends), else the changed middle only, with
-    /// the selection carried through (LLP 1045 D5).
+    /// The app's value into the editor: the changed middle only, with the
+    /// selection carried through (LLP 1045 D5). The value the editor already
+    /// shows changes nothing, so a composition and its selection stand. A
+    /// different one replaces the text and ends a composition (LLP 1115.001
+    /// D8's rule, `FieldComposition.swift`): what the input method had
+    /// marked becomes text (`commitComposition`), and the value lands on
+    /// that. None of it is typing, so the app does not hear it as `input`.
     func writeValue(_ value: String, into f: NSTextView) {
-        if f.string.utf16.elementsEqual(value.utf16) { pendingValue = nil; return }
-        if f.hasMarkedText() { pendingValue = value; return }
-        pendingValue = nil
+        if f.string.utf16.elementsEqual(value.utf16) { return }
+        writingValue = true
+        defer { writingValue = false; toldText = nil }
+        if f.hasMarkedText() { commitComposition(in: f) }
         guard let edit = minimalTextEdit(from: f.string, to: value) else { return }
         // Native undo ranges refer to the old buffer. An external edit has
         // no position map for those ranges; discard only this view's history.
@@ -316,8 +332,9 @@ extension NodeView {
         guard let f = textArea else { return }
         if let editor = (f as? TextArea)?.markup, editor.applying || editor.styling { return }
         f.needsDisplay = true
-        if !disabled { presenter?.typed(id, f.string, input: handlers.contains("input")) }
-        if !f.hasMarkedText(), let held = pendingValue { writeValue(held, into: f) }
+        // What AppKit says of the app's own value going in, or of a
+        // composition's commit in its steps, is not typing.
+        if !disabled, !writingValue { typedText(f.string) }
         configureMarkup()
         restyleMarkup()
         publishMarkupSelection()
@@ -395,11 +412,29 @@ final class Field: NSTextField {
     override var focusRingMaskBounds: NSRect { bareFieldMask(self) ?? super.focusRingMaskBounds }
     override func drawFocusRingMask() { if !drawBareFieldMask(self) { super.drawFocusRingMask() } }
 }
-/// The editor an input's field takes while the node or an ancestor hears
-/// `copy`, `cut` or `paste` (`FieldCell.fieldEditor(for:)`): the window's
-/// shared one, which fires none of them, otherwise.
+/// The editor an `input`'s field edits in (`FieldCell.fieldEditor(for:)`):
+/// one for the session's fields, as a window has one for its own, so what
+/// a person turns on in one field (Edit ▸ Spelling and Grammar) is on in the
+/// next, as in any AppKit window. It is not the window's own because it
+/// tells the field's node what that one tells nobody: each change of the
+/// text an input method is composing (`markedTextChanged`), and a `copy`,
+/// `cut` or `paste` before it happens, for the node or an ancestor that
+/// hears one (#125).
 final class FieldEditor: NSTextView {
+    static func make() -> FieldEditor {
+        let editor = FieldEditor(frame: .zero)
+        editor.isFieldEditor = true
+        return editor
+    }
     var owner: NodeView? { (delegate as? NSTextField)?.delegate as? NodeView }
+    override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+        owner?.markedTextChanged(self)
+    }
+    override func unmarkText() {
+        guard let owner else { super.unmarkText(); return }
+        owner.settlingComposition(self) { super.unmarkText() }
+    }
     override func copy(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.copy(_:))) { super.copy(sender) } }
     override func cut(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.cut(_:))) { super.cut(sender) } }
     override func paste(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.paste(_:))) { super.paste(sender) } }

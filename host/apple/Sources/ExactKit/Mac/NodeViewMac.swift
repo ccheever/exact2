@@ -111,8 +111,11 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     package var textArea: NSTextView?
     var textAreaScroll: NSScrollView?
     package var field: NSTextField?
-    /// A `value` that arrived mid-composition, applied when it ends.
-    var pendingValue: String?
+    /// The editor's text as the app was last told it (nil once the app has
+    /// set the value since), and whether its value is being written in
+    /// (`FieldComposition.swift`).
+    var toldText: String?
+    var writingValue = false
     package var scroll: ChainingScrollView?
     /// `box-shadow` (`BoxShadow.swift`): outer, and inset (LLP 1077 D4).
     var shadowCaster: ShadowCaster?
@@ -905,7 +908,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             if let v = props["value"] {
                 // While the field is being edited its field editor holds the
                 // caret; write there so the caret survives, as in a text view.
-                if let editor = f.currentEditor() as? NSTextView { writeValue(v, into: editor) } else if f.stringValue != v { f.stringValue = v }
+                if let editor = f.currentEditor() as? NSTextView { writeValue(v, into: editor) } else if f.stringValue != v { f.stringValue = v; toldText = nil }
             }
             applyPlaceholder(f)
             f.contentType = Autofill.contentType(props["autocomplete"], fallback: nil) // LLP 1102 §3.6

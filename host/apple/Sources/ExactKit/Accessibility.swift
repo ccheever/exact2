@@ -177,14 +177,9 @@ extension NodeView {
 /// the ARIA states AppKit has no property for (`NodeView.ariaAttribute`),
 /// read from the node that holds the field.
 final class FieldCell: NSTextFieldCell {
-    private lazy var clipboardEditor: FieldEditor = {
-        let editor = FieldEditor(frame: .zero)
-        editor.isFieldEditor = true
-        return editor
-    }()
-    /// Its own editor while a clipboard event would be heard (`FieldEditor`, #125).
+    /// The session's editor, which tells the field's node what the window's does not (`FieldEditor`).
     override func fieldEditor(for controlView: NSView) -> NSTextView? {
-        (controlView.superview as? NodeView)?.hearsFieldClipboard() == true ? clipboardEditor : super.fieldEditor(for: controlView)
+        (controlView.superview as? NodeView)?.presenter?.fieldEditor ?? super.fieldEditor(for: controlView)
     }
     override func drawingRect(forBounds rect: NSRect) -> NSRect {
         (controlView?.superview as? NodeView)?.nativeEditorRect(in: rect) ?? super.drawingRect(forBounds: rect)
