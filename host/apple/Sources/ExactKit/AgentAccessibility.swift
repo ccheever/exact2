@@ -71,6 +71,8 @@ extension Agent {
         var v: UIView? = presenter.viewport
         while let s = v?.superview, !(s is UIWindow) { v = s }
         if let top = v, top !== view, !view.isDescendant(of: top), !top.isDescendant(of: view) { roots.append(top) }
+        // A `dialog` in its sheet is outside both (DialogSheetIOS.swift).
+        roots += presenter.menus.sheets.roots
         #else
         if case .owned(let content) = presenter.axSheet(view.window?.attachedSheet) { roots.append(content) }
         #endif

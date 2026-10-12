@@ -196,8 +196,9 @@ A form you lay out (fields, Save, Cancel) is a route presented as a sheet:
 `navigationPresentation="modal"` on its root, its Cancel the control whose `id` the root's
 `navigationBack` names, so the iOS swipe down and the web's Escape press it, and the screen
 under it is inert. A question with buttons only is a `dialog role="alertdialog"`
-(`contract vocab confirm`). A `dialog` you lay out yourself opens on the web and macOS but
-not on iOS, and `role="dialog"` on a `column` gets no Escape, focus or sheet anywhere.
+(`contract vocab confirm`). A `dialog` you lay out yourself is a smaller thing: the web's and
+macOS's modal `dialog`, and on iOS a sheet as tall as its content, with no bar.
+`role="dialog"` on a `column` gets no Escape, focus or sheet anywhere.
 
 ```contract
 routes nav
