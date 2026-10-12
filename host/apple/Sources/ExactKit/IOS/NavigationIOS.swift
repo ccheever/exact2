@@ -44,6 +44,12 @@ final class RouteController: UIViewController {
         super.viewSafeAreaInsetsDidChange()
         host?.coversChanged()
     }
+    // Back on a screen whose list pushed the one leaving: the row that was
+    // tapped fades with the transition (LLP 1115.000 D11.3).
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        host?.presenter.groupedLists?.appearing(node, alongside: animated ? transitionCoordinator : nil)
+    }
     override func viewIsAppearing(_ animated: Bool) {
         super.viewIsAppearing(animated)
         // UIKit has attached and sized the real destination. Finish its

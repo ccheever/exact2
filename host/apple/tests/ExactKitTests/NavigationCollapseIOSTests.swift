@@ -2,6 +2,7 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+import ExactGroupedLists
 
 /// LLP 1075.003 Stage 3: a large title collapses with its route's content
 /// scroll view (the fixture's Second tab, which names no scroller: LLP
@@ -69,6 +70,7 @@ final class NavigationCollapseIOSTests: XCTestCase {
     private func pushed(_ name: String) throws -> (ExactSession, UINavigationController, RouteController) {
         let env = ProcessInfo.processInfo.environment
         let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(env["EXACT_NAVIGATION_BARS_PLAN"], "build.mjs --test --ios compiles the fixtures' plans")))
+        ExactGroupedLists.install() // the fixture's `rows` route is a grouped list
         let session = ExactApp.shared.makeSession(label: "scroller-\(name)")
         sessions.append(session)
         let view = ExactView(session: session)

@@ -1177,5 +1177,60 @@ final class GroupedListIOSTests: XCTestCase {
         p.apply(wireBatch([["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 402.0, "h": 600.0]]))
         XCTAssertTrue(skirts().isEmpty)
     }
+
+    /// LLP 1115.000 D11.3 over `scripts/fixtures/navigation-bars.contract`'s
+    /// `rows` route, a grouped list in a stack: a tapped row that pushes a
+    /// screen stays selected under it and lets go as the reader comes back,
+    /// as a table view's row does (`clearsSelectionOnViewWillAppear`); a row
+    /// that pushes nothing is still selected while its press runs, then lets
+    /// go. Before, every row was deselected before its press ran.
+    func testATappedRowStaysSelectedThroughThePushAndLetsGoOnReturn() throws {
+        let env = ProcessInfo.processInfo.environment
+        let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(env["EXACT_NAVIGATION_BARS_PLAN"], "build.mjs --test --ios compiles the fixtures' plans")))
+        ExactGroupedLists.install()
+        let session = ExactApp.shared.makeSession(label: "rows-selection")
+        defer { session.destroy(); window.isHidden = true }
+        let view = ExactView(session: session), root = UIViewController()
+        let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+        window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        window.rootViewController = root
+        window.makeKeyAndVisible()
+        root.view.addSubview(view)
+        XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 402, height: 874)).error)
+        view.frame = root.view.bounds
+        view.layoutIfNeeded()
+        let spin = { (seconds: Double) in RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
+        let p = session.presenter, nav = try XCTUnwrap(p.navigation.primaryNavigation)
+        func node(_ testId: String) throws -> NodeView { try XCTUnwrap(p.views.values.first { $0.props["testId"] == testId }, "no \(testId)") }
+        func settle(_ count: Int, _ what: String) {
+            let deadline = Date().addingTimeInterval(5)
+            while !(nav.viewControllers.count == count && nav.transitionCoordinator == nil), Date() < deadline { spin(0.02) }
+            XCTAssertEqual(nav.viewControllers.count, count, what)
+            spin(0.3)
+        }
+        spin(0.3)
+        _ = Agent(session: session).tap(["id": Int(try node("start-open-rows").id)])
+        settle(2, "the list's route pushed")
+        let list = try XCTUnwrap(host(p).lists[try node("rows-list").id], "the route's grouped list")
+        list.collection.layoutIfNeeded()
+        let selected = { list.collection.indexPathsForSelectedItems ?? [] }
+        // A row that pushes nothing: selected while its press runs, then not.
+        var duringPress: [IndexPath] = [], presses = 0
+        let onPress = p.onPress
+        p.onPress = { id in duringPress = selected(); presses += 1; onPress?(id) }
+        XCTAssertEqual(host(p).activate(try node("rows-stay"))?["native"] as? String, "grouped-list")
+        XCTAssertEqual(presses, 1)
+        XCTAssertEqual(duringPress, [IndexPath(item: 1, section: 0)], "the row is selected while its press runs")
+        XCTAssertEqual(selected(), [], "a row that pushed nothing lets go")
+        // A row that pushes a screen stays selected under it.
+        XCTAssertEqual(host(p).activate(try node("rows-open-detail"))?["native"] as? String, "grouped-list")
+        settle(3, "the row pushed its screen")
+        XCTAssertEqual(selected(), [IndexPath(item: 0, section: 0)], "the tapped row stays selected through the push")
+        // Back, as UIKit's back button pops: the row lets go as its screen returns.
+        nav.popViewController(animated: false)
+        settle(2, "back on the list")
+        XCTAssertEqual(selected(), [], "and lets go on the way back")
+    }
 }
 #endif
