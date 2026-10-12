@@ -1,6 +1,7 @@
 # macOS: a copy across a virtualized list's rows includes `user-select: none` text
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by #493
 **Systems:** runner lists, host/apple macOS, text selection
 **Severity:** P2
 **Author:** daehyeon-mun (T3 Code clone)
