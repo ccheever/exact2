@@ -319,6 +319,12 @@
   [data-itemheight], [data-estimateditemheight] { overflow-anchor: none; } /* List keys own the reading anchor. */
   /* LLP 1055 D3: an `svg` is a block, as every node is (declared deviation from HTML's inline replaced svg). */
   img, video, svg { display: block; }
+  /* LLP 1115.000 D3.8: an unsaid `fill` is `currentcolor` on every host, where SVG's own initial value is black, so an
+     icon nobody filled follows its text's colour and is not black on a dark page (the kernel's default, which native
+     hosts paint; declared in LLP 1001). `fill` inherits, so the outermost `svg` says it once: a nested `svg` saying
+     it too would end the inheritance of a `fill` its author wrote on a group above it. `:where()`, and the hosts write
+     an authored `fill` inline, so the author's wins. A gradient's stops and a filter's flood stay SVG's black. */
+  :where(#exact-root svg:not(svg svg)) { fill: currentColor; }
   /* The kernel owns the iframe's declared 300×150 content box. Browser UA
      borders and inline baseline space must not enlarge or shift it. Scope
      this to presented nodes: the data module's hidden iframe is not UI. */

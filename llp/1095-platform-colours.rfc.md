@@ -496,6 +496,9 @@ CSS's light-mode result instead of CSS's value.
   Effects specs' initial values, and a drawing's black is a drawing's black,
   not a text colour. `currentColor` stays the way to make an icon follow
   text.
+  > **Superseded for `fill` by LLP 1115.000 D3.8 (2026-10-11).** An unsaid `fill`
+  > is `currentcolor` on every host, the web's sheet included: black is what an
+  > author writes when they mean it. The other three keep SVG's values.
 - **Inheritance** is unchanged: `color` inherits the reference, not a
   resolved value, so a child in an elevated sheet resolves `CanvasText`
   itself (D1).

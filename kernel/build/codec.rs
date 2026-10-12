@@ -347,14 +347,18 @@ impl Codec {
                 );
                 "GridTracks::default()".into()
             }
-            // Paint's initial value differs by row: `fill` black, `stroke` none.
+            // Paint's initial value differs by row: `fill` the text's colour
+            // (LLP 1115.000 D3.8), `stroke` none, a gradient stop black.
             Codec::CssValue {
                 variant: "Paint", ..
             } => match value.as_str() {
+                Some("currentcolor") => "crate::svg::Paint::CurrentColor".into(),
                 Some("black") => "crate::svg::Paint::BLACK".into(),
                 Some("none") => "crate::svg::Paint::None".into(),
                 Some("white") => "crate::svg::Paint::WHITE".into(),
-                _ => panic!("schema: paint default on `{field}` must be black, white or none"),
+                _ => panic!(
+                    "schema: paint default on `{field}` must be currentcolor, black, white or none"
+                ),
             },
             Codec::CssValue { path, .. } => format!("{path}::default()"),
             Codec::Transitions => {

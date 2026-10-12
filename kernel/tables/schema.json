@@ -3064,9 +3064,9 @@
       "bit": 97,
       "field": "fill",
       "codec": "paint",
-      "default": "black",
+      "default": "currentcolor",
       "inherited": true,
-      "_comment": "@ref LLP 1055 D2: SVG 2 presentation properties as CSS rows, inherited as SVG says. paint: none | currentcolor | <color>."
+      "_comment": "@ref LLP 1055 D2: SVG 2 presentation properties as CSS rows, inherited as SVG says. paint: none | currentcolor | <color>. @ref LLP 1115.000 D3.8: unsaid, `fill` is `currentcolor` on every host, where SVG's own initial value is black: a presentation colour default is never a literal (LLP 1115 §3), and an unfilled icon on a dark page was black on black. Declared in LLP 1001. The paint servers' initial colours (`stop-color`, `flood-color`, `lighting-color`) stay SVG's."
     },
     {
       "bit": 98,
