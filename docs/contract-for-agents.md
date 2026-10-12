@@ -114,9 +114,13 @@ its parent by the padding (`lower-width-padding`), screens swapped by a `when` i
 (`lower-count-plural`), a
 symbol by an alias, not its role (`lower-symbol-alias`), a
 `performanceNow()` time sent to a source (`type-performance-now-persisted`), a
-state read after its own action assigned it (`analyze-read-after-assign`) or a
+state read after its own action assigned it (`analyze-read-after-assign`), a
 literal colour that stays the same in dark mode (`lower-colour-one-scheme`, every
-site past the cap); each names its repair, and fixing it is part of the edit.
+site past the cap), and a name or key a host would refuse or ignore at run time: a
+swipe row's `swipeTrailing` naming a button outside its `scroll` (`lower-swipe-wiring`),
+a navigation root's `navigationKey` that never meets its routes' (`lower-navigation-key`),
+a `navigationSplit` off the root route (`lower-navigation-split`), an `image` source
+that is a bare word, neither a symbol nor a file (`lower-image-source`); each names its repair, and fixing it is part of the edit.
 
 Formatting is explicit. `fmt --stdout` previews, `fmt --check` checks, and plain
 `fmt` writes. Formatting changes spacing and breaks only: a result that would

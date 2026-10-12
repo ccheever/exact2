@@ -1,7 +1,7 @@
 # Recipe: tests
 
 `app.test.contract` drives the app by `testId`, the same on the web and iOS (`bun
-exact.mjs test web`, `test ios`; `verify` and `verify ios` run them, then `check`). Each
+exact.mjs test web`, `test ios`; `verify` runs them too). Each
 test is a fresh launch with empty storage, after its first data has landed. Against
 [start-here](../start-here.md)'s Groceries:
 
@@ -40,8 +40,9 @@ test (pin `epoch` and `time-zone`); give every screen its own ids.
 ## Before you call it done
 
 `verify` (`verify ios`) runs these tests, then `check`s the first screen and the screen each test
-ends on, light and dark at a phone and a desktop width, then relaunches once on real time
-and says whether the first screen shows what the test stored. Screenshots are in
-`.exact/verify/`, named by test; `verify --shots <dir>` copies them, a test's `screenshot "x.png"` too. A clean `verify` is done; a screen no test ends on is not
-checked, so end a test there. To see why something fails, drive by hand (`agent web
---storage s1 …`; `"clock +1500 real"` waits real time).
+ends on, light and dark at a phone and a desktop width; on the web it reloads each end screen (a
+route keeps what its URL and storage hold), then relaunches once on real time and says whether the
+first screen shows what the test stored. Screenshots are in `.exact/verify/`, named by test;
+`verify --shots <dir>` copies them, a test's `screenshot "x.png"` too. A clean `verify` is done; a
+screen no test ends on is not checked, so end a test there. To see why something fails, drive by
+hand (`agent web --storage s1 …`; `"clock +1500 real"` waits real time).

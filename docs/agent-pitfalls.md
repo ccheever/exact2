@@ -286,6 +286,9 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   and blank on iOS (chat-rooms, bake-off round 6). Fix: key them alike: every route
   `` navigationKey=`${e.id}` `` under a `` `${top(nav).id}` `` root, or the patterns'
   root expression, `"items"` while the list is on top, with the named list route.
+  **Diagnosed:** the compiler warns (`lower-navigation-key`), and for the reverse, a
+  root keyed by a literal over routes keyed by id, where no push is ever shown (a tap
+  on a row did nothing, chat-rooms round 12, about eight minutes).
 - **A sheet won't swipe down to dismiss.** It springs back (the log says "modal
   dismissal refused: …" and why). Cause: the sheet declares the root's `navigationBack`
   control and it is disabled, or the sheet has `closedby="none"`; a sheet with no such
@@ -592,7 +595,11 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   DIARY, rough 10). A grouped list's row is exempt (its list cell swipes), but there
   `width="100%"` on the scroll runs past the card by the section's 16-pt inset and
   clips the content's last control on every host: use `list-rows`' grouped form
-  (grocery-list DIARY, issue 2, about 15 minutes, round 3).
+  (grocery-list DIARY, issue 2, about 15 minutes, round 3). A button indented as the
+  `scroll`'s sibling, not its child, is no swipe action (iOS refuses the row, the web
+  draws it as a second line): the compiler warns (`lower-swipe-wiring`) when a
+  `swipeContent`, `swipeLeading` or `swipeTrailing` names an `id` not inside the
+  `scroll` (grocery-list, round 12, about seven minutes).
 
 - **A `swiperight` hears nothing from a finger on iOS.** A mouse drag fires it on
   the web and macOS, in a drive and in a test, while a real touch on an iPhone
