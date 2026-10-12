@@ -24,6 +24,14 @@ extension Agent {
         let scope: UIView = presenter.modals.coordinateView ?? win
         let keyboard = keyboardTopForCheck()
         let r2 = { (v: CGFloat) in Agent.r2(v) }
+        // The bars drawn over the content: what lies under one, scrolled there, is covered, not presented (LLP 1116.007 D3.8).
+        var bars: [(view: UIView, box: CGRect, top: Bool)] = []
+        func findBars(_ v: UIView) {
+            guard !v.isHidden, v.alpha > 0.01 else { return }
+            if Agent.isBar(v) { let b = v.convert(v.bounds, to: nil); if b.intersects(port) { bars.append((v, b, b.midY < port.midY)) }; return }
+            for s in v.subviews { findBars(s) }
+        }
+        findBars(scope)
         var items: [[String: Any]] = []
 
         func rgba(_ c: [Double]?) -> [Double]? {
@@ -80,12 +88,19 @@ extension Agent {
             return r
         }
         /// The part of box `b` (`v`'s, in the window) that is presented: each clipping view above it (a scroller, a list,
-        /// a box that hides its overflow) cuts it at its edges (LLP 1116.006 D5).
+        /// a box that hides its overflow) cuts it at its edges (LLP 1116.006 D5), and a bar over the screen's top or
+        /// bottom cuts what lies past its inner edge (LLP 1116.007 D3.8).
         func visible(_ v: UIView, _ b: CGRect) -> CGRect {
             var r = b, at = v.superview
             while let cur = at, !r.isNull {
                 if cur.clipsToBounds || cur.layer.masksToBounds { r = r.intersection(cur.convert(cur.bounds, to: nil)) }
                 at = cur.superview
+            }
+            for bar in bars where !r.isNull && !v.isDescendant(of: bar.view) {
+                let cut = bar.top ? bar.box.maxY - r.minY : r.maxY - bar.box.minY
+                guard cut > 0 else { continue }
+                if bar.top { r.origin.y += min(cut, r.height) }
+                r.size.height = max(0, r.height - cut)
             }
             return r
         }

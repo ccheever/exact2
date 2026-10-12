@@ -223,5 +223,31 @@ final class AgentCheckIOSTests: XCTestCase {
         let last = try XCTUnwrap(cover(8), "under the bottom bar at the scroller's end, nothing clears it: \(items)")
         XCTAssertEqual(last["by"] as? Int, 10)
     }
+
+    /// LLP 1116.007 D3.8: what lies under UIKit's navigation bar (a row scrolled there, round 9's book-club and
+    /// mood-journal) is covered, not presented: its `vis` is empty, or only the part below the bar's edge, so the
+    /// driver judges no contrast or overlap there; a text wholly below the bar has none.
+    func testATextUnderANavigationBarIsPresentedOnlyBelowIt() throws {
+        let agent = mounted([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "text", "props": ["text": "Under"], "style": ["font_size": 17]],
+            ["op": "create", "id": 3, "kind": "text", "props": ["text": "Straddling"], "style": ["font_size": 17]],
+            ["op": "create", "id": 4, "kind": "text", "props": ["text": "Below"], "style": ["font_size": 17]],
+            ["op": "children", "id": 1, "ids": [2, 3, 4]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 800.0],
+            ["op": "frame", "id": 2, "x": 16.0, "y": 50.0, "w": 100.0, "h": 22.0],
+            ["op": "frame", "id": 3, "x": 16.0, "y": 70.0, "w": 100.0, "h": 30.0],
+            ["op": "frame", "id": 4, "x": 16.0, "y": 120.0, "w": 100.0, "h": 22.0],
+        ])
+        window?.rootViewController?.view.addSubview(UINavigationBar(frame: CGRect(x: 0, y: 40, width: 400, height: 44)))
+        let reply = agent.check([:])
+        let items = try XCTUnwrap(reply["items"] as? [[String: Any]], "\(reply)")
+        func vis(_ id: Int) -> [String: Any]? { items.first { $0["id"] as? Int == id }?["vis"] as? [String: Any] }
+        XCTAssertEqual(vis(2)?["h"] as? Double, 0, "wholly under the bar (y 40 to 84): \(items)")
+        XCTAssertEqual(vis(3)?["y"] as? Double, 84, "the part below the bar's edge: \(items)")
+        XCTAssertEqual(vis(3)?["h"] as? Double, 16)
+        XCTAssertNil(vis(4), "below the bar it is whole: \(items)")
+    }
 }
 #endif

@@ -68,6 +68,9 @@ function drawnRole(fg, scheme = 'light') {
 }
 
 const inter = (a, b) => ({ w: Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x), h: Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) });
+/** What is presented of an item's box (the host's `vis`: a clipping view, or a bar drawn over it, cuts it), and whether none is. */
+const shown = (it) => (it.vis ? { ...it, ...it.vis } : it);
+const covers = (it) => !!it.vis && (it.vis.w <= 0 || it.vis.h <= 0);
 const holds = (a, b) => a.x <= b.x + 0.5 && a.y <= b.y + 0.5 && a.x + a.w >= b.x + b.w - 0.5 && a.y + a.h >= b.y + b.h - 0.5;
 
 /** The findings for one observation (`obs`, the host's reply) and its capture (`png`, decoded; null skips what needs pixels). */
@@ -88,15 +91,15 @@ export function judge(obs, png, { host = 'web' } = {}) {
     } else if (it.text && it.cut) add('clipped', it, { cut: [r0(it.cut.dx), r0(it.cut.dy)], by: it.cut.by, edge: it.cut.edge, unit }, it.cut.edge ? OFFSCREEN : 'the clipping box is smaller than its content: let it grow, or scroll');
     if (it.outX) add('overflow', it, { past: r0(it.outX), width: vp.w, unit }, 'let it wrap or shrink (`min-width: 0`, `flex-wrap: wrap`, `max-width: 100%`), or scroll it inside its own box');
     // A target the author sized under the platform's minimum (WCAG 2.5.8's 24 px, with its spacing exception, on the web; 44 pt on iOS).
-    if (it.control && it.sized === 'author' && !it.inline && !it.disabled && (it.w < obs.target - 0.5 || it.h < obs.target - 0.5)) {
+    if (it.control && it.sized === 'author' && !it.inline && !it.disabled && !covers(it) && (it.w < obs.target - 0.5 || it.h < obs.target - 0.5)) {
       const spaced = host === 'web' && items.every((o) => o === it || !o.control || o.inline || !o.w ||
         Math.hypot((o.x + o.w / 2) - (it.x + it.w / 2), (o.y + o.h / 2) - (it.y + it.h / 2)) >= obs.target);
       if (!spaced) add('target', it, { min: obs.target, unit }, `make its box at least ${obs.target}×${obs.target} (padding, or \`min-height\`/\`min-width\`)`);
     }
     // Contrast against what it stands on: the fill the host found painted under it (LLP 1116.006 D5), else what the
-    // pixels show behind it.
-    if (it.text && it.fg && (it.bg || png)) {
-      const need = floor(it, obs.scheme), bg = need && (it.bg ?? backdrop(png, scale, it));
+    // pixels show behind it, read where it is presented (a bar's glass over it is not what it stands on, LLP 1116.007 D3.8).
+    if (it.text && it.fg && (it.bg || png) && !covers(it)) {
+      const need = floor(it, obs.scheme), bg = need && (it.bg ?? backdrop(png, scale, shown(it)));
       if (bg) {
         const ink = over(it.fg, bg), got = ratio(ink, bg);
         if (got < need - 0.005) add('contrast', it, { got: Math.floor(got * 10) / 10, need, fg: hex(ink), bg: hex(bg), ...(it.bg ? { on: it.on ?? 'page' } : {}) },
