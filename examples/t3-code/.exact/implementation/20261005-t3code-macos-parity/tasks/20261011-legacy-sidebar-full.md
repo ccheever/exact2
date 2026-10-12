@@ -223,23 +223,29 @@ in a worktree), the GitHub lane's server paired as a second environment (Setting
 
 ## Checks
 
-All on `aef1a2d16` (the final app code; the commits after it change only this record), after merging
-`origin/feat(example)/t3-code` (`fe0e39c91`, already contained):
+Review round 1, all on `731407007` (the final app code; the commit after it changes only this record), after merging
+`origin/feat(example)/t3-code` (`8fa9446cc`, no newer commit at the checks):
 
 | Check | Exit | Note |
 | --- | --- | --- |
-| `bun test examples/t3-code --timeout 60000` | 0 | 4689 pass, 1 skip, 0 fail (312 files) |
+| `bun test examples/t3-code --timeout 60000` | 0 | 4749 pass, 1 skip, 0 fail (318 files); the first run found `no-active-thread.test.ts` (a missing thread answered `focus:composer`), fixed in `731407007` |
 | strict `tsc` (README command) | 0 | |
-| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | `app.contract` 1,405 lines; 28,879,517 bytes |
+| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | `app.contract` 1,427 lines; 29,227,366 bytes; no `#dc2626` warning left |
 | `cargo test -p t3-code-macos --lib` | 0 | 21 passed |
-| AppKit `macos/tests/row-drop` (README recipe) | 0 | 3 run, 0 failed (`ls3-record.txt`); no Swift changed after it |
-| AppKit `macos/tests/composer` (README recipe) | 0 | 57 tests, 0 failures (the editor's owner refusal added); no Swift changed after it |
+| AppKit `macos/tests/row-drop` (README recipe) | 0 | 5 run, 0 failed (`ls3-review-record.txt`); no Swift changed after it |
 | `git add -A && bun scripts/caps.mjs` | 0 | all budgets within cap |
 | `cargo build --all-targets --keep-going` | 0 | |
-| `cargo test --lib --bins --tests --no-fail-fast` | 101 | 3,744 passed, 1 failed, 36 ignored: `contract --test it` `button_migration`, `apps/color-gallery/app.contract:269:17` "styled default button needs appearance=\"none\"", from the feature branch (#440); this branch changes nothing outside `examples/t3-code` |
+| `cargo test --lib --bins --tests --no-fail-fast` | 0 | 3,756 passed, 0 failed, 36 ignored |
 | `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | |
 | `cargo fmt --all -- --check` | 0 | |
 | `bun scripts/boot.mjs` | 0 | |
+
+Live drive (one, agent mode, 1280×840, the bundle of `05b9c5547`'s app code; `731407007` adds the missing-thread
+guard and the terminal glyph's relay, both under Bun): `after-review/` r0-r6 on the lane, `tree` showing `composer`
+focused after the row press and Confirm gone after the pointer left.
+
+Round 0 (on `aef1a2d16`, `fe0e39c91` merged): all the same checks exit 0 but `cargo test` (101: #440's
+`apps/color-gallery/app.contract:269` on the feature branch then, since fixed there).
 
 ## Not done / not verified
 
@@ -261,8 +267,6 @@ All on `aef1a2d16` (the final app code; the commits after it change only this re
   did not relay its hover to the row, so a pointer entering a row on that 12 px glyph left Archive hidden, and crossing
   it ended a confirmation; the legacy row now wraps the glyph (`TerminalGlyph`, split out of the indicator) in its own
   `LegacyRowTip`.
-- `cargo test` fails one test from the feature branch (#440's `apps/color-gallery/app.contract:269` "styled default
-  button needs appearance=\"none\""); this branch changes nothing outside `examples/t3-code`.
 
 ## Delivery
 
@@ -270,4 +274,6 @@ Draft PR [#469](https://github.com/ccheever/exact2/pull/469) into `feat(example)
 
 ## Next action
 
-Review the draft PR; run real-input steps 1-7 in the coordinator's batch.
+Review round 1 is fixed (2026-10-12). Re-review the draft PR; the coordinator creates the proposed
+`settings-projects-fleet` task and the STATUS.md "Known differences" row for Project settings; real-input steps 1-7 in
+the coordinator's batch (step 2 now includes the review's focus and Confirm checks).
