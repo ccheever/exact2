@@ -160,9 +160,10 @@ final class SegmentHost {
 
     func sync() {
         // @ref LLP 1039 D6 — only explicit vertical tablists opt out; ignore invalid ARIA values.
-        // The root tablist the window's sidebar shows is no segmented control (LLP 1115.002 D3).
+        // The root tablist the window's sidebar shows is no segmented control (LLP 1115.002 D3),
+        // nor a header's that the window's toolbar shows as its own group (D2).
         let owners = (presenter.carrying("role:tablist") + presenter.carrying("role:radiogroup")).filter {
-            $0.props["accessibilityOrientation"] != "vertical" && !presenter.sidebar.adopts($0)
+            $0.props["accessibilityOrientation"] != "vertical" && !presenter.sidebar.adopts($0) && !presenter.toolbar.adopts($0)
         }
         let live = Set(owners.map(\.id))
         for id in Array(controls.keys) where !live.contains(id) { restore(owner: id) }

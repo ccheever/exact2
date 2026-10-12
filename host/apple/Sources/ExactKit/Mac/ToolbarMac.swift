@@ -35,6 +35,15 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
     /// Why the selected route's header stays painted, when the bar cannot
     /// show it whole (`state.window.toolbar.headerKept`); nil otherwise.
     private(set) var headerKept: String?
+    /// The header's tablist as the bar's centred group (HeaderMac.swift).
+    private(set) lazy var segments: HeaderSegments = {
+        let segments = HeaderSegments(presenter)
+        segments.onChosen = { [weak self] in self?.sync() }
+        return segments
+    }()
+    /// Whether the bar shows this tablist's tabs as its segments: the page's
+    /// own segmented control is not made of it (SegmentsMac.swift).
+    func adopts(_ tablist: NodeView) -> Bool { toolbar != nil && header?.segments === tablist }
     private var order: [NSToolbarItem.Identifier] = []
     /// Back (BackMac.swift): the way back from the pushed route, pressing
     /// what iOS's Back button presses. A standard item, so its size, glass
@@ -125,10 +134,19 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
     }
 
     func detach() {
+        let adopted = header?.segments
         syncing = true
         reset()
         window = nil
         syncing = false
+        settle(adopted)
+    }
+
+    /// After a pass, outside it: the passes that read what the bar stands
+    /// for, and the header's cover. The page's own segmented control is not
+    /// made of a tablist the bar shows, and is again once the bar lets go.
+    private func settle(_ adopted: NodeView?) {
+        if adopted !== header?.segments { presenter.segments.sync() }
         reportCover()
     }
 
@@ -173,6 +191,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         }
         items.removeAll(); symbols.removeAll(); order.removeAll(); owner = nil; heading = nil
         header = nil; decide(nil)
+        _ = segments.update(nil, enabled: false)
         heldForBack = false
         // The app's items and delegate were for that toolbar; the next one's
         // hatch says its own.
@@ -249,6 +268,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         guard let header, projected, let toolbar else { return nil }
         let shown = Set((toolbar.visibleItems ?? []).map(\.itemIdentifier))
         return ["route": Int(header.route.id), "node": Int(header.header.id), "title": header.title, "back": header.backs.map { Int($0.id) },
+                "segments": segments.summary(overflow: segments.item.map { !shown.contains($0.itemIdentifier) } ?? false) ?? NSNull(),
                 "items": header.buttons.map { node -> [String: Any] in
                     let item = items[node.id]
                     var prominent = false
@@ -310,12 +330,17 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         return node === owner || node.isDescendant(of: owner)
     }
 
+    /// Whether what the bar shows of `node` can be used now: the toolbar is
+    /// the window's, the node is shown as authored and neither inert nor
+    /// disabled, and no sheet is over the window.
+    private func usable(_ node: NodeView) -> Bool {
+        guard let window, let toolbar, window.toolbar === toolbar, node.window === window else { return false }
+        return visible(node) && !node.inert && !node.disabled && window.attachedSheet == nil
+    }
+
     func available(_ node: NodeView) -> Bool {
-        guard let window, let toolbar, window.toolbar === toolbar,
-              node.window === window, visible(node), !node.inert, !node.disabled,
-              window.attachedSheet == nil, items[node.id] != nil else { return false }
         // A button that only opens its menu or its dialog hears no press.
-        return node.pressable
+        usable(node) && items[node.id] != nil && node.pressable
     }
 
     /// The buttons the bar shows as commands, each pressed by its item: a
@@ -394,10 +419,11 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
 
     func sync() {
         guard !syncing else { return }
+        let adopted = header?.segments
         syncing = true
         present()
         syncing = false
-        reportCover()
+        settle(adopted)
     }
 
     private func present() {
@@ -487,13 +513,19 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             let enabled = !node.disabled && !node.inert && window.attachedSheet == nil
             if item.isEnabled != enabled { item.isEnabled = enabled }
         }
-        // A header's: its leading buttons after Back, then its trailing
-        // ones, which the title's own stretch puts at the bar's end, where
-        // SwiftUI's toolbar puts a screen's actions.
-        let nextOrder = header.map { $0.buttons.compactMap { items[$0.id]?.itemIdentifier } } ?? declarations.compactMap { node -> NSToolbarItem.Identifier? in
-            if node === heading { return .flexibleSpace }
-            return items[node.id]?.itemIdentifier
-        }
+        // A header's, in the order SwiftUI's own toolbar keeps (measured on
+        // macOS 27): its leading buttons after Back; its tablist as the
+        // centred group, then a flexible space; its trailing buttons, which
+        // the title's own stretch puts at the bar's end.
+        let group = segments.update(header, enabled: window.attachedSheet == nil)
+        let centered: Set<NSToolbarItem.Identifier> = group.map { [$0.itemIdentifier] } ?? []
+        if toolbar.centeredItemIdentifiers != centered { toolbar.centeredItemIdentifiers = centered }
+        let identifiers = { (nodes: [NodeView]) in nodes.compactMap { self.items[$0.id]?.itemIdentifier } }
+        let nextOrder = header.map { identifiers($0.leading) + (group.map { [$0.itemIdentifier, .flexibleSpace] } ?? []) + identifiers($0.trailing) }
+            ?? declarations.compactMap { node -> NSToolbarItem.Identifier? in
+                if node === heading { return .flexibleSpace }
+                return items[node.id]?.itemIdentifier
+            }
         order = (sidebarItems ? [.toggleSidebar, .sidebarTrackingSeparator] : []) + (back ? [Self.backIdentifier] : [])
             + nextOrder + appItems.map(\.itemIdentifier)
         // Keep both toolbar and command objects stable through route changes.
@@ -531,6 +563,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         if identifier == .sidebarTrackingSeparator, let split = presenter.sidebar.splitView {
             return NSTrackingSeparatorToolbarItem(identifier: identifier, splitView: split, dividerIndex: 0)
         }
+        if let group = segments.item, group.itemIdentifier == identifier { return group }
         return items.values.first { $0.itemIdentifier == identifier } ?? appItems.first { $0.itemIdentifier == identifier }
     }
     func validateToolbarItem(_ item: NSToolbarItem) -> Bool {
@@ -556,6 +589,13 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             guard order.contains(Self.backIdentifier), validateToolbarItem(backItem), let action = backItem.action else { return false }
             return NSApp.sendAction(action, to: backItem.target, from: backItem)
         }
+        // A tab of the header's tablist: its segment's press.
+        if projected, let index = header?.tabs.firstIndex(where: { $0 === node }) {
+            guard usable(node), let tab = segments.tab(at: index) else { return false }
+            presenter.press(tab.id)
+            sync()
+            return true
+        }
         guard let item = items[node.id] else { return nil }
         // A menu item's menu is AppKit's to pop up, which no driver can do
         // for it: the button is pressed, and under the agent its menu opens
@@ -579,6 +619,16 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             result["identifier"] = item.itemIdentifier.rawValue
             result["enabled"] = item === backItem ? validateToolbarItem(item) : available(node)
             result["overflow"] = !(toolbar.visibleItems ?? []).contains(where: { $0 === item })
+        }
+        if projected, let group = segments.item, node === header?.segments || header?.tabs.contains(where: { $0 === node }) == true {
+            result["view"] = "NSToolbarItemGroup"
+            result["identifier"] = group.itemIdentifier.rawValue
+            result["selected"] = group.selectedIndex
+            result["overflow"] = !(toolbar.visibleItems ?? []).contains(where: { $0 === group })
+            if let index = header?.tabs.firstIndex(where: { $0 === node }) {
+                result["segment"] = index
+                result["enabled"] = usable(node) && segments.tab(at: index) != nil
+            }
         }
         return result
     }

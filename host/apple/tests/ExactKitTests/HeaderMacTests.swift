@@ -348,6 +348,87 @@ final class HeaderMacTests: XCTestCase {
         r.toolbar.detach()
     }
 
+    /// A header's tablist of text tabs is the bar's centred group: a segment
+    /// a tab, pressing its authored tab, showing the tab the app selected.
+    func testATablistOfTextTabsIsTheBarsCentredSegmentedGroup() throws {
+        func tab(_ id: Int, _ title: String, selected: Bool = false) -> [[String: Any]] {
+            view(id, "button", ["accessibilityRole": "tab", "accessibilitySelected": selected ? "true" : "false", "testId": "tab-\(title)"], press: true)
+                + view(id * 10, "text", ["text": title]) + [children(id, [id * 10])]
+        }
+        let tablist = view(17, "view", ["accessibilityRole": "tablist", "accessibilityLabel": "Filter"])
+            + tab(171, "All", selected: true) + tab(172, "Unread") + tab(173, "Flagged")
+            + [children(17, [171, 172, 173]), children(10, [11, 12, 17, 13, 14])]
+        let p = fixture(extra: tablist)
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        // As authored the page makes its own segmented control of it.
+        XCTAssertNotNil(p.segments.control(of: 17))
+
+        XCTAssertTrue(p.toolbar.attach(to: window))
+        let toolbar = try XCTUnwrap(window.toolbar)
+        XCTAssertEqual(window.title, "Library")
+        let group = try XCTUnwrap(p.toolbar.segments.item)
+        // SwiftUI's own order: the centred group, a flexible space, then the trailing items.
+        XCTAssertEqual(identifiers(), [back, "exact.command.11", group.itemIdentifier.rawValue, NSToolbarItem.Identifier.flexibleSpace.rawValue, "exact.command.13", "exact.command.14"])
+        XCTAssertEqual(toolbar.centeredItemIdentifiers, [group.itemIdentifier])
+        XCTAssertEqual(group.selectionMode, .selectOne)
+        XCTAssertEqual(group.subitems.map(\.title), ["All", "Unread", "Flagged"])
+        XCTAssertEqual(group.label, "Filter", "the tablist's name is the group's")
+        XCTAssertEqual(group.selectedIndex, 0)
+        XCTAssertNil(p.segments.control(of: 17), "the bar shows it: the page makes no control of it")
+        XCTAssertTrue(p.toolbar.adopts(try node(p, 17)))
+        XCTAssertFalse(try node(p, 172).isHidden, "its tabs are hidden by the header alone")
+
+        // A person's choice presses the tab. The app has not answered, so the group shows the app's tab still.
+        group.selectedIndex = 1
+        XCTAssertTrue(NSApp.sendAction(try XCTUnwrap(group.action), to: group.target, from: group))
+        XCTAssertEqual(pressed, [172])
+        XCTAssertEqual(group.selectedIndex, 0, "the selection is the app's")
+        // The app answers.
+        p.apply(wireBatch([["op": "props", "id": 171, "set": ["accessibilitySelected": "false"]], ["op": "props", "id": 172, "set": ["accessibilitySelected": "true"]]]))
+        XCTAssertTrue(p.toolbar.segments.item === group, "the same group while its tabs are the same")
+        XCTAssertEqual(group.selectedIndex, 1)
+        // By name.
+        XCTAssertEqual(p.toolbar.activate(try node(p, 173)), true)
+        XCTAssertEqual(pressed, [172, 173])
+        // A disabled tab's segment is disabled and chooses nothing.
+        p.apply(wireBatch([["op": "props", "id": 173, "set": ["disabled": "true"]]]))
+        XCTAssertEqual(group.subitems.map(\.isEnabled), [true, true, false])
+        XCTAssertEqual(p.toolbar.activate(try node(p, 173)), false)
+        group.selectedIndex = 2
+        XCTAssertTrue(NSApp.sendAction(try XCTUnwrap(group.action), to: group.target, from: group))
+        XCTAssertEqual(pressed, [172, 173])
+        XCTAssertEqual(group.selectedIndex, 1)
+        // What `state` says of it.
+        let summary = try XCTUnwrap((p.toolbar.summary["header"] as? [String: Any])?["segments"] as? [String: Any])
+        XCTAssertEqual(summary["selected"] as? Int, 1)
+        XCTAssertEqual((summary["tabs"] as? [[String: Any]])?.compactMap { $0["testId"] as? String }, ["tab-All", "tab-Unread", "tab-Flagged"])
+
+        // New words make a new group: a group's segments are made with it.
+        p.apply(wireBatch([["op": "props", "id": 1720, "set": ["text": "New"]]]))
+        let renamed = try XCTUnwrap(p.toolbar.segments.item)
+        XCTAssertFalse(renamed === group)
+        XCTAssertEqual(renamed.subitems.map(\.title), ["All", "New", "Flagged"])
+        XCTAssertEqual(toolbar.centeredItemIdentifiers, [renamed.itemIdentifier])
+        XCTAssertFalse(identifiers().contains(group.itemIdentifier.rawValue))
+        XCTAssertEqual(renamed.selectedIndex, 1)
+
+        // A tab that shows a symbol is no segment of a toolbar's group: the header stays painted, whole.
+        p.apply(wireBatch(view(1721, "image", ["symbolName": "tray"]) + [children(172, [1721, 1720])]))
+        XCTAssertEqual(window.title, "Shelf")
+        XCTAssertFalse(try node(p, 10).isHidden)
+        XCTAssertEqual(identifiers(), [back])
+        XCTAssertTrue(toolbar.centeredItemIdentifiers.isEmpty)
+        XCTAssertTrue((p.toolbar.summary["headerKept"] as? String)?.contains("tablist") == true)
+        XCTAssertFalse(p.toolbar.adopts(try node(p, 17)))
+        p.apply(wireBatch([children(172, [1720])]))
+        XCTAssertEqual(window.title, "Library")
+
+        // Let go: the page's own control is made of it again.
+        p.toolbar.detach()
+        XCTAssertNotNil(p.segments.control(of: 17))
+    }
+
     // MARK: A session, booted
 
     private let app = """
