@@ -336,7 +336,7 @@ component MobileRouteContent
     gitField("worktree", value)
   view
     when routeName == "home" and workspace.emptyWorkspaceDetail
-      header
+      header id="workspace-home-header"
         button press=openNewTask aria-label="New task"
           t3-symbol symbol-name="square.and.pencil" point-size=20 symbol-tint=homeLook.foreground width=20 height=20
         text "" role="heading" aria-level=2
