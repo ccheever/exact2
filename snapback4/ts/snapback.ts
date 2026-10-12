@@ -171,6 +171,9 @@ export interface Options {
   storage: { readonly sqlite: { open(path: string): Promise<unknown> }; readonly fs?: { writeFile(path: string, data: Uint8Array): Promise<void> } };
   /** The dispatcher's `native`; absent on the web. */
   native?: NativeModule | null;
+  /** Choose the web device when the dispatcher supplies an unrelated native
+   * module (for example a camera hatch). Otherwise `native` selects it. */
+  device?: 'web' | 'native';
   /** Where the web's wasm is served (default `/assets/snapback4.wasm`). */
   wasm?: string;
 }
@@ -364,6 +367,8 @@ export class Snapback {
    * may call `open` for itself. A partition belongs to one viewer, so a
    * second viewer needs its own `name` (for example `inbox-${persona}`). */
   static async open(options: Options): Promise<Snapback> {
+    if (options.device === 'web') options = { ...options, native: null };
+    if (options.device === 'native' && !options.native) throw new Error('Snapback4: device native needs the linked Snapback module');
     if (options.auth) {
       const auth = options.auth, now = clock(auth.now);
       const raw = auth.store.get(auth.key), session = sessionFrom(raw, now);
@@ -579,6 +584,17 @@ export class Snapback {
       return { server: true, denied: { code: 'E_SERVER', family: 'transport', retryable: reply.status >= 500, message: `the server answered ${name} with HTTP ${reply.status}` } };
     }
     return { server: true, data: body.data, complete: body.complete ?? true, next: body.next ?? null };
+  }
+
+  /** One query page, with the named application refusals represented by null.
+   * The refusal stays in `denied`; transport/auth/input failures still throw.
+   * An empty view is an explicit application choice, never a complete list. */
+  async readOptional<T = Json, O extends string | QueryOp<unknown, unknown> = string>(op: O, given: NoInfer<ArgsOf<O>>, now: number, emptyOn: readonly string[]): Promise<Read<ResultOf<O, T> | null>> {
+    const answer = await this.read<T, O>(op, given, now);
+    if (!answer.denied) return answer;
+    const why = answer.denied;
+    if (why.retryable || why.code.startsWith('E_') || !emptyOn.includes(why.code)) throw refused(why);
+    return { ...answer, data: null, complete: false };
   }
 
   /** Every page of a paged query (`next` cursors passed back as `args.c`;

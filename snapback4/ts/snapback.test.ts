@@ -269,6 +269,19 @@ test('two web devices sync, send, keep offline writes across a reopen, refuse an
   await alice.close();
 }, 60_000);
 
+test('an app with an unrelated native hatch can explicitly select the web device', async () => {
+  let calls = 0;
+  const native = { available: true, call() { calls++; throw new Error('camera is not Snapback'); } };
+  const db = await Snapback.open({app: 'test', name: 'camera', origin, viewer: 'dev:alice',
+    headers: () => ({'x-snapback-persona': 'alice'}), storage: storage(join(scratch, 'camera')),
+    native, device: 'web', wasm: `file://${wasm}`});
+  try {
+    expect(await db.sync()).toEqual({ok: true});
+    expect(Array.isArray((await db.read('inbox', {}, Date.now())).data)).toBe(true);
+    expect(calls).toBe(0);
+  } finally { await db.close(); }
+});
+
 test('offline writes survive a reopen and send later; refusals withdraw; the poll sees others', async () => {
   const carolDir = join(scratch, 'carol');
   let carol = await open('carol', carolDir);
@@ -456,6 +469,12 @@ test('a sync after a write settles it while other sources sync at once; send is 
   const error = refused(read.denied!);
   expect([error.message.startsWith('NOT_LEAD: '), (error as { code?: string }).code, failureCode(error), failureReason(error)]).toEqual([true, 'NOT_LEAD', 'error', 'NOT_LEAD']);
   await expect(db.readAll('leads', {}, Date.now())).rejects.toMatchObject({ reason: 'NOT_LEAD' });
+  const optional = await db.readOptional('leads', {}, Date.now(), ['NOT_LEAD']);
+  expect(optional.data).toBeNull();
+  expect(optional.complete).toBe(false);
+  expect(optional.denied?.code).toBe('NOT_LEAD');
+  await expect(db.readOptional('leads', {}, Date.now(), [])).rejects.toMatchObject({reason: 'NOT_LEAD'});
+  expect(Array.isArray((await db.readOptional(api.inbox, {}, Date.now(), [])).data)).toBe(true);
   // Unreached is `offline`, as a lost fetch is; its reason is still its code.
   const lost = refused({ code: 'E_OFFLINE', message: 'not reached' });
   expect([failureCode(lost), failureReason(lost)]).toEqual(['offline', 'E_OFFLINE']);
@@ -645,6 +664,7 @@ test('a query over an online only table is the server\'s to answer, and says so 
     expect(unreached.data).toBeUndefined();
     expect(unreached.denied?.code).toBe('E_OFFLINE');
     await expect(gina.readAll('myDrafts', {}, Date.now())).rejects.toThrow(/E_OFFLINE/);
+    await expect(gina.readOptional('myDrafts', {}, Date.now(), ['E_OFFLINE'])).rejects.toThrow(/E_OFFLINE/);
     expect(Array.isArray((await gina.read('inbox', {}, Date.now())).data)).toBe(true);
   });
   await gina.close();

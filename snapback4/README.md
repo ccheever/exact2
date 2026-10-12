@@ -557,6 +557,12 @@ const renewed = await db.refreshSession(now);          // near expiresAt: keep r
   `require … else NOT_MANAGER` with `f.reason == "NOT_MANAGER"`, a full
   slot with `f.reason == "SLOT_FULL"`. `failure(x).message` is the
   refusal's `CODE: message`, for a developer. The driver's own refusals are thrown the same way:
+  `readOptional(api.announcements, args, now, ['NOT_SIGNED_UP'])` reads one
+  page and maps only those named application refusals to `data: null`,
+  retaining `denied` and marking `complete: false`. Render an empty view for
+  that deliberate refusal; `E_OFFLINE`, authentication, input and retryable
+  failures still throw, even if named in that list. Other application codes
+  throw too. This helper does not paginate; use `readAll` for a complete list.
   `readAll` throws a page's (where `read` answers `denied`), and a first
   read that cannot reach the server throws `E_OFFLINE`. A mutation's
   refusal is not a failure: it is the outcome's `why`. A mutation source's
@@ -660,6 +666,14 @@ On the web the partition is the wasm device, persisted through Exact SQLite
 after every call, one call at a time; a failed save rebuilds the device from
 the disk and keeps what the server said. A second tab finds its database
 busy.
+
+If an app's dispatcher supplies an unrelated native module (such as a camera
+hatch), set `device: 'web'` in `Snapback.open` or the switcher's options.
+It uses the wasm device and never calls that module. `device: 'native'`
+requires a supplied Snapback module. Without a choice, a supplied `native`
+selects the native device; otherwise it uses web. Pickers for documents need
+both `accept` on the input and the app's `file_handlers`; `capture` remains
+outside this adapter's camera contract.
 
 Natively the device is the app's native module; link it in the app's Rust:
 
