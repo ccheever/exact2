@@ -106,7 +106,8 @@ matching the reference T3 Code (no further decision needed unless the reference 
 
 ## Adopted main
 
-**`b610c88ba`**, then **`c4cd2bcba`** (main's tip at the last merge, 280 commits past round 10's `f084cc1c9`):
+**`b610c88ba`**, then **`c4cd2bcba`**, then **`b0e4a6c22`** (main's tip at the last merge, 281 commits past round 10's
+`f084cc1c9`):
 
 - `cae99e9d7`: this record's first version.
 - `6b6446e97`: `git merge --no-ff origin/main` at `b610c88ba` (#327, #477, #478, #486, #487, #488, #490, #491, #493, #494,
@@ -121,6 +122,8 @@ matching the reference T3 Code (no further decision needed unless the reference 
   AppKit's own menu; `99a0ff7e3`, `a63a217eb`, `ccbedd1c5`: selection ink and text composition; `883c7300d`: the focus
   ring). No conflict. Then: X86's box retired and the shell's menu over selected text adapted to `6a7f16c6f` (Cause and
   fix), with `adopt-main-fixes-r11.test.ts`.
+- `86dcbfd88` (review round 1): `git merge --no-ff origin/main` at `b0e4a6c22` (the terminal's animation payloads and colour
+  escapes: `host/terminal`, `apps/harness`; nothing the clone uses). No conflict.
 
 On the final head after a fresh fetch: `git merge-base --is-ancestor origin/main HEAD`, `git rev-list --count
 HEAD..origin/feat(example)/t3-code` and `git diff origin/main HEAD -- ':!examples/t3-code' ':!Cargo.lock' ':!Cargo.toml'`
@@ -133,7 +136,7 @@ drops main from the branch's ancestry.
 | Item | Main commit | Outcome | Clone change |
 | --- | --- | --- | --- |
 | Contract refusals and renames (`efe10e0c1` number-only style rows, `ad3d5695d`, `b91aceb51` `lower-level-without-heading`, `e5061587c` `lower-back-twice`) | various | `contract build` exit 0 on the merged tree before any clone change: 6,471 slots, 120,814 nodes (110,196 at round 10: main's lowering), 48 resources, 33,200,547 bytes; nothing refused | none forced |
-| New `contract build` warning `lower-dialog-role` (LLP 1116.004 D4: `role="dialog"` on a box names a dialog without making one) | `8aef9a509` | 20 shown (the printed list's cap, `contract_lower::MAX_WARNINGS`), on the clone's popovers and hover cards that take Base UI's `role="dialog"` (the reference's PopoverPopup and Dialog popups), so `analyze-read-after-assign` no longer reaches the printed list; a warning, nothing refused. Not changed here: the reference's popups are role-dialog boxes, and turning them into `dialog` elements or routes is a design change beyond an adoption | none |
+| New `contract build` warning `lower-dialog-role` (LLP 1116.004 D4: `role="dialog"` on a box names a dialog without making one) | `8aef9a509` | 73 (20 shown: the printed list's cap, `contract_lower::MAX_WARNINGS`), on the clone's popovers and hover cards that take Base UI's `role="dialog"` (the reference's PopoverPopup and Dialog popups); a warning, nothing refused. Not changed here: the reference's popups are role-dialog boxes, and turning them into `dialog` elements or routes is a design change beyond an adoption. They fill the cap, so `analyze-read-after-assign`, `lower-count-plural` and `type-performance-now-persisted` no longer reach the printed list. **Review round 1, uncapped:** a compiler built with the cap lifted (the constant changed in the worktree for one build into a private target dir and restored at once; nothing committed) on this branch's `app.contract` and on the T3 tip's: the same lists, 21 `analyze-read-after-assign` at 13 sites, 8 `lower-count-plural`, 1 `type-performance-now-persisted`, 73 `lower-dialog-role`, 233 colours. This round adds no finding. Of the 21, 20 are the sites round 10 read (renamed since; the old value read on purpose, exclusive `if` arms, or a slot already 0 at a drag's start); the one since round 10, `jumpRequest` (`app.contract:718`/`723`, legacy-sidebar-full #469), is two exclusive arms (a message equal to `sidebar:new-thread` or `pr-handoff-next` never starts with `sidebar:opened`), each a counter bump: no bug. The 8 plural counts are the reference's own words (DiffStatLabel's `${additions} additions`, OpenSourceLicenses' `notices`, terminalCloseConfirm's `terminals`). `STATUS.md` round 11 asks each round to read the analysis uncapped ([record](https://raw.githubusercontent.com/ccheever/exact2/8245c7d69171c2d6a243178ded37e7b732d5bfcb/adopt-main-fixes-r11/review-record.txt) §3) | none |
 | `lower-colour-one-scheme` | — | 233 (230 at round 10; the count of literal colours the lint sees) | none |
 | X63, X64, X62, X52, X51, X50; #282 and #292 partial | `ad7ebfc2f` (#327) | RT-1 | RT-1 |
 | X82 | `c43abdc3a` (#494) | RT-2 | RT-2 |
@@ -147,6 +150,7 @@ drops main from the branch's ancestry.
 | macOS platform rules (LLP 1115.000 D7, D8): Tab honours Keyboard navigation (`f25326e4d`), a click on a button or empty ground keeps the first responder (`11ac0f368`), Space and Return (`ff77345d0`), NSAlert for an alert-shaped confirmation (`46a02a57c`), unsaid `autocorrect`/`spellcheck` (`6c5610c46`), the caret (`7c226e8ac`), AppKit scrolling and scroll keys (`81a41f114`, `fc90b0b82`), selection colour, I-beam and Shift-click (`ca5344b41`, `49490ae20`, `21b615090`), a pressable's pressed effect (`e2b8f3ccb`), a background window's click and hover (`2a3d3fb82`) | various | Taken as the platform's (LLP 1115). Under the agent Keyboard navigation is off from launch, so a button is no Tab stop unless `prefer keyboard-navigation true` (the drive's Tab cycles say it, after only: the T3 tip's agent refuses the fact); the clone has no `dialog` element, so NSAlert takes none of its confirms; the agent's window is never key and its clicks all count (`NodeView.everyClickCounts`), so the drives are unchanged by `2a3d3fb82` | none |
 | A sixth check: `cargo check --workspace --all-targets --keep-going` | `a59700afe` | run with the checks (it compiles the clone's `t3-code-macos`) | none |
 | iOS, Android, web, Linux, LLP docs | various | nothing on the Mac path the clone uses | none |
+| The terminal's animation payloads and colour escapes (review round 1's merge) | `b0e4a6c22` | `host/terminal`, `apps/harness`; the clone does not use them | none |
 
 ## Cause and fix
 
@@ -233,13 +237,13 @@ Drives: [drive.sh](https://raw.githubusercontent.com/ccheever/exact2/6c0502ed3bc
 | AD-1: the checks pass | see Checks | Checks |
 | AD-1: the clone works | pass: the same three sessions before (the T3 tip `20ce9dfdb`'s bundle) and after (the bundle of `6297a1728`'s sources on main `b610c88ba`) exit 0, no op failed; screens equal but for the rows' own changes and main's platform rules (the launch scheme, X58; the launch focus in the first key view, LLP 1115.000 D7.5) | [shell](https://raw.githubusercontent.com/ccheever/exact2/8c79a05e63f94d098d95cc6074884e3145ea0c88/adopt-main-fixes-r11/ad1-shell.png), [Settings](https://raw.githubusercontent.com/ccheever/exact2/71739d0042f659834626ce4a822e3bc886fbfeb7/adopt-main-fixes-r11/ad1-settings.png), [pixels](https://raw.githubusercontent.com/ccheever/exact2/901987fc6fcb5d8fd05a1a975b105bdf4048d912/adopt-main-fixes-r11/ad1-pixels.txt) |
 | RT-1 X63 | pass: `macos/tests/r8-keys` before 6/6, after 6/6; the retired routing over a pre-#327 textarea fails 4 of 6 (⌘Z and Edit › Undo do nothing), so it stood only for want of #327. Real keys: step 4 | [record](https://raw.githubusercontent.com/ccheever/exact2/f466379af15c628b096ad3b48b6d223193f8015a/adopt-main-fixes-r11/x63-and-appkit-record.txt) |
-| RT-1 X64 | pass: the keyed texts are plain; the scheduled task editor's and Settings' selects, the provider row and editor, the model trigger keep their words (Bun guards); #327's own test covers the shrink. No row of the drive changes a rastered label's size in place (a provider Reconnect or a model Shift+click need a provider) | Tests |
+| RT-1 X64 | pass: the keyed texts are plain; the scheduled task editor's and Settings' selects, the provider row and editor, the model trigger keep their words (Bun guards). Review round 1's drive, with a second environment "Studio" (no provider) paired: a new scheduled task, Runs on › Studio rewrites Runs on ("Daehyeon’s MacBook Pro" → "Studio") and Project ("Verification fixture" → "studio-app", both shorter) and Base branch ("From main" → "From origin/main"), then Runs on › the Mac back again; each label is drawn whole at its new width, before (keyed) and after (plain) alike, the typed name kept; the tree reads the same labels on both. The provider row's status and the model trigger need a provider (Bun guards only) | [image](https://raw.githubusercontent.com/ccheever/exact2/d1a62098a7e0542ba486da64a0b5d92cbe0ff420/adopt-main-fixes-r11/rt1-x64-runs-on.png), [record](https://raw.githubusercontent.com/ccheever/exact2/8245c7d69171c2d6a243178ded37e7b732d5bfcb/adopt-main-fixes-r11/review-record.txt) §1 |
 | RT-1 X62 | kept, rationale only: the hover layer stays (clipping, the reference's portal) | Cause and fix |
 | RT-1 X52 | pass (Keyboard navigation on, after only): date screen Tab: toggle → Date → **Time** → Cancel → Snooze → X → toggle; duration: toggle → Decrease → amount → Increase → **Unit** → Cancel (the reference's order; before: Time and Unit skipped) | [image](https://raw.githubusercontent.com/ccheever/exact2/54fdf23e450be2bf9eaca699374d5f538a74a2c2/adopt-main-fixes-r11/rt1-x52-snooze.png), readouts |
 | RT-1 X51 | pass: a press on the accent plane over the editor stays in the popover (it stays open, the accent changes, nothing beneath pressed); the focus then on the popover as the reference's (Chromium focuses the PopoverPopup), where before `retainFocus` kept it on the saturation slider | [image](https://raw.githubusercontent.com/ccheever/exact2/c40c2bf5fe6ea50e79664e3b5b1c512531090e16/adopt-main-fixes-r11/rt1-x51-plane.png), [record](https://raw.githubusercontent.com/ccheever/exact2/4779f9d88280eb2c15241d64175c0680881dfcd3/adopt-main-fixes-r11/rt1-x51-record.txt) |
 | RT-1 X50 | pass: before, each session's `t3-code.json` was in a scratch tree per process under `TMPDIR` and its named store held nothing; after, in each session's named store (`~/Library/Caches/exact/com.exact.t3code.macos/agent/<store>/data`). The kept pull request detail and U6 relaunch rows were not re-run (a relaunch is a second launch) | [record](https://raw.githubusercontent.com/ccheever/exact2/deacec1ac0bdb3def3c1441e1792126ce09377df/adopt-main-fixes-r11/x50-files.txt) |
 | RT-1 #282, #292 | kept, with why (main's issues open) | Cause and fix |
-| RT-2 | pass: each commit row is one button holding its marker and texts (the tree: before a column with an overlay `Pressable`, after the `Pressable` holding them); every title drawn at rest, shown again, after a 900-pt scroll and in dark; those four screens equal the before's but for 212 px of a sidebar glyph | [rest](https://raw.githubusercontent.com/ccheever/exact2/0e2e9414b53d8c41dbadd81ffa6f22967a46a951/adopt-main-fixes-r11/rt2-timeline-rest.png), [shown again](https://raw.githubusercontent.com/ccheever/exact2/b79f173c5f741194d44962b0be1a1482b52a37bc/adopt-main-fixes-r11/rt2-shown-again.png), [scrolled](https://raw.githubusercontent.com/ccheever/exact2/2e31101af67a35c495c845ef6caf853a704e0c7b/adopt-main-fixes-r11/rt2-scrolled.png), [dark](https://raw.githubusercontent.com/ccheever/exact2/150106009f16d33da09bc3e35b805b0fca6a3684/adopt-main-fixes-r11/rt2-dark.png), [dark top](https://raw.githubusercontent.com/ccheever/exact2/5013cf45242c0ae1e026e536d35d6f79dc28da12/adopt-main-fixes-r11/rt2-dark-top.png), [select all](https://raw.githubusercontent.com/ccheever/exact2/5f8ee34d6d1ec3d8f6013ded65cd4bf9a3ded076/adopt-main-fixes-r11/rt2-select-all.png), [tree](https://raw.githubusercontent.com/ccheever/exact2/17fdba0313c8ba94d6ee9b4fe9c0ca54a0ddee67/adopt-main-fixes-r11/rt2-commit-row-tree.txt) |
+| RT-2 | pass: each commit row is one button holding its marker and texts (the tree: before a column with an overlay `Pressable`, after the `Pressable` holding them); every title drawn at rest, shown again, after a 900-pt scroll and in dark; those four screens equal the before's but for 212 px of a sidebar glyph. ⌘A: not a match. The reference highlights exactly the shown texts. Both builds also paint boxes that match no Timeline text: they are the hidden Summary tab's texts (Reviewers, the description, the comments' headers and bodies; review round 1's drive shows the Summary again with the same selection on them). Both tabs stay mounted under `visibility: hidden`, as the reference's, and the macOS host paints the selection of hidden text. This is a host difference, not this round's change, listed in `STATUS.md` "Known differences" | [rest](https://raw.githubusercontent.com/ccheever/exact2/0e2e9414b53d8c41dbadd81ffa6f22967a46a951/adopt-main-fixes-r11/rt2-timeline-rest.png), [shown again](https://raw.githubusercontent.com/ccheever/exact2/b79f173c5f741194d44962b0be1a1482b52a37bc/adopt-main-fixes-r11/rt2-shown-again.png), [scrolled](https://raw.githubusercontent.com/ccheever/exact2/2e31101af67a35c495c845ef6caf853a704e0c7b/adopt-main-fixes-r11/rt2-scrolled.png), [dark](https://raw.githubusercontent.com/ccheever/exact2/150106009f16d33da09bc3e35b805b0fca6a3684/adopt-main-fixes-r11/rt2-dark.png), [dark top](https://raw.githubusercontent.com/ccheever/exact2/5013cf45242c0ae1e026e536d35d6f79dc28da12/adopt-main-fixes-r11/rt2-dark-top.png), [select all](https://raw.githubusercontent.com/ccheever/exact2/5f8ee34d6d1ec3d8f6013ded65cd4bf9a3ded076/adopt-main-fixes-r11/rt2-select-all.png) (the titles take no highlight, as a button's content; the other boxes are the hidden Summary tab's texts, before and after alike: [image](https://raw.githubusercontent.com/ccheever/exact2/e71ba5824a00cbba6b413ba8f912a70fbfa75f9d/adopt-main-fixes-r11/rt2-select-all-owner.png), [record](https://raw.githubusercontent.com/ccheever/exact2/8245c7d69171c2d6a243178ded37e7b732d5bfcb/adopt-main-fixes-r11/review-record.txt) §2, a known difference), [tree](https://raw.githubusercontent.com/ccheever/exact2/17fdba0313c8ba94d6ee9b4fe9c0ca54a0ddee67/adopt-main-fixes-r11/rt2-commit-row-tree.txt) |
 | RT-3 X85 | pass: a Control-click on the reply's mailto link ("the team"): before nothing (a modified press), after the shell's menu `t3.textmenu: Cut (disabled) \| Copy (disabled) \| Paste (disabled) \| Select All`, the reference's for a mailto link; AppKit: the T3 tip's module fails 3 of the 4 Control-click tests, this branch's passes them | [thread](https://raw.githubusercontent.com/ccheever/exact2/1a0922868fb39ad0d2de026cacfa603062e387c9/adopt-main-fixes-r11/rt3-thread.png), [log](https://raw.githubusercontent.com/ccheever/exact2/a6615e1d55d3cb9bbd20d3540f2fbfbe74d5cc81/adopt-main-fixes-r11/readouts-after.txt), [AppKit](https://raw.githubusercontent.com/ccheever/exact2/5779fe6b9ff8bd7752e54e2cc70369eb7fa34dd4/adopt-main-fixes-r11/rt3-appkit-record.txt) |
 | RT-3 X77 | pass (after only: the T3 tip's agent activates a run on `tap <run> contextmenu`): a right-click on the table cell's web link ("the site") opens the app's link menu `t3.contextmenu: Open in integrated browser \| Open in system browser \| Copy Link`, as the reference's `externalLinkContextMenu`; X77's record has the before (the shell's Copy Link menu) | [log](https://raw.githubusercontent.com/ccheever/exact2/a6615e1d55d3cb9bbd20d3540f2fbfbe74d5cc81/adopt-main-fixes-r11/readouts-after.txt) |
 | RT-3 X84 | pass (AppKit): with VoiceOver on (the switch injected), a `shellMenu` request no click or key raised opens the shell's menu for the link it names, at the pointer; off, nothing; a fresh click still wins. VoiceOver itself: step 5 | [AppKit](https://raw.githubusercontent.com/ccheever/exact2/5779fe6b9ff8bd7752e54e2cc70369eb7fa34dd4/adopt-main-fixes-r11/rt3-appkit-record.txt) |
@@ -247,7 +251,7 @@ Drives: [drive.sh](https://raw.githubusercontent.com/ccheever/exact2/6c0502ed3bc
 | RT-4 X13 | pass: `contract build` accepts `hoverCard(hoverId, false)` from the `pan=` action; the drive's sweep closes the card and arms Sweep four and three, the release settles 2, as before | [image](https://raw.githubusercontent.com/ccheever/exact2/8fbb2857a651cfeabfad295952feec8071954df7/adopt-main-fixes-r11/rt4-x13-sweep.png) |
 | RT-5 X79 | pass: from the focused popup (after "I've quit it"), Tab → Cancel and Shift+Tab → the X, before (`popupKeys`) and after (the host and the guards beside the popup), with Keyboard navigation off (the guards are stops by their `tabindex=0`) | [image](https://raw.githubusercontent.com/ccheever/exact2/e8be26ed553cfeed9fd38ac23796f5f5b5961357/adopt-main-fixes-r11/rt5-x79-wizard.png), readouts |
 | RT-5 X81, RT-6, RT-7 | records | `EXACT2-GAPS.md`, `STATUS.md`, `issues/README.md` |
-| Second merge: X86 retired, the selected-text menu adapted | Bun guard and AppKit `contextmenu` (70/0); not driven (the live drive came before the merge) | Tests |
+| Second merge: X86 retired, the selected-text menu adapted | Bun guard and AppKit `contextmenu` (70/0); not driven (the live drive came before the merge; review round 1's drive ran the merged bundle, through Settings, Scheduled Tasks and a pull request, but not these two: steps 3 and 8) | Tests |
 
 Drives (agent mode, 1280×840, `--epoch 2026-10-12T17:00:00+09:00 --time-zone Asia/Seoul`, base port 16820, the clone's server
 on 16822; each of the three sessions on a lane reset to the same seed: the audit seed, reply-links-reference-behavior's
@@ -257,6 +261,14 @@ fixture browser home, the provider CLIs pinned to an absent path): before on thi
 after only (the T3 tip refuses or mishandles them): `prefer keyboard-navigation true` (D7.2 is main's) and the cell link's
 `tap … contextmenu`; session 1 reads `logs` once more after the Control-click (read-only). Reference: T3 Code 1e2ecbd975
 Electron on lane `adopt-main-fixes-r11-ref` (16820/16821) over CDP.
+
+Review round 1 drive (agent mode, 1280×840, the same facts and lanes; [script](https://raw.githubusercontent.com/ccheever/exact2/0497056558f2cb81307dc7cf781804c57cb6ab77/adopt-main-fixes-r11/drive-x64.sh.txt), [Studio](https://raw.githubusercontent.com/ccheever/exact2/6e52be9491849c0826141a3f9876e03e5368cb3c/adopt-main-fixes-r11/studio.sh.txt)): a second
+environment "Studio" (a T3 0.0.46 server on 16823 with its own home, no provider CLI, a `scutil` shim for its label, the project
+studio-app with main, develop and release/2026-10) paired through Settings › Connections with a fresh link each drive, as
+scheduled-tasks-followups ST-1 had it. Before: the T3 tip `20ce9dfdb`'s bundle in the integration worktree `t3-int` (at
+`dba2285f6`, the same tree; driven only, not built or edited), since this worktree's before bundle was rebuilt for the live
+drive. After: this branch's bundle of `86dcbfd88`'s sources (main `b0e4a6c22`). The Nightly notice lies over Scheduled Tasks'
+New task button, so both dismiss it first. Both sessions exit 0.
 
 ## Real-input batch steps
 
@@ -335,11 +347,19 @@ round takes it.
 | Before drive 2 | the same | session 1 reordered (Settings first, Usage last), session 2 reads the dialog's tree, session 3 clicks the selection away after ⌘A; all three completed | the before column |
 | After drive (the live drive) | bundle of `6297a1728`'s sources (main `b610c88ba`) | all three sessions completed; no retry | the after column |
 | Reference | Electron 1e2ecbd975 on its lane, CDP | the Timeline at rest, ⌘A, shown again, scrolled, dark; the accent plane's press and focus | the reference column; [X51 record](https://raw.githubusercontent.com/ccheever/exact2/4779f9d88280eb2c15241d64175c0680881dfcd3/adopt-main-fixes-r11/rt1-x51-record.txt) |
+| Review round 1, before | `t3-int`'s bundle (the T3 tip's tree), `drive-x64.sh before` | run 1 stopped at `type task-title` (the Nightly notice took the New task press: dismissed first after); run 2 stopped at the Mac's Runs on item (its label also names the settings scope's choice: targeted by its id after); run 3 completed | the before column of [X64](https://raw.githubusercontent.com/ccheever/exact2/d1a62098a7e0542ba486da64a0b5d92cbe0ff420/adopt-main-fixes-r11/rt1-x64-runs-on.png) and [⌘A](https://raw.githubusercontent.com/ccheever/exact2/e71ba5824a00cbba6b413ba8f912a70fbfa75f9d/adopt-main-fixes-r11/rt2-select-all-owner.png) |
+| Review round 1, after | this branch's bundle of `86dcbfd88`'s sources, `drive-x64.sh after` | completed, first run | the after columns |
 
 ## Seen while building, not a finding row
 
-- `contract build` now prints `lower-dialog-role` (LLP 1116.004 D4) on the clone's role-dialog popovers, 20 shown under the
-  printed list's cap; `analyze-read-after-assign` no longer reaches the list (Each item).
+- `contract build` now prints `lower-dialog-role` (LLP 1116.004 D4) on the clone's role-dialog popovers, 73 of them and 20
+  shown under the printed list's cap; `analyze-read-after-assign` no longer reaches the list. Review round 1 read it uncapped:
+  the T3 tip's 21, none new, none a bug (Each item); `STATUS.md` round 11 asks each round to read it so.
+- ⌘A over a pull request's Timeline also paints boxes where the hidden Summary tab's texts lie, before and after (review
+  round 1: RT-2's row, `STATUS.md` "Known differences").
+- Review round 1's after drive: the scheduled task editor's Name field holds the focus with no ring under the agent (the
+  before draws Exact's ring). Since main's `883c7300d` a bare field with a written border takes AppKit's own ring, which AppKit
+  draws only in the key window, and the agent's window is never key. Real keys would show it; not examined further.
 - After the merge the agent's launch puts the focus in the window's first key view (the sidebar's Search field, main's LLP
   1115.000 D7.5), and a button is no Tab stop unless Keyboard navigation is on (D7.2): the platform's, not changed here.
 - The after drive's sweep left the logical focus on a sidebar node (332) where the before's left none: main's click focus rule
@@ -348,13 +368,27 @@ round takes it.
 ## Not done / not verified
 
 - Real input (steps 1–9): reserved for the coordinator's `realinput-1011c`; this task used none.
-- The live drive ran on main `b610c88ba`; the final head adds main `c4cd2bcba` (#495, #496, the Mac text follow-ups), X86's
-  retirement and the selected-text menu's adaptation, which are covered by `contract build`, the Bun guard and the AppKit
-  `contextmenu` binary, not re-driven (the brief's one live drive; the agent gets no selected-text menu from the host, and
-  a long citation comment needs a selection and Cite: steps 3 and 8).
+- The live drive ran on main `b610c88ba`; the final head adds main `c4cd2bcba` (#495, #496, the Mac text follow-ups) and
+  `b0e4a6c22`, X86's retirement and the selected-text menu's adaptation. Those two are covered by `contract build`, the Bun
+  guard and the AppKit `contextmenu` binary, not driven (the agent gets no selected-text menu from the host, and a long
+  citation comment needs a selection and Cite: steps 3 and 8); review round 1's drive ran the merged bundle elsewhere.
 - RT-1 X50: the kept pull request detail and U6 relaunch rows with `--storage` (a relaunch is a second launch; the drive's
   named-store files are the evidence).
-- RT-1 X64: no drive row shrinks a rastered label in place (a provider Reconnect or a model Shift+click need a provider).
+- RT-1 X64: the provider row's status and the model trigger's label (a Reconnect or a model Shift+click needs a provider);
+  the select labels were driven in review round 1.
+
+## Review round 1
+
+An independent review found four should-fix problems; no code changed for them.
+
+| Problem | Done |
+| --- | --- |
+| RT-1 X64 had no drive of a select's label shrunk by a change made elsewhere, and the Not done reason covered only the provider rows | Driven before and after with a second environment "Studio": Runs on › Studio shortens Runs on and Project and lengthens Base branch, then back; every label drawn at its new width on both ([image](https://raw.githubusercontent.com/ccheever/exact2/d1a62098a7e0542ba486da64a0b5d92cbe0ff420/adopt-main-fixes-r11/rt1-x64-runs-on.png), [record](https://raw.githubusercontent.com/ccheever/exact2/8245c7d69171c2d6a243178ded37e7b732d5bfcb/adopt-main-fixes-r11/review-record.txt) §1). Not done now names only the provider rows |
+| RT-2's ⌘A image paints boxes that match no visible text, and the caption called the after a pass | The boxes are the hidden Summary tab's texts, painted by the host's selection of `visibility: hidden` text, before and after alike ([image](https://raw.githubusercontent.com/ccheever/exact2/e71ba5824a00cbba6b413ba8f912a70fbfa75f9d/adopt-main-fixes-r11/rt2-select-all-owner.png), [record](https://raw.githubusercontent.com/ccheever/exact2/8245c7d69171c2d6a243178ded37e7b732d5bfcb/adopt-main-fixes-r11/review-record.txt) §2); RT-2's row says so, and `STATUS.md` "Known differences" has the row |
+| 20 `lower-dialog-role` warnings fill the printed cap, so `analyze-read-after-assign` is never shown | Read uncapped on this branch and on the T3 tip: the same 21 at 13 sites, none new, none a bug ("Each item", [record](https://raw.githubusercontent.com/ccheever/exact2/8245c7d69171c2d6a243178ded37e7b732d5bfcb/adopt-main-fixes-r11/review-record.txt) §3); `STATUS.md` round 11 asks each round to read it uncapped |
+| `STATUS.md`'s "Real input, not verified" row still said #261, #307 and #311 wait for main #327 | It says they waited for #327, which round 11 adopted, and are not yet run by real input |
+
+Also: main's one new commit since the last merge (`b0e4a6c22`) merged (`86dcbfd88`), so the branch contains main again.
 
 ## Decision needed
 
