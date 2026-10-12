@@ -42,17 +42,26 @@ fn symbols_admit_roles_and_opaque_sf_names_but_refuse_misspelled_roles() {
     contract::compile("component App\n  state selected = true\n  view\n    button role=\"tab\" aria-selected=selected\n      text \"Questions\"\n").unwrap();
     for role in [
         "",
-        "chevron.backward",
         "Search",
         "serach",
-        "bookmark.fill",
-        "checkmark-circle",
+        "bookmark.filled",
+        "trash.slash",
+        "checkmark-circle-slash",
     ] {
         let error = contract::compile(&format!(
             "component App\n  view\n    image \"symbol:{role}\"\n"
         ))
         .unwrap_err();
         assert!(error.to_string().contains("not a role"), "{error}");
+        // LLP 1116 D8: after the roles, the form that names any SF Symbol.
+        let sf = format!(
+            "`symbol:sf/{}`",
+            if role.is_empty() { "star.fill" } else { role }
+        );
+        assert!(
+            error.message.contains("`symbol:sf/<name>`") && error.message.contains(&sf),
+            "{error}"
+        );
     }
     for name in ["", "house.fill", "not.an.os.symbol", "future/opaque name"] {
         contract::compile(&format!(

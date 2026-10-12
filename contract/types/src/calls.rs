@@ -7,7 +7,7 @@ use contract_syntax::inline::calls::{shown, MARK};
 use contract_syntax::{one_spelling_edit, Component, Expr, Span, Stmt, TemplatePart};
 
 /// The prefix of a lifted action's capture parameters.
-const CAPTURE: &str = "@capture:";
+pub(crate) const CAPTURE: &str = "@capture:";
 
 /// The action `e` calls for its value, if it is a call of an action, an
 /// action prop or an injected action: what `infer` would type as an action

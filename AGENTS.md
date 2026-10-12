@@ -4,8 +4,9 @@
 new <path>` and read `docs/start-here.md`: it is the only required reading (LLP 1115 D7). The
 rest (`docs/contract-for-agents.md`, `docs/agent-pitfalls.md`, `docs/contract-grammar.md`,
 `docs/reference.md`) is lookup only, by the section its table names: do not read the long
-guides front to back. `contract vocab <name>` answers for any tag or property, and
-`apps/shelf` is the recipe app to grep.
+guides front to back. `docs/recipes/` answers the common questions in one short file each,
+`contract vocab <name>` answers for any tag or property, every `bun exact.mjs <verb>
+--help` names its flags, and `apps/shelf` is a whole app to grep.
 
 Read `rules/RULES.md` and `rules/DEFERRED.md` first; they bind and this file does not.
 `llp/1000-exact2-root.explainer.md` is the map. `docs/agent-pitfalls.md` lists verified
@@ -41,27 +42,46 @@ writing apps should therefore say less — structure (a header's heading and but
   Rolldown remains the app bundler. Node and npm are not required.
 - The web artifacts (`app.wasm`, the Markdown editor, text flow) build with a pinned
   nightly (`WEB_TOOLCHAIN` in `scripts/app.mjs`) that builds std for size; everything
-  else is `rust-toolchain.toml`'s stable, which the five checks use. `build.mjs`
+  else is `rust-toolchain.toml`'s stable, which the six checks use. `build.mjs`
   names the install commands when the nightly or its `rust-src` is missing.
 
 - `kernel/tables/schema.json` is the one declaration authority; `kernel/build.rs`
   generates from it. Edit the table, never generated code.
 - Every source file ≤ 1,500 lines. Stage (`git add -A`) and run `bun scripts/caps.mjs`.
 - Writing or changing a test: read `docs/testing.md` (waits, isolation, coverage, measuring).
-- The five checks: `cargo build --all-targets --keep-going` ·
+- The six checks: `cargo build --all-targets --keep-going` ·
   `cargo test --lib --bins --tests --no-fail-fast` · `cargo clippy --all-targets
   --keep-going -- -D warnings` and `cargo fmt --all -- --check` (run both) ·
-  `bun scripts/caps.mjs` · `bun scripts/boot.mjs`. The flags keep Cargo from
-  stopping at the first failing crate or test binary. Cargo's scope is the root
-  `default-members`; the async lane (`bun scripts/async.mjs`, per commit on
-  origin/main) runs the same with `--workspace` plus the `async lane:` ignored tests,
+  `bun scripts/caps.mjs` · `bun scripts/boot.mjs` · `cargo check --workspace
+  --all-targets --keep-going`. The flags keep Cargo from
+  stopping at the first failing crate or test binary. The first three's scope is the root
+  `default-members`. The sixth (Charlie, 2026-10-12) compiles every crate and target
+  of the workspace and runs none of their tests: on 2026-10-11 six things outside
+  `default-members` were broken on origin/main while the five were green, and it
+  catches the ones that did not compile (`exact-web-js`, `exact-linux`'s tests). It
+  needs the pinned Bun first on PATH (or named by `BUN`): app crates' build scripts
+  run Bun, and under an older one each fails with "Bun … is older than …". It shares
+  no compiled crate with the build, so it costs its whole time again: on an 18-core
+  Mac, 2 to 5 s with nothing changed, 45 to 90 s after a touched kernel line
+  (the build: 7 to 13 s), 2.4 min cold. The async lane (`bun scripts/async.mjs`, per commit on
+  origin/main) runs the first three with `--workspace`, which covers the sixth, plus the `async lane:` ignored tests,
   the web JS target's conformance run (`host/web-js/conform.mjs --strict`) and its
   Chrome-oracle Firefox/WebKit steps (`conform-firefox`, `conform-webkit`),
-  the UIKit XCTests for commits under `host/apple` (`build.mjs --test --ios`), the
+  the separate game workspace's locked tests, the UIKit XCTests, touch smoke and
+  the tvOS compile
+  when a coalesced range changes anything outside `llp/`, `issues/`, `rules/`,
+  `docs/`, `QUEUE.md`, and `*.md` paths
+  (`build.mjs --test --ios`; `build.mjs --tvos --no-install`, which builds and signs
+  the Apple TV bundle and asks for no simulator), the
   Contract semantics (`semantics/README.md`: the Lean proofs, then `contract-difftest`
   running the runner against the Lean semantics over `semantics/corpus` and a fixed
   random sweep), then `metrics.mjs --long`. A second, hourly tier (`bun scripts/async.mjs --tier 2`) builds
-  the platforms that ride on another host's code: tvOS on the UIKit presenter. Building
+  the platforms that ride on another host's code: tvOS on the UIKit presenter
+  (installed on an Apple TV simulator, which that machine must have),
+  plus cross-target Cargo checks of the Linux host with Caltrain and the Windows
+  host with Windows Desk. Other Linux apps are not yet selected. Tier 2 needs
+  both Rust cross targets and Zig on this Mac. These checks qualify
+  compilation, not native window, KMS, or input behavior. Building
   `--all-targets` resolves features as `cargo test` does, so the two share artifacts.
 - A green `--workspace` build proves the apps compile, not that they work: their Apple
   crates are rlibs to Cargo, and the archive an app links is built only by
@@ -93,7 +113,8 @@ writing apps should therefore say less — structure (a header's heading and but
   (`--long` adds the macOS build and boot, and the loop's own budgets: the
   warm gate, touch one line, test what you changed). macOS: `bun host/apple/build.mjs --run`;
   iOS: `bun host/apple/build.mjs --ios --run` (a simulator; `--sim` or `EXACT_SIM` picks one);
-  tvOS: `bun host/apple/build.mjs --tvos --run` (an Apple TV simulator; LLP 1008 §9);
+  tvOS: `bun host/apple/build.mjs --tvos --run` (an Apple TV simulator; LLP 1008 §9;
+  `--tvos --no-install` compiles it with none, which is what to run after a change to Swift it shares with iOS);
   `--device --run` on a connected iPhone (signed with a team profile on this Mac);
   `--host` also builds the sample host (LLP 1031 D10), the native app that embeds two
   sessions, which `bun scripts/smoke.mjs host` drives and `scripts/agent.mjs host
@@ -112,8 +133,8 @@ writing apps should therefore say less — structure (a header's heading and but
   cargo build are `async lane:`, and its Swift is the XCTests). The
   others (`exact-web-js`, `exact-web-capabilities`, `exact-linux`, `exact-windows`,
   `exact-render`, …), `js/`, `gpu/` and most apps are
-  not tested by it (one is compiled when a member depends on it, and its tests still do
-  not run), and the async lane reports them only after the push. When you touch one, or
+  not tested by it (the sixth check compiles them, their tests too, and runs none),
+  and the async lane reports a failing test only after the push. When you touch one, or
   what its tests read, run its tests before landing: `cargo test -p exact-linux --lib
   --tests --no-fail-fast`, or `--bins` for a bin-only crate such as `exact-web-js`.
   Advice, not a check.

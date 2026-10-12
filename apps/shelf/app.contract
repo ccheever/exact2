@@ -16,12 +16,13 @@
 //   edge swipe, and the sheet swipes down, with nothing written for either;
 // - `dialog role="alertdialog"` is the system alert, `contextPopover` the
 //   long-press menu, `swipeTrailing` the row's swipe action, `refresh=` the
-//   pull-to-refresh, and `progress` the activity indicator.
+//   pull-to-refresh, `progress` the activity indicator, and `progress value=`
+//   the progress bar.
 //
 // The tint is the platform's: the app names none, so every bar button, control,
-// selected tab and star is the system's accent. (A root `accent-color` would tint
-// the tab bar and controls but not the bar buttons, so there is no one place to set
-// an app's tint yet: QUEUE.md.) Layout (flex, gap, padding) is
+// selected tab and star is the system's accent. (A root `accent-color` is the one
+// place to set an app's tint: on iOS it is the window's tint, so bars, sheets and
+// alerts take it too.) Layout (flex, gap, padding) is
 // CSS and the author's; the web host draws the same file as a web page.
 
 routes nav
@@ -101,16 +102,16 @@ component Shelf
   derive titleError = trim(draftTitle) == "" ? "Enter a title." : ""
   derive pagesError = draftPages == "" or wholePages(draftPages) ? "" : "Pages must be a whole number from 1 to 10,000."
 
-  // Navigation: a tab, a push, a sheet, and Back (also what the platform's
-  // own Back button, edge swipe and sheet swipe-down press).
+  // Navigation: a tab, a location (a book's row is a link to its route; the
+  // browser's Back, Forward and a deep link arrive here too), a sheet, and
+  // Back (also what the platform's own Back button, edge swipe and sheet
+  // swipe-down press).
   action pick(name: string)
     nav = select(nav, name)
   action follow(url: string)
     nav = go(nav, url)
   action back
     nav = back(nav)
-  action openBook(id: string)
-    nav = push(nav, path("book", id))
   action openAdd
     draftTitle = ""
     draftAuthor = ""
@@ -241,7 +242,7 @@ component Shelf
                         flex=1
                         text "Finished"
                     each b in visible key = b.id
-                      BookRow(book=b, open=openBook, aim=aim, swipeRemove=swipeRemove)
+                      BookRow(book=b, aim=aim, swipeRemove=swipeRemove)
                     when lib.ready and length(visible) == 0
                       Empty(
                         title=(length(lib.books) == 0 ? "No Books" : "No Results"),
@@ -312,7 +313,7 @@ component Shelf
                       header
                         text "Title"
                       row
-                        input appearance="none"
+                        input
                           value=draftTitle
                           input=editTitle
                           placeholder="Middlemarch"
@@ -328,7 +329,7 @@ component Shelf
                       header
                         text "Author"
                       row
-                        input appearance="none"
+                        input
                           value=draftAuthor
                           input=editAuthor
                           placeholder="Optional"
@@ -342,7 +343,6 @@ component Shelf
                         text "Pages"
                       row
                         input type="number"
-                          appearance="none"
                           value=draftPages
                           input=editPages
                           placeholder="Optional"
@@ -464,12 +464,14 @@ component Shelf
           text "Cancel"
 
 // A row of the library: tap to open, long-press for the menu, swipe to delete.
-// The swipe is a horizontal snap scroll naming its content and its action; iOS
-// makes the action UIKit's own, and the web scrolls to it.
+// The row only navigates, so it is a `link` to the book's route: the root's
+// `navigate` pushes it on every host, and on the web it is a real link (a new
+// tab, "Copy Link", the address in the status bar). The swipe is a horizontal
+// snap scroll naming its content and its action; iOS makes the action UIKit's
+// own, and the web scrolls to it.
 component BookRow
   props
     book: Book
-    open: action
     aim: action
     swipeRemove: action
   view
@@ -482,8 +484,8 @@ component BookRow
       scrollbar-width="none"
       scroll-snap-type="x mandatory"
       row width="100%"
-        button id=`book-${book.id}`
-          press=open(book.id)
+        link id=`book-${book.id}`
+          href=path("book", book.id)
           contextmenu=aim(book.id)
           contextPopover="book-menu"
           testId=`book-${book.id}`
@@ -613,7 +615,7 @@ component Notes
     keep(bookId, v)
   view
     row padding-top=8 padding-bottom=8
-      textarea appearance="none"
+      textarea
         value=draft
         input=edit
         placeholder="Thoughts, quotes, where you left off…"
@@ -751,22 +753,14 @@ component Empty
       text title role="heading" aria-level=3 text-align="center"
       text message color="-exact-secondary-label" text-align="center" testId=`${tid}-message`
 
-// A determinate progress bar, 0 to 100, in the system fill and the tint.
-// `progress value=… max=…` is refused today (no UIProgressView yet), so this is
-// drawn, in roles only.
+// A determinate progress bar, 0 to 100, across its column: the platform's own
+// (`UIProgressView` in the tint, LLP 1116 D8), which says its value itself.
 component Meter
   props
     value: number
     tid: string
   view
-    row height=4
-      border-radius=2
-      overflow="hidden"
-      background-color="-exact-fill"
-      role="progressbar"
-      aria-label=`${value}%`
-      testId=tid
-      row width=`${value}%` background-color="AccentColor"
+    progress value=value max=100 width="100%" testId=tid
 
 // Five stars, filled to the rating, in the tint.
 component Stars

@@ -1,0 +1,42 @@
+// `formatNumber(n, "decimal" | "percent" | "currency", code)` (LLP 1116 D8)
+// over halves at each style's cut, a carry into a new digit, negative zero,
+// a tie between two shortest forms, every currency's digits and spacing, and
+// the non-finite (printed as ""). Each tap scales every value.
+fn d(x: number): string = formatNumber(x, "decimal")
+fn p(x: number): string = formatNumber(x, "percent")
+fn usd(x: number): string = formatNumber(x, "currency", "USD")
+
+component App
+  state k = 1
+  state z = 0
+  derive decimal = `${d(0 * k)} ${d(-0 * k)} ${d(1.0005 * k)} ${d(999.9995 * k)} ${d(1234.5 * k)} ${d(-0.0001 * k)} ${d(1469358899709795.2 * k)} ${d(1000000000000000000000 * k)}`
+  derive percent = `${p(0.256 * k)} ${p(0.125 * k)} ${p(1.005 * k)} ${p(-0.005 * k)} ${p(2.675 * k)} ${p(-0 * k)}`
+  derive money = `${usd(1481.4666 * k)} ${usd(-5 * k)} ${usd(1.005 * k)} ${usd(0.995 * k)} ${usd(-0.001 * k)}`
+  derive codes = `${formatNumber(1234.5 * k, "currency", "JPY")} ${formatNumber(1234.5 * k, "currency", "CHF")} ${formatNumber(-0.005 * k, "currency", "EUR")} ${formatNumber(1234.5 * k, "currency", "KRW")} ${formatNumber(7 * k, "currency", "CNY")}`
+  derive special = `[${d(1 / z)}|${p(-1 / z)}|${usd(z / z)}]`
+  action grow
+    k = k * 10
+  action shrink
+    k = k / 7
+  action flip
+    k = -k
+  view
+    column
+      text decimal testId="decimal"
+      text percent testId="percent"
+      text money testId="money"
+      text codes testId="codes"
+      text special testId="special"
+      button "grow" press=grow testId="grow"
+      button "shrink" press=shrink testId="shrink"
+      button "flip" press=flip testId="flip"
+
+test "styled"
+  expect text "special" == "[||]"
+  expect text "money" == "$1,481.47 -$5.00 $1.01 $1.00 -$0.00"
+  expect text "percent" == "26% 13% 101% -1% 268% -0%"
+  tap "grow"
+  tap "flip"
+  tap "shrink"
+  tap "shrink"
+  tap "shrink"

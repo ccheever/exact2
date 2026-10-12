@@ -148,7 +148,7 @@ package enum SystemColor {
         var color: Native?
         if Thread.isMainThread {
             #if os(iOS) || os(tvOS)
-            color = appTint ?? .systemBlue
+            color = appTint ?? defaultTint
             #else
             color = NSColor.controlAccentColor
             #endif
@@ -162,6 +162,13 @@ package enum SystemColor {
         return c
     }
 
+    #if os(iOS) || os(tvOS)
+    /// The tint of a window that sets none: the app's `AccentColor` asset
+    /// (`NSAccentColorName`) as UIKit applies it, else system blue. A window
+    /// reads nil until one is set; any view resolves it. On main.
+    static let defaultTint: UIColor = UIView().tintColor
+    #endif
+
     /// The app's tint, one for every session (LLP 1095 D9): its key
     /// window's, else its first window's, among the app's own windows at
     /// the normal level (never the keyboard's, often key), the foreground
@@ -173,7 +180,8 @@ package enum SystemColor {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         let ordered = scenes.filter { $0.activationState == .foregroundActive } + scenes.filter { $0.activationState != .foregroundActive }
         let windows = ordered.flatMap(\.windows).filter { $0.windowLevel == .normal }
-        return (windows.first(where: \.isKeyWindow) ?? windows.first)?.tintColor
+        guard let window = windows.first(where: \.isKeyWindow) ?? windows.first else { return nil }
+        return window.tintColor ?? defaultTint
         #else
         return NSColor.controlAccentColor
         #endif
@@ -186,7 +194,7 @@ package enum SystemColor {
     static func tintPair(_ color: PlatformColor?) -> [[Double]]? {
         let color = color ?? {
             #if os(iOS) || os(tvOS)
-            return .systemBlue
+            return defaultTint
             #else
             return .controlAccentColor
             #endif
@@ -225,7 +233,8 @@ extension BatchValue {
 extension NodeView {
     /// The tint `row` resolves `@tint` by: this view's inherited
     /// `tintColor` on iOS, so a second window's is its own (LLP 1095 D8);
-    /// nil on macOS, whose accent is the system's.
+    /// on macOS the nearest authored `accent-color` at or above it (LLP
+    /// 1115.000 D3.4), nil where there is none: the system's accent.
     func ownTint(for row: BatchValue?) -> PlatformColor? {
         row?.namesTint == true ? viewTint : nil
     }
@@ -233,17 +242,35 @@ extension NodeView {
         #if os(iOS) || os(tvOS)
         return tintColor
         #else
-        return nil
+        return nearestAccent
         #endif
     }
     #if os(iOS) || os(tvOS)
     /// A window or ancestor tint changed: the rows naming it apply again.
     package override func tintColorDidChange() {
         super.tintColorDidChange()
+        // An `svg`'s paints are resolved into its scene's layers.
+        if kind == "svg" { presenter?.svg.reappear(id, dark: drawsDark, clock: presenter?.session?.clock, tint: viewTint) }
         // A symbol counts: hierarchical and palette glyphs bake the tint in.
         guard style.values.contains(where: \.namesTint) || inlineText.contains(where: \.namesTint) || symbolView != nil else { return }
         paragraphOwner.invalidateText(); paragraphOwner.setNeedsDisplay()
         applyStyle(style)
+    }
+
+    /// An authored `accent-color` is its subtree's tint (LLP 1116.001 D2),
+    /// as a hand-built UIKit app sets a view's `tintColor`: UIKit carries it
+    /// down, and every row beneath that names the tint (`AccentColor`,
+    /// `LinkText`, a symbol's default) resolves by it (`ownTint`). `auto`, or
+    /// an accent that names the tint itself, leaves the inherited one.
+    /// Called when the row changes; nothing else sets a node view's tint.
+    func applyAccentTint() {
+        guard style["accent_color"]?.namesTint != true, channels("accent_color", dark: false) != nil else {
+            tintColor = nil
+            return
+        }
+        tintColor = UIColor { [weak self] traits in
+            self?.channels("accent_color", dark: traits.userInterfaceStyle == .dark).map { TextEngine.color($0) } ?? .systemBlue
+        }
     }
     #endif
 

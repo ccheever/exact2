@@ -368,3 +368,93 @@ fn background_remains_a_refused_spelling_of_background_color() {
     assert_eq!(e.id, "lower-unknown-attr");
     assert!(e.message.contains("background-color"));
 }
+
+/// LLP 1104 D6: `outline="none"` (or `outline-style`) takes a text field's
+/// ring off. The row is set from the field's own attribute or a class, and
+/// an unset arm clears it; a field without it has no row, the platform's
+/// ring. Only `none` is admitted, and only on a text field or a textarea.
+#[test]
+fn outline_none_marks_a_text_field_and_nothing_else() {
+    let mut r = boot(
+        "style Quiet\n  outline=\"none\"\n",
+        "input outline=\"none\" testId=\"input\"\ntextarea outline-style=\"none\" appearance=\"none\" testId=\"textarea\"\ntextarea markup=\"markdown\" outline=\"none\" testId=\"markdown\"\ninput class=Quiet background-color=\"red\" testId=\"class\"\ninput outline=(on ? \"none\" : none) testId=\"arm\"\ninput testId=\"plain\"\nbutton press=flip testId=\"flip\"\n  text \"Flip\"",
+    );
+    let has = |r: &Runner<NoData>, name: &str| {
+        let node = r.kernel().node(id(r, name)).unwrap();
+        node.style.mask.has(StyleId::OutlineStyle)
+    };
+    for name in ["input", "textarea", "markdown", "class", "arm"] {
+        assert!(has(&r, name), "{name} takes the ring off");
+    }
+    assert!(
+        !has(&r, "plain"),
+        "a field without it keeps the platform's ring"
+    );
+    r.dispatch(id(&r, "flip"), Event::Press).unwrap();
+    assert!(!has(&r, "arm"), "an unset arm gives the ring back");
+    for (styles, body, refusal) in [
+        (
+            "",
+            "button press=flip outline=\"none\"\n  text \"Go\"",
+            "lower-attr-tag",
+        ),
+        (
+            "",
+            "input type=\"checkbox\" outline=\"none\"",
+            "lower-attr-tag",
+        ),
+        ("", "column tabindex=0 outline=\"none\"", "lower-attr-tag"),
+        (
+            "style Quiet\n  outline=\"none\"\n",
+            "column class=Quiet",
+            "lower-attr-tag",
+        ),
+        ("", "input outline=\"solid\"", "lower-attr-value"),
+        ("", "textarea outline=\"2px solid red\"", "lower-attr-value"),
+    ] {
+        let e = contract::compile(&app(styles, body)).unwrap_err();
+        assert_eq!(e.id, refusal, "{body}: {}", e.message);
+    }
+}
+
+/// LLP 1116.007 D4: `appearance="textfield"`, CSS's way to drop a number
+/// input's spin buttons, is the platform's field (still native to the
+/// kernel, so its chrome and look are the field's) without the stepper; it
+/// refuses a drawn background as `auto` does, and is a text field's word
+/// only.
+#[test]
+fn textfield_is_the_platforms_field_without_a_number_fields_stepper() {
+    for tag in [
+        "input type=\"number\"",
+        "input",
+        "input type=\"email\"",
+        "textarea",
+    ] {
+        let r = boot(
+            "",
+            &format!("{tag} appearance=\"textfield\" testId=\"field\""),
+        );
+        let field = r.kernel().node(id(&r, "field")).unwrap();
+        assert_eq!(field.node_type, NodeType::TextInput, "{tag}");
+        assert_eq!(field.style.appearance, Appearance::Textfield, "{tag}");
+    }
+    let e = contract::compile(&app(
+        "",
+        "input type=\"number\" appearance=\"textfield\" background-color=\"red\"",
+    ))
+    .unwrap_err();
+    assert_eq!(e.id, "lower-appearance", "{}", e.message);
+    assert!(e.message.contains("`background-color`"), "{}", e.message);
+    let e = contract::compile(&app("", "input appearance=(on ? \"textfield\" : \"auto\")"))
+        .unwrap_err();
+    assert_eq!(e.id, "lower-appearance", "{}", e.message);
+    for body in [
+        "input type=\"checkbox\" appearance=\"textfield\"",
+        "input type=\"range\" appearance=\"textfield\"",
+        "column appearance=\"textfield\"",
+        "button press=flip appearance=\"textfield\"\n  text \"Go\"",
+    ] {
+        let e = contract::compile(&app("", body)).unwrap_err();
+        assert_eq!(e.id, "lower-appearance", "{body}: {}", e.message);
+    }
+}

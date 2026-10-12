@@ -49,6 +49,7 @@ final class AddressedTapMacTests: XCTestCase {
 
     private func rows() -> (Agent, () -> [UInt32]) {
         _ = NSApplication.shared
+        clicksArriveAsInTheKeyWindow() // the agent's own rule, which a test's process does not have (LLP 1115.000 D7.9)
         let session = ExactApp.shared.makeSession(label: "addressed-tap-mac")
         self.session = session
         let p = session.presenter

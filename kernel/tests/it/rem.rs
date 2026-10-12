@@ -18,7 +18,7 @@ fn style(rows: &[(StyleId, &str)]) -> Box<StyleProps> {
     for (id, text) in rows {
         let value = match text.parse::<f64>() {
             Ok(n) => StyleValue::Number(n),
-            Err(_) => StyleValue::Text(text.to_string()),
+            Err(_) => StyleValue::Text((*text).into()),
         };
         s.set_dynamic(*id, &value).unwrap();
     }

@@ -135,10 +135,24 @@ static SLOTS: std::sync::LazyLock<bool> =
 /// from the decoded picture, a copy rather than a decode.
 const IDLE_FRAMES: u64 = 10;
 
+#[path = "canvas/agent.rs"]
+pub mod agent;
 #[path = "canvas/clip.rs"]
 mod clip;
+#[path = "canvas/colors.rs"]
+mod colors;
+pub use colors::colors;
+#[path = "canvas/device.rs"]
+mod device;
+#[path = "canvas/field.rs"]
+pub mod field;
+#[path = "canvas/input.rs"]
+mod input;
+pub use device::{configure, window, Told};
 #[path = "canvas/jni.rs"]
 pub mod jni;
+#[path = "canvas/journal.rs"]
+mod journal;
 #[path = "canvas/keys.rs"]
 mod keys;
 #[path = "canvas/layer.rs"]
@@ -146,14 +160,22 @@ mod layer;
 pub use jni_sys;
 #[path = "canvas/picture.rs"]
 mod picture;
+#[path = "canvas/reader.rs"]
+mod reader;
 #[path = "canvas/refine.rs"]
 mod refine;
+#[path = "canvas/requests.rs"]
+mod requests;
+#[path = "canvas/scroll.rs"]
+mod scroll;
 #[path = "canvas/shadow.rs"]
 mod shadow;
 #[path = "canvas/slot.rs"]
 mod slot;
 #[path = "canvas/stream.rs"]
 mod stream;
+#[path = "canvas/surface.rs"]
+mod surface;
 pub use picture::Picture;
 use picture::WeakPicture;
 pub use stream::drawing;
@@ -896,7 +918,7 @@ impl Backend for Recorder {
     fn finish(&mut self) -> Result<Pixmap, String> {
         self.layers_finish();
         let ops = std::mem::take(&mut self.ops);
-        FINISHED.with(|f| *f.borrow_mut() = Some(ops));
+        FINISHED.with(|f| agent::kept(f.borrow_mut().replace(ops)));
         Pixmap::new(1, 1).ok_or_else(|| "placeholder".to_string())
     }
 }
@@ -1016,7 +1038,7 @@ pub struct CanvasHost<D: DataSource> {
     origin_ns: i64,
     clock_sent: bool,
     tracks: HashMap<u32, Vec<u32>>,
-    /// The scroller [`CanvasHost::scroll`] moves.
+    /// The scroller [`CanvasHost::scroll`] moves, and a finger last did.
     feed: Option<ViewId>,
     /// Whether the windows' lead is back after the first frame (and after
     /// a touch's response).
@@ -1032,6 +1054,8 @@ pub struct CanvasHost<D: DataSource> {
     /// the rows that show (a slice of 0); the lead follows that frame.
     responding: bool,
     tracks_epoch: u64,
+    /// The reader's window and what it was last told to draw around the page.
+    shell: device::Shell,
 }
 
 struct Painted {
@@ -1048,9 +1072,10 @@ const MOVES: u32 = 30;
 const MOVES_MOUNTED: u32 = 6;
 
 impl<D: DataSource + Default> CanvasHost<D> {
-    /// Boot `D`'s app over a view of `size` pixels at `scale` pixels per
-    /// point. Assets use the Linux environment; the carrier directly selects
-    /// its Canvas recorder and enables the reader's native motion lowering.
+    /// Boot `D`'s app in a window of `size` pixels at `scale` pixels per
+    /// point, with the insets the reader told for it (`device.rs`). Assets
+    /// use the Linux environment; the carrier directly selects its Canvas
+    /// recorder and enables the reader's native motion lowering.
     pub fn boot(
         plan: &'static [u8],
         compat: &'static str,
@@ -1061,17 +1086,22 @@ impl<D: DataSource + Default> CanvasHost<D> {
         let origin_ns = monotonic_ns();
         // Motion lowering still reads this policy; painter construction is direct.
         std::env::set_var("EXACT_PAINTER", "canvas");
-        // Twelve viewports of decoded pictures: the reader's copy is a GPU
+        // Eleven viewports of decoded pictures: the reader's copy is a GPU
         // buffer (no heap copy, no upload), a picture decoded again costs
         // more than the memory it holds, and pictures are kept at the size
-        // they show at (`image::png_decode::DecodePlan`), so twelve hold what
-        // a fling through heavy's photos comes back to (Pixel 10 Pro XL, 24k
-        // px/s: CPU -9% against eight, end PSS 530 MB against 495; Views 485).
+        // they show at (`image::png_decode::DecodePlan`). Twelve until they
+        // were asked for at mount (below): heavy then ended 10 MB higher.
         if std::env::var_os("EXACT_IMAGE_VIEWPORTS").is_none() {
-            std::env::set_var("EXACT_IMAGE_VIEWPORTS", "12");
+            std::env::set_var("EXACT_IMAGE_VIEWPORTS", "11");
+        }
+        // A picture is asked for when its row is built (`presenter::images`).
+        if std::env::var_os("EXACT_PICTURES_AT_MOUNT").is_none() {
+            std::env::set_var("EXACT_PICTURES_AT_MOUNT", "1");
         }
         std::env::set_var("EXACT_SCALE", scale.to_string());
-        let viewport = (size.0 as f32 / scale, size.1 as f32 / scale);
+        let told = device::windowed(size, scale);
+        let whole = (size.0 as f32 / scale, size.1 as f32 / scale);
+        let viewport = told.map_or(whole, |told| told.inside());
         // The first frame realizes only the rows that show; the window's lead
         // follows once it is out ([`CanvasHost::frame`]).
         exact_runner::set_lead_scale(0.0);
@@ -1083,6 +1113,11 @@ impl<D: DataSource + Default> CanvasHost<D> {
         crate::app::row_reuse_from_env(true);
         #[cfg(target_os = "android")]
         crate::surfaces::prepare_gpu(compat);
+        // The device's colours, before anything is resolved by a role (D4).
+        let palette = colors::palette();
+        if let Some(palette) = &palette {
+            palette.tell();
+        }
         let mut config = crate::app::Config::from_env_static(plan, compat);
         config.scale = scale;
         let (p, error) = crate::app::boot_presenter_with_painter::<D>(
@@ -1093,13 +1128,25 @@ impl<D: DataSource + Default> CanvasHost<D> {
         if let Some(e) = error {
             eprintln!("exact: {e}");
         }
+        let mut p = p;
+        // What the reader read of the device, before the first frame (D3.1).
+        if let Some(e) = device::configured().and_then(|d| p.set_device(&d)) {
+            eprintln!("exact: device: {e}");
+        }
+        // The reader takes what the presenter asks of the platform (D5),
+        // and makes the top layer's windows (D10) and the bars (D11).
+        p.serve_requests();
+        surface::serve(&mut p);
+        if let Some(palette) = &palette {
+            p.set_palette(palette);
+        }
         eprintln!(
             "exact: canvas {}x{} px, scale {scale}, boot {:.1} ms",
             size.0,
             size.1,
             started.elapsed().as_secs_f64() * 1000.0
         );
-        Ok(CanvasHost {
+        let mut host = CanvasHost {
             p,
             started,
             scale,
@@ -1138,7 +1185,13 @@ impl<D: DataSource + Default> CanvasHost<D> {
             painted_once: false,
             gpu_waiting: false,
             responding: false,
-        })
+            shell: Default::default(),
+        };
+        // The page's place in the window, once its root is known (D3.3).
+        if let Some(told) = told {
+            host.set_window(told);
+        }
+        Ok(host)
     }
 
     /// A reader's `ANativeWindow` of `size` pixels for canvas `view`, alive
@@ -1156,7 +1209,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
     }
 
     fn now(&self) -> f64 {
-        self.started.elapsed().as_secs_f64() * 1000.0
+        agent::clock(&self.p).unwrap_or_else(|| self.started.elapsed().as_secs_f64() * 1000.0)
     }
 
     /// One turn: the presenter's work, then a recording when anything
@@ -1168,8 +1221,8 @@ impl<D: DataSource + Default> CanvasHost<D> {
             exact_runner::set_lead_scale(1.0);
             self.p.refine_deferred(true);
         }
+        let now = self.now();
         let p = &mut self.p;
-        let now = self.started.elapsed().as_secs_f64() * 1000.0;
         let _frame = Section::begin(c"exact frame");
         p.hold_collections(self.scrolled);
         let frame = self.frame_held(now);
@@ -1234,6 +1287,9 @@ impl<D: DataSource + Default> CanvasHost<D> {
             if p.module_pending() {
                 p.first_pixel();
             }
+        }
+        if !quick && self.p.dirty() {
+            self.fit();
         }
         if let Some(mut shift) = self.shift(now) {
             // A play that changed since the last stream (a row that came
@@ -1419,66 +1475,9 @@ impl<D: DataSource + Default> CanvasHost<D> {
         [self.p.executor_fd(), self.p.image_fd()]
     }
 
-    /// Scroll what is under the viewport's center by `dy` pixels.
-    pub fn scroll(&mut self, dy: f32) {
-        let (x, y) = (self.viewport.0 / 2.0, self.viewport.1 / 2.0);
-        let _s = Section::begin(c"exact scroll");
-        self.scrolled = self.prefetching;
-        self.scrolled_at = self.now();
-        self.travel.scrolled(dy / self.scale, self.scrolled_at);
-        self.p.hold_collections(self.prefetching);
-        // The feed: the scroller the first wheel at the centre took, moved
-        // directly after (a nested list under the centre would take it).
-        let moved = self
-            .feed
-            .is_some_and(|id| self.p.scroll_by(id, dy / self.scale));
-        if !moved && self.feed.is_none() {
-            self.p.wheel_at(x, y, 0.0, dy / self.scale);
-            self.feed = self.p.last_wheel();
-        }
-        self.p.hold_collections(false);
-    }
-
-    /// A touch (0 down, 1 up, 2 move, 3 cancel) at pixels.
-    pub fn touch(&mut self, action: i32, x: f32, y: f32) {
-        let _s = Section::begin(c"exact touch");
-        self.force |= action != 2;
-        if action != 2 && self.painted_once {
-            self.p.slice_collections(Some(0), 0.0);
-            self.responding = true;
-            self.lead = false;
-            self.travel.stopped();
-        }
-        let now = self.now();
-        let (x, y) = (x / self.scale, y / self.scale);
-        let r = match action {
-            0 => self.p.pointer_down(x, y, now).map(|_| ()),
-            1 => self.p.pointer_up(x, y, now).map(|_| ()),
-            2 => self.p.pointer_move(x, y, now).map(|_| ()),
-            _ => self.p.pointer_cancel(now),
-        };
-        if let Err(e) = r {
-            eprintln!("exact: {e}");
-        }
-    }
-
     /// A picture announced by `IMAGE_DEF`, once (premultiplied RGBA rows).
     pub fn image(id: u32) -> Option<Picture> {
         image(id)
-    }
-
-    /// The view is `size` pixels after all (the reader booted at the size it
-    /// expected).
-    pub fn resize(&mut self, size: (u32, u32)) {
-        let viewport = (size.0 as f32 / self.scale, size.1 as f32 / self.scale);
-        if viewport == self.viewport {
-            return;
-        }
-        self.viewport = viewport;
-        if let Some(e) = self.p.resize(viewport.0, viewport.1) {
-            eprintln!("exact: resize: {e}");
-        }
-        self.force = true;
     }
 }
 

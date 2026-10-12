@@ -24,6 +24,14 @@ is the storage consumer: notes in SQLite, backups in app-scoped files, and a
 multiline editor on web and Apple. Take: further general-purpose API expansion
 waits behind proving these shipped bindings in the app; Snapback2 stays deferred.
 
+**Expanded (Charlie, 2026-10-08, option A for protocol-handler URL templates):**
+`app.json` `protocol_handlers` carries a complete custom-scheme URL through
+the existing navigation root as an encoded handler location (LLP 1038 D8).
+The OAuth/sign-in callback and return-link consumer of issue #268 can read its
+scheme and fragment. A no-router URL event remains deferred; Charlie's ruling
+keeps the navigation root requirement. Take: no second delivery mechanism is
+added.
+
 **Taken off (Charlie, 2026-09-23: "Take off Messages as the Snapback4
 consumer. We don't need that on the list"):** the trade for web rendering
 (LLP 1048, below). Messages is no longer the Snapback4 consumer admitted
@@ -172,8 +180,10 @@ captioned figures — no camera, no generic file input. **Widened (Charlie,
 `file_handlers`, plus export and import copies to and from `app:/`. Unblocks
 the Markdown reader's remaining surfaces and Fieldnotes' backups. Take: none
 named (Charlie: "idk what to trade it for, maybe relax the limit slightly").
-Still no picker for any file, and no `capture` on the picker (the camera is a
-native module, §Components, 2026-10-02). Linux editing is v2
+**Waived (Charlie, 2026-10-11, coding-agent file attachments):** `input type="file"`
+with no `accept` (or `accept="*/*"`) may pick any file, with no trade.
+Specific `accept` types remain bounded as above. `capture` stays refused
+(the camera is a native module, §Components, 2026-10-02). Linux editing is v2
 (Charlie, 2026-09-21): web, iOS and macOS first; Linux reads.
 
 **Expanded (Charlie, 2026-09-21):** ship the full game engine from Black's
@@ -259,8 +269,11 @@ own list on iOS and a measured sheet elsewhere; `listStyle` picks
 `inset-grouped`, `grouped` or `plain`. The Signal Clone's settings screens are
 the consumer. Unblocks native cell highlight, separators, dynamic type and
 VoiceOver rows in a settings screen without a module. Take: none offered;
-waived by Charlie's approval. No sidebar styles, no virtualized grouped list,
-no grouped swipe actions.
+waived by Charlie's approval. No sidebar styles, no virtualized grouped list.
+**Expanded (LLP 1116.001 D1, 2026-10-11, decided under LLP 1116's standing
+instruction):** a grouped row that names swipe actions takes its list cell's
+own swipe on iOS (grocery-list's swipe-to-delete did nothing in round 3).
+Take: none; the one-row table it replaces is not made for such a row.
 **Expanded (Charlie, 2026-10-06, via the lead: "Recs seem good. Approve and
 push"):** hatches on every platform and what the agent sees of them (LLP
 1075.003.000.001). The changes:
@@ -437,6 +450,7 @@ change can break.
   permission fact.
 
 **Components** — roughly 15 built-in tags, not 40; roughly 12 Facet components, not 47.
+
 **Restated (Charlie, 2026-09-27, LLP 1069.001):** the tag count guards against
 invented components, not HTML's own elements. A built-in tag is an HTML
 element with HTML's meaning; `select` and `option` are admitted on that
@@ -767,8 +781,10 @@ accessibility tree — Chrome's computed tree, UIKit's and AppKit's
 accessibility properties; Linux `unavailable` — and the driver reports four
 fixed findings over it: an unnamed interactive element, an element exposed
 under a declared-inert or hidden view, an element exposed outside an open
-modal, and a role or name disagreeing with the web for a `testId`-joined
-fixture control. Still refused: scoring, a rule catalog, WCAG checks
+modal, and a role, a name or a state that two hosts give differently for a
+`testId`-joined fixture control once each is read through its own platform's
+table (UIKit's toggle value is the platform's, not a disagreement with the
+web; LLP 1115.000 D14.4). Still refused: scoring, a rule catalog, WCAG checks
 (contrast, target size, heading structure), reading-order claims, and
 driving VoiceOver. The guessed `accessibleName` on `tree` is deleted because
 the platform's tree supersedes it, not as the take.

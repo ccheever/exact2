@@ -328,7 +328,7 @@ fn border_layout_paint_and_current_color_follow_live_style_changes() {
 #[ignore = "async lane: launches Bun and nested cargo builds; bun scripts/async.mjs runs it"]
 fn apple_artifacts_own_paths_locks_identity_and_failed_placement() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let result = std::process::Command::new("bun")
+    let result = std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .current_dir(root)
         .args(["--input-type=module", "-e", r#"
 import assert from 'node:assert/strict';
@@ -431,7 +431,7 @@ try {
 fn a_kept_module_is_taken_only_by_a_checkout_of_the_same_bytes() {
     // @ref LLP 1036.000 §10 — the host's Rust modules, kept for the machine.
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let result = std::process::Command::new("bun")
+    let result = std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .current_dir(root)
         .args(["--input-type=module", "-e", r#"
 import assert from 'node:assert/strict';
@@ -522,7 +522,7 @@ try {
 fn kept_registry_crates_are_one_target_directory_at_a_time() {
     // @ref LLP 1036.000 §11 — compiled registry crates, kept for the machine.
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let result = std::process::Command::new("bun")
+    let result = std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .current_dir(root)
         .args(["--input-type=module", "-e", r#"
 import assert from 'node:assert/strict';

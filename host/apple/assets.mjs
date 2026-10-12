@@ -88,7 +88,9 @@ export function appleAssets(app, dir, { platform = 'macos', device = false, cata
   if (kept) {
     const icons = (app.manifest.icons ?? []).map(icon => [icon, existsSync(resolve(app.dir, icon.src)) ? createHash('sha256').update(readFileSync(resolve(app.dir, icon.src))).digest('hex') : null]);
     const key = createHash('sha256').update(JSON.stringify([catalogs, icons, app.manifest.background_color ?? null, app.manifest.background_color_dark ?? null,
-      app.manifest.host?.[sourcePlatform]?.minimumOS ?? null, platform, device, catalog, kept.stamp])).digest('hex').slice(0, 16);
+      app.manifest.host?.[sourcePlatform]?.minimumOS ?? null, platform, device, catalog, kept.stamp,
+      // What the compile itself writes: a cache from before `--accent-color` named no accent
+      'accent-color'])).digest('hex').slice(0, 16);
     const made = resolve(kept.dir, `assets-${platform}-${key}`);
     if (!existsSync(resolve(made, 'keys.json'))) {
       const making = `${made}.${process.pid}.tmp`;
@@ -123,6 +125,10 @@ export function appleAssets(app, dir, { platform = 'macos', device = false, cata
       sources.push(assets);
     }
     rmSync(resolve(dir, 'Assets.car'), { force: true });
+    // An `AccentColor` colour set is the app's accent, as Xcode's default
+    // names it: actool writes `NSAccentColorName`, which AppKit applies and
+    // ExactKit gives every UIKit window (`AppAccent`) under an `auto` accent.
+    const accent = catalogs.some(c => c.files.some(f => /(^|\/)AccentColor\.colorset\/Contents\.json$/.test(f.name)));
     if (sources.length) {
       const partial = resolve(work, 'partial.plist');
       const target = platform === 'macos' ? 'macosx' : platform === 'tvos' ? (device ? 'appletvos' : 'appletvsimulator') : device ? 'iphoneos' : 'iphonesimulator';
@@ -130,6 +136,7 @@ export function appleAssets(app, dir, { platform = 'macos', device = false, cata
         '--minimum-deployment-target', app.manifest.host?.[sourcePlatform]?.minimumOS ?? (platform === 'macos' ? '14.0' : '17.0'),
         ...(platform === 'macos' ? [] : ['--target-device', ...(platform === 'tvos' ? ['tv'] : ['iphone', '--target-device', 'ipad'])]),
         ...(hasIcon ? ['--app-icon', 'AppIcon'] : []),
+        ...(accent ? ['--accent-color', 'AccentColor'] : []),
         '--output-partial-info-plist', partial, '--output-format', 'human-readable-text'], { stdio: 'ignore' });
       Object.assign(keys, JSON.parse(run('plutil', ['-convert', 'json', '-o', '-', partial], { encoding: 'utf8', stdio: 'pipe' }).stdout));
     }

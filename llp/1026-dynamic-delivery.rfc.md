@@ -589,6 +589,9 @@ because it is retrofit-hostile:
   is budgeted and importless, so most failures are refusals, not
   crashes — but the counter is the backstop that must not share fate
   with what it recovers (0421 invariant 11).
+  Recovery bounds each local read by its signed file card, the 64 KiB envelope
+  limit, or a 1 MiB record limit before allocating; growth during a read is
+  bounded too. A damaged record recovers its floor from verified entries.
 - **Assets by digest.** The asset rung LLP 1023 D4 deferred, landed
   here: the envelope lists each asset by name and digest; the store
   fetches what it lacks and reuses what it has, embedded assets

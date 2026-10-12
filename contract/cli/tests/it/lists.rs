@@ -92,7 +92,7 @@ fn prop(r: &Runner<Coins>, id: &str, name: &str) -> String {
         .props
         .iter()
         .find_map(|(p, v)| match v {
-            PropValue::Str(s) if p.name() == name => Some(s.clone()),
+            PropValue::Str(s) if p.name() == name => Some(s.to_string()),
             _ => None,
         })
         .unwrap_or_default()
@@ -219,7 +219,7 @@ component A
             .props
             .iter()
             .find_map(|(p, v)| match v {
-                PropValue::Str(s) if p.name() == "text" => Some(s.clone()),
+                PropValue::Str(s) if p.name() == "text" => Some(s.to_string()),
                 _ => None,
             })
             .unwrap_or_default()
@@ -344,7 +344,7 @@ component Child
             .props
             .iter()
             .find_map(|(p, v)| match v {
-                PropValue::Str(s) if p.name() == "text" => Some(s.clone()),
+                PropValue::Str(s) if p.name() == "text" => Some(s.to_string()),
                 _ => None,
             })
             .unwrap_or_default()
@@ -564,7 +564,7 @@ fn an_empty_list_is_typed_from_its_context_and_runs() {
             .props
             .iter()
             .find_map(|(p, v)| match v {
-                PropValue::Str(s) if p.name() == "text" => Some(s.clone()),
+                PropValue::Str(s) if p.name() == "text" => Some(s.to_string()),
                 _ => None,
             })
             .unwrap_or_default()
@@ -703,7 +703,7 @@ fn shown<D: DataSource>(r: &Runner<D>, id: &str) -> String {
         .props
         .iter()
         .find_map(|(p, v)| match v {
-            PropValue::Str(s) if p.name() == "text" => Some(s.clone()),
+            PropValue::Str(s) if p.name() == "text" => Some(s.to_string()),
             _ => None,
         })
         .unwrap_or_default()

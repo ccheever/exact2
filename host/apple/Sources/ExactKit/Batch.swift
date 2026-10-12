@@ -50,6 +50,15 @@ package enum BatchValue: Equatable {
         default: return false
         }
     }
+    /// A colour its author fixed: a literal, a `light-dark()` pair, one in
+    /// its own space, or one from the app's asset catalogue (`named:`); not
+    /// a system colour by name (a role, `AccentColor`, one a
+    /// `-exact-platform-color()` names). What selected text keeps on the
+    /// Mac, where a system colour's turns (LLP 1115.000 D7.9).
+    var fixesInk: Bool {
+        guard case .object(let o) = self, let name = o["sys"]?.string else { return true }
+        return name.hasPrefix("named:")
+    }
     var isSchemeColor: Bool {
         if case .object(let o) = self { return o["sys"] != nil || o["cs"]?.array?.count == 2 }
         return array?.count == 2 && array?.first?.numbers?.count == 4 && array?.last?.numbers?.count == 4

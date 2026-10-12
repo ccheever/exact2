@@ -4,8 +4,8 @@ use super::*;
 impl<D: DataSource> Bridge<D> {
     /// What native containers cover of boxes (LLP 1075.003 §3.5), from the
     /// input buffer's first `len` bytes: LE records of (u32 view, u32 kind —
-    /// 0 clears, 1 edges, 2 whole — and f32 top, right, bottom, left), one
-    /// layout.
+    /// 0 clears, 1 edges, 2 whole, 3 a scroller's platform inset (top and
+    /// bottom) — and f32 top, right, bottom, left), one layout.
     pub fn covers(&mut self, len: usize) -> u32 {
         let bytes = self.input.get(..len).unwrap_or(&[]);
         let out = if bytes.len() % 24 != 0 {
@@ -25,6 +25,7 @@ impl<D: DataSource> Bridge<D> {
                             edge(20),
                         ])),
                         2 => Some(exact_kernel::HostCover::Whole),
+                        3 => Some(exact_kernel::HostCover::Inset([edge(8), edge(16)])),
                         _ => None,
                     };
                     (u32::from_le_bytes(word(0)), cover)

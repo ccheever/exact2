@@ -17,6 +17,7 @@ final class NativeButtonIOS: UIButton {
     struct Written: Equatable {
         var face: ButtonFace
         var accent: UIColor?
+        var destructive: Bool
         var enabled: Bool
         var label: String?
         var testId: String?
@@ -99,30 +100,16 @@ extension NodeView {
     }
 
     /// D4: the control's primary action is what a custom button's touch-up
-    /// does, once. Each node from this one up to the press's target takes
-    /// the focus when it can, unless a `retainFocus` ancestor keeps the
-    /// editor's (as the touch-up walks the responder chain); the target is
-    /// this node or, without a handler, the nearest ancestor with one whose
-    /// box holds the touch (refused at a disabled one), resolved first; a
-    /// target that did not take the focus ends the editing; then `press`
-    /// and the canvas's pointer return.
+    /// does, once: the target is this node or, without a handler, the
+    /// nearest ancestor with one whose box holds the touch (refused at a
+    /// disabled one), resolved first; then the press's focus
+    /// (`focusForPress`), and `press` when there is a target.
     func activateNative() {
         guard let presenter, !disabled, !inert else { return }
         let target = activationTarget(at: convert(CGPoint(x: bounds.midX, y: bounds.midY), to: nil))
-        var at: UIView? = self
-        while let view = at, view !== presenter.viewport {
-            if let node = view as? NodeView {
-                if node.canBecomeFirstResponder, !node.isFirstResponder, presenter.contextRetainsFocus(node) != true {
-                    node.takeTouchFocus()
-                }
-                if node === target { break }
-            }
-            at = view.superview
-        }
+        focusForPress(target: target)
         guard let target, presenter.views[target.id] === target else { return }
-        if !target.isFirstResponder && presenter.contextRetainsFocus(target) != true { presenter.viewport.endEditing(true) }
         presenter.press(target.id)
-        target.finishPointerPress()
     }
 }
 
@@ -173,10 +160,19 @@ extension ControlHost {
     /// restart UIKit's own animations).
     func configureNative(_ button: NativeButtonIOS, _ owner: NodeView, accent: UIColor?) {
         let face = self.face(owner.id)
+        // A destructive button draws in the platform's destructive red, as a hand-built screen's does (SwiftUI's
+        // `Button(role: .destructive)`, UIKit's red tint): red ink, or a red fill under white ink on a filled
+        // style (LLP 1116.008, team-kanban: "Delete is not styled as destructive"). The accent it only inherits
+        // leaves it red, as it leaves a swipe action's; an accent written on the button itself, and a colour
+        // written on its title, win (LLP 1115: what the author writes wins).
+        let destructive = owner.props["destructive"] == "true" && !owner.wrote("accent_color")
+        let accent = destructive ? UIColor.systemRed : accent
         let written = NativeButtonIOS.Written(
-            face: face, accent: accent, enabled: !owner.disabled,
+            face: face, accent: accent, destructive: destructive, enabled: !owner.disabled,
             label: owner.authoredLabel ?? face.title, testId: owner.props["testId"],
-            selected: owner.props["accessibilitySelected"] == "true", expanded: owner.props["accessibilityExpanded"],
+            // A checked radio is selected, as Safari's VoiceOver reads one (`setAccessibilityChecked`).
+            selected: owner.props["accessibilitySelected"] == "true" || owner.checkedRole.map { $0.role == "radio" && $0.checked } == true,
+            expanded: owner.props["accessibilityExpanded"],
             pressed: owner.pressedState, traits: .init(button.traitCollection),
             interactive: owner.style["pointer_events"]?.string != "none")
         guard button.written != written else { return }
@@ -187,7 +183,7 @@ extension ControlHost {
         let (_, drawn, glass) = Self.configuration(face)
         button.isEnabled = written.enabled
         button.isUserInteractionEnabled = written.interactive
-        ButtonConfigurationIOS.apply(face, to: button, traits: button.traitCollection, accent: accent)
+        ButtonConfigurationIOS.apply(face, to: button, traits: button.traitCollection, accent: accent, destructive: destructive)
         button.accessibilityLabel = written.label
         button.accessibilityIdentifier = written.testId
         if written.selected { button.accessibilityTraits.insert(.selected) } else { button.accessibilityTraits.remove(.selected) }

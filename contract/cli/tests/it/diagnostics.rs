@@ -162,6 +162,59 @@ fn io_and_usage_failures_stay_in_the_structured_protocol() {
     assert!(String::from_utf8_lossy(&human.stderr).contains("contract-use-unreadable"));
 }
 
+/// LLP 1116 D6: a warning is a diagnostic of severity `"warning"` after
+/// every refusal, in the same array or on the same stream; it never fails
+/// the build, and a refusal says `"severity": "error"`.
+#[test]
+fn warnings_follow_the_refusals_and_never_fail_the_build() {
+    let app = App::new("warnings");
+    let source = "shape Ack\n  ok: bool\ncomponent App\n  mutation wrote as shape Ack\n  action save\n    send wrote = keep(performanceNow())\n  view\n    button \"save\" press=save\n";
+    app.write("app.contract", source);
+    let warnings = diagnostics(&app.run(&["app.contract", "--json", "-o", "out.plan"]), 0);
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert_eq!(warnings[0]["id"], "type-performance-now-persisted");
+    assert_eq!(warnings[0]["severity"], "warning");
+    assert_eq!(warnings[0]["file"], "app.contract");
+    assert_eq!(
+        (&warnings[0]["line"], &warnings[0]["col"]),
+        (&6.into(), &23.into())
+    );
+    assert!(app.0.join("out.plan").exists(), "a warning writes the plan");
+    let human = app.run(&["app.contract"]);
+    assert!(human.status.success(), "{human:?}");
+    assert!(String::from_utf8_lossy(&human.stdout).contains("nodes,"));
+    let stderr = String::from_utf8_lossy(&human.stderr);
+    assert!(
+        stderr.starts_with("app.contract:6:23 warning [type-performance-now-persisted] "),
+        "{stderr}"
+    );
+    // Beside a refusal: the refusal first, the warning after, and the
+    // refusal's exit status.
+    app.write(
+        "app.contract",
+        &source.replace("button \"save\"", "button widht=3 \"save\""),
+    );
+    let both = diagnostics(&app.run(&["app.contract", "--json"]), 1);
+    let ids: Vec<(&Value, &Value)> = both.iter().map(|d| (&d["severity"], &d["id"])).collect();
+    assert_eq!(
+        ids,
+        [
+            (&"error".into(), &"lower-unknown-attr".into()),
+            (&"warning".into(), &"type-performance-now-persisted".into())
+        ]
+    );
+    let human = app.run(&["app.contract"]);
+    assert_eq!(human.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&human.stderr);
+    let lines: Vec<&str> = stderr.lines().collect();
+    assert!(
+        lines.len() == 2
+            && lines[0].contains("[lower-unknown-attr]")
+            && lines[1].contains(" warning ["),
+        "{stderr}"
+    );
+}
+
 #[test]
 fn compile_failure_preserves_an_existing_output() {
     let app = App::new("preserve");
@@ -666,7 +719,7 @@ fn an_imported_writes_clause_is_refused_at_its_token_and_symbols_show_the_inferr
     let unused =
         "use Toggle from \"./lib/toggle.contract\"\ncomponent App\n  view\n    text \"unused\"\n";
     let root = app.write("app.contract", used);
-    let source = "component Toggle\n  state enabled = false\n  state clicks = 0\n  state touched = false\n  state idle = 0\n  action choose()WRITES\n    if enabled\n      clicks = clicks + 1\n    else\n      enabled = true\n    match some(clicks)\n      case some(value)\n        touched = true\n        clicks = value + 1\n      case none\n        touched = false\n  view\n    button press=choose\n      text \"Choose\"\n";
+    let source = "component Toggle\n  state enabled = false\n  state clicks = 0\n  state touched = false\n  state idle = 0\n  action choose()WRITES\n    if enabled\n      clicks = clicks + 1\n    else\n      enabled = true\n    match some(idle)\n      case some(value)\n        touched = true\n        clicks = value + 1\n      case none\n        touched = false\n  view\n    button press=choose\n      text \"Choose\"\n";
     for root_source in [used, unused] {
         app.write("app.contract", root_source);
         let path = app
@@ -1323,14 +1376,14 @@ fn function_calls_report_ordered_types_and_argument_positions_at_imported_sites(
 #[test]
 fn deep_views_are_refused_without_aborting_the_compiler() {
     let app = App::new("view-depth");
-    for depth in [256, 400, 800] {
+    for depth in [255, 256, 257, 400, 800] {
         let mut source = String::from("component App\n  view\n");
         for level in 0..depth {
             source.push_str(&format!("{}column\n", " ".repeat(4 + level * 2)));
         }
         let path = app.write("app.contract", &source);
         let output = app.run(&[path.to_str().unwrap(), "--json", "-o", "out.plan"]);
-        if depth == 256 {
+        if depth <= 256 {
             assert!(output.status.success(), "{output:?}");
         } else {
             let errors = diagnostics(&output, 1);

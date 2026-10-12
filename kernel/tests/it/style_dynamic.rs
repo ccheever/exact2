@@ -6,6 +6,42 @@ use exact_kernel::{
 };
 
 #[test]
+fn borrowed_css_parses_like_owned_css_and_retains_no_source_borrow() {
+    for (id, css, valid) in [
+        (StyleId::TextColor, "#abcdef80", true),
+        (StyleId::TextColor, "light-dark(#123, #abc)", true),
+        (
+            StyleId::Animation,
+            "a-long-temporary-animation-name 1s linear",
+            true,
+        ),
+        (StyleId::Transition, "opacity 120ms ease-in", true),
+        (StyleId::Width, "1.25rem", true),
+        (StyleId::LineHeight, "2lh", true),
+        (StyleId::Translate, "12px 25%", true),
+        (StyleId::TextColor, "invalid-color", false),
+        (StyleId::Width, "1pzz", false),
+        (StyleId::LineHeight, "not-a-length", false),
+    ] {
+        let mut borrowed = StyleProps::default();
+        let mut owned = borrowed.clone();
+        let mut source = css.to_owned();
+        let result = borrowed.set_dynamic(id, &StyleValue::Text(source.as_str().into()));
+        let expected = owned.set_dynamic(id, &StyleValue::Text(css.to_owned().into()));
+        assert_eq!(result, expected, "{id:?}: {css}");
+        assert_eq!(result.is_ok(), valid, "{id:?}: {css}");
+        // The parsed value remains usable after its producer reuses the buffer.
+        source.clear();
+        source.push_str("a replacement that is not valid CSS");
+        drop(source);
+        assert_eq!(borrowed, owned, "{id:?}: {css}");
+        if result.is_err() {
+            assert_eq!(borrowed, StyleProps::default());
+        }
+    }
+}
+
+#[test]
 fn translate_text_is_a_narrow_css_pixel_subset_with_atomic_refusal() {
     let mut s = StyleProps::default();
     for (text, x, y) in [
@@ -39,7 +75,7 @@ fn translate_text_is_a_narrow_css_pixel_subset_with_atomic_refusal() {
         );
     }
     let max = format!("{}px 0", f32::MAX as f64);
-    s.set_dynamic(StyleId::Translate, &StyleValue::Text(max))
+    s.set_dynamic(StyleId::Translate, &StyleValue::Text(max.into()))
         .unwrap();
     assert_eq!(s.translate.x, f32::MAX);
     for text in [
@@ -691,9 +727,14 @@ fn every_row_writes_its_own_field_and_no_other() {
             .map(|name| StyleValue::Text((*name).into()))
             .chain(candidates.iter().cloned());
         let mut written = None;
+        // A row whose one value is its initial one (`outline-style`'s
+        // `none`, LLP 1104 D6) is written by marking it.
+        let only_initial = names.len() == 1;
         for value in values {
             let mut s = base.clone();
-            if s.set_dynamic(id, &value).is_ok() && s.get(id) != base.get(id) {
+            if s.set_dynamic(id, &value).is_ok()
+                && (s.get(id) != base.get(id) || (only_initial && s.mask.has(id)))
+            {
                 written = Some(s);
                 break;
             }

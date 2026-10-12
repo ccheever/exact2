@@ -100,3 +100,37 @@ Not tested: iOS and tvOS (a system material, declared separately), Linux.
    safe.
 3. **Snapshot the window's layers behind the node** and blur that (public API; costs a render per frame
    while the content behind moves).
+
+## 2026-10-12 attempt (Codex)
+
+Charlie admitted a time-boxed ancestor plate through clear wrappers, without
+reparenting or snapshots, with the parent-subtree sample kept for blocked paths.
+The attempt stopped under `rules/RULES.md`'s three-correction-round limit. No
+plate implementation or `native.backdropSample` diagnostic is shipped; this
+issue remains open and the declared parent-subtree limit still applies.
+
+The regression first failed because no ancestor plate existed. The prototype
+then created a plate but placed it at `(0, 0, 160, 100)` instead of
+`(220, 40, 160, 100)`: the box calculated from backing layers disagreed with
+the authored frame. Computing from view frames did not establish a reliable insertion
+point. The third run of
+`EXACT_TESTS=1 swift test --jobs 2 --package-path host/apple --scratch-path
+target/clients/86599762ed9a44d2f30a8b0d/com.exact.caltrain/macos/aarch64-apple-darwin/embedded/development/tests
+--filter ClipMacTests` failed at the new test's plate lookup with:
+
+```text
+testNestedBackdropSamplesBehindClearWrapper:
+XCTUnwrap failed: expected non-nil value of type "CALayer" - unmounted branch layer
+Executed 16 tests, with 1 failure
+```
+
+That prototype and its failing structural test were removed. The next attempt
+must first establish a stable insertion point in AppKit's actual layer tree,
+then verify composited window pixels for A/B, the unchanged parity page, a
+scrolling list, and a clipped fallback. No composited-pixel acceptance is
+claimed for this attempt.
+
+The guide, pitfalls and `contract vocab backdrop-filter` now give the working
+authoring advice: make the glass a direct sibling of what it covers.
+`scripts/fixtures/backdrop-nested.contract` keeps the A/B reproduction, a list
+under sibling/nested glass, and a clipped wrapper for that future verification.

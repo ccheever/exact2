@@ -25,13 +25,17 @@ mod cover;
 mod document;
 mod environment;
 mod geometry;
+mod history;
+use history::RetainedReceipt;
 mod intrinsic;
 mod row_memo;
 mod sticky;
 mod trim;
 
 pub use cover::HostCover;
-pub(crate) use cover::{children_changed as cover_children_changed, header_inset};
+pub(crate) use cover::{
+    apply as apply_cover, children_changed as cover_children_changed, published_extent,
+};
 pub use sticky::StickyConstraint;
 
 /// How many receipts the kernel retains for late readers.
@@ -80,6 +84,22 @@ pub struct NodeRef<'a> {
 }
 
 impl<'a> NodeRef<'a> {
+    fn at(arena: &'a NodeArena, slot: u32) -> Self {
+        Self {
+            id: arena.local_id(slot),
+            key: arena.key(slot),
+            node_type: arena.node_type(slot),
+            parent: arena.parent(slot).map(|p| arena.local_id(p)),
+            style: arena.style(slot),
+            props: arena.props(slot),
+            frame: arena.frame(slot),
+            content: arena.content(slot),
+            is_root: arena.is_root(slot),
+            arena,
+            slot,
+        }
+    }
+
     /// The editor content box in this native field's local frame (LLP 1104 D5).
     pub fn field_content_rect(&self) -> Option<Frame> {
         self.arena.field_content_rect(self.slot)
@@ -106,12 +126,26 @@ impl<'a> NodeRef<'a> {
     /// The node whose own row supplies `id` here: this node when it sets the
     /// row; for a row the schema marks inherited, the nearest logical ancestor
     /// that does; `None` when the initial value applies (LLP 1035.000 D1).
-    /// Authored presence stays in `style.mask`; this is where a computed
-    /// value came from.
+    /// Which rows are set stays in `style.mask`, and which of those the
+    /// author wrote in `style.written`; this is where a computed value came
+    /// from.
     pub fn source_of(&self, id: StyleId) -> Option<ViewId> {
         self.arena
             .inherited_source(self.slot, id)
             .map(|s| self.arena.local_id(s))
+    }
+
+    /// Whether the author wrote the value this node computes for `id`
+    /// (LLP 1115.000 D2): the row that supplies it ([`NodeRef::source_of`])
+    /// is one its author wrote, on this node or on the ancestor an inherited
+    /// row comes from. False for an initial value and for a row the compiler
+    /// implied. `style.written` is the node's own rows alone, which is what
+    /// a control asks (a colour it only inherits is not its own); this is
+    /// what a text asks, whose colour and font CSS takes from its box.
+    pub fn says(&self, id: StyleId) -> bool {
+        self.arena
+            .inherited_source(self.slot, id)
+            .is_some_and(|s| self.arena.style(s).written.has(id))
     }
 
     /// CSS's computed value of a row: the own row; else, for an inherited
@@ -137,6 +171,12 @@ impl<'a> NodeRef<'a> {
     /// rows, else its paragraph's, else the initial values.
     pub fn text_style(&self) -> TextStyle {
         self.arena.text_style(self.slot)
+    }
+
+    /// The resolved paragraph inputs used by the layout measurer, without
+    /// copying unrelated style rows.
+    pub fn paragraph(&self) -> crate::text::Paragraph {
+        self.arena.paragraph(self.slot)
     }
 
     /// The nearest explicit HTML spelling-check hint in the logical tree.
@@ -192,6 +232,14 @@ impl<'a> NodeRef<'a> {
         runs
     }
 
+    /// The scale this paragraph is drawn at, as its last layout chose it
+    /// (`-exact-fit: shrink`, LLP 1116.001 D1.4): 1 unless it was shrunk to
+    /// fit its box. [`Self::text_runs`] are at it already; a host that draws
+    /// from the style rows multiplies their sizes by it.
+    pub fn fit_scale(&self) -> f32 {
+        self.arena.fit_scale(self.slot)
+    }
+
     /// Child wire ids, in order.
     pub fn children(&self) -> Vec<ViewId> {
         self.arena
@@ -199,6 +247,16 @@ impl<'a> NodeRef<'a> {
             .iter()
             .map(|c| self.arena.local_id(*c))
             .collect()
+    }
+
+    /// Borrow the children in tree order, without allocating an id snapshot
+    /// or resolving those ids again. The arena stays borrowed for the walk.
+    pub fn child_nodes(&self) -> impl ExactSizeIterator<Item = Self> + DoubleEndedIterator + 'a {
+        let arena = self.arena;
+        arena
+            .children(self.slot)
+            .iter()
+            .map(move |&slot| Self::at(arena, slot))
     }
 }
 
@@ -213,7 +271,7 @@ pub struct Kernel {
     epoch: u64,
     incarnation: u64,
     provisional_layouts: u64,
-    receipts: VecDeque<CommitReceipt>,
+    receipts: VecDeque<RetainedReceipt>,
     region: Option<crate::region::RegionState>,
     region_leases: crate::region::RegionLeases,
     /// A kernel with layout on demand builds the engine only when a layout
@@ -805,19 +863,7 @@ impl Kernel {
     }
 
     fn node_at(&self, slot: u32) -> NodeRef<'_> {
-        NodeRef {
-            id: self.arena.local_id(slot),
-            key: self.arena.key(slot),
-            node_type: self.arena.node_type(slot),
-            parent: self.arena.parent(slot).map(|p| self.arena.local_id(p)),
-            style: self.arena.style(slot),
-            props: self.arena.props(slot),
-            frame: self.arena.frame(slot),
-            content: self.arena.content(slot),
-            is_root: self.arena.is_root(slot),
-            arena: &self.arena,
-            slot,
-        }
+        NodeRef::at(&self.arena, slot)
     }
 
     /// Every node whose `id` prop is `id`, oldest first: what a command
@@ -878,9 +924,10 @@ impl Kernel {
         indexed.iter().min().map(|slot| self.arena.key(*slot))
     }
 
-    /// Retained commit receipts, oldest first.
-    pub fn receipts(&self) -> impl Iterator<Item = &CommitReceipt> {
-        self.receipts.iter()
+    /// Retained commit receipts, oldest first, decoded when requested.
+    /// Commits return their receipt directly; history reads own their copies.
+    pub fn receipts(&self) -> impl Iterator<Item = CommitReceipt> + '_ {
+        self.receipts.iter().map(RetainedReceipt::receipt)
     }
 
     /// Destroy every node and bump the incarnation. Keys minted before never resolve again.

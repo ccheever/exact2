@@ -6,6 +6,55 @@
 #if os(macOS)
 import AppKit
 
+extension NSControl {
+    var ariaUnavailableFromNode: Bool {
+        var view: NSView? = self
+        while let current = view {
+            if let node = current as? NodeView { return node.ariaUnavailable }
+            view = current.superview
+        }
+        return false
+    }
+}
+
+class AriaButtonCellMac: NSButtonCell {
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        if attribute == .enabled, (controlView as? NSControl)?.ariaUnavailableFromNode == true { return false }
+        return super.accessibilityAttributeValue(attribute)
+    }
+}
+
+final class CheckboxMac: NSButton {
+    override class var cellClass: AnyClass? { get { AriaButtonCellMac.self } set {} }
+    override func mouseDown(with event: NSEvent) { if !contextClicked(event) { super.mouseDown(with: event) } }
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        if attribute == .enabled, ariaUnavailableFromNode { return false }
+        return super.accessibilityAttributeValue(attribute)
+    }
+}
+
+final class SwitchMac: NSSwitch {
+    override func mouseDown(with event: NSEvent) { if !contextClicked(event) { super.mouseDown(with: event) } }
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        if attribute == .enabled, ariaUnavailableFromNode { return false }
+        return super.accessibilityAttributeValue(attribute)
+    }
+}
+
+final class PopupCellMac: NSPopUpButtonCell {
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        if attribute == .enabled, (controlView as? NSControl)?.ariaUnavailableFromNode == true { return false }
+        return super.accessibilityAttributeValue(attribute)
+    }
+}
+
+final class SliderCellMac: NSSliderCell {
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        if attribute == .enabled, (controlView as? NSControl)?.ariaUnavailableFromNode == true { return false }
+        return super.accessibilityAttributeValue(attribute)
+    }
+}
+
 final class ControlHost: NSObject {
     unowned let presenter: Presenter
     var controls: [UInt32: NSControl] = [:]
@@ -27,6 +76,8 @@ final class ControlHost: NSObject {
     /// not say.
     var spinners: [UInt32: NSProgressIndicator] = [:]
     var animating: Set<UInt32> = []
+    /// Each determinate `progress`'s bar (LLP 1116 D8), beside them.
+    var bars: [UInt32: NSProgressIndicator] = [:]
 
     init(_ presenter: Presenter) { self.presenter = presenter }
 
@@ -49,10 +100,10 @@ final class ControlHost: NSObject {
         appliedRange.removeValue(forKey: node.id)
         let made: NSControl
         switch kind {
-        case "switch": made = NSSwitch()
+        case "switch": made = SwitchMac()
         case "button": made = makeNativeButton(node) // LLP 1069.011
         case "checkbox":
-            let box = NSButton(checkboxWithTitle: "", target: nil, action: nil)
+            let box = CheckboxMac(checkboxWithTitle: "", target: nil, action: nil)
             box.imagePosition = .imageOnly
             made = box
         case "radio": made = RadioButtonMac() // x2apps survey #2
@@ -186,6 +237,8 @@ final class ControlHost: NSObject {
         controls.removeAll()
         for spinner in spinners.values { spinner.stopAnimation(nil); spinner.removeFromSuperview() }
         spinners.removeAll()
+        for bar in bars.values { bar.removeFromSuperview() }
+        bars.removeAll()
         animating.removeAll()
         reported.removeAll()
         kinds.removeAll()
@@ -194,4 +247,5 @@ final class ControlHost: NSObject {
         appliedRange.removeAll()
     }
 }
+
 #endif

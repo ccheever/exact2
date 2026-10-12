@@ -15,22 +15,32 @@ typealias SymbolConfig = NSImage.SymbolConfiguration
 #endif
 
 extension NodeView {
-    /// The symbol's own tint, or `nil` to follow the platform's accent
-    /// (LLP 1095 stage 2): the initial `-exact-tint-color` is `AccentColor`, which the
-    /// platform keeps dynamic (iOS inherits the hierarchy's `tintColor`, a
-    /// window or app tint included; macOS has `controlAccentColor`), so it is
-    /// never resolved to channels here.
+    /// The symbol's own tint, or `nil` to follow the platform's
+    /// (LLP 1095 stage 2): with no row its own for a symbol nobody tinted
+    /// (`unsaidSymbolTint`), and for one that names the accent the accent,
+    /// which the platform keeps dynamic (iOS inherits the hierarchy's
+    /// `tintColor`, a window or app tint included; macOS has the nearest
+    /// authored accent, else `controlAccentColor`), so neither is resolved
+    /// to channels here.
     var symbolTint: PlatformColor? {
         guard let row = style["tint_color"] else { return nil }
         if case .object(let o) = row, o["sys"]?.string == "@tint" { return nil }
         return channels("tint_color").map(TextEngine.color)
+    }
+    /// Whether a colour row is the platform's accent (`AccentColor`, iOS's
+    /// inherited `tintColor`) rather than a colour of its own. An unset
+    /// `tint-color` is its initial value, `AccentColor`.
+    package func followsTint(_ key: String) -> Bool {
+        guard let row = style[key] else { return key == "tint_color" }
+        guard case .object(let o) = row else { return false }
+        return o["sys"]?.string?.hasPrefix("@tint") == true
     }
     /// The accent a `nil` `symbolTint` follows, for an API that needs a colour.
     var inheritedTint: PlatformColor {
         #if os(iOS) || os(tvOS)
         return tintColor
         #else
-        return .controlAccentColor
+        return viewTint ?? .controlAccentColor
         #endif
     }
 
@@ -54,10 +64,26 @@ extension NodeView {
         return (SystemColor.channels("@tint", dark: drawsDark, tintColor: tint, fallback: nil) ?? []).map { "\($0)" }.joined(separator: ",")
     }
 
+    /// What a symbol nobody tinted draws in: the role table's `symbol` row,
+    /// the initial `-exact-tint-color` (LLP 1115.000 D3.9). On iOS the view's
+    /// tint, as UIKit draws a template image. On the Mac
+    /// `secondaryLabelColor`, as AppKit draws one in an `NSImageView`
+    /// (measured on macOS 27.0.1: black at 50% in a light window, white at
+    /// 55% in a dark one), and not the accent, which is a control's own
+    /// image's; a tint that names the accent still follows it
+    /// (`inheritedTint`). `PlatformDefaultsMacTests` holds the Mac's to the
+    /// table's column.
+    var unsaidSymbolTint: PlatformColor {
+        #if os(macOS)
+        if style["tint_color"] == nil { return .secondaryLabelColor }
+        #endif
+        return inheritedTint
+    }
+
     /// The symbol's configuration: its size and weight, then its rendering
     /// mode (D10) — hierarchical in the tint, a palette, or multicolor.
     func symbolConfiguration(_ base: SymbolConfig) -> SymbolConfig {
-        let tint = symbolTint ?? inheritedTint
+        let tint = symbolTint ?? unsaidSymbolTint
         switch style["symbol_rendering"]?.string {
         case "hierarchical": return base.applying(SymbolConfig(hierarchicalColor: tint))
         case "multicolor": return base.applying(SymbolConfig.preferringMulticolor())

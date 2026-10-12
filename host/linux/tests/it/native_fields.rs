@@ -21,6 +21,9 @@ fn boot() -> Presenter<()> {
       column color="white" font-size=32 font-style="italic" letter-spacing=4
         input width=100 height=30 value="Visible" testId="contrast"
         textarea width=100 rows=1 value="Visible" testId="contrast-area"
+      input width=100 height=30 appearance="none" outline="none" testId="bare-quiet"
+      input width=100 height=30 outline="none" testId="native-quiet"
+      textarea width=100 rows=2 outline="none" testId="area-quiet"
 "##,
     )
     .unwrap();
@@ -134,6 +137,36 @@ fn focused_bare_fields_ring_the_outer_box() {
     for name in ["bare", "authored"] {
         p.tap(id(&p, name)).unwrap();
         assert_eq!(pixel(&mut p, name, 50, 0), [0, 0x75, 0xff, 255], "{name}");
+    }
+}
+
+/// `outline="none"` takes the painted ring off a focused field, bare or
+/// native, single-line or not; a field without it keeps the ring.
+#[test]
+fn outline_none_paints_no_ring_on_a_focused_field() {
+    let mut p = boot();
+    let ring = |p: &mut Presenter<()>, name: &str| {
+        p.tap(id(p, name)).unwrap();
+        assert_eq!(p.focus(), Some(id(p, name)), "{name} takes the focus");
+        let f = frame(p, name);
+        let shot = p.frame();
+        (0..f.width as u32 + 4)
+            .flat_map(|x| (0..f.height as u32 + 4).map(move |y| (x, y)))
+            .filter_map(|(x, y)| {
+                shot.pixel(
+                    (f.x as u32 + x).saturating_sub(2),
+                    (f.y as u32 + y).saturating_sub(2),
+                )
+            })
+            .any(|c| [c.red(), c.green(), c.blue()] == [0, 0x75, 0xff])
+    };
+    for (kept, quiet) in [
+        ("bare", "bare-quiet"),
+        ("email", "native-quiet"),
+        ("area", "area-quiet"),
+    ] {
+        assert!(ring(&mut p, kept), "{kept} keeps its ring");
+        assert!(!ring(&mut p, quiet), "{quiet} paints no ring");
     }
 }
 

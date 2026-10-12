@@ -62,48 +62,69 @@ public struct ExactDevelopmentPlan {
         }
     }
 
+    /// The plan and, when one is beside it, its module pair, read as one
+    /// candidate: a partial pair or an oversized file is refused.
+    private func read(for app: ExactApp) throws -> (plan: Data, module: ExactModule?) {
+        let files = self.files
+        func read(_ index: Int, limit: Int) throws -> Data {
+            let url = files[index]
+            let a = try FileManager.default.attributesOfItem(atPath: url.path)
+            guard let size = a[.size] as? NSNumber, size.intValue <= limit else {
+                throw NSError(domain: "ExactDevelopmentPlan", code: 1, userInfo: [NSLocalizedDescriptionKey: "\(url.lastPathComponent) exceeds the development artifact limit"])
+            }
+            let bytes = try Data(contentsOf: url)
+            guard bytes.count <= limit else { throw CocoaError(.fileReadTooLarge) }
+            return bytes
+        }
+        let plan = try read(0, limit: 32 << 20)
+        guard hasModule else { return (plan, nil) }
+        var javascript: ExactModule?, rust: ExactModule?
+        if files[1...2].contains(where: { FileManager.default.fileExists(atPath: $0.path) }) {
+            javascript = ExactModule(receipt: try read(1, limit: 1 << 20), bytecode: try read(2, limit: 32 << 20))
+        }
+        if files.count > baseFiles.count && !(app.rustPolicy.mode == "off" && javascript != nil) {
+            let policy = app.rustPolicy
+            let prefix = policy.mode == "wasm" ? "rust/wasm" : "rust/" + policy.mode + "/" + policy.target
+            guard policy.mode != "off",
+                  let index = files.firstIndex(where: { $0.path.hasSuffix(prefix + "/app.module.json") }) else {
+                throw NSError(domain: "ExactDevelopmentPlan", code: 1, userInfo: [NSLocalizedDescriptionKey: "no Rust replacement matching this binary's executor and target"])
+            }
+            let receiptIndex = index
+            let json = try JSONSerialization.jsonObject(with: read(index, limit: 1 << 20)) as? [String: Any]
+            guard let row = json?["module"] as? [String: Any], let name = row["file"] as? String,
+                  ["app.module.wasm", "app.module.dylib", "app.module.so", "app.module.dll", "app.module.bin"].contains(name),
+                  let index = files.firstIndex(where: { $0.path.hasSuffix(prefix + "/" + name) }) else { throw CocoaError(.fileNoSuchFile) }
+            rust = ExactModule(receipt: try read(receiptIndex, limit: 1 << 20), bytecode: try read(index, limit: 32 << 20))
+        }
+        guard let module = try DevelopmentModules.combine(javascript: javascript, rust: rust) else { throw CocoaError(.fileNoSuchFile) }
+        return (plan, module)
+    }
+
     @discardableResult
     public func apply(to app: ExactApp) -> Bool {
-        let files = self.files
         do {
-            func read(_ index: Int, limit: Int) throws -> Data {
-                let url = files[index]
-                let a = try FileManager.default.attributesOfItem(atPath: url.path)
-                guard let size = a[.size] as? NSNumber, size.intValue <= limit else {
-                    throw NSError(domain: "ExactDevelopmentPlan", code: 1, userInfo: [NSLocalizedDescriptionKey: "\(url.lastPathComponent) exceeds the development artifact limit"])
-                }
-                let bytes = try Data(contentsOf: url)
-                guard bytes.count <= limit else { throw CocoaError(.fileReadTooLarge) }
-                return bytes
-            }
-            let plan = try read(0, limit: 32 << 20)
-            let label = files[0].lastPathComponent
-            if hasModule {
-                var javascript: ExactModule?, rust: ExactModule?
-                if files[1...2].contains(where: { FileManager.default.fileExists(atPath: $0.path) }) {
-                    javascript = ExactModule(receipt: try read(1, limit: 1 << 20), bytecode: try read(2, limit: 32 << 20))
-                }
-                if files.count > baseFiles.count && !(app.rustPolicy.mode == "off" && javascript != nil) {
-                    let policy = app.rustPolicy
-                    let prefix = policy.mode == "wasm" ? "rust/wasm" : "rust/" + policy.mode + "/" + policy.target
-                    guard policy.mode != "off",
-                          let index = files.firstIndex(where: { $0.path.hasSuffix(prefix + "/app.module.json") }) else {
-                        throw NSError(domain: "ExactDevelopmentPlan", code: 1, userInfo: [NSLocalizedDescriptionKey: "no Rust replacement matching this binary's executor and target"])
-                    }
-                    let receiptIndex = index
-                    let json = try JSONSerialization.jsonObject(with: read(index, limit: 1 << 20)) as? [String: Any]
-                    guard let row = json?["module"] as? [String: Any], let name = row["file"] as? String,
-                          ["app.module.wasm", "app.module.dylib", "app.module.so", "app.module.dll", "app.module.bin"].contains(name),
-                          let index = files.firstIndex(where: { $0.path.hasSuffix(prefix + "/" + name) }) else { throw CocoaError(.fileNoSuchFile) }
-                    rust = ExactModule(receipt: try read(receiptIndex, limit: 1 << 20), bytecode: try read(index, limit: 32 << 20))
-                }
-                guard let module = try DevelopmentModules.combine(javascript: javascript, rust: rust) else { throw CocoaError(.fileNoSuchFile) }
-                return app.applyGeneration(ExactGeneration(plan: plan, assets: app.resolver, module: module), label: label, commit: { true })
-            }
-            return app.apply(plan, label: label)
+            let (plan, module) = try read(for: app)
+            let label = baseFiles[0].lastPathComponent
+            guard let module else { return app.apply(plan, label: label) }
+            return app.applyGeneration(ExactGeneration(plan: plan, assets: app.resolver, module: module), label: label, commit: { true })
         } catch {
             fputs("exact: local generation refused: \(error.localizedDescription)\n", stderr)
             return false
+        }
+    }
+
+    /// The plan and its module pair as the launch generation (`EXACT_PLAN`
+    /// naming a local bake, LLP 1116.003): the first boot runs it as a build
+    /// that baked it would, fresh, with nothing carried from the embedded
+    /// plan. Call before the first session; nil once installed, else why not.
+    public func installInitial(on app: ExactApp) -> String? {
+        do {
+            let (plan, module) = try read(for: app)
+            guard let module else { return "\(baseFiles[0].lastPathComponent) has no module beside it" }
+            app.installInitial(ExactGeneration(plan: plan, assets: app.resolver, module: module))
+            return nil
+        } catch {
+            return "local generation refused: \(error.localizedDescription)"
         }
     }
 }

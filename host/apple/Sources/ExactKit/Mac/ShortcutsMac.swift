@@ -219,8 +219,9 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
             let shortcut = declarations(view).first(where: { $0.modifiers.contains(.command) })
             guard shortcut != nil || presenter?.toolbar.contains(view) == true else { continue }
             live.insert(view.id)
-            let item = items[view.id] ?? NSMenuItem(title: "", action: #selector(activate(_:)), keyEquivalent: "")
+            let item = items[view.id] ?? AccessibleMenuItem(title: "", action: #selector(activate(_:)), keyEquivalent: "")
             items[view.id] = item
+            (item as? AccessibleMenuItem)?.owner = view
             item.title = title(view)
             // A symbol a button shows is its item's image (LLP 1069.011.000 D7).
             item.image = view.isButton ? view.face?.symbol.flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: nil) } : nil
@@ -275,13 +276,19 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
             place(application, in: applicationMenu, at: min(2, applicationMenu.numberOfItems))
         }
         if let navigationMenu {
+            // The host's own Back (LLP 1115.000 D5.1) leads the menu while
+            // the app has a navigation root, unless an app command took its
+            // ⌘[ and stands in for it (`claim`).
+            let own = navigationMenu.items.filter { !($0.target is ShortcutHost) }
+            let routed = presenter?.carrying("navigationBack").isEmpty == false
+            for item in own { item.isHidden = !routed || replaced.contains { $0 === item } }
             // History commands precede destinations regardless of where the
             // toolbar sits in the authored tree; destinations keep tree order.
             let history = navigation.filter { $0.keyEquivalentModifierMask == .command && ["[", "]"].contains($0.keyEquivalent) }
             navigation = history.sorted { $0.keyEquivalent < $1.keyEquivalent }
                 + navigation.filter { item in !history.contains(where: { $0 === item }) }
-            place(navigation, in: navigationMenu, at: 0)
-            navigationMenu.supermenu?.items.first(where: { $0.submenu === navigationMenu })?.isHidden = navigation.isEmpty
+            place(navigation, in: navigationMenu, at: own.count)
+            navigationMenu.supermenu?.items.first(where: { $0.submenu === navigationMenu })?.isHidden = navigation.isEmpty && own.allSatisfy(\.isHidden)
         }
     }
     /// Edit's commands (studio diary R16), where Apple's HIG puts them: one
@@ -336,7 +343,8 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
     /// No chord twice in the bar: a host item whose chord a command declares
     /// gives it up and keeps its place (File ▸ New Window beside the app's
     /// ⌘N, Develop ▸ App Info beside its ⌘D) — or, for Edit's own roles,
-    /// steps aside for the command (`placeEdit`).
+    /// steps aside for the command (`placeEdit`), as Go ▸ Back does for the
+    /// app's own ⌘[ (LLP 1115.000 D5.1).
     private func claim(_ claimed: [(String, NSEvent.ModifierFlags)]) {
         guard let bar = fileMenu?.supermenu else { return }
         var menus = bar.items.compactMap(\.submenu)
@@ -346,7 +354,7 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
                 guard !host.keyEquivalent.isEmpty,
                       claimed.contains(where: { Self.sameChord(host, key: $0.0, $0.1) }) else { continue }
                 unbound.append((host, host.keyEquivalent, host.keyEquivalentModifierMask))
-                if menu === editMenu || menu.supermenu === editMenu, Self.standsIn(host) {
+                if ((menu === editMenu || menu.supermenu === editMenu) && Self.standsIn(host)) || host.target is GoMenuTarget {
                     host.isHidden = true
                     replaced.append(host)
                 }

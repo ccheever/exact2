@@ -195,6 +195,18 @@ through it. `windows_document_tests.rs` covers
 bytes, directory refusal, grant-before-resolution, and ACL denial. This avoids
 a racy precheck and does not reinterpret ordinary access-denied errors.
 
+### 12. bounded native filesystem results
+
+For exact2 LLP 1027.001 D2 (2026-10-11): `fs::read_result` checks metadata,
+then reads at most one byte beyond the largest raw payload whose base64 JSON
+fits the 16 MiB storage result cap. Every native `readFile` path uses it:
+absolute, app-scoped, and chosen documents on Unix and Windows. Directory
+enumerators count JSON-encoded names before retaining each one. The native
+adapter keeps its serialized-size backstop for other result kinds.
+Recursive removal drains at most 256 names per directory pass on Unix and
+Windows, so the listing-result cap does not refuse a write-only removal. Unix
+removal keeps raw directory-entry bytes and fails a pass that removes nothing.
+
 ## Split-crate integration adaptations
 
 `hermes-lean-sys/{build.rs,src/lib.rs}` exports the paired `HERMESC_PATH` and

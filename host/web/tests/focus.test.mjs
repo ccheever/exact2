@@ -161,10 +161,11 @@ test('bare fields restore keyboard focus and disabled native ink comes from the 
     const page = await browser.newPage();
     const css = readFileSync(new URL('../index.html', import.meta.url), 'utf8').match(/<style>([\s\S]*?)<\/style>/)[1];
     for (const scheme of ['light', 'dark']) {
-      await page.setContent(`<style>${css}</style><div id="exact-root" style="color:red;color-scheme:${scheme}">
+      await page.setContent(`<style>${css}#exact-root#exact-root{.c1{outline-style:none}}</style><div id="exact-root" style="color:red;color-scheme:${scheme}">
         <input id="bare"><textarea id="area"></textarea><textarea id="markdown" markup="markdown"></textarea>
         <input id="native" data-native disabled value="Disabled"><textarea id="native-area" data-native disabled>Disabled</textarea>
         <input id="authored" data-native disabled style="color:rgb(0,128,0)">
+        <input id="quiet" style="outline-style:none"><textarea id="quiet-area" class="c1"></textarea><input id="quiet-native" data-native class="c1">
       </div><iframe srcdoc='<style>html {color-scheme:${scheme}}</style><input id="ua" disabled><textarea id="ua-area" disabled></textarea>'></iframe>`);
       for (const id of ['bare', 'area']) {
         await page.keyboard.press('Tab');
@@ -182,6 +183,14 @@ test('bare fields restore keyboard focus and disabled native ink comes from the 
       // Source mode retains the Markdown editor's existing focus treatment.
       await page.keyboard.press('Tab');
       expect(await page.$eval('#markdown', el => getComputedStyle(el).outlineStyle)).toBe('none');
+      // `outline="none"` as the live host writes it (inline) and the JS
+      // target does (its class): the author's row outranks the restore and,
+      // on a native field, the UA's ring; Tab still reaches each.
+      for (const id of ['quiet', 'quiet-area', 'quiet-native']) {
+        await page.keyboard.press('Tab');
+        expect(await page.evaluate(() => document.activeElement.id)).toBe(id);
+        expect(await page.$eval(`#${id}`, el => el.matches(':focus-visible') && getComputedStyle(el).outlineStyle)).toBe('none');
+      }
     }
   } finally { await browser.close(); }
 }, 20000);
@@ -212,6 +221,10 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: native 
         window.presses = 0;
         document.addEventListener('click', e => { if (e.target.tagName === 'BUTTON') window.presses++; });
       });
+      // The page's `bordered` look writes the accent as the label's ink (LLP 1116 D1);
+      // an engine whose ring is `currentColor` draws the UA ring in that ink.
+      const ink = await page.$eval('#native', el => getComputedStyle(el).color);
+      await reference.$eval('#ua', (el, ink) => { el.style.color = ink; }, ink);
       await reference.keyboard.press(tab);
       await page.keyboard.press(tab);
       expect(await page.evaluate(() => document.activeElement.id)).toBe('native');
@@ -235,3 +248,48 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: native 
     }
   } finally { await browser.close(); }
 }, 30000);
+
+// #282: the real HTML dialog path, reached through the JS target's commands.
+test('action dialog commands keep modal focus and preserve bare close as window close', async () => {
+  const {readFileSync} = await import('node:fs');
+  const {chromium: browserPath} = await import('../../../scripts/agent-launch.mjs');
+  const {chromium} = await import('playwright-core');
+  const browser = await chromium.launch({executablePath: browserPath().executable, headless: true});
+  try {
+    const page = await browser.newPage();
+    await page.setContent('<div id="exact-root"><button id="opener">Open</button><button id="outside">Outside</button><dialog id="form"><button id="first">First</button><button id="last">Last</button></dialog><div id="box"></div></div><dialog id="other"></dialog>');
+    const source = readFileSync(new URL('../../web-js/commands.js', import.meta.url), 'utf8').replace(/^import .*;$/m, '').replace('export const commands', 'const commands');
+    await page.addScriptTag({content: `${source}\nwindow.journal=[];window.quit=0;window.close=()=>quit++;window.hostCommands=commands(line=>journal.push(line));`});
+    await page.focus('#opener');
+    await page.evaluate(() => hostCommands.showModal('form'));
+    expect(await page.evaluate(() => [document.querySelector('#form').matches(':modal'), document.activeElement.id])).toEqual([true, 'first']);
+    const trace = async () => {
+      const focus = [];
+      for (const key of ['Shift+Tab', 'Tab', 'Tab', 'Tab']) {
+        await page.keyboard.press(key);
+        focus.push(await page.evaluate(() => document.activeElement.id));
+      }
+      return focus;
+    };
+    const actual = await trace();
+    await page.evaluate(() => hostCommands.close('form'));
+    await page.focus('#opener');
+    await page.evaluate(() => document.querySelector('#form').showModal());
+    const reference = await trace();
+    expect(actual).toEqual(reference); // Chrome includes its own browser-focus boundary.
+    expect(actual).not.toContain('outside');
+    expect(actual).toContain('first');
+    expect(actual).toContain('last');
+    await page.evaluate(() => document.querySelector('#first').focus());
+    await page.focus('#outside');
+    expect(await page.evaluate(() => document.activeElement.id)).toBe('first');
+    await page.evaluate(() => hostCommands.close('form'));
+    expect(await page.evaluate(() => [document.querySelector('#form').open, document.activeElement.id, quit])).toEqual([false, 'opener', 0]);
+    await page.evaluate(() => hostCommands.showModal('form'));
+    await page.keyboard.press('Escape');
+    expect(await page.evaluate(() => [document.querySelector('#form').open, document.activeElement.id])).toEqual([false, 'opener']);
+    await page.evaluate(() => { hostCommands.showModal('box'); hostCommands.showModal('missing'); hostCommands.close(); });
+    expect(await page.evaluate(() => [journal.length, quit])).toEqual([2, 1]);
+    expect(await page.evaluate(() => journal.every(line => line.includes('refused')))).toBe(true);
+  } finally { await browser.close(); }
+}, 20000);

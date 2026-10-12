@@ -22,7 +22,7 @@ pub struct Carried {
     /// The clock, milliseconds.
     pub now_ms: f64,
     /// The store's kept values (LLP 1018): what the host has persisted.
-    pub store: Vec<(String, String)>,
+    pub store: Vec<(String, Vec<u8>)>,
     /// Each queue's waiting sends, by mutation name: never carried, only
     /// said once the new runner boots (LLP 1092 D4).
     pub forgot_waiting: Vec<(String, usize)>,
@@ -287,7 +287,7 @@ mod tests {
             assert!(carried
                 .store
                 .iter()
-                .any(|(name, value)| name == "token" && value == "stored answer"));
+                .any(|(name, value)| name == "token" && value == b"stored answer"));
         }
     }
 }

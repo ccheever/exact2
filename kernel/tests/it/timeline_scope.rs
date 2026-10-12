@@ -38,7 +38,7 @@ fn rows(spec: &[&str]) -> Box<StyleProps> {
             }
             _ => panic!("{key}"),
         };
-        s.set_dynamic(id, &StyleValue::Text(value)).unwrap();
+        s.set_dynamic(id, &StyleValue::Text(value.into())).unwrap();
     }
     Box::new(s)
 }

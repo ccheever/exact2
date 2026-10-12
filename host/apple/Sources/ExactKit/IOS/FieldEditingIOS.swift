@@ -5,11 +5,16 @@
 import UIKit
 
 extension NodeView {
-    /// As `writeValue(_:into:)` for a text view: composition defers the write,
-    /// and the caret is carried through the changed middle.
+    /// As `writeValue(_:into:)` for a text view: the value the field already
+    /// shows changes nothing, so a composition and its selection stand; a
+    /// different one is held while text is marked and applied when the
+    /// composition ends; with nothing marked it replaces the text, the
+    /// caret carried through the changed middle.
     func writeValue(_ value: String, into f: UITextField) {
+        if (f.text ?? "").utf16.elementsEqual(value.utf16) { pendingValue = nil; return }
         if f.markedTextRange != nil { pendingValue = value; return }
         pendingValue = nil
+        toldText = nil
         guard let edit = minimalTextEdit(from: f.text ?? "", to: value) else { return }
         var selection = NSRange(location: (f.text ?? "").utf16.count, length: 0)
         if let r = f.selectedTextRange {
@@ -23,17 +28,18 @@ extension NodeView {
     }
     @objc func fieldChanged() {
         if props["emojiPicker"] == "true", let field {
-            if field.markedTextRange == nil, let held = pendingValue { writeValue(held, into: field) }
             let value = field.text ?? ""
             field.text = ""
             if !disabled, EmojiSelection.accepts(value) { presenter?.typed(id, value, input: handlers.contains("input")) }
             return
         }
-        // The textarea's order (`textViewDidChange`): the text the field now
-        // holds is reported first, and only then does a value held while
-        // composing apply. Writing it first reported the composing text —
-        // 你好 committed as "nihao".
-        if !disabled { presenter?.typed(id, field?.text ?? "", input: handlers.contains("input")) }
+        // UIKit says so at each change, the text an input method has marked
+        // included: the app hears the field's text as it stands, and only
+        // then does a value held while it composed apply
+        // (`FieldComposition.swift`). Writing it first told the app its own
+        // held value in place of the committed text.
+        if !disabled { typedText(field?.text ?? "") }
+        if stepper != nil { updateNumberStepper() } // the stepper shows what the field holds (LLP 1116.007 D4)
         if let f = field, f.markedTextRange == nil, let held = pendingValue { writeValue(held, into: f) }
     }
     @objc package func textFieldDidBeginEditing(_ textField: UITextField) {

@@ -36,7 +36,7 @@ final class TabDelegateProxy: NSObject, UITabBarControllerDelegate {
 /// A tab bar item an authored tab supplies: its symbol, if it has one, and
 /// its label (a text-only tab is a title-only item).
 private struct TabFace: Equatable {
-    let base: String?, title: String, disabled: Bool
+    let base: String?, title: String, disabled: Bool, accessibilityDisabled: Bool
     /// A filled box holding a text among the tab's children: the item's
     /// badge (LLP 1075.003 §9.9), as the web paints it on the tab.
     let badge: String?
@@ -57,6 +57,7 @@ private struct TabFace: Equatable {
         base = symbol.map { $0.hasSuffix(".fill") ? String($0.dropLast(5)) : $0 }
         title = label
         disabled = tab.disabled
+        accessibilityDisabled = tab.ariaUnavailable
     }
     /// A shown box with a visible fill whose only child (views and flat
     /// leaves alike) is one shown, non-empty text: that text. A pill around
@@ -239,15 +240,20 @@ extension NavigationHost {
     /// and a handle to it stay good.
     private func syncItems(_ tabs: NavigationTabs, navs: [UINavigationController]) {
         let faces = tabs.tabs.map(TabFace.init)
-        let signature = faces.map { "\($0.base ?? "")|\($0.title)|\($0.disabled)|\($0.badge ?? "")" }
+        // A tab's test id is its item's identifier, which XCUITest and
+        // Maestro address it by (LLP 1116 D2); without one, its symbol or title.
+        let ids = zip(tabs.tabs, faces).map { tab, face in tab.props["testId"] ?? face.base ?? face.title }
+        let signature = zip(faces, ids).map { face, id in "\(id)|\(face.base ?? "")|\(face.title)|\(face.disabled)|\(face.accessibilityDisabled)|\(face.badge ?? "")" }
         for (index, (nav, face)) in zip(navs, faces).enumerated() where !tabItems.indices.contains(index) || tabItems[index] != signature[index] {
             let item: UITabBarItem = nav.tabBarItem
             let image = face.base.flatMap { UIImage(systemName: $0) }
             item.title = face.title
             item.image = image
             item.selectedImage = face.base.flatMap { UIImage(systemName: $0 + ".fill") } ?? image
-            item.accessibilityIdentifier = face.base ?? face.title
+            item.accessibilityIdentifier = ids[index]
             item.isEnabled = !face.disabled
+            if face.disabled || face.accessibilityDisabled { item.accessibilityTraits.insert(.notEnabled) }
+            else { item.accessibilityTraits.remove(.notEnabled) }
             // An authored badge, or one it just lost; a badge a hatch set on
             // a tab that never authored one is left alone.
             let had = tabItems.indices.contains(index) && !tabItems[index].hasSuffix("|")
@@ -282,7 +288,36 @@ extension NavigationHost {
         guard let root = container, let tabs = NavigationTabs.of(root, presenter),
               let panel = tabNavigations.first(where: { $0.value === controller })?.key,
               let index = tabs.panels.firstIndex(where: { $0.id == panel }) else { return }
-        _ = act(tabs.tabs[index].id, 0)
+        let screen = reselectedRoot(index), id = tabs.tabs[index].id
+        _ = act(id, 0)
+        // After the tab's own press, which is queued: a batch applied under
+        // a running scroll would cut it short.
+        if let screen { presenter.elements.later(id, "scroll to top") { [weak self, weak screen] in if let screen { self?.scrollToTop(screen) } } }
+    }
+
+    /// The screen a tap on the bar's item for tab `index` scrolls to its
+    /// top: the selected tab's, tapped again at its stack's root with
+    /// nothing presented over it, as every tab bar app does (LLP 1115.000
+    /// D11.3). Above the root the tap pops to it, which is the router's
+    /// (LLP 1038 D12), and another tab's tap selects it: nil for both. Read
+    /// before the tab's press, scrolled after it (`scrollToTop`).
+    func reselectedRoot(_ index: Int) -> RouteController? {
+        guard index == routerTab, tabPanels.indices.contains(index), let stack = tabNavigations[tabPanels[index]],
+              stack.viewControllers.count == 1, presentedNavigations.isEmpty else { return nil }
+        return stack.topViewController as? RouteController
+    }
+
+    /// A route's content scroller (`contentScroller`, the status bar's) to
+    /// its top, as the status bar's tap takes it: animated, and to where a
+    /// large title is expanded, which UIKit opens as the offset arrives.
+    /// Unanimated (the agent's frozen clock), it lands at its top with the
+    /// title expanded, as a new screen opens (`rest`).
+    func scrollToTop(_ c: RouteController) {
+        guard let node = contentScroller(of: c), let sv = shownScroll(node) else { return }
+        guard sv.contentOffset.y > 0.5 - sv.adjustedContentInset.top else { return }
+        guard scrollsToTopAnimated else { return rest(sv, in: c) }
+        let inset = max(sv.adjustedContentInset.top, node === c.collapseScroll ? node.scrollOrigin : 0)
+        sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: -inset), animated: true)
     }
 
     /// What holds the tabs goes: its stacks are retired, the authored

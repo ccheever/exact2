@@ -141,7 +141,7 @@ fn deferred_replacement_executes_only_after_activation_and_copies_store_effects(
         Answer::Now(Value::Number(42.))
     );
     assert_eq!(store.reads(), 1);
-    assert_eq!(store.take_writes()[0].value.as_deref(), Some("new"));
+    assert_eq!(store.take_writes()[0].value.as_deref(), Some(&b"new"[..]));
     assert_eq!(embedded.query("x", &[]).unwrap(), Value::Number(1.));
 }
 

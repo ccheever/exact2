@@ -205,6 +205,7 @@ pub fn request(id: u64, d: RasterDemand) -> u64 {
                 height: d.height,
             },
             variant: d.variant,
+            crop: Crop::default(),
         },
         metadata: Metadata {
             natural: PixelSize {

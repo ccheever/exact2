@@ -14,6 +14,18 @@ fn a_socket_grant_is_a_connect_source() {
 }
 
 #[test]
+fn connect_sources_use_app_grants_even_when_a_request_has_a_narrower_source_scope() {
+    let policy = csp(
+        "net.fetch https://a.test\nnet.fetch https://b.test\nnet.fetch https://c.test",
+        Path::new("/nonexistent"),
+    );
+    assert!(
+        policy.contains("connect-src 'self' https://a.test https://b.test https://c.test;"),
+        "{policy}"
+    );
+}
+
+#[test]
 fn the_boot_swap_script_is_admitted_by_its_hash() {
     // @ref LLP 1048.005 — the one inline script a boot document's page adds.
     let policy = csp("", Path::new("/nonexistent"));

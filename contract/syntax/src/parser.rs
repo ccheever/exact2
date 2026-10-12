@@ -18,6 +18,7 @@ mod names;
 mod routes;
 mod sounds;
 mod steps;
+mod view;
 pub use steps::{is_launch, same_launch};
 use steps::{launch_word, LAUNCH};
 
@@ -590,6 +591,7 @@ impl Parser {
                 name: aname,
                 value,
                 span: aspan,
+                written: true,
             });
         }
         self.newline()?;
@@ -652,6 +654,7 @@ impl Parser {
             provides: Vec::new(),
             slot: false,
             states: Vec::new(),
+            persist: Vec::new(),
             derives: Vec::new(),
             resources: Vec::new(),
             mutations: Vec::new(),
@@ -741,6 +744,12 @@ impl Parser {
                             let expr = self.expr()?;
                             let none = matches!(expr, Expr::None(_));
                             self.type_annotation(&w, &name, if none { "as none" } else { "as" })?;
+                            if let Some(span) = self.persist_word(&w, &name)? {
+                                c.persist.push(Persist {
+                                    name: name.clone(),
+                                    span,
+                                });
+                            }
                             self.newline()?;
                             let b = Binding {
                                 name,
@@ -1055,7 +1064,7 @@ impl Parser {
     // ---- view -------------------------------------------------------------
 
     fn node(&mut self) -> R<Node> {
-        // The plan accepts at most 256 nested sites. Refuse before constructing
+        // The compiler accepts at most 256 nested sites. Refuse before constructing
         // a deeper AST: all later compiler passes recursively walk this tree.
         if self.view_depth >= 256 {
             return self.err("syntax-view-depth", "views nest more than 256 sites deep");
@@ -1113,108 +1122,9 @@ impl Parser {
                 "`if` is an action's statement: a view chooses with `when <condition>`, \
                  and an `else` after its block at the same indent",
             ),
-            "when" => {
-                self.next();
-                let cond = self.expr()?;
-                self.newline()?;
-                let then = self.required_block(span, "when", |p| p.node())?;
-                let mut otherwise = Vec::new();
-                if self.at_ident("else") {
-                    self.next();
-                    // `else when` is an `else` whose one node is the next
-                    // `when`, as `else if` is in an action.
-                    if self.at_ident("when") {
-                        otherwise = vec![self.node()?];
-                    } else if self.at_ident("if") {
-                        return self.err(
-                            "syntax-else-keyword",
-                            "a view branches with `when`; `if` is an action's: write `else when`",
-                        );
-                    } else {
-                        self.after_else("when")?;
-                        otherwise = self.required_block(span, "else", |p| p.node())?;
-                    }
-                }
-                Ok(Node::When {
-                    tag: 0,
-                    cond,
-                    then,
-                    otherwise,
-                    span,
-                })
-            }
-            "each" => {
-                self.next();
-                let var = self.named_ident(span)?;
-                let index = if self.at_punct(",") {
-                    self.next();
-                    Some(self.named_ident(span)?)
-                } else {
-                    None
-                };
-                self.expect_word("in")?;
-                let list = self.expr()?;
-                self.expect_word("key")?;
-                self.expect_punct("=")?;
-                let key = self.expr()?;
-                self.newline()?;
-                let body = self.block(|p| p.node())?;
-                Ok(Node::Each {
-                    tag: 0,
-                    var,
-                    index,
-                    list,
-                    key,
-                    body,
-                    span,
-                })
-            }
-            "match" => {
-                self.next();
-                let subject = self.expr()?;
-                self.newline()?;
-                let mut some = None;
-                let mut none = None;
-                self.block(|p| {
-                    let case_span = p.expect_word("case")?;
-                    if p.at_ident("some") {
-                        if some.is_some() {
-                            return duplicate("match arm", "some", case_span, span);
-                        }
-                        p.next();
-                        p.expect_punct("(")?;
-                        let var = p.named_ident(span)?;
-                        p.expect_punct(")")?;
-                        p.newline()?;
-                        some = Some((var, p.block(|q| q.node())?));
-                    } else {
-                        p.expect_word("none")?;
-                        if none.is_some() {
-                            return duplicate("match arm", "none", case_span, span);
-                        }
-                        p.newline()?;
-                        none = Some(p.block(|q| q.node())?);
-                    }
-                    Ok(())
-                })?;
-                let some = some.ok_or(SyntaxError {
-                    id: "contract-match-arms",
-                    message: "`match` needs `case some(x)`".into(),
-                    span,
-                })?;
-                let none = none.ok_or(SyntaxError {
-                    id: "contract-match-arms",
-                    message: "`match` needs `case none`".into(),
-                    span,
-                })?;
-                Ok(Node::Match {
-                    tag: 0,
-                    subject,
-                    some,
-                    none,
-                    span,
-                })
-            }
+            "when" => self.node_when(span),
+            "each" => self.node_each(span),
+            "match" => self.node_match(span),
             "else" | "case" => self.err(
                 "syntax-stray-keyword",
                 names::stray(&word),
@@ -1223,62 +1133,8 @@ impl Parser {
                 "syntax-map-view",
                 format!("`{word}` makes a value, not view nodes: repeat children with `each x in xs key=x.id` (LLP 1017.003)"),
             ),
-            _ if word.chars().next().is_some_and(char::is_uppercase) => {
-                self.next();
-                self.expect_punct("(")?;
-                let args = self.named_args()?;
-                self.newline()?;
-                let children = self.block(|p| p.node())?;
-                Ok(Node::Use {
-                    name: word,
-                    args,
-                    children,
-                    span,
-                })
-            }
-            _ => {
-                self.next();
-                let mut positional = Vec::new();
-                let mut attrs = Vec::new();
-                self.attr_line(&mut positional, &mut attrs, false)?;
-                self.newline()?;
-                let mut children = Vec::new();
-                if matches!(self.peek_kind(), TokenKind::Indent) {
-                    self.next();
-                    // The attribute list may continue on deeper lines that
-                    // begin with `name=`; a child never does (LLP 1035.005 D1).
-                    while self.at_continuation() {
-                        self.attr_line(&mut positional, &mut attrs, true)?;
-                        self.newline()?;
-                    }
-                    children = self.block_rest(|p| p.node())?;
-                }
-                // LLP 1017.001's primary button argument is its visible text
-                // child, not a prop on the pressable itself. Keeping it as a
-                // real text node gives every host the same visible and
-                // accessible subtree.
-                if word == "button" && positional.len() == 1 {
-                    children.insert(
-                        0,
-                        Node::Element {
-                            tag: "text".into(),
-                            positional: vec![positional.remove(0)],
-                            attrs: Vec::new(),
-                            children: Vec::new(),
-                            span,
-                            instance: 0,
-                        },
-                    );
-                }
-                Ok(Node::Element {
-                    tag: word,
-                    positional,
-                    attrs,
-                    children,
-                    span,
-                    instance: 0,
-                })
-            }
+            _ if word.chars().next().is_some_and(char::is_uppercase) => self.node_use(word, span),
+            _ => self.node_element(word, span),
         }
     }
 
@@ -1317,6 +1173,7 @@ impl Parser {
                     name,
                     value,
                     span: aspan,
+                    written: true,
                 });
             } else if matches!(self.peek_kind(), TokenKind::Ident(name) if name == "autofocus") {
                 let aspan = self.next().span;
@@ -1330,6 +1187,7 @@ impl Parser {
                     name: "autofocus".into(),
                     value: Expr::Bool(true, aspan),
                     span: aspan,
+                    written: true,
                 });
             } else if continuation {
                 return self.err(
@@ -1371,7 +1229,12 @@ impl Parser {
             let (name, span) = self.field_name()?;
             self.expect_punct("=")?;
             let value = self.expr()?;
-            out.push(Attr { name, value, span });
+            out.push(Attr {
+                name,
+                value,
+                span,
+                written: true,
+            });
             if !self.eat_punct(",") {
                 break;
             }

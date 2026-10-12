@@ -77,7 +77,10 @@ pub(crate) fn face_json(
             }
             quote(name, &mut json);
             json.push(':');
-            json.push_str(&value.map_or_else(|| "{}".into(), resolved_rows));
+            json.push_str(&value.map_or_else(
+                || "{}".into(),
+                |rows| crate::style::style_json_resolved(rows).0,
+            ));
         }
         json.push_str(",\"imageGap\":");
         json.push_str(
@@ -89,23 +92,6 @@ pub(crate) fn face_json(
     }
     json.push('}');
 
-    json
-}
-
-/// The face record already resolved lengths against the live kernel environment.
-/// Neither sizing nor drawing may re-resolve them against a second environment.
-fn resolved_rows(style: &exact_kernel::StyleProps) -> String {
-    let mut json = crate::style::style_json_resolved(style).0;
-    // An em size has already incorporated the platform font's Dynamic Type scale.
-    if style.mask.has(exact_kernel::StyleId::FontSize)
-        && matches!(
-            style.relative.get(exact_kernel::StyleId::FontSize),
-            Some((exact_kernel::style::relative::Unit::Em, _))
-        )
-    {
-        json.pop();
-        json.push_str(",\"font_size_resolved\":1}");
-    }
     json
 }
 
@@ -148,9 +134,13 @@ mod tests {
         assert_eq!(json["rows"]["button"]["padding_left"], 9);
         assert_eq!(json["rows"]["button"]["border_radius_top_left"], 18);
     }
+    /// LLP 1115.000 D12.1: a face row's size is the kernel's number, which
+    /// the host draws as it is. An `em` under the platform's control font
+    /// carries that font's Dynamic Type scale; an absolute size, and an `em`
+    /// of one, is the author's; `rem` follows the root. Nothing asks the host
+    /// to scale any of them again.
     #[test]
-    #[ignore = "QUEUE: a native button title in `em` under an authored absolute button font is marked already scaled, so it misses Dynamic Type; the kernel face record must carry the font basis (LLP 1104 step 3 review)"]
-    fn em_fonts_scale_only_platform_bases_and_absolute_bases_scale_once() {
+    fn a_face_rows_size_is_the_kernels_number_and_is_scaled_nowhere_else() {
         let plan = contract::compile(
             r#"component Buttons
   view
@@ -193,11 +183,7 @@ mod tests {
         host.runner_mut().kernel_mut().set_env(env).unwrap();
         host.resize(400., 800.);
         let kernel = host.runner().kernel();
-        for (name, title_size, scaled) in [
-            ("platform", 102., true),
-            ("absolute", 13., false),
-            ("root", 16., false),
-        ] {
+        for (name, title_size) in [("platform", 102.), ("absolute", 13.), ("root", 16.)] {
             let id = kernel
                 .node_by_key(kernel.find_by_test_id(name)[0])
                 .unwrap()
@@ -215,9 +201,8 @@ mod tests {
             } else {
                 &["title", "subtitle", "symbol"][..]
             } {
-                assert_eq!(
-                    json["rows"][part].get("font_size_resolved").is_some(),
-                    scaled,
+                assert!(
+                    json["rows"][part].get("font_size_resolved").is_none(),
                     "{name} {part}"
                 );
             }

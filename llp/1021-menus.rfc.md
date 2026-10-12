@@ -112,6 +112,9 @@ and one tag join the table (LLP 1017 §8.1; every name is the HTML one):
 - `aria-checked` on a `button` — the ARIA state, lowered like its three
   siblings at `tags.rs:165`.
 
+> **Amended by LLP 1115 (2026-10-09).** A bare `hr` is one solid edge in the separator role,
+> not Chrome's two shades.
+
 **D2 — the top layer is the host's; open state never enters the plan.**
 The kernel lays the popover subtree out on every commit regardless of
 visibility — a hidden layer, anchored: top-left at the invoker's
@@ -177,6 +180,10 @@ content; UIKit omits that row in its popover presentation. AppKit and Linux have
 no dialog projection yet and keep the subtree hidden; this is not general
 cross-platform dialog support. Existing contact popovers retain their separate
 nonmodal browser declaration and native confirmation projection.
+
+> **Superseded by LLP 1115 D6.** An alert-shaped `alertdialog` is the platform's alert on iOS,
+> with its title and Cancel kept; `closedby="any"` is implied, not required; macOS and the web
+> show the `dialog`. The Linux host still presents none.
 
 Messages removes `confirmDelete` and its authored cancellation overlay. Four
 physical cases on the rebuilt iPhone app cover one/two selections in light/dark:

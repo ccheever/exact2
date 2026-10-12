@@ -724,10 +724,17 @@ fn a_bare_node_s_colour_is_the_platform_s_text_colour_and_its_tint_the_accent() 
     let canvas_text = roles::role("CanvasText").unwrap();
     assert_eq!(s.text_color, ColorValue::Role(canvas_text));
     assert_eq!(roles::role_of(canvas_text).unwrap().ios, "labelColor");
-    // The tint is the platform's accent, which the host keeps dynamic.
+    // The tint is the platform's own for a symbol nobody tinted, which the
+    // host keeps dynamic (LLP 1115.000 D3.9): the view's tint on iOS, as
+    // UIKit draws a template image, and the secondary label colour on the
+    // Mac, as AppKit draws one. It was `AccentColor` on both.
+    let symbol = roles::role("-exact-symbol").unwrap();
+    assert_eq!(s.tint_color, Some(ColorValue::Role(symbol)));
+    assert_eq!(roles::role_of(symbol).unwrap().ios, "@tint");
+    assert_eq!(roles::role_of(symbol).unwrap().macos, "secondaryLabelColor");
+    // Where no host reports one it is the accent's pair, as it was.
     let accent = roles::role("AccentColor").unwrap();
-    assert_eq!(s.tint_color, Some(ColorValue::Role(accent)));
-    assert_eq!(roles::role_of(accent).unwrap().ios, "@tint");
+    assert_eq!(roles::role_fallback(symbol), roles::role_fallback(accent));
     // Everywhere else the role's pair: black on light, white on dark.
     assert_eq!(
         s.text_color.resolve(false),

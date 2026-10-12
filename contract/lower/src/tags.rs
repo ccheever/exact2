@@ -1,7 +1,7 @@
 //! The tag and attribute table: Contract's view vocabulary onto the kernel's.
 //!
 //! @ref LLP 1004 D2 (kernel ordinals from `exact-kernel`, never redeclared)
-//! @ref `rules/RULES.md` §Scope (the web is the standard: every row here is a
+//! @ref LLP 1115 §2 (names stay CSS: every row here is a
 //! CSS property or an HTML attribute by its CSS/HTML name)
 //! @ref LLP 1017 §8.1 (the literal CSS names, hyphens as grammar, no aliases;
 //! `testId` and explicitly declared host-policy props aside)
@@ -13,7 +13,7 @@
 //! (`size`, `fontSize`, `radius`, `label`) is refused with the CSS name it
 //! became.
 use exact_kernel::{NodeType, PropId, StyleId};
-use exact_plan::{BindingKind, BindingsRow};
+use exact_plan::BindingsRow;
 /// What an attribute lowers to.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AttrTarget {
@@ -309,8 +309,10 @@ pub fn tag(name: &str) -> Option<Tag> {
         },
         // @ref LLP 1069.001 (amended 2026-10-07) — HTML's `progress` with no
         // `value`, indeterminate: the platform's activity indicator, a
-        // measured leaf (20 × 20 until sized). ARIA's role is `progressbar`;
-        // the lowering adds `aria-busy` (`Lowerer::progress_rows`).
+        // measured leaf (20 × 20 until sized); the lowering adds `aria-busy`.
+        // @ref LLP 1116 D8 — with a `value` (and `max`, strings as a
+        // range's), the determinate bar, sized by HTML's UA sheet. ARIA's
+        // role is `progressbar` either way.
         "progress" => Tag {
             node_type: NodeType::Control,
             fixed_styles: &[],
@@ -527,9 +529,14 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "navigationBack" => AttrTarget::Prop(p("navigationBack")),
         "navigationPresentation" => AttrTarget::Prop(p("navigationPresentation")),
         "navigationDetent" => AttrTarget::Prop(p("navigationDetent")),
+        // @ref LLP 1115.000 D5.2 — a route's say over the platform's bar:
+        // `none` for a full-bleed screen.
+        "navigationBar" => AttrTarget::Prop(p("navigationBar")),
         "navigationSource" | "sharedElement" => AttrTarget::Prop(p(name)),
         // @ref LLP 1075.003 §3.5 — the route's content scroll view, by HTML id.
         "navigationScroll" => AttrTarget::Prop(p("navigationScroll")),
+        // @ref LLP 1116.004 D1.2 — a wide window's split: "none", or the list column's width.
+        "navigationSplit" => AttrTarget::Prop(p("navigationSplit")),
         // @ref LLP 1075.003.000 — the node the app's native code receives.
         "hatch" => AttrTarget::Prop(p("hatch")),
         "closedby" => AttrTarget::Prop(p("closedby")),
@@ -582,7 +589,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // The viewport meta's `interactive-widget`, read from the first root
         // (LLP 1008 §9): `resizes-content` shrinks the layout viewport to a
         // software keyboard's top, so what is pinned to the bottom rises with
-        // it; the default, `resizes-visual`, insets the viewport instead.
+        // it, iOS's default (LLP 1116 D2); `resizes-visual`, the web's
+        // default and iOS's opt-out, insets the viewport instead.
         "interactive-widget" => AttrTarget::Prop(p("interactiveWidget")),
         "value" => AttrTarget::Prop(p("value")),
         "estimated-item-height" => AttrTarget::Prop(p("estimatedItemHeight")),
@@ -640,6 +648,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "aria-selected" => AttrTarget::Prop(p("accessibilitySelected")),
         "aria-expanded" => AttrTarget::Prop(p("accessibilityExpanded")),
         "aria-pressed" => AttrTarget::Prop(p("accessibilityPressed")),
+        "aria-disabled" => AttrTarget::Prop(p("accessibilityDisabled")),
         "aria-modal" => AttrTarget::Prop(p("accessibilityModal")),
         "aria-hidden" => AttrTarget::Prop(p("accessibilityElementsHidden")),
         "aria-invalid" => AttrTarget::Prop(p("accessibilityInvalid")), // onboarding F22, spreadsheet F20
@@ -653,6 +662,12 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "aria-required" => AttrTarget::Prop(p("accessibilityRequired")),
         "aria-haspopup" => AttrTarget::Prop(p("accessibilityHasPopup")),
         "aria-current" => AttrTarget::Prop(p("accessibilityCurrent")), // Depot: a nav link's page
+        // @ref LLP 1116 D8 — a range role's value (`progressbar`, `slider`,
+        // `meter`, …), numbers written as HTML writes them (`aria_values`).
+        "aria-valuenow" => AttrTarget::Prop(p("accessibilityValueNow")),
+        "aria-valuemin" => AttrTarget::Prop(p("accessibilityValueMin")),
+        "aria-valuemax" => AttrTarget::Prop(p("accessibilityValueMax")),
+        "aria-valuetext" => AttrTarget::Prop(p("accessibilityValueText")),
         // SVG 2 attributes CSS cannot set (LLP 1055 D1/D2), by their SVG names.
         "viewBox" => AttrTarget::Prop(p("viewBox")),
         "preserveAspectRatio" => AttrTarget::Prop(p("preserveAspectRatio")),
@@ -794,6 +809,11 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "alignSelf" => "align-self",
         "boxSizing" => "box-sizing",
         "fit" | "objectFit" => "object-fit",
+        // UIKit's, SwiftUI's and React Native's shrink-to-fit (LLP 1116.001 D1.4).
+        "adjustsFontSizeToFitWidth"
+        | "adjustsFontSizeToFit"
+        | "minimumScaleFactor"
+        | "minimumFontScale" => "-exact-fit",
         "justify" | "justifyContent" => "justify-content",
         "overflowX" => "overflow-x",
         "overflowY" => "overflow-y",
@@ -1258,31 +1278,57 @@ pub(crate) fn multicol_on_flex(
 }
 
 impl crate::Lowerer<'_> {
-    /// @ref LLP 1115 §3 — a run with an `href` in its paragraph is a link:
-    /// unsaid, its colour is the platform's link role (the tint on iOS,
-    /// `linkColor` on macOS, the browser's own on the web), as the UA's
-    /// `a:link` is. Pushed before the author's rows, so a `color` on the run
-    /// or its class wins; a block-level `link` keeps inheriting.
-    pub(crate) fn link_run_color(
+    /// @ref LLP 1115 §3, LLP 1115.000 D3.5 — a link's unsaid colour is the
+    /// platform's link role (the tint on iOS, `linkColor` on macOS, the
+    /// accent on the web), as the UA's `a:link` is: a run with an `href` in
+    /// its paragraph, and a block `link` of text (a `tel:` or `mailto:`
+    /// value, a "Learn more"), which a hand-built screen draws in the tint.
+    /// A `link` holding a row or a column, or given a `role`, is its
+    /// author's row or button and keeps inheriting. Pushed before the
+    /// author's rows, so a `color` on the link, the run or a class wins. A
+    /// terminal entry's block link is left as it is: what a terminal shows
+    /// for a link is the terminal's to decide (`QUEUE.md`).
+    pub(crate) fn link_color(
         &mut self,
         tag: &str,
         parent_tag: Option<&str>,
         attrs: &[contract_syntax::Attr],
+        children: &[contract_syntax::Node],
         bindings: &mut Vec<BindingsRow>,
     ) {
-        if tag == "text" && parent_tag == Some("text") && attrs.iter().any(|a| a.name == "href") {
-            bindings.push(BindingsRow {
-                kind: BindingKind::Style,
-                id: StyleId::TextColor as u16,
-                expr: self.fixed(true, "LinkText"),
-            });
+        use contract_syntax::Node;
+        // Texts and images alone, a `when` or an `each` of them included.
+        fn words(node: &Node) -> bool {
+            match node {
+                Node::Element { tag, .. } => tag == "text" || tag == "image",
+                Node::When {
+                    then, otherwise, ..
+                } => then.iter().chain(otherwise).all(words),
+                Node::Each { body, .. } => body.iter().all(words),
+                Node::Match { some, none, .. } => some.1.iter().chain(none).all(words),
+                Node::Use { .. } | Node::Children { .. } => false,
+            }
+        }
+        let has = |name: &str| attrs.iter().any(|a| a.name == name);
+        let run = tag == "text" && parent_tag == Some("text") && has("href");
+        let block = tag == "link"
+            && self.profile != crate::Profile::Terminal
+            && !has("role")
+            && !children.is_empty()
+            && children.iter().all(words);
+        if run || block {
+            let link = self.fixed(true, "LinkText");
+            bindings.push(crate::style_row(StyleId::TextColor, link, crate::IMPLIED));
         }
     }
 
     /// @ref LLP 1115 D3 — a heading is the platform's text style for its
     /// level, as a hand-built screen's would be: 1 `title1`, 2 `title2`, 3
     /// `title3`, 4 and on `headline` (ARIA's default level is 2), at the
-    /// style's size for the root font size and its weight. A level chosen
+    /// style's size for the root font size and its emphasized weight (LLP
+    /// 1116 D7): bold for a title, whose own weight is regular, as Apple's
+    /// emphasized title styles and the web's headings are; `headline`'s own
+    /// semibold. A level chosen
     /// between literals (`aria-level=(top ? 1 : 2)`) chooses between their
     /// styles; any other computed level is 2's. Pushed before the author's
     /// rows, so a written `font-size` or `font-weight` wins; an inherited one
@@ -1310,10 +1356,9 @@ impl crate::Lowerer<'_> {
                 _ => "title2",
             };
             let id = exact_kernel::style::relative::text_style(&format!("-exact-{name}"));
-            (
-                name,
-                exact_kernel::TEXT_STYLES[usize::from(id.expect("a schema text style"))].weight,
-            )
+            let weight =
+                exact_kernel::TEXT_STYLES[usize::from(id.expect("a schema text style"))].weight;
+            (name, if weight == 400 { 700 } else { weight })
         };
         // The level's literal leaves, each mapped; `None` when one is computed.
         fn leaves(e: &Expr, f: &dyn Fn(f64) -> Expr) -> Option<Expr> {
@@ -1337,11 +1382,8 @@ impl crate::Lowerer<'_> {
             // ARIA's default level, said: a host that reads the level (iOS's
             // header-shaped route takes only a heading with one) sees 2.
             let expr = self.expr_code(&Expr::Number(2.0, Default::default()), scope, locals)?;
-            bindings.push(BindingsRow {
-                kind: BindingKind::Prop,
-                id: p("accessibilityHeadingLevel") as u16,
-                expr,
-            });
+            let level = p("accessibilityHeadingLevel");
+            bindings.push(crate::prop_row(level, expr, crate::IMPLIED));
         }
         let span = level.map_or_else(Default::default, |l| l.span());
         let two = Expr::Number(2.0, span);
@@ -1356,11 +1398,7 @@ impl crate::Lowerer<'_> {
             leaves(level, &|n| Expr::Number(f64::from(style(n).1), span)).expect("literal leaves");
         for (row, value) in [(StyleId::FontSize, size), (StyleId::FontWeight, weight)] {
             let expr = self.expr_code(&value, scope, locals)?;
-            bindings.push(BindingsRow {
-                kind: BindingKind::Style,
-                id: row as u16,
-                expr,
-            });
+            bindings.push(crate::style_row(row, expr, crate::IMPLIED));
         }
         Ok(())
     }

@@ -166,6 +166,7 @@ pub fn needed(plan: &Plan, parts: &[Option<exact_web::host::template::Parts>]) -
 
 /// The attribute and its value expression, with `v` the binding's value.
 /// The tests are own_from's value tests, in the row's authored vocabulary.
+#[allow(clippy::field_reassign_with_default)]
 pub fn binding(plan: &Plan, kind: NodeType, b: &BindingsRow) -> Option<(String, String)> {
     let bits = |value: String| Some((format!("data-exact-f-{}-{}", b.kind as u8, b.id), value));
     let flag = |bit: u32, test: &str| bits(format!("({test})?{bit}:0"));
@@ -201,7 +202,9 @@ pub fn binding(plan: &Plan, kind: NodeType, b: &BindingsRow) -> Option<(String, 
                 .chain(["all", "border-color"])
                 .filter_map(|name| {
                     let transition = exact_motion::Transitions::parse(name).ok()?;
-                    let mut style = StyleProps { transition, ..Default::default() };
+                    // This row is behind DerefMut; it cannot be a StyleProps initializer.
+                    let mut style = StyleProps::default();
+                    style.transition = transition;
                     style.mask.set(StyleId::Transition);
                     Some((name, own(&style).policy))
                 })

@@ -127,14 +127,19 @@ pub(super) fn not_the_router(
     err("type-refused-idiom", why, span)
 }
 
-pub(super) fn require_table(f: Stdlib, shapes: &Shapes, span: Span) -> Result<(), TypeError> {
-    let needs_table = f
-        .params()
+/// Whether a standard function exists only in an app with a `routes`
+/// declaration: the router functions, and `encodeRouteSegment`.
+pub fn needs_routes(f: Stdlib) -> bool {
+    f.params()
         .iter()
         .copied()
         .chain(std::iter::once(f.returns()))
-        .any(|ty| matches!(ty, "Router" | "Entry" | "list<Entry>"));
-    if (needs_table || f == Stdlib::EncodeRouteSegment) && shapes.routes.is_none() {
+        .any(|ty| matches!(ty, "Router" | "Entry" | "list<Entry>"))
+        || f == Stdlib::EncodeRouteSegment
+}
+
+pub(super) fn require_table(f: Stdlib, shapes: &Shapes, span: Span) -> Result<(), TypeError> {
+    if needs_routes(f) && shapes.routes.is_none() {
         return err(
             "type-unknown-function",
             format!("declare `routes` to use `{}`", f.name()),

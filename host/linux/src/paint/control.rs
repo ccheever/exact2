@@ -1,6 +1,7 @@
 //! Form controls, painted (LLP 1069.001 D7): Linux has no platform
 //! controls, so a checkbox is Chrome's rounded square, a radio its circle
-//! and a switch a pill with a thumb, filled with `accent-color`.
+//! and a switch a pill with a thumb, filled with `accent-color`, else the
+//! platform's accent where the host reported one ([`accents`]).
 //! `appearance: none` draws nothing here: the author's box is the whole
 //! look (D6).
 
@@ -8,8 +9,23 @@ use super::{rgba, Backend, Rect4, Shape};
 use exact_kernel::{Appearance, FieldChrome, NodeRef, PropId, StyleMask};
 use tiny_skia::Transform;
 
-/// Chrome's default accent, `#0075ff`, where `accent-color` is `auto`.
-pub(crate) const ACCENT: [u8; 4] = [0x00, 0x75, 0xff, 0xff];
+/// This painter's own accent, Chrome's default `#0075ff`: what a control
+/// paints in where its node sets no `accent-color` and the host reported no
+/// colours (desktop Linux, which has no platform accent to read; LLP 1104 D7).
+const ACCENT: [u8; 4] = [0x00, 0x75, 0xff, 0xff];
+
+/// The accent a control, a focus ring or a filled button paints in, and
+/// what is drawn on it (a check, a switch's thumb, a filled button's
+/// title). One accent (LLP 1115.001 D4): the node's `accent-color` where it
+/// sets one (`authored`), with white on it as before; else the platform's
+/// `AccentColor` with its `AccentColorText`, where the host reported the
+/// device's colours; else this painter's own blue, with white.
+pub(crate) fn accents(authored: Option<[u8; 4]>, dark: bool) -> ([u8; 4], [u8; 4]) {
+    match authored {
+        Some(accent) => (accent, [0xff; 4]),
+        None => crate::presenter::reported_accent(dark).unwrap_or((ACCENT, [0xff; 4])),
+    }
+}
 
 // LLP 1104 D7: the host's field look, outside the author's box rows.
 const FIELD_BORDER: f32 = 1.0;
@@ -42,7 +58,7 @@ fn field_fill(dark: bool) -> [u8; 4] {
 }
 
 // Keep the fill opaque; disabled border and unauthored ink approach that fill.
-pub(super) fn disabled_field_ink(mut ink: [u8; 4], dark: bool) -> [u8; 4] {
+pub(crate) fn disabled_field_ink(mut ink: [u8; 4], dark: bool) -> [u8; 4] {
     let fill = field_fill(dark);
     for i in 0..3 {
         ink[i] = ((ink[i] as u16 + fill[i] as u16) / 2) as u8;
@@ -107,6 +123,11 @@ pub(crate) fn accent(node: &NodeRef<'_>, dark: bool) -> Option<[u8; 4]> {
     node.computed_style(StyleMask::INHERITED)
         .accent_color
         .map(|c| rgba(c.resolve(dark)))
+}
+
+/// The colour of a focused node's ring: its accent ([`accents`]).
+pub(crate) fn ring(node: &NodeRef<'_>, dark: bool) -> [u8; 4] {
+    accents(accent(node, dark), dark).0
 }
 
 /// A select's open menu (LLP 1069.001 D7): its panel in viewport points,
@@ -249,7 +270,7 @@ impl super::Painter {
             [0x78, 0x78, 0x80, 0x33]
         };
         self.backend.fill(&track(x, x + w), alpha(rest), ts);
-        let accent = accent(node, dark).unwrap_or(ACCENT);
+        let (accent, _) = accents(accent(node, dark), dark);
         self.backend
             .fill(&track(x, tx + d / 2.0), alpha(accent), ts);
         let thumb = Shape::new((tx, cy - d / 2.0, d, d), [d / 2.0; 4]);
@@ -275,7 +296,7 @@ impl super::Painter {
             [0xff, 0xff, 0xff, 0xff]
         };
         self.backend.fill(&panel.inset(1.0), bg, ts);
-        let accent = menu.accent.unwrap_or(ACCENT);
+        let (accent, on_accent) = accents(menu.accent, dark);
         let (x, y, w, _) = menu.rect;
         for (i, (label, disabled)) in menu.rows.iter().enumerate() {
             let top = y + MENU_PAD + i as f32 * menu.row;
@@ -284,7 +305,9 @@ impl super::Painter {
                 let row = Shape::new((x + 4.0, top, w - 8.0, menu.row), [4.0; 4]);
                 self.backend.fill(&row, accent, ts);
             }
-            let mut ink = if chosen || dark {
+            let mut ink = if chosen {
+                on_accent
+            } else if dark {
                 [0xff, 0xff, 0xff, 0xff]
             } else {
                 [0x00, 0x00, 0x00, 0xff]
@@ -322,10 +345,7 @@ pub(super) fn paint(
     }
     let on = node.props.bool(PropId::Checked).or(held).unwrap_or(false);
     let disabled = node.props.bool(PropId::Disabled) == Some(true);
-    let accent = node
-        .computed_style(StyleMask::INHERITED)
-        .accent_color
-        .map_or(ACCENT, |c| rgba(c.resolve(dark)));
+    let (accent, on_accent) = accents(accent(node, dark), dark);
     let dim = |mut c: [u8; 4]| {
         if disabled {
             c[3] /= 2;
@@ -346,7 +366,7 @@ pub(super) fn paint(
         let d = (h - 4.0).max(0.0);
         let tx = if on { x + w - 2.0 - d } else { x + 2.0 };
         let thumb = Shape::new((tx, y + 2.0, d, d), [d / 2.0; 4]);
-        backend.fill(&thumb, dim([0xff, 0xff, 0xff, 0xff]), ts);
+        backend.fill(&thumb, dim(if on { on_accent } else { [0xff; 4] }), ts);
         return;
     }
     let (border, fill) = if dark {
@@ -372,17 +392,17 @@ pub(super) fn paint(
         let s = w.min(h);
         let (cx, cy) = (x + w * 0.42, y + h * 0.7);
         let bar = (s * 0.14).max(1.5);
-        let white = dim([0xff, 0xff, 0xff, 0xff]);
+        let check = dim(on_accent);
         let short = Transform::from_rotate_at(45.0, cx, cy);
         backend.fill(
             &Shape::rect((cx - s * 0.3, cy - bar / 2.0, s * 0.3 + bar / 2.0, bar)),
-            white,
+            check,
             ts.pre_concat(short),
         );
         let long = Transform::from_rotate_at(-50.0, cx, cy);
         backend.fill(
             &Shape::rect((cx - bar / 2.0, cy - bar / 2.0, s * 0.62, bar)),
-            white,
+            check,
             ts.pre_concat(long),
         );
     } else {
@@ -424,6 +444,39 @@ pub(super) fn progress(
     }
 }
 
+/// A determinate `progress` (LLP 1116 D8): UIKit's progress view, drawn as
+/// the range's track is here — a 4 px pill across the content box, centred,
+/// in the system fill, and the accent to the value from the leading edge.
+pub(super) fn progress_bar(
+    backend: &mut dyn Backend,
+    node: &NodeRef<'_>,
+    content: Rect4,
+    ts: Transform,
+    dark: bool,
+) {
+    let (x, y, w, h) = content;
+    let t = 4f32.min(h);
+    if w <= 0.0 || t <= 0.0 {
+        return;
+    }
+    let fraction = exact_kernel::Progress::of(node.props).fraction() as f32;
+    let rtl = node.computed_row(exact_kernel::StyleId::Direction, |s| s.direction)
+        == exact_kernel::Direction::Rtl;
+    let filled = w * fraction;
+    let bar = |from: f32, width: f32| Shape::new((from, y + (h - t) / 2.0, width, t), [t / 2.0; 4]);
+    let rest = if dark {
+        [0x78, 0x78, 0x80, 0x5c]
+    } else {
+        [0x78, 0x78, 0x80, 0x33]
+    };
+    backend.fill(&bar(x, w), rest, ts);
+    if filled > 0.0 {
+        let from = if rtl { x + w - filled } else { x };
+        let (accent, _) = accents(accent(node, dark), dark);
+        backend.fill(&bar(from, filled), accent, ts);
+    }
+}
+
 #[cfg(test)]
 mod field_tests {
     use crate::text::{Measurer, TextEngine};
@@ -450,6 +503,7 @@ mod field_tests {
                         weight: 700,
                         style: FontStyle::Italic,
                     },
+                    cell: false,
                 });
                 assert_eq!(
                     chrome,

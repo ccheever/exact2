@@ -136,6 +136,7 @@ pub(crate) struct Mirror {
     content: Option<(f32, f32)>,
     flow: Vec<exact_kernel::FlowShape>,
     field_content: Option<exact_kernel::Frame>,
+    field_cell: bool,
 }
 
 /// One runner, one presenter.
@@ -297,7 +298,7 @@ impl<D: DataSource> Host<D> {
         width: f32,
         height: f32,
         carried: Option<&Carried>,
-        snapshot: Vec<(String, String)>,
+        snapshot: Vec<(String, Vec<u8>)>,
         secrets: Option<Platform>,
     ) -> Result<(Host<D>, String), HostError> {
         let (mut host, batch) = Host::boot_stored_after_decode(
@@ -331,7 +332,7 @@ impl<D: DataSource> Host<D> {
         measurer: Box<dyn TextMeasurer>,
         viewport: exact_runner::Viewport,
         carried: Option<&Carried>,
-        snapshot: Vec<(String, String)>,
+        snapshot: Vec<(String, Vec<u8>)>,
         secrets: Option<Box<dyn crate::store::KeptStore>>,
         compat: Option<&str>,
         delivery: Option<&'static crate::delivery::Hooks>,
@@ -369,7 +370,7 @@ impl<D: DataSource> Host<D> {
         measurer: Box<dyn TextMeasurer>,
         viewport: exact_runner::Viewport,
         carried: Option<&Carried>,
-        snapshot: Vec<(String, String)>,
+        snapshot: Vec<(String, Vec<u8>)>,
         secrets: Option<Box<dyn crate::store::KeptStore>>,
         compat: Option<&str>,
         delivery: Option<&'static crate::delivery::Hooks>,
@@ -1425,11 +1426,18 @@ fn kind_for(node: &NodeRef<'_>) -> &'static str {
 }
 
 /// Props by their own names, as strings.
+/// @ref LLP 1116.001 D1.4 — the scale the kernel draws a fitted paragraph
+/// at, which Swift multiplies its runs' sizes by: none at full size.
+pub(super) fn fit_scale(node: &NodeRef<'_>) -> Option<String> {
+    let scale = node.fit_scale();
+    (node.node_type == NodeType::Text && scale != 1.0).then(|| style::num(scale))
+}
+
 fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
     for (id, value) in node.props.iter() {
         let text = match value {
-            PropValue::Str(s) => s.clone(),
+            PropValue::Str(s) => s.to_string(),
             PropValue::Bool(b) => b.to_string(),
             PropValue::Int(i) => i.to_string(),
             PropValue::Float(f) => style::num(*f as f32),
@@ -1443,6 +1451,9 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
         out.insert(PropId::Text.name().to_string(), shown);
     }
     style::glass_auto_props(node, &mut out); // LLP 1053.000.000.000 D2
+    if let Some(scale) = fit_scale(node) {
+        out.insert("fitScale".into(), scale);
+    }
     if node.node_type == NodeType::List && node.props.bool(PropId::Virtualized) == Some(true) {
         // The runner preserves collection anchors and follows the end using
         // sequence-checked corrections. Eager native autoscroll would compete.

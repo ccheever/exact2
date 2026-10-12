@@ -17,8 +17,21 @@ package protocol GroupedLists: AnyObject {
     func reset()
     /// The collection view a wheel on `id` scrolls.
     func scroller(for id: UInt32) -> UIScrollView?
+    /// Row geometry from the native layout, never the hidden authored boxes.
+    func projectedRect(for node: NodeView, in scroll: UIScrollView) -> CGRect?
+    /// Visible rows in native reading order, for preserving the reading position.
+    func scrollAnchors(for id: UInt32) -> [(node: NodeView, y: CGFloat)]
     /// Whether a list draws `id` (a row, or a row's toggle or detail button).
     func draws(_ id: UInt32) -> Bool
+    /// A route's screen is about to show again (a pop back to it, with the
+    /// transition it rides, if any): the rows its lists kept selected under
+    /// the screen they pushed let go (LLP 1115.000 D11.3).
+    func appearing(_ route: NodeView, alongside coordinator: UIViewControllerTransitionCoordinator?)
+    /// The agent's reveal of what a list draws or carries: its row's cell
+    /// scrolled into `port` (the collection view's visible part, in its
+    /// bounds), with or without a cell now. Nil for a node no list draws or
+    /// carries; else whether the list scrolled.
+    func reveal(_ id: UInt32, port: (UIScrollView) -> CGRect) -> Bool?
     /// Where a real finger aimed at `node` lands, for a row a list draws.
     func shown(_ node: NodeView) -> GroupedAim?
     /// The agent's `tap` on a row UIKit draws.

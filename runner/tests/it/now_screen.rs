@@ -283,6 +283,7 @@ fn style(id: &str, expr: Code) -> BindingsRow {
         kind: BindingKind::Style,
         id: style_id(id),
         expr,
+        written: true,
     }
 }
 
@@ -291,6 +292,7 @@ fn prop(id: &str, expr: Code) -> BindingsRow {
         kind: BindingKind::Prop,
         id: prop_id(id),
         expr,
+        written: true,
     }
 }
 

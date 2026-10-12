@@ -136,9 +136,11 @@ component MarkdownStress
     running = false
   action tick
     if running
-      revision = min(1000, revision + 1)
-      ticks = min(20, ticks + 1)
-      running = ticks < 19 and revision < 999
+      let nextRevision = min(1000, revision + 1)
+      let nextTicks = min(20, ticks + 1)
+      revision = nextRevision
+      ticks = nextTicks
+      running = nextTicks < 20 and nextRevision < 1000
   action editMarkdown(value)
     editorText = value
   action editDraft(value)
@@ -268,7 +270,7 @@ component Blocks
   view
     when block.kind == "heading"
       column width="100%" padding-top=22 padding-bottom=4 testId=`block-${block.id}`
-        text aria-level=block.depth color=theme.strongInk line-height=`${block.depth == 1 ? 38 : block.depth == 2 ? 30 : block.depth == 3 ? 25 : 21}px`
+        text role="heading" aria-level=block.depth font-size="1em" font-weight=400 color=theme.strongInk line-height=`${block.depth == 1 ? 38 : block.depth == 2 ? 30 : block.depth == 3 ? 25 : 21}px`
           Runs(runs=block.runs, size=(block.depth == 1 ? 31 : block.depth == 2 ? 23 : block.depth == 3 ? 18 : 15), weight=(block.depth > 3 ? 600 : 700))
     else
       when block.kind == "paragraph"

@@ -41,7 +41,9 @@ final class FieldChromeCache: @unchecked Sendable {
     }
     func key(_ request: ExactFieldChromeRequest, font: NSFont) -> Key {
         lock.lock(); defer { lock.unlock() }
-        return Key(kind: request.kind, family: request.family_id, name: font.fontName,
+        // AppKit's field is the same in a grouped list's row: the cell bit
+        // (4, LLP 1116.005 D2) asks for nothing else here.
+        return Key(kind: request.kind & 3, family: request.family_id, name: font.fontName,
                    size: font.pointSize, weight: request.weight, italic: request.italic != 0, traits: traits)
     }
     func prefill(family: UInt16, font: NSFont, weight: UInt16, italic: Bool) {

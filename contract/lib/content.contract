@@ -1,0 +1,256 @@
+// `exact:content` (LLP 1116.000 D3): an app's own content, drawn well with
+// nothing but the platform's roles: its colours (`-exact-secondary-label`,
+// `-exact-secondary-background`, `AccentColor`, the system hues), its text
+// styles, its symbols and its determinate `progress`, so dark mode, Dynamic
+// Type and the tint come with them. Opt in by name: `use SummaryCard,
+// StatBar, RingProgress, DoneMark, EmptyState, RowText, Badge, RoundButton,
+// AnswerTile from "exact:content"`. They draw content, never chrome. Two are
+// controls that are the content (LLP 1116.003 D4): `RoundButton` and
+// `AnswerTile` take a `press` action, `disabled` where it applies and a
+// `testId`, and keep a button's semantics, a target over 44 points and
+// legible ink in both schemes; any other action is the author's own
+// `button`, indented under `EmptyState`. Props have no defaults: pass `none`
+// for an option. A state is a second colour (LLP 1116.001 D2): progress
+// short of its goal is the accent, a goal met (a `fraction` of 1 or more) the
+// system green, done against not done green against grey; a `tint` says
+// otherwise, such as the system red for a budget gone over.
+
+// A hero at the top of a screen: what it counts, the number in tabular
+// figures (it does not jitter as it changes), a line about it, and,
+// optionally, a fraction drawn as the platform's determinate progress and a
+// symbol (`"symbol:<role>"` or `"symbol:sf/<name>"`). The detail sits beside
+// the number where the card is wide enough, under it where it is not. Its
+// surface is the platform's tertiary fill, a translucent grey that shows on
+// a plain page and on a `-exact-grouped-background` one alike: the
+// secondary background is the grouped page's own grey in the light scheme
+// and the grouped card's white is the plain page's, so a part that cannot
+// know its page takes neither.
+component SummaryCard
+  props
+    label: string
+    value: string
+    detail: string
+    progress: option<number>
+    symbol: option<string>
+  view
+    column gap=4 padding=20 border-radius=16 background-color="-exact-tertiary-fill" min-width=0
+      row align-items="center" gap=6 min-width=0
+        match symbol
+          case some(s)
+            image s width=20 height=20 object-fit="contain" flex-shrink=0 aria-hidden=true
+              -exact-tint-color="AccentColor"
+          case none
+        text label font="-exact-headline" flex=1 min-width=0 aria-hidden=true
+      row flex-wrap="wrap" align-items="baseline" column-gap=10 min-width=0
+        text value font-size="2.75rem" font-variant-numeric="tabular-nums" aria-label=`${label}, ${value}`
+        text detail font="-exact-subheadline" color="-exact-secondary-label" font-variant-numeric="tabular-nums"
+      match progress
+        case some(p)
+          progress value=p max=1 width="100%" margin-top=12 aria-label=label
+            accent-color=(p >= 1 ? "-exact-system-green" : "inherit")
+        case none
+
+// A labelled comparative bar: the label and its value on one line, and under
+// them a bar `fraction` (0 to 1) of the width: the accent short of the goal,
+// the system green at it or past it, or `tint` (a colour role such as
+// `"-exact-system-red"`) when given. Stack several for a breakdown (one whose
+// bars are shares, not goals, passes a `tint`); each reads as one line to
+// VoiceOver.
+component StatBar
+  props
+    label: string
+    value: string
+    fraction: number
+    tint: option<string>
+  view
+    column gap=6 min-width=0 role="meter" aria-label=label aria-valuetext=value
+      aria-valuenow=`${min(1, max(0, fraction))}` aria-valuemin="0" aria-valuemax="1"
+      row align-items="baseline" gap=8 min-width=0
+        text label flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+        text value color="-exact-secondary-label" font-variant-numeric="tabular-nums" flex-shrink=0
+      view height=8 border-radius=4 background-color="-exact-tertiary-fill" overflow="hidden"
+        view width=`${min(1, max(0, fraction)) * 100}%` height="100%" border-radius=4
+          background-color=(match tint { case some(t) => t, case none => fraction >= 1 ? "-exact-system-green" : "AccentColor" })
+
+// A circular determinate progress around its value: a ring filled
+// `fraction` (0 to 1) of the way round, clockwise from the top, in the same
+// colours as `StatBar`'s bar, over a grey track; the value in its centre in
+// tabular figures and the label under it. One progress bar to a reader, its
+// label and value spoken. 200 points across, down to 120 in a narrower
+// container; the ring is drawn over the square, so it adds no width of its own.
+component RingProgress
+  props
+    label: string
+    value: string
+    fraction: number
+    tint: option<string>
+  view
+    column role="progressbar" aria-label=label aria-valuetext=value
+      aria-valuenow=`${min(1, max(0, fraction))}` aria-valuemin="0" aria-valuemax="1"
+      position="relative" width="100%" min-width=120 max-width=200 aspect-ratio=1 align-self="center"
+      svg viewBox="0 0 100 100" position="absolute" inset=0 width="100%" height="100%" aria-hidden=true
+        color=(match tint { case some(t) => t, case none => fraction >= 1 ? "-exact-system-green" : "AccentColor" })
+        circle cx=50 cy=50 r=45 fill="none" stroke="-exact-tertiary-fill" stroke-width=8
+        when fraction > 0
+          circle cx=50 cy=50 r=45 fill="none" stroke="currentcolor" stroke-width=8 stroke-linecap="round"
+            pathLength=100 stroke-dasharray=`${min(1, fraction) * 100} 100` transform="rotate(-90 50 50)"
+      column position="absolute" inset=0 align-items="center" justify-content="center" gap=2 padding="0 18%"
+        text value font-size="2rem" font-variant-numeric="tabular-nums" white-space="nowrap" aria-hidden=true
+        text label font="-exact-subheadline" color="-exact-secondary-label" text-align="center" aria-hidden=true
+
+// Done or not, at a glance: a filled check in the system green, or an empty
+// circle in grey, with `caption` under it: short, a day's name (`""` for
+// none). Several in a `row` are a history. Each is one image to a reader,
+// named by its caption and its state ("Mon, done"), so the caption is what
+// shows, not a sentence for VoiceOver.
+component DoneMark
+  props
+    caption: string
+    done: bool
+  view
+    column align-items="center" gap=4 min-width=0 role="img"
+      aria-label=(caption == "" ? (done ? "Done" : "Not done") : `${caption}, ${done ? "done" : "not done"}`)
+      image (done ? "symbol:select-fill" : "symbol:circle") width=26 height=26 object-fit="contain" aria-hidden=true
+        -exact-tint-color=(done ? "-exact-system-green" : "-exact-tertiary-label")
+      when caption != ""
+        text caption font="-exact-caption1" color="-exact-secondary-label" white-space="nowrap" aria-hidden=true
+
+// What a screen with nothing to show says: a symbol, a title, a line saying
+// what to do. An action is the author's `button`, indented under the use.
+component EmptyState
+  props
+    symbol: string
+    title: string
+    message: string
+  slot
+  view
+    column align-items="center" gap=8 padding="48px 24px" text-align="center" min-width=0
+      image symbol width=48 height=48 object-fit="contain" margin-bottom=8 aria-hidden=true
+        -exact-tint-color="-exact-secondary-label"
+      text title role="heading" aria-level=2
+      text message color="-exact-secondary-label" max-width=360
+      row flex-wrap="wrap" justify-content="center" gap=8 margin-top=8
+        children
+
+// A row's content: a title, a secondary line under it (`""` for none) and an
+// optional trailing value in tabular figures. In a grouped list's `row`, or
+// anywhere a list of records is drawn.
+component RowText
+  props
+    title: string
+    detail: string
+    value: option<string>
+  view
+    row flex=1 min-width=0 align-items="center" gap=12 padding-top=10 padding-bottom=10
+      column flex=1 min-width=0 gap=2
+        text title white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+        when detail != ""
+          text detail font="-exact-subheadline" color="-exact-secondary-label"
+      match value
+        case some(v)
+          text v color="-exact-secondary-label" font-variant-numeric="tabular-nums" flex-shrink=0
+        case none
+
+// A status in a word, as "Full", "Cancelled" or "Locked": the label in a
+// capsule, in the caption style (semibold), so a state reads as text, never
+// as a colour alone. `tint` is its fill: `none` the neutral grey, the accent
+// (`some("AccentColor")`) as a tint (the accent at 16% under the label's own
+// ink, which reads on every accent in either scheme: a solid accent under
+// white ink is 1.4:1 on yellow and 3.5:1 on the system blue, short of the
+// 4.5:1 a caption needs), or a state's hue (`some("-exact-system-orange")`
+// for Full, the system red for Cancelled, green for Open) under dark ink,
+// which reads on every system hue but indigo (white there), in either
+// scheme. It keeps its own size: centred in a row, beside a title that gives
+// way (`flex=1 min-width=0`), and at the start of a column.
+component Badge
+  props
+    label: string
+    tint: option<string>
+  derive fill = match tint { case some(t) => t, case none => "-exact-tertiary-fill" }
+  view
+    row flex-shrink=0 align-items="center"
+      when fill == "-exact-tertiary-fill"
+        row padding="2px 8px" border-radius=999 background-color=fill
+          text label font="-exact-caption1" font-weight=600 white-space="nowrap" color="-exact-label"
+      else when fill == "AccentColor"
+        row position="relative" padding="2px 8px" border-radius=999 overflow="hidden"
+          view position="absolute" inset=0 background-color="AccentColor" opacity=0.16 aria-hidden=true
+          text label font="-exact-caption1" font-weight=600 white-space="nowrap" color="-exact-label"
+            position="relative"
+      else
+        row padding="2px 8px" border-radius=999 background-color=fill
+          color-scheme=(fill == "-exact-system-indigo" ? "dark" : "light")
+          text label font="-exact-caption1" font-weight=600 white-space="nowrap" color="-exact-label"
+
+// A large round button, as the Clock's Start, Stop and Lap: the platform's
+// own button drawn as an 80-point circle, so its press, focus and disabled
+// look are the platform's. `tint` is its fill: `none` the neutral grey with
+// the label's ink (Lap, Reset), or a colour role: the accent
+// (`some("AccentColor")`) or a state (`-exact-system-red` to stop), whose
+// white ink the platform chooses, as on any filled button. The light system
+// hues, green (to start), mint, teal, cyan, yellow and orange, fail 4.5:1
+// under white (green is 2.2:1) and look off-platform under black (LLP
+// 1116.007 D3.3, then trivia's teal Start, round 10), so they draw the
+// platform's tinted style as the Clock's Start does: the hue at low opacity
+// under the label's own ink, black in light and white in dark, which reads on
+// every one of them (LLP 1116.008 D6). Two sit at the ends of a
+// `row justify-content="space-between"` under the readout.
+component RoundButton
+  props
+    label: string
+    tint: option<string>
+    press: action
+    disabled: bool
+    testId: string
+  view
+    match tint
+      case some(t)
+        when includes(["-exact-system-green", "-exact-system-mint", "-exact-system-teal", "-exact-system-cyan", "-exact-system-yellow", "-exact-system-orange"], t)
+          button press=press disabled=disabled testId=testId buttonStyle="tinted"
+            accent-color=t color=(disabled ? "-exact-tertiary-label" : "-exact-label")
+            -exact-corner-style="capsule" width=80 height=80 padding="0 6px" flex-shrink=0
+            text label white-space="nowrap"
+        else
+          button press=press disabled=disabled testId=testId buttonStyle="filled"
+            accent-color=(t == "AccentColor" ? "inherit" : t)
+            -exact-corner-style="capsule" width=80 height=80 padding="0 6px" flex-shrink=0
+            text label white-space="nowrap"
+      case none
+        button press=press disabled=disabled testId=testId buttonStyle="gray"
+          color=(disabled ? "-exact-tertiary-label" : "-exact-label")
+          -exact-corner-style="capsule" width=80 height=80 padding="0 6px" flex-shrink=0
+          text label white-space="nowrap"
+
+// One answer of a quiz or a poll: a tile as wide as its column, the label at
+// its start in the headline style. `status` is one of five: "idle" (a
+// neutral fill), "selected" (the accent's outline and check: chosen, not yet
+// told), "correct" (the system green and a check), "wrong" (the system red
+// and a cross) or "dimmed" (the rest, once told). The green takes dark ink
+// and the red white, in either scheme, and a mark beside the label says
+// what the colour says. Told and dimmed tiles are disabled. A reader hears
+// the label and its status ("Paris, correct").
+component AnswerTile
+  props
+    label: string
+    status: string
+    press: action
+    testId: string
+  view
+    when status == "correct" or status == "wrong"
+      button appearance="none" press=press disabled=true testId=testId aria-label=`${label}, ${status}`
+        display="flex" align-items="center" gap=12 padding="14px 16px" border-radius=12
+        border="2px solid transparent" color="-exact-label" color-scheme=(status == "correct" ? "light" : "dark")
+        background-color=(status == "correct" ? "-exact-system-green" : "-exact-system-red")
+        text label flex=1 min-width=0 font="-exact-headline" text-align="start" aria-hidden=true
+        image (status == "correct" ? "symbol:checkmark" : "symbol:close") width=22 height=22
+          object-fit="contain" flex-shrink=0 aria-hidden=true -exact-tint-color="-exact-label"
+    else
+      button appearance="none" press=press disabled=(status == "dimmed") testId=testId
+        aria-label=(status == "selected" ? `${label}, selected` : label)
+        display="flex" align-items="center" gap=12 padding="14px 16px" border-radius=12
+        border=(status == "selected" ? "2px solid AccentColor" : "2px solid transparent")
+        background-color="-exact-tertiary-fill" color=(status == "dimmed" ? "-exact-secondary-label" : "-exact-label")
+        text label flex=1 min-width=0 font="-exact-headline" text-align="start" aria-hidden=true
+        when status == "selected"
+          image "symbol:select-fill" width=22 height=22 object-fit="contain" flex-shrink=0
+            aria-hidden=true -exact-tint-color="AccentColor"

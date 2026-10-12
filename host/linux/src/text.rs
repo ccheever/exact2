@@ -149,6 +149,10 @@ pub struct Spec {
     pub direction: exact_kernel::Direction,
     /// CSS `text-indent`, points: the first line's inset from its start edge.
     pub text_indent: f32,
+    /// CSS `text-box-trim` and `text-box-edge` (Inline Layout 3 §4).
+    pub text_box_trim: exact_kernel::TextBoxTrim,
+    /// The edges a trim cuts to.
+    pub text_box_edge: exact_kernel::TextBoxEdge,
 }
 
 impl Spec {
@@ -207,6 +211,8 @@ impl Spec {
             white_space: request.paragraph.white_space,
             direction: request.paragraph.direction,
             text_indent: request.paragraph.text_indent,
+            text_box_trim: request.paragraph.text_box_trim,
+            text_box_edge: request.paragraph.text_box_edge,
         };
         spec.shown(request.paragraph.markup == exact_kernel::Markup::Markdown)
     }
@@ -1053,6 +1059,15 @@ impl TextMeasurer for Measurer {
         crate::paint::control::field_chrome()
     }
 
+    /// The shell's own field measures a field it hosts (LLP 1115.001 D8).
+    fn field_text(
+        &mut self,
+        kind: exact_kernel::FieldKind,
+        request: &TextMeasureRequest<'_>,
+    ) -> Option<TextMetrics> {
+        crate::fields::measure(&mut self.0.borrow_mut(), kind, request)
+    }
+
     fn set_language(&mut self, language: &str) {
         let mut engine = self.0.borrow_mut();
         let catalog = engine.catalog.borrow();
@@ -1196,3 +1211,7 @@ mod css_tests;
 #[cfg(test)]
 #[path = "text/eviction_tests.rs"]
 mod eviction_tests;
+
+#[cfg(test)]
+#[path = "text/text_box_tests.rs"]
+mod text_box_tests;

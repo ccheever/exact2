@@ -89,7 +89,7 @@ import { resolveApp, buildBake, bakeTarget, HERMES_INSTALLER, hermesBundle, herm
 import { checkHermesBundles, hermesCrossTargets, hermesSetupTargets } from './exact.mjs';
 import { useXcode } from '../host/apple/devices.mjs';
 import { iosAssets, infoPlist, macInfoPlist, documentTypes, importedTypes, exportedTypes, macReleaseEntitlements, writeUsageStrings, designCompatible, COMPATIBLE_SDK } from '../host/apple/build.mjs';
-import { snapshotOf, materializeSnapshot, disposeSnapshot } from './deploy.mjs';
+import { contractCompiler, snapshotOf, materializeSnapshot, disposeSnapshot } from './deploy.mjs';
 
 test('the driver grammar names an unquoted mediasession action beside pinch', () => {
   const source = readFileSync(new URL('./agent.mjs', import.meta.url), 'utf8');
@@ -193,7 +193,7 @@ async function fixture(body) {
     return resolve(root, dir);
   };
   try {
-    for (const path of ['scripts/app.mjs','scripts/contract-diagnosis.mjs','scripts/filesystem.mjs','scripts/rust.mjs','scripts/install-page.mjs','scripts/sweep.mjs','scripts/app.schema.json','host/web/stages.mjs','host/apple/assets.mjs','game/app/shells.mjs','game/.cargo/config.toml']) {
+    for (const path of ['scripts/app.mjs','scripts/contract-diagnosis.mjs','scripts/filesystem.mjs','scripts/rust.mjs','scripts/install-page.mjs','scripts/sweep.mjs','scripts/app.schema.json','host/web/stages.mjs','host/apple/assets.mjs','host/apple/buildinfo.mjs','game/app/shells.mjs','game/.cargo/config.toml']) {
       write(path, readFileSync(resolve(import.meta.dir,'..',path)));
     }
     const { resolveApp: localResolveApp, cargoReproducibilityFlags: flags } = await import(resolve(root,'scripts/app.mjs'));
@@ -219,6 +219,9 @@ async function fixture(body) {
   }
 }
 
+test('shell fixture includes Apple build info', () => fixture(({root}) => {
+  assert.ok(existsSync(resolve(root, 'host/apple/buildinfo.mjs')));
+}));
 test('shell repair replaces half-written members before metadata', () => fixture(({app}) => {
   const before = app(), path = before.cargoPackage('gpu').manifest_path;
   rmSync(resolve(dirname(path),'src'),{recursive:true});
@@ -725,12 +728,10 @@ test('R12 named in-tree game resolves without EXACT_APP_DIR', () => fixture(({ap
   delete process.env.EXACT_APP_DIR;
   assert.equal(app().dir,dir);
 }));
-
-
-test('R12 deploy captures initialized dependency submodules as source', () => fixture(({app,root,write,run})=>{
+test('R12 deploy captures initialized dependency submodules without building discovery in the snapshot', () => fixture(({app,root,write,run})=>{
   const resolved=app();resolved.cargoPackage('gpu');
-  run('cargo',['generate-lockfile','--offline']);
-  run('cargo',['generate-lockfile','--offline','--manifest-path','game/Cargo.toml']);
+  write('contract/src/main.rs', `fn main() { let target=std::env::var("CARGO_TARGET_DIR").unwrap_or_else(|_| "target".into()); std::fs::write(std::path::Path::new(&target).join("source-discovery-target"), b"compiled").unwrap(); println!("{}", r#"{"packages":[],"sources":[],"consulted":[]}"#); }`);
+  run('cargo',['generate-lockfile','--offline']);run('cargo',['generate-lockfile','--offline','--manifest-path','game/Cargo.toml']);
   write('vendor/fixture-source/data.txt','captured submodule');
   run('git',['-C','vendor/fixture-source','init','-q']);
   run('git',['-C','vendor/fixture-source','add','data.txt']);
@@ -743,15 +744,17 @@ test('R12 deploy captures initialized dependency submodules as source', () => fi
   assert.throws(()=>snapshotOf(resolved,{},root), /vendor\/absent-source.*git submodule update --init vendor\/absent-source/);
   run('git',['rm','--cached','vendor/absent-source']);
   run('git',['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','remove absent fixture']);
-  const snapshot=snapshotOf(resolved,{},root);
+  const snapshot=snapshotOf(resolved,{},root), previousPath=process.env.PATH, cargo=Bun.which('cargo'), trace=resolve(root,'target/snapshot-cargo');
+  write('target/probe/cargo', `#!/bin/sh\ncase "$1" in build|run) printf '%s\\n' "$PWD" >> '${trace}';; esac\nexec '${cargo}' "$@"\n`);chmodSync(resolve(root,'target/probe/cargo'),0o755);process.env.PATH=`${root}/target/probe:${previousPath}`;
   try {
     assert.ok(snapshot.sources.some(source=>source.roles.includes('submodule')));
-    const staged=materializeSnapshot(snapshot,resolve(root,'target/run'),resolved);
+    const staged=materializeSnapshot(snapshot,resolve(root,'target/run'),resolved,resolve(root,'target/source-cache'));
     assert.equal(readFileSync(resolve(staged.exactRoot,'vendor/fixture-source/data.txt'),'utf8'),'captured submodule');
-  } finally {disposeSnapshot(snapshot);}
+    assert.equal(existsSync(trace),false,'source discovery spawned Cargo in the snapshot');
+    assert.equal(readFileSync(resolve(root,'target/source-discovery-target'),'utf8'),'compiled');
+    assert.equal(existsSync(resolve(staged.app.target,'source-discovery-target')),false);
+  } finally {process.env.PATH=previousPath;disposeSnapshot(snapshot);}
 }), 30000); // two lockfiles, a submodule, three commits and two captures: 2.6 s at load 35, past five seconds on a loaded Mac
-
-
 test('R13 capture refuses tracked files under inferred game output roots',()=>fixture(({app,root,write,run})=>{
   const resolved=app();resolved.cargoPackage('gpu');
   run('cargo',['generate-lockfile','--offline']);run('cargo',['generate-lockfile','--offline','--manifest-path','game/Cargo.toml']);
@@ -993,6 +996,7 @@ test('a worktree whose target resolves into another checkout is refused', async 
     mkdirSync(resolve(main, 'target')); symlinkSync(resolve(main, 'target'), resolve(lane, 'target'));
     assertOwnTarget(resolve(main, 'target'), main);
     assert.throws(() => assertOwnTarget(resolve(lane, 'target'), lane), /another checkout of this repository/);
+    assert.throws(() => contractCompiler(lane), /another checkout of this repository/);
     mkdirSync(resolve(root, 'private'));
     assertOwnTarget(resolve(root, 'private'), lane);
   } finally { rmSync(root, { recursive: true, force: true }); }

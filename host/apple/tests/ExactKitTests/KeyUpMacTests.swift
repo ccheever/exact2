@@ -105,10 +105,10 @@ final class KeyUpMacTests: XCTestCase {
     /// A ⌘ chord during a composition (#140). Chrome hands the page the
     /// chord's keydown before the input method's result, with the composed
     /// text already in the field and reported to `input` (CDP's
-    /// `Input.imeSetComposition`, then ⌘B: `input 한`, then the keys).
-    /// AppKit reports composed text only once committed, so the chord
-    /// commits it first: its handlers hear the same value, ⌘'s own keys
-    /// pass through the composition, and the keyups follow.
+    /// `Input.imeSetComposition`, then ⌘B: `input 한`, then the keys). So
+    /// it is here: the text was heard as it was composed (LLP 1115.000 §5,
+    /// ruling 6), the chord commits it and that is not heard again, ⌘'s own
+    /// keys pass through the composition, and the keyups follow.
     func testACommandChordCommitsTheCompositionThenReachesTheHandlers() throws {
         let p = try fixture()
         let heard = record(p)
@@ -120,7 +120,7 @@ final class KeyUpMacTests: XCTestCase {
         XCTAssertTrue(p.endedComposition(chord), "its menu item, too, is refused")
         XCTAssertFalse(p.routeKey(event(.keyUp, 11, leftCommand, "b"), focused: true))
         flags(p, event(.flagsChanged, 55, []))
-        XCTAssertEqual(heard.lines, ["keydown Meta+Meta MetaLeft", "input 한", "keydown Meta+b KeyB", "keyup Meta+b KeyB", "keyup Meta MetaLeft"])
+        XCTAssertEqual(heard.lines, ["input 한", "keydown Meta+Meta MetaLeft", "keydown Meta+b KeyB", "keyup Meta+b KeyB", "keyup Meta MetaLeft"])
         XCTAssertEqual(editor.string, "한")
         XCTAssertFalse(p.endedComposition(event(.keyDown, 11, leftCommand, "b", at: 1)), "a later ⌘B is a chord like any")
     }

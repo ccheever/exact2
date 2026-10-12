@@ -96,7 +96,7 @@ final class RegionWorkerLayout {
         let flush: CGFloat = source.align == 1 ? 0.5 : source.align == 2 ? 1 : 0
         var baselines: [CGFloat] = []
         var maxWidth: CGFloat = 0
-        var y: CGFloat = 0
+        var y: CGFloat = 0, lastBaseline: CGFloat = 0
         var start = 0
         var lineCount = 0
         let limit = width.isFinite ? Double(width) : Double.greatestFiniteMagnitude
@@ -187,6 +187,7 @@ final class RegionWorkerLayout {
             }
             explicit = explicit || aboveExplicit || belowExplicit
             if retainHits || lineCount == 0 { baselines.append(y + above) }
+            lastBaseline = y + above
             y += above + below
             if retainHits { lineBottoms.append(y) }
             maxWidth = max(maxWidth, w)
@@ -202,6 +203,7 @@ final class RegionWorkerLayout {
         if lineCount == 0 {
             // Empty editors retain the paragraph's own line box.
             baselines.append(minimum.0)
+            lastBaseline = minimum.0
             y = minimum.0 + minimum.1
             explicit = source.strutExplicit
         }
@@ -210,14 +212,20 @@ final class RegionWorkerLayout {
         // Check before metadata and at its coarse line boundaries. No partial
         // metrics or layout binding escape if the authoritative owner changed.
         try beforeMetadata()
+        var height = explicit ? y : ceil(y)
+        // CSS `text-box`, cut as `TextEngine.trimTextBox` cuts any paragraph, which an empty editor's line box is not
+        if source.textBox.trim != 0, lineCount > 0, let root = source.strut?.value, let first = baselines.first {
+            let cut = TextEngine.textBoxTrim(source.textBox, root: root, first: first, last: lastBaseline, height: height)
+            TextEngine.trimLines(cut, baselines: &baselines, lineBottoms: &lineBottoms, height: &height)
+        }
         let metadata: RegionParagraph
         if compact {
             metadata = RegionParagraph(source: source, sourceSHA256: preparation.sourceSHA256,
                 lines: summaries, baselines: baselines, lineBottoms: lineBottoms,
-                width: CSSLineBox.layoutWidth(maxWidth), height: explicit ? y : ceil(y), offeredWidth: width)
+                width: CSSLineBox.layoutWidth(maxWidth), height: height, offeredWidth: width)
         } else {
             metadata = try RegionParagraph(source: source, sourceSHA256: preparation.sourceSHA256,
-                lines: lines, baselines: baselines, width: CSSLineBox.layoutWidth(maxWidth), height: explicit ? y : ceil(y),
+                lines: lines, baselines: baselines, width: CSSLineBox.layoutWidth(maxWidth), height: height,
                 lineBottoms: lineBottoms, offeredWidth: width, retainHits: retainHits, captureHits: false,
                 metadataCheckpoint: beforeMetadata)
         }

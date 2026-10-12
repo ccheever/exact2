@@ -23,6 +23,10 @@ use std::collections::BTreeMap;
 mod activation;
 #[path = "arrange.rs"]
 mod arrange;
+#[path = "back.rs"]
+mod back;
+#[path = "bars.rs"]
+mod bars;
 #[path = "content_region/host.rs"]
 mod content;
 #[path = "hatches/host.rs"]
@@ -857,23 +861,20 @@ impl<D: DataSource> Host<D> {
     /// error; the tree is untouched (as the kernel was).
     pub fn dispatch_at(&mut self, view: ViewId, event: Event, now_ms: f64) -> Option<String> {
         let event = self.document_value(view, event);
-        if matches!(event, Event::Press | Event::PressWith(_))
-            && crate::navigation::popover_invoker(self.runner.kernel(), view)
-        {
-            self.log(crate::navigation::POPOVER_UNSUPPORTED);
-            return Some(crate::navigation::POPOVER_UNSUPPORTED.into());
+        // A host with no top layer refuses a press that would open one.
+        let press = matches!(event, Event::Press | Event::PressWith(_));
+        let refused = |host: &Self, dialog| {
+            let refusal = host.navigation.refusal(host.runner.kernel(), view, dialog);
+            refusal.filter(|_| press).map(str::to_string)
+        };
+        if let Some(refusal) = refused(self, false) {
+            self.log(refusal.clone());
+            return Some(refusal);
         }
         self.now_ms = now_ms.max(self.now_ms);
-        if matches!(event, Event::Press | Event::PressWith(_))
-            && self.runner.kernel().node(view).is_some_and(|node| {
-                node.props
-                    .str(exact_kernel::PropId::Commandfor)
-                    .is_some_and(|target| !target.is_empty())
-            })
-        {
-            let refusal = "unsupported: Linux dialog presentation is not implemented";
-            self.log(refusal);
-            return Some(refusal.into());
+        if let Some(refusal) = refused(self, true) {
+            self.log(refusal.clone());
+            return Some(refusal);
         }
         // At the event's time: an action's `performanceNow()` is the host's (LLP 1096 D3).
         let a = crate::traced(c"exact dispatch", || {
@@ -1392,7 +1393,7 @@ impl<D: DataSource> Host<D> {
         for line in self.navigation.sync(self.runner.kernel(), &navigation) {
             self.runner.log(line);
         }
-        changed
+        changed | self.project_bars()
     }
 
     /// The last router op; this host has no foreign batch consumer.
@@ -1404,6 +1405,11 @@ impl<D: DataSource> Host<D> {
     /// @ref LLP 1038 D6 — shared by painting, input, and agent layout.
     pub fn route_visibility(&self, id: ViewId) -> (bool, bool) {
         self.navigation.visibility(self.runner.kernel(), id)
+    }
+
+    /// A shell presents the top layer (`presenter/top.rs`), or none does.
+    pub(crate) fn top_layer(&mut self, on: bool) {
+        self.navigation.top_layer = on;
     }
 
     /// Every presentation value the engine changed, kept by node.
@@ -1487,10 +1493,6 @@ impl<D: DataSource> Host<D> {
             .preorder_where(&self.runner.roots(), |_, _| true)
     }
 }
-
-/// The kv scope the runner's kept answers live in, beside secrets
-/// (LLP 1027 D4). The same scope Apple's store writes.
-const KEPT: &str = "exact.kept";
 
 #[cfg(test)]
 #[path = "host_tests.rs"]

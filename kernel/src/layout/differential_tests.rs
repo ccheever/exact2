@@ -20,10 +20,10 @@ fn style(id: u32, rows: &[(StyleId, StyleValue)]) -> Op {
         patch: Box::new(patch),
     }
 }
-fn t(s: &str) -> StyleValue {
+fn t(s: &str) -> StyleValue<'_> {
     StyleValue::Text(s.into())
 }
-fn n(x: f64) -> StyleValue {
+fn n(x: f64) -> StyleValue<'static> {
     StyleValue::Number(x)
 }
 #[derive(Default)]
@@ -71,7 +71,9 @@ fn seeded_512_trees_match_fresh_frames_content_and_baselines() {
                     id,
                     prop: PropId::Text,
                     value: PropValue::Str(
-                        "alpha beta longerword ".repeat(2 + random(&mut seed, 16) as usize),
+                        "alpha beta longerword "
+                            .repeat(2 + random(&mut seed, 16) as usize)
+                            .into(),
                     ),
                 });
                 ops.push(style(

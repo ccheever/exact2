@@ -605,13 +605,25 @@ impl Gen<'_> {
                 let style = *self.rng.pick(&["\"medium\"", "\"month-year\"", "\"iso\""]);
                 format!("formatDate({at}, {off}, {style})")
             }
+            // LLP 1116 D8: `decimal`, `percent` and `currency` beside
+            // `compact`, over counts and the halves and signed zero of
+            // `DECIMALS`, each style rounding at its own cut.
             2 => {
-                let n = if self.rng.chance(1, 2) {
-                    number(*self.rng.pick(COUNTS))
-                } else {
-                    self.expr(env, &Ty::Num, d, false)
+                let style = *self.rng.pick(&[
+                    "\"compact\"",
+                    "\"compact\"",
+                    "\"decimal\"",
+                    "\"percent\"",
+                    "\"currency\", \"USD\"",
+                    "\"currency\", \"JPY\"",
+                    "\"currency\", \"CHF\"",
+                ]);
+                let n = match self.rng.below(3) {
+                    0 => number(*self.rng.pick(COUNTS)),
+                    1 => number(*self.rng.pick(DECIMALS)),
+                    _ => self.expr(env, &Ty::Num, d, false),
                 };
-                format!("formatNumber({n}, \"compact\")")
+                format!("formatNumber({n}, {style})")
             }
             // LLP 1102 §3.2: `toFixed` of any number at a literal 0–100,
             // `formatDecimal` of a count (often rounded, as money is) at 0–20.

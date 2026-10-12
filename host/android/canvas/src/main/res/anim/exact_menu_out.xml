@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A menu closing (LLP 1115.001 D10): Material's 75 ms fade, at its size. -->
+<alpha xmlns:android="http://schemas.android.com/apk/res/android"
+    android:duration="75"
+    android:fromAlpha="1"
+    android:interpolator="@android:anim/linear_interpolator"
+    android:toAlpha="0" />

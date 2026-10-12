@@ -9,9 +9,11 @@ package final class TextArea: NSTextView {
     private lazy var textUndo = NativeTextUndo(before: { [weak self] in
         self?.markup?.applying = true
     }, after: { [weak self] in
-        guard let self, let editor = markup else { return }
-        editor.applying = false
-        editor.bookmark = selectedRange()
+        guard let self else { return }
+        if let editor = markup {
+            editor.applying = false
+            editor.bookmark = selectedRange()
+        }
         owner?.textDidChange(Notification(name: NSText.didChangeNotification, object: self))
     })
     package override var undoManager: UndoManager? { textUndo.manager }
@@ -70,6 +72,17 @@ package final class TextArea: NSTextView {
         return ok
     }
 
+    /// AppKit posts no change while text is marked: the owner hears each one
+    /// here, and a commit's steps as one (`settlingComposition`).
+    package override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+        owner?.markedTextChanged(self)
+    }
+    package override func unmarkText() {
+        guard let owner else { super.unmarkText(); return }
+        owner.settlingComposition(self) { super.unmarkText() }
+    }
+
     package override func insertTab(_ sender: Any?) {
         if markup != nil { super.insertTab(sender) } else { window?.selectNextKeyView(self) }
     }
@@ -83,13 +96,14 @@ package final class TextArea: NSTextView {
     }
 
     package override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard window?.firstResponder === self else { return super.performKeyEquivalent(with: event) }
         // An embedded/agent window need not own NSApp.keyWindow, so the
         // menu's responder lookup may miss its editor. Route the ordinary
         // undo chord straight to this text view's native manager.
         let modifiers = event.modifierFlags.intersection([.command, .shift, .control, .option])
-        if markup != nil, isEditable, !hasMarkedText(), event.charactersIgnoringModifiers?.lowercased() == "z" {
-            if modifiers == .command { if undoManager?.canUndo == true { undoManager?.undo() }; return true }
-            if modifiers == [.command, .shift] { if undoManager?.canRedo == true { undoManager?.redo() }; return true }
+        if isEditable, !hasMarkedText(), event.charactersIgnoringModifiers?.lowercased() == "z" {
+            if modifiers == .command { undo(nil); return true }
+            if modifiers == [.command, .shift] { redo(nil); return true }
         }
         if markup != nil, event.modifierFlags.intersection([.command, .shift, .control, .option]) == [.command, .shift],
            event.charactersIgnoringModifiers?.lowercased() == "c" {
@@ -105,6 +119,20 @@ package final class TextArea: NSTextView {
             }
         }
         return super.performKeyEquivalent(with: event)
+    }
+
+    // NSTextView does not implement these responder actions. The Edit menu's
+    // nil target must reach this editor's history, rather than NSWindow's.
+    @objc package func undo(_ sender: Any?) {
+        if isEditable, !hasMarkedText(), undoManager?.canUndo == true { undoManager?.undo() }
+    }
+    @objc package func redo(_ sender: Any?) {
+        if isEditable, !hasMarkedText(), undoManager?.canRedo == true { undoManager?.redo() }
+    }
+    package override func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        if item.action == #selector(undo(_:)) { return isEditable && !hasMarkedText() && undoManager?.canUndo == true }
+        if item.action == #selector(redo(_:)) { return isEditable && !hasMarkedText() && undoManager?.canRedo == true }
+        return super.validateMenuItem(item)
     }
 
     @objc package func copyPlainText(_ sender: Any?) {
@@ -134,7 +162,7 @@ package final class TextArea: NSTextView {
             let origin = textContainerOrigin
             let rect = NSRect(x: origin.x, y: origin.y, width: textContainer?.containerSize.width ?? bounds.width, height: bounds.height - origin.y)
             (placeholder as NSString).draw(in: rect, withAttributes: [
-                .font: font ?? NSFont.systemFont(ofSize: 16),
+                .font: font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize),
                 .foregroundColor: owner?.isNativeTextControl == true ? NSColor.placeholderTextColor : (textColor ?? SystemColor.canvasText).withAlphaComponent(0.3),
             ])
         }
@@ -142,23 +170,38 @@ package final class TextArea: NSTextView {
 }
 
 extension NodeView {
+    /// The caret: the author's `caret-color`, else AppKit's own (LLP 1115.000
+    /// D7.9). CSS's `auto` is the text's colour, and a bare field's caret was
+    /// that; a Mac's is the accent. Measured on macOS 27.0, light and dark:
+    /// a plain `NSTextView`'s and an `NSTextField`'s editor's
+    /// `insertionPointColor`, and `NSTextInsertionIndicator`'s colour, are
+    /// `textInsertionPointColor`, which is the accent the person chose.
     var caretColor: NSColor {
-        color("caret_color", isNativeTextControl ? color("accent_color", .controlAccentColor) : color("text_color", .textColor))
+        color("caret_color", color("accent_color", .textInsertionPointColor))
     }
 
-    var allowsInputCorrection: Bool {
+    /// `autocorrect` as the author wrote it; nil when they said nothing (the
+    /// prop is then absent: it is a prop, not a style row, so there is no
+    /// written bit to read). An email, URL or password input says by its
+    /// type that its text is not prose.
+    var inputCorrection: Bool? {
         if textArea == nil, ["email", "url", "password"].contains((props["type"] ?? "").lowercased()) { return false }
-        return (props["autocorrect"] ?? "").lowercased() != "off"
+        return props["autocorrect"].map { $0.lowercased() != "off" }
     }
 
-    var allowsInputSpellChecking: Bool { props["spellcheck"] != "false" }
+    /// `spellcheck` as the author wrote it; nil when they said nothing.
+    var inputSpellChecking: Bool? { props["spellcheck"].map { $0.lowercased() != "false" } }
 
     /// What `autocorrect` and `spellcheck` ask of an editor: a textarea's
-    /// text view or an input's field editor.
+    /// text view or an input's field editor. Only what the author wrote is
+    /// written (LLP 1115.000 D7.7). Unsaid, both are the person's: what
+    /// AppKit gave the editor from System Settings (Correct spelling
+    /// automatically) and what they chose since in Edit ▸ Spelling and
+    /// Grammar, which a write at every update used to undo.
     func applyTextChecking(_ v: NSTextView) {
-        v.isAutomaticSpellingCorrectionEnabled = allowsInputCorrection
-        v.isContinuousSpellCheckingEnabled = allowsInputSpellChecking
-        v.keepsTypedText(!allowsInputCorrection)
+        v.writes(\.isAutomaticSpellingCorrectionEnabled, inputCorrection, held: &heldCorrection)
+        v.writes(\.isContinuousSpellCheckingEnabled, inputSpellChecking, held: &heldSpelling)
+        v.keepsTypedText(inputCorrection == false)
     }
 
     func makeTextArea() {
@@ -185,13 +228,19 @@ extension NodeView {
         textArea = f
         textAreaScroll = scroller
     }
-    /// The app's value into the editor: nothing while text is being composed
-    /// (held until the composition ends), else the changed middle only, with
-    /// the selection carried through (LLP 1045 D5).
+    /// The app's value into the editor: the changed middle only, with the
+    /// selection carried through (LLP 1045 D5). The value the editor already
+    /// shows changes nothing, so a composition and its selection stand. A
+    /// different one is held while text is marked, the last one written,
+    /// and applied when the composition ends (`applyHeldValue`,
+    /// `FieldComposition.swift`). The write is not typing, so the app does
+    /// not hear it as `input`.
     func writeValue(_ value: String, into f: NSTextView) {
         if f.string.utf16.elementsEqual(value.utf16) { pendingValue = nil; return }
         if f.hasMarkedText() { pendingValue = value; return }
         pendingValue = nil
+        writingValue = true
+        defer { writingValue = false; toldText = nil }
         guard let edit = minimalTextEdit(from: f.string, to: value) else { return }
         // Native undo ranges refer to the old buffer. An external edit has
         // no position map for those ranges; discard only this view's history.
@@ -238,10 +287,11 @@ extension NodeView {
         f.insertionPointColor = caretColor
         let native = isNativeTextControl
         textAreaScroll?.borderType = native ? .bezelBorder : .noBorder
-        textAreaScroll?.focusRingType = native ? .default : .none
+        textAreaScroll?.focusRingType = native && !outlineNone ? .default : .none
         textAreaScroll?.drawsBackground = native
         f.drawsBackground = native
-        f.focusRingType = native ? .default : .exterior
+        f.focusRingType = outlineNone ? .none : native ? .default : .exterior
+        restyleFieldFocus()
         f.textContainerInset = native ? FieldChromeCache.textareaInset(for: effectiveAppearance, scale: window?.backingScaleFactor ?? 1) : .zero
         let paragraph = NSMutableParagraphStyle()
         if let height = usedLineHeight {
@@ -283,8 +333,10 @@ extension NodeView {
         guard let f = textArea else { return }
         if let editor = (f as? TextArea)?.markup, editor.applying || editor.styling { return }
         f.needsDisplay = true
-        if !disabled { presenter?.typed(id, f.string, input: handlers.contains("input")) }
-        if !f.hasMarkedText(), let held = pendingValue { writeValue(held, into: f) }
+        // What AppKit says of the app's own value going in, or of a
+        // composition's commit in its steps, is not typing.
+        if !disabled, !writingValue { typedText(f.string) }
+        if !writingValue { applyHeldValue(to: f) }
         configureMarkup()
         restyleMarkup()
         publishMarkupSelection()
@@ -309,8 +361,26 @@ extension NodeView {
 }
 
 private var heldSubstitutions: UInt8 = 0
+private var heldCorrection: UInt8 = 0
+private var heldSpelling: UInt8 = 0
 
 extension NSTextView {
+    /// A switch the author may have written. While they say what it is, it
+    /// is that, and what the view had (AppKit's, or the person's) is held;
+    /// when they say nothing it is given back and then left alone. The
+    /// window's one field editor serves every field, so a field that says
+    /// nothing must not keep the last field's answer.
+    func writes(_ path: ReferenceWritableKeyPath<NSTextView, Bool>, _ value: Bool?, held key: UnsafeRawPointer) {
+        let held = objc_getAssociatedObject(self, key) as? Bool
+        if let value {
+            if held == nil { objc_setAssociatedObject(self, key, self[keyPath: path], .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+            if self[keyPath: path] != value { self[keyPath: path] = value }
+        } else if let held {
+            objc_setAssociatedObject(self, key, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+            if self[keyPath: path] != held { self[keyPath: path] = held }
+        }
+    }
+
     /// No correction keeps the text as typed, as HTML's `autocorrect="off"`
     /// asks (#111): no smart quotes or dashes and no text replacement, which
     /// AppKit would otherwise apply after a pause in typing. What the view
@@ -344,11 +414,29 @@ final class Field: NSTextField {
     override var focusRingMaskBounds: NSRect { bareFieldMask(self) ?? super.focusRingMaskBounds }
     override func drawFocusRingMask() { if !drawBareFieldMask(self) { super.drawFocusRingMask() } }
 }
-/// The editor an input's field takes while the node or an ancestor hears
-/// `copy`, `cut` or `paste` (`FieldCell.fieldEditor(for:)`): the window's
-/// shared one, which fires none of them, otherwise.
+/// The editor an `input`'s field edits in (`FieldCell.fieldEditor(for:)`):
+/// one for the session's fields, as a window has one for its own, so what
+/// a person turns on in one field (Edit ▸ Spelling and Grammar) is on in the
+/// next, as in any AppKit window. It is not the window's own because it
+/// tells the field's node what that one tells nobody: each change of the
+/// text an input method is composing (`markedTextChanged`), and a `copy`,
+/// `cut` or `paste` before it happens, for the node or an ancestor that
+/// hears one (#125).
 final class FieldEditor: NSTextView {
+    static func make() -> FieldEditor {
+        let editor = FieldEditor(frame: .zero)
+        editor.isFieldEditor = true
+        return editor
+    }
     var owner: NodeView? { (delegate as? NSTextField)?.delegate as? NodeView }
+    override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+        owner?.markedTextChanged(self)
+    }
+    override func unmarkText() {
+        guard let owner else { super.unmarkText(); return }
+        owner.settlingComposition(self) { super.unmarkText() }
+    }
     override func copy(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.copy(_:))) { super.copy(sender) } }
     override func cut(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.cut(_:))) { super.cut(sender) } }
     override func paste(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.paste(_:))) { super.paste(sender) } }

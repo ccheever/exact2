@@ -102,7 +102,10 @@ impl<D: DataSource> Runner<D> {
         was_poisoned: bool,
     ) {
         match result {
-            Ok(_) => self.log_store_writes(c.store.writes),
+            Ok(_) => {
+                self.persist_slots();
+                self.log_store_writes(c.store.writes)
+            }
             Err(_) if self.poisoned && !was_poisoned => self.store.restore(c.store),
             Err(_) => {
                 // What the refused commit asked is let go with it.

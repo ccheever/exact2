@@ -1,5 +1,17 @@
 // @ref LLP 1031 D5/D12; LLP 1001 §10 — window-owned presentation of
 // Contract commands, not an embedded NativeView or a second action registry.
+// And the platform's Back (LLP 1115.000 D5.1): the window of an app with a
+// navigation stack leads its toolbar with a navigational back chevron, in
+// the toolbar the author declared or, with none, in one that holds only it.
+// It is there at a stack's root too, disabled, as Finder's and Safari's is:
+// a toolbar that came with each push and went with each pop made the title
+// bar 8 points taller and moved the content every time. A route that asks
+// for no bar (`navigationBar="none"`, D5.2) gets no chevron and the toolbar
+// stays, empty, at the same height. An app with no stack, or one whose
+// every mounted route asks for no bar, gets no toolbar; one comes with the
+// first route that shows a bar and then stays (`heldForBack`), so the title
+// bar's height changes at most that once. The route's header and title
+// stay in the content.
 #if os(macOS)
 import AppKit
 
@@ -14,6 +26,23 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
     func hides(_ node: NodeView) -> Bool { projected && node === owner }
     private weak var heading: NodeView?
     private var order: [NSToolbarItem.Identifier] = []
+    /// Back (BackMac.swift): the way back from the pushed route, pressing
+    /// what iOS's Back button presses. A standard item, so its size, glass
+    /// and place at the leading edge are AppKit's.
+    static let backIdentifier = NSToolbarItem.Identifier("exact.navigation.back")
+    private(set) lazy var backItem: NSToolbarItem = {
+        let item = NSToolbarItem(itemIdentifier: Self.backIdentifier)
+        item.label = "Back"; item.paletteLabel = "Back"; item.toolTip = "Back"
+        item.image = NSImage(systemSymbolName: "chevron.backward", accessibilityDescription: "Back")
+        item.isBordered = true
+        item.isNavigational = true
+        item.target = self; item.action = #selector(performBack(_:))
+        item.autovalidates = true
+        return item
+    }()
+    /// The toolbar is installed for the stack's Back: kept through routes
+    /// that ask for no bar, until the stack or the toolbar goes.
+    private var heldForBack = false
     private(set) var projected = false
     private var savedAccessibilityHidden = false
     private var syncing = false
@@ -96,15 +125,33 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         let hadToolbar = toolbar != nil
         let old = toolbar
         toolbar = nil
+        let content = contentSize
         if let window, let old, window.toolbar === old {
             window.toolbar = nil
             if window.title == appliedTitle { window.title = savedTitle }
         }
         items.removeAll(); symbols.removeAll(); order.removeAll(); owner = nil; heading = nil
+        heldForBack = false
         // The app's items and delegate were for that toolbar; the next one's
         // hatch says its own.
         hatched = false; appItems.removeAll(); appDelegate = nil
-        if hadToolbar { onChange?() }
+        if hadToolbar { onChange?(); keepContent(content) }
+    }
+
+    /// The content keeps its size as the toolbar comes or goes: only the
+    /// title bar changes, the window's top edge where it was. AppKit sizes
+    /// the window for a toolbar by the toolbar's whole height, the title bar
+    /// it merges with included, so the content came out 32 points taller
+    /// with one and as much shorter without (measured on macOS 27.0, unified
+    /// and compact alike, on screen or not). A full-screen window's frame is
+    /// the screen's.
+    private var contentSize: NSSize? {
+        guard let window, !window.styleMask.contains(.fullScreen) else { return nil }
+        return window.contentView?.frame.size
+    }
+    private func keepContent(_ size: NSSize?) {
+        guard let size, let window, let now = window.contentView?.frame.size, now != size else { return }
+        window.setContentSize(size)
     }
 
     /// The `toolbar` hatch for the installed toolbar, once (at a cold launch,
@@ -202,31 +249,54 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         return items[node.id] != nil
     }
 
+    private typealias Declaration = (owner: NodeView, shown: [NodeView], buttons: [NodeView], heading: NodeView?)
+    /// The author's toolbar in this window, when the toolbar can show it: its
+    /// node, its action buttons, its heading. A shape it cannot show is said
+    /// once and keeps its authored rendering.
+    private func declaration(in window: NSWindow) -> Declaration? {
+        func refused(_ reason: String) -> Declaration? {
+            if refusal != reason { presenter.session?.log("window toolbar: \(reason)"); refusal = reason }
+            return nil
+        }
+        let owners = presenter.carrying("toolbarPlacement").filter {
+            $0.props["toolbarPlacement"] == "window" && $0.props["accessibilityRole"] == "toolbar"
+                && visible($0) && $0.window === window
+        }
+        if owners.count > 1 { return refused("multiple visible declarations; keeping authored rendering") }
+        guard let next = owners.first else { return nil }
+        let declarations = children(next).filter { visible($0) }
+        let buttons = declarations.filter { $0.isButton && $0.handlers.contains("press") }
+        let headings = declarations.filter { $0.kind == "text" && $0.props["accessibilityRole"] == "heading" }
+        // The bounded initial shape: direct action buttons and one heading.
+        // Unsupported content keeps the authored presentation, never vanishes.
+        guard !buttons.isEmpty, headings.count <= 1, declarations.count == buttons.count + headings.count else {
+            return refused("expected direct action buttons and at most one heading; keeping authored rendering")
+        }
+        refusal = nil
+        return (next, declarations, buttons, headings.first)
+    }
+
     func sync() {
         guard !syncing else { return }
         syncing = true
         defer { syncing = false }
         prepare()
         guard let window, presenter.root.window === window else { reset(); return }
-        let owners = presenter.carrying("toolbarPlacement").filter {
-            $0.props["toolbarPlacement"] == "window" && $0.props["accessibilityRole"] == "toolbar"
-                && visible($0) && $0.window === window
-        }
-        if owners.count > 1 { refuse("multiple visible declarations; keeping authored rendering"); return }
-        guard let next = owners.first else { reset(); return }
+        let declared = declaration(in: window)
+        // Back for an app with a stack, the author's toolbar or not: the
+        // toolbar from the first route that shows a bar, the item on every
+        // route that does not ask for none (`navigationBar="none"`). AppKit
+        // asks whether it goes now (`validateToolbarItem`), as it does a
+        // menu: at a stack's root it does not, and the item is disabled.
+        let navigation = presenter.navigation
+        let held = navigation.hasStack && (heldForBack || navigation.barRoute)
+        let back = held && navigation.backInToolbar
+        guard declared != nil || held else { reset(); return }
         // A host that takes its toolbar back wins. Never overwrite it on a tick.
         guard window.toolbar == nil || window.toolbar === toolbar else { refuse("window owner installed another toolbar"); return }
-        let declarations = children(next).filter { visible($0) }
-        let buttons = declarations.filter { $0.isButton && $0.handlers.contains("press") }
-        let headings = declarations.filter { $0.kind == "text" && $0.props["accessibilityRole"] == "heading" }
-        // The bounded initial shape: direct action buttons and one heading.
-        // Unsupported content keeps the authored presentation, never vanishes.
-        guard !buttons.isEmpty, headings.count <= 1,
-              declarations.count == buttons.count + headings.count else {
-            refuse("expected direct action buttons and at most one heading; keeping authored rendering"); return
-        }
-        refusal = nil
-        owner = next; heading = headings.first
+        if declared == nil { items.removeAll(); symbols.removeAll() }
+        owner = declared?.owner; heading = declared?.heading
+        let declarations = declared?.shown ?? [], buttons = declared?.buttons ?? []
         let installing = toolbar == nil
         if installing {
             savedTitle = window.title
@@ -237,6 +307,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             toolbar = value
         }
         guard let toolbar else { return }
+        heldForBack = held
         let live = Set(buttons.map(\.id))
         for id in Array(items.keys) where !live.contains(id) { items.removeValue(forKey: id); symbols.removeValue(forKey: id) }
         for node in buttons {
@@ -272,7 +343,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             if node === heading { return .flexibleSpace }
             return items[node.id]?.itemIdentifier
         }
-        order = nextOrder + appItems.map(\.itemIdentifier)
+        order = (back ? [Self.backIdentifier] : []) + nextOrder + appItems.map(\.itemIdentifier)
         // Keep both toolbar and command objects stable through route changes.
         for index in stride(from: toolbar.items.count - 1, through: 0, by: -1) {
             if !order.contains(toolbar.items[index].itemIdentifier) { toolbar.removeItem(at: index) }
@@ -282,12 +353,18 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             if let old = toolbar.items.firstIndex(where: { $0.itemIdentifier == identifier }) { toolbar.removeItem(at: old) }
             toolbar.insertItem(withItemIdentifier: identifier, at: index)
         }
+        // Shown as it will answer, without waiting for AppKit's next validation.
+        if back, backItem.isEnabled != navigation.canGoBack { backItem.isEnabled = navigation.canGoBack }
         appliedTitle = heading.map(text) ?? savedTitle
         if window.title != appliedTitle { window.title = appliedTitle }
-        // Hide only the authored rendering. Its logical nodes/actions survive.
-        if window.toolbar !== toolbar { window.toolbar = toolbar }
+        let content = contentSize, attaching = window.toolbar !== toolbar
+        if attaching { window.toolbar = toolbar }
         if installing { onChange?() }
+        // After the window's owner has styled the toolbar (`onChange`).
+        if attaching { keepContent(content) }
         hatchToolbar()
+        // Hide only the authored rendering. Its logical nodes/actions survive.
+        guard let next = declared?.owner else { return }
         savedAccessibilityHidden = next.isAccessibilityHidden()
         next.isHidden = true; next.setAccessibilityHidden(true); projected = true
     }
@@ -295,11 +372,17 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { order }
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { order }
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
-        items.values.first { $0.itemIdentifier == identifier } ?? appItems.first { $0.itemIdentifier == identifier }
+        if identifier == Self.backIdentifier { return backItem }
+        return items.values.first { $0.itemIdentifier == identifier } ?? appItems.first { $0.itemIdentifier == identifier }
     }
     func validateToolbarItem(_ item: NSToolbarItem) -> Bool {
+        if item === backItem { return toolbar != nil && window?.toolbar === toolbar && presenter.navigation.canGoBack }
         guard let node = presenter.views[UInt32(item.tag)], items[node.id] === item else { return false }
         return available(node)
+    }
+    @objc private func performBack(_ item: NSToolbarItem) {
+        guard validateToolbarItem(item) else { return }
+        presenter.navigation.goBack()
     }
     @objc private func performItem(_ item: NSToolbarItem) {
         guard validateToolbarItem(item) else { return }

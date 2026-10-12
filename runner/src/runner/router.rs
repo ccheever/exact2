@@ -600,6 +600,7 @@ impl<D: DataSource> Runner<D> {
             .and_then(|c| c.slots.iter().find(|(n, _)| n == name))
             .map(|(_, v)| v.clone())
             .filter(|v| v.conforms(&self.plan, row.ty));
+        let carried = kept.is_some();
         let v = match kept {
             Some(v) => v,
             None => self.eval(row.init, &[], &[])?,
@@ -607,7 +608,13 @@ impl<D: DataSource> Runner<D> {
         if !v.conforms(&self.plan, row.ty) {
             return Err(RunnerError::SlotType { slot: name.into() });
         }
-        self.slots[i] = v;
+        // A persisted slot takes the store's value over its initializer's
+        // (LLP 1116 D5); a carried value is this session's and wins.
+        self.slots[i] = if carried {
+            v
+        } else {
+            self.restore_persisted(i, v)
+        };
         Ok(())
     }
 
@@ -699,6 +706,43 @@ impl<D: DataSource> Runner<D> {
         let Some(next) = context.call(&self.plan, Stdlib::Back, &[current]) else {
             return Ok(None);
         };
+        self.host_commit(slot, next, "host back")
+    }
+
+    /// The platform's own navigation to `location` under a navigation root
+    /// with no `navigate` handler: the browser's Forward, or a same-origin
+    /// link to a declared route (LLP 1115.000 D4.3). It is the router's
+    /// `go`, written by the runner as one commit of its own, as the app's
+    /// `nav = go(nav, location)` would be — journaled as `host go`, refused
+    /// like any commit. `None` (nothing done) without a router, or when
+    /// `go` leaves the router as it is: no route matches `location`, or it
+    /// is already the selected top.
+    pub fn host_go(&mut self, location: &str) -> Result<Option<CommitReceipt>, RunnerError> {
+        let Some(context) = self.router.as_deref() else {
+            return Ok(None);
+        };
+        let slot = context.slot().0 as usize;
+        let current = self.slots[slot].clone();
+        let Some(router) = context.read(&current) else {
+            return Ok(None);
+        };
+        let next = context
+            .call(&self.plan, Stdlib::Go, &[current, Value::str(location)])
+            .filter(|next| context.read(next).is_some_and(|r| r != router));
+        self.log_router_refusals();
+        match next {
+            Some(next) => self.host_commit(slot, next, "host go"),
+            None => Ok(None),
+        }
+    }
+
+    /// One commit of the runner's own that writes the router `next`.
+    fn host_commit(
+        &mut self,
+        slot: usize,
+        next: Value,
+        what: &str,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
         let was_poisoned = self.poisoned;
         let checkpoint = self.checkpoint(false);
         let result = if self.poisoned {
@@ -713,7 +757,7 @@ impl<D: DataSource> Runner<D> {
         self.conclude(checkpoint, &result, was_poisoned);
         self.arm_then(result.is_ok());
         self.arm_next(result.is_ok());
-        self.log_outcome("host back", &result, was_poisoned);
+        self.log_outcome(what, &result, was_poisoned);
         result.map(Some)
     }
 

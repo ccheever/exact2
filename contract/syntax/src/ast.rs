@@ -266,9 +266,23 @@ pub enum Step {
         /// Where.
         span: Span,
     },
+    /// `request POST "/items" {"title": "Bread"} as grace` (LLP 1116.006
+    /// D8): the driver writes through the app's server as another person.
+    Request {
+        /// `GET`, `POST`, `PUT`, `PATCH` or `DELETE`.
+        method: String,
+        /// Under the server URL the app calls (`/items`), or a whole URL.
+        path: String,
+        /// The body, as JSON text.
+        body: Option<String>,
+        /// Whose bearer token it carries.
+        persona: Option<String>,
+        /// Where.
+        span: Span,
+    },
     /// `seed 7`: the session's `exactTime().seed`, `--seed`.
     Seed {
-        /// A whole number from 0 through 2^53 − 1.
+        /// A whole number from 0 through 2^32 − 1.
         seed: f64,
         /// Where.
         span: Span,
@@ -375,6 +389,14 @@ pub enum Step {
     /// it, asking its `beforeunload` first (the driver's `close`, studio
     /// diary R17); a window a handler keeps stays, and the test goes on.
     Close {
+        /// Where.
+        span: Span,
+    },
+    /// `back`: the platform's Back, as a person takes it (LLP 1116.006 D4):
+    /// an open dialog's cancel (Escape), else the top sheet dismissed (its
+    /// swipe down), else the pushed route popped (iOS's Back button, the
+    /// browser's Back, ⌘[). With nothing to go back from, the step fails.
+    Back {
         /// Where.
         span: Span,
     },
@@ -633,6 +655,8 @@ pub struct Component {
     pub slot: bool,
     /// `state` declarations.
     pub states: Vec<Binding>,
+    /// The states that say `persist` (LLP 1116 D5), in declaration order.
+    pub persist: Vec<Persist>,
     /// `derive` declarations.
     pub derives: Vec<Binding>,
     /// `resource` declarations.
@@ -661,6 +685,23 @@ impl Component {
             .collect::<Vec<_>>()
             .join(", ");
         format!("`{}` needs {missing}", self.name)
+    }
+}
+
+/// `state name = expr persist` (LLP 1116 D5): a root state the host keeps
+/// across launches; the state's name, and where `persist` is written.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Persist {
+    /// The state's name.
+    pub name: String,
+    /// Where `persist` is written.
+    pub span: Span,
+}
+
+impl Component {
+    /// Whether the state `name` says `persist`.
+    pub fn persists(&self, name: &str) -> bool {
+        self.persist.iter().any(|p| p.name == name)
     }
 }
 
@@ -1197,6 +1238,9 @@ pub struct Attr {
     pub value: Expr,
     /// Where.
     pub span: Span,
+    /// Whether the author wrote it (LLP 1115.000 D2): the parser's are; a
+    /// row the compiler adds to an element (a sheet's, an implied one) is not.
+    pub written: bool,
 }
 
 /// A binary operator.
@@ -1341,6 +1385,7 @@ impl Step {
             | Step::BeforeData { span }
             | Step::FailFetch { span, .. }
             | Step::PassFetch { span, .. }
+            | Step::Request { span, .. }
             | Step::Type { span, .. }
             | Step::Key { span, .. }
             | Step::Pick { span, .. }
@@ -1348,6 +1393,7 @@ impl Step {
             | Step::Clock { span, .. }
             | Step::Reload { span, .. }
             | Step::Close { span }
+            | Step::Back { span }
             | Step::Resize { span, .. }
             | Step::Screenshot { span, .. }
             | Step::ExpectTree { span, .. }

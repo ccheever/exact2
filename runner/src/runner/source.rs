@@ -259,6 +259,11 @@ impl Target {
 /// The app's data source: the one seam through which computation enters
 /// (LLP 1004 D4). Implemented once, in Rust, by the app's data crate.
 pub trait DataSource {
+    /// Session that may use document handles minted by this host.
+    fn set_document_owner(&mut self, owner: u64) {
+        let _ = owner;
+    }
+
     /// Host-selected application directories. Configuration records paths only;
     /// implementations must defer opening storage until after first pixel.
     fn configure_storage(

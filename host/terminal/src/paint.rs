@@ -8,9 +8,8 @@
 use crate::grid::{CellRect, Grid, Rgb, Style};
 use crate::measure::{columns, wrap};
 use exact_kernel::style::cells::{COLUMN, ROW};
-use exact_kernel::text::Paragraph;
 use exact_kernel::{
-    Color, ColorValue, Dimension, Display, Kernel, NodeRef, NodeType, Overflow, PropId, StyleMask,
+    Color, ColorValue, Dimension, Display, Kernel, NodeRef, NodeType, Overflow, PropId,
     TextDecorationLine, TextOverflow, ViewId, Visibility,
 };
 use std::collections::HashMap;
@@ -49,6 +48,8 @@ pub struct Scene<'a> {
     pub caret: usize,
     /// The appearance `light-dark()` resolves by.
     pub dark: bool,
+    /// Output palette; monochrome images use their alternate text.
+    pub colors: crate::color::ColorDepth,
     /// Open dialogs and popovers, bottom to top.
     pub layers: Vec<ViewId>,
     /// Decoded images.
@@ -73,7 +74,9 @@ pub fn paint(scene: &Scene<'_>, roots: &[ViewId], cols: usize, rows: usize, top:
     let clip = out.grid.bounds();
     let dy = top as f32 * ROW;
     for &root in roots {
-        node(scene, &mut out, root, clip, 0.0, dy, false);
+        if let Some(n) = scene.kernel.node(root) {
+            node(scene, &mut out, n, clip, 0.0, dy, false);
+        }
     }
     for &layer in &scene.layers {
         // A modal layer: what is beneath is faint and takes no pointer.
@@ -85,9 +88,10 @@ pub fn paint(scene: &Scene<'_>, roots: &[ViewId], cols: usize, rows: usize, top:
         if let Some(n) = scene.kernel.node(layer) {
             let f = n.frame;
             out.layer = Some(cells(f.x - dx, f.y - ldy, f.width, f.height));
+            node(scene, &mut out, n, clip, dx, ldy, true);
         }
-        node(scene, &mut out, layer, clip, dx, ldy, true);
     }
+    out.grid.limit_colors(scene.colors);
     out
 }
 
@@ -146,16 +150,14 @@ fn is_layer(n: &NodeRef<'_>) -> bool {
 fn node(
     scene: &Scene<'_>,
     out: &mut Painted,
-    id: ViewId,
+    n: NodeRef<'_>,
     clip: CellRect,
     dx: f32,
     dy: f32,
     layer: bool,
 ) {
     let kernel = scene.kernel;
-    let Some(n) = kernel.node(id) else {
-        return;
-    };
+    let id = n.id;
     if n.style.display == Display::None || n.is_inline_run() || n.node_type == NodeType::Head {
         return;
     }
@@ -176,7 +178,7 @@ fn node(
     let native_button =
         n.node_type == NodeType::Control && n.props.str(PropId::Type) == Some("button");
     let native_field =
-        n.node_type == NodeType::TextInput && n.style.appearance == exact_kernel::Appearance::Auto;
+        n.node_type == NodeType::TextInput && n.style.appearance != exact_kernel::Appearance::None;
     if visible {
         if native_field {
             let fill = if scene.dark {
@@ -225,12 +227,13 @@ fn node(
                 text(scene, out, &n, content, columns(px), clip, current)
             }
             NodeType::Control if native_button => button(scene, out, &n, rect, clip),
+            NodeType::Control if bar(&n) => progress_bar(scene, out, &n, content, clip, current),
             NodeType::TextInput => field(scene, out, &n, content, clip, current),
             NodeType::Image => image(scene, out, &n, content, clip),
             _ => {}
         }
     }
-    let scrolls = n.node_type == NodeType::ScrollView
+    let scrolls = matches!(n.node_type, NodeType::ScrollView | NodeType::List)
         || matches!(n.style.overflow_y, Overflow::Scroll | Overflow::Auto);
     let clips = scrolls
         || n.style.overflow_x != Overflow::Visible
@@ -279,12 +282,37 @@ fn node(
         }
     }
     if n.node_type != NodeType::Text && !native_button {
-        for child in n.children() {
+        for child in n.child_nodes() {
             node(scene, out, child, child_clip, dx, child_dy, false);
         }
     }
     if visible && scene.focus == Some(id) && n.node_type != NodeType::TextInput && !native_button {
         out.grid.reverse(rect, clip);
+    }
+}
+
+/// A determinate `progress` (LLP 1116 D8).
+fn bar(n: &NodeRef<'_>) -> bool {
+    exact_kernel::ControlKind::of(n.node_type, n.props)
+        == Some(exact_kernel::ControlKind::ProgressBar)
+}
+
+/// A determinate `progress` as text: its middle row of content cells, `█`
+/// to its value and `░` after it, in its colour (LLP 1116 D8).
+fn progress_bar(
+    scene: &Scene<'_>,
+    out: &mut Painted,
+    n: &NodeRef<'_>,
+    content: CellRect,
+    clip: CellRect,
+    current: ColorValue,
+) {
+    let filled = (content.w as f64 * exact_kernel::Progress::of(n.props).fraction()).round() as i32;
+    let y = content.y + (content.h - 1).max(0) / 2;
+    let style = base_style(scene, n, current);
+    for i in 0..content.w {
+        let glyph = if i < filled { "█" } else { "░" };
+        out.grid.put(content.x + i, y, glyph, 1, style, clip);
     }
 }
 
@@ -469,7 +497,7 @@ fn faded(kernel: &Kernel, id: ViewId) -> bool {
     while let Some(n) = at {
         if n.style.opacity < 1.0
             || (n.node_type == NodeType::TextInput
-                && n.style.appearance == exact_kernel::Appearance::Auto
+                && n.style.appearance != exact_kernel::Appearance::None
                 && n.props.bool(PropId::Disabled) == Some(true))
         {
             return true;
@@ -479,68 +507,129 @@ fn faded(kernel: &Kernel, id: ViewId) -> bool {
     false
 }
 
-/// The leaves a paragraph's runs come from, in run order: a node with its
-/// own text is one run; otherwise its inline `text` children are.
-fn leaves(kernel: &Kernel, id: ViewId, out: &mut Vec<ViewId>) {
-    let Some(n) = kernel.node(id) else { return };
-    if n.props.str(PropId::Text).is_some() {
-        out.push(id);
-        return;
-    }
-    for child in n.children() {
-        if kernel
-            .node(child)
-            .is_some_and(|c| c.node_type == NodeType::Text)
-        {
-            leaves(kernel, child, out);
-        }
-    }
+/// A canonical run's paint and the inline node a click reaches.
+struct RunPaint {
+    id: ViewId,
+    style: Style,
 }
 
-/// Each run's own style: its colour, the background of the nearest inline
-/// box under the paragraph, its decorations, weight and slant.
-fn run_styles(
+/// Carry the inline ancestors' paint forward once, in canonical run order.
+/// Metric styles still come from the kernel's runs. An inline colour
+/// overrides its inherited colour, while decorations accumulate and the
+/// nearest opaque background wins, as in the ancestor walk.
+fn run_paints(
     scene: &Scene<'_>,
-    n: &NodeRef<'_>,
+    paragraph: &NodeRef<'_>,
     runs: &[exact_kernel::TextRun<'_>],
     base: Style,
-) -> Vec<Style> {
-    let kernel = scene.kernel;
-    let mut ids = Vec::new();
-    leaves(kernel, n.id, &mut ids);
-    runs.iter()
-        .enumerate()
-        .map(|(i, run)| {
-            let mut style = Style {
-                bold: run.style.font_weight >= 600,
-                faint: base.faint || run.style.font_weight <= 300,
-                italic: run.style.font_style != exact_kernel::FontStyle::Normal,
-                ..base
-            };
-            if ids.len() == runs.len() {
-                let leaf = ids[i];
-                if let Some(l) = kernel.node(leaf) {
-                    style.fg = rgb(l.text_color().resolve(scene.dark));
-                }
-                let mut at = Some(leaf);
-                while let Some(a) = at.filter(|a| *a != n.id) {
-                    let Some(node) = kernel.node(a) else { break };
-                    if let Some(bg) = node
-                        .style
-                        .background_color
-                        .map(|c| c.resolve(scene.dark))
-                        .and_then(rgb)
-                    {
-                        style.bg = Some(bg);
-                        break;
-                    }
-                    at = node.parent;
-                }
-                (style.underline, style.strike) = decoration(kernel, leaf);
+    grid: &mut Grid,
+) -> Vec<RunPaint> {
+    fn walk(
+        scene: &Scene<'_>,
+        node: NodeRef<'_>,
+        own_link: Option<&str>,
+        style: Style,
+        grid: &mut Grid,
+        out: &mut Vec<RunPaint>,
+    ) {
+        if node.props.str(PropId::Text).is_some() {
+            let mut style = style;
+            let href = node
+                .props
+                .str(PropId::Href)
+                .filter(|h| !h.is_empty())
+                .or(own_link);
+            if let Some(url) = href.filter(|u| !u.chars().any(char::is_control)) {
+                style.link = grid.link(url);
             }
-            style
-        })
-        .collect()
+            out.push(RunPaint { id: node.id, style });
+            return;
+        }
+        for child in node.child_nodes().filter(|n| n.node_type == NodeType::Text) {
+            let mut next = style;
+            if child.style.mask.has(exact_kernel::StyleId::TextColor) {
+                next.fg = rgb(child.style.text_color.resolve(scene.dark));
+            }
+            if let Some(bg) = child
+                .style
+                .background_color
+                .map(|c| c.resolve(scene.dark))
+                .and_then(rgb)
+            {
+                next.bg = Some(bg);
+            }
+            match child.style.text_decoration_line {
+                TextDecorationLine::Underline => next.underline = true,
+                TextDecorationLine::LineThrough => next.strike = true,
+                TextDecorationLine::UnderlineLineThrough => {
+                    (next.underline, next.strike) = (true, true)
+                }
+                TextDecorationLine::None => {}
+            }
+            walk(scene, child, own_link, next, grid, out);
+        }
+    }
+    let mut out = Vec::with_capacity(runs.len());
+    walk(
+        scene,
+        *paragraph,
+        paragraph.props.str(PropId::Href).filter(|h| !h.is_empty()),
+        base,
+        grid,
+        &mut out,
+    );
+    // Text and its inline Text descendants have one canonical run per
+    // text prop, including empty text. Both walks stop at an own text prop.
+    debug_assert_eq!(out.len(), runs.len());
+    for (paint, run) in out.iter_mut().zip(runs) {
+        paint.style.bold = run.style.font_weight >= 600;
+        paint.style.faint |= run.style.font_weight <= 300;
+        paint.style.italic = run.style.font_style != exact_kernel::FontStyle::Normal;
+    }
+    out
+}
+
+// Both wrapped and streamed text use the same cell and hit-region writer.
+struct TextPaint<'a> {
+    out: &'a mut Painted,
+    paints: &'a [RunPaint],
+    owner: ViewId,
+    clip: CellRect,
+    reach: Option<(ViewId, CellRect)>,
+}
+
+impl TextPaint<'_> {
+    fn finish(&mut self) {
+        self.out.runs.extend(
+            self.reach
+                .take()
+                .map(|(id, r)| (id, r.intersect(self.clip))),
+        );
+    }
+
+    fn glyph(&mut self, x: i32, y: i32, text: &str, cols: usize, run: usize) {
+        let paint = self.paints.get(run);
+        let style = paint.map_or_else(Style::default, |p| p.style);
+        self.out.grid.put(x, y, text, cols, style, self.clip);
+        // The run's own node, where it has one (not the paragraph's).
+        let leaf = paint.map(|p| &p.id).filter(|id| **id != self.owner);
+        match (leaf, &mut self.reach) {
+            (Some(id), Some((at, r))) if at == id => r.w += cols as i32,
+            (Some(id), _) => {
+                self.out.runs.extend(self.reach.take());
+                self.reach = Some((
+                    *id,
+                    CellRect {
+                        x,
+                        y,
+                        w: cols as i32,
+                        h: 1,
+                    },
+                ));
+            }
+            (None, _) => self.out.runs.extend(self.reach.take()),
+        }
+    }
 }
 
 fn text(
@@ -552,88 +641,90 @@ fn text(
     clip: CellRect,
     current: ColorValue,
 ) {
-    let computed = n.computed_style(StyleMask::INHERITED);
-    let paragraph = Paragraph::from_style(&computed);
+    let paragraph = n.paragraph();
     let runs = n.text_runs();
-    let mut lines = wrap(&runs, &paragraph, Some(width), false);
     let ellipsis = n.style.text_overflow == TextOverflow::Ellipsis;
-    let mut styles = run_styles(scene, n, &runs, base_style(scene, n, current));
-    // Each run's link, from its leaf's `href` (or the paragraph's own).
-    let mut ids = Vec::new();
-    leaves(scene.kernel, n.id, &mut ids);
-    let own = n.props.str(PropId::Href).filter(|h| !h.is_empty());
-    for (i, style) in styles.iter_mut().enumerate() {
-        let href = ids
-            .get(i)
-            .filter(|_| ids.len() == runs.len())
-            .and_then(|id| scene.kernel.node(*id))
-            .and_then(|l| l.props.str(PropId::Href).filter(|h| !h.is_empty()))
-            .or(own);
-        if let Some(url) = href.filter(|u| !u.chars().any(|c| c.is_control())) {
-            style.link = out.grid.link(url);
-        }
-    }
+    let paints = run_paints(
+        scene,
+        n,
+        &runs,
+        base_style(scene, n, current),
+        &mut out.grid,
+    );
     let inner = clip.intersect(content);
-    for (row, line) in lines.iter_mut().enumerate() {
-        let y = content.y + row as i32;
-        if y < inner.y || y >= inner.y + inner.h {
-            continue;
-        }
-        if ellipsis && line.cols() > width && width > 0 {
-            while line.cols() > width - 1 {
-                line.glyphs.pop();
+    let mut painter = TextPaint {
+        out,
+        paints: &paints,
+        owner: n.id,
+        clip: inner,
+        reach: None,
+    };
+    if paragraph.white_space == exact_kernel::WhiteSpace::Pre
+        && !matches!(
+            paragraph.text_align,
+            exact_kernel::TextAlign::Right | exact_kernel::TextAlign::Center
+        )
+        && !ellipsis
+    {
+        let mut previous_row = None;
+        crate::measure::visit_preserved(&runs, |row, col, text, cols, run| {
+            if paragraph.line_clamp > 0 && row >= paragraph.line_clamp as usize {
+                return;
             }
-            let run = line.glyphs.last().map_or(0, |g| g.run);
-            line.glyphs.push(crate::measure::Glyph {
-                text: "…".into(),
-                cols: 1,
-                run,
-            });
-        }
-        let slack = width.saturating_sub(line.cols()) as i32;
-        let mut x = content.x
-            + match paragraph.text_align {
-                exact_kernel::TextAlign::Right => slack,
-                exact_kernel::TextAlign::Center => slack / 2,
-                _ => 0,
-            };
-        let mut reach: Option<(ViewId, CellRect)> = None;
-        for glyph in &line.glyphs {
-            let style = styles.get(glyph.run).copied().unwrap_or_default();
-            out.grid.put(x, y, &glyph.text, glyph.cols, style, inner);
-            // The run's own node, where it has one (not the paragraph's):
-            // its cells on this line, for a click.
-            let leaf = ids
-                .get(glyph.run)
-                .filter(|id| ids.len() == runs.len() && **id != n.id);
-            match (leaf, &mut reach) {
-                (Some(id), Some((at, r))) if at == id => r.w += glyph.cols as i32,
-                (Some(id), _) => {
-                    out.runs.extend(reach.take());
-                    let r = CellRect {
-                        x,
-                        y,
-                        w: glyph.cols as i32,
-                        h: 1,
-                    };
-                    reach = Some((*id, r));
+            let y = content.y + row as i32;
+            if y >= inner.y && y < inner.y + inner.h {
+                if previous_row != Some(y) {
+                    painter.finish();
+                    previous_row = Some(y);
                 }
-                (None, _) => out.runs.extend(reach.take()),
+                painter.glyph(content.x + col as i32, y, text, cols, run);
             }
-            x += glyph.cols as i32;
+        });
+    } else {
+        let mut lines = wrap(&runs, &paragraph, Some(width), false);
+        for (row, line) in lines.iter_mut().enumerate() {
+            let y = content.y + row as i32;
+            if y < inner.y || y >= inner.y + inner.h {
+                continue;
+            }
+            if ellipsis && line.cols() > width && width > 0 {
+                while line.cols() > width - 1 {
+                    line.glyphs.pop();
+                }
+                let run = line.glyphs.last().map_or(0, |g| g.run);
+                line.glyphs.push(crate::measure::Glyph {
+                    text: "…".into(),
+                    cols: 1,
+                    run,
+                });
+            }
+            let slack = width.saturating_sub(line.cols()) as i32;
+            let mut x = content.x
+                + match paragraph.text_align {
+                    exact_kernel::TextAlign::Right => slack,
+                    exact_kernel::TextAlign::Center => slack / 2,
+                    _ => 0,
+                };
+            for glyph in &line.glyphs {
+                painter.glyph(x, y, &glyph.text, glyph.cols, glyph.run);
+                x += glyph.cols as i32;
+            }
+            painter.finish();
         }
-        out.runs
-            .extend(reach.take().map(|(id, r)| (id, r.intersect(inner))));
     }
+    painter.finish();
 }
 
 /// An image as half-blocks, the protocol-free form every writer can show;
 /// a writer with an image protocol draws over these cells.
 fn image(scene: &Scene<'_>, out: &mut Painted, n: &NodeRef<'_>, content: CellRect, clip: CellRect) {
-    out.images.push((n.id, content));
+    let colored = scene.colors != crate::color::ColorDepth::Monochrome;
+    if colored {
+        out.images.push((n.id, content));
+    }
     let inner = clip.intersect(content);
     match scene.images.of(n.id) {
-        Some(decoded) if content.w > 0 && content.h > 0 => {
+        Some(decoded) if colored && content.w > 0 && content.h > 0 => {
             let cells = decoded.half_blocks(content.w as usize, content.h as usize);
             for (row, line) in cells.iter().enumerate() {
                 for (col, (top, bottom)) in line.iter().enumerate() {

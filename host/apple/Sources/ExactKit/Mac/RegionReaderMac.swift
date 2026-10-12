@@ -218,7 +218,11 @@ final class RegionReaderParagraph {
             velocity: velocity, scale: scale)
         let box = CGRect(x: 0, y: 0, width: p.offeredWidth, height: p.height)
         let selection = node.presenter?.selection.range(node) ?? NSRange(location: 0, length: 0)
-        let selected = NSColor.selectedTextBackgroundColor.withAlphaComponent(0.45).usingColorSpace(.sRGB)!
+        // The ordinary paragraph's fill and selected glyphs (`TextSelection.fill`,
+        // `ink`), here too. Nothing selected fills nothing, so its colour is fixed
+        // and a change of focus repaints only a band that shows a selection.
+        let focused = PageFacts.hasFocus(node.window)
+        let selected = selection.length > 0 ? TextSelection.rasterColors(focused: focused, in: node.effectiveAppearance, space: .sRGB) : nil
         let next = RegionRasterRequest(serial: serial + 1, publication: artifact.id, generation: 0,
             rows: [RegionPaintRow(artifact: artifact.id, box: box, selection: selection)],
             scroll: CGPoint(x: -32, y: band.y), size: CGSize(width: width, height: band.height), scale: scale,
@@ -226,20 +230,21 @@ final class RegionReaderParagraph {
             // The existing view owns CSS backgrounds, including rounded corners
             // and opacity. Overflow ink must not repaint its ancestor's box.
             background: [0, 0, 0, 0],
-            selectionColor: [selected.redComponent, selected.greenComponent, selected.blueComponent, selected.alphaComponent],
+            selectionColor: selected ?? [0, 0, 0, 0],
             interaction: pointRequest, pixelLimit: RegionRasterRequest.maximumPixelLimit)
         if let old = wantedRaster, old.sameOutput(as: next) { return }
         // A useful in-flight band must be allowed to arrive while the viewport
         // moves. Replacing its serial on every scroll tick can starve publication.
-        // Jumps, selections and width/source changes still supersede it.
+        // Jumps, selections (their colour too) and width/source changes still supersede it.
         if pointRequest == nil, let old = wantedRaster, old.interaction == nil,
-           old.publication == next.publication, old.rows == next.rows,
+           old.publication == next.publication, old.rows == next.rows, old.selectionColor == next.selectionColor,
            old.size.width == width, old.scale == scale,
            old.scroll.y <= top + visible, old.scroll.y + old.size.height >= top {
             return
         }
         if pointRequest == nil, let raster, raster.request.publication == artifact.id,
-           raster.request.rows == next.rows, raster.request.size.width == next.size.width,
+           raster.request.rows == next.rows, raster.request.selectionColor == next.selectionColor,
+           raster.request.size.width == next.size.width,
            raster.request.scale == scale,
            band.covered(by: raster.request) {
             return
@@ -443,9 +448,11 @@ extension TextEngine {
     /// Size and run count bound the ordinary synchronous unit. Known revisions
     /// use only the request header; no source decode/hash on intermediate widths.
     func readerMeasure(_ request: ExactMeasureRequest) -> ExactMetrics? {
-        guard request.view != 0, request.width >= 0, request.exclusion_count == 0, request.line_clamp == 0 else {
+        guard request.view != 0, request.width >= 0, request.exclusion_count == 0, request.line_clamp == 0,
+              request.text_box_trim == 0 else {
             // Intrinsic offers retain the ordinary exact contract. Reader block
             // widths are definite; estimates never become min/max-content facts.
+            // A `text-box` trim is the ordinary layout's (TextBox.swift).
             readerParagraphs.removeValue(forKey: request.view)
             return nil
         }

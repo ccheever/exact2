@@ -12,3 +12,7 @@ key row Escape
 menu area
 # The outer column's handler hears a contextmenu on itself.
 menu heard
+# A control's input has no edit menu: the row's handler hears it, and the
+# popover its node names opens.
+menu check
+menu other

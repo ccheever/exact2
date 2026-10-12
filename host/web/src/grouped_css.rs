@@ -20,15 +20,19 @@ pub(crate) fn row(node: &NodeFacts<'_>, mut css: String) -> String {
     // Background colour uses the last layer's clip; authored image and
     // attachment keep their own layer, including text clipping and fixed.
     for (name, alias, fallback) in [
-        ("background-image:", "--exact-grouped-background:", "none"),
+        (
+            "background-image:",
+            "--exact-grouped-row-background:",
+            "none",
+        ),
         (
             "background-clip:",
-            "--exact-grouped-background-clip:",
+            "--exact-grouped-row-background-clip:",
             "border-box",
         ),
         (
             "background-attachment:",
-            "--exact-grouped-background-attachment:",
+            "--exact-grouped-row-background-attachment:",
             "scroll",
         ),
     ] {

@@ -298,7 +298,7 @@ extension NodeView {
             f.typingAttributes[.kern] = number("letter_spacing")
             f.textStorage.addAttribute(.kern, value: number("letter_spacing"), range: NSRange(location: 0, length: f.textStorage.length))
         }
-        (f as? TextArea)?.configureNativeChrome(isNativeTextControl)
+        (f as? TextArea)?.configureNativeChrome(isNativeTextControl, cell: isCellField)
         (f as? TextArea)?.applyLineHeight(usedLineHeight)
         restyleMarkup()
         f.setNeedsDisplay()
@@ -317,13 +317,16 @@ extension NodeView {
         } else { area.frame = contentBox() }
         #endif
     }
-    /// The app's value into the editor: nothing while text is being composed
-    /// (held until the composition ends), else the changed middle only, with
-    /// the selection carried through (LLP 1045 D5).
+    /// The app's value into the editor: the changed middle only, with the
+    /// selection carried through (LLP 1045 D5). The value the editor already
+    /// shows changes nothing, so a composition and its selection stand. A
+    /// different one is held while text is marked, the last one written,
+    /// and applied when the composition ends (`FieldComposition.swift`).
     func writeValue(_ value: String, into f: UITextView) {
         if (f.text ?? "").utf16.elementsEqual(value.utf16) { pendingValue = nil; return }
         if f.markedTextRange != nil { pendingValue = value; return }
         pendingValue = nil
+        toldText = nil
         guard let edit = minimalTextEdit(from: f.text ?? "", to: value) else { return }
         // Native undo ranges refer to the old buffer. An external edit has
         // no position map for those ranges; discard only this view's history.
@@ -344,7 +347,7 @@ extension NodeView {
     package func textViewDidChange(_ textView: UITextView) {
         if let editor = (textView as? TextArea)?.markup, editor.applying || editor.styling { return }
         textView.setNeedsDisplay()
-        if !disabled { presenter?.typed(id, textView.text ?? "", input: handlers.contains("input")) }
+        if !disabled { typedText(textView.text ?? "") }
         if textView.markedTextRange == nil, let held = pendingValue { writeValue(held, into: textView) }
         configureMarkup()
         restyleMarkup()

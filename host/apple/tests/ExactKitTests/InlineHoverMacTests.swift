@@ -67,6 +67,41 @@ final class InlineHoverMacTests: XCTestCase {
         XCTAssertEqual(events, ["4:true", "4:false", "4:true"])
         p.hoverInline(nil)
         events.removeAll()
+        // Inline listeners do not evict their paragraph's ancestor hover.
+        node.handlers = ["hover"]
+        move(first)
+        move(last)
+        XCTAssertEqual(events, ["2:true", "4:true"])
+        XCTAssertNil(tap(["id": 6, "hover": true])["error"])
+        XCTAssertEqual(events, ["2:true", "4:true", "4:false", "2:false"])
+        events.removeAll()
+        move(first)
+        events.removeAll()
+        var leaves = 0
+        p.onHover = { id, over in
+            events.append("\(id):\(over)")
+            if id == 4, !over {
+                leaves += 1
+                if leaves < 3 { p.setHoverPath([node]) }
+            }
+        }
+        move(try XCTUnwrap(node.inlineRects(try XCTUnwrap(p.inlineText(3))).first))
+        XCTAssertEqual(events, ["4:false"], "inline leave is admitted before a reentrant boundary callback")
+        XCTAssertNil(p.hoveredInline)
+        XCTAssertEqual(p.hoveredNodes.map(\.id), [2])
+        p.setHoverPath([])
+        p.onHover = nil
+        p.hoverInline(4)
+        events.removeAll()
+        p.onHover = { id, over in
+            events.append("\(id):\(over)")
+            if id == 4, !over { p.setHoverPath([]) }
+        }
+        p.hoverInline(3)
+        XCTAssertEqual(events, ["4:false"], "a superseded inline enter cannot send an unmatched leave")
+        XCTAssertNil(p.hoveredInline)
+        events.removeAll()
+        p.onHover = { events.append("\($0):\($1)") }
         // An overlay over the run is the hit target, even when named by ID.
         let overlay = NodeView(id: 7, kind: "view", presenter: p)
         overlay.frame = node.frame

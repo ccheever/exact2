@@ -36,6 +36,7 @@ package final class Presenter {
     func propsChanged(_ view: NodeView) {
         chrome.note(view.id, props: view.props)
         if view.disabled { view.showFieldFocus(false) }
+        view.syncDisabledLook()
         // HTML's `title`: the platform's tooltip (studio diary R24).
         // An icon-only button's help tag is its label (LLP 1115 wave 1), as
         // a toolbar item's is; settled once the batch has mounted its face.
@@ -99,7 +100,9 @@ package final class Presenter {
     /// The native menu arm (LLP 1021 D3).
     lazy var menus = MenuHost(presenter: self)
     lazy var dialogs = DialogHost(self)
+    lazy var alerts = AlertHost(self)
     lazy var navigation = NavigationHost(presenter: self)
+    lazy var backSwipe = BackSwipe(self)
     /// SVG scenes and CSS animations (LLP 1055 D4, D7).
     let svg = SvgHost()
     /// Boxes under CSS `filter`, drawn again after each batch (LLP 1055.000 D14).
@@ -108,6 +111,8 @@ package final class Presenter {
     lazy var segments = SegmentHost(self)
     lazy var controls = ControlHost(self)
     lazy var fieldSelections = FieldSelections(self)
+    /// The one editor every `input`'s field of this session edits in (`FieldEditor`).
+    lazy var fieldEditor = FieldEditor.make()
     /// Nodes marked `hatch="word"` (LLP 1075.003.000).
     lazy var elements = ElementHatches(self)
     lazy var shortcuts = ShortcutHost(presenter: self)
@@ -136,6 +141,8 @@ package final class Presenter {
             return !self.applying && !self.resetting
         }
         viewport.pressedGround = { [weak self] in self?.selection.clear() }
+        viewport.pointerTracking = { [weak self] event in self?.trackPointer(event) }
+        viewport.lostKey = { [weak self] in self?.windowLostKey() }
         viewport.documentView = root
         viewport.hasVerticalScroller = true
         viewport.hasHorizontalScroller = true
@@ -227,7 +234,7 @@ package final class Presenter {
         // Bounds notifications can arrive while a batch is still changing the
         // hierarchy. Query its final geometry once the outermost batch ends.
         guard !applying else { return false }
-        if textViewportIndex == nil { textViewportIndex = TextViewportIndex(selection.paragraphs) }
+        if textViewportIndex == nil { textViewportIndex = TextViewportIndex(selection.shownParagraphs) }
         var next: [UInt32: NSRect] = [:]
         var waiting: [(CGFloat, NodeView)] = []
         var rasters: [NodeView] = []
@@ -465,7 +472,8 @@ package final class Presenter {
         if refreshVisibleText(limit: 0) { textPending = true; startPump() }
     }
 
-    /// An offscreen worker supplied pixels; publish them with the next text slice.
+    /// An offscreen worker supplied pixels, or a display pass found both
+    /// workers busy: publish them, or ask again, with the next text slice.
     func requestTextPublication() {
         textPending = true
         startPump()
@@ -613,6 +621,7 @@ package final class Presenter {
         views.removeAll()
         inlineOwners.removeAll()
         hoveredInline = nil
+        hoveredNodes = []; hovered = nil
         chrome = ChromeIndex()
         scrollers.removeAll()
         pendingScrolls.removeAll()
@@ -801,10 +810,21 @@ package final class Presenter {
     var onSubmit: ((UInt32) -> Void)?
     var onLoad: ((UInt32) -> Void)?
     var onMessage: ((UInt32, String) -> Void)?
-    /// The node the pointer is over, of those with a hover handler: it hears
-    /// the leave when the pointer moves onto another (the agent's `hover`).
+    /// The innermost hovered listener, with its listening ancestors below.
     weak var hovered: NodeView?
+    var hoveredNodes: [NodeView] = [] // innermost first, the hit's ancestor path
+    weak var trackedPointerEvent: NSEvent?
+    /// The canvas input the tracked move reached through the hit's ancestors.
+    weak var trackedCanvas: AnyObject?
+    /// Whether the pointer was last over text that shows the I-beam, and
+    /// whether this presenter set that cursor (`pointerCursor`).
+    var pointerOverText = false, textCursorSet = false
+    /// The node whose key down the system's key bindings are naming, and
+    /// whether the command they named was taken (`NodeView.keyCommand`).
+    var keyCommand: (source: NodeView, taken: Bool)?
+    private var hoverTransition: UInt64 = 0
     var hoveredInline: UInt32?
+    var inlineHoverTransition: UInt64 = 0
 
     /// The modifiers held for the press being sent (its `MouseEvent`'s; gallery F20).
     var pressHeld = ""
@@ -812,6 +832,7 @@ package final class Presenter {
         pressHeld = held; defer { pressHeld = "" }
         guard let node = textHost(id), !node.inert, !node.disabled,
               fromNativeMenu || (segments.shown(node) ?? !node.isHiddenOrHasHiddenAncestor) || toolbar.contains(node) else { return }
+        commitPendingEdit() // the press no longer ends a field's editing (FocusMac.swift)
         let command = dialogs.command(node, fromNativeMenu: fromNativeMenu)
         let popover = menus.command(node, fromNativeMenu: fromNativeMenu)
         if command == nil && popover == nil, node.id == id, let url = node.defaultLink, node.activateLink(url) { return }
@@ -834,6 +855,13 @@ package final class Presenter {
     func commitEdit(_ id: UInt32, _ value: String, change: Bool) {
         guard edited == id else { return }
         edited = nil
+        var value = value
+        // A number input's typed value past `min` or `max` commits as the
+        // bound (LLP 1116.008 D5), told as a step is: `input`, then `change`.
+        if let node = views[id], let bound = node.clampTypedNumber(value) {
+            value = bound
+            if node.handlers.contains("input") { onInput?(id, bound) }
+        }
         if change { onChange?(id, value) }
     }
     package func checked(_ id: UInt32, _ on: Bool) { onChecked?(id, on) }
@@ -872,20 +900,56 @@ package final class Presenter {
         guard !resetting, textHost(id) != nil else { return }
         if applying { waiting.append((id, f)) } else { f() }
     }
-    /// One enter and one leave per hover, as the web's `mouseenter` and
-    /// `mouseleave`: a tracking area's every move, and its exit after the
-    /// resting pointer's hit-test already moved the hover (`followPointer`),
-    /// send nothing more.
+    /// Pointerenter/leave cover a node's subtree, including visible overflow.
+    /// Only the hit's ancestors enter; overlapping tracking rectangles do not
+    /// give their occluded owners a separate hover.
+    func setHoverPath(_ nodes: [NodeView], inline: UInt32? = nil) {
+        if applying { afterBatch { [weak self] in self?.setHoverPath(nodes, inline: inline) }; return }
+        hoverTransition &+= 1
+        inlineHoverTransition &+= 1 // cancel an inline enter awaiting its leave callback
+        let generation = hoverTransition
+        func eligible(_ node: NodeView) -> Bool {
+            views[node.id] === node && node.isDescendant(of: viewport) && !node.inert && !node.isHiddenOrHasHiddenAncestor && node.handlers.contains("hover")
+        }
+        let next = nodes.filter(eligible)
+        if hoveredInline != inline {
+            hoverInline(nil)
+            guard hoverTransition == generation else { return }
+        }
+        for node in hoveredNodes where !next.contains(where: { $0 === node }) {
+            hoveredNodes.removeAll { $0 === node }; hovered = hoveredNodes.first
+            send(node.id) { [self] in
+                guard hoverTransition == generation else { return }
+                onHover?(node.id, false)
+            }
+            guard hoverTransition == generation else { return }
+        }
+        for node in next.reversed() where !hoveredNodes.contains(where: { $0 === node }) {
+            guard eligible(node) else { continue }
+            hoveredNodes.insert(node, at: 0); hovered = hoveredNodes.first
+            send(node.id) { [self] in
+                guard hoverTransition == generation, eligible(node) else { return }
+                onHover?(node.id, true)
+            }
+            guard hoverTransition == generation else { return }
+        }
+        hoveredNodes.removeAll { !eligible($0) }; hovered = hoveredNodes.first
+        guard hoverTransition == generation else { return }
+        if let inline, inlineEnabled(inline) { hoverInline(inline) }
+    }
+    /// Native-module hover dispatch uses the same ancestor coverage.
     func hover(_ view: NodeView, _ over: Bool) {
-        if over { hoverInline(nil) }
-        guard views[view.id] === view, (hovered === view) != over else { return }
+        guard views[view.id] === view else { return }
         if over {
-            if let h = hovered { send(h.id) { [self] in onHover?(h.id, false) } }
-            hovered = view
-            send(view.id) { [self] in onHover?(view.id, true) }
+            var path: [NodeView] = []
+            var current: NSView? = view
+            while let node = current {
+                if let node = node as? NodeView { path.append(node) }
+                current = node.superview
+            }
+            setHoverPath(path)
         } else {
-            hovered = nil
-            send(view.id) { [self] in onHover?(view.id, false) }
+            setHoverPath(hoveredNodes.filter { !$0.isDescendant(of: view) })
         }
     }
     func focus(_ id: UInt32) { send(id) { [self] in onFocus?(id) } }
@@ -1064,7 +1128,7 @@ package final class Presenter {
             case .surface:
                 if let v = views[id] { session?.canvases.surface(view: v, name: op.payload["name"] as? String ?? "", values: op.payload["values"] ?? []) }
             case .canvas2d: if let v = views[id] { canvas2d.apply(id, op.payload, layer: v.layer) }
-            case .svg: if let v = views[id] { svg.scene(id, op.payload, layer: v.layer, dark: v.drawsDark, clock: session?.clock, limit: v.style["dynamic_range_limit"]?.string) }
+            case .svg: if let v = views[id] { svg.scene(id, op.payload, layer: v.layer, dark: v.drawsDark, clock: session?.clock, limit: v.style["dynamic_range_limit"]?.string, tint: v.viewTint) }
             case .animations: svg.animations(id, op.payload, layer: views[id]?.layer, clock: session?.clock)
             case .command:
                 let name = op.payload["name"] as? String ?? ""
@@ -1124,7 +1188,7 @@ package final class Presenter {
                 case "layout": v.layoutOffset = CGPoint(x: x, y: CGFloat(op.y)); v.layoutScale = CGPoint(x: CGFloat(op.w), y: CGFloat(op.h)); v.applyTransform(); v.applySurface()
                 case "scale": v.scale = x; v.applyTransform()
                 case "rotate": v.rotate = x; v.applyTransform()
-                case "opacity": v.alphaValue = x
+                case "opacity": v.presentedAlpha = x; v.alphaValue = v.disabledShown ? x * NodeView.disabledOpacity : x
                 case "flight": presentFlight(id, x)
                 default: break
                 }
@@ -1173,7 +1237,13 @@ package final class Presenter {
         // The nodes this batch touched and the views above them, as iOS
         // passes them: a full pass sorted every view in the session on
         // every batch, a list's scroll included.
-        syncAccessibility(changed: touchedAndAbove(batch.ops.lazy.filter { Self.accessibilityOps.contains($0.op) }.map(\.id)))
+        let changed = touchedAndAbove(batch.ops.lazy.filter { Self.accessibilityOps.contains($0.op) }.map(\.id)).union(reparented)
+        let ariaProps = batch.ops.filter { $0.op == .props && ($0.props["accessibilityDisabled"] != nil || $0.clear.contains("accessibilityDisabled")) }.map(\.id)
+        let disabledRoots = Set(ariaProps).union(reparented.filter { id in
+            guard let node = views[id] else { return false }
+            return node.isAccessibilityEnabled() != (!node.disabled && !node.ariaUnavailable)
+        })
+        syncAccessibility(changed: changed, disabledRoots: disabledRoots)
         _ = chrome.takeChangedNames()
     }
 
@@ -1229,72 +1299,13 @@ package final class Presenter {
         }
     }
 
-    /// The same editing descendant takes explicit, sequential and modal focus.
-    func keyView(of v: NodeView) -> NSView {
-        if v.kind == "native", let target = session?.natives.focusTarget(v) { return target }
-        if v.isNativeButton, let button = controls.controls[v.id] as? NativeButtonMac { return button }
-        return v.textArea ?? v.field ?? v
-    }
-
-    /// Sequential focus after a batch: tree order, then `tabIndex` > 0, as
-    /// HTML. `autorecalculatesKeyViewLoop` stays false so nothing is focused
-    /// at launch (LLP 1014); Tab from the viewport still reaches the first
-    /// tabbable. Hidden popover rows stay out (their container is hidden).
-    /// Whether a batch changed what the key-view loop is built from.
+    /// The key-view loop (KeyViewLoopMac.swift): whether a batch changed
+    /// what it is built from, the Keyboard Navigation setting it was built
+    /// for, and for each view that can hold the focus and is no stop, the
+    /// stop before it (where Shift-Tab goes).
     var keyViewLoopStale = false
-
-    /// Rebuild the key-view loop if a batch left it stale: called for each
-    /// key event before AppKit reads `nextKeyView` (the view's monitor, and
-    /// the agent's `type`, which sends to the window directly).
-    func flushKeyViewLoop() {
-        guard keyViewLoopStale else { return }
-        keyViewLoopStale = false
-        syncKeyViewLoop()
-    }
-
-    func syncKeyViewLoop() {
-        var listed: [NodeView] = []
-        // A paragraph selected by a click is where Tab starts from, as on the
-        // web: it points on to the next stop after it, and no stop to it.
-        var starts: [(NodeView, Int)] = []
-        func walk(_ v: NodeView) {
-            if v.inert || v.isHidden { return }
-            if Self.tabbable(v) { listed.append(v) } else if v.isParagraph { starts.append((v, listed.count)) }
-            for child in v.container.subviews.compactMap({ $0 as? NodeView }) { walk(child) }
-            for popover in menus.following(v) { walk(popover) }
-        }
-        if let dialog = dialogs.active { walk(dialog) }
-        else { for r in root.subviews.compactMap({ $0 as? NodeView }) { walk(r) } }
-        let tabbable = listed.enumerated().sorted { a, b in
-            let ia = a.element.tabOrder, ib = b.element.tabOrder
-            let pa = ia > 0 ? ia : Int.max, pb = ib > 0 ? ib : Int.max
-            if pa != pb { return pa < pb }
-            return a.offset < b.offset
-        }.map(\.element)
-        // First, so the loop's own links below decide each stop's previous.
-        for (paragraph, next) in starts {
-            paragraph.nextKeyView = tabbable.isEmpty ? nil : keyView(of: next < listed.count ? listed[next] : tabbable[0])
-        }
-        if tabbable.isEmpty {
-            viewport.nextKeyView = nil
-            return
-        }
-        for (i, v) in tabbable.enumerated() {
-            keyView(of: v).nextKeyView = keyView(of: tabbable[(i + 1) % tabbable.count])
-        }
-        viewport.nextKeyView = keyView(of: tabbable[0])
-    }
-
-    /// A Tab stop (LLP 1088 D7.3): an explicit `tabindex` ≥ 0 or what is
-    /// one by kind; an explicit negative never, though it still takes a click.
-    static func tabbable(_ v: NodeView) -> Bool {
-        if v.formDisabled || v.cssVisibilityHidden { return false }
-        if let index = v.explicitTabIndex, index < 0 { return false }
-        if v.field != nil || v.textArea != nil { return true }
-        if v.kind == "native", v.presenter?.session?.natives.focusTarget(v) != nil { return true }
-        if v.isButton || v.kind == "toggle" || v.pressable { return true }
-        return v.canBecomeKeyView
-    }
+    var keyViewLoopMode: Bool?
+    let keyViewBefore = NSMapTable<NSView, NSView>.weakToWeakObjects()
 
     /// An op touched a node (LLP 1014 D4 a): every canvas it is painted
     /// through captures again at the end of the batch — the canvas above

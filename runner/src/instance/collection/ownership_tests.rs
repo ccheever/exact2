@@ -135,8 +135,9 @@ fn sibling_pin_categories_transfer_independently_and_release_old_row_state() {
     let right = collections(&h)[1].snapshot();
     let old_focus = left.rows[0].root;
     let old_interaction = left.rows[1].root;
-    let focus_slots = Rc::downgrade(&collections(&h)[0].mounted[0].row.slots);
-    let interaction_slots = Rc::downgrade(&collections(&h)[0].mounted[1].row.slots);
+    let focus_slots = Rc::downgrade(collections(&h)[0].mounted[0].row.slots.as_ref().unwrap());
+    let interaction_slots =
+        Rc::downgrade(collections(&h)[0].mounted[1].row.slots.as_ref().unwrap());
     send(
         &mut h,
         0,

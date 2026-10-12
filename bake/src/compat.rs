@@ -36,8 +36,9 @@ pub(crate) const RUST_ABI: u32 = 3;
 /// own prelude (`js/src/prelude.js`, compiled into the host): moved when the
 /// prelude learns something a bundle cannot do without and an older prelude
 /// would silently ignore. 1: `fetch`'s `exactBodyFrom` (LLP 1108 D6 R2),
-/// which an older prelude would send as an empty body.
-pub(crate) const TYPESCRIPT_RUNTIME: u32 = 1;
+/// which an older prelude would send as an empty body. 2: `fetch`'s
+/// `redirect`, which an older prelude would ignore and follow.
+pub(crate) const TYPESCRIPT_RUNTIME: u32 = 2;
 /// The domain separator over the canonical inputs.
 const DOMAIN: &str = "exact2 compatibility id v1\n";
 
@@ -376,6 +377,13 @@ fn compatibility_with_trust(
         "store": { "L": store, "acceptedKinds": if binary_only { vec![] } else { kinds } },
         "app": manifest.id,
     });
+    if matches!(platform, "macos" | "ios") {
+        if let Some(handlers) = manifest.json.get("protocol_handlers") {
+            if !handlers.as_array().is_some_and(Vec::is_empty) {
+                inputs["protocolHandlers"] = handlers.clone();
+            }
+        }
+    }
     // Which GPU artifact owns which surface (LLP 1009 D6): the manifest's
     // modules, bound into the cohort — a routing change is a new binary. An
     // app with one artifact carries no key, so its id and bytes are as before.
@@ -892,6 +900,47 @@ mod tests {
         std::fs::write(dir.join("data/src/lib.rs"), "pub struct App; // moved\n").unwrap();
         assert_ne!(with_icon, id(&dir, "ios"), "a data crate edit moves it");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn protocol_handler_templates_move_apple_compatibility() {
+        let dir = app("protocol-identity");
+        let manifest = std::fs::read_to_string(dir.join("app.json")).unwrap();
+        let original = id(&dir, "macos");
+        let undeclared = Manifest::read(&dir).unwrap();
+        let inputs = compatibility_with_trust(
+            &dir,
+            "macos",
+            "aarch64-apple-darwin",
+            &undeclared,
+            Some(""),
+            "development",
+        )
+        .unwrap()
+        .inputs;
+        assert!(inputs.get("protocolHandlers").is_none());
+        let with = |template: &str| {
+            std::fs::write(
+                dir.join("app.json"),
+                manifest.replacen(
+                    '{',
+                    &format!(
+                        r#"{{"protocol_handlers":[{{"protocol":"exacttest","url":"{template}"}}],"#
+                    ),
+                    1,
+                ),
+            )
+            .unwrap();
+            id(&dir, "macos")
+        };
+        let first = with("/open?u=%s");
+        assert_ne!(original, first, "registering a scheme needs a new cohort");
+        assert_ne!(
+            first,
+            with("/callback?u=%s"),
+            "a template edit needs a new cohort"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

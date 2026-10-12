@@ -262,6 +262,14 @@ fn env(size: f32) -> Env {
 #[test]
 fn computed_rows_keep_authored_provenance_and_the_child_wins() {
     let mut k = tree(Box::new(MonospaceMeasurer::default()));
+    let check_runs = |k: &Kernel| {
+        let runs = k.node(2).unwrap().text_runs();
+        assert_eq!(runs.len(), 2);
+        for (run, id) in runs.iter().zip([3, 4]) {
+            assert_eq!(run.style, k.node(id).unwrap().text_style());
+        }
+    };
+    check_runs(&k);
     let s = k.button_face_style(2).unwrap();
     assert_eq!(s.title.font_size, 30.0, "web inherits page typography");
     assert!(
@@ -270,6 +278,7 @@ fn computed_rows_keep_authored_provenance_and_the_child_wins() {
     );
     assert_eq!(s.title.text_align, TextAlign::Center);
     k.set_env(env(17.0)).unwrap();
+    check_runs(&k);
     let s = k.button_face_style(2).unwrap();
     assert_eq!(s.title.font_size, 17.0, "Apple stops ancestor typography");
     assert_eq!(s.title.font_weight, 500);
@@ -314,6 +323,7 @@ fn computed_rows_keep_authored_provenance_and_the_child_wins() {
     assert_eq!(s.symbol.font_size, 32.0);
     assert_eq!(s.symbol.font_weight, 700);
     assert!(s.symbol.mask.has(StyleId::TintColor));
+    check_runs(&k);
     assert_eq!(s.image_gap, Some(4.0));
     assert_eq!(s.button.padding_top, Dimension::Points(20.0));
     assert!(s.button.mask.has(StyleId::BorderRadiusTopLeft));

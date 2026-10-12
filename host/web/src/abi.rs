@@ -23,7 +23,7 @@ pub struct Bridge<D: DataSource> {
     host: Option<Host<D>>,
     /// The page's snapshot of the app's kept secrets (LLP 1018 D6), handed
     /// in through `exact_store` before boot and taken by the next boot.
-    snapshot: Vec<(String, String)>,
+    snapshot: Vec<(String, Vec<u8>)>,
     /// The archive's `compat.json` (LLP 1030 D3a), from the `host!`
     /// invocation: what the runner's `delivery` resource says about this
     /// binary's cohort, its update store, and its executors.
@@ -78,19 +78,10 @@ impl<D: DataSource> Bridge<D> {
     }
 
     /// The page's snapshot of the app's kept secrets (LLP 1018 D6): the
-    /// input buffer's first `len` bytes as `name NUL value NUL …`, taken by
-    /// the next `boot` (a `boot_plan` carries the running store instead).
+    /// input buffer's first `len` bytes (`page_snapshot`), taken by the next
+    /// `boot` (a `boot_plan` carries the running store instead).
     pub fn store(&mut self, len: usize) {
-        let bytes = &self.input[..len.min(self.input.len())];
-        let text = String::from_utf8_lossy(bytes);
-        let mut parts = text.split('\0');
-        let mut snapshot = Vec::new();
-        while let (Some(name), Some(value)) = (parts.next(), parts.next()) {
-            if !name.is_empty() {
-                snapshot.push((name.to_string(), value.to_string()));
-            }
-        }
-        self.snapshot = snapshot;
+        self.snapshot = page_snapshot(&self.input[..len.min(self.input.len())]);
     }
 
     /// A rendered page's digest, a newline, and its checkpoint as the page
@@ -407,6 +398,17 @@ impl<D: DataSource> Bridge<D> {
     pub fn host_back(&mut self, id: u64, now_ms: f64) -> u32 {
         let out = match self.host.as_mut() {
             Some(h) => h.host_back(id, now_ms),
+            None => "{\"ops\":[],\"timers\":false,\"error\":\"not booted\"}".to_string(),
+        };
+        self.emit(out)
+    }
+
+    /// `exact_host_go`: the platform's own navigation to the location in the
+    /// input buffer (LLP 1115.000 D4.3), a batch.
+    pub fn host_go(&mut self, len: usize, now_ms: f64) -> u32 {
+        let location = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]);
+        let out = match self.host.as_mut() {
+            Some(h) => h.host_go(&location, now_ms),
             None => "{\"ops\":[],\"timers\":false,\"error\":\"not booted\"}".to_string(),
         };
         self.emit(out)
@@ -1139,6 +1141,15 @@ macro_rules! host {
             EXACT_BRIDGE.with(|b| b.borrow_mut().host_back(id as u64, now_ms))
         }
 
+        /// The platform's own navigation to a location (the input buffer),
+        /// for the browser's Forward and a link to a declared route under a
+        /// root with no `navigate` handler (LLP 1115.000 D4.3); returns the
+        /// batch's length.
+        #[no_mangle]
+        pub extern "C" fn exact_host_go(len: u32, now_ms: f64) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().host_go(len as usize, now_ms))
+        }
+
         /// Whether a location (the input buffer) names a declared route.
         #[no_mangle]
         pub extern "C" fn exact_route_match(len: u32) -> u32 {
@@ -1355,4 +1366,25 @@ macro_rules! surface_exports {
             })
         }
     };
+}
+
+/// What the page holds, as `name NUL value NUL …`. `localStorage` holds
+/// text, so a kept answer's bytes are base64 there (`Batch::store`); one
+/// that is not (an older build's hex) is kept empty, so it is never used
+/// and the runner can still forget it.
+pub(crate) fn page_snapshot(bytes: &[u8]) -> Vec<(String, Vec<u8>)> {
+    let text = String::from_utf8_lossy(bytes);
+    let mut parts = text.split('\0');
+    let mut snapshot = Vec::new();
+    while let (Some(name), Some(value)) = (parts.next(), parts.next()) {
+        let value = if name.starts_with(exact_runner::Store::KEPT) {
+            exact_runner::agent::unbase64(value).unwrap_or_default()
+        } else {
+            value.as_bytes().to_vec()
+        };
+        if !name.is_empty() {
+            snapshot.push((name.to_string(), value));
+        }
+    }
+    snapshot
 }

@@ -6,18 +6,29 @@ extension NodeView {
     var isNativeTextControl: Bool {
         (field != nil || textArea != nil) && props["markup"] != "markdown" && style["appearance"]?.string != "none"
     }
+    /// A native field in a grouped list's row (LLP 1116.005 D2), as the
+    /// kernel publishes it with the editor box: borderless, its cell being
+    /// the field, as a hand-built settings form's is.
+    var isCellField: Bool { isNativeTextControl && fieldInCell }
     func nativeEditorRect(in proposed: CGRect) -> CGRect? {
         guard isNativeTextControl, let rect = nativeFieldContent else { return nil }
         // UIKit also asks with a synthetic 100×100 box to derive its insets.
         // Return the published insets applied to that argument, rather than
         // an absolute rect: the latter hid values or moved their baseline.
         // UIKit centres its single line within the resulting content box.
-        return proposed.inset(by: UIEdgeInsets(top: rect.minY, left: rect.minX,
-            bottom: max(0, bounds.height - rect.maxY), right: max(0, bounds.width - rect.maxX)))
+        var insets = UIEdgeInsets(top: rect.minY, left: rect.minX,
+            bottom: max(0, bounds.height - rect.maxY), right: max(0, bounds.width - rect.maxX))
+        // A number input's stepper takes the text's trailing end (LLP 1116.007 D4).
+        let room = stepperRoom
+        if room > 0 { if style["direction"]?.string == "rtl" { insets.left += room } else { insets.right += room } }
+        var content = proposed.inset(by: insets)
+        content.size.width = max(0, content.width)
+        return content
     }
     func layoutField() {
         guard let field else { return }
         field.frame = isNativeTextControl ? bounds : contentBox()
+        layoutStepper()
         #if !os(tvOS)
         if let chrome = searchChrome {
             chrome.frame = field.frame
@@ -30,7 +41,7 @@ extension NodeView {
         guard let field else { return }
         #if !os(tvOS)
         let search = isNativeTextControl && props["type"] == "search"
-        field.borderStyle = isNativeTextControl && !search ? .roundedRect : .none
+        field.borderStyle = isNativeTextControl && !search && !isCellField ? .roundedRect : .none
         field.adjustsFontForContentSizeCategory = isNativeTextControl
         field.clearButtonMode = search ? .whileEditing : .never
         if search, searchChrome == nil {
@@ -50,9 +61,44 @@ extension NodeView {
         if let r = payload["rect"] as? [Double], r.count == 4 {
             nativeFieldContent = CGRect(x: r[0], y: r[1], width: r[2], height: r[3])
         } else { nativeFieldContent = nil }
+        let cell = nativeFieldContent != nil && payload["cell"] as? Bool == true
+        if cell != fieldInCell {
+            fieldInCell = cell
+            if field != nil { styleNativeField() }
+            if textArea != nil { styleTextArea() }
+        }
         layoutField(); layoutTextArea()
     }
 }
+
+#if os(iOS)
+extension NodeView {
+    /// The cell is the field (LLP 1116.005 D2): a touch in a grouped list's
+    /// cell that its row leaves to no control of its own (the cell's margins,
+    /// a text beside or under the field) goes to the row's one field, as a
+    /// hand-built settings cell's text field takes the whole cell. `hit` is
+    /// what the cell's own hit-testing found, kept unless it is the cell,
+    /// its content view or a box or text with no handler.
+    package static func cellField(in cell: UICollectionViewCell, hit: UIView?) -> UIView? {
+        guard let hit else { return nil }
+        if let node = hit as? NodeView {
+            guard node.handlers.isEmpty, node.kind == "view" || node.kind == "text" else { return hit }
+        } else if hit !== cell && hit !== cell.contentView {
+            return hit
+        }
+        var found: [NodeView] = []
+        func walk(_ view: UIView) {
+            for sub in view.subviews where found.count < 2 && !sub.isHidden {
+                if let node = sub as? NodeView, node.isCellField { found.append(node) } else { walk(sub) }
+            }
+        }
+        walk(cell.contentView)
+        guard found.count == 1, let only = found.first, !only.inert, !only.disabled,
+              let editor: UIView = only.field ?? only.textArea else { return hit }
+        return editor
+    }
+}
+#endif
 
 #if !os(tvOS)
 /// An in-content `input type="search"`'s chrome (LLP 1115 wave 2): UIKit's
@@ -79,18 +125,22 @@ extension NodeView {
 #endif
 
 extension TextArea {
-    func configureNativeChrome(_ native: Bool) {
+    /// `cell`: in a grouped list's row (LLP 1116.005 D2) the cell is its
+    /// chrome: no line or corners, its text at the cell's margin where the
+    /// row's other text starts, and the text view's own space above and below.
+    func configureNativeChrome(_ native: Bool, cell: Bool = false) {
         #if !os(tvOS)
         adjustsFontForContentSizeCategory = native
-        layer.borderWidth = native ? FieldChromeCache.textareaStroke : 0
-        layer.borderColor = native ? UIColor.separator.resolvedColor(with: traitCollection).cgColor : nil
-        layer.cornerRadius = native ? FieldChromeCache.textareaRadius : 0
+        let bezel = native && !cell
+        layer.borderWidth = bezel ? FieldChromeCache.textareaStroke : 0
+        layer.borderColor = bezel ? UIColor.separator.resolvedColor(with: traitCollection).cgColor : nil
+        layer.cornerRadius = bezel ? FieldChromeCache.textareaRadius : 0
         // Use the text view's own default inset for its extended native look;
         // lineFragmentPadding stays zero so the published content rect is exact.
         let standard = UITextView(frame: .zero)
         var inset = standard.textContainerInset
-        inset.left += standard.textContainer.lineFragmentPadding
-        inset.right += standard.textContainer.lineFragmentPadding
+        inset.left = cell ? 0 : inset.left + standard.textContainer.lineFragmentPadding
+        inset.right = cell ? 0 : inset.right + standard.textContainer.lineFragmentPadding
         textContainerInset = native ? inset : .zero
         #endif
         textContainer.lineFragmentPadding = 0

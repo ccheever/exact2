@@ -20,7 +20,7 @@ fn style(id: ViewId, rows: &[(StyleId, StyleValue)]) -> Op {
         patch: Box::new(patch),
     }
 }
-fn text(s: &str) -> StyleValue {
+fn text(s: &str) -> StyleValue<'_> {
     StyleValue::Text(s.into())
 }
 

@@ -82,6 +82,37 @@ final class NavigationBarIOSTests: XCTestCase {
         _ = target.perform(try XCTUnwrap(item.action), with: item)
     }
 
+    func testAPushAfterKeyboardDismissalInstallsTheDestinationBeforeReturning() throws {
+        let session = try fixture("synchronous-push", module: false)
+        let presenter = session.presenter
+        let nav = try XCTUnwrap(presenter.navigation.primaryNavigation)
+        // The hide notification can follow the press that ended editing. A
+        // remaining keyboard inset must not postpone UIKit's stack change.
+        presenter.applyKeyboard(top: 540, duration: 0, curve: 0)
+        let button = try node(session, "open-plain")
+        presenter.press(button.id)
+        XCTAssertTrue((nav.topViewController as? RouteController)?.node === (try node(session, "route-plain")),
+                       "the real destination is installed without pumping the run loop")
+        let route = try XCTUnwrap(nav.topViewController as? RouteController)
+        XCTAssertNotNil(route.node.window)
+        XCTAssertGreaterThan(route.node.bounds.height, 0)
+        until("push finished") { nav.transitionCoordinator == nil }
+    }
+
+    func testAPushFocusesTheRealFirstAutofocusField() throws {
+        let session = try fixture("synchronous-autofocus", module: false)
+        let presenter = session.presenter
+        let nav = try XCTUnwrap(presenter.navigation.primaryNavigation)
+        presenter.press(try node(session, "open-focused-plain").id)
+        let first = try XCTUnwrap(try node(session, "plain-first").field)
+        let second = try XCTUnwrap(try node(session, "plain-second").field)
+        XCTAssertTrue(first.isFirstResponder, "normal autofocus chooses the first real field before returning")
+        XCTAssertFalse(second.isFirstResponder)
+        XCTAssertTrue(first.isDescendant(of: try XCTUnwrap(nav.topViewController).view))
+        until("push finished") { nav.transitionCoordinator == nil }
+        XCTAssertTrue(first.isFirstResponder, "there is no delayed focus handoff")
+    }
+
     func testAHeaderShapedRouteIsTheBarOnFrameOneWithNoAppCode() throws {
         let session = try fixture("bar-frame-one", module: false)
         let navigation = session.presenter.navigation
@@ -109,31 +140,73 @@ final class NavigationBarIOSTests: XCTestCase {
         until("Compose pressed once") { state(session, "composed") as? Double == 1 }
     }
 
-    /// A bar item takes a `color` set on its button (a symbol's, its tint):
-    /// a header's Cancel in the app's accent is not UIKit's. A colour the
-    /// button only inherits, or a platform colour, leaves UIKit's.
+    /// LLP 1116.003 (r5 weather's Cities, r5 mood journal's sheet Save:
+    /// "ScrollView covers its middle"): a real touch on a header button the
+    /// bar draws aims at its bar item, where a person touches it, never at
+    /// the hidden authored node in the content.
+    func testARealTouchAimsAtTheBarItemUIKitDraws() throws {
+        let session = try fixture("bar-aim", module: false)
+        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        let compose = try node(session, "compose-home")
+        let header = try node(session, "header-home")
+        XCTAssertTrue(header.isHidden, "the bar shows the header: its authored button is hidden")
+        let reply = Agent(session: session).aim(["id": Int(compose.id), "aim": ["press": true]])
+        if (reply["error"] as? String)?.contains("foreground") == true { throw XCTSkip("the test host is in the background: a real touch's aim refuses it") }
+        let aim = try XCTUnwrap(reply["aim"] as? [String: Any], "\(reply)")
+        let w = try XCTUnwrap(aim["window"] as? [Double])
+        let point = CGPoint(x: w[0], y: w[1])
+        let item = try XCTUnwrap(nav.topViewController?.navigationItem.rightBarButtonItems?.first)
+        let frame = item.frame(in: nav.navigationBar) ?? .null
+        XCTAssertTrue(nav.navigationBar.convert(frame, to: nil).contains(point), "at Compose's item: \(point), \(frame)")
+        let hit = try XCTUnwrap(window?.hitTest(point, with: nil))
+        XCTAssertTrue(hit.isDescendant(of: nav.navigationBar), "the bar takes the touch: \(hit)")
+        XCTAssertEqual(aim["hit"] as? Int, TouchLog.landing(hit)["node"] as? Int, "the dispatch log must see it land where the bar is: \(aim)")
+    }
+
+    /// A bar item takes the colour its author wrote on its button, or the
+    /// tint written on its symbol (LLP 1115.000 D2): a header's Cancel in the
+    /// app's accent, a Delete in the platform's red. A colour the button
+    /// only inherits, or one the compiler implied, leaves UIKit's.
     func testABarItemTakesItsButtonsAuthoredColour() throws {
         let p = Presenter()
-        let canvasText: [String: Any] = ["sys": "labelColor", "c": [[0, 0, 0, 255], [255, 255, 255, 255]]]
+        let red: [String: Any] = ["sys": "systemRedColor", "c": [[255, 56, 60, 255], [255, 66, 69, 255]]]
+        let page = [17, 17, 17, 255], wrote = ["text_color"]
         p.apply(wireBatch([
-            ["op": "create", "id": 1, "kind": "button", "handlers": ["press"], "style": ["text_color": [181, 86, 43, 255]]],
+            ["op": "create", "id": 1, "kind": "button", "handlers": ["press"], "style": ["text_color": [181, 86, 43, 255], "written": wrote]],
             ["op": "create", "id": 2, "kind": "text", "props": ["text": "Cancel"]],
-            ["op": "create", "id": 3, "kind": "button", "handlers": ["press"], "style": ["text_color": canvasText]],
-            ["op": "create", "id": 4, "kind": "text", "props": ["text": "Done"], "style": ["text_color": canvasText]],
-            ["op": "create", "id": 5, "kind": "view", "style": ["text_color": [17, 17, 17, 255]]],
-            ["op": "create", "id": 6, "kind": "button", "handlers": ["press"], "style": ["text_color": [17, 17, 17, 255]]],
-            ["op": "create", "id": 7, "kind": "text", "props": ["text": "Edit"], "style": ["text_color": [17, 17, 17, 255]]],
+            ["op": "create", "id": 3, "kind": "button", "handlers": ["press"], "style": ["text_color": red, "written": wrote]],
+            ["op": "create", "id": 4, "kind": "text", "props": ["text": "Delete"], "style": ["text_color": red]],
+            ["op": "create", "id": 5, "kind": "view", "style": ["text_color": page, "written": wrote]],
+            ["op": "create", "id": 6, "kind": "button", "handlers": ["press"], "style": ["text_color": page]],
+            ["op": "create", "id": 7, "kind": "text", "props": ["text": "Edit"], "style": ["text_color": page]],
+            ["op": "create", "id": 8, "kind": "button", "handlers": ["press"], "style": ["text_color": [0, 122, 255, 255]]],
+            ["op": "create", "id": 9, "kind": "text", "props": ["text": "Implied"]],
+            ["op": "create", "id": 10, "kind": "button", "handlers": ["press"], "style": ["text_color": page]],
+            ["op": "create", "id": 11, "kind": "image", "props": ["imageSource": "symbol:delete", "symbolName": "trash"],
+             "style": ["tint_color": red, "written": ["tint_color"]]],
+            ["op": "create", "id": 12, "kind": "button", "handlers": ["press"], "style": ["text_color": page]],
+            ["op": "create", "id": 13, "kind": "image", "props": ["imageSource": "symbol:add", "symbolName": "plus"], "style": ["tint_color": [0, 122, 255, 255]]],
             ["op": "children", "id": 1, "ids": [2]],
             ["op": "children", "id": 3, "ids": [4]],
             ["op": "children", "id": 6, "ids": [7]],
-            ["op": "children", "id": 5, "ids": [1, 3, 6]],
+            ["op": "children", "id": 8, "ids": [9]],
+            ["op": "children", "id": 10, "ids": [11]],
+            ["op": "children", "id": 12, "ids": [13]],
+            ["op": "children", "id": 5, "ids": [1, 3, 6, 8, 10, 12]],
             ["op": "roots", "ids": [5]],
         ]))
-        let accent = HeaderShape.Item(try XCTUnwrap(p.views[1])), plain = HeaderShape.Item(try XCTUnwrap(p.views[3]))
-        XCTAssertEqual(accent.title, "Cancel")
-        XCTAssertEqual(accent.tint, [[181, 86, 43, 255], [181, 86, 43, 255]])
-        XCTAssertNil(plain.tint, "a platform colour is UIKit's to draw")
-        XCTAssertNil(HeaderShape.Item(try XCTUnwrap(p.views[6])).tint, "an inherited colour is UIKit's to draw")
+        func item(_ id: UInt32) throws -> HeaderShape.Item { HeaderShape.Item(try XCTUnwrap(p.views[id])) }
+        XCTAssertEqual(try item(1).title, "Cancel")
+        XCTAssertEqual(try item(1).tint, [[181, 86, 43, 255], [181, 86, 43, 255]])
+        let role = try XCTUnwrap(try item(3).tint, "a platform colour its author wrote is kept")
+        XCTAssertEqual(role.count, 2, "light and dark")
+        XCTAssertGreaterThan(role[0][0], 200, "red: \(role)")
+        XCTAssertLessThan(role[0][2], 100, "red: \(role)")
+        XCTAssertNil(try item(6).tint, "an inherited colour is UIKit's to draw")
+        XCTAssertNil(try item(8).tint, "a colour the compiler implied is UIKit's to draw, though it differs from the page's")
+        XCTAssertEqual(try item(10).symbol, "trash")
+        XCTAssertNotNil(try item(10).tint, "a tint its author wrote on the symbol")
+        XCTAssertNil(try item(12).tint, "a tint the symbol was only given (a sheet's) is UIKit's")
     }
 
     /// LLP 1075.003 §9.6: a button whose one child is a filled box is an
@@ -169,9 +242,23 @@ final class NavigationBarIOSTests: XCTestCase {
         let top = try XCTUnwrap(nav.topViewController)
         let search = try XCTUnwrap(top.navigationItem.searchController, "the header's search field")
         XCTAssertEqual(search.searchBar.placeholder, "Search the fixture")
+        // LLP 1115.000 D11.2: where the field goes and whether it hides as
+        // the content scrolls are UIKit's own answers, not pinned by Exact.
+        XCTAssertEqual(top.navigationItem.preferredSearchBarPlacement, .automatic, "UIKit's placement")
+        XCTAssertTrue(top.navigationItem.hidesSearchBarWhenScrolling, "it hides on scroll, as UIKit's does")
         search.searchBar.text = "abc"
         search.searchResultsUpdater?.updateSearchResults(for: search)
         until("the field's input ran with the text") { state(session, "query") as? String == "abc" }
+        XCTAssertFalse(top.navigationItem.hidesSearchBarWhenScrolling, "a search in effect keeps its field in view, as UIKit keeps an active search's")
+        // LLP 1115.000 D9.2: the keyboard's Search key puts the keyboard
+        // away, as a hand-built search bar's delegate does, and the search
+        // stays as typed.
+        let field = search.searchBar.searchTextField
+        XCTAssertTrue(field.becomeFirstResponder())
+        search.searchBar.delegate?.searchBarSearchButtonClicked?(search.searchBar)
+        XCTAssertFalse(field.isFirstResponder, "Search puts the keyboard away")
+        XCTAssertEqual(search.searchBar.text, "abc")
+        XCTAssertEqual(state(session, "query") as? String, "abc")
     }
 
     /// LLP 1075.003 §9.8: a header's text tablist is the item's title view,
@@ -196,6 +283,12 @@ final class NavigationBarIOSTests: XCTestCase {
         _ = press.perform(NSSelectorFromString(action), with: control)
         until("the tab pressed") { state(session, "segment") as? String == "missed" }
         until("the selection follows aria-selected") { control.selectedSegmentIndex == 1 }
+        // LLP 1115.000 D11.6: the title takes its own width, the size UIKit
+        // fits it to. Exact held each segment to 90 points at least, so two
+        // short titles made a control 180 wide.
+        let own = { control.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)).width }
+        XCTAssertEqual(control.frame.width, own(), accuracy: 0.5, "its own width")
+        XCTAssertLessThan(control.frame.width, 180, "two short titles: narrower than 90 points a segment")
         // Sized for the text size and weight it shows, when they change and
         // no batch follows (every batch leaves it alone otherwise).
         let segments = try XCTUnwrap((top as? RouteController)?.titleSegments)
@@ -205,9 +298,36 @@ final class NavigationBarIOSTests: XCTestCase {
             control.traitOverrides.legibilityWeight = weight
             control.updateTraitsIfNeeded()
             XCTAssertEqual(segments.sized?.traits, [category, weight.rawValue] as [AnyHashable])
-            XCTAssertGreaterThanOrEqual(control.frame.width, 180, "sized again: two segments, 90 pt each at least")
+            XCTAssertEqual(control.frame.width, own(), accuracy: 0.5, "sized again, to its own width")
+            XCTAssertGreaterThan(control.frame.width, 1)
             XCTAssertGreaterThan(control.frame.height, 1)
         }
+    }
+
+    func testARIAUnavailableHeaderItemStaysPressableAndIsSpokenDisabled() throws {
+        let session = try fixture("aria-header-item", module: false)
+        let button = try node(session, "compose-home")
+        session.presenter.apply(wireBatch([["op": "props", "id": Int(button.id), "set": ["accessibilityDisabled": "true"]]]))
+        let top = try XCTUnwrap(session.presenter.navigation.primaryNavigation?.topViewController)
+        let item = try XCTUnwrap(top.navigationItem.rightBarButtonItems?.first { $0.accessibilityLabel == "Compose" })
+        XCTAssertTrue(item.isEnabled)
+        XCTAssertTrue(item.accessibilityTraits.contains(.notEnabled))
+        try tap(item)
+        until("ARIA-unavailable bar item still presses") { state(session, "composed") as? Double == 1 }
+        session.presenter.apply(wireBatch([["op": "props", "id": Int(button.id), "set": ["accessibilityDisabled": "false"]]]))
+        let restored = try XCTUnwrap(top.navigationItem.rightBarButtonItems?.first { $0.accessibilityLabel == "Compose" })
+        XCTAssertFalse(restored.accessibilityTraits.contains(.notEnabled))
+    }
+
+    func testARIAUnavailableHeaderTabCarriesStateToTitleSegment() throws {
+        let session = try fixture("aria-header-segment", module: false)
+        let tab = try node(session, "segment-missed")
+        session.presenter.apply(wireBatch([["op": "props", "id": Int(tab.id), "set": ["accessibilityDisabled": "true"]]]))
+        let top = try XCTUnwrap(session.presenter.navigation.primaryNavigation?.topViewController)
+        let control = try XCTUnwrap(top.navigationItem.titleView as? LabelledSegmentedControl)
+        control.layoutIfNeeded()
+        XCTAssertTrue(control.isEnabledForSegment(at: 1))
+        XCTAssertTrue(try XCTUnwrap(control.segmentViews.last).accessibilityTraits.contains(.notEnabled))
     }
 
     func testAPushedRouteShowsBackAsTheAuthoredControlAndAPopPressesItOnce() throws {
@@ -269,6 +389,55 @@ final class NavigationBarIOSTests: XCTestCase {
         XCTAssertEqual(journal(session).components(separatedBy: "(follow)").count - 1, 1, "navigate once")
         XCTAssertEqual(backs(session), 0, "no Back control was pressed")
         XCTAssertFalse(journal(session).contains("back gesture refused"))
+    }
+
+    /// LLP 1116 D6: a root that names no Back control (`navigationBack`
+    /// left out, which the compiler lowers to the empty name) keeps the
+    /// native stack, and a pushed route's system Back goes by the root's
+    /// `navigate` even where an element is `id="back"`: no control is named.
+    func testARootThatNamesNoBackControlKeepsTheNativeStackAndTheSystemBack() throws {
+        let session = try fixture("bar-unnamed-back", module: false)
+        let root = try node(session, "navigation")
+        root.props["navigationBack"] = ""
+        let agent = Agent(session: session)
+        XCTAssertNil(agent.tap(["id": Int(try node(session, "detail").id)])["error"])
+        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        until("Detail is pushed onto the native stack") { nav.viewControllers.count == 2 && nav.transitionCoordinator == nil }
+        let detail = try XCTUnwrap(nav.topViewController), home = nav.viewControllers[0]
+        XCTAssertFalse(nav.isNavigationBarHidden)
+        XCTAssertFalse(detail.navigationItem.hidesBackButton, "the system Back, with no control named")
+        XCTAssertEqual(home.navigationItem.backButtonDisplayMode, .default, "no authored control shapes it")
+        XCTAssertEqual(detail.navigationItem.leftBarButtonItems?.first?.accessibilityIdentifier, "back", "Detail's `id=\"back\"` button is an item like any other")
+        XCTAssertTrue(session.presenter.navigation.canInvokeBack)
+        let pop = try XCTUnwrap(nav.interactivePopGestureRecognizer)
+        XCTAssertTrue(session.presenter.navigation.popMayBegin(pop, from: CGPoint(x: 4, y: 400), in: nav.view, velocity: CGPoint(x: 600, y: 20)))
+        nav.popViewController(animated: true)
+        until("the root's navigate went back and the stack follows the router") {
+            (state(session, "nav") as? [String: Any]).map { (($0["tabs"] as? [[String: Any]])?.first?["stack"] as? [Any])?.count == 1 } ?? false
+        }
+        spin(0.2)
+        XCTAssertEqual(nav.viewControllers.count, 1)
+        XCTAssertEqual(journal(session).components(separatedBy: "(follow)").count - 1, 1, "navigate once")
+        XCTAssertEqual(backs(session), 0, "nothing named, nothing pressed")
+    }
+
+    /// LLP 1116 D2: a bar item's, the search field's, a title segment's and
+    /// a tab bar item's `accessibilityIdentifier` is its authored `testId`,
+    /// so XCUITest and Maestro address them as any other node.
+    func testBarItemsTheSearchFieldSegmentsAndTabsCarryTheirTestIds() throws {
+        let session = try fixture("bar-test-ids", module: false)
+        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        let top = try XCTUnwrap(nav.topViewController)
+        let items = (top.navigationItem.leftBarButtonItems ?? []) + (top.navigationItem.rightBarButtonItems ?? [])
+        XCTAssertEqual(Set(items.compactMap(\.accessibilityIdentifier)), ["badge-item", "menu-item", "compose-home"])
+        XCTAssertEqual(top.navigationItem.searchController?.searchBar.searchTextField.accessibilityIdentifier, "header-search")
+        let control = try XCTUnwrap(top.navigationItem.titleView as? LabelledSegmentedControl)
+        XCTAssertEqual(control.accessibilityIdentifier, "header-segments")
+        control.layoutIfNeeded()
+        XCTAssertEqual(control.segmentViews.map(\.accessibilityIdentifier), ["segment-all", "segment-missed"])
+        XCTAssertEqual(control.segmentViews.map(\.accessibilityLabel), [nil, nil], "no name of their own: UIKit's, their words")
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        XCTAssertEqual(tabs.viewControllers?.map(\.tabBarItem.accessibilityIdentifier), ["tab-home", "tab-second"])
     }
 
     /// LLP 1115 D5 with no `navigate` handler on the root: the button and

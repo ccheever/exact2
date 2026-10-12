@@ -380,13 +380,14 @@ writeFileSync(dist + '/index.html', 'current');
 if (text(readStaticFile(dist, '/')) !== 'current') throw new Error('current build did not win');
 if (readStaticFile(dist, '/gpu.js') !== null) throw new Error('current build borrowed stale GPU');
 "#;
-    let output = std::process::Command::new("bun")
-        .args(["--input-type=module", "--eval", js])
-        .arg("serve-fallback-test")
-        .arg(module)
-        .arg(&dist)
-        .output()
-        .unwrap();
+    let output =
+        std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
+            .args(["--input-type=module", "--eval", js])
+            .arg("serve-fallback-test")
+            .arg(module)
+            .arg(&dist)
+            .output()
+            .unwrap();
     assert!(
         output.status.success(),
         "bun: {}{}",

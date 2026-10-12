@@ -45,7 +45,7 @@ fn text_of(r: &Runner<NoData>, id: &str) -> String {
         .props
         .iter()
         .find_map(|(p, v)| match v {
-            PropValue::Str(s) if p.name() == "text" => Some(s.clone()),
+            PropValue::Str(s) if p.name() == "text" => Some(s.to_string()),
             _ => None,
         })
         .unwrap()
@@ -1033,4 +1033,64 @@ component Child
       text "quit"
 "#;
     contract::compile(record).unwrap_or_else(|e| panic!("{e}"));
+}
+
+/// What an action prop was curried with is a hidden parameter of every
+/// lifted action of the use (D7). One action a handler binds types it for
+/// its siblings, one nothing binds included; when none is bound or called,
+/// the refusal names the prop's binding, never the capture.
+#[test]
+fn a_childs_hidden_capture_is_typed_by_any_bound_sibling_and_never_named() {
+    let src = r#"component App
+  view
+    column
+      Panel(title="Panel")
+
+component Panel
+  props
+    title: string
+  state last = ""
+  action note(label: string)
+    last = `${title} ${label}`
+  view
+    column
+      text last testId="last"
+      Leaf(label="a", tell=note)
+
+component Leaf
+  props
+    label: string
+    tell: action
+  state n = 0
+  action spare
+    tell("spare")
+  action idle
+    n = n + 1
+  action go
+    tell(label)
+  view
+    button "Go" press=go testId="go"
+"#;
+    let mut r = boot(src);
+    press(&mut r, "go");
+    assert_eq!(text_of(&r, "last"), "Panel a");
+    // Nothing binds or calls any of Leaf's actions: one refusal, at
+    // `tell=note`, naming the first action that calls `tell`.
+    let unbound = src.replace(" press=go", "");
+    let e = refused(&unbound);
+    assert_eq!(e.id, "type-cannot-infer", "{e}");
+    assert_eq!(
+        e.message,
+        "cannot infer the type of what `note` carries from this binding into `spare`, which calls it: bind `spare` to a handler or call it from one"
+    );
+    assert_eq!((e.span.line, e.span.col), (15, 23), "{e}");
+    let dir = std::env::temp_dir().join(format!("contract-capture-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("app.contract");
+    std::fs::write(&path, &unbound).unwrap();
+    let all = contract::compile_path_all(&path, false)
+        .map(|_| ())
+        .expect_err("refused");
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(all.len(), 1, "{all:#?}");
 }

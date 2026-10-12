@@ -71,6 +71,8 @@ extension Agent {
         var v: UIView? = presenter.viewport
         while let s = v?.superview, !(s is UIWindow) { v = s }
         if let top = v, top !== view, !view.isDescendant(of: top), !top.isDescendant(of: view) { roots.append(top) }
+        // A `dialog` in its sheet is outside both (DialogSheetIOS.swift).
+        roots += presenter.menus.sheets.roots
         #else
         if case .owned(let content) = presenter.axSheet(view.window?.attachedSheet) { roots.append(content) }
         #endif
@@ -295,12 +297,20 @@ extension Presenter {
             popup = (a("AXHasPopup") as? Bool) == true ? (a("AXPopupValue") as? String ?? "true") : nil
         }
     }
+    /// AppKit's navigation order, read untyped: it is declared as elements
+    /// of the `NSAccessibilityElement` protocol, which the class of that name
+    /// (a paragraph's links and words) does not formally adopt, and an
+    /// unoptimized build traps on a typed read holding one.
+    static func navigationOrder(_ o: NSObject) -> [Any]? {
+        let read = NSSelectorFromString("accessibilityChildrenInNavigationOrder")
+        return o.responds(to: read) ? o.perform(read)?.takeUnretainedValue() as? [Any] : nil
+    }
     static func axFacts(_ obj: AnyObject) -> AxFacts? {
         if let v = obj as? NSView {
             var f = AxFacts(role: v.accessibilityRole()?.rawValue, subrole: v.accessibilitySubrole()?.rawValue, label: v.accessibilityLabel(), title: v.accessibilityTitle(),
                            help: v.accessibilityHelp(), value: v.accessibilityValue(), enabled: v.accessibilityAttributeValue(.enabled) as? Bool ?? true, focused: v.isAccessibilityFocused(),
                            selected: v.isAccessibilitySelected(), element: v.isAccessibilityElement(), expanded: v.isAccessibilityExpanded(), frame: v.accessibilityFrame(), identifier: v.accessibilityIdentifier(),
-                           children: v.accessibilityChildrenInNavigationOrder() ?? v.accessibilityChildren() ?? [], required: v.isAccessibilityRequired())
+                           children: navigationOrder(v) ?? v.accessibilityChildren() ?? [], required: v.isAccessibilityRequired())
             f.aria { v.accessibilityAttributeValue(NSAccessibility.Attribute(rawValue: $0)) }
             return f
         }
@@ -308,7 +318,7 @@ extension Presenter {
             return AxFacts(role: e.accessibilityRole()?.rawValue, subrole: e.accessibilitySubrole()?.rawValue, label: e.accessibilityLabel(), title: e.accessibilityTitle(),
                            help: e.accessibilityHelp(), value: e.accessibilityValue(), enabled: e.accessibilityAttributeValue(.enabled) as? Bool ?? true, focused: e.isAccessibilityFocused(),
                            selected: e.isAccessibilitySelected(), element: e.isAccessibilityElement(), expanded: e.isAccessibilityExpanded(), frame: e.accessibilityFrame(), identifier: e.accessibilityIdentifier(),
-                           children: e.accessibilityChildrenInNavigationOrder() ?? e.accessibilityChildren() ?? [])
+                           children: navigationOrder(e) ?? e.accessibilityChildren() ?? [])
         }
         guard let o = obj as? NSObject else { return nil }
         func a(_ name: String) -> Any? { o.accessibilityAttributeValue(NSAccessibility.Attribute(rawValue: name)) }
@@ -350,6 +360,23 @@ extension Presenter {
     }
     #endif
 
+    #if os(iOS) || os(tvOS)
+    /// The checkable role a view's author wrote, for UIKit's toggle: an
+    /// `input type="checkbox"` (a `switch` with that role), or a box whose
+    /// ARIA role is `checkbox` or `switch`. A radio is no toggle.
+    private static func toggleRole(_ node: NodeView) -> String? {
+        if node.kind == "control", ["checkbox", "switch"].contains(ControlKinds.kind(node.props)) { return ControlKinds.kind(node.props) }
+        return node.checkedRole.flatMap { $0.role == "radio" ? nil : $0.role }
+    }
+    private static func isSwitch(_ obj: AnyObject) -> Bool {
+        #if os(tvOS)
+        return false
+        #else
+        return obj is UISwitch
+        #endif
+    }
+    #endif
+
     /// One element (D3, D5, D7): the platform's facts, cut to their bounds.
     private func emit(_ obj: AnyObject, role forced: String?, parent: Int?, exclusion: [String], into w: inout AxWalk) -> Int? {
         if w.elements.count >= w.limit { w.more += 1; return nil }
@@ -386,17 +413,29 @@ extension Presenter {
             switch o.accessibilityExpandedStatus { case .expanded: states["expanded"] = true; case .collapsed: states["expanded"] = false; default: break }
         }
         let editable = obj is UITextField || obj is UITextView
-        e["role"] = forced ?? (editable ? "textbox" : names.contains("button") && (value == "checked" || value == "unchecked") ? "checkbox"
+        e["role"] = forced ?? (editable ? "textbox"
             : names.contains("link") ? "link" : names.contains("header") ? "heading" : names.contains("searchField") ? "searchbox"
             : names.contains("button") ? "button" : names.contains("image") ? "image" : names.contains("adjustable") ? "adjustable"
             : names.contains("tabBar") ? "tablist" : names.contains("staticText") ? "text" : "unknown")
-        if e["role"] as? String == "checkbox" { states["checked"] = value == "checked" }
+        // UIKit's toggle (LLP 1115.000 D13.3, D14.4): the `toggleButton`
+        // trait, or a `UISwitch`, and its value, "1" on and "0" off. It is
+        // UIKit's one form for a checkbox, a switch and a pressed button
+        // alike, so which of them it is here is what its author wrote: the
+        // role or control kind of the view it joins. A toggle whose value is
+        // not UIKit's reports no `checked`, which the comparison names.
+        if forced == nil, names.contains("toggleButton") || Self.isSwitch(obj), let role = id.flatMap({ views[$0] }).flatMap(Self.toggleRole) {
+            e["role"] = role
+            if value == "1" || value == "0" { states["checked"] = value == "1" }
+        }
         // UIKit has no radio trait: the drawn radio (x2apps survey #2) says
         // what it is by its class, its state by `selected`.
         if let radio = obj as? ExactRadio, forced == nil { e["role"] = "radio"; states["checked"] = radio.isOn }
         // Nor a progress trait: a `progress`'s indicator (LLP 1069.001,
         // amended 2026-10-07) is ARIA's busy `progressbar` by its class.
         if obj is UIActivityIndicatorView, forced == nil { e["role"] = "progressbar"; states["busy"] = true }
+        if obj is UIProgressView, forced == nil { e["role"] = "progressbar" } // LLP 1116 D8
+        // A drawn range role says its role by ARIA's (LLP 1116 D8).
+        if let node = obj as? NodeView, forced == nil, let range = node.rangeRole { e["role"] = range }
         e["interactive"] = forced == nil && (o.accessibilityRespondsToUserInteraction || editable || names.contains("button") || names.contains("link") || names.contains("adjustable"))
         if let actions = o.accessibilityCustomActions, !actions.isEmpty { e["actions"] = actions.prefix(16).compactMap { cut($0.name) } }
         native["role"] = names
@@ -431,8 +470,12 @@ extension Presenter {
         let r = f.role ?? "AXUnknown"
         let mapped = ["AXButton": "button", "AXLink": "link", "AXHeading": "heading", "AXTextField": "textbox", "AXTextArea": "textbox",
                       "AXCheckBox": f.subrole == "AXSwitch" ? "switch" : "checkbox", "AXRadioButton": "radio", "AXRadioGroup": "radiogroup",
-                      "AXSlider": "slider", "AXPopUpButton": "combobox", "AXStaticText": "text", "AXGroup": "group", "AXImage": "image", "AXList": "list",
-                      "AXBusyIndicator": "progressbar", "AXProgressIndicator": "progressbar"][r]
+                      "AXSlider": "slider", "AXPopUpButton": "combobox", "AXStaticText": "text", "AXImage": "image", "AXList": "list",
+                      // A live-region or dialog role is a group by its subrole, as WebKit serves one.
+                      "AXGroup": ["AXApplicationStatus": "status", "AXApplicationAlert": "alert", "AXApplicationDialog": "dialog",
+                                  "AXApplicationAlertDialog": "alertdialog"][f.subrole ?? ""] ?? "group",
+                      "AXBusyIndicator": "progressbar", "AXProgressIndicator": "progressbar",
+                      "AXLevelIndicator": "meter", "AXScrollBar": "scrollbar", "AXIncrementor": "spinbutton"][r]
         e["role"] = forced ?? mapped ?? r
         if r == "AXHeading", let level = f.value as? Int { states["level"] = level }
         // A spinning indicator is AppKit's busy one (LLP 1069.001, amended 2026-10-07).

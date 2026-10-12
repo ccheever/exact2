@@ -26,6 +26,7 @@ fn validate(schema: &Schema) {
             "schema: symbol {role}: `-fill` is exactly Apple's `.fill`, beside its role"
         );
     }
+    symbol_spellings(schema);
     let mut materials = BTreeSet::new();
     for [name, ios, macos, blur, saturate, ..] in &schema.materials {
         assert!(

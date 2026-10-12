@@ -40,7 +40,7 @@ extension NodeView {
                 presenter.intrinsic(self.id, size)
             }
         }
-        symbolView?.contentTintColor = symbolTint ?? .controlAccentColor
+        symbolView?.contentTintColor = symbolTint ?? unsaidSymbolTint
         if let leaf = symbolView { applySymbolEffect(leaf) }
         layoutSymbol()
     }

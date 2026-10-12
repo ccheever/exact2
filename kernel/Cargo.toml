@@ -18,6 +18,7 @@ exact-motion = { path = "../motion" }
 exact-num = { path = "../num" }
 exact-svg-filter = { path = "../svg-filter" }
 exact-textflow = { path = "../textflow" }
+smol_str = "0.2.2"
 taffy = { version = "0.14", default-features = false, features = ["std", "taffy_tree", "flexbox", "grid", "block_layout", "content_size", "calc", "parse"] }
 
 [build-dependencies]

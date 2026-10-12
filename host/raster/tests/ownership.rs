@@ -21,6 +21,7 @@ fn demand(view: u64, source: u64, output_mib: u64, scratch_mib: u64) -> Demand {
             generation: 1,
             pixels,
             variant: variant::SRGB8,
+            crop: Crop::default(),
         },
         metadata: Metadata {
             natural: PixelSize {
@@ -938,4 +939,54 @@ fn the_same_pixels_in_two_variants_are_two_entries() {
     // Two keys, so two decodes: a variant never answers for another.
     assert!(gate.next_decode().is_some());
     assert!(gate.next_decode().is_some());
+}
+
+/// Two parts of one picture at one size (a photo in two boxes of different
+/// shape) are two entries; a view asking for a part again shares it; and no
+/// part is offered to a view that wants the picture whole (`covering`).
+#[test]
+fn a_part_answers_only_for_its_own_crop() {
+    let gate = Gate::new();
+    let session = gate.session();
+    let drops = Arc::new(AtomicUsize::new(0));
+    let full = PixelSize {
+        width: 1024,
+        height: 1024,
+    };
+    let part = |view, x| {
+        let mut d = demand(view, 1, 1, 0);
+        d.key.crop = Crop { x, y: 0, full };
+        d
+    };
+    let left = session.request(part(1, 0)).unwrap();
+    let right = session.request(part(2, 768)).unwrap();
+    let again = session.request(part(3, 0)).unwrap();
+    assert_eq!(session.stats().pending_jobs, 2, "one decode for each crop");
+    complete(gate.next_decode().unwrap(), &drops);
+    complete(gate.next_decode().unwrap(), &drops);
+    assert!(gate.next_decode().is_none());
+    let (left, right, again) = (
+        session.take_ready(left).unwrap(),
+        session.take_ready(right).unwrap(),
+        session.take_ready(again).unwrap(),
+    );
+    let pixels = |r: &RasterLease| Arc::as_ptr(r.payload::<Arc<Backing>>().unwrap());
+    assert_eq!(pixels(&left), pixels(&again));
+    assert_ne!(pixels(&left), pixels(&right));
+    let at_least = PixelSize {
+        width: 1,
+        height: 1,
+    };
+    assert_eq!(
+        session.covering(1, 1, variant::SRGB8, at_least, u64::MAX),
+        None,
+        "a part is never the whole picture"
+    );
+    let whole = session.request(demand(4, 1, 1, 0)).unwrap();
+    complete(gate.next_decode().unwrap(), &drops);
+    assert!(session.take_ready(whole).is_some());
+    assert_eq!(
+        session.covering(1, 1, variant::SRGB8, at_least, u64::MAX),
+        Some(demand(4, 1, 1, 0).key.pixels)
+    );
 }

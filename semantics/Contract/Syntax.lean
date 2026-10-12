@@ -127,13 +127,16 @@ instance: `owner` is the region arm that owns it — (tag, arm) of the
 innermost `each` row (arm 0), `when` arm or `match` arm around its use —
 one value per arm instance; `none` for a root slot. A root slot that
 holds a child used outside every region is `late`: initialized after boot
-settlement, so it may read derives and resources. -/
+settlement, so it may read derives and resources. A root slot that says
+`persist` (LLP 1116 D5) starts from the device's store where the store
+holds a value of its type (`Oracle.stored`, `restore`). -/
 structure StateDecl where
   name : String
   ty : Ty
   init : Expr
   owner : Option (Nat × Nat) := .none
   late : Bool := false
+  persist : Bool := false
   deriving Repr, Inhabited
 
 structure DeriveDecl where

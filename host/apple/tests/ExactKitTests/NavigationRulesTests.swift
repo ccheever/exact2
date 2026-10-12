@@ -122,12 +122,49 @@ final class NavigationRulesTests: XCTestCase {
     }
 
     /// D1: the stack is the prefix through the selected route; a key that
-    /// matches no route leaves the stack alone.
+    /// matches no route leaves the stack alone (less what left the tree, below).
     func testTheStackIsThePrefixThroughTheSelectedRoute() {
         let keys = ["", "thread", "details:thread", "compose"]
         XCTAssertEqual(NavigationRules.stack(routeKeys: keys, selected: ""), 0..<1)
         XCTAssertEqual(NavigationRules.stack(routeKeys: keys, selected: "details:thread"), 0..<3)
         XCTAssertNil(NavigationRules.stack(routeKeys: keys, selected: "elsewhere"))
+    }
+
+    /// D1: a key that matches no route leaves the stack alone, less the
+    /// routes that left the tree; and macOS's hide-and-inert projection
+    /// follows it. Chat-rooms (bake-off round 6) keyed its list "rooms" while
+    /// its root named the visit, "0" at the stack's root: Cancel on its sheet
+    /// (the route gone, the key "0" again) left the list inert.
+    func testAKeyThatMatchesNoRouteKeepsWhatIsLeftOfTheStackShown() throws {
+        XCTAssertEqual(NavigationRules.survivor(of: ["rooms", "1"], declared: [["rooms"]]), "rooms")
+        XCTAssertEqual(NavigationRules.survivor(of: ["rooms", "1"], declared: [["rooms", "1"]]), "1")
+        XCTAssertEqual(NavigationRules.survivor(of: ["a", "b"], declared: [["c"], ["a"]]), "a", "in any tab's stack")
+        XCTAssertNil(NavigationRules.survivor(of: [], declared: [["rooms"]]), "nothing shown yet: nothing changes")
+        XCTAssertNil(NavigationRules.survivor(of: ["gone"], declared: [["rooms"]]))
+
+        _ = NSApplication.shared
+        let p = Presenter()
+        defer { p.reset() }
+        func apply(_ ops: [[String: Any]]) { p.apply(batchFixture(ops: ops, timers: false, motion: false, clock: nil, error: nil)) }
+        func route(_ id: Int, _ key: String, modal: Bool = false) -> [String: Any] {
+            ["op": "create", "id": id, "kind": "view", "props": ["navigationKey": key].merging(modal ? ["navigationPresentation": "modal"] : [:]) { $1 }]
+        }
+        apply([
+            ["op": "create", "id": 1, "kind": "view", "props": ["navigationBack": "back", "navigationKey": "0"]],
+            route(2, "rooms"),
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "roots", "ids": [1]],
+        ])
+        let rooms = try XCTUnwrap(p.views[2])
+        XCTAssertEqual([rooms.isHidden, rooms.routeInert], [false, false], "nothing projected at first")
+        apply([route(3, "1", modal: true), ["op": "children", "id": 1, "ids": [2, 3]], ["op": "props", "id": 1, "set": ["navigationKey": "1"]]])
+        XCTAssertEqual([rooms.isHidden, rooms.routeInert], [false, true], "shown and inert beneath the sheet")
+        apply([["op": "children", "id": 1, "ids": [2]], ["op": "destroy", "id": 3], ["op": "props", "id": 1, "set": ["navigationKey": "0"]]])
+        XCTAssertEqual([rooms.isHidden, rooms.routeInert], [false, false], "the sheet closed, the list is live")
+        apply([route(4, "2"), ["op": "children", "id": 1, "ids": [2, 4]], ["op": "props", "id": 1, "set": ["navigationKey": "2"]]])
+        XCTAssertEqual([rooms.isHidden, rooms.routeInert], [true, true], "hidden under a pushed screen")
+        apply([["op": "children", "id": 1, "ids": [2]], ["op": "destroy", "id": 4], ["op": "props", "id": 1, "set": ["navigationKey": "0"]]])
+        XCTAssertEqual([rooms.isHidden, rooms.routeInert], [false, false], "popped, the list shows again")
     }
 
     func testPresentationBoundariesRetainTheirOwnerThroughLaterRoutes() {
@@ -206,6 +243,27 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertNil(NavigationRules.back(control: nil, declared: false, hearsNavigate: true, beneath: { nil }), "a stack's root")
     }
 
+    /// LLP 1115.000 D5.2, D5.3: a route's bar is its own. Its header when
+    /// that is the bar's; the system Back alone on any other pushed route;
+    /// none on a stack's first route with no such header, and none wherever
+    /// the route says so, which is the only way a pushed route has none.
+    func testARoutesBarIsItsHeaderElseTheSystemBackAloneUnlessItSaysNone() {
+        typealias Bar = NavigationRules.Bar
+        for pushed in [false, true] {
+            XCTAssertEqual(NavigationRules.bar(asked: nil, header: true, pushed: pushed), Bar.header, "a header that is the bar's, whatever is beneath")
+            XCTAssertEqual(NavigationRules.bar(asked: "auto", header: true, pushed: pushed), Bar.header)
+            for header in [false, true] {
+                XCTAssertEqual(NavigationRules.bar(asked: "none", header: header, pushed: pushed), Bar.hidden, "no bar is what the route says")
+            }
+        }
+        XCTAssertEqual(NavigationRules.bar(asked: nil, header: false, pushed: true), Bar.back, "pushed, with no bar of its own: Back alone")
+        XCTAssertEqual(NavigationRules.bar(asked: "", header: false, pushed: true), Bar.back, "an unset word is no request")
+        XCTAssertEqual(NavigationRules.bar(asked: nil, header: false, pushed: false), Bar.hidden, "a stack's first route has nothing to go back to")
+        // tvOS's bar has no Back button to show alone; a header is still its bar.
+        XCTAssertEqual(NavigationRules.bar(asked: nil, header: false, pushed: true, backButton: false), Bar.hidden)
+        XCTAssertEqual(NavigationRules.bar(asked: nil, header: true, pushed: true, backButton: false), Bar.header)
+    }
+
     /// D1: an interactive pop needs a stack to pop, no transition, no sheet,
     /// a Back control, and no context preview.
     func testWhenAPopMayBegin() {
@@ -264,18 +322,6 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertFalse(NavigationRules.freezesViewport(modalActive: true, changing: true, initiallyInteractive: true))
         XCTAssertFalse(NavigationRules.freezesViewport(modalActive: false, changing: false, initiallyInteractive: true))
         XCTAssertFalse(NavigationRules.freezesViewport(modalActive: false, changing: true, initiallyInteractive: false))
-    }
-
-    /// D5: a stack change waits for the viewport only when its batch put the
-    /// keyboard away: shown, no editor left, a stack that changes, and not
-    /// under the agent (Ocho's Back over the composer, 2026-10-08).
-    func testAStackChangeWaitsForTheViewportOnlyWhenItsBatchDroppedTheKeyboard() {
-        XCTAssertTrue(NavigationRules.waitsForKeyboardViewport(applying: true, keyboardShown: true, editing: false, agentFreezes: false, stackChanges: true))
-        XCTAssertFalse(NavigationRules.waitsForKeyboardViewport(applying: false, keyboardShown: true, editing: false, agentFreezes: false, stackChanges: true))
-        XCTAssertFalse(NavigationRules.waitsForKeyboardViewport(applying: true, keyboardShown: false, editing: false, agentFreezes: false, stackChanges: true))
-        XCTAssertFalse(NavigationRules.waitsForKeyboardViewport(applying: true, keyboardShown: true, editing: true, agentFreezes: false, stackChanges: true))
-        XCTAssertFalse(NavigationRules.waitsForKeyboardViewport(applying: true, keyboardShown: true, editing: false, agentFreezes: true, stackChanges: true))
-        XCTAssertFalse(NavigationRules.waitsForKeyboardViewport(applying: true, keyboardShown: true, editing: false, agentFreezes: false, stackChanges: false))
     }
 
     /// A presentation's background goes home as autoresizing would have
@@ -615,8 +661,13 @@ final class MacShortcutTests: XCTestCase {
         let new = file.items.first { $0.keyEquivalent == "n" }!
         XCTAssertEqual(app.items[2].title, "Settings…")
         XCTAssertEqual(app.items[2].keyEquivalent, ",")
-        XCTAssertEqual(go.items.map(\.title), ["Back", "Home"])
-        XCTAssertEqual(go.items[1].state, .on)
+        // The app's own ⌘[ Back stands in for the host's (LLP 1115.000 D5.1),
+        // which keeps its place, hidden and without the chord.
+        let shown = { go.items.filter { !$0.isHidden } }
+        XCTAssertEqual(shown().map(\.title), ["Back", "Home"])
+        XCTAssertTrue(shown()[0].target is ShortcutHost)
+        XCTAssertEqual(go.items.filter { $0.target is GoMenuTarget }.map(\.keyEquivalent), [""])
+        XCTAssertEqual(shown()[1].state, .on)
         XCTAssertFalse(file.items.contains { $0.keyEquivalent == "," || $0.keyEquivalent == "[" })
         XCTAssertNotNil(app.items.first { $0.action == #selector(NSApplication.hideOtherApplications(_:)) })
         XCTAssertNotNil(bar.items.first { $0.submenu?.title == "Window" })
@@ -629,7 +680,7 @@ final class MacShortcutTests: XCTestCase {
         home.props["inert"] = "true"
         presenter.shortcuts.sync()
         XCTAssertFalse(new.isEnabled)
-        XCTAssertFalse(go.items[1].isEnabled)
+        XCTAssertFalse(shown()[1].isEnabled)
         compose.removeFromSuperview()
         presenter.views.removeValue(forKey: compose.id)
         presenter.shortcuts.sync()
@@ -755,6 +806,45 @@ final class MacShortcutTests: XCTestCase {
         let field = NSTextView()
         XCTAssertTrue(field.responds(to: #selector(NSResponder.uppercaseWord(_:))))
         XCTAssertTrue(field.responds(to: #selector(NSTextView.toggleAutomaticQuoteSubstitution(_:))))
+    }
+
+    /// LLP 1115.000 D7.8: a release build has no Develop menu, and so takes
+    /// none of its chords (Reload ⌘R, Open Project… ⌘O, App Info… ⌘D, Save
+    /// Trace ⌥⌘T); a development build's bar is as it was.
+    func testOnlyADevelopmentBuildsBarHasDevelopAndItsChords() {
+        let presenter = Presenter()
+        let window = window(presenter)
+        defer { window.close() }
+        let previous = (NSApp.servicesMenu, NSApp.windowsMenu, NSApp.helpMenu)
+        defer { NSApp.servicesMenu = previous.0; NSApp.windowsMenu = previous.1; NSApp.helpMenu = previous.2 }
+        let titles = { (bar: NSMenu) in Array(bar.items.compactMap { $0.submenu?.title }.dropFirst()) }
+        func items(_ menu: NSMenu) -> [NSMenuItem] { menu.items.flatMap { [$0] + ($0.submenu.map(items) ?? []) } }
+        let shipped = DevMenu.makeMenu(shortcuts: presenter.shortcuts, documents: false, develop: false)
+        XCTAssertEqual(titles(shipped), ["File", "Edit", "View", "Go", "Window", "Help"])
+        XCTAssertFalse(items(shipped).contains { $0.target === DevMenu.target }, "no development command is in a shipped bar")
+        for key in ["r", "o", "d", "t"] {
+            XCTAssertFalse(items(shipped).contains { $0.keyEquivalent == key && $0.keyEquivalentModifierMask.contains(.command) }, "⌘\(key) is not taken")
+        }
+        let development = DevMenu.makeMenu(shortcuts: presenter.shortcuts, documents: false, develop: true)
+        XCTAssertEqual(titles(development), ["File", "Edit", "View", "Go", "Window", "Develop", "Help"])
+        let develop = development.items.first { $0.submenu?.title == "Develop" }!.submenu!
+        XCTAssertEqual(develop.items.map(\.title), ["Reload", "Open Project…", "App Info…", "Save Trace"])
+        XCTAssertEqual(develop.items.map(\.keyEquivalent), ["r", "o", "d", "t"])
+        XCTAssertEqual(develop.items.map(\.keyEquivalentModifierMask), [.command, .command, .command, [.command, .option]])
+        // Which build is which: production trust, or `build.mjs`'s stamp of a
+        // production or distributed build (`exact release`); an unstamped
+        // host, as this test's, is a development one. The environment
+        // overrides either.
+        XCTAssertTrue(DevMenu.develops(kind: "debug", production: false, override: nil))
+        XCTAssertTrue(DevMenu.develops(kind: nil, production: false, override: nil))
+        for kind in ["release", "archive"] {
+            XCTAssertFalse(DevMenu.develops(kind: kind, production: false, override: nil), "\(kind): a shipped app has no Develop menu")
+        }
+        XCTAssertFalse(DevMenu.develops(kind: "debug", production: true, override: nil))
+        XCTAssertFalse(DevMenu.develops(kind: nil, production: true, override: nil))
+        XCTAssertTrue(DevMenu.develops(kind: "release", production: true, override: "1"))
+        XCTAssertFalse(DevMenu.develops(kind: "debug", production: false, override: "0"))
+        XCTAssertEqual(DevMenu.enabled, ExactEnv.environment["EXACT_DEV_MENU"] != "0", "the tests' host is a development build")
     }
 
     func testShortcutsRespectDisabledInertHiddenRepeatedAndWindowOwnership() {

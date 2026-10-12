@@ -151,6 +151,8 @@ pub enum DecodeError {
     InvalidTransition(exact_motion::TransitionError),
     /// A style mask set bits above the last row.
     ReservedMaskBits,
+    /// A style patch marked a row written that it does not set.
+    WrittenUnsetRow,
     /// A child list exceeds the bound.
     TooManyChildren(u32),
     /// A string field is not UTF-8.

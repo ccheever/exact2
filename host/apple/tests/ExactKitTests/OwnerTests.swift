@@ -4,6 +4,12 @@ import XCTest
 
 // @ref LLP 1072 T1/T5 — the owner thread's contract.
 final class OwnerTests: XCTestCase {
+    func testDocumentOwnerIsTheRuntimeThatResolvesStorage() {
+        let session = ExactApp.shared.makeSession(label: "document-owner")
+        defer { session.destroy() }
+        XCTAssertEqual(session.documentOwner, UInt64(session.runtime.rt))
+    }
+
     func testSyncRunsOnTheOwnerInOrder() {
         var seen: [Int] = []
         for i in 0..<100 {

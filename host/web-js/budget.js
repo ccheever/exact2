@@ -10,9 +10,9 @@ export class Trap extends Refusal { constructor(kind, pc) { super(`Trap(${kind} 
 /** Throw a trap, where an expression stands. */
 export function $T(kind, pc) { throw new Trap(kind, pc); }
 /** A string's UTF-8 bytes, as Rust's `str::len`; a lone surrogate is U+FFFD's 3 (LLP 1088 D2). */
-export function utf8(s) {
+export function utf8(s, limit = Infinity) {
   let n = s.length;
-  for (let i = 0; i < s.length; i++) {
+  for (let i = 0; i < s.length && n <= limit; i++) {
     const c = s.charCodeAt(i);
     if (c < 0x80) continue;
     if (c < 0x800) { n += 1; continue; }
@@ -97,47 +97,130 @@ export function x_concat(a, b, s, pc) { step(s, a.length + b.length, pc); return
  * does; text's result is made well formed once (LLP 1088 D2); a list's takes a step an item it keeps. */
 export function x_slice(v, a, b, s, pc) {
   if (typeof v === "string") { ST = 0; return v.slice(a, b).toWellFormed(); }
-  const r = v.slice(a, b);
-  step(s, r.length, pc);
-  return K(r, pc);
+  const at = n => { const i = Math.trunc(n) || 0; return Math.min(v.length, Math.max(0, i < 0 ? v.length + i : i)); };
+  step(s, Math.max(0, at(b) - at(a)), pc);
+  return K(v.slice(a, b), pc);
 }
 /** `includes(v, x)`: a substring of text, or a list's item by SameValueZero (NaN is NaN), a step an item scanned. */
 export function x_includes(v, x, s, pc) {
   if (typeof v === "string") { ST = 0; return v.includes(x); }
   let i = 0;
-  while (i < v.length && v[i] !== x && (x === x || v[i] === v[i])) i++;
-  step(s, i < v.length ? i + 1 : v.length, pc);
+  while (i < v.length) {
+    step(s, i + 1, pc);
+    const item = v[i];
+    if (item === x || item !== item && x !== x) break;
+    i++;
+  }
+  if (i === 0 && v.length === 0) step(s, 0, pc);
   return i < v.length;
 }
 /** `indexOf(v, x)`: text's first match in UTF-16 code units, or a list's item by IsStrictlyEqual (NaN is never found),
  * a step an item scanned; -1 for none. */
 export function x_indexOf(v, x, s, pc) {
   if (typeof v === "string") { ST = 0; return v.indexOf(x); }
-  const i = v.indexOf(x);
-  step(s, i < 0 ? v.length : i + 1, pc);
-  return i;
+  for (let i = 0; i < v.length; i++) {
+    step(s, i + 1, pc);
+    if (v[i] === x) return i;
+  }
+  step(s, v.length, pc);
+  return -1;
 }
 /** `split(t, sep)`: a step a piece; an empty `sep` splits into code units, each made well formed (LLP 1088 D2), and
  * steps before it splits, as the runner counts first. */
 export function x_split(t, sep, s, pc) {
   if (sep === "") { step(s, t.length, pc); return K(t.split("").map(u => u.toWellFormed()), pc); }
-  const r = t.split(sep);
-  step(s, r.length, pc);
-  return K(r, pc);
+  let pieces = 1, at = 0;
+  step(s, pieces, pc);
+  while ((at = t.indexOf(sep, at)) >= 0) { step(s, ++pieces, pc); at += sep.length; }
+  return K(t.split(sep), pc);
 }
 
 // ---------------------------------------------------------------- strings (`Opcode::Concat`, the roster's builders)
 /** `a + b` (`Opcode::Concat`). */
-export function cc(a, b, pc) { return str(a + b, pc); }
+export function cc(a, b, pc) { const n = a.length + b.length; if (n > MAX) throw new Trap("StringTooLong", pc); return 3 * n <= MAX ? a + b : bounded([a, b], "", pc); }
+/** Count the UTF-8 result before a builder can allocate past the bound, including pairs across pieces. */
+function bounded(parts, sep, pc) {
+  const out = parts.map(String);
+  let units = sep.length * Math.max(0, out.length - 1);
+  for (const part of out) units += part.length;
+  // A UTF-16 unit is at least one UTF-8 byte: past the bound by units alone, no piece is scanned.
+  if (units > MAX) throw new Trap("StringTooLong", pc);
+  if (3 * units <= MAX) return out.join(sep);
+  let bytes = 0, high = false;
+  const add = part => {
+    // Two bytes of slack: a piece that pairs across the boundary takes 2 back below.
+    bytes += utf8(part, MAX - bytes + 2);
+    if (high && part.length && part.charCodeAt(0) >= 0xdc00 && part.charCodeAt(0) <= 0xdfff) bytes -= 2;
+    if (part.length) { const last = part.charCodeAt(part.length - 1); high = last >= 0xd800 && last <= 0xdbff; }
+    if (bytes > MAX) throw new Trap("StringTooLong", pc);
+  };
+  for (let i = 0; i < out.length; i++) {
+    if (i) add(sep);
+    add(out[i]);
+  }
+  return out.join(sep);
+}
 /** `join(list, separator)`: its steps are the caller's (`$s`); one string item is itself, unchecked (`stdlib::join`). */
-export function x_join(l, s, pc) { return l.length === 1 && typeof l[0] === "string" ? l[0] : str(l.map(String).join(s), pc); }
+export function x_join(l, s, pc) { return l.length === 1 && typeof l[0] === "string" ? l[0] : bounded(l, s, pc); }
+/** The bytes JSON.stringify emits for one quoted string, including escapes for lone surrogates. */
+function jsonBytes(s) {
+  let bytes = 2;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c === 34 || c === 92 || c === 8 || c === 9 || c === 10 || c === 12 || c === 13) bytes += 2;
+    else if (c < 32) bytes += 6;
+    else if (c < 128) bytes++;
+    else if (c < 2048) bytes += 2;
+    else if (c >= 0xd800 && c <= 0xdbff && i + 1 < s.length && s.charCodeAt(i + 1) >= 0xdc00 && s.charCodeAt(i + 1) <= 0xdfff) { bytes += 4; i++; }
+    else bytes += c >= 0xd800 && c <= 0xdfff ? 6 : 3;
+  }
+  return bytes;
+}
 /** A native module's props (LLP 1024 D1): key/value pairs to one JSON object of strings, a none left out (`stdlib::native_props`). */
-export function NP(p, pc) { const o = {}; for (let i = 0; i < p.length; i += 2) if (p[i + 1] != null) o[p[i]] = String(p[i + 1]); return str(JSON.stringify(o), pc); }
+export function NP(p, pc) {
+  const o = {};
+  for (let i = 0; i < p.length; i += 2) if (p[i + 1] != null) o[p[i]] = String(p[i + 1]);
+  let bytes = 2, first = true;
+  for (const [key, value] of Object.entries(o)) {
+    bytes += (first ? 0 : 1) + jsonBytes(key) + 1 + jsonBytes(value);
+    if (bytes > MAX) throw new Trap("StringTooLong", pc);
+    first = false;
+  }
+  return JSON.stringify(o);
+}
 /** `t(key, name=value…)` (rt.js `text`). */
-export function x_t(name, key, pairs, pc) { return str(text(name, key, pairs), pc); }
-export function x_encodeURIComponent(v, pc) { return str(encodeURIComponent(v), pc); }
+export function x_t(name, key, pairs, pc) {
+  const out = []; let bytes = 0, high = false;
+  text(name, key, pairs, piece => {
+    piece = String(piece);
+    bytes += utf8(piece);
+    if (high && piece.length && piece.charCodeAt(0) >= 0xdc00 && piece.charCodeAt(0) <= 0xdfff) bytes -= 2;
+    if (piece.length) { const last = piece.charCodeAt(piece.length - 1); high = last >= 0xd800 && last <= 0xdbff; }
+    if (bytes > MAX) throw new Trap("StringTooLong", pc);
+    out.push(piece);
+  });
+  return out.join("");
+}
+/** The ASCII bytes an encoded URI result will hold. */
+function encodedBytes(v, pc, route) {
+  let bytes = 0;
+  for (let i = 0; i < v.length; i++) {
+    const c = v.charCodeAt(i);
+    if (c < 128) bytes += c >= 65 && c <= 90 || c >= 97 && c <= 122 || c >= 48 && c <= 57 || "-_.!~*'()".includes(v[i]) ? 1 : 3;
+    else if (c < 2048) bytes += 6;
+    else if (c >= 0xd800 && c <= 0xdbff && i + 1 < v.length && v.charCodeAt(i + 1) >= 0xdc00 && v.charCodeAt(i + 1) <= 0xdfff) { bytes += 12; i++; }
+    else if (c >= 0xd800 && c <= 0xdfff && !route) encodeURIComponent(v[i]);
+    else bytes += 9;
+    if (bytes > MAX) throw new Trap("StringTooLong", pc);
+  }
+}
+export function x_encodeURIComponent(v, pc) { if (9 * v.length > MAX) encodedBytes(v, pc, false); return encodeURIComponent(v); }
 /** After the route segment's own refusal of `""`, `.` and `..` (D6). */
-export function x_encodeRouteSegment(v, pc) { return str(segmentOf(v), pc); }
+export function x_encodeRouteSegment(v, pc) {
+  if (v === "" || v === "." || v === "..") return segmentOf(v);
+  if (9 * v.length > MAX) encodedBytes(v, pc, true);
+  return segmentOf(v);
+}
 /** `replaceAll(s, find, with)` with a string `find` (LLP 1088 D2), built piece by piece through one counter of the
  * result's well-formed UTF-8 that carries a high surrogate across pieces (a low one completing it is the pair's 4
  * bytes, anything else settles it as U+FFFD's 3), so a quadratic `` $` `` stops at the bound before it is built. */
@@ -174,5 +257,17 @@ export function x_replaceAll(s, find, w, pc, max = MAX) {
   if (high && bytes + 3 > max) throw new Trap("StringTooLong", pc);
   return out.join("").toWellFormed();
 }
-/** `toLowerCase(s)` (LLP 1088 D2): the browser's whole-string mapping, context rules kept, then the bound checked. */
-export function x_toLowerCase(s, pc) { return str(s.toLowerCase().toWellFormed(), pc); }
+/** `toLowerCase(s)` (LLP 1088 D2): the browser's whole-string mapping, context rules kept, with bytes checked in chunks before building a large result. */
+export function x_toLowerCase(s, pc) {
+  if (9 * s.length > MAX) {
+    let bytes = 0;
+    for (let at = 0; at < s.length;) {
+      let end = Math.min(at + 65536, s.length);
+      if (end < s.length && s.charCodeAt(end - 1) >= 0xd800 && s.charCodeAt(end - 1) <= 0xdbff && s.charCodeAt(end) >= 0xdc00 && s.charCodeAt(end) <= 0xdfff) end++;
+      bytes += utf8(s.slice(at, end).toLowerCase().toWellFormed());
+      if (bytes > MAX) throw new Trap("StringTooLong", pc);
+      at = end;
+    }
+  }
+  return str(s.toLowerCase().toWellFormed(), pc);
+}

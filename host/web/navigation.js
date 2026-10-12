@@ -1,37 +1,60 @@
 // @ref LLP 1038 D6/D7/D11 — host projection and the last committed URL.
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
-let last = null;
-let refused = new WeakMap();
-// The tabpanels each root last hid or showed: one it stops naming shows again.
-let managed = new WeakMap();
+let last = null, refused = new WeakMap();
+// The tabpanels each root last hid or showed (one it stops naming shows again); the keys of the stack it last showed.
+let managed = new WeakMap(), shown = new WeakMap();
 let written = [], gone = new Set(), cursor = 0, first = null, originIndex = null;
 let echo = null, pop = null, draining = false;
-const queue = [];
-const waiters = new Set();
-let root, navigate, log, hostBack;
+const queue = [], waiters = new Set();
+let root, navigate, log, hostBack, hostGo;
 const routesIn = node => [...node.children].filter(r => r.hasAttribute("navigationKey"));
-// @ref LLP 1075.003 §3.7 — a navigation root's tabs: the tabpanels its own
-// tablist's tabs name with aria-controls, in tab order (a tablist inside a
-// route is that route's). Each tab's stack is its panel's route rows, kept
-// mounted; without tabs the stack is the root's own rows.
-const panelsOf = nav => {
-  if (!nav) return [];
-  for (const list of nav.querySelectorAll('[role="tablist"]')) {
+// @ref LLP 1075.003 §3.7 — a navigation root's tabs: the tabpanels its own tablist's tabs name with
+// aria-controls, in tab order (a tablist inside a route is that route's). Each tab's stack is its panel's
+// route rows, kept mounted; without tabs the stack is the root's own rows.
+const tabsOf = nav => {
+  for (const list of nav?.querySelectorAll('[role="tablist"]') ?? []) {
     if (list.parentElement?.closest("[navigationKey]") !== nav) continue;
     const panels = [...list.children].filter(tab => tab.getAttribute("role") === "tab" && tab.hasAttribute("aria-controls"))
       .map(tab => nav.querySelector(`#${CSS.escape(tab.getAttribute("aria-controls"))}`))
       .filter(panel => panel?.getAttribute("role") === "tabpanel" && panel.parentElement?.closest("[navigationKey]") === nav);
-    if (panels.length) return panels;
+    if (panels.length) return [list, panels];
   }
-  return [];
+  return [null, []];
 };
+const panelsOf = nav => tabsOf(nav)[1];
 const stacksOf = nav => { const panels = panelsOf(nav); return panels.length ? panels.map(routesIn) : [nav ? routesIn(nav) : []]; };
-/** What a navigation root leaves unselected, by `project`'s rule read from attributes: every tabpanel but the one
- * holding the selected route, and that stack's other routes (the runner's `unselected`; the agent's `inactive`). */
+// @ref LLP 1116.004 D1 — a wide window adapts what the app left unsaid, in the projection alone (the router, the history
+// and each route's state are unchanged; a resize across WIDE projects again). A root tablist placed as the tabs recipe
+// writes it (a horizontal bar, a direct child of the root's flex column, in flow) is a sidebar (`data-exact-sidebar`; the
+// shell's rules draw it); one the app arranged (vertical, positioned, in a route) stays its own. A stack whose root route
+// is a list whose rows push (a pressable row drawing the disclosure, `symbol:forward-chevron`, as the iOS grouped list
+// reads it; the compiler writes `navigationSplit="none"` on a route whose chevron rows push nowhere, LLP 1116.007 D3.7) shows that route as a column beside its top (`data-exact-split`), as UISplitViewController does, marking the
+// row whose press pushed the detail shown; a sheet stays a sheet. `navigationSplit` on the root route opts out ("none")
+// or names the column's width (320 unsaid), and splits a list the rule does not find.
+const WIDE = "(min-width: 900px)", wide = () => !!globalThis.matchMedia?.(WIDE).matches, splitRoots = new WeakSet(), rowOf = new WeakMap();
+const sheet = route => ["modal", "fullscreen"].includes(route?.getAttribute("navigationPresentation"));
+const DISCLOSURE = ':is(button, a[href], [data-exact-on~="press"]) img:is([data-symbol-source="symbol:forward-chevron"], [data-symbol-source="symbol:sf/chevron.forward"], [data-symbol-source="symbol:sf/chevron.right"])';
+let pressedRow = null; // [the row a press reached in a list column, when, the location then]
+// @ref LLP 1116.005 D3 — a route `replace` gives another path (a split's detail, another row's) keeps its id, so its node: it opens at its top, as a pushed one does; a new query keeps its place.
+const paths = new WeakMap(), freshPath = route => { const path = last?.url?.split(/[?#]/)[0], was = paths.get(route); paths.set(route, path); if (was !== undefined && was !== path) for (const el of [route, ...route.querySelectorAll("*")]) if (el.scrollTop || el.scrollLeft) el.scrollTo(0, 0); };
+/** The width of the column a stack's root route is beside its top on this window; 0 where the stack does not split. A
+ * list that loses its last row keeps its column. */
+function splitOf([r]) {
+  const said = r?.getAttribute("navigationSplit");
+  if (!r || said === "none" || !wide() || sheet(r) || !/^(absolute|fixed)$/.test(getComputedStyle(r).position) || (said == null && !splitRoots.has(r) && !r.querySelector(DISCLOSURE))) return 0;
+  splitRoots.add(r); return parseFloat(said) > 0 ? parseFloat(said) : 320;
+}
+/** Whether a root's tablist is a bar whose placement the app left unsaid, read while the root is not yet a sidebar. */
+const unsaidBar = (nav, list) => list?.parentElement === nav && list.getAttribute("aria-orientation") !== "vertical" && (nav.hasAttribute("data-exact-sidebar")
+  || (([n, l]) => /flex/.test(n.display) && n.flexDirection.startsWith("column") && /^(static|relative)$/.test(l.position) && l.flexDirection.startsWith("row"))([getComputedStyle(nav), getComputedStyle(list)]));
+/** What a navigation root leaves unselected, by `project`'s rule read from attributes: every tabpanel but the one holding
+ * the selected route, and that stack's other routes but a list column beside it no sheet covers (the runner's
+ * `unselected`; the agent's `inactive`). */
 export function unselected(nav) {
   const key = nav.getAttribute("navigationKey"), panels = panelsOf(nav), stacks = panels.length ? panels.map(routesIn) : [routesIn(nav)];
-  const at = stacks.findIndex(routes => routes.some(r => r.getAttribute("navigationKey") === key));
-  return at < 0 ? [] : [...panels.filter((_, i) => i !== at), ...stacks[at].filter(r => r.getAttribute("navigationKey") !== key)];
+  const at = stacks.findIndex(routes => routes.some(r => r.getAttribute("navigationKey") === key)), routes = stacks[at] ?? [], top = routes.find(r => r.getAttribute("navigationKey") === key);
+  const beside = routes[0]?.getAttribute("data-exact-split") === "list" && !sheet(top) ? routes[0] : top;
+  return at < 0 ? [] : [...panels.filter((_, i) => i !== at), ...routes.filter(r => r !== top && r !== beside)];
 }
 const routesOf = nav => stacksOf(nav).find(routes => routes.some(r => r.getAttribute("navigationKey") === nav.getAttribute("navigationKey"))) ?? [];
 const selectedRoute = nav => routesOf(nav).find(r => r.getAttribute("navigationKey") === nav.getAttribute("navigationKey"));
@@ -51,13 +74,68 @@ function historyURL(path) {
 }
 const stamp = (index, op) => ({ exact: index, id: op.top, url: op.url });
 
-/** The selected route's Back control (1035.001 D1: the `id` the root's `navigationBack` names), pressable or not. */
-const backControl = nav => { const route = selectedRoute(nav); return route && [...route.querySelectorAll("[id]")].find(node => node.id === nav.getAttribute("navigationBack")); };
+/** A route's Back control, the selected route's unless named (1035.001 D1: the `id` the root's `navigationBack` names), pressable or not. */
+const backControl = (nav, route = selectedRoute(nav), name = nav.getAttribute("navigationBack")) => route && name !== null ? route.querySelector(`[id="${CSS.escape(name)}"]`) : undefined;
+// @ref LLP 1116.000 D4 — a pushed route's app bar draws Back, as iOS draws UIKit's system Back button
+// (NavigationBarIOS.swift `prepareRoutes`): a route above its stack's root (a tab's root has none), not
+// itself a sheet (whose Cancel is its Back), whose `header` does not already hold the root's
+// `navigationBack` control, and none when that control is disabled. The button is the header's shadow
+// root's, before its slot, so the header's children stay the renderer's. Its words are the control's when
+// one is named elsewhere in the route (a symbol alone: the chevron alone), else the route beneath's title
+// while it is short, else "Back".
+const BACK = `<style>button{all:unset;display:inline-flex;align-items:center;gap:2px;flex:none;vertical-align:middle;margin-inline:-6px 6px;padding:4px 8px 4px 4px;border-radius:8px;color:var(--exact-accent,AccentColor);cursor:pointer;white-space:nowrap;-webkit-user-select:none;user-select:none}button[hidden],span[hidden]{display:none}button:focus-visible{outline:2px solid var(--exact-accent,AccentColor);outline-offset:1px}button:active>*{opacity:.5}@media (hover:hover){button:hover{background-color:light-dark(#7676801f,#7676803d)}}svg{width:.75em;height:1.25em;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}button:dir(rtl) svg{scale:-1 1}</style><button part="back" type="button"><svg viewBox="6 3 11 18" aria-hidden="true"><path d="M15 5 8 12l7 7"/></svg><span></span></button><slot></slot>`;
+const headerOf = route => [...(route?.children ?? [])].find(child => child.localName === "header");
+// @ref LLP 1115.000 D4.1 — a route is a page, so the title follows it: `document.title` is the authored `head`'s title
+// (`said`: each target's head writer passes it, null for none), else the selected route's header's heading (what iOS
+// puts in the bar), else the app's name. Read again after every projection.
+const titleOf = route => headerOf(route)?.querySelector("h1, h2, h3, h4, h5, h6, [role=heading]")?.textContent.trim() ?? "";
+let saidTitle = null, appName = null;
+export function pageTitle(said = saidTitle) {
+  saidTitle = said; appName ??= document.querySelector('meta[property="og:site_name"]')?.content ?? document.title;
+  const nav = root?.querySelector("[navigationBack]"), title = said ?? ((nav && titleOf(selectedRoute(nav))) || appName);
+  if (document.title !== title) document.title = title;
+}
+function appBarBack(nav, routes, index, split = false) {
+  const route = routes[index], header = headerOf(route);
+  if (!header) return;
+  let button = header.shadowRoot?.querySelector('button[part="back"]');
+  // In a split, a detail its list's row pushed has none: the list beside it is its way back (LLP 1116.004 D1).
+  const pushed = index > 0 && !sheet(route) && !(split && (index === 1 || rowOf.has(route))), control = pushed ? backControl(nav, route) : null;
+  // Until the page is interactive the glue disables every control itself (`aria-busy`): not the author's.
+  if (!pushed || header.contains(control) || (control?.matches(":disabled") && !nav.closest('[aria-busy="true"]'))) {
+    if (button) button.hidden = true;
+    return;
+  }
+  if (!button) {
+    if (header.shadowRoot || !header.attachShadow) return; // a shadow root of someone else's
+    header.attachShadow({ mode: "open" }).innerHTML = BACK;
+    button = header.shadowRoot.querySelector("button");
+    button.addEventListener("click", event => { event.stopPropagation(); appBack(header.parentElement); });
+  }
+  const title = control ? control.textContent.trim() : titleOf(routes[index - 1]);
+  const label = control || (title && title.length <= 14) ? title : "Back", name = control ? control.getAttribute("aria-label") || label || "Back" : label === "Back" ? label : `Back to ${label}`;
+  button.hidden = false; button.lastChild.hidden = !label;
+  if (button.lastChild.textContent !== label) button.lastChild.textContent = label;
+  if (button.getAttribute("aria-label") !== name) button.setAttribute("aria-label", name);
+}
+/** The app bar's Back on `route`, pressed: the browser's Back from its route (`popped`), applied at once: the route's control
+ * pressed, else the root's `navigate` with the location beneath, else the runner's own `back` (LLP 1115 D5). The
+ * history follows the commit as it follows any Back the app takes (`commit`). */
+function appBack(route) {
+  const nav = route?.parentElement?.closest("[navigationBack]");
+  if (!nav || route !== selectedRoute(nav)) return;
+  const routes = routesOf(nav), below = routes[routes.indexOf(route) - 1], id = Number(route.getAttribute("navigationKey"));
+  if (!below) return;
+  if (backControl(nav)) { const why = pressBack(nav); if (why) log(`app bar: Back refused: ${why}`); return; }
+  const entry = written[cursor - 1], known = cursor > first && written[cursor]?.id === id && entry?.id === Number(below.getAttribute("navigationKey"));
+  if (!known || navigate(entry.url) === false) hostBack?.(id);
+}
+const closedNone = route => ["modal", "fullscreen"].includes(route?.getAttribute("navigationPresentation")) && route.getAttribute("closedby") === "none";
 /** Press the Back control; else why it was not pressed. */
 function pressBack(nav) {
   const route = selectedRoute(nav), control = backControl(nav);
   if (!route) return "no route is selected";
-  if (["modal", "fullscreen"].includes(route.getAttribute("navigationPresentation")) && route.getAttribute("closedby") === "none") return `route ${route.getAttribute("navigationKey")} is closedby="none"`;
+  if (closedNone(route)) return `route ${route.getAttribute("navigationKey")} is closedby="none"`;
   if (!control) return `route ${route.getAttribute("navigationKey")} has no id="${nav.getAttribute("navigationBack")}" control`;
   if (control.matches(":disabled") || control.closest("[inert]") || !control.getClientRects().length || getComputedStyle(control).visibility !== "visible")
     return `its id="${control.id}" control is disabled, inert or not shown`;
@@ -108,18 +186,18 @@ function popped({ j, state, url }) {
   const target = owned ? entry.url : url;
   const nav = root.querySelector("[navigationBack]");
   const routes = routesOf(nav), selected = routes.indexOf(selectedRoute(nav));
-  // A completed pop presses the selected route's Back control. A route with
-  // none (a screen with no Back button) still goes back, as the web's Back
-  // does: the root's `navigate` with the entry's URL, as any other traversal,
-  // or with no `navigate` handler the runner's own `back` (LLP 1115 D5).
-  const beneath = owned && j === cursor - 1 && selected > 0
-    && routes[selected - 1].getAttribute("navigationKey") === String(entry.id);
-  const back = beneath && !!backControl(nav);
-  let why = null;
+  // A completed pop presses the selected route's Back control; a route with none still goes back by the root's `navigate`
+  // with the entry's URL. Unheard, a Back one entry down is the platform's own, as iOS's (NavigationRules.back): the route's
+  // control pressed (disabled, or closedby="none", refuses), else the runner's `back` from the visit the entry left (LLP 1115 D5), however routes are keyed. Any other entry unheard (Forward, or more than one away) is the runner's own `go` there (LLP 1115.000 D4.3).
+  const step = owned && j === cursor - 1, beneath = step && selected > 0 && routes[selected - 1].getAttribute("navigationKey") === String(entry.id);
+  let back = beneath && !!backControl(nav), own = false, why = null;
   pop = {};
   try {
     if (back) why = pressBack(nav);
-    else if (navigate(target) === false && beneath) hostBack?.(Number(nav.getAttribute("navigationKey")));
+    else if (navigate(target) === false) {
+      own = true; back = step && (!!backControl(nav) || closedNone(selectedRoute(nav)));
+      if (back) why = pressBack(nav); else if (step) hostBack?.(written[cursor].id); else hostGo?.(target);
+    }
     const accepted = back ? last?.top === entry.id : pop.op?.url === target;
     if (accepted) {
       cursor = j ?? cursor;
@@ -135,7 +213,7 @@ function popped({ j, state, url }) {
       }
     } else {
       if (back) log(`history: Back refused: ${why ?? `pressing the Back control did not select entry ${entry.id}`}; restoring the entry`);
-      else log(`history: ${beneath ? `Back to ${JSON.stringify(target)} refused: route ${nav.getAttribute("navigationKey")} has no id="${nav.getAttribute("navigationBack")}" control, and` : `navigate ${JSON.stringify(target)} refused:`} the navigation root's navigate handler (navigate=…) committed no router change, or the root has none; restoring the entry`);
+      else log(`history: ${own ? `${step ? "Back to" : "navigate"} ${JSON.stringify(target)} refused: the navigation root has no navigate handler (navigate=…), and the runner's own ${step ? `back from visit ${written[cursor].id}` : "go there"} committed no router change` : `${beneath ? `Back to ${JSON.stringify(target)} refused: route ${nav.getAttribute("navigationKey")} has no id="${nav.getAttribute("navigationBack")}" control, and` : `navigate ${JSON.stringify(target)} refused:`} the navigation root's navigate handler (navigate=…) committed no router change, or the root has none`}; restoring the entry`);
       if (j !== null && j !== cursor) go(cursor, j);
       else history.replaceState(written[cursor], "", historyURL(written[cursor].url));
     }
@@ -145,23 +223,18 @@ function popped({ j, state, url }) {
 function drain() {
   if (draining || echo !== null) return;
   draining = true;
-  try {
-    while (queue.length && echo === null) {
-      const item = queue.shift();
-      if (item.op) commit(item.op);
-      else popped(item);
-    }
-  } finally { draining = false; }
+  try { for (let item; queue.length && echo === null;) { item = queue.shift(); if (item.op) commit(item.op); else popped(item); } } finally { draining = false; }
 }
 
-function settled() {
-  if (echo === null && !queue.length) for (const finish of [...waiters]) finish();
-}
+const settled = () => { if (echo === null && !queue.length) for (const finish of [...waiters]) finish(); };
 
 export const navigation = {
-  /** `dispatch(location)` is false when no `navigate` handler heard it; `back(id)` is the runner's own `back` from visit `id`. */
-  connect(hostRoot, dispatch, journal, back = null) {
-    root = hostRoot; navigate = dispatch; log = journal; hostBack = back;
+  /** `dispatch(location)` is false when no `navigate` handler heard it; `back(id)` is the runner's own `back` from visit `id`, `goTo(location)` its own `go`. */
+  connect(hostRoot, dispatch, journal, back = null, goTo = null) {
+    root = hostRoot; navigate = dispatch; log = journal; hostBack = back; hostGo = goTo;
+    // A row a press reaches in a list column (`project` marks it once its detail shows), a resize across WIDE, and one under an author's split placeholder (its pane's width). Heard at the document, before the listener that follows a link row there (input-glue.js, router.js), whose commit lands within the click.
+    document.addEventListener("click", event => { const row = event.target.closest?.('[data-exact-split="list"] :is(button, a[href], [data-exact-on~="press"])'); if (row && root.contains(row)) pressedRow = [row, performance.now(), last?.url]; }, true);
+    globalThis.matchMedia?.(WIDE).addEventListener?.("change", () => navigation.project(root, log)); addEventListener("resize", () => root.querySelector("[data-exact-split-placeholder]") && navigation.project(root, log));
     addEventListener("popstate", event => {
       if (!last) return;
       const index = browserIndex();
@@ -200,6 +273,8 @@ export const navigation = {
     if (pop) { pop.op = op; for (const id of op.removed) gone.add(id); }
     else { queue.push({ op }); drain(); }
   },
+  // @ref LLP 1116.006 D4 — the agent's `back` from a route: the browser's Back where the entry beneath is the route beneath, else (a reload left none) the app bar's.
+  back(hostRoot) { const nav = hostRoot?.querySelector("[navigationBack]"), routes = nav ? routesOf(nav) : [], route = nav && selectedRoute(nav), at = routes.indexOf(route), way = sheet(route) ? "sheet" : "route", key = nav?.getAttribute("navigationKey"), kept = () => nav.getAttribute("navigationKey") === key ? { refused: "the app kept the route: its Back control is disabled, its closedby is \"none\", or its navigate changed nothing (logs say which)" } : {}; if (at < 1) return { error: "back: nothing to go back from: no dialog is open, and no route is beneath the selected one" }; if (cursor > first && written[cursor]?.id === Number(route.getAttribute("navigationKey")) && written[cursor - 1]?.id === Number(routes[at - 1].getAttribute("navigationKey"))) return navigation.travel(nav, -1).then(r => ({ ...r, back: way, ...kept() })); appBack(route); return { back: way, delivery: "app-bar", ...kept() }; },
   // @ref LLP 1038 D11 — the agent uses the real browser traversal.
   travel(nav, delta) {
     if (nav !== root.querySelector("[navigationBack]")) return { error: "history target is not the navigation root" };
@@ -215,22 +290,22 @@ export const navigation = {
   },
   project(root, log) {
     for (const nav of root.querySelectorAll("[navigationBack]")) {
-      const key = nav.getAttribute("navigationKey");
-      const panels = panelsOf(nav);
+      let key = nav.getAttribute("navigationKey"), [list, panels] = tabsOf(nav);
+      nav.toggleAttribute("data-exact-sidebar", wide() && unsaidBar(nav, list));
       for (const panel of managed.get(nav) ?? []) {
         if (!panels.includes(panel)) { panel.style.visibility = ""; panel.inert = !!panel.authoredInert; }
       }
       managed.set(nav, panels);
       const stacks = panels.length ? panels.map(routesIn) : [routesIn(nav)];
+      const declared = k => stacks.some(routes => routes.some(route => route.getAttribute("navigationKey") === k));
+      if (!declared(key)) {
+        if (refused.get(nav) !== key) { refused.set(nav, key); log(`navigationKey "${key}" matches no route among the root's children or those of the tabpanels its tablist names; the stack is unchanged`); }
+        // @ref LLP 1035.001 D1 — left alone, less the routes that left the tree: the deepest of the stack last shown
+        // still declared is selected, so a closed sheet or a popped screen never leaves the route beneath it inert.
+        key = (shown.get(nav) ?? []).findLast(declared);
+        if (key === undefined) continue;
+      } else refused.delete(nav);
       const at = stacks.findIndex(routes => routes.some(route => route.getAttribute("navigationKey") === key));
-      if (at < 0) {
-        if (refused.get(nav) !== key) {
-          refused.set(nav, key);
-          log(`navigationKey "${key}" matches no route among the root's children or those of the tabpanels its tablist names; the stack is unchanged`);
-        }
-        continue;
-      }
-      refused.delete(nav);
       // Every tab but the selected one stays mounted, hidden and inert.
       for (const [index, panel] of panels.entries()) {
         const active = index === at;
@@ -241,19 +316,35 @@ export const navigation = {
       for (const [stack, routes] of stacks.entries()) {
         // The selected stack shows the route the root names; another keeps its top laid out.
         const selected = stack === at ? routes.findIndex(route => route.getAttribute("navigationKey") === key) : routes.length - 1;
-        const modal = routes[selected]?.getAttribute("navigationPresentation") === "modal";
+        if (stack === at) shown.set(nav, routes.slice(0, selected + 1).map(route => route.getAttribute("navigationKey")));
+        const modal = routes[selected]?.getAttribute("navigationPresentation") === "modal", split = splitOf(routes), live = split && !sheet(routes[selected]);
+        if (stack === at && list) list.inert = sheet(routes[selected]) || !!list.authoredInert; // a sheet is modal: the root's tab bar is inert beneath it, as the route it covers is (LLP 1115.000 D4.5)
+        // A split's detail shown is the top, or the route a sheet covers; its row is the one whose press pushed it, or pushed a route beneath it in its column.
+        const detail = split ? routes.findLastIndex((r, i) => i > 0 && i <= selected && !sheet(r)) : -1;
+        if (detail > 0 && detail === selected && pressedRow && last?.url !== pressedRow[2] && routes[0].contains(pressedRow[0]) && performance.now() - pressedRow[1] < 2000) { rowOf.set(routes[detail], pressedRow[0]); pressedRow = null; }
         for (const [index, route] of routes.entries()) {
-          const active = index === selected;
+          const active = index === selected || (live && index === 0);
           if (!active && route.contains(document.activeElement)) document.activeElement.blur();
-          const covered = modal && index === selected - 1;
+          const covered = modal && (index === selected - 1 || (split > 0 && index === 0));
           route.style.visibility = active || covered ? "" : "hidden";
           route.toggleAttribute("data-exact-covered", covered);
           route.inert = !active || !!route.authoredInert;
+          const column = !split ? null : index === 0 ? "list" : sheet(route) ? null : "detail";
+          if (route.getAttribute("data-exact-split") !== column) column ? route.setAttribute("data-exact-split", column) : route.removeAttribute("data-exact-split");
+          route.style.setProperty("--exact-split", column ? `${split}px` : "");
+          appBarBack(nav, routes, index, split > 0); if (stack === at && index === selected) freshPath(route);
         }
+        let row = null; for (let i = detail; i > 0 && !row; i--) row = rowOf.get(routes[i])?.isConnected ? rowOf.get(routes[i]) : null;
+        for (const el of split ? routes[0].querySelectorAll("[data-exact-split-row]") : []) if (el !== row) el.removeAttribute("data-exact-split-row");
+        row?.setAttribute("data-exact-split-row", "");
+        // @ref LLP 1116.006 D2 — a split showing no detail fills the detail pane, as an iPad's split view does: the platform's placeholder (the shell draws `data-exact-split-empty`), or the author's, a box of the root route marked `navigationSplit="placeholder"` (which the lowerer hides everywhere else), at the pane's width.
+        const empty = split > 0 && detail < 0, own = routes[0]?.querySelector('[navigationSplit="placeholder"]'), box = routes[0]?.parentElement;
+        own?.toggleAttribute("data-exact-split-placeholder", empty); box?.toggleAttribute("data-exact-split-empty", empty && !own);
+        if (empty) { box.style.setProperty("--exact-split", `${split}px`); own && routes[0].style.setProperty("--exact-split-pane", `${(routes[0].offsetParent ?? box).clientWidth - split}px`); }
       }
     }
     // The page module's container hatches, when it has them (LLP 1075.003.000 §3.7).
-    globalThis.exact?.onProject?.(root);
+    globalThis.exact?.onProject?.(root); pageTitle();
   },
   observation(root) {
     const nav = root.querySelector("[navigationBack]");
@@ -273,13 +364,12 @@ export const navigation = {
   },
 };
 
-// @ref LLP 1047 D5 — springs, holds and drags (`motion-glue.js`) and
-// virtualized collections (`collection-glue.js`) are after-paint pieces,
-// fetched when a batch first needs one. Until they arrive their calls wait in
-// order and replay then; before any use, a call with nothing to reconcile is
-// dropped, and a style is set at once, as the controller sets one with nothing
-// held. `o.wasm(name, bytes)` is one wasm call's reply, or null before the wasm;
-// `o.replayed()` follows a replay, as the end of a batch follows its ops.
+// @ref LLP 1047 D5 — springs, holds and drags (`motion-glue.js`) and virtualized collections
+// (`collection-glue.js`) are after-paint pieces, fetched when a batch first needs one. Until they arrive
+// their calls wait in order and replay then; before any use, a call with nothing to reconcile is dropped,
+// and a style is set at once, as the controller sets one with nothing held. `o.wasm(name, bytes)` is one
+// wasm call's reply, or null before the wasm; `o.replayed()` follows a replay, as the end of a batch
+// follows its ops.
 export function afterPaintPieces(load, o) {
   let live = null, loading = null;
   const queue = [];
@@ -514,11 +604,10 @@ function followScroll(el, enabled) {
 // link 8, quiet 16, hanging marker 32), built into spans with textContent — never HTML. Lives here because it
 // must run at boot and glue.js is at its line cap. LLP 1045 D3/D4.
 //
-// One scheme allowlist for every URL the page can navigate to: a link's
-// `href` (an authored `link`, an inline run bound to data, a Markdown link),
-// an iframe's `src`, and `openURL`. A `javascript:` URL in any of them runs
-// in this page's origin. The browser's own parser reads the scheme, with the
-// whitespace and control characters `java\tscript:` hides behind.
+// One scheme allowlist for every URL the page can navigate to: a link's `href` (an authored `link`, an inline run bound
+// to data, a Markdown link), an iframe's `src`, and `openURL`. A `javascript:` URL in any of them runs in this page's
+// origin. The browser's own parser reads the scheme, with the whitespace and control characters `java\tscript:` hides
+// behind.
 export function navigableURL(href, base = document.baseURI) {
   try {
     const url = new URL(href, base);
@@ -531,12 +620,10 @@ export function refuseURL(el, name, value) {
   console.warn(`exact: refused ${name} ${JSON.stringify(String(value).slice(0, 80))}: only http, https, mailto and tel navigate`);
   if (name === "src") el.setAttribute(name, "about:blank"); else el.removeAttribute(name);
 }
-// A list item's paragraph (indent > 0, LLP 1045 D4) is a block with the
-// item's indent as `padding-left`; its marker (flags 32) is a 40 px box
-// pulled into the gutter by the block's negative `text-indent`, the marker's
-// end at the indent (`flex-end`, overflowing leftwards as the browser's
-// outside marker does): `<ul>`/`<ol>`'s layout, the one native hosts copy
-// with a head indent. 40 is exact-markdown's `LIST_INDENT`.
+// A list item's paragraph (indent > 0, LLP 1045 D4) is a block with the item's indent as `padding-left`; its marker
+// (flags 32) is a 40 px box pulled into the gutter by the block's negative `text-indent`, the marker's end at the
+// indent (`flex-end`, overflowing leftwards as the browser's outside marker does): `<ul>`/`<ol>`'s layout, the one
+// native hosts copy with a head indent. 40 is exact-markdown's `LIST_INDENT`.
 export function renderMarkup(el, json) {
   let pieces;
   try { pieces = JSON.parse(json); } catch { pieces = []; }
@@ -575,11 +662,9 @@ export function renderMarkup(el, json) {
   }
 }
 
-// @ref LLP 1007 §6 — a page the dev server serves names its current
-// generation, and its first boot is that one, not app.wasm's older baked
-// plan (a deep link booted stale on 2026-09-22). dev.js supplies it once asked
-// (glue.js asks when the wasm is up); without it, or with none in 5 s, the
-// page boots the baked plan.
+// @ref LLP 1007 §6 — a page the dev server serves names its current generation, and its first boot is that one, not
+// app.wasm's older baked plan (a deep link booted stale on 2026-09-22). dev.js supplies it once asked (glue.js asks
+// when the wasm is up); without it, or with none in 5 s, the page boots the baked plan.
 export function devFirst() {
   if (!document.querySelector('meta[name="exact-dev-generation"]')) return null;
   const slot = globalThis.exactDevFirst ??= {};
@@ -590,10 +675,9 @@ export function devFirst() {
   });
 }
 
-// Refusals and malformed request bodies are known while their enclosing
-// batch is still applying. Deliver them on the next microtask so their
-// commits cannot re-enter `apply` halfway through that batch; in flight
-// until then, so a wait sees what their parse asks for next.
+// Refusals and malformed request bodies are known while their enclosing batch is still applying. Deliver them on the
+// next microtask so their commits cannot re-enter `apply` halfway through that batch; in flight until then, so a wait
+// sees what their parse asks for next.
 export function deferredFulfill(fulfill, inflight) {
   return (...args) => { const p = Promise.resolve().then(() => fulfill(...args)); inflight.add(p); p.finally(() => inflight.delete(p)); };
 }
@@ -639,7 +723,6 @@ export function focusController({ready, elements, inert}) {
     } finally {pointerTarget = previous;}
   }};
 }
-
 
 // The focus, blur, selectText and setSelectionRange commands a batch carried, run once every
 // node and value in it is committed (a focus handler may dispatch an action).
@@ -699,18 +782,14 @@ export function environment() {
   };
 }
 
-// @ref LLP 1078 D6, D7 — the fold as the browser reports it: the Device
-// Posture API's `navigator.devicePosture.type` and the viewport segments
-// `window.viewport.segments` (two or more means a divider splits the
-// viewport; the columns are the distinct lefts, the rows the distinct tops).
-// Where the browser lacks the APIs: `continuous`, 1 × 1, which is also what
-// Chromium reports on a flat display. Under the agent, `prefer posture` and
-// `prefer segments` go through CDP's display-feature and posture overrides
-// (the driver), so the browser's own readings change; where CDP offers
-// none, the driver's substitute lands here (`preferFold`) and stands in for
-// them — the facts and `layout.env`, not CSS's own `env()` resolution. The
-// substitute lives on `globalThis.exact`: the JS target's agent reads its own
-// copy of this module (`agent-navigation.js`), and both copies must agree.
+// @ref LLP 1078 D6, D7 — the fold as the browser reports it: the Device Posture API's `navigator.devicePosture.type`
+// and the viewport segments `window.viewport.segments` (two or more means a divider splits the viewport; the columns
+// are the distinct lefts, the rows the distinct tops). Where the browser lacks the APIs: `continuous`, 1 × 1, which is
+// also what Chromium reports on a flat display. Under the agent, `prefer posture` and `prefer segments` go through
+// CDP's display-feature and posture overrides (the driver), so the browser's own readings change; where CDP offers
+// none, the driver's substitute lands here (`preferFold`) and stands in for them — the facts and `layout.env`, not
+// CSS's own `env()` resolution. The substitute lives on `globalThis.exact`: the JS target's agent reads its own copy of
+// this module (`agent-navigation.js`), and both copies must agree.
 const foldSubstitute = () => globalThis.exact?.foldSubstitute ?? null;
 const r2 = (x) => Math.round(x * 100) / 100;
 function readFold() {
@@ -761,34 +840,27 @@ export function preferFold(request) {
   return foldEnv();
 }
 
-// @ref LLP 1061 D4, LLP 1069.000 D1 — the user's display preferences as the
-// page's media queries report them: bit 0 `prefers-reduced-motion: reduce`,
-// bit 1 `prefers-reduced-transparency: reduce`, bit 2 `prefers-contrast: more`,
-// bit 3 `less` (both: `custom`), bit 4 `prefers-color-scheme: dark` — the
-// system's, whatever the page's `color-scheme` (a browser that does not know
-// a feature answers no preference, as CSS does) — and the primary input's
-// `pointer: coarse` (bit 5), `pointer: none` (bit 6) and `hover: none` (bit 7),
-// zero being a mouse. Told with each boot and resize.
+// @ref LLP 1061 D4, LLP 1069.000 D1 — the user's display preferences as the page's media queries report them: bit 0
+// `prefers-reduced-motion: reduce`, bit 1 `prefers-reduced-transparency: reduce`, bit 2 `prefers-contrast: more`, bit 3
+// `less` (both: `custom`), bit 4 `prefers-color-scheme: dark` — the system's, whatever the page's `color-scheme` (a
+// browser that does not know a feature answers no preference, as CSS does) — and the primary input's `pointer: coarse`
+// (bit 5), `pointer: none` (bit 6) and `hover: none` (bit 7), zero being a mouse. Told with each boot and resize.
 let preferenceQueries;
 // Bits 8–9 `color-gamut` (256 p3; 512 with it, rec2020) and bit 10 `dynamic-range: high` (LLP 1100 D9).
 const queries = () => (preferenceQueries ??= [["(prefers-reduced-motion: reduce)", 1], ["(prefers-reduced-transparency: reduce)", 2], ["(prefers-contrast: more)", 4], ["(prefers-contrast: less)", 8], ["(prefers-contrast: custom)", 12], ["(prefers-color-scheme: dark)", 16], ["(pointer: coarse)", 32], ["(pointer: none)", 64], ["(hover: none)", 128], ["(color-gamut: p3)", 256], ["(color-gamut: rec2020)", 512], ["(dynamic-range: high)", 1024]].map(([q, bits]) => [matchMedia(q), bits]));
 export const preferences = () => queries().reduce((bits, [q, bit]) => bits | (q.matches ? bit : 0), 0);
 export const onPreferences = (changed) => queries().forEach(([q]) => q.addEventListener("change", changed));
 
-// @ref LLP 1069.000 D2 — the page's facts as `exact_set_page` takes them:
-// bit 0 `document.visibilityState == "hidden"`, bit 1 `!navigator.onLine`,
-// bit 2 `typeof navigator.share === "function"` (LLP 1069.003 D5), bit 3
-// `typeof showOpenFilePicker === "function"` (LLP 1069.010 D2; studio diary
-// R31), bit 4 `!document.hasFocus()` (#114), told again at the window's
-// `focus` and `blur`. Under the agent the drive's values stand in (visible,
-// online, a share sheet, the pickers, focus: LLP 1069.000 D6), set by
-// `prefer`'s `page` group; the machine is never read.
+// @ref LLP 1069.000 D2 — the page's facts as `exact_set_page` takes them: bit 0 `document.visibilityState == "hidden"`,
+// bit 1 `!navigator.onLine`, bit 2 `typeof navigator.share === "function"` (LLP 1069.003 D5), bit 3 `typeof
+// showOpenFilePicker === "function"` (LLP 1069.010 D2; studio diary R31), bit 4 `!document.hasFocus()` (#114), told
+// again at the window's `focus` and `blur`. Under the agent the drive's values stand in (visible, online, a share
+// sheet, the pickers, focus: LLP 1069.000 D6), set by `prefer`'s `page` group; the machine is never read.
 export function pageReporter(agent, platform = globalThis) {
   const facts = { "visibility-state": "visible", online: true, "can-share": true, "can-open-files": true, "has-focus": true, "root-font-size": 16 };
-  // @ref LLP 1069.000 D3 — the root font size: the document element's
-  // computed `font-size`, the browser's setting unless a page sets it; under
-  // the agent the drive sets it on the element (`prefer root-font-size`).
-  // The app's own size (`appRootFontSize`) is set over it and read past.
+  // @ref LLP 1069.000 D3 — the root font size: the document element's computed `font-size`, the browser's setting
+  // unless a page sets it; under the agent the drive sets it on the element (`prefer root-font-size`). The app's own
+  // size (`appRootFontSize`) is set over it and read past.
   const rootFontSize = () => agent ? facts["root-font-size"] : beneathApp(platform, () => parseFloat(platform.getComputedStyle(platform.document.documentElement).fontSize) || 16);
   const read = () => agent ? { ...facts } : { "visibility-state": platform.document.visibilityState === "hidden" ? "hidden" : "visible", online: platform.navigator.onLine !== false, "can-share": typeof platform.navigator.share === "function", "can-open-files": typeof platform.showOpenFilePicker === "function", "has-focus": typeof platform.document.hasFocus !== "function" || platform.document.hasFocus() };
   const bits = () => { const f = read(); return (f["visibility-state"] === "hidden" ? 1 : 0) | (f.online ? 0 : 2) | (f["can-share"] ? 4 : 0) | (f["can-open-files"] ? 8 : 0) | (f["has-focus"] ? 0 : 16); };
@@ -808,11 +880,9 @@ export function pageReporter(agent, platform = globalThis) {
   return { bits, read: () => ({ ...read(), "root-font-size": rootFontSize() }), prefer, onChange, rootFontSize };
 }
 
-// @ref LLP 1069.000 D3 — the app's `setRootFontSize(px)`: `:root {
-// font-size: <px> !important }`, an author rule over the root element's own
-// size (the browser's setting, or the agent's `prefer root-font-size`), which
-// can change beneath it; `"medium"` removes the rule. The wasm runner checked
-// the value; the JS target checks it here.
+// @ref LLP 1069.000 D3 — the app's `setRootFontSize(px)`: `:root { font-size: <px> !important }`, an author rule over
+// the root element's own size (the browser's setting, or the agent's `prefer root-font-size`), which can change beneath
+// it; `"medium"` removes the rule. The wasm runner checked the value; the JS target checks it here.
 const APP_ROOT = "exact-root-font-size";
 export function appRootFontSize(value, say, platform = globalThis) {
   const doc = platform.document;
@@ -822,6 +892,44 @@ export function appRootFontSize(value, say, platform = globalThis) {
   if (!rule) { rule = doc.createElement("style"); rule.id = APP_ROOT; doc.head.append(rule); }
   rule.textContent = `:root{font-size:${value}px!important}`;
 }
+// @ref LLP 1116.001 D1.4 — `-exact-fit: shrink`. The browser lays the page out, so it picks the scale the kernel would,
+// by the kernel's rule (kernel/src/ layout/fit.rs): the text's min-content width against its room, down to half its
+// size (display text bigger than twice the root's: down to the root size). It draws at it as CSS `zoom` on the element,
+// which scales the text, its runs, line height and letter spacing together and leaves the authored rows alone; a style
+// write clears it and the next pass sets it again.
+export function fitText(el) {
+  el.style.zoom = "";
+  const cs = getComputedStyle(el), px = (v) => parseFloat(v) || 0;
+  if (cs.getPropertyValue("--exact-fit").trim() !== "shrink" || cs.display === "none" || !el.offsetWidth) return;
+  // Layout pixels, through any transform above it (a route sliding in).
+  const k = el.getBoundingClientRect().width / el.offsetWidth || 1;
+  const inset = px(cs.paddingLeft) + px(cs.paddingRight) + px(cs.borderLeftWidth) + px(cs.borderRightWidth);
+  const content = () => el.getBoundingClientRect().width / k - inset, box = content(), width = el.style.width;
+  el.style.width = "min-content"; const natural = content(); el.style.width = width;
+  // Sized by its text, it has its container's room.
+  const up = el.parentElement, ps = up && getComputedStyle(up);
+  const room = box + 0.5 < natural || !up ? box : up.clientWidth - px(ps.paddingLeft) - px(ps.paddingRight) - Math.max(0, px(cs.marginLeft)) - Math.max(0, px(cs.marginRight));
+  if (!(natural > room + 0.01)) return;
+  const size = px(cs.fontSize), root = px(getComputedStyle(document.documentElement).fontSize);
+  el.style.zoom = String(Math.max(size > 0 && root > 0 ? Math.min(0.5, root / size) : 0.5, Math.max(0, room) / natural));
+  zoomed.add(el);
+}
+// What `fitText` scaled: one whose row went (a bound `-exact-fit`) is let go.
+let fitSeen = false, zoomed = new Set();
+/** Whether a style the page writes fits a text: then every pass refits. */
+export const noteFit = (css) => { if (!fitSeen && css?.includes("--exact-fit")) fitSeen = true; };
+/** Every fitted text again: after a tree update, a resize, the fonts' arrival. */
+export function refitTexts() {
+  if (!fitSeen) return;
+  const fitted = new Set(document.querySelectorAll('[style*="--exact-fit"]'));
+  for (const el of zoomed) if (!fitted.has(el)) { el.style.zoom = ""; zoomed.delete(el); }
+  for (const el of fitted) fitText(el);
+}
+/** The JS target's: after each tree update (rt.js `After`), on resize and once the fonts are in. */
+export function installFits(after) {
+  if (fitSeen || typeof document === "undefined" || typeof addEventListener !== "function" || globalThis.__exactRender) return;
+  fitSeen = true; after.push(refitTexts); addEventListener("resize", refitTexts); document.fonts?.ready.then(refitTexts);
+}
 // What `read` gives with the app's rule set aside: the host's own reading.
 function beneathApp(platform, read) {
   const rule = platform.document.getElementById?.(APP_ROOT);
@@ -830,29 +938,25 @@ function beneathApp(platform, read) {
   try { return read(); } finally { rule.disabled = false; }
 }
 
-// The page launch owns its seed; a new runner during development reuses it.
-// Agent facts are supplied by the drive, never by the browser's environment.
+// The page launch owns its seed, a whole number below 2^32 on every host (LLP 1116.005 D5); a new runner during
+// development reuses it. Agent facts are supplied by the drive, never by the browser's environment.
 export function placeReporter(params, platform = globalThis) {
   let seed;
   return () => {
     if (AGENT_ADMITTED && params.has('agent')) {
       const value = Number(params.get('seed') ?? 1);
-      if (!Number.isSafeInteger(value) || value < 0) throw new Error('seed: an integer from 0 through 2^53 - 1');
+      if (!Number.isSafeInteger(value) || value < 0 || value >= 2 ** 32) throw new Error('seed: a whole number from 0 through 2^32 - 1 (4294967295)');
       return [params.get('locale') ?? 'en-US', params.get('timeZone') ?? 'UTC', value].join('\0');
     }
-    if (seed === undefined) {
-      const words = platform.crypto.getRandomValues(new Uint32Array(2));
-      seed = (words[0] & 0x1fffff) * 4294967296 + words[1];
-    }
+    if (seed === undefined) seed = platform.crypto.getRandomValues(new Uint32Array(1))[0];
     return [platform.navigator.language, platform.Intl.DateTimeFormat().resolvedOptions().timeZone, seed].join('\0');
   };
 }
 
-// @ref LLP 1027.000.000 D3 — under the agent the date at the clock's zero is
-// the drive's epoch (default 2026-01-01T00:00:00Z), and the offset its zone's
-// at the virtual instant `elapsed` names; `clock +N` moves the date because
-// `now()` moves, and the glue tells the offset again after each clock move, so
-// crossing a DST change re-answers it (LLP 1069.007 D2).
+// @ref LLP 1027.000.000 D3 — under the agent the date at the clock's zero is the drive's epoch (default
+// 2026-01-01T00:00:00Z), and the offset its zone's at the virtual instant `elapsed` names; `clock +N` moves the date
+// because `now()` moves, and the glue tells the offset again after each clock move, so crossing a DST change re-answers
+// it (LLP 1069.007 D2).
 export function timeReporter(params, platform = globalThis) {
   return (elapsed) => {
     if (!(AGENT_ADMITTED && params.has('agent'))) return [platform.Date.now() - elapsed, -new platform.Date().getTimezoneOffset()];
@@ -863,10 +967,9 @@ export function timeReporter(params, platform = globalThis) {
     return [epoch, (Date.UTC(at.year, at.month - 1, at.day, at.hour, at.minute, at.second) - Math.floor((epoch + elapsed) / 1000) * 1000) / 60000];
   };
 }
-// Where the page launches (LLP 1038 D5): its path and query, less a drive's
-// own parameters, which are the host's facts and not a route's — a driven
-// page numbers its visits as a native host does (feed F16). The JS target
-// launches here too (rt.js re-exports it).
+// Where the page launches (LLP 1038 D5): its path and query, less a drive's own parameters, which are the host's facts
+// and not a route's — a driven page numbers its visits as a native host does (feed F16). The JS target launches here
+// too (rt.js re-exports it).
 export function launchLocation(platform = globalThis) {
   const { pathname, search } = platform.location, q = new URLSearchParams(search);
   if (!(AGENT_ADMITTED && q.has('agent'))) return pathname + search;
@@ -989,12 +1092,10 @@ export function guestType(frame, request) {
 // What a guest field holds, as the reply shows it: a password's is a fixed mark, whatever its length (#134).
 const guestValue = (target) => "value" in target ? (target.type === "password" && target.value ? "•••" : target.value) : target.textContent;
 
-// @ref LLP 1069.001 D4 (amended 2026-10-04) — a select, range or date is
-// controlled as a text field is: the committed `value` is written when it
-// changes, and shown again after the options change or a refused `type`;
-// after the action that heard the person (`acted`) it keeps their choice,
-// as the web build's does (x2apps kanban2 #5: a date cleared while a `send`
-// was in flight).
+// @ref LLP 1069.001 D4 (amended 2026-10-04) — a select, range or date is controlled as a text field is: the committed
+// `value` is written when it changes, and shown again after the options change or a refused `type`; after the action
+// that heard the person (`acted`) it keeps their choice, as the web build's does (x2apps kanban2 #5: a date cleared
+// while a `send` was in flight).
 const VALUED = new Set(["range", "date", "time", "datetime-local"]);
 export const valuedControl = (el) => el instanceof HTMLSelectElement || (el instanceof HTMLInputElement && VALUED.has(el.type));
 export function settleValue(el, acted = false) {
@@ -1002,23 +1103,18 @@ export function settleValue(el, acted = false) {
   if (acted) return;
   if (c && valuedControl(c) && c.exactValue !== undefined && c.value !== c.exactValue) c.value = c.exactValue;
 }
-// What `type <id> <value>` sets rather than types into (D9): the valued
-// controls, a checkbox (or `switch`), which a value turns on or off, and a
-// radio, which `true` checks (x2apps survey #2).
+// What `type <id> <value>` sets rather than types into (D9): the valued controls, a checkbox (or `switch`), which a
+// value turns on or off, and a radio, which `true` checks (x2apps survey #2).
 export const typedControl = (el) => valuedControl(el) || (el instanceof HTMLInputElement && (el.type === "checkbox" || el.type === "radio"));
-// A text field (x2apps codeedit #2): an input that is no control, or a
-// textarea that is not the Markdown editor; its `input` and `change` carry
-// its selection, and its `select` is HTML's.
+// A text field (x2apps codeedit #2): an input that is no control, or a textarea that is not the Markdown editor; its `input` and `change` carry its selection, and its `select` is HTML's.
 export const textField = (el) => el instanceof HTMLTextAreaElement ? el.getAttribute("markup") !== "markdown" : el instanceof HTMLInputElement && !typedControl(el) && el.type !== "file";
-// Its selection as host kinds 40 to 42 carry it, before its text:
-// `start,end,direction,` in UTF-16 units, the DOM's; a type with none
-// (email, number) has its caret after its text, as the runner assumes.
+export const editMenu = (target) => { const f = target.closest("input,textarea,[contenteditable]"); return !!f && (!(f instanceof HTMLInputElement) || textField(f)); }; // a `contextmenu` from a text field, a textarea or an editable region opens the browser's edit menu and runs no handler (review b5-b 3); a control's input (a checkbox, switch, radio, range, date, time or file) has no such menu, so its node's handler runs and its popover opens, as Chrome sends the event and macOS runs it (#487)
+// Its selection as host kinds 40 to 42 carry it, before its text: `start,end,direction,` in UTF-16 units, the DOM's; a
+// type with none (email, number) has its caret after its text, as the runner assumes.
 export const fieldSelection = (el) => { const end = el.value.length; return `${el.selectionStart ?? end},${el.selectionEnd ?? end},${el.selectionDirection ?? "none"},`; };
-// A radio's group as committed again (x2apps survey #2): the browser checked
-// the radio and unchecked its group at once; the action decides, and one
-// that refuses snaps the group back. `bound` reads a radio's committed
-// `checked` (undefined when it has none); the unchecks go first, so the
-// radio left checked is the committed one.
+// A radio's group as committed again (x2apps survey #2): the browser checked the radio and unchecked its group at once;
+// the action decides, and one that refuses snaps the group back. `bound` reads a radio's committed `checked` (undefined
+// when it has none); the unchecks go first, so the radio left checked is the committed one.
 export function settleRadios(el, bound) {
   const group = el.name ? [...document.querySelectorAll('input[type="radio"]')].filter((r) => r.name === el.name) : [el];
   for (const r of group) if (bound(r) === false && r.checked) r.checked = false;
@@ -1032,12 +1128,10 @@ export function setFieldSelection(el, args, log) {
   if (typeof el.setSelectionRange !== "function") return log(`setSelectionRange "${id}" refused: not a text field`);
   try { el.setSelectionRange(start, end, direction); } catch { log(`setSelectionRange "${id}" refused: an input type=${el.type} has no text selection`); }
 }
-// The wasm host's `input`, `change` and a text field's `select` (LLP
-// 1069.001 D4; x2apps survey #2, codeedit #2), `dispatch(kind, payload)`:
-// a checkbox's checked state (25, 24), a radio's value (23, 1), a text
-// field's selection then its text (40, 41, 42), another control's value
-// (23, 1). The platform moves a control at once; the action decides, and
-// one that refuses snaps a checkbox or a radio group back.
+// The wasm host's `input`, `change` and a text field's `select` (LLP 1069.001 D4; x2apps survey #2, codeedit #2),
+// `dispatch(kind, payload)`: a checkbox's checked state (25, 24), a radio's value (23, 1), a text field's selection
+// then its text (40, 41, 42), another control's value (23, 1). The platform moves a control at once; the action
+// decides, and one that refuses snaps a checkbox or a radio group back.
 export function controlEvent(el, kind, on, dispatch) {
   if (kind === "select") return void (textField(el) && on("select", () => dispatch(42, fieldSelection(el) + el.value)));
   if (el.type === "checkbox") return on(kind, () => { dispatch(kind === "change" ? 24 : 25, String(el.checked)); if (el.exactChecked !== undefined && el.checked !== el.exactChecked) el.checked = el.exactChecked; });
@@ -1056,11 +1150,10 @@ export function controlEvent(el, kind, on, dispatch) {
     dispatch(textField(el) ? 40 : 23, (textField(el) ? fieldSelection(el) : "") + value); settleValue(el, true);
   });
 }
-// D9: `type <id> <value>` sets a control's value as the platform would on a
-// choice or a release: HTML's `input`, then `change`. A select takes one of
-// its enabled options by value, else by its one label (Playwright's
-// `selectOption`, the diaries' kanban F17 and shop F10); a checkbox takes
-// `true` or `false` and is clicked when that differs, as a person would.
+// D9: `type <id> <value>` sets a control's value as the platform would on a choice or a release: HTML's `input`, then
+// `change`. A select takes one of its enabled options by value, else by its one label (Playwright's `selectOption`, the
+// diaries' kanban F17 and shop F10); a checkbox takes `true` or `false` and is clicked when that differs, as a person
+// would.
 export function typeControl(el, request) {
   let text = String(request.text ?? "");
   const id = request.id;
@@ -1108,21 +1201,18 @@ export function reveal(el, id) {
     const cs = getComputedStyle(a), b = a.getBoundingClientRect();
     if ((cs.overflowX !== "visible" || cs.overflowY !== "visible") && !(x >= b.left && x < b.right && y >= b.top && y < b.bottom)) seen = false;
   }
-  if (seen) return { revealed: id, scrolled: false };
+  if (seen || el.closest("[inert]") || ["hidden", "collapse"].includes(getComputedStyle(el).visibility)) return { revealed: id, scrolled: false }; // nor what its tap refuses (hidden or inert): a refusal leaves the page as it was
   (folded(el) ? el.parentElement : el).scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
   return { revealed: id, scrolled: true, from: [x, y], to: middle() };
 }
 
-// A text folded into its box's content (LLP 1007.001): `display: contents`,
-// or an inline box under a box that restricts touch. A paragraph's inline
-// runs are not `data-exact-text`; only the paragraph is.
+// A text folded into its box's content (LLP 1007.001): `display: contents`, or an inline box under a box that restricts
+// touch. A paragraph's inline runs are not `data-exact-text`; only the paragraph is.
 const folded = el => { const d = getComputedStyle(el).display; return d === "contents" || d === "inline" && el.hasAttribute("data-exact-text"); };
 
-// A view's box as the agent reports it. A folded text has no block box of its
-// own: its box is the anonymous block its text is, as a style-less block
-// child's was — its line boxes along the main axis, and its box's content box
-// across when the box stretches its items (a block, or a flex or grid box
-// that stretches).
+// A view's box as the agent reports it. A folded text has no block box of its own: its box is the anonymous block its
+// text is, as a style-less block child's was — its line boxes along the main axis, and its box's content box across
+// when the box stretches its items (a block, or a flex or grid box that stretches).
 export function viewBox(el) {
   if (!folded(el)) return el.getBoundingClientRect();
   const range = document.createRange();
@@ -1295,9 +1385,8 @@ const freezeGrantSet = set => {
   return Object.freeze(set);
 };
 
-// The Rust parser is the only producer. Admission validates an incoming JSON
-// value in full before making its authority immutable; a prior validation is
-// never a reason to trust a mutable or branded object.
+// The Rust parser is the only producer. Admission validates an incoming JSON value in full before making its authority
+// immutable; a prior validation is never a reason to trust a mutable or branded object.
 export function createGrantSet(value) {
   if (!validateGrantSet(value)) return freezeGrantSet(makeGrantSet([], INVALID_GRANTS));
   return freezeGrantSet(value);
@@ -1319,9 +1408,8 @@ export const hasGrant = (set, kind) => validateGrantSet(set) && !set.error && se
 const normalizedDeclaration = set => validateGrantSet(set)
   ? set.entries.map(([, source, grant, error]) => JSON.stringify([source, grant, error])) : [];
 
-// Module metadata carries the author's spelling while the bake carries the
-// Rust parser's normalized set. Blank lines and indentation have no bearing
-// on activation; the normalized declarations do.
+// Module metadata carries the author's spelling while the bake carries the Rust parser's normalized set. Blank lines
+// and indentation have no bearing on activation; the normalized declarations do.
 export function sameGrantDeclaration(set, source) {
   if (typeof source !== 'string' || !validateGrantSet(set)) return false;
   const child = scopedGrantSet(set, source);
@@ -1391,10 +1479,9 @@ export function coversPath(set, capability, path) {
 }
 // grant admission: end
 
-// `selectionchange` on a `text` (the reader diary), on both web targets: its
-// part of the page's selection, reported as the text and its UTF-16 start and
-// end in the element's own text when that part changes; nothing selected
-// there is "" at 0, 0. One document listener serves every such element.
+// `selectionchange` on a `text` (the reader diary), on both web targets: its part of the page's selection, reported as
+// the text and its UTF-16 start and end in the element's own text when that part changes; nothing selected there is ""
+// at 0, 0. One document listener serves every such element.
 const selectedTexts = new Map();
 export function onSelection(e, report) {
   if (!selectedTexts.size) document.addEventListener("selectionchange", () => {

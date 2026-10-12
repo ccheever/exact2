@@ -15,7 +15,7 @@ const dir = mkdtempSync(resolve(tmpdir(), 'exact-js-baked-'));
 const webJs = name => resolve(new URL(`../../web-js/${name}`, import.meta.url).pathname);
 for (const f of ['rt.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'notify.js']) copyFileSync(webJs(f), resolve(dir, f));
 copyFileSync(resolve(new URL('../notify-glue.js', import.meta.url).pathname), resolve(dir, 'notify-glue.js'));
-for (const [file, names] of Object.entries({ 'navigation.js': ['renderMarkup', 'reportPlace', 'onSelection', 'textField', 'settleRadios', 'animationClocks', 'launchLocation'], 'pointer.js': ['pointer', 'record'], 'commands.js': ['commands'], 'focus.js': ['autofocus', 'press', 'hold', 'within'],
+for (const [file, names] of Object.entries({ 'navigation.js': ['renderMarkup', 'reportPlace', 'onSelection', 'textField', 'editMenu', 'settleRadios', 'installFits', 'animationClocks', 'launchLocation'], 'pointer.js': ['pointer', 'record'], 'commands.js': ['commands'], 'focus.js': ['autofocus', 'press', 'hold', 'within'],
   'media.js': ['media', 'mediaProp', 'mediaOn', 'mediaPiece', 'requestFullscreen'], 'document.js': ['Docs', 'Head', 'head', 'markDocument', 'projectRoots'],
   'svg-transform.js': ['svgTransform'], 'backdrop.js': ['backdropValue'], 'dataset.js': ['ds'], 'hatches.js': ['ht'], 'perf.js': ['pf'], 'format.js': ['x_formatTime', 'x_formatDate', 'x_formatNumber', 'x_toFixed', 'x_formatDecimal'] }))
   writeFileSync(resolve(dir, file), names.map(n => `export const ${n} = () => {};`).join('\n') + (file === 'media.js' ? '\nexport const MEDIA_EVENTS = new Set();' : ''));
@@ -314,6 +314,30 @@ test('a refused commit that fails an owed read leaves nothing owed when it is re
   } finally { clock.agent = false; }
 });
 
+// A refused commit puts a resource's failure back with the rest (LLP 1005 §6). New arguments clear a failure before the
+// source is asked, and a source that refuses those arguments refuses the commit: the state is as it was, so the resource
+// is failed for the arguments it had, as the runner's `failed_args` is with its checkpoint. The refused commit's settle
+// asks nothing, and `failed(x)` follows what was put back (conformance's `failed`, `tap ask-bad`).
+test('a commit refused after it cleared a failure shows the failure again', async () => {
+  const { res, W, data, commit, sig, act } = await import(resolve(dir, 'rt.js'));
+  let asks = 0;
+  data.answer = (source, [k]) => {
+    if (source !== 'lostProbe') return null;
+    asks++;
+    if (k < 0) throw Object.assign(new Error('argument 0 must not be negative'), { refuse: true });
+    if (k > 1) throw new Error('lost');
+    return { v: k };
+  };
+  const n = sig(1, 'n');
+  let probe;
+  commit(() => { probe = res('lostProbe', 'lostProbe', () => [n()], undefined, undefined, 'n', 0); probe(); });
+  expect([probe(), probe.f(), asks]).toEqual([1, false, 1]);
+  act(() => W(n, 2))();
+  expect([n(), probe(), probe.f(), probe.e()?.[1], asks]).toEqual([2, 1, true, 'lost', 2]);
+  act(() => W(n, -1))(); // refused: `n` is 2 again, and the probe is failed for it, as before the press
+  expect([n(), probe(), probe.f(), probe.e()?.[1], asks]).toEqual([2, 1, true, 'lost', 3]);
+});
+
 // An overlay outside the resource's shape counts as none: the answer shows, and an answered write it keeps retires.
 test('an overlay outside the shape keeps nothing', async () => {
   const { res, mut, M, data, commit, sig, writeRecords } = await import(resolve(dir, 'rt.js'));
@@ -458,6 +482,35 @@ test('toFixed and formatDecimal are the runner\'s', async () => {
     .map(([x, d]) => x_formatDecimal(x, d)))
     .toEqual(['12.34', '-0.05', '7', '0.00', '0', '0.00000000000000000005', '-1234.567', '90071992547409.92', '1000000000000000000000', '', '', '', '']);
   expect(x_formatDecimal(-Number.MAX_VALUE, 2)).toBe('-1797693134862315708145274237317043567980705675258449965989174768031572607800285387605895586327668781715404589535143824642343213268894641827684675467035375169860499105765512820762454900903893289440758685084551339423045832369032229481658085593321233482747978262041447231687381771809192998812504040261841248583.68');
+});
+
+// LLP 1116 D8: format.js's `decimal`, `currency` and `percent` are Intl.NumberFormat("en-US")'s, swept against Bun's own
+// Intl: halves at each style's cut, magnitudes from 1e-12 to 1e28, random doubles, every code the roster lists
+// (runner/tests/it/format.rs pins the runner's to rows from the same Intl). Non-finite is "", as every format's is.
+test('decimal, currency and percent numbers are Intl\'s', async () => {
+  const { x_formatNumber } = await import(webJs('format.js'));
+  const roster = JSON.parse(readFileSync(new URL('../../../plan/tables/format.json', import.meta.url), 'utf8')).stdlib
+    .find(f => f.name === 'formatNumber');
+  const codes = roster.params[2].split(' | ').map(c => JSON.parse(c));
+  const nf = options => new Intl.NumberFormat('en-US', options);
+  const styles = [['decimal', '', nf({})], ['percent', '', nf({ style: 'percent' })],
+    ...codes.map(c => ['currency', c, nf({ style: 'currency', currency: c })])];
+  const wrong = [];
+  const check = x => { for (const [style, code, f] of styles) if (x_formatNumber(x, style, code) !== f.format(x)) wrong.push([x, style, code]); };
+  [0, -0, 1, -1, 1.005, 2.675, 1.0005, 999.9995, 0.9995, -0.0001, 1e21, 5e-324, Number.MAX_VALUE, -Number.MAX_VALUE,
+    -881366968154907.25, 9007199254740993].forEach(check);
+  for (let d = 0; d <= 5; d++) for (let k = -1000; k <= 1000; k++) check((k + 0.5) / 10 ** d);
+  let seed = 1;
+  const next = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  for (let i = 0; i < 4000; i++) check((next() - 0.5) * 2 * 10 ** (Math.floor(next() * 40) - 12));
+  const bits = new Float64Array(1), words = new Uint32Array(bits.buffer);
+  for (let i = 0; i < 2000; i++) { words[0] = next() * 2 ** 32; words[1] = next() * 2 ** 32; if (Number.isFinite(bits[0])) check(bits[0]); }
+  expect(wrong.slice(0, 10)).toEqual([]);
+  expect([x_formatNumber(1481.4666, 'currency', 'USD'), x_formatNumber(-5, 'currency', 'USD'), x_formatNumber(0.256, 'percent', ''),
+    x_formatNumber(1234567.891, 'decimal', ''), x_formatNumber(5, 'currency', 'CHF'), x_formatNumber(1250, 'compact', '')])
+    .toEqual(['$1,481.47', '-$5.00', '26%', '1,234,567.891', 'CHF 5.00', '1.2K']);
+  expect([NaN, Infinity, -Infinity].flatMap(x => styles.slice(0, 3).map(([style, code]) => x_formatNumber(x, style, code))))
+    .toEqual(Array(9).fill(''));
 });
 
 // LLP 1088 §9.1: `concat`, and `slice` and `includes` over a list, are the web's array methods (`includes` by
@@ -615,6 +668,80 @@ test('a string past MAX_STRING joins to itself alone and is counted in UTF-8 byt
   const xs = K(Array.from({ length: 10000 }, () => 'a'.repeat(1000)), 1);
   expect(K([xs, xs, xs], 2)).toHaveLength(3);
   expect(() => K([xs, xs, xs, xs, xs, xs, xs], 2)).toThrow('Trap(ValueTooLarge { pc: 2 })');
+});
+
+test('budget helpers refuse before scanning or building a rejected result', async () => {
+  const B = await import(resolve(dir, 'budget.js'));
+  const xs = [1, 2, 3];
+  xs.slice = () => { throw new Error('slice copied before its step'); };
+  expect(() => B.x_slice(xs, 0, 3, 65534, 41)).toThrow('Trap(IterationLimit { pc: 41 })');
+  expect(() => B.x_slice(xs, -0.5, 3, 65534, 41)).toThrow('Trap(IterationLimit { pc: 41 })');
+  expect(B.x_slice([1, 2, 3], 0, -0.5, 65535, 41)).toEqual([]);
+  expect(B.ST).toBe(0);
+  const scanned = new Proxy([1, 2, 3], { get(target, key) {
+    if (key === '1') throw new Error('scanned beyond the step budget');
+    return Reflect.get(target, key);
+  } });
+  expect(() => B.x_includes(scanned, 3, 65535, 42)).toThrow('Trap(IterationLimit { pc: 42 })');
+  expect(() => B.x_indexOf(scanned, 3, 65535, 43)).toThrow('Trap(IterationLimit { pc: 43 })');
+  const original = String.prototype.split;
+  String.prototype.split = () => { throw new Error('split allocated before its step'); };
+  try { expect(() => B.x_split(','.repeat(65536), ',', 0, 44)).toThrow('Trap(IterationLimit { pc: 44 })'); }
+  finally { String.prototype.split = original; }
+  expect(() => B.x_join(Array(600).fill(''), 'x'.repeat(1 << 20), 45)).toThrow('Trap(StringTooLong { pc: 45 })');
+  const almost = 'a'.repeat(67108860);
+  expect(B.x_join([almost + '\ud83d', '\ude00'], '', 46).length).toBe(67108862); // 64 MiB exactly in UTF-8
+  expect(() => B.x_join([almost + 'a\ud83d', '\ude00'], '', 46)).toThrow('Trap(StringTooLong { pc: 46 })');
+});
+
+test('string builders check expanded size before calling their builders', async () => {
+  const B = await import(resolve(dir, 'budget.js'));
+  const { strings } = await import(resolve(dir, 'rt.js'));
+  expect(() => B.cc('a'.repeat(1 << 25), 'b'.repeat(1 << 25) + 'c', 51)).toThrow('Trap(StringTooLong { pc: 51 })');
+  const unbuilt = { length: 67108865, [Symbol.toPrimitive]() { throw new Error('concat built before its bound'); } };
+  expect(() => B.cc(unbuilt, '', 51)).toThrow('Trap(StringTooLong { pc: 51 })');
+  const stringify = JSON.stringify;
+  JSON.stringify = v => { if (v?.x) throw new Error('JSON built before its bound'); return stringify(v); };
+  try { expect(() => B.NP(['x', '\0'.repeat(12 << 20)], 52)).toThrow('Trap(StringTooLong { pc: 52 })'); }
+  finally { JSON.stringify = stringify; }
+  strings([['en', false, { k: '{x}'.repeat(100) }]]);
+  const replace = String.prototype.replace;
+  String.prototype.replace = function (...args) { if (this.length === 300) throw new Error('translation built before its bound'); return replace.apply(this, args); };
+  try { expect(() => B.x_t('en', 'k', ['x', 'a'.repeat(1 << 20)], 53)).toThrow('Trap(StringTooLong { pc: 53 })'); }
+  finally { String.prototype.replace = replace; }
+  const encode = globalThis.encodeURIComponent;
+  globalThis.encodeURIComponent = v => { if (v.length > 1 << 20) throw new Error('URI built before its bound'); return encode(v); };
+  try { expect(() => B.x_encodeURIComponent(' '.repeat(23 << 20), 54)).toThrow('Trap(StringTooLong { pc: 54 })'); }
+  finally { globalThis.encodeURIComponent = encode; }
+  const textEncode = TextEncoder.prototype.encode;
+  TextEncoder.prototype.encode = function (v) { if (v.length > 1 << 20) throw new Error('route encoded before its bound'); return textEncode.call(this, v); };
+  try { expect(() => B.x_encodeRouteSegment(' '.repeat(23 << 20), 55)).toThrow('Trap(StringTooLong { pc: 55 })'); }
+  finally { TextEncoder.prototype.encode = textEncode; }
+  expect(B.x_encodeRouteSegment('a😀', 55)).toBe('a%F0%9F%98%80');
+  expect(B.NP(['x', 'a\ud800b'], 52)).toBe('{"x":"a\\ud800b"}');
+  strings([['en', false, { k: 'Hi {x} \\{x\\}' }]]);
+  expect(B.x_t('en', 'k', ['x', 'Ada'], 53)).toBe('Hi Ada {x}');
+  strings([['en', false, { k: '\ud83d{x}' }]]);
+  expect(B.x_t('en', 'k', ['x', '\ude00'], 53)).toBe('😀');
+  strings([]);
+  const lower = String.prototype.toLowerCase;
+  String.prototype.toLowerCase = function () { if (this.length > 65536) throw new Error('lowercase built before its bound'); return lower.call(this); };
+  try { expect(() => B.x_toLowerCase('İ'.repeat(22369622), 56)).toThrow('Trap(StringTooLong { pc: 56 })'); }
+  finally { String.prototype.toLowerCase = lower; }
+});
+
+test('translation expansion stops when its output exceeds the byte budget', async () => {
+  const { x_t } = await import(resolve(dir, 'budget.js'));
+  const { strings } = await import(resolve(dir, 'rt.js'));
+  let substitutions = 0;
+  const pairs = new Proxy(['x', 'a'.repeat(1 << 20)], { get(target, key) {
+    if (key === '1' && ++substitutions > 100) throw new Error('translation scanned past its bound');
+    return Reflect.get(target, key);
+  } });
+  strings([['en', false, { k: '{x}'.repeat(1 << 16) }]]);
+  expect(() => x_t('en', 'k', pairs, 53)).toThrow('Trap(StringTooLong { pc: 53 })');
+  expect(substitutions).toBeLessThan(100);
+  strings([]);
 });
 
 test('an argument or a write past MAX_STRING is refused by name, and a trapping argument is a trap, poisoned or not', async () => {

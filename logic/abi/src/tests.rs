@@ -256,7 +256,7 @@ fn preserves_session_store_read_marker_and_write_order() {
             .iter()
             .map(|x| x.value.as_deref())
             .collect::<Vec<_>>(),
-        [Some("first"), None, Some("last")]
+        [Some(&b"first"[..]), None, Some(&b"last"[..])]
     );
     module
         .dispatch(&call_request(&store, "answer", &[], None).unwrap())

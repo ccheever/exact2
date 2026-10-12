@@ -37,6 +37,45 @@ The generator fails closed: a row it cannot validate is a build error. A second
 copy of any table anywhere is a defect — the TypeScript encoder, when it exists,
 reads the same file.
 
+Non-inherited effect rows marked `cold` in the schema share their initial
+values until written (`kernel/build/cold.rs`). A cloned style copies the
+shared pointer; a later write owns its copy. Layout and inherited rows stay
+inline. This reduces temporary style-patch memory in terminal animations;
+row values, masks, patch/clear behavior and encoded bytes are unchanged.
+The schema metadata changes its digest, so producers and hosts re-bake together.
+
+> **Amended by LLP 1115 (2026-10-09).** `rules/RULES.md` §Scope now reads "write the
+> web, ship the platform". **Layout defaults and names are still CSS's**, as every
+> example in the paragraph below is. A **presentation default** (a colour, a text
+> size, a control's look, what a press shows) is the platform's: the table names a
+> role or an `auto` that each host resolves (LLP 1095; LLP 1115 §3). The presentation
+> deviations from CSS that LLP 1115 made, declared here once:
+>
+> - the root font size is the host's body size (17 iOS at the default Dynamic Type
+>   size, 13 macOS, the reader's setting on the web), set through
+>   `Kernel::set_root_font_size`; the table's 16 is what a host that sets none shows;
+> - `font-size` takes a text style (`-exact-title1`, …) that the kernel resolves
+>   against that root, and a `role="heading"` is lowered to one by its level;
+> - `hr` is one solid edge in the separator role, not Chrome's two shades;
+> - an `href` run is `LinkText` and is not underlined, and so is a block `link` of
+>   text (LLP 1115.000 D3.5);
+> - an unsaid SVG `fill` is `currentcolor`, not SVG's black, so a shape nobody filled
+>   is its text's colour and follows the scheme; a gradient stop's, a flood's and a
+>   light's initial colours stay SVG's (LLP 1115.000 D3.8);
+> - an unset root background is the platform's, never a fixed white;
+> - a pushed route has the platform's Back whether or not one is authored;
+> - a custom pressable that declares no press feedback dims while held on iOS.
+>
+> And one layout deviation, recorded here because it holds on every host and not only
+> the terminal it was made for (LLP 1101 D3): `ch` and `lh` are a fixed 8 × 16 cell
+> (`kernel/src/style/cells.rs`), where CSS's `ch` is the `0` advance of the element's
+> font and `lh` its line height.
+>
+> Where a later paragraph of this spec still states a presentation default as Chrome's
+> (`hr`'s shading, a bare `button` as `appearance: none`, `-exact-tint-color`
+> "initially opaque black", `-exact-press-scale`, `keyboardDismissMode`, which hosts
+> present dialogs), LLP 1115.000 Appendix B says what holds now.
+
 **Defaults live in the table, once, and they are CSS's.** The style table's
 `default` column is both the storage initializer and the semantic default; there is
 no separate profile authority yet (0486's layout profile becomes relevant when a
@@ -77,6 +116,10 @@ intrinsic seam. Its height supplies `min-height: auto` in native layout, so
 siblings reserve the control's space; explicit CSS `min-height` still wins.
 This is a declared native presentation deviation: the browser keeps authored
 HTML/ARIA/CSS. No aspect ratio is inferred, and ending projection clears the size.
+Its width is the narrowest the control can be and supplies `min-width: auto`
+in place of the hidden tabs' own minimum (LLP 1116.004 D2): UIKit's segmented
+control and tab bar report none (1 point), AppKit's segmented control its
+natural width; an explicit CSS `min-width` still wins.
 
 `justify-content`, `align-content`, `align-items` and `justify-items` accept
 and default to `normal` (2026-09-23). It lowers to Taffy's unset alignment,
@@ -125,6 +168,9 @@ wire representation but preserving its own keyword. The native hosts resolve
 it against the node's computed text colour, retaining light/dark pairs; CSS
 receives the authored values. Explicit transparent colour still occupies space.
 These are [CSS Backgrounds §3.2–3.3](https://www.w3.org/TR/css-backgrounds-3/#border-style)'s rules.
+
+> **Amended by LLP 1115 (2026-10-09).** A bare `hr` is one solid edge in the separator role.
+> Chrome's two shades now serve only an authored `border-style: inset`.
 
 The prior native host painted every declared width: a 100×60 content box
 with padding 10 and border width 8 was 136×96 versus CSS's default 120×80,
@@ -176,6 +222,9 @@ Empty/unavailable names and symbols on hosts without their renderer paint
 nothing, with a one-computed-font-size square as fallback intrinsic size.
 This font-sized image source is a declared extension to the web's schemes;
 CSS dimensions, constraints and aspect ratio still determine its box.
+
+> **Amended by LLP 1095 D8.** `-exact-tint-color` is initially `AccentColor`, the platform's
+> tint, not opaque black.
 
 `overflow-wrap` (bit 90; implementer Codex, 2026-09-11) is inherited text
 layout intent with CSS's `normal | break-word | anywhere` vocabulary and
@@ -232,6 +281,33 @@ accessibility exclusion. The browser uses HTML inertness; iOS enforces the
 subtree boundary and its modal-confirmation exception (LLP 1035.001 D3).
 AppKit/Linux subtree enforcement remains open; the declaration alone is not
 cross-host support.
+
+**ARIA disabled (Charlie ruling, 2026-10-11; implementation: ariadisabled lane).**
+Contract carries `aria-disabled` as a boolean state on controls and elements
+with a role. It reports an unavailable control to accessibility, including
+AppKit's `AXEnabled=false` and UIKit's `.notEnabled` trait, but does not change
+focus, Tab order, rendering, or event dispatch. Press still runs; the author
+guards an unavailable action. The web writes `aria-disabled="true"` or
+`"false"` and lets the browser supply its accessibility semantics. HTML
+`disabled` retains its separate focus and input behavior. Linux retains
+focus and press behavior; its agent has no native accessibility tree to serve.
+The state is inherited by accessible descendants, including native controls
+and inline links, and refreshes when the ancestor changes. A descendant's
+`aria-disabled=false` overrides an unavailable ancestor. Lifted UIKit routes
+inherit through their authored tab panel, and ancestor changes refresh them.
+When an Apple host projects a node into a native segment, UIKit bar item,
+pressable title or grouped-list switch, the exposed replacement carries this
+accessibility state while its input remains enabled. AppKit menu items do too. UIKit menu rows
+and alert actions are a deviation: their public disabled states also suppress
+selection, and the action model objects do not expose accessibility traits
+on the presented row or button. They read as enabled while `aria-disabled`
+still leaves their input enabled.
+The standard macOS toolbar item is a current deviation: AppKit exposes its
+private item viewer rather than the public `NSToolbarItem`, so its projected
+button does not yet carry ARIA disabled (issue `20261011-aria-disabled-is-lost-in-macos`).
+That issue also tracks UIKit popovers lifted out of an unavailable ancestor:
+their accessibility inheritance still follows the presented parent.
+
 `retainFocus` (prop 55, boolean, absent/false by default) lets a button
 retain the existing editing session on a tap, including a button with gesture
 handlers and no press action. Messages uses it on bubbles and reaction badges
@@ -255,9 +331,13 @@ Reversal follows the offset; release/cancellation restores the authored values
 through their transitions. Its subtree does not take pointer hits, including at
 zero opacity. It has no CSS equivalent and creates no host artwork
 or runner gesture state. Other hosts ignore it.
-`keyboardDismissMode` (`none`, `on-drag`, `interactive`; absent means `none`)
-opts an iOS scroll container into UIKit's keyboard dismissal behavior. Other
-hosts retain their platform behavior. Linux does not yet implement either policy.
+`keyboardDismissMode` (`none`, `on-drag`, `interactive`) says how a drag on an
+iOS scroll container puts the keyboard away, as UIKit's property of that name
+does. Absent, it is the platform's (LLP 1115.000 D9.1): on iOS a container that
+scrolls vertically is `interactive`, so the keyboard follows a drag that reaches
+it, and one that scrolls only sideways is `none`. A written value wins, `none`
+included. The prop has no default row, so a host tells "unsaid" by its absence.
+Other hosts retain their platform behavior. Linux does not yet implement either policy.
 
 `scrollbar-width` (bit 88; Messages, 2026-09-09) follows
 [CSS Scrollbars](https://www.w3.org/TR/css-scrollbars-1/#scrollbar-width):
@@ -318,6 +398,10 @@ semantic tag defaults to absolute positioning; `show-modal` and `close` name
 browser-owned presentation commands, not runner state. UIKit supports the narrow
 confirmation grammar and `closedby="any"`; AppKit/Linux do not present dialogs
 (LLP 1021 D2). No arbitrary dialog or additional command capability is implied.
+
+> **Superseded by LLP 1115 D6.** An alert-shaped `alertdialog` is the platform's alert on iOS,
+> and `closedby="any"` is implied, not required; macOS and the web show the `dialog`. The
+> Linux host still presents none.
 
 `emojiPicker` (prop 63, boolean, absent/false by default) is an explicit
 selection-input policy on `input`, not an HTML `inputmode` value. A single emoji
@@ -476,6 +560,9 @@ with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
   macOS's `NSSegmentedControl`) reports its own the same way and fills the
   content box (LLP 1059 D2a). The former overflow deviation
   is removed (`issues/closed/20260927-tab-bar-height-to-layout.md`).
+
+> **Amended by LLP 1115 (2026-10-10).** A custom pressable that declares no press feedback
+> dims while held on iOS. The row's default is still no scale.
 
 **When a list row's animations start (2026-10-06, [LLP 1055](1055-svg-shapes-and-css-animations.rfc.md)
 D13; Charlie's ruling, not reviewed).** `-exact-animation-trigger` (bit 193; spelled `-exact-` by LLP 1081 D1, since only CSS's name is shared) is
@@ -857,7 +944,10 @@ class by comparing the EXNODE export before and after.
 
 The closed op list (revision 1): `CreateView`, `DestroyView` (**subtree** — the
 WS-I correction, from day one), `SetProp`, `ClearProp`, `SetStyle` (a **masked
-patch**), `ClearStyle` (a mask), `SetChildren`, `AttachRoot`. There is no
+patch**: the mask of the rows it sets, the mask of those its author wrote, then
+each set row's value; the second mask since 2026-10-11, LLP 1115.000 D2, and a
+row marked written and not set is a typed rejection), `ClearStyle` (a mask),
+`SetChildren`, `AttachRoot`. There is no
 `ComputeLayout` op: layout is a host call (`Kernel::compute_layout`), because the
 host owns the frame clock. A root with `width: auto` fills the width it is
 offered — CSS's block rule, which Taffy does not apply to a root — and stays
@@ -922,6 +1012,11 @@ in a vector. Adjacent duplicates collapse before sorting; publication removes
 remaining duplicates, destroyed generations and newly created nodes, in slot
 order. The retained vector releases excess scratch capacity. The same-batch
 reuse case is held by `tests/apply.rs::touched_receipt_is_unique_ordered_and_excludes_destroyed_or_created_generations`.
+The history stores adjacent, consecutive keys with the same generation as ranges
+when that takes less space; short or sparse lists stay raw. It preserves every
+key's order and generation and every receipt field. `Kernel::receipts()` decodes
+owned receipts on demand; live commits still return ordinary receipts directly.
+The ring's 64-batch retention and reset behavior are unchanged (`kernel/history.rs`).
 `compute_layout(root, offer)` runs Taffy over that root, publishes absolute frames,
 and returns a `LayoutReceipt` naming exactly the nodes whose frame bits changed —
 the changed-geometry receipt.
@@ -1182,6 +1277,10 @@ hit-tests its own control); `accent-color` colours what the platform colours
 with its tint, as iOS does on the web and Linux; inherited typography is
 reset on the web's native face; Linux draws no symbol. Its size is the
 platform's, as any control's is.
+
+> **Amended by LLP 1104 D1.** An unset `appearance` is `auto`, the platform's own button. This
+> paragraph describes the bare box an author gets with `appearance="none"` or a background,
+> border or radius.
 
 Declared native grouped-row presentation exception: when a native button
 is itself a row of a grouped list, its authored box is the full row slot.

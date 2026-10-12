@@ -216,7 +216,7 @@ impl Collection {
                 });
             }
         }
-        self.realize_window(u, frames, false, CollectionFill::default())?;
+        self.realize_window_with_row(u, frames, false, CollectionFill::default(), Some(position))?;
         advance(&mut self.revision)?;
         Ok(())
     }
@@ -341,7 +341,7 @@ fn lists<'a>(children: &'a mut [Child], plan: &Plan, frames: &[Frame], out: &mut
             Child::Region(region) => match &mut region.active {
                 Active::Arm { roots, frame, .. } => {
                     let mut inner = frames.to_vec();
-                    inner.push(frame.clone());
+                    inner.push(frame.scope());
                     lists(roots, plan, &inner, out);
                 }
                 Active::Rows { rows } => {
@@ -387,7 +387,7 @@ fn by_view<'a>(
             Child::Region(region) => match &mut region.active {
                 Active::Arm { roots, frame, .. } => {
                     let mut inner = frames.to_vec();
-                    inner.push(frame.clone());
+                    inner.push(frame.scope());
                     if let Some(found) = by_view(roots, view, &inner) {
                         return Some(found);
                     }
@@ -437,6 +437,46 @@ impl Collection {
 }
 
 impl Tree {
+    /// Keyboard traversal already knows a logical row position. Resolve its
+    /// identity here, without exporting the unmounted keys to a host.
+    pub(crate) fn reveal_collection_index(
+        &mut self,
+        u: &mut Update<'_>,
+        view: ViewId,
+        index: usize,
+    ) -> Result<bool, InstanceError> {
+        let Some((list, frames)) = by_view(&mut self.children, view, &[]) else {
+            return Ok(false);
+        };
+        let Some(key) = list.index.key(index).map(str::to_owned) else {
+            return Ok(false);
+        };
+        // Keyboard focus owns the next position. An earlier authored seek
+        // must not pull it back after a resize (including a zero-sized port).
+        let cancelled = list
+            .target
+            .take()
+            .map(|target| (target.key, IntoViewStatus::Cancelled));
+        if cancelled.is_some() || list.correction.is_some() {
+            list.correction = None;
+            advance(&mut list.revision)?;
+        }
+        if let Some(cancelled) = cancelled {
+            list.into_view_status = Some(cancelled);
+        }
+        if list.mounted.iter().any(|row| row.position == index) {
+            return Ok(true);
+        }
+        let status = list.into_view_status.take();
+        list.begin_into_view(u, &frames, &key, Align::Nearest, false)?;
+        // This window is provisional. The host focuses its chosen descendant
+        // before reporting geometry; ordinary focus reveal sets the offset.
+        list.target = None;
+        list.correction = None;
+        list.into_view_status = status;
+        Ok(true)
+    }
+
     /// Carry out one `scrollIntoView` (LLP 1070.000 §2): resolve the list,
     /// and for an inner one its outer row, and begin the request on each
     /// scroller between the target and the list.

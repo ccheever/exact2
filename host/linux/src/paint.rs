@@ -41,6 +41,7 @@ pub mod gradient;
 mod grouped;
 mod image;
 pub use gradient::GradientPaint;
+mod field;
 mod fragments;
 pub(crate) use fragments::{center as tap_point, hits};
 pub(crate) use lift::{Ghost, Lift};
@@ -505,9 +506,9 @@ pub struct Painter {
     pub text: Shared,
     /// Device pixels per point.
     pub scale: f32,
-    /// Which appearance a `light-dark()` colour resolves to (LLP 1034 D2).
-    /// This host has no system appearance of its own, so it is whatever the
-    /// app's `setScheme` last said; `light` until it says otherwise.
+    /// Which appearance a `light-dark()` colour resolves to (LLP 1034 D2):
+    /// what the app's `setScheme` last said, else the system's, which the
+    /// device's shell or an agent tells the presenter; `light` until one does.
     pub dark: bool,
     backend: Box<dyn Backend>,
     #[cfg(test)]
@@ -539,6 +540,12 @@ pub struct Painter {
     /// The node a 3D island paints flat, its own transform being the warp's
     /// (LLP 1077 D8).
     pub(crate) flatten: Option<ViewId>,
+    /// The control a finger's press focused: it is the focus and shows no
+    /// ring, which is for a focus a key moved (LLP 1115.001 D7.6).
+    pub(crate) ringless: Option<ViewId>,
+    /// Each hosted text field's content box in its own border box (x, y,
+    /// width, height), as last walked (`field.rs`, LLP 1115.001 D8).
+    pub(crate) field_content: HashMap<ViewId, [f32; 4]>,
     rows: rows::Rows,
     /// The `svg` painting now: its elements the reader animates.
     svg_layers: Vec<(ViewId, Presented)>,
@@ -637,6 +644,8 @@ impl Painter {
             viewport: (0., 0.),
             cpu_ms: None,
             flatten: None,
+            ringless: None,
+            field_content: HashMap::new(),
             rows: Default::default(),
             boxes_hint: 0,
             separator_groups: Rc::default(),
@@ -773,6 +782,7 @@ impl Painter {
     ) -> Result<Frame, String> {
         let started = std::time::Instant::now();
         self.viewport = viewport;
+        self.backend.page(page_color(self.dark));
         let partial = if let Some(previous) = self
             .damage
             .pixels
@@ -1060,112 +1070,10 @@ impl Painter {
                     self.backend.slot_end();
                 }
             }
+            // Its container, then its text and caret, or the shell's own
+            // field in their place (`field.rs`).
             NodeType::TextInput => {
-                self.row_refuse();
-                let native = node.style.appearance == exact_kernel::Appearance::Auto;
-                let disabled = node.props.bool(PropId::Disabled) == Some(true);
-                let field_shape =
-                    native.then(|| self.text_field_chrome(surface.outer.rect, disabled, ts));
-                let content = if let Some(c) = node.field_content_rect() {
-                    (rect.0 + c.x, rect.1 + c.y, c.width, c.height)
-                } else {
-                    content
-                };
-                // Typed text its bound value has not replaced (LLP 1069.001 D4).
-                let value = control::choice(node, walk.scene.chosen.get(&node.id))
-                    .unwrap_or_else(|| node.props.str(PropId::Value).unwrap_or(""));
-                let placeholder = value.is_empty();
-                // A password is masked, one bullet a character, as the web and
-                // Apple's secure fields draw it.
-                let masked;
-                let shown = if placeholder {
-                    node.props.str(PropId::Placeholder).unwrap_or("")
-                } else if node.props.str(PropId::Type) == Some("password") {
-                    masked = "\u{2022}".repeat(value.chars().count());
-                    &masked
-                } else {
-                    value
-                };
-                let mut computed = node.computed_style(StyleMask::INHERITED);
-                // A field's value is never collapsed, as the kernel measures it.
-                if !computed.white_space.model().preserves() {
-                    computed.white_space = exact_kernel::WhiteSpace::PreWrap;
-                }
-                let spec = text_spec(&computed, shown);
-                let multiline = node.props.str(PropId::SemanticTag) == Some("textarea");
-                let paragraph = self.text.borrow_mut().paragraph_replacing(
-                    (node.id, 0),
-                    &spec,
-                    multiline.then_some(content.2),
-                );
-                walk.text.insert(node.key, paragraph.clone());
-                let oy = content.1
-                    + if multiline {
-                        0.0
-                    } else {
-                        (content.3 - paragraph.height) / 2.0
-                    };
-                let mut ink = if placeholder {
-                    [0x75, 0x75, 0x75, 0xff]
-                } else {
-                    presented_color(walk, node)
-                        .unwrap_or_else(|| rgba(node.text_color().resolve(self.dark)))
-                };
-                if native
-                    && disabled
-                    && (placeholder || !node.style.mask.has(exact_kernel::StyleId::TextColor))
-                {
-                    ink = control::disabled_field_ink(ink, self.dark);
-                }
-                // The focused field's selection (x2apps codeedit #2).
-                let field = caret::FieldText {
-                    node: node.id,
-                    style: &computed,
-                    value,
-                    masked: node.props.str(PropId::Type) == Some("password"),
-                    origin: (content.0, oy),
-                    width: content.2,
-                    multiline,
-                };
-                // A single line is shaped unconstrained, so `text-align` places
-                // it here; a textarea's paragraph is laid out at the field's
-                // width and aligns its own lines.
-                let ox = content.0
-                    + if multiline {
-                        0.0
-                    } else {
-                        caret::line_left(&computed, content.2, paragraph.width)
-                    };
-                let focused = walk.scene.focus == Some(node.id);
-                let selection = walk.scene.selection.filter(|_| focused);
-                if let Some(s) = selection {
-                    self.field_highlight(&field, s, ts);
-                }
-                {
-                    let mut engine = self.text.borrow_mut();
-                    self.backend.text(
-                        &mut engine,
-                        &paragraph,
-                        &[RunPaint {
-                            color: ink,
-                            source: node.id,
-                        }],
-                        (ox, oy),
-                        ts,
-                    );
-                }
-                if focused {
-                    let caret = rgba(
-                        computed
-                            .caret_color
-                            .unwrap_or(node.text_color())
-                            .resolve(self.dark),
-                    );
-                    let at_end = || exact_runner::FieldSelection::at_end(value);
-                    self.field_caret(&field, caret, selection.unwrap_or_else(at_end), ts);
-                    let accent = control::accent(node, self.dark).unwrap_or(control::ACCENT);
-                    self.field_ring(field_shape.as_ref().unwrap_or(&outer), accent, ts);
-                }
+                self.text_input(walk, node, rect, surface.outer.rect, content, &outer, ts)
             }
             NodeType::Svg => self.svg(walk, node, rect, content, ts),
             NodeType::Video | NodeType::WebView | NodeType::NativeView => {
@@ -1191,7 +1099,11 @@ impl Painter {
                 self.range_control(node, content, ts, walk.scene.chosen.get(&node.id))
             }
             NodeType::Control if node.props.str(PropId::Type) == Some("progress") => {
-                control::progress(self.backend.as_mut(), node, content, ts, self.dark)
+                if node.props.get(PropId::Value).is_some() {
+                    control::progress_bar(self.backend.as_mut(), node, content, ts, self.dark)
+                } else {
+                    control::progress(self.backend.as_mut(), node, content, ts, self.dark)
+                }
             }
             NodeType::Control if node.props.str(PropId::Type) == Some("button") => {
                 let face = walk.scene.kernel.press_face(node.id).unwrap_or_default();
@@ -1206,7 +1118,7 @@ impl Painter {
                     ts,
                     &face,
                     &rows,
-                    walk.scene.focus == Some(node.id),
+                    walk.scene.focus == Some(node.id) && self.ringless != Some(node.id),
                 );
             }
             NodeType::Control => control::paint(
@@ -1254,9 +1166,10 @@ impl Painter {
             && node.node_type == NodeType::Pressable
             && node.props.str(PropId::Href).is_none()
             && walk.scene.focus == Some(node.id)
+            && self.ringless != Some(node.id)
             && node.props.bool(PropId::Disabled) != Some(true)
         {
-            let accent = control::accent(node, self.dark).unwrap_or(control::ACCENT);
+            let accent = control::ring(node, self.dark);
             self.field_ring(&outer, accent, ts);
         }
         // @ref LLP 1075.003.000.001 §2.2.1 — a hatch's overlay: over the
@@ -1318,6 +1231,8 @@ pub fn text_spec(s: &StyleProps, text: &str) -> Spec {
         white_space: s.white_space,
         direction: s.direction,
         text_indent: s.text_indent,
+        text_box_trim: s.text_box_trim,
+        text_box_edge: s.text_box_edge,
     }
     .collapse_white_space()
 }
@@ -1374,6 +1289,18 @@ pub fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
         }
     }
     (w, h)
+}
+
+/// The page's own colour under a scheme: the `-exact-background` role (LLP
+/// 1115.000 D3.6), the platform's surface where a host reported one and the
+/// role's pair elsewhere. What an unset background shows (LLP 1115 D2),
+/// never white under a dark scheme.
+pub fn page_color(dark: bool) -> [u8; 4] {
+    static PAGE: std::sync::LazyLock<Option<u8>> =
+        std::sync::LazyLock::new(|| exact_kernel::style::roles::role("-exact-background"));
+    PAGE.map_or([255; 4], |id| {
+        rgba(exact_kernel::ColorValue::Role(id).resolve(dark))
+    })
 }
 
 /// A kernel color's channels.

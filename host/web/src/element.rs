@@ -310,7 +310,16 @@ fn canvas_css(node: &NodeFacts<'_>, css: &mut String) {
 /// Whether the node is an indeterminate `progress` (LLP 1069.001, amended
 /// 2026-10-07), which the page draws as a ring in a box.
 fn is_progress(node: &NodeFacts<'_>) -> bool {
-    node.node_type == NodeType::Control && node.props.str(PropId::Type) == Some("progress")
+    exact_kernel::ControlKind::of(node.node_type, node.props)
+        == Some(exact_kernel::ControlKind::Progress)
+}
+
+/// Whether the node is a determinate `progress` (LLP 1116 D8): HTML's own
+/// `<progress value max>`, which the browser draws and sizes (its UA
+/// sheet's `10em` by `1em`, as the kernel's `control::progress_box`).
+fn is_progress_bar(node: &NodeFacts<'_>) -> bool {
+    exact_kernel::ControlKind::of(node.node_type, node.props)
+        == Some(exact_kernel::ControlKind::ProgressBar)
 }
 
 /// A progress's box sized as the kernel's measured leaf: 20 × 20 content,
@@ -500,6 +509,7 @@ fn element(node: &NodeFacts<'_>) -> &'static str {
         // An indeterminate progress is a box the page draws a ring in
         // (LLP 1069.001, amended 2026-10-07): HTML's own draws a bar.
         NodeType::Control if is_progress(node) => "div",
+        NodeType::Control if is_progress_bar(node) => "progress",
         NodeType::Control => "input",
         NodeType::Canvas => "canvas",
         NodeType::WebView => "iframe",
@@ -741,7 +751,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
     // @ref LLP 1104 D8 — shared by live wasm batches, server documents and
     // the JS target's templates. Lowering keeps excluded editors bare.
     if node.node_type == NodeType::TextInput
-        && node.style.appearance == exact_kernel::Appearance::Auto
+        && node.style.appearance != exact_kernel::Appearance::None
     {
         out.insert("data-native".into(), String::new());
     }
@@ -752,6 +762,14 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
         && node.style.display == exact_kernel::Display::None
     {
         out.insert("data-grouped-row-hidden".into(), "true".into());
+    }
+    // @ref LLP 1116.007 D4 — `appearance: textfield` drops a number input's
+    // spin buttons: Firefox reads the CSS, Chrome and Safari need their
+    // pseudo-elements told (index.html).
+    if node.node_type == NodeType::TextInput
+        && node.style.appearance == exact_kernel::Appearance::Textfield
+    {
+        out.insert("data-exact-textfield".into(), String::new());
     }
     if node.style.wrap_flow == exact_kernel::WrapFlow::Both {
         out.insert("data-wrap-flow".into(), "both".into());
@@ -796,7 +814,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             continue;
         }
         let text = match value {
-            PropValue::Str(s) => s.clone(),
+            PropValue::Str(s) => s.to_string(),
             PropValue::Bool(b) => b.to_string(),
             PropValue::Int(i) => i.to_string(),
             // LLP 1053.000.000.000 D3: the reserved `-1` is written as `auto`.
@@ -822,6 +840,11 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::AccessibilityHeadingLevel => "aria-level",
             PropId::AccessibilityPosInSet => "aria-posinset",
             PropId::AccessibilitySetSize => "aria-setsize",
+            // @ref LLP 1116 D8 — a range role's value, ARIA's own attributes.
+            PropId::AccessibilityValueNow => "aria-valuenow",
+            PropId::AccessibilityValueMin => "aria-valuemin",
+            PropId::AccessibilityValueMax => "aria-valuemax",
+            PropId::AccessibilityValueText => "aria-valuetext",
             PropId::Placeholder => "placeholder",
             PropId::Type => "type",
             PropId::InputMode => "inputmode",
@@ -840,6 +863,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::NavigationBack => "navigationBack",
             PropId::NavigationPresentation => "navigationPresentation",
             PropId::NavigationSource => "navigationSource",
+            PropId::NavigationSplit => "navigationSplit",
             // LLP 1013.000 D7: the shared-element name the JS target's view
             // transitions pair by.
             PropId::SharedElement => "data-shared-element",
@@ -939,6 +963,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::AccessibilitySelected => "aria-selected",
             PropId::AccessibilityExpanded => "aria-expanded",
             PropId::AccessibilityPressed => "aria-pressed",
+            PropId::AccessibilityDisabled => "aria-disabled",
             PropId::AccessibilityModal => "aria-modal",
             PropId::AccessibilityElementsHidden => "aria-hidden",
             PropId::AccessibilityInvalid => "aria-invalid",
@@ -1017,19 +1042,34 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
     if node.node_type.scrolls_by_default() {
         out.insert("data-scroll".into(), "true".into());
     }
-    if element(node) == "select" {
-        // A `<select>` is its own kind; its `type` is not an attribute.
+    if matches!(element(node), "select" | "progress") {
+        // A `<select>` and a `<progress>` are their own kinds; `type` is not an attribute.
         out.remove("type");
     } else if is_progress(node) {
-        // The base sheet draws the ring from this mark.
-        out.remove("type");
+        out.remove("type"); // The base sheet draws the ring from this mark.
         out.insert("data-exact-progress".into(), String::new());
     } else if node.node_type == NodeType::Control {
         out.get_or_insert_with("type".into(), || "checkbox".into());
-        // @ref LLP 1069.001 D1 — WebKit's `switch`; a browser without it
-        // draws a checkbox that ARIA still hears as a switch.
+        // @ref LLP 1069.001 D1 — WebKit's `switch`, else drawn by index.html (LLP 1116 D1).
         if node.props.str(PropId::AccessibilityRole) == Some("switch") {
             out.insert("switch".into(), String::new());
+            if node.style.appearance == exact_kernel::Appearance::Auto {
+                out.insert("data-exact-switch".into(), String::new());
+            }
+        }
+        // LLP 1116.001 D1: a date, time or local date-time control takes the
+        // page's field look (index.html) while its appearance is the platform's.
+        if node.style.appearance == exact_kernel::Appearance::Auto
+            && matches!(
+                exact_kernel::ControlKind::of(node.node_type, node.props),
+                Some(
+                    exact_kernel::ControlKind::Date
+                        | exact_kernel::ControlKind::Time
+                        | exact_kernel::ControlKind::DateTimeLocal
+                )
+            )
+        {
+            out.insert("data-exact-field".into(), String::new());
         }
     }
     // A `<button>` submits a form unless it says otherwise; a `button` never does.
@@ -1086,6 +1126,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
         ("input", Some("checkbox")) => Some("checkbox"),
         ("input", Some("radio")) => Some("radio"),
         ("a", _) if out.contains_key("href") => Some("link"),
+        ("progress", _) => Some("progressbar"),
         _ => None,
     };
     if implicit.is_some() && out.get("role").map(String::as_str) == implicit {
@@ -1104,6 +1145,39 @@ mod name_tests {
         for prop in exact_kernel::PropId::ALL {
             assert!(prop.name().is_ascii(), "{}", prop.name());
         }
+    }
+
+    /// LLP 1115.000 D3.1: where the page's own sheet names a colour role it
+    /// writes what the kernel writes for an author who named it, pair and
+    /// all, so the role table is the one place a role's colours are set and
+    /// the sheet's copy cannot drift from it.
+    #[test]
+    fn the_page_sheet_names_a_role_as_the_kernel_writes_it() {
+        use exact_kernel::style::roles;
+        let page = include_str!("../index.html");
+        let (mut rest, mut seen) = (page, Vec::new());
+        while let Some(at) = rest.find("var(--exact-") {
+            let tail = &rest[at..];
+            let end = tail.find([',', ')']).expect("a var() closes");
+            let name = &tail["var(--exact-".len()..end];
+            rest = &tail[end..];
+            // The page's own properties (`--exact-accent`, `--exact-split`)
+            // name no role.
+            let Some(id) = roles::role(&format!("-exact-{name}")) else {
+                continue;
+            };
+            let mut kernel = String::new();
+            exact_kernel::gradient::color_css(&mut kernel, exact_kernel::ColorValue::Role(id));
+            assert!(
+                tail.starts_with(&kernel),
+                "the page names `{name}` as `{}`; the role table says `{kernel}`",
+                &tail[..tail.find(';').unwrap_or(tail.len())]
+            );
+            seen.push(name);
+        }
+        seen.sort_unstable();
+        seen.dedup();
+        assert_eq!(seen, ["fill", "secondary-label", "separator", "system-red"]);
     }
 
     #[test]
@@ -1232,253 +1306,5 @@ impl<D: exact_runner::DataSource> super::Host<D> {
 }
 
 #[cfg(test)]
-mod dataset_tests {
-    use exact_kernel::{NodeFacts, NodeType, PropId, PropKind, PropList, PropValue, StyleProps};
-
-    fn written(
-        node_type: NodeType,
-        prop: PropId,
-        value: PropValue,
-    ) -> super::SortedMap<String, String> {
-        let style = StyleProps::default();
-        let mut props = PropList::new();
-        props.set(prop, value);
-        super::props_of(&NodeFacts {
-            id: 1,
-            node_type,
-            style: &style,
-            props: &props,
-            is_root: false,
-            inline_run: false,
-        })
-    }
-
-    /// An SVG filter primitive's own prop: the compiler sets it only on an
-    /// `fe*` or `filter` element, which writes it under its own name.
-    fn svg_only(prop: PropId) -> bool {
-        let name = prop.name();
-        name.starts_with("pointsAt")
-            || name.starts_with("specular")
-            || name.ends_with("ChannelSelector")
-            || matches!(
-                name,
-                "amplitude"
-                    | "azimuth"
-                    | "baseFrequency"
-                    | "bias"
-                    | "diffuseConstant"
-                    | "divisor"
-                    | "edgeMode"
-                    | "elevation"
-                    | "exponent"
-                    | "filterUnits"
-                    | "in"
-                    | "in2"
-                    | "intercept"
-                    | "k1"
-                    | "k2"
-                    | "k3"
-                    | "k4"
-                    | "kernelMatrix"
-                    | "limitingConeAngle"
-                    | "mode"
-                    | "numOctaves"
-                    | "operator"
-                    | "feOrder"
-                    | "preserveAlpha"
-                    | "primitiveUnits"
-                    | "result"
-                    | "seed"
-                    | "slope"
-                    | "stdDeviation"
-                    | "stitchTiles"
-                    | "surfaceScale"
-                    | "tableValues"
-                    | "targetX"
-                    | "targetY"
-                    | "values"
-            )
-    }
-
-    /// LLP 1069.001, amended 2026-10-07: an indeterminate progress is a box
-    /// the base sheet draws a ring in (HTML's own draws a bar), ARIA's role
-    /// and busy state its attributes, sized as the kernel's 20 × 20 leaf.
-    #[test]
-    fn a_progress_is_a_busy_progressbar_box_the_page_draws_a_ring_in() {
-        let style = StyleProps::default();
-        let mut props = PropList::default();
-        props.set(PropId::Type, PropValue::Str("progress".into()));
-        props.set(
-            PropId::AccessibilityRole,
-            PropValue::Str("progressbar".into()),
-        );
-        props.set(PropId::AccessibilityBusy, PropValue::Bool(true));
-        let facts = NodeFacts {
-            id: 1,
-            node_type: NodeType::Control,
-            style: &style,
-            props: &props,
-            is_root: false,
-            inline_run: false,
-        };
-        assert_eq!(super::tag_of(&facts, false), "div");
-        assert_eq!(super::tag_of(&facts, true), "span", "in a button");
-        let out = super::props_of(&facts);
-        let get = |k: &str| out.get(k).map(String::as_str);
-        assert_eq!(get("role"), Some("progressbar"));
-        assert_eq!(get("aria-busy"), Some("true"));
-        assert_eq!(get("data-exact-progress"), Some(""));
-        assert_eq!(get("type"), None, "{out:?}");
-        let css = super::host_css_of(&facts, None, String::new(), "div");
-        assert!(
-            css.contains("container-type:size;contain-intrinsic-size:20px 20px;display:grid;"),
-            "{css}"
-        );
-        assert!(css.contains("justify-self:start;"), "a block's: {css}");
-        // A hidden one stays hidden: its grid is not written over `none`.
-        let hidden_style = StyleProps {
-            display: exact_kernel::Display::None,
-            ..StyleProps::default()
-        };
-        let hidden = NodeFacts {
-            style: &hidden_style,
-            ..facts
-        };
-        let css = super::host_css_of(&hidden, None, String::new(), "div");
-        assert!(!css.contains("display:grid"), "{css}");
-        // In a grid or a flex container it stretches as the kernel's does.
-        for display in [exact_kernel::Display::Grid, exact_kernel::Display::Flex] {
-            let grid = StyleProps {
-                display,
-                ..StyleProps::default()
-            };
-            let parent = NodeFacts {
-                id: 2,
-                node_type: NodeType::View,
-                style: &grid,
-                props: &PropList::default(),
-                is_root: false,
-                inline_run: false,
-            };
-            let css = super::host_css_of(&facts, Some(&parent), String::new(), "div");
-            assert!(!css.contains("justify-self"), "{display:?}: {css}");
-        }
-        assert!(include_str!("../index.html").contains("[data-exact-progress]::before"));
-    }
-
-    /// A link to an absolute URL opens outside the app, as natively, unless
-    /// its `target` is authored; a path stays (chat F11, hn-reader F3).
-    #[test]
-    fn a_link_out_of_the_app_opens_a_new_browsing_context() {
-        let link = |href: &str, target: Option<&str>| {
-            let style = StyleProps::default();
-            let mut props = PropList::new();
-            props.set(PropId::Href, PropValue::Str(href.into()));
-            if let Some(t) = target {
-                props.set(PropId::Target, PropValue::Str(t.into()));
-            }
-            let out = super::props_of(&NodeFacts {
-                id: 1,
-                node_type: NodeType::Pressable,
-                style: &style,
-                props: &props,
-                is_root: false,
-                inline_run: false,
-            });
-            let get = |k: &str| out.get(k).cloned();
-            (get("target"), get("rel"))
-        };
-        let out = (Some("_blank".into()), Some("external noopener".into()));
-        assert_eq!(link("https://example.com/a", None), out);
-        assert_eq!(link("//example.com/a", None), out);
-        assert_eq!(link("/c/42", None), (None, None));
-        assert_eq!(
-            link("https://example.com/", Some("_self")),
-            (Some("_self".into()), None)
-        );
-        let blank = (Some("_blank".into()), Some("noopener".into()));
-        assert_eq!(link("/c/42", Some("_blank")), blank);
-        let app = |t: &str| {
-            format!("component A\n  view\n    link href=\"/x\" target=\"{t}\"\n      text \"x\"\n")
-        };
-        assert!(contract::compile(&app("_blank")).is_ok());
-        let e = contract::compile(&app("_top")).unwrap_err().to_string();
-        assert!(e.contains("`target` takes"), "{e}");
-    }
-
-    /// @ref LLP 1075.003 §3.3 — every `data-` name this host writes on an
-    /// HTML element for a prop of its own is a word Contract refuses, so an
-    /// app's `data-*` never lands on one.
-    #[test]
-    fn every_data_name_the_host_writes_is_a_reserved_word() {
-        let kinds = [
-            NodeType::View,
-            NodeType::Text,
-            NodeType::Pressable,
-            NodeType::TextInput,
-            NodeType::Image,
-            NodeType::NativeView,
-            NodeType::ScrollView,
-            NodeType::List,
-            NodeType::Video,
-            NodeType::WebView,
-            NodeType::Canvas,
-            NodeType::Svg,
-            NodeType::Control,
-        ];
-        let mut unreserved = std::collections::BTreeSet::new();
-        for prop in PropId::ALL {
-            if prop == PropId::Dataset || svg_only(prop) {
-                continue;
-            }
-            let value = match prop.kind() {
-                PropKind::Str => PropValue::Str("x".into()),
-                PropKind::Bool => PropValue::Bool(true),
-                PropKind::Int => PropValue::Int(1),
-                PropKind::Float => PropValue::Float(1.0),
-            };
-            for kind in kinds {
-                for name in written(kind, prop, value.clone()).keys() {
-                    if let Some(word) = name.strip_prefix("data-") {
-                        if !contract_lower::dataset::reserved(word) {
-                            unreserved.insert(format!("`{name}` (from {})", prop.name()));
-                        }
-                    }
-                }
-            }
-        }
-        assert!(
-            unreserved.is_empty(),
-            "not reserved in contract/lower/src/dataset.rs: {unreserved:?}"
-        );
-    }
-
-    #[test]
-    fn a_dataset_is_one_attribute_per_word() {
-        crate::link::link(crate::Linked {
-            dataset: Some(crate::document::dataset),
-            ..crate::link::linked()
-        });
-        let out = written(
-            NodeType::View,
-            PropId::Dataset,
-            PropValue::Str(r#"{"large-title":"Inbox","trailing":"compose"}"#.into()),
-        );
-        assert_eq!(
-            out.get("data-large-title").map(String::as_str),
-            Some("Inbox")
-        );
-        assert_eq!(
-            out.get("data-trailing").map(String::as_str),
-            Some("compose")
-        );
-        assert!(out.get("data-dataset").is_none());
-        assert_eq!(
-            crate::document::dataset(r#"{"a":"q\"\\\t\u0001","b":""}"#),
-            vec![
-                ("a".into(), "q\"\\\t\u{1}".into()),
-                ("b".into(), String::new())
-            ]
-        );
-    }
-}
+#[path = "element_tests.rs"]
+mod dataset_tests;
