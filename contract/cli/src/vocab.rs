@@ -300,6 +300,9 @@ fn one_text(name: &str, shown: &mut Vec<&'static str>) -> bool {
         if let Some(only) = only_on(name) {
             println!("  only on {only}");
         }
+        if matches!(name, "min" | "max" | "step") {
+            println!("  on an `input` a number of either sign is written as its text: `min=-40`, `step=0.5`, `max=1e6` (LLP 1116.010 D3); a decimal pad (`inputmode=\"decimal\"`) with a negative `min` has the ± key");
+        }
         if name == "markup" {
             println!("  \"markdown\" or \"none\" (the default): a `text` reads its string as Markdown, a `textarea` edits it (LLP 1045)");
         }

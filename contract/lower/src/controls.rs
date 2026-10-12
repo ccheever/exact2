@@ -326,8 +326,9 @@ pub(crate) fn tag(kind: &str, t: Tag) -> Tag {
     }
 }
 
-/// A range's `value`, `min`, `max` and `step` as HTML's strings: a number
-/// literal is written as one, a bound number through `toString` (LLP
+/// A range's `value`, `min`, `max` and `step` as HTML's strings, and a text
+/// or number field's `min`, `max` and `step`: a number literal, `-40` as `40`,
+/// is written as one, a bound number through `toString` (LLP
 /// 1069.001 D4: the props are strings on the wire, typed per control); so
 /// too a determinate `progress`'s `value` and `max`, and ARIA's range
 /// values on any element (LLP 1116 D8). `None` when nothing needs rewriting.
@@ -336,16 +337,15 @@ pub(crate) fn range_attrs(
     control: Option<&str>,
     attrs: &[contract_syntax::Attr],
 ) -> Option<Vec<contract_syntax::Attr>> {
-    // A number field's bounds take numbers as a range's do (LLP 1102 §3.12). Its
-    // `value` stays its text: the field edits text, and `1.` is on the way to `1.5`.
-    let number = control.is_none()
-        && tag == "input"
-        && attrs
-            .iter()
-            .any(|a| a.name == "type" && matches!(&a.value, Expr::Str(t, _) if t == "number"));
+    // A text field's bounds take numbers as a range's do (LLP 1102 §3.12), a
+    // number field's and a decimal pad's alike (`type="text" inputmode="decimal"
+    // min=-1000`, whose negative bound gives the pad its ± key): `min`, `max`
+    // and `step` are HTML's strings, and a number written for one is its text,
+    // negative or positive. Its `value` stays its text: the field edits text,
+    // and `1.` is on the way to `1.5`.
     let names: &[&str] = match control {
         Some("range") => &["value", "min", "max", "step"],
-        None if number => &["min", "max", "step"],
+        None if tag == "input" => &["min", "max", "step"],
         None if tag == "progress" => &["value", "max"],
         _ => &[],
     };
@@ -364,9 +364,11 @@ pub(crate) fn range_attrs(
                 if !numeric(a) {
                     return a.clone();
                 }
-                let value = match &a.value {
-                    Expr::Number(n, span) => Expr::Str(exact_num::Shortest(*n).to_string(), *span),
-                    e => Expr::Call("toString".into(), vec![e.clone()], e.span()),
+                // A literal, negative or not, is its text at compile time; any
+                // other number is written at run time.
+                let value = match super::values::numeric_literal(&a.value) {
+                    Some(n) => Expr::Str(exact_num::js(n), a.value.span()),
+                    None => Expr::Call("toString".into(), vec![a.value.clone()], a.value.span()),
                 };
                 contract_syntax::Attr { value, ..a.clone() }
             })

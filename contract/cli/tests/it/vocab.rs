@@ -529,6 +529,19 @@ fn a_content_part_says_its_props_and_what_it_draws() {
     assert_eq!(json["part"]["props"][1], "status: string");
 }
 
+/// LLP 1116.010 D3: `min`, `max` and `step` say a number of either sign is
+/// their text on an `input`, and where the decimal pad's ± key comes from.
+#[test]
+fn min_max_and_step_say_a_negative_number_is_written_bare() {
+    for name in ["min", "max", "step"] {
+        let out = stdout(&vocab(&[name]));
+        assert!(
+            out.contains("`min=-40`") && out.contains("± key"),
+            "{name}: {out}"
+        );
+    }
+}
+
 /// LLP 1116.010 D3: a part's entry ends with one call as a builder would
 /// paste it, written beside the component (`// Call: …`), and every part's
 /// compiles with no diagnostic: a prop added to a component fails here until

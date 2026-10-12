@@ -40,9 +40,15 @@ a `keyframes` or `font` block, and a component need at least one entry.
   `a-b` is a name, and `a - b` is subtraction.
 - Number tokens begin with a digit. A dot is part of the number only when a
   digit follows (`12`, `12.5`), so `rows.0.steps` is a list index and then a
-  field. Numeric parsing rejects invalid spellings. Negative values are unary
-  minus applied to a number. Exponents, separators, leading-dot numbers, and a
-  trailing dot are not supported forms. Units belong in quoted strings.
+  field. An exponent is part of the number only when digits follow its `e` or
+  `E` and optional sign (`1e300`, `2.5E-3`, `4e+2`), so `2em` is a number and a
+  unit; one past the largest double is refused. Numeric parsing rejects invalid
+  spellings. Negative values are unary minus applied to a number; as an
+  attribute's whole value (`min=-40`, `step=-0.5`, `margin-top=-8`,
+  `min=-1e300`) it is the negative literal, the number it is, as `40` is, and
+  a text field's `min`, `max` and `step` take a number of either sign as a
+  range's do. Separators, leading-dot numbers, and a trailing dot are not
+  supported forms. Units belong in quoted strings.
 - Strings use `"…"`. Escapes accepted by the ordinary string lexer are `\n`,
   `\t`, `\"`, `\\`, ``\` ``, and `\$`. Single quotes are not delimiters.
 - Templates use backticks and `${expression}`. Interpolation scanning balances
