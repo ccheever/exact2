@@ -374,7 +374,7 @@ component NativeFixture
                         column width=32 height=32 border-radius="50%" background-color="#dcfce7" align-items="center" justify-content="center"
                           text "CD" font-size=13 color="#166534"
                         column
-                          text "Chat" aria-level=2 testId="title-chat" font-weight=700 font-size=17
+                          text "Chat" role="heading" aria-level=2 testId="title-chat" font-weight=700 font-size=17
                           when subtitle != "" and not muted
                             text subtitle testId="subtitle-chat" font-size=12 color="#6b7280"
                           when muted
@@ -384,7 +384,7 @@ component NativeFixture
                               image "symbol:sf/timer" width=12 height=12 object-fit="contain"
                               text "1w" font-size=12 color="#6b7280"
                     when e.name != "chat"
-                      text (e.name == "home" ? "Fixture" : e.name == "detail" ? "Detail" : e.name == "rows" ? "Rows" : e.name == "sheet" ? "Sheet" : e.name == "plain" ? "Plain" : e.name == "note" ? "Note" : "Second") aria-level=(e.name == "home" or e.name == "second" ? 1 : 2) testId=`title-${e.name}` flex=1 font-weight=700 font-size=20
+                      text (e.name == "home" ? "Fixture" : e.name == "detail" ? "Detail" : e.name == "rows" ? "Rows" : e.name == "sheet" ? "Sheet" : e.name == "plain" ? "Plain" : e.name == "note" ? "Note" : "Second") role="heading" aria-level=(e.name == "home" or e.name == "second" ? 1 : 2) testId=`title-${e.name}` flex=1 font-weight=700 font-size=20
                     // The heading the header holds directly: the first text
                     // after it is the bar's subtitle; a second is not shown
                     // on iOS, which the agent says (LLP 1116 D2).

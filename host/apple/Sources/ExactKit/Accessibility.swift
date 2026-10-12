@@ -324,17 +324,19 @@ extension UIView {
         if pressed != nil { accessibilityTraits.insert(.toggleButton) } else { accessibilityTraits.remove(.toggleButton) }
         accessibilityValue = pressed.map { $0 == "mixed" ? "2" : $0 == "true" ? "1" : "0" }
     }
-    /// A checkable role as Safari's VoiceOver reads one: a checkbox or
-    /// switch is a button whose value is `checked` or `unchecked` (as the
+    /// A checkable role as UIKit reads one (LLP 1115.000 D13.3): a checkbox
+    /// or switch is a toggle, the `toggleButton` trait with UIKit's value,
+    /// "1" or "0", which VoiceOver speaks in the reader's language (as the
     /// native checkbox, `ControlsIOS`); a radio is a button, selected while
     /// checked. Called after `setAccessibilityToggle`, which it overrides.
     func setAccessibilityChecked(_ role: String, _ checked: Bool) {
-        accessibilityTraits.remove(.toggleButton)
         if role == "radio" {
+            accessibilityTraits.remove(.toggleButton)
             accessibilityValue = nil
             if checked { accessibilityTraits.insert(.selected) }
         } else {
-            accessibilityValue = checked ? "checked" : "unchecked"
+            accessibilityTraits.insert(.toggleButton)
+            accessibilityValue = checked ? "1" : "0"
         }
     }
 }

@@ -27,8 +27,7 @@ extension ControlHost {
         let value = DateValue.parse(kind, bound)
         guard let field = picker as? DateField else { return }
         field.owner = owner
-        field.placeholder = DateField.placeholder(kind, picker.locale ?? .current)
-        field.kind = kind
+        field.placeholder = DateValue.placeholder(owner.props)
         guard field.applied != bound else { return }
         field.applied = bound
         field.empty = value == nil
@@ -68,10 +67,12 @@ extension ControlHost {
     }
 }
 
-/// HTML's empty date, time or datetime: the format as a placeholder
-/// (Chrome's `mm/dd/yyyy`, `--:-- --`), where an `NSDatePicker`, which
+/// HTML's empty date, time or datetime, where an `NSDatePicker`, which
 /// always holds a date, showed its reference date, 1/1/2001 (x2apps kanban
-/// F23). Editing an empty one starts at now, and only a change commits it.
+/// F23): the field's own text is clear, and it draws its author's
+/// `placeholder` in the placeholder colour or, with none, no words at all
+/// (LLP 1115.000 D13.1; it had drawn Chrome's `mm/dd/yyyy`). Editing an
+/// empty one starts at now, and only a change commits it.
 final class DateField: NSDatePicker {
     weak var owner: NodeView?
     override var acceptsFirstResponder: Bool { owner?.acceptsNativeValueFocus(self) == true }
@@ -81,8 +82,8 @@ final class DateField: NSDatePicker {
         if owner?.nativeValueTab(event, control: self) == true { return }
         super.keyDown(with: event)
     }
-    var kind = "date"
-    var placeholder = ""
+    /// The author's `placeholder`, "" when there is none.
+    var placeholder = "" { didSet { if placeholder != oldValue, empty { needsDisplay = true } } }
     /// The bound value last written into it (`configureDate`).
     var applied: String?
     var empty = false { didSet { if empty != oldValue { refresh() } } }
@@ -122,8 +123,5 @@ final class DateField: NSDatePicker {
     }
     override func accessibilityValue() -> Any? { empty ? "" : super.accessibilityValue() }
     override func mouseDown(with event: NSEvent) { if !contextClicked(event) { super.mouseDown(with: event) } }
-
-    /// The locale's order of fields, written as Chrome writes an empty one.
-    static func placeholder(_ kind: String, _ locale: Locale) -> String { DateValue.placeholder(kind, locale) }
 }
 #endif

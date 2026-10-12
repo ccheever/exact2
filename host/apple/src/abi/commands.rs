@@ -248,13 +248,13 @@ impl<D: DataSource> Bridge<D> {
     /// D4), as JSON in the output buffer: `{"style","sections":[{"view",
     /// "header","footer","headerLook","footerLook","card","spaceAbove","rows":[{"view","custom","symbol","title",
     /// "secondary","subtitle","accessory","target","pressable",
-    /// "destructive","disabled","titleLook","secondaryLook"}]}],"spaceBelow"}`,
+    /// "checked","destructive","disabled","titleLook","secondaryLook"}]}],"spaceBelow"}`,
     /// `null` for a node that is not one. A look is `{"lines","ellipsis",
     /// "color","font"}`: a colour row's wire form and `{"size","weight",
     /// "italic","family","numeric"}`, each `null` where the author said nothing.
-    /// `accessory` is `none`, `disclosure`, `checkmark`, `toggle` or
-    /// `detail`; `target` the toggle's control or the detail's button. Not
-    /// a batch: nothing changes.
+    /// `accessory` is `none`, `disclosure`, `checkmark`, `toggle`, `detail`
+    /// or `radio`; `target` the toggle's control, the detail's button or the
+    /// radio, whose bound state is `checked`. Not a batch: nothing changes.
     pub fn grouped_list(&mut self, view: u32) -> u32 {
         use exact_kernel::Accessory;
         let quote = exact_runner::agent::quote;
@@ -320,15 +320,16 @@ impl<D: DataSource> Bridge<D> {
                         opt(&r.title, &mut json);
                         json.push_str(",\"secondary\":");
                         opt(&r.secondary, &mut json);
-                        let (accessory, target) = match r.accessory {
-                            Accessory::None => ("none", None),
-                            Accessory::Disclosure => ("disclosure", None),
-                            Accessory::Checkmark => ("checkmark", None),
-                            Accessory::Toggle(id) => ("toggle", Some(id)),
-                            Accessory::Detail(id) => ("detail", Some(id)),
+                        let (accessory, target, checked) = match r.accessory {
+                            Accessory::None => ("none", None, false),
+                            Accessory::Disclosure => ("disclosure", None, false),
+                            Accessory::Checkmark => ("checkmark", None, false),
+                            Accessory::Toggle(id) => ("toggle", Some(id), false),
+                            Accessory::Detail(id) => ("detail", Some(id), false),
+                            Accessory::Radio(id, on) => ("radio", Some(id), on),
                         };
                         json.push_str(&format!(
-                            ",\"subtitle\":{},\"accessory\":\"{accessory}\",\"target\":{},\"pressable\":{},\"destructive\":{},\"disabled\":{}",
+                            ",\"subtitle\":{},\"accessory\":\"{accessory}\",\"target\":{},\"checked\":{checked},\"pressable\":{},\"destructive\":{},\"disabled\":{}",
                             r.subtitle,
                             target.map_or("null".into(), |t| t.to_string()),
                             r.pressable,

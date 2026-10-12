@@ -1,6 +1,7 @@
 //! What a button or a role promises a person and VoiceOver, and the
 //! element does not keep (LLP 1116.004 D4): a button with nothing to say,
-//! and a dialog's role on a box.
+//! and a dialog's role on a box; and a heading's level with no heading
+//! (LLP 1115.000 D12.5).
 
 use super::{computed, has, literal, BOXES};
 use crate::LowerError;
@@ -133,6 +134,27 @@ pub(super) fn dialog_role(tag: &str, attrs: &[Attr], span: Span) -> Option<Lower
         id: "lower-dialog-role",
         message: format!(
             "`role=\"{role}\"` on a `{tag}` names a dialog without making one: the box is drawn as written, with no Escape, no focus kept inside it (Tab reaches the page behind) and no iOS sheet. A modal you lay out (a form, an editor) is a sheet, a route with `navigationPresentation=\"modal\"`: UIKit's sheet on iOS, closed by Escape on the web, the page under it inert. A confirmation of text and buttons is `dialog role=\"alertdialog\"`, opened with `showModal(id)` (docs/recipes/navigation-stack.md)"
+        ),
+        span,
+    })
+}
+
+/// `lower-level-without-heading`: an `aria-level` on an element that
+/// writes no `role` (LLP 1115.000 D12.5). A level alone is not a heading:
+/// lowering gives it no heading style (`heading_style` reads the role), and
+/// the iOS navigation bar does not take it for the route's title, so a
+/// header written `text "Inbox" aria-level=1` is body text under an
+/// untitled bar. `treeitem`, `row` and `listitem` take a level of their
+/// own, so any written role is left alone; a computed one is the benefit of
+/// the doubt.
+pub(super) fn level_without_heading(tag: &str, attrs: &[Attr], span: Span) -> Option<LowerError> {
+    if !has(attrs, "aria-level") || has(attrs, "role") {
+        return None;
+    }
+    Some(LowerError {
+        id: "lower-level-without-heading",
+        message: format!(
+            "`aria-level` on a `{tag}` with no `role=\"heading\"` does not make a heading: it gets no heading style, and the iOS navigation bar does not take it for the screen's title. Write the role beside it: `text \"Results\" role=\"heading\" aria-level=2`"
         ),
         span,
     })

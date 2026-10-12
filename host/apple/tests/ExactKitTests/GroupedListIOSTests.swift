@@ -179,6 +179,66 @@ final class GroupedListIOSTests: XCTestCase {
         XCTAssertEqual(pressed, [10])
     }
 
+    /// LLP 1115.000 D13.2: in a grouped row a radio is the row's checkmark
+    /// accessory, as a list of choices in Settings has it, and a tap on the
+    /// row checks the radio: `input` and `change` carry its value, and the
+    /// checkmark follows the bound `checked`. It had been a custom row
+    /// holding Safari's 16-point circle.
+    func testARadiosRowShowsTheCheckmarkAndATapOnTheRowChecksIt() throws {
+        ExactGroupedLists.install()
+        let p = Presenter()
+        var plan = "free"
+        host(p).model = { $0 == 1 ? GroupedListModel(sections: [.init(view: 2, header: nil, footer: nil, rows: [
+            Row(view: 30, title: "Free", accessory: "radio", target: 31, checked: plan == "free"),
+            Row(view: 32, title: "Pro", accessory: "radio", target: 33, checked: plan == "pro"),
+            Row(view: 34, title: "Team", accessory: "radio", target: 35, checked: plan == "team"),
+        ])]) : nil }
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        p.viewport.frame = window.bounds
+        window.addSubview(p.viewport)
+        window.makeKeyAndVisible()
+        var heard: [String] = []
+        p.onControlValue = { id, value, input, change in
+            if input { heard.append("input \(id) \(value)") }
+            if change { heard.append("change \(id) \(value)") }
+        }
+        var ops: [[String: Any]] = [
+            ["op": "create", "id": 1, "kind": "list", "props": ["listStyle": "inset-grouped"], "style": ["overflow_y": "scroll"]],
+            ["op": "create", "id": 2, "kind": "view", "props": ["semanticTag": "section"], "style": [:]],
+            ["op": "create", "id": 4, "kind": "view", "props": [:], "style": [:]],
+        ]
+        for (row, radio, value) in [(30, 31, "free"), (32, 33, "pro"), (34, 35, "team")] {
+            var props = ["type": "radio", "name": "plan", "value": value, "checked": value == plan ? "true" : "false", "testId": "plan-\(value)"]
+            if value == "team" { props["disabled"] = "true" }
+            ops += [["op": "create", "id": row, "kind": "view", "props": ["testId": "row-\(value)"], "style": [:]],
+                    ["op": "create", "id": radio, "kind": "control", "props": props, "handlers": ["input", "change"], "style": [:]],
+                    ["op": "children", "id": row, "ids": [radio]]]
+        }
+        ops += [["op": "children", "id": 1, "ids": [2]], ["op": "children", "id": 2, "ids": [4]], ["op": "children", "id": 4, "ids": [30, 32, 34]],
+                ["op": "roots", "ids": [1]], ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 402.0, "h": 874.0]]
+        p.apply(wireBatch(ops))
+        let l = try list(p)
+        XCTAssertEqual(try cell(p, 30).accessories.map(\.accessoryType), [.checkmark], "the chosen row: the platform's checkmark")
+        XCTAssertEqual(try cell(p, 32).accessories.count, 0, "the others: nothing")
+        XCTAssertEqual((try cell(p, 30).contentConfiguration as? UIListContentConfiguration)?.text, "Free", "a standard cell, not the row's own views")
+        XCTAssertTrue(l.collectionView(l.collection, shouldHighlightItemAt: IndexPath(item: 1, section: 0)), "the row takes the tap, as a choice's row does")
+        XCTAssertFalse(l.collectionView(l.collection, shouldHighlightItemAt: IndexPath(item: 2, section: 0)), "a disabled radio's row does not")
+        // A tap on the row, and one that names the radio, are the same tap.
+        XCTAssertEqual(host(p).activate(try XCTUnwrap(p.views[32]))?["native"] as? String, "grouped-list")
+        XCTAssertEqual(heard, ["input 33 pro", "change 33 pro"], "the radio's own events, with its value")
+        XCTAssertNotNil(host(p).activate(try XCTUnwrap(p.views[34]))?["error"], "disabled")
+        // The action commits it: the checkmark follows the bound `checked`.
+        plan = "pro"
+        p.apply(wireBatch([["op": "props", "id": 31, "set": ["checked": "false"]], ["op": "props", "id": 33, "set": ["checked": "true"]]]))
+        XCTAssertEqual(try cell(p, 32).accessories.map(\.accessoryType), [.checkmark])
+        XCTAssertEqual(try cell(p, 30).accessories.count, 0)
+        heard = []
+        XCTAssertEqual(host(p).activate(try XCTUnwrap(p.views[33]))?["native"] as? String, "grouped-list", "the radio by its own testId")
+        XCTAssertEqual(heard, [], "already checked: nothing fires")
+        XCTAssertEqual(host(p).activate(try XCTUnwrap(p.views[31]))?["native"] as? String, "grouped-list")
+        XCTAssertEqual(heard, ["input 31 free", "change 31 free"])
+    }
+
     func testAToggleFlipsItsControl() throws {
         let p = presenter { self.model() }
         var flips: [(UInt32, Bool)] = []

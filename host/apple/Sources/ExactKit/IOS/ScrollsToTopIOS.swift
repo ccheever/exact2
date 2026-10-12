@@ -8,9 +8,11 @@
 // page. A grouped list answers with the collection view that shows, never
 // the hidden scroll beneath it. Run after every batch and every finished
 // navigation.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
+// `scrollsToTop` is iOS's alone; the search below is the bar's rule on tvOS too.
+#if os(iOS)
 extension Presenter {
     func syncScrollsToTop() {
         let chosen = scrollsToTopTarget()
@@ -33,7 +35,10 @@ extension Presenter {
         let roots = root.subviews.compactMap { $0 as? NodeView }
         return roots.lazy.compactMap { Self.firstVerticalScroller(under: $0) }.first.flatMap { self.navigation.shownScroll($0) } ?? viewport
     }
+}
+#endif
 
+extension Presenter {
     /// The shallowest shown scroller under `node` (itself included) that
     /// scrolls vertically, in tree order at each depth; a screen's content
     /// scroller is near its top, so the search stops eight levels down.

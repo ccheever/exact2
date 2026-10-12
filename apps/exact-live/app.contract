@@ -797,7 +797,7 @@ component Blocks
   view
     when block.kind == "heading"
       column width="100%" padding-top=22 padding-bottom=4 testId=`block-${block.id}`
-        text aria-level=block.depth color=theme.ink line-height=`${block.depth == 1 ? 38 : block.depth == 2 ? 30 : block.depth == 3 ? 25 : 21}px`
+        text role="heading" aria-level=block.depth font-size="1em" font-weight=400 color=theme.ink line-height=`${block.depth == 1 ? 38 : block.depth == 2 ? 30 : block.depth == 3 ? 25 : 21}px`
           Runs(runs=block.runs, size=(block.depth == 1 ? 31 : block.depth == 2 ? 23 : block.depth == 3 ? 18 : 15) * k, weight=(block.depth > 3 ? 600 : 700))
     else
       when block.kind == "paragraph"

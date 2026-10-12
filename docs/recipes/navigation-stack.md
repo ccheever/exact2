@@ -218,8 +218,9 @@ test "add validates, saves, refuses a repeat, opens and deletes after asking"
 - A modal you lay out yourself (a form, an editor) is a sheet, as `add` is: open it
   with `push`, close it with `back`. On iOS it is UIKit's sheet, which swipes down; on
   the web Escape presses its Cancel, and on every host the page under it is inert.
-  `role="dialog"` on a box gets none of that (`lower-dialog-role`), and iOS presents a
-  `dialog` only as its alert.
+  `role="dialog"` on a box gets none of that (`lower-dialog-role`). A `dialog` you lay
+  out, opened with `showModal(id)`, is a smaller thing: the web's modal `dialog`, and on
+  iOS a sheet as tall as its content, with no bar and no route.
 - Show a validation error only after the first Save (`submitted`), in red under the
   field, in its row. The sheet closes in `then`, only when
   the save's reply is ok: a refusal keeps the sheet, its text and the reason

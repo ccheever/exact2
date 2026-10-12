@@ -268,6 +268,38 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         XCTAssertEqual(commands.count, 3)
     }
 
+    /// LLP 1115.000 D12.5: the bar's title is a heading by its role. An
+    /// `aria-level` with no `role="heading"` gets no heading style from the
+    /// compiler (which warns, `lower-level-without-heading`), and the bar
+    /// read it as the title anyway: a large title over body text. It is no
+    /// title now, so the header is not the bar, as on every other host.
+    func testALevelWithNoHeadingRoleIsNotTheBarsTitle() throws {
+        let p = presenter([
+            ["op": "create", "id": 1, "kind": "view", "props": ["navigationKey": "home"]],
+            ["op": "create", "id": 2, "kind": "view", "props": ["semanticTag": "header"]],
+            ["op": "create", "id": 3, "kind": "text", "props": ["text": "Inbox", "accessibilityHeadingLevel": "1"]],
+            ["op": "create", "id": 4, "kind": "button", "handlers": ["press"], "props": ["id": "tap"]],
+            ["op": "create", "id": 5, "kind": "text", "props": ["text": "Inbox", "accessibilityHeadingLevel": "2"]],
+            ["op": "children", "id": 4, "ids": [5]],
+            ["op": "children", "id": 2, "ids": [3]],
+            ["op": "children", "id": 1, "ids": [2, 4]],
+            ["op": "roots", "ids": [1]],
+        ])
+        let route = try XCTUnwrap(p.views[1]), text = try XCTUnwrap(p.views[3]), pressable = try XCTUnwrap(p.views[4])
+        XCTAssertFalse(text.isHeading)
+        XCTAssertNil(HeaderShape(route: route, back: nil), "a level alone: the header holds no heading, so it is not the bar")
+        XCTAssertFalse(HeaderTitle.holdsHeading(pressable), "nor is a pressable around one the title's group")
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["accessibilityRole": "heading"], "clear": []],
+                           ["op": "props", "id": 5, "set": ["accessibilityRole": "heading"], "clear": []]]))
+        let shape = try XCTUnwrap(HeaderShape(route: route, back: nil), "with its role it is the bar's title")
+        XCTAssertEqual(shape.title, "Inbox")
+        XCTAssertEqual(shape.level, 1, "level 1: the large title")
+        XCTAssertTrue(HeaderTitle.holdsHeading(pressable))
+        // The role alone is ARIA's level 2, which lowering also says.
+        p.apply(wireBatch([["op": "props", "id": 3, "set": [:], "clear": ["accessibilityHeadingLevel"]]]))
+        XCTAssertEqual(HeaderShape(route: route, back: nil)?.level, 2)
+    }
+
     /// Only one scroll view answers the status bar, or UIKit scrolls none:
     /// with no routes and a page that does not scroll, the first vertical
     /// scroller; a horizontal one and the viewport are off.
@@ -295,29 +327,62 @@ final class PlatformDefaultsIOSTests: XCTestCase {
 
     /// LLP 1116 D2: iOS has no square checkbox. A plain checkbox is the
     /// checklist mark, as Reminders and Notes draw it: an empty circle at the
-    /// body text's size that fills with a checkmark in the accent colour,
-    /// read by VoiceOver as Safari reads a checkbox (a button, checked or
-    /// unchecked). A radio keeps Safari's 16 points.
+    /// body text's size that fills with a checkmark in the accent colour.
+    /// VoiceOver reads it as UIKit reads a toggle (LLP 1115.000 D13.3): the
+    /// `toggleButton` trait and UIKit's own value, a `UISwitch`'s "1" and
+    /// "0", which it speaks in the reader's language; it had read Safari's
+    /// English "checked" and "unchecked". A box whose ARIA role is
+    /// `checkbox` or `switch` reads the same, and `tree --ax` says checkbox
+    /// and its state for both. A radio is its own symbols at the same size
+    /// (D13.2, RadioIOSTests).
     func testACheckboxIsTheChecklistMark() throws {
         let p = presenter([
             ["op": "create", "id": 1, "kind": "view", "props": ["id": "n1"]],
             ["op": "create", "id": 2, "kind": "control", "props": ["type": "checkbox", "checked": "false", "accessibilityLabel": "Milk", "testId": "milk"],
              "handlers": ["input", "change"], "style": ["accent_color": [255, 0, 0, 255]]],
             ["op": "create", "id": 3, "kind": "control", "props": ["type": "radio", "name": "r", "value": "a", "checked": "false"], "style": [:]],
-            ["op": "children", "id": 1, "ids": [2, 3]],
+            ["op": "create", "id": 4, "kind": "view", "handlers": ["press"],
+             "props": ["testId": "drawn", "accessibilityRole": "checkbox", "accessibilityChecked": "true", "accessibilityLabel": "Eggs"]],
+            ["op": "create", "id": 5, "kind": "view", "handlers": ["press"],
+             "props": ["testId": "wifi", "accessibilityRole": "switch", "accessibilityChecked": "false", "accessibilityLabel": "Wi-Fi"]],
+            ["op": "children", "id": 1, "ids": [2, 3, 4, 5]],
             ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0],
             ["op": "frame", "id": 2, "x": 10.0, "y": 10.0, "w": 40.0, "h": 40.0],
             ["op": "frame", "id": 3, "x": 60.0, "y": 10.0, "w": 16.0, "h": 16.0],
+            ["op": "frame", "id": 4, "x": 10.0, "y": 60.0, "w": 100.0, "h": 44.0],
+            ["op": "frame", "id": 5, "x": 10.0, "y": 110.0, "w": 100.0, "h": 44.0],
         ])
         let box = try XCTUnwrap(p.controls.controls[2] as? ExactCheckbox)
         XCTAssertFalse(box is ExactRadio)
         let size = box.intrinsicContentSize
         XCTAssertGreaterThan(size.width, 18, "the body text's mark, not Safari's 16-point box")
         XCTAssertEqual(size.width, size.height, accuracy: 1.5, "a circle's square")
-        XCTAssertEqual(try XCTUnwrap(p.controls.controls[3]).intrinsicContentSize, CGSize(width: 16, height: 16))
+        XCTAssertEqual(try XCTUnwrap(p.controls.controls[3]).intrinsicContentSize, size, "a radio is the same size")
         XCTAssertTrue(box.accessibilityTraits.contains(.button))
-        XCTAssertEqual(box.accessibilityValue, "unchecked")
+        // UIKit's own toggle is the oracle: what a `UISwitch` reports, "1"
+        // and "0" (read from one in a running app, `tree --ax`; a test
+        // process without the accessibility runtime derives no value).
+        let uikit = UISwitch()
+        XCTAssertTrue(box.accessibilityTraits.contains(.toggleButton), "a toggle to VoiceOver")
+        XCTAssertEqual(box.accessibilityValue, "0", "UIKit's value for off, which VoiceOver speaks in the reader's language")
+        if let value = uikit.accessibilityValue { XCTAssertEqual(box.accessibilityValue, value, "as a UISwitch's") }
+        p.syncAccessibility()
+        let eggs = try XCTUnwrap(p.views[4]), wifi = try XCTUnwrap(p.views[5])
+        XCTAssertTrue(eggs.accessibilityTraits.contains(.toggleButton))
+        XCTAssertEqual(eggs.accessibilityValue, "1", "a box with role=checkbox, checked")
+        XCTAssertTrue(wifi.accessibilityTraits.contains(.toggleButton))
+        XCTAssertEqual(wifi.accessibilityValue, "0", "a box with role=switch, off")
+        // `tree --ax`: the role is what the author wrote, the state UIKit's value.
+        window.layoutIfNeeded()
+        func seen(_ testId: String) throws -> [String: Any] {
+            let all = p.axElements(roots: [p.viewport])["elements"] as? [[String: Any]] ?? []
+            return try XCTUnwrap(all.first { $0["testId"] as? String == testId || ($0["native"] as? [String: Any])?["identifier"] as? String == testId }, "\(testId) in \(all)")
+        }
+        func state(_ e: [String: Any]) -> [String] { [e["role"] as? String ?? "", e["value"] as? String ?? "", "\((e["states"] as? [String: Any])?["checked"] ?? "none")"] }
+        XCTAssertEqual(state(try seen("milk")), ["checkbox", "0", "false"])
+        XCTAssertEqual(state(try seen("drawn")), ["checkbox", "1", "true"])
+        XCTAssertEqual(state(try seen("wifi")), ["switch", "0", "false"])
         // The mark as drawn: (alpha, red, green, blue) at a point given as a
         // fraction of its box.
         func drawn() -> (CGFloat, CGFloat) -> [Int] {
@@ -340,7 +405,10 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         XCTAssertEqual(off(0.12, 0.12)[0], 0, "a circle: nothing in the corner a rounded square fills")
         p.apply(wireBatch([["op": "props", "id": 2, "set": ["checked": "true"]]]))
         XCTAssertTrue(box.isOn)
-        XCTAssertEqual(box.accessibilityValue, "checked")
+        uikit.isOn = true
+        XCTAssertEqual(box.accessibilityValue, "1", "on")
+        if let value = uikit.accessibilityValue { XCTAssertEqual(box.accessibilityValue, value, "as a UISwitch's") }
+        XCTAssertEqual(state(try seen("milk")), ["checkbox", "1", "true"])
         let on = drawn()
         let fill = on(0.5, 0.22)
         XCTAssertGreaterThan(fill[0], 200, "on: filled, \(fill)")

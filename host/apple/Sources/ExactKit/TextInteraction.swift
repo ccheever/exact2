@@ -62,6 +62,10 @@ extension NodeView {
         if let level = Int(props["accessibilityHeadingLevel"] ?? ""), (1...6).contains(level) { return level }
         return props["accessibilityRole"] == "heading" ? 2 : nil
     }
+    /// A heading by its role, which is what the iOS bar takes for a route's
+    /// title: an `aria-level` with no `role="heading"` is not one there (LLP
+    /// 1115.000 D12.5), as it has no heading style on any host.
+    var isHeading: Bool { isParagraph && props["accessibilityRole"] == "heading" }
     func updateTextAccessibility() {
         guard isParagraph else { return }
         let label = props["accessibilityLabel"] ?? visibleParagraphText
