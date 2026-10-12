@@ -117,7 +117,18 @@ test('wasm and JS request executors refuse outside origins and redirects, and ad
     expect(destinationHits).toBe(2);
   } finally { origin.stop(true); destination.stop(true); grantedDestination.stop(true); }
 });
-
+test('wasm and JS accept a POST redirected through an ungranted origin to a granted final URL without CSP', async () => {
+  const hops = [], finals = [], final = Bun.serve({ port: 0, async fetch(req) { finals.push([req.method, await req.text()]); return new Response('accepted'); } });
+  const hop = Bun.serve({ port: 0, async fetch(req) { hops.push([req.method, await req.text()]); return new Response(null, { status: 307, headers: { location: `${final.url}finish` } }); } });
+  const origin = Bun.serve({ port: 0, fetch() { return new Response(null, { status: 307, headers: { location: `${hop.url}middle` } }); } });
+  const set = normalized(`net.fetch ${origin.url.origin}\nnet.fetch ${final.url.origin}`), js = createRequestExecutor('test.app', set, response => response.arrayBuffer());
+  try {
+    for (const run of [() => request({ method: 'POST', url: `${origin.url}start`, headers: [], body: btoa('payload') }, { grantSet: set, controllers: new Set(), moduleLoader: null }), () => js({ method: 'POST', url: `${origin.url}start`, headers: [], raw: 'payload' })]) {
+      const result = await run(); expect([result.failed ?? result.kind ?? 0, new TextDecoder().decode(result.body)]).toEqual([0, 'accepted']);
+    }
+    expect([hops, finals]).toEqual([[['POST', 'payload'], ['POST', 'payload']], [['POST', 'payload'], ['POST', 'payload']]]);
+  } finally { origin.stop(true); hop.stop(true); final.stop(true); }
+});
 // fetch's `redirect` reaches the browser on every web path: the wasm host's request op, a stream's,
 // and the JS target's `fetch`; a GET that asked not to follow is never sent early; a word that is
 // not a mode is a TypeError, as in the native prelude.

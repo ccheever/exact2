@@ -422,6 +422,23 @@ on the web and these on Hermes (macOS, iOS, Linux):
 | `Intl.NumberFormat`, `Intl.DateTimeFormat`, `Intl.Collator`, `localeCompare`, `toLocaleString` | Date formatting needs an explicit timestamp. No `Intl.PluralRules`, `RelativeTimeFormat`, `ListFormat`, `Segmenter` or `DisplayNames` (Apple's engine; Linux's is built `--intl`). `Intl.Locale` is the prelude's on every Hermes host (the engine has none): a tag parsed and canonicalized as Chrome does, its options and getters, and `getWeekInfo()` with Chrome's `{firstDay, weekend}` from CLDR's week data, by the tag's region, its `-u-rg-`, or its language's likely region (two-letter languages and a few others; another reads Monday and a Saturday-Sunday weekend), and `-u-fw-`. It has no `maximize`, `minimize` or other `get…()` list, does not canonicalize aliases (`iw` stays `iw`, `en-840` keeps `840`, and its week is then the default, Monday, where Chrome's is `en-US`'s), a formatter given a `Locale` object rather than its string uses the default locale, and `structuredClone` copies a `Locale` as `{}` where Chrome refuses it. Apple's `ja-JP` long date puts a space before the weekday (`10月6日 火曜日`, Chrome `10月6日火曜日`). Apple's engine has no `notation: "compact"`: the prelude formats its short display as Chrome does for a decimal in en, en-GB, en-IN, de, fr, fr-CA, es, es-MX, it, pt, pt-PT, nl, sv, da, nb, fi, pl, ru, uk, cs, tr, ja, zh, zh-TW, ko, hi, he, id, th and vi (and their regions); `compactDisplay: "long"`, another locale or a compact currency is printed in full and said once in the logs. Apple's engine rounds a tie to even and ignores `roundingMode` (`$0.82` for 0.825 dollars, Chrome `$0.83`); the prelude rounds the number first, as Chrome does: from its shortest digits, by the formatter's `roundingMode` (half away from zero unless it names another), which `resolvedOptions()` then reports; a compact it prints in full rounds so too, to its style's digits (`$0.83` for a compact 0.825 dollars). A `unit` keeps the engine's rounding, since that engine converts it to the locale's unit (`0.622mi` for 1 kilometer). Apple's engine has no `formatToParts` |
 | `console` | To the runner's logs after each answer and reply, including refused calls; available through the agent's `logs` on native hosts |
 
+For `fetch` with the default `redirect: "follow"`, native hosts check each
+redirect target against the source's `net.fetch` grants before contacting it.
+The web lets the browser follow and checks only the final response URL. On
+render-server pages, CSP `connect-src` allows the page's own origin and the
+app's granted origins, while request admission uses the source's grants. A hop
+outside the page origin and app grants is blocked before contact (`Network` on
+web, `Refused` on native). An app-granted but source-ungranted hop can still
+receive a 307 POST body and return to a source-granted final URL; web succeeds
+while native refuses before that hop. Static and dev pages have no CSP: an
+ungranted intermediate origin can receive the request (including a POST body
+on a 307); if the chain ends at a granted origin, the
+web succeeds while native refuses at the intermediate hop. Without CSP, an
+ungranted final URL is refused after contact. CORS or another browser failure
+can also hide the response and yield `Network`. Exact API grants do not
+sandbox page code: it can call browser `fetch` directly, subject to the
+rendered page's CSP where one is served.
+
 On native hosts, ordinary ordered `GET`/`HEAD` reads wait in the same FIFO as
 writes: up to 128 queued, running and unconsumed requests, with at most 64 MiB
 of waiting request buffers. Other ordered work retains a 16-request admission

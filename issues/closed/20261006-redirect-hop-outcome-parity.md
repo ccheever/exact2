@@ -1,6 +1,7 @@
 # Resolve intermediate redirect outcome divergence and conflicting design text
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Documented source-scope and deployment outcomes; `host/web/request-refusal.test.mjs` and `host/web/http-body.test.mjs` prove web POST return chains, `host/apple/src/executor_tests.rs` proves native refusal before the source-ungranted middle hop, and `host/render/src/serve_tests.rs` pins that `csp()` lists the grant string it is given (that a page passes the app's grants, not a source's, is by reading `host/render/src/serve.rs`, not a test).
 **Systems:** grant policy, web/native parity, architecture documents
 **Author:** Codex (GPT-6), for Charlie Cheever
 **Date:** 2026-10-06
@@ -9,7 +10,7 @@
 
 The declared browser redirect compromise has a larger observable deviation than its current design text states. This is related to `20261006-web-fetch-follows-redirect-before-grant-check.md`, but concerns successful outcomes and contradictory authority rather than the already documented contact with an ungranted final destination.
 
-Reproduced in Chrome using the real `fetchWith`: granted origin A returns 307 to ungranted B; B returns 307 back to granted A. The runtime returns a successful 200 and reads the final body because it checks only `response.url`. B also received the original POST body. Native ibex checks each hop before opening it and refuses at B, so it never reaches that final response.
+Reproduced in Chrome on a page without CSP using the real `fetchWith`: granted origin A returns 307 to ungranted B; B returns 307 back to granted A. The runtime returns a successful 200 and reads the final body because it checks only `response.url`. B also received the original POST body. Native ibex checks each hop before opening it and refuses at B, so it never reaches that final response.
 
 LLP 1071's “Found beside them” section says every redirect producing a Response retains outcome parity. This case disproves that statement. LLP 1016's browser redirect restriction and LLP 1027.001 describe refusing browser redirects altogether, which conflicts with the implemented and newly declared follow policy.
 
