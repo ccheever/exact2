@@ -265,6 +265,43 @@ impl NavPlace {
         Some([&[role][..], attrs].concat())
     }
 
+    /// @ref LLP 1116.009 D3 — a sheet is never transparent: a route that
+    /// `navigationPresentation="modal"` presents is on the page's own ground,
+    /// `-exact-background`, unless its author said otherwise. UIKit's sheet
+    /// has the system background under its content, and a hand-built one
+    /// never shows the screen it covers through itself; a web or Mac host
+    /// keeps the covered route in view, so a form whose author wrote no
+    /// background was see-through there (the bake-off's habit-tracker, rounds
+    /// 10 and 11). The row is the compiler's, set and not written (LLP
+    /// 1115.000 D2) and pushed before the author's, as `grouped_page`'s is,
+    /// so a `background-color` on the route (or its class) wins; and it runs
+    /// after it, so a sheet that scrolls a grouped list is on that grey. A
+    /// presentation that is computed is not told, and `None` is a route that
+    /// is not a sheet, or already says its ground.
+    pub(crate) fn sheet_page(&self, attrs: &[Attr], span: Span) -> Option<Vec<Attr>> {
+        let has = |name: &str| attrs.iter().any(|a| a.name == name);
+        let route = matches!(self, NavPlace::RootChild(_) | NavPlace::PanelChild(_))
+            && has("navigationKey")
+            && !has("navigationBack");
+        let modal = attrs
+            .iter()
+            .rev()
+            .find(|a| a.name == "navigationPresentation");
+        if !route
+            || has("background-color")
+            || !matches!(modal.map(|a| &a.value), Some(Expr::Str(s, _)) if s == "modal")
+        {
+            return None;
+        }
+        let role = Attr {
+            name: "background-color".into(),
+            value: Expr::Str("-exact-background".into(), span),
+            span,
+            written: crate::IMPLIED,
+        };
+        Some([&[role][..], attrs].concat())
+    }
+
     /// The place of `tag`'s children, or the refusal of a route `tag` that
     /// no host would find here.
     pub(crate) fn enter(

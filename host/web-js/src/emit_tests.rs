@@ -108,6 +108,60 @@ fn outline_none_is_a_fields_own_declaration() {
     );
 }
 
+/// LLP 1116.009 D3: a sheet's unsaid background is a row of its class, the page's
+/// own role with the table's fallback, so the route it covers is not seen through
+/// it; a page is not given one, and a row the author wrote is the only one.
+#[test]
+fn a_modal_route_is_painted_by_its_class() {
+    let app = |page: &str, sheet: &str| {
+        let plan = contract::compile(&format!(
+            "routes nav\n  home \"/\"\n    add \"/add\"\ncomponent App\n  view\n    main navigationKey=`${{top(nav).id}}` navigationBack=\"back\"\n      each e in stack(nav) key=e.id\n        when e.name == \"home\"\n          column navigationKey=`${{e.id}}` {page}\n            text \"Home\"\n        when e.name == \"add\"\n          column navigationKey=`${{e.id}}` navigationPresentation=\"modal\" {sheet}\n            text \"New\"\n"
+        ))
+        .unwrap();
+        crate::emit::emit(&plan, false, false).unwrap().css
+    };
+    let css = app("", "");
+    assert_eq!(
+        css.matches("background-color:var(--exact-background,")
+            .count(),
+        1,
+        "{css}"
+    );
+    let css = app(
+        "background-color=\"-exact-secondary-background\"",
+        "background-color=\"#336699\"",
+    );
+    assert_eq!(css.matches("--exact-background,").count(), 0, "{css}");
+    assert_eq!(
+        css.matches("--exact-secondary-background,").count(),
+        1,
+        "{css}"
+    );
+}
+
+/// LLP 1116.009 D4: the shell centres a sheet's title unless the author flows the
+/// bar, so a header whose author wrote `justify-content` is named (from the
+/// plan's own `written` bit, which the template's kernel carries), and one that
+/// did not, or whose row the compiler implied, is not.
+#[test]
+fn a_header_with_its_own_justify_content_is_named() {
+    let plan = contract::compile(
+        "component App\n  view\n    column\n      header justify-content=\"space-between\"\n        text \"One\" role=\"heading\" aria-level=2\n      header display=\"flex\" align-items=\"center\"\n        text \"Two\" role=\"heading\" aria-level=2\n",
+    )
+    .unwrap();
+    let out = crate::emit::emit(&plan, false, false).unwrap();
+    let headers: Vec<&str> = out.js.split("\"header\",").skip(1).collect();
+    let named = |h: &str| {
+        h.split('}')
+            .next()
+            .unwrap()
+            .contains("\"data-exact-said\":\"justify-content\"")
+    };
+    assert_eq!(headers.len(), 2, "{}", out.js);
+    assert_eq!(headers.iter().filter(|h| named(h)).count(), 1, "{}", out.js);
+    assert!(named(headers[0]), "the first header wrote it: {}", out.js);
+}
+
 /// LLP 1116 D8: a literal `value` on a `progress` is its `<progress>`'s
 /// attribute, as a bound one is its property; without it the browser draws
 /// an indeterminate bar.

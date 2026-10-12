@@ -212,6 +212,9 @@ impl Lowerer<'_> {
         // the grouped background, unless its author said otherwise.
         let grouped_page = self.nav_place.grouped_page(tag, expanded, children, *span);
         let expanded = grouped_page.as_deref().unwrap_or(expanded);
+        // @ref LLP 1116.009 D3 — and a sheet is never transparent.
+        let sheet_page = self.nav_place.sheet_page(expanded, *span);
+        let expanded = sheet_page.as_deref().unwrap_or(expanded);
         let nav_place = self.nav_place.enter(tag, expanded, children, *span)?;
         // @ref LLP 1038 D8 — only the first root selects navigation.
         if has(&["navigate"])

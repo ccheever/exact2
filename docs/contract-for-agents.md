@@ -1561,8 +1561,10 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   found by no host.
 - Root children after the panels box (a toast, a timer strip, a full-screen menu) paint
   over the routes and the native bars on every host, as later siblings do in CSS.
-- A modal route (`navigationPresentation="modal"`) paints its own background; the
-  route under it is dimmed. One pushed over a sheet (a confirmation over a dialog)
+- A modal route (`navigationPresentation="modal"`) is opaque: its unsaid
+  `background-color` is `-exact-background` (the grouped one when it scrolls a grouped
+  list), so the route under it, dimmed, never shows through; write one to say another.
+  One pushed over a sheet (a confirmation over a dialog)
   is a sheet over that sheet, on iOS presented from it; Back returns to the sheet
   under it, and popping both closes both. Under the agent's frozen timing (the
   default) on iOS, a `tap` or `type` that opens or closes a sheet, its answer's `then`
