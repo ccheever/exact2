@@ -64,6 +64,7 @@ mod markdown_editing;
 mod media;
 mod media_session;
 mod menus;
+mod miswiring;
 mod motion_feel;
 mod mutation;
 mod names;

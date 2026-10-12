@@ -20,6 +20,7 @@ use exact_plan::Stdlib;
 use std::collections::BTreeSet;
 
 mod counts;
+mod miswiring;
 mod roles;
 mod screens;
 mod title;
@@ -65,6 +66,16 @@ pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
                 out.extend(roles::dialog_role(tag, attrs, span).filter(|_| fresh));
                 out.extend(roles::level_without_heading(tag, attrs, span).filter(|_| fresh));
                 let keyed = has(attrs, "navigationKey");
+                // @ref LLP 1116.010 D5 — a name or a key that meets nothing.
+                miswiring::swipe(attrs, children, fresh, &mut out);
+                if tag == "image" {
+                    miswiring::image_source(positional.first(), fresh, &mut out);
+                }
+                if keyed && !in_root {
+                    let declared = checked.file.routes.as_ref().map(|r| r.span);
+                    miswiring::navigation_keys(attrs, children, declared, fresh, &mut out);
+                }
+                miswiring::navigation_split(tag, attrs, keyed, keyed && !in_root, fresh, &mut out);
                 let route = in_root && keyed && !has(attrs, "navigationBack");
                 // A route that says it has no bar (LLP 1115.000 D5.2) draws
                 // its header as written: nothing of it is the bar's to drop.
