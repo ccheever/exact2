@@ -29,6 +29,13 @@ The retained `fresh` reset and generic `file`/PDF asset support require
 > - **The mounts.** `app.json`'s `typescript.sources`: `snapback4` (this
 >   checkout's `snapback4/ts`, relative) and `backend`
 >   (`../snapback/generated`, after the first `snapback4 check`).
+> - **The device version.** After upgrading the server or Exact's device,
+>   `bun exact.mjs snapback --rebuild` rebuilds the wasm and its digest-bound
+>   `assets/snapback4.wasm.json`. Wiring and web drives refuse mismatched
+>   installed/server versions before opening the page. They read an embedded
+>   `snapback4.build` stamp when present; older builds use the engine version
+>   from Cargo.lock. The server version comes from `/dev/status` or `GET /`,
+>   which also works with `serve`. Invalid or empty wasm fails the build.
 > - **The origin's port, in four places** (["Ports"](#ports-the-snapback-origin-and-the-pages-own)):
 >   `app.ts`'s `origin`, its `net.fetch` grant (write it as `${origin}`),
 >   `snapback4 dev --port`, and the test file's `fail fetch`/`pass fetch`

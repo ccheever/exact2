@@ -93,7 +93,12 @@ test('a web test run asks the backend its app fetches first', async () => {
     grants(`net.fetch ${up}`, `net.fetch ${down}/api`, 'net.fetch https://example.com', 'sqlite.open app:/data');
     expect(loopbackOrigins(dist)).toEqual([up, down]);
     expect(fetchOrigins(dist)).toEqual([up, down, 'https://example.com']);
-    const snapback = { manifest: { typescript: { sources: { snapback4: '../../exact2/snapback4/ts' } } } }, said = [];
+    const snapback = { dir: dist, manifest: { typescript: { sources: { snapback4: '../../exact2/snapback4/ts' } } } }, said = [];
+    const { deviceHash, engineVersion } = await import('../snapback4/web/device-build.mjs');
+    const wasm = Buffer.from([0, 97, 115, 109, 1, 0, 0, 0]);
+    mkdirSync(resolve(dist, 'assets'));
+    writeFileSync(resolve(dist, 'assets/snapback4.wasm'), wasm);
+    writeFileSync(resolve(dist, 'assets/snapback4.wasm.json'), JSON.stringify({engineVersion: engineVersion(), sha256: deviceHash(wasm)}));
     await expect(backendPreflight(snapback, dist)).rejects.toThrow(`no backend at ${down}: nothing listens there`);
     await backendPreflight({ manifest: {} }, dist, (line) => said.push(line));
     expect(said).toEqual([`note: no backend at ${down}: nothing listens there, and app.ts fetches it (a net.fetch grant); a test that loads from it fails`]);
@@ -101,6 +106,38 @@ test('a web test run asks the backend its app fetches first', async () => {
     await backendPreflight(snapback, dist);
     expect(loopbackOrigins(resolve(dist, 'none'))).toEqual([]);
   } finally { server.close(); rmSync(dist, { recursive: true, force: true }); }
+});
+
+test('device preflight refuses server skew, stale provenance and empty wasm before a drive', async () => {
+  const { devicePreflight, deviceHash, engineVersion, readDeviceStamp, validateDevice } = await import('../snapback4/web/device-build.mjs');
+  const { createServer } = await import('node:http');
+  const { mkdtempSync, mkdirSync, rmSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { resolve } = await import('node:path');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-device-'));
+  const app = {dir, manifest: {typescript: {sources: {snapback4: '../../exact2/snapback4/ts'}}}};
+  let version = '0.0.1', stamped = false;
+  const server = createServer((req, res) => {
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify(req.url === '/dev/status' ? stamped ? {device: {engineVersion: version, requiredCapabilities: ['future']}} : {storeId: 'dev'} : {snapback4: version}));
+  }).listen(0, '127.0.0.1');
+  try {
+    await new Promise(ok => server.once('listening', ok));
+    const origin = `http://127.0.0.1:${server.address().port}`;
+    const path = resolve(dir, 'assets/snapback4.wasm'), wasm = Buffer.from([0, 97, 115, 109, 1, 0, 0, 0]);
+    mkdirSync(resolve(dir, 'assets'));
+    writeFileSync(path, wasm);
+    await expect(devicePreflight(app, [origin])).rejects.toThrow('no readable build stamp');
+    writeFileSync(path + '.json', JSON.stringify({engineVersion: engineVersion(), sha256: deviceHash(wasm)}));
+    await expect(devicePreflight(app, [origin])).rejects.toThrow(/E_DEVICE_VERSION.*server at.*0.0.1.*snapback --rebuild/);
+    version = engineVersion();
+    await devicePreflight(app, [origin]);
+    stamped = true;
+    await expect(devicePreflight(app, [origin])).rejects.toThrow('lacks future');
+    writeFileSync(path + '.json', JSON.stringify({engineVersion: version, sha256: 'wrong'}));
+    expect(() => readDeviceStamp(path)).toThrow('does not match');
+    expect(() => validateDevice(Buffer.alloc(0), 'wasm-opt output')).toThrow('empty or invalid wasm');
+  } finally { server.close(); rmSync(dir, {recursive: true, force: true}); }
 });
 
 // `fresh` (the author's ruling of 2026-10-12, via the sb4 app farm): before a test, each snapback4 dev server the app

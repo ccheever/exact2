@@ -44,6 +44,10 @@ starter app is kept: write its sources for those generated operations.
 `snapback --port <n>` moves a loopback origin, grants and test fetch prefixes
 together. Password sign-in, stored sessions and refresh with Contract time are
 in [the adapter guide](../snapback4/README.md#personas-and-password-accounts).
+After upgrading Snapback4 or Exact's device, run `bun exact.mjs snapback --rebuild`.
+The device's digest-bound `assets/snapback4.wasm.json` records the engine built.
+`snapback`, `contract build`, `test web` and `agent web` refuse a stale device;
+web drives compare it with the running server before opening the page.
 
 Start from the nearest pattern. `exact.mjs` runs from any directory: a file you
 name is found where you are, else in the app, and it says which it took. Your

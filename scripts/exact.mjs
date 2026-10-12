@@ -47,6 +47,7 @@ import { builtAppMatches, jsTargetBuild } from '../host/web/serve.mjs';
 import { signingOrder } from '../host/apple/assets.mjs';
 import { chromium } from './agent-launch.mjs';
 import { guardFlags, helpText } from './help.mjs';
+import { devicePreflight } from '../snapback4/web/device-build.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const APPLICATIONS = resolve(homedir(), 'Applications');
@@ -916,9 +917,18 @@ function main(argv) {
   }
   if (verb === 'snapback') {
     const args = guardFlags('snapback', argv.slice(1));
-    if (!args[0]) throw new Error('exact snapback: name the app’s directory');
+    if (!args[0]) { console.error('exact snapback: name the app\'s directory (its exact.mjs passes it: bun exact.mjs snapback)'); process.exit(2); }
     const port = args.indexOf('--port');
-    return console.log(wireSnapback(resolve(args[0]), { port: port < 0 ? null : args[port + 1] ?? '' }));
+    const dir = resolve(args[0]), app = { dir, manifest: JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')) };
+    const source = existsSync(resolve(dir, 'app.ts')) ? readFileSync(resolve(dir, 'app.ts'), 'utf8') : '';
+    const origin = /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(source)?.[1];
+    if (existsSync(resolve(dir, 'assets/snapback4.wasm')) && !args.includes('--rebuild')) await devicePreflight(app, origin ? [origin] : []);
+    console.log(wireSnapback(dir, { port: port < 0 ? null : args[port + 1] ?? '' }));
+    app.manifest = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
+    const updated = readFileSync(resolve(dir, 'app.ts'), 'utf8');
+    const nextOrigin = /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(updated)?.[1];
+    await devicePreflight(app, nextOrigin ? [nextOrigin] : []);
+    return;
   }
   if (!['run', 'install', 'uninstall', 'release'].includes(verb)) { console.error(`exact: no verb ${verb}\n\n${USAGE}`); process.exit(2); }
   if (!name) { console.error(`exact ${verb}: name an app (exact list)`); process.exit(2); }

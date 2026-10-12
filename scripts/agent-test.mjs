@@ -12,6 +12,7 @@ import { duringOp } from './agent-drag.mjs';
 import { driveStore, faultSpecOf, launchFacts } from './agent-launch.mjs';
 import { resolveApp, webDist as defaultWebDist } from './app.mjs';
 import { serverUrl } from './verify.mjs';
+import { devicePreflight, mountsSnapback } from '../snapback4/web/device-build.mjs';
 
 /** The text `expect text` reads (kanban F19, shop F15): the node's own `text`, else a checkbox's `checked` as `true` or `false`, else a control's value (a select's options
  * are its choices, not its text; LLP 1087 wizard trials), else its descendants' in order — the web's `textContent`, a button's
@@ -151,11 +152,10 @@ const listening = (origin, ms = 1000) => new Promise((done) => {
  * builds' tests failed as data mismatches with no `snapback4 dev` running). An app whose data is a Snapback client
  * (it mounts snapback4/ts) cannot open a partition that never synced, so every test would fail: the run is refused,
  * naming the origin. Any other app is told, and runs (its tests may be of the error path). */
-const mountsSnapback = (app) => Object.values(app.manifest.typescript?.sources ?? {}).some((path) => /(^|\/)snapback4\/ts\/?$/.test(path));
 export async function backendPreflight(app, dist, say = console.error) {
   const down = [];
   for (const origin of loopbackOrigins(dist)) if (!(await listening(origin))) down.push(origin);
-  if (!down.length) return;
+  if (!down.length) return devicePreflight(app, fetchOrigins(dist));
   const what = `no backend at ${down.join(', ')}: nothing listens there, and app.ts fetches it (a net.fetch grant)`;
   if (!mountsSnapback(app)) return say(`note: ${what}; a test that loads from it fails`);
   throw new Error(`${what}. The app's Snapback client cannot open data that has never synced, so every test would fail. Start the server first, from the backend's directory (\`npx snapback4 dev --port ${new URL(down[0]).port || 80}\`, seeded if the tests read seeded rows), then run the tests again.`);

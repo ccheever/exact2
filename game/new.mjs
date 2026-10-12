@@ -373,7 +373,8 @@ export function wireSnapback(dir, { build = true, port = null } = {}) {
   if (next !== text) writeFileSync(manifestPath, next);
   const ignore = resolve(dir, '.gitignore');
   const ignored = existsSync(ignore) ? readFileSync(ignore, 'utf8') : '';
-  if (!ignored.split('\n').includes('/assets/snapback4.wasm')) writeFileSync(ignore, `${ignored}${ignored.endsWith('\n') || !ignored ? '' : '\n'}/assets/snapback4.wasm\n`);
+  const deviceIgnores = ['/assets/snapback4.wasm', '/assets/snapback4.wasm.json'].filter(path => !ignored.split('\n').includes(path));
+  if (deviceIgnores.length) writeFileSync(ignore, `${ignored}${ignored.endsWith('\n') || !ignored ? '' : '\n'}${deviceIgnores.join('\n')}\n`);
   said.unshift(`app.json: ${JSON.stringify({ typescript: app.typescript })}`);
   if (!sources.backend) said.push('app.json mounts no `backend` yet: app.ts imports ./backend/api.ts once ../snapback/generated exists.');
   const ts = existsSync(resolve(dir, 'app.ts')) ? readFileSync(resolve(dir, 'app.ts'), 'utf8') : '';
@@ -381,8 +382,8 @@ export function wireSnapback(dir, { build = true, port = null } = {}) {
   if (appId !== app.app?.id) said.push(`app.ts must say: export const appId = ${JSON.stringify(app.app?.id)};${appId ? ` (it says ${JSON.stringify(appId)})` : ''}`);
   if (build) {
     const built = spawnSync(process.execPath, [resolve(ROOT, 'snapback4/web/build.mjs'), 'assets/snapback4.wasm'], { cwd: dir, stdio: ['ignore', 'inherit', 'inherit'] });
-    said.push(built.status === 0 ? 'assets/snapback4.wasm: built (the device the page loads)'
-      : `the device did not build (above); \`bun exact.mjs snapback\` builds it again`);
+    if (built.status !== 0) throw new Error('the device did not build (above); bun exact.mjs snapback --rebuild builds it again');
+    said.push('assets/snapback4.wasm: built with assets/snapback4.wasm.json (the device the page loads)');
   }
   const origin = /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(ts)?.[1];
   const at = port ?? (origin ? new URL(origin).port || 80 : 4400);
@@ -754,7 +755,7 @@ function snapbackNotes(dir) {
   try { wired = Boolean(JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).typescript?.sources?.snapback4); } catch {}
   if (wired) return `A backend: this app's data is Snapback 4's (${readme}). The backend is above it:
 \`../snapback/schema.q\`, with \`snapback4@${snapbackVersion()}\` installed. \`app.json\` mounts the driver and
-\`../snapback/generated\`; \`app.ts\` names and grants its origin. \`bun exact.mjs snapback\` generates operations
+\`../snapback/generated\`; \`app.ts\` names and grants its origin. \`bun exact.mjs snapback --rebuild\` generates operations
 and rebuilds the device, including after exact2 moves; \`snapback --port <n>\` moves the origin. Start
 \`bunx snapback4 dev --port <the origin's port>\` above before \`test web\`. \`fresh\` resets it per test
 (requires Snapback4 0.4.24). Typed reads use \`db.read(api.recent, {}, now)\`; \`send\` writes, syncs and answers
