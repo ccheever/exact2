@@ -466,12 +466,14 @@ impl<D: DataSource> Runner<D> {
                                     || s.store_revision == self.store.revision())
                                 // @ref LLP 1054.000.002 D4 — a placeholder stands
                                 // in only while its answer is on the way.
-                                && (!s.placeholder || pending_res[i] || awaiting[i])
-                                // A compiled answer a launch holding secrets
-                                // passes over (LLP 1027 D4), even one that
-                                // came to read the store at equal arguments.
-                                && !(s.value.is_compiled()
-                                    && self.secrets_unseen(i, &row, &resources)))
+                                && (!s.placeholder || pending_res[i] || awaiting[i]))
+                        })
+                        // A compiled answer a launch holding secrets passes
+                        // over (LLP 1027 D4) is never reused, failed or not,
+                        // even one that came to read the store at equal
+                        // arguments.
+                        .filter(|s| {
+                            !(s.value.is_compiled() && self.secrets_unseen(i, &row, &resources))
                         })
                         .map(|s| s.value.clone());
                     let mut value_args = if reuse.is_some() {

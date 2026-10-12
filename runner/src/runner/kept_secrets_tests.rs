@@ -249,3 +249,28 @@ fn a_resource_that_comes_to_read_the_store_shows_a_placeholder_not_the_compiled_
         );
     }
 }
+
+#[test]
+fn a_failed_compiled_answer_is_passed_over_too() {
+    // A failure for the unchanged arguments (a refused reconciliation, as
+    // `give_up` records) reuses whatever stands: not a passed-over bake.
+    let mut r = Runner::boot_stored(
+        plan_switching(""),
+        Source::default(),
+        Kernel::with_monospace(),
+        vec![token()],
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let consume = r
+        .plan
+        .resources
+        .iter()
+        .position(|row| r.plan.str(row.name) == "consume")
+        .unwrap();
+    r.failed_args[consume] = Some(vec![Value::str("")]);
+    r.act("use", vec![Value::Bool(true)]).unwrap();
+    let state = r.resources[consume].as_ref().unwrap();
+    assert!(state.placeholder && !state.value.is_compiled());
+}
