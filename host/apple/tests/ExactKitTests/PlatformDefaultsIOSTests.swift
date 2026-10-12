@@ -193,6 +193,25 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         XCTAssertFalse(editors[2].isFirstResponder)
     }
 
+    private final class PointTouch: UITouch {
+        let point: CGPoint, target: UIView
+        init(_ point: CGPoint, on target: UIView) { self.point = point; self.target = target; super.init() }
+        override var view: UIView? { target }
+        override func location(in view: UIView?) -> CGPoint { view.map { $0.convert(point, from: nil) } ?? point }
+    }
+
+    /// LLP 1115.000 D9.4: a tap that lands on nothing ends the editing and
+    /// the keyboard goes. UIKit does not do this by itself; hand-built iOS
+    /// apps add a background tap for it, which is why it stays.
+    func testATapOnBlankGroundEndsTheEditing() throws {
+        let (p, _, editors) = try threeFields()
+        XCTAssertTrue(editors[0].becomeFirstResponder())
+        let touch = PointTouch(CGPoint(x: 300, y: 320), on: p.viewport)
+        p.viewport.touchesBegan([touch], with: nil)
+        p.viewport.touchesEnded([touch], with: nil)
+        XCTAssertFalse(editors[0].isFirstResponder, "a tap on blank ground puts the keyboard away")
+    }
+
     /// LLP 1115.000 D9.1: with nothing written, a drag on a scroller that
     /// scrolls vertically takes the keyboard down with it once it reaches
     /// the keys, as a hand-built list or form has it; a sideways strip

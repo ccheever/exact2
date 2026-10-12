@@ -118,8 +118,10 @@ package class ScrollView: UIScrollView {
         return false
     }
     /// A touch that no node took — nothing focusable, nothing pressable —
-    /// ends the editing, as a tap on a page's blank ground blurs the field
-    /// and sends the keyboard away (LLP 1008 §9).
+    /// ends the editing and sends the keyboard away. UIKit does nothing
+    /// here by itself; hand-built iOS apps add exactly this, a tap on the
+    /// background that calls `endEditing`, and that is the reason it stays
+    /// (LLP 1115.000 D9.4; LLP 1008 §9 gave a page's blur as the reason).
     package override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         // An inert button can still retain focus, for example between the
         // two taps of a double-tap recognizer. Its unhandled touch is not
