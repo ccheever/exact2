@@ -107,7 +107,7 @@ component App
                   ItemSections(item=it, setLock=setLock, askRemove=askRemove)
             else
               EmptyState(symbol="symbol:alert", title="No such item", message="It may have been deleted.")
-                button press=back buttonStyle="bordered" testId="missing-back"
+                button press=back buttonStyle="filled" testId="missing-back"
                   text "Back to Items"
         when e.name == "add"
           column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="add-form" position="absolute" inset=0

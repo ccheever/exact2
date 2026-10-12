@@ -100,7 +100,7 @@ column navigationKey=`${e.id}` navigationScroll="note-list" position="absolute" 
 ```
 
 The sheet: `navigationPresentation="modal"`; its Cancel's `id` is the root's `navigationBack`,
-so the swipe down presses it.
+which the swipe down presses.
 
 <!-- check: route add -->
 ```contract
@@ -138,9 +138,8 @@ test "add, open, delete after asking"
 - The alert holds text, closing buttons and one Cancel; any other modal is a sheet (`push`,
   `back`), closed in `then` only on an ok reply ([after-a-write](after-a-write.md)).
 - Covered routes stay mounted: no two screens share a `testId`. In tests, `clock settle` after a
-  push, sheet or alert, `clock data` before reading a save.
+  push, sheet or alert; `clock data` before a save's read.
 - A wide window (900 px up) shows the list beside its detail when its rows push (a `link`, or a
-  `press` that writes the router); `follow` replaces the shown detail;
-  `navigationSplit="none"` keeps it pushed.
+  `press` that writes the router); `follow` replaces it; `navigationSplit="none"` keeps it pushed.
 - A location no route matches keeps its URL and shows not-found with a way home, unless the
   routes declare `notfound`; a detail whose id names nothing says so.
