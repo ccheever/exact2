@@ -324,6 +324,8 @@ final class T3ComposerEditor {
     /// (insertInlineContextReference).
     func insert(_ request: [String: Any]) -> [String: Any] {
         guard let view = textView else { return ["applied": false, "reason": "no composer"] }
+        // A caller naming its composer (a sidebar row's dropped files) never types into another thread's.
+        if let wanted = request["owner"] as? String, !wanted.isEmpty, wanted != owner { return ["applied": false, "reason": "another composer"] }
         let text = view.string as NSString
         // Terminal/file menus take focus, but the editor retains the user's insertion range.
         let selection = view.selectedRange()

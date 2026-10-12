@@ -38,9 +38,19 @@ component TerminalProcessIndicator
     id: string
   view
     Tip(label=tooltip, side="top", align="center", offset=4)
-      box display="flex" flex-shrink=0 role="img" aria-label=label testId=id
-        svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" fill="none" stroke="light-dark(#009689, #96f7e4e6)" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true animation=(reduced ? "none" : "terminalStatusPulse 2s steps(6) infinite")
-          path d="m4 17 6-5-6-5M12 19h8"
+      TerminalGlyph(label=label, size=size, reduced=reduced, id=id)
+
+// The indicator's glyph alone, for a row that wraps it in its own tooltip (legacy-sidebar.contract's LegacyRowTip).
+component TerminalGlyph
+  props
+    label: string
+    size: number
+    reduced: bool
+    id: string
+  view
+    box display="flex" flex-shrink=0 role="img" aria-label=label testId=id
+      svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" fill="none" stroke="light-dark(#009689, #96f7e4e6)" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true animation=(reduced ? "none" : "terminalStatusPulse 2s steps(6) infinite")
+        path d="m4 17 6-5-6-5M12 19h8"
 
 component ThreadRow
   props

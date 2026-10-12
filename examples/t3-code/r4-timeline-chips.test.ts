@@ -41,9 +41,10 @@ describe('sent-message context chips', () => {
     ], [{ type: 'file', id: 'v', name: 'clip.mov', mimeType: 'video/quicktime', sizeBytes: 3 * 1024 * 1024 }]), '', []);
     expect(chips.map(chip => [chip.kind, chip.size, chip.tip, chip.detail])).toEqual([['video', '3.0 MB', 'clip.mov\n3.0 MB', ''], ['terminal', 'Lines 2–4', 'Terminal 1', 'ls\nok']]);
   });
-  test('workspace file links carry their full path; web links and images are not chips', () => {
+  test('workspace file links carry their full path; web links are not chips and an image is a media chip', () => {
     const chips = messageChips({ text: 'Open [a](src/a.ts#L3), [b](./docs/../b.md:4), [abs](/etc/hosts), [web](https://x.dev) and ![i](pic.png)' }, '/repo/root', []);
-    expect(chips.map(chip => [chip.href, chip.tip])).toEqual([
+    expect(chips.filter(chip => chip.kind === 'media').map(chip => [chip.href, chip.tip])).toEqual([['t3-image:t3-file:pic.png', '/repo/root/pic.png']]);
+    expect(chips.filter(chip => chip.kind !== 'media').map(chip => [chip.href, chip.tip])).toEqual([
       ['t3-file:src/a.ts#L3', '/repo/root/src/a.ts:3'], ['t3-file:./docs/../b.md:4', '/repo/root/b.md:4'], ['t3-file:/etc/hosts', '/etc/hosts']]);
   });
   // markdown-links-and-files-preview TH-9: react-markdown's defaultUrlTransform empties `fixture.txt:3` (its "scheme"

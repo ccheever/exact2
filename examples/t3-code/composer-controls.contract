@@ -919,13 +919,17 @@ component QueuedControl
   state dragSeq = -1
   action toggle
     collapsed = collapsed == data.threadId ? "" : data.threadId
+  // A press on another run's grip, or the first move after the last drop (queueDropSeq), starts a drag: fresh, as the
+  // reference's dragstart sets a new dragState. An action reads the values from before it, so the move's offset is
+  // bound first (followups-1012 FU-1: the old body added the move to the dragDy its start branch had just reset, so a
+  // drag after an earlier one started at that drag's offset; queued-drag.test.ts).
   action drag(id: string, index: number, dx: number, dy: number)
-    if dragRun != id or dragSeq != data.composer.queueDropSeq
+    let fresh = dragRun != id or dragSeq != data.composer.queueDropSeq
+    if fresh
       dragRun = id
       dragFrom = index
-      dragDy = 0
       dragSeq = data.composer.queueDropSeq
-    dragDy = dragDy + dy
+    dragDy = (fresh ? 0 : dragDy) + dy
   derive count = length(data.composer.queued)
   derive dragLive = dragRun != "" and dragSeq == data.composer.queueDropSeq
   // Rows are 24pt, 1pt apart: over a row's upper half inserts before it, else after it.
