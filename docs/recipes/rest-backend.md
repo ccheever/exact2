@@ -136,11 +136,15 @@ export const answer: Answer = (source, args, store, storage, native) => sources[
 ```
 
 ```contract-test
-test "an item is added for everyone; a refusal and a lost server are said in words"
+test "an item is added for everyone, and another person's arrives on the poll; a refusal and a lost server are said in words"
   type "draft" "Milk"
   type "draft" key "Enter"
   clock data
   expect text "item-1" == "Milk"
+  request POST "/items" {"title": "Bread"} as grace
+  clock +4000
+  clock data
+  expect text "item-2" == "Bread"
   type "draft" "milk"
   type "draft" key "Enter"
   clock data
@@ -154,7 +158,7 @@ test "an item is added for everyone; a refusal and a lost server are said in wor
   pass fetch "http://127.0.0.1:8787"
   type "draft" key "Enter"
   clock data
-  expect text "item-2" == "Eggs"
+  expect text "item-3" == "Eggs"
   expect text "draft" == ""
 ```
 
@@ -173,6 +177,12 @@ process.exit(await withAppServer(import.meta.dir, () =>
   Bun.spawn(['bun', 'exact.mjs', 'test', ...process.argv.slice(2)], { cwd: import.meta.dir, stdio: ['inherit', 'inherit', 'inherit'] }).exited));
 ```
 
+- **A second person is a test line** (LLP 1116.006 D8): `request POST "/items" {"title":
+  "Bread"} as grace` is the driver calling the server, under app.ts's `API`, with
+  `Authorization: Bearer grace` (a persona's token is its name). The app shows it when it
+  next reads, so `clock +4000` (the poll) and `clock data` come before the `expect`. A
+  status outside 2xx fails the step with the status and body (`as nobody`: 401 `Sign in
+  again.`). No curl timed against the poll.
 - Every failure is an answer the view shows in words: the server's own `error`, or a
   sentence for a lost connection. Never a status code, `Refused: E_INPUT`, or a
   "Synced" line. The field clears in `then`, only on an ok reply, so a refused or unsent

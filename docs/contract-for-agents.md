@@ -2061,6 +2061,13 @@ test "the list shows an error, then retries and loads"
   expect tree has "recipes"
 ```
 
+To write through the app's own server as another person, `request POST "/items"
+{"title": "Bread"} as grace` is the driver calling it (`Authorization: Bearer grace`,
+under app.ts's local URL; a status outside 2xx fails the step with the status and
+body). The app shows the write when it next reads: `clock +<its poll's ms>`, `clock
+data`, then `expect` ([rest-backend](recipes/rest-backend.md),
+[authored tests](contract-grammar.md#authored-tests)).
+
 A slow server is bounded in the source, not the view: `fetch(url, {
 exactTimeout: 10000 })` cancels the exchange after 10 s (headers and body) and
 rejects with a `FetchError` of kind `"Timeout"`, which the source catches and

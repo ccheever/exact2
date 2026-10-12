@@ -102,8 +102,9 @@ older than its sources, saying so on stderr. Each test launches the app fresh wi
 store, after its first data has landed; its leading lines (size, epoch, fail fetch …)
 override flags.
 Runs     to completion, exit 1 when a test fails; nothing is left running.
-Lines    tap, type, expect text|tree|state, clock data|settle|+<ms>, reload, fail|pass fetch:
-         docs/recipes/tests.md; all: docs/contract-grammar.md "Authored tests".`,
+Lines    tap, type, expect text|tree|state, clock data|settle|+<ms>, reload, fail|pass fetch,
+         request <METHOD> "/path" [json] [as <persona>]: docs/recipes/tests.md; all:
+         docs/contract-grammar.md "Authored tests".`,
     bodyAll: `A phone's build is ios --device's.
 Ports    none to choose. web: headless Chrome over a pipe; the page on 127.0.0.1, each test at a
          port fixed by its own store's name (20000-47999).
