@@ -1,0 +1,7 @@
+# Each dialog is shown once here, and the drive's own presses answer the confirmation (`yes`). Shown a second
+# time after its button was pressed, a dialog takes the focus itself in WebKit where Chrome and Firefox focus its
+# first button (the first showing agrees in all three), which the cross-browser run would report.
+tap missing
+tap edit
+tap done
+tap ask
