@@ -117,7 +117,7 @@ struct HeaderShape: Equatable {
     /// has none, so there it is an item like the others.
     init?(route: NodeView, back: String?, backIsUIKits: Bool = true, projected: Bool = false) {
         // What is header-shaped is the kernel's rule, read over this route's views (`HeaderRule`, LLP 1115.001 D11).
-        guard let rule = HeaderRule(route: route, back: back, backIsUIKits: backIsUIKits, projected: projected) else { return nil }
+        guard let rule = HeaderRule(route: route, back: back, backIsPlatforms: backIsUIKits, projected: projected) else { return nil }
         let header = rule.header, headings = [rule.heading], before = rule.leading.map { Item($0) }, after = rule.trailing.map { Item($0) }
         let search = rule.search, segments = rule.segments, tap = rule.tap, items = rule.items
         self.header = header

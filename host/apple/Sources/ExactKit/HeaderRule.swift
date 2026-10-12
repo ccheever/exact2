@@ -1,19 +1,24 @@
-// @ref LLP 1115.001 D11 — what is header-shaped is one rule both hosts read:
+// @ref LLP 1115.001 D11 — what is header-shaped is one rule every host reads:
 // the kernel's (`kernel/src/bars.rs`), which the Android host reads from the
-// kernel's own tree to make Material's top app bar. This host reads the same
-// rule over its own views. They mirror that tree, and a query of the kernel
-// would not serve here: a presenter fed a batch by hand (the tests') has no
-// kernel behind it, and the bar is projected several times a batch. So the
-// views' facts are handed to the rule as words (`exact_header_shape`), and
-// it answers by their places in them.
-#if os(iOS) || os(tvOS)
+// kernel's own tree to make Material's top app bar. The Apple hosts read the
+// same rule over their own views: UIKit's navigation bar is made from it
+// (`HeaderShape`, NavigationBarIOS.swift), and the Mac's title bar and
+// toolbar (LLP 1115.002 D2, HeaderMac.swift). The views mirror that tree, and
+// a query of the kernel would not serve here: a presenter fed a batch by hand
+// (the tests') has no kernel behind it, and the bar is projected several
+// times a batch. So the views' facts are handed to the rule as words
+// (`exact_header_shape`), and it answers by their places in them.
 import CExact
+#if canImport(AppKit)
+import AppKit
+#else
 import UIKit
+#endif
 
 /// A route's header as the shared rule reads it: its heading and level, its
 /// buttons before and after the heading, all of them with the stack's Back
 /// control, its search field, its tablist and the pressable around the
-/// heading. `HeaderShape` is what UIKit's bar is made from it.
+/// heading. Each platform's bar is made from it.
 struct HeaderRule {
     let header: NodeView, heading: NodeView
     let level: Int
@@ -34,11 +39,12 @@ struct HeaderRule {
         return facts
     }
 
-    /// `back` names the stack's Back control, which UIKit's back button
-    /// stands for where there is one (`backIsUIKits`). `projected`: the
-    /// header the route's bar is made from, so none for a route that says
+    /// `back` names the stack's Back control, which the platform's own Back
+    /// stands for where there is one (`backIsPlatforms`: UIKit's back
+    /// button, the Mac toolbar's Back). `projected`: the header the route's
+    /// bar is made from, so none for a route that says
     /// `navigationBar="none"` or a header hidden as authored.
-    init?(route: NodeView, back: String?, backIsUIKits: Bool, projected: Bool) {
+    init?(route: NodeView, back: String?, backIsPlatforms: Bool, projected: Bool) {
         guard let first = route.container.subviews.lazy.compactMap({ $0 as? NodeView }).first else { return nil }
         // The route, then its first child's subtree, in preorder: two words
         // a node, its facts and the count of its children.
@@ -52,7 +58,7 @@ struct HeaderRule {
         }
         add(first)
         var out = [UInt32](repeating: 0, count: 9 + 2 * nodes.count)
-        let flags: UInt32 = (backIsUIKits ? 1 : 0) | (projected ? 2 : 0)
+        let flags: UInt32 = (backIsPlatforms ? 1 : 0) | (projected ? 2 : 0)
         let count = Int(exact_header_shape(words, words.count, flags, &out, out.count))
         guard count >= 9 else { return nil }
         let node = { (place: UInt32) in nodes[Int(place)] }
@@ -69,4 +75,3 @@ struct HeaderRule {
         items = out[9 + before + after..<9 + before + after + all].map(node)
     }
 }
-#endif

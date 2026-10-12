@@ -694,7 +694,7 @@ metrics, measured and painted), with `canvas/surface.rs` for this host.
 **One rule, two hosts.** What is header-shaped, and which tablist is the root's, is decided in the kernel
 (`exact_kernel::bars`), not here: a route whose first child is a `header` holding exactly one heading; the heading
 its title; its buttons before the heading leading and after it trailing; the stack's Back control the platform's
-own Back on a pushed route. iOS makes UIKit's navigation bar from the same rule (`HeaderRuleIOS.swift`). What each
+own Back on a pushed route. iOS makes UIKit's navigation bar from the same rule (`HeaderRule.swift`). What each
 bar becomes is the platform's: nothing below is UIKit's.
 
 **Which host has them.** A shell that shows bars says so (`Presenter::serve_bars`, which the Canvas host does as it
