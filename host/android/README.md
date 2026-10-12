@@ -41,7 +41,8 @@ NDK (`ANDROID_NDK_HOME`, else the newest under the SDK), a JDK (17 or newer) and
 
 1. builds the app's `android/` crate for `aarch64-linux-android` at `host-dev`. The crate is a cdylib whose source is
    `exact_linux::canvas_jni!(<the data source>)`, with a build script that bakes the plan; `apps/caltrain/android` is
-   the one to copy (three files, and a line in the root `Cargo.toml`'s `members`);
+   the one to copy for an app whose data is Rust and `apps/shelf/android` for one whose data is TypeScript (three
+   files each, and a line in the root `Cargo.toml`'s `members`);
 2. copies the library to `app/build/<app>/rust/jniLibs/arm64-v8a/libexactcanvas.so` and the app's `assets/` to
    `app/build/<app>/rust/assets/app/assets/`;
 3. runs `./gradlew :app:assembleRelease -Papp=<app> -PappDir=<the app's directory>` here,
@@ -50,12 +51,129 @@ and prints `app/build/<app>/outputs/apk/release/app-release.apk`. The package id
 `app.json` (`app.id`, `app.name`). `ORG_GRADLE_PROJECT_idSuffix=.dev` in the environment builds a side-by-side package
 (`<app id>.dev`). `./gradlew :canvas:assembleRelease` builds the reader alone.
 
-Then `adb install -r <apk>` and `adb shell am start -n <app id>/dev.exact.app.MainActivity`. Nothing drives the APK
-yet: `scripts/agent.mjs android` drives the Linux host headless (LLP 1107).
+Then `adb install -r <apk>` and `adb shell am start -n <app id>/dev.exact.app.MainActivity`, or drive it:
+`bun scripts/agent.mjs android --reader --app <app> …` (below, "Driving the reader").
+
+## A TypeScript data module (LLP 1115.001 §5.2)
+
+Shelf (`apps/shelf`) is the app that defines "Android works", and its data is `app.ts`. Its library
+(`apps/shelf/android`) is Caltrain's with two differences: the build script is the Linux host's JavaScript bake
+(`exact_js_bake::build(.., "linux")`: the plan, the module as Hermes bytecode, its identity and grants), and the
+library links `exact-js` and with it the lean Hermes VM, from the Android Hermes bundle
+`bun scripts/hermes-android.mjs build` installs (LLP 1107 §4.1; `agent-android.mjs` hands it to Cargo).
+
+**The Canvas host needed nothing for it.** It boots through the Linux host's own door
+(`app::boot_presenter_with_painter`), so the module is made, activated after the first frame is recorded
+(`first_pixel`), asked and answered as on desktop Linux and under the headless Android carrier; its replies wake the
+reader by the descriptor it already waits on. With the reader's default (`Owner`) the host boots and runs on one
+thread, so the VM never crosses one (`owner=0`, the benchmark's compare switch, boots on one thread and runs on
+another after a first frame that may have activated the module: not tried with one). What the reader lacked was
+outside exact2:
+
+- **The network permission.** The shell's manifest asked for none, so a `fetch` failed at the name lookup
+  ("failed to lookup address information"). It now asks for `android.permission.INTERNET` for every app it packages;
+  what an app may reach is still its grants' to say. TLS is rustls with the compiled-in roots: the journal says
+  "no system trust store" on Android.
+- Storage needed nothing: `app:/data` is under the `XDG_DATA_HOME` the reader sets (the app's own files
+  directory), and Shelf's library survives a force-stop and a cold start.
+- The clock needed nothing: a book added on the phone sorts above the seeded ones.
+
+**What it costs**, on a Pixel 10 Pro XL (Android 16) against Caltrain in the same session, 2026-10-11:
+
+| | Shelf (TypeScript) | Caltrain (Rust) |
+|---|---|---|
+| APK | 20,531,755 bytes | 12,181,871 bytes |
+| `libexactcanvas.so` in it (stripped, stored) | 20,232,952 bytes | 11,882,224 bytes |
+| `classes.dex` | 267,980 bytes | the same |
+| Cold start, `am start -W` after a force-stop, twenty each, interleaved | median 92.0 ms (quartiles 86 to 96; 79 to 101) | median 90.5 ms (86 to 94; 84 to 96) |
+| Boot (`CanvasHost::boot`) | 15.7 ms | 16.6 ms |
+| The host's first turn ends, after boot began | 26.2 ms | 24.0 ms |
+| Resident memory with the first screen up (`VmRSS`) | 171.3 MB | 172.0 MB |
+| Native heap (PSS) | 8.1 MB | 6.3 MB |
+
+The VM, ICU and the JavaScript executor are 8.4 MB of the library. Cold start did not move past its spread: three
+earlier sessions of twenty each, on earlier trees, gave Shelf 92, 89.5 and 91.5 ms and Caltrain 93, 94.5 and 92.
+Shelf's first turn is 2.2 ms longer than Caltrain's (2.5, 4.5 and 4.0 in those sessions); it holds the first
+frame's paint and then making the VM, loading the module and asking it for `library` and `subjectWorks`, and the two
+apps' first frames are not the same work, so that is a bound on what Hermes adds and not its measure. The module's
+first answer (`library`, after a read of its file) is committed 27 ms after boot began, **61 ms after the process
+started** (median of ten; 56 to 65), a few milliseconds after the first frame is displayed (55 ms). Memory is one
+reading each, in each of four sessions, never more than 1 MB apart.
+
+`x_log_journal=1` at launch (exact2's `EXACT_LOG_JOURNAL`, `host/linux/src/canvas/journal.rs`) writes the app's
+journal to logcat as the host comes to hold each line, with the milliseconds since boot began: that is how the times
+above were read (`adb logcat -v time`, from ActivityManager's "Start proc" line). Without it nothing is read or
+written.
+
+Not there: `Intl` in a module (the bundle has ICU's Unicode and no Intl, LLP 1107 §4.1), and a picture from a URL
+(below, "Not done").
+
+## Driving the reader (LLP 1107 D1)
+
+    bun scripts/agent.mjs android --reader --app shelf --storage s1 "clock data" tree "tap add-book" \
+        "type add-title Emma" state "screenshot out.png"
+    bun scripts/agent.mjs android --reader --app shelf --test apps/shelf/app.test.contract
+
+drives the app the reader shows, on a phone over adb, by the Linux host's own protocol: no second one. `--reader`
+takes the APK `agent-android.mjs build <app> --apk` made (`EXACT_ANDROID_BIN=<apk>` names another), installs it,
+launches it under a driver and speaks the agent API's JSON lines to it. `ANDROID_SERIAL` picks the phone, and
+`ORG_GRADLE_PROJECT_idSuffix` says the package's suffix, as it did to the build.
+
+**How a line crosses.** The shell's activity attaches an `AgentDrive` at the reader's driver seam (below) when its
+launch says `agent=<name>`: a socket of that name in the abstract namespace, served only to adb's own user (shell
+or root: any app on the phone can reach an abstract socket). adb forwards it; the carrier's process
+(`agent-android.mjs relay`) carries lines between `agent.mjs`'s stdio carrier and the socket. Each request is one
+call, `Native.agent(line)`, on exact2's thread, into `host/linux/src/canvas/agent.rs`, which hands it to the handler
+the headless carrier uses (`exact_linux::agent::handle`). The drive's `EXACT_AGENT` and `EXACT_AGENT_*` (its store,
+epoch, locale, seed and fetch faults) reach the app as `x_<name>` launch extras; a launch whose environment does
+not say `EXACT_AGENT=1` answers no request, and a production bake drops that variable (LLP 1069.007 D2).
+
+**What the Canvas host adds to that handler**, which assumes a host with no display:
+
+- *Its paints reach the reader.* The handler paints as it goes, each paint a stream that defines faces, pictures
+  and rows the next ones draw with, and the recorder kept one finished stream. A stream finished over one the
+  reader has not taken is now queued while a driver holds the host, and `Native.frame` hands the reader the oldest
+  first.
+- *What it painted was displayed.* A display admits a touch only on what its last displayed frame showed, and the
+  handler's paints are not displayed frames: after each request the host takes one display turn, so the next
+  request can tap what this one made.
+- *The clock is the driver's.* From the first request the host's turns run at the runner's clock, which only a
+  `clock` request moves: no timer fires and no motion advances between requests.
+
+**The operations**, each tried on a Pixel 10 Pro XL with Shelf:
+
+| Operation | On the reader |
+|---|---|
+| `tree`, `state`, `logs`, `layout` | answered by the handler as on Linux; `layout` is in points, in the page the reader placed (the viewport the system's bars and the keyboard leave) |
+| `tap <target>` | the presenter's addressed press, as on Linux: it is not a touch through Android's input, so the reader's own gesture code (its slop, its long-press timer, a field's touch) is not what is tested. A row of an open alert or menu is chosen by its authored node |
+| `tap <target> contextmenu` | opens the menu the node names, as a finger held on it does (`Presenter::long_press`) |
+| `type <target> <text>` | sets the field's value through the presenter; the hosted `EditText` then shows it, focused, with its keyboard up. Not typed through the keyboard: nothing composes |
+| `clock data`, `clock settle`, `clock +<ms>` | as on Linux. What the reader plays itself is outside the clock: a fling, the keyboard's slide, a `Dialog`'s own fade. A drive launches with `lower=0`, so no layer plays on the reader's clock |
+| `screenshot <png>` | the device's own picture (`screencap`), taken 400 ms after the operation before it so the reader has drawn: the whole screen, bars and keyboard included, in device pixels. `window` changes nothing; `over … every …` is refused |
+| `prefer` | the handler's: it changes what the app is told (`prefers-color-scheme light` turned Shelf light on a phone in night mode), not the phone's settings |
+| `perf` | the runner's table by plan site. `perf frames` was not tried; the handler answers it `virtual`, which is not the reader's frames |
+| `fail fetch`, `pass fetch`, a test's `reload` | work (Shelf's tests use them) |
+| `check` | refused by `agent.mjs` for every Android carrier ("the web and iOS hosts carry it") |
+| `--plan`, `--world`, a launch URL | refused: the reader boots the plan its APK bakes. `--size` is the phone's. `tree --ax`, `resize`, a drag and a wheel were not tried |
+
+Shelf's own tests (`apps/shelf/app.test.contract`, eleven) pass on the reader. They found three things on the way,
+each fixed where it was: a value the app sets that a field's keyboard would not admit ("12.5" in a number field)
+crashed the reader (below, "Text fields"); the driver's `reveal` before a tap refused a row of an open alert as not
+on screen; and `tap … contextmenu` was refused as a popover though this host presents one.
+
+**What it costs.** The handler was dead code in an app's library and is now reachable from `Native.agent`:
+0.52 MB more in `libexactcanvas.so` for every app (Shelf's 19,717,432 bytes before it, 20,241,592 after). Nothing of
+it runs unless a driver asks, and cold start with it is the table's above.
+
+Not built: the carrier does not check that the APK is newer than its sources, as the other carriers refuse a stale
+build; each drive installs the APK again; a drive leaves the phone's night mode, font scale and locale as they are
+(`prefer` tells the app, not the phone); and a touch through Android's own input (`adb shell input`, or a
+`UiAutomation`) is still the only way to test what the reader does with a finger.
 
 ## Attaching a driver
 
-The reader drives nothing. A benchmark, or a test, that scrolls and taps an app from outside subclasses the activity:
+The reader drives nothing by itself. A benchmark, or a test, that scrolls and taps an app from outside subclasses the
+activity:
 
 ```kotlin
 // In the benchmark's own module, which depends on this project's `:canvas`
@@ -379,10 +497,40 @@ back to the reader's view, so keys go on to exact2 (`Native.key`). Back closes t
 does itself for an `EditText`: the IME takes Back before the reader's callback. A hardware keyboard types into the
 `EditText`; its Enter is the action key and its Tab the page's.
 
+**A field that exact2 takes the focus from gives it up itself.** Two roads led the platform to move the focus on its
+own, both seen with Shelf on a Pixel and both closed in `Fields.kt`. A field that is covered while it holds the focus
+(a route pushed over its own: search, then a tap on a result) was only made unfocusable, which dropped its focus and
+left its keyboard up and connected to it: the page on top sat under a keyboard that typed into the field beneath,
+and Back left that page before it closed the keyboard. And a field that went while it held the focus (Save in the
+add form) left the platform to focus the first field still in the window, which told exact2 as a person's tap would:
+the library came back with its search field focused and the keyboard up. In both the field now hands the focus to the
+reader's own view first, and the keyboard goes.
+
+**A value the app sets is not the keyboard's to refuse.** A field's filters are the person's limits: its
+`maxlength`, and the characters its keyboard's kind admits (a number field's key listener). An app's value went
+through the second, so "12.5" set in `inputmode="numeric"` became "125" and the caret, placed by the told value's
+length, was past the end: `IndexOutOfBoundsException` in `EditText.setSelection`, the process gone. Shelf's own
+test of its pages field found it through the driver. An app's value now replaces the text with no filter at all,
+and the caret is kept within what the field holds.
+
 `x_log_fields=1` at launch (exact2's `EXACT_LOG_FIELDS`) logs each edit told to exact2 with its composing region,
 and what the keyboard asks of the field's input connection (`setComposingText`, `commitText`, …).
 
 Not built of D8:
+
+- **`autofocus` on a page that opens does not take.** Shelf's add form names its title field and opens with no
+  field focused and no keyboard; a tap on the field works. The cause is exact2's, not the reader's:
+  `Presenter::after_commit` focuses an `autofocus` node only once it has a box, a display admits a box only after the
+  frame that showed it (`display.allows`), and nothing commits after that frame, so the node is never tried again.
+  Desktop Linux's display has the same hole.
+- **The keyboard comes back by itself.** A person who puts the keyboard away with Back leaves the field focused, as
+  the platform does. When exact2 later states that field's focus again (an alert or a menu closed and the focus went
+  back to it; the activity came back from the background), the reader shows the keyboard, where a platform field
+  keeps it down until it is tapped. exact2 cannot say "focused, keyboard down" on the channel (kind 6).
+- **Seen once and not explained:** the action key moved exact2's focus to the next field, whose ring showed, while
+  the platform's stayed in the first, so what was typed next went on into the first field. One run in eight of
+  Shelf's add form, with Enter sent by `adb shell input keyevent`. `Fields.focus` asks the field for the focus and
+  does not check that it took it.
 
 - **A field's views are all made as its page appears**, on the main thread: about 0.6 to 1 ms a field on a Pixel
   10 Pro XL (the `EditText`'s constructor is a third of it, then its input type, its first layout and its first
@@ -563,7 +711,6 @@ The cut was the smallest one. Left in the reader:
     does no frame work while the activity is stopped. Android discards a stopped window's display lists, the reader's
     kept rows among them, so a start after a stop makes the reader again (`ExactActivity.read`) and the host paints
     everything for it; hosted views are made again with it. Nothing is saved for a process the system kills (D15.3).
-- **No agent carrier** for the APK (`--reader`, LLP 1107 §4.4).
 - **No check builds any of it.** Gradle is in none of the five checks or the async lane, and nothing builds
   `exact-linux` for the Android target.
 - **The shell is a development build**: signed with the debug key, with no icon. Its one activity turns keys on for
@@ -573,5 +720,8 @@ The cut was the smallest one. Left in the reader:
   Caltrain's sky was not tried.
 - **No update store** and no replaced Rust module: the Canvas host has neither, though an app's compatibility
   record is computed as its Linux crate's is, and Caltrain's names both (`store.L` is `A`, `rustMode` is `native`).
-- **Only an app whose data is Rust** has been built. `exact new` writes no `android/` crate.
+- **No picture from a URL.** The Linux host's pictures are files under the asset root (`host/linux/src/image`), on
+  every shell it has: Shelf's covers, which Open Library serves, are the grey box behind them in Discover and a gap on
+  a book's page. Nothing of this host's is missing for it; the loader has no door for a remote source.
+- `exact new` writes no `android/` crate.
 - **The benchmark still builds its own copy** of the reader, which no longer matches this repository's JNI names.
