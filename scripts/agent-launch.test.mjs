@@ -62,6 +62,10 @@ test('a web drive takes its port from --port, else EXACT_PORT, and refuses anyth
   expect(webPort(undefined, {})).toBe(null);
   expect(() => webPort('99999', {})).toThrow('--port 99999: a port number');
   expect(() => webPort(undefined, {EXACT_PORT: 'x'})).toThrow('EXACT_PORT x: a port number');
+  expect(parseFlags(['web', '--storage', 'proof', '--keep-storage', 'tree']).flags.keepStorage).toBe(true);
+  expect(parseFlags(['web', '--storage', 'proof', '--reset-storage', 'tree']).flags.resetStorage).toBe(true);
+  expect(() => parseFlags(['web', '--keep-storage'])).toThrow('need --storage');
+  expect(() => parseFlags(['web', '--storage', 'proof', '--keep-storage', '--reset-storage'])).toThrow('mutually exclusive');
 });
 
 // App farm 082: Chrome's fatal line came before a native stack the tail kept instead.

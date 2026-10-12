@@ -332,9 +332,21 @@ export function wireSnapback(dir, { build = true, port = null } = {}) {
   const parent = dirname(dir), said = [], version = snapbackVersion();
   if (port !== null) {
     port = snapbackPort(port, 'exact snapback --port');
-    const source = resolve(dir, 'app.ts'), ts = existsSync(source) ? readFileSync(source, 'utf8') : '';
-    const origin = /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(ts)?.[1];
-    if (!origin) throw new Error('exact snapback --port needs app.ts\'s const origin = "http://127.0.0.1:…"; name the origin and use net.fetch ${origin} in its grants first');
+    const source = resolve(dir, 'app.ts');
+    let ts = existsSync(source) ? readFileSync(source, 'utf8') : '';
+    let origin = /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(ts)?.[1];
+    if (!origin) {
+      // A plain `exact new` app has no backend yet. Only add a declaration
+      // where no differently expressed origin could be silently shadowed.
+      if (/\b(?:const|let|var)\s+origin\b/.test(ts)) throw new Error('exact snapback --port: origin is not a literal URL; edit its declaration explicitly');
+      const grants = /export const grants\s*=\s*(['"`])([\s\S]*?)\1\s*;/;
+      if (!grants.test(ts)) throw new Error('exact snapback --port: app.ts needs a literal export const grants; write its net.fetch grant explicitly');
+      origin = `http://127.0.0.1:${port}`;
+      ts = `const origin = '${origin}';\n` + ts.replace(grants, (_, quote, value) =>
+        `export const grants = ${quote}${value}${quote} + \`\\nnet.fetch \${origin}\\nsqlite.open app:/data\`;`);
+      writeFileSync(source, ts);
+      said.push(`Snapback origin: added ${origin} and its net.fetch/sqlite.open grants to app.ts.`);
+    }
     const next = new URL(origin);
     if (!['127.0.0.1', 'localhost', '[::1]'].includes(next.hostname)) throw new Error(`exact snapback --port: ${origin} is not a loopback backend`);
     next.port = String(port);

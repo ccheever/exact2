@@ -525,7 +525,10 @@ test('a new Snapback app is wired to the backend above it, and update follows a 
     writeFileSync(resolve(custom, 'app.ts'), readFileSync(resolve(custom, 'app.ts'), 'utf8').replace('http://127.0.0.1:4412', 'https://api.example.com'));
     assert.throws(() => wireSnapback(custom, { build: false, port: 4413 }), /not a loopback backend/);
     writeFileSync(resolve(custom, 'app.ts'), "export const grants = '';\n");
-    assert.throws(() => wireSnapback(custom, { build: false, port: 4413 }), /needs app.ts's const origin/);
+    assert.match(wireSnapback(custom, { build: false, port: 4413 }), /added http:\/\/127\.0\.0\.1:4413/);
+    assert.match(readFileSync(resolve(custom, 'app.ts'), 'utf8'), /const origin = 'http:\/\/127\.0\.0\.1:4413';[^]*net.fetch \$\{origin\}/);
+    writeFileSync(resolve(custom, 'app.ts'), "const origin = process.env.BACKEND;\nexport const grants = '';\n");
+    assert.throws(() => wireSnapback(custom, { build: false, port: 4413 }), /origin is not a literal URL/);
     assert.ok(!readFileSync(resolve(custom, 'app.ts'), 'utf8').includes('api.post'));
     assert.ok(!readFileSync(resolve(custom, 'app.contract'), 'utf8').includes('Guestbook'));
     assert.equal(readFileSync(resolve(parent, 'snapback/schema.q'), 'utf8'), 'use personas carol\n');

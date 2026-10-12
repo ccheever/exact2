@@ -1,7 +1,7 @@
 // Session setup shared by the agent CLI and its programmatic driver.
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { accessSync, constants, existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { accessSync, constants, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -167,6 +167,27 @@ export function netOptions(environment = process.env) {
   return { launch: { proxy: { server: `http://${environment.EXACT_NET_PROXY}`, bypass: '127.0.0.1,localhost' } }, context: { ignoreHTTPSErrors: true } };
 }
 
+/** Own a named Chrome profile before resetting it, including when two drives
+ * choose different page ports. The OS releases the lock if the driver dies. */
+export async function exclusiveWebStore(options, launch) {
+  if (options.storage === undefined || options.browser !== 'chrome' || options.reuse) return launch();
+  const app = resolveApp(options.app), store = driveStore(app.id, options.storage, options.env);
+  mkdirSync(store.base, {recursive: true});
+  let release, acquired;
+  const ready = new Promise(resolve => { acquired = resolve; });
+  const lifetime = new Promise(resolve => { release = resolve; });
+  const holding = filesystemLock(resolve(store.base, '.locks'), `${options.storage}/.lock`, async () => { acquired(); await lifetime; });
+  try { await Promise.race([ready, holding]); }
+  catch (error) { throw new Error(`--storage ${options.storage}: profile lock failed (${error.message}); close any drive of this store or use another name`); }
+  const unlock = async () => { release(); await holding; };
+  try {
+    const carrier = await launch(), close = carrier.close.bind(carrier);
+    let closed;
+    carrier.close = () => closed ??= (async () => { await close(); await unlock(); })();
+    return carrier;
+  } catch (error) { await unlock(); throw error; }
+}
+
 /** The one port a web drive's page is served on, `--port <n>` else `EXACT_PORT`, or null for the default (a free port;
  * a named store's from its hash). Builders on a shared machine must keep every listener in an assigned range (app farm
  * wave 1: 21 builds could not). A test run serves its tests on it one at a time. A named store's data is its origin's,
@@ -264,11 +285,15 @@ export function parseFlags(argv) {
     else if (argv[i] === '--phone') flags.phone = argv[++i];
     else if (argv[i] === '--sim') flags.sim = argv[++i];
     else if (argv[i] === '--storage') flags.storage = argv[++i];
+    else if (argv[i] === '--keep-storage') flags.keepStorage = true;
+    else if (argv[i] === '--reset-storage') flags.resetStorage = true;
     else if (argv[i] === '--port') flags.port = argv[++i];
     // A driver fault armed before the app's first data load (LLP 1103 D3): every fetch whose URL starts with it fails.
     else if (argv[i] === '--fail-fetch') flags.failFetch = [flags.failFetch, argv[++i]].filter(Boolean).join('\n');
     else rest.push(argv[i]);
   }
+  if (flags.keepStorage && flags.resetStorage) throw new Error('--keep-storage and --reset-storage are mutually exclusive');
+  if ((flags.keepStorage || flags.resetStorage) && flags.storage === undefined) throw new Error('--keep-storage and --reset-storage need --storage <name>');
   return { flags, rest };
 }
 

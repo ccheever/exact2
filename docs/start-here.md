@@ -44,6 +44,8 @@ starter app is kept: write its sources for those generated operations.
 `snapback --port <n>` moves a loopback origin, grants and test fetch prefixes
 together. Password sign-in, stored sessions and refresh with Contract time are
 in [the adapter guide](../snapback4/README.md#personas-and-password-accounts).
+On a plain scaffold, `snapback --port <n>` adds the origin and fetch/storage
+grants. A computed origin or grants declaration needs an explicit edit.
 After upgrading Snapback4 or Exact's device, run `bun exact.mjs snapback --rebuild`.
 The device's digest-bound `assets/snapback4.wasm.json` records the engine built.
 `snapback`, `contract build`, `test web` and `agent web` refuse a stale device;
@@ -67,6 +69,12 @@ Keep scratch files in `.exact/` (any other new file makes the build stale).
 serves on that port; a held port is refused. Otherwise each picks a free port and
 prints its URL. A native client starts a second loop on `n+1`. A storage store
 keeps its data per port, so drive one store on one port.
+- **Named browser stores.** `agent web --storage s1` starts empty each run.
+  Add `--keep-storage` to reopen its saved data and password session, or
+  `--reset-storage` to explicitly reset it. A live drive owns its profile;
+  another drive cannot reset it. Authored tests always isolate their browser
+  stores, including across repeated suite runs. Backend rows persist: use
+  `fresh` with `dev`, or create uniquely keyed fixtures with `serve`.
 
 ## One screen: the view, its data, its test
 

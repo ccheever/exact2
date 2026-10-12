@@ -921,11 +921,21 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 
 - **A storage test fails with `storage is busy`, or storage is "unavailable in
   agent mode".** Cause: a drive has no storage unless it names a scratch store, and
-  an open SQLite database locks its file, so a mutation and the refresh it triggers
-  collide. Fix: `--storage <name>` on an `agent` drive (authored tests get a
-  store of their own), and queue every `storage.sqlite.open` in `app.ts`
+  an open SQLite database locks its file until close. Competing opens now wait
+  up to 10 seconds; a timeout means another handle or tab still owns it.
+  Fix: `--storage <name>` on an `agent` drive (authored tests get a
+  store of their own), and close each handle in `finally` or reuse it through
+  `Snapback.switcher`. Queue short-lived `storage.sqlite.open` calls in `app.ts`
   ([the human guide](contract-for-humans.md#writing-the-data-module) shows one).
   (LLP 1086 reading-list example, 2026-10-04.)
+
+- **A browser proof reopens an old password session after rebuilding the backend.**
+  `agent web --storage <name>` now resets its scratch profile on each CLI run.
+  `--keep-storage` deliberately preserves it; `--reset-storage` explicitly
+  starts empty. Use `fresh` only with `snapback4 dev`; against `serve`, provision
+  uniquely keyed fixtures or log in to a provisioned account. Backend rows
+  survive browser resets. `E_AUTH` from the server forgets the current managed
+  session. (Wave 9, lanes 015/060, 2026-10-12.)
 
 - **An agent drive shows the app's defaults (a mock, an empty store) though
   the app's files are there.** Cause: without `--storage <name>` every
