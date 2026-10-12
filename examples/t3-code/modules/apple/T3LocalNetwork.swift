@@ -1,4 +1,4 @@
-// Network facts for "This machine" (20261005-this-machine-network-access item 2), after T3 Code
+// Network facts for "This machine", after T3 Code
 // (MIT, see LICENSE-T3; reference 1e2ecbd975): apps/desktop/src/backend/DesktopNetworkInterfaces.ts
 // (`os.networkInterfaces()`), packages/tailscale/src/tailscale.ts (`readTailscaleStatus`: `tailscale
 // status --json`, 1.5 s, the stderr diagnostics that never quote the CLI, `probeTailscaleHttpsEndpoint`:

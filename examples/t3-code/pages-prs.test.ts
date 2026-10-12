@@ -108,8 +108,8 @@ test('one Refresh press invalidates once, though the announcement it causes asks
 // CollapsibleTrigger, PullRequestCopyableCode), so on every pull request surface a single-line text that can
 // overflow (an ellipsis, `line-clamp=1`, or `nowrap` with `overflow="hidden"`) inside a button must resolve
 // `text-align` to left: the nearest `text-align` on the way up to the button decides. Read from the Contract
-// sources as dialog-focus.test.ts reads its stops; the live drive in the 20261008-pr-list-title-clip record on the feat(example)/t3-code branch is
-// the proof.
+// sources as dialog-focus.test.ts reads its stops; driving the app on macOS shows the
+// titles themselves.
 test('every single-line text that can overflow inside a pull request button is start-aligned, as PULL_REQUEST_ROW_CLASS says text-left', async () => {
   const { readdirSync } = await import('node:fs');
   const files = readdirSync(new URL('./', import.meta.url)).filter(name => /^pages-prs?(-.+)?\.contract$/.test(name)).sort();

@@ -1,7 +1,7 @@
 import AppKit
 import XCTest
 
-// realinput-1010d RD-4: a right-click on selected read-only text shows the desktop shell's menu (DesktopWindow.ts
+// A right-click on selected read-only text shows the desktop shell's menu (DesktopWindow.ts
 // installContextMenu: Cut disabled, Copy, Paste disabled, Select All), not ExactKit's NSTextView menu (since main `6a7f16c6f`
 // AppKit's own for a read-only text view holding the selection: Look Up, Translate, Search With, Copy, Share, Writing Tools,
 // Speech, Services, its items aimed at that view). `HostParagraph` stands in for an ExactKit text node: its `menu(for:)` is
@@ -31,7 +31,7 @@ private final class HostParagraph: NSView {
     override func selectAll(_ sender: Any?) { selections += 1 }
 }
 
-/// realinput-1010f RF-1: a text node as AppKit sees it for Services (ExactKit's answers `validRequestor` for its
+/// A text node as AppKit sees it for Services (ExactKit's answers `validRequestor` for its
 /// selection). AppKit's context-menu pop-up asks it once per service type while it builds the Services item.
 private final class ServicesRequestor: NSView, NSServicesMenuRequestor {
     private(set) var servicesAsks = 0
@@ -142,7 +142,7 @@ final class TextContextMenuTests: XCTestCase {
         XCTAssertEqual(other.ownMenus, 1)
     }
 
-    /// realinput-1010f RF-1: the shell's menu pops up without Services. DesktopWindow's template (Electron's menu) has
+    /// The shell's menu pops up without Services. DesktopWindow's template (Electron's menu) has
     /// none; `NSMenu.popUpContextMenu` adds them for a view that answers `validRequestor` unless plug-ins are off.
     func testTheShellsMenuPopsUpWithoutServices() {
         let requestor = ServicesRequestor(frame: NSRect(x: 20, y: 120, width: 200, height: 40))

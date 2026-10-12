@@ -1,4 +1,4 @@
-// Pairing links for "This machine" (20261005-this-machine-network-access item 5), after T3 Code
+// Pairing links for "This machine", after T3 Code
 // (MIT, see LICENSE-T3; reference 1e2ecbd975): components/settings/pairingUrls.ts,
 // apps/web/src/hostedPairing.ts buildHostedPairingUrl, ConnectionsSettings.logic.ts
 // (isQrShareableEndpoint, selectQrEndpointOption) and ConnectionsSettings.tsx

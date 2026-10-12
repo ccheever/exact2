@@ -187,7 +187,7 @@ component BrowserMiniPlayer
       // ThreadPreviewMiniPlayer's `group`: the 12 pt handle, which grows to the pill's box while the pill shows (the
       // group-hover). Whether the pointer is on it is the player's own hover and moves (`bcPlayerZone`), not a hover of
       // the handle: a real pointer that came to rest on the 12 pt box often brought no enter there, so the pill waited for
-      // another move (realinput-1010d RD-1), while the player's box has heard the pointer since it crossed the page. The
+      // another move, while the player's box has heard the pointer since it crossed the page. The
       // pill's buttons hear no hover of their own either: on macOS a hover node over another trades the hover with it on
       // every move, and a child outside its parent's box got none before main #327 (X62, #322). Their tooltips follow the pointer's place.
       // The drag is a box behind the pill, not the handle that holds its buttons: the reference's buttons stop the

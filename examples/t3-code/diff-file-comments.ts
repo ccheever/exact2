@@ -7,7 +7,7 @@
 // by the edit's unchanged head and tail (`remapLine`), and the cards hide while the editor is open
 // (they would shift the lines under its transparent text).
 //
-// The gutter (files-gutter-parity FG-2): as the diff's (diff-line-drag.ts, realinput-1010f RF-3), a press on a line
+// The gutter: as the diff's (diff-line-drag.ts), a press on a line
 // number starts a selection that follows the pointer over the file's lines (Shift extends it) and a press on the "+"
 // starts a range from the selection's top; the release ends it, and FilePreviewPanel's onLineSelectionEnd opens the draft
 // on what it ended on (`beginComment`), so a click on a number opens one too. R4CodeRow (r4-surfaces-files.contract)

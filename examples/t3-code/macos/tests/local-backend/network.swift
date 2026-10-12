@@ -1,7 +1,7 @@
 import Foundation
 import XCTest
 
-// 20261005-this-machine-network-access: the native facts behind Network access and Tailscale HTTPS
+// The native facts behind Network access and Tailscale HTTPS
 // (T3LocalNetwork.swift) and the restart with a new envelope (T3LocalBackend.restart, the U4 stopgap).
 // The first tests keep the reference's names (MIT, see LICENSE-T3; reference 1e2ecbd975:
 // apps/desktop/src/backend/DesktopNetworkInterfaces.test.ts and packages/tailscale/src/tailscale.test.ts,

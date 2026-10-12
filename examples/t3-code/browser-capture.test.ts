@@ -346,7 +346,7 @@ describe('the floating player and the separate window', () => {
     const indent = (line: string) => line.length - line.trimStart().length;
     const handle = lines.findIndex(line => line.includes('testId="browser-mini-handle"'));
     const pill = lines.findIndex(line => line.includes('testId="browser-mini-pill"'));
-    // realinput-1010d RD-1: the hover is the player's (its box holds the handle and the pill), the group the handle's box.
+    // The hover is the player's (its box holds the handle and the pill), the group the handle's box.
     expect(lines.find(line => line.includes('testId="browser-mini-player"'))).toContain('hover=overPlayer pointermove=movePlayer');
     expect(lines[handle]).not.toContain('hover=');
     expect(pill).toBeGreaterThan(handle);
@@ -477,11 +477,11 @@ describe('an annotation\'s ⌘↩ at the window (ChatView onSendAnnotation, onSe
   });
 });
 
-// The real-input session of 2026-10-10 (realinput-1010c, row A, bundle d1ae77d7): what a person's keys and pointer did
+// Found under real input (a person's keys and pointer, 2026-10-10): what they did
 // that agent drives could not show. Each row fails without its fix, except the canvas row ("a resize's pans under one
 // serial …"): the canvas did not change, so it passes on the previous code too. It shows why one serial per gesture
 // matters; the fix itself, the contract's `pan` taking one serial per gesture, is the line row before it and the drive.
-describe('realinput-1010c: a real Escape, the pill by a real pointer, the drag and the resize, the header tooltip', () => {
+describe('a real Escape, the pill by a real pointer, the drag and the resize, the header tooltip', () => {
   const source = (file: string) => readFileSync(new URL(`./${file}`, import.meta.url), 'utf8');
   const line = (text: string, needle: string) => text.split('\n').find(candidate => candidate.includes(needle)) ?? '';
   const block = (text: string, start: string, end: string) => { const all = text.split('\n'), at = all.findIndex(candidate => candidate.includes(start)); return at < 0 ? '' : all.slice(at, all.findIndex((candidate, index) => index > at && candidate.startsWith(end))).join('\n'); };
@@ -508,7 +508,7 @@ describe('realinput-1010c: a real Escape, the pill by a real pointer, the drag a
     for (const id of ['restore', 'window', 'close']) expect(contract).toContain(`align=tipAlign, hot=(tipAt == "${id}"), tipShown=(pill and tipAt == "${id}" and tipShut != "${id}")`);
   });
 
-  it('realinput-1010d RD-1: the pill follows the player\'s own hover and moves, not an enter of the 12 pt handle', async () => {
+  it('the pill follows the player\'s own hover and moves, not an enter of the 12 pt handle', async () => {
     // A real pointer that came to rest on the dot showed the grab hand but no pill until it moved again (3 of 3): the
     // handle's small box heard no enter. The player's box hears the pointer from the moment it crosses the page, so each
     // move places it on the handle ("dot"), the rest of the pill's box ("pill") or the page; the pill shows on the

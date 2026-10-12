@@ -1,7 +1,7 @@
 import Foundation
 import XCTest
 
-// The embedded server's native logic (20261005-embedded-server-runtime). Build and run with the
+// The embedded server's native logic. Build and run with the
 // README's module-test recipe (every file in modules/apple/ and this directory).
 let suite = XCTestSuite(name: "T3 local backend")
 for tests in [LocalBackendManagerTests.defaultTestSuite, LocalShellEnvironmentTests.defaultTestSuite, LocalOutputLogTests.defaultTestSuite,

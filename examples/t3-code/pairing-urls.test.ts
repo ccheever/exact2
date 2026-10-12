@@ -1,4 +1,4 @@
-// 20261005-this-machine-network-access item 5: pairing URLs and the share panel's endpoint choice,
+// Pairing URLs and the share panel's endpoint choice,
 // ported with the reference's test names (MIT, see LICENSE-T3; reference 1e2ecbd975:
 // components/settings/pairingUrls.test.ts and ConnectionsSettings.logic.test.ts). The hosted app's
 // URL is a parameter here (the reference stubs VITE_HOSTED_APP_URL).

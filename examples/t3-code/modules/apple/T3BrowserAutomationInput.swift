@@ -87,7 +87,7 @@ enum T3BrowserAgentCursor {
         let scale = web.pageZoom * web.magnification
         // The page's point in the view's own coordinates, then in its layer's. The layer's axes follow every flipped
         // ancestor (the stage's host is flipped, `T3BrowserView.Host`), which its own `isGeometryFlipped` does not say:
-        // reading that alone put the cursor at the page's height minus the target's y (realinput-1010d RD-3).
+        // reading that alone put the cursor at the page's height minus the target's y.
         let position = web.convertToLayer(NSPoint(x: x * scale, y: web.isFlipped ? y * scale : web.bounds.height - y * scale))
         orient(cursor, down: layerPointsDown(web))
         CATransaction.begin()

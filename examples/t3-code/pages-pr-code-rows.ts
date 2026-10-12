@@ -1,4 +1,4 @@
-// The pull request Code tab's virtualized list (20261005-pr-code-tab): one flat list of the shared
+// The pull request Code tab's virtualized list: one flat list of the shared
 // diff items (shapes.contract DiffItem, drawn by diff.contract DiffRow) — the file headers with their
 // Viewed tick, the stacked or split rows, the hidden ranges, and what is pinned under a line: the
 // host's conversations, the pending comments of the review being written, and the open draft

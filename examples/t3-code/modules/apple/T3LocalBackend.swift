@@ -1,4 +1,4 @@
-// The embedded T3 server (20261005-embedded-server-runtime): the app's one local backend, after
+// The embedded T3 server: the app's one local backend, after
 // T3 Code's desktop app (MIT, see LICENSE-T3; reference 1e2ecbd975: apps/desktop/src/app/DesktopApp.ts
 // `resolveDesktopBackendPort` and the quit finalizer, backend/DesktopBackendConfiguration.ts
 // `resolvePrimaryStartConfig` and the bootstrap token, backend/DesktopLocalEnvironmentAuth.ts).
@@ -231,7 +231,7 @@ final class T3LocalBackend: @unchecked Sendable {
     private let session: URLSession
     /// The desktop settings document (decision U7: the original app's desktop-settings.json).
     let settings = T3DesktopSettingsStore()
-    /// Network access and Tailscale Serve for the next start (20261005-this-machine-network-access): from
+    /// Network access and Tailscale Serve for the next start: from
     /// the desktop settings at launch, replaced by `restart(exposure:)`.
     private var exposure = T3LocalExposure()
     /// The Local environment switch's waits for a start (`setEnabled(true)`): each gets nil once ready, else the reason.
@@ -564,7 +564,7 @@ final class T3LocalBackend: @unchecked Sendable {
         status["host"] = exposure.host; status["tailscaleServeEnabled"] = exposure.tailscaleServeEnabled; status["tailscaleServePort"] = exposure.tailscaleServePort
     }
 
-    /// Network access / Tailscale HTTPS (20261005-this-machine-network-access; U4 stopgap, X45 / #122): the
+    /// Network access / Tailscale HTTPS (a stopgap until exact2 can relaunch an app, #122): the
     /// reference relaunches the app with the new envelope; this stops the server (SIGTERM, SIGKILL after
     /// 2 s, at most 5 s), starts it with the new exposure and answers once it is ready (`done(nil)`) or
     /// why not. A server that is switched off or refused only keeps the envelope for its next start.

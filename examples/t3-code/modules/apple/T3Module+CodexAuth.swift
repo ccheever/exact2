@@ -1,4 +1,4 @@
-// T3Module's ChatGPT sign-in ops (T3Module.swift routes them; 20261005-managed-codex-chatgpt): the
+// T3Module's ChatGPT sign-in ops (T3Module.swift routes them): the
 // loopback receiver is T3CodexAuth.swift. An op file of its own, as every T3Module+<area>.swift, so the
 // module tests that define their own `exactModule` (composer, menus, r5-panels) leave it out.
 import AppKit

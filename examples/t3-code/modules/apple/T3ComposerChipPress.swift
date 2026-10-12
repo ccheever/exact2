@@ -14,7 +14,7 @@ import AppKit
 /// editor leaving the window; a press outside the text is the app's (its window counts it).
 /// While it is open the frame follows the chip through scrolling and layout.
 ///
-/// realinput-1010e-followups RE-3: the press is the editor's, not the text's. In T3 Code the chip is
+/// The press is the editor's, not the text's. In T3 Code the chip is
 /// a selectable atom (`atom: true, selectable: true`), so ProseMirror answers a press on it with a
 /// NodeSelection of the chip; the popover then takes the focus, Escape gives it back to the chip, and
 /// typing replaces the chip (`$frontend-design now`, caret after "now", press the chip, Escape, "x":
@@ -351,7 +351,7 @@ final class T3ComposerChipPress {
             self.view = view
             super.init()
             setAccessibilityRole(.button)
-            // realinput-1010c-fixes RC-4: an NSAccessibilityElement reports itself disabled unless told otherwise
+            // An NSAccessibilityElement reports itself disabled unless told otherwise
             // (`isAccessibilityEnabled` is false by default), so Accessibility Inspector and VoiceOver read the
             // chip's button as dimmed; the reference's PopoverTrigger is an enabled button.
             setAccessibilityEnabled(true)

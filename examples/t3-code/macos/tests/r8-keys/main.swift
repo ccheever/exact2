@@ -119,7 +119,7 @@ final class R8KeysTests: XCTestCase {
         XCTAssertTrue(menus.keys.validateMenuItem(reload))
         _ = reload.target!.perform(reload.action!, with: reload)
         XCTAssertEqual(dev.reloads, 1, "View › Reload runs the host's reload")
-        // realinput-1010e-followups RE-6: the host's Save Trace stays a hidden ⌥⌘T in a development build, once.
+        // The host's Save Trace stays a hidden ⌥⌘T in a development build, once.
         let traces = view.items.filter { $0.title == "Save Trace" }
         XCTAssertEqual(traces.count, 1)
         XCTAssertTrue(traces.allSatisfy { $0.isHidden && $0.allowsKeyEquivalentWhenHidden && $0.keyEquivalent == "t" && $0.keyEquivalentModifierMask == [.command, .option] })
@@ -238,7 +238,7 @@ final class R8KeysTests: XCTestCase {
         launcherView.isHidden = false
         XCTAssertEqual(launcher.route(d, typing: false), .none)
     }
-    /// realinput-1010-fixes RI-1: AppKit calls a window's local key monitors in no fixed order (it changes as monitors
+    /// AppKit calls a window's local key monitors in no fixed order (it changes as monitors
     /// come and go: the panel's reopen did it). A real launcher letter must reach Exact's key route (ExactViewMac's
     /// session monitor; the launcher's `key` handlers run only from there) with the launcher focused, whether the
     /// composer's monitor (type-to-focus, T3Composer.handle) runs before Exact's or after it.

@@ -1,4 +1,4 @@
-// client.ts's seam for "This machine" (20261005-local-primary-environment): the primary's status and
+// client.ts's seam for "This machine", the primary environment: its status and
 // switch (local-primary.ts) and the running threads' kept streams (keep-alive.ts), through one import.
 // The Local environment switch, Network access and Tailscale Serve live in desktop-settings.json (decision
 // U7, T3DesktopSettings.swift); t3-code.json keeps only the default endpoint (the reference's renderer

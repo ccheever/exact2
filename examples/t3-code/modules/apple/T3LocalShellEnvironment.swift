@@ -1,4 +1,4 @@
-// The embedded server's environment (20261005-embedded-server-runtime), after T3 Code's desktop
+// The embedded server's environment, after T3 Code's desktop
 // app (MIT, see LICENSE-T3; reference 1e2ecbd975: apps/desktop/src/shell/DesktopShellEnvironment.ts
 // `installPosixEnvironment`, and backend/DesktopBackendConfiguration.ts `DESKTOP_BACKEND_ENV_NAMES`).
 //

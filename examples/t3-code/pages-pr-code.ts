@@ -1,4 +1,4 @@
-// The pull request panel's Code tab (20261005-pr-code-tab): PullRequestCodeTab.tsx (T3 Code
+// The pull request panel's Code tab: PullRequestCodeTab.tsx (T3 Code
 // 1e2ecbd975, MIT, see LICENSE-T3) — the change or one commit's change read a slice at a time
 // (`POST /api/pull-requests/diff`, the native `prDiff` op), Viewed ticks, line comments into the
 // review being written, the host's conversations on their lines or listed off the diff, and the
@@ -83,7 +83,7 @@ function scope(code: CodeState, commit: string | null): void {
 }
 
 /**
- * `environmentId`: the server the pull request was listed on ('' for the focused one). realinput-1010e-followups RE-5: the
+ * `environmentId`: the server the pull request was listed on ('' for the focused one). The
  * tab's reads and its Viewed writes go to that server, as the reference's do (pullRequests.ts: the diff is the pull request
  * environment's own HTTP read, filesViewed, setFilesViewed and diffFileContents its routed requests); sent to the focused
  * server instead, a pull request listed on a paired server answered HTTP 503 (provider-unsupported) from the embedded one.
@@ -402,7 +402,7 @@ function beginRange(code: CodeState, detail: Obj | null, path: string, range: Se
   return '';
 }
 /**
- * The gutter's drags (realinput-1010f RF-3; diff-line-drag.ts): a press on a line number or on the "+" starts one, each
+ * The gutter's drags (diff-line-drag.ts): a press on a line number or on the "+" starts one, each
  * line the pointer reaches moves its end, and the release opens the draft on what it ended on (PullRequestCodeTab's
  * onGutterUtilityClick and onLineSelectionEnd are both beginComment). Off while a draft is open or a commit is scoped.
  */
@@ -448,7 +448,7 @@ async function tellReaders(client: T3Client, native: Native): Promise<void> {
  * write that never left (its answer let go first) is put back for the next flush: the write is
  * idempotent, so sending it again is safe.
  *
- * realinput-1010e-followups: it is routed from the pull request's own server, as the reference's
+ * It is routed from the pull request's own server, as the reference's
  * command is (`routedRequest`, pullRequestRouting.ts lists it in `writes`): the identity probes,
  * then the first server in the reference's order that shares the GitHub account and is trusted to
  * write, a server that cannot take it now passing it to the next (`dispatch`). No server that can

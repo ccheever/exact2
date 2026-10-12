@@ -1,4 +1,4 @@
-// The embedded T3 server's state for TypeScript (20261005-embedded-server-runtime). The native
+// The embedded T3 server's state for TypeScript. The native
 // module runs one local backend per app (T3LocalBackend.swift); this reads its status
 // (`localBackendStatus`) and watches `t3.local`; local-primary.ts builds the primary environment
 // ("This machine") from it. The bearer stays native (memory only); TypeScript sees only whether it

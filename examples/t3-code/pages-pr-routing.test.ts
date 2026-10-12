@@ -396,7 +396,7 @@ for (const provider of ['github', 'gitlab', 'bitbucket', 'azure-devops'] as cons
   });
 }
 
-// realinput-1010e-followups RE-5: the clone's Viewed flush sends the write detached (its reply comes back in a later
+// The clone's Viewed flush sends the write detached (its reply comes back in a later
 // answer), so `dispatch` routes it as `request` does and `afterWrite` is the invalidations after the host accepted it.
 describe('a routed write sent detached (dispatch, afterWrite)', () => {
   const reference = { projectId: 'project-1', host: 'github.com', repository: 'acme/web', number: 7 };
@@ -595,9 +595,9 @@ for (const oldAlternate of [false, true]) {
   });
 }
 
-// ── Clone-side decisions the reference states in prose (task record "Reference rules to keep") ──
+// ── Clone-side decisions for rules the reference states only in prose ──
 
-describe('routing rules the task record lists', () => {
+describe('routing rules the reference states in prose', () => {
   const permissions: RoutingPermission[] = ['off', 'read', 'read-write'];
   test('writes route only when both servers are "read-write", reads when neither is "off"', () => {
     const at = (permission: RoutingPermission, id: string): RoutedEnvironment => ({ id, enabled: true, connected: true, local: false, permission });

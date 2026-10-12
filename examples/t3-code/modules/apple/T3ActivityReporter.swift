@@ -170,7 +170,7 @@ final class T3ActivityReporter: @unchecked Sendable {
     /// The reference's pointermove, keydown and wheel listeners. AppKit delivers mouse moves only
     /// where something asks for them: each main-capable window's content gets a tracking area that
     /// hears every move while observed (T3ActivityPointer), not `acceptsMouseMovedEvents`, which
-    /// sends the window's moves to its first responder (realinput-1010f RF-5).
+    /// sends the window's moves to its first responder (see T3ActivityPointer).
     private func observe() {
         guard observeWindows, !observing, !stoppedObserving else { return }; observing = true
         for name in [NSApplication.didBecomeActiveNotification, NSWindow.didBecomeKeyNotification, NSWindow.didBecomeMainNotification] {
@@ -219,7 +219,7 @@ final class T3ActivityReporter: @unchecked Sendable {
 /// moved events sends each one to its first responder instead, and a focused ExactKit node with a
 /// `hover` takes it as the pointer over it wherever the pointer is: the Usage page's pressed Cost
 /// segment held the hover of the unpriced (i) beside the pointer, its popover closing on each 1 pt
-/// move and then not opening at all (realinput-1010f RF-5).
+/// move and then not opening at all, under a real pointer.
 final class T3ActivityPointer: NSResponder {
     private let moved: () -> Void
     init(_ moved: @escaping () -> Void) { self.moved = moved; super.init() }

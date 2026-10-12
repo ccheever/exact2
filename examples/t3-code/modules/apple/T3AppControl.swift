@@ -1,4 +1,4 @@
-// `t3 app <dir>` opens a project in the running app (20261005-app-activation): the control socket
+// `t3 app <dir>` opens a project in the running app: the control socket
 // and the broker, after T3 Code's desktop app (MIT, see LICENSE-T3; reference 1e2ecbd975:
 // apps/desktop/src/app/DesktopAppActivation.ts `startDesktopAppControlServer`,
 // DesktopAppActivationBroker.ts, packages/shared/src/desktopAppControl.ts

@@ -1,4 +1,4 @@
-// realinput-1010f RF-3: the gutter's drags (diff-line-drag.ts) against @pierre/diffs' InteractionManager, as T3 Code
+// The gutter's drags (diff-line-drag.ts) against @pierre/diffs' InteractionManager, as T3 Code
 // 1e2ecbd975 drives it (over CDP in the reference: a drag on the numbers from line 3 to line 5 paints 3–5 and, in the Code
 // tab, opens the draft; the same from the "+"; a click on a number opens the draft on that line).
 import { describe, expect, test } from 'bun:test';

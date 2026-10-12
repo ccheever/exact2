@@ -92,7 +92,7 @@ describe('the popover\'s Contract (composer-chip-popover.contract, app-window.co
     expect(window).toMatch(/if chipShown and e\.buttons == 1 and not \(e\.clientX >= frame\("chip-popover"\)\.x/);
     expect(window).toContain('editorOp(instructions ? "chip-instructions" : "chip-close", `${chip.seq}`, instructions ? chip.path : "")');
   });
-  // realinput-1010c-fixes RC-4: Base UI's Popover dismisses on Escape anywhere in the document. The native editor heard
+  // Base UI's Popover dismisses on Escape anywhere in the document. The native editor heard
   // Escape only while its text view had the focus (a real Escape after a click on the heading left the details open), and
   // Settings' Back took it first over the prompt sample (Escape left Settings too).
   test('Escape closes the details from any focus, before Settings\' Back, and not while the palette or a menu owns it (RC-4)', async () => {

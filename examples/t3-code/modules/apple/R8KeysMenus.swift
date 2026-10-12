@@ -43,7 +43,7 @@ final class R8KeysMenus: NSObject, NSMenuDelegate, NSMenuItemValidation {
                 reloadTarget = reload.target as AnyObject?
             }
             // A development build keeps the host's Save Trace (⌥⌘T, LLP 1079 D5) as a hidden key equivalent: the reference has
-            // no Develop menu, but a real-input session's trace has no other way out of a macOS window (realinput-1010e RE-6:
+            // no Develop menu, but a real-input session's trace has no other way out of a macOS window (without it
             // ⌥⌘T reached the view as a key; the macOS host handles no SIGUSR1, whose default ends the process).
             if let trace = develop.submenu?.items.first(where: { $0.keyEquivalent == "t" && $0.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask) == [.command, .option] }) {
                 develop.submenu?.removeItem(trace)

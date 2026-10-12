@@ -1,10 +1,10 @@
-// unverified-real-input-rows (T3 Code 1e2ecbd975, MIT; see LICENSE-T3): UV-1, the age tip that never showed under a real
-// pointer in the pull request Code tab (realinput-1009). The reference has none there: PullRequestReviewAnnotation.tsx's
+// UV-1 (T3 Code 1e2ecbd975, MIT; see LICENSE-T3): the age tip that never showed under a real pointer in the pull
+// request Code tab. The reference has none there: PullRequestReviewAnnotation.tsx's
 // ReviewThreadCard draws the author as PullRequestActorLabel (a tooltip with the login) and the age as a bare
 // `<span>{formatRelativeTimeLabel(comment.createdAt)}</span>`; PullRequestTimelineTab.tsx draws every age the same way.
 // Only the Summary tab's comment age (PullRequestSummaryTab.tsx CommentMeta) has the full date as a tooltip. UV-3: a commit
 // link's tip (its URL, one long word) ran past its bubble and the window; the reference's TooltipPopup is `max-w-80
-// wrap-anywhere`. UV-2 and UV-4 change no code: their fixtures and real-input steps are in the task record.
+// wrap-anywhere`. UV-2 and UV-4 needed no code change, so no test here covers them.
 import { describe, expect, test } from 'bun:test';
 import type { Obj } from './domain';
 import { presentTimeline } from './pages-pr-timeline';

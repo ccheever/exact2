@@ -1,4 +1,4 @@
-// Running threads stay live (20261005-local-primary-environment item 8), after T3 Code (MIT, see
+// Running threads stay live, after T3 Code (MIT, see
 // LICENSE-T3; reference 1e2ecbd975) apps/web/src/state/threads.ts createRunningThreadKeepAliveAtom
 // and RunningThreadKeepAlive: every running thread of every enabled environment keeps its detail
 // stream open; a thread the shell reports stopped stays until its own detail is live and shows the

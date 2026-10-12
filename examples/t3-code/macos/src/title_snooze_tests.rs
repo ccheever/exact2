@@ -4,7 +4,7 @@
 //! window's wall time and "title" as its origin, as the row's Custom does with
 //! none. The data module is a stand-in that records each `command` request and
 //! leaves it pending, so the actions' own busy guard is what is exercised.
-//! Since 20261008-app-contract-root-rewrite the title menu's state is the window's
+//! The title menu's state is the window's view-only state
 //! (`titleMenuOpen#1`, T3Window in app-window.contract): the view's pick is the
 //! window's action, which closes the menu and then runs this root half
 //! (`titleMenuPick`), the one that sends.

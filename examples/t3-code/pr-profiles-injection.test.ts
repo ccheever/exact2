@@ -1,4 +1,4 @@
-// The pull request states the real-GitHub lane cannot produce (20261007-real-github-lane): the
+// The pull request states the real-GitHub lane (tools/github-lane) cannot produce: the
 // viewer profiles its two accounts cannot hold on a personal repository (read, triage, a
 // read-only author), and the host's failures and delays, which real GitHub does not inject on
 // request. Each profile's permissions are what the pinned server sends: a transcription of T3

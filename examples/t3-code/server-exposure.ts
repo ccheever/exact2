@@ -1,4 +1,4 @@
-// Network access for the embedded server (20261005-this-machine-network-access item 1), after T3
+// Network access for the embedded server, after T3
 // Code (MIT, see LICENSE-T3; reference 1e2ecbd975): apps/desktop/src/backend/DesktopServerExposure.ts.
 // Local-only binds 127.0.0.1; network access binds 0.0.0.0 and advertises the first usable LAN IPv4
 // (or an explicit host). A network request with neither a LAN nor a Tailscale IPv4 is unavailable:

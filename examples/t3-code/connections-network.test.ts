@@ -1,4 +1,4 @@
-// 20261005-this-machine-network-access items 3-5: the This machine rows, the Authorized clients fold
+// Network access in Settings › Connections: the This machine rows, the Authorized clients fold
 // and their commands, against ConnectionsSettings.tsx (MIT, see LICENSE-T3; reference 1e2ecbd975):
 // every state the rows draw (loading, local-only, reachable, Tailscale, empty, error), the pairing and
 // client rows, the dialogs' serials (closing on success, or on any outcome for network access), the

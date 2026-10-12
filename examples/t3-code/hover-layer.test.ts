@@ -3,8 +3,8 @@
 // no scroll area or clipping card around a trigger cuts them, and an openOnHover popover stays while
 // the pointer crosses into it (safePolygon) and for its closeDelay after it leaves. These checks guard
 // the wiring: the triggers hand their frame to the root's `hoverTipAt`, the layer draws at the window
-// level, the root times the close delays. The behavior is proven by the macOS drives and the
-// real-pointer rows in the 20261008-fix-hover-cards record on the feat(example)/t3-code branch.
+// level, the root times the close delays. The behavior is checked by driving the app on
+// macOS, with an agent and with a person's pointer: a source read cannot hover.
 import { describe, expect, test } from 'bun:test';
 
 const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();

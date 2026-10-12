@@ -146,8 +146,8 @@ component DiffFileHeader
 // The gutter carries the old (deletion) or new line number and a 4pt change bar. A press on the
 // number starts a selection that follows the pointer over the file's lines (Shift extends the
 // selection); a press on the gutter's "+" starts a range from the selection's top whose end follows
-// the pointer (Pierre's line selection and gutter utility, off while a draft is open; realinput-1010f
-// RF-3, diff-line-drag.ts). The pressed node holds the pointer, so its moves name the line under it
+// the pointer (Pierre's line selection and gutter utility, off while a draft is open;
+// diff-line-drag.ts). The pressed node holds the pointer, so its moves name the line under it
 // by the cell's `id` (`elementFromPoint`); the release ends the drag. While the file has a selection
 // the "+" sits on its bottom line only (`pin`; Pierre's placeUtilityFromSelection), so during a drag it
 // follows the selection; otherwise on the hovered line. A cell whose own drag is in flight keeps its

@@ -133,7 +133,7 @@ final class ActivityTests: XCTestCase {
     }
 }
 extension ActivityTests {
-    /// realinput-1010f RF-5: the reporter hears the pointer through a tracking area of its own over the window's content.
+    /// The reporter hears the pointer through a tracking area of its own over the window's content.
     /// It leaves `acceptsMouseMovedEvents` off: a window that accepts mouse moves sends each one to its first responder,
     /// and a focused ExactKit node with a `hover` took it as the pointer over it wherever the pointer was (the Usage
     /// page's pressed Cost segment held the unpriced (i)'s hover).

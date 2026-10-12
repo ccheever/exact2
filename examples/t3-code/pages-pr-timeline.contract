@@ -4,7 +4,7 @@
 // toggle) and PullRequestGhosts.tsx PullRequestTimelineGhost: a rail of rows newest first —
 // conversation sections that fold consecutive remarks into "N comments", verdict rows that stand
 // alone (a verdict overtaken by later commits keeps its word and loses its colour), commits
-// (plain until the Code tab, 20261005-pr-code-tab) and the lifecycle. The model is pages-pr-timeline.ts.
+// (plain here: the Code tab they open is pages-pr-code.contract) and the lifecycle. The model is pages-pr-timeline.ts.
 use PgIcon from "./pages-icons.contract"
 use PrAvatar from "./pages-prs.contract"
 use ChatMarkdown from "./markdown.contract"

@@ -4,7 +4,7 @@
 // packages/client-runtime/src/state/pullRequests.test.ts: "updates cached labels after successful
 // edits without rereading the host", "updates reviewer requests and enriched reviewers without
 // rereading the host", "refreshes pull request activity after a comment is updated"; the rest are
-// this clone's rows (the task record's acceptance table), with injected failures real GitHub does not
+// this clone's own rows, with injected failures real GitHub does not
 // produce on request.
 import { describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';

@@ -1,4 +1,4 @@
-// The pull request Code tab's pure logic (20261005-pr-code-tab), ported from T3 Code 1e2ecbd975
+// The pull request Code tab's pure logic, ported from T3 Code 1e2ecbd975
 // (MIT, see LICENSE-T3): apps/web/src/components/pullRequest/{pullRequestDiff.logic,
 // pullRequestFilesViewed.logic,pullRequestFileOrder.logic}.ts, pullRequestDetail.logic.ts (the
 // thread comment pages), apps/web/src/reviewCommentContext.ts resolveDiffReviewPosition,

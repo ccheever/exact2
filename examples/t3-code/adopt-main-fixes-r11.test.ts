@@ -1,5 +1,5 @@
-// adopt-main-fixes-r11: the workarounds main's fixes ended stay retired. Each read the clone's sources; the behaviour is
-// proven by the AppKit tests named below and the record's agent drives (the 20261012-adopt-main-fixes-r11 record on the feat(example)/t3-code branch).
+// The workarounds that main's fixes made unnecessary stay retired. Each check reads the clone's sources; the behaviour
+// itself is covered by the AppKit tests named below and by driving the app on macOS.
 import { describe, expect, test } from 'bun:test';
 import { readdirSync } from 'node:fs';
 

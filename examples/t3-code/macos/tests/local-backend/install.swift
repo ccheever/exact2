@@ -2,8 +2,8 @@ import Foundation
 import XCTest
 import CryptoKit
 
-// The first-launch unpack (T3LocalRuntime.swift), the development-build policy (item 8 of
-// 20261005-embedded-server-runtime), port selection, the crash reaper, and a real child: the
+// The first-launch unpack (T3LocalRuntime.swift), the development-build policy (a development
+// build starts a server only with its lane variables), port selection, the crash reaper, and a real child: the
 // production spawner starting a fake `t3` script that records its envelope.
 
 private func scratch(_ name: String) -> URL {

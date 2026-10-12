@@ -1,4 +1,4 @@
-// The pull request Code tab's cards (20261005-pr-code-tab), measured against T3 Code 1e2ecbd975
+// The pull request Code tab's cards, measured against T3 Code 1e2ecbd975
 // (MIT, see LICENSE-T3) components/pullRequest/PullRequestReviewAnnotation.tsx and
 // components/diffs/DiffCommentAnnotation.tsx: a conversation already on the host (ReviewThreadCard),
 // a comment waiting for the review (PendingReviewCommentCard) and the line comment being written,
@@ -203,8 +203,8 @@ component PrdPendingCard
   view
     column position="relative" margin-left="0.75rem" margin-right="0.75rem" margin-top="0.5rem" margin-bottom="0.5rem" padding="0.75rem" box-sizing="border-box" border-radius="0.75rem" background-color="light-dark(#ffffff, #0a0a0a)" box-shadow="0 1px 2px #0000000d" testId=`pull-request-pending-${id}`
       // border-dashed (border-style is solid-only here): one stroked rect, as markdown.contract's unresolved chip. It is
-      // positioned, so it paints over the row and would take its presses (the trash ignored real clicks, realinput-1010f
-      // RF-4): a border takes none.
+      // positioned, so it paints over the row and would take its presses (the trash ignored real
+      // clicks): a border takes none.
       box position="absolute" left=0.5 top=0.5 right=0.5 bottom=0.5 pointer-events="none" aria-hidden=true
         svg width="100%" height="100%" color=ptBorder() fill="none" stroke="currentColor" aria-hidden=true
           rect x=0 y=0 width="100%" height="100%" rx=11.5 stroke-width=1 stroke-dasharray="4 3"

@@ -1,4 +1,4 @@
-// The pull request panel's Code tab (20261005-pr-code-tab), measured against T3 Code 1e2ecbd975
+// The pull request panel's Code tab, measured against T3 Code 1e2ecbd975
 // (MIT, see LICENSE-T3) components/pullRequest/PullRequestCodeTab.tsx: the toolbar (the scope menu,
 // the counts and their caveats, whitespace, fold all, layout, wrapping, the file tree), the
 // conversations off the diff, and one virtualized list of file headers (with the Viewed tick),

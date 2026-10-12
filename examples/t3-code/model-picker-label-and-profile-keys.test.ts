@@ -1,6 +1,6 @@
-// realinput-1010c-fixes: rows that failed under real input in the attended session of 2026-10-10 although agent drives
-// passed. These read the Contract sources (as menu-keys.test.ts does); the drives and the next attended session prove
-// the behavior. RC-3 is in menu-keys.test.ts, RC-4 in composer-chip-popover.test.ts and macos/tests/composer.
+// Rows that failed under a person's real keys and pointer although agent drives passed. These read the Contract
+// sources (as menu-keys.test.ts does); driving the app proves the behavior. The pull request filters' dropped focus is
+// in menu-keys.test.ts, the skill chip's Escape in composer-chip-popover.test.ts and macos/tests/composer.
 import { describe, expect, test } from 'bun:test';
 
 const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();

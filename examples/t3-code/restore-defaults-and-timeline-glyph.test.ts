@@ -1,4 +1,4 @@
-// restore-defaults-and-timeline-glyph (task record 20261011-restore-defaults-and-timeline-glyph).
+// Settings › Restore defaults (RD-1) and the pull request glyph of a timeline lifecycle row (TG-1), against the reference.
 // RD-1: Settings › Restore defaults resets exactly what the reference's useSettingsRestore resets (SettingsPanels.tsx: its
 // one updateSettings patch, and useTheme's theme, mix and follow-system keys), so Font smoothing, Sidebar (legacy), the
 // legacy thread sort, Plan mode (legacy) and typography's Advanced switch are neither listed nor reset.

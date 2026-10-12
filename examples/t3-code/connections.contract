@@ -211,13 +211,13 @@ component ConnectionsPanel
 // SavedBackendListRow: the switch is the main action; the update icon appears
 // only when that machine can take an update; the row menu holds the icon
 // override, the trace ID and removal.
-// ConnectionsSettings primarySettings (20261005-local-primary-environment): the
+// ConnectionsSettings primarySettings ("This machine" as the primary environment): the
 // machine icon and the primary's label (else "This machine"), "More actions for
 // this machine" (its icon menu), the Local environment row (LocalEnvironmentSetting:
 // the switch asks first, LocalEnvironmentDialog in this-machine.contract), and while
 // this machine can be managed the Version row (`version · url`, "Loading…", "Up to
 // date", the update's progress or its action), then Network access, its endpoints
-// and Tailscale HTTPS (20261005-this-machine-network-access). A development build without
+// and Tailscale HTTPS. A development build without
 // its lane variables shows why no server runs.
 component ThisMachineSection
   props

@@ -1,4 +1,4 @@
-// `t3 app <dir>` opens a project in the running app (20261005-app-activation). Ported from T3 Code
+// `t3 app <dir>` opens a project in the running app. Ported from T3 Code
 // (MIT, see LICENSE-T3), reference 1e2ecbd975: apps/web/src/desktopAppActivation.ts
 // (handleDesktopAppActivationRequest), components/desktop/DesktopAppActivationCoordinator.tsx (when
 // the window is ready, and what each step does), packages/contracts/src/desktopAppActivation.ts

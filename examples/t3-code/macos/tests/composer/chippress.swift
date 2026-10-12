@@ -111,7 +111,7 @@ final class ComposerChipPressTests: XCTestCase {
         XCTAssertFalse(press.isOpen, "a press on the text outside the chip")
     }
 
-    /// realinput-1010e-followups RE-3: T3 Code answers a press on the chip with a NodeSelection of it (an atom,
+    /// T3 Code answers a press on the chip with a NodeSelection of it (an atom,
     /// `selectable: true`): Escape keeps it, and typing replaces the chip (over CDP: `$frontend-design now`, the
     /// caret after "now", the chip, Escape, "x" gives "x now"). The text view placed a caret before the chip
     /// instead, so "x" landed in front of it.
@@ -208,7 +208,7 @@ final class ComposerChipPressTests: XCTestCase {
         let elements = fixture.preview.styler.press.accessibilityElements
         XCTAssertEqual(elements.map { $0.accessibilityLabel() ?? "" }, ["Skill Frontend Design. Show details"])
         XCTAssertEqual(elements.first?.accessibilityRole(), .button)
-        // realinput-1010c-fixes RC-4: an enabled button, as the reference's PopoverTrigger (the default is disabled).
+        // An enabled button, as the reference's PopoverTrigger (the default is disabled).
         XCTAssertEqual(elements.first?.isAccessibilityEnabled(), true)
         let children = fixture.view.accessibilityChildren() as? [NSAccessibilityElement] ?? []
         XCTAssertTrue(children.contains { $0 === elements.first }, "the text view lists the chip's button")

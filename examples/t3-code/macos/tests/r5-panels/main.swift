@@ -84,7 +84,7 @@ final class FileEditorFixture {
 }
 
 final class PanelsTests: XCTestCase {
-    /// The real-input failure (realinput2): a click below the last line, typing, and the text went
+    /// A failure under real input: a click below the last line, typing, and the text went
     /// to the composer. The press is real (an AppKit event), below the text: caret at the end.
     func testPressBelowTheLastLineFocusesTheEditorAtTheEnd() {
         let f = FileEditorFixture()

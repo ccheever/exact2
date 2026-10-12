@@ -6,8 +6,8 @@ use NetworkView from "./connections-network.contract"
 use NetReveal from "./connections-network.contract"
 use DialogOpenFocus from "./dialog-trap.contract"
 
-// The dialogs of Settings → Connections › This machine (20261005-this-machine-network-access;
-// ConnectionsSettings.tsx): "Enable/Disable network access?" and "Disable Tailscale HTTPS?"
+// The dialogs of Settings → Connections › This machine's network access
+// (ConnectionsSettings.tsx): "Enable/Disable network access?" and "Disable Tailscale HTTPS?"
 // (AlertDialog: Cancel takes the focus), "Set up Tailscale HTTPS?" and "Create pairing link"
 // (Dialog: the first field takes it, a Close button last), and the clipboard-failure reveal
 // dialog. Each opens on the root's `connectionRemove` with its serial and closes when the serial

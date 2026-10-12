@@ -3,7 +3,7 @@
 // server finds no port (`DesktopBackendPortUnavailableError`, stage "bootstrap") — logs, shows
 // "T3 Code failed to start" with "Stage: <stage>" and the message, then quits. A server that
 // crashes is not fatal: it backs off and the primary reads "Reconnecting: <reason>"
-// (20261005-local-primary-environment item 7). Return and Escape both dismiss the alert.
+// instead. Return and Escape both dismiss the alert.
 import AppKit
 import Foundation
 

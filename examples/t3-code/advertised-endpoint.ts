@@ -1,4 +1,4 @@
-// Advertised endpoints (20261005-this-machine-network-access item 2), after T3 Code (MIT, see
+// Advertised endpoints, the addresses "This machine" offers other clients, after T3 Code (MIT, see
 // LICENSE-T3; reference 1e2ecbd975): packages/shared/src/advertisedEndpoint.ts and the
 // AdvertisedEndpoint contract (packages/contracts/src/environment.ts). An endpoint is one address
 // this Mac's embedded server can be reached at: its loopback, its LAN address, a Tailscale IP or

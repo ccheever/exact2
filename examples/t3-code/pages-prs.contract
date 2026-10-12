@@ -502,7 +502,7 @@ component PrFiltersMenu
   // nothing; a second Escape still closes Filters. Checked on the reference over CDP: click Author, Escape in "Search
   // authors" focuses the Author row and ↓ goes to Labels; click Author, then into the field (or State, then onto
   // Closed), Escape leaves the focus on BODY and ↓ does nothing.
-  // realinput-1010c-fixes RC-3: the dropped focus lands on the popup's rest box (`pr-filters-rest`), not on nothing.
+  // The dropped focus lands on the popup's rest box (`pr-filters-rest`), not on nothing.
   // `blur()` left the window itself the first responder, and the host's popover Escape (MenusMac `key`) closes a
   // popover only while the focus is in the window's content, so a real second Escape closed nothing (an agent's
   // `type <row> key Escape` focuses the row first, which is why the drive passed). The rest box lies outside both

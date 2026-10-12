@@ -201,7 +201,7 @@ fn task_items(blocks: &mut [markdown_parse::Block], text: &str) -> Vec<(&'static
 /// Gives each run its `label`: every run of a link (its first run, `link-start`, and the next runs that keep its `href`,
 /// `link`) carries the whole link's text, as the reference's one `<a>` reads; every other run has "". FlowRuns draws a
 /// link word by word: the first word is the link node named with this text, and its other words, which carry the same
-/// label, are hidden from assistive tech (realinput-1010g RG-4). A link that starts with a code span is no different: its
+/// label, are hidden from assistive tech. A link that starts with a code span is no different: its
 /// link node holds the code span (after a web link's favicon; reply-links RL-3).
 fn link_labels(runs: Vec<Value>) -> Vec<Value> {
     let field = |run: &Value, index: usize| match run {
@@ -470,7 +470,7 @@ mod link_tests {
         );
     }
 
-    /// realinput-1010g RG-4: every run of a link carries the whole link's text (the reference's `<a>` reads as one link;
+    /// Every run of a link carries the whole link's text (the reference's `<a>` reads as one link;
     /// FlowRuns names the first word's link node with it and hides the other words), other runs nothing; a link that
     /// starts with a code span draws no link node, so its runs carry nothing and stay readable.
     #[test]

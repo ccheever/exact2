@@ -1,4 +1,4 @@
-// Tailscale for "This machine" (20261005-this-machine-network-access item 2), after T3 Code (MIT,
+// Tailscale for "This machine", after T3 Code (MIT,
 // see LICENSE-T3; reference 1e2ecbd975): packages/tailscale/src/tailscale.ts (the pure parts) and
 // apps/desktop/src/backend/tailscaleEndpointProvider.ts. The native module runs `tailscale status
 // --json` (1.5 s limit, cached 60 s; T3LocalNetwork.swift) and probes the HTTPS endpoint; this file

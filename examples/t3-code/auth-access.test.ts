@@ -1,4 +1,4 @@
-// 20261005-this-machine-network-access item 4: the access stream's reducer, ported with the
+// Authorized clients of "This machine": the access stream's reducer, ported with the
 // reference's test names (MIT, see LICENSE-T3; reference 1e2ecbd975: packages/client-runtime/src/
 // state/auth.test.ts), then the clone's wiring: the subscription follows the page, events land only
 // for this machine, and the six HTTP calls go to the embedded server.

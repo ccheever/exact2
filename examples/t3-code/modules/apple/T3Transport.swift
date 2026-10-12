@@ -26,7 +26,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
     /// Where the focused origin is remembered (`originKey`). The app's own domain; a test passes a suite of its own.
     private let defaults: UserDefaults
     private static let originKey = "t3.server.origin"
-    /// The focus token beside the origin (20261005-local-primary-environment): `primary` while the focused
+    /// The focus token beside the origin: `primary` while the focused
     /// connection is this machine's embedded server, whose port can change every launch, so its origin is
     /// never remembered; the next launch reconnects to the primary by this token.
     static let focusKey = "t3.server.focus"

@@ -1,12 +1,12 @@
-// Settings → Connections › "This machine" (20261005-local-primary-environment items 4-5), after T3
+// Settings → Connections › "This machine", after T3
 // Code (MIT, see LICENSE-T3; reference 1e2ecbd975) ConnectionsSettings.tsx primarySettings and
 // settings/LocalEnvironmentSetting.tsx, and ipc/methods/localEnvironment.ts for the switch.
 //  - The section: the machine icon, the primary's label (else "This machine"), "More actions for this
 //    machine" with the environment icon menu, the Local environment row, and while this machine can
 //    be managed the Version row (`serverVersion · displayUrl`, "Loading…", "Up to date", the update's
 //    progress; a desktop-managed server that cannot update from here gets the sentence instead).
-//    Network access, its endpoints, Tailscale HTTPS and Authorized clients are connections-network.ts
-//    (20261005-this-machine-network-access), which restarts the server through the same seam.
+//    Network access, its endpoints, Tailscale HTTPS and Authorized clients are connections-network.ts,
+//    which restarts the server through the same seam.
 //  - The switch (`applyLocalSetting`, one seam for every local setting): the reference persists the
 //    setting to desktop-settings.json (decision U7: the same file, written by the native side) and
 //    relaunches the app (decision U4). exact2 has no process relaunch (issue X45, exact2 #122 closed
@@ -147,7 +147,7 @@ export async function applyLocalSetting(client: T3Client, native: Native, change
 /** The envelope fields a network change restarts the server with (DesktopBackendBootstrap `host`, `tailscaleServe*`). */
 export type ServerExposureEnvelope = { host: string; tailscaleServeEnabled: boolean; tailscaleServePort: number };
 /**
- * applyLocalSetting for Network access and Tailscale HTTPS (20261005-this-machine-network-access): the
+ * applyLocalSetting for Network access and Tailscale HTTPS: the
  * reference persists and relaunches (U4); the stopgap restarts the embedded server in place with the
  * new envelope (`localBackendRestart`: stop, start, wait until it answers) and reconnects the primary
  * wherever it was connected (the focus, or its fleet transport). A failure is the caller's to report.

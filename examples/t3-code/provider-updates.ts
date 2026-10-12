@@ -11,7 +11,7 @@
 // command's result is `CommandResult` (`interrupted` marks what the reference's
 // isAtomCommandInterrupted reports: a request the client let go). The sidebar pill is
 // sidebar-provider-pill.ts; the WSL grouping (buildLocalEnvironmentUpdateGroups and the row
-// status) is out of scope (20261005-wsl-environments).
+// status) is out of scope: the clone runs on macOS only, so it has no WSL environments.
 import { arr, obj, str, type Obj } from './domain';
 
 export type ProviderUpdateToastType = 'warning' | 'loading' | 'error' | 'success';

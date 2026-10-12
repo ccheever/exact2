@@ -1,4 +1,4 @@
-// 20261005-app-activation: `t3 app <dir>`. The first two describes port T3 Code's tests with their
+// `t3 app <dir>` opens a project in the running app. The first two describes port T3 Code's tests with their
 // original names (MIT, see LICENSE-T3; reference 1e2ecbd975: apps/web/src/desktopAppActivation.test.ts,
 // packages/shared/src/desktopAppControl.test.ts; the Windows named-pipe case stays out, macOS only).
 // The rest cover the clone's window side: when it is ready, how a handed request becomes the

@@ -1,7 +1,7 @@
-// realinput-1010e-followups: what did not pass in the real-input session realinput-1010e. RE-3 (the chip press) is in
-// macos/tests/composer (chippress.swift), RE-1 and RE-2 (the permission helper) in macos/tests/snapshot, RE-5's error text
-// in macos/tests/transport; these check RE-4's focus return in the Contract sources (as realinput-1010c-fixes.test.ts does)
-// and RE-5's routing through the Code tab's resource, with a focused server and a paired one: the diff, the Viewed read,
+// What did not pass under a person's real input. The chip press is in macos/tests/composer (chippress.swift), the
+// permission helper in macos/tests/snapshot, the pull request diff's error text in macos/tests/transport; these check
+// the import wizard's focus return (RE-4) in the Contract sources (as model-picker-label-and-profile-keys.test.ts does)
+// and the Code tab's routing (RE-5) through its resource, with a focused server and a paired one: the diff, the Viewed read,
 // a hidden range's contents, the Viewed write (detached, held while the server is away) and its routing with GitHub shared.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';

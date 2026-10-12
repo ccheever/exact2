@@ -7,7 +7,7 @@
 // tree from the sources and predicts that peak, so a new surface or a long lookup chain on a deep route fails here
 // instead of at main-adoption time.
 //
-// Calibration (the task record): the walk below gives the compiled plans' site trees exactly (base and after: 109,849
+// Calibration: the walk below gives the compiled plans' site trees exactly (base and after: 109,849
 // nodes, 41,379 and 43,947 regions, the same site-depth histograms), and against an instrumented copy of contract-lower
 // that sampled the stack at every node and expression level it predicts base 2,303 KiB measured / 2,303 predicted
 // (icons.contract:11, 80 sites, 59 levels) and after 1,535 / 1,536 KiB (timeline-files.contract:39, 67 sites, 17
@@ -294,7 +294,7 @@ describe('view depth under main\'s 2 MiB test thread', () => {
   test('the debug compiler\'s predicted lowering stack stays within 7/8 of 2 MiB', () => {
     const report = `${kib(peak.bytes)} at ${peak.at} (${peak.sites} sites, ${peak.levels} expression levels; deepest site ${deepest})\n`
       + `route: ${peak.route.filter(step => / [A-Z]/.test(step)).join(' > ')}\n`
-      + 'Flatten as the task record view-depth-under-test-stack did: group lookup chains with includes(), move a lookup '
+      + 'Flatten as earlier fixes did: group lookup chains with includes(), move a lookup '
       + 'into a fn, turn else-when chains into sibling whens; then confirm with the ulimit -s 2048 debug compile.';
     if (peak.bytes > BUDGET) throw new Error(`over ${kib(BUDGET)}: ${report}`);
     expect(peak.bytes).toBeLessThanOrEqual(BUDGET);

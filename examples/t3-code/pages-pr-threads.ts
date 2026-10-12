@@ -1,4 +1,4 @@
-// The Code tab's review conversations (20261005-pr-code-tab): PullRequestReviewAnnotation.tsx's
+// The Code tab's review conversations: PullRequestReviewAnnotation.tsx's
 // ReviewThreadCard and PullRequestCodeTab.tsx's renderThreadCard/runThreadCommand (T3 Code
 // 1e2ecbd975, MIT, see LICENSE-T3) — the card's header ("Open · N comments", "outdated", Fix in a
 // thread, Resolve/Unresolve), its comments with their reactions and the reader's own pencil, "Load

@@ -1,4 +1,4 @@
-// 20261005-embedded-server-runtime: stage-runtime.mjs accepts the archive only when the pin, the
+// The embedded server's runtime: stage-runtime.mjs accepts the archive only when the pin, the
 // release's SHA256SUMS and the computed hash agree (cliRelease.ts parseChecksums for the file).
 import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, symlinkSync, readFileSync } from 'node:fs';

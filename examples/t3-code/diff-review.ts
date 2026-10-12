@@ -87,7 +87,7 @@ export async function diffReview(client: T3Client, native: Native, op: string, v
   if (action === 'press') return '';
   if (state.draft && ['comment', 'drag', 'gutter'].includes(action)) return ''; // an open draft holds the gutter (enableLineSelection: false)
   if (action === 'drag' || action === 'gutter') {
-    // A press on a line number or the "+" starts the gutter's drag (realinput-1010f RF-3, diff-line-drag.ts).
+    // A press on a line number or the "+" starts the gutter's drag (diff-line-drag.ts).
     const target = file(at.path);
     if (!target || !(at.line > 0)) return '';
     const lines = reviewLinesOf(state, target);

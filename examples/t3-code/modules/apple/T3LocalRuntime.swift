@@ -1,4 +1,4 @@
-// The embedded server's runtime on disk (20261005-embedded-server-runtime). The bundle carries
+// The embedded server's runtime on disk. The bundle carries
 // the official release archive as it was published (Contents/Resources/t3-runtime: the pin, the
 // archive and stage-runtime.mjs's manifest); the first launch unpacks it into the product's own
 // layout, `<T3 home>/runtime/versions/<version>` with `.install-complete` holding the version
