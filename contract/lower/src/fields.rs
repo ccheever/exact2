@@ -79,6 +79,24 @@ pub(crate) fn disables(id: StyleId) -> bool {
     )
 }
 
+/// `appearance: textfield` (LLP 1116.007 D4) is CSS UI 4's compat keyword on
+/// a text field: the platform's field without a number field's stepper. On
+/// any other element it would be a quiet `none` to the hosts that read
+/// `auto` as the platform's control (a checkbox, a select, a date), so it is
+/// refused there with the word that does what its author meant.
+pub(crate) fn textfield_elsewhere(attrs: &[Attr]) -> Option<&Attr> {
+    attrs
+        .iter()
+        .rev()
+        .find(|a| a.name == "appearance")
+        .filter(|a| {
+            matches!(&a.value, Expr::Str(v, _) if v == "textfield")
+                || matches!(&a.value, Expr::Ternary(_, x, y, _)
+                if matches!(&**x, Expr::Str(v, _) if v == "textfield")
+                    || matches!(&**y, Expr::Str(v, _) if v == "textfield"))
+        })
+}
+
 impl Lowerer<'_> {
     /// Called only for a final TextInput, after class merge and shorthand
     /// expansion. Excluded types and the Markdown editor always get `none`;
@@ -96,10 +114,12 @@ impl Lowerer<'_> {
             match appearance {
                 None => None,
                 Some(a) => match &a.value {
-                    Expr::Str(v, _) if v == "auto" || v == "none" => Some(v.as_str()),
+                    Expr::Str(v, _) if matches!(v.as_str(), "auto" | "none" | "textfield") => {
+                        Some(v.as_str())
+                    }
                     _ => return err(
                         "lower-appearance",
-                        "a text field's `appearance` is a literal: `\"auto\"` (the platform's own field) or `\"none\"` (the bare box). To switch between them, write `when` with two fields",
+                        "a text field's `appearance` is a literal: `\"auto\"` (the platform's own field), `\"textfield\"` (the same, without a number field's stepper) or `\"none\"` (the bare box). To switch between them, write `when` with two fields",
                         a.span,
                     ),
                 },
@@ -113,7 +133,7 @@ impl Lowerer<'_> {
             .filter_map(|b| StyleId::from_bit(u32::from(b.id)))
             .filter(|&id| disables(id))
             .collect();
-        if explicit == Some("auto") {
+        if matches!(explicit, Some("auto" | "textfield")) {
             let names = crate::vocab::attrs();
             for row in &rows {
                 let name = names

@@ -359,7 +359,7 @@ impl<D: DataSource> Presenter<D> {
         let role = |name: &str| roles::role(name).map(|r| rgba(ColorValue::Role(r).resolve(dark)));
         let mut ink = rgba(node.text_color().resolve(dark));
         if disabled
-            && node.style.appearance == exact_kernel::Appearance::Auto
+            && node.style.appearance != exact_kernel::Appearance::None
             && !node.style.mask.has(StyleId::TextColor)
         {
             ink = crate::paint::control::disabled_field_ink(ink, dark);

@@ -177,7 +177,7 @@ fn node(
     let native_button =
         n.node_type == NodeType::Control && n.props.str(PropId::Type) == Some("button");
     let native_field =
-        n.node_type == NodeType::TextInput && n.style.appearance == exact_kernel::Appearance::Auto;
+        n.node_type == NodeType::TextInput && n.style.appearance != exact_kernel::Appearance::None;
     if visible {
         if native_field {
             let fill = if scene.dark {
@@ -485,7 +485,7 @@ fn faded(kernel: &Kernel, id: ViewId) -> bool {
     while let Some(n) = at {
         if n.style.opacity < 1.0
             || (n.node_type == NodeType::TextInput
-                && n.style.appearance == exact_kernel::Appearance::Auto
+                && n.style.appearance != exact_kernel::Appearance::None
                 && n.props.bool(PropId::Disabled) == Some(true))
         {
             return true;

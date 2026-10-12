@@ -416,3 +416,45 @@ fn outline_none_marks_a_text_field_and_nothing_else() {
         assert_eq!(e.id, refusal, "{body}: {}", e.message);
     }
 }
+
+/// LLP 1116.007 D4: `appearance="textfield"`, CSS's way to drop a number
+/// input's spin buttons, is the platform's field (still native to the
+/// kernel, so its chrome and look are the field's) without the stepper; it
+/// refuses a drawn background as `auto` does, and is a text field's word
+/// only.
+#[test]
+fn textfield_is_the_platforms_field_without_a_number_fields_stepper() {
+    for tag in [
+        "input type=\"number\"",
+        "input",
+        "input type=\"email\"",
+        "textarea",
+    ] {
+        let r = boot(
+            "",
+            &format!("{tag} appearance=\"textfield\" testId=\"field\""),
+        );
+        let field = r.kernel().node(id(&r, "field")).unwrap();
+        assert_eq!(field.node_type, NodeType::TextInput, "{tag}");
+        assert_eq!(field.style.appearance, Appearance::Textfield, "{tag}");
+    }
+    let e = contract::compile(&app(
+        "",
+        "input type=\"number\" appearance=\"textfield\" background-color=\"red\"",
+    ))
+    .unwrap_err();
+    assert_eq!(e.id, "lower-appearance", "{}", e.message);
+    assert!(e.message.contains("`background-color`"), "{}", e.message);
+    let e = contract::compile(&app("", "input appearance=(on ? \"textfield\" : \"auto\")"))
+        .unwrap_err();
+    assert_eq!(e.id, "lower-appearance", "{}", e.message);
+    for body in [
+        "input type=\"checkbox\" appearance=\"textfield\"",
+        "input type=\"range\" appearance=\"textfield\"",
+        "column appearance=\"textfield\"",
+        "button press=flip appearance=\"textfield\"\n  text \"Go\"",
+    ] {
+        let e = contract::compile(&app("", body)).unwrap_err();
+        assert_eq!(e.id, "lower-appearance", "{body}: {}", e.message);
+    }
+}

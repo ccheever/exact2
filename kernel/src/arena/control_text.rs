@@ -73,10 +73,12 @@ static WEB_PROJECTED_BUTTON_START: std::sync::LazyLock<StyleProps> =
     std::sync::LazyLock::new(|| projected(WEB_BUTTON_START.clone()));
 
 impl NodeArena {
-    /// Native text controls have exactly this predicate (LLP 1104 D1).
+    /// Native text controls have exactly this predicate (LLP 1104 D1). A
+    /// `textfield` is the platform's field too, without a number field's
+    /// stepper (LLP 1116.007 D4); only `none` is the author's box.
     pub fn is_native_text_control(&self, slot: u32) -> bool {
         self.node_type(slot) == NodeType::TextInput
-            && self.style(slot).appearance == Appearance::Auto
+            && self.style(slot).appearance != Appearance::None
     }
 
     pub(crate) fn refresh_control_styles(&mut self) {
