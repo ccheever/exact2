@@ -503,10 +503,13 @@ extension Agent {
                 return ["error": "tap #\(node.id): its middle is outside the viewport; scroll it into view first"]
             }
         }
+        // A secondary click at a run, `contextmenu` or a Control-click, is the
+        // platform's at the run (X77), as the web's driver sends it, not its activation.
+        let secondary = req["contextmenu"] as? Bool == true || Agent.heldModifiers(req)?.contains(.control) == true
         if req["phase"] == nil, req["wheel"] == nil, req["x"] == nil, req["y"] == nil, req["at"] == nil, req["mouse"] == nil, req["auxclick"] == nil, req["clicks"] == nil,
            let id = req["id"] as? UInt32, let run = presenter.inlineText(id), let node = presenter.textHost(id) {
             guard node.window != nil, !node.inert, !node.disabled, !run.hidden else { return ["error": "inline node #\(id) is unavailable"] }
-            if req["hover"] as? Bool != true, node.activateInline(id) { return ["tapped": Int(id), "delivery": "host-activation", "native": "inline-text"] }
+            if req["hover"] as? Bool != true, !secondary, node.activateInline(id) { return ["tapped": Int(id), "delivery": "host-activation", "native": "inline-text"] }
         }
 
         if let phase = req["phase"] as? String { return contact(phase, req) }
@@ -536,7 +539,7 @@ extension Agent {
         let b = v.tapBox(box(v))
         // A wrapped run's union can include blank space. Hover a painted
         // fragment, then let the normal hit test decide who receives it.
-        let inlinePoint = req["hover"] as? Bool == true && (req["id"] as? UInt32).flatMap(presenter.inlineText) != nil
+        let inlinePoint = (req["hover"] as? Bool == true || secondary) && (req["id"] as? UInt32).flatMap(presenter.inlineText) != nil
             ? tapPoint(req, node: v) : nil
         let center = inlinePoint ?? CGPoint(x: b.midX, y: b.midY)
         // The middle of the box as seen — through a surface's placement when
@@ -663,7 +666,7 @@ extension Agent {
         if req["contextmenu"] as? Bool == true || req["auxclick"] as? Bool == true {
             let right = req["contextmenu"] as? Bool == true
             guard Agent.otherClick(right ? .right : .center, at: p, in: win, clicks: 1, flags: held) else { return ["error": "no mouse event at a window point (CGEventSetWindowLocation)"] }
-            return ["tapped": Int(v.id), "at": at, right ? "contextmenu" : "auxclick": true, "delivery": "platform"]
+            return ["tapped": req["id"] as? Int ?? Int(v.id), "at": at, right ? "contextmenu" : "auxclick": true, "delivery": "platform"]
         }
         // A double click is two real clicks, the second with clickCount 2;
         // `clicks n` is n, each with the count so far (a triple click selects a line).

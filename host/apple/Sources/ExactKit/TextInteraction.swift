@@ -127,7 +127,16 @@ extension NodeView {
         #endif
     }
     private var interactiveRuns: [InlineText] {
-        inlineText.filter { !$0.run(dark: drawsDark).hidden && (!($0.props["href"] ?? "").isEmpty || !$0.handlers.isEmpty || $0.props["accessibilityLabel"] != nil) }
+        inlineText.filter { !$0.run(dark: drawsDark).hidden && (!($0.props["href"] ?? "").isEmpty || !$0.handlers.isEmpty || $0.props["accessibilityLabel"] != nil || ownsMenu($0)) }
+    }
+    /// A run with its own `contextPopover` is an element on macOS, whose
+    /// show menu opens it (X77), as one with its own `contextmenu` is.
+    private func ownsMenu(_ run: InlineText) -> Bool {
+        #if os(macOS)
+        return run.props["contextPopover"]?.isEmpty == false
+        #else
+        return false
+        #endif
     }
     private func inlineElements() -> [InlineAccessibility] {
         let interactive = interactiveRuns

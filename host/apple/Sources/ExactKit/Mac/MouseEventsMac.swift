@@ -115,19 +115,48 @@ extension NodeView {
     /// text with none above had its menu from `menu(for:)` (#454); anywhere
     /// else it stays a click with Control held.
     func contextClick(_ event: NSEvent) -> Bool {
-        contextClicked = event.type == .leftMouseDown && event.modifierFlags.contains(.control) && contextMenuAuthored
+        contextClicked = event.type == .leftMouseDown && event.modifierFlags.contains(.control)
+            && (contextMenuAuthored || inlineContextTarget(at: local(event.locationInWindow)) != nil)
         return contextClicked
     }
 
-    /// Whether run `id`'s own `contextmenu` answers a context request.
+    /// Whether run `id`'s own `contextmenu` or `contextPopover` answers a context request.
     func inlineAnswersContextMenu(_ id: UInt32) -> Bool {
-        guard let presenter, presenter.inlineEnabled(id) else { return false }
-        return presenter.inlineText(id)?.handlers.contains("contextmenu") == true
+        guard let presenter, presenter.inlineEnabled(id), let run = presenter.inlineText(id) else { return false }
+        return run.handlers.contains("contextmenu") || run.props["contextPopover"]?.isEmpty == false
     }
 
-    /// Run `id`'s `contextmenu` for VoiceOver's show menu (X84), as the
-    /// ContextMenu key sends a node's: at the middle of its first line, from
-    /// that line's top left, no button held.
+    /// The run a secondary click at `point` (this paragraph's space) reaches
+    /// (X77): the nearest from the innermost run there up whose own
+    /// `contextmenu` or `contextPopover` answers, as the web's `contextmenu`
+    /// bubbles from the run's element to its first handler. Nil where none
+    /// does, and the paragraph and its ancestors hear the click as before.
+    func inlineContextTarget(at point: CGPoint) -> InlineText? {
+        guard !inlineText.isEmpty, let presenter else { return nil }
+        var run = inlineTarget(at: point)
+        while let current = run {
+            if inlineAnswersContextMenu(current.id) { return current }
+            run = presenter.inlineText(current.parent)
+        }
+        return nil
+    }
+
+    /// A secondary click's `contextmenu` on the run under it (X77), after
+    /// the button's `pointerdown`, from the run's first line's top left as
+    /// Chrome measures an inline element's offset, then its
+    /// `contextPopover`'s menu at the click. True ends the click, as
+    /// `dispatchContextMenu` returning true does for a node.
+    func inlineContextMenu(_ event: NSEvent) -> Bool {
+        let point = local(event.locationInWindow)
+        guard let run = inlineContextTarget(at: point), let line = inlineRects(run).first else { return false }
+        var sample = pointerSample(event)
+        sample.x = Double(point.x - line.minX); sample.y = Double(point.y - line.minY)
+        return dispatchInlineContextMenu(run, at: convert(event.locationInWindow, from: nil), sample: sample)
+    }
+
+    /// Run `id`'s `contextmenu` and `contextPopover` for VoiceOver's show
+    /// menu (X84), as the ContextMenu key sends a node's: at the middle of
+    /// its first line, from that line's top left, no button held.
     func inlineContextMenu(_ id: UInt32) -> Bool {
         guard inlineAnswersContextMenu(id), let presenter, let run = presenter.inlineText(id),
               let line = inlineRects(run).first, let point = presenter.contextPoint(self, rect: line) else { return false }
@@ -135,10 +164,18 @@ extension NodeView {
         let sample = PointerSample(x: Double(local.x - line.minX), y: Double(local.y - line.minY),
                                    buttons: 0, pressure: 0, type: "mouse", id: 1,
                                    clientX: Double(client.x), clientY: Double(client.y))
+        return dispatchInlineContextMenu(run, at: convert(point, from: nil), sample: sample)
+    }
+
+    /// `run`'s `contextmenu`, then its `contextPopover`'s menu at `point`
+    /// (this view's space), as `dispatchContextMenu` sends a node's.
+    private func dispatchInlineContextMenu(_ run: InlineText, at point: NSPoint, sample: PointerSample) -> Bool {
+        guard let presenter, presenter.views[id] === self, inlineAnswersContextMenu(run.id) else { return false }
         let outer = presenter.defaultPrevented
         presenter.defaultPrevented = false
         defer { presenter.defaultPrevented = outer }
-        presenter.mouseEvent(id, 10, sample.line)
+        if run.handlers.contains("contextmenu") { presenter.mouseEvent(run.id, 10, sample.line) }
+        if run.props["contextPopover"]?.isEmpty == false { presenter.menus.context(self, at: point, run: run.id) }
         return true
     }
 
