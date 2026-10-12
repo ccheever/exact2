@@ -483,6 +483,18 @@ pub trait TextMeasurer {
         crate::FieldChrome::default()
     }
 
+    /// A text control's own text, where the host's control sets it with a
+    /// text engine of its own (LLP 1115.001 D8: Android's `EditText`): its
+    /// width, height and first baseline at the offer, asked during layout.
+    /// `None`, the default, measures it as any paragraph.
+    fn field_text(
+        &mut self,
+        _kind: crate::FieldKind,
+        _request: &TextMeasureRequest<'_>,
+    ) -> Option<TextMetrics> {
+        None
+    }
+
     /// Native button border-box size, including its platform chrome and
     /// authored content insets (LLP 1069.011.001 D11). None preserves the
     /// default size / set_intrinsic_size path for existing hosts.
