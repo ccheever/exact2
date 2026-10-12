@@ -121,6 +121,8 @@ package final class Presenter {
     lazy var dialogs = DialogHost(self)
     /// Subtrees shown in a native container's view (LLP 1115.002 D8.2).
     lazy var blocks = BlockHost(self)
+    /// Lists whose rows a table holds (LLP 1115.002 D5, stage 3a).
+    lazy var tables = TableHost(self)
     lazy var alerts = AlertHost(self)
     lazy var navigation = NavigationHost(presenter: self)
     lazy var backSwipe = BackSwipe(self)
@@ -632,6 +634,7 @@ package final class Presenter {
         reorder?.abandon()
         reorderGroup?.abandon()
         collections.reset()
+        tables.reset()
         leaves.reset()
         autofocusProcessed.removeAll()
         resetting = true
@@ -1143,7 +1146,7 @@ package final class Presenter {
                     if let node = child as? NodeView { reparented.insert(node.id) }
                     child.removeFromSuperview()
                 }
-                let mounted = NodeView.keepingGhosts(want.filter { !dialogs.owns($0) && !menus.owns($0) && !blocks.owns($0) && !isFlying($0) }, in: container)
+                let mounted = NodeView.keepingGhosts(want.filter { !dialogs.owns($0) && !menus.owns($0) && !blocks.owns($0) && !tables.owns($0) && !isFlying($0) }, in: container)
                 for (i, child) in mounted.enumerated() {
                     if child.superview !== container {
                         reparented.insert(child.id)
@@ -1202,7 +1205,7 @@ package final class Presenter {
                 guard let v = views[id] else { continue }
                 let frame = NSRect(x: op.x, y: op.y, width: op.w, height: op.h)
                 if flightFrame(id, frame) { continue }
-                if !dialogs.frame(v, frame) && !menus.frame(v, frame) { v.frame = frame }
+                if !dialogs.frame(v, frame) && !menus.frame(v, frame) && !tables.frame(v, frame) { v.frame = frame }
                 v.arrangeShift = .zero
                 v.textRasterGeometryChanged()
                 v.scroll?.frame = v.bounds
@@ -1237,6 +1240,7 @@ package final class Presenter {
             }
         }
         if !flights.isEmpty { flightsBatchApplied() }
+        tables.sync()
         navigation.sync(batch, reparented: reparented)
         sidebar.sync(batch)
         if !pendingTips.isEmpty { settleTips() }
