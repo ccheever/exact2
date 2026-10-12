@@ -1,11 +1,10 @@
-// Lane r12-render: the shared highlighter's Shiki path. For a language the reference's Shiki 4.2
-// grammars cover here (r12-render-grammar.ts: typescript, tsx, javascript, jsx, json, jsonc,
-// shellscript, python, css, html, markdown, yaml, toml, rust, go, swift; r12-render-grammar-more.ts:
-// c, java, kotlin, csharp, xml, diff, docker, make, ruby) the tokens are what the reference paints:
-// r12-render-textmate.ts runs the grammar, and each run's pierre-light / pierre-dark colour pair
-// names the synColor class that paints it (markdown.contract), with "+i" when the theme sets italic
-// (synSlant). Chat code blocks, the diff panel, the Files panel, the attachment code preview and
-// content-search lines all reach this through timeline-highlight.ts's highlight().
+// Lane r12-render: the shared highlighter's Shiki path. For every language the reference's Shiki 4.2
+// bundle has (code-highlighting-languages: all 235, with their aliases, but the eight left out for their
+// licences, which paint plain, LICENSE-T3; r12-render-grammar.ts and its chunks) the tokens are what the reference paints: r12-render-textmate.ts runs the grammar, and each
+// run's pierre-light / pierre-dark colour pair names the synColor class that paints it
+// (markdown.contract), with "+i" when the theme sets italic (synSlant). Chat code blocks, the diff
+// panel, the Files panel, the attachment code preview and content-search lines all reach this
+// through timeline-highlight.ts's highlight().
 //
 // shiki-residuals, cost: Hermes runs the slowest grammars here at about 70,000 characters a second,
 // so once the app turns slicing on (startHighlightTurn), one answer tokenizes at most
@@ -16,16 +15,31 @@
 // A text that extends a recently tokenized one (a streaming code block, the same file again)
 // resumes from the last unchanged line's state.
 
-import { colorOf, grammarId, styleOf, tokenizeLine, type LineState } from './r12-render-textmate';
+import { colorOf, grammarId, grammarWork, styleOf, tokenizeLineWithin, unicodeText, type LineState } from './r12-render-textmate';
+import { FILE_TYPES } from './r12-render-filetypes';
 import type { Cls, Token } from './timeline-highlight';
 
-/** A longer text keeps the heuristic tokenizer (decision U15: the reference has no limit). */
+/** A longer text gets no Shiki tokens (decision U15: the reference has no limit): highlight() paints it as
+ *  plain text, since it is over HEURISTIC_MAX_CHARS too. */
 export const SHIKI_MAX_CHARS = 1_000_000;
 /** The characters one data-module turn tokenizes: at most about 50 ms in the pinned Hermes for the slowest
  *  grammars here (typescript, html; measurements in the shiki-residuals task record). */
 export const SLICE_BUDGET_CHARS = 2_500;
+/** The share of a turn a line that starts the turn may spend on one-time work beside its own cost (advance). */
+export const FIRST_LINE_WORK = 0.5;
 /** A text nobody asked for again within this many turns is dropped (about five seconds of slices). */
 const STALE_TURNS = 300;
+/** code-highlighting-languages: grammars Hermes runs well under TypeScript's 70,000 characters a second,
+ *  with the weight each of their characters takes in the slice budget. Measured over the grammar samples
+ *  and real files (task record code-highlighting-languages): cpp 37,000 a second; every other grammar
+ *  52,000 (javascript) or more. */
+export const SLOW_LANGUAGES: Record<string, number> = { cpp: 2 };
+/** The same for a line with a character outside ASCII, whose regexes run in their Unicode \b forms:
+ *  most grammars take about twice as long there (the default, 2); these more (the same measurement,
+ *  each sample with Korean text on every line). */
+export const UNICODE_SLOW_LANGUAGES: Record<string, number> = {
+  asm: 7, d: 6, 'fortran-fixed-form': 6, 'fortran-free-form': 5, surrealql: 4, codeql: 3, cpp: 3, llvm: 3, swift: 3, 'system-verilog': 3,
+};
 
 /** Each pierre-light / pierre-dark foreground pair the themes define, as its synColor class. */
 export const CLASS_OF_PAIR: Record<string, Cls> = {
@@ -48,37 +62,31 @@ function classOf(scopes: string[]): Cls {
   return cls;
 }
 
-// @pierre/diffs getFiletypeFromFileName, for the names and extensions whose grammar is here.
-const EXTENSIONS: Record<string, string> = {
-  sh: 'zsh', bash: 'zsh', zsh: 'zsh', css: 'css', go: 'go', html: 'html', htm: 'html', js: 'javascript', mjs: 'javascript',
-  cjs: 'javascript', json: 'json', jsonc: 'jsonc', jsx: 'jsx', md: 'markdown', markdown: 'markdown', py: 'python', pyw: 'python',
-  pyi: 'python', rs: 'rust', swift: 'swift', toml: 'toml', ts: 'typescript', mts: 'typescript', cts: 'typescript', tsx: 'tsx',
-  yaml: 'yaml', yml: 'yml',
-  // shiki-residuals
-  c: 'c', cs: 'csharp', diff: 'diff', patch: 'diff', Dockerfile: 'dockerfile', dockerfile: 'dockerfile', java: 'java', kt: 'kotlin',
-  Makefile: 'makefile', mk: 'makefile', makefile: 'makefile', rb: 'ruby', rbw: 'ruby', rake: 'ruby', gemspec: 'ruby', jbuilder: 'ruby',
-  builder: 'ruby', rabl: 'ruby', arb: 'ruby', ru: 'ruby', podspec: 'ruby', Gemfile: 'ruby', Rakefile: 'ruby', Guardfile: 'ruby',
-  Capfile: 'ruby', Berksfile: 'ruby', Brewfile: 'ruby', Vagrantfile: 'ruby', Thorfile: 'ruby', Appraisals: 'ruby', Dangerfile: 'ruby',
-  xml: 'xml',
-};
-/** The grammar for a fence language (Shiki's id or alias) or a file path (its name or extension), or ''. */
+/** The grammar @pierre/diffs' getFiletypeFromFileName picks for a file path as the reference passes it (the
+ *  path in its project): the whole path as a name (a Dockerfile or CMakeLists.txt at the root; a nested one is no
+ *  name), then a compound extension (component.ts), then a simple one; '' (plain text) for a path it lacks. */
+export function fileLanguage(path: string): string {
+  const has = (key: string) => Object.prototype.hasOwnProperty.call(FILE_TYPES, key);
+  if (has(path)) return grammarId(FILE_TYPES[path]!);
+  const compound = /\.([^/\\]+\.[^/\\]+)$/.exec(path)?.[1];
+  if (compound && has(compound)) return grammarId(FILE_TYPES[compound]!);
+  const simple = /\.([^.]+)$/.exec(path)?.[1] ?? '';
+  return has(simple) ? grammarId(FILE_TYPES[simple]!) : '';
+}
+/** The grammar for a fence word or a file path, or '' (plain text). A word (no "/" or ".") is a fence word,
+ *  which the reference's Shiki loads as written: one of its ids or aliases (```Python is no language there), and
+ *  gitignore as ini (ChatMarkdown.tsx extractFenceLanguage). Anything else is a path (fileLanguage); a caller
+ *  with a path that may be a bare name (a root Dockerfile) asks fileLanguage itself. */
 export function shikiLanguage(nameOrPath: string): string {
   const raw = nameOrPath.trim();
   if (!raw) return '';
-  if (!raw.includes('/') && !raw.includes('.')) {
-    const id = grammarId(raw) || grammarId(raw.toLowerCase());
-    if (id || !Object.prototype.hasOwnProperty.call(EXTENSIONS, raw) || raw[0] === raw[0]!.toLowerCase()) return id;
-  }
-  const base = raw.split(/[/\\]/).pop() ?? raw;
-  if (/^[A-Z]/.test(base) && Object.prototype.hasOwnProperty.call(EXTENSIONS, base)) return grammarId(EXTENSIONS[base]!);
-  const compound = /\.([^/\\]+\.[^/\\]+)$/.exec(raw)?.[1];
-  if (compound && Object.prototype.hasOwnProperty.call(EXTENSIONS, compound)) return grammarId(EXTENSIONS[compound]!);
-  const simple = /\.([^.]+)$/.exec(raw)?.[1] ?? '';
-  return Object.prototype.hasOwnProperty.call(EXTENSIONS, simple) ? grammarId(EXTENSIONS[simple]!) : '';
+  if (!raw.includes('/') && !raw.includes('.')) return grammarId(raw === 'gitignore' ? 'ini' : raw);
+  return fileLanguage(raw);
 }
 
-/** A tokenized text: per line, the state after it and its class runs (classes resolved as lines finish). */
-interface Document { lang: string; lines: string[]; states: LineState[]; runs: Token[][] }
+/** A tokenized text: its line limit (0 for none; TOKENIZE_MAX_LINE_LENGTH), per line the state after it and
+ *  its class runs (classes resolved as lines finish). */
+interface Document { lang: string; max: number; lines: string[]; states: LineState[]; runs: Token[][] }
 const documents: Document[] = [];
 const results = new Map<string, Token[]>();
 /** A text still being tokenized: its lines, the states and runs so far, the turn it was last asked in. */
@@ -86,36 +94,37 @@ interface Job extends Document { key: string; asked: number }
 const jobs = new Map<string, Job>();
 
 // ── Turns and slices ────────────────────────────────────────────────────────────────────────
-let slicing = false, turnLeft = Infinity, turn = 0;
+let slicing = false, turnLeft = Infinity, turnWhole = Infinity, turn = 0;
 /** The app calls this at the start of each answer: from then on a turn tokenizes at most `budget` characters. */
 export function startHighlightTurn(budget = SLICE_BUDGET_CHARS): void {
   slicing = true;
-  turnLeft = budget;
+  turnLeft = turnWhole = budget;
   turn++;
 }
 /** Tests: back to unsliced, everything tokenized at once, and no queued work. */
 export function resetHighlightSlicing(): void {
-  slicing = false; turnLeft = Infinity; turn = 0; jobs.clear(); results.clear(); documents.length = 0;
+  slicing = false; turnLeft = turnWhole = Infinity; turn = 0; jobs.clear(); results.clear(); documents.length = 0;
 }
 /** A text waiting for its Shiki tokens paints the heuristic colours up to this length and plain text
  *  above it: the TypeScript heuristic takes 16 ms for 20,000 characters but 1.2 s for 200,000 in Hermes. */
 export const HEURISTIC_MAX_CHARS = 20_000;
 /** Whether shikiTokens deferred this text to background turns. */
-export function shikiDeferred(text: string, nameOrPath: string): boolean {
+export function shikiDeferred(text: string, nameOrPath: string, maxLineLength = 0): boolean {
   const lang = shikiLanguage(nameOrPath);
-  return !!lang && jobs.has(`${lang}\u0000${text}`);
+  return !!lang && jobs.has(textKey(lang, maxLineLength, text));
 }
+const textKey = (lang: string, max: number, text: string) => `${lang}\u0000${max}\u0000${text}`;
 /** Whether a text is waiting for its Shiki tokens (the root keeps slicing while this holds). */
 export const highlightPending = (): boolean => jobs.size > 0;
 /** How many times shikiTokens answered "not yet": a cache of highlight results checks it. */
 export let highlightDeferrals = 0;
 
-function newJob(text: string, lang: string, key: string): Job {
+function newJob(text: string, lang: string, max: number, key: string): Job {
   const lines = text.split(/\r\n|\r|\n/);
   // Resume after the longest run of unchanged leading lines among the recent documents and jobs.
   let base: Document | null = null, shared = 0;
   const consider = (doc: Document, done: number) => {
-    if (doc.lang !== lang) return;
+    if (doc.lang !== lang || doc.max !== max) return;
     let same = 0;
     while (same < lines.length && same < done && doc.lines[same] === lines[same]) same++;
     if (same > shared) { shared = same; base = doc; }
@@ -123,16 +132,38 @@ function newJob(text: string, lang: string, key: string): Job {
   for (const doc of documents) consider(doc, doc.lines.length);
   for (const job of jobs.values()) consider(job, job.states.length);
   const from = base as Document | null;
-  return { key, lang, lines, asked: turn, states: from ? from.states.slice(0, shared) : [], runs: from ? from.runs.slice(0, shared) : [] };
+  return { key, lang, max, lines, asked: turn, states: from ? from.states.slice(0, shared) : [], runs: from ? from.runs.slice(0, shared) : [] };
 }
+/** A turn's budget: what is left of it, and all of it. */
+interface Budget { left: number; whole: number }
 /** Tokenizes the job's next lines while `budget.left` characters remain (a line costs its length
  *  and one); true when every line is done. */
-function advance(job: Job, budget: { left: number }): boolean {
+function advance(job: Job, budget: Budget): boolean {
   let state: LineState = job.states.length ? job.states[job.states.length - 1]! : null;
   for (let index = job.states.length; index < job.lines.length; index++) {
     if (budget.left <= 0) return false;
-    budget.left -= job.lines[index]!.length + 1;
-    const result = tokenizeLine(job.lines[index]!, job.lang, state);
+    const line = job.lines[index]!;
+    if (job.max && line.length >= job.max) {
+      // @pierre/diffs' tokenizeMaxLineLength: Shiki paints such a line plain and starts the next one in the
+      // state before it (tokenizeWithTheme).
+      job.states.push(state);
+      job.runs.push([{ text: line, cls: '' }]);
+      budget.left -= 1;
+      continue;
+    }
+    // code-highlighting-languages: a slow grammar's characters, and a line outside ASCII (Unicode \b
+    // forms), count more; the line's one-time work (chunks parsed, regexes compiled on first use) is
+    // charged too, and a line whose compiles would pass what is left stops and goes on next turn.
+    const cost = (line.length + 1) * (unicodeText(line) ? UNICODE_SLOW_LANGUAGES[job.lang] ?? 2 : SLOW_LANGUAGES[job.lang] ?? 1);
+    // A line that starts its turn may do half a turn of one-time work whatever its own cost: each try
+    // that stops tokenizes the line again from its start, so a long line (one past a whole turn, say)
+    // then takes a few turns on a grammar's first use, not one per regex.
+    const limit = budget.left >= budget.whole ? Math.max(budget.left - cost, budget.whole * FIRST_LINE_WORK) : budget.left - cost;
+    const before = grammarWork();
+    const result = tokenizeLineWithin(line, job.lang, state, limit);
+    budget.left -= grammarWork() - before;
+    if (!result) { budget.left = Math.min(budget.left, 0); return false; }
+    budget.left -= cost;
     state = result.state;
     const runs: Token[] = [];
     for (const piece of result.pieces) {
@@ -146,7 +177,7 @@ function advance(job: Job, budget: { left: number }): boolean {
 }
 function finish(job: Job): Token[] {
   jobs.delete(job.key);
-  documents.unshift({ lang: job.lang, lines: job.lines, states: job.states, runs: job.runs });
+  documents.unshift({ lang: job.lang, max: job.max, lines: job.lines, states: job.states, runs: job.runs });
   if (documents.length > 6) documents.pop();
   const tokens: Token[] = [];
   const push = (value: string, cls: Cls) => {
@@ -162,10 +193,10 @@ function finish(job: Job): Token[] {
   return tokens;
 }
 /** Runs `work` within what is left of this turn's budget. */
-function withinTurn(work: (budget: { left: number }) => boolean): boolean {
-  if (!slicing) return work({ left: Infinity });
+function withinTurn(work: (budget: Budget) => boolean): boolean {
+  if (!slicing) return work({ left: Infinity, whole: Infinity });
   if (turnLeft <= 0) return false;
-  const budget = { left: turnLeft };
+  const budget = { left: turnLeft, whole: turnWhole };
   const done = work(budget);
   turnLeft = budget.left;
   return done;
@@ -175,7 +206,7 @@ function withinTurn(work: (budget: { left: number }) => boolean): boolean {
  *  for up to `chars` characters; a text nobody asked for in STALE_TURNS turns is dropped. */
 export function highlightSlice(chars = SLICE_BUDGET_CHARS): { finished: boolean; pending: boolean } {
   for (const job of [...jobs.values()]) if (turn - job.asked > STALE_TURNS) jobs.delete(job.key);
-  const budget = { left: chars };
+  const budget = { left: chars, whole: chars };
   let finished = false;
   for (const job of [...jobs.values()].reverse()) {
     if (budget.left <= 0) break;
@@ -184,17 +215,22 @@ export function highlightSlice(chars = SLICE_BUDGET_CHARS): { finished: boolean;
   return { finished, pending: jobs.size > 0 };
 }
 
+/** @pierre/diffs' tokenizeMaxLineLength, its default and what T3 Code's DiffWorkerPoolProvider.tsx sets: in the
+ *  Files panel and diffs a line this long or longer is not tokenized (lineTokens). Chat code blocks and search
+ *  lines go through Shiki with no limit. */
+export const TOKENIZE_MAX_LINE_LENGTH = 1_000;
 /** The reference's tokens for `text`, or null when no grammar here covers the language, the text is
- *  too long, or (slicing) its tokens are still being computed. */
-export function shikiTokens(text: string, nameOrPath: string): Token[] | null {
+ *  too long, or (slicing) its tokens are still being computed. With `maxLineLength`, a line that long or
+ *  longer paints plain (TOKENIZE_MAX_LINE_LENGTH). */
+export function shikiTokens(text: string, nameOrPath: string, maxLineLength = 0): Token[] | null {
   if (text.length > SHIKI_MAX_CHARS) return null;
   const lang = shikiLanguage(nameOrPath);
   if (!lang) return null;
-  const key = `${lang}\u0000${text}`;
+  const key = textKey(lang, maxLineLength, text);
   const known = results.get(key);
   if (known) return known.map(token => ({ ...token }));
   let job = jobs.get(key);
-  if (job) { jobs.delete(key); job.asked = turn; } else job = newJob(text, lang, key);
+  if (job) { jobs.delete(key); job.asked = turn; } else job = newJob(text, lang, maxLineLength, key);
   jobs.set(key, job); // the most recently asked text is sliced first
   let tokens: Token[] | null = null;
   try {

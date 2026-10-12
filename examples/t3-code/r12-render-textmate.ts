@@ -6,50 +6,108 @@
 // the line's "\n", the earliest match wins (ties to the first pattern), begin/end and begin/while
 // rules stack, \A / \G variants, end back-references, nested captures, the loop guards that stop
 // a line when a rule does not advance, and the theme trie's specificity for colours and font styles.
-// shiki-residuals: the grammars come in groups (one generated file each, tools/grammar/gen-grammar.mjs),
-// each with its own rule ids; a group's data is parsed the first time one of its languages is used.
+// code-highlighting-languages: every grammar of Shiki's bundle is here (but the eight its generator leaves out for
+// their licences, LICENSE-T3: each is an empty grammar, so what embeds one paints that part plain), in one rule space; each
+// grammar's rules, scope names and regexes are a chunk (r12-render-grammar-<n>.ts) parsed the first
+// time a rule of it is needed, so a language costs nothing until it is highlighted.
 
-import { GRAMMAR_DATA, GRAMMAR_LANGUAGES } from './r12-render-grammar';
-import { GRAMMAR_DATA as MORE_DATA, GRAMMAR_LANGUAGES as MORE_LANGUAGES } from './r12-render-grammar-more';
+import { GRAMMAR_CHUNKS, GRAMMAR_INDEX } from './r12-render-grammar';
 
 /** A converted regex: source, flags, hidden captures, capture transfers, clip-search strategy
- *  (oniguruma-to-es's EmulatedRegExp options), a back-reference marker, or four \A/\G variants. */
-interface Rx { s: string; f: string; h?: number[]; t?: [number, number[]][]; c?: 1; b?: 1; v?: Rx[]; re?: RegExp }
+ *  (oniguruma-to-es's EmulatedRegExp options), a back-reference marker, or four \A/\G variants
+ *  (in the data a variant equal to an earlier one is that one's index; load() resolves it), and
+ *  `u`, its form with Oniguruma's Unicode \b where that differs from the ASCII one (see exec).
+ *  `o` marks an end / while regex made from one begin match (its back-references resolved). */
+interface Rx { s: string; f: string; h?: number[]; t?: [number, number[]][]; c?: 1; b?: 1; v?: Rx[]; u?: Rx; o?: 1; re?: RegExp }
 interface Capture { n?: number; c?: number; r?: number }
 type Captures = Record<string, Capture>;
 interface Rule { i?: number; n?: number; c?: number; m?: number; mc?: Captures; b?: number; bc?: Captures; e?: number; ec?: Captures; w?: number; wc?: Captures; l?: 1; p?: number[] }
 /** A theme rule: selector, foreground ('' for none) and, when the rule sets one, its fontStyle. */
 interface ThemeData { fg: string; rules: ([string, string] | [string, string, string])[] }
-interface Data {
+interface Index {
   roots: Record<string, number>; aliases: Record<string, string>; injections: Record<string, [string, number][]>;
-  names: string[]; rules: Rule[]; regexes: Rx[]; themes?: { light: ThemeData; dark: ThemeData };
+  /** Per chunk, the first rule id, scope name index and regex index it holds. */
+  chunks: [number, number, number][]; counts: [number, number, number]; themes: { light: ThemeData; dark: ThemeData };
 }
-interface Group { source: string; languages: Set<string>; parsed: Data | null; patterns: Map<number, number[]>; injections: Map<string, Injection[]> }
-const GROUPS: Group[] = [[GRAMMAR_DATA, GRAMMAR_LANGUAGES], [MORE_DATA, MORE_LANGUAGES]].map(([source, languages]) =>
-  ({ source: source!, languages: new Set(languages!.split(' ')), parsed: null, patterns: new Map(), injections: new Map() }));
-const parse = (group: Group): Data => group.parsed ??= JSON.parse(group.source) as Data;
-/** The group the line being tokenized belongs to (set by tokenizeLine). */
-let current: Group = GROUPS[0]!;
-const data = (): Data => parse(current);
-const groupOf = (lang: string): Group | undefined => GROUPS.find(group => group.languages.has(lang));
+let parsedIndex: Index | null = null;
+const index = (): Index => parsedIndex ??= JSON.parse(GRAMMAR_INDEX) as Index;
+const own = (table: object, key: string) => Object.prototype.hasOwnProperty.call(table, key);
+/** The loaded rules, scope names and regexes, by their global ids (holes until their chunk loads). */
+const RULES: Rule[] = [], NAMES: string[] = [], REGEXES: Rx[] = [];
+const loadedChunks = new Set<number>();
+/** The one-time work done so far (chunks parsed, regexes compiled), in the slicer's unit: characters
+ *  tokenized at TypeScript's speed in Hermes (about 70,000 a second). Hermes compiles cpp's regexes,
+ *  the costliest ASCII ones here, at about 0.4 µs a source character, so a regex costs one unit per 30
+ *  of its characters, and four more per Unicode property (a Unicode \b form has four classes of four,
+ *  each built when compiled: asm's 280 compile in about 430 ms); a chunk parses at one unit per 400
+ *  characters. */
+let work = 0;
+export const grammarWork = (): number => work;
+/** Parses one grammar's chunk into the tables. */
+function load(chunk: number): void {
+  if (loadedChunks.has(chunk)) return;
+  loadedChunks.add(chunk);
+  const [ruleAt, nameAt, regexAt] = index().chunks[chunk]!;
+  const text = GRAMMAR_CHUNKS[chunk]!();
+  work += text.length / 400;
+  const data = JSON.parse(text) as { r: Rule[]; n: string[]; x: (Rx & { v?: (Rx | number)[] })[] };
+  data.r.forEach((one, at) => { RULES[ruleAt + at] = one; });
+  data.n.forEach((one, at) => { NAMES[nameAt + at] = one; });
+  data.x.forEach((one, at) => {
+    if (one.v) { const variants = one.v; one.v = variants.map(variant => typeof variant === 'number' ? variants[variant] as Rx : variant); }
+    REGEXES[regexAt + at] = one as Rx;
+  });
+}
+/** The rule with this id, its grammar's chunk loaded on first use. */
+function ruleOf(id: number): Rule {
+  const known = RULES[id];
+  if (known) return known;
+  const chunks = index().chunks;
+  let low = 0, high = chunks.length - 1;
+  while (low < high) { const mid = (low + high + 1) >> 1; if (chunks[mid]![0] <= id) low = mid; else high = mid - 1; }
+  load(low);
+  return RULES[id]!;
+}
+/** How many grammar chunks have been parsed (tests). */
+export const loadedGrammarChunks = (): number => loadedChunks.size;
 
 /** The Shiki language id a grammar here has for a language name or alias, or ''. */
 export function grammarId(lang: string): string {
-  const group = groupOf(lang);
-  if (!group) return '';
-  const table = parse(group), id = table.aliases[lang] ?? lang;
-  return table.roots[id] !== undefined ? id : '';
+  const table = index(), id = own(table.aliases, lang) ? table.aliases[lang]! : lang;
+  return own(table.roots, id) ? id : '';
 }
 
 // ── Regexes ─────────────────────────────────────────────────────────────────────────────────
 interface Match { start: number; end: number; indices: ([number, number] | undefined)[] }
-/** The entry's RegExp, compiled once and kept on the entry (back-reference variants are fresh entries). */
-const compile = (rx: Rx): RegExp => rx.re ??= new RegExp(rx.s, rx.f + 'dg');
+/** While a line runs under a limit (tokenizeLineWithin): the work when it began, how many grammar
+ *  regexes it has compiled, and how much one-time work it may do. */
+let lineWork = 0, lineCompiled = 0, workLimit = Infinity;
+const OVER_LIMIT = new Error('over the line\'s work limit');
+/** The entry's RegExp, compiled once and kept on the entry. A line stops before compiling a grammar
+ *  regex that would pass its limit, once it has compiled one: those stay compiled, so each try gets
+ *  further and a line retried from its start always finishes. A regex made from a begin match (`o`)
+ *  never stops a line, since a retry makes it again; its compile is counted as work all the same. */
+function compile(rx: Rx): RegExp {
+  if (!rx.re) {
+    const cost = 1 + rx.s.length / 30 + 4 * (rx.s.split('\\p{').length - 1);
+    if (!rx.o) {
+      if (lineCompiled > 0 && work - lineWork + cost > workLimit) throw OVER_LIMIT;
+      lineCompiled++;
+    }
+    work += cost;
+    rx.re = new RegExp(rx.s, rx.f + 'dg');
+  }
+  return rx.re;
+}
 function variant(index: number, allowA: boolean, allowG: boolean): Rx {
-  const rx = data().regexes[index]!;
+  const rx = REGEXES[index]!;
   return rx.v ? rx.v[(allowA ? 2 : 0) + (allowG ? 1 : 0)]! : rx;
 }
-function exec(rx: Rx, line: string, from: number): Match | null {
+/** Whether the line being tokenized has a character outside ASCII: only there does Oniguruma's
+ *  Unicode \b differ from the faster ASCII one (code-highlighting-languages). */
+let unicodeLine = false;
+function exec(given: Rx, line: string, from: number): Match | null {
+  const rx = unicodeLine && given.u ? given.u : given;
   const re = compile(rx);
   // clip_search: the regex sees the line from `from` on (its \G became ^), offsets added back.
   const offset = rx.c && from ? from : 0, text = offset ? line.slice(offset) : line;
@@ -74,31 +132,43 @@ function exec(rx: Rx, line: string, from: number): Match | null {
 // vscode-textmate escapes a captured back-reference for Oniguruma; these are the characters a
 // JavaScript unicode-mode pattern lets (and needs) a backslash before.
 const escapeRx = (text: string) => text.replace(/[\\^$.*+?()[\]{}|\/-]/g, character => character === '-' ? '\\x2d' : '\\' + character);
-/** An end / while regex with its back-references (U+E000+n, see the generator) resolved from the begin match. */
-function resolveBackrefs(rx: Rx, line: string, begin: Match): Rx {
-  const swap = (one: Rx): Rx => ({ s: one.s.replace(/[\ue000-\ue0ff]/g, mark => {
+/** End / while regexes made from begin matches, by the regex and its resolved source: a text's `**` or
+ *  `r#"` is compiled once, as Shiki's JavaScript engine keeps compiled patterns by source. */
+const resolved = new Map<string, Rx>();
+/** The end / while regex `index` with its back-references (U+E000+n, see the generator) resolved from the begin match. */
+function resolveBackrefs(index: number, line: string, begin: Match): Rx {
+  const rx = REGEXES[index]!;
+  const resolve = (source: string) => source.replace(/[\ue000-\ue0ff]/g, mark => {
     const at = begin.indices[mark.charCodeAt(0) - 0xe000];
     return at ? escapeRx(line.slice(at[0], at[1])) : '';
-  }), f: one.f, ...(one.h ? { h: one.h } : {}), ...(one.t ? { t: one.t } : {}), ...(one.c ? { c: one.c } : {}) });
-  return rx.v ? { s: '', f: '', v: rx.v.map(swap) } : swap(rx);
+  });
+  // Every form (the \A / \G variants, the Unicode \b one) holds the same back-references as the first.
+  const key = `${index}\u0000${resolve((rx.v ? rx.v[0]! : rx).s)}`;
+  const known = resolved.get(key);
+  if (known) return known;
+  const swap = (one: Rx): Rx => ({ s: resolve(one.s), f: one.f, o: 1, ...(one.h ? { h: one.h } : {}), ...(one.t ? { t: one.t } : {}), ...(one.c ? { c: one.c } : {}), ...(one.u ? { u: swap(one.u) } : {}) });
+  const made: Rx = rx.v ? { s: '', f: '', o: 1, v: rx.v.map(swap) } : swap(rx);
+  if (resolved.size >= 2000) resolved.clear();
+  resolved.set(key, made);
+  return made;
 }
 
 // ── Rules and scanners ──────────────────────────────────────────────────────────────────────
 /** The match / begin rules a rule's patterns reach, includes and pattern-only rules expanded. */
+const patternCache = new Map<number, number[]>();
 function patterns(id: number): number[] {
-  const patternCache = current.patterns;
   const known = patternCache.get(id);
   if (known) return known;
   const out: number[] = [], seen = new Set<number>();
   const visit = (ruleId: number) => {
     if (ruleId < 0 || seen.has(ruleId)) return;
-    const rule = data().rules[ruleId]!;
+    const rule = ruleOf(ruleId);
     if (rule.i !== undefined) { visit(rule.i); return; }
     if (rule.m !== undefined || rule.b !== undefined) { out.push(ruleId); return; }
     seen.add(ruleId);
     for (const child of rule.p ?? []) visit(child);
   };
-  for (const child of data().rules[id]!.p ?? []) visit(child);
+  for (const child of ruleOf(id).p ?? []) visit(child);
   patternCache.set(id, out);
   return out;
 }
@@ -121,7 +191,7 @@ function search(rx: Rx, line: string, pos: number): Match | null {
   return match;
 }
 function scanRule(frame: Frame, line: string, pos: number, first: boolean, anchor: number): { rule: number; match: Match } | null {
-  const rule = data().rules[frame.rule]!;
+  const rule = ruleOf(frame.rule);
   const list = patterns(frame.rule);
   const allowA = first, allowG = pos === anchor;
   let best: { rule: number; match: Match } | null = null;
@@ -133,7 +203,7 @@ function scanRule(frame: Frame, line: string, pos: number, first: boolean, ancho
   if (end && !rule.l) consider(END, end);
   for (const id of list) {
     if (best && (best as { match: Match }).match.start === pos) break;
-    const target = data().rules[id]!;
+    const target = ruleOf(id);
     consider(id, variant(target.m ?? target.b!, allowA, allowG));
   }
   if (end && rule.l && !(best && (best as { match: Match }).match.start === pos)) consider(END, end);
@@ -184,12 +254,12 @@ function createMatchers(selector: string): { matcher: Matcher; priority: number 
   }
   return results;
 }
+const injectionCache = new Map<string, Injection[]>();
 function injectionsOf(lang: string): Injection[] {
-  const injectionCache = current.injections;
   let known = injectionCache.get(lang);
   if (!known) {
     known = [];
-    for (const [selector, rule] of data().injections[lang] ?? []) for (const { matcher, priority } of createMatchers(selector)) known.push({ matcher, rule, priority });
+    for (const [selector, rule] of own(index().injections, lang) ? index().injections[lang]! : []) for (const { matcher, priority } of createMatchers(selector)) known.push({ matcher, rule, priority });
     known.sort((a, b) => a.priority - b.priority);
     injectionCache.set(lang, known);
   }
@@ -203,10 +273,10 @@ function scan(frame: Frame, line: string, pos: number, first: boolean, anchor: n
   let best: { rule: number; match: Match; priority: number } | null = null;
   for (const injection of injections) {
     if (!injection.matcher(frame.content)) continue;
-    const own = data().rules[injection.rule]!;
-    const list = own.m !== undefined || own.b !== undefined ? [injection.rule] : patterns(injection.rule);
+    const injected = ruleOf(injection.rule);
+    const list = injected.m !== undefined || injected.b !== undefined ? [injection.rule] : patterns(injection.rule);
     for (const id of list) {
-      const target = data().rules[id]!;
+      const target = ruleOf(id);
       const match = search(variant(target.m ?? target.b!, first, pos === anchor), line, pos);
       if (match && (!best || match.start < best.match.start)) best = { rule: id, match, priority: injection.priority };
       if (best && best.match.start === pos) break;
@@ -221,7 +291,7 @@ function scan(frame: Frame, line: string, pos: number, first: boolean, anchor: n
 // ── Scopes and tokens ───────────────────────────────────────────────────────────────────────
 function scopeName(id: number | undefined, line: string, match: Match): string[] {
   if (id === undefined) return [];
-  const name = data().names[id]!;
+  const name = NAMES[id]!;
   const resolved = /\$\d+|\$\{\d+:\/(?:downcase|upcase)\}/.test(name) ? name.replace(/\$(\d+)|\$\{(\d+):\/(downcase|upcase)\}/g, (whole: string, plain: string, group: string, command: string) => {
     const at = match.indices[Number(plain ?? group)];
     if (!at) return whole;
@@ -268,10 +338,10 @@ function handleCaptures(line: string, first: boolean, frame: Frame, out: Output,
 function checkWhile(line: string, first: boolean, frame: Frame, out: Output): { frame: Frame; pos: number; anchor: number; first: boolean } {
   let anchor = frame.eol ? 0 : -1, pos = 0;
   const whiles: Frame[] = [];
-  for (let node: Frame | null = frame; node; node = node.parent) if (data().rules[node.rule]!.w !== undefined) whiles.push(node);
+  for (let node: Frame | null = frame; node; node = node.parent) if (ruleOf(node.rule).w !== undefined) whiles.push(node);
   for (let node = whiles.pop(); node; node = whiles.pop()) {
-    const rule = data().rules[node.rule]!;
-    const base = node.end ?? data().regexes[rule.w!]!;
+    const rule = ruleOf(node.rule);
+    const base = node.end ?? REGEXES[rule.w!]!;
     const match = exec(base.v ? base.v[(first ? 2 : 0) + (pos === anchor ? 1 : 0)]! : base, line, pos);
     if (!match) { frame = node.parent!; break; }
     out.produce(node.content, match.start);
@@ -299,7 +369,7 @@ function tokenizeString(line: string, first: boolean, pos: number, frame: Frame,
     const { match } = found;
     const advanced = match.end > pos;
     if (found.rule === END) {
-      const popped = frame, rule = data().rules[popped.rule]!;
+      const popped = frame, rule = ruleOf(popped.rule);
       out.produce(frame.content, match.start);
       const ending: Frame = { ...frame, content: frame.names };
       handleCaptures(line, first, ending, out, rule.ec, match);
@@ -308,7 +378,7 @@ function tokenizeString(line: string, first: boolean, pos: number, frame: Frame,
       anchor = popped.anchor;
       if (!advanced && popped.enter === pos) { frame = ending; out.produce(frame.content, length); return frame; }
     } else {
-      const rule = data().rules[found.rule]!;
+      const rule = ruleOf(found.rule);
       out.produce(frame.content, match.start);
       const before = frame;
       const names = [...frame.content, ...scopeName(rule.n, line, match)];
@@ -320,8 +390,8 @@ function tokenizeString(line: string, first: boolean, pos: number, frame: Frame,
         pushed = { ...pushed, content: [...names, ...scopeName(rule.c, line, match)] };
         const closing = rule.e ?? rule.w;
         if (closing !== undefined) {
-          const rx = data().regexes[closing]!;
-          pushed.end = rx.b ? resolveBackrefs(rx, line, match) : rx;
+          const rx = REGEXES[closing]!;
+          pushed.end = rx.b ? resolveBackrefs(closing, line, match) : rx;
         }
         frame = pushed;
         if (!advanced && hasSameRule(before, pushed)) { frame = before; out.produce(frame.content, length); return frame; }
@@ -412,7 +482,7 @@ const themes = new Map<string, Theme>();
 function theme(name: 'light' | 'dark'): Theme {
   let built = themes.get(name);
   if (built) return built;
-  const source = parse(GROUPS[0]!).themes![name];
+  const source = index().themes[name];
   const parsed = source.rules.map(([selector, fg, style], index) => {
     const segments = selector.split(' ').filter(Boolean);
     const scope = segments[segments.length - 1] ?? '';
@@ -446,14 +516,16 @@ export const colorOf = (scopes: string[], name: 'light' | 'dark'): string => sty
 
 /** The tokenizer's state between lines (opaque); null before the first line. */
 export type LineState = Frame | null;
+/** Whether a line has a character outside ASCII (its regexes then run in their Unicode \b forms). */
+export const unicodeText = (text: string): boolean => /[^\x00-\x7f]/.test(text);
 /** One line (without its "\n") after `state`: its scoped pieces and the state after it. */
 export function tokenizeLine(text: string, lang: string, state: LineState): { pieces: Piece[]; state: Frame } {
   const first = state === null;
   rootLang = lang;
-  current = groupOf(lang) ?? GROUPS[0]!;
+  unicodeLine = unicodeText(text);
   let frame: Frame;
   if (state === null) {
-    const root = data().roots[lang]!, top = data().rules[root]!;
+    const root = index().roots[lang]!, top = ruleOf(root);
     const names = scopeName(top.n, '', { start: 0, end: 0, indices: [] });
     frame = { rule: root, parent: null, enter: -1, anchor: -1, eol: false, end: null, names, content: names };
   } else {
@@ -465,6 +537,18 @@ export function tokenizeLine(text: string, lang: string, state: LineState): { pi
   const out = new Output(line, text.length);
   frame = tokenizeString(line, first, 0, frame, out, true);
   return { pieces: out.pieces, state: frame };
+}
+
+/** code-highlighting-languages: tokenizeLine, or null when the line's one-time work (regexes compiled
+ *  on first use) would pass `limit` units: the regexes compiled so far stay compiled and the line is
+ *  tokenized again from its start later (a line leaves no other trace: `state` is only read). So a line
+ *  that first meets a big list (asm's 280 Unicode forms, about 430 ms) spreads it over turns. */
+export function tokenizeLineWithin(text: string, lang: string, state: LineState, limit: number): { pieces: Piece[]; state: Frame } | null {
+  lineWork = work; lineCompiled = 0; workLimit = limit;
+  try { return tokenizeLine(text, lang, state); } catch (error) {
+    if (error === OVER_LIMIT) return null;
+    throw error;
+  } finally { workLimit = Infinity; }
 }
 
 /** The scoped pieces of `code` in a language this table holds (one piece per run, "\n" included). */
