@@ -153,9 +153,9 @@ describe('DP-2: the card becomes the header\'s popover where no placement is lef
     expect(window).toContain('detailsSheet=detailsSheet, detailsDensity=canvas.density');
     const layer = await component('shell-details.contract', 'ThreadDetailsPanel');
     expect(layer).toContain('z-index=35 testId="thread-details-layer"');
-    expect(await component('r6-device.contract', 'R6DeviceMiniPlayer')).toContain('z-index=40 pointerdown=outside role="region" aria-label="Floating device preview"');
+    expect(await component('r6-device.contract', 'R6DeviceMiniPlayer')).toContain('z-index=40 pointerdown=outside pointerup=outside role="region" aria-label="Floating device preview"');
     // Outside presses close it, as Base UI's: the backdrop takes the column's presses and, `below` the column, the terminal
-    // drawer's; the floating player, which lies above the backdrop, closes it on a primary press of its own (detailsPlayerDown) (its pill buttons,
+    // drawer's; the floating player, which lies above the backdrop, closes it on a primary press of its own (detailsPlayerPointer) (its pill buttons,
     // its screen, its resize edges); the window on a press beside the chat column (the sidebar, the right panel). A drag
     // on the player closes it too, as its gesture starts. Over a right panel sheet the window's popover has a window-wide
     // backdrop, so the window's rule stands aside.
@@ -167,10 +167,11 @@ describe('DP-2: the card becomes the header\'s popover where no placement is lef
     for (const file of ['r4-surfaces.contract', 'shell-panels.contract']) expect(await source(file)).not.toContain('id="panel-toggle-details"');
     expect(column).toContain('R6DeviceMiniPlayer(mini=shell.panel.deviceMini, frame=canvas.mini, still=viewport.prefersReducedMotion, local=chatLocal, gesture=canvasGesture, outside=detailsOutside)');
     expect(column).toContain('BrowserMiniPlayer(mini=shell.panel.browserMini, frame=canvas.mini, canvasWidth=canvas.containerWidth, local=chatLocal, gesture=canvasGesture, outside=detailsOutside)');
-    expect(window).toContain('canvas=canvas, canvasGesture=canvasGesture, detailsOutside=detailsPlayerDown, ');
-    expect(under(window, 'action detailsPlayerDown(e: PointerEvent)').join('\n')).toBe('    if detailsOpen and e.buttons == 1\n      detailsAct("dismiss", "", "")');
-    expect(await component('r6-device.contract', 'R6DeviceMiniPlayer')).toContain('z-index=40 pointerdown=outside role="region" aria-label="Floating device preview"');
-    expect(await component('browser-capture.contract', 'BrowserMiniPlayer')).toContain('z-index=40 hover=overPlayer pointermove=movePlayer pointerdown=outside role="region" aria-label="Floating browser preview"');
+    expect(window).toContain('canvas=canvas, canvasGesture=canvasGesture, detailsOutside=detailsPlayerPointer, ');
+    // It closes as the press ends (armed at the primary button's down), so a pill button's own press still lands.
+    expect(under(window, 'action detailsPlayerPointer(e: PointerEvent)').join('\n')).toBe('    if e.buttons == 1\n      detailsPlayerArmed = true\n    else\n      if detailsPlayerArmed and detailsOpen\n        detailsAct("dismiss", "", "")\n      detailsPlayerArmed = false');
+    expect(await component('r6-device.contract', 'R6DeviceMiniPlayer')).toContain('z-index=40 pointerdown=outside pointerup=outside role="region" aria-label="Floating device preview"');
+    expect(await component('browser-capture.contract', 'BrowserMiniPlayer')).toContain('z-index=40 hover=overPlayer pointermove=movePlayer pointerdown=outside pointerup=outside role="region" aria-label="Floating browser preview"');
     expect(root).toContain('op != "ui:changes" and op != "dismiss")');
     // The column's z-index lays it, and so the popover, over the terminal drawer under it (the reference's popover is
     // portaled over the drawer), at the reference's height (100dvh − 6.5rem); its backdrop reaches the window's foot.

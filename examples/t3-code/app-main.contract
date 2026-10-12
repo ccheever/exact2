@@ -119,7 +119,7 @@ component ChatColumn
     // reports a player gesture to it.
     canvas: ChatCanvasView
     canvasGesture: action
-    // A primary press on the floating player: outside the thread details popover (app-window.contract detailsPlayerDown).
+    // A primary press on the floating player: outside the thread details popover (app-window.contract detailsPlayerPointer).
     detailsOutside: action
     // server-update-banner: the composer notice sliding out and its delayed dismissal (app.contract noticeDismiss).
     noticeExit: string

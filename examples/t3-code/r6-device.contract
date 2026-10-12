@@ -301,8 +301,8 @@ component R6DeviceMiniPlayer
     still: bool
     local: action
     gesture: action
-    // The player's pointerdown: a primary press on it is outside the thread details popover under it (Base UI's outside
-    // press; app-window.contract detailsPlayerDown).
+    // The player's pointerdown and pointerup: a primary press on it is outside the thread details popover under it (Base
+    // UI's outside press; app-window.contract detailsPlayerPointer).
     outside: action
   state dotOver = false
   state pillOver = false
@@ -339,7 +339,7 @@ component R6DeviceMiniPlayer
   derive edge = 0.25 * rem
   derive corner = 0.5 * rem
   view
-    box position="absolute" left=frame.x top=frame.top width=frame.width height=frame.height z-index=40 pointerdown=outside role="region" aria-label="Floating device preview" testId="device-mini-player"
+    box position="absolute" left=frame.x top=frame.top width=frame.width height=frame.height z-index=40 pointerdown=outside pointerup=outside role="region" aria-label="Floating device preview" testId="device-mini-player"
       column position="absolute" left=0 top=0 right=0 bottom=0 border-radius=frame.radius overflow="hidden" background-color="light-dark(#f4f4f5, #1a1a1a)" box-shadow="0 25px 50px -12px #00000059"
         box hatch="t3-media" data-media-kind=`device-${mini.platform}` data-device-id=mini.deviceId data-device-host=mini.hostId position="absolute" left=0 top=0 right=0 bottom=0 role="application" aria-label=(mini.platform == "ios" ? "iOS Simulator screen" : "Android Emulator screen") testId="device-mini-screen"
         when mini.stream.status != "streaming"
