@@ -1,7 +1,7 @@
 //! Bounded immutable request and accepted frame wire; no live source at paint.
 use super::*;
 use crate::batch::quote;
-use exact_kernel::{motion::motion_node, AxisOffer, FontStyle, NodeType, TextStyle};
+use exact_kernel::{motion::motion_node, AxisOffer, FontStyle, NodeType, StyleId, TextStyle};
 use std::fmt::Write;
 fn axis(value: AxisOffer) -> f32 {
     match value {
@@ -15,6 +15,12 @@ fn metric(style: TextStyle, out: &mut String) {
     let _ = write!(out, "\"size\":{},\"weight\":{},\"family\":{},\"italic\":{},\"lineHeight\":{line},\"spacing\":{}", style.font_size, style.font_weight, style.font_family, style.font_style != FontStyle::Normal, style.letter_spacing);
 }
 fn colors(node: &exact_kernel::NodeRef<'_>, out: &mut String) {
+    // The channels cross resolved, so the colour's kind crosses beside them:
+    // selected text keeps an ink its author fixed, where a role's turns
+    // (LLP 1115.000 D7.9). A colour nobody set is the platform's.
+    let set = node.computed_row(StyleId::TextColor, |s| s.mask.has(StyleId::TextColor));
+    let fixed = set && crate::style::fixes_ink(node.text_color());
+    let _ = write!(out, ",\"fixed\":{fixed}");
     for (label, dark) in [("color", false), ("darkColor", true)] {
         let c = node.text_color().resolve(dark);
         let _ = write!(

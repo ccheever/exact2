@@ -56,6 +56,11 @@ package struct Run: Hashable {
     var background: [Double]? = nil
     /// CSS visibility hides ink without changing shaping or descendant visibility.
     var hidden = false
+    /// Its colour is one its author fixed: a literal or a `light-dark()`
+    /// pair, not a role and not unsaid (`BatchValue.fixesInk`). Selected on
+    /// the Mac in the light appearance, such text keeps its ink, as an
+    /// `NSTextView` leaves it (LLP 1115.000 D7.9). Paint, never metrics.
+    var fixedInk = false
     /// Its own `text-shadow` (offset x, y, blur, r g b a) when the
     /// paragraph's runs differ (`Spec.gatherShadows`), and its
     /// `-webkit-text-stroke` (width, r g b a): paint (LLP 1077 D3, D7).
@@ -71,7 +76,7 @@ package struct Run: Hashable {
               lhs.italic == rhs.italic, lhs.lineHeight == rhs.lineHeight,
               lhs.letterSpacing == rhs.letterSpacing, lhs.numeric == rhs.numeric, lhs.color == rhs.color,
               lhs.decoration == rhs.decoration, lhs.href == rhs.href,
-              lhs.hidden == rhs.hidden, lhs.background == rhs.background, lhs.shadow == rhs.shadow, lhs.stroke == rhs.stroke,
+              lhs.hidden == rhs.hidden, lhs.fixedInk == rhs.fixedInk, lhs.background == rhs.background, lhs.shadow == rhs.shadow, lhs.stroke == rhs.stroke,
               lhs.indent == rhs.indent, lhs.hang == rhs.hang else { return false }
         // CoreText's ranges address the original UTF16 source. Swift String's
         // canonical equality would alias NFC/NFD paragraphs with different
@@ -98,6 +103,7 @@ package struct Run: Hashable {
         hasher.combine(href)
         hasher.combine(background)
         hasher.combine(hidden)
+        hasher.combine(fixedInk)
         hasher.combine(shadow)
         hasher.combine(stroke)
         hasher.combine(indent)
@@ -414,31 +420,6 @@ final class ParagraphInkIndex {
             }
         }
         visit(1)
-    }
-}
-
-extension Spec {
-    /// Paint does not affect wrapping. Retain run boundaries and metric styles.
-    var geometry: Spec {
-        var value = self
-        value.color = [0, 0, 0, 255]
-        value.ellipsis = false
-        value.source = SourceMap()
-        for i in value.runs.indices {
-            value.runs[i].hidden = false
-            value.runs[i].color = nil
-            value.runs[i].decoration = ""
-            value.runs[i].href = ""
-            value.runs[i].background = nil
-            value.runs[i].shadow = nil
-            value.runs[i].stroke = nil
-        }
-        if var strut = value.strut {
-            strut.text = ""; strut.color = nil; strut.decoration = ""; strut.href = ""; strut.background = nil
-            strut.shadow = nil; strut.stroke = nil
-            value.strut = strut
-        }
-        return value
     }
 }
 
@@ -811,6 +792,7 @@ package final class TextEngine {
         for r in spec.runs {
             var a: [NSAttributedString.Key: Any] = [.font: font(r), .foregroundColor: r.color.map(TextEngine.color) ?? color]
             if r.hidden { a[.exactHidden] = true }
+            if r.fixedInk, r.color != nil { a[.exactFixedInk] = true }
             // A centred stroke over the fill: Core Text's negative width,
             // in percent of the run's size (LLP 1077 D7). Each run's own.
             if let st = r.stroke, st.count == 5, st[0] > 0, r.size > 0 {

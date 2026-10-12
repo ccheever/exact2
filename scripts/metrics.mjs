@@ -883,7 +883,10 @@ const IOS_HELLO_BYTES = { speed: 8_600_000, size: 6_050_000 };
 // 2026-10-06): 36.0 and 15.6 KiB shipped after that cut. RealWorld's bulk is its own
 // generated module (~8 KB), the runtime core (~11.6 KB) and the TypeScript data layer
 // (~2.9 KB); the video player grew with its media session, controls and full screen.
-const JS_TARGET_KIB = { realworld: 38, 'video-player': 17, caltrain: 25 };
+// RealWorld raised 38 → 45 (Charlie, 2026-10-12): 43.45 KiB shipped at fe5b26798, grown by real
+// features since 2026-10-08 (optimistic writes, +2.4 KB, the largest; the LLP 1115.000 web rows);
+// the file-body path already links by use (-0.4 KB). A link-by-use cut hunt is in QUEUE.md.
+const JS_TARGET_KIB = { realworld: 45, 'video-player': 17, caltrain: 25 };
 
 // 8. Long: web bytes by capability (LLP 1047 D9), for the three apps the
 // size work tracks. Each app's app.wasm as shipped (raw, gzip, brotli-11),

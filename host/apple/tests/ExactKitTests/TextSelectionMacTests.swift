@@ -466,72 +466,121 @@ final class TextSelectionMacTests: XCTestCase {
         XCTAssertEqual(p.selection.selectedText(), " gamma")
     }
 
-    /// LLP 1115.000 D7.9: the selected glyphs are AppKit's colour for text
-    /// on the selection's fill, whatever ink the text had. White text that
-    /// stood on a dark ground is black on the light appearance's pale fill
-    /// (the fill alone hid it) and stays white on the dark appearance's; an
-    /// ink that is part transparent is solid; an underline takes the colour
-    /// too, and what is not selected keeps its own ink.
-    func testSelectedGlyphsAreAppKitsSelectedTextColour() throws {
+    /// LLP 1115.000 D7.9: which selected glyphs take AppKit's colour for text
+    /// on the selection's fill is as an `NSTextView` has it (measured on
+    /// macOS 27.0, a key window and one that is not alike). Dark: every one,
+    /// whatever its ink. Light: text nobody coloured and text in a role turn
+    /// black, an inline link too; a colour its author fixed keeps its ink at
+    /// its own alpha, with its underline: a literal (red stays red), a
+    /// `light-dark()` pair and a colour from the app's asset catalogue. What
+    /// is not selected keeps its ink always.
+    func testSelectedGlyphsKeepTheInkAppKitKeeps() throws {
         XCTAssertEqual(TextSelection.ink(focused: true), .selectedTextColor)
         XCTAssertEqual(TextSelection.ink(focused: false), .unemphasizedSelectedTextColor)
-        // A full block's middle is ink and nothing else; the space between
-        // the words is the fill, and the underline where it crosses it.
-        // Solid white underlined, and under it white at half strength.
-        let (session, solid) = laidOut("████ ████")
+        XCTAssertTrue(TextSelection.keepsFixedInk(dark: false))
+        XCTAssertFalse(TextSelection.keepsFixedInk(dark: true))
+        let (session, _) = laidOut("")
         defer { session.destroy() }
         let p = session.presenter
-        solid.style["text_color"] = [255, 255, 255, 255]
-        solid.style["text_decoration_line"] = "underline"
-        let faint = NodeView(id: 2, kind: "text", presenter: p)
-        faint.frame = NSRect(x: 0, y: 30, width: 380, height: 20)
-        faint.props = solid.props
-        faint.style = ["font_size": 16.0, "line_height": "20px", "text_color": [255, 255, 255, 128]]
-        p.root.addSubview(faint); p.views[2] = faint
+        // A full block's middle is ink and nothing else; the space between
+        // the words is the fill, and the underline where it crosses it.
+        let role: [String: Any] = ["sys": "secondaryLabelColor", "c": [[60, 60, 67, 153], [235, 235, 245, 153]]]
+        let link: [String: Any] = ["sys": "linkColor", "c": [[0, 104, 218, 255], [65, 156, 255, 255]]]
+        let rows: [(name: String, color: Any?, underlined: Bool, keeps: Bool)] = [
+            ("a literal", [255, 0, 0, 255], true, true),
+            ("a literal at half strength", [255, 0, 0, 128], false, true),
+            ("a light-dark() pair", [[153, 0, 0, 255], [255, 153, 153, 255]], false, true),
+            // No catalogue here: its fallback pair is what draws, and the kind is still the name's.
+            ("a colour from the asset catalogue", ["sys": "named:Brand", "c": [[0, 0, 153, 255], [153, 153, 255, 255]]] as [String: Any], false, true),
+            ("a role", role, false, false),
+            ("nothing written", nil, false, false),
+        ]
+        var ops: [[String: Any]] = []
+        for (i, row) in rows.enumerated() {
+            var style: [String: Any] = ["font_size": 16.0, "line_height": "20px"]
+            if let color = row.color { style["text_color"] = color }
+            if row.underlined { style["text_decoration_line"] = "underline" }
+            ops.append(["op": "create", "id": 10 + i, "kind": "text", "props": ["text": "████ ████"], "style": style])
+        }
+        // One paragraph of three runs: a literal, a link in the link role, a pair.
+        func run(_ id: Int, _ text: String, _ color: Any, href: String? = nil) -> [String: Any] {
+            ["id": id, "parent": 20, "paint": true, "style": ["font_size": 16.0, "text_color": color],
+             "props": href.map { ["text": text, "href": $0] } ?? ["text": text]]
+        }
+        ops.append(["op": "create", "id": 20, "kind": "text", "style": ["font_size": 16.0, "line_height": "20px"]])
+        ops.append(["op": "paragraph", "id": 20, "runs": [
+            run(21, "██ ", [0, 128, 0, 255]), run(22, "██ ", link, href: "https://example.com/"), run(23, "██", [[153, 0, 0, 255], [255, 153, 153, 255]]),
+        ]])
+        let ids = rows.indices.map { 10 + $0 } + [20]
+        ops.append(["op": "create", "id": 2, "kind": "view"])
+        ops.append(["op": "children", "id": 2, "ids": ids])
+        ops.append(["op": "roots", "ids": [2]])
+        ops.append(["op": "frame", "id": 2, "x": 0, "y": 0, "w": 400, "h": 300])
+        for (i, id) in ids.enumerated() { ops.append(["op": "frame", "id": id, "x": 0, "y": Double(i * 30), "w": 380, "h": 20]) }
+        p.apply(wireBatch(ops))
         // A system colour as this kind of picture shows it, in the window's appearance.
-        let swatch = Swatch(frame: NSRect(x: 0, y: 60, width: 10, height: 10))
+        let swatch = Swatch(frame: NSRect(x: 0, y: 250, width: 10, height: 10))
         p.root.addSubview(swatch)
         func painted(_ color: NSColor) throws -> NSColor {
             swatch.color = color
             return try XCTUnwrap(Capture.picture(of: swatch)?.colorAt(x: 2, y: 2)?.usingColorSpace(.sRGB))
         }
-        func near(_ got: NSColor, _ want: NSColor) -> Bool {
-            abs(got.redComponent - want.redComponent) < 0.03 && abs(got.greenComponent - want.greenComponent) < 0.03
-                && abs(got.blueComponent - want.blueComponent) < 0.03 && abs(got.alphaComponent - want.alphaComponent) < 0.03
+        func near(_ got: NSColor, _ want: NSColor, _ by: CGFloat = 0.03) -> Bool {
+            abs(got.redComponent - want.redComponent) < by && abs(got.greenComponent - want.greenComponent) < by
+                && abs(got.blueComponent - want.blueComponent) < by && abs(got.alphaComponent - want.alphaComponent) < by
         }
-        for (node, own, underlined) in [(solid, NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 1), true), (faint, NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.5), false)] {
-            let first = try glyph(node, 1), space = try glyph(node, 4), last = try glyph(node, 6)
-            let baseline = node.paragraphBox().minY + (try XCTUnwrap(node.paragraphLayout())).baselines[0].rounded()
-            func picture() throws -> (at: ((x: CGFloat, width: CGFloat), CGFloat) -> NSColor, underline: () -> [NSColor]) {
-                let rep = try XCTUnwrap(Capture.picture(of: node))
-                let scale = CGFloat(rep.pixelsWide) / rep.size.width
-                func at(_ glyph: (x: CGFloat, width: CGFloat), _ y: CGFloat) -> NSColor {
-                    rep.colorAt(x: Int((glyph.x + glyph.width / 2) * scale), y: Int(y * scale))?.usingColorSpace(.sRGB) ?? .clear
-                }
-                // Down the space's column, from the baseline: the underline is in these rows.
-                return (at, { stride(from: baseline, to: baseline + 4, by: 1 / scale).map { at(space, $0) } })
-            }
-            let before = try picture()
-            XCTAssertTrue(near(before.at(first, 10), own), "the text's own ink: \(before.at(first, 10))")
-            XCTAssertEqual(before.underline().contains { near($0, own) }, underlined, "and its underline")
-            for dark in [false, true] {
-                let name = "\(dark ? "dark" : "light"), ink at \(own.alphaComponent)"
-                window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        /// An ink as a picture of its own paragraph shows it (part
+        /// transparent, on nothing), painted on the fill instead.
+        func on(_ fill: NSColor, _ ink: NSColor) -> NSColor {
+            let a = ink.alphaComponent
+            return NSColor(srgbRed: ink.redComponent * a + fill.redComponent * (1 - a), green: ink.greenComponent * a + fill.greenComponent * (1 - a),
+                           blue: ink.blueComponent * a + fill.blueComponent * (1 - a), alpha: 1)
+        }
+        typealias Glyph = (x: CGFloat, width: CGFloat)
+        func picture(_ node: NodeView) throws -> (Glyph, CGFloat) -> NSColor {
+            let rep = try XCTUnwrap(Capture.picture(of: node))
+            let scale = CGFloat(rep.pixelsWide) / rep.size.width
+            return { glyph, y in rep.colorAt(x: Int((glyph.x + glyph.width / 2) * scale), y: Int(y * scale))?.usingColorSpace(.sRGB) ?? .clear }
+        }
+        for dark in [false, true] {
+            window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+            // A test process's window has the focus only if a person gave it.
+            let focused = PageFacts.hasFocus(window)
+            let ink = try painted(TextSelection.ink(focused: focused)), fill = try painted(TextSelection.fill(focused: focused))
+            XCTAssertEqual(ink.redComponent, dark ? 1 : 0, accuracy: 0.01, "AppKit's selected text is \(dark ? "white" : "black") in the \(dark ? "dark" : "light") appearance")
+            for (i, row) in rows.enumerated() {
+                let node = try XCTUnwrap(p.views[UInt32(10 + i)]), name = "\(dark ? "dark" : "light"), \(row.name)"
+                let first = try glyph(node, 1), space = try glyph(node, 4), last = try glyph(node, 6)
+                let baseline = node.paragraphBox().minY + (try XCTUnwrap(node.paragraphLayout())).baselines[0].rounded()
+                let own = try picture(node)(first, 10)
                 // A drag from the paragraph's start to the second word: the first word and its space.
                 p.selection.begin(node, event: mouse(.leftMouseDown, node.convert(NSPoint(x: node.paragraphBox().minX, y: 10), to: nil)))
                 p.selection.drag(mouse(.leftMouseDragged, node.convert(NSPoint(x: last.x - last.width, y: 10), to: nil)))
                 XCTAssertEqual(p.selection.range(node), NSRange(location: 0, length: 5))
-                // A test process's window has the focus only if a person gave it.
-                let focused = PageFacts.hasFocus(window)
-                let ink = try painted(TextSelection.ink(focused: focused)), fill = try painted(TextSelection.fill(focused: focused))
-                XCTAssertEqual(ink.redComponent, dark ? 1 : 0, accuracy: 0.01, "AppKit's selected text is \(dark ? "white" : "black") in the \(dark ? "dark" : "light") appearance")
-                let shown = try picture()
-                XCTAssertTrue(near(shown.at(first, 10), ink), "\(name): a selected glyph is \(shown.at(first, 10)), not \(ink), and solid")
-                XCTAssertTrue(near(shown.at(space, 10), fill), "\(name): the fill between the words is \(shown.at(space, 10)), not \(fill)")
-                XCTAssertEqual(shown.underline().contains { near($0, ink) }, underlined, "\(name): the selected underline is the glyphs' colour: \(shown.underline())")
-                XCTAssertTrue(near(shown.at(last, 10), own), "\(name): a glyph outside the selection keeps its ink: \(shown.at(last, 10))")
+                let shown = try picture(node)
+                // Down the space's column, from the baseline: the underline is in these rows.
+                let underline = stride(from: baseline, to: baseline + 4, by: 0.5).map { shown(space, $0) }
+                // Kept, a part-transparent ink is still part transparent: the
+                // fill shows through it, blended as the context blends them.
+                let wanted = row.keeps && !dark ? on(fill, own) : ink, by: CGFloat = own.alphaComponent < 0.99 && row.keeps && !dark ? 0.12 : 0.03
+                XCTAssertTrue(near(shown(first, 10), wanted, by), "\(name): a selected glyph is \(shown(first, 10)), not \(wanted); its own ink is \(own)")
+                XCTAssertTrue(near(shown(space, 10), fill), "\(name): the fill between the words is \(shown(space, 10)), not \(fill)")
+                XCTAssertEqual(underline.contains { near($0, wanted, by) }, row.underlined, "\(name): the selected underline is the glyphs' colour: \(underline)")
+                XCTAssertTrue(near(shown(last, 10), own), "\(name): a glyph outside the selection keeps its ink: \(shown(last, 10))")
                 p.selection.clear()
             }
+            // The runs of one paragraph, all selected: each by its own colour's kind.
+            let node = try XCTUnwrap(p.views[20]), name = dark ? "dark" : "light"
+            let glyphs = try [0, 3, 6].map { try glyph(node, $0) }
+            let own = try glyphs.map { try picture(node)($0, 10) }
+            p.selection.begin(node, event: mouse(.leftMouseDown, node.convert(NSPoint(x: 5, y: 10), to: nil), clicks: 3))
+            XCTAssertEqual(p.selection.range(node), NSRange(location: 0, length: 8))
+            let shown = try picture(node)
+            XCTAssertFalse(near(own[1], ink) || near(own[0], ink) || near(own[2], ink), "\(name): no run begins in the selection's ink: \(own)")
+            XCTAssertTrue(near(shown(glyphs[0], 10), dark ? ink : own[0]), "\(name): a run in a literal is \(shown(glyphs[0], 10)); its own ink is \(own[0])")
+            XCTAssertTrue(near(shown(glyphs[1], 10), ink), "\(name): an inline link, in the link role, is \(shown(glyphs[1], 10)), not \(ink)")
+            XCTAssertTrue(near(shown(glyphs[2], 10), dark ? ink : own[2]), "\(name): a run in a pair is \(shown(glyphs[2], 10)); its own ink is \(own[2])")
+            p.selection.clear()
         }
     }
     private final class Swatch: NSView {
@@ -583,25 +632,72 @@ final class TextSelectionMacTests: XCTestCase {
         }
     }
 
-    /// A secondary click on selected text, with no authored `contextmenu`,
-    /// is a read-only text view's menu (LLP 1115 D8) for the selection.
-    func testASecondaryClickOnSelectedTextIsTheTextMenu() throws {
-        let p = fixture()
-        let text = try XCTUnwrap(p.views[2])
-        let point = text.convert(NSPoint(x: 20, y: 10), to: nil)
-        let right = NSEvent.mouseEvent(with: .rightMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                                       windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!
-        try select(p)
-        let menu = try XCTUnwrap(text.menu(for: right))
-        XCTAssertEqual(menu.items.filter { !$0.isSeparatorItem }.map(\.title), ["Look Up “Alpha beta gamma”", "Copy", "Speech"])
-        XCTAssertTrue(text.validRequestor(forSendType: .string, returnType: nil) as AnyObject? === text, "Services can take the selection")
-        let board = NSPasteboard(name: .init("exact.test.services"))
-        XCTAssertTrue(text.writeSelection(to: board, types: [.string]))
-        XCTAssertEqual(board.string(forType: .string), "Alpha beta gamma")
-        let copy = try XCTUnwrap(menu.items.first { $0.title == "Copy" })
-        NSPasteboard.general.clearContents()
-        _ = (copy.target as? NSObject)?.perform(copy.action, with: copy)
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "Alpha beta gamma")
+    /// LLP 1115.000 D7.9: a secondary click on selected text, with no
+    /// authored `contextmenu`, is AppKit's own menu for the selection, the
+    /// one a read-only `NSTextView` holding it gives, and not one the host
+    /// assembles: Look Up and Translate with the selection in their titles,
+    /// Search With, Copy, Share, Speech, each AppKit's own item. It is asked
+    /// of a text view over the selection that nobody sees, clicks or
+    /// focuses; Copy is still the page's.
+    func testASecondaryClickOnSelectedTextIsAppKitsOwnMenu() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "the agent opens no native menu")
+        // A bare presenter lays nothing out (the text view is plain, at the
+        // click); a session's does (the paragraph's own runs, on its line).
+        for measured in [false, true] {
+            let p = fixture(measured: measured)
+            defer { tearDown() }
+            let text = try XCTUnwrap(p.views[2])
+            let point = text.convert(NSPoint(x: 20, y: 10), to: nil)
+            let right = NSEvent.mouseEvent(with: .rightMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                           windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!
+            try select(p)
+            let focus = window.firstResponder
+            let menu = try XCTUnwrap(text.menu(for: right))
+            let items = menu.items.filter { !$0.isSeparatorItem }, titles = items.map(\.title)
+            XCTAssertEqual(titles.first, "Look Up “Alpha beta gamma”", "\(titles)")
+            XCTAssertTrue(titles.contains("Translate “Alpha beta gamma”"), "\(titles)")
+            XCTAssertTrue(titles.contains { $0.hasPrefix("Search With ") }, "the person's own search engine: \(titles)")
+            for title in ["Copy", "Share…", "Speech"] { XCTAssertTrue(titles.contains(title), "\(title) in \(titles)") }
+            // AppKit's items, not the host's: none is the node's to perform.
+            let held = try XCTUnwrap(p.selection.menuText)
+            XCTAssertFalse(items.contains { $0.target === text }, "no item is the page view's own")
+            XCTAssertFalse(items[0].target is NSView, "Look Up is AppKit's own item: \(String(describing: items[0].target))")
+            XCTAssertTrue(window.firstResponder === focus, "asking for the menu moves no focus")
+            // The text view that answered: the selection, selected, over it, and out of everyone's way.
+            XCTAssertTrue(held.superview === text)
+            XCTAssertEqual(held.string, "Alpha beta gamma")
+            XCTAssertEqual(held.selectedRange(), NSRange(location: 0, length: 16))
+            XCTAssertEqual(held.alphaValue, 0)
+            XCTAssertFalse(held.isEditable || held.acceptsFirstResponder || held.isAccessibilityElement())
+            XCTAssertNil(held.hitTest(NSPoint(x: held.frame.midX, y: held.frame.midY)), "a click there is the page's")
+            XCTAssertTrue(text.hitTest(text.superview!.convert(point, from: nil)) === text)
+            if measured {
+                let first = try XCTUnwrap(text.paragraphLayout()?.selectionRects(NSRange(location: 0, length: 16), align: 0, in: text.paragraphBox(), dirty: text.bounds).first)
+                XCTAssertEqual(held.frame.minY, first.minY, accuracy: 0.5, "on the selection's own line")
+                let glyph = held.convert(window.convertFromScreen(held.firstRect(forCharacterRange: NSRange(location: 0, length: 1), actualRange: nil)), from: nil)
+                XCTAssertEqual(held.convert(glyph, to: text).minX, first.minX, accuracy: 0.5, "and where it starts")
+                XCTAssertEqual((held.textStorage?.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)?.pointSize, 16, "in the paragraph's own font")
+            }
+            // Its own items answer for it: Copy can, Cut cannot (the text is not editable).
+            menu.update()
+            let copy = try XCTUnwrap(items.first { $0.title == "Copy" })
+            XCTAssertTrue(copy.target === held)
+            XCTAssertTrue(copy.isEnabled)
+            XCTAssertEqual(items.first { $0.title == "Cut" }?.isEnabled, false)
+            XCTAssertTrue(items.first { $0.title.hasPrefix("Search With ") }?.isEnabled == true)
+            // Copy is the page's: the whole selection, through the node's own copy.
+            NSPasteboard.general.clearContents()
+            _ = (copy.target as? NSObject)?.perform(copy.action, with: copy)
+            XCTAssertEqual(NSPasteboard.general.string(forType: .string), "Alpha beta gamma")
+            XCTAssertTrue(text.validRequestor(forSendType: .string, returnType: nil) as AnyObject? === text, "Services can take the selection")
+            let board = NSPasteboard(name: .init("exact.test.services"))
+            XCTAssertTrue(text.writeSelection(to: board, types: [.string]))
+            XCTAssertEqual(board.string(forType: .string), "Alpha beta gamma")
+            // Another selection: the text view that held the last one is gone.
+            p.selection.clear()
+            XCTAssertNil(held.superview)
+            XCTAssertEqual(held.string, "")
+        }
     }
 
     /// X76: a secondary click on a word outside the selection selects that
@@ -647,8 +743,9 @@ final class TextSelectionMacTests: XCTestCase {
         try rightClick(2, at: on(1, 1))
         XCTAssertEqual(p.selection.selectedText(), "Alpha", "the word under the pointer")
         XCTAssertTrue(window.firstResponder === text, "which takes the focus, as a double click does")
-        XCTAssertEqual(menus.last?.titles, ["Look Up “Alpha”", "Copy", "Speech"])
-        XCTAssertEqual(menus.last?.copy, true)
+        XCTAssertEqual(menus.last?.titles.first, "Look Up “Alpha”")
+        for title in ["Translate “Alpha”", "Copy", "Share…", "Speech"] { XCTAssertEqual(menus.last?.titles.contains(title), true, "\(title) in \(menus.last?.titles ?? [])") }
+        XCTAssertEqual(menus.last?.copy, true, "AppKit's Copy is enabled in the menu as it tracks")
         XCTAssertEqual(menus.last?.heard, "2 0-5:Alpha", "its selectionchange before the menu opens")
         try rightClick(2, at: on(3, 1))
         XCTAssertEqual(p.selection.selectedText(), "Alpha", "inside the selection it stays")

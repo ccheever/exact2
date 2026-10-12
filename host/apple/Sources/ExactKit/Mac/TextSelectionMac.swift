@@ -35,6 +35,8 @@ package final class TextSelection {
     private var pendingBegin = false
     private var deferredDrag: NSEvent?
     private var deferredEnd: (NodeView, NSEvent)?
+    /// The text view AppKit's menu for the selection is asked of (`systemMenu`).
+    var menuText: SelectionMenuText?
 
     func structureChanged() {
         shown = nil; ordered = nil
@@ -62,14 +64,36 @@ package final class TextSelection {
     static func fill(focused: Bool) -> NSColor {
         focused ? .selectedTextBackgroundColor : .unemphasizedSelectedTextBackgroundColor
     }
-    /// The selected glyphs' colour: AppKit's own for text on that fill,
-    /// whatever ink the text had, since the fill alone hides light text that
-    /// stood on a dark ground. An `NSTextView` on macOS 27.0 does the same in
-    /// the dark appearance and, in the light one, for a system colour; there
-    /// it leaves a fixed colour as it was (white stays white on the pale
-    /// fill), which is the one case this departs from it.
+    /// The selected glyphs' colour: AppKit's own for text on that fill. Which
+    /// glyphs take it is as an `NSTextView` has it, measured on macOS 27.0
+    /// (LLP 1115.000 D7.9), with or without the window's focus:
+    /// - dark appearance: every selected glyph, whatever its ink;
+    /// - light appearance: text whose colour nobody wrote, and text in a
+    ///   system colour (a role: a label tier, `AccentColor`, an inline
+    ///   link's own blue). A colour its author fixed keeps its ink at its
+    ///   own alpha: a literal (red stays red, and white stays white on the
+    ///   pale fill), a `light-dark()` pair, as a dynamic `NSColor` does,
+    ///   and a colour from the app's asset catalogue.
+    /// A run says which it is (`Run.fixedInk`, from its colour's kind on the
+    /// wire, `BatchValue.fixesInk`), and the painter is told the appearance
+    /// (`keepsFixed`).
     static func ink(focused: Bool) -> NSColor {
         focused ? .selectedTextColor : .unemphasizedSelectedTextColor
+    }
+    /// Whether selected text in a colour its author fixed keeps it: in the
+    /// light appearance, where AppKit's does (`ink`).
+    static func keepsFixedInk(dark: Bool) -> Bool { !dark }
+    /// `fill`, `ink` and `keepsFixedInk` as a raster request carries them
+    /// (`RegionRasterRequest.selectionColor`): the three as `appearance` has
+    /// them, the colours in `space`.
+    static func rasterColors(focused: Bool, in appearance: NSAppearance, space: NSColorSpace) -> [CGFloat]? {
+        var colors: [NSColor] = []
+        appearance.performAsCurrentDrawingAppearance {
+            colors = [fill(focused: focused), ink(focused: focused)].compactMap { $0.usingColorSpace(space) }
+        }
+        guard colors.count == 2 else { return nil }
+        let dark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        return colors.flatMap { [$0.redComponent, $0.greenComponent, $0.blueComponent, $0.alphaComponent] } + [keepsFixedInk(dark: dark) ? 1 : 0]
     }
     /// The window's focus may have changed (`PageFacts.hasFocus`): what is
     /// selected is painted again, in the colour that goes with it.
@@ -125,6 +149,7 @@ package final class TextSelection {
             if let selected { next[node.id] = selected }
             if selected != painted[node.id] { node.needsDisplay = true }
         }
+        if next != painted { forgetMenuText() }
         painted = next
         report(next)
     }
@@ -660,13 +685,14 @@ package final class TextSelection {
 
     /// Over the paragraph's own paint: the selection's fill, which covers
     /// the ink and any inline background inside it, then the selected glyphs
-    /// in the selection's colour (`ink`), clipped to the fill.
+    /// in the selection's colour, or in their own where they keep it (`ink`),
+    /// clipped to the fill.
     func draw(_ node: NodeView, paragraph: Paragraph, spec: Spec, in ctx: CGContext, dirty: NSRect) {
         guard let selection = range(node), selection.length > 0 else { return }
         let box = node.paragraphBox(), focused = PageFacts.hasFocus(node.window)
         let lines = paragraph.selectedLines(selection, align: spec.align, in: box, dirty: dirty)
         guard !lines.isEmpty else { return }
-        let ink = Self.ink(focused: focused).cgColor
+        let ink = Self.ink(focused: focused).cgColor, keepsFixed = Self.keepsFixedInk(dark: node.drawsDark)
         ctx.saveGState()
         ctx.clip(to: lines.map(\.rect))
         ctx.setFillColor(Self.fill(focused: focused).cgColor)
@@ -675,7 +701,7 @@ package final class TextSelection {
             let line = spec.ellipsis ? paragraph.ellipsized(index, spec: spec, width: box.width) : paragraph.lines[index]
             let origin = CGPoint(x: box.minX + paragraph.origin(index, align: spec.align, width: box.width),
                                  y: box.minY + paragraph.baselines[index].rounded())
-            TextLinePaint.draw(line, at: origin, in: ctx, ink: ink, transparentInk: node.backgroundClip == "text")
+            TextLinePaint.draw(line, at: origin, in: ctx, ink: ink, keepsFixed: keepsFixed, transparentInk: node.backgroundClip == "text")
         }
         ctx.restoreGState()
     }
@@ -728,15 +754,16 @@ extension NodeView {
 
 /// A secondary click on selectable text with no authored `contextmenu` or
 /// `contextPopover` here or above is the menu an `NSTextView` shows for
-/// read-only text (LLP 1115 D8): on a word outside the selection it first
-/// selects the word, as Chrome and AppKit do on a Mac (X76); then Look Up
-/// the selection, Copy (the `copy` event first, as ⌘C), Speech, and the
-/// Services that take text, which AppKit adds itself to a contextual menu
-/// whose responder can send them (`validRequestor`). A reader paragraph
-/// whose raster worker must place the click opens it when the answer
-/// comes. An authored handler above, or on the run under the pointer,
-/// hears the click instead and nothing is selected, as in Chrome, which
-/// selects only for its own menu. Anywhere else there is no menu, as
+/// read-only text, AppKit's own (LLP 1115.000 D7.9, `TextMenuMac.swift`):
+/// on a word outside the selection it first selects the word, as Chrome
+/// and AppKit do on a Mac (X76); then Look Up and Translate the selection,
+/// Search With, Copy (the `copy` event first, as ⌘C), Share, Speech, and
+/// the Services that take text, which AppKit adds itself to a contextual
+/// menu whose responder can send them (`validRequestor`). A reader
+/// paragraph whose raster worker must place the click opens it when the
+/// answer comes. An authored handler above, or on the run under the
+/// pointer, hears the click instead and nothing is selected, as in Chrome,
+/// which selects only for its own menu. Anywhere else there is no menu, as
 /// before, and under the agent none: AppKit's tracking of it would hold
 /// the agent's click.
 extension NodeView: NSServicesMenuRequestor {
@@ -748,47 +775,19 @@ extension NodeView: NSServicesMenuRequestor {
                // The reader's worker placed the click: its menu opens on the
                // next turn, once the reader has taken the answer in.
                DispatchQueue.main.async { [weak self] in
-                   guard let self, self.window != nil, let menu = self.textMenu() else { return }
+                   guard let self, self.window != nil, let menu = self.textMenu(event) else { return }
                    NSMenu.popUpContextMenu(menu, with: event, for: self)
                }
            }) {
             return super.menu(for: event)
         }
-        return textMenu() ?? super.menu(for: event)
+        return textMenu(event) ?? super.menu(for: event)
     }
-    private func textMenu() -> NSMenu? {
-        guard !ExactEnv.agentMode, let selection = presenter?.selection, let range = selection.range(self), range.length > 0 else { return nil }
-        let text = selection.selectedText()
-        guard !text.isEmpty else { return nil }
+    /// AppKit's menu for the selection, with the Services that take its text.
+    private func textMenu(_ event: NSEvent) -> NSMenu? {
+        guard let menu = presenter?.selection.systemMenu(for: self, event: event) else { return nil }
         _ = Self.servicesRegistered
-        let menu = NSMenu()
-        let shown = text.count > 24 ? String(text.prefix(23)) + "…" : text
-        let lookUp = menu.addItem(withTitle: String(format: NSLocalizedString("Look Up “%@”", comment: ""), shown.replacingOccurrences(of: "\n", with: " ")),
-                                  action: #selector(lookUpSelection(_:)), keyEquivalent: "")
-        lookUp.target = self
-        menu.addItem(.separator())
-        let copy = menu.addItem(withTitle: NSLocalizedString("Copy", comment: ""), action: #selector(copy(_:)), keyEquivalent: "")
-        copy.target = self
-        menu.addItem(.separator())
-        let speech = NSMenu(title: NSLocalizedString("Speech", comment: ""))
-        speech.addItem(withTitle: NSLocalizedString("Start Speaking", comment: ""), action: Selector(("startSpeaking:")), keyEquivalent: "")
-        speech.addItem(withTitle: NSLocalizedString("Stop Speaking", comment: ""), action: Selector(("stopSpeaking:")), keyEquivalent: "")
-        menu.addItem(withTitle: speech.title, action: nil, keyEquivalent: "").submenu = speech
         return menu
-    }
-    /// The dictionary's panel over the selection's first line, as a text
-    /// view shows it (the selection's own baseline, its own size).
-    @objc func lookUpSelection(_ sender: Any?) {
-        guard let selection = presenter?.selection, let range = selection.range(self), range.length > 0 else { return }
-        let size = CGFloat(style["font_size"]?.number ?? NSFont.systemFontSize)
-        let font = NSFont.systemFont(ofSize: size)
-        let string = NSAttributedString(string: selection.selectedText(), attributes: [.font: font])
-        var origin = NSPoint(x: paragraphBox().minX, y: paragraphBox().minY + font.ascender)
-        if let paragraph = paragraphLayout(),
-           let first = paragraph.selectionRects(range, align: paragraphSpec().align, in: paragraphBox(), dirty: bounds).first {
-            origin = NSPoint(x: first.minX, y: first.maxY + font.descender)
-        }
-        showDefinition(for: string, at: origin)
     }
     private static let servicesRegistered: Void = {
         NSApp.registerServicesMenuSendTypes([.string], returnTypes: [])

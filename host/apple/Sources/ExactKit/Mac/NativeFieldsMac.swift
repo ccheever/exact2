@@ -127,13 +127,8 @@ enum FieldClass {
 /// the kernel's content rect (measured from this same class,
 /// `FieldChromeCache`), its buttons where AppKit puts them.
 final class SearchFieldCell: NSSearchFieldCell {
-    private lazy var clipboardEditor: FieldEditor = {
-        let editor = FieldEditor(frame: .zero)
-        editor.isFieldEditor = true
-        return editor
-    }()
     override func fieldEditor(for controlView: NSView) -> NSTextView? {
-        (controlView.superview as? NodeView)?.hearsFieldClipboard() == true ? clipboardEditor : super.fieldEditor(for: controlView)
+        (controlView.superview as? NodeView)?.presenter?.fieldEditor ?? super.fieldEditor(for: controlView)
     }
     override func drawingRect(forBounds rect: NSRect) -> NSRect {
         (controlView?.superview as? NodeView)?.nativeEditorRect(in: rect) ?? super.drawingRect(forBounds: rect)

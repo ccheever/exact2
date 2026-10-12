@@ -694,6 +694,15 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   before `screenshot`. (Authoring bench, LLP 1087, t5-pomodoro, 2026-10-07:
   about 5 minutes and a probe script to find.)
 
+- **A macOS `screenshot` shows no focus ring on a native field or button.** AppKit
+  draws its focus ring only in the key window of the active app, and the driver's
+  window is never key; nor is the ring in any picture a process can make of its own
+  window (`cacheDisplay`, the layer tree). A focused native field looks unfocused
+  in the picture, and a bare field shows only the ring Exact itself draws. Fix: do
+  not judge a Mac focus ring from the driver's picture; read `state`'s `focus`, and
+  look at a key window by hand. (LLP 1115.000 D7.9, 2026-10-12: an earlier lane
+  concluded from the picture that AppKit's ring never drew.)
+
 - **A test passes on the web and fails on iOS right after an input that saves.** An
   `expect` straight after `type` or `tap` reads what the input's mutation answered,
   but an input step only finishes the `then`s of answers already settled; it does not

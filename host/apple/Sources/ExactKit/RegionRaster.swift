@@ -26,8 +26,10 @@ struct RegionRasterRequest: Sendable {
     let format: UInt32
     let background: [CGFloat]
     /// A selection's fill, as four components. With four more, the colour
-    /// its glyphs are painted in over that fill (the Mac, LLP 1115.000 D7.9);
-    /// with four, the fill is under the ink and the ink is the text's own.
+    /// its glyphs are painted in over that fill (the Mac, LLP 1115.000 D7.9),
+    /// and with a ninth that is 1, a glyph whose colour its author fixed
+    /// keeps it (`Run.fixedInk`; the Mac's light appearance). With four, the
+    /// fill is under the ink and the ink is the text's own.
     let selectionColor: [CGFloat]
     var interaction: RegionPointRequest? = nil
     // The registered region surface keeps its 8 MiB contract. A reader can
@@ -74,7 +76,7 @@ struct RegionRasterRequest: Sendable {
               w.rounded() == w, h.rounded() == h,
               background.count == 4, (background[3] == 1 || background[3] == 0),
               background.allSatisfy({ $0.isFinite && $0 >= 0 && $0 <= 1 }),
-              selectionColor.count == 4 || selectionColor.count == 8,
+              [4, 8, 9].contains(selectionColor.count),
               selectionColor.allSatisfy({ $0.isFinite && $0 >= 0 && $0 <= 1 }),
               scroll.x.isFinite, scroll.y.isFinite, rows.count <= 64,
               pixelLimit > 0, pixelLimit <= Self.maximumPixelLimit,
@@ -276,7 +278,8 @@ final class RegionPaintIndex {
                 // over it, its glyphs again in that colour.
                 let device = CGColorSpaceCreateDeviceRGB()
                 let fill = CGColor(colorSpace: device, components: Array(request.selectionColor.prefix(4)))!
-                let selectedInk = request.selectionColor.count == 8 ? CGColor(colorSpace: device, components: Array(request.selectionColor.suffix(4))) : nil
+                let selectedInk = request.selectionColor.count >= 8 ? CGColor(colorSpace: device, components: Array(request.selectionColor[4..<8])) : nil
+                let keepsFixed = request.selectionColor.count == 9 && request.selectionColor[8] == 1
                 enum Pass { case fill, ink, selected }
                 for pass in selectedInk == nil ? [Pass.fill, .ink] : [.ink, .selected] {
                     ctx.setFillColor(fill)
@@ -300,7 +303,7 @@ final class RegionPaintIndex {
                         ctx.clip(to: rect)
                         ctx.setFillColor(fill)
                         ctx.fill(rect)
-                        TextLinePaint.draw(line, at: CGPoint(x: x, y: y), in: ctx, ink: selectedInk)
+                        TextLinePaint.draw(line, at: CGPoint(x: x, y: y), in: ctx, ink: selectedInk, keepsFixed: keepsFixed)
                         ctx.restoreGState()
                     }
                 }

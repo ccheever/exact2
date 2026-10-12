@@ -1,6 +1,7 @@
 # A flex column sized in definite space takes a leaf's whole content height past the leaf's max-height (a field-sizing="content" textarea, a text)
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by #496
 **Systems:** kernel layout, vendored Taffy flexbox
 **Severity:** P2
 **Author:** Daehyeon Mun (via the T3 Code clone)
