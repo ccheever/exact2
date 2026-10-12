@@ -283,7 +283,9 @@ names: day, today, clock, time, Date, exactTime, every
 The date is `time.epochAtZero + now`: the reserved source `exactTime()` answers the launch's
 epoch and the zone's offset, and `now` is state a `task` refreshes from `performanceNow()`
 (milliseconds since launch) with `every(ms, action)`. A day's key is `formatDate(at,
-time.utcOffset, "iso")`, `"2026-03-14"` in the person's own zone.
+time.utcOffset, "iso")`, `"2026-03-14"` in the person's own zone. The action that writes an
+entry keys it from the instant of the write, not from the ticked `now`, which is display only
+and can be a minute behind: just after midnight it is still yesterday.
 
 ```contract
 shape Time
@@ -292,25 +294,33 @@ shape Time
 
 component App
   state now = 0
+  state days = []
   resource time = exactTime() as shape Time
-  derive at = time.epochAtZero + now
-  derive today = formatDate(at, time.utcOffset, "iso")
+  derive shown = time.epochAtZero + now
+  derive today = formatDate(shown, time.utcOffset, "iso")
   task tick mount
     every(60000, step)
   action step
     now = performanceNow()
+  action log
+    let at = time.epochAtZero + performanceNow()
+    now = performanceNow()
+    days = concat(days, [formatDate(at, time.utcOffset, "iso")])
   view
     column padding=16 gap=4
-      text formatDate(at, time.utcOffset, "medium") testId="date"
-      text formatTime(at, time.utcOffset, "short") testId="time"
+      text formatDate(shown, time.utcOffset, "medium") testId="date"
+      text formatTime(shown, time.utcOffset, "short") testId="time"
       text today color="-exact-secondary-label" testId="day"
+      button press=log testId="log"
+        text "Log"
 ```
 
 - Store `at`, never `performanceNow()` alone: it restarts at 0 every launch. Tick a minute
-  for a date, a second or less for a clock. Yesterday is `formatDate(at - 86400000, …)`;
-  keys compare as strings.
+  for a date, a second or less for a clock. Yesterday is `formatDate(shown - 86400000, …)`;
+  keys compare as strings. After a DST change or a new zone, `utcOffset` is answered again
+  before the next timer fires.
 - Tests pin the clock: `epoch "2026-03-15T06:30:00Z"`, `time-zone "America/Los_Angeles"`,
-  then `clock +3600000`.
+  then `clock +3600000`; `clock +40000` past midnight, then a `tap`, writes before the tick.
 
 More: docs/recipes/dates-and-days.md, docs/recipes/timers.md
 
