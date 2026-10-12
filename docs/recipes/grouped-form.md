@@ -29,8 +29,8 @@ component Profile
       each e in stack(nav) key=e.id
         column navigationKey=`${e.id}` navigationScroll="form" position="absolute" inset=0
           display="flex" flex-direction="column"
-          header display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
-            text "Profile" role="heading" aria-level=1
+          header display="flex" align-items="center" padding="8px 16px"
+            text "Profile" role="heading" aria-level=1 flex=1
             button press=save testId="save"
               text "Save"
           list id="form" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
