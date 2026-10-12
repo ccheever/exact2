@@ -13,7 +13,8 @@
   `footer`), never left enabled to refuse after the tap.
 - **A wide window gets a layout:** two columns or cards (`flex="1 1 320px"` in a wrapping row).
 
-A timer: round buttons at the ends of a row under the readout.
+A timer: round buttons at the row's ends. The column centres the readout, so the row says
+`align-self="stretch"`; else it shrinks to its content and bunches them.
 
 ```contract
 use RoundButton from "exact:content"
@@ -26,10 +27,10 @@ component Stopwatch
   action lapOrReset
     laps = running ? laps + 1 : 0
   view
-    column gap=32 padding=24
+    column align-items="center" gap=32 padding=24
       text "00:12.40" font-size="4.5rem" font-variant-numeric="tabular-nums"
         -exact-fit="shrink" white-space="nowrap" testId="readout"
-      row justify-content="space-between"
+      row align-self="stretch" justify-content="space-between"
         RoundButton(label=(running ? "Lap" : "Reset"), tint=none, press=lapOrReset, disabled=(not running and laps == 0), testId="lap")
         RoundButton(label=(running ? "Stop" : "Start"), tint=some(running ? "-exact-system-red" : "-exact-system-green"), press=toggle, disabled=false, testId="start")
 ```
