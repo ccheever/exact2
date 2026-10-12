@@ -724,9 +724,11 @@ component App
         under(k, at(k, t))
             .into_iter()
             .filter_map(|c| {
+                // A capsule holds its text, and the accent's tint a layer under it.
                 let only = c.children();
-                let text = k.node(*only.first()?).unwrap();
-                (only.len() == 1 && text.node_type == NodeType::Text).then_some((c, text))
+                let text = k.node(*only.last()?).unwrap();
+                (matches!(only.len(), 1 | 2) && text.node_type == NodeType::Text)
+                    .then_some((c, text))
             })
             .collect()
     };
@@ -769,8 +771,25 @@ component App
     );
     assert_eq!(full.1.style.text_color, named("-exact-label"));
     assert_eq!(indigo.0.color_scheme_dark(), Some(true), "white on indigo");
+    // LLP 1116.007 D3.10: the accent is a tint, not a fill under white ink (1.4:1 on
+    // yellow, 3.5:1 on the system blue, against a caption's 4.5:1): the accent at 16% on a
+    // layer under the label, which keeps its own ink, so it reads on every accent.
     assert_eq!(new.0.color_scheme_dark(), None);
-    assert_eq!(new.1.style.text_color, named("AccentColorText"));
+    assert_eq!(new.1.style.text_color, named("-exact-label"));
+    let tint = k.node(new.0.children()[0]).unwrap();
+    assert_eq!(tint.style.background_color, Some(named("AccentColor")));
+    assert!(
+        (tint.style.opacity - 0.16).abs() < 1e-3,
+        "{}",
+        tint.style.opacity
+    );
+    assert!(
+        new.0
+            .style
+            .background_color
+            .is_none_or(|c| c.resolve(false).a() == 0),
+        "the capsule paints nothing of its own: the layer is the tint"
+    );
 }
 
 /// LLP 1116.007 D3.10: `SummaryCard` cannot know its page, and the secondary
