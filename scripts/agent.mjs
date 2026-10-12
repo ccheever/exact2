@@ -53,7 +53,7 @@ import { driveNotes, runTests, nodeNamed, targetsIn } from './agent-test.mjs';
 import { cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, withHeldModifiers, pasteChord, deliverClipboard, tapWords, pointerGap, chordModifiers, withChordModifiers, heldForClick } from './agent-keys.mjs';
 export { cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, pasteChord, deliverClipboard, tapWords, pointerGap } from './agent-keys.mjs';
 import { appleRunBinary, appleArtifacts, assertAppleIdentity, bundleId, install } from '../host/apple/build.mjs';
-import { crashReports, developmentLaunchEnvironment, phone, phoneBridge, showSimulator, simulator } from '../host/apple/devices.mjs';
+import { crashReports, developmentLaunchEnvironment, phone, phoneBridge, showSimulator, simulator, withKeyboard } from '../host/apple/devices.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
 import { bakeOutput, bakeTarget, executableName, linuxBinary, linuxBuild, resolveApp, webDist as defaultWebDist } from './app.mjs'; import { androidBinary, androidBuild, androidDeploy } from './agent-android.mjs';
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -815,7 +815,7 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
       async screenshot(path, window = false, film = false) {
         const r = await ask({ op: 'screenshot', path, window, ...(film ? { film } : {}) });
         if (r.error) throw new Error(r.error);
-        return r;
+        return window && !film && r.keyboard?.windowTop != null ? withKeyboard(r, path, dev.udid) : r; // the keyboard is a process of its own: the display's pixels
       },
       close,
     };

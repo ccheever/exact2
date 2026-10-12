@@ -1118,11 +1118,14 @@ extension Agent {
             r["unshown"] = unshown.map { n -> [String: Any] in ["id": Int(n.id), "testId": n.props["testId"] ?? NSNull()] }
             r["unshownNote"] = "struck through in red: \(NavigationHost.unshownReason)"
         }
-        // The software keyboard is not in the capture and the app may stand above it (LLP 1102 §3.17):
-        // say so, where the image alone reads as a shortened screen.
+        // The software keyboard is not in the capture, which UIKit draws in a process of its own, and the app may
+        // stand above it (LLP 1102 §3.17): say so, where the image alone reads as a shortened screen. The simulator
+        // driver puts the keyboard's pixels in a window capture (`windowTop`, LLP 1116.008 D8; devices.mjs).
         let container = session.presenter.modals.coordinateView ?? session.view
         if let top = container.flatMap({ session.presenter.keyboardGuideTop(in: $0) }) {
-            r["keyboard"] = ["visible": true, "top": Agent.r2(top)]
+            var keyboard: [String: Any] = ["visible": true, "top": Agent.r2(top)]
+            if let window = keyboardTopForCheck() { keyboard["windowTop"] = Agent.r2(window) }
+            r["keyboard"] = keyboard
             r["note"] = "the software keyboard is up: it is not in the capture, and the app above it may be shortened (state shows keyboard.top)"
         }
         return r
