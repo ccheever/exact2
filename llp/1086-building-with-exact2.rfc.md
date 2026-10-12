@@ -486,7 +486,7 @@ does. Verified against the published 0.4.23 door and a scratch app's two
 tests that each start empty (2026-10-12); the README's per-file
 `test-fresh.mjs` workaround is removed. `serve` has no development reset.
 
-**Wave 9 browser-store correction (EX4):** a CLI `agent web --storage NAME`
+**Wave 9 browser-store correction (EX4):** a Chrome CLI `agent web --storage NAME`
 starts empty; `--keep-storage` preserves a named profile, and
 `--reset-storage` explicitly resets it. An OS lock owns the profile before
 any deletion, through browser shutdown, across different page ports. These

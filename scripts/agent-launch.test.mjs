@@ -144,6 +144,57 @@ test('device preflight refuses server skew, stale provenance and empty wasm befo
   } finally { server.close(); rmSync(dir, {recursive: true, force: true}); }
 });
 
+test('a store named .locks cannot remove another profile ownership lock', async () => {
+  const { exclusiveWebStore, driveStore } = await import('./agent-launch.mjs');
+  const { resolveApp } = await import('./app.mjs');
+  const { mkdtempSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { resolve } = await import('node:path');
+  const cache = mkdtempSync(resolve(tmpdir(), 'exact-profile-lock-'));
+  const options = {app: 'caltrain', browser: 'chrome', storage: 'proof', env: {XDG_CACHE_HOME: cache}};
+  let owner, named, competitor;
+  try {
+    owner = await exclusiveWebStore(options, async () => ({close: async () => {}}));
+    named = await exclusiveWebStore({...options, storage: '.locks'}, async () => {
+      rmSync(driveStore(resolveApp(options.app).id, '.locks', options.env).profile, {recursive: true, force: true});
+      return {close: async () => {}};
+    });
+    let launched = false;
+    const attempt = exclusiveWebStore(options, async () => { launched = true; return {close: async () => {}}; });
+    attempt.then(carrier => { competitor = carrier; }, () => {});
+    await expect(attempt).rejects.toThrow('stream is locked by another publisher');
+    expect(launched).toBe(false);
+  } finally {
+    await competitor?.close(); await named?.close(); await owner?.close(); rmSync(cache, {recursive: true, force: true});
+  }
+});
+
+test('Firefox and WebKit refuse missing and skewed devices before launching their carrier', async () => {
+  const { open } = await import('./agent.mjs');
+  const { createApp, wireSnapback } = await import('../game/new.mjs');
+  const { deviceHash, engineVersion } = await import('../snapback4/web/device-build.mjs');
+  const { mkdtempSync, mkdirSync, rmSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { resolve } = await import('node:path');
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-carrier-preflight-'));
+  const dir = resolve(parent, 'app'), dist = resolve(parent, 'dist'), before = process.env.EXACT_APP_DIR;
+  const server = Bun.serve({hostname: '127.0.0.1', port: 0, fetch: request => Response.json(new URL(request.url).pathname === '/dev/status' ? {storeId: 'dev'} : {snapback4: engineVersion()})});
+  try {
+    createApp(dir); wireSnapback(dir, {build: false, port: server.port});
+    process.env.EXACT_APP_DIR = dir;
+    mkdirSync(resolve(dist, '.gen'), {recursive: true});
+    writeFileSync(resolve(dist, '.gen/admission-data.js'), `export const tsGrantSet=createGrantSet(${JSON.stringify({entries: [[0, `net.fetch http://127.0.0.1:${server.port}`, [], null]]})});`);
+    for (const browser of ['firefox', 'webkit']) await expect(open({host: 'web', browser, webDist: dist})).rejects.toThrow('device is missing');
+    const path = resolve(dir, 'assets/snapback4.wasm'), wasm = Buffer.from([0, 97, 115, 109, 1, 0, 0, 0]);
+    mkdirSync(resolve(dir, 'assets'), {recursive: true}); writeFileSync(path, wasm);
+    writeFileSync(path + '.json', JSON.stringify({engineVersion: '0.0.1', sha256: deviceHash(wasm)}));
+    for (const browser of ['firefox', 'webkit']) await expect(open({host: 'web', browser, webDist: dist})).rejects.toThrow(/E_DEVICE_VERSION.*server at/);
+  } finally {
+    if (before === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = before;
+    server.stop(true); rmSync(parent, {recursive: true, force: true});
+  }
+});
+
 // `fresh` (the author's ruling of 2026-10-12, via the sb4 app farm): before a test, each snapback4 dev server the app
 // fetches is emptied through `POST /dev/reset`, seeded from the line's file; a server without the door (404, as 0.4.22
 // answers) refuses the test, saying what to do. Stub servers stand in for snapback4 dev, old and new.

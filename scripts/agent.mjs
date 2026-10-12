@@ -73,6 +73,7 @@ export async function assertWebDistApp(dist, app) {
 
 const openWeb = async options => (await import('./agent-launch.mjs')).exclusiveWebStore(options, () => openWebUnlocked(options));
 async function openWebUnlocked({ browser = 'chrome', plan, world, size = VIEWPORT, url: pageURL, app, webDist, onProcess, reuse, storage, fresh = false, facts, env, mediaClock = 'wall', lineHeight = null, port: fixed = null }) {
+  if (!pageURL) await (await import('./agent-test.mjs')).backendPreflight(resolveApp(app), resolve(webDist ?? defaultWebDist()));
   if (browser !== 'chrome') {
     const { openPlaywrightWeb } = await import('./agent-playwright.mjs');
     return openPlaywrightWeb({ browser, plan, world, size, url: pageURL, app, webDist, onProcess, reuse, storage, facts, port: fixed, parity: parityScript({ mediaClock, lineHeight }) });
@@ -86,7 +87,6 @@ async function openWebUnlocked({ browser = 'chrome', plan, world, size = VIEWPOR
   }
   const selected = resolveApp(app);
   const dist = resolve(webDist ?? defaultWebDist());
-  if (!pageURL) await (await import('./agent-test.mjs')).backendPreflight(selected, dist);
   if (!pageURL) {
     await assertWebDistApp(dist, selected);
     const js = jsTargetBuild(dist), env = process.env.EXACT_APP_DIR || webDist || process.env.EXACT_WEB_DIST ? `EXACT_APP_DIR=${selected.dir} EXACT_WEB_DIST=${dist} ` : '';

@@ -176,7 +176,7 @@ export async function exclusiveWebStore(options, launch) {
   let release, acquired;
   const ready = new Promise(resolve => { acquired = resolve; });
   const lifetime = new Promise(resolve => { release = resolve; });
-  const holding = filesystemLock(resolve(store.base, '.locks'), `${options.storage}/.lock`, async () => { acquired(); await lifetime; });
+  const holding = filesystemLock(store.base + '-locks', `${options.storage}/.lock`, async () => { acquired(); await lifetime; });
   try { await Promise.race([ready, holding]); }
   catch (error) { throw new Error(`--storage ${options.storage}: profile lock failed (${error.message}); close any drive of this store or use another name`); }
   const unlock = async () => { release(); await holding; };
