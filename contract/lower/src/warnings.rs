@@ -21,6 +21,7 @@ use std::collections::BTreeSet;
 
 mod counts;
 mod roles;
+mod title;
 
 /// At most this many warnings from one compile, before the colours that
 /// stay one scheme: those name every site, each in a short line, since a
@@ -55,7 +56,7 @@ pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
                 out.extend(roles::dialog_role(tag, attrs, span).filter(|_| fresh));
                 let keyed = has(attrs, "navigationKey");
                 if in_root && keyed && !has(attrs, "navigationBack") {
-                    route_header(children, &mut out);
+                    route_header(children, &[], &mut out);
                 }
                 if literal(attrs, "role") == Some("tablist") {
                     single_tab(node, &mut out);
@@ -235,8 +236,10 @@ fn glyph_line(node: &Node) -> bool {
 
 /// What the walk of one header has seen.
 #[derive(Default)]
-struct Bar {
+struct Bar<'a> {
     headings: usize,
+    /// The last heading counted: the bar's title when it is the one.
+    title: Option<&'a Node>,
     /// A `when`, `each`, `match`, use or slot, or a computed role: the
     /// headings counted may not be all.
     doubt: bool,
@@ -259,14 +262,16 @@ struct Bar {
 /// nothing and the header is shown as written, so nothing is dropped; that
 /// header is `lower-header-no-bar`'s (LLP 1116.003 D2.2). A `when` first
 /// among the route's children is read branch by branch: a branch's first
-/// node is the route's first child while it is taken.
-fn route_header(children: &[Node], out: &mut Vec<LowerError>) {
+/// node is the route's first child while it is taken, and `after` the
+/// route's nodes past that `when`.
+fn route_header<'a>(children: &'a [Node], after: &[&'a Node], out: &mut Vec<LowerError>) {
     if let Some(Node::When {
         then, otherwise, ..
     }) = children.first()
     {
-        route_header(then, out);
-        route_header(otherwise, out);
+        let rest: Vec<&Node> = children[1..].iter().chain(after.iter().copied()).collect();
+        route_header(then, &rest, out);
+        route_header(otherwise, &rest, out);
         return;
     }
     let Some(header @ Node::Element { tag, attrs, .. }) = children.first() else {
@@ -291,6 +296,10 @@ fn route_header(children: &[Node], out: &mut Vec<LowerError>) {
         }
         return;
     }
+    if let Some(title) = bar.title {
+        let content: Vec<&Node> = children[1..].iter().chain(after.iter().copied()).collect();
+        title::title_twice(title, &content, out);
+    }
     for (span, what) in bar.unplaced {
         out.push(LowerError {
             id: "lower-header-unplaced",
@@ -302,7 +311,7 @@ fn route_header(children: &[Node], out: &mut Vec<LowerError>) {
     }
 }
 
-fn walk(nodes: &[Node], bar: &mut Bar) {
+fn walk<'a>(nodes: &'a [Node], bar: &mut Bar<'a>) {
     for node in nodes {
         let span = node.span();
         match part(node) {
@@ -310,6 +319,7 @@ fn walk(nodes: &[Node], bar: &mut Bar) {
             Part::Hidden => {}
             Part::Heading => {
                 bar.headings += 1;
+                bar.title = Some(node);
                 bar.passed = true;
             }
             Part::Search if !bar.search => bar.search = true,
