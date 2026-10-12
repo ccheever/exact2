@@ -130,6 +130,8 @@ component PrdTimeline
     retry: action
     // pr-code-tab: a commit row opens the Code tab on that commit (PullRequestDetailPanel openCommit).
     openCommit: action
+    // Whether the Timeline tab is the one shown (the panel keeps every tab mounted, `visibility: hidden` but one).
+    shown: bool
   view
     column width="100%" testId="pull-request-timeline"
       when pending
@@ -142,7 +144,7 @@ component PrdTimeline
             column width="100%" position="relative"
               box position="absolute" left="0.9375rem" top="0.25rem" bottom="1.25rem" width=1 background-color="light-dark(#e4e4e773, #ffffff0f)" aria-hidden=true
               each row in (order == "newest" ? timeline.newest : timeline.oldest) key=row.key
-                PrdTimelineRow(row=row, choices=choices, scope=scope, documents=documents, code=code, env=env, still=still, local=local, act=act, openCommit=openCommit)
+                PrdTimelineRow(row=row, choices=choices, scope=scope, documents=documents, code=code, env=env, still=still, local=local, act=act, openCommit=openCommit, shown=shown)
             when timeline.empty
               column width="100%" padding-top="4rem" padding-bottom="4rem" align-items="center" justify-content="center" gap="0.5rem"
                 PgIcon(name="git-pull-request", size=20, color=prtMuted())
@@ -160,6 +162,7 @@ component PrdTimelineRow
     local: action
     act: action
     openCommit: action
+    shown: bool
   state over = false
   action hover(value: bool)
     over = value
@@ -170,17 +173,20 @@ component PrdTimelineRow
       PrdVerdictRow(row=row, choices=choices, scope=scope, documents=documents, code=code, env=env, local=local, act=act)
     when row.kind == "commit"
       // CommitEvent: one button holding the row's marker and texts opens the commit's diff; its headline takes the
-      // primary tone on hover. TC-1: here the button lies over the texts instead of holding them (X82, EXACT2-GAPS.md):
-      // the macOS host left a wide label inside a button blank from its first mount until the hover colour redrew it.
+      // primary tone on hover. Here the button lies over the texts instead of holding them (TC-1; X82, EXACT2-GAPS.md).
       // Under the button the texts take no pointer: every press, hover and drag is the button's, and its label is the
       // row's one name, as the reference's (`title=""`: no help tag). FU-2 (followups-1012): the texts are
       // `user-select: none`, as a button's content is on the Mac (no ⌘A / ⌘C, no selection over the rows) and under the
-      // web's overlay button. Back to the reference's one button holding its texts when X82 is fixed.
+      // web's overlay button. The macOS host leaves a wide text it may not select blank once the hidden Timeline tab
+      // (mounted, `visibility: hidden`) is shown: the show restyles every row at once, two raster workers take two and
+      // only selectable texts are asked again (X82's pump). So the title mounts afresh as the tab shows (`shown`),
+      // when its first pixels are painted at once. Back to the reference's one button holding its texts when X82 is fixed.
       column position="relative" width="100%" margin-bottom="1.25rem" padding-left="3rem" box-sizing="border-box"
         PrdMarker(row=row, pinned=false, muted=false, icon="git-commit-horizontal")
         row width="100%" min-width=0 align-items="center" gap="0.625rem" padding-top="0.375rem" padding-bottom="0.375rem" user-select="none" aria-hidden=true
           column flex=1 min-width=0
-            text row.headline font-size="0.75rem" line-height="1rem" font-weight=600 color=(over ? "light-dark(#1b4ed8, #346bf1)" : prtInk()) white-space="nowrap" overflow="hidden" text-overflow="ellipsis" testId=`pull-request-timeline-commit-title-${row.sha}`
+            each face in [shown ? "shown" : "hidden"] key=face
+              text row.headline font-size="0.75rem" line-height="1rem" font-weight=600 color=(over ? "light-dark(#1b4ed8, #346bf1)" : prtInk()) white-space="nowrap" overflow="hidden" text-overflow="ellipsis" testId=`pull-request-timeline-commit-title-${row.sha}`
             row margin-top="0.25rem" flex-wrap="wrap" align-items="center" gap="0.5rem"
               text row.sha font-family="ui-monospace" font-size="0.625rem" line-height="0.875rem" color=prtMuted()
               text row.age font-size="0.625rem" line-height="0.875rem" color=prtMuted()

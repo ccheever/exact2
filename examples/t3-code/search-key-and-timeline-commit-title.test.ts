@@ -118,6 +118,8 @@ describe('TC-1: the Timeline commit row keeps its title out of the button', () =
     for (const attr of ['position="absolute"', 'left=0', 'top=0', 'width="100%"', 'height="100%"', 'aria-label=`View commit ${row.id}`', 'title=""', 'testId=`pull-request-timeline-commit-${row.sha}`']) expect(row[button]).toContain(attr);
     const title = row.find(line => line.trim().startsWith('text row.headline'))!;
     expect(indent(title)).toBeGreaterThan(indent(row[0]));
+    // Not selectable, so the macOS host paints it only as it mounts (X82): it mounts afresh as the Timeline tab shows.
+    expect(row[row.indexOf(title) - 1]!.trim()).toBe('each face in [shown ? "shown" : "hidden"] key=face');
     expect(title).toContain('color=(over ? "light-dark(#1b4ed8, #346bf1)" : prtInk())');
     // The texts are the button's label's, not their own names, and not selectable, as a button's content is
     // (followups-1012 FU-2: ⌘A / ⌘C took every commit's title, sha, age and counts).
