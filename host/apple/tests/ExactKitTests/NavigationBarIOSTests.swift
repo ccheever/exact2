@@ -245,6 +245,15 @@ final class NavigationBarIOSTests: XCTestCase {
         search.searchBar.text = "abc"
         search.searchResultsUpdater?.updateSearchResults(for: search)
         until("the field's input ran with the text") { state(session, "query") as? String == "abc" }
+        // LLP 1115.000 D9.2: the keyboard's Search key puts the keyboard
+        // away, as a hand-built search bar's delegate does, and the search
+        // stays as typed.
+        let field = search.searchBar.searchTextField
+        XCTAssertTrue(field.becomeFirstResponder())
+        search.searchBar.delegate?.searchBarSearchButtonClicked?(search.searchBar)
+        XCTAssertFalse(field.isFirstResponder, "Search puts the keyboard away")
+        XCTAssertEqual(search.searchBar.text, "abc")
+        XCTAssertEqual(state(session, "query") as? String, "abc")
     }
 
     /// LLP 1075.003 §9.8: a header's text tablist is the item's title view,

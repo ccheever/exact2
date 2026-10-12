@@ -424,7 +424,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         set { super.accessibilityElements = newValue }
     }
     /// A text field's Enter as a key (its characters are its `input`, the
-    /// Enter commits its `change`); the editing goes on, as on the web.
+    /// Enter commits its `change`), then what Return does (`textFieldShouldReturn`).
     package func textFieldShouldBeginEditing(_ textField: UITextField) -> Bool { applyPadBar(); return !disabled && !inert }
     package func textViewShouldBeginEditing(_ textView: UITextView) -> Bool { !disabled && !inert }
 
@@ -438,22 +438,21 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     }
 
     package func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        presenter?.focusAsked = nil
         guard !disabled else { return false }
         // The software keyboard's Return is a key the handlers hear first (a
         // hardware one's they heard in `pressesBegan`); prevented, it neither
         // commits nor submits.
         if (textField as? TextField)?.heard != "Enter", presenter?.keyDown(at: self, "Enter") == true { return false }
         presenter?.commitEdit(id, textField.text ?? "", change: handlers.contains("change"))
-        // Enter in an input with a `submit` handler is the web's implicit submission.
+        // Return runs the field's `submit`, then puts the keyboard away, as
+        // a hand-built field's delegate resigns it (LLP 1115.000 D9.2),
+        // unless that action focused this field again: "add another" keeps
+        // the keyboard and never lets go of it on the way. Next moves to the
+        // next field instead, and from the last one puts the keyboard away.
         if handlers.contains("submit") { presenter?.submit(id) }
-        // The key does what its label says (LLP 1115 wave 1): Next moves to
-        // the next field (or, at the last, puts the keyboard away); Done,
-        // Go, Search and Send put the keyboard away.
-        switch props["enterKeyHint"] {
-        case "next": if presenter?.focusNextField(after: self) != true { textField.resignFirstResponder() }
-        case "done", "go", "search", "send": textField.resignFirstResponder()
-        default: break
-        }
+        if props["enterKeyHint"] == "next", presenter?.focusNextField(after: self) == true { return false }
+        if presenter?.focusAsked !== self, textField.isFirstResponder { textField.resignFirstResponder() }
         return false
     }
 

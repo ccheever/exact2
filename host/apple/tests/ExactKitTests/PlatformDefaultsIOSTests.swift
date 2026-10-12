@@ -11,6 +11,16 @@ import XCTest
 final class PlatformDefaultsIOSTests: XCTestCase {
     private var window: UIWindow!
 
+    /// A test's window goes with it: a field left editing in one would
+    /// still hold the keyboard under the next test's window.
+    override func tearDown() {
+        window?.endEditing(true)
+        window?.isHidden = true
+        window = nil
+        kept = nil
+        super.tearDown()
+    }
+
     /// Each node has a prop, so it stays a view, not a flat leaf (LLP 1068 §6.1).
     private func presenter(_ ops: [[String: Any]]) -> Presenter {
         let p = Presenter()
@@ -70,25 +80,37 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         XCTAssertEqual([r, g, b, a], [1, 0, 0, 1], "an authored one wins")
     }
 
-    /// Done puts the keyboard away; Next moves to the next field, and from
-    /// the last field puts it away; an unlabelled Return leaves it up.
-    func testReturnDoesWhatItsLabelSays() throws {
+    /// Three single-line fields in a window, each hearing `change` and
+    /// `blur`, named `f1` to `f3`. A node holds its presenter weakly, so the
+    /// test keeps it.
+    private var kept: Presenter?
+    private func threeFields() throws -> (Presenter, [NodeView], [UITextField]) {
         let p = Presenter()
+        kept = p
         window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
         p.viewport.frame = window.bounds
         window.addSubview(p.viewport)
         let fields = (1...3).map { i -> NodeView in
             let node = NodeView(id: UInt32(i), kind: "input", presenter: p)
-            node.handlers = ["change"]
+            node.handlers = ["change", "blur"]
             node.frame = CGRect(x: 0, y: CGFloat(i) * 50, width: 200, height: 40)
             p.root.addSubview(node); p.views[node.id] = node
+            node.applyProps(set: ["id": "f\(i)"], clear: [])
             return node
         }
         window.makeKeyAndVisible()
+        return (p, fields, try fields.map { try XCTUnwrap($0.field) })
+    }
+
+    /// LLP 1115.000 D9.2: Return puts the keyboard away from a single-line
+    /// field, as a hand-built field's delegate resigns it, whether the key
+    /// is plain or says Done. Next moves to the next field, and from the
+    /// last field puts the keyboard away.
+    func testReturnPutsTheKeyboardAway() throws {
+        let (_, fields, editors) = try threeFields()
         fields[0].applyProps(set: ["enterKeyHint": "next"], clear: [])
         fields[1].applyProps(set: ["enterKeyHint": "next"], clear: [])
         fields[2].applyProps(set: ["enterKeyHint": "done"], clear: [])
-        let editors = try fields.map { try XCTUnwrap($0.field) }
         XCTAssertTrue(editors[0].becomeFirstResponder())
         XCTAssertFalse(fields[0].textFieldShouldReturn(editors[0]))
         XCTAssertTrue(editors[1].isFirstResponder, "Next moves to the next field")
@@ -99,10 +121,54 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         fields[2].applyProps(set: [:], clear: ["enterKeyHint"])
         XCTAssertTrue(editors[2].becomeFirstResponder())
         _ = fields[2].textFieldShouldReturn(editors[2])
-        XCTAssertTrue(editors[2].isFirstResponder, "a plain Return commits and keeps editing, as on the web")
+        XCTAssertFalse(editors[2].isFirstResponder, "a plain Return puts the keyboard away, as a hand-built field does")
         fields[2].applyProps(set: ["enterKeyHint": "next"], clear: [])
+        XCTAssertTrue(editors[2].becomeFirstResponder())
         _ = fields[2].textFieldShouldReturn(editors[2])
         XCTAssertFalse(editors[2].isFirstResponder, "Next from the last field puts the keyboard away")
+    }
+
+    /// D9.2: a field's `submit` runs before the keyboard goes, and the field
+    /// keeps the keyboard only when that action focused it again: an "add
+    /// another" field stays up and never loses the focus on the way (no
+    /// `blur`, so no flicker). An action that focuses another field moves the
+    /// keyboard there; one that focuses nothing lets it go.
+    func testASubmitThatFocusesItsFieldAgainKeepsTheKeyboard() throws {
+        let (p, fields, editors) = try threeFields()
+        var blurred: [UInt32] = [], submitted = 0, editingAtSubmit = false
+        p.onBlur = { blurred.append($0) }
+        fields[2].handlers = ["change", "blur", "submit"]
+        // The action adds its row and says nothing of the focus.
+        p.onSubmit = { _ in submitted += 1; editingAtSubmit = editors[2].isFirstResponder }
+        XCTAssertTrue(editors[2].becomeFirstResponder())
+        _ = fields[2].textFieldShouldReturn(editors[2])
+        XCTAssertEqual(submitted, 1)
+        XCTAssertTrue(editingAtSubmit, "the action runs first, the field still editing")
+        XCTAssertFalse(editors[2].isFirstResponder, "then the keyboard goes")
+        XCTAssertEqual(blurred, [3])
+        // "Add another": the action focuses the field again, as `focus("f3")` does.
+        blurred = []
+        p.onSubmit = { _ in p.focusElement(["f3"]) }
+        XCTAssertTrue(editors[2].becomeFirstResponder())
+        _ = fields[2].textFieldShouldReturn(editors[2])
+        XCTAssertTrue(editors[2].isFirstResponder, "the action asked for the keyboard back")
+        XCTAssertEqual(blurred, [], "and the field never let go of it")
+        // Labelled Done, the author's focus still wins.
+        fields[2].applyProps(set: ["enterKeyHint": "done"], clear: [])
+        _ = fields[2].textFieldShouldReturn(editors[2])
+        XCTAssertTrue(editors[2].isFirstResponder, "Done, with an action that focuses the field again")
+        fields[2].applyProps(set: [:], clear: ["enterKeyHint"])
+        // The action sends the focus elsewhere.
+        p.onSubmit = { _ in p.focusElement(["f1"]) }
+        _ = fields[2].textFieldShouldReturn(editors[2])
+        XCTAssertTrue(editors[0].isFirstResponder, "the keyboard goes where the action sent it")
+        XCTAssertEqual(blurred, [3])
+        // A focus an earlier action asked for does not hold a later Return.
+        p.onSubmit = nil
+        XCTAssertTrue(editors[2].becomeFirstResponder())
+        p.focusElement(["f3"])
+        _ = fields[2].textFieldShouldReturn(editors[2])
+        XCTAssertFalse(editors[2].isFirstResponder)
     }
 
     /// LLP 1115.000 D9.1: with nothing written, a drag on a scroller that

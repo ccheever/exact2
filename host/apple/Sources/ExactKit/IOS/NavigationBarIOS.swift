@@ -301,6 +301,16 @@ final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate
         guard let field, field.handlers.contains("focus") else { return }
         host?.presenter.focus(field.id)
     }
+    /// The keyboard's Search key is this field's Return (LLP 1115.000 D9.2):
+    /// its `submit`, then the keyboard goes away, as a hand-built search
+    /// bar's delegate resigns it, and the search stays as typed.
+    func searchBarSearchButtonClicked(_ bar: UISearchBar) {
+        if let field, let presenter = host?.presenter, presenter.views[field.id] === field {
+            presenter.commitEdit(field.id, bar.text ?? "", change: field.handlers.contains("change"))
+            if field.handlers.contains("submit") { presenter.submit(field.id) }
+        }
+        bar.resignFirstResponder()
+    }
     func searchBarTextDidEndEditing(_ bar: UISearchBar) {
         guard let field else { return }
         host?.presenter.commitEdit(field.id, bar.text ?? "", change: field.handlers.contains("change"))
