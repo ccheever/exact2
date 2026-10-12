@@ -362,8 +362,10 @@ internal class Fields(context: Context) : FrameLayout(context) {
 
     /** A value of the app's that is not the field's: the text is replaced where it stands, so the field keeps its
      * undo, and the caret stays where it was among the text after it, or else as far from the start. The keyboard
-     * starts over: a composition does not outlive the text it was composing. `maxlength` is the person's limit, not
-     * the app's. */
+     * starts over: a composition does not outlive the text it was composing. The field's filters are the person's
+     * limits, not the app's: its `maxlength`, and the characters its keyboard's kind admits (a number field's key
+     * listener drops a "." the app sets, and the caret was then put past the end of what was left: a crash, seen on
+     * a Pixel with Shelf's own test of its pages field). */
     private fun replace(f: Field, value: String) {
         val e = f.text.editableText ?: return
         val old = e.toString()
@@ -377,10 +379,11 @@ internal class Fields(context: Context) : FrameLayout(context) {
         try {
             BaseInputConnection.removeComposingSpans(e)
             val filters = e.filters
-            e.filters = filters.filter { it !is InputFilter.LengthFilter }.toTypedArray()
+            e.filters = arrayOf()
             e.replace(0, e.length, value)
             e.filters = filters
-            val a = at(start); val b = at(end)
+            val n = e.length
+            val a = min(at(start), n); val b = min(at(end), n)
             f.text.setSelection(min(a, b), max(a, b))
         } finally { quiet = false }
         if (f.text.isFocused) imm.restartInput(f.text)
