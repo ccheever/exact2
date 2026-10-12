@@ -106,9 +106,9 @@ Server   an app with its own (server.ts, the rest pattern's): test runs it where
          already answering there (a dev server) is refused, named, never written to; so is a
          server entry that does not read DB (process.env.DB), with the fix.
 Runs     to completion, exit 1 when a test fails; nothing is left running.
-Lines    tap, type, expect text|tree|state, clock data|settle|+<ms>, reload, back, fail|pass fetch,
-         request <METHOD> "/path" [json] [as <persona>]: docs/recipes/tests.md; all:
-         docs/contract-grammar.md "Authored tests".`,
+Lines    tap, type, expect text|tree|state|disabled, clock data|settle|+<ms>, reload, back, fail|pass
+         fetch, request <METHOD> "/path" [json] [as <persona>] [expect <status>]: docs/recipes/tests.md;
+         all: docs/contract-grammar.md "Authored tests".`,
     bodyAll: `A phone's build is ios --device's.
 Ports    none to choose. web: headless Chrome over a pipe; the page on 127.0.0.1, each test at a
          port fixed by its own store's name (20000-47999).
