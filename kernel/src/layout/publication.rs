@@ -221,6 +221,42 @@ struct Shift {
     base: (f32, f32),
 }
 
+/// Lay out `root_slot` and publish frames and resolved flow. The receipt uses
+/// epoch zero; the kernel facade supplies its transaction epoch. Inline
+/// runs have no geometry of their own: their frames are zero and they never
+/// appear in the changed list, but their dirty bits are consumed like any
+/// other node's.
+pub fn compute(
+    arena: &mut NodeArena,
+    tree: &mut LayoutTree,
+    measurer: &mut dyn TextMeasurer,
+    root_slot: u32,
+    offer: Offer,
+) -> Result<LayoutReceipt, LayoutError> {
+    let root = arena
+        .taffy(root_slot)
+        .ok_or_else(|| LayoutError::Engine("root has no engine node".into()))?;
+    tree.compute(root, offer, arena, measurer)?;
+    let (flow_passes, flow_comparisons) =
+        tree.settle_flow(root, root_slot, offer, arena, measurer)?;
+    crate::fragment::settle(arena, tree, measurer, root_slot, offer)?;
+    for (&node, record) in &tree.button_records {
+        if let Some(&slot) = tree.slots.get(&node) {
+            arena.button_bases.insert(slot, record.parent_width);
+        }
+    }
+    let refitted = fit::settle(arena, tree);
+    let mut receipt = publish(arena, tree, root_slot);
+    for key in refitted {
+        if !receipt.updated.contains(&key) {
+            receipt.updated.push(key);
+        }
+    }
+    receipt.flow_passes = flow_passes;
+    receipt.flow_comparisons = flow_comparisons;
+    Ok(receipt)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{
@@ -359,40 +395,4 @@ mod tests {
         }
         assert!(calls.get() > 0);
     }
-}
-
-/// Lay out `root_slot` and publish frames and resolved flow. The receipt uses
-/// epoch zero; the kernel facade supplies its transaction epoch. Inline
-/// runs have no geometry of their own: their frames are zero and they never
-/// appear in the changed list, but their dirty bits are consumed like any
-/// other node's.
-pub fn compute(
-    arena: &mut NodeArena,
-    tree: &mut LayoutTree,
-    measurer: &mut dyn TextMeasurer,
-    root_slot: u32,
-    offer: Offer,
-) -> Result<LayoutReceipt, LayoutError> {
-    let root = arena
-        .taffy(root_slot)
-        .ok_or_else(|| LayoutError::Engine("root has no engine node".into()))?;
-    tree.compute(root, offer, arena, measurer)?;
-    let (flow_passes, flow_comparisons) =
-        tree.settle_flow(root, root_slot, offer, arena, measurer)?;
-    crate::fragment::settle(arena, tree, measurer, root_slot, offer)?;
-    for (&node, record) in &tree.button_records {
-        if let Some(&slot) = tree.slots.get(&node) {
-            arena.button_bases.insert(slot, record.parent_width);
-        }
-    }
-    let refitted = fit::settle(arena, tree);
-    let mut receipt = publish(arena, tree, root_slot);
-    for key in refitted {
-        if !receipt.updated.contains(&key) {
-            receipt.updated.push(key);
-        }
-    }
-    receipt.flow_passes = flow_passes;
-    receipt.flow_comparisons = flow_comparisons;
-    Ok(receipt)
 }
