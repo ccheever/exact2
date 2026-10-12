@@ -303,7 +303,12 @@ extension Agent {
             item["size"] = Double(label.font.pointSize)
             let weight = (label.font.fontDescriptor.object(forKey: .traits) as? [UIFontDescriptor.TraitKey: Any])?[.weight] as? CGFloat ?? 0
             item["weight"] = weight >= 0.4 ? 700.0 : weight >= 0.3 ? 600.0 : weight >= 0.23 ? 500.0 : 400.0
-            var up: UIView? = label.superview
+            // A native button's title is its label wherever the button stands, a grouped list's cell included:
+            // the cell's part holds for every view in it, so it would claim the title first (judged at 4.5:1,
+            // not the 3:1 a control's label on its own fill gets outside a row: countdowns' indigo button in dark).
+            var held: UIView? = label.superview
+            while let cur = held, !(cur is NodeView), !(cur is NativeButtonIOS) { held = cur.superview }
+            var up: UIView? = held is NativeButtonIOS ? held : label.superview
             while let cur = up {
                 if let button = cur as? NativeButtonIOS { if let o = button.owner { item["of"] = Int(o.id) }; item["label"] = true; break }
                 if cur is UISegmentedControl { item["label"] = true }

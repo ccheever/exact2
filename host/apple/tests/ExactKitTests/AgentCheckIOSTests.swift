@@ -30,6 +30,51 @@ final class AgentCheckIOSTests: XCTestCase {
         return Agent(session: session)
     }
 
+    /// A native button's title is the button's label (judged at 3:1 on its own fill, D3's ink rule) in a
+    /// grouped list's cell as anywhere: the cell's part is reported for every view inside it, so it must not
+    /// claim the title first (countdowns' indigo prominent button in dark read 3.5:1 against 4.5:1).
+    func testANativeButtonsTitleInAGroupedRowIsItsLabel() throws {
+        let saved = GroupedListsLink.part
+        // As the grouped lists module reports a cell: row 99 for every view inside the row's node.
+        GroupedListsLink.part = { view in
+            var at = view
+            while let v = at { if (v as? NodeView)?.props["testId"] == "row" { return ["row": 99, "part": "cell"] }; at = v.superview }
+            return nil
+        }
+        defer { GroupedListsLink.part = saved }
+        let session = ExactApp.shared.makeSession(label: "agent-check-row")
+        self.session = session
+        let p = session.presenter
+        var face = ButtonFace(); face.title = "Prominent"; face.style = "bordered-prominent"
+        p.buttonFace = { _ in face }
+        let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+        let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        window.frame = CGRect(x: 0, y: 0, width: 400, height: 800)
+        window.rootViewController = UIViewController()
+        window.makeKeyAndVisible()
+        self.window = window
+        p.viewport.frame = window.bounds
+        window.rootViewController?.view.addSubview(p.viewport)
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "style": ["background_color": [255, 255, 255, 255]]],
+            ["op": "create", "id": 2, "kind": "view", "props": ["testId": "row"]],
+            ["op": "create", "id": 3, "kind": "control", "handlers": ["press"], "props": ["type": "button", "accessibilityRole": "button", "testId": "prominent"],
+             "style": ["appearance": "auto", "text_color": [0, 0, 0, 255]]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "children", "id": 2, "ids": [3]], ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 800.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 100.0, "w": 400.0, "h": 60.0],
+            ["op": "frame", "id": 3, "x": 16.0, "y": 8.0, "w": 140.0, "h": 44.0],
+        ]))
+        p.viewport.layoutIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        let reply = Agent(session: session).check([:])
+        XCTAssertNil(reply["error"], "\(reply)")
+        let items = try XCTUnwrap(reply["items"] as? [[String: Any]])
+        let title = try XCTUnwrap(items.first { $0["text"] as? String == "Prominent" }, "the title is observed: \(items)")
+        XCTAssertEqual(title["label"] as? Bool, true, "a control's label, not the row's text: \(title)")
+        XCTAssertEqual(title["of"] as? Int, 3, "of the button, not of row 99: \(title)")
+    }
+
     func testCheckObservesInkFitCoverTargetsOverflowCardsAndOverlap() throws {
         let white: [Double] = [255, 255, 255, 255]
         let agent = mounted([
