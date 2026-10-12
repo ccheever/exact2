@@ -67,7 +67,7 @@ test('the wizard lists the paired computer, sets it up, scans, and finishing lan
   const calls: { method: string; payload: Obj }[] = [];
   const client = {
     local: { deviceSettings: { appearanceMode: 'system' } } as Record<string, unknown>, origin: 'http://127.0.0.1:14807', environmentId: 'env-1', connection: 'connected', statusMessage: '', scopes: [],
-    config: { ...fixtureConfig, environment: { label: 'Daehyeon’s MacBook Pro' } }, shell: { projects: [] as Obj[], threads: [], sequence: 0 }, threadId: '', projectId: '',
+    config: { ...fixtureConfig, environment: { label: 'Morgan’s MacBook Pro' } }, shell: { projects: [] as Obj[], threads: [], sequence: 0 }, threadId: '', projectId: '',
     rpc: async (_native: Native, method: string, payload: Obj) => {
       calls.push({ method, payload });
       if (method === 'agentSessions.scan') return { candidates: [{ path: '/work/app', title: 'app', sources: ['codex'], threadCount: 4, lastActiveAt: new Date(Date.now() - 86_400_000).toISOString(), alreadyImported: false, git: { root: '/work/app' } }], scannedAt: new Date().toISOString() };
@@ -80,14 +80,14 @@ test('the wizard lists the paired computer, sets it up, scans, and finishing lan
   const connect = await welcomeView(client, native, { step: 'connect', now: Date.now() });
   expect(connect.show).toBe(true);
   expect(welcomeShowing(client)).toBe(true);
-  expect(connect.computers).toEqual([{ key: connect.computers[0]!.key, environmentId: 'env-1', label: 'Daehyeon’s MacBook Pro', url: 'http://127.0.0.1:14807/', status: 'Connected', selected: true }]);
+  expect(connect.computers).toEqual([{ key: connect.computers[0]!.key, environmentId: 'env-1', label: 'Morgan’s MacBook Pro', url: 'http://127.0.0.1:14807/', status: 'Connected', selected: true }]);
   expect(connect.ready).toBe(true);
   await welcomeLocal(client, native, 'select', connect.computers[0]!.key, '');
   expect((await welcomeView(client, native, { step: 'connect', now: 0 })).ready).toBe(false);
   await welcomeLocal(client, native, 'select', connect.computers[0]!.key, '');
   await welcomeLocal(client, native, 'setup', '', '');
   const agents = await welcomeView(client, native, { step: 'agents', now: 0 });
-  expect(agents.machines.map(machine => [machine.label, machine.agents.length, machine.chatgpt])).toEqual([['Daehyeon’s MacBook Pro', 3, true]]);
+  expect(agents.machines.map(machine => [machine.label, machine.agents.length, machine.chatgpt])).toEqual([['Morgan’s MacBook Pro', 3, true]]);
   const projects = await welcomeView(client, native, { step: 'import', now: Date.now() });
   expect([projects.candidateCount, projects.selectedCount, projects.selectionLabel, projects.importLabel]).toEqual([1, 1, '1 of 1 selected', 'Import 1 project']);
   await importProjects(client, native);

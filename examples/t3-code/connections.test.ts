@@ -103,11 +103,11 @@ test('every paired environment, a loopback one included, is a saved row under En
   expect(page.machines.map(machine => [machine.label, machine.subtitle, machine.weightLabel, machine.routingLabel])).toEqual([
     ['Fixture A', 'http://127.0.0.1:14796/', 'Normal', 'Off'], ['Remote', 'https://remote.example.com/', 'Normal', 'Off']]);
   // With this Mac's embedded server, it leads as "This machine" and has no row of its own.
-  primaryAt('http://127.0.0.1:16437', 'env-local', 'Daehyeon’s Mac');
+  primaryAt('http://127.0.0.1:16437', 'env-local', 'Morgan’s Mac');
   const withPrimary = connectionsProjection(host(), saved, entries);
-  expect(withPrimary.machines.map(machine => [machine.label, machine.subtitle])).toEqual([['Daehyeon’s Mac', 'This machine'], ['Fixture A', 'http://127.0.0.1:14796/'], ['Remote', 'https://remote.example.com/']]);
+  expect(withPrimary.machines.map(machine => [machine.label, machine.subtitle])).toEqual([['Morgan’s Mac', 'This machine'], ['Fixture A', 'http://127.0.0.1:14796/'], ['Remote', 'https://remote.example.com/']]);
   expect(withPrimary.environments.map(row => row.label)).toEqual(['Fixture A', 'Remote', 'Off box']);
-  expect(withPrimary.thisMachine).toMatchObject({ title: 'Daehyeon’s Mac', menu: true, enabled: true, canManage: true });
+  expect(withPrimary.thisMachine).toMatchObject({ title: 'Morgan’s Mac', menu: true, enabled: true, canManage: true });
   expect(page).toMatchObject({ loadBalancing: false, loadSummary: 'Off', githubSummary: 'Off', updateCount: 0 });
   expect(JSON.stringify(page)).not.toContain('token');
 });

@@ -17,7 +17,7 @@ final class PrimaryTransportTests: XCTestCase {
     /// The embedded server: environment "local-env"; the session answers only the memory bearer.
     private func serve(_ headers: Headers) {
         R3HTTP.reset { (request: URLRequest) -> (Int, Any) in
-            let descriptor: [String: Any] = ["environmentId": "local-env", "label": "Daehyeon's MacBook Pro", "orchestrationProtocolVersion": 2,
+            let descriptor: [String: Any] = ["environmentId": "local-env", "label": "Morgan's MacBook Pro", "orchestrationProtocolVersion": 2,
                                              "capabilities": ["connectionProbe": true] as [String: Any]]
             let session: [String: Any] = ["authenticated": true, "scopes": ["orchestration:read", "orchestration:operate", "access:write"]]
             switch request.url!.path {
