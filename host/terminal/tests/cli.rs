@@ -602,9 +602,15 @@ fn inline_paint_carries_colours_decorations_and_links_without_crossing_siblings(
         let painted = host.render(0, 5);
         let grid = &painted.grid;
         assert!(grid.text().starts_with("ABCDE"), "{}", grid.text());
+        // B is a run with an `href` in its paragraph and no colour of its
+        // own: the link role's, not its parent's (LLP 1115 §3). C says
+        // `inherit`, and the paragraph's own link keeps inheriting.
+        let link = exact_kernel::ColorValue::parse_light_dark("LinkText")
+            .unwrap()
+            .resolve(dark);
         let ink = [
             inherited,
-            Rgb(0x44, 0x55, 0x66),
+            Rgb(link.r(), link.g(), link.b()),
             Rgb(0x44, 0x55, 0x66),
             Rgb(0xaa, 0xbb, 0xcc),
             inherited,
