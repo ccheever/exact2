@@ -712,9 +712,17 @@ impl<D: DataSource> Runner<D> {
                         if !checked {
                             self.check_shape(i, value.get(&self.plan))?;
                         }
-                        // A fresh answer equal to the last keeps its object.
+                        // A fresh answer equal to the last keeps its object,
+                        // unless that would lose the compiled mark: a refused
+                        // kept seed equal to the compiled fallback is still a
+                        // fallback to an identity that reads it (kept.rs).
                         match &states[i] {
-                            Some(s) if Held::equivalent(&s.value, &value) => s.value.clone(),
+                            Some(s)
+                                if Held::equivalent(&s.value, &value)
+                                    && (s.value.is_compiled() || !value.is_compiled()) =>
+                            {
+                                s.value.clone()
+                            }
                             _ => value,
                         }
                     };

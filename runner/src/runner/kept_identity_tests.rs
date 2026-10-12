@@ -196,6 +196,31 @@ fn an_identity_read_from_a_resource_on_its_placeholder_does_not_admit_a_kept_ans
 }
 
 #[test]
+fn a_refused_kept_answer_equal_to_the_compiled_one_is_still_a_fallback() {
+    for through_derive in [false, true] {
+        // The account kept "nobody" for other arguments: refused, it shows
+        // the compiled "nobody", which the dependent's identity must not
+        // take for this launch's answer.
+        let r = launch(
+            through_derive,
+            vec![
+                (
+                    kept::kept_name("account"),
+                    kept::encode(&[Value::Number(1.)], &Value::str("nobody")),
+                ),
+                feeds_kept(
+                    &[Value::Number(0.), Value::str("nobody")],
+                    "feeds of somebody else",
+                ),
+            ],
+        );
+        shows(&r, "account", "nobody");
+        shows(&r, "feeds", "loading");
+        assert!(!r.journal().any(|l| l.contains("shows its kept answer")));
+    }
+}
+
+#[test]
 fn an_identity_read_from_a_kept_answer_still_admits_its_dependent() {
     for through_derive in [false, true] {
         let r = launch(
