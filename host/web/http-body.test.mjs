@@ -1,18 +1,22 @@
-import {test} from 'bun:test';
+import {expect,test} from 'bun:test';
 import assert from 'node:assert/strict';
-import {existsSync,mkdtempSync,rmSync,writeFileSync} from 'node:fs';
+import {mkdtempSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {dirname,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
-import {boundedHttpBody as readBody, waitForInflight} from './http-body.js';
+import {boundedHttpBody as readBody, request, waitForInflight} from './http-body.js';
+import {scopedGrantSet} from './grant-admission.js';
+import {createRequestExecutor} from '../web-js/admission.js';
 
 const ROOT=resolve(dirname(fileURLToPath(import.meta.url)),'../..'),sets=new Map();
+const target=resolve(process.env.CARGO_TARGET_DIR||resolve(ROOT,'target'),`debug/exact-web-js${process.platform==='win32'?'.exe':''}`);
+const built=spawnSync('cargo',['build','-q','-p','exact-web-js'],{cwd:ROOT,encoding:'utf8'});
+if(built.status!==0)throw new Error(built.stderr||'grant normalizer build failed');
 function normalized(spec){
   if(sets.has(spec))return sets.get(spec);
   const scratch=mkdtempSync(resolve(tmpdir(),'exact-grants-')),input=resolve(scratch,'grants.txt');writeFileSync(input,spec);
-  const target=resolve(process.env.CARGO_TARGET_DIR||resolve(ROOT,'target'),'debug/exact-web-js');
-  const result=existsSync(target)?spawnSync(target,['normalize-grants',input],{cwd:ROOT,encoding:'utf8'}):spawnSync('cargo',['run','-q','-p','exact-web-js','--','normalize-grants',input],{cwd:ROOT,encoding:'utf8'});
+  const result=spawnSync(target,['normalize-grants',input],{cwd:ROOT,encoding:'utf8'});
   rmSync(scratch,{recursive:true});if(result.status!==0)throw new Error(result.stderr||'grant normalizer failed');
   const set=JSON.parse(result.stdout);sets.set(spec,set);return set;
 }
@@ -182,4 +186,42 @@ test('the JS target opens a socket under net.websocket, never net.fetch', async 
     const refused = await streamed({ url: `${peer.url}/three`, maxResponseBytes: 64 }, normalized(`net.fetch ${peer.url.replace('ws:', 'http:')}`), () => {}, new AbortController());
     assert.deepEqual([refused.kind, text(refused)], [2, "outside the app's grants (net.websocket)"]);
   } finally { peer.close(); }
+});
+
+test('a source-scoped POST can return through an app-granted middle origin', async () => {
+  const hops = [], finals = [];
+  const final = Bun.serve({ port: 0, async fetch(req) { finals.push([req.method, await req.text()]); return new Response('accepted'); } });
+  const middle = Bun.serve({ port: 0, async fetch(req) { hops.push([req.method, await req.text()]); return new Response(null, { status: 307, headers: { location: `${final.url}finish` } }); } });
+  const origin = Bun.serve({ port: 0, fetch() { return new Response(null, { status: 307, headers: { location: `${middle.url}middle` } }); } });
+  const app = normalized(`net.fetch ${origin.url.origin}\nnet.fetch ${middle.url.origin}\nnet.fetch ${final.url.origin}`);
+  const scope = `net.fetch ${origin.url.origin}\nnet.fetch ${final.url.origin}`;
+  const js = createRequestExecutor('test.app', app, response => response.arrayBuffer());
+  try {
+    for (const run of [
+      () => request({ method: 'POST', url: `${origin.url}start`, headers: [], body: btoa('payload'), scope }, { grantSet: app, controllers: new Set(), moduleLoader: null }),
+      () => js({ method: 'POST', url: `${origin.url}start`, headers: [], raw: 'payload', scope }),
+    ]) {
+      const result = await run();
+      expect([result.failed ?? result.kind ?? 0, new TextDecoder().decode(result.body)]).toEqual([0, 'accepted']);
+    }
+    expect([hops, finals]).toEqual([[['POST', 'payload'], ['POST', 'payload']], [['POST', 'payload'], ['POST', 'payload']]]);
+  } finally { origin.stop(true); middle.stop(true); final.stop(true); }
+});
+
+test('the wasm early GET follows a return chain and is claimed at the granted final URL', async () => {
+  globalThis.exact ??= {};
+  const { claim, fetchEarly } = await import('./module-glue.js');
+  let middleHits = 0, finalHits = 0;
+  const final = Bun.serve({ port: 0, fetch() { finalHits++; return new Response('accepted'); } });
+  const middle = Bun.serve({ port: 0, fetch() { middleHits++; return new Response(null, { status: 307, headers: { location: `${final.url}finish` } }); } });
+  const origin = Bun.serve({ port: 0, fetch() { return new Response(null, { status: 307, headers: { location: `${middle.url}middle` } }); } });
+  const app = normalized(`net.fetch ${origin.url.origin}\nnet.fetch ${middle.url.origin}\nnet.fetch ${final.url.origin}`);
+  const scope = `net.fetch ${origin.url.origin}\nnet.fetch ${final.url.origin}`;
+  try {
+    const op = { method: 'GET', url: `${origin.url}start`, headers: [], scope };
+    const source = scopedGrantSet(app, scope);
+    expect(fetchEarly(op, source)).toBeFunction();
+    const response = await request(op, { grantSet: app, controllers: new Set(), moduleLoader: { claim } });
+    expect([response.kind, new TextDecoder().decode(response.body), middleHits, finalHits]).toEqual([0, 'accepted', 1, 1]);
+  } finally { origin.stop(true); middle.stop(true); final.stop(true); }
 });

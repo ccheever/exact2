@@ -318,6 +318,44 @@ final class NavigationTabsIOSTests: XCTestCase {
         XCTAssertTrue(second.contentScrollView(for: .bottom) === sv, "the bar's edge follows it")
     }
 
+    /// LLP 1115.000 D11.3: the selected tab, tapped again at its stack's
+    /// root, scrolls that screen's content to the top, its large title
+    /// expanding, as every tab bar app does. The scroller is the route's
+    /// content scroller, the status bar's (D11.1). Another tab's tap only
+    /// selects it, and above the root the router pops (the test above).
+    func testTheSelectedTabTappedAgainAtItsRootScrollsToTheTop() throws {
+        let session = try fixture("tabs-retap")
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        tapTab(tabs, 1)
+        until("Second selected") { tabs.selectedIndex == 1 }
+        spin(0.3)
+        let nav = try XCTUnwrap(tabs.viewControllers?[1] as? UINavigationController)
+        let list = try node(session, "list-second"), sv = try XCTUnwrap(list.scroll)
+        let css = { sv.contentOffset.y + sv.adjustedContentInset.top }
+        let expanded = nav.navigationBar.frame.height
+        list.pendingScrollTop = 600
+        list.applyPendingScroll()
+        spin(0.3)
+        XCTAssertEqual(css(), 600, accuracy: 0.5, "scrolled down")
+        XCTAssertLessThan(nav.navigationBar.frame.height, expanded, "the large title collapsed")
+        // The other tab, then back: selecting a tab keeps its scroll.
+        tapTab(tabs, 0)
+        until("Home selected") { tabs.selectedIndex == 0 }
+        tapTab(tabs, 1)
+        until("Second selected again") { tabs.selectedIndex == 1 }
+        spin(0.3)
+        XCTAssertEqual(css(), 600, accuracy: 0.5, "a tab selected from another keeps its place")
+        // The selected tab, tapped again at its root.
+        // (Unanimated: this host never moves UIKit's animated offset.)
+        session.presenter.navigation.scrollsToTopAnimated = false
+        tapTab(tabs, 1)
+        until("its content scrolled to the top") { abs(css()) < 0.5 && !sv.isDecelerating }
+        spin(0.5)
+        XCTAssertEqual(css(), 0, accuracy: 0.5)
+        XCTAssertEqual(nav.navigationBar.frame.height, expanded, accuracy: 0.5, "and the large title expanded")
+        XCTAssertEqual(nav.viewControllers.count, 1)
+    }
+
     func testUnmountingAndRemountingTheViewKeepsEveryTabsStack() throws {
         let session = try fixture("tabs-remount")
         try tapNode(session, "detail")

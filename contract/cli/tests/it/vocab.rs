@@ -25,6 +25,24 @@ fn a_style_shows_its_rows_codec_and_default() {
     assert!(out.contains("dimension, default 0"), "{out}");
 }
 
+#[test]
+fn navigation_detent_vocab_names_its_validated_forms() {
+    let out = stdout(&vocab(&["navigationDetent"]));
+    for form in [
+        "large",
+        "medium",
+        "positive point height",
+        "fit-content large",
+    ] {
+        assert!(out.contains(form), "{out}");
+    }
+    let doc: Value =
+        serde_json::from_str(&stdout(&vocab(&["navigationDetent", "--json"]))).unwrap();
+    let accepts = doc["attribute"]["accepts"].as_str().unwrap();
+    assert!(accepts.contains("fit-content large"), "{accepts}");
+    assert!(accepts.contains("positive point height"), "{accepts}");
+}
+
 /// LLP 1116.001 D1.4: a name Exact invents starts with a dash, and is still
 /// a name (`vocab -exact-fit`), not a flag; the platforms' spellings point at it.
 #[test]
@@ -74,6 +92,20 @@ fn header_states_when_it_is_the_navigation_bar() {
             .is_some_and(|n| n.contains("navigation bar")),
         "{doc}"
     );
+    // LLP 1115.000 D5.2: what a route with no bar of its own gets, and the
+    // word that says it has none, under the tag and under the word.
+    for part in ["system Back button alone", "`navigationBar=\"none\"`"] {
+        assert!(header.contains(part), "{part}: {header}");
+    }
+    let bar = stdout(&vocab(&["navigationBar"]));
+    for part in [
+        "\"none\"",
+        "\"auto\"",
+        "the edge swipe still goes back",
+        "system Back button alone",
+    ] {
+        assert!(bar.contains(part), "{part}: {bar}");
+    }
 }
 
 #[test]
@@ -426,4 +458,82 @@ fn a_content_part_says_its_props_and_what_it_draws() {
     assert!(out.contains("props caption: string, done: bool"), "{out}");
     let json: Value = serde_json::from_str(&stdout(&vocab(&["--json", "AnswerTile"]))).unwrap();
     assert_eq!(json["part"]["props"][1], "status: string");
+}
+
+/// LLP 1116.004 D5.1: a concept a builder searches for answers with its whole
+/// idiom, several in one call, after the entries of a tag of the same name.
+#[test]
+fn concepts_answer_together_after_the_tags_of_their_name() {
+    let out = stdout(&vocab(&["scroll", "plural", "dialog"]));
+    let at = |needle: &str| {
+        out.find(needle)
+            .unwrap_or_else(|| panic!("{needle} missing:\n{out}"))
+    };
+    assert!(at("scroll: tag, ScrollView") < at("scroll (a concept)"));
+    assert!(at("scroll (a concept)") < at("scrollIntoView(\"top\""));
+    assert!(at("scrollIntoView(\"top\"") < at("plural (a concept)"));
+    assert!(at("plural (a concept)") < at("dialog: tag, View"));
+    assert!(at("dialog: tag, View") < at("modal (a concept)"));
+    assert!(out.contains("navigationPresentation=\"modal\""), "{out}");
+    // A concept two names share prints once.
+    let twice = stdout(&vocab(&["swipe", "swipe-to-delete"]));
+    assert_eq!(twice.matches("swipe (a concept)").count(), 1, "{twice}");
+    assert!(
+        twice.contains("swipe-to-delete: the concept `swipe`, above"),
+        "{twice}"
+    );
+    // A real attribute keeps its entry first; a refused web name says so.
+    let top = stdout(&vocab(&["scrollTop"]));
+    assert!(top.starts_with("scrollTop: prop attribute"), "{top}");
+    assert!(top.contains("scroll (a concept)"), "{top}");
+    let every = stdout(&vocab(&["every"]));
+    assert!(every.starts_with("`every` is refused"), "{every}");
+    assert!(every.contains("every(60000, step)"), "{every}");
+    let all = stdout(&vocab(&[]));
+    assert!(
+        all.contains("concepts (") && all.contains("  choice "),
+        "{all}"
+    );
+}
+
+/// Each concept's answer holds the repair whole: the concepts D5.1 names
+/// each carry code, every `contract` block they print compiles with no
+/// diagnostic, and no name answers for two concepts.
+#[test]
+fn every_concepts_code_compiles_and_its_names_are_its_own() {
+    let doc: Value = serde_json::from_str(&stdout(&vocab(&["--json"]))).unwrap();
+    let concepts = doc["concepts"].as_array().unwrap();
+    let mut names: Vec<String> = Vec::new();
+    for c in concepts {
+        for n in std::iter::once(&c["name"]).chain(c["names"].as_array().unwrap()) {
+            let n = n.as_str().unwrap().to_owned();
+            assert!(!names.contains(&n), "`{n}` answers for two concepts");
+            names.push(n);
+        }
+    }
+    let dir = std::env::temp_dir().join(format!("exact-concepts-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("app.contract");
+    let mut failures = Vec::new();
+    for name in [
+        "scroll", "loading", "plural", "choice", "screen", "modal", "confirm", "date", "persist",
+        "swipe",
+    ] {
+        let one: Value = serde_json::from_str(&stdout(&vocab(&["--json", name]))).unwrap();
+        let blocks = one["concept"]["contract"].as_array().unwrap();
+        if blocks.is_empty() {
+            failures.push(format!("{name}: no contract block"));
+        }
+        for body in blocks {
+            if let Err(all) =
+                contract::compile_path_source_all(&path, body.as_str().unwrap(), false)
+            {
+                for e in all {
+                    failures.push(format!("{name}:{}: [{}] {}", e.span.line, e.id, e.message));
+                }
+            }
+        }
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert!(failures.is_empty(), "{failures:#?}");
 }

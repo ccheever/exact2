@@ -28,13 +28,13 @@ fn style(id: ViewId, rows: &[(StyleId, StyleValue)]) -> Op {
         patch: Box::new(patch),
     }
 }
-fn t(s: &str) -> StyleValue {
+fn t(s: &str) -> StyleValue<'_> {
     StyleValue::Text(s.into())
 }
-fn n(x: f64) -> StyleValue {
+fn n(x: f64) -> StyleValue<'static> {
     StyleValue::Number(x)
 }
-fn flex(direction: &str) -> [(StyleId, StyleValue); 2] {
+fn flex(direction: &str) -> [(StyleId, StyleValue<'_>); 2] {
     [
         (StyleId::Display, t("flex")),
         (StyleId::FlexDirection, t(direction)),

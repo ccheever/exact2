@@ -214,8 +214,9 @@ function difference(root, batch) {
 }
 
 // The head's fields in the page's <head>, as the renderer first wrote them:
-// what a share sheet, a bookmark or a tab reads while the runtime runs.
-let appTitle = null;
+// what a share sheet, a bookmark or a tab reads while the runtime runs. The
+// title is the page's as the glue has just set it (navigation.js `pageTitle`):
+// the head's, else the selected route's heading, else the app's name.
 function meta(key, name, content) {
   let el = document.head.querySelector(`meta[${key}="${name}"]`);
   if (content == null) { el?.remove(); return; }
@@ -223,9 +224,7 @@ function meta(key, name, content) {
   if (el.content !== content) el.content = content;
 }
 function documentHead(op) {
-  appTitle ??= document.querySelector('meta[property="og:site_name"]')?.content ?? document.title;
-  const title = op.title ?? appTitle;
-  if (document.title !== title) document.title = title;
+  const title = document.title;
   meta("name", "description", op.description);
   meta("name", "robots", op.robots);
   let canonical = document.head.querySelector('link[rel="canonical"]');

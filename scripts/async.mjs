@@ -2,11 +2,15 @@
 /**
  * async — the async lane (rules/RULES.md §Loop shape): every first-parent
  * commit on origin/main, checked out in a dedicated worktree with its own
- * target/, gets the five checks over the whole workspace plus the tests marked
- * `#[ignore = "async lane: …"]`, every web host unit test found by one glob,
+ * target/, gets the six checks over the whole workspace (its build covers the
+ * sixth, `cargo check --workspace`) plus the tests marked
+ * `#[ignore = "async lane: …"]`, every web host unit test found by one glob
+ * and the script capture fixtures,
  * the web host's app-building document test in its own step, the web JS target's conformance run
- * (`host/web-js/conform.mjs --strict`), the UIKit XCTests on a simulator when the commit
- * touches host/apple (`build.mjs --test --ios`; Charlie, 2026-09-23), the
+ * (`host/web-js/conform.mjs --strict`), the separate game workspace tests,
+ * the UIKit XCTests on a simulator and the tvOS compile (`build.mjs --tvos
+ * --no-install`) for any range beyond documentation-only edits,
+ * the
  * Contract semantics' proofs and differential run (`semantics/README.md`), then
  * `metrics.mjs --long` (every RULES budget;
  * a VIOLATION or FAILED row or a failed run counts, an OVER time does not — it
@@ -24,7 +28,7 @@
  * worktree is the script's own and is checked out with --force.
  *
  * --tier 2 is the second lane: the platforms that ride on another host's
- * code (tvOS on the UIKit presenter; Charlie, 2026-10-03), in its own
+ * code (tvOS on the UIKit presenter, and cross-target Linux/Windows compile checks), in its own
  * worktree (<repo>-async2) and state, hourly by default. It checks only the
  * newest pending commit, so a failure it files names the range since the
  * last commit it checked, never one commit.
@@ -63,26 +67,38 @@ function laneTests() {
 
 const workspace = ['--workspace'];
 const WEB_APPS = ['realworld', 'weatherlight', 'completion-storm', 'video-player', 'caltrain', 'typetour', 'carousel', 'sparkline', 'svg-gallery', 'spark', 'markdown-stress', 'reflow', 'textflow', 'canvas-gallery', 'duo-lab', 'update-lab', 'native-fixture', 'photo-editor', 'recorder', 'fieldnotes', 'markdown', 'messages', 'interaction-gallery', 'motion-gallery'];
-// The second lane: each platform built for its simulator, Caltrain as the app
-// (its TypeScript-free build needs no Hermes for the platform).
-const TIER_2 = [
-  ['tvos', 'env', ['EXACT_JS_ENGINE=stub', 'bun', 'host/apple/build.mjs', '--tvos']],
-];
-function checks(sha) {
-  if (TIER === 2) return TIER_2;
-  const lane = laneTests();
-  const apple = git(['diff', '--name-only', `${sha}^`, sha, '--', 'host/apple'], WT) !== '';
-  const glue = [...new Bun.Glob('host/web/**/*.test.mjs').scanSync({ cwd: WT, onlyFiles: true })].sort().map(file => `./${file}`);
+// The second lane: tvOS uses Caltrain (its TypeScript-free build needs no
+// Hermes) and installs it on an Apple TV simulator, which the first lane's
+// compile does not; Linux and Windows compile their target-only branches and one app each.
+export function tierTwoChecks() {
+  return [
+    ['tvos', 'env', ['EXACT_JS_ENGINE=stub', 'bun', 'host/apple/build.mjs', '--tvos']],
+    ['linux', 'env', ['CRATE_CC_NO_DEFAULTS=1', 'CC_x86_64_unknown_linux_gnu=zig cc -target x86_64-linux-gnu', 'cargo', 'check', '--locked', '--keep-going', '--target', 'x86_64-unknown-linux-gnu', '-p', 'exact-linux', '-p', 'caltrain-linux']],
+    ['windows', 'env', ['CRATE_CC_NO_DEFAULTS=1', 'CC_x86_64_pc_windows_gnu=zig cc -target x86_64-windows-gnu', 'cargo', 'check', '--locked', '--keep-going', '--target', 'x86_64-pc-windows-gnu', '-p', 'exact-windows', '-p', 'windows-desk']],
+  ];
+}
+export const tvosCompile = ['tvos', 'env', ['EXACT_JS_ENGINE=stub', 'bun', 'host/apple/build.mjs', '--tvos', '--no-install']];
+export const gameCheck = ['game', 'cargo', ['test', '--manifest-path', 'game/Cargo.toml', '--workspace', '--locked', '--lib', '--bins', '--tests', '--no-fail-fast']];
+export function glueTests(root) {
+  const files = [...new Bun.Glob('host/web/**/*.test.mjs').scanSync({ cwd: root, onlyFiles: true })].sort().map(file => `./${file}`);
+  return [...files, './scripts/app.test.mjs', './scripts/deploy-paths.test.mjs'];
+}
+export function checks(sha, since, selection = {}) {
+  if (TIER === 2) return tierTwoChecks();
+  const lane = selection.lane ?? laneTests();
+  const apple = selection.apple ?? appleTouched(sha, since);
+  const glue = selection.glue ?? glueTests(WT);
   return [
     ['build', 'cargo', ['build', ...workspace, '--all-targets', '--keep-going']],
     ['test', 'env', ['EXACT_PURE_CHROME_REQUIRED=1', 'cargo', 'test', ...workspace, '--lib', '--bins', '--tests', '--no-fail-fast']],
+    gameCheck,
     ...(lane.length ? [['lane', 'cargo', ['test', ...workspace, '--lib', '--bins', '--tests', '--no-fail-fast', '--', '--ignored', ...lane]]] : []),
     ['clippy', 'cargo', ['clippy', ...workspace, '--all-targets', '--keep-going', '--', '-D', 'warnings']],
     ['fmt', 'cargo', ['fmt', '--all', '--', '--check']],
     ['caps', 'bun', ['scripts/caps.mjs']],
     ['boot', 'bun', ['scripts/boot.mjs']],
-    // Every web host unit test (LLP 1012.001.000 D9; Charlie, 2026-09-30),
-    // discovered by one glob so a new test cannot sit outside the lane.
+    // Every web host unit test (LLP 1012.001.000 D9; Charlie, 2026-09-30)
+    // and the source capture fixtures, in the existing async glue step.
     ['glue', 'env', ['EXACT_GLUE_FAST=1', 'bun', 'test', ...glue]],
     // This document proof builds Weatherlight's wasm target. Keep it out of
     // glue's seconds loop while retaining it in the asynchronous lane.
@@ -102,6 +118,11 @@ function checks(sha) {
     // Real touches through the XCTest runner on a simulator (LLP 1080.000 §6):
     // a runner that does not start fails here, never skips.
     ...(apple ? [['ios-touch', 'bun', ['scripts/smoke-touch.mjs', '--build']]] : []),
+    // tvOS compiles the UIKit presenter's Swift a second time, and an iOS-only
+    // name in shared code breaks it (twice on 2026-10-11, seen by hand). Built
+    // and signed, installed on nothing (Charlie, 2026-10-12): it needs the tvOS
+    // SDK and Rust's tvOS simulator target, and no simulator. Tier 2 installs.
+    ...(apple ? [tvosCompile] : []),
     // The Contract semantics (semantics/README.md; Charlie, 2026-10-03): the
     // Lean project builds with every proof checked (the app proofs among
     // them, over embeddings `difftest apps` checks are current), then the runner against
@@ -136,6 +157,24 @@ function checks(sha) {
     ].join('\n')]],
     ['metrics', 'bun', ['scripts/metrics.mjs', '--long']],
   ];
+}
+
+export function appleTouched(sha, since, diff = git) {
+  const paths = diff(['diff', '--name-only', since ?? `${sha}^`, sha], WT).split('\n');
+  // Markdown an app or example bundles is its input, not documentation.
+  const bundled = path => path.startsWith('apps/') || path.startsWith('examples/');
+  const documentation = path => (path.endsWith('.md') && !bundled(path)) ||
+    ['llp/', 'issues/', 'rules/', 'docs/'].some(dir => path.startsWith(dir)) ||
+    path === 'QUEUE.md';
+  return paths.some(path => path && !documentation(path));
+}
+
+export function retainSkippedFailures(previous, result, conditionalNames = ['lane', 'ios', 'ios-touch', 'tvos']) {
+  const conditional = new Set(conditionalNames);
+  result.failures.push(...previous.filter(f => {
+    const name = f.split(': ', 1)[0];
+    return conditional.has(name) && !result.checks[name];
+  }));
 }
 
 /** Every failure a log names, as stable strings (compared across commits). */
@@ -198,7 +237,7 @@ function prune() {
   console.log(`pruned ${WT}/target/debug to ${(KIB(debug) / 1024 / 1024).toFixed(0)} GiB (was over 80 GiB)`);
 }
 
-async function check(sha) {
+async function check(sha, since) {
   const dir = resolve(STATE_DIR, sha.slice(0, 12));
   mkdirSync(dir, { recursive: true });
   prune();
@@ -208,7 +247,7 @@ async function check(sha) {
   const installed = spawnSync('bun', ['install', '--frozen-lockfile'], { cwd: WT, env, encoding: 'utf8' });
   const result = { sha, subject: git(['log', '-1', '--format=%s', sha]), checks: {}, failures: [] };
   if (installed.status !== 0) result.failures.push(`install: bun install --frozen-lockfile exit ${installed.status}`);
-  for (const [name, command, args] of checks(sha)) {
+  for (const [name, command, args] of checks(sha, since)) {
     const logPath = resolve(dir, `${name}.log`), fd = openSync(logPath, 'w');
     const load = loadavg()[0], start = performance.now();
     const r = await run(command, args, env, fd);
@@ -246,9 +285,9 @@ async function once(state) {
   const newest = TIER === 2 || process.argv.includes('--newest');
   for (const sha of newest ? pending.slice(-1) : pending) {
     const since = newest && pending.length > 1 ? state.last : null;
-    const result = await check(sha);
-    // A commit outside host/apple runs no iOS tests: the last ones stand.
-    if (!result.checks.ios) result.failures.push(...(state.failures ?? []).filter(f => f.startsWith('ios: ')));
+    const result = await check(sha, since);
+    // Conditional checks that did not run retain their last failures.
+    retainSkippedFailures(state.failures ?? [], result);
     // The first commit checked has no parent result: it sets the baseline,
     // since its failures cannot be attributed to it.
     const baseline = state.failures === undefined;
@@ -261,13 +300,15 @@ async function once(state) {
   }
 }
 
-if (!existsSync(WT)) git(['worktree', 'add', '--detach', WT, BRANCH]);
-mkdirSync(STATE_DIR, { recursive: true });
-const state = existsSync(STATE) ? JSON.parse(readFileSync(STATE, 'utf8')) : {};
-if (option('--from')) state.last = git(['rev-parse', option('--from')]);
-const interval = Number(option('--interval', TIER === 2 ? 3600 : 300)) * 1000;
-for (;;) {
-  await once(state);
-  if (process.argv.includes('--once')) break;
-  await new Promise(done => setTimeout(done, interval));
+if (import.meta.main) {
+  if (!existsSync(WT)) git(['worktree', 'add', '--detach', WT, BRANCH]);
+  mkdirSync(STATE_DIR, { recursive: true });
+  const state = existsSync(STATE) ? JSON.parse(readFileSync(STATE, 'utf8')) : {};
+  if (option('--from')) state.last = git(['rev-parse', option('--from')]);
+  const interval = Number(option('--interval', TIER === 2 ? 3600 : 300)) * 1000;
+  for (;;) {
+    await once(state);
+    if (process.argv.includes('--once')) break;
+    await new Promise(done => setTimeout(done, interval));
+  }
 }

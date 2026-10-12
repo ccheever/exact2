@@ -522,6 +522,11 @@ impl<J: DataSource, R: DataSource> Mixed<J, R> {
 }
 
 impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
+    fn set_document_owner(&mut self, owner: u64) {
+        self.javascript.set_document_owner(owner);
+        self.rust.set_document_owner(owner);
+    }
+
     fn take_logs(&mut self) -> Vec<String> {
         Mixed::take_logs(self)
     }

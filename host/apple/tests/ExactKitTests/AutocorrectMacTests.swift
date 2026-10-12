@@ -82,7 +82,9 @@ final class AutocorrectMacTests: XCTestCase {
         XCTAssertTrue(window.makeFirstResponder(plain))
         let editor = try XCTUnwrap(plain.currentEditor() as? NSTextView)
         let fieldEditor = flags(editor)
-        XCTAssertEqual(Array(fieldEditor[..<3]), [true, false, false], "no smart quotes or dashes in a field, as AppKit makes it")
+        // The person's own correction (System Settings ▸ Keyboard), which a
+        // plain field no longer forces on (LLP 1115.000 D7.7).
+        XCTAssertEqual(Array(fieldEditor[..<3]), [NSSpellChecker.isAutomaticSpellingCorrectionEnabled, false, false], "the person's correction; no smart quotes or dashes in a field, as AppKit makes it")
         editor.isAutomaticQuoteSubstitutionEnabled = true // the person's, from the field's context menu
         XCTAssertTrue(window.makeFirstResponder(off))
         XCTAssertTrue(off.currentEditor() === editor, "the window's one field editor")
@@ -90,7 +92,47 @@ final class AutocorrectMacTests: XCTestCase {
         p.views[4]?.applyProps(set: ["value": "z"], clear: [])
         XCTAssertEqual(flags(editor), [false, false, false, false])
         XCTAssertTrue(window.makeFirstResponder(plain))
-        XCTAssertEqual(flags(editor), [true, true, false, fieldEditor[3]], "the person's, given back")
+        XCTAssertEqual(flags(editor), [fieldEditor[0], true, false, fieldEditor[3]], "the person's, given back")
+    }
+
+    /// LLP 1115.000 D7.7: unsaid `autocorrect` and `spellcheck` are the
+    /// person's settings. The host writes only what the author wrote: a
+    /// plain textarea starts as AppKit makes a text view (it was forced to
+    /// correct and to check spelling), what the person then chooses in
+    /// Edit ▸ Spelling and Grammar outlasts the app's updates (each update
+    /// wrote both again), and a written value holds only while it is written.
+    func testUnsaidCheckingIsThePersonsAndOnlyAWrittenValueIsWritten() throws {
+        let p = presenter()
+        let plain = try XCTUnwrap(p.views[3]?.textArea), node = try XCTUnwrap(p.views[3])
+        let appKit = NSTextView(frame: .zero)
+        XCTAssertEqual(plain.isContinuousSpellCheckingEnabled, appKit.isContinuousSpellCheckingEnabled, "spelling as AppKit makes a text view")
+        XCTAssertEqual(plain.isAutomaticSpellingCorrectionEnabled, appKit.isAutomaticSpellingCorrectionEnabled, "correction as the person's settings have it")
+        // The person's choices, the opposite of what was forced, and an update from the app.
+        plain.isContinuousSpellCheckingEnabled = false
+        plain.isAutomaticSpellingCorrectionEnabled = false
+        node.applyProps(set: ["value": "x"], clear: [])
+        XCTAssertFalse(plain.isContinuousSpellCheckingEnabled, "an update does not turn spelling back on")
+        XCTAssertFalse(plain.isAutomaticSpellingCorrectionEnabled, "nor correction")
+        // Written, it is the author's, whatever the person's is; taken back, the person's again.
+        node.applyProps(set: ["spellcheck": "true", "autocorrect": "on"], clear: [])
+        XCTAssertTrue(plain.isContinuousSpellCheckingEnabled)
+        XCTAssertTrue(plain.isAutomaticSpellingCorrectionEnabled)
+        node.applyProps(set: ["spellcheck": "false"], clear: [])
+        XCTAssertFalse(plain.isContinuousSpellCheckingEnabled)
+        plain.isAutomaticSpellingCorrectionEnabled = true // nothing the person does moves a written value's hold
+        node.applyProps(set: [:], clear: ["spellcheck", "autocorrect"])
+        XCTAssertFalse(plain.isContinuousSpellCheckingEnabled, "the person's, given back")
+        XCTAssertFalse(plain.isAutomaticSpellingCorrectionEnabled, "the person's, given back")
+        // The window's one field editor: a field that says nothing does not keep the last field's answer.
+        p.views[4]?.applyProps(set: ["spellcheck": "true"], clear: [])
+        let written = try XCTUnwrap(p.views[4]?.field), unsaid = try XCTUnwrap(p.views[5]?.field)
+        XCTAssertTrue(window.makeFirstResponder(unsaid))
+        let editor = try XCTUnwrap(unsaid.currentEditor() as? NSTextView)
+        let spelling = editor.isContinuousSpellCheckingEnabled
+        XCTAssertTrue(window.makeFirstResponder(written))
+        XCTAssertTrue(editor.isContinuousSpellCheckingEnabled, "the author's `spellcheck`")
+        XCTAssertTrue(window.makeFirstResponder(unsaid))
+        XCTAssertEqual(editor.isContinuousSpellCheckingEnabled, spelling, "the editor's own again")
     }
 }
 #endif

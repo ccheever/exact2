@@ -263,11 +263,14 @@ impl<D: DataSource> Host<D> {
                 }
             }
             let field_content = node.field_content_rect();
+            let field_cell = node.is_cell_field();
             if (self.layout_withheld && node.node_type == NodeType::TextInput)
                 || m.field_content != field_content
+                || m.field_cell != field_cell
             {
                 m.field_content = field_content;
-                batch.field_content(id, field_content);
+                m.field_cell = field_cell;
+                batch.field_content(id, field_content, field_cell);
             }
             if m.frame != Some(rel) {
                 moved.insert(id);

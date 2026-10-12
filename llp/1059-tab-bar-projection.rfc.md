@@ -56,6 +56,12 @@ A tab bar item has exactly the second shape. A segment cannot show it.
   crosses to the Apple presenter. macOS's `NSSegmentedControl` does the
   same (2026-10-05): an unsized row of text tabs had clipped it to 18 pt in
   Caltrain's window, and the tablist now takes the control's 24.
+  Amended 2026-10-11 (LLP 1116.004 D2, unit-converter): the reported width is
+  the control's narrowest and supplies the automatic minimum width, which had
+  been the hidden tabs' own, so four text tabs overflowed a grouped row.
+  UIKit's segmented control and tab bar report none; a segmented control
+  narrower than its equal segments apportions them by content. AppKit's
+  reports its natural width. An explicit `min-width` still wins.
 - **D4 — The journal says which.** The one-line journal per tablist
   (`tablist #N: …`) now also names `projected to UITabBar`, and the agent
   observation reports `view: UITabBar`. That makes F12's surprise

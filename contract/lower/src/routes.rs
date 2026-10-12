@@ -192,6 +192,15 @@ pub(crate) enum NavPlace {
     InRoute,
 }
 
+/// @ref LLP 1116.006 D2 — the attribute marking a box as the split's own placeholder, written as
+/// a literal: a wide window's split shows it in the detail pane while nothing is selected, and
+/// it is no box anywhere else (its `display` is `none`, which the web shell overrides there).
+pub(crate) fn split_placeholder(attrs: &[Attr]) -> Option<&Attr> {
+    attrs.iter().find(|a| {
+        a.name == "navigationSplit" && matches!(&a.value, Expr::Str(s, _) if s == "placeholder")
+    })
+}
+
 impl NavPlace {
     /// @ref LLP 1116 D6, LLP 1115 D5 — the first root carrying a
     /// `navigationKey` is the navigation root with or without
@@ -216,6 +225,7 @@ impl NavPlace {
                 name: "navigationBack".into(),
                 value: Expr::Str(String::new(), span),
                 span,
+                written: crate::IMPLIED,
             });
             attrs
         })
@@ -232,6 +242,33 @@ impl NavPlace {
     ) -> Result<NavPlace, LowerError> {
         let has = |name: &str| attrs.iter().any(|a| a.name == name);
         let path = |p: &[String]| [p, &[tag.to_string()]].concat();
+        // @ref LLP 1115.000 D5.2 — the bar is each route's, so `navigationBar`
+        // is a route's word: on the root or on a box inside a screen no host
+        // reads it, and the screen would keep the bar it meant to drop.
+        if has("navigationBar") && (!has("navigationKey") || has("navigationBack")) {
+            let on = if has("navigationKey") {
+                "the navigation root"
+            } else {
+                "an element with no `navigationKey`"
+            };
+            return err(
+                "lower-route-bar",
+                format!("`navigationBar` is on {on}, where no host reads it: it belongs to a route (an element with a `navigationKey`, a child of the navigation root or of a `role=\"tabpanel\"` in it) and says whether that one screen shows the platform's navigation bar. Move it onto each route that draws its own chrome (docs/recipes/navigation-stack.md)"),
+                attrs
+                    .iter()
+                    .find(|a| a.name == "navigationBar")
+                    .map_or(span, |a| a.span),
+            );
+        }
+        // @ref LLP 1116.006 D2 — the split's placeholder is a box in the root route; a route
+        // marked so would never show.
+        if let Some(a) = split_placeholder(attrs).filter(|_| has("navigationKey")) {
+            return err(
+                "lower-attr-value",
+                "`navigationSplit=\"placeholder\"` marks a box inside the stack's root route, which a wide window shows in the detail pane while nothing is selected; on a route it would hide the route. Put it on a box in the route (docs/recipes/navigation-stack.md)",
+                a.span,
+            );
+        }
         if has("navigationKey") && has("navigationBack") {
             return Ok(NavPlace::RootChild(vec![tag.to_string()]));
         }

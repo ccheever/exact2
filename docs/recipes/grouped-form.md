@@ -1,7 +1,7 @@
 # Recipe: a grouped form
 
-A settings-style form: an inset-grouped list of sections, fields without a border of
-their own, a switch, a pop-up menu and a date picker, validated after the first Save.
+A settings-style form: an inset-grouped list of sections, text fields, a switch, a pop-up
+menu and a date picker, validated after the first Save.
 
 ```contract
 routes nav
@@ -51,19 +51,20 @@ component Profile
                 text "Name"
               row
                 column flex=1 min-width=0 gap=4
-                  input appearance="none" value=name input=editName placeholder="Required" aria-label="Name"
-                    autocomplete="name" testId="name"
+                  input value=name input=editName submit=save placeholder="Required" aria-label="Name"
+                    autocomplete="name" aria-invalid=(submitted and nameError != "") aria-describedby="name-error" testId="name"
                   when submitted and nameError != ""
-                    text nameError font="-exact-footnote" color="-exact-system-red" testId="name-error"
+                    text nameError id="name-error" font="-exact-footnote" color="-exact-system-red" testId="name-error"
             section
               header
                 text "Email"
               row
                 column flex=1 min-width=0 gap=4
-                  input appearance="none" type="email" value=email input=editEmail placeholder="name@example.com"
-                    aria-label="Email" autocapitalize="off" autocomplete="email" testId="email"
+                  input type="email" value=email input=editEmail submit=save placeholder="name@example.com"
+                    aria-label="Email" autocapitalize="off" autocomplete="email"
+                    aria-invalid=(submitted and emailError != "") aria-describedby="email-error" testId="email"
                   when submitted and emailError != ""
-                    text emailError font="-exact-footnote" color="-exact-system-red" testId="email-error"
+                    text emailError id="email-error" font="-exact-footnote" color="-exact-system-red" testId="email-error"
             section
               header
                 text "Preferences"
@@ -81,9 +82,9 @@ component Profile
 ```
 
 ```contract-test
-test "errors show after the first Save and clear when fixed"
+test "errors show after the first Save (Enter or the button) and clear when fixed"
   expect tree missing "name-error"
-  tap "save"
+  type "name" key "Enter"
   expect text "name-error" == "Enter your name."
   type "name" "Ada"
   type "email" "ada@example.com"
@@ -94,14 +95,21 @@ test "errors show after the first Save and clear when fixed"
   expect state reminders == false
 ```
 
-- A text field in a grouped row takes `appearance="none"`, or it draws its own rounded
-  box inside the card. Leave the switch, menu and date picker as they are: each is the
-  platform's control (`UISwitch`, a pop-up button, `UIDatePicker`).
+- Leave a text field in a grouped row unsaid: each platform draws its field there. iOS
+  draws it borderless in its cell, which is the field (a tap anywhere in the row reaches
+  it); the web and the Mac draw a field, its line, corners and height. `appearance="none"`
+  is a bare box on every host, plain text on a desktop page. Leave the switch, menu and
+  date picker as they are: each is the platform's control (`UISwitch`, a pop-up button,
+  `UIDatePicker`).
 - A row of a `text` and a switch is a title and its accessory, as Settings draws it. Any
   other row is yours, a flex row: vertical content goes in a `column flex=1`, and it
   writes only `padding-top`/`padding-bottom` (`padding` or `width="100%"` runs it off
   the card).
 - Validate a derive of the raw text, and show it only after the first Save, under the
-  field in its row, in `-exact-system-red`, saying what to do.
+  field in its row, in `-exact-system-red`, saying what to do. Mark the field
+  `aria-invalid` while it shows and name the text with `aria-describedby`: a screen
+  reader reads it with the field, and the web outlines a bordered field in red.
+- `submit=save` on each field: Enter saves, as on a web form, and so does Return on
+  iOS. There is no `form`, so a field without `submit` saves nothing on Enter.
 - The list paints its own grouped background; don't set one. To keep a setting across
   launches, see [persisted-setting](persisted-setting.md).

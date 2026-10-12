@@ -87,6 +87,31 @@ fn frame(k: &Kernel, id: u32) -> (f32, f32, f32, f32) {
     (f.x, f.y, f.width, f.height)
 }
 
+fn child_nodes_match_snapshots(k: &Kernel, id: u32) {
+    let parent = k.node(id).unwrap();
+    let ids = parent.children();
+    let mut nodes = parent.child_nodes();
+    assert_eq!(nodes.len(), ids.len());
+    for id in &ids {
+        let child = nodes.next().unwrap();
+        let looked_up = k.node(*id).unwrap();
+        assert_eq!(child.id, *id);
+        assert_eq!(child.key, looked_up.key);
+        assert_eq!(child.node_type, looked_up.node_type);
+        assert_eq!(child.parent, looked_up.parent);
+        assert_eq!(child.frame, looked_up.frame);
+        assert_eq!(child.content, looked_up.content);
+        assert_eq!(child.is_root, looked_up.is_root);
+        assert!(std::ptr::eq(child.style, looked_up.style));
+        assert!(std::ptr::eq(child.props, looked_up.props));
+    }
+    assert!(nodes.next().is_none());
+    assert_eq!(
+        parent.child_nodes().rev().map(|n| n.id).collect::<Vec<_>>(),
+        ids.into_iter().rev().collect::<Vec<_>>()
+    );
+}
+
 #[test]
 fn column_layout_stacks_children_and_stretches_width() {
     let mut k = build();
@@ -100,6 +125,9 @@ fn column_layout_stacks_children_and_stretches_width() {
         (0.0, 50.0, 200.0, 20.0),
         "frames are absolute"
     );
+    for id in 1..=4 {
+        child_nodes_match_snapshots(&k, id);
+    }
 }
 
 #[test]
@@ -1423,4 +1451,7 @@ fn touched_receipt_is_unique_ordered_and_excludes_destroyed_or_created_generatio
     expected.sort_unstable();
     assert_eq!(next.touched, expected);
     assert!(next.created.is_empty());
+    for id in [1, 2, 6, 7] {
+        child_nodes_match_snapshots(&k, id);
+    }
 }

@@ -332,7 +332,8 @@ assert.deepEqual(mixed.rows.map(({kind, platform}) => [kind, platform]).sort(), 
 console.log('level-zero deploy: binary only, zero stream discovery or head reads; mixed runs retain only A streams');
 "#;
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
-    let mut command = std::process::Command::new("bun");
+    let mut command =
+        std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()));
     command
         .args(["--input-type=module", "-e", script])
         .current_dir(root);

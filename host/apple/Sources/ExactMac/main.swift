@@ -179,8 +179,9 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
         if first { ExactEnv.stamp("Presenter (NSScrollView)") }
         window = ExactWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         super.init()
-        // Present the reading surface at its final size as soon as it is ready.
-        window.animationBehavior = .none
+        // AppKit's own opening animation, and window tabs only where documents
+        // have windows of their own (LLP 1115.000 D7.9).
+        ExactDocuments.furnish(window)
         // Nothing restores this window — a session boots its plan and the frame has
         // its own autosave below — so AppKit's restoration has nothing to keep for it.
         // Left on, a scroll view invalidates restorable state as it scrolls and AppKit
@@ -193,17 +194,21 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
         if first { ExactEnv.stamp("NSWindow") }
         // Until the app's `head` names it (LLP 1069.010 D6), the app's name.
         window.title = ExactEnv.appName
-        window.tabbingIdentifier = ExactEnv.appMetadata["CFBundleIdentifier"] as? String ?? ExactEnv.appName
         if !scripted {
             window.contentMinSize = minimumSize
             window.setContentSize(NSSize(width: max(size.width, minimumSize.width), height: max(size.height, minimumSize.height)))
         }
-        // Nothing is focused at launch — the web's rule (a page focuses no field on
-        // load). AppKit would otherwise make the first key view the first responder
-        // when the window becomes key, and a canvas holding an input would show a
-        // caret from its first frame (found by the readback fixture, LLP 1014).
+        // A new window puts the caret in its first key view (LLP 1115.000 D7.5),
+        // unless the author's `autofocus` says where. The session does it the turn
+        // after its first frame, when its launch autofocus runs, so no field editor
+        // stands before the first pixel (`ExactView.focusesFirstKeyView`). Until
+        // then nothing is focused, and a window whose first key view is in a canvas
+        // that takes input stays so: AppKit's own pick as the window came on screen
+        // gave such a canvas a caret in its first frame (found by the readback
+        // fixture, LLP 1014).
         window.initialFirstResponder = view
         window.autorecalculatesKeyViewLoop = false
+        view.focusesFirstKeyView = true
         window.delegate = self
         view.onViewportFit = { [weak self] in self?.coverChrome() }
         // Attaching the view can boot its embedded plan before this hook is installed.
@@ -470,20 +475,19 @@ final class Delegate: NSObject, NSApplicationDelegate {
     /// why the app comes forward; one that opens nothing leaves the window
     /// where it was.
     func application(_ application: NSApplication, open urls: [URL]) {
-        if let url = urls.first, ExactDevelopmentLink.claims(url) {
-            if !session.booted { launchDevelopmentURL = url; return }
-            ExactDevelopmentLink.open(url)
-            frontWindow()?.front()
-            return
-        }
-        // @ref LLP 1038 D8 — Launch Services delivers cold URLs before didFinishLaunching.
-        if let url = urls.first(where: { !$0.isFileURL }) {
+        var files: [URL] = []
+        // @ref LLP 1038 D8 — Launch Services may batch cold or warm links.
+        IncomingURLBatch.deliver(urls, development: { url in
+            guard ExactDevelopmentLink.claims(url) else { return false }
+            if !session.booted { launchDevelopmentURL = url }
+            else { ExactDevelopmentLink.open(url); frontWindow()?.front() }
+            return true
+        }, document: { files.append($0) }, location: { url in
             // The first window's session may have closed with its window.
             let target = frontWindow() ?? openWindow()
             if target.session.openURL(url) { target.front() }
-            return
-        }
-        let documents = ExactDocuments.paths(of: urls)
+        })
+        let documents = ExactDocuments.paths(of: files)
         if !session.booted { launchDocuments += documents; return }
         route(documents)
     }

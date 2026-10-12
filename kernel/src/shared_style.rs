@@ -1,12 +1,12 @@
 //! Equal styles share one allocation.
 //!
-//! A node's [`StyleProps`] holds every row, about 1.2 KB, and its engine
-//! style (Taffy's) another 550 bytes; most nodes of a list repeat a handful
+//! A node's [`StyleProps`] holds its rows, with effect groups shared on demand,
+//! and its engine style holds Taffy's rows; most nodes of a list repeat a handful
 //! of them — each row's name label is styled like every other row's. So
 //! both are held by `Rc`, and a style is looked up here before it is kept:
 //! equal styles are one allocation, as a browser shares computed styles. A
-//! shared style is never written in place; a change builds the next style
-//! and interns it. Nothing here changes a value a reader sees.
+//! shared style is never written in place; a patch looks up the next style
+//! before constructing it. Nothing here changes a value a reader sees.
 //!
 //! Two authored styles are equal when their set rows encode the same: a row
 //! a style does not set holds its initial value, because the only writers
@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
 use std::rc::Rc;
 
-use crate::generated::StyleProps;
+use crate::generated::{StyleMask, StyleProps};
 use crate::id::IdHasher;
 use crate::wire::codec::Writer;
 
@@ -157,6 +157,61 @@ impl SharedStyles {
         self.table.insert(hash, bytes.into(), style)
     }
 
+    /// Look up a patch's result before cloning the full style. Repeated
+    /// updates of equally styled nodes normally find the first node's result.
+    pub(crate) fn patch(&mut self, base: &StyleProps, patch: &StyleProps) -> Rc<StyleProps> {
+        let mask = base.mask.union(patch.mask);
+        if mask.is_empty() {
+            return self.default_style();
+        }
+        self.scratch.clear();
+        base.encode_overlaid(mask, patch, &mut self.scratch);
+        let mut keyed;
+        let bytes = if base.relative.is_empty() && patch.relative.is_empty() {
+            self.scratch.as_slice()
+        } else {
+            let mut relative = base.relative.clone();
+            relative.copy(&patch.relative, patch.mask);
+            keyed = self.scratch.as_slice().to_vec();
+            relative.encode(&mut keyed);
+            &keyed[..]
+        };
+        let hash = hash_bytes(bytes);
+        if let Some(found) = self.table.get(hash, |b, _| **b == *bytes) {
+            return found;
+        }
+        let mut next = base.clone();
+        next.apply_patch(patch);
+        self.table.insert(hash, bytes.into(), next)
+    }
+
+    /// Look up the remaining rows before materializing a cleared style.
+    pub(crate) fn clear(&mut self, base: &StyleProps, cleared: StyleMask) -> Rc<StyleProps> {
+        let mask = base.mask.minus(cleared);
+        if mask.is_empty() {
+            return self.default_style();
+        }
+        self.scratch.clear();
+        base.encode_masked(mask, &mut self.scratch);
+        let mut keyed;
+        let bytes = if base.relative.is_empty() {
+            self.scratch.as_slice()
+        } else {
+            let mut relative = base.relative.clone();
+            relative.copy(&self.default.relative, cleared);
+            keyed = self.scratch.as_slice().to_vec();
+            relative.encode(&mut keyed);
+            &keyed[..]
+        };
+        let hash = hash_bytes(bytes);
+        if let Some(found) = self.table.get(hash, |b, _| **b == *bytes) {
+            return found;
+        }
+        let mut next = base.clone();
+        next.clear(cleared);
+        self.table.insert(hash, bytes.into(), next)
+    }
+
     /// Sweep, then return spare capacity.
     pub(crate) fn trim(&mut self) {
         self.table.trim();
@@ -172,6 +227,127 @@ impl SharedStyles {
 mod tests {
     use super::*;
     use crate::style::Dimension;
+    use crate::{StyleId, StyleMask, StyleValue};
+
+    #[test]
+    fn overlay_sharing_preserves_explicit_authorship() {
+        let mut base = StyleProps::default();
+        base.set_dynamic(StyleId::Width, &StyleValue::Number(10.0))
+            .unwrap();
+        base.set_dynamic(StyleId::Height, &StyleValue::Number(20.0))
+            .unwrap();
+        base.written = base.mask;
+        let mut shared = SharedStyles::default();
+        let authored = shared.intern(base.clone());
+        let mut patch = StyleProps::default();
+        patch
+            .set_dynamic(StyleId::Width, &StyleValue::Number(10.0))
+            .unwrap();
+        let implied = shared.patch(&base, &patch);
+        assert!(!Rc::ptr_eq(&authored, &implied));
+        assert!(!implied.written.has(StyleId::Width));
+        assert!(implied.written.has(StyleId::Height));
+        patch.written = patch.mask;
+        assert!(Rc::ptr_eq(&authored, &shared.patch(&implied, &patch)));
+        let cleared = shared.clear(&authored, StyleMask::of(StyleId::Width));
+        assert!(!cleared.written.has(StyleId::Width));
+        assert!(cleared.written.has(StyleId::Height));
+    }
+
+    #[test]
+    fn style_edits_share_exactly_the_materialized_result() {
+        let values = [
+            StyleValue::Number(0.0),
+            StyleValue::Number(-0.0),
+            StyleValue::Number(2.0),
+            StyleValue::Percent(25.0),
+            StyleValue::Vec2(2.0, -3.0),
+        ]
+        .into_iter()
+        .chain(
+            [
+                "auto",
+                "none",
+                "inherit",
+                "#123456",
+                "bold",
+                "hidden",
+                "sticky",
+                "2rem",
+                "3em",
+                "12px",
+                "1fr 2fr",
+                "1 / span 2",
+                "dense",
+                "center",
+                "translate(2px, 3px)",
+                "2px 3px #123456",
+            ]
+            .map(|text| StyleValue::Text(text.into())),
+        )
+        .collect::<Vec<_>>();
+        let mut base = StyleProps::default();
+        // Every row participates in the key, including defaults and rare rows.
+        for id in StyleId::ALL {
+            for value in values.iter().rev() {
+                if base.set_dynamic(id, value).is_ok() {
+                    break;
+                }
+            }
+        }
+        base.mask = StyleMask::ALL;
+        let encoded = |style: &StyleProps| {
+            let mut writer = Writer::new();
+            style.encode_patch(&mut writer);
+            writer.into_vec()
+        };
+        let original = encoded(&base);
+        for id in StyleId::ALL {
+            let mut patches = vec![StyleProps {
+                mask: StyleMask::of(id),
+                ..StyleProps::default()
+            }];
+            for value in &values {
+                let mut patch = StyleProps::default();
+                if patch.set_dynamic(id, value).is_ok() {
+                    patches.push(patch);
+                }
+            }
+            for patch in patches {
+                let mut expected = base.clone();
+                expected.apply_patch(&patch);
+                let mut shared = SharedStyles::default();
+                // First a miss; then an equal authored style and another patch hit.
+                let first = shared.patch(&base, &patch);
+                assert_eq!(*first, expected, "{id:?}");
+                let authored = shared.intern(expected);
+                assert!(Rc::ptr_eq(&first, &authored), "{id:?}");
+                let again = shared.patch(&base, &patch);
+                assert!(Rc::ptr_eq(&first, &again), "{id:?}");
+                assert_eq!(encoded(&base), original, "patch changed its source: {id:?}");
+            }
+        }
+        for mask in StyleId::ALL
+            .into_iter()
+            .map(StyleMask::of)
+            .chain([StyleMask::EMPTY, StyleMask::ALL])
+        {
+            let mut expected = base.clone();
+            expected.clear(mask);
+            let mut shared = SharedStyles::default();
+            let first = shared.clear(&base, mask);
+            assert_eq!(*first, expected, "{mask:?}");
+            let authored = shared.intern(expected);
+            assert!(Rc::ptr_eq(&first, &authored), "{mask:?}");
+            let again = shared.clear(&base, mask);
+            assert!(Rc::ptr_eq(&first, &again), "{mask:?}");
+            assert_eq!(
+                encoded(&base),
+                original,
+                "clear changed its source: {mask:?}"
+            );
+        }
+    }
 
     #[test]
     fn equal_styles_share_and_unheld_ones_are_swept() {
@@ -187,6 +363,14 @@ mod tests {
         b.mask.set(crate::StyleId::Height);
         let z = shared.intern(b);
         assert!(!Rc::ptr_eq(&x, &z));
+        // The same row its author wrote is another style (LLP 1115.000 D2):
+        // one node's bit is never another's.
+        let mut written = a.clone();
+        written.written.set(crate::StyleId::Width);
+        let w = shared.intern(written.clone());
+        assert!(!Rc::ptr_eq(&x, &w));
+        assert!(w.written.has(crate::StyleId::Width) && !x.written.has(crate::StyleId::Width));
+        assert!(Rc::ptr_eq(&w, &shared.intern(written)));
         // -0 and 0 compare equal but encode apart: never shared.
         let mut c = StyleProps::default();
         c.width = Dimension::Points(-0.0);
@@ -199,8 +383,8 @@ mod tests {
             &shared.intern(StyleProps::default()),
             &shared.default
         ));
-        assert_eq!(shared.len(), 4);
-        drop((x, y, z, c, d));
+        assert_eq!(shared.len(), 5);
+        drop((x, y, z, w, c, d));
         shared.trim();
         assert_eq!(shared.len(), 0);
     }

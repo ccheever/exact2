@@ -4,11 +4,17 @@ import UIKit
 
 /// No defaults of ours: dictionary membership is the kernel's authored mask.
 enum ButtonConfigurationIOS {
-    static func font(_ incoming: UIFont, rows: NodeStyle, traits: UITraitCollection) -> UIFont {
+    /// The title, subtitle or symbol font where its author wrote a size or a
+    /// weight. A written size is the kernel's number and is drawn at it (LLP
+    /// 1115.000 D12.1): an absolute `font-size` is the author's, the same on
+    /// a button as on a `text` or a field, and what follows Dynamic Type
+    /// (`rem`, `em` under the platform's control font, a text style) the
+    /// kernel has resolved against the reader's size already. Unsaid, the
+    /// font is UIKit's, which UIKit scales.
+    static func font(_ incoming: UIFont, rows: NodeStyle) -> UIFont {
         let size = rows["font_size"]?.number.map { CGFloat($0) }
         let weight = rows["font_weight"]?.number.map(Int.init)
         guard size != nil || weight != nil else { return incoming }
-        // UIKit already scaled its incoming font. Only an authored size goes through metrics.
         let targetSize = size ?? incoming.pointSize
         let cssWeight = weight ?? TextEngine.controlWeight(incoming)
         let platformWeight: UIFont.Weight
@@ -23,8 +29,7 @@ enum ButtonConfigurationIOS {
         case 800..<900: platformWeight = .heavy
         default: platformWeight = .black
         }
-        let base = TextEngine.cssWeight(UIFont.systemFont(ofSize: targetSize, weight: platformWeight), weight: cssWeight, size: targetSize)
-        return size == nil || rows["font_size_resolved"]?.number == 1 ? base : UIFontMetrics(forTextStyle: .body).scaledFont(for: base, compatibleWith: traits)
+        return TextEngine.cssWeight(UIFont.systemFont(ofSize: targetSize, weight: platformWeight), weight: cssWeight, size: targetSize)
     }
     static func color(_ value: BatchValue?, traits: UITraitCollection, accent: UIColor?) -> UIColor? {
         value?.cgColor(dark: traits.userInterfaceStyle == .dark,
@@ -126,7 +131,7 @@ enum ButtonConfigurationIOS {
         if titleFontAuthored || foreground != nil {
             config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
                 var outgoing = incoming
-                if titleFontAuthored, let f = incoming.uiKit.font { outgoing.uiKit.font = font(f, rows: rows.title, traits: traits) }
+                if titleFontAuthored, let f = incoming.uiKit.font { outgoing.uiKit.font = font(f, rows: rows.title) }
                 if let foreground { outgoing.uiKit.foregroundColor = foreground }
                 return outgoing
             }
@@ -136,7 +141,7 @@ enum ButtonConfigurationIOS {
         if subtitleFontAuthored || subtitleColor != nil {
             config.subtitleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
                 var outgoing = incoming
-                if subtitleFontAuthored, let f = incoming.uiKit.font { outgoing.uiKit.font = font(f, rows: rows.subtitle, traits: traits) }
+                if subtitleFontAuthored, let f = incoming.uiKit.font { outgoing.uiKit.font = font(f, rows: rows.subtitle) }
                 if let subtitleColor { outgoing.uiKit.foregroundColor = subtitleColor }
                 return outgoing
             }
@@ -157,7 +162,7 @@ enum ButtonConfigurationIOS {
         // Read the real title font for this style/size, after UIKit resolved the configuration.
         let titleFont = button.titleLabel?.font ?? UIFont.preferredFont(forTextStyle: .body, compatibleWith: traits)
         if rows.symbol["font_size"] != nil || rows.symbol["font_weight"] != nil {
-            let symbolFont = font(titleFont, rows: rows.symbol, traits: traits)
+            let symbolFont = font(titleFont, rows: rows.symbol)
             config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(font: symbolFont)
         } else { config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(font: titleFont) }
         config.imagePadding = rows.imageGap ?? systemSpacing(font: titleFont)

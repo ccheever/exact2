@@ -7,7 +7,7 @@ use std::process::Command;
 
 fn bun(script: &str) -> String {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let result = Command::new("bun")
+    let result = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .current_dir(root)
         .args(["--input-type=module", "-e", script])
         .output()
@@ -266,7 +266,7 @@ app.mode = "off"; precondition(candidate.apply(to: app) && app.generations.last!
 #[ignore = "async lane: launches Bun; bun scripts/async.mjs runs it"]
 fn a_build_is_stamped_with_its_time_commits_and_kind() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let result = Command::new("bun")
+    let result = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .current_dir(root)
         .args(["test", "./host/apple/buildinfo.test.mjs"])
         .output()

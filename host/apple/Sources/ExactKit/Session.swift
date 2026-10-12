@@ -26,13 +26,13 @@ struct LaunchPlace: Equatable {
         if environment["EXACT_AGENT"] == "1" {
             locale = environment["EXACT_AGENT_LOCALE"] ?? "en-US"
             timeZone = environment["EXACT_AGENT_TIME_ZONE"] ?? "UTC"
-            seed = UInt64(environment["EXACT_AGENT_SEED"] ?? "1") ?? 1
+            seed = UInt32(environment["EXACT_AGENT_SEED"] ?? "1").map(UInt64.init) ?? 1 // below 2^32 (LLP 1116.005 D5); else 1, as exact_data::crypto takes it
             epoch = Double(environment["EXACT_AGENT_EPOCH"] ?? "1767225600000") ?? 1_767_225_600_000
         } else {
             epoch = nil
             locale = Locale.preferredLanguages.first ?? Locale.current.identifier(.bcp47)
             timeZone = TimeZone.current.identifier
-            seed = UInt64.random(in: 0..<(1 << 53))
+            seed = UInt64(UInt32.random(in: .min ... .max))
         }
     }
 }
@@ -356,8 +356,9 @@ public final class ExactSession {
     var dataActivated: Bool { dataGeneration == generation }
     private var pendingActivation: (generation: Int, token: UInt64)? // retried on the session's wake
     private var updateToken: UInt64 = 0
-
     package let runtime: Runtime
+    /// This session's file roots, captured outside a native module callback.
+    var appFileRoots: [String: String] = [:]
     let rasters = RasterLoader()
     #if os(macOS)
     lazy var regions = RegionController(self)
@@ -367,6 +368,8 @@ public final class ExactSession {
     let buttonMeasurements = ButtonMeasureCache()
     package let presenter: Presenter
     var launchLocation: String? // a pre-boot `openURL`'s location, until the first frame (LaunchURL.swift)
+    var pendingLaunchLocations: [String] = []
+    var protocolHandlers: [[String: String]] = ExactEnv.appMetadata["ExactProtocolHandlers"] as? [[String: String]] ?? []
     private var textPressure: DispatchSourceMemoryPressure?
     let canvases: Canvases
     let webviews: WebViews
@@ -804,7 +807,6 @@ public final class ExactSession {
         if batch.error != nil { text.restore(cp) }
         return finishBoot(batch, started: t)
     }
-
     private func finishBoot(_ batch: Batch, started: Double) -> Batch {
         rustMs = (CACurrentMediaTime() - started) * 1000
         ExactEnv.stamp("runner + layout")
@@ -817,7 +819,7 @@ public final class ExactSession {
             if booted { awaitingTree = true; presenter.reset(); forgetAppearances(); presenter.launchAutofocusReleased = false } // a fresh boot's autofocus waits again
             booted = true
             text.commitFonts()
-            AppFiles.learn(runtime) // before the first frame's `app:/` images load (LLP 1069.002 D7)
+            appFileRoots = AppFiles.learn(runtime) // before the first frame's `app:/` images load (LLP 1069.002 D7)
         }
         apply(batch)
         treeIsIn()
@@ -907,7 +909,7 @@ public final class ExactSession {
         app.lifecycle?.generationStarted(app, token: updateToken)
         autofocusHeld = restart
         sampler?.reset() // a new runner numbers its transactions afresh (LLP 1079 D3)
-        AppFiles.learn(runtime)
+        appFileRoots = AppFiles.learn(runtime)
         apply(batch)
         treeIsIn()
         tellTime()
@@ -1034,8 +1036,6 @@ public final class ExactSession {
                 apply(runtime.viewScheme(id, dark: dark))
             }
             presenter.collections.flush()
-            // Route projection and all structural/style changes are now final.
-            // Ineligible recognizers may never receive another mouse/touch event.
             for hold in inputHolds.allObjects { hold.cancelIfInputIneligible() }
             heightInputHold?.cancelIfInputIneligible()
             transformInputHold?.cancelIfInputIneligible()
@@ -1067,8 +1067,8 @@ public final class ExactSession {
                     continue
                 }
                 if name == "reload" {
-                    // The dev menu's Reload, from the app; a build without the dev menu refuses it.
-                    guard DevMenu.enabled else { fputs("exact: reload: no dev menu in this build\n", stderr); continue }
+                    // The dev menu's Reload, from the app, in a release build too (a Mac one has no menu, LLP 1115.000 D7.8); `EXACT_DEV_MENU=0` refuses it.
+                    guard ExactEnv.environment["EXACT_DEV_MENU"] != "0" else { fputs("exact: reload: no dev menu in this build\n", stderr); continue }
                     app.deliver { DevMenu.reload() }
                     continue
                 }
@@ -1086,7 +1086,6 @@ public final class ExactSession {
                     continue
                 }
                 if name == "postMessage" {
-                    // The inverse of `message=`: text into the named surface, in order.
                     let text = args.first as? String ?? "", surface = args.count > 1 ? args[1] as? String ?? "" : ""
                     app.deliver { [weak self] in self?.canvases.post(surface, text) }
                     continue
@@ -1167,15 +1166,14 @@ public final class ExactSession {
         activatedGeneration = drawnGeneration
         DispatchQueue.main.async { [weak self] in
             guard let self, state != .destroyed, generation == drawnGeneration else { return }
-            // The app module is ready before any source can call it: its load
-            // never lands inside a `native.call`'s budget (LLP 1067.000 D8).
+            // Prepare before any source calls the module (LLP 1067.000 D8).
             natives.prepareAppModule(); presenter.releaseLaunchAutofocus() // the next turn, never waiting on a loading source
             let batch = runtime.dataReady()
             if batch.pending {
                 pendingActivation = (drawnGeneration, token) // the generation stays activated: only the source's wake retries
                 return
             }
-            AppFiles.learn(runtime) // the roots storage configured
+            appFileRoots = AppFiles.learn(runtime) // the roots storage configured
             apply(batch)
             dataGeneration = drawnGeneration
             if batch.error == nil {
@@ -1197,9 +1195,7 @@ public final class ExactSession {
         let wake = SessionClockTimer.wake(due: due, now: now(), agent: agent)
         // A frame task (LLP 1073 D5) keeps the link running; the agent's clock fires its virtual frames.
         frames.timerSoon = wake == .frame || (frames.tasks && !agent)
-        // A timer armed for this same deadline stays: most batches leave the
-        // runner's next deadline where it was, and a new timer each batch
-        // cost more than the batch's other bookkeeping.
+        // Keep a timer already armed for this deadline; most batches leave it unchanged.
         if case .timeout = wake, let armed = clockTimer, armed.isValid, clockDue == due {
             frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames)
             return
@@ -1399,12 +1395,12 @@ public final class ExactSession {
               let batch = runtime.selection(node, json: json, now: now()) else { return }
         apply(batch)
     }
-    /// A host URL before boot is a launch fact; afterwards it is one event.
-    /// @ref LLP 1038 D8/D11 — development links are consumed by the adapter first.
+    /// @ref LLP 1038 D8/D11 — pre-boot URLs are launch facts; the adapter consumes development links first.
     @discardableResult public func openURL(_ url: URL) -> Bool {
         guard state != .destroyed else { return false }
-        let location = runtime.location(of: url.absoluteString)
-        if !booted { runtime.launch(location); launchLocation = location; return true }
+        let location = incomingLocation(url)
+        if !booted { if launchLocation == nil { runtime.launch(location); launchLocation = location }
+                     else { pendingLaunchLocations.append(location) }; return true }
         return navigate(location)
     }
     /// A link the reader followed — a `link href`, a text run's `href`, a

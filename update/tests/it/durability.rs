@@ -159,6 +159,83 @@ fn a_crash_truncated_record_keeps_the_rollback_floor() {
     }
 }
 
+#[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
+fn oversized_local_plan_falls_back_without_losing_the_floor() {
+    let temp = Temp::new("oversized-plan");
+    let six = Bundle::new(6, b"plan six");
+    let mut store = open(&temp);
+    let Check::Staged { entry, .. } = Origin::of(&six).check(&mut store).unwrap() else {
+        panic!("stage");
+    };
+    drop(store);
+    std::fs::File::create(temp.path().join("entries").join(&entry).join("app.plan"))
+        .unwrap()
+        .set_len(4 * 1024 * 1024)
+        .unwrap();
+    let mut store = open(&temp);
+    let refusal = store.prepare_selected().unwrap_err();
+    assert!(
+        refusal.reason.contains("before reading"),
+        "{}",
+        refusal.reason
+    );
+    assert_eq!(store.select().entry, None);
+    let lower = Origin::of(&Bundle::new(4, b"plan four"))
+        .check(&mut store)
+        .unwrap_err();
+    assert!(lower.contains("below the accepted seq 6"), "{lower}");
+}
+
+#[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
+fn oversized_record_and_envelope_recover_with_bounded_reads() {
+    let temp = Temp::new("oversized-metadata");
+    let six = Bundle::new(6, b"plan six");
+    let mut store = open(&temp);
+    let Check::Staged { entry, .. } = Origin::of(&six).check(&mut store).unwrap() else {
+        panic!("stage");
+    };
+    drop(store);
+    std::fs::File::create(temp.path().join("record.json"))
+        .unwrap()
+        .set_len(4 * 1024 * 1024)
+        .unwrap();
+    let mut store = open(&temp);
+    assert_eq!(store.select().entry, None);
+    let lower = Origin::of(&Bundle::new(4, b"plan four"))
+        .check(&mut store)
+        .unwrap_err();
+    assert!(lower.contains("below the accepted seq 6"), "{lower}");
+    assert!(matches!(
+        Origin::of(&six).check(&mut store),
+        Ok(Check::Staged { .. })
+    ));
+    drop(store);
+    std::fs::File::create(temp.path().join("entries").join(&entry).join("exact.json"))
+        .unwrap()
+        .set_len(4 * 1024 * 1024)
+        .unwrap();
+    let mut store = open(&temp);
+    let refusal = store.prepare_selected().unwrap_err();
+    assert!(
+        refusal.reason.contains("before reading"),
+        "{}",
+        refusal.reason
+    );
+    assert_eq!(store.select().entry, None);
+    let lower = Origin::of(&Bundle::new(4, b"plan four"))
+        .check(&mut store)
+        .unwrap_err();
+    assert!(lower.contains("below the accepted seq 6"), "{lower}");
+}
+
 /// Bytes the store directory holds, each file counted once however many
 /// names link it.
 #[cfg(unix)]

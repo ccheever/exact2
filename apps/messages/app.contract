@@ -241,7 +241,9 @@ component Messages
   view
     main testId="messages" id="messages-root" navigationKey=`${top(nav).id}` navigationBack="back" navigate=navigate viewport-fit="cover" interactive-widget="resizes-content" width="100%" height="100%" display="flex" flex-direction="column" overflow="hidden" class=Canvas font-family="system-ui" color="light-dark(#000000, #ffffff)"
       each entry in stack(nav) key=entry.id
-        column navigationKey=`${entry.id}` class=Screen height=viewport.height
+        // Every screen draws its own chrome (the thread's glass header and
+        // Back), so it says it has no system bar (LLP 1115.000 D5.2).
+        column navigationKey=`${entry.id}` navigationBar="none" class=Screen height=viewport.height
           when entry.name == "inbox"
             column testId="inbox" flex=1 min-height=0 width="100%" inert=(selected != "" or choosing or panel)
               row height=48 padding-left=20 padding-right=16 justify-content="space-between" align-items="center" flex-shrink=0

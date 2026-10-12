@@ -17,6 +17,8 @@ final class RadioMacTests: XCTestCase {
     private var heard: [String] = []
 
     override func tearDown() { window?.close(); window = nil }
+    /// A radio group is one Tab stop where Tab reaches controls: Keyboard Navigation on (LLP 1115.000 D7.2).
+    override func setUp() { super.setUp(); keyboardNavigation(true) }
 
     private static let values: [UInt32: String] = [2: "red", 3: "green", 4: "gray", 5: "blue"]
 
@@ -73,10 +75,16 @@ final class RadioMacTests: XCTestCase {
         XCTAssertEqual(green.cell?.className.contains("RadioCell"), true)
         XCTAssertFalse(green.acceptsFirstResponder, "the node holds the focus")
         XCTAssertEqual(shown(p), [2])
+        // LLP 1115.000 D7.1: a click checks the radio and moves no focus, as
+        // a click on AppKit's radio button does, from nothing or from the
+        // radio the keyboard had reached.
+        let responder = window.firstResponder
         green.performClick(nil)
         XCTAssertEqual(heard, ["input 3 green", "change 3 green"])
         XCTAssertEqual(shown(p), [3])
-        XCTAssertTrue(window.firstResponder === p.views[3], "a click focuses the radio, as Chrome's does")
+        XCTAssertTrue(window.firstResponder === responder, "a click focuses no radio")
+        XCTAssertNil(p.focusedNode)
+        XCTAssertTrue(window.makeFirstResponder(try XCTUnwrap(p.views[2])))
         green.performClick(nil)
         XCTAssertEqual(heard.count, 2, "a checked radio's click fires nothing")
         XCTAssertEqual(shown(p), [3])
@@ -84,6 +92,7 @@ final class RadioMacTests: XCTestCase {
         try XCTUnwrap(p.controls.controls[5]).performClick(nil)
         XCTAssertEqual(heard.suffix(2), ["input 5 blue", "change 5 blue"])
         XCTAssertEqual(shown(p), [3], "an action that wrote nothing: the whole group shows its bound state")
+        XCTAssertTrue(window.firstResponder === p.views[2], "and no click took the focus from the radio that had it")
         XCTAssertFalse(try XCTUnwrap(p.controls.controls[4]).isEnabled)
         XCTAssertFalse(p.controls.checkRadio(4), "a disabled radio takes no click")
         XCTAssertEqual(p.controls.observation(try XCTUnwrap(p.views[3]))?["view"] as? String, "NSButton(radio)")

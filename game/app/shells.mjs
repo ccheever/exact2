@@ -421,12 +421,14 @@ const listed = (items, most = 6) => items.length > most ? `${items.slice(0, most
 /** Whether Cargo refused a locked graph because the lock no longer matches the
  * manifests, a lock to refresh, rather than for a crate missing from its cache. */
 export const staleLock = stderr => /cannot update the lock file|lock file \S+ needs to be updated/.test(stderr ?? '');
-// The refresh as an author runs it: the game's runner when it has the verb (one
-// generated before it has not, and `update` rewrites it), else this script from exact2.
+// The refresh as an author runs it: the game's runner when it has the verb (a launcher
+// of exact2's app-cli.mjs has; one generated before either has not, and `update`
+// rewrites it), else this script from exact2.
 const lockCommand = dir => {
   const runner = resolve(dir, 'exact.mjs');
   if (!existsSync(runner)) return `\`bun game/app/shells.mjs ${JSON.stringify(dir)} --lock\` from exact2`;
-  return /^\s*lock: \[/m.test(readFileSync(runner, 'utf8')) ? `\`bun exact.mjs lock\` in ${dir}` : `\`bun exact.mjs update\`, then \`bun exact.mjs lock\`, in ${dir}`;
+  const text = readFileSync(runner, 'utf8');
+  return /^\s*lock: \[/m.test(text) || text.includes('scripts/app-cli.mjs') ? `\`bun exact.mjs lock\` in ${dir}` : `\`bun exact.mjs update\`, then \`bun exact.mjs lock\`, in ${dir}`;
 };
 /** The first line of a refused captured lock (LLP 1046.011 D2), when Cargo says
  * the lock needs updating (never for a crate merely missing from its cache). It

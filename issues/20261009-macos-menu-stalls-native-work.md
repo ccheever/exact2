@@ -96,3 +96,10 @@ Keep open for a correctness fix.
 A menu should not suspend a live application's main-queue module work. The proposed common-mode run-loop scheduling is worth testing; the report's standalone proof is not yet a full-app reproduction.
 
 Drive a real context and button menu while native.later calls arrive; preserve deferred presentation and next-turn item dispatch. Painted agent menus alone cannot validate this.
+
+### PR #327 rebase — 2026-10-11
+
+Context and button menus now open from a common-mode run-loop turn, and a
+chosen item dispatches after native tracking returns. AppKit tests cover real
+NSMenu tracking. The full-app `native.later` cadence check while a real menu
+is open remains outstanding, so this issue stays open.

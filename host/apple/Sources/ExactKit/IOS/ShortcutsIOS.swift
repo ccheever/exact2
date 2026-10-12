@@ -79,14 +79,19 @@ extension Presenter {
     }
 
     /// One command per chord the buttons declare, those a text field's
-    /// typing would take left out while one has the focus.
+    /// typing would take left out while one has the focus. Each carries its
+    /// button's name as its title, so holding ⌘ on an iPad lists it, as a
+    /// hand-built app's commands are listed (LLP 1115.000 D11.6); a button
+    /// with no name has no title and is not listed.
     func shortcutCommands(_ action: Selector) -> [UIKeyCommand] {
         var seen = Set<String>(), commands: [UIKeyCommand] = []
         for node in shortcutButtons {
+            let name = node.accessibleName
             for chord in chords(node) {
                 guard let input = chord.input, seen.insert(chord.held + input).inserted else { continue }
                 if editingText && chord.key != "Escape" && chord.flags.isDisjoint(with: [.command, .control]) { continue }
-                let command = UIKeyCommand(input: input, modifierFlags: chord.flags, action: action)
+                let command = name.isEmpty ? UIKeyCommand(input: input, modifierFlags: chord.flags, action: action)
+                    : UIKeyCommand(title: name, action: action, input: input, modifierFlags: chord.flags, discoverabilityTitle: name)
                 // A shortcut on an arrow or Escape is the app's, not the system's scrolling or dismissal.
                 command.wantsPriorityOverSystemBehavior = true
                 commands.append(command)

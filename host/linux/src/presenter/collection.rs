@@ -950,6 +950,7 @@ impl<D: DataSource> Presenter<D> {
             // An authored request this pass is a jump: nothing planned before it lands.
             let resized_from = resized_from.filter(|_| cursor.sequence == planned + 1);
             if let Some(main) = cursor.correction(snapshot, resized_from) {
+                let was = self.scroll.get(&view).copied().unwrap_or_default();
                 cursor.model_main(
                     key,
                     axis,
@@ -957,6 +958,10 @@ impl<D: DataSource> Presenter<D> {
                     self.display.attached(),
                     self.scroll.entry(view).or_default(),
                 );
+                // The content stays where it shows: a shell that scrolls
+                // this list itself goes on from where it was (D7.3).
+                let now = self.scroll.get(&view).copied().unwrap_or_default();
+                self.reader.rebased(view, was, now);
                 self.dirty = true;
             }
             if self.scroll.get(&view).copied() != before {

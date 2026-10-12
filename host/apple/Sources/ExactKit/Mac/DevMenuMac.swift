@@ -1,6 +1,7 @@
 // The standalone Mac menu bar: standard application and window commands,
 // with app-declared shortcuts in File, Edit, View, Go and Settings by their
-// chords (ShortcutsMac.swift; studio diary R16). File — New Window ⌘N
+// chords (ShortcutsMac.swift; studio diary R16). Go — Back ⌘[ from a pushed
+// route (LLP 1115.000 D5.1, BackMac.swift). File — New Window ⌘N
 // exists under `launch_handler` `navigate-new` (LLP 1069.010 D4), Open… ⌘O
 // when the app declares documents it opens (LLP 1033);
 // Edit always (the field editor's command keys — ⌘A/X/C/V/Z — are menu
@@ -9,7 +10,9 @@
 // Transformations and Speech as AppKit's template has them; Help, with
 // AppKit's search field (LLP 1115 D8); Develop —
 // Reload ⌘R, Open Project… ⇧⌘O behind a document app, App Info… ⌘D —
-// unless EXACT_DEV_MENU=0. Native AppKit above the presenter, so it is
+// in a development build only (LLP 1115.000 D7.8: a release build has no
+// such menu and takes none of its chords; EXACT_DEV_MENU=0 or =1 says
+// otherwise for either). Native AppKit above the presenter, so it is
 // alive even when the plan is broken; reload re-fetches a live connection,
 // else restarts from the dev loop's plan when one is named (the watcher's
 // own path, state carried), else from the baked plan, fresh. Host
@@ -88,7 +91,22 @@ final class RecentMenu: NSObject, NSMenuDelegate {
 public enum DevMenu {
     static let target = DevMenuTarget()
     static let editTarget = EditMenuTarget()
-    public static var enabled: Bool { ExactEnv.environment["EXACT_DEV_MENU"] != "0" }
+    static let goTarget = GoMenuTarget()
+    /// Whether a build has the Develop menu and its chords (LLP 1115.000
+    /// D7.8): a development build does, a release build does not, as a
+    /// shipped Mac app has no such menu. A release build is one baked with
+    /// production trust (its `compat.json`, which an app with no updater does
+    /// not record) or stamped `release` or `archive` by `build.mjs`
+    /// (`ExactBuildKind`: production trust, or `--distribution`, what
+    /// `exact release` signs). An unstamped host (a test's) is a
+    /// development one. `EXACT_DEV_MENU` says otherwise for either: `0` off,
+    /// anything else on.
+    static func develops(kind: String?, production: Bool, override: String?) -> Bool {
+        override.map { $0 != "0" } ?? (!production && (kind ?? "debug") == "debug")
+    }
+    /// This build's answer, read once.
+    public static let enabled = develops(kind: ExactEnv.appMetadata["ExactBuildKind"] as? String, production: ExactEnv.productionBake,
+                                         override: ExactEnv.environment["EXACT_DEV_MENU"])
     /// The session the menu reloads, describes and opens into: the key
     /// window's, which the adapter that owns the windows keeps current.
     nonisolated(unsafe) public static weak var session: ExactSession?
@@ -102,7 +120,7 @@ public enum DevMenu {
         NSApp.mainMenu = makeMenu(shortcuts: session.presenter.shortcuts, documents: ExactDocuments.declared)
     }
 
-    static func makeMenu(shortcuts: ShortcutHost, documents: Bool) -> NSMenu {
+    static func makeMenu(shortcuts: ShortcutHost, documents: Bool, develop: Bool = enabled) -> NSMenu {
         let bar = NSMenu()
         let appItem = NSMenuItem()
         bar.addItem(appItem)
@@ -180,6 +198,11 @@ public enum DevMenu {
         fullScreen.keyEquivalentModifierMask = [.command, .control]
         bar.addItem(withTitle: "View", action: nil, keyEquivalent: "").submenu = view
         let go = ShortcutMenu(title: "Go")
+        // Back ⌘[, first, as Finder's and Safari's is (LLP 1115.000 D5.1):
+        // the way back from a pushed route in the key window. The app's own
+        // ⌘[ command stands in for it, and an app with no navigation has
+        // no Go menu (`ShortcutHost.sync`).
+        go.addItem(withTitle: "Back", action: #selector(GoMenuTarget.back(_:)), keyEquivalent: "[").target = goTarget
         bar.addItem(withTitle: "Go", action: nil, keyEquivalent: "").submenu = go
         let window = NSMenu(title: "Window")
         window.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
@@ -189,7 +212,7 @@ public enum DevMenu {
         bar.addItem(withTitle: "Window", action: nil, keyEquivalent: "").submenu = window
         NSApp.windowsMenu = window
         shortcuts.attach(file, application: appMenu, navigation: go, edit: edit, view: view)
-        if enabled {
+        if develop {
             let devItem = NSMenuItem()
             bar.addItem(devItem)
             let dev = NSMenu(title: "Develop")

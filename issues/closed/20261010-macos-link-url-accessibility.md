@@ -6,7 +6,7 @@
 **Severity:** P2
 **Author:** daehyeon-mun (T3 Code clone)
 **Date:** 2026-10-10
-**Related:** https://github.com/ccheever/exact2/blob/feat(example)/t3-code/examples/t3-code/.exact/implementation/20261005-t3code-macos-parity/issues/closed/20261010-x78-macos-link-url-accessibility.md; LLP 1080.002 (`tree --ax`); LLP 1115; issues/20261010-macos-inline-run-contextmenu.md; issues/20261010-macos-a-heading-inside-a-button.md
+**Related:** https://github.com/ccheever/exact2/blob/feat(example)/t3-code/examples/t3-code/.exact/implementation/20261005-t3code-macos-parity/issues/closed/20261010-x78-macos-link-url-accessibility.md; LLP 1080.002 (`tree --ax`); LLP 1115; issues/closed/20261010-macos-inline-run-contextmenu.md; issues/20261010-macos-a-heading-inside-a-button.md
 
 ## Summary
 

@@ -78,3 +78,9 @@ component X63app
 - Not the same as #125 or #275. Those ask for app control over undo steps (ending an undo group, `setRangeText` as one step, a cancelable `beforeinput` with `historyUndo`/`historyRedo`). All of them assume that the platform's undo already reaches the field. This bug is that it does not.
 - Not tested: iOS, a real key press (the screen was locked; the agent's chord takes the main menu's key-equivalent path), and an `input` (single-line field).
 - Related: #141 (app-declared menu bar items).
+
+### PR #327 rebase — 2026-10-11
+
+The macOS textarea now sends Undo and Redo to its own history and publishes
+the restored value. The iOS keyboard and gesture path has not been verified;
+this issue remains open for that acceptance criterion.

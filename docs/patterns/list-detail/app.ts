@@ -26,8 +26,9 @@ const sources: Sources = {
     const same = all.find((i) => i.title.toLowerCase() === title.toLowerCase());
     if (same) return { ok: false, error: `There’s already an item called ${same.title}. Choose another title.` }; // a refusal is a reply too
     const id = String(Math.max(0, ...all.map((i) => Number(i.id))) + 1);
-    return save(storage, [...all, { id, title, notes }]);
+    return save(storage, [...all, { id, title, notes, locked: false }]);
   },
+  lockItem: async ([id, locked], _store, storage) => save(storage, (await load(storage)).map((i) => i.id === id ? { ...i, locked } : i)),
   removeItem: async ([id], _store, storage) => save(storage, (await load(storage)).filter((i) => i.id !== id)),
 };
 export const answer: Answer = (source, args, store, storage, native) => sources[source](args, store, storage, native);

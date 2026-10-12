@@ -25,6 +25,8 @@ pub enum InputEvent {
     /// The secondary (2) or middle (4) button, by its `PointerEvent.buttons`
     /// bit, went down (`true`) or up: a canvas's alone.
     Aux(u32, bool),
+    /// A mouse's back button went down (LLP 1115.000 D5.4): the app goes Back.
+    Back,
     /// Carrier/device loss cancels without manufacturing a successful release.
     Cancel,
     /// A wheel: (dx, dy) in points, the web's sign (a positive `dy` scrolls
@@ -246,6 +248,14 @@ impl Input {
                             // BTN_RIGHT, BTN_MIDDLE.
                             0x111 => out.push(InputEvent::Aux(2, down)),
                             0x112 => out.push(InputEvent::Aux(4, down)),
+                            // BTN_SIDE, a mouse's back (thumb) button, and
+                            // BTN_BACK, as some mice report it: Back at the
+                            // press. Its release is nothing.
+                            0x113 | 0x116 => {
+                                if value == 1 {
+                                    out.push(InputEvent::Back);
+                                }
+                            }
                             _ => {
                                 if let Some(event) = self.keyboard.event(code, value, None) {
                                     out.push(event);
@@ -390,6 +400,8 @@ pub(crate) fn key(code: u16, shift: bool) -> Option<(&'static str, &'static str)
         88 => ("F12", "F12", "F12"),
         125 => ("MetaLeft", "Meta", "Meta"),
         126 => ("MetaRight", "Meta", "Meta"),
+        // KEY_BACK, a keyboard's own Back key, by the web's name for it.
+        158 => ("BrowserBack", "BrowserBack", "BrowserBack"),
         _ => return None,
     };
     Some((code, if shift { shifted } else { plain }))
@@ -418,6 +430,17 @@ mod tests {
         assert_eq!(key(59, false), Some(("F1", "F1")));
         assert_eq!(key(87, false), Some(("F11", "F11")));
         assert_eq!(key(88, false), Some(("F12", "F12")));
+        // KEY_BACK is a key like any other, named as the web names it.
+        assert_eq!(
+            keyboard.event(158, 1, None),
+            Some(InputEvent::Key {
+                code: 158,
+                shift: true,
+                down: true,
+                repeat: false,
+            })
+        );
+        assert_eq!(key(158, false), Some(("BrowserBack", "BrowserBack")));
     }
     #[test]
     fn shift_sides_and_shortcut_chords_pass() {

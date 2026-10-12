@@ -33,7 +33,7 @@ impl Vt {
     pub fn new<D: DataSource>(host: &mut Host<D>) -> Vt {
         let (cols, rows) = host.size();
         let mode = host.mode;
-        host.publish(&record(mode, Protocol::Blocks, 0, ""));
+        host.publish(&record(mode, Protocol::Blocks, host.colors(), 0, ""));
         Vt {
             parser: vt100::Parser::new(rows as u16, cols as u16, SCROLLBACK),
             scrolled: Vec::new(),
@@ -77,7 +77,7 @@ impl Vt {
         host.frames += 1;
         // The app learns what is in scrollback once the bytes are out.
         if self.mode == Mode::Inline {
-            if let Some(r) = self.inline.printed(self.mode) {
+            if let Some(r) = self.inline.printed(self.mode, host.colors()) {
                 host.publish(&r);
             }
         }

@@ -1,18 +1,25 @@
 // A text field's editing as NodeView hears it from AppKit (NSTextFieldDelegate):
-// Enter's change and implicit submission, the editor's caret and spelling as
-// it begins, the commit and blur as it ends, and each change's `input`.
+// Return's change, `submit` and end of editing, the editor's caret and spelling
+// as it begins, the commit and blur as it ends, and each change's `input`.
 #if os(macOS)
 import AppKit
 
 extension NodeView {
-    /// Enter in a text field's editor: its `change` commits and, with a
-    /// `submit` handler, the web's implicit submission. Taken here, so it
-    /// does not end the editing as AppKit would. Its `key` handlers heard
-    /// every key before the editor did (`Presenter.keyDown`).
+    /// Return in a single-line field's editor (LLP 1115.000 D7.4): its
+    /// `change` commits, its `submit` is sent, and the editing ends as
+    /// `NSTextField` ends it, with the field's text selected. A focus the
+    /// action set is kept: the text is selected only while this field still
+    /// has the editor. In a dialog a field with no `submit` handler passed
+    /// Return to the default button before it came here (`DialogHost.key`),
+    /// and a key the app prevented never came at all: its `key` handlers
+    /// heard every key before the editor did (`Presenter.keyDown`).
     @objc package func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         guard selector == #selector(NSResponder.insertNewline(_:)) else { return false }
         presenter?.commitEdit(id, textView.string, change: handlers.contains("change"))
         if handlers.contains("submit") { presenter?.submit(id) }
+        if presenter?.views[id] === self, let field, field.currentEditor() === textView, window?.firstResponder === textView {
+            NodeView.selectAll(in: field)
+        }
         return true
     }
     @objc package func controlTextDidBeginEditing(_ obj: Notification) {

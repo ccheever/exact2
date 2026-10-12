@@ -1,8 +1,9 @@
 # Recipe: tests
 
 `app.test.contract` drives the app by `testId`, the same on the web and iOS (`bun
-exact.mjs test web`, `test ios`). Each test is a fresh launch with empty storage, after
-its first data has landed. Against [start-here](../start-here.md)'s Groceries:
+exact.mjs test web`, `test ios`; `verify` and `verify ios` run them, then `check`). Each
+test is a fresh launch with empty storage, after its first data has landed. Against
+[start-here](../start-here.md)'s Groceries:
 
 ```contract-test
 test "a repeat is refused and keeps its text; the list survives a relaunch"
@@ -25,7 +26,9 @@ test "a repeat is refused and keeps its text; the list survives a relaunch"
 | `expect text "id" == "…"` | Its text, else its value, else its descendants' text. |
 | `expect tree has "id"` (`missing`) · `expect state groceries.0 .title == "Eggs"` | In the tree or not · a state, derive or resource field. |
 | `clock data` · `clock settle` · `clock +5000` · `reload` | Lands replies · ends transitions · moves the virtual clock · relaunches on the same storage. |
+| `back` | The platform's Back: cancels a dialog, else dismisses a sheet, else pops the pushed route; fails with nothing to go back from. |
 | `fail fetch "<prefix>"`, `pass fetch …` | A lost connection there, then none. |
+| `request POST "/items" {"title": "Bread"} as grace` | The driver writes through the app's server as another person ([rest-backend](rest-backend.md)); `clock +<poll ms>`, `clock data`, then `expect`. |
 | `size 390x844`, `epoch`, `time-zone`, `locale`, `seed`, `before data` | Launch lines: before a test's steps, or atop the file. |
 
 Every other form (`screenshot`, `resize`, drags): [the grammar](../contract-grammar.md#authored-tests).
@@ -36,20 +39,16 @@ test (pin `epoch` and `time-zone`); give every screen its own ids.
 
 ## Before you call it done
 
-Tests pass while a real write hangs or a layout spills off the screen. Drive each write
-once on the real clock:
-
-```sh
-bun exact.mjs agent web --storage real1 --epoch now "type draft Milk" "tap add" "clock +1500 real" state
-bun exact.mjs agent web --storage real1 --epoch now "clock +1500 real" state "screenshot .exact/real-web.png"
-```
-
-The second drive on the same `--storage` is the relaunch: `reload` is a test line, not a
-drive's op; `state` lists what is `pending` or `failed`, and each `clock +N real` waits N ms
-of real time. Before a screenshot, `"check both"` names in text what a look would find
-(clipped text, covered controls, small targets, overflow, low contrast, a card that does
-not show) in each scheme. iOS: `agent ios --chrome platform`, `"screenshot … window"`
-([ios-driving](ios-driving.md)).
+`verify` (`verify ios`) runs these tests, then `check`s the first screen and the screen
+each test ends on, light and dark at a phone and a desktop width: clipped text, covered
+controls, small targets, overflow, low contrast, a card that does not show. Then it
+relaunches once, on real time, on the store a passing test left, and says whether the
+first screen shows what that test stored. One screenshot of each screen is in
+`.exact/verify/`, named by test. A clean `verify` is done: look at the screenshots at
+milestones. A screen no test ends on is not checked, so end a test there rather than
+driving it by hand. Drive by hand (`agent web --storage s1 …`; `"clock +1500 real"` waits
+real time, and a second drive on the same `--storage` relaunches) to find out why
+something fails.
 
 A second user's write, seen through the app's own polling: the drive in the background,
 the write through the server with the other persona's token once its first `state` is out:

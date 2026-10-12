@@ -64,7 +64,15 @@ impl<D: DataSource> Host<D> {
             }
         }
         i.validate(self.springs.now())?;
-        self.now_ms = i.now;
+        self.now_ms = i.now.max(self.now_ms);
+        let mut clock_error = None;
+        let mut prior = if i.op == 17 {
+            let advanced = self.runner.advance_timed(self.now_ms);
+            clock_error = advanced.error.map(|error| format!("{error:?}"));
+            advanced.receipts
+        } else {
+            Vec::new()
+        };
         let token = self.reorder_drags.active.as_ref().map(|a| a.token);
         // The record names the target list by its view id (the page holds
         // no other list's key); its geometry is the header's.
@@ -134,13 +142,10 @@ impl<D: DataSource> Host<D> {
             }
             17 => {
                 let g = target(i).unwrap_or_else(|| i.geometry.clone());
-                match self
-                    .runner
-                    .drop_reorder(token.unwrap(), g)
-                    .map_err(failed)?
-                {
-                    Some(receipt) => (true, true, vec![receipt]),
-                    None => (
+                let result = self.runner.drop_reorder(token.unwrap(), g);
+                match result {
+                    Ok(Some(receipt)) => (true, true, vec![receipt]),
+                    Ok(None) => (
                         false,
                         false,
                         self.runner
@@ -149,6 +154,10 @@ impl<D: DataSource> Host<D> {
                             .into_iter()
                             .collect(),
                     ),
+                    Err(_) => {
+                        let batch = self.batch_for(&prior, Some("reorder refused"));
+                        return Ok(format!("{{\"accepted\":false,\"batch\":{batch}}}"));
+                    }
                 }
             }
             18 => (
@@ -171,17 +180,18 @@ impl<D: DataSource> Host<D> {
             }
             _ => return Ok(stale()),
         };
-        let timed: Vec<_> = receipts
-            .into_iter()
-            .map(|receipt| Timed {
-                at_ms: i.now,
-                receipt,
-            })
-            .collect();
-        let batch = if timed.is_empty() {
+        prior.extend(receipts.into_iter().map(|receipt| Timed {
+            at_ms: if i.op == 17 {
+                self.runner.now_ms()
+            } else {
+                i.now
+            },
+            receipt,
+        }));
+        let batch = if prior.is_empty() && clock_error.is_none() {
             self.hold_batch(i.now)
         } else {
-            self.batch_for(&timed, None)
+            self.batch_for(&prior, clock_error.as_deref())
         };
         Ok(format!(
             "{{\"accepted\":true,\"certified\":{certified},\"dispatched\":{dispatched},{},\"batch\":{batch}}}",

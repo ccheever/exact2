@@ -424,7 +424,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         set { super.accessibilityElements = newValue }
     }
     /// A text field's Enter as a key (its characters are its `input`, the
-    /// Enter commits its `change`); the editing goes on, as on the web.
+    /// Enter commits its `change`), then what Return does (`textFieldShouldReturn`).
     package func textFieldShouldBeginEditing(_ textField: UITextField) -> Bool { applyPadBar(); return !disabled && !inert }
     package func textViewShouldBeginEditing(_ textView: UITextView) -> Bool { !disabled && !inert }
 
@@ -438,22 +438,21 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     }
 
     package func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        presenter?.focusAsked = nil
         guard !disabled else { return false }
         // The software keyboard's Return is a key the handlers hear first (a
         // hardware one's they heard in `pressesBegan`); prevented, it neither
         // commits nor submits.
         if (textField as? TextField)?.heard != "Enter", presenter?.keyDown(at: self, "Enter") == true { return false }
         presenter?.commitEdit(id, textField.text ?? "", change: handlers.contains("change"))
-        // Enter in an input with a `submit` handler is the web's implicit submission.
+        // Return runs the field's `submit`, then puts the keyboard away, as
+        // a hand-built field's delegate resigns it (LLP 1115.000 D9.2),
+        // unless that action focused this field again: "add another" keeps
+        // the keyboard and never lets go of it on the way. Next moves to the
+        // next field instead, and from the last one puts the keyboard away.
         if handlers.contains("submit") { presenter?.submit(id) }
-        // The key does what its label says (LLP 1115 wave 1): Next moves to
-        // the next field (or, at the last, puts the keyboard away); Done,
-        // Go, Search and Send put the keyboard away.
-        switch props["enterKeyHint"] {
-        case "next": if presenter?.focusNextField(after: self) != true { textField.resignFirstResponder() }
-        case "done", "go", "search", "send": textField.resignFirstResponder()
-        default: break
-        }
+        if props["enterKeyHint"] == "next", presenter?.focusNextField(after: self) == true { return false }
+        if presenter?.focusAsked !== self, textField.isFirstResponder { textField.resignFirstResponder() }
         return false
     }
 
@@ -544,6 +543,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
 
     /// The view is gone: no load in flight may report for it.
     func forget() {
+        cancelPressContact()
         let previousTransform = transformHold; transformHold = nil
         DispatchQueue.main.async { previousTransform?.cancel() }
         let previousHeight = heightHold; heightHold = nil
@@ -576,7 +576,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         registerForTraitChanges(SystemColor.traits) { (node: NodeView, _: UITraitCollection) in // platform colours follow contrast and level too (LLP 1095 D5)
             // A control's accent, a tablist's tint and a grouped list's
             // switches resolve per appearance in their projections.
-            if node.kind == "control" || node.kind == "list" || node.props["accessibilityRole"] == "tablist" {
+            if node.kind == "control" || node.kind == "list" || ["tablist", "radiogroup"].contains(node.props["accessibilityRole"] ?? "") {
                 node.presenter?.requestProjectionSync()
             }
             node.paragraphOwner.invalidateText()
@@ -1121,6 +1121,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         for k in clear { next.removeValue(forKey: k) }
         for (k, v) in set { next[k] = v }
         props = next
+        if disabled { cancelPressContact() }
+        if props["inert"] == "true" { cancelPressContactsInSubtree() }
         swipeOwner = props["swipeContent"] != nil
         if set["symbolEffectValue"] != nil { updateSymbol() }
         if (pendingScrollLeft ?? 0) != 0 || (pendingScrollTop ?? 0) != 0 { needScroll() }
@@ -1162,7 +1164,10 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             }
             applyPadBar() // a pad's missing keys its field asks for: ±, Done (LLP 1116.003 D7)
             // HTML's `enterkeyhint` labels the return key (feed F25); UIKit
-            // has no `previous`, which keeps the default.
+            // has no `previous`, which keeps the default. Unsaid, the label
+            // is the system's, with a `submit` handler too: Go for a field
+            // that submits was Safari's rule for a form (LLP 1115.000 D9.3).
+            // The system's for a search field is Search, as `UISearchBar`'s.
             switch props["enterKeyHint"] {
             case "done": f.returnKeyType = .done
             case "go": f.returnKeyType = .go
@@ -1170,7 +1175,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             case "search": f.returnKeyType = .search
             case "send": f.returnKeyType = .send
             case "enter", "previous": f.returnKeyType = .default
-            default: f.returnKeyType = handlers.contains("submit") ? .go : .default
+            default: f.returnKeyType = type == "search" ? .search : .default
             }
             f.isEnabled = !disabled
             if isNativeTextControl { styleNativeField() }
@@ -1181,7 +1186,9 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         updateTextAccessibility()
         if actsAsButton {
             isAccessibilityElement = true
-            accessibilityTraits.insert(kind == "view" && props["accessibilityRole"] == "link" ? .link : .button)
+            // A `link`, pressable or a box with the role, is a link to VoiceOver, never also a button (LLP 1115.000 D11.6).
+            let link = props["accessibilityRole"] == "link"
+            accessibilityTraits.insert(link ? .link : .button); accessibilityTraits.remove(link ? .button : .link)
             if props["accessibilitySelected"] == "true" { accessibilityTraits.insert(.selected) } else { accessibilityTraits.remove(.selected) }
             setAccessibilityToggle(pressedState)
             if let checked = checkedRole { setAccessibilityChecked(checked.role, checked.checked) }
@@ -1242,18 +1249,12 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     }
 
     package override func didMoveToSuperview() {
+        cancelPressContact(reparenting: true)
         super.didMoveToSuperview()
         paintOrderMoved()
         if superview == nil { boxFilter?.remove() } else if boxFilter != nil { renderFilter() }
         // A box styled before it joined its parent learns its material now.
         if superview != nil { syncVibrancy() }
-    }
-    func updateKeyboardDismissal() {
-        switch props["keyboardDismissMode"] {
-        case "interactive": scroll?.keyboardDismissMode = .interactive
-        case "on-drag": scroll?.keyboardDismissMode = .onDrag
-        default: scroll?.keyboardDismissMode = .none
-        }
     }
     func applyStyle(_ s: NodeStyle) {
         defer { video?.update(); applyCssVisibility(); if columnRecord?.columns.isEmpty == false { layoutColumnRules() } }

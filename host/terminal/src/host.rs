@@ -113,9 +113,11 @@ pub struct Host<D: DataSource> {
     pub(crate) rows: usize,
     /// How the app occupies the terminal.
     pub mode: Mode,
+    pub(crate) colors: Option<crate::color::ColorDepth>,
     pub(crate) focus: Option<ViewId>,
     pub(crate) caret: usize,
     pub(crate) scroll: HashMap<ViewId, f32>,
+    pub(crate) collections: crate::collection::Collections,
     /// Open dialogs and popovers, bottom to top, with the focus each took.
     pub(crate) layers: Vec<(ViewId, Option<ViewId>)>,
     /// The appearance `light-dark()` resolves by.
@@ -142,6 +144,8 @@ pub struct Host<D: DataSource> {
     /// frame written before the key was read had shown. No timer.
     pub frames: u64,
     pub(crate) born: HashMap<ViewId, u64>,
+    /// Largest settled tree since the last trim; halve before sweeping again.
+    trim_at: usize,
     /// The frame count when the keys being handled were read.
     pub read_at: u64,
     /// Whether keys arm only on shown nodes; off headless, where the
@@ -160,7 +164,7 @@ impl<D: DataSource> Host<D> {
     ) -> Result<Host<D>, String> {
         exact_kernel::style::link_segments();
         exact_kernel::timeline::link();
-        let mut kernel = Kernel::new(Box::new(crate::measure::CellMeasurer));
+        let mut kernel = Kernel::new(Box::new(crate::measure::CellMeasurer::default()));
         kernel.set_cell_borders(true);
         // LLP 1104 D4/D7: the user's cell face, at one 16px layout row.
         let font = exact_kernel::ControlFont {
@@ -194,9 +198,11 @@ impl<D: DataSource> Host<D> {
             cols,
             rows,
             mode,
+            colors: None,
             focus: None,
             caret: 0,
             scroll: HashMap::new(),
+            collections: crate::collection::Collections::default(),
             layers: Vec::new(),
             dark: true,
             painted: None,
@@ -209,11 +215,27 @@ impl<D: DataSource> Host<D> {
             outbound: Vec::new(),
             frames: 0,
             born: HashMap::new(),
+            trim_at: 0,
             read_at: 0,
             arm: true,
         };
         host.after_commit();
         Ok(host)
+    }
+
+    /// Select the palette before starting the interactive loop or emulator.
+    /// The CLI's `--color` option calls this; interactive embedders otherwise
+    /// get automatic environment detection. Direct paint tests default to RGB.
+    pub fn set_colors(&mut self, colors: crate::color::ColorDepth) {
+        if self.colors != Some(colors) {
+            self.colors = Some(colors);
+            self.changed();
+        }
+    }
+
+    /// The selected palette, reported to the app in the terminal surface record.
+    pub fn colors(&self) -> crate::color::ColorDepth {
+        self.colors.unwrap_or_default()
     }
 
     /// Wake `waker` whenever the data module announces a change from another
@@ -251,6 +273,23 @@ impl<D: DataSource> Host<D> {
     /// Lay out again, take the commands actions emitted, keep the focus on
     /// a node that still exists, and mark the frame stale.
     pub(crate) fn after_commit(&mut self) {
+        let settling = self.collections.settling;
+        self.collections.settling = true;
+        self.after_commit_inner();
+        self.collections.settling = settling;
+        self.settle_collections();
+        if !settling {
+            let live = self.runner.kernel().live_count().max(64);
+            if live <= self.trim_at / 2 {
+                self.runner.kernel_mut().trim();
+                self.trim_at = live;
+            } else {
+                self.trim_at = self.trim_at.max(live);
+            }
+        }
+    }
+
+    fn after_commit_inner(&mut self) {
         let trace = std::env::var_os("EXACT_TERMINAL_TRACE").is_some();
         let t0 = std::time::Instant::now();
         let width = AxisOffer::Definite(self.cols as f32 * COLUMN);
@@ -376,6 +415,7 @@ impl<D: DataSource> Host<D> {
             scroll: &self.scroll,
             caret: self.caret,
             dark: self.dark,
+            colors: self.colors(),
             layers: self.layers.iter().map(|(id, _)| *id).collect(),
             images: &self.images,
             center: self.mode == Mode::Fullscreen,
@@ -613,9 +653,13 @@ impl<D: DataSource> Host<D> {
             self.reveal(new);
         }
         self.changed();
+        self.settle_collections();
     }
 
     pub(crate) fn step_focus(&mut self, back: bool) {
+        if self.step_collection_focus(back) {
+            return;
+        }
         let all = self.focusables();
         if all.is_empty() {
             return;
@@ -630,8 +674,8 @@ impl<D: DataSource> Host<D> {
         self.focus(Some(all[next]));
     }
 
-    fn is_scroller(n: &exact_kernel::NodeRef<'_>) -> bool {
-        n.node_type == NodeType::ScrollView
+    pub(crate) fn is_scroller(n: &exact_kernel::NodeRef<'_>) -> bool {
+        matches!(n.node_type, NodeType::ScrollView | NodeType::List)
             || matches!(
                 n.style.overflow_y,
                 exact_kernel::Overflow::Scroll | exact_kernel::Overflow::Auto
@@ -676,8 +720,14 @@ impl<D: DataSource> Host<D> {
             }
             at = n.parent;
         }
-        self.scroll.extend(changes);
+        for (view, offset) in changes {
+            if self.scroll.get(&view).copied().unwrap_or(0.0) != offset {
+                self.collection_scrolled(view);
+                self.scroll.insert(view, offset);
+            }
+        }
         self.changed();
+        self.settle_collections();
     }
 
     /// Keep a `scrollFollowEnd` scroller at its end while it was there.
@@ -688,7 +738,10 @@ impl<D: DataSource> Host<D> {
         let mut ends = Vec::new();
         while let Some(id) = stack.pop() {
             let Some(n) = kernel.node(id) else { continue };
-            if Self::is_scroller(&n) && n.props.bool(PropId::ScrollFollowEnd) == Some(true) {
+            if Self::is_scroller(&n)
+                && n.props.bool(PropId::ScrollFollowEnd) == Some(true)
+                && n.props.bool(PropId::Virtualized) != Some(true)
+            {
                 let [bt, _, bb, _] = n.style.border_widths_in(&env);
                 let reach = (n.content.1 - (n.frame.height - bt - bb)).max(0.0);
                 ends.push((id, reach));
@@ -745,6 +798,16 @@ impl<D: DataSource> Host<D> {
     /// A press that moves the focus to what was pressed only when `take`:
     /// a keyboard shortcut acts without moving the person's place.
     pub(crate) fn press_with(&mut self, id: ViewId, take: bool) {
+        // A close command precedes its press handler. Keep the clicked row
+        // alive until that handler has consumed its bound arguments.
+        let settling = self.collections.settling;
+        self.collections.settling = true;
+        self.press_with_inner(id, take);
+        self.collections.settling = settling;
+        self.settle_collections();
+    }
+
+    fn press_with_inner(&mut self, id: ViewId, take: bool) {
         if self.is_field(id) {
             self.focus(Some(id));
             return;
@@ -802,6 +865,23 @@ impl<D: DataSource> Host<D> {
             self.born.insert(id, self.frames);
         }
         self.presented.stale = true;
+        if self
+            .runner
+            .collections_shallow()
+            .iter()
+            .any(|s| self.inside(s.view, layer))
+        {
+            // A hidden list has no row views. Choose the dialog's autofocus
+            // after its real viewport has restored the first window.
+            self.collections.focus_layer = Some(layer);
+            self.changed();
+            self.settle_collections();
+            return;
+        }
+        self.focus_open_layer();
+    }
+
+    pub(crate) fn focus_open_layer(&mut self) {
         let kernel = self.runner.kernel();
         let all = self.focusables();
         let first = all
@@ -814,7 +894,11 @@ impl<D: DataSource> Host<D> {
             })
             .or_else(|| all.first().copied());
         self.focus = None;
-        self.focus(first);
+        if let Some(first) = first {
+            self.focus(Some(first));
+        } else {
+            self.step_collection_focus(false);
+        }
         self.changed();
     }
 
@@ -839,6 +923,8 @@ impl<D: DataSource> Host<D> {
         self.focus = None;
         self.focus(restore.filter(|r| self.runner.kernel().node(*r).is_some()));
         self.changed();
+        // Restoring no focus can be a no-op; the hidden rows still need retiring.
+        self.settle_collections();
     }
 
     /// The open top layer's height in rows, if one is open.

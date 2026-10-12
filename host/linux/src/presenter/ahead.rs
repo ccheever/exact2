@@ -70,6 +70,13 @@ impl TextMeasurer for Budgeted {
     fn field_chrome(&mut self, request: &FieldChromeRequest) -> FieldChrome {
         self.inner.field_chrome(request)
     }
+    fn field_text(
+        &mut self,
+        kind: exact_kernel::FieldKind,
+        request: &TextMeasureRequest<'_>,
+    ) -> Option<TextMetrics> {
+        self.inner.field_text(kind, request)
+    }
     fn button_measure(&mut self, request: &ButtonMeasureRequest) -> Option<ButtonMeasure> {
         if self.spent() {
             return None;

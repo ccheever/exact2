@@ -139,3 +139,119 @@ fn position_area_places_a_popover_in_the_admitted_subset_only() {
         .to_string();
     assert!(error.contains("on a `popover` only"), "{error}");
 }
+
+/// LLP 1115.000 D2: "written" is a fact each row carries, from where the
+/// compiler emits it to the node the kernel keeps. An attribute and a
+/// class's row are the author's; a tag's fixed row, a heading's style, a
+/// link run's colour, `hr`'s rows and a sheet's are not, and where two set
+/// one property the node has the winner's.
+#[test]
+fn a_node_knows_which_of_its_rows_its_author_wrote() {
+    use exact_kernel::StyleId::{
+        Appearance, BackgroundColor, Display, FontSize, FontWeight, MarginBottom, MarginTop,
+        MinHeight, PaddingTop, TextColor, TintColor, Width,
+    };
+    let src = r##"style Loud
+  color="#ff0000"
+  padding=4
+style Quiet
+  color="#888888"
+component A
+  state on = false
+  action flip
+    on = not on
+  view
+    column testId="page" color="#111111"
+      text "own" testId="own" color="-exact-system-red"
+      text "same" testId="same" color="#111111"
+      text "inherits" testId="inherits"
+      text "class" testId="class" class=Loud
+      text "both" testId="both" class=Loud color="#00ff00"
+      text "choice" testId="choice" class=(on ? Loud : Quiet)
+      text "Heading" testId="heading" role="heading" aria-level=1
+      text "Sized" testId="sized" role="heading" font-size=20
+      text testId="para"
+        text "See "
+        text "the docs" testId="link" href="https://example.com"
+        text "in red" testId="link-red" href="https://example.com" color="#ff0000"
+      hr testId="rule"
+      hr testId="rule-red" color="#ff0000"
+      textarea testId="editor" value="hi" markup="markdown"
+      textarea testId="editor-none" value="hi" markup="markdown" appearance="none"
+      row testId="row"
+      view testId="bound" width=(on ? 10 : 20)
+      list appearance="auto" testId="list"
+        section testId="section" margin-bottom=30
+          header testId="header"
+            text "Head"
+          button press=flip testId="said" color="-exact-label"
+            text "Says the sheet's own colour"
+          button press=flip testId="unsaid"
+            text "Says nothing"
+          button press=flip disabled=true testId="off"
+            image "symbol:sf/star" testId="icon"
+            text "Off"
+            image "symbol:checkmark" testId="check"
+          row
+            image "symbol:sf/star" -exact-tint-color="AccentColor" testId="tinted"
+            text "Tinted"
+"##;
+    let plan = contract::bake(contract::compile(src).unwrap(), NoData).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    // (set, written) for a row of the node `id`.
+    let row = |r: &Runner<NoData>, id: &str, row: exact_kernel::StyleId| {
+        let k = r.kernel();
+        let style = k.node_by_key(k.find_by_test_id(id)[0]).unwrap().style;
+        (style.mask.has(row), style.written.has(row))
+    };
+    let (written, implied, unset) = ((true, true), (true, false), (false, false));
+    for (id, style, expected, why) in [
+        ("page", TextColor, written, "an attribute"),
+        ("own", TextColor, written, "a platform colour is a colour"),
+        ("same", TextColor, written, "equal to its parent's"),
+        ("inherits", TextColor, unset, "inherited: no row, no bit"),
+        ("class", TextColor, written, "a class's row"),
+        ("class", PaddingTop, written, "a class's shorthand"),
+        ("both", TextColor, written, "its own over its class's"),
+        ("choice", TextColor, written, "a row both chosen styles set"),
+        ("choice", PaddingTop, unset, "the chosen style sets none"),
+        ("heading", FontSize, implied, "a heading's size"),
+        ("heading", FontWeight, implied, "and its weight"),
+        ("sized", FontSize, written, "the author's size wins"),
+        ("sized", FontWeight, implied, "beside the heading's weight"),
+        ("link", TextColor, implied, "a link run's colour"),
+        ("link-red", TextColor, written, "its author's colour"),
+        ("rule", TextColor, implied, "`hr`'s separator colour"),
+        ("rule", MarginTop, implied, "and its margins"),
+        ("rule-red", TextColor, written, "the author's on an `hr`"),
+        ("rule-red", MarginTop, implied, "keeps the tag's other rows"),
+        ("row", Display, implied, "a tag's fixed row"),
+        ("editor", Appearance, implied, "a field never native"),
+        ("editor-none", Appearance, written, "the same, written"),
+        ("bound", Width, written, "a computed attribute"),
+        ("list", BackgroundColor, implied, "the grouped sheet's"),
+        ("section", MarginBottom, written, "over the sheet's"),
+        ("section", MarginTop, implied, "the sheet's"),
+        ("header", TextColor, implied, "the sheet's label colour"),
+        ("said", TextColor, written, "the sheet's value, written"),
+        ("said", MinHeight, implied, "beside the sheet's metrics"),
+        ("unsaid", TextColor, implied, "the sheet's"),
+        ("off", TextColor, implied, "the sheet's disabled grey"),
+        ("icon", TintColor, implied, "the sheet's accent on a symbol"),
+        ("check", TintColor, implied, "and on a checkmark"),
+        ("tinted", TintColor, written, "the same accent, written"),
+    ] {
+        assert_eq!(row(&r, id, style), expected, "{id} {style:?}: {why}");
+    }
+    // The other choice sets the row: its bit comes with it.
+    r.act("flip", vec![]).unwrap();
+    assert_eq!(row(&r, "choice", PaddingTop), written);
+    assert_eq!(row(&r, "bound", Width), written);
+}

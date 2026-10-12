@@ -46,6 +46,20 @@ extension Presenter {
         }
     }
 
+    /// The colour the content at the viewport's bottom edge goes on with
+    /// below it (ExactView `paintUnderKeys`): the background of the scroller
+    /// there (a grouped list's), or the nearest painted box above it (a
+    /// route's backdrop), never a row's own. Nil where nothing is painted.
+    func bottomEdgeColor() -> UIColor? {
+        let b = viewport.bounds
+        guard b.height > 1, let hit = viewport.hitTest(CGPoint(x: b.midX, y: b.maxY - 1), with: nil) else { return nil }
+        let chain = Array(sequence(first: hit, next: { $0 === self.viewport ? nil : $0.superview }))
+        let from = chain.firstIndex { $0 is UIScrollView } ?? 0
+        return chain[from...].lazy.compactMap { v in
+            v.backgroundColor.flatMap { $0.resolvedColor(with: v.traitCollection).cgColor.alpha > 0.99 ? $0 : nil }
+        }.first
+    }
+
     /// A grouped list laid out at its offset and the rows of its cells
     /// carried into them: put in place, not slid there by the animation
     /// this may run inside, which moves only the list's offset.
@@ -68,11 +82,23 @@ extension Presenter {
         var o = sv.contentOffset
         if r.maxY > visible.maxY { o.y += r.maxY - visible.maxY } else if r.minY < visible.minY { o.y -= visible.minY - r.minY }
         if r.maxX > visible.maxX { o.x += r.maxX - visible.maxX } else if r.minX < visible.minX { o.x -= visible.minX - r.minX }
-        let i = sv.adjustedContentInset
-        o.y = min(max(o.y, -i.top), max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height))
-        o.x = min(max(o.x, -i.left), max(-i.left, sv.contentSize.width + i.right - sv.bounds.width))
+        let clamped = { (o: CGPoint, i: UIEdgeInsets) in
+            CGPoint(x: min(max(o.x, -i.left), max(-i.left, sv.contentSize.width + i.right - sv.bounds.width)),
+                    y: min(max(o.y, -i.top), max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height)))
+        }
+        let insets = sv.adjustedContentInset
+        o = clamped(o, insets)
         guard abs(o.y - sv.contentOffset.y) > 0.5 || abs(o.x - sv.contentOffset.x) > 0.5 else { return false }
         sv.contentOffset = o
+        // The bar's large title collapsing as the list scrolls changes its
+        // insets inside this assignment, and UIKit moves the offset on by the
+        // title's height to keep the content still: past the least scroll,
+        // with the field shown, so no later pass takes it back. The offset
+        // asked for, within the new insets, is the least.
+        if sv.adjustedContentInset != insets {
+            let held = clamped(o, sv.adjustedContentInset)
+            if abs(held.y - sv.contentOffset.y) > 0.5 || abs(held.x - sv.contentOffset.x) > 0.5 { sv.contentOffset = held }
+        }
         return true
     }
 
@@ -100,6 +126,32 @@ extension Presenter {
         guard let group else { return nil }
         let box = group.convert(group.bounds, to: sv)
         return CGRect(x: box.minX, y: field.minY, width: box.width, height: max(field.height, box.maxY - field.minY))
+    }
+}
+
+// @ref LLP 1115.000 D9.1 — how a drag puts the keyboard away.
+extension NodeView {
+    /// What a drag on this node's scroller does to the keyboard. Unsaid, on
+    /// a scroller that scrolls vertically, the keyboard follows a drag that
+    /// reaches it (`.interactive`), as a hand-built list or form has it; it
+    /// never takes the keyboard from someone who was only scrolling. A
+    /// sideways scroller keeps UIKit's `.none`. An authored
+    /// `keyboardDismissMode` wins, `none` included: the prop has no default
+    /// row, so unsaid it is absent from the node's props, and absence is the
+    /// whole test.
+    var keyboardDismissal: UIScrollView.KeyboardDismissMode {
+        switch props["keyboardDismissMode"] {
+        case "interactive": return .interactive
+        case "on-drag": return .onDrag
+        case "none": return .none
+        default: return scroll?.scrollsY == true ? .interactive : .none
+        }
+    }
+    /// Written again when the prop or the axes the node scrolls change; a
+    /// grouped list's collection view takes it from here (`mount`).
+    func updateKeyboardDismissal() {
+        guard let scroll, scroll.keyboardDismissMode != keyboardDismissal else { return }
+        scroll.keyboardDismissMode = keyboardDismissal
     }
 }
 

@@ -1,0 +1,206 @@
+//! The device's colours, from its shell (LLP 1115.001 D4): on Android the
+//! reader resolves Material 3's colour roles for the device, light and
+//! dark, from the system's dynamic palette, and tells them whole at start
+//! and whenever they change. Here each of Exact's colour roles is given the
+//! Material role D4's table names for it, and the set is reported through
+//! the door the Apple host reports its own through
+//! (`roles::set_reported`), so that a role an author wrote, and one the
+//! platform's defaults name, resolve to the device's colour.
+//!
+//! The names an author writes do not change, and nothing is tabled: the
+//! values are the device's, computed there. A host whose shell tells no
+//! palette (desktop Linux, a headless run) reports nothing and keeps each
+//! role's fallback pair.
+use super::*;
+use exact_kernel::style::{roles, Color};
+use exact_kernel::ColorValue;
+
+/// The Material 3 colour roles a shell resolves, in the order it tells them
+/// (`Native.colors`: these twelve light, then the same twelve dark).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Material {
+    /// `primary`.
+    Primary,
+    /// `onPrimary`.
+    OnPrimary,
+    /// `secondaryContainer`.
+    SecondaryContainer,
+    /// `surface`.
+    Surface,
+    /// `onSurface`.
+    OnSurface,
+    /// `onSurfaceVariant`.
+    OnSurfaceVariant,
+    /// `surfaceContainerLow`.
+    SurfaceContainerLow,
+    /// `surfaceContainer`.
+    SurfaceContainer,
+    /// `surfaceContainerHigh`.
+    SurfaceContainerHigh,
+    /// `surfaceContainerHighest`.
+    SurfaceContainerHighest,
+    /// `outlineVariant`.
+    OutlineVariant,
+    /// `error`.
+    Error,
+}
+
+/// How many roles a palette holds for each scheme.
+pub const MATERIAL_ROLES: usize = 12;
+
+/// The device's palette: each [`Material`] role's colour under the light
+/// scheme and under the dark one, as Android has a colour (`0xAARRGGBB`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Palette {
+    /// The light scheme's, indexed by [`Material`].
+    pub light: [u32; MATERIAL_ROLES],
+    /// The dark scheme's.
+    pub dark: [u32; MATERIAL_ROLES],
+}
+
+use Material::*;
+
+/// Exact's roles as Material's (LLP 1115.001 D4's table): the name an
+/// author writes, the Material role, and its opacity in percent.
+///
+/// Four rows are not in D4's table and were chosen here: `FieldText` and
+/// `HighlightText` are text on a surface (`onSurface`),
+/// `-exact-opaque-separator` is the separator (`outlineVariant`, which is
+/// opaque already), and `-exact-tertiary-grouped-background` is the step
+/// above the secondary one (`surfaceContainerHigh`). The system hues other
+/// than red and blue are left out, as D4 rules: they keep the table's pair.
+const ROLES: &[(&str, Material, u32)] = &[
+    ("Canvas", Surface, 100),
+    ("-exact-background", Surface, 100),
+    ("CanvasText", OnSurface, 100),
+    ("-exact-label", OnSurface, 100),
+    ("FieldText", OnSurface, 100),
+    ("HighlightText", OnSurface, 100),
+    ("-exact-secondary-label", OnSurfaceVariant, 100),
+    ("-exact-placeholder", OnSurfaceVariant, 100),
+    // Material's disabled content.
+    ("-exact-tertiary-label", OnSurface, 38),
+    ("GrayText", OnSurface, 38),
+    ("-exact-quaternary-label", OnSurface, 12),
+    ("-exact-separator", OutlineVariant, 100),
+    ("-exact-opaque-separator", OutlineVariant, 100),
+    ("AccentColor", Primary, 100),
+    ("LinkText", Primary, 100),
+    ("-exact-link", Primary, 100),
+    ("ButtonText", Primary, 100),
+    ("-exact-system-blue", Primary, 100),
+    // A symbol nobody tinted (LLP 1115.000 D3.9): `primary`, as it was
+    // while its default was `AccentColor`. Material's own answer for an
+    // icon is LLP 1115.001's to give.
+    ("-exact-symbol", Primary, 100),
+    ("AccentColorText", OnPrimary, 100),
+    ("Field", SurfaceContainerHighest, 100),
+    ("-exact-fill", SurfaceContainerHighest, 100),
+    ("-exact-secondary-fill", SurfaceContainerHighest, 100),
+    ("-exact-tertiary-fill", SurfaceContainerHighest, 100),
+    ("-exact-quaternary-fill", SurfaceContainerHighest, 100),
+    ("ButtonFace", SecondaryContainer, 100),
+    ("-exact-secondary-background", SurfaceContainerLow, 100),
+    ("-exact-grouped-background", SurfaceContainerLow, 100),
+    ("-exact-secondary-grouped-background", SurfaceContainer, 100),
+    ("-exact-tertiary-background", SurfaceContainer, 100),
+    (
+        "-exact-tertiary-grouped-background",
+        SurfaceContainerHigh,
+        100,
+    ),
+    ("Highlight", Primary, 40),
+    ("-exact-system-red", Error, 100),
+];
+
+impl Palette {
+    /// A palette from the shell's twenty-four colours, the twelve roles
+    /// light and then dark; `None` for any other count.
+    pub fn from_words(words: &[i32]) -> Option<Palette> {
+        let (light, dark) = words.split_at_checked(MATERIAL_ROLES)?;
+        let colors = |half: &[i32]| -> Option<[u32; MATERIAL_ROLES]> {
+            let half: [i32; MATERIAL_ROLES] = half.try_into().ok()?;
+            Some(half.map(|argb| argb as u32))
+        };
+        Some(Palette {
+            light: colors(light)?,
+            dark: colors(dark)?,
+        })
+    }
+
+    /// What `role` is on this device under a scheme, at an opacity in
+    /// percent: the device's colour is opaque, and the opacity is the role's.
+    fn color(&self, role: Material, dark: bool, percent: u32) -> Color {
+        let table = if dark { &self.dark } else { &self.light };
+        let [_, r, g, b] = table[role as usize].to_be_bytes();
+        let alpha = ((255 * percent.min(100) + 50) / 100) as u8;
+        Color(u32::from_be_bytes([r, g, b, alpha]))
+    }
+
+    /// Each of Exact's roles on this device, light and dark: what
+    /// `roles::set_reported` takes.
+    pub fn report(&self) -> Vec<(ColorValue, bool, Color)> {
+        let mut out = Vec::with_capacity(ROLES.len() * 2);
+        for (name, material, percent) in ROLES {
+            let Some(id) = roles::role(name) else {
+                debug_assert!(false, "{name} is no colour role");
+                continue;
+            };
+            for dark in [false, true] {
+                let color = self.color(*material, dark, *percent);
+                out.push((ColorValue::Role(id), dark, color));
+            }
+        }
+        out
+    }
+
+    /// Report this palette for the process (`roles::set_reported`), before
+    /// a host boots, so everything boot resolves is the device's from the
+    /// start. A running presenter is told through
+    /// [`Presenter::set_palette`], which also paints again.
+    pub fn tell(&self) -> u64 {
+        roles::set_reported(self.report())
+    }
+}
+
+/// The accent a control paints in where its node sets no `accent-color`
+/// (LLP 1115.001 D4, "one accent"), and what is drawn on it: the
+/// `AccentColor` and `AccentColorText` roles as the host reported them.
+/// `None` on a host that reports nothing, whose painter keeps its own.
+pub(crate) fn reported_accent(dark: bool) -> Option<([u8; 4], [u8; 4])> {
+    static TINT: std::sync::LazyLock<Option<(u8, u8)>> = std::sync::LazyLock::new(|| {
+        Some((roles::role("AccentColor")?, roles::role("AccentColorText")?))
+    });
+    let (accent, on) = (*TINT)?;
+    let accent = roles::reported(ColorValue::Role(accent), dark)?;
+    let on = ColorValue::Role(on).resolve(dark);
+    Some((crate::paint::rgba(accent), crate::paint::rgba(on)))
+}
+
+/// What a presenter keeps of the reported colours.
+#[derive(Default)]
+pub(super) struct State {
+    /// The reported table's generation this presenter last painted from.
+    seen: Option<u64>,
+}
+
+impl<D: DataSource> Presenter<D> {
+    /// The device's palette, as its shell resolved it (LLP 1115.001 D4):
+    /// told before the first frame and again, whole, whenever it changes (a
+    /// new wallpaper changes the dynamic palette). Every role resolves to
+    /// it from here on, and when anything resolves differently the page is
+    /// painted again: paint motion re-targets (the first report corrects
+    /// in place, a later one transitions, LLP 1095 D6) and nothing kept
+    /// from a paint under the old colours stands.
+    pub fn set_palette(&mut self, palette: &Palette) {
+        let generation = palette.tell();
+        if self.colors.seen == Some(generation) {
+            return;
+        }
+        let first = self.colors.seen.is_none();
+        self.colors.seen = Some(generation);
+        self.host.colors_changed(first);
+        self.brush.colors_changed();
+        self.dirty = true;
+    }
+}

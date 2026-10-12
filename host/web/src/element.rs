@@ -822,7 +822,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             continue;
         }
         let text = match value {
-            PropValue::Str(s) => s.clone(),
+            PropValue::Str(s) => s.to_string(),
             PropValue::Bool(b) => b.to_string(),
             PropValue::Int(i) => i.to_string(),
             // LLP 1053.000.000.000 D3: the reserved `-1` is written as `auto`.
@@ -871,6 +871,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::NavigationBack => "navigationBack",
             PropId::NavigationPresentation => "navigationPresentation",
             PropId::NavigationSource => "navigationSource",
+            PropId::NavigationSplit => "navigationSplit",
             // LLP 1013.000 D7: the shared-element name the JS target's view
             // transitions pair by.
             PropId::SharedElement => "data-shared-element",
@@ -1150,6 +1151,39 @@ mod name_tests {
         for prop in exact_kernel::PropId::ALL {
             assert!(prop.name().is_ascii(), "{}", prop.name());
         }
+    }
+
+    /// LLP 1115.000 D3.1: where the page's own sheet names a colour role it
+    /// writes what the kernel writes for an author who named it, pair and
+    /// all, so the role table is the one place a role's colours are set and
+    /// the sheet's copy cannot drift from it.
+    #[test]
+    fn the_page_sheet_names_a_role_as_the_kernel_writes_it() {
+        use exact_kernel::style::roles;
+        let page = include_str!("../index.html");
+        let (mut rest, mut seen) = (page, Vec::new());
+        while let Some(at) = rest.find("var(--exact-") {
+            let tail = &rest[at..];
+            let end = tail.find([',', ')']).expect("a var() closes");
+            let name = &tail["var(--exact-".len()..end];
+            rest = &tail[end..];
+            // The page's own properties (`--exact-accent`, `--exact-split`)
+            // name no role.
+            let Some(id) = roles::role(&format!("-exact-{name}")) else {
+                continue;
+            };
+            let mut kernel = String::new();
+            exact_kernel::gradient::color_css(&mut kernel, exact_kernel::ColorValue::Role(id));
+            assert!(
+                tail.starts_with(&kernel),
+                "the page names `{name}` as `{}`; the role table says `{kernel}`",
+                &tail[..tail.find(';').unwrap_or(tail.len())]
+            );
+            seen.push(name);
+        }
+        seen.sort_unstable();
+        seen.dedup();
+        assert_eq!(seen, ["fill", "secondary-label", "separator", "system-red"]);
     }
 
     #[test]

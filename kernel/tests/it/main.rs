@@ -2,6 +2,7 @@
 
 mod animation;
 mod apply;
+mod bars;
 mod browser_cases;
 mod browser_columns;
 mod browser_controls;
@@ -18,6 +19,7 @@ mod content_region;
 mod cover;
 mod env;
 mod export;
+mod field_text;
 mod fit_content_native;
 mod fit_text;
 mod flow;

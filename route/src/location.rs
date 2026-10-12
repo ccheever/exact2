@@ -37,6 +37,27 @@ pub fn location_of(href: &str) -> String {
     }
 }
 
+/// A declared Web App Manifest protocol handler's in-app location. The
+/// placeholder carries the original URL as data, including its fragment.
+pub fn protocol_location_of(href: &str, protocol: &str, template: &str) -> Option<String> {
+    let (name, _) = scheme(href)?;
+    if !name.eq_ignore_ascii_case(protocol)
+        || !template.starts_with('/')
+        || template.starts_with("//")
+        || template.contains('#')
+    {
+        return None;
+    }
+    let (before, after) = template.split_once("%s")?;
+    if after.contains("%s") {
+        return None;
+    }
+    Some(canonical(&format!(
+        "{before}{}{after}",
+        encode_uri_component(href)
+    )))
+}
+
 fn clean(input: &str) -> String {
     input
         .trim_matches(|c: char| c <= ' ')
@@ -187,4 +208,36 @@ pub fn search_param(entry: &Entry, name: &str) -> String {
         }
     }
     String::new()
+}
+
+#[cfg(test)]
+mod protocol_tests {
+    use super::*;
+
+    #[test]
+    fn declared_protocol_template_preserves_the_whole_url() {
+        let href = "exactreprox05://auth/x?request=1#frag";
+        let expected = "/open?u=exactreprox05%3A%2F%2Fauth%2Fx%3Frequest%3D1%23frag";
+        assert_eq!(
+            protocol_location_of(href, "exactreprox05", "/open?u=%s"),
+            Some(expected.into())
+        );
+        assert_eq!(
+            protocol_location_of(href, "EXACTREPROX05", "/open?u=%s"),
+            Some(expected.into())
+        );
+        assert_eq!(protocol_location_of(href, "other", "/open?u=%s"), None);
+        assert_eq!(protocol_location_of(href, "exactreprox05", "/open"), None);
+
+        let long = format!("exactreprox05://auth/x?request={}#frag", "x".repeat(16_384));
+        let location = protocol_location_of(&long, "exactreprox05", "/open?u=%s").unwrap();
+        let entry = Entry {
+            id: 1,
+            name: "open".into(),
+            url: location,
+            tab: "home".into(),
+            params: Default::default(),
+        };
+        assert_eq!(search_param(&entry, "u"), long);
+    }
 }

@@ -210,7 +210,7 @@ export function commit(f, what = "commit") {
     try { flush(); } catch (e) { Poisoned = true; say(`poisoned: ${e.pc != null ? `Instance(${e.message})` : e.message}`); console.error(e); Sched?.forget(); return false; } // a trap as the runner's InstanceError (LLP 1090 D6)
     settled(true); if (!ok) return Sched?.scan(false), false;
     clock.epoch++; Store.persist();
-    for (const go of out) go(); if (Open.size) closeLetGo(); for (const c of cmds) command(...c); Sounds.apply?.(cmds); if (!Booting) autofocus(); // after its focus commands, as the wasm host (focus.js)
+    for (const go of out) go(); if (Open.size) closeLetGo(); for (const c of cmds) command(...c); Sounds.apply?.(cmds); if (!Booting) { autofocus(); Input?.arrive(); } // after its focus commands, as the wasm host (focus.js); then the focus follows the route (input-glue.js; LLP 1115.000 D4.2)
     // An answer's `then` is armed, due now, once however many land: the next advance runs it as its own commit (LLP 1016.001 D3).
     for (const m of landed) if (m.then) { m.due = clock.now; if (!clock.agent) drive(); }
     Sched?.scan(true); // a free queue's waiting send is due (LLP 1092 D3)
@@ -280,11 +280,10 @@ function command(name, args) {
 }
 // ---------------------------------------------------------------- the clock and timers
 export const clock = { now: 0, timers: [], agent: false, epoch: 0 };
-// `performanceNow()` is elapsed time: the driver's clock under the agent and in a
-// render, else the page's since it started; a timer commits at its due time.
-// A reader of `performanceNow()` is re-evaluated at each commit made at a later time,
-// as the runner marks the clock read dirty (instance/deps.rs), and never by
-// the clock moving alone. Not a write: no commit counts it as a change.
+// `performanceNow()` is elapsed time: the driver's clock under the agent and in a render, else the
+// page's since it started; a timer commits at its due time. A reader of `performanceNow()` is
+// re-evaluated at each commit made at a later time, as the runner marks the clock read dirty
+// (instance/deps.rs), and never by the clock moving alone. Not a write: no commit counts it as a change.
 const Now = node(null, 0);
 let Timing = false;
 // A commit takes its time first (`time`); its clock readers see it once the body has run (`tick`): the body reads the pre-state.
@@ -382,16 +381,17 @@ function unpark() { if (Parked >= 0 && Rev !== Parked) { Parked = -1; paint(); }
  * a Promise (an executor-local continuation: TypeScript), or `null` while
  * the source is not ready; `ready(f)` calls `f` once it is. */
 export const data = { answer: () => null, parse: null, q: [], ready: f => data.q.push(f) };
-/** The durable store (LLP 1018): name → text, persisted as the web host
- * does (`localStorage` "exact.secret.<name>") after a commit stands. */
+const DEVELOPMENT_STORE = null; // a development build's app directory, as storage-environment.js's (host/web-js/build.mjs writes both)
+/** The page's `localStorage` keys of a kind: "exact.<kind>.<name>", or in a development build "exact.<kind>.@<digest>/<name>", its app's own on the origin the dev server's apps share (LLP 1116.004 D8). Persisted state's kind is "state" (persist.js); the durable store's (LLP 1018, `Store`: name → text, kept after a commit stands) is "secret". */
+export const Kept = kind => `exact.${kind}.${DEVELOPMENT_STORE ? `@${DEVELOPMENT_STORE}/` : ''}`;
 export const Store = {
   map: new Map(), writes: [], dirty: false,
   get(k) { return this.map.get(k); },
   set(k, v) { if (v == null) this.map.delete(k); else this.map.set(k, v); this.writes.push([k, v]); this.dirty = true; Rev++; },
   save() { return [new Map(this.map), this.writes.length]; },
   restore([m, n]) { this.map = m; this.writes.length = n; this.dirty = false; },
-  persist() { for (const [k, v] of this.writes.splice(0)) try { v == null ? localStorage.removeItem("exact.secret." + k) : localStorage.setItem("exact.secret." + k, v); } catch {} },
-  load() { try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith("exact.secret.")) this.map.set(k.slice(13), localStorage.getItem(k)); } } catch {} },
+  persist() { const p = Kept("secret"); for (const [k, v] of this.writes.splice(0)) try { v == null ? localStorage.removeItem(p + k) : localStorage.setItem(p + k, v); } catch {} },
+  load() { const p = Kept("secret"); try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith(p)) this.map.set(k.slice(p.length), localStorage.getItem(k)); } } catch {} },
 };
 /** Every resource, in plan order: the checkpoint a render writes reads them. */
 export const Resources = [];
@@ -484,7 +484,7 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
   }, "it keeps its last value", (error, code) => { r.ticket = null; r.failed = t.args; r.error = error; r.code = code; write(pend.n, false); write(fail.n, failure()); });
   const m = memo(() => Ov.shown(r, (() => {
     ver();
-    const a = r.asked = args(); if (Restoring) return r.value; // `asked`: the overlay's arguments while a placeholder stands
+    const a = r.asked = args(); if (Restoring) return flag(fail, failure()), r.value; // `asked`: the overlay's arguments while a placeholder stands; a refused commit put `failed` back, and `fail` follows it there too
     const forced = r.forced, rev = r.rev, reconciling = r.reconciling; // `reconciling`: asked after a write ended, a refusal fails it (overlay.js)
     r.forced = r.rev = r.reconciling = false;
     // A failure keeps the value for its arguments, asking nothing; `refresh` or new ones ask again (settlement.rs). `fail` follows.
@@ -613,7 +613,7 @@ const rel = (k, v) => (k === "src" || k === "poster") && /^\/(assets|deck|shader
 export function h(p, tag, cls, attrs, text, ns) {
   if (attrs?.["aria-keyshortcuts"] != null) input();
   if (Adopt) { const e = adopt(p, tag, cls, attrs); if (tag === "video" || tag === "audio") Media.media(e, attrs); return e; }
-  const e = ns ? document.createElementNS(ns, tag) : document.createElement(tag);
+  const e = ns ? document.createElementNS(ns, tag) : document.createElement(tag); e.$exactTree = true;
   if (cls !== 0) e.setAttribute("class", "c" + cls);
   if (attrs) { for (const k in attrs) e.setAttribute(k, rel(k, attrs[k])); if ("data-scrolldocument" in attrs) Docs.add(e); }
   if (text !== 0) e.textContent = text;
@@ -645,7 +645,7 @@ function adopt(p, tag, cls, attrs) {
   let e = at(p);
   while (e && e.nodeType !== 1) e = e.nextSibling;
   if (!e || e.localName.toLowerCase() !== tag.toLowerCase()) throw new Mismatch(`adoption: expected <${tag}>, found ${e ? "<" + e.localName + ">" : "nothing"}`);
-  p.$n = e.nextSibling;
+  p.$n = e.nextSibling; e.$exactTree = true;
   e.$paintWaiting = false; e.$paintFacts = null; e.removeAttribute("data-exact-paint");
   // The renderer's inline style stays: it is the class's declarations and
   // the live rows, which the node's style bindings rewrite as they change.
@@ -1144,7 +1144,7 @@ function input() {
   Inputs = new Promise(r => requestAnimationFrame(() => setTimeout(r))).then(() => import("./input-glue.js")).then(m => {
     Input = m.createInputHandlers({ root: document.getElementById("exact-root"), views: Views, retiredViews: new WeakSet(), ready: () => true,
       inertAncestor: el => el.closest("[inert]"), agentMode: clock.agent, dispatch: (id, p) => to(id, p, "$pan"), release: (id, p) => to(id, p, "$panrelease"),
-      velocity: { sample: (...a) => Mo?.pan.sample(...a), velocity: (...a) => Mo?.pan.velocity(...a) }, log: say });
+      velocity: { sample: (...a) => Mo?.pan.sample(...a), velocity: (...a) => Mo?.pan.velocity(...a) }, log: say }); Input.arrive(); // the stack as it stands, for the focus to follow (LLP 1115.000 D4.2)
   }).catch(err => say(`input: ${err.message}`)).finally(() => inflight.n--);
 }
 /** A `head` (LLP 1048.003 D1): its node, as the kernel keeps it, an inert
@@ -1152,6 +1152,7 @@ function input() {
  * active head (document.js, as runner/src/head.rs). */
 export function hd(p, fields) {
   const t = document.createElement("template");
+  t.$exactTree = true;
   if (Adopt) p.insertBefore(t, at(p)); else p.append(t);
   onEnd(head(t, fields, effect, After));
 }
@@ -1474,13 +1475,13 @@ function locale() {
   }
 }
 const table = name => Texts.find(r => r[0] === name);
-/** `t(key, name=value…)`: MF2 simple messages, `{name}` or `{$name}`; an
- * unfilled name keeps its spelling; `\{ \} \\` escape. budget.js's `x_t` bounds it. */
-export function text(name, key, pairs) {
+/** `t(key, name=value…)`: MF2 simple messages, `{name}` or `{$name}`; an unfilled name keeps its spelling; `\{ \} \\` escape. budget.js's `x_t` bounds it. */
+export function text(name, key, pairs, emit) {
   const text = table(name)?.[2][key] ?? Texts[0][2][key];
   if (text == null) throw new Refusal(`t: no text ${key}`);
-  const at = n => { for (let i = 0; i < pairs.length; i += 2) if (pairs[i] === n) return pairs[i + 1]; };
-  return text.replace(/\\([{}\\])|\{\s*\$?([A-Za-z_][\w-]*)\s*\}/g, (m, e, n) => e ?? at(n) ?? m);
+  const out = [], put = emit ?? (piece => out.push(piece)), at = n => { for (let i = 0; i < pairs.length; i += 2) if (pairs[i] === n) return pairs[i + 1]; }; let from = 0;
+  for (const m of text.matchAll(/\\([{}\\])|\{\s*\$?([A-Za-z_][\w-]*)\s*\}/g)) { put(text.slice(from, m.index)); put(m[1] ?? at(m[2]) ?? m[0]); from = m.index + m[0].length; }
+  put(text.slice(from)); return out;
 }
 /** The resolved table sets the document's `lang` and `dir` (LLP 1060, ruled). */
 let LocaleSlot = null;

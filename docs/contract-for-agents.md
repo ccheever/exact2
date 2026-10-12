@@ -81,7 +81,7 @@ A proposal in a design document is not an implemented grammar production.
 
 In an app made by `exact new`, run its own `exact.mjs` from the app's directory.
 `bun exact.mjs update` regenerates that file, so the app's own verbs go in
-`app.json`'s `commands` (`"verify": ["bun", "verify.mjs"]` is `bun exact.mjs verify
+`app.json`'s `commands` (`"seed": ["bun", "seed.mjs"]` is `bun exact.mjs seed
 web`, run in the app's directory), which it reads and update leaves alone.
 Its `contract` verb is exact2's compiler, with paths relative to where you run it:
 
@@ -104,7 +104,13 @@ exit status: 0 success, 1 compilation/I/O failure, 2 invalid invocation. Read al
 diagnostics, including related locations, before making the next repair. Each has
 a `severity`: `"error"` refuses the build; `"warning"` (after the errors, also on a
 success) builds and runs but is not what you meant, such as a header node the iOS
-bar hides (`lower-header-unplaced`), a tab bar of one tab (`lower-single-tab`), a
+bar hides (`lower-header-unplaced`), a content heading that says the bar's title
+again (`lower-title-twice`), a tab bar of one tab (`lower-single-tab`), a
+`button` with no words and no `aria-label` (`lower-button-unlabelled`), a dialog's
+role on a box (`lower-dialog-role`), an `aria-level` with no `role="heading"`
+(`lower-level-without-heading`), screens swapped by a `when` in an app with no
+`routes` (`lower-screen-by-state`), a count before a plural noun, `${n} cards`
+(`lower-count-plural`), a
 `performanceNow()` time sent to a source (`type-performance-now-persisted`), a
 state read after its own action assigned it (`analyze-read-after-assign`) or a
 literal colour that stays the same in dark mode (`lower-colour-one-scheme`, every
@@ -146,7 +152,9 @@ in agent mode unless the drive names a scratch store (--storage <name>)`), so an
 app that keeps its data there does nothing on a write; a chosen document (`doc:/`)
 still opens under its grant. That store, and an authored test's own store, includes
 a data module's `secret.keep`: files in the named scratch tree on Apple and Linux,
-and the page's `localStorage` on the web. A nameless drive keeps no secrets.
+and the page's `localStorage` on the web. Apple native modules use that store's
+data, cache and temporary roots too; a fresh drive clears them, and only picked
+temporary documents are cleared on each launch. A nameless drive keeps no secrets.
 To show what survives a restart on any host, use an authored test's `reload` step (below).
 
 Inside the exact2 checkout, for Caltrain:
@@ -619,7 +627,7 @@ roster. Compiler-owned router names exist only with a `routes` declaration.
 The platform answers the controls and the chrome; the app's own content is the
 author's to design (LLP 1116.000 D3): a summary at the top, bars where numbers
 compare, rows with a hierarchy, an empty state that says what to do.
-`exact:content` is a built-in library of eight components that draw it with
+`exact:content` is a built-in library of nine components that draw it with
 nothing but roles (`-exact-secondary-background`, `-exact-secondary-label`,
 `AccentColor`, the system hues, the text styles, symbols, the determinate
 `progress`), so dark mode, Dynamic Type and the tint come with them:
@@ -664,6 +672,7 @@ component Water
 | `DoneMark` | `caption: string`, `done: bool` | a filled check in the system green, or an empty circle in grey, with `caption` (short: a weekday; `""` for none) under it; one image to a reader, named by its caption and state ("Mon, done") |
 | `EmptyState` | `symbol: string`, `title: string`, `message: string`; a slot | a centred symbol, the title as a heading, the message; the nodes indented under the use (your `button`) under them |
 | `RowText` | `title: string`, `detail: string`, `value: option<string>` | a title, a secondary line under it (`""` for none) and a trailing value in tabular figures: a grouped list `row`'s content, or any list's |
+| `Badge` | `label: string`, `tint: option<string>` | a status in a word ("Full", "Cancelled") in a capsule, the caption style semibold, keeping its own size beside a title; `none` the neutral grey, `some("AccentColor")`, or a system hue under dark ink (white on indigo); read as its text |
 | `RoundButton` | `label: string`, `tint: option<string>`, `press: action`, `disabled: bool`, `testId: string` | the platform's own button as an 80-point circle (the Clock's Start, Stop, Lap): filled with `tint` (a role: `"AccentColor"`, `"-exact-system-green"`), ink the host picks for contrast; `none` is the neutral grey with the label's ink |
 | `AnswerTile` | `label: string`, `status: string`, `press: action`, `testId: string` | a full-width tile for one answer, the label in the headline style; `status` `"idle"` (a neutral fill), `"selected"` (the accent's outline and check), `"correct"` (the system green, dark ink, a check), `"wrong"` (the system red, white ink, a cross) or `"dimmed"`; told and dimmed tiles are disabled; a reader hears "Quito, correct" |
 
@@ -923,6 +932,14 @@ or authenticated network session is available while baking. See
 
 ## Views, layout, and interaction
 
+For an attachment of any type, use `input type="file"` with no `accept` (or
+`accept="*/*"`) and `multiple` when needed. `showPicker("attach")` opens the
+input with `id="attach"`; `change` receives `list<Picked>` with copies under
+`app:/tmp/picked/`. A specific `accept` list remains bounded to image/video
+types and the app's `file_handlers`. On Linux the agent can answer a held
+picker, but the live picker is unavailable. See [the picker
+spec](../llp/1069.002-media-picker.rfc.md#any-type-input-charlie-2026-10-11).
+
 The view forms are element, component use, `when`/`else` (and `else when`),
 keyed `each`, exhaustive option `match`, and `children`. Wrap root regions in a
 stable element.
@@ -956,6 +973,8 @@ classes select two named styles with `class=(condition ? A : B)`. Computed value
 go on nodes. There is no selector cascade, dynamic style object, or arbitrary
 class-string composition. A style branch can mix a number and a CSS keyword in
 a property's admitted value space; this does not add general union types.
+On a number-only row such as `opacity`, a computed branch known to be a string
+is refused at build time even when another branch is numeric.
 
 For scrolling, provide a bound and inspect measured layout. For virtualized
 lists, use `list virtualized=true` (no other tag takes it), one direct keyed
@@ -1049,6 +1068,10 @@ dialog or popover with `commandfor` and `command="show-modal"`,
 bound, and an empty target is no target. `href`, `action` and swipe attributes
 remain refused. `-exact-enabled` transitions are not available.
 
+On macOS, iOS and the web, an action can call `showModal(id)` or `close(id)`
+for a `dialog`. macOS and the web follow the invoker's modal focus path; iOS
+presents the dialog as an alert. Bare `close()` still closes the window.
+
 `buttonStyle` needs a native button; on a default button that comes out bare,
 `lower-button-style` names the first reason and says to remove it or write
 `appearance="none"` without `buttonStyle`. It is a styleable host-policy prop;
@@ -1077,26 +1100,41 @@ lists any literal colour, font size or weight an app's `.contract` files still w
 | `button` (`buttonStyle`, native by default) | `UIButton` |
 | `list appearance="auto" listStyle="inset-grouped"` of `section`s (`header`, rows, `footer`) | `UICollectionView` list, as Settings ([human guide](contract-for-humans.md#choosing-a-native-button)) |
 | `input type="checkbox" switch` | `UISwitch` |
+| `input type="radio"` (the radios of one `name` are a group) | the SF Symbols circle, filled at its centre when checked, at body size; in a grouped list's row no circle but the row's checkmark, which a tap on the row moves (LLP 1115.000 D13.2) |
 | `input type="range"` | `UISlider` |
-| `input type="date"`, `"time"`, `"datetime-local"` | `UIDatePicker`; with an empty `value` it shows the format as a placeholder (`mm/dd/yyyy`), as the web and macOS do, and a choice fills it |
+| `input type="date"`, `"time"`, `"datetime-local"` | `UIDatePicker`; with an empty `value` its pill shows your `placeholder` (`placeholder="Add a date"`) or, with none, no words, and a choice fills it (LLP 1115.000 D13.1; macOS's field likewise; the web shows the browser's own empty field) |
 | `select` of `option`s | a pop-up button with its menu |
 | `progress value=done max=goal` (a goal, an upload; `width="100%"` to fill) | `UIProgressView`, tinted by `accent-color` (LLP 1116 D8); never a drawn track and fill |
 | `progress` (no `value`) | `UIActivityIndicatorView`, `.large` from a 37-point box (LLP 1069.001) |
 | `popover="auto" role="menu"` of `button`s, opened by `popovertarget` (a row whose `popovertarget` names another menu: its submenu) | `UIMenu`, nested (LLP 1021) |
 | `dialog role="alertdialog" aria-label="Remove book?"` of a `text`, its action(s) and one Cancel | `UIAlertController(.alert)`: the label its title, the text its message (LLP 1115 D6; recipe [below](#a-confirmation)) |
+| any other `dialog` (a field, Save, Cancel), opened by `showModal(id)` or a button's `command="show-modal"` | a sheet as tall as its content, up to the large detent, its content laid out as written and centred across it (`width="100%" box-sizing="border-box"` fills it); `close(id)`, its `command="close"` button or a swipe down closes it. `closedby="none"` refuses the swipe, `"any"` also takes a tap on the page behind, and a dismissal the person made fires `cancel` (LLP 1115.000 D11.5). A form with a title bar is still a sheet route |
 | `role="tablist"`: each tab a symbol over a label / one text or image | `UITabBar` / `UISegmentedControl`, the tablist at least its native height unless `min-height` says otherwise (LLP 1059) |
-| a route whose first child is a `header` holding one heading, a text after it and its buttons | the navigation bar; a level-1 heading (`aria-level=1`) is a large title, the text after it the subtitle |
+| `role="radiogroup"` of `button role="radio" aria-checked=…`, each one text or image (a value chosen from a few) | `UISegmentedControl`, as a tablist's; never a tab bar (LLP 1116.004 D5.2) |
+| a route whose first child is a `header` holding one heading (`text role="heading"`; an `aria-level` alone is not one), a text after it and its buttons | the navigation bar; a level-1 heading (`aria-level=1`) is a large title, the text after it the subtitle |
+| a pushed route with no such `header` | a bar holding the system Back button alone (LLP 1115.000 D5.2) |
+| a route with `navigationBar="none"` | no navigation bar: a full-bleed screen that draws its own way back; the edge swipe still goes back |
 | a route with `navigationPresentation="modal"` | a sheet |
 
+On macOS, date, time, datetime-local and select controls are default Tab stops,
+independent of the system's Keyboard navigation setting. Their native control
+owns focus and editing keys; `focus`/`blur` and cancellable `key` handlers still
+address the Contract node. Disabled, inert and hidden controls stay out of the
+loop; `tabindex=-1` allows explicit focus while excluding sequential focus.
+
 `contract vocab <name>` lists each one's props. A route does not scroll by
-itself: its content goes in a `scroll`, `list` or `overflow-y="auto"` box, which
-`navigationScroll` names for the bar ("Routes and web documents"). A sheet's swipe down and a pushed screen's edge swipe press the
+itself: its content goes in a `scroll`, `list` or `overflow-y="auto"` box, which is
+the bar's scroller with nothing written (`navigationScroll` names another; "Routes
+and web documents"). A sheet's swipe down and a pushed screen's edge swipe press the
 route's enabled control whose `id` is the root's `navigationBack`, which is optional: a
 root with a `navigationKey` alone is the navigation root and names no control. A route with no such
 control still has the platform's back button, edge swipe and swipe down (and the
 browser's Back): they go back through the root's `navigate` handler with the location
 beneath (`nav = go(nav, url)` pops to it), or, with no handler, the runner pops the
-router itself, as `nav = back(nav)` would (LLP 1115 D5). A declared but disabled
+router itself, as `nav = back(nav)` would (LLP 1115 D5). On the web the browser's
+Forward and a `link` to a declared route do the same with no handler: the runner goes
+there itself, as `nav = go(nav, url)` would (LLP 1115.000 D4.3); a native host's link
+still needs the handler. A declared but disabled
 control refuses them, as does `closedby="none"` on a sheet. On a pushed iOS
 route under the platform bar, that control's text becomes the bar's back button title
 beside the bar's own chevron (no text shows the chevron alone), so label it `Recipes`,
@@ -1149,7 +1187,7 @@ column navigationKey=`${e.id}` navigationScroll="inbox-list" position="absolute"
 column navigationKey=`${e.id}` navigationScroll="list" position="absolute" inset=0 display="flex" flex-direction="column"
   header
     text "Shopping List" role="heading" aria-level=1
-    text `${left} items left`
+    text `${left} ${left == 1 ? "item" : "items"} left`
     button press=add aria-label="Add Item"
       image "symbol:add"
   scroll id="list" flex=1 min-height=0
@@ -1168,7 +1206,10 @@ column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="
 ```
 
 `action reload` is `refresh items`; `pending(items)` is true while it runs.
-A segmented control in the content is the same `row role="tablist"` of text tabs
+A segmented control in the content chooses a value or switches panels: a value
+from two to five (a preset, units, a period, a filter) is a `row role="radiogroup"` of
+`button role="radio" aria-checked=…`, each pressing its value (the web gives it the
+arrow keys and one Tab stop); switching panels, a `row role="tablist"` of text tabs
 outside the header. iOS needs a swipe row's content exactly the scroll's size
 ([pitfalls](agent-pitfalls.md), "There is no `swipeleft`").
 
@@ -1351,8 +1392,7 @@ component Editor
 Choose a colour by what it means, not by how it looks. **The accent is for
 what the user can act on**: a link, a plain button's title or symbol, a filled
 button's fill, a toggle's on state, the icon of a tappable row. Write it as
-`AccentColor` (or leave `-exact-tint-color` unset, whose initial value is
-`AccentColor`), never as the colour the accent happens to be today
+`AccentColor`, never as the colour the accent happens to be today
 (`-exact-system-blue`): the platform keeps the accent dynamic and dims it to
 grey behind an alert or a sheet to say the screen under it is inert. **A
 colour of its own is for what means something by itself**: status
@@ -1414,6 +1454,17 @@ Bind the host's navigation root and per-entry `navigationKey`s as the
 [router fixture](../contract/corpus/routes.contract) demonstrates. Test back,
 tab switching, the same-URL push, external navigation, and route parameters.
 
+For a custom scheme, declare `protocol_handlers` in `app.json`, for example
+`[{"protocol":"web+notes","url":"/open?u=%s"}]`. The Apple hosts register
+that scheme. An incoming `web+notes://auth/callback#done` reaches `/open` with
+the complete original URL percent-encoded in `u`; read it with
+`searchParam(top(nav), "u")`. The handler needs an `/open` route and a
+navigation root with `navigate=`. At cold launch it is the initial location;
+when already running, each link fires one `navigate` event in arrival order.
+An app without `protocol_handlers` keeps ordinary URL-to-location behavior.
+Web builds copy this key into the web app manifest; the browser decides which
+schemes it supports and whether the installed app is registered.
+
 Every route (a node with a `navigationKey` under the root) is a direct child of the
 root or of a `role="tabpanel"` in it — through `each` and `when`, never another
 element: the compiler refuses one behind a wrapper (`lower-route-place`). Make each
@@ -1426,21 +1477,26 @@ two screens share names two nodes: give each screen its own (`list-error`,
 A route does not scroll by itself, as a `div` does not: content taller than it is
 never seen. A fixed shell (a map, a camera, a chat whose composer stays put) is
 fine; anything else puts its content in a `scroll` or `list` with `flex=1
-min-height=0` right after its `header`, and names it with `navigationScroll`:
+min-height=0` right after its `header`:
 
 ```text
-column navigationKey=`${e.id}` navigationScroll="feed" position="absolute" inset=0 display="flex" flex-direction="column"
+column navigationKey=`${e.id}` position="absolute" inset=0 display="flex" flex-direction="column"
   header
     text "Inbox"
-  scroll id="feed" flex=1 min-height=0
+  scroll flex=1 min-height=0
     …
 ```
 
-`navigationScroll` names an element of the route by its `id`; on iOS that scroller
-goes under the bar and collapses a large title, which happens only when it is the
-route's child right after its `header`. The compiler refuses a literal name that no
-element of the route carries, or one whose element is a box that never scrolls on y
-(`lower-route-scroll`).
+That scroller is the route's content scroller with nothing written: the first in the
+route that scrolls vertically. On iOS it goes under the bar and collapses a large
+title, which happens when it is the route's child right after its `header` (in a route
+with no header, its first child); with content between them (a switcher, a filter, an
+error line) the title keeps still and that content sits below the bar, large title
+included; a tap on the status bar, or on the selected
+tab at its root, scrolls it to the top. A route with several scrollers names a
+different one with `navigationScroll`, by its `id`. The compiler refuses a literal
+name that no element of the route carries, or one whose element is a box that never
+scrolls on y (`lower-route-scroll`).
 
 ## Tabs and stacks
 
@@ -1514,11 +1570,12 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   iOS alone sizes a sheet (LLP 1075.003 §9.11).
 - Without tabs, the routes are the root's own children, laid out the same way.
 - Tests reach a tab by `tap`, or deliver a location as `type <root> "/saved"` (LLP
-  1038 D11), which calls the root's `navigate`. On the web a CLI drive goes back as
-  the browser's back button does with `tap <root> history -1`, `<root>` being the
-  navigation root (the node with `navigationBack`) by its `testId`, the simplest
-  handle, or its view number from `tree`; native hosts refuse it, and a
-  test file has no such step yet.
+  1038 D11), which calls the root's `navigate`. `back`, an operation and a test
+  step, is the platform's Back on every host (LLP 1116.006 D4): an open dialog's
+  cancel, else the top sheet dismissed, else the pushed route popped, as iOS's Back
+  button, the browser's Back or ⌘[ goes; with nothing to go back from it fails. On
+  the web `tap <root> history -1` is the browser's history alone (native hosts
+  refuse it).
 
 A `head` node supplies document metadata. The innermost active value wins for
 each field. `head edited=dirty` marks a document with unsaved changes (the dot in
@@ -1599,7 +1656,8 @@ in 1970, and one stored is meaningless after a relaunch. Anything stored or sent
 `epochAtZero` (Unix milliseconds when `performanceNow()` read zero), `utcOffset` (minutes east
 of UTC), `locale` (BCP 47), `timeZone` (IANA), `resolvedLocale` (the language of
 the string table the app shows, `""` with no tables) and `seed` (a whole number
-drawn once per launch). A read does not itself schedule a future render, and a
+below 2^32, drawn once per launch, so `%` and `>>> 0` take all of it; mix a round
+into it in 32-bit steps, as the [random recipe](recipes/random-and-shuffle.md) does). A read does not itself schedule a future render, and a
 derive that reads `performanceNow()` is not read again as time passes, and when it is read
 again differs by host. For a displayed value that must follow the clock, keep the
 time in state that a timer's action (`task … every`) writes. Prefer `clock settle` to waiting for a transition in real time.
@@ -1697,7 +1755,9 @@ dialog id="remove" role="alertdialog" aria-label="Remove book?"
 ```
 
 iOS shows the centred alert, its Cancel kept; the web its modal `dialog`;
-macOS its painted dialog. Text, a cancel and at most three buttons make an
+macOS `NSAlert`, a sheet on the window, its Cancel on Escape and Return on the
+one `buttonStyle="filled"` button that is not destructive, when there is exactly
+one (LLP 1115.000 D7.6). Text, a cancel and at most three buttons make an
 alert; several actions with no text (an "Open in…" chooser) make an action
 sheet, unanchored on an iPhone (its Cancel drawn) when it has a Cancel and a popover
 at its invoker when it has none, so a tap outside can dismiss it (LLP 1115 D6).
@@ -1791,6 +1851,39 @@ P1; `apps/harness/terminal.contract` shows the task). Declare its shape
 other host it stays unloaded. A new host fact uses this channel before
 anyone proposes a new reserved source (LLP 1101.002 §0 P11).
 
+The terminal's `colors` is the selected output bit depth: `0` (monochrome),
+`4` (16 ANSI colours), `8` (256 colours), or `24` (RGB). The host reduces
+authored colours to that palette; at zero it emits no foreground/background
+colour codes, while preserving bold, underline, italic and reverse-video
+focus. Images use alternate text in monochrome. Authors can choose different
+content, symbols or emphasis rather than relying on colour alone:
+
+```contract
+shape Terminal
+  colors: number
+component App
+  resource terminal = exactSurface("terminal") as shape Terminal
+  view
+    column
+      when terminal.colors == 0
+        text "! Attention required" font-weight=700
+      else
+        text "Attention required" color="#d78700"
+```
+
+Interactive and headless CLI runs detect the palette from `TERM` and
+`COLORTERM`. Nonempty `NO_COLOR` disables colour (including `NO_COLOR=0`);
+empty `NO_COLOR` does not. `TERM=dumb`, `unknown`, an absent terminal type
+without a colour hint, and unrecognized terminal types fall back to monochrome.
+This is conservative environment detection, not a terminal capability query.
+Use `--color auto|never|16|256|truecolor` on any terminal app or `exact-terminal`
+to override it (`always` means `truecolor`; `--color=never` also works).
+An explicit choice overrides `NO_COLOR`. Plain `print`/`document` output is
+always text; the selected palette also applies to `.ans` screenshots. A Rust
+embedder may call `Host::set_colors(ColorDepth::Monochrome)` before starting
+the loop or emulator; direct painting and `Vt` otherwise default to RGB for
+deterministic tests.
+
 A `text` inside a paragraph can carry `press=` (a `span`'s `onclick`) and
 `href=` (an `a`). In the terminal a click on the run runs its
 handler; without one (and on every host for `href`) it follows the link: a path naming one of the app's routes is `navigate` on the
@@ -1813,7 +1906,7 @@ agent operations below for Exact's native tree. Production builds
 (`EXACT_UPDATE_TRUST=production`), `exact release`, and IPA archives leave
 web-view inspection disabled.
 
-An Apple build's dev menu (a four-finger tap, or ⌘D on a hardware keyboard or a simulator's; on a Mac, Develop › App Info…, ⌘D) opens with the
+An Apple build's dev menu (a four-finger tap, or ⌘D on a hardware keyboard or a simulator's; on a Mac, Develop › App Info…, ⌘D, in a development build: a Mac build with production trust, `EXACT_UPDATE_TRUST=production`, or made by `exact release` has no Develop menu and takes none of its chords unless it is launched with `EXACT_DEV_MENU=1`) opens with the
 build it is in: the app and version, when, where and with which Xcode it was
 built, the exact2 commit and the app's own (with branch and a dirty flag), the
 build kind, the device, and the app's release notes. `host/apple/build.mjs`
@@ -1924,7 +2017,9 @@ text is the rest of the op's words, joined by one space, quotes included:
 `"type new-task buy milk"`;
 in a test file each value is one quoted string, a checkbox's `"true"` too); `change` comes as a
 person's would, when the field commits (`type <id> key Enter` on a field, or the
-focus leaving it), so an edit saved on `change` needs one of those. A CLI drive's
+focus leaving it), so an edit saved on `change` needs one of those (on macOS a
+`tap` on a button leaves the focus in the field, and commits the field's `change`
+before the button's `press` runs). A CLI drive's
 input does not wait for a request its action sends; `clock data` lands it.
 `tap <target> drag <dx> <dy> … during "<op>" …` runs the quoted reads after the
 move, with the finger still down, before the hold. Under `--touch platform` the
@@ -2009,6 +2104,13 @@ test "the list shows an error, then retries and loads"
   expect tree has "recipes"
 ```
 
+To write through the app's own server as another person, `request POST "/items"
+{"title": "Bread"} as grace` is the driver calling it (`Authorization: Bearer grace`,
+under app.ts's local URL; a status outside 2xx fails the step with the status and
+body). The app shows the write when it next reads: `clock +<its poll's ms>`, `clock
+data`, then `expect` ([rest-backend](recipes/rest-backend.md),
+[authored tests](contract-grammar.md#authored-tests)).
+
 A slow server is bounded in the source, not the view: `fetch(url, {
 exactTimeout: 10000 })` cancels the exchange after 10 s (headers and body) and
 rejects with a `FetchError` of kind `"Timeout"`, which the source catches and
@@ -2053,7 +2155,9 @@ clock starting over, so a test shows what persists; the web reloads its current
 URL, including its agent launch facts; a native app reopens at its launch
 location), `close` (the window's close button, as ⌘W: a `beforeunload` that
 calls `preventDefault()` keeps it open and the test goes on to the app's "Save
-changes?"; macOS and the web),
+changes?"; macOS and the web), `back` (the platform's Back: a dialog's cancel,
+a sheet's dismissal, the pushed route popped; a refusal is a note, nothing to
+go back from fails),
 `screenshot "file"`, `expect tree has|missing "id"`, `expect text "id" == "…"`
 (the node's text; a control's value, so a `select` reads its chosen value, not its
 options, and a checkbox with a `checked` binding `true` or `false`; else its descendants' — a button's label — else a field's value), and
@@ -2116,6 +2220,12 @@ that restates a constant is weaker evidence than the user's actual sequence.
 | `press={() => save()}` | `press=save` or `press=save(captured)` |
 | Copying an action's statements into another | Call it: `arrive(path)`; the callee runs in the same commit |
 | A helper that reads a slot its caller just assigned | Pass the value: `follow(next)` (`analyze-call-stale-read`) |
+| `button press=add` with no child, or only an `image "symbol:…"` (`lower-button-unlabelled`) | Its words in it (`text "Add"`), or `aria-label="Add"` on a symbol-only button |
+| A heading at the top of a route's content that says its `header` heading again, which shows twice under the iOS bar (`lower-title-twice`) | Drop it; the bar's title names the screen. A heading below names a section: `text "Results" role="heading" aria-level=2` |
+| A list and its detail (or a form) swapped by `when showingDetail` / `else`, each with its heading, in an app with no `routes` (`lower-screen-by-state`) | Each screen a route: `routes`, a row that `push`es its detail, `back` to return; the web gets Back, reload and links, a wide window the split (`contract vocab screen`) |
+| `text "Results" aria-level=2`, a level with no role, which gets no heading style and is not the iOS bar's title (`lower-level-without-heading`) | `text "Results" role="heading" aria-level=2`; `role="heading"` alone is level 2 |
+| `column role="dialog" aria-modal=true` for a modal you lay out (`lower-dialog-role`) | A sheet, a route with `navigationPresentation="modal"` ([navigation-stack](recipes/navigation-stack.md)); a confirmation is `dialog role="alertdialog"`, opened with `showModal(id)` |
+| `` `${n} cards` ``, which reads "1 cards" (`lower-count-plural`) | The noun chosen by the number: `` `${n} ${n == 1 ? "card" : "cards"}` `` (`contract vocab plural`) |
 | `now = performanceNow()`, then `now` read in the same action (`analyze-read-after-assign`) | Bind it and read the local: `let stamp = performanceNow()`, `now = stamp`, then `stamp` |
 | Child `resource`, `mutation`, or `task` | Root-owned declaration and props/injections |
 | `fontSize`, `radius`, `resizeMode` | `font-size`, `border-radius`, `object-fit` |
@@ -2323,6 +2433,8 @@ tint: the nearest `accent-color` a node or an ancestor sets, else the platform's
 UIKit's inherited `tintColor` is), and Exact's `-exact-label`,
 `-exact-secondary-label`, `-exact-tertiary-label`, `-exact-quaternary-label`,
 `-exact-placeholder`, `-exact-separator`, `-exact-opaque-separator`, `-exact-link`,
+`-exact-symbol` (what a symbol nobody tinted is, the initial `-exact-tint-color`:
+the tint on iOS and the web, the secondary label colour on the Mac),
 `-exact-background`, `-exact-secondary-background`, `-exact-tertiary-background`,
 `-exact-grouped-background`, `-exact-secondary-grouped-background`,
 `-exact-tertiary-grouped-background`, `-exact-fill` (and `secondary-`, `tertiary-`,

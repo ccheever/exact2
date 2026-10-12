@@ -65,9 +65,11 @@ fn run(shared: &Arc<Shared>, name: &str, rest: &str) -> bool {
             s.round = None;
             s.epoch += 1.0;
             let blocks = art::banner(&s.model, &s.cwd, &s.branch);
+            let busy = s.branch_loading;
             s.push(Entry {
                 kind: "banner".into(),
                 blocks,
+                busy,
                 ..Entry::default()
             });
         }

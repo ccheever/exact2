@@ -278,6 +278,27 @@ extension NodeView {
     }
 }
 
+extension NodeView {
+    /// VoiceOver's show menu (AXShowMenu, VO-⇧-M) is the ContextMenu key's
+    /// request at this node (X84), as Chrome sends both through Blink's
+    /// `ShowNonLocatedContextMenu`: its `contextmenu`, then its
+    /// `contextPopover`'s menu, at its drawn middle.
+    package override func accessibilityPerformShowMenu() -> Bool {
+        guard offersShowMenu, let presenter, let point = presenter.contextPoint(self) else { return false }
+        return presenter.contextMenu(self, at: point)
+    }
+    /// AppKit offers every action whose method the class implements; show
+    /// menu only where something answers it, as AppKit offers it only on a
+    /// view with a `menu` (no node has one).
+    package override func isAccessibilitySelectorAllowed(_ selector: Selector) -> Bool {
+        selector == #selector(accessibilityPerformShowMenu) ? offersShowMenu : super.isAccessibilitySelectorAllowed(selector)
+    }
+    private var offersShowMenu: Bool {
+        guard let presenter, presenter.views[id] === self, !disabled, !inert, field == nil, textArea == nil else { return false }
+        return answersContextMenu
+    }
+}
+
 extension NSView {
     /// Core-AAM's toggle button: `AXCheckBox`, subrole `AXToggle`, value 0, 1
     /// or 2 (mixed); `role` when `pressed` is nil.
@@ -303,17 +324,19 @@ extension UIView {
         if pressed != nil { accessibilityTraits.insert(.toggleButton) } else { accessibilityTraits.remove(.toggleButton) }
         accessibilityValue = pressed.map { $0 == "mixed" ? "2" : $0 == "true" ? "1" : "0" }
     }
-    /// A checkable role as Safari's VoiceOver reads one: a checkbox or
-    /// switch is a button whose value is `checked` or `unchecked` (as the
+    /// A checkable role as UIKit reads one (LLP 1115.000 D13.3): a checkbox
+    /// or switch is a toggle, the `toggleButton` trait with UIKit's value,
+    /// "1" or "0", which VoiceOver speaks in the reader's language (as the
     /// native checkbox, `ControlsIOS`); a radio is a button, selected while
     /// checked. Called after `setAccessibilityToggle`, which it overrides.
     func setAccessibilityChecked(_ role: String, _ checked: Bool) {
-        accessibilityTraits.remove(.toggleButton)
         if role == "radio" {
+            accessibilityTraits.remove(.toggleButton)
             accessibilityValue = nil
             if checked { accessibilityTraits.insert(.selected) }
         } else {
-            accessibilityValue = checked ? "checked" : "unchecked"
+            accessibilityTraits.insert(.toggleButton)
+            accessibilityValue = checked ? "1" : "0"
         }
     }
 }
@@ -584,6 +607,9 @@ extension Presenter {
             guard let self, !launchAutofocusReleased, session?.state != .destroyed else { return }
             launchAutofocusReleased = true
             syncAccessibility()
+            #if os(macOS)
+            focusInitialKeyView() // LLP 1115.000 D7.5, after the author's `autofocus` had its say
+            #endif
         }
     }
 

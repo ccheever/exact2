@@ -1337,9 +1337,11 @@ fn a_navigation_gets_the_head_before_the_render_and_the_rest_after() {
     assert!(first_chunk.contains("<style>p{margin:0}</style>"));
     assert!(!first_chunk.contains("<title>"));
     // The rest: at the deadline, the document with what is pending, which
-    // the runtime asks again once it adopts the page.
+    // the runtime asks again once it adopts the page. Its language is the
+    // shell's, the manifest's: this plan has no strings table to name one
+    // (LLP 1115.000 D4.6).
     assert!(
-        page.starts_with("<!doctype html>\n<html lang=\"\" dir=\"ltr\">"),
+        page.starts_with("<!doctype html>\n<html lang=\"en\" dir=\"ltr\">"),
         "{page}"
     );
     assert!(page.contains("\"pending\":[\"post\"]"), "{page}");

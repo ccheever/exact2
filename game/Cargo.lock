@@ -234,6 +234,7 @@ dependencies = [
  "contract-analyze",
  "contract-syntax",
  "contract-types",
+ "exact-color",
  "exact-kernel",
  "exact-motion",
  "exact-num",

@@ -181,3 +181,74 @@ fn logical_text_joins_inline_runs_skips_hidden_text_and_uses_utf16_positions() {
         "🦊0\n\ntail\n\nA🦊1\n\ntail\n\nA🦊2\n\nta"
     );
 }
+
+/// X81: text the reader cannot select (`user-select: none`, on it or above)
+/// stays out of a copy, as the browser and the Mac's copy of plain rows
+/// leave it out. It still counts toward a paragraph ordinal, as the hosts
+/// number a row's texts, so a label before the code moves no endpoint.
+#[test]
+fn logical_text_leaves_out_unselectable_text() {
+    use exact_runner::ListTextPosition;
+    let source = SOURCE.replace(
+        r#"    button press=bump testId=`row-${item.id}` height=24
+      text `${item.id}:${count}` testId=`value-${item.id}`"#,
+        r#"    row height=24
+      text `L${item.id}` user-select="none"
+      text `code ${item.id}`
+      view user-select="none"
+        text "gutter""#,
+    );
+    let r = Runner::boot(
+        contract::compile(&source).unwrap(),
+        data(1000),
+        Kernel::with_monospace(),
+        Viewport::default(),
+        "/",
+    )
+    .unwrap();
+    let list = view(&r, "list");
+    let codes = |ids: std::ops::Range<usize>| {
+        ids.map(|i| format!("code {i}"))
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    };
+    assert_eq!(r.list_text(list, None).unwrap(), codes(0..1000), "⌘A");
+    // The endpoints the Mac host and the wasm page give: the code is
+    // paragraph 1, after the label.
+    let at = |key, offset| ListTextPosition {
+        key,
+        paragraph: 1,
+        offset,
+    };
+    assert_eq!(
+        r.list_text(list, Some((at("n:1", 0), at("n:3", 6))))
+            .unwrap(),
+        codes(1..4)
+    );
+    assert_eq!(
+        r.list_text(list, Some((at("n:1", 0), at("n:3", 2))))
+            .unwrap(),
+        "code 1\n\ncode 2\n\nco",
+        "a drag that ends inside row 3's code"
+    );
+    // Across rows that are not mounted.
+    let far = r
+        .list_text(list, Some((at("n:900", 3), at("n:2", 5))))
+        .unwrap();
+    assert_eq!(far, format!("2\n\n{}\n\ncod", codes(3..900)));
+    assert!(!r.is_poisoned());
+    // `none` on the list leaves all of its text out.
+    let source = source.replace(
+        r#"list virtualized=true "#,
+        r#"list user-select="none" virtualized=true "#,
+    );
+    let r = Runner::boot(
+        contract::compile(&source).unwrap(),
+        data(3),
+        Kernel::with_monospace(),
+        Viewport::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(r.list_text(view(&r, "list"), None).unwrap(), "");
+}

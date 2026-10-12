@@ -4,7 +4,7 @@ import AppKit
 /// HTML's top layer belongs to the session, not to NSApp or a second runner.
 /// The actual subtree moves; fields, selection and app state remain the same.
 final class DialogHost {
-    private weak var presenter: Presenter?
+    private(set) weak var presenter: Presenter?
     final class Entry {
         let dialog: NodeView
         weak var parent: NSView?
@@ -23,6 +23,8 @@ final class DialogHost {
         }
     }
     private var entries: [Entry] = []
+    /// The native button drawn as the open dialog's default (DefaultButtonMac.swift).
+    weak var drawnDefault: NativeButtonMac?
     var active: NodeView? { entries.last?.dialog }
     /// LLP 1080.001 D3: an open dialog's backdrop; the dialogs it lifts.
     func inspectionOwns(_ view: NSView) -> Bool { entries.contains { $0.backdrop === view } }
@@ -59,6 +61,10 @@ final class DialogHost {
         guard let presenter, !owns(dialog), live(dialog), let window = presenter.viewport.window,
               let parent = dialog.superview, parent.isDescendant(of: presenter.root) || parent === presenter.root
                 || entries.contains(where: { parent.isDescendant(of: $0.dialog) || parent === $0.dialog }) else { return }
+        // A confirmation in the alert shape is the platform's alert, a sheet
+        // on the window (LLP 1115.000 D7.6, AlertsMac.swift). HTML: showModal
+        // on an open modal dialog does nothing.
+        if presenter.alerts.isOpen(dialog) || presenter.alerts.present(dialog, from: nil) { return }
         let entry = Entry(dialog, previous: focusOwner(window))
         presenter.menus.reset()
         entries.append(entry)
@@ -75,10 +81,12 @@ final class DialogHost {
         refreshInputGates()
         presenter.syncKeyViewLoop()
         enterFocus()
+        syncDefaultButton()
         presenter.syncAccessibility()
         presenter.shortcuts.sync()
     }
     func close(_ dialog: NodeView, restoreFocus: Bool = true) {
+        if presenter?.alerts.close(dialog) == true { return }
         guard let i = entries.firstIndex(where: { $0.dialog === dialog }) else { return }
         for popover in presenter?.menus.presented ?? [] where presenter?.menus.contains(dialog, popover) == true {
             presenter?.menus.close(popover, restoreFocus: false)
@@ -97,6 +105,7 @@ final class DialogHost {
         }
         refreshInputGates()
         presenter?.syncKeyViewLoop()
+        syncDefaultButton()
         if wasTop, restoreFocus, hadFocus, let window {
             if let previous = entry.previous, previous.window === window,
                !previous.isHiddenOrHasHiddenAncestor, !blocks(previous),
@@ -110,6 +119,7 @@ final class DialogHost {
         presenter?.shortcuts.sync()
     }
     func reset() {
+        presenter?.alerts.reset()
         while let dialog = active { close(dialog, restoreFocus: false) }
     }
     /// A children op still addresses the authored parent, even while a dialog
@@ -127,6 +137,7 @@ final class DialogHost {
     }
     func sync() {
         guard let presenter else { return }
+        presenter.alerts.sync()
         for entry in entries {
             let parent = entry.parent
             let connected = parent === presenter.root || parent?.isDescendant(of: presenter.root) == true
@@ -142,6 +153,7 @@ final class DialogHost {
         }
         if changed { refreshInputGates() }
         layout()
+        if active != nil || drawnDefault != nil { syncDefaultButton() }
         if let window = presenter.viewport.window, active != nil,
            ownsFocus(window), focusOwner(window).map({ blocks($0) }) ?? true { enterFocus() }
     }
@@ -177,16 +189,24 @@ final class DialogHost {
         }
         return nil
     }
-    private func candidates(_ dialog: NodeView) -> [NSView] {
-        guard let presenter else { return [] }
-        var nodes: [NodeView] = []
+    /// The dialog's stops in tree order, and how many of them come before
+    /// `start` when it is one of the dialog's nodes.
+    private func stops(_ dialog: NodeView, start: NodeView? = nil) -> (nodes: [NodeView], before: Int?) {
+        guard let presenter else { return ([], nil) }
+        var nodes: [NodeView] = [], before: Int?
         func walk(_ node: NodeView) {
             guard !node.inert, !node.disabled, !node.isHidden else { return }
+            if node === start { before = nodes.count }
             if Presenter.tabbable(node) { nodes.append(node) }
             for case let child as NodeView in node.container.subviews { walk(child) }
             for popover in presenter.menus.following(node) { walk(popover) }
         }
         walk(dialog)
+        return (nodes, before)
+    }
+    private func candidates(_ dialog: NodeView) -> [NSView] { candidates(stops(dialog).nodes) }
+    private func candidates(_ nodes: [NodeView]) -> [NSView] {
+        guard let presenter else { return [] }
         return nodes.enumerated().sorted { a, b in
             let ai = a.element.tabOrder, bi = b.element.tabOrder
             let ap = ai > 0 ? ai : Int.max, bp = bi > 0 ? bi : Int.max
@@ -216,9 +236,22 @@ final class DialogHost {
             if event.type == .keyDown, !event.isARepeat, dialog.props["closedby"] != "none" { close(dialog) }
             return true
         }
+        // Return is the default button's, when the dialog has one (LLP 1115.000 D7.3).
+        if pressDefault(event, in: dialog) { return true }
         if event.type == .keyDown, event.keyCode == 48 {
-            let choices = candidates(dialog)
-            guard let window = dialog.window, !choices.isEmpty else { enterFocus(); return true }
+            // A node that holds the focus and is no stop (the dialog itself, a `tabindex=-1` box) is where Tab
+            // starts, as on the page (KeyViewLoopMac.swift's starts): the stop after it in tree order, Shift-Tab
+            // the one before it, and past either end the trap's first or last.
+            let start = dialog.window.flatMap { presenter?.keyTarget($0.firstResponder) }.flatMap { Presenter.tabbable($0) ? nil : $0 }
+            let (nodes, before) = stops(dialog, start: start)
+            let choices = candidates(nodes)
+            guard let window = dialog.window, let presenter, !choices.isEmpty else { enterFocus(); return true }
+            let backwards = event.modifierFlags.contains(.shift)
+            if let before {
+                window.makeFirstResponder(backwards ? (before > 0 ? presenter.keyView(of: nodes[before - 1]) : choices[choices.count - 1])
+                    : (before < nodes.count ? presenter.keyView(of: nodes[before]) : choices[0]))
+                return true
+            }
             let current = focusOwner(window).flatMap { owner -> Int? in
                 var ancestor: NSView? = owner
                 while let view = ancestor {
@@ -228,7 +261,6 @@ final class DialogHost {
                 }
                 return nil
             }
-            let backwards = event.modifierFlags.contains(.shift)
             let index = current.map { ($0 + (backwards ? choices.count - 1 : 1)) % choices.count }
                 ?? (backwards ? choices.count - 1 : 0)
             window.makeFirstResponder(choices[index])
@@ -241,7 +273,7 @@ final class DialogHost {
         if let dialog = active, dialog.props["closedby"] == "any" { close(dialog) }
     }
     var observation: [String: Any]? {
-        active.map { ["kind": "dialog", "dialog": Int($0.id), "closedby": $0.props["closedby"] ?? "closerequest", "phase": "open"] }
+        presenter?.alerts.observation ?? active.map { ["kind": "dialog", "dialog": Int($0.id), "closedby": $0.props["closedby"] ?? "closerequest", "phase": "open"] }
     }
 }
 
@@ -250,7 +282,9 @@ final class DialogBackdrop: NSView {
     private var downOutside = false
     override var isFlipped: Bool { true }
     override func draw(_ dirtyRect: NSRect) { NSColor.black.withAlphaComponent(0.18).setFill(); dirtyRect.fill() }
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    /// A backdrop is not a control: the click that activates its window does
+    /// not also dismiss the dialog (LLP 1115.000 D7.9). The agent's does.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { NodeView.everyClickCounts }
     private func outside(_ event: NSEvent) -> Bool {
         guard let parent = superview else { return false }
         return hitTest(parent.convert(event.locationInWindow, from: nil)) === self

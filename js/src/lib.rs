@@ -228,6 +228,7 @@ pub struct Module {
     max_heap: u32,
     /// How long a storage step is waited for (tests shorten it).
     storage_wait: std::time::Duration,
+    document_owner: u64,
     logs: Vec<String>,
     overruns: u32,
     /// The Canvas 2D roster the bake read (LLP 1056 D1), known before the
@@ -294,6 +295,7 @@ impl Module {
             budget_ms: DEFAULT_BUDGET_MS,
             max_heap: DEFAULT_MAX_HEAP,
             storage_wait: storage::WAIT,
+            document_owner: 0,
             logs: Vec::new(),
             overruns: 0,
             canvas_surfaces: Vec::new(),
@@ -354,6 +356,7 @@ impl Module {
         let plan = template.plan.as_ref().map(Plan::encode);
         let budget_ms = template.budget_ms;
         let max_heap = template.max_heap;
+        let document_owner = template.document_owner;
         let agent_seed = template.agent_seed;
         let watch = template.watch.clone();
         let native_slot = template.native_slot.clone();
@@ -371,6 +374,7 @@ impl Module {
             }
             module.set_budget_ms(budget_ms);
             module.set_max_heap(max_heap);
+            module.set_document_owner(document_owner);
             if let Some(paths) = directories {
                 module.configure_storage(paths.data, paths.cache, paths.temporary)?;
             }
@@ -471,7 +475,11 @@ impl Module {
         // The bindings Context must precede the engine and outlive its
         // adapter. Module declares `engine` before `storage`, and unload takes
         // the engine first, preserving that order on every path.
-        self.storage = Some(storage::Session::open(&io, self.storage_wait)?);
+        self.storage = Some(storage::Session::open(
+            &io,
+            self.storage_wait,
+            self.document_owner,
+        )?);
         let ctx = &mut *self.host as *mut HostState as *mut c_void;
         let host: HostFn = host_door;
         let bytes: engine::BytesFn = crypto::bytes_door;

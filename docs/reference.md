@@ -196,6 +196,28 @@ the plan, so this is not an original-source revision guarantee.
 and exits nonzero when formatting differs. Plain `fmt <file>` writes the result
 explicitly. Formatting never runs automatically on save.
 
+## Run a terminal app
+
+`cargo build --profile host-dev -p harness-terminal -p llp-terminal` builds
+`target/host-dev/harness` (inline; `--fullscreen` for the alternate screen)
+and `target/host-dev/llp [corpus-or-document]` (full screen). Both embed their
+terminal entry as a compiled plan. Rebuild after editing the entry or an
+import; launching the binary needs no Contract source or compiler work.
+`exact-terminal <entry.contract>` remains the source-driven development
+host. All three accept the headless operations and `--size COLSxROWS`.
+
+The harness's inline transcript is transferred to scrollback in bounded
+batches, retiring each only after the terminal prints it. A large burst
+still produces every entry immediately; fullscreen retains the full
+transcript for scrolling.
+
+Vertical `list virtualized=true` uses the shared collection window on the
+terminal. Scroll and resize report the viewport and measured rows; Tab and
+arrow navigation reach logical rows beyond the mounted window. A focused
+row stays alive when scrolled away. Closed dialogs release their virtual
+row views while retaining their list index and position. The LLP reader's
+document tree uses this path, initializing its index on first open.
+
 ## Run an app from a terminal on macOS
 
 ```sh
@@ -233,6 +255,18 @@ JSON for `+json`, XML for `+xml`, else data) with the app as its `Editor` and
 manifest, the web's included. An extension another app already owns on a Mac
 (Freeform has `.board`) can still resolve to that app's type there; the open
 panels and drops take a declared extension whichever type the Mac gives it.
+
+For URL schemes, `protocol_handlers` in `app.json` uses the Web App Manifest's
+`{ "protocol": "web+notes", "url": "/open?u=%s" }` entries. A native Apple
+bundle registers each declared scheme. `%s` is the complete incoming URL
+encoded as a URI component, so the scheme, query, and fragment survive;
+`searchParam(top(nav), "u")` recovers it in the `/open` route. A cold link is
+the launch location; warm links arrive one at a time at the navigation root's
+`navigate` handler. The app must declare that root and an accepting route.
+The web manifest carries the same entries; browser registration is subject to
+the browser's supported schemes and installation behavior. Linux's CLI URL
+argument retains the ordinary location conversion because it does not
+register OS protocol handlers.
 A file chosen in the app's own picker (`showOpenFilePicker`,
 `showSaveFilePicker`) joins File ▸ Open Recent — a save once it is written —
 and becomes the window's document, as a routed one does. A path from the command line, from Finder, from ⌘O, or from a link inside
@@ -322,7 +356,7 @@ first data load, `fail fetch <prefix> [times <n>]` and `pass fetch <prefix>` arm
 `{"op":"prefer","faults":{"fail":…,"times":…}}` or `{…{"pass":…}}`), and `state.faults` lists each prefix's `times`, `left`, `hits` and
 `armed`. Native carriers pass the launch table as `EXACT_AGENT_FAIL_FETCH`, web pages as `?failFetch=`, one
 `<prefix>[\t<times>]` line a fault, read only in agent mode; a production build ignores both. `--fail-fetch` with `--test` arms every test.
-Seeds are integers from 0 through 2^53 − 1; an epoch is an ISO date, Unix milliseconds, or `now`: the machine's clock,
+Seeds are whole numbers from 0 through 2^32 − 1, the range every host draws (LLP 1116.005 D5); an epoch is an ISO date, Unix milliseconds, or `now`: the machine's clock,
 read once by the driver at launch, for a drive against a live backend on real time (`snapback4 dev`). Native carriers pass
 `EXACT_AGENT_SEED`, `EXACT_AGENT_LOCALE`, `EXACT_AGENT_TIME_ZONE` and `EXACT_AGENT_EPOCH`
 (milliseconds); direct agent launches can set these too. Web agent pages accept
@@ -387,6 +421,23 @@ on the web and these on Hermes (macOS, iOS, Linux):
 | `queueMicrotask`, `Promise` | |
 | `Intl.NumberFormat`, `Intl.DateTimeFormat`, `Intl.Collator`, `localeCompare`, `toLocaleString` | Date formatting needs an explicit timestamp. No `Intl.PluralRules`, `RelativeTimeFormat`, `ListFormat`, `Segmenter` or `DisplayNames` (Apple's engine; Linux's is built `--intl`). `Intl.Locale` is the prelude's on every Hermes host (the engine has none): a tag parsed and canonicalized as Chrome does, its options and getters, and `getWeekInfo()` with Chrome's `{firstDay, weekend}` from CLDR's week data, by the tag's region, its `-u-rg-`, or its language's likely region (two-letter languages and a few others; another reads Monday and a Saturday-Sunday weekend), and `-u-fw-`. It has no `maximize`, `minimize` or other `get…()` list, does not canonicalize aliases (`iw` stays `iw`, `en-840` keeps `840`, and its week is then the default, Monday, where Chrome's is `en-US`'s), a formatter given a `Locale` object rather than its string uses the default locale, and `structuredClone` copies a `Locale` as `{}` where Chrome refuses it. Apple's `ja-JP` long date puts a space before the weekday (`10月6日 火曜日`, Chrome `10月6日火曜日`). Apple's engine has no `notation: "compact"`: the prelude formats its short display as Chrome does for a decimal in en, en-GB, en-IN, de, fr, fr-CA, es, es-MX, it, pt, pt-PT, nl, sv, da, nb, fi, pl, ru, uk, cs, tr, ja, zh, zh-TW, ko, hi, he, id, th and vi (and their regions); `compactDisplay: "long"`, another locale or a compact currency is printed in full and said once in the logs. Apple's engine rounds a tie to even and ignores `roundingMode` (`$0.82` for 0.825 dollars, Chrome `$0.83`); the prelude rounds the number first, as Chrome does: from its shortest digits, by the formatter's `roundingMode` (half away from zero unless it names another), which `resolvedOptions()` then reports; a compact it prints in full rounds so too, to its style's digits (`$0.83` for a compact 0.825 dollars). A `unit` keeps the engine's rounding, since that engine converts it to the locale's unit (`0.622mi` for 1 kilometer). Apple's engine has no `formatToParts` |
 | `console` | To the runner's logs after each answer and reply, including refused calls; available through the agent's `logs` on native hosts |
+
+For `fetch` with the default `redirect: "follow"`, native hosts check each
+redirect target against the source's `net.fetch` grants before contacting it.
+The web lets the browser follow and checks only the final response URL. On
+render-server pages, CSP `connect-src` allows the page's own origin and the
+app's granted origins, while request admission uses the source's grants. A hop
+outside the page origin and app grants is blocked before contact (`Network` on
+web, `Refused` on native). An app-granted but source-ungranted hop can still
+receive a 307 POST body and return to a source-granted final URL; web succeeds
+while native refuses before that hop. Static and dev pages have no CSP: an
+ungranted intermediate origin can receive the request (including a POST body
+on a 307); if the chain ends at a granted origin, the
+web succeeds while native refuses at the intermediate hop. Without CSP, an
+ungranted final URL is refused after contact. CORS or another browser failure
+can also hide the response and yield `Network`. Exact API grants do not
+sandbox page code: it can call browser `fetch` directly, subject to the
+rendered page's CSP where one is served.
 
 On native hosts, ordinary ordered `GET`/`HEAD` reads wait in the same FIFO as
 writes: up to 128 queued, running and unconsumed requests, with at most 64 MiB
@@ -460,7 +511,9 @@ kept between drives (on the web, Chrome's profile for the name and its page's
 origin; a Firefox or WebKit drive's is its own); an authored test gets a fresh
 one of its own, removed after it. A data module's `secret.keep` rides that same
 store: files under the named tree on Apple and Linux, `localStorage` in the named
-web profile. A drive with no `--storage` refuses app storage (`storage is unavailable
+web profile. Apple native modules receive the same named data, cache and temporary
+roots across launches. A fresh drive clears them; the picker's temporary documents
+alone are cleared on each launch. A drive with no `--storage` refuses app storage (`storage is unavailable
 in agent mode unless the drive names a scratch store (--storage <name>)`) and keeps
 no secrets. The driver's `state.storage` says
 which (`{available: false, code: 'agent', message}` or `{available: true,
@@ -672,6 +725,16 @@ an app whose plan claims the media session states both in `app.json`, or
 declaration, `playbackStateDeclared`); `artworkError` says why an artwork was
 not published. `tap <element> mediasession <action> [seconds]` calls the handler
 the platform would call (`delivery: "substituted"`).
+
+### Pick a file of any type
+
+An `input type="file"` with no `accept` (or `accept="*/*"`) offers any file;
+`multiple` allows more than one. `showPicker(id)` opens it, and `change`
+receives `list<Picked>` with each file's name, type, size and
+`app:/tmp/picked/` path. A specific `accept` list is limited to media types
+and types in the app's `file_handlers`. The live Linux picker is unavailable;
+its agent substitute accepts any file. Image pixel and Canvas readback remain
+deferred.
 
 ### Shrink a picked image for upload (`storage.fs.compressImage`)
 
@@ -950,7 +1013,7 @@ A data crate answers the view's sources in Rust instead of `app.ts`: an app's
 | `query(source, args)` | Answer now, with no I/O: the build bakes this into the plan for the first frame. `Err(DataError::Unavailable(…))` leaves the resource unbaked; every host asks again at launch. |
 | `answer(store, source, args)` | At run time: `Answer::Now(value)`, or `Answer::Later(request)` for the host to run (storage, `fetch`). The default is `query`. |
 | `parse(store, source, args, outcome)` | What the host brought back for that request: answer, or hand back one more request. |
-| `app_id()` | The app's identity, which names its storage: `com.example.my-app`, or for a game `com.exact.<Game::ID>` unless its app.json names one. A source with no id has no app storage on Apple and Linux. |
+| `app_id()` | The app's identity, which names its storage: `com.example.my-app-3f9a2c` (`exact new` writes the name and six random hex digits), or for a game `com.exact.<Game::ID>` unless its app.json names one. A source with no id has no app storage on Apple and Linux. |
 | `grants()` | One grant per line, the lines `app.ts`'s `grants` takes (`net.fetch …`, `sqlite.open …`, `fs.read …`). |
 
 A record is positional: `Value::record(vec![…])` takes its fields in the order
@@ -1039,7 +1102,7 @@ in a file per secret only the user can read (`0600`, under
 read is synchronous, and a scripted drive never keeps them. A best time is not
 a secret: keep it in app storage.
 
-## The five checks
+## The six checks
 
 ```sh
 cargo build --all-targets --keep-going                                  # build
@@ -1048,13 +1111,35 @@ cargo clippy --all-targets --keep-going -- -D warnings                  # lint, 
 cargo fmt --all -- --check                                              # lint (run both)
 bun scripts/caps.mjs                                                   # caps
 bun scripts/boot.mjs                                                   # boot graph
+cargo check --workspace --all-targets --keep-going                      # workspace
 ```
 
-Cargo's checks cover the root `default-members`: the deterministic, in-process
+The first three cover the root `default-members`: the deterministic, in-process
 crates, the web host's and the Apple host's Rust among them (the Apple host's
 real-socket, wall-clock and toolchain-launching tests are `async lane:`; a test
-may still re-run its own binary to isolate its environment). The async lane runs the same commands with
-`--workspace` (the other hosts, GPU, Hermes, platform shells, stress fixtures).
+may still re-run its own binary to isolate its environment). The sixth compiles
+every crate and target of the workspace and runs none of their tests: without it
+a crate outside `default-members` can stop compiling on `main` while the other
+five pass, as `exact-web-js` and `exact-linux`'s tests did on 2026-10-11. It
+needs the pinned Bun first on `PATH` (or named by `BUN`): app crates' build
+scripts run Bun, and under an older one each fails with `Bun <version> is older
+than …`. The async lane runs the first three with
+`--workspace` (the other hosts, GPU, Hermes, platform shells, stress fixtures),
+which covers the sixth, and tests the separate game workspace with
+`cargo test --manifest-path game/Cargo.toml --workspace --locked --lib --bins --tests`.
+Changes to Apple host files, its Cargo path dependencies, or apps trigger the
+iOS simulator tests, touch smoke and the tvOS compile
+(`EXACT_JS_ENGINE=stub bun host/apple/build.mjs --tvos --no-install`: the Apple TV
+bundle built and signed, installed on nothing, so it needs the tvOS SDK and
+Rust's `aarch64-apple-tvos-sim` target and no simulator). Docs-only changes do not. The hourly
+`--tier 2` lane installs that tvOS build on an Apple TV simulator and runs target-specific `cargo check` for the Linux
+host and Caltrain and for the Windows host and Windows Desk. Install
+`x86_64-unknown-linux-gnu` and `x86_64-pc-windows-gnu` with `rustup target add`
+and provide `zig` for C dependencies on the Mac. Other Linux apps remain
+outside this check until their shared JavaScript host's target C++ build
+inputs are qualified. These cross checks cover compilation; native window
+presentation, KMS, and input devices
+remain unqualified until run on their platforms.
 
 Development and test builds optimize the third-party CPU rasterizer `tiny-skia`.
 Debug assertions and overflow checks remain enabled; the normal development

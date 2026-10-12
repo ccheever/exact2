@@ -40,7 +40,7 @@ component Chat
           display="flex" flex-direction="column"
           header display="flex" align-items="center" padding="8px 16px"
             text "Ada" role="heading" aria-level=2
-          list id="transcript" virtualized=true scroll-start="end" scrollFollowEnd=true keyboardDismissMode="interactive"
+          list id="transcript" virtualized=true scroll-start="end" scrollFollowEnd=true
             flex=1 min-height=0 padding-top=8 padding-bottom=8
             each m in thread.messages key=m.id
               row justify-content=(m.mine ? "flex-end" : "flex-start") padding="3px 12px"
@@ -97,6 +97,7 @@ test "a sent message lands last and the composer clears; a refused one stays"
   why above the composer ([after-a-write](after-a-write.md)). Send is disabled for blank
   text and while a send is pending.
 - `interactive-widget="resizes-content"` on the root keeps the composer above the
-  keyboard; `keyboardDismissMode="interactive"` lets a drag pull the keyboard down.
+  keyboard; a drag on the transcript that reaches the keyboard pulls it down, with
+  nothing written.
 - Bubbles are deliberate design, so they set a shape and colours, in roles that follow
   dark mode. Messages from a server, polled: [rest-backend](rest-backend.md).

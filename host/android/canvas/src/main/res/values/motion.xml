@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The menu's window animation (LLP 1115.001 D10; Surfaces.kt), one for each corner it can grow from. -->
+<resources>
+    <style name="ExactMenu" />
+    <style name="ExactMenu.TopStart">
+        <item name="android:windowEnterAnimation">@anim/exact_menu_in_top_start</item>
+        <item name="android:windowExitAnimation">@anim/exact_menu_out</item>
+    </style>
+    <style name="ExactMenu.TopEnd">
+        <item name="android:windowEnterAnimation">@anim/exact_menu_in_top_end</item>
+        <item name="android:windowExitAnimation">@anim/exact_menu_out</item>
+    </style>
+    <style name="ExactMenu.BottomStart">
+        <item name="android:windowEnterAnimation">@anim/exact_menu_in_bottom_start</item>
+        <item name="android:windowExitAnimation">@anim/exact_menu_out</item>
+    </style>
+    <style name="ExactMenu.BottomEnd">
+        <item name="android:windowEnterAnimation">@anim/exact_menu_in_bottom_end</item>
+        <item name="android:windowExitAnimation">@anim/exact_menu_out</item>
+    </style>
+</resources>

@@ -11,7 +11,7 @@ use exact_kernel::{
 };
 use std::collections::BTreeMap;
 
-pub(crate) type Rows = Vec<(StyleId, StyleValue)>;
+pub(crate) type Rows = Vec<(StyleId, StyleValue<'static>)>;
 
 pub(crate) fn props(rows: &Rows) -> StyleProps {
     let mut p = StyleProps::default();
@@ -595,6 +595,60 @@ fn calc_of_a_percentage_and_a_length_resolves_against_the_containing_block() {
         ],
     );
     assert!(bad.is_empty(), "{bad:#?}");
+}
+
+#[test]
+fn measured_leaves_resolve_calc_against_the_containing_block() {
+    let ops = vec![
+        Op::CreateView {
+            id: 1,
+            node_type: NodeType::ScrollView,
+        },
+        Op::SetStyle {
+            id: 1,
+            patch: Box::new(props(&css_rows("width:100%;height:100%"))),
+        },
+        Op::CreateView {
+            id: 2,
+            node_type: NodeType::TextInput,
+        },
+        Op::SetStyle {
+            id: 2,
+            patch: Box::new(props(&css_rows(
+                "appearance:none;width:calc(100% - 48px);margin-top:8px;margin-right:24px;margin-bottom:8px;margin-left:24px;padding-top:14px;padding-right:18px;padding-bottom:14px;padding-left:18px;min-height:52px;box-sizing:border-box",
+            ))),
+        },
+        Op::CreateView {
+            id: 3,
+            node_type: NodeType::Text,
+        },
+        Op::SetStyle {
+            id: 3,
+            patch: Box::new(props(&css_rows("width:calc(50% + 10px)"))),
+        },
+        Op::SetProp {
+            id: 3,
+            prop: PropId::Text,
+            value: "Measured text".into(),
+        },
+        Op::SetChildren {
+            id: 1,
+            children: vec![2, 3],
+        },
+        Op::AttachRoot { id: 1 },
+    ];
+    for (viewport, input_width, text_width) in [(402.0, 354.0, 211.0), (390.0, 342.0, 205.0)] {
+        let mut k = kernel();
+        k.apply(0, 1, &ops).unwrap();
+        k.compute_layout(1, Offer::definite(viewport, 874.0))
+            .unwrap();
+        let input = k.node(2).unwrap().frame;
+        assert_eq!(
+            (input.x, input.y, input.width, input.height),
+            (24.0, 8.0, input_width, 52.0)
+        );
+        assert_eq!(k.node(3).unwrap().frame.width, text_width);
+    }
 }
 
 /// Lays out a 400px-wide block holding `nodes` (`(id, parent, rows)`),

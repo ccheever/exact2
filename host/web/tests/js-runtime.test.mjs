@@ -314,6 +314,30 @@ test('a refused commit that fails an owed read leaves nothing owed when it is re
   } finally { clock.agent = false; }
 });
 
+// A refused commit puts a resource's failure back with the rest (LLP 1005 §6). New arguments clear a failure before the
+// source is asked, and a source that refuses those arguments refuses the commit: the state is as it was, so the resource
+// is failed for the arguments it had, as the runner's `failed_args` is with its checkpoint. The refused commit's settle
+// asks nothing, and `failed(x)` follows what was put back (conformance's `failed`, `tap ask-bad`).
+test('a commit refused after it cleared a failure shows the failure again', async () => {
+  const { res, W, data, commit, sig, act } = await import(resolve(dir, 'rt.js'));
+  let asks = 0;
+  data.answer = (source, [k]) => {
+    if (source !== 'lostProbe') return null;
+    asks++;
+    if (k < 0) throw Object.assign(new Error('argument 0 must not be negative'), { refuse: true });
+    if (k > 1) throw new Error('lost');
+    return { v: k };
+  };
+  const n = sig(1, 'n');
+  let probe;
+  commit(() => { probe = res('lostProbe', 'lostProbe', () => [n()], undefined, undefined, 'n', 0); probe(); });
+  expect([probe(), probe.f(), asks]).toEqual([1, false, 1]);
+  act(() => W(n, 2))();
+  expect([n(), probe(), probe.f(), probe.e()?.[1], asks]).toEqual([2, 1, true, 'lost', 2]);
+  act(() => W(n, -1))(); // refused: `n` is 2 again, and the probe is failed for it, as before the press
+  expect([n(), probe(), probe.f(), probe.e()?.[1], asks]).toEqual([2, 1, true, 'lost', 3]);
+});
+
 // An overlay outside the resource's shape counts as none: the answer shows, and an answered write it keeps retires.
 test('an overlay outside the shape keeps nothing', async () => {
   const { res, mut, M, data, commit, sig, writeRecords } = await import(resolve(dir, 'rt.js'));
@@ -644,6 +668,80 @@ test('a string past MAX_STRING joins to itself alone and is counted in UTF-8 byt
   const xs = K(Array.from({ length: 10000 }, () => 'a'.repeat(1000)), 1);
   expect(K([xs, xs, xs], 2)).toHaveLength(3);
   expect(() => K([xs, xs, xs, xs, xs, xs, xs], 2)).toThrow('Trap(ValueTooLarge { pc: 2 })');
+});
+
+test('budget helpers refuse before scanning or building a rejected result', async () => {
+  const B = await import(resolve(dir, 'budget.js'));
+  const xs = [1, 2, 3];
+  xs.slice = () => { throw new Error('slice copied before its step'); };
+  expect(() => B.x_slice(xs, 0, 3, 65534, 41)).toThrow('Trap(IterationLimit { pc: 41 })');
+  expect(() => B.x_slice(xs, -0.5, 3, 65534, 41)).toThrow('Trap(IterationLimit { pc: 41 })');
+  expect(B.x_slice([1, 2, 3], 0, -0.5, 65535, 41)).toEqual([]);
+  expect(B.ST).toBe(0);
+  const scanned = new Proxy([1, 2, 3], { get(target, key) {
+    if (key === '1') throw new Error('scanned beyond the step budget');
+    return Reflect.get(target, key);
+  } });
+  expect(() => B.x_includes(scanned, 3, 65535, 42)).toThrow('Trap(IterationLimit { pc: 42 })');
+  expect(() => B.x_indexOf(scanned, 3, 65535, 43)).toThrow('Trap(IterationLimit { pc: 43 })');
+  const original = String.prototype.split;
+  String.prototype.split = () => { throw new Error('split allocated before its step'); };
+  try { expect(() => B.x_split(','.repeat(65536), ',', 0, 44)).toThrow('Trap(IterationLimit { pc: 44 })'); }
+  finally { String.prototype.split = original; }
+  expect(() => B.x_join(Array(600).fill(''), 'x'.repeat(1 << 20), 45)).toThrow('Trap(StringTooLong { pc: 45 })');
+  const almost = 'a'.repeat(67108860);
+  expect(B.x_join([almost + '\ud83d', '\ude00'], '', 46).length).toBe(67108862); // 64 MiB exactly in UTF-8
+  expect(() => B.x_join([almost + 'a\ud83d', '\ude00'], '', 46)).toThrow('Trap(StringTooLong { pc: 46 })');
+});
+
+test('string builders check expanded size before calling their builders', async () => {
+  const B = await import(resolve(dir, 'budget.js'));
+  const { strings } = await import(resolve(dir, 'rt.js'));
+  expect(() => B.cc('a'.repeat(1 << 25), 'b'.repeat(1 << 25) + 'c', 51)).toThrow('Trap(StringTooLong { pc: 51 })');
+  const unbuilt = { length: 67108865, [Symbol.toPrimitive]() { throw new Error('concat built before its bound'); } };
+  expect(() => B.cc(unbuilt, '', 51)).toThrow('Trap(StringTooLong { pc: 51 })');
+  const stringify = JSON.stringify;
+  JSON.stringify = v => { if (v?.x) throw new Error('JSON built before its bound'); return stringify(v); };
+  try { expect(() => B.NP(['x', '\0'.repeat(12 << 20)], 52)).toThrow('Trap(StringTooLong { pc: 52 })'); }
+  finally { JSON.stringify = stringify; }
+  strings([['en', false, { k: '{x}'.repeat(100) }]]);
+  const replace = String.prototype.replace;
+  String.prototype.replace = function (...args) { if (this.length === 300) throw new Error('translation built before its bound'); return replace.apply(this, args); };
+  try { expect(() => B.x_t('en', 'k', ['x', 'a'.repeat(1 << 20)], 53)).toThrow('Trap(StringTooLong { pc: 53 })'); }
+  finally { String.prototype.replace = replace; }
+  const encode = globalThis.encodeURIComponent;
+  globalThis.encodeURIComponent = v => { if (v.length > 1 << 20) throw new Error('URI built before its bound'); return encode(v); };
+  try { expect(() => B.x_encodeURIComponent(' '.repeat(23 << 20), 54)).toThrow('Trap(StringTooLong { pc: 54 })'); }
+  finally { globalThis.encodeURIComponent = encode; }
+  const textEncode = TextEncoder.prototype.encode;
+  TextEncoder.prototype.encode = function (v) { if (v.length > 1 << 20) throw new Error('route encoded before its bound'); return textEncode.call(this, v); };
+  try { expect(() => B.x_encodeRouteSegment(' '.repeat(23 << 20), 55)).toThrow('Trap(StringTooLong { pc: 55 })'); }
+  finally { TextEncoder.prototype.encode = textEncode; }
+  expect(B.x_encodeRouteSegment('a😀', 55)).toBe('a%F0%9F%98%80');
+  expect(B.NP(['x', 'a\ud800b'], 52)).toBe('{"x":"a\\ud800b"}');
+  strings([['en', false, { k: 'Hi {x} \\{x\\}' }]]);
+  expect(B.x_t('en', 'k', ['x', 'Ada'], 53)).toBe('Hi Ada {x}');
+  strings([['en', false, { k: '\ud83d{x}' }]]);
+  expect(B.x_t('en', 'k', ['x', '\ude00'], 53)).toBe('😀');
+  strings([]);
+  const lower = String.prototype.toLowerCase;
+  String.prototype.toLowerCase = function () { if (this.length > 65536) throw new Error('lowercase built before its bound'); return lower.call(this); };
+  try { expect(() => B.x_toLowerCase('İ'.repeat(22369622), 56)).toThrow('Trap(StringTooLong { pc: 56 })'); }
+  finally { String.prototype.toLowerCase = lower; }
+});
+
+test('translation expansion stops when its output exceeds the byte budget', async () => {
+  const { x_t } = await import(resolve(dir, 'budget.js'));
+  const { strings } = await import(resolve(dir, 'rt.js'));
+  let substitutions = 0;
+  const pairs = new Proxy(['x', 'a'.repeat(1 << 20)], { get(target, key) {
+    if (key === '1' && ++substitutions > 100) throw new Error('translation scanned past its bound');
+    return Reflect.get(target, key);
+  } });
+  strings([['en', false, { k: '{x}'.repeat(1 << 16) }]]);
+  expect(() => x_t('en', 'k', pairs, 53)).toThrow('Trap(StringTooLong { pc: 53 })');
+  expect(substitutions).toBeLessThan(100);
+  strings([]);
 });
 
 test('an argument or a write past MAX_STRING is refused by name, and a trapping argument is a trap, poisoned or not', async () => {

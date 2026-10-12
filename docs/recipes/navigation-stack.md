@@ -1,17 +1,35 @@
 # Recipe: a navigation stack
 
+To receive a complete custom-scheme URL, add `protocol_handlers` to `app.json`:
+`[{"protocol":"web+notes","url":"/open?u=%s"}]`. Add an `/open` route;
+the navigation root's `navigate=` handler receives `/open?u=…` while running.
+At launch that location is the router's first visit. Read the original URL,
+including its scheme and fragment, with `searchParam(top(nav), "u")`.
+
 A list that pushes a detail screen, a sheet with Cancel and Save, and a confirmation.
 On iOS each route's `header` is its navigation bar, a pushed route gets the system Back
-button and edge swipe, a sheet swipes down, and the alert is `UIAlertController`. The
+button and edge swipe, a sheet swipes down, and the alert is `UIAlertController`. On the
+web the browser's Back pops the stack, a reload keeps the place and each screen has a
+link. A second screen is always a route: screens swapped by a `when` over a state get
+none of that, and warn (`lower-screen-by-state`). On the
+Mac a pushed route gets Go ▸ Back (⌘[), a back chevron in the window's toolbar and the
+trackpad's swipe back; each presses a Back control the route declares, as iOS's do; the
+chevron stays in the toolbar, disabled, at the stack's root, so the title bar does not
+change height as routes come and go; the alert is `NSAlert`, a sheet on the window. The
 contract blocks below are one app; each route block fills its `when` in the first.
 
 A `header` is the bar when it is the route's first child and holds exactly one heading
 (`text role="heading"`): the heading is the title (large at `aria-level=1`), buttons
 before it lead and after it trail, the first text after it is the subtitle, and the rest
-of the header is hidden. With no heading or two the route has no bar, no title and no
-Back button, and the header draws in the page; a stack has bars only when its first
-route's header is one. `contract vocab header` states it whole, and the compiler warns
-(`lower-header-no-bar`, `lower-header-unplaced`).
+of the header is hidden. With no heading or two the header is no bar and draws in the
+page. Each route's bar is its own: a stack whose first route has none still shows a
+later route's, and a pushed route with no bar of its own (no header, or one that is no
+bar) gets a bar holding the system Back button alone. A full-bleed screen that draws
+its own way back says `navigationBar="none"` on its route: no bar, and the edge swipe
+still goes back. `contract vocab header` states it whole, and the compiler warns
+(`lower-header-no-bar`, `lower-header-unplaced`, and `lower-back-twice` for a Back
+control drawn under the bar's). The bar's title names the screen: a
+heading at the top of the content that says it again shows it twice (`lower-title-twice`).
 
 <!-- check: app -->
 ```contract
@@ -42,8 +60,6 @@ component App
   derive saveError = match added { case some(r) => r.error, case none => "" }
   derive formError = not submitted ? "" : titleError != "" ? titleError : pending(added) ? "" : saveError
 
-  action open(id: string)
-    nav = push(nav, path("note", id))
   action openAdd
     draft = ""
     submitted = false
@@ -86,8 +102,11 @@ component App
           text "Cancel"
 ```
 
-The list: a large title (`aria-level=1`), a bar button, rows that push. A row button's
-`text` is its title and a trailing `forward-chevron` its disclosure.
+The list: a large title (`aria-level=1`), a bar button, rows that push. A row that only
+navigates is a `link` to its route (`href=path(…)`): `follow` pushes it on every host, and
+on the web it is a real link (a new tab, "Copy Link"). A row's `text` is its title and a
+trailing `forward-chevron` its disclosure. A row that does more than navigate (`openAdd`
+clears the draft first) stays a `button` with a `press`.
 
 <!-- check: route notes -->
 ```contract
@@ -100,7 +119,7 @@ column navigationKey=`${e.id}` navigationScroll="notes-list" testId="route-notes
   list id="notes-list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
     section
       each n in lib.notes key=n.id
-        button press=open(n.id) testId=`note-${n.id}`
+        link href=path("note", n.id) testId=`note-${n.id}`
           text n.title
           image "symbol:forward-chevron"
 ```
@@ -141,7 +160,7 @@ column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="
     section
       row
         column flex=1 min-width=0 gap=4
-          input appearance="none" value=draft input=edit placeholder="Title" aria-label="Title" autofocus=true testId="add-title"
+          input value=draft input=edit placeholder="Title" aria-label="Title" autofocus=true testId="add-title"
           when formError != ""
             text formError font="-exact-footnote" color="-exact-system-red" testId="error-title"
 ```
@@ -184,11 +203,15 @@ test "add validates, saves, refuses a repeat, opens and deletes after asking"
   tap "add-save"
   clock data
   expect text "error-title" == "There’s already a note called Milk. Choose another title."
-  tap "add-cancel"
+  back
   clock settle
   tap "Milk"
   clock settle
   expect text "detail-title" == "Milk"
+  back
+  clock settle
+  tap "Milk"
+  clock settle
   tap "delete-note"
   clock settle
   tap "remove-confirm"
@@ -201,11 +224,29 @@ test "add validates, saves, refuses a repeat, opens and deletes after asking"
   `each`/`when` only), and covered routes stay mounted: two screens never share a
   `testId`. Build locations with `path("note", id)`, never a template string.
 - The alert holds only text, buttons that close it and one Cancel (a closing button
-  with no `press`). Open it from an action with `showModal("remove")`. For a modal you
-  lay out yourself, use `role="dialog" aria-modal=true`.
+  with no `press`). Open it from an action with `showModal("remove")`.
+- A modal you lay out yourself (a form, an editor) is a sheet, as `add` is: open it
+  with `push`, close it with `back`. On iOS it is UIKit's sheet, which swipes down; on
+  the web Escape presses its Cancel, and on every host the page under it is inert.
+  `role="dialog"` on a box gets none of that (`lower-dialog-role`). A `dialog` you lay
+  out, opened with `showModal(id)`, is a smaller thing: the web's modal `dialog`, and on
+  iOS a sheet as tall as its content, with no bar and no route.
 - Show a validation error only after the first Save (`submitted`), in red under the
   field, in its row. The sheet closes in `then`, only when
   the save's reply is ok: a refusal keeps the sheet, its text and the reason
   ([after-a-write](after-a-write.md)).
 - In tests, `clock settle` after every push, sheet or alert, and `clock data` before
-  reading what a save wrote. Swipe to delete and long-press menus: [list-rows](list-rows.md).
+  reading what a save wrote. `back` is the platform's Back: it cancels the alert,
+  dismisses the sheet (pressing its Cancel) and pops the detail, on every host.
+  Swipe to delete and long-press menus: [list-rows](list-rows.md).
+- A wide window (900 px and up on the web) shows the list beside its detail with nothing
+  to write, as a split view does: its rows push, because they draw the disclosure (the
+  `forward-chevron`). A sheet stays a sheet; a phone pushes. A row pressed while a detail
+  shows pushes another, so to swap the detail instead, `follow` replaces when one is shown:
+  `nav = top(nav).name == "note" and startsWith(url, "/note/") ? replace(nav, url) : go(nav, url)`.
+  `navigationSplit="none"` on the list's route keeps it pushed; `contract vocab navigationSplit`.
+  Until a row is chosen the detail pane says "No Selection", as an iPad's does. For your own, mark a box
+  in the list's route `navigationSplit="placeholder"` (an `EmptyState`): it shows there then, and nowhere else.
+- On the web a route is a page: the tab's title is the route's heading, the focus moves to
+  it on a push and back to the row on Back, and the browser's Back and Forward follow the
+  stack.

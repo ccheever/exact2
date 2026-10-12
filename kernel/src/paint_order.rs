@@ -458,7 +458,9 @@ mod tests {
         ] {
             ops.push(Op::SetChildren { id, children });
         }
-        let text = |s: &str| StyleValue::Text(s.into());
+        fn text(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
         ops.push(style(
             4,
             &[

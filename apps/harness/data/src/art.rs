@@ -9,7 +9,14 @@ use crate::tools;
 
 /// `#rrggbb`.
 pub fn hex(r: u8, g: u8, b: u8) -> String {
-    format!("#{r:02x}{g:02x}{b:02x}")
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let mut text = String::with_capacity(7);
+    text.push('#');
+    for channel in [r, g, b] {
+        text.push(DIGITS[(channel >> 4) as usize] as char);
+        text.push(DIGITS[(channel & 15) as usize] as char);
+    }
+    text
 }
 
 /// HSV (h in degrees, s and v 0–1) to RGB.
@@ -59,18 +66,25 @@ pub fn banner(model: &str, cwd: &str, branch: &str) -> Vec<Block> {
         })
         .collect();
     lines.push(Line::default());
-    let mut place = vec![Run::fg(model, "#61afef"), Run::dim(" · "), Run::plain(cwd)];
-    if !branch.is_empty() {
-        place.push(Run::dim(" · "));
-        place.push(Run::fg(branch, "#c678dd"));
-    }
-    vec![
+    let place = vec![Run::fg(model, "#61afef"), Run::dim(" · "), Run::plain(cwd)];
+    let mut blocks = vec![
         Block::lines(lines),
         Block::p(place),
         Block::p(vec![Run::dim(
             "/help for commands · esc to interrupt · ctrl+c to quit",
         )]),
-    ]
+    ];
+    banner_branch(&mut blocks, branch);
+    blocks
+}
+
+/// Complete the place line of a banner built without its branch. Keep the
+/// original model and directory even if the user has since changed model.
+pub fn banner_branch(blocks: &mut [Block], branch: &str) {
+    if !branch.is_empty() {
+        blocks[1].runs.push(Run::dim(" · "));
+        blocks[1].runs.push(Run::fg(branch, "#c678dd"));
+    }
 }
 
 /// `/help`.

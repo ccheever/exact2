@@ -14,7 +14,6 @@ fn nearest(from: &Path) -> PathBuf {
 }
 
 fn main() -> std::process::ExitCode {
-    let entry = concat!(env!("CARGO_MANIFEST_DIR"), "/../terminal.contract");
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     let named = args
         .first()
@@ -28,10 +27,10 @@ fn main() -> std::process::ExitCode {
         Some(p) => std::fs::canonicalize(&p).unwrap_or_else(|_| PathBuf::from(p)),
         None => nearest(&cwd),
     };
-    exact_terminal::cli::run(
+    exact_terminal::cli::run_embedded(
         args,
         llp_data::Llp::starting_at(&path.to_string_lossy()),
-        Some(entry),
+        include_bytes!(concat!(env!("OUT_DIR"), "/terminal.plan")),
         exact_terminal::host::Mode::Fullscreen,
     )
 }

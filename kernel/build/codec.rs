@@ -11,7 +11,6 @@ const DIGEST_DOMAIN: &[u8] = b"exact-kernel-schema-v1\0";
 
 enum GridSeam {
     Decode,
-    Encode,
     Dynamic,
 }
 
@@ -30,12 +29,42 @@ fn emit_grid_seam(w: &mut String, id: &str, seam: GridSeam) -> bool {
     if id == "GridAutoFlow" {
         let line = match seam {
             GridSeam::Decode => "crate::style::decode_grid_rows(&mut out, mask, r)?;",
-            GridSeam::Encode => "crate::style::encode_grid_rows(self, mask, w);",
             GridSeam::Dynamic => "StyleId::GridAutoFlow | StyleId::GridTemplateColumns | StyleId::GridTemplateRows | StyleId::GridColumn | StyleId::GridRow | StyleId::JustifyItems => crate::style::set_grid_dynamic(self, id, value)?,",
         };
         writeln!(w, "            {line}").unwrap();
     }
     true
+}
+
+fn emit_style_encoding(w: &mut String, schema: &Schema) {
+    w.push_str(
+        "    /// Encode the rows in `mask` as a masked patch.\n\
+         pub fn encode_masked(&self, mask: StyleMask, w: &mut Writer) {\n\
+             self.encode_overlaid(mask, self, w);\n\
+         }\n\
+         /// Encode these rows, taking explicitly patched rows from `patch`.\n\
+         pub(crate) fn encode_overlaid(&self, mask: StyleMask, patch: &StyleProps, w: &mut Writer) {\n\
+             w.style_mask(mask);\n\
+             w.style_mask(self.written.minus(patch.mask).union(patch.written.intersect(patch.mask)).intersect(mask));\n\
+             for id in mask.iter() {\n\
+                 let source = if patch.mask.has(id) { patch } else { self };\n\
+                 match id {\n",
+    );
+    for row in &schema.styles {
+        let id = pascal(&row.field);
+        // Keep grid's optional wasm codec behind its existing linked seam.
+        let encode = if matches!(
+            id.as_str(),
+            "GridAutoFlow" | "GridTemplateColumns" | "GridTemplateRows"
+                | "GridColumn" | "GridRow" | "JustifyItems"
+        ) {
+            "crate::style::encode_grid_rows(source, StyleMask::of(id), w);".into()
+        } else {
+            parse_codec(&row.codec).encode_stmt(&format!("source.{}", at(row)))
+        };
+        writeln!(w, "                    StyleId::{id} => {{ {encode} }}").unwrap();
+    }
+    w.push_str("                }\n            }\n        }\n");
 }
 
 enum Codec {
@@ -318,14 +347,18 @@ impl Codec {
                 );
                 "GridTracks::default()".into()
             }
-            // Paint's initial value differs by row: `fill` black, `stroke` none.
+            // Paint's initial value differs by row: `fill` the text's colour
+            // (LLP 1115.000 D3.8), `stroke` none, a gradient stop black.
             Codec::CssValue {
                 variant: "Paint", ..
             } => match value.as_str() {
+                Some("currentcolor") => "crate::svg::Paint::CurrentColor".into(),
                 Some("black") => "crate::svg::Paint::BLACK".into(),
                 Some("none") => "crate::svg::Paint::None".into(),
                 Some("white") => "crate::svg::Paint::WHITE".into(),
-                _ => panic!("schema: paint default on `{field}` must be black, white or none"),
+                _ => panic!(
+                    "schema: paint default on `{field}` must be currentcolor, black, white or none"
+                ),
             },
             Codec::CssValue { path, .. } => format!("{path}::default()"),
             Codec::Transitions => {
@@ -457,7 +490,7 @@ fn default_of(
     codec: &Codec,
     default: &serde_json::Value,
     field: &str,
-    colors: &[[String; 6]],
+    colors: &[[String; 8]],
 ) -> String {
     match (codec, default.as_str()) {
         (Codec::ColorValue, Some(name)) => role_default(colors, name, field),
@@ -468,7 +501,7 @@ fn default_of(
     }
 }
 
-pub fn role_default(colors: &[[String; 6]], name: &str, field: &str) -> String {
+pub fn role_default(colors: &[[String; 8]], name: &str, field: &str) -> String {
     let id = colors
         .iter()
         .position(|c| c[0] == name)
@@ -478,28 +511,33 @@ pub fn role_default(colors: &[[String; 6]], name: &str, field: &str) -> String {
 
 /// @ref LLP 1095 D2 — the colour roles' type and table, from the schema's
 /// `colors`: CSS's system colours, then Exact's.
-pub fn write_color_roles(w: &mut String, colors: &[[String; 6]], rgba: impl Fn(&str) -> u32) {
+pub fn write_color_roles(w: &mut String, colors: &[[String; 8]], rgba: impl Fn(&str) -> u32) {
     w.push_str(concat!(
         "/// One colour role (LLP 1095 D2): each Apple platform's class colour\n",
         "/// property (`@tint` for the view's inherited tint, `/a` for an alpha),\n",
-        "/// and the light and dark fallback every host without one shows.\n",
+        "/// and the two pairs a host without the platform's colour may show:\n",
+        "/// Apple's, and the neutral one (LLP 1115.000 D3.2; `roles::Column`).\n",
         "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n",
         "pub struct ColorRole {\n",
         "    /// The role's name: CSS's spelling for a system colour, which is how\n    /// it is written; else Exact's role, written `-exact-<name>` (LLP 1081\n    /// D2) and carried as `var(--exact-<name>, …)` on the web.\n    pub name: &'static str,\n",
         "    /// WebKit's `-apple-system-*` name this role answers to, or empty.\n    pub alias: &'static str,\n",
         "    /// `UIColor`'s class property.\n    pub ios: &'static str,\n",
         "    /// `NSColor`'s class property.\n    pub macos: &'static str,\n",
-        "    /// Under a light scheme, RGBA.\n    pub light: u32,\n",
-        "    /// Under a dark scheme, RGBA.\n    pub dark: u32,\n",
+        "    /// Apple's, under a light scheme, RGBA.\n    pub light: u32,\n",
+        "    /// Apple's, under a dark scheme, RGBA.\n    pub dark: u32,\n",
+        "    /// The neutral column's, under a light scheme, RGBA.\n    pub neutral_light: u32,\n",
+        "    /// The neutral column's, under a dark scheme, RGBA.\n    pub neutral_dark: u32,\n",
         "}\n",
         "/// Every role, by id (`ColorValue::Role`).\n",
         "pub const COLOR_ROLES: &[ColorRole] = &[\n",
     ));
-    for [name, alias, ios, macos, light, dark] in colors {
+    for [name, alias, ios, macos, light, dark, neutral_light, neutral_dark] in colors {
         w.push_str(&format!(
-            "ColorRole {{ name: {name:?}, alias: {alias:?}, ios: {ios:?}, macos: {macos:?}, light: {:#010x}, dark: {:#010x} }},\n",
+            "ColorRole {{ name: {name:?}, alias: {alias:?}, ios: {ios:?}, macos: {macos:?}, light: {:#010x}, dark: {:#010x}, neutral_light: {:#010x}, neutral_dark: {:#010x} }},\n",
             rgba(light),
-            rgba(dark)
+            rgba(dark),
+            rgba(neutral_light),
+            rgba(neutral_dark)
         ));
     }
     w.push_str("];\n");

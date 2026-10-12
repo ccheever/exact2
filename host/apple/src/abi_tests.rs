@@ -22,6 +22,115 @@ fn plan(resource: Option<&str>) -> Vec<u8> {
     builder.finish().unwrap().encode()
 }
 
+#[test]
+fn the_first_preboot_launch_location_is_the_boot_fact() {
+    let mut bridge = Bridge::<StorageModule>::new();
+    bridge.input_write(b"/first");
+    bridge.set_launch_location(6);
+    bridge.input_write(b"/second");
+    bridge.set_launch_location(7);
+    assert_eq!(bridge.launch.as_deref(), Some("/first"));
+}
+
+#[derive(Clone, Default)]
+struct DocumentOwnerSource {
+    owner: u64,
+}
+
+impl DataSource for DocumentOwnerSource {
+    fn app_id(&self) -> &str {
+        "test.exact.document.owner"
+    }
+    fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
+        Err(DataError::UnknownSource(name.into()))
+    }
+    fn set_document_owner(&mut self, owner: u64) {
+        self.owner = owner;
+    }
+    fn preload(&self) -> Result<bool, DataError> {
+        assert_ne!(self.owner, 0);
+        Ok(true)
+    }
+    fn activate_for_validation(&mut self) -> Result<(), DataError> {
+        assert_ne!(self.owner, 0);
+        Ok(())
+    }
+    fn replacement(&self, _: &[u8], _: &str, _: Vec<u8>) -> Result<Self, DataError> {
+        Ok(Self::default())
+    }
+}
+
+#[test]
+fn plan_and_module_reloads_keep_the_document_owner() {
+    let bytes = plan(None);
+    let mut registry = crate::abi::registry::Registry::<DocumentOwnerSource>::default();
+    let rt = registry.create();
+    let entry = registry.get(rt).unwrap();
+    let mut entry = entry.borrow_mut();
+    let bridge = &mut entry.bridge;
+    bridge.boot(
+        &bytes,
+        DocumentOwnerSource::default(),
+        Hooks::none(),
+        100.0,
+        100.0,
+    );
+    let file = std::env::temp_dir().join(format!("exact-document-owner-{rt}"));
+    std::fs::write(&file, b"owned").unwrap();
+    let request = format!(
+        r#"{{"op":"mintDocument","owner":{rt},"path":"{}"}}"#,
+        file.display()
+    );
+    let reply = bridge.host.as_mut().unwrap().answer_hold(&request).unwrap();
+    let doc = exact_runner::agent::field_str(&reply, "doc").unwrap();
+    let resolves = |bridge: &mut Bridge<DocumentOwnerSource>| {
+        use ibex2::stdlib::fs::{Document, FsOp, FsResult};
+        let owner = bridge.host.as_mut().unwrap().runner_mut().data().owner;
+        let grants = ibex2::grant::GrantSet::parse("fs.read doc:/").unwrap();
+        let result = ibex2::stdlib::fs::run_document(
+            &grants,
+            Some(&move |path| {
+                Ok(match exact_data::documents::resolve(path, owner)? {
+                    exact_data::documents::Resolved::Root(name) => Document::Root(name),
+                    exact_data::documents::Resolved::Real { directory, path } => {
+                        Document::Real { directory, path }
+                    }
+                })
+            }),
+            FsOp::ReadFile,
+            &doc,
+            None,
+        )
+        .unwrap();
+        assert_eq!(result, FsResult::Bytes(b"owned".to_vec()));
+        assert!(exact_data::documents::resolve(&doc, u64::from(rt) + 1).is_err());
+    };
+    resolves(bridge);
+    bridge.painted = true;
+    bridge.input_write(&bytes);
+    bridge.prepare_plan(
+        bytes.len(),
+        DocumentOwnerSource::default(),
+        Hooks::none(),
+        100.0,
+        100.0,
+    );
+    bridge.commit_plan();
+    resolves(bridge);
+    bridge.input_write(&bytes);
+    bridge.prepare_module(
+        [bytes.len(), 0, 0],
+        DocumentOwnerSource::default(),
+        Hooks::none(),
+        100.0,
+        100.0,
+    );
+    bridge.commit_plan();
+    resolves(bridge);
+    exact_data::documents::forget(u64::from(rt));
+    std::fs::remove_file(file).unwrap();
+}
+
 #[derive(Clone, Default)]
 struct StorageModule {
     configured: bool,

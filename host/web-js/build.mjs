@@ -20,6 +20,7 @@ import { basename, dirname, isAbsolute, join, normalize, posix, relative, resolv
 import { fileURLToPath } from 'node:url';
 import { transformSync } from 'rolldown/utils';
 import { buildEditor, buildFlow, buildMarkdown, buildModule, buildMotion, fresh, moduleGrants, webCompiler } from './module.mjs';
+import { developmentStore } from '../../scripts/agent-launch.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
@@ -74,7 +75,7 @@ const input = opt('--plan') ?? opt('--contract') ?? resolve(appDir, 'app.contrac
 const manifest = JSON.parse(readFileSync(resolve(appDir, 'app.json'), 'utf8'));
 // documents-glue reads the app's web manifest lazily. The JS path exits from
 // host/web/build.mjs after this builder succeeds, so it owns the same artifact.
-const webManifestKeys = ['name', 'short_name', 'description', 'id', 'start_url', 'display', 'theme_color', 'background_color', 'icons', 'lang', 'file_handlers', 'launch_handler'];
+const webManifestKeys = ['name', 'short_name', 'description', 'id', 'start_url', 'display', 'theme_color', 'background_color', 'icons', 'lang', 'file_handlers', 'protocol_handlers', 'launch_handler'];
 const webManifest = Object.fromEntries(webManifestKeys.filter(key => manifest[key] !== undefined).map(key => [key, manifest[key]]));
 if (webManifest.file_handlers) webManifest.file_handlers = webManifest.file_handlers.filter(handler => !Object.keys(handler.accept ?? {}).includes('inode/directory'));
 if (!webManifest.file_handlers?.length) delete webManifest.file_handlers;
@@ -411,6 +412,7 @@ for (const f of ['auth-glue.js', 'storage-environment.js', 'http-body.js', 'faul
 writeFileSync(resolve(gen, 'grant-admission.js'), grantSection); // the section navigation.js re-exports (above)
 writeFileSync(resolve(gen, 'admission.js'), readFileSync(resolve(here, 'admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'").replaceAll("'../web/faults.js'", "'./faults.js'"));
 cpSync(resolve(here, 'ts-fetch.js'), resolve(gen, 'ts-fetch.js'));
+cpSync(resolve(here, 'ts-body-from.js'), resolve(gen, 'ts-body-from.js'));
 cpSync(resolve(here, 'ts-stream.js'), resolve(gen, 'ts-stream.js'));
 cpSync(resolve(here, 'auth.js'), resolve(gen, 'auth.js'));
 cpSync(resolve(here, 'files.js'), resolve(gen, 'files.js'));
@@ -451,6 +453,13 @@ if (production) for (const f of readdirSync(gen).filter(f => f.endsWith('.js')))
   const code = readFileSync(resolve(gen, f), 'utf8');
   if (/searchParams\.has\(["']agent["']\)|params\.has\(["']agent["']\)|URLSearchParams\([^)]*\)\.has\(["']agent["']\)/.test(code) && !code.includes('const AGENT_ADMITTED = true;')) { console.error(`${f} reads ?agent without AGENT_ADMITTED; a production build must not admit agent mode`); process.exit(1); }
   writeFileSync(resolve(gen, f), code.replaceAll('const AGENT_ADMITTED = true;', 'const AGENT_ADMITTED = false;'));
+}
+// A development page's storage is its app's (LLP 1116.004 D8): every app the dev server serves
+// shares its origin, so the app directory's digest (agent-launch.mjs `appDigest`) keys its files,
+// databases and kept keys (storage-environment.js) and its `localStorage` (rt.js `Kept`). A release keeps the id alone.
+if (!production) for (const f of readdirSync(gen).filter(f => f.endsWith('.js'))) {
+  const code = readFileSync(resolve(gen, f), 'utf8'), scoped = developmentStore(code, realpathSync(appDir));
+  if (scoped !== code) writeFileSync(resolve(gen, f), scoped);
 }
 // Bun's bundler, in this process, for the server bundle. A build that
 // renders nothing (the dev loop's) makes no server bundle.
@@ -523,7 +532,7 @@ const statics = ['app.js', ...new Set([...readFileSync(resolve(out, 'app.js'), '
 const fonts = existsSync(resolve(gen, 'preloads.html')) ? readFileSync(resolve(gen, 'preloads.html'), 'utf8') : '';
 const preloads = fonts + (args.includes('--inline') ? '' : statics.map(f => `<link rel="modulepreload" href="./${f}">\n`).join(''));
 writeFileSync(resolve(out, 'index.html'), `<!doctype html>
-<html lang="en">
+<html lang="${attr(webManifest.lang)}">
 <meta charset="utf-8">
 <base href="/">
 <title>${manifest.name}</title>
@@ -536,8 +545,7 @@ ${args.includes('--inline') ? `<script type="module">${readFileSync(resolve(out,
 if (production) {
   const bake = dirname(resolve(opt('--plan')));
   const links = readFileSync(resolve(bake, 'index.html'), 'utf8').match(/^<(?:link rel="(?:alternate|manifest)"|meta name="theme-color")[^>]*>$/gm) ?? [];
-  writeFileSync(resolve(out, 'index.html'), readFileSync(resolve(out, 'index.html'), 'utf8').replace(/(<meta name="viewport"[^>]*>\n)/, `$1${links.map(l => l + '\n').join('')}`)
-    .replace('<html lang="en">', readFileSync(resolve(bake, 'index.html'), 'utf8').match(/<html lang="[^"]*">/)?.[0] ?? '<html lang="en">'));
+  writeFileSync(resolve(out, 'index.html'), readFileSync(resolve(out, 'index.html'), 'utf8').replace(/(<meta name="viewport"[^>]*>\n)/, `$1${links.map(l => l + '\n').join('')}`)); // its `<html lang>` is already the manifest's, as the bake's is
   for (const f of ['exact.json', 'manifest.json', 'robots.txt', 'sitemap.xml', '.well-known', '.exact', 'rust']) if (existsSync(resolve(bake, f))) cpSync(resolve(bake, f), resolve(out, f), { recursive: true });
   // What the envelope names beside the plan and assets, for a native client
   // following the page's link (LLP 1023 D1): the Rust module's files (above,
@@ -590,7 +598,10 @@ async function copyLazyModules(roots) {
     }
     const from = resolve(root, source), code = name.endsWith('.js') || name.endsWith('.mjs') ? readFileSync(from, 'utf8') : null;
     mkdirSync(dirname(resolve(out, name)), { recursive: true });
-    cpSync(from, resolve(out, name));
+    // The adapters' own storage-environment.js names the app's development store, as the page's chunk does (above).
+    const scoped = code != null && !production ? developmentStore(code, realpathSync(appDir)) : code;
+    if (scoped !== code) writeFileSync(resolve(out, name), scoped);
+    else cpSync(from, resolve(out, name));
     if (code != null) for (const specifier of [...moduleImports(code), ...literalModuleURLs(code)]) {
       const dependency = publicDependency(name, specifier);
       if (dependency.startsWith('..')) throw new Error(`${name}: lazy dependency leaves the build root: ${specifier}`);
