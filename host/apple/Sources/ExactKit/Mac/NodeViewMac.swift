@@ -962,9 +962,12 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         } else if kind == "text" {
             // AppKit asks for its overdraw as well as for what is on screen.
             // Only what is on screen without pixels is painted here, rather
-            // than shown blank; the rest is a worker's.
-            if let presenter {
-                presenter.textRasters.ensure(self, urgent: presenter.textIsVisible(self))
+            // than shown blank; the rest is a worker's. With both workers
+            // busy, the pump asks again: AppKit is about to clear this
+            // view's dirty flag, and an appearance change dirties every
+            // text at once (X82).
+            if let presenter, !presenter.textRasters.ensure(self, urgent: presenter.textIsVisible(self)) {
+                presenter.requestTextPublication()
             }
             if textRaster != nil { presentTextRaster() } else { layer?.contents = nil }
         } else {

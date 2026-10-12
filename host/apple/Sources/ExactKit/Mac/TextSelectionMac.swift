@@ -11,6 +11,7 @@ package final class TextSelection {
     private var anchorIndex = 0
     private var focusIndex = 0
     private var dragged = false
+    private var shown: [NodeView]?
     private var ordered: [NodeView]?
     private var indices: [UInt32: Int] = [:]
     private var painted: [UInt32: NSRange] = [:]
@@ -36,7 +37,7 @@ package final class TextSelection {
     private var deferredEnd: (NodeView, NSEvent)?
 
     func structureChanged() {
-        ordered = nil
+        shown = nil; ordered = nil
         indices.removeAll(keepingCapacity: true)
         positions.removeAll(keepingCapacity: true)
         if let list, var a = logicalAnchor, var b = logicalFocus {
@@ -81,22 +82,40 @@ package final class TextSelection {
     /// asks before the exact one (`range`).
     var isActive: Bool { allListText || logicalAnchor != nil || (anchor != nil && focus != nil) }
 
+    /// Every shown paragraph in document order, whether or not it can be
+    /// selected: the text pump owes each its pixels, a button's label as
+    /// much as a paragraph (`refreshVisibleText`, X82).
+    var shownParagraphs: [NodeView] {
+        if let shown { return shown }
+        guard let presenter else { return [] }
+        var result: [NodeView] = []
+        let tops: [NSView] = [presenter.root] + presenter.dialogs.presented + presenter.menus.presented
+        for top in tops { texts(in: top) { result.append($0) } }
+        shown = result
+        return result
+    }
+
     var paragraphs: [NodeView] {
         if let ordered { return ordered.filter(selectable) }
         guard let presenter else { return [] }
         var result: [NodeView] = []
-        func walk(_ view: NSView) {
-            if view.isHidden { return }
-            if let node = view as? NodeView, presenter.session?.regions.owns(node) == true { return }
-            if let node = view as? NodeView, node.isParagraph { if selectable(node) { result.append(node) }; return }
-            for child in view.subviews { walk(child) }
-        }
-        walk(presenter.root)
-        for dialog in presenter.dialogs.presented { walk(dialog) }
-        for popover in presenter.menus.presented { walk(popover) }
+        let tops: [NSView] = [presenter.root] + presenter.dialogs.presented + presenter.menus.presented
+        for top in tops { texts(in: top) { if selectable($0) { result.append($0) } } }
         ordered = result
         indices = Dictionary(uniqueKeysWithValues: result.enumerated().map { ($0.element.id, $0.offset) })
         return result
+    }
+
+    /// The paragraphs under `view` in order, selectable or not, as the
+    /// runner's text projection walks a row: a hidden view and a region's
+    /// own are left out, and an inline run is its paragraph's.
+    private func texts(in view: NSView, _ found: (NodeView) -> Void) {
+        if view.isHidden { return }
+        if let node = view as? NodeView {
+            if presenter?.session?.regions.owns(node) == true { return }
+            if node.isParagraph { found(node); return }
+        }
+        for child in view.subviews { texts(in: child, found) }
     }
 
     private func invalidate() {
