@@ -176,7 +176,7 @@ describe('the reply link menu hookup', () => {
     calls.length = 0;
     await owner.command('chatlocal:link-menu', '', 'mailto:a@b.c', 0, native, files);
     expect(menus()).toEqual([]);
-    expect(calls.filter(call => call.op === 'shellMenu').length).toBe(1); // reply-links: the shell's menu for the click
+    expect(calls.filter(call => call.op === 'shellMenu')).toEqual([{ op: 'shellMenu', href: 'mailto:a@b.c' }]); // reply-links: the shell's menu for the click (or the ContextMenu key), naming the link
     pick = null;
     await owner.command('chatlocal:link-menu', 'page', 'https://example.test', 0, native, files);
     expect(menus()).toEqual([['Open in system browser', 'Copy Link']]);

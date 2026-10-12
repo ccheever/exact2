@@ -85,8 +85,9 @@ export async function showExternalLinkContextMenu(options: ShowExternalLinkConte
 export async function chatExternalLinkMenu(client: T3Client, native: Native, storage: Files | undefined, href: string, onPage = false): Promise<string> {
   // A link with no web host (mailto, irc, xmpp, a fragment): the anchor returns before preventDefault, so the desktop
   // shell's menu opens for the click (T3TextContextMenu `shellMenu`; reply-links RL-1, RL-2), or for the ContextMenu key
-  // with no click, at the focused link (reply-links-reference-behavior RL-6).
-  if (!href || !resolveExternalWebLinkHost(href)) { await bridgeReply(native, { op: 'shellMenu' }).catch(() => undefined); return ''; }
+  // with no click, at the focused link (reply-links-reference-behavior RL-6); the href lets the module refuse a focused
+  // node that names another link.
+  if (!href || !resolveExternalWebLinkHost(href)) { await bridgeReply(native, { op: 'shellMenu', href }).catch(() => undefined); return ''; }
   // A new thread's draft has its thread ref from the start in the reference (a file preview's links offer the Browser
   // there); here its id is allocated when the Browser opens, as the Browser surface does (addBrowserSurface).
   const draft = !onPage && !client.threadId && !activeRef(client) && !!client.environmentId && !!client.projectId;
