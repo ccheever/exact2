@@ -19,7 +19,7 @@
 
 | Part | Props (`none` for an option) | For |
 | --- | --- | --- |
-| `RoundButton` | `label`, `tint: option<string>`, `press`, `disabled`, `testId` | Start, Stop, Lap: an 80-point circle, `none` grey |
+| `RoundButton` | `label`, `tint: option<string>`, `press`, `disabled`, `testId` | Start, Stop, Lap: an 80-point circle, `none` grey; a light hue (green, mint, teal, cyan, yellow, orange) takes black ink |
 | `AnswerTile` | `label`, `status`, `press`, `testId` | a choice: `"idle"`, `"selected"`, `"correct"`, `"wrong"`, `"dimmed"` |
 | `SummaryCard` | `label`, `value`, `detail`, `progress: option<number>`, `symbol: option<string>` | the screen's one number, leading it |
 | `RingProgress` | `label`, `value`, `fraction`, `tint: option<string>` | one fraction as a ring around its number |
