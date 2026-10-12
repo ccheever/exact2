@@ -268,7 +268,7 @@ pub enum Step {
     },
     /// `seed 7`: the session's `exactTime().seed`, `--seed`.
     Seed {
-        /// A whole number from 0 through 2^53 − 1.
+        /// A whole number from 0 through 2^32 − 1.
         seed: f64,
         /// Where.
         span: Span,

@@ -523,10 +523,11 @@ impl Parser {
             },
             "seed" => {
                 let seed = self.step_number("the seed, a whole number")?;
-                if seed.fract() != 0.0 || !(0.0..=9_007_199_254_740_991.0).contains(&seed) {
+                // Below 2^32, as every host draws it (LLP 1116.005 D5).
+                if seed.fract() != 0.0 || !(0.0..=4_294_967_295.0).contains(&seed) {
                     return self.err(
                         "syntax-expected-step",
-                        "`seed` takes a whole number from 0 through 2^53 - 1",
+                        "`seed` takes a whole number from 0 through 2^32 - 1 (4294967295), as every host's launch seed is",
                     );
                 }
                 Step::Seed { seed, span }

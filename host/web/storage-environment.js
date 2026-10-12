@@ -35,7 +35,7 @@ export function agentSeed(href = launchHref()) {
   const url = new URL(href);
   if (!AGENT_ADMITTED || !url.searchParams.has('agent') || !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) return null;
   const seed = Number(url.searchParams.get('seed') ?? 1);
-  return Number.isSafeInteger(seed) && seed >= 0 ? seed : 1;
+  return Number.isSafeInteger(seed) && seed >= 0 && seed < 2 ** 32 ? seed : 1;
 }
 
 // The agent's repeatable random stream: ChaCha20 (RFC 8439 §2.3) keyed by

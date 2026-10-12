@@ -86,7 +86,7 @@ const dataImports = {
   agent_seed: () => {
     const url = new URL(location.href), seed = Number(url.searchParams.get('seed') ?? 1);
     if (!url.searchParams.has('agent') || !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) return -1;
-    return Number.isSafeInteger(seed) && seed >= 0 ? seed : 1;
+    return Number.isSafeInteger(seed) && seed >= 0 && seed < 2 ** 32 ? seed : 1;
   },
 };
 function loadAfterPaint(file, exported) {
