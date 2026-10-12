@@ -1,0 +1,104 @@
+// LLP 1115.000 D11.1: a pushed screen whose title is large arrives with it
+// expanded, as UIKit shows a pushed controller whose item says `.always`
+// (PushedTitleIOSTests). Two tabs; Home's stack pushes
+//
+// - `long`, a level-1 heading over a scroller taller than the screen: the
+//   title arrives expanded, collapses as the content scrolls and expands
+//   again at the top;
+// - `short`, a level-1 heading over content shorter than the screen;
+// - `inline`, a level-2 heading: an inline title that never expands;
+// - `rows`, a level-1 heading over a grouped list, and `plain`, one over a
+//   plain list of sixty rows (its rows are built in slices, off the main
+//   thread on iOS);
+// - `find`, a level-1 heading and a search field, which is the bar's search
+//   controller;
+// - `swap`, a level-1 heading whose scroller is replaced in place, and a
+//   reason that comes between the two (LLP 1116.005 D4).
+//
+// `long` offers each of the others, pushed over it or in its place.
+routes nav
+  tab home "/"
+    long "/long"
+    short "/short"
+    inline "/inline"
+    rows "/rows"
+    plain "/plain"
+    find "/find"
+    swap "/swap"
+  tab other "/other"
+
+component PushedTitle
+  state rows = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54", "55", "56", "57", "58", "59", "60"]
+  state query = ""
+  state swapped = false
+  state failed = false
+  action pick(name: string)
+    nav = select(nav, name)
+  action open(name: string)
+    nav = push(nav, "/" + name)
+  action change(name: string)
+    nav = replace(nav, "/" + name)
+  action search(v: string)
+    query = v
+  action swapContent
+    swapped = not swapped
+  action fail
+    failed = not failed
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back" testId="app" width="100%" height="100%" display="flex" flex-direction="column"
+      column flex=1 min-height=0 position="relative"
+        each t in nav.tabs key=t.name
+          column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
+            each e in t.stack key=e.id
+              column navigationKey=`${e.id}` testId=`route-${e.name}` position="absolute" inset=0 display="flex" flex-direction="column"
+                header testId=`header-${e.name}` display="flex" align-items="center" padding="8px 16px"
+                  text e.name role="heading" aria-level=(e.name == "inline" ? 2 : 1)
+                  when e.name == "find"
+                    input type="search" value=query input=search placeholder="Search" aria-label="Search" testId="find-search"
+                when e.name == "rows"
+                  list appearance="auto" listStyle="inset-grouped" testId="rows-scroll" flex=1 min-height=0
+                    section
+                      each r in rows key=r
+                        button press=open("inline") testId=`rows-${r}`
+                          text `Row ${r}`
+                else when e.name == "plain"
+                  list testId="plain-scroll" flex=1 min-height=0
+                    each r in rows key=r
+                      button press=open("inline") testId=`plain-${r}` padding="12px 16px" text-align="start"
+                        text `Row ${r}`
+                else when e.name == "short"
+                  scroll testId="short-scroll" flex=1 min-height=0
+                    text "short top" testId="short-top"
+                else when e.name == "swap"
+                  when failed
+                    text "Can’t reach the server." testId="swap-reason" padding="8px 16px 0"
+                  when swapped
+                    scroll testId="swap-second" flex=1 min-height=0
+                      text "second top" testId="swap-second-top"
+                      button press=swapContent testId="swap-back"
+                        text "Swap back"
+                      column height=1600
+                  else
+                    scroll testId="swap-first" flex=1 min-height=0
+                      text "first top" testId="swap-first-top"
+                      button press=swapContent testId="swap-swap"
+                        text "Swap"
+                      button press=fail testId="swap-fail"
+                        text "Fail"
+                      column height=1600
+                else
+                  scroll testId=`${e.name}-scroll` flex=1 min-height=0
+                    text `${e.name} top` testId=`${e.name}-top`
+                    each l in ["long", "short", "inline", "rows", "plain", "find", "swap"] key=l
+                      button press=open(l) testId=`${e.name}-open-${l}`
+                        text `Open ${l}`
+                    button press=change("short") testId=`${e.name}-replace-short`
+                      text "Replace with short"
+                    column height=1600
+      row role="tablist" testId="tabs"
+        button role="tab" aria-controls="panel-home" aria-selected=(nav.tab == "home") press=pick("home") testId="tab-home" flex=1
+          image "symbol:home"
+          text "Home"
+        button role="tab" aria-controls="panel-other" aria-selected=(nav.tab == "other") press=pick("other") testId="tab-other" flex=1
+          image "symbol:layers"
+          text "Other"

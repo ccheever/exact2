@@ -964,6 +964,11 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             // its tablist (§3.7).
             DispatchQueue.main.async { [weak self, weak navigationController] in
                 if let navigationController { self?.settleTablist(navigationController) }
+                // An animated transition's coordinator is still the stack's
+                // in `didShow`, where a large title's insets are not sampled
+                // (`reportCovers`): the route that arrived expanded has its
+                // expanded inset, CSS scrollTop 0, from this turn on.
+                self?.coversChanged()
             }
             // At rest: a large title's insets are sampled now (§9.10). A
             // stack's first screen was given its scroller before it had a
