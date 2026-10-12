@@ -209,6 +209,14 @@
   #exact-root [data-exact-split="detail"] { inset-inline-start: var(--exact-split, 320px) !important; }
   #exact-root [data-exact-split="list"] :is(button, a[href], [data-exact-on~="press"]) img:is([data-symbol-source="symbol:forward-chevron"], [data-symbol-source="symbol:sf/chevron.forward"], [data-symbol-source="symbol:sf/chevron.right"]) { display: none !important; }
   #exact-root [data-exact-split="list"] [data-exact-split-row] { background-color: color-mix(in srgb, var(--exact-accent, AccentColor) 15%, transparent); box-shadow: -64px 0 0 color-mix(in srgb, var(--exact-accent, AccentColor) 15%, transparent); }
+  /* LLP 1116.006 D2: a split showing no detail fills the detail pane as an iPad's split view does: one quiet line,
+     centred, in the secondary label's colour (in English: the web host has no strings table of its own). A box of
+     the root route marked `navigationSplit="placeholder"`, the author's own, takes the pane instead: a centred
+     column at the pane's width (navigation.js sets it), its alignment the author's. The lowerer hides that box
+     wherever no split shows it (a phone, a detail shown, a host that does not split). */
+  #exact-root [data-exact-split-empty]::before { content: "No Selection"; position: absolute; inset: 0; inset-inline-start: var(--exact-split, 320px); display: flex; align-items: center; justify-content: center; padding: 16px; color: var(--exact-secondary-label, light-dark(#3c3c4399, #ebebf599)); font-size: 1.25rem; text-align: center; pointer-events: none; }
+  #exact-root [data-exact-split-placeholder] { display: flex !important; position: absolute !important; inset-block: 0 !important; inset-inline: 100% auto !important; box-sizing: border-box !important; width: var(--exact-split-pane) !important; height: auto !important; margin: 0 !important; }
+  :where(#exact-root [data-exact-split-placeholder]) { flex-direction: column; align-items: center; justify-content: center; padding: 16px; }
   /* LLP 1116.005 D8: a disabled button looks disabled in every style, as
      UIKit draws one whatever its tint and a well-made web form greys its
      primary button: the browser's disabled ink (`GrayText`), and where the

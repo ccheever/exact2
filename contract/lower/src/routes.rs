@@ -192,6 +192,15 @@ pub(crate) enum NavPlace {
     InRoute,
 }
 
+/// @ref LLP 1116.006 D2 — the attribute marking a box as the split's own placeholder, written as
+/// a literal: a wide window's split shows it in the detail pane while nothing is selected, and
+/// it is no box anywhere else (its `display` is `none`, which the web shell overrides there).
+pub(crate) fn split_placeholder(attrs: &[Attr]) -> Option<&Attr> {
+    attrs.iter().find(|a| {
+        a.name == "navigationSplit" && matches!(&a.value, Expr::Str(s, _) if s == "placeholder")
+    })
+}
+
 impl NavPlace {
     /// @ref LLP 1116 D6, LLP 1115 D5 — the first root carrying a
     /// `navigationKey` is the navigation root with or without
@@ -249,6 +258,15 @@ impl NavPlace {
                     .iter()
                     .find(|a| a.name == "navigationBar")
                     .map_or(span, |a| a.span),
+            );
+        }
+        // @ref LLP 1116.006 D2 — the split's placeholder is a box in the root route; a route
+        // marked so would never show.
+        if let Some(a) = split_placeholder(attrs).filter(|_| has("navigationKey")) {
+            return err(
+                "lower-attr-value",
+                "`navigationSplit=\"placeholder\"` marks a box inside the stack's root route, which a wide window shows in the detail pane while nothing is selected; on a route it would hide the route. Put it on a box in the route (docs/recipes/navigation-stack.md)",
+                a.span,
             );
         }
         if has("navigationKey") && has("navigationBack") {

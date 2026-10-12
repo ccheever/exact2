@@ -231,3 +231,5 @@ test "add validates, saves, refuses a repeat, opens and deletes after asking"
   shows pushes another, so to swap the detail instead, `open` replaces when one is shown:
   `nav = top(nav).name == "note" ? replace(nav, path("note", id)) : push(nav, path("note", id))`.
   `navigationSplit="none"` on the list's route keeps it pushed; `contract vocab navigationSplit`.
+  Until a row is chosen the detail pane says "No Selection", as an iPad's does. For your own, mark a box
+  in the list's route `navigationSplit="placeholder"` (an `EmptyState`): it shows there then, and nowhere else.

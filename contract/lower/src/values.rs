@@ -1097,13 +1097,14 @@ pub(crate) fn check_prop_value(
             }
         }
     }
-    // @ref LLP 1116.004 D1.2 — a stack's split on a wide window: off, or the list column's width.
+    // @ref LLP 1116.004 D1.2, LLP 1116.006 D2 — a stack's split on a wide window: off, or the list column's
+    // width; or, on a box in the root route, the detail pane's placeholder.
     if prop == PropId::NavigationSplit
-        && matches!(value, Expr::Str(s, _) if s != "none" && !s.parse::<f64>().is_ok_and(|w| w.is_finite() && w > 0.0))
+        && matches!(value, Expr::Str(s, _) if s != "none" && s != "placeholder" && !s.parse::<f64>().is_ok_and(|w| w.is_finite() && w > 0.0))
     {
         return err(
             "lower-attr-value",
-            "`navigationSplit` takes \"none\" (the stack pushes on a wide window too) or the list column's width, a positive number",
+            "`navigationSplit` takes \"none\" (the stack pushes on a wide window too) or the list column's width, a positive number, on the root route; or \"placeholder\" on a box in it, which the detail pane shows while nothing is selected",
             span,
         );
     }
