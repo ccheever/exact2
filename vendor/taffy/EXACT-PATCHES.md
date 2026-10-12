@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29 and 30 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32 and 33 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -1016,3 +1016,59 @@ measurement and flow vectors until physical slot reuse or tree destruction and
 allowed stale node keys to retrieve removed contexts. Focused drop-counter
 tests cover immediate and exactly-once destruction, replacement, physical slot
 reuse, stale-key absence, and preservation of an unrelated survivor context.
+
+## Patch 33: a flex item's length in its container's main size is clamped by its maximum — to upstream
+
+**Implementer:** Claude (Opus 5.5), 2026-10-12, for issue X86
+(`issues/closed/20261012-column-height-ignores-leaf-max-height.md`).
+
+`determine_container_main_size` sums the items' lengths for a container
+whose main size is automatic. Four of its sites let an item's flex base size
+past its `max_size`. The definite-available-space branch and the wrapping
+`MinContent` branch floored the base size by `min_size` alone. The intrinsic
+branch's scroll-container arm took the base size as it was. And its two
+shortcut arms, for an item that may not shrink (`flex-shrink: 0`), took the
+base size as a minimum, which outranked the maximum. A leaf's base size is
+measured under `SizingMode::ContentSize`, which drops its min and max
+(`compute_leaf_layout`), so it is the whole content. A column whose height is
+automatic, holding a text leaf at `max-height: 160px`, was therefore as tall
+as the whole text:
+
+- in definite space, whatever the leaf: a row's unstretched item when the row
+  has a definite height (the issue's cases A to C, whose probe row is the
+  window's height), and an absolutely positioned column (case D; a T3 Code
+  popover reached 16,000 pt while its textarea was laid out clamped);
+- under a max-content offer (an item of a row whose height is automatic, a
+  block's child), when the leaf is a scroll container (`overflow: hidden`)
+  or may not shrink. A textarea is not a scroll container in Taffy (the
+  kernel makes only a scroll view and a list scroll by default), so the
+  issue's case H, a textarea column in a block, held.
+
+A box clamps its own measured size, and under a max-content offer a leaf that
+neither scrolls nor refuses to shrink takes the measured arm, which clamps, so
+neither showed it. Chrome sizes the column from its items' clamped sizes in
+every case.
+
+The definite and wrapping branches and the scroll-container arm now clamp the
+base size by the item's min and max main sizes, floor the result at its
+padding and border, and add the margin last (patch 14's order: the clamp can
+go below the padding and border, and a floor taken after the margin lost it).
+The shortcut arms clamp by the flex base size first and by the min and max
+main size last (CSS Flexbox §9.9.1); where the two ranges overlap that is the
+combined clamp they used before. The same clamps give a row's min-content
+width when a leaf's unbroken word is wider than its `max-width`. Upstream
+main (`7d33901cc`, 2026-10-09) has the same sites.
+
+**Held by** `browser_flex::a_column_is_as_tall_as_its_items_clamped_by_max_height`
+(Chrome 155, plain HTML, 37 cases; 28 fail on the unpatched source): a row's
+column (the row's height automatic, then 300) holding a text leaf or an
+image, with margins, a negative margin, content- and border-box padding, a
+border-box `max-height` under its padding with and without a margin, two
+leaves and a gap; the absolutely positioned column, with a margin and a
+negative one; a `flex-shrink: 0` leaf in a row's column and in a block's,
+with a `height`, a `min-height` and a margin; a column in a block; a block,
+a row and a column holding a box as controls; and six rows of an unbroken
+word at `max-width: 130px`. On macOS the issue's probe lays out cases A to D
+at 132, 132, 130 and 132 pt (898, 434, 656 and 706 before), and a column
+holding a content-sized textarea typed past its maximum stays at the
+textarea's height.
