@@ -17,6 +17,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
+import { withLook } from '../look.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const { executable: chrome, unavailable } = chromium();
@@ -255,3 +256,42 @@ check('the bar says its own word, "Back", only on a page in English; elsewhere t
   expect(await evaluate(`(b => [b.lastChild.hidden, b.hidden])(document.querySelector('#t2 > header').shadowRoot.querySelector('button'))`)).toEqual([true, false]);
   for (const lang of ['en-GB', 'EN', '']) expect([lang, await evaluate(`document.documentElement.lang = ${JSON.stringify(lang)}; select('2'); backs()`)]).toEqual([lang, english]);
 }), 30000);
+
+// LLP 1116.009 D4 (the neutral look's): a sheet's bar centres its title whatever flanks it, as UIKit's does; a page's stays leading. The
+// author's flow wins: a header with its own `justify-content` (the host names it, `data-exact-said`) and a title with a
+// margin of its own are left where they were written. Buttons 60 px wide, so what is centred is exact.
+const bars = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8'), 'neutral').match(/<style>[\s\S]*?<\/style>/)[0] + `<div id="exact-root">
+  ${[
+    ['s1', 'modal', '', '', '<button>Cancel</button>', '', '<button>Save</button>'],
+    ['s2', 'modal', '', '', '<button>Back</button>', '', ''],
+    ['s3', 'modal', '', '', '', '', ''],
+    ['p1', null, '', '', '<button>Back</button>', '', ''],
+    ['s4', 'modal', 'data-exact-said="justify-content"', 'justify-content:space-between', '<button>Back</button>', '', ''],
+    ['s5', 'modal', '', '', '<button>Back</button>', 'style="margin:0"', ''],
+  ].map(([id, how, mark, flow, before, title, after]) => `<div navigationKey="${id}" id="${id}"${how ? ` navigationPresentation="${how}"` : ''}>
+    <header style="display:flex;align-items:center;${flow}" ${mark}>${before.replace('<button>', '<button style="flex:none;width:60px">')}<h2 id="${id}-title" ${title}>Create an event</h2>${after.replace('<button>', '<button style="flex:none;width:60px">')}</header></div>`).join('\n  ')}
+</div>
+<script>
+  window.edges = id => { const h = document.querySelector('#' + id + ' > header').getBoundingClientRect(), t = document.getElementById(id + '-title').getBoundingClientRect(); return { left: Math.round(t.left - h.left), right: Math.round(h.right - t.right), centre: Math.round((t.left + t.right) / 2 - (h.left + h.right) / 2), width: Math.round(t.width) }; };
+  window.ready = true;
+</script>`;
+
+check('a sheet\'s bar centres its title, a page\'s stays leading, and the author\'s flow wins', () => inChrome(async (evaluate) => {
+  // The padding is 16 px a side. Cancel and Save the same width: the title is on the bar's centre.
+  const s1 = await evaluate(`edges('s1')`);
+  expect(Math.abs(s1.centre)).toBeLessThanOrEqual(1);
+  // A lone Back: centred between it and the bar's end, nowhere near the end (the free space is the same either side).
+  const s2 = await evaluate(`edges('s2')`);
+  expect(Math.abs((s2.left - 16 - 60) - (s2.right - 16))).toBeLessThanOrEqual(1);
+  expect(s2.right).toBeGreaterThan(100);
+  // Nothing flanking it.
+  expect(Math.abs((await evaluate(`edges('s3')`)).centre)).toBeLessThanOrEqual(1);
+  // A page's title stays leading: right after the Back, with its end free.
+  const p1 = await evaluate(`edges('p1')`);
+  expect(p1.left).toBe(16 + 60);
+  // A header flowing its own items (space-between, the title last) and a title with its own margin are the author's.
+  expect((await evaluate(`edges('s4')`)).right).toBe(16);
+  expect((await evaluate(`edges('s5')`)).left).toBe(16 + 60);
+  // Centred in its own text where it fills the space (a title the author grew).
+  expect(await evaluate(`document.getElementById('s3-title').style.flexGrow = '1'; getComputedStyle(document.getElementById('s3-title')).textAlign`)).toBe('center');
+}, bars), 30000);

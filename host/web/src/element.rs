@@ -1087,6 +1087,17 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             out.insert("data-exact-field".into(), String::new());
         }
     }
+    // @ref LLP 1116.009 D4 — a sheet's bar centres its title (index.html) unless the
+    // author flows its items: a header whose author wrote `justify-content` is named,
+    // as D2's bit names a written row to the neutral look's sheet below.
+    if element(node) == "header"
+        && node
+            .style
+            .written
+            .has(exact_kernel::StyleId::JustifyContent)
+    {
+        out.insert("data-exact-said".into(), "justify-content".into());
+    }
     // @ref LLP 1115.000 D4 part B — under the neutral look (the role table's
     // column says a process shows it) the page's sheet draws these marks
     // itself (neutral.css), and reads here what CSS cannot say. A checkbox,

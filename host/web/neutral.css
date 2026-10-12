@@ -178,6 +178,16 @@
   @media (hover: hover) { #exact-root [navigationkey] > header::part(back):hover { background-color: var(--exact-quaternary-fill); } }
   @media (pointer: coarse) { #exact-root [navigationkey] > header::part(back) { min-height: 44px; } }
 
+  /* LLP 1116.009 D4: a sheet's bar centres its title, as UIKit's does, whatever flanks it (a Cancel, a Save, both,
+     neither); a page's title stays leading. The title's auto side margins share the bar's free space on either side of
+     it, so it never overlaps a neighbour or loses a word to one: it is centred between them, on the bar's own centre
+     when they are as wide as each other. A title that fills the space is centred in its own text. Unsaid only, as every
+     rule here: a header with its own `justify-content` flows its own items (the host says so, `data-exact-said`), and a
+     margin or `flex` the author gave the title wins, a row of its own. The heading names are the subject so this ties
+     the shell's heading reset (`margin: 0`) and wins by coming after it. */
+  :where(#exact-root [navigationPresentation="modal"] > header:not([data-exact-said~="justify-content"])) > :is(h1, h2, h3, h4, h5, h6),
+  :where(#exact-root [navigationPresentation="modal"] > header:not([data-exact-said~="justify-content"]) > [role="heading"]) { margin-inline: auto; text-align: center; }
+
   /* A dialog is a modal surface. An alert reads as a page does: its title and message at the start, its actions at
      the end in the order written, each its own width. */
   :where(#exact-root dialog) { border: none; border-radius: 12px; background-color: var(--exact-secondary-grouped-background); color: var(--exact-label); box-shadow: var(--exact-modal); }

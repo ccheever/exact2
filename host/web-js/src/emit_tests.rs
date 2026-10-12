@@ -139,6 +139,29 @@ fn a_modal_route_is_painted_by_its_class() {
     );
 }
 
+/// LLP 1116.009 D4: the shell centres a sheet's title unless the author flows the
+/// bar, so a header whose author wrote `justify-content` is named (from the
+/// plan's own `written` bit, which the template's kernel carries), and one that
+/// did not, or whose row the compiler implied, is not.
+#[test]
+fn a_header_with_its_own_justify_content_is_named() {
+    let plan = contract::compile(
+        "component App\n  view\n    column\n      header justify-content=\"space-between\"\n        text \"One\" role=\"heading\" aria-level=2\n      header display=\"flex\" align-items=\"center\"\n        text \"Two\" role=\"heading\" aria-level=2\n",
+    )
+    .unwrap();
+    let out = crate::emit::emit(&plan, false, false).unwrap();
+    let headers: Vec<&str> = out.js.split("\"header\",").skip(1).collect();
+    let named = |h: &str| {
+        h.split('}')
+            .next()
+            .unwrap()
+            .contains("\"data-exact-said\":\"justify-content\"")
+    };
+    assert_eq!(headers.len(), 2, "{}", out.js);
+    assert_eq!(headers.iter().filter(|h| named(h)).count(), 1, "{}", out.js);
+    assert!(named(headers[0]), "the first header wrote it: {}", out.js);
+}
+
 /// LLP 1116 D8: a literal `value` on a `progress` is its `<progress>`'s
 /// attribute, as a bound one is its property; without it the browser draws
 /// an indeterminate bar.

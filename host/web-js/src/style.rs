@@ -165,8 +165,10 @@ pub fn project(
                 }
                 // `unset`, or `inherit` on an inherited row: no row (feed F1).
                 (BindingKind::Style, Some(v)) if bridge::unsets(row.id, &v) => {}
+                // With what the binding says of the row (the author wrote it, or the compiler
+                // implied it: LLP 1115.000 D2), which the page's marks read (`data-exact-said`).
                 (BindingKind::Style, Some(v)) => {
-                    bridge::set_plan_style(&mut patch, row.id, &v, plan)
+                    bridge::set_binding_style(&mut patch, row, &v, plan)
                         .map_err(|e| format!("node {i}: {e:?}"))?;
                     styled = true;
                 }
