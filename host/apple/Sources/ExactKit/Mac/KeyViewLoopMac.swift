@@ -94,8 +94,9 @@ extension Presenter {
         for (start, next) in starts {
             let from = keyView(of: start)
             from.nextKeyView = tabbable.isEmpty ? nil : keyView(of: next < listed.count ? listed[next] : tabbable[0])
-            // Shift-Tab from it: the stop before it, which AppKit's loop cannot say (no stop points to a start).
-            if !listed.isEmpty { keyViewBefore.setObject(keyView(of: listed[(next + listed.count - 1) % listed.count]), forKey: from) }
+            // Shift-Tab from it: the stop before it, which AppKit's loop cannot say (no stop points to a start);
+            // with none, the loop's last, as Tab from past the last stop wraps to the loop's first.
+            if !listed.isEmpty { keyViewBefore.setObject(keyView(of: next > 0 ? listed[next - 1] : tabbable[tabbable.count - 1]), forKey: from) }
         }
         if tabbable.isEmpty {
             viewport.nextKeyView = nil
