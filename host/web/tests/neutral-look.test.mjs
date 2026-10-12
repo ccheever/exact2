@@ -253,3 +253,17 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
     if (engine === 'chromium') expect(await page.evaluate(() => [matchMedia('(pointer: coarse)').matches, box('bordered')[3], box('field')[3], box('select')[3]])).toEqual([true, 44, 44, 44]);
   } finally { await browser.close(); }
 }, 90000);
+
+// What the author writes wins (LLP 1115). In CSS a minimum outranks a size and a border box is never narrower than
+// its padding, so the look's floor and padding would redraw `button width=84 height=24` as 84 by 36. The hosts name a
+// written size (`data-exact-said`, host/web/src/element.rs) and the sheet steps aside on that axis.
+test('a size the author wrote on a platform button is its box, and an unsized button keeps the look\'s floor', async () => {
+  const browser = await launch('chromium');
+  try {
+    const page = await browser.newPage({ viewport: { width: 600, height: 400 }, colorScheme: 'light' });
+    const button = (id, style, said) => `<button type="button" data-native data-button-style="bordered" id="${id}" style="${style}"${said ? ` data-exact-said="${said}"` : ''}>Go</button>`;
+    await page.setContent(`<style>${sheet('neutral')}</style><div id="exact-root">${button('unsized', '')}${button('sized', 'width:84px;height:24px', 'width height')}${button('square', 'width:28px;height:28px', 'width height')}${button('short', 'height:24px', 'height')}${button('unsaid', 'width:28px;height:28px')}</div><script>${helpers}</script>`);
+    const got = await page.evaluate(() => ({ unsized: box('unsized')[3], sized: box('sized').slice(2), square: box('square').slice(2), short: box('short')[3], unsaid: box('unsaid').slice(2) }));
+    expect(got).toEqual({ unsized: 36, sized: [84, 24], square: [28, 28], short: 24, unsaid: [36, 36] }); // `unsaid`: the floor, were the host not to say
+  } finally { await browser.close(); }
+}, 90000);

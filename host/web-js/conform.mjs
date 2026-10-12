@@ -701,10 +701,9 @@ const LINUX_APART = {
 // out; QUEUE.md ("The web's neutral look") has both, and D17 ends the first.
 const LINUX_LAYOUT_HELD = {
   'synthetic-spacing': "an unsaid checkbox and radio are the neutral look's 20 px on the page and 13 px in the kernel, and what follows them moves: LLP 1115.000 D17 gives the painted hosts the look's metrics",
-  'synthetic-grid': "the page draws a platform button at the neutral look's 36 px where its author wrote `height=24` or `height=32`, and the kernel draws the height written: the page's defect, which ends when the look's floor yields to an authored size",
 };
 // HELD for the same reason, in a plan whose drive the Linux host follows step by step: its comparison stops before the
-// step the two sizes send apart, as `LINUX_APART`'s do, and the run says so as the two above do. D17 ends it.
+// step the two sizes send apart, as `LINUX_APART`'s do, and the run says so as the one above does. D17 ends it.
 const LINUX_HELD_FROM = {
   'synthetic-intoview': ['tap far', "an unsaid button is the neutral look's 36 px on the page and 33 px in the kernel, which still sizes the old look's, so the list beneath is 3 px shorter on the page and a row centred in it is mounted a row apart"],
 };

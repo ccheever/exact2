@@ -1132,6 +1132,21 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
         if let Some((_, name)) = said.filter(|(id, _)| node.style.written.has(*id)) {
             out.insert("data-exact-said".into(), name.into());
         }
+        // A platform button's floor (neutral.css: 36 px each way, 44 under a
+        // coarse pointer) and its padding are the look's, and a size its
+        // author wrote is the author's. In CSS a minimum outranks a size, so
+        // the sheet is told which of the two were written and steps aside on
+        // that axis.
+        if node.node_type == NodeType::Control && node.props.str(PropId::Type) == Some("button") {
+            let sizes: Vec<&str> = [(StyleId::Width, "width"), (StyleId::Height, "height")]
+                .into_iter()
+                .filter(|(id, _)| node.style.written.has(*id))
+                .map(|(_, name)| name)
+                .collect();
+            if !sizes.is_empty() {
+                out.insert("data-exact-said".into(), sizes.join(" "));
+            }
+        }
     }
     // A `<button>` submits a form unless it says otherwise; a `button` never does.
     if element(node) == "button" {
