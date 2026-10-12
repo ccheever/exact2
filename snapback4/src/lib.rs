@@ -135,7 +135,7 @@ impl Host {
         }
         let path = text(request, "path")?;
         if !partition::valid_path(path) {
-            return Err("Snapback4 needs app:/data/<safe filename>.sqlite".into());
+            return Err(format!("Snapback4 needs app:/data/<safe filename>.sqlite; received {path:?}. Use Snapback.partitionName(principal) in TypeScript."));
         }
         // Admit before creating even the host-selected roots.
         admit(&self.grants, &Operation::SqliteOpen { path: path.into() }).map_err(|e| match e {

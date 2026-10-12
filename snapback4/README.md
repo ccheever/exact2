@@ -13,7 +13,7 @@ is handed to whoever drives it. Pinned to Snapback4 **0.4.16**
 | `client/` (`exact-snapback4-client`) | the protocol: `Client` (`read`, `write`, `sync` → `Step::Fetch`/`deliver` → `Step::Done`, `changes`/`changed`, `refresh`/`refreshed`, `outcome`, `status`), the JSON `dispatch`, partition binding |
 | `src/` (`exact-snapback4`) | the native device under the app's grants and directories: `Module` (an Exact `NativeModule` or `DataSource`), and `host_request`/`host_reply` for a Rust source's `Answer::Later` |
 | `web/` (`exact-snapback4-web`) | the same client as wasm over the device's memory store; `web/build.mjs` builds it with its wasm-bindgen glue |
-| `ts/` | the TypeScript driver an app's `app.ts` imports: `Snapback.open`, `Snapback.switcher` (one persona's partition at a time), `read`/`readAll`, `write`, `sync`, `poll`, `refreshSession`, `outcome`, `status`, `upload`/`download` |
+| `ts/` | the TypeScript driver an app's `app.ts` imports: `Snapback.open`, `Snapback.switcher` (one viewer's partition at a time), `read`/`readAll`, `write`, `sync`, `poll`, `signup`/`login`/`logout`, stored password sessions, `refreshSession`, `outcome`, `status`, `upload`/`download` |
 
 > **Exact + Snapback checklist.** Each line is a pair that must agree; a
 > mismatch fails late, as data that never loads.
@@ -86,6 +86,68 @@ says the server to start, `bunx snapback4 dev --port <n>` above. The driver is
 pinned to Snapback4 0.4.16: install that version for the server. A new app
 made this way and tested as written against 0.4.16 (2026-10-12): both of the
 guestbook's tests pass.
+
+### Personas and password accounts
+
+A persona app declares `use personas alice, bob` and runs against `dev`:
+
+```ts
+const db = await Snapback.open({ app: appId, name: Snapback.partitionName('dev:alice'),
+  origin, viewer: 'dev:alice', headers: () => ({ 'x-snapback-persona': 'alice' }), storage, native });
+```
+
+A password app declares `use identity password`. It runs against `dev` or a
+release made with `snapback4 deploy <dir>` and served by `snapback4 serve <dir>`.
+`serve` accepts bearer sessions and refuses personas. In a source, pass its
+`store`, `storage`, `native`, and Contract's `now` (milliseconds, as below):
+
+```ts
+// grants: net.fetch ${origin}\nsqlite.open app:/data\nsecret.keep snapback-session
+const db = await Snapback.open({ app: appId, name: 'account', origin, storage, native,
+  auth: { store, key: 'snapback-session', now } });
+try {
+  // Opening restores the stored session. Signed out, no partition opens yet.
+  if (!db.session) {
+    const signed = await db.signup(email, password);   // or db.login(email, password)
+    if (!signed.ok) throw refused(signed.why);
+  }
+  const principal = db.session!.principal;             // publish this to the view, never the token
+  await db.sync();
+  const notes = await db.read(api.recent, {}, now);
+  // await db.logout(): revoke online and forget locally even when offline.
+} finally { await db.close(); }                        // releases the handle; keeps session and rows
+```
+
+Sessions live in Exact's app-scoped secret store (`secret.keep <key>`): the
+Keychain on Apple, the user's private secret files on Linux, and the app's
+web storage. Use a separate key for each origin. `open` drops malformed or
+expired stored sessions and refreshes within 60 seconds of expiry using the
+supplied Contract time. `refreshSession(now)` also rotates explicitly and
+stores the replacement before returning. `E_AUTH` on refresh forgets the
+session: show sign-in again. Offline refresh keeps it. `logout` always forgets
+locally; `ok: true` confirms server revocation, `offline: true` says it could
+not be confirmed. Logout before signing into another account. No DOM
+`Storage`, npm auth import, `Date.now()` or timers are needed in `app.ts`.
+
+`name` is a base for password apps: the driver adds the safely encoded
+principal, so two accounts never reuse a partition. For manually managed
+credentials, `Snapback.partitionName(principal)` is a lossless ASCII mapping
+of `user:<ULID>` (and other principals) to a filename. A switcher uses it
+when `name` is omitted and maps an unsafe supplied name too. For example,
+this mixed switcher needs no cast on its conditional headers:
+
+```ts
+import type { Session } from './snapback4/snapback.ts';
+const sessions = new Map<string, Session>();           // populated from db.session after sign-in
+const viewers = Snapback.switcher((key: string) => ({ app: appId, origin,
+  viewer: sessions.get(key)?.principal ?? `dev:${key}`,
+  headers: () => {
+    const session = sessions.get(key);
+    return session ? { authorization: `Bearer ${session.token}` } : { 'x-snapback-persona': key };
+  } }));
+// Password key: its principal; persona key: its declared name (dev only).
+// In a source: viewers.use(key, storage, native, db => db.read(api.recent, {}, now)).
+```
 
 ### Time
 
@@ -599,8 +661,9 @@ refused (`done.stale`), as is a superseded or repeated change-poll reply.
 `refreshSession` (`POST /auth/refresh`) trades the bearer `headers()` sends
 for a fresh session. The server retires the old token before it answers, so
 keep the returned session before the next exchange and have `headers()` read
-it; `denied.code == "E_AUTH"` means sign in again. When to refresh is the
-app's: Snapback's own client asks shortly before `expiresAt`.
+it; `denied.code == "E_AUTH"` means sign in again. For an `auth` opening, the driver keeps the replacement itself; a later
+`open` with Contract time refreshes shortly before `expiresAt`. With manual
+`headers`, keep the returned session yourself before the next exchange.
 
 ## From Rust
 

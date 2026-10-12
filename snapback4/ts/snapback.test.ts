@@ -912,3 +912,87 @@ test('at bake (a native module that is not available) open refuses with code bak
   expect((refused as { code?: string; kind?: string }).kind).toBe('Unavailable');
   expect(calls).toEqual([]);
 }, 60_000);
+
+test('password accounts on serve: signup, reopen, refresh, login, logout and isolated safe partitions', async () => {
+  const binary = process.env.SNAPBACK4_BIN!;
+  const project = join(scratch, 'password-server'), deployed = join(project, 'production');
+  mkdirSync(join(project, 'snapback'), { recursive: true });
+  writeFileSync(join(project, 'snapback/schema.q'), SCHEMA.replace('use identity', 'use identity password'));
+  const release = spawnSync(binary, ['deploy', deployed], { cwd: project, encoding: 'utf8' });
+  if (release.status !== 0) throw new Error(`deploy: ${release.stderr}`);
+  const serve = spawn(binary, ['serve', deployed, '--port', '0'], { cwd: project, stdio: ['ignore', 'pipe', 'pipe'] });
+  try {
+    const url = await new Promise<string>((done, fail) => {
+      let output = '';
+      for (const stream of [serve.stdout!, serve.stderr!]) stream.on('data', chunk => {
+        output += String(chunk);
+        const ready = /SNAPBACK4_READY .*url=(http:\/\/127\.0\.0\.1:\d+)/.exec(output);
+        if (ready) done(ready[1]);
+      });
+      serve.on('error', fail);
+      serve.on('exit', code => fail(new Error(`serve exited ${code}: ${output}`)));
+    });
+    const secretsPath = join(scratch, 'password-secrets.sqlite');
+    let secrets = new Database(secretsPath);
+    secrets.run('CREATE TABLE secrets (key TEXT PRIMARY KEY, value TEXT)');
+    const store = {
+      get: (key: string) => (secrets.query('SELECT value FROM secrets WHERE key=?').get(key) as { value: string } | null)?.value ?? null,
+      set: (key: string, value: string) => { secrets.run('INSERT OR REPLACE INTO secrets VALUES (?, ?)', [key, value]); },
+      forget: (key: string) => { secrets.run('DELETE FROM secrets WHERE key=?', [key]); },
+    };
+    const page = storage(join(scratch, 'password-device'));
+    const options = { app: 'test.exact.password', name: 'account', origin: url, storage: page,
+      auth: { store, key: 'session', now: Date.now() }, wasm: `file://${wasm}` };
+    let db = await Snapback.open(options);
+    expect(db.session).toBeNull();
+    await expect(db.read('inbox', {}, Date.now())).rejects.toThrow(/E_AUTH/);
+    const signed = await db.signup('alice@example.com', 'correct-horse-battery-staple');
+    if (!signed.ok) throw new Error(JSON.stringify(signed.why));
+    const principal = signed.session.principal, token = signed.session.token;
+    expect(principal.startsWith('user:')).toBe(true);
+    expect(Snapback.partitionName(principal)).toMatch(/^[a-z0-9-]+$/);
+    expect((await db.send('send', { body: 'password hello' }, Date.now())).state).toBe('sent');
+    const name = db.options.name;
+    await db.close();
+    secrets.close(); secrets = new Database(secretsPath);
+    // A new store and a new driver restore the durable session and partition.
+    db = await Snapback.open({ ...options, auth: { ...options.auth, now: Date.now() } });
+    expect(db.session?.principal).toBe(principal);
+    expect(db.options.name).toBe(name);
+    expect((await db.read<{ author: string }[]>('inbox', {}, Date.now())).data?.some(row => row.author === principal)).toBe(true);
+    const renewed = await Promise.all([db.refreshSession(Date.now()), db.refreshSession(Date.now())]);
+    expect(renewed.every(r => r.ok)).toBe(true);
+    expect(db.session?.token).not.toBe(token);
+    const old = await fetch(`${url}/q/inbox`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: '{"args":{}}' });
+    expect((await old.json() as { denied: { code: string } }).denied.code).toBe('E_AUTH');
+    const latestToken = db.session!.token;
+    expect(await db.logout()).toEqual({ ok: true });
+    expect(store.get('session')).toBeNull();
+    expect(db.session).toBeNull();
+    const revoked = await fetch(`${url}/q/inbox`, { method: 'POST', headers: { authorization: `Bearer ${latestToken}`, 'content-type': 'application/json' }, body: '{"args":{}}' });
+    expect((await revoked.json() as { denied: { code: string } }).denied.code).toBe('E_AUTH');
+    expect((await db.login('alice@example.com', 'wrong-password')).ok).toBe(false);
+    expect(db.session).toBeNull();
+    expect((await db.login('alice@example.com', 'correct-horse-battery-staple')).ok).toBe(true);
+    expect(db.options.name).toBe(name);
+    const held = db.session!;
+    await db.close();
+    // Contract time triggers refresh just before expiry; it never reads Date.now().
+    db = await Snapback.open({ ...options, auth: { ...options.auth, now: held.expiresAt - 30_000 } });
+    expect(db.session?.token).not.toBe(held.token);
+    // Offline sign-out forgets the local token regardless of revocation.
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => { throw new TypeError('offline'); }) as typeof fetch;
+    try { expect(await db.logout()).toEqual({ ok: false, offline: true }); } finally { globalThis.fetch = realFetch; }
+    expect(store.get('session')).toBeNull();
+    expect((await db.signup('bob@example.com', 'correct-horse-battery-staple')).ok).toBe(true);
+    expect(db.options.name).not.toBe(name);
+    expect((await db.send('send', { body: 'bob hello' }, Date.now())).state).toBe('sent');
+    await db.logout(); await db.close(); secrets.close();
+    const mixed = Snapback.switcher((viewer: string) => ({ app: 'test.exact.password', origin: url,
+      viewer, wasm: `file://${wasm}`, headers: () => ({ authorization: `Bearer ${held.token}`, 'x-snapback-persona': undefined }) }));
+    expect(await mixed.use(principal, page, null, async client => client.options.name)).toBe(Snapback.partitionName(principal));
+    await mixed.close();
+    await expect(Snapback.open({ app: 'test', name: principal, origin: url, viewer: principal, storage: page })).rejects.toThrow(principal);
+  } finally { serve.kill(); await new Promise<void>(done => serve.exitCode === null ? serve.once('exit', () => done()) : done()); }
+}, 60_000);

@@ -83,6 +83,19 @@ const nameOf = (op: string | Op<unknown, unknown>): string => typeof op === 'str
 
 /** A session as Snapback mints it; `expiresAt` in milliseconds. */
 export interface Session { principal: string; kind: string; token: string; expiresAt: number }
+/** Exact's app-scoped secret store, under `secret.keep <key>`. */
+export interface SessionStore { get(key: string): string | null; set(key: string, value: string): void; forget(key: string): void }
+export interface AuthOptions { store: SessionStore; key: string; now: number }
+export type SignedIn = { ok: true; session: Session } | { ok: false; why: Refusal };
+
+function sessionFrom(raw: string | null, now: number): Session | null {
+  if (!raw) return null;
+  try {
+    const s = JSON.parse(raw) as Session;
+    return s && typeof s.principal === 'string' && s.principal !== '' && typeof s.kind === 'string'
+      && typeof s.token === 'string' && s.token !== '' && Number.isFinite(s.expiresAt) && s.expiresAt > now ? s : null;
+  } catch { return null; }
+}
 
 /** What a refresh came to: the replacement session, or why not. */
 export type Refreshed = { ok: true; session: Session } | { ok: false; offline?: boolean; denied: Refusal };
@@ -147,9 +160,12 @@ export interface Options {
   /** The Snapback origin, e.g. `https://api.example.com`. Grant `net.fetch` for it. */
   origin: string;
   /** The principal this device reads and writes as (`dev:alice`, a session's principal). */
-  viewer: string;
+  viewer?: string;
+  /** Password identity: no persona headers or viewer needed. The session is
+   * kept under `key`; `now` comes from Contract, never Date.now(). */
+  auth?: AuthOptions;
   /** Credentials for each request: `{authorization: 'Bearer …'}`, or in development `{'x-snapback-persona': 'alice'}`. */
-  headers?: () => Record<string, string>;
+  headers?: () => Record<string, string | undefined>;
   /** The dispatcher's `storage`, Exact's own (the web persists the partition
    * there); its `sqlite`, and its `fs` for `download`. */
   storage: { readonly sqlite: { open(path: string): Promise<unknown> }; readonly fs?: { writeFile(path: string, data: Uint8Array): Promise<void> } };
@@ -235,12 +251,12 @@ interface Partition {
  * module): the lock is the storage's. Awaiting another answer's promise here
  * is Exact's own pattern for one open at a time (`withBooks` in
  * docs/contract-for-humans.md). */
-interface Page { partitions: Map<string, Promise<Partition>>; closing: Map<string, Promise<unknown>> }
+interface Page { partitions: Map<string, Promise<Partition>>; closing: Map<string, Promise<unknown>>; authJobs: Map<string, Promise<unknown>> }
 const pages = new WeakMap<object, Page>();
 function pageOf(options: Options): Page {
   const owner = (options.native ?? options.storage) as object;
   let page = pages.get(owner);
-  if (!page) pages.set(owner, page = { partitions: new Map(), closing: new Map() });
+  if (!page) pages.set(owner, page = { partitions: new Map(), closing: new Map(), authJobs: new Map() });
   return page;
 }
 
@@ -248,7 +264,7 @@ function refusal(code: string, message: string, extra: Partial<Refusal> = {}): E
   return refused({ code, message, ...extra } as Refusal);
 }
 
-async function openPartition(options: Options, path: string, page: Page): Promise<Partition> {
+async function openPartition(options: Options & { viewer: string }, path: string, page: Page): Promise<Partition> {
   // At bake there is no module (and no storage): refused as storage is then,
   // `kind: 'Unavailable'`, `code: 'bake'`, so the bake leaves the answer to
   // the device and an app needs one check for it on every executor.
@@ -267,7 +283,42 @@ async function openPartition(options: Options, path: string, page: Page): Promis
 
 export class Snapback {
   private closed = false;
-  private constructor(private partition: Partition, readonly options: Options) {}
+  private constructor(private held: Partition | undefined, readonly options: Options, private baseName = options.name) {}
+  private get partition(): Partition {
+    if (this.closed) throw new Error('Snapback4: this client is closed');
+    if (!this.held || (this.options.auth && this.session?.principal !== this.held.viewer))
+      throw refusal('E_AUTH', 'sign in before reading or writing this partition');
+    return this.held;
+  }
+  get session(): Session | null {
+    const auth = this.options.auth;
+    return auth ? sessionFrom(auth.store.get(auth.key), 0) : null;
+  }
+  private headers(): Record<string, string> {
+    const headers: Record<string, string> = {};
+    for (const [key, value] of Object.entries(this.options.headers?.() ?? {})) if (value !== undefined) headers[key] = value;
+    if (this.options.auth) {
+      delete headers['x-snapback-persona'];
+      delete headers.authorization;
+      const session = this.session;
+      if (session) headers.authorization = `Bearer ${session.token}`;
+    }
+    return headers;
+  }
+  private authWork<T>(work: () => Promise<T>): Promise<T> {
+    const jobs = pageOf(this.options).authJobs;
+    const key = `${this.options.app}:${this.options.origin}:${this.options.auth?.key}`;
+    const next = (jobs.get(key) ?? Promise.resolve()).catch(() => undefined).then(work);
+    jobs.set(key, next);
+    const clear = () => { if (jobs.get(key) === next) jobs.delete(key); };
+    next.then(clear, clear);
+    return next;
+  }
+
+  /** A lossless filename for any principal, including `user:<ULID>`. */
+  static partitionName(principal: string): string {
+    return `p-${Array.from(new TextEncoder().encode(principal), byte => byte.toString(16).padStart(2, '0')).join('')}`;
+  }
 
   /** Every call goes through here: a closed client refuses, rather than
    * reaching whatever partition its device holds now. */
@@ -284,6 +335,27 @@ export class Snapback {
    * may call `open` for itself. A partition belongs to one viewer, so a
    * second viewer needs its own `name` (for example `inbox-${persona}`). */
   static async open(options: Options): Promise<Snapback> {
+    if (options.auth) {
+      const auth = options.auth, now = clock(auth.now);
+      const raw = auth.store.get(auth.key), session = sessionFrom(raw, now);
+      if (raw && !session) auth.store.forget(auth.key);
+      const db = new Snapback(undefined, { ...options });
+      if (session) {
+        if (session.expiresAt - now <= 60_000) {
+          const renewed = await db.refreshSession(now);
+          if (!renewed.ok && !renewed.offline) return db;
+        }
+        if (db.session) await db.bindSession();
+      }
+      return db;
+    }
+    if (!options.viewer) throw refusal('E_AUTH', 'Snapback.open needs a persona viewer, or auth with the app secret store and Contract time');
+    return this.openViewer({ ...options, viewer: options.viewer });
+  }
+
+  private static async openViewer(options: Options & { viewer: string }): Promise<Snapback> {
+    if (!/^[A-Za-z0-9_%][-A-Za-z0-9._%]*$/.test(options.name))
+      throw refusal('E_PARTITION_NAME', `Snapback4 needs app:/data/<safe filename>.sqlite; received ${JSON.stringify(options.name)}. Use Snapback.partitionName(principal).`);
     const path = `app:/data/${options.name}.sqlite`;
     const page = pageOf(options);
     const { partitions } = page;
@@ -316,6 +388,60 @@ export class Snapback {
     }
   }
 
+  private async bindSession(): Promise<void> {
+    const session = this.session;
+    if (!session) return;
+    if (this.held?.viewer === session.principal) return;
+    if (this.held) { await this.close(); this.closed = false; this.held = undefined; }
+    const name = `${this.baseName}-${Snapback.partitionName(session.principal)}`;
+    const bound = await Snapback.openViewer({ ...this.options, name, viewer: session.principal });
+    this.held = bound.held;
+    this.options.name = name;
+    this.options.viewer = session.principal;
+  }
+
+  private async signIn(path: string, email: string, password: string): Promise<SignedIn> {
+    if (this.closed) throw new Error('Snapback4: this client is closed');
+    const auth = this.options.auth;
+    if (!auth) throw refusal('E_CLIENT', 'signup/login needs Snapback.open auth: { store, key, now }');
+    // Change identity only after logout, so outstanding work cannot cross users.
+    if (this.session) throw refusal('E_AUTH', 'logout before signing in as another account');
+    const reply = await this.exchange({ method: 'POST', path, body: { email, password } });
+    if (reply.error) return { ok: false, why: { code: 'E_OFFLINE', message: String(reply.error), retryable: true } };
+    const body = reply.body as { session?: Session; denied?: Refusal } | null;
+    const session = sessionFrom(body?.session ? JSON.stringify(body.session) : null, 0);
+    if (typeof reply.status === 'number' && reply.status >= 200 && reply.status < 300 && session) {
+      auth.store.set(auth.key, JSON.stringify(session));
+      await this.bindSession();
+      return { ok: true, session };
+    }
+    return { ok: false, why: body?.denied ?? { code: 'E_AUTH', message: 'the server refused sign-in' } };
+  }
+  signup(email: string, password: string): Promise<SignedIn> { return this.authWork(() => this.signIn('/auth/signup', email, password)); }
+  login(email: string, password: string): Promise<SignedIn> { return this.authWork(() => this.signIn('/auth/login', email, password)); }
+
+  /** Local sign-out always happens, including offline. `ok` confirms revocation. */
+  async logout(): Promise<{ ok: boolean; denied?: Refusal; offline?: boolean }> {
+    return this.authWork(() => this.signOut());
+  }
+  private async signOut(): Promise<{ ok: boolean; denied?: Refusal; offline?: boolean }> {
+    if (this.closed) throw new Error('Snapback4: this client is closed');
+    const auth = this.options.auth;
+    if (!auth) throw refusal('E_CLIENT', 'logout needs Snapback.open auth: { store, key, now }');
+    let reply: Request = {};
+    try { if (this.session) reply = await this.exchange({ method: 'POST', path: '/auth/logout' }); }
+    finally {
+      auth.store.forget(auth.key);
+      await this.close(); this.closed = false; this.held = undefined;
+      this.options.name = this.baseName;
+      this.options.viewer = undefined;
+    }
+    if (reply.error) return { ok: false, offline: true };
+    const body = reply.body as { denied?: Refusal } | null;
+    if (body?.denied) return { ok: false, denied: body.denied };
+    return { ok: reply.status === undefined || (Number(reply.status) >= 200 && Number(reply.status) < 300) };
+  }
+
   /** One partition open at a time, chosen by a key: the persona or sign-in
    * switch (see `Switcher`). `options` names each key's partition; give each
    * its own `name`. */
@@ -327,10 +453,10 @@ export class Snapback {
    * not given up (the web's, when even rebuilding from the disk failed). An
    * app replaces an unusable client by opening the partition again: the new
    * device takes over what the old one could not save. */
-  get usable(): boolean { return !this.closed && (this.partition.device.healthy?.() ?? true); }
+  get usable(): boolean { return !this.closed && (this.held?.device.healthy?.() ?? true); }
 
   /** Whether the partition is open (it has synced at least once). */
-  get isOpen(): boolean { return !this.closed && this.partition.opened; }
+  get isOpen(): boolean { return !this.closed && (this.held?.opened ?? false); }
 
   /** A partition that has never synced opens in its first round: start one
    * (or wait for the one running) before reading or writing. Unreached, the
@@ -540,6 +666,9 @@ export class Snapback {
    * on. `E_AUTH` means the member signs in again; `offline` that the server
    * was not reached (the old token still works). */
   async refreshSession(now: number): Promise<Refreshed> {
+    if (this.options.auth) {
+      return this.authWork(() => this.refreshAuth(now));
+    }
     const partition = this.partition;
     // One at a time, for every client of the partition: a caller while one
     // is in flight shares its answer.
@@ -559,11 +688,30 @@ export class Snapback {
     return partition.refreshing;
   }
 
+  private async refreshAuth(now: number): Promise<Refreshed> {
+    if (this.closed) throw new Error('Snapback4: this client is closed');
+    clock(now);
+    const auth = this.options.auth!, session = this.session;
+    if (!session) return { ok: false, denied: { code: 'E_AUTH', message: 'sign in again' } };
+    const reply = await this.exchange({ method: 'POST', path: '/auth/refresh' });
+    if (reply.error) return { ok: false, offline: true, denied: { code: 'E_OFFLINE', message: String(reply.error), retryable: true } };
+    const body = reply.body as { session?: Session; denied?: Refusal } | null;
+    const renewed = sessionFrom(body?.session ? JSON.stringify(body.session) : null, 0);
+    if (Number(reply.status) >= 200 && Number(reply.status) < 300 && renewed && renewed.principal === session.principal) {
+      auth.store.set(auth.key, JSON.stringify(renewed));
+      return { ok: true, session: renewed };
+    }
+    const denied = body?.denied ?? { code: 'E_AUTH', message: 'the server refused session refresh' };
+    if (denied.code === 'E_AUTH') auth.store.forget(auth.key);
+    return { ok: false, denied };
+  }
+
   /** Close this client. It refuses every call from now on and says it is not
    * open. The partition closes with the last client that has it open;
    * closing that one again retries a cleanup that failed. */
   async close(): Promise<void> {
-    const partition = this.partition;
+    const partition = this.held;
+    if (!partition) { this.closed = true; return; }
     if (!this.closed) {
       this.closed = true;
       partition.clients--;
@@ -603,7 +751,7 @@ export class Snapback {
    * unpredicted, and the server judges it. */
   async upload(file: string | ArrayBuffer | ArrayBufferView, options: UploadOptions = {}): Promise<Uploaded> {
     if (this.closed) throw new Error('Snapback4: this client is closed');
-    const headers = { ...(this.options.headers?.() ?? {}), 'content-type': options.file?.type ?? 'application/octet-stream' };
+    const headers = { ...this.headers(), 'content-type': options.file?.type ?? 'application/octet-stream' };
     const query = options.file ? `?as=file&name=${encodeURIComponent(options.file.name)}` : '';
     const init: RequestInit & { exactBodyFrom?: string } = typeof file === 'string'
       ? { method: 'POST', headers, exactBodyFrom: file }
@@ -628,7 +776,7 @@ export class Snapback {
     const fs = this.options.storage?.fs;
     if (!fs) return { ok: false, why: { code: 'E_CLIENT', family: 'client', message: 'download writes an app file: pass the dispatcher\'s `storage`, and grant fs.write for the path' } };
     let response: Response;
-    try { response = await fetch(`${this.options.origin}/assets/${encodeURIComponent(id)}`, { headers: (this.options.headers?.() ?? {}) }); } catch (error) { return { ok: false, why: unreached(error) }; }
+    try { response = await fetch(`${this.options.origin}/assets/${encodeURIComponent(id)}`, { headers: this.headers() }); } catch (error) { return { ok: false, why: unreached(error) }; }
     if (!response.ok) {
       const body = await response.json().catch(() => null) as { denied?: Refusal } | null;
       return { ok: false, why: body?.denied ?? { code: 'E_SERVER', family: 'transport', retryable: response.status >= 500, message: `the server answered asset ${id} with HTTP ${response.status}` } };
@@ -648,7 +796,7 @@ export class Snapback {
 
   private async exchange(fetchRequest: Request): Promise<Request> {
     const { method, path, body } = fetchRequest as { method: string; path: string; body?: Json };
-    const headers: Record<string, string> = { ...(this.options.headers?.() ?? {}) };
+    const headers = this.headers();
     if (body !== undefined) headers['content-type'] = 'application/json';
     try {
       const response = await fetch(`${this.options.origin}${path}`, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
@@ -666,7 +814,7 @@ export const openSnapback = (options: Options) => Snapback.open(options);
 
 /** What a switcher opens for a key: `Options` less the dispatcher's
  * `storage` and `native`, which `use` passes. */
-export type SwitchedOptions = Omit<Options, 'storage' | 'native'>;
+export type SwitchedOptions = Omit<Options, 'storage' | 'native' | 'name'> & { name?: string };
 
 /** One partition open at a time, chosen by a key (a persona, a signed-in
  * principal): what `Snapback.switcher` returns. */
@@ -712,7 +860,11 @@ function switcher<K extends string = string>(options: (key: K) => SwitchedOption
     get key() { return current?.key ?? null; },
     use(key, storage, native, work) {
       if (current?.key !== key || current.client?.usable === false) {
-        const opening = release(current).then(() => Snapback.open({ ...options(key), storage, native }));
+        const opening = release(current).then(() => {
+          const selected = options(key);
+          const name = selected.name ?? Snapback.partitionName(key);
+          return Snapback.open({ ...selected, name: /^[A-Za-z0-9_%][-A-Za-z0-9._%]*$/.test(name) ? name : Snapback.partitionName(name), storage, native });
+        });
         const entry: Held = { key, opening, busy: new Set() };
         current = entry;
         opening.then(client => { entry.client = client; }, () => { if (current === entry) current = null; });

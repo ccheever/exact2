@@ -54,7 +54,7 @@ impl Host {
                 .ok_or_else(|| format!("Snapback4 {key} must be nonempty text"))
         };
         if !partition::valid_path(text("path")?) {
-            return Err("Snapback4 needs app:/data/<safe filename>.sqlite".into());
+            return Err(format!("Snapback4 needs app:/data/<safe filename>.sqlite; received {:?}. Use Snapback.partitionName(principal) in TypeScript.", text("path")?));
         }
         let (origin, viewer) = (text("origin")?, text("viewer")?);
         let backend = request
