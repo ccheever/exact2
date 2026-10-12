@@ -633,6 +633,13 @@ package final class Presenter {
     func commitEdit(_ id: UInt32, _ value: String, change: Bool) {
         guard edited == id else { return }
         edited = nil
+        var value = value
+        // A number input's typed value past `min` or `max` commits as the
+        // bound (LLP 1116.008 D5), told as a step is: `input`, then `change`.
+        if let node = views[id], let bound = node.clampTypedNumber(value) {
+            value = bound
+            if node.handlers.contains("input") { onInput?(id, bound) }
+        }
         if change { onChange?(id, value) }
     }
     package func checked(_ id: UInt32, _ on: Bool) { onChecked?(id, on) }

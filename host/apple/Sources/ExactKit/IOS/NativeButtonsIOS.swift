@@ -17,6 +17,7 @@ final class NativeButtonIOS: UIButton {
     struct Written: Equatable {
         var face: ButtonFace
         var accent: UIColor?
+        var destructive: Bool
         var enabled: Bool
         var label: String?
         var testId: String?
@@ -144,8 +145,15 @@ extension ControlHost {
     /// restart UIKit's own animations).
     func configureNative(_ button: NativeButtonIOS, _ owner: NodeView, accent: UIColor?) {
         let face = self.face(owner.id)
+        // A destructive button draws in the platform's destructive red, as a hand-built screen's does (SwiftUI's
+        // `Button(role: .destructive)`, UIKit's red tint): red ink, or a red fill under white ink on a filled
+        // style (LLP 1116.008, team-kanban: "Delete is not styled as destructive"). The accent it only inherits
+        // leaves it red, as it leaves a swipe action's; an accent written on the button itself, and a colour
+        // written on its title, win (LLP 1115: what the author writes wins).
+        let destructive = owner.props["destructive"] == "true" && !owner.wrote("accent_color")
+        let accent = destructive ? UIColor.systemRed : accent
         let written = NativeButtonIOS.Written(
-            face: face, accent: accent, enabled: !owner.disabled,
+            face: face, accent: accent, destructive: destructive, enabled: !owner.disabled,
             label: owner.authoredLabel ?? face.title, testId: owner.props["testId"],
             // A checked radio is selected, as Safari's VoiceOver reads one (`setAccessibilityChecked`).
             selected: owner.props["accessibilitySelected"] == "true" || owner.checkedRole.map { $0.role == "radio" && $0.checked } == true,
@@ -160,7 +168,7 @@ extension ControlHost {
         let (_, drawn, glass) = Self.configuration(face)
         button.isEnabled = written.enabled
         button.isUserInteractionEnabled = written.interactive
-        ButtonConfigurationIOS.apply(face, to: button, traits: button.traitCollection, accent: accent)
+        ButtonConfigurationIOS.apply(face, to: button, traits: button.traitCollection, accent: accent, destructive: destructive)
         button.accessibilityLabel = written.label
         button.accessibilityIdentifier = written.testId
         if written.selected { button.accessibilityTraits.insert(.selected) } else { button.accessibilityTraits.remove(.selected) }

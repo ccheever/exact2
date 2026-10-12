@@ -7,6 +7,12 @@
 // with the new text. `appearance="textfield"` leaves the bare field; an input
 // of any other `type` never has one, whatever its bounds say.
 //
+// A value typed past `min` or `max` is held to them too, when the edit
+// commits (LLP 1116.008 D5): the field shows the bound, and the app hears it
+// as it hears a step, `input` and then the `change` that committed. The web
+// leaves its bounds to the browser's validation; a typed 250 against a `max`
+// of 99 saved 250 while the stepper's plus was dimmed.
+//
 // The stepper's own value is only ever the field's, held to `min` and `max`,
 // so UIKit dims its minus at the floor and its plus at the top as it does a
 // hand-built stepper's; each step is computed from the field's text and the
@@ -115,6 +121,18 @@ extension NodeView {
         step(field, up: stepper.value > stepper.shown)
     }
 
+    /// A committed edit of this field (`Presenter.commitEdit`): the typed
+    /// number past `min` or `max`, written into the field as the bound it
+    /// passed, else nil (within them, no number, or no stepper). The
+    /// stepper shows it; the presenter tells the app.
+    func clampTypedNumber(_ text: String) -> String? {
+        guard wantsStepper, let field, let bound = NumberStepping(props).clamped(text) else { return nil }
+        field.text = bound
+        toldText = bound
+        updateNumberStepper()
+        return bound
+    }
+
     /// The text of `field` one step up or down; false when there is none to take
     /// (the value is at the bound it steps toward).
     @discardableResult
@@ -172,5 +190,6 @@ extension NodeView {
     func updateNumberStepper() {}
     func layoutStepper() {}
     var stepperRoom: CGFloat { 0 }
+    func clampTypedNumber(_ text: String) -> String? { nil }
 }
 #endif
