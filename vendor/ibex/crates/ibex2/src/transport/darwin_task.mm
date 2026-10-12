@@ -34,7 +34,9 @@ const char *utf8(NSString *value) { return value == nil ? nullptr : [value UTF8S
 
 NSString *endpoint(NSString *address, NSNumber *port) {
   if (address == nil) return nil;
-  return port == nil ? address : [NSString stringWithFormat:@"%@:%@", address, port];
+  if (port == nil) return address;
+  BOOL v6 = [address rangeOfString:@":"].location != NSNotFound;
+  return [NSString stringWithFormat:v6 ? @"[%@]:%@" : @"%@:%@", address, port];
 }
 } // namespace
 
@@ -47,6 +49,9 @@ NSString *endpoint(NSString *address, NSNumber *port) {
 @property(nonatomic, assign) BOOL measured;
 @property(nonatomic, strong) NSOperationQueue *queue;
 @property(nonatomic, strong) NSMutableSet *keep;
+// When the task was resumed: the platform's queueing is measured from here
+// (taskInterval starts when the task was made).
+@property(nonatomic, strong) NSDate *resumed;
 @end
 
 @implementation Ibex2TaskDelegate
@@ -128,8 +133,8 @@ NSString *endpoint(NSString *address, NSNumber *port) {
     NSURLSessionTaskTransactionMetrics *first = metrics.transactionMetrics.firstObject;
     NSURLSessionTaskTransactionMetrics *last = metrics.transactionMetrics.lastObject;
     double queued = -1;
-    if (first.fetchStartDate != nil && metrics.taskInterval.startDate != nil) {
-      queued = [first.fetchStartDate timeIntervalSinceDate:metrics.taskInterval.startDate] * 1000.0;
+    if (first.fetchStartDate != nil && self.resumed != nil) {
+      queued = MAX(0.0, [first.fetchStartDate timeIntervalSinceDate:self.resumed] * 1000.0);
     }
     NSString *local = endpoint(last.localAddress, last.localPort);
     NSString *remote = endpoint(last.remoteAddress, last.remotePort);
@@ -156,6 +161,16 @@ NSString *endpoint(NSString *address, NSNumber *port) {
 }
 @end
 
+// A started exchange until Rust activates it: its task, or the refusal its
+// sink is told on the lane's queue.
+@interface Ibex2Start : NSObject
+@property(nonatomic, strong) NSURLSessionDataTask *task;
+@property(nonatomic, strong) Ibex2TaskDelegate *delegate;
+@property(nonatomic, copy) NSString *refusal;
+@end
+@implementation Ibex2Start
+@end
+
 @interface Ibex2Lane : NSObject
 @property(nonatomic, strong) NSURLSession *session;
 @property(nonatomic, strong) NSOperationQueue *queue;
@@ -180,12 +195,24 @@ void *ibex2_darwin_lane_create(int max_per_host) {
     Ibex2Lane *lane = [[Ibex2Lane alloc] init];
     lane.queue = [[NSOperationQueue alloc] init];
     lane.queue.maxConcurrentOperationCount = 1;
-    lane.queue.name = @"ibex2.lane";
+    lane.queue.name = [NSString stringWithFormat:@"ibex2.lane.%p", lane];
     lane.keep = [NSMutableSet set];
     lane.session = [NSURLSession sessionWithConfiguration:config
                                                  delegate:[[Ibex2LaneDelegate alloc] init]
                                             delegateQueue:lane.queue];
     return (__bridge_retained void *)lane;
+  }
+}
+
+/// What the lane's session keeps, read back so a test can check it: a
+/// cookie jar or policy, a URL cache, and its per-host connection limit.
+void ibex2_darwin_lane_state(void *handle, int *out_cookies, int *out_cache, int *out_per_host) {
+  @autoreleasepool {
+    NSURLSessionConfiguration *config = ((__bridge Ibex2Lane *)handle).session.configuration;
+    *out_cookies = (config.HTTPCookieStorage != nil || config.HTTPShouldSetCookies ||
+                    config.HTTPCookieAcceptPolicy != NSHTTPCookieAcceptPolicyNever) ? 1 : 0;
+    *out_cache = config.URLCache != nil ? 1 : 0;
+    *out_per_host = (int)config.HTTPMaximumConnectionsPerHost;
   }
 }
 
@@ -198,12 +225,14 @@ void ibex2_darwin_lane_destroy(void *handle) {
   }
 }
 
-/// Start a task. Nothing is called before this returns: an invalid request
-/// ends on the lane's queue. `body` is lent: its deallocator frees `body_ctx`.
+/// Prepare a task, or (`refusal` set, or an invalid URL) a refusal. Nothing
+/// reaches the sink until `ibex2_darwin_task_activate`, which resumes the
+/// task or delivers the refusal on the lane's queue. `body` is lent: its
+/// deallocator frees `body_ctx`.
 void *ibex2_darwin_task_start(void *handle, const char *method, const char *url,
                               const char *header_block, const unsigned char *body,
                               size_t body_length, void *body_ctx, double timeout_seconds,
-                              void *ctx) {
+                              const char *refusal, void *ctx) {
   @autoreleasepool {
     Ibex2Lane *lane = (__bridge Ibex2Lane *)handle;
     NSData *payload = nil;
@@ -218,15 +247,13 @@ void *ibex2_darwin_task_start(void *handle, const char *method, const char *url,
     delegate.ctx = ctx;
     delegate.queue = lane.queue;
     delegate.keep = lane.keep;
-    NSURL *nsurl = [NSURL URLWithString:[NSString stringWithUTF8String:url]];
+    Ibex2Start *start = [[Ibex2Start alloc] init];
+    start.delegate = delegate;
+    NSURL *nsurl = refusal != nullptr ? nil : [NSURL URLWithString:[NSString stringWithUTF8String:url]];
     if (nsurl == nil) {
-      [lane.queue addOperationWithBlock:^{
-        delegate.ended = YES;
-        ibex2_async_end(delegate.ctx, "TypeError: Failed to fetch — invalid URL");
-        [delegate release_];
-      }];
-      (void)payload;
-      return nullptr;
+      start.refusal = refusal != nullptr ? [NSString stringWithUTF8String:refusal]
+                                         : @"TypeError: Failed to fetch — invalid URL";
+      return (__bridge_retained void *)start;
     }
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:nsurl];
     request.HTTPMethod = [NSString stringWithUTF8String:method];
@@ -241,25 +268,45 @@ void *ibex2_darwin_task_start(void *handle, const char *method, const char *url,
     }
     if (payload != nil) request.HTTPBody = payload;
     if (timeout_seconds > 0) request.timeoutInterval = timeout_seconds;
-    NSURLSessionDataTask *task = [lane.session dataTaskWithRequest:request];
-    // Kept by the lane until its metrics have come (`release_`).
-    [lane.queue addOperationWithBlock:^{ [lane.keep addObject:delegate]; }];
-    task.delegate = delegate;
-    [task resume];
-    return (__bridge_retained void *)task;
+    start.task = [lane.session dataTaskWithRequest:request];
+    start.task.delegate = delegate;
+    return (__bridge_retained void *)start;
+  }
+}
+
+/// Let the exchange deliver: resume its task, or tell its sink its refusal.
+void ibex2_darwin_task_activate(void *handle) {
+  @autoreleasepool {
+    Ibex2Start *start = (__bridge Ibex2Start *)handle;
+    Ibex2TaskDelegate *delegate = start.delegate;
+    NSURLSessionDataTask *task = start.task;
+    NSString *refusal = start.refusal;
+    // Kept by the lane until its metrics have come (`release_`); queued
+    // before the task can call back, on the same serial queue.
+    [delegate.queue addOperationWithBlock:^{
+      [delegate.keep addObject:delegate];
+      if (task == nil) {
+        delegate.ended = YES;
+        delegate.measured = YES;
+        ibex2_async_end(delegate.ctx, utf8(refusal));
+        [delegate release_];
+      }
+    }];
+    if (task != nil) {
+      delegate.resumed = [NSDate date];
+      [task resume];
+    }
   }
 }
 
 void ibex2_darwin_task_cancel(void *handle) {
-  if (handle == nullptr) return;
-  @autoreleasepool { [(__bridge NSURLSessionTask *)handle cancel]; }
+  @autoreleasepool { [((__bridge Ibex2Start *)handle).task cancel]; }
 }
 
 void ibex2_darwin_task_release(void *handle) {
-  if (handle == nullptr) return;
   @autoreleasepool {
-    NSURLSessionTask *task = (__bridge_transfer NSURLSessionTask *)handle;
-    (void)task;
+    Ibex2Start *start = (__bridge_transfer Ibex2Start *)handle;
+    (void)start;
   }
 }
 

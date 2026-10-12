@@ -80,6 +80,7 @@ fn get(url: &str) -> HopRequest {
 fn start(lane: &DarwinLane, request: HopRequest, flow: Flow) -> (Exchange, mpsc::Receiver<Event>) {
     let (events, received) = mpsc::channel();
     let exchange = lane.start(request, Box::new(Recorder { events, flow }));
+    exchange.activate();
     (exchange, received)
 }
 
@@ -321,4 +322,71 @@ fn a_fetch_task_follows_a_redirect_over_the_lane() {
     assert_eq!(events.1.load(Ordering::SeqCst), 2, "both hops ended");
     first.join().unwrap();
     second.join().unwrap();
+}
+
+#[test]
+fn nothing_is_delivered_before_activation_and_a_refusal_comes_after_it() {
+    let lane = DarwinLane::new(0);
+    let (events, received) = mpsc::channel();
+    let mut request = get("http://127.0.0.1:1/");
+    request.url = "not a url \u{0}".into();
+    let exchange = lane.start(
+        request,
+        Box::new(Recorder {
+            events,
+            flow: Flow::Continue,
+        }),
+    );
+    assert!(received.recv_timeout(Duration::from_millis(300)).is_err());
+    exchange.activate();
+    let seen = until_end(&received);
+    assert!(matches!(seen[0], Event::End(Err(_))), "{seen:?}");
+}
+
+#[test]
+fn exchanges_on_one_lane_run_at_once() {
+    let (go, wait) = mpsc::channel::<()>();
+    let wait = Arc::new(std::sync::Mutex::new(wait));
+    let mut servers = Vec::new();
+    let lane = DarwinLane::new(0);
+    let mut receivers = Vec::new();
+    for _ in 0..3 {
+        let (accepted, seen) = mpsc::channel();
+        let wait = wait.clone();
+        let (url, server) = server(0, move |mut stream, _| {
+            accepted.send(()).unwrap();
+            // Every server answers only once all three are connected.
+            let _ = wait.lock().unwrap().recv_timeout(Duration::from_secs(5));
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\nx")
+                .unwrap();
+        });
+        servers.push(server);
+        let (exchange, events) = start(&lane, get(&url), Flow::Continue);
+        receivers.push((exchange, events, seen));
+    }
+    for (_, _, seen) in &receivers {
+        seen.recv_timeout(Duration::from_secs(5))
+            .expect("all three connect");
+    }
+    for _ in 0..3 {
+        go.send(()).unwrap();
+    }
+    for (_, events, _) in &receivers {
+        assert!(until_end(events)
+            .iter()
+            .any(|e| matches!(e, Event::End(Ok(())))));
+    }
+    for server in servers {
+        server.join().unwrap();
+    }
+}
+
+#[test]
+fn the_lane_keeps_no_cookies_and_no_cache_and_takes_its_host_limit() {
+    let lane = DarwinLane::new(32);
+    let (mut cookies, mut cache, mut per_host) = (-1, -1, -1);
+    // SAFETY: the lane is live; the out pointers are this frame's.
+    unsafe { ibex2_darwin_lane_state(lane.lane(), &mut cookies, &mut cache, &mut per_host) };
+    assert_eq!((cookies, cache, per_host), (0, 0, 32));
 }

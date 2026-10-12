@@ -15,6 +15,13 @@ use crate::stdlib::fetch_async::{
 extern "C" {
     fn ibex2_darwin_lane_create(max_per_host: c_int) -> *mut c_void;
     fn ibex2_darwin_lane_destroy(lane: *mut c_void);
+    #[cfg(test)]
+    fn ibex2_darwin_lane_state(
+        lane: *mut c_void,
+        out_cookies: *mut c_int,
+        out_cache: *mut c_int,
+        out_per_host: *mut c_int,
+    );
     fn ibex2_darwin_task_start(
         lane: *mut c_void,
         method: *const c_char,
@@ -24,8 +31,10 @@ extern "C" {
         body_length: usize,
         body_ctx: *mut c_void,
         timeout_seconds: f64,
+        refusal: *const c_char,
         ctx: *mut c_void,
     ) -> *mut c_void;
+    fn ibex2_darwin_task_activate(task: *mut c_void);
     fn ibex2_darwin_task_cancel(task: *mut c_void);
     fn ibex2_darwin_task_release(task: *mut c_void);
 }
@@ -72,7 +81,7 @@ impl Drop for DarwinLane {
     }
 }
 
-/// A started task, retained until the last `Exchange` clone goes.
+/// A prepared task, retained until the exchange's closures go.
 struct Task(usize);
 impl Drop for Task {
     fn drop(&mut self) {
@@ -84,21 +93,6 @@ impl Drop for Task {
 impl AsyncTransport for DarwinLane {
     fn start(&self, request: HopRequest, sink: Box<dyn Sink>) -> Exchange {
         let ctx = Box::into_raw(Box::new(sink)) as *mut c_void;
-        let refused = |sink_ctx: *mut c_void, why: &str| {
-            // Delivered on this thread only because the native side was
-            // never reached; the caller holds no lock across `start`.
-            // SAFETY: `sink_ctx` is the box made above, not yet shared.
-            let mut sink = unsafe { Box::from_raw(sink_ctx as *mut Box<dyn Sink>) };
-            let why = why.to_string();
-            std::thread::spawn(move || sink.end(Err(HostError::Failed(why))));
-            Exchange::new(|| {})
-        };
-        let (Ok(method), Ok(url)) = (
-            CString::new(request.method.as_str()),
-            CString::new(request.url.as_str()),
-        ) else {
-            return refused(ctx, "TypeError: invalid method or URL");
-        };
         let block = request
             .headers
             .entries()
@@ -106,11 +100,24 @@ impl AsyncTransport for DarwinLane {
             .map(|(name, value)| format!("{name}: {value}"))
             .collect::<Vec<_>>()
             .join("\n");
-        let Ok(block) = CString::new(block) else {
-            return refused(ctx, "TypeError: invalid header value");
+        let inputs = (
+            CString::new(request.method.as_str()),
+            CString::new(request.url.as_str()),
+            CString::new(block),
+        );
+        // Text the platform can't take is refused on the lane's queue,
+        // as any other failure known at once.
+        let (method, url, block, refusal) = match inputs {
+            (Ok(method), Ok(url), Ok(block)) => (method, url, block, None),
+            _ => (
+                CString::default(),
+                CString::default(),
+                CString::default(),
+                Some(c"TypeError: invalid method, URL or header value"),
+            ),
         };
         let (body, body_length, body_ctx) = match &request.body {
-            Some(upload) if !upload.bytes().is_empty() => (
+            Some(upload) if !upload.bytes().is_empty() && refusal.is_none() => (
                 upload.bytes().as_ptr(),
                 upload.bytes().len(),
                 // The platform's reference: freed by the NSData deallocator.
@@ -120,8 +127,9 @@ impl AsyncTransport for DarwinLane {
         };
         let timeout = request.timeout.map_or(0.0, |t| t.as_secs_f64());
         // SAFETY: inputs are copied (or lent with their owner, `body_ctx`)
-        // before this returns; `ctx` belongs to the native side from here.
-        let task = unsafe {
+        // before this returns; `ctx` belongs to the native side from here,
+        // which frees it once its end (and metrics) have been delivered.
+        let start = unsafe {
             ibex2_darwin_task_start(
                 self.lane(),
                 method.as_ptr(),
@@ -131,17 +139,17 @@ impl AsyncTransport for DarwinLane {
                 body_length,
                 body_ctx,
                 timeout,
+                refusal.map_or(std::ptr::null(), |r| r.as_ptr()),
                 ctx,
             )
         };
-        if task.is_null() {
-            return Exchange::new(|| {});
-        }
-        let task = Arc::new(Task(task as usize));
-        Exchange::new(move || {
-            // SAFETY: the task is retained by `Task` for this closure's life.
-            unsafe { ibex2_darwin_task_cancel(task.0 as *mut c_void) }
-        })
+        let start = Arc::new(Task(start as usize));
+        let cancel = start.clone();
+        Exchange::new(
+            // SAFETY: the start is retained by `Task` for each closure's life.
+            move || unsafe { ibex2_darwin_task_activate(start.0 as *mut c_void) },
+            move || unsafe { ibex2_darwin_task_cancel(cancel.0 as *mut c_void) },
+        )
     }
 }
 
@@ -186,6 +194,9 @@ extern "C" fn ibex2_async_head(
 
 #[no_mangle]
 extern "C" fn ibex2_async_data(ctx: *mut c_void, bytes: *const c_uchar, length: usize) -> c_int {
+    if length == 0 {
+        return 0;
+    }
     // SAFETY: `bytes` spans `length` bytes for this call.
     let bytes = unsafe { std::slice::from_raw_parts(bytes, length) };
     // SAFETY: as `ibex2_async_head`.

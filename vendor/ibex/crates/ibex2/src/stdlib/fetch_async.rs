@@ -75,6 +75,7 @@ pub trait Sink: Send {
 /// the platform's own reference included.
 pub struct Upload {
     bytes: Vec<u8>,
+    /// Behind a mutex only so `Upload` is `Sync`; `Drop` has it alone.
     released: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 
@@ -119,19 +120,36 @@ pub struct HopRequest {
     pub timeout: Option<std::time::Duration>,
 }
 
-/// A started exchange: what cancels it. Dropping it does not.
+/// A started exchange: what activates and what cancels it. Dropping it
+/// does neither.
 pub struct Exchange {
+    activate: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     cancel: Box<dyn Fn() + Send + Sync>,
 }
 
 impl Exchange {
-    pub fn new(cancel: impl Fn() + Send + Sync + 'static) -> Self {
+    /// An exchange that delivers when `activate` runs, and stops on `cancel`.
+    pub fn new(
+        activate: impl FnOnce() + Send + 'static,
+        cancel: impl Fn() + Send + Sync + 'static,
+    ) -> Self {
         Self {
+            activate: Mutex::new(Some(Box::new(activate))),
             cancel: Box::new(cancel),
         }
     }
 
-    /// Stop the exchange. Its sink still gets `end`.
+    /// Let the transport deliver: the caller has recorded the exchange.
+    /// Every exchange must be activated, a cancelled one included, so that
+    /// its sink gets its `end`. Only the first call does anything.
+    pub fn activate(&self) {
+        let activate = self.activate.lock().ok().and_then(|mut a| a.take());
+        if let Some(activate) = activate {
+            activate();
+        }
+    }
+
+    /// Stop the exchange. Its sink still gets `end` once activated.
     pub fn cancel(&self) {
         (self.cancel)()
     }
@@ -139,8 +157,10 @@ impl Exchange {
 
 /// A transport that starts exchanges without waiting for them.
 pub trait AsyncTransport: Send + Sync {
-    /// Start one exchange. The sink is never called before this returns;
-    /// a failure known at once is delivered asynchronously as `end`.
+    /// Prepare one exchange. Nothing reaches the sink before the caller
+    /// activates it (`Exchange::activate`), so a caller can record it first,
+    /// and never on the caller's thread inside `start` or `activate`: a
+    /// failure known at once is delivered later, as `end`.
     fn start(&self, request: HopRequest, sink: Box<dyn Sink>) -> Exchange;
 }
 
@@ -168,8 +188,9 @@ pub trait FetchEvents: Send + Sync {
     fn outcome(&self, result: Result<Collected, HostError>);
     /// A hop's physical end, once for every hop started.
     fn hop_ended(&self) {}
-    /// A hop's metrics, as the transport reports them.
-    fn metrics(&self, _metrics: HopMetrics) {}
+    /// A hop's metrics, as the transport reports them, with the URL that
+    /// hop sent: a late report from an earlier hop names its own origin.
+    fn metrics(&self, _url: &str, _metrics: HopMetrics) {}
     /// The next hop of a redirect is ready: start it, now or later.
     fn next_hop(&self, start: Box<dyn FnOnce() + Send>) {
         start()
@@ -193,7 +214,10 @@ struct TaskState {
     redirected: bool,
     /// The hop now running; a late event from an earlier one is ignored.
     hop: u64,
-    exchange: Option<Exchange>,
+    /// The last hop whose transport ended: an exchange handed back after
+    /// its own end is not kept.
+    ended: u64,
+    exchange: Option<ExchangeRef>,
     /// The outcome is reported: everything after changes nothing.
     done: bool,
     /// The redirect the running hop's `head` chose to follow.
@@ -234,6 +258,7 @@ impl FetchTask {
                 redirects: 0,
                 redirected: false,
                 hop: 0,
+                ended: 0,
                 exchange: None,
                 done: false,
                 next: None,
@@ -262,32 +287,31 @@ impl FetchTask {
         task
     }
 
-    /// Abort: the exchange is cancelled and the outcome is Aborted now.
+    /// Abort: the outcome is Aborted now, then the exchange is cancelled.
     fn abort(&self) {
-        let exchange = {
+        let released = {
             let mut state = self.state.lock().unwrap();
-            if state.done {
+            let Some(mut released) = state.decide() else {
                 return;
-            }
-            state.exchange.take()
+            };
+            released.exchange = state.exchange.take();
+            released
         };
-        if let Some(exchange) = exchange {
+        if let Some(exchange) = &released.exchange {
             exchange.cancel();
         }
-        self.finish(Err(aborted()));
+        drop(released);
+        self.events.outcome(Err(aborted()));
     }
 
-    /// Report the outcome once. The caller holds no lock.
+    /// Decide `result` as the outcome, if nothing has, and report it. The
+    /// caller holds no lock.
     fn finish(&self, result: Result<Collected, HostError>) {
-        {
-            let mut state = self.state.lock().unwrap();
-            if state.done {
-                return;
-            }
-            state.done = true;
-            state.upload = None;
+        let released = self.state.lock().unwrap().decide();
+        if let Some(released) = released {
+            drop(released);
+            self.events.outcome(result);
         }
-        self.events.outcome(result);
     }
 
     /// Start the hop `current` describes.
@@ -307,7 +331,7 @@ impl FetchTask {
             }
             state.hop += 1;
             state.response = None;
-            state.body.clear();
+            state.body = Vec::new();
             let current = &state.current;
             let request = HopRequest {
                 method: current.method.clone(),
@@ -324,21 +348,66 @@ impl FetchTask {
         let sink = Box::new(HopSink {
             task: self.clone(),
             hop,
+            url: request.url.clone(),
         });
-        let exchange = self.transport.start(request, sink);
-        let mut state = self.state.lock().unwrap();
-        if state.done || state.hop != hop {
-            drop(state);
+        let exchange = Arc::new(self.transport.start(request, sink));
+        // Recorded before it may deliver; activated whatever happened since,
+        // so that its sink gets an end, and cancelled if it is not wanted.
+        let wanted = {
+            let mut state = self.state.lock().unwrap();
+            let wanted = !state.done && state.hop == hop && state.ended < hop;
+            if wanted {
+                state.exchange = Some(ExchangeRef(exchange.clone()));
+            }
+            wanted
+        };
+        exchange.activate();
+        if !wanted {
             exchange.cancel();
-        } else {
-            state.exchange = Some(exchange);
         }
+    }
+}
+
+/// What a decision lets go: destroyed after the lock is released, since an
+/// upload's release or an exchange's platform release may re-enter (an
+/// abort, a caller's accounting).
+#[derive(Default)]
+struct Released {
+    upload: Option<Arc<Upload>>,
+    exchange: Option<ExchangeRef>,
+    body: Vec<u8>,
+}
+
+/// The running hop's exchange, shared with the `hop` call that activates it.
+struct ExchangeRef(Arc<Exchange>);
+impl std::ops::Deref for ExchangeRef {
+    type Target = Exchange;
+    fn deref(&self) -> &Exchange {
+        &self.0
+    }
+}
+
+impl TaskState {
+    /// Decide the outcome now, if nothing has: what it lets go, or `None`
+    /// when an outcome was already decided.
+    fn decide(&mut self) -> Option<Released> {
+        if self.done {
+            return None;
+        }
+        self.done = true;
+        Some(Released {
+            upload: self.upload.take(),
+            exchange: None,
+            body: std::mem::take(&mut self.body),
+        })
     }
 }
 
 struct HopSink {
     task: Arc<FetchTask>,
     hop: u64,
+    /// The URL this hop sent, for its metrics.
+    url: String,
 }
 
 impl HopSink {
@@ -358,7 +427,7 @@ impl Sink for HopSink {
         let limit = state.current.body_limit();
         // 1. A declared length over the ceiling, for any status with a body,
         //    3xx included (HEAD, 204, 205 and 304 have none).
-        let has_body = !state.current.method.eq_ignore_ascii_case("HEAD")
+        let has_body = state.current.method != "HEAD"
             && head.status >= 200
             && !matches!(head.status, 204 | 205 | 304);
         if has_body && head.declared_length.is_some_and(|n| n > limit as u64) {
@@ -407,49 +476,80 @@ impl Sink for HopSink {
     }
 
     fn end(&mut self, result: Result<(), HostError>) {
-        self.task.events.hop_ended();
-        let mut state = self.task.state.lock().unwrap();
-        if state.done || state.hop != self.hop {
-            return;
+        enum Then {
+            Nothing,
+            Next(crate::stdlib::fetch::RedirectStep),
+            Outcome(Result<Collected, HostError>),
         }
-        state.exchange = None;
-        if let Some(step) = state.next.take() {
-            state.redirects += 1;
-            let current = &mut state.current;
-            step.apply(&mut current.method, &mut current.headers);
-            current.url = step.url.clone();
-            if step.drops_body {
-                // The hop before was the last to send the body.
-                state.upload = None;
+        let (released, then) = {
+            let mut state = self.task.state.lock().unwrap();
+            let current = state.hop == self.hop;
+            let mut released = Released::default();
+            if current {
+                // This hop's resources go with its physical end, whatever
+                // was decided before.
+                state.ended = self.hop;
+                released.exchange = state.exchange.take();
             }
-            state.redirected = true;
-            drop(state);
-            let task = self.task.clone();
-            self.task.events.next_hop(Box::new(move || task.hop()));
-            return;
-        }
-        let response = state.response.take();
-        let body = std::mem::take(&mut state.body);
-        let (url, redirected) = (state.current.url.clone(), state.redirected);
-        drop(state);
-        let outcome = match (result, response) {
-            (Ok(()), Some((status, headers))) => Ok(Collected {
-                status,
-                headers,
-                body,
-                url,
-                redirected,
-            }),
-            (Ok(()), None) => Err(HostError::Failed(
-                "TypeError: Failed to fetch — no response".into(),
-            )),
-            (Err(e), _) => Err(e),
+            let then = if !current {
+                Then::Nothing
+            } else if state.done {
+                state.response = None;
+                released.body = std::mem::take(&mut state.body);
+                Then::Nothing
+            } else if let Some(step) = state.next.take() {
+                Then::Next(step)
+            } else {
+                // The outcome is decided here, before any callback, so that
+                // nothing those callbacks do can replace it.
+                let response = state.response.take();
+                let (url, redirected) = (state.current.url.clone(), state.redirected);
+                let mut decided = state.decide().expect("not done");
+                let body = std::mem::take(&mut decided.body);
+                released.upload = decided.upload.take();
+                Then::Outcome(match (result, response) {
+                    (Ok(()), Some((status, headers))) => Ok(Collected {
+                        status,
+                        headers,
+                        body,
+                        url,
+                        redirected,
+                    }),
+                    (Ok(()), None) => Err(HostError::Failed(
+                        "TypeError: Failed to fetch — no response".into(),
+                    )),
+                    (Err(e), _) => Err(e),
+                })
+            };
+            if let Then::Next(step) = &then {
+                state.redirects += 1;
+                let current = &mut state.current;
+                step.apply(&mut current.method, &mut current.headers);
+                current.url = step.url.clone();
+                if step.drops_body {
+                    // The hop before was the last to send the body.
+                    released.upload = state.upload.take();
+                }
+                state.redirected = true;
+            }
+            (released, then)
         };
-        self.task.finish(outcome);
+        drop(released);
+        // The physical end first: a caller's in-flight slot is free before
+        // the next hop asks for one.
+        self.task.events.hop_ended();
+        match then {
+            Then::Nothing => {}
+            Then::Next(_) => {
+                let task = self.task.clone();
+                self.task.events.next_hop(Box::new(move || task.hop()));
+            }
+            Then::Outcome(outcome) => self.task.events.outcome(outcome),
+        }
     }
 
     fn metrics(&mut self, metrics: HopMetrics) {
-        self.task.events.metrics(metrics);
+        self.task.events.metrics(&self.url, metrics);
     }
 }
 
