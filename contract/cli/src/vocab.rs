@@ -631,6 +631,9 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
                     vocab::transition_properties().join(", ")
                 ));
             }
+            if name == "backdrop-filter" {
+                lines.push("macOS samples only the parent's subtree; make the glass a sibling of what it covers (LLP 1053.000 §3)".into());
+            }
             lines
         }
         AttrTarget::Prop(p) => {

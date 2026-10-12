@@ -2285,6 +2285,13 @@ CSS overflow accepts `visible`, `hidden`, `scroll`, and `auto`. `auto` clips and
 permits scrolling, with indicators shown only when content overflows. A visible
 axis beside hidden/scroll/auto computes to auto, as on the web.
 
+`backdrop-filter="blur(8px) saturate(1.14)"` filters content behind a box;
+the two functions may appear in either order. On macOS it samples only the
+parent's subtree: the parent's own paint and earlier siblings. Content behind
+a clear wrapper can therefore show through sharp. Make the glass a direct
+sibling of the content it covers, including a scrolling list. iOS and tvOS
+draw the system blur approximation described in LLP 1053.000 §3.
+
 `flex` accepts CSS `none`, `auto`, a basis, or `<grow> [<shrink>] [<basis>]`
 (including `flex="0 1 auto"`). Numeric bindings keep the `n 1 0%` meaning.
 Shorthands may be literal choices; computed strings are refused. A scroller

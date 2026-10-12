@@ -312,6 +312,13 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   inside a route draws under the native bars. Fix: render full-screen overlays
   (menus, action sheets) as root children after the tab container, or as a
   `navigationPresentation="fullscreen"` route. (Signal Clone, build 10.)
+- **A Mac glass panel shows sharp content behind a wrapper.** AppKit's
+  `backdrop-filter` samples only the parent's subtree, even when every wrapper
+  is transparent. Make the glass a direct sibling of what it covers; put a
+  floating composer beside its scrolling transcript. Check it with `agent macos
+  "screenshot glass.png window"`: only the composited window capture shows
+  background filters; a plain `screenshot` shows every macOS glass sharp.
+  (T3 Code backdrop case B; LLP 1053.000 §3.)
 - **A link in the app's own scheme never matches.** `signalclone://connect?x=1`
   reaches the root's `navigate` handler as the location `/connect?x=1`: the scheme
   is dropped and the host becomes the first path segment (`location_of`, LLP 1038
