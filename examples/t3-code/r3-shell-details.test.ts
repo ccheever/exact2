@@ -147,8 +147,11 @@ describe('details source (upstream 429c625a85, d1034d62b2)', () => {
     expect(inline).toMatchObject({ ready: true, inline: true, isGit: true, branch: 'main', folderName: 'project', folderLabel: '', insertions: 1, deletions: 2, envShow: false });
     expect(calls).toHaveLength(1);
     toggleInline(client, 'env:t1');
-    expect(await shellDetails(client, native, true, 't1', true)).toMatchObject({ ready: false, inline: false });
+    expect(await shellDetails(client, native, false, 't1', true)).toMatchObject({ ready: false, inline: false });
     expect(calls.at(-1)).toEqual({ op: 'unsubscribe', key: VCS_STATUS_KEY });
+    // device-player-compact-and-rail-keys DP-2: where the floating player leaves the docked card no placement, the header
+    // opens the popover on a wide chat too, so an open popover reads the details whatever the docked card's state.
+    expect(await shellDetails(client, native, true, 't1', true)).toMatchObject({ ready: true, inline: false });
   });
   test('the Changes row prefers the branch totals; a worktree is named', async () => {
     const { client, deliver } = make({ isRepo: true, refName: 'feature', workingTree: { insertions: 1, deletions: 0 }, branchChanges: { baseRef: null, insertions: 40, deletions: 7 } },
