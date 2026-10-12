@@ -196,6 +196,42 @@ final class TableFeedKeyMacTests: XCTestCase {
         XCTAssertNotNil(f.mounted[f.table.selectedRow], "the selection is on a mounted row (\(f.table.selectedRow))")
     }
 
+    func testAKeyThatJumpsToTheListsEndLandsOnTheRunnersLastRow() throws {
+        let f = try keyed()
+        click(try f.node("title-5"), in: f)
+        XCTAssertNil(f.mounted[9_999], "the last row is not made while the list is at its start")
+        /// The selected row is `row`: the runner's row for that item, in its cell, whole in the port.
+        func landed(_ row: Int, _ note: String) throws {
+            f.settle()
+            XCTAssertEqual(f.table.selectedRow, row, note)
+            let node = try XCTUnwrap(f.cells[row]?.row, "\(note): row \(row) is mounted and in its cell")
+            XCTAssertEqual(f.item(node), row, note)
+            XCTAssertTrue(f.clip.bounds.insetBy(dx: 0, dy: -0.5).contains(f.inDocument(node)), "\(note): row \(row) is whole in the port (\(f.inDocument(node)) in \(f.clip.bounds))")
+            XCTAssertEqual(f.feed.selectedKey, node.props["listItemKey"], "\(note): the selection is that item's")
+            XCTAssertTrue(f.status.hasPrefix("opened 5 presses 1 "), "\(note) pressed nothing: \(f.status)")
+        }
+        // Option-Down is the last row and Option-Up the first, as in a stock
+        // table. AppKit shows the last row where it guesses it is; the feed
+        // shows it again when the runner has made it and layout has measured it.
+        key(125, "\u{F701}", [.function, .numericPad, .option], in: f)
+        try landed(9_999, "Option-Down")
+        down(in: f)
+        try landed(9_999, "Down on the last row")
+        key(126, "\u{F700}", [.function, .numericPad, .option], in: f)
+        try landed(0, "Option-Up")
+        XCTAssertEqual(f.clip.bounds.minY, 0)
+        // Up with nothing selected is the last row too.
+        f.table.deselectAll(nil)
+        up(in: f)
+        try landed(9_999, "Up with nothing selected")
+        // A row selected before it was made is its item's once it is: a row put before it moves the selection with it.
+        f.presenter.press(try f.node("prepend").id)
+        f.settle()
+        XCTAssertEqual(f.table.numberOfRows, 10_001)
+        XCTAssertEqual(f.table.selectedRow, 10_000)
+        XCTAssertEqual(f.cells[10_000]?.row.map(f.item), 9_999)
+    }
+
     func testAnArrowKeyPressesTheRowItReachesWhenSelectingIsThePress() throws {
         let f = try keyed()
         click(try f.node("title-5"), in: f)

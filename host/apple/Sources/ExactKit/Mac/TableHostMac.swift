@@ -193,6 +193,10 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     /// The selected item's key while its row is mounted: the selection
     /// follows the item when rows before it come and go.
     private(set) var selectedKey: String?
+    /// A row selected before the runner had made it (a key that jumps to
+    /// the list's end): AppKit showed where it guessed the row is, and the
+    /// feed shows it once, when layout has it.
+    private var reveal: Int?
     private var syncing = false, aligning = false
     var press = Press.action
     /// Rows moved between the document and a cell, and the table's rows
@@ -289,6 +293,8 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         let next = TableRowHeights(count: snapshot.count, extent: CGFloat(snapshot.extent), pixel: 1 / (table.window?.backingScaleFactor ?? 1), mounted: rows)
         let recount = next.count != heights.count
         let changed = recount ? IndexSet() : next.changed(from: heights)
+        // A row selected before it was made is its item's from now on.
+        if selectedKey == nil, let node = mounted[table.selectedRow] { selectedKey = node.props["listItemKey"] }
         // The selected item, wherever its row is now.
         let selected = selectedKey.flatMap { key in mounted.first { $0.value.props["listItemKey"] == key }?.key }
         heights = next
@@ -311,6 +317,14 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             align()
             table.layoutSubtreeIfNeeded()
             fill()
+        }
+        // After the batch, never inside it: moving the port tells the runner.
+        if let row = reveal, mounted[row] != nil {
+            reveal = nil
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.table.selectedRow == row, self.mounted[row] != nil else { return }
+                self.table.scrollRowToVisible(row)
+            }
         }
     }
 
@@ -387,6 +401,7 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         guard !syncing else { return }
         let row = table.selectedRow
         selectedKey = mounted[row]?.props["listItemKey"]
+        reveal = row >= 0 && mounted[row] == nil ? row : nil
         if press == .selection, NSApp.currentEvent?.type == .keyDown { pressRow(row) }
     }
     @objc private func clicked() { pressRow(table.clickedRow) }
