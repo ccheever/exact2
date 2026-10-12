@@ -37,6 +37,8 @@ final class NativeButtonMac: NSButton {
     struct Written: Equatable {
         var face: ButtonFace
         var accent: NSColor?
+        var destructive: Bool
+        var red: Bool
         var enabled: Bool
         var label: String?
         var testId: String?
@@ -177,6 +179,15 @@ extension NodeView {
     }
 }
 
+extension NodeView {
+    /// Whether the author wrote the style row `key` on this node (it is false of a value the node only
+    /// inherits and of a row the compiler implied), as iOS reads it.
+    func wrote(_ key: String) -> Bool {
+        guard case .array(let rows)? = style["written"] else { return false }
+        return rows.contains(.string(key))
+    }
+}
+
 extension ControlHost {
     func makeNativeButton(_ node: NodeView) -> NSControl {
         let button = NativeButtonMac(title: "", target: nil, action: nil)
@@ -195,8 +206,14 @@ extension ControlHost {
     /// when one of them changes.
     func configureNative(_ button: NativeButtonMac, _ owner: NodeView, accent: NSColor?) {
         let face = presenter.buttonFace?(owner.id) ?? ButtonFace()
+        // A destructive button is the destructive role AppKit draws (`hasDestructiveAction`), in the platform's red as
+        // a hand-built pane's is: the accent it only inherits leaves it red, as on iOS, and an accent written on the
+        // button itself wins over the red (LLP 1116.008; LLP 1115: what the author writes wins).
+        let destructive = owner.props["destructive"] == "true"
+        let red = destructive && !owner.wrote("accent_color")
+        let accent = red ? NSColor.systemRed : accent
         let written = NativeButtonMac.Written(
-            face: face, accent: accent, enabled: !owner.disabled,
+            face: face, accent: accent, destructive: destructive, red: red, enabled: !owner.disabled,
             label: owner.authoredLabel ?? face.title, testId: owner.props["testId"],
             selected: owner.props["accessibilitySelected"] == "true" || owner.checkedRole.map { $0.role == "radio" && $0.checked } == true,
             expanded: owner.props["accessibilityExpanded"],
@@ -210,7 +227,7 @@ extension ControlHost {
             presenter.session?.log("buttonStyle `\(face.style)` is not a button style; drawing bordered")
         }
         button.written = written
-        let (look, glass) = ButtonConfigurationMac.apply(face, to: button, appearance: owner.effectiveAppearance, accent: accent)
+        let (look, glass) = ButtonConfigurationMac.apply(face, to: button, appearance: owner.effectiveAppearance, accent: accent, destructive: destructive, red: red)
         button.isEnabled = written.enabled
         button.setAccessibilityLabel(written.label)
         button.setAccessibilityIdentifier(written.testId)
