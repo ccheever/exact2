@@ -188,7 +188,7 @@
   #exact-root [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]) { border-radius: 0; }
   #exact-root [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]):enabled { color: light-dark(#8e8e93, #98989d); }
   #exact-root [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]):enabled[aria-selected="true"] { color: var(--exact-accent, AccentColor); }
-  /* LLP 1116.004 D1: a wide window (900 px and up, navigation.js `WIDE`) adapts what the app left unsaid, as the
+  /* LLP 1116.004 D1: a wide window (900 px and up, the navigation glue's `WIDE`) adapts what the app left unsaid, as the
      projection marks it. A root tab bar whose placement is unsaid is a sidebar: the root's column turns, the tabs
      are rows (a symbol in the accent beside its label), the selected one in the accent's tint. An authored colour
      still wins; the layout is the platform's. A stack whose root route is a list whose rows push shows that route
