@@ -1230,7 +1230,10 @@ component T3Code
   action canvasGesture(value: string)
     canvasGestureValue = value
     detailsOpen = detailsOpen and value == "" // a drag on the player is outside the details popover (Base UI's outside press; a press: T3Window outsidePressDown)
-  resource canvas = chatCanvas(data.revision, conversationWidth, viewport.height, details.inline, data.look.chatMax, length(data.messages) > 0 or data.threadId != "", canvasGestureValue, `${shell.panel.deviceMini.key}|${shell.panel.browserMini.key}`, shell.panel.deviceMini.show or shell.panel.browserMini.show, conversationWidth >= 984, detailsOpen) as shape ChatCanvasView
+  // The canvas reads nothing of `details`: the details source reads the popover shown (detailsShown, from the canvas's mode),
+  // and a cycle between them refuses the toggle that opens it ("refused: Cycle"). The docked card's own open state is the
+  // canvas's to read (chat-canvas-view.ts inlineOpen) where chat is wide and a project is open.
+  resource canvas = chatCanvas(data.revision, conversationWidth, viewport.height, conversationWidth >= 984 and data.projectId != "", data.look.chatMax, length(data.messages) > 0 or data.threadId != "", canvasGestureValue, `${shell.panel.deviceMini.key}|${shell.panel.browserMini.key}`, shell.panel.deviceMini.show or shell.panel.browserMini.show, conversationWidth >= 984, detailsOpen) as shape ChatCanvasView
   // ThreadDetailsCard's mode: the header's popover where chat is narrow or the floating player left the card no placement;
   // a popover opened before the mode last switched stays closed (the inline mode closes it, rightPanelStore popoverOpen).
   state detailsEpoch = 0

@@ -226,9 +226,15 @@ describe('DP-2: the pull request rows place their cards for the presentation sho
     expect(shown.r6).toEqual(narrow.r6);
     forgetDetails(prClient);
   });
-  test('the window passes the popover shown, not the toggle it remembers', async () => {
-    expect(await source('app.contract')).toContain('  resource details = shellDetails(detailsShown, data.threadId,');
+  test('the window passes the popover shown, not the toggle it remembers; the canvas reads nothing of the details', async () => {
+    const root = await source('app.contract');
+    expect(root).toContain('  resource details = shellDetails(detailsShown, data.threadId,');
     expect(await source('shell-details.ts')).toContain('rightGap, inline: inline && !open }),');
+    // detailsShown reads the canvas's mode, so a canvas that read `details` would close a cycle the runner refuses at the
+    // toggle ("press … (detailsAct#1) refused: Cycle", found in the round 2 drive); the docked card's state is its own.
+    const canvas = root.split('\n').find(line => line.startsWith('  resource canvas = chatCanvas('))!;
+    expect(canvas).not.toContain('details.');
+    expect(canvas).toContain('chatCanvas(data.revision, conversationWidth, viewport.height, conversationWidth >= 984 and data.projectId != "", data.look.chatMax,');
   });
 });
 
