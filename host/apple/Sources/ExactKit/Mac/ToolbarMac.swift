@@ -44,6 +44,14 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
     /// Whether the bar shows this tablist's tabs as its segments: the page's
     /// own segmented control is not made of it (SegmentsMac.swift).
     func adopts(_ tablist: NodeView) -> Bool { toolbar != nil && header?.segments === tablist }
+    /// The header's search input as the bar's search item, holding the
+    /// input's own field (HeaderMac.swift).
+    let search = HeaderSearch()
+    /// The caret to the bar's field for `node`, the search input it hosts
+    /// (an action's `focus()`, an `autofocus`, the driver's `tap`).
+    func focusSearch(_ node: NodeView) -> Bool {
+        projected && node === header?.search && search.node === node && usable(node) && search.focus()
+    }
     private var order: [NSToolbarItem.Identifier] = []
     /// Back (BackMac.swift): the way back from the pushed route, pressing
     /// what iOS's Back button presses. A standard item, so its size, glass
@@ -192,6 +200,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         items.removeAll(); symbols.removeAll(); order.removeAll(); owner = nil; heading = nil
         header = nil; decide(nil)
         _ = segments.update(nil, enabled: false)
+        search.release()
         heldForBack = false
         // The app's items and delegate were for that toolbar; the next one's
         // hatch says its own.
@@ -269,6 +278,12 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         let shown = Set((toolbar.visibleItems ?? []).map(\.itemIdentifier))
         return ["route": Int(header.route.id), "node": Int(header.header.id), "title": header.title, "back": header.backs.map { Int($0.id) },
                 "segments": segments.summary(overflow: segments.item.map { !shown.contains($0.itemIdentifier) } ?? false) ?? NSNull(),
+                "search": header.search.flatMap { node -> [String: Any]? in
+                    guard let item = search.item, search.node === node else { return nil }
+                    return ["id": Int(node.id), "testId": node.props["testId"] ?? NSNull(), "label": item.label, "value": item.searchField.stringValue,
+                            "placeholder": item.searchField.placeholderString ?? "", "enabled": usable(node) && item.isEnabled,
+                            "editing": item.searchField.currentEditor() != nil, "overflow": !shown.contains(item.itemIdentifier)]
+                } ?? NSNull(),
                 "items": header.buttons.map { node -> [String: Any] in
                     let item = items[node.id]
                     var prominent = false
@@ -516,27 +531,35 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         // A header's, in the order SwiftUI's own toolbar keeps (measured on
         // macOS 27): its leading buttons after Back; its tablist as the
         // centred group, then a flexible space; its trailing buttons, which
-        // the title's own stretch puts at the bar's end.
+        // the title's own stretch puts at the bar's end; then a flexible
+        // space and its search field, last.
         let group = segments.update(header, enabled: window.attachedSheet == nil)
         let centered: Set<NSToolbarItem.Identifier> = group.map { [$0.itemIdentifier] } ?? []
         if toolbar.centeredItemIdentifiers != centered { toolbar.centeredItemIdentifiers = centered }
+        let field = search.update(header, enabled: window.attachedSheet == nil)
         let identifiers = { (nodes: [NodeView]) in nodes.compactMap { self.items[$0.id]?.itemIdentifier } }
-        let nextOrder = header.map { identifiers($0.leading) + (group.map { [$0.itemIdentifier, .flexibleSpace] } ?? []) + identifiers($0.trailing) }
-            ?? declarations.compactMap { node -> NSToolbarItem.Identifier? in
-                if node === heading { return .flexibleSpace }
-                return items[node.id]?.itemIdentifier
-            }
+        let nextOrder = header.map {
+            identifiers($0.leading) + (group.map { [$0.itemIdentifier, .flexibleSpace] } ?? []) + identifiers($0.trailing)
+                + (field.map { [.flexibleSpace, $0.itemIdentifier] } ?? [])
+        } ?? declarations.compactMap { node -> NSToolbarItem.Identifier? in
+            if node === heading { return .flexibleSpace }
+            return items[node.id]?.itemIdentifier
+        }
         order = (sidebarItems ? [.toggleSidebar, .sidebarTrackingSeparator] : []) + (back ? [Self.backIdentifier] : [])
             + nextOrder + appItems.map(\.itemIdentifier)
         // Keep both toolbar and command objects stable through route changes.
         for index in stride(from: toolbar.items.count - 1, through: 0, by: -1) {
             if !order.contains(toolbar.items[index].itemIdentifier) { toolbar.removeItem(at: index) }
         }
+        // Each place in turn: an item of that identifier further along
+        // moves here, never one already placed (a bar can hold two
+        // flexible spaces); what is left past the last place goes.
         for (index, identifier) in order.enumerated() {
             if index < toolbar.items.count && toolbar.items[index].itemIdentifier == identifier { continue }
-            if let old = toolbar.items.firstIndex(where: { $0.itemIdentifier == identifier }) { toolbar.removeItem(at: old) }
+            if let old = toolbar.items.indices.dropFirst(index).first(where: { toolbar.items[$0].itemIdentifier == identifier }) { toolbar.removeItem(at: old) }
             toolbar.insertItem(withItemIdentifier: identifier, at: index)
         }
+        while toolbar.items.count > order.count { toolbar.removeItem(at: toolbar.items.count - 1) }
         // Shown as it will answer, without waiting for AppKit's next validation.
         if back, backItem.isEnabled != navigation.canGoBack { backItem.isEnabled = navigation.canGoBack }
         appliedTitle = title(over: savedTitle)
@@ -564,6 +587,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             return NSTrackingSeparatorToolbarItem(identifier: identifier, splitView: split, dividerIndex: 0)
         }
         if let group = segments.item, group.itemIdentifier == identifier { return group }
+        if let field = search.item, field.itemIdentifier == identifier { return field }
         return items.values.first { $0.itemIdentifier == identifier } ?? appItems.first { $0.itemIdentifier == identifier }
     }
     func validateToolbarItem(_ item: NSToolbarItem) -> Bool {
@@ -589,6 +613,8 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             guard order.contains(Self.backIdentifier), validateToolbarItem(backItem), let action = backItem.action else { return false }
             return NSApp.sendAction(action, to: backItem.target, from: backItem)
         }
+        // The header's search input: the caret goes to its field in the bar.
+        if projected, node === header?.search { return focusSearch(node) }
         // A tab of the header's tablist: its segment's press.
         if projected, let index = header?.tabs.firstIndex(where: { $0 === node }) {
             guard usable(node), let tab = segments.tab(at: index) else { return false }
@@ -619,6 +645,12 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             result["identifier"] = item.itemIdentifier.rawValue
             result["enabled"] = item === backItem ? validateToolbarItem(item) : available(node)
             result["overflow"] = !(toolbar.visibleItems ?? []).contains(where: { $0 === item })
+        }
+        if projected, let field = search.item, node === header?.search {
+            result["view"] = "NSSearchToolbarItem"
+            result["identifier"] = field.itemIdentifier.rawValue
+            result["enabled"] = usable(node) && field.isEnabled
+            result["overflow"] = !(toolbar.visibleItems ?? []).contains(where: { $0 === field })
         }
         if projected, let group = segments.item, node === header?.segments || header?.tabs.contains(where: { $0 === node }) == true {
             result["view"] = "NSToolbarItemGroup"

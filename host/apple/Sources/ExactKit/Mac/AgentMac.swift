@@ -747,6 +747,15 @@ extension Agent {
         return reply
     }
 
+    /// The caret into a search input's field in the window's toolbar (LLP
+    /// 1115.002 D2). Where the item had become its button AppKit opens the
+    /// field over a moment, so its editor is waited for, bounded.
+    private func focusBarField(_ v: NodeView) {
+        guard presenter.toolbar.focusSearch(v) else { return }
+        let limit = Date().addingTimeInterval(2)
+        while v.field?.currentEditor() == nil, Date() < limit { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
+    }
+
     /// Set an input's text as typing does: the field editor, all selected,
     /// the text inserted — the delegate hears one change with the new value.
     func type(_ req: [String: Any]) -> [String: Any] {
@@ -830,6 +839,10 @@ extension Agent {
                 // Resigning the previous responder can synchronously replace or restrict this node.
                 guard session.natives.inputToken(v) == nativeToken else { return ["error": "native view is unavailable, hidden, inert, disabled or replaced"] }
                 guard session.natives.ownsFocus(v) else { return ["error": "native view no longer owns focus"] }
+            } else if v.pageField != nil {
+                // A search input in the window's toolbar (LLP 1115.002 D2): its field there takes the key.
+                let editing = v.field?.currentEditor().map { win.firstResponder === $0 } ?? false
+                if !editing { focusBarField(v) }
             } else if presenter.toolbar.contains(v) {
                 if let view = session.view { win.makeFirstResponder(view) }
             } else if let f = v.textArea {
@@ -965,7 +978,11 @@ extension Agent {
         // A field already being edited keeps its editor: asking again would
         // end the editing (a blur) and begin it (a focus), which a person's
         // typing never does.
-        if f.currentEditor().map({ win.firstResponder !== $0 }) ?? true { win.makeFirstResponder(f) }
+        // A search input in the window's toolbar (LLP 1115.002 D2) takes the
+        // caret AppKit's way, which opens the field where the item is its button.
+        if f.currentEditor().map({ win.firstResponder !== $0 }) ?? true {
+            if v.pageField != nil { focusBarField(v) } else { win.makeFirstResponder(f) }
+        }
         guard let editor = f.currentEditor() as? NSTextView else { return ["error": "the field has no editor"] }
         editor.selectAll(nil)
         editor.insertText(text, replacementRange: editor.selectedRange())

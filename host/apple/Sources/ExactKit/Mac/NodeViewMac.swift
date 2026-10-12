@@ -111,6 +111,8 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     package var textArea: NSTextView?
     var textAreaScroll: NSScrollView?
     package var field: NSTextField?
+    /// The page's own field, while `field` is the one the window's toolbar hosts (LLP 1115.002 D2, HeaderMac.swift).
+    var pageField: NSTextField?
     /// A number input's stepper beside its field (`NumberStepperMac.swift`).
     var stepper: FieldStepper?
     /// The editor's text as the app was last told it (nil once the app has
@@ -836,6 +838,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
 
     func applyPlaceholder(_ f: NSTextField) {
+        if pageField != nil { return syncBarField() }
         let text = props["placeholder"] ?? ""
         let font = f.font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
         if text.isEmpty {
@@ -1117,7 +1120,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         scroll?.horizontalScroller?.controlSize = scrollbarWidth == "thin" ? .small : .regular
         scroll?.verticalScroller?.controlSize = scrollbarWidth == "thin" ? .small : .regular
         styleTextArea()
-        if let f = field, let t = text {
+        if let f = field, pageField == nil, let t = text { // a field in the toolbar is AppKit's to style
             (f.currentEditor() as? NSTextView)?.insertionPointColor = caretColor
             f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
             f.textColor = color("text_color", SystemColor.canvasText)

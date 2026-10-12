@@ -715,8 +715,14 @@ package final class Presenter {
     /// The action's focus(html-id), delivered only after the batch is mounted.
     func focusElement(_ args: [Any], selectText: Bool = false) {
         guard args.count == 1, let name = args.first as? String,
-              let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }),
-              let window = target.window, !target.formDisabled,
+              let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }) else { return }
+        // A search input the window's toolbar hosts has no box in the page
+        // (LLP 1115.002 D2): the caret goes to its field in the bar.
+        if target.pageField != nil {
+            if !target.formDisabled, toolbar.focusSearch(target), selectText { fieldSelections.selectAll(target) }
+            return
+        }
+        guard let window = target.window, !target.formDisabled,
               target.bounds.width > 0, target.bounds.height > 0 else { return }
         var ancestor: NSView? = target
         while let view = ancestor {

@@ -429,6 +429,111 @@ final class HeaderMacTests: XCTestCase {
         XCTAssertNotNil(p.segments.control(of: 17))
     }
 
+    /// A header's search input is the bar's search item, and the field in
+    /// it is the input's own: its value, its typing, its focus and its test
+    /// id are the authored node's, in a field AppKit draws and places.
+    func testASearchInputIsTheBarsSearchItemHoldingTheInputsOwnField() throws {
+        let input: [[String: Any]] = [
+            ["op": "create", "id": 18, "kind": "input", "props": ["type": "search", "placeholder": "Search", "testId": "search", "accessibilityLabel": "Search books", "value": "Pi"],
+             "handlers": ["input", "change", "focus", "blur"]],
+            ["op": "frame", "id": 18, "x": 0, "y": 0, "w": 200, "h": 24],
+            children(10, [11, 12, 13, 14, 18]),
+        ]
+        let p = fixture(extra: input)
+        var typed: [String] = [], focused: [UInt32] = []
+        p.onInput = { _, value in typed.append(value) }
+        p.onFocus = { focused.append($0) }
+        let node = try self.node(p, 18)
+        let page = try XCTUnwrap(node.field as? SearchField)
+        XCTAssertTrue(page.superview === node)
+        XCTAssertEqual(page.stringValue, "Pi")
+        XCTAssertNil(node.pageField)
+
+        // Shown, off every screen, never key and never active: AppKit lays a toolbar out for a window that is shown.
+        window.setFrameOrigin(NSPoint(x: -20000, y: -20000))
+        window.orderFrontRegardless()
+        XCTAssertTrue(p.toolbar.attach(to: window))
+        XCTAssertEqual(window.title, "Library")
+        // SwiftUI's own order: the trailing items, a flexible space, the search item last.
+        XCTAssertEqual(identifiers(), [back, "exact.command.11", "exact.command.13", "exact.command.14", NSToolbarItem.Identifier.flexibleSpace.rawValue, "exact.search.18"])
+        let item = try XCTUnwrap(p.toolbar.search.item)
+        XCTAssertTrue(window.toolbar?.items.last === item)
+        // The field in the bar is the node's own field: its class, the node its delegate, the value it held.
+        let field = try XCTUnwrap(node.field as? SearchField)
+        XCTAssertTrue(item.searchField === field)
+        XCTAssertFalse(field === page, "one never styled by the page, so the item draws it as its own")
+        XCTAssertTrue(node.pageField === page, "the page's field waits in the node")
+        XCTAssertTrue((field as NSTextField).delegate === node)
+        XCTAssertEqual(field.stringValue, "Pi")
+        XCTAssertEqual(field.placeholderString, "Search")
+        XCTAssertEqual(field.accessibilityIdentifier(), "search")
+        XCTAssertEqual(field.accessibilityLabel(), "Search books")
+        XCTAssertEqual(item.label, "Search books", "the input's name is the item's")
+        XCTAssertTrue(field.isBezeled, "AppKit's own field: nothing of the page's look is written to it")
+        XCTAssertTrue(p.keyTarget(field) === node, "the focus in the bar's field is the input's")
+
+        // The app's value goes to it; what is typed in it is the input's `input`.
+        p.apply(wireBatch([["op": "props", "id": 18, "set": ["value": "Pira"]]]))
+        XCTAssertEqual(field.stringValue, "Pira")
+        XCTAssertTrue(item.searchField === field, "the same field across batches")
+        field.stringValue = "Dune"
+        NotificationCenter.default.post(name: NSControl.textDidChangeNotification, object: field)
+        XCTAssertEqual(typed, ["Dune"])
+        // A style or a placeholder the page writes does not restyle AppKit's field (the app's answer rides with it).
+        let font = field.font
+        p.apply(wireBatch([["op": "style", "id": 18, "style": ["font_size": 30]], ["op": "props", "id": 18, "set": ["placeholder": "Find a book", "value": "Dune"]]]))
+        XCTAssertEqual(field.font, font)
+        XCTAssertTrue(field.isBezeled)
+        XCTAssertEqual(field.placeholderString, "Find a book")
+        XCTAssertNil(field.placeholderAttributedString)
+
+        // The caret goes to it AppKit's way, by name or by an action's `focus()`; its `focus` is the input's.
+        XCTAssertEqual(p.toolbar.activate(node), true)
+        let limit = Date().addingTimeInterval(5)
+        while field.currentEditor() == nil, Date() < limit { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
+        let editor = try XCTUnwrap(field.currentEditor())
+        XCTAssertTrue(editor is FieldEditor, "it edits in the session's editor, as in the page")
+        XCTAssertTrue(p.keyTarget(window.firstResponder) === node)
+        XCTAssertEqual(focused, [18])
+        let summary = try XCTUnwrap((p.toolbar.summary["header"] as? [String: Any])?["search"] as? [String: Any])
+        XCTAssertEqual(summary["testId"] as? String, "search")
+        XCTAssertEqual(summary["value"] as? String, "Dune")
+        XCTAssertEqual(summary["editing"] as? Bool, true)
+        window.makeFirstResponder(nil)
+
+        // Another route's bar: the field goes back to the page, holding what the bar's held, in the page's look.
+        select("b", in: p)
+        XCTAssertFalse(identifiers().contains("exact.search.18"))
+        XCTAssertNil(p.toolbar.search.item)
+        XCTAssertNil(node.pageField)
+        XCTAssertTrue(node.field === page)
+        XCTAssertEqual(page.stringValue, "Dune")
+        XCTAssertEqual(page.frame.size, node.bounds.size, "laid out in its node again")
+        XCTAssertEqual(page.placeholderAttributedString?.string, "Find a book", "what the page wrote while the bar had the field is the page's field's now")
+        // And back.
+        select("a", in: p)
+        let again = try XCTUnwrap(p.toolbar.search.item)
+        XCTAssertTrue(again.searchField === node.field)
+        XCTAssertEqual(again.searchField.stringValue, "Dune")
+
+        // A search input the author draws (`appearance: none`) is theirs to draw: the header stays painted, whole.
+        p.apply(wireBatch([["op": "style", "id": 18, "style": ["appearance": "none"]]]))
+        XCTAssertEqual(window.title, "Shelf")
+        XCTAssertFalse(try self.node(p, 10).isHidden)
+        XCTAssertNil(node.pageField)
+        XCTAssertEqual(identifiers(), [back])
+        XCTAssertTrue((p.toolbar.summary["headerKept"] as? String)?.contains("search field") == true)
+        XCTAssertFalse(node.field is NSSearchField, "its field is the plain one an author draws around")
+        p.apply(wireBatch([["op": "style", "id": 18, "style": [:]], ["op": "props", "id": 18, "set": ["placeholder": "Search"]]]))
+        XCTAssertEqual(window.title, "Library")
+        XCTAssertNotNil(node.pageField)
+
+        // Let go by the owner: the input edits in its page again.
+        p.toolbar.detach()
+        XCTAssertNil(node.pageField)
+        XCTAssertTrue(node.field?.superview === node)
+    }
+
     // MARK: A session, booted
 
     private let app = """

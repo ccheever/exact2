@@ -211,6 +211,11 @@ extension Presenter {
         guard let view = responder as? NSView else { return nil }
         var next: NSView? = view
         while let v = next {
+            // A search input's field in the window's toolbar (LLP 1115.002
+            // D2) has no node above it: the input is its delegate.
+            if let field = v as? NSTextField, let node = field.delegate as? NodeView, node.pageField != nil, node.field === field {
+                return views[node.id] === node ? node : nil
+            }
             if let node = v as? NodeView {
                 let owns = node === view || node.field.map { view.isDescendant(of: $0) } == true || node.textArea === view || (node.isNativeButton && keyView(of: node) === view) || node.nativeValueControl.map { view.isDescendant(of: $0) } == true
                 return owns && views[node.id] === node ? node : nil

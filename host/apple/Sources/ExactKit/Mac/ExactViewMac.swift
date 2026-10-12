@@ -122,6 +122,8 @@ public final class ExactView: NSView {
         let responder = first as? NSView
         let editorOwner = (responder as? NSTextView)?.delegate as? NSView
         if responder?.isDescendant(of: self) == true || editorOwner?.isDescendant(of: self) == true { return true }
+        // This session's search field, which the window's toolbar hosts (LLP 1115.002 D2).
+        if let node = self.session.presenter.keyTarget(first), node.pageField != nil { return true }
         guard let window, first == nil || first === window, let content = window.contentView else { return false }
         func session(in view: NSView) -> ExactView? {
             if let found = view as? ExactView { return found }

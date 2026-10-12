@@ -17,6 +17,12 @@
 // as SwiftUI's principal `Picker` is: one segment a tab, each pressing its
 // authored tab, the selected one the tab the app says is selected.
 //
+// An `input type="search"` is an `NSSearchToolbarItem` at the bar's end,
+// and the field in it is the input's own (`NodeView.lendFieldToBar`): the
+// node is its delegate there as in the page, so its value, its caret, its
+// `input`, `change`, `submit`, `focus` and `blur`, its test id and what a
+// driver types are the authored input's, and its look and place AppKit's.
+//
 // **Whole, or not at all.** The toolbar shows a heading, buttons whose face
 // is a symbol and a title, and nothing else. A header holding anything the
 // bar has no place for (a picture, a second line of text, a pressable
@@ -55,10 +61,13 @@ struct WindowHeader {
     /// segmented group, each segment pressing its tab.
     var segments: NodeView?
     var tabs: [NodeView] = []
+    /// The header's search input: the bar's search item, whose field is
+    /// the input's own.
+    var search: NodeView?
 
     /// Whether `node` is one of the header's nodes the bar shows or stands for.
     func places(_ node: NodeView) -> Bool {
-        node === header || node === heading || node === segments
+        node === header || node === heading || node === segments || node === search
             || buttons.contains { $0 === node } || backs.contains { $0 === node } || tabs.contains { $0 === node }
     }
 
@@ -83,7 +92,11 @@ struct WindowHeader {
             for child in children(node) where child.style["display"]?.string != "none" {
                 if child === rule.heading { continue }
                 if child === rule.tap { return "its heading is inside a pressable (#\(child.id)), and a window's title is not pressed" }
-                if child === rule.search { return "it holds a search field (#\(child.id))" }
+                if child === rule.search {
+                    // A search input the author draws is theirs to draw: the bar's field is AppKit's.
+                    if !child.lendsFieldToBar { return "its search field (#\(child.id)) is drawn by the app (`appearance: none`), and a toolbar's is AppKit's own" }
+                    continue
+                }
                 if child === rule.segments {
                     if titleTabs(of: child) == nil { return "its tablist (#\(child.id)) is not two or more tabs that each show a title alone, which is all a toolbar's segments show" }
                     continue
@@ -113,6 +126,7 @@ struct WindowHeader {
         var read = WindowHeader(route: route, header: rule.header, heading: rule.heading, title: rule.heading.accessibleText,
                                 leading: rule.leading.filter(shown), trailing: rule.trailing.filter(shown), backs: backs)
         if let list = rule.segments, shown(list), let tabs = titleTabs(of: list) { (read.segments, read.tabs) = (list, tabs) }
+        if let input = rule.search, shown(input) { read.search = input }
         return .shown(read)
     }
 
@@ -222,6 +236,57 @@ final class HeaderSegments: NSObject {
                     ["id": Int(id), "testId": presenter.views[id]?.props["testId"] ?? NSNull(), "title": titles[index],
                      "enabled": index < item.subitems.count && item.subitems[index].isEnabled]
                 }]
+    }
+}
+
+/// The bar's search item for a header's search input: AppKit's
+/// `NSSearchToolbarItem`, which is a field while there is room and a button
+/// that opens one when there is not, holding the input's own field
+/// (`NodeView.lendFieldToBar`). Nothing here hears the field: the input's
+/// node does, as it hears its field in the page.
+final class HeaderSearch {
+    private(set) var item: NSSearchToolbarItem?
+    private(set) weak var node: NodeView?
+    /// AppKit's words in a search item's empty field, for an input that says none.
+    private var stock: String?
+
+    /// The item for `header`'s search input now, or nil with none; the
+    /// input that had the bar's field before has its own again.
+    func update(_ header: WindowHeader?, enabled: Bool) -> NSSearchToolbarItem? {
+        guard let input = header?.search, let field = input.lendFieldToBar() else {
+            release()
+            return nil
+        }
+        if node !== input || item == nil {
+            release(keeping: input)
+            let made = NSSearchToolbarItem(itemIdentifier: .init("exact.search.\(input.id)"))
+            stock = made.searchField.placeholderString
+            made.autovalidates = false
+            (item, node) = (made, input)
+        }
+        guard let item else { return nil }
+        if item.searchField !== field { item.searchField = field }
+        if (input.props["placeholder"] ?? "").isEmpty, field.placeholderString != stock { field.placeholderString = stock }
+        input.syncBarField()
+        // The input's name is the item's, in the overflow menu and to VoiceOver; unnamed, AppKit's "Search".
+        if let label = input.authoredLabel, item.label != label { item.label = label; item.paletteLabel = label }
+        let on = enabled && !input.disabled && !input.inert
+        if item.isEnabled != on { item.isEnabled = on }
+        return item
+    }
+
+    /// The bar lets the field go: its input edits in its page again.
+    func release(keeping kept: NodeView? = nil) {
+        if let node, node !== kept { node.reclaimFieldFromBar() }
+        (item, node) = (nil, nil)
+    }
+
+    /// Put the caret in the bar's field, AppKit's own way in: where the
+    /// item has become its button, that opens the field first.
+    func focus() -> Bool {
+        guard let item, item.isEnabled, item.toolbar != nil else { return false }
+        item.beginSearchInteraction()
+        return true
     }
 }
 
