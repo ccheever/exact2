@@ -23,16 +23,16 @@ const takesValue = (spec) => spec.includes(' ');
 // (`runTests` reads all but those `test` lists as internal).
 const DRIVE = [
   ['--storage <name>', 'a scratch store, kept between drives by name'],
-  ['--size <w>x<h>', 'the viewport (default 420x900; a simulator has its own)'],
-  ['--chrome platform', 'Apple: real navigation and tab bars (default: the authored ones, painted)'],
+  ['--size <w>x<h>', 'the viewport (default 420x900; a simulator\'s own)'],
+  ['--chrome platform', 'Apple: UIKit\'s navigation and tab bars (default: painted)'],
   ['--timing platform', 'Apple: UIKit\'s transitions keep their own timing (default: frozen)'],
   ['--touch platform', 'iOS simulator: every tap a real touch, through the XCTest runner'],
-  ['--epoch <ISO|ms|now>', 'the date at the agent clock\'s zero (default 2026-01-01T00:00:00Z)'],
+  ['--epoch <ISO|ms|now>', 'the date at the clock\'s zero (default 2026-01-01)'],
   ['--locale <tag> · --time-zone <zone> · --seed <n>', 'default en-US, UTC, 1'],
   ['--fail-fetch <prefix>', 'each fetch whose URL starts with it fails, from the first data load'],
   ['--url <url>', 'web: drive a page already served (the dev loop\'s) instead of building'],
   ['--browser chrome|firefox|webkit', 'web (default chrome; bunx playwright@1.63.0 install firefox webkit)'],
-  ['--sim <udid|name>', 'iOS: which simulator (default: a booted iPhone, else the newest Pro)'],
+  ['--sim <udid|name>', 'iOS: which simulator (default: a booted iPhone)'],
   ['--device · --phone <udid|name> · --reader', 'a connected iPhone (built with ios --device), and which · Android: the app on the Canvas reader (its APK)'],
   ['--plan <file>', 'a compiled plan (contract build -o) in place of the app\'s'],
   ['--world <file> · --open <file>', 'a game: a saved world to load · macOS: a document on its command line'],
@@ -121,9 +121,9 @@ Ports    none to choose. web: headless Chrome over a pipe; the page on 127.0.0.1
     flags: DRIVE.filter(naming(DRIVE_FIRST, true)),
     more: DRIVE.filter(naming(DRIVE_FIRST, false)),
     internal: ['--test <file>', ...DRIVE_INTERNAL],
-    body: `Launches the app anew each drive (building first when missing or stale, said on stderr), runs
-each op (one quoted argument each) on the agent's clock, prints its reply. Without
---storage, storage is refused. Runs to completion.
+    body: `Launches the app anew each drive (building first if stale, said on stderr), runs each op (one
+quoted argument each) on the agent's clock, prints its reply. Without --storage, storage is
+refused. An app's server.ts runs for the drive, its database kept per --storage. Runs to completion.
 Ops      a target is a testId, else a view's exact text or label
   tree [<target>] · tree --ax · logs · layout [<target>]
   state [<name>]  a view's testId, else a state or resource, dotted: groceries.0.done

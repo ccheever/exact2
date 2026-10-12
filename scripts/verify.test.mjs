@@ -277,6 +277,119 @@ test.skipIf(!!chromium().unavailable)('verify on a server app: its own server on
   } finally { rmSync(parent, { recursive: true, force: true }); }
 }, 300_000);
 
+// LLP 1116.008 D1: `agent` starts the app's server for a drive when nothing answers where app.ts calls it, on a database of
+// its own, and the last of several overlapping drives stops it; a server the builder runs is used and left running.
+test('agent\'s server: started on a database of its own, shared by overlapping drives, stopped by the last, the builder\'s left alone', async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-drive-server-'));
+  const probe = Bun.serve({ port: 0, fetch: () => new Response('') }), port = probe.port;
+  probe.stop(true);
+  const url = `http://127.0.0.1:${port}`, up = () => fetch(`${url}/health`).then((r) => r.ok, () => false);
+  const serving = "import { Database } from 'bun:sqlite';\nconst db = new Database(process.env.DB!);\nBun.serve({ hostname: '127.0.0.1', port: Number(process.env.PORT ?? " + port + "), routes: { '/health': () => new Response('ok') } });\n";
+  // One drive, as agent.mjs makes it: its own process, ending when its stdin does.
+  const script = `const { driveServer } = await import(${JSON.stringify(resolve(import.meta.dir, 'verify.mjs'))});
+    const served = await driveServer(process.argv[1], process.argv[2] === '-' ? undefined : process.argv[2]);
+    console.log('up');
+    for await (const line of console) break;
+    await served?.stop();
+    console.log('stopped');`;
+  const drive = (storage) => {
+    const child = Bun.spawn([process.execPath, '-e', script, dir, storage], { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' }), lines = child.stdout.values()[Symbol.asyncIterator]();
+    const next = async () => new TextDecoder().decode((await lines.next()).value).trim();
+    return { child, next, said: () => new Response(child.stderr).text(), end: async () => { child.stdin.write('\n'); await child.stdin.flush(); return next(); } };
+  };
+  try {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(resolve(dir, 'app.ts'), `export const API = '${url}';\n`);
+    // Without a server entry there is nothing to start; one that does not read DB is refused, as test refuses it.
+    const { driveServer } = await import('./verify.mjs');
+    assert.equal(await driveServer(dir, 's'), null);
+    writeFileSync(resolve(dir, 'server.ts'), "Bun.serve({ port: 1 });\n");
+    await assert.rejects(driveServer(dir, 's'), /^Error: agent: server\.ts does not read its database's path from DB/);
+    writeFileSync(resolve(dir, 'server.ts'), serving);
+    assert.deepEqual([await up(), existsSync(resolve(dir, '.exact/agent-server'))], [false, false]);
+
+    // Two drives that overlap: the first starts it on its storage's database, the second uses it and says whose it is.
+    const a = drive('one');
+    assert.equal(await a.next(), 'up');
+    const b = drive('two');
+    assert.equal(await b.next(), 'up');
+    assert.equal(await up(), true);
+    assert.equal(await a.end(), 'stopped');
+    await Bun.sleep(300);
+    assert.equal(await up(), true, 'the server runs on for the drive still using it');
+    assert.equal(await b.end(), 'stopped');
+    await Bun.sleep(100);
+    assert.equal(await up(), false, 'the last drive out stops it');
+    assert.equal(await a.said(), `agent: started server.ts at ${url} for this drive (database .exact/agent/one/db.sqlite, kept for --storage one); stopped after\n`);
+    assert.equal(await b.said(), `agent: server.ts at ${url} is another drive's, on its database (.exact/agent/one/db.sqlite); this drive uses it\n`);
+    assert.deepEqual(['.exact/agent/one/db.sqlite', '.exact/agent-server'].map((f) => existsSync(resolve(dir, f))), [true, false]);
+
+    // Two that start together: one starts it, the other waits and uses it.
+    const [d, e] = [drive('four'), drive('five')];
+    assert.deepEqual([await d.next(), await e.next(), await up()], ['up', 'up', true]);
+    assert.equal(await d.end(), 'stopped');
+    assert.equal(await e.end(), 'stopped');
+    await Bun.sleep(100);
+    const said = [await d.said(), await e.said()];
+    assert.deepEqual([await up(), said.filter((l) => l.includes('started server.ts')).length, said.filter((l) => l.includes('is another drive\'s')).length], [false, 1, 1], said.join());
+
+    // Without a storage name: an empty database, gone after.
+    const c = drive('-');
+    assert.equal(await c.next(), 'up');
+    assert.equal(existsSync(resolve(dir, '.exact/agent-server/db.sqlite')), true);
+    assert.equal(await c.end(), 'stopped');
+    assert.match(await c.said(), /^agent: started server\.ts at \S+ for this drive \(an empty database\); stopped after\n$/);
+    assert.deepEqual([await up(), existsSync(resolve(dir, '.exact/agent-server'))], [false, false]);
+
+    // The builder's own server answers: used, said nothing of, and still running after.
+    const theirs = Bun.spawn([process.execPath, 'server.ts'], { cwd: dir, env: { ...process.env, DB: resolve(dir, 'theirs.db') }, stdout: 'ignore', stderr: 'ignore' });
+    try {
+      for (let i = 0; !(await up()); i++) { assert.ok(i < 100, 'their server answers'); await Bun.sleep(100); }
+      const d = drive('three');
+      assert.equal(await d.next(), 'up');
+      assert.equal(await d.end(), 'stopped');
+      assert.equal(await d.said(), '');
+      assert.deepEqual([await up(), theirs.exitCode], [true, null]);
+    } finally { theirs.kill(); await theirs.exited; }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}, 60_000);
+
+// The same on a real drive, in Chrome: the rest pattern's server started where no one runs it, the data one drive wrote
+// there for the next on the same --storage, and nothing left running.
+test.skipIf(!!chromium().unavailable)('agent on a server app: its server for the drive, on the storage\'s own database', async () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-agent-server-'));
+  try {
+    const dir = resolve(parent, 'shared-list');
+    createApp(dir);
+    applyPattern(dir, 'rest');
+    const port = onPort(dir), url = `http://127.0.0.1:${port}`;
+    const agent = (...args) => spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'agent', 'web', ...args], { cwd: dir, encoding: 'utf8', timeout: 240_000 });
+    const started = (storage) => new RegExp(`^agent: started server\\.ts at ${url} for this drive \\(database \\.exact/agent/${storage}/db\\.sqlite, kept for --storage ${storage}\\); stopped after$`, 'm');
+    const added = agent('--storage', 's1', 'clock data', 'tap add-item', 'clock settle', 'type add-title Milk', 'tap add-save', 'clock data', 'state lib.items.0.title');
+    assert.equal(added.status, 0, added.stdout + added.stderr);
+    assert.match(added.stderr, started('s1'));
+    assert.match(added.stdout, /^"Milk"$/m);
+    assert.equal(await fetch(`${url}/health`).then((r) => r.ok, () => false), false, 'stopped after');
+    assert.ok(existsSync(resolve(dir, '.exact/agent/s1/db.sqlite')) && !existsSync(resolve(dir, '.exact/agent-server')));
+    // The next drive on the name sees it; another name, and none, do not.
+    const again = agent('--storage', 's1', 'clock data', 'state lib.items.0.title');
+    assert.match(again.stdout, /^"Milk"$/m, again.stdout + again.stderr);
+    for (const flags of [['--storage', 's2'], []]) {
+      const other = agent(...flags, 'clock data', 'state lib.items');
+      assert.match(other.stdout, /^\[\]$/m, other.stdout + other.stderr);
+    }
+    // A server the builder runs is used, and runs on.
+    const theirs = Bun.spawn([process.execPath, 'server.ts'], { cwd: dir, stdout: 'ignore', stderr: 'ignore' });
+    try {
+      for (let i = 0; !(await fetch(`${url}/health`).then((r) => r.ok, () => false)); i++) { assert.ok(i < 100, 'their server answers'); await Bun.sleep(100); }
+      const used = agent('--storage', 's3', 'clock data', 'state lib.items');
+      assert.equal(used.status, 0, used.stdout + used.stderr);
+      assert.doesNotMatch(used.stderr, /^agent: /m);
+      assert.equal(theirs.exitCode, null, 'their server runs on');
+    } finally { theirs.kill(); await theirs.exited; rmSync(resolve(dir, 'data.db'), { force: true }); }
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+}, 300_000);
+
 // A new app, built and driven as a builder would: clean; a failing test fails it; a finding does not; a
 // compiler warning reaches the builder from `test web`'s build and from verify, and a clean app says none.
 test.skipIf(!!chromium().unavailable)('verify on a new app: clean, a failing test, a check finding, a compiler warning, --json', () => {
