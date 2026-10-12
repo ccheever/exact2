@@ -18,7 +18,7 @@ shape Reply
   error: string
 
 component Shared
-  state persona = "ada" persist
+  state persona = "Ada" persist
   state draft = ""
   resource items = loadItems(persona) as shape Items else empty(ok=true)
   mutation added as shape Reply refreshes items then afterAdd
@@ -28,7 +28,7 @@ component Shared
     every(4000, pull)
   action pull
     refresh items
-  action pick(p: string)
+  action signIn(p: string)
     persona = p
   action edit(v: string)
     draft = v
@@ -44,10 +44,11 @@ component Shared
         column navigationKey=`${e.id}` navigationScroll="list" position="absolute" inset=0
           header display="flex" align-items="center" padding="8px 16px"
             text "Shared List" role="heading" aria-level=1
-          row role="radiogroup" aria-label="Signed in as" margin="8px 16px"
-            each p in ["ada", "grace"] key=p
-              button role="radio" aria-checked=(persona == p) press=pick(p) testId=`persona-${p}` flex=1
-                text p text-transform="capitalize"
+          column padding="0 16px 8px"
+            row role="radiogroup" aria-label="Signed in as"
+              each p in ["Ada", "Grace"] key=p
+                button role="radio" aria-checked=(persona == p) press=signIn(p) testId=`persona-${p}` flex=1
+                  text p
           list id="list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
             section
               row
@@ -70,7 +71,7 @@ export const grants = `net.fetch ${API}`;
 async function call(persona: string, path: string, init: RequestInit = {}): Promise<{ error: string; body: unknown }> {
   try {
     const res = await fetch(`${API}${path}`, { ...init, exactTimeout: 10000,
-      headers: { authorization: `Bearer ${persona}`, 'content-type': 'application/json' } });
+      headers: { authorization: `Bearer ${persona.toLowerCase()}`, 'content-type': 'application/json' } });
     const body = (await res.json().catch(() => ({}))) as { error?: unknown };
     return { error: res.ok ? '' : typeof body.error === 'string' ? body.error : 'The server had a problem. Try again.', body };
   } catch (e) {
@@ -104,9 +105,9 @@ test "another person's item arrives on the poll; the persona is kept"
   clock +4000
   clock data
   expect tree has "item-Bread"
-  tap "persona-grace"
+  tap "persona-Grace"
   reload
-  expect state persona == "grace"
+  expect state persona == "Grace"
 ```
 
 - **`verify` runs the server itself** on an empty database: it starts server.ts with `DB`
