@@ -170,7 +170,7 @@ component remains the root. A name both declared and used
 
 A route pattern is an absolute path with literal or whole `:name` segments.
 Indentation determines its parent. The optional fallback is `notfound` without
-a path. Route policy fields use attribute syntax and are validated by the
+a path; with none, the compiler writes it and its screen (a navigation root drawing `each e in stack(nav)`). Route policy fields use attribute syntax and are validated by the
 [route/document compiler](../contract/lower/src/routes.rs).
 
 ## Components and actions

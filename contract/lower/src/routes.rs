@@ -35,6 +35,11 @@ impl Lowerer<'_> {
                 self.b.set_route_pages(id, source, &args);
             }
         }
+        // @ref LLP 1116.009 D2 — the `notfound` the compiler writes: the
+        // table `contract_types::routes` checked, in the plan.
+        if contract_syntax::implicit_notfound(file) {
+            self.b.route("notfound", "", None, false, true);
+        }
         // expand inserted this root slot before all authored/lifted states.
         self.b.set_router(self.slots[0]);
     }

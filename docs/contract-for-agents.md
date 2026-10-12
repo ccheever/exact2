@@ -1450,8 +1450,9 @@ work. Use the command's working fixture and inspect its host result.
 
 Declare at most one `routes <slot>` in the app's root file. Each row names an
 absolute path pattern, optional tab membership, parentage by indentation, and
-optional rendering/activation policies. `notfound` is a bare fallback. Do not
-redeclare the implicit router state with `state`.
+optional rendering/activation policies. `notfound` is a bare fallback: with none, the
+compiler writes it and a "Page not found" screen with a way home (the location keeps its URL);
+write it to draw your own. Do not redeclare the implicit router state with `state`.
 
 Assign the results of `open`, `push`, `replace`, `go`, `select`, or `back` to that
 router state. Use `path("route", args…)` to construct checked locations. A

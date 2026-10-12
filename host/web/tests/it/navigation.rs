@@ -111,8 +111,19 @@ fn sweep(js: bool) {
     )
     .unwrap();
     std::fs::write(dir.join("no-navigate.plan"), no_handler.encode()).unwrap();
-    // No `notfound` route and no navigation root: no screen to draw "Page not found" in, so a launch no route matches
-    // opens the first screen, journaled, on every target.
+    // No `notfound` route and a navigation root: the compiler writes the route and its screen, so a
+    // location no route matches keeps its URL and says so (LLP 1116.009 D2).
+    let no_notfound = contract::bake(
+        contract::compile(
+            "routes nav\n  home \"/\"\n    item \"/item/:id\"\n\ncomponent App\n  state backPresses = 0\n  state navigatePresses = 0\n  action back\n    backPresses = backPresses + 1\n    nav = back(nav)\n  action follow(url: string)\n    navigatePresses = navigatePresses + 1\n    nav = go(nav, url)\n  view\n    main navigationKey=`${top(nav).id}` navigationBack=\"back\" navigate=follow testId=\"navigation\" width=\"100%\" height=\"100%\"\n      each e in stack(nav) key=e.id\n        column navigationKey=`${e.id}` position=\"absolute\" inset=0\n          when e.name == \"home\"\n            text \"Home\" testId=\"home\"\n          when e.name == \"item\"\n            text e.params.id testId=\"item\"\n",
+        )
+        .unwrap(),
+        Empty,
+    )
+    .unwrap();
+    std::fs::write(dir.join("no-notfound.plan"), no_notfound.encode()).unwrap();
+    // No navigation root either: no screen to draw "Page not found" in, so a launch no route matches opens
+    // the first screen, journaled, on every target.
     let no_root = contract::bake(
         contract::compile("routes nav\n  home \"/\"\n  about \"/about\"\n\ncomponent App\n  view\n    text top(nav).url testId=\"url\"\n")
             .unwrap(),
