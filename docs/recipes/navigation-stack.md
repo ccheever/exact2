@@ -52,7 +52,7 @@ component App
     nav = back(nav)
 
   view
-    main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow testId="app" width="100%" height="100%"
+    main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow width="100%" height="100%"
       each e in stack(nav) key=e.id
         when e.name == "notes"
           // the list
@@ -108,7 +108,7 @@ so the swipe down presses it.
 ```contract
 column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="add-form" position="absolute" inset=0
   header display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
-    button id="back" press=back testId="add-cancel"
+    button id="back" press=back
       text "Cancel"
     text "New Note" role="heading"
     button press=save testId="add-save"
@@ -140,8 +140,9 @@ test "add, open, delete after asking"
 - The alert holds text, closing buttons and one Cancel; any other modal is a sheet (`push`,
   `back`), closed in `then` only on an ok reply ([after-a-write](after-a-write.md)).
 - Covered routes stay mounted: no two screens share a `testId`. In tests, `clock settle` after a
-  push, sheet or alert, `clock data` before reading a save; `back` cancels the alert, dismisses
-  the sheet, pops the detail.
+  push, sheet or alert, `clock data` before reading a save.
 - A wide window (900 px up) shows the list beside its detail when its rows push (a `link`, or a
-  `press` that writes the router; a chevron alone is decoration); `pattern list-detail`'s
-  `follow` replaces the shown detail; `navigationSplit="none"` keeps it pushed.
+  `press` that writes the router); `follow` replaces the shown detail;
+  `navigationSplit="none"` keeps it pushed.
+- A location no route matches keeps its URL and shows not-found with a way home, unless the
+  routes declare `notfound`; a detail whose id names nothing says so.
