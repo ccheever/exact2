@@ -680,7 +680,7 @@ Compiler intrinsics and special forms additionally include:
 | --- | --- | --- |
 | `pending(resourceOrMutationName)` | Boolean; request is in flight | `pending(saved)` is `true` from `send saved = …` until its reply |
 | `failed(resourceName)` | Boolean; current resource request failed without an answer | `failed(weather)` is `true` once the weather request fails |
-| `failure(resourceName)` | `option<Failure>`: `none` until the current request fails without an answer, then `some({ code, message })` (LLP 1109 D3); `code` is one of the closed vocabulary below, the same on every host; `message` is what the agent's `state.failed` shows, and says more and differs by host | `match failure(weather)` with `case some(f)` reads `f.code`, `"offline"` with no connection |
+| `failure(resourceName)` | `option<Failure>`: `none` until the current request fails without an answer, then `some({ code, message, reason })` (LLP 1109 D3); `code` is one of the closed vocabulary below, the same on every host; `message` is what the agent's `state.failed` shows, and says more and differs by host; `reason` is the source error’s string `reason` (a Snapback refusal’s code such as `SLOT_FULL` or `E_RULE`), else `""`, on every host | `match failure(weather)` with `case some(f)` reads `f.code`, `"offline"` with no connection |
 | `path("routeName", args…)` | Checked encoded route location | `path("item", "7")` is `"/item/7"` |
 | `empty(field=constant, …)` | Resource placeholder's zero record with overrides | `resource days = loadDays() as shape Days else empty()` shows `Days`' zero until the answer |
 | `some(expr)` | Construct an option | `some(3)` is an `option<number>` holding 3 |
@@ -710,9 +710,17 @@ server answered, and the host will not take more than the app said it would;
 asking again gets the same answer, which `offline` would not imply. A
 new code is a breaking change; branch with a default case.
 
+`failure(x).reason` is not a seventh code: it rides beside `code`. A
+TypeScript source sets it by throwing (or letting through) an error whose
+`reason` property is a string; the snapback4 driver's `refused(why)` sets it
+to the Snapback refusal's code (`NOT_MANAGER`, `SLOT_FULL`, `E_RULE`, and
+`E_OFFLINE` beside `code` `offline`). Anything else, a Rust source's error
+among them, has `reason` `""`. Branch on it as on any string:
+`case some(f) => f.reason == "SLOT_FULL" ? "That slot is taken" : "…"`.
+
 `Router`, `Tab`, `Entry`, and `Params` are introduced by routes. The compiler
 also declares `Geometry` (geometry reads), `Failure` (`failure(x)`'s
-`{ code: string, message: string }`), `MarkdownSelection` (the `select`
+`{ code: string, message: string, reason: string }`), `MarkdownSelection` (the `select`
 payload) and `Picked` (a file input's `change` payload). None of these is
 constructible. The actual sources are [`format.json`](../plan/tables/format.json),
 [`runner/src/stdlib.rs`](../runner/src/stdlib.rs), and the compiler's type/lowering

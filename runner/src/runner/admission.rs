@@ -258,9 +258,11 @@ mod tests {
                 }
                 Outcome::Response(_) => Ok(Answer::Now(Value::some(Value::str("fresh")))),
                 Outcome::Failed { .. } if self.shape_refusal => Ok(Answer::Now(Value::NONE)),
-                Outcome::Failed { kind, message } => {
-                    Err(DataError::Failed(FailureCode::of_kind(kind), message))
-                }
+                Outcome::Failed { kind, message } => Err(DataError::Failed(
+                    FailureCode::of_kind(kind),
+                    message,
+                    String::new(),
+                )),
                 other => panic!("unexpected outcome: {other:?}"),
             }
         }

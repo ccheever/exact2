@@ -660,7 +660,8 @@ pub enum DataError {
     /// throw (`error`). The resource fails or the send ends unsent; the
     /// asking commit stands (LLP 1027.000 D3). Bake and replacement
     /// validation still refuse it. A Rust source's own error is `Unavailable`.
-    Failed(crate::failure::FailureCode, String),
+    /// The third field carries an application reason (`failure(x).reason`).
+    Failed(crate::failure::FailureCode, String, String),
 }
 
 #[cfg(test)]

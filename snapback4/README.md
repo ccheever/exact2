@@ -177,7 +177,7 @@ component Guestbook
   resource board = notes(persona, time.epochAtZero + performanceNow()) as shape Board else empty(message="Connecting…")
   mutation posted as shape Ack queue refreshes board then afterPost
   derive banner = match failure(board) {
-    case some(f) => f.code == "offline" ? "You're offline" : `Couldn't load notes (${f.message})`,
+    case some(f) => f.code == "offline" ? "You're offline" : f.reason != "" ? `Couldn't load notes (${f.reason})` : `Couldn't load notes (${f.message})`,
     case none => ""
   }
   task live mount
@@ -245,7 +245,7 @@ const sources: Sources = {
   notes: ([persona, now], _store, storage, native) => personas.use(persona, storage, native, async (db): Promise<Result<'notes'>> => {
     const round = await db.sync();                      // offline is fine once synced
     const read = await db.read(api.recent, {}, now);   // rows typed by the schema, `pending` included
-    if (read.denied) throw refused(read.denied);        // failure(board): `offline`, or `error` with "CODE: message"
+    if (read.denied) throw refused(read.denied);        // failure(board): `offline`, or `error`; its `reason` is the CODE
     // Project each row onto the shape: an answer's extra fields are refused
     // (a row spread, `{ ...row }`, keeps every field the type check cannot see).
     const notes = (read.data ?? []).map(row => ({ id: row.id, author: row.author, body: row.body, pending: row.pending === true }));
@@ -502,10 +502,11 @@ const renewed = await db.refreshSession(now);          // near expiresAt: keep r
   `error`, …, the same on every host), never a Snapback code; throw a
   refusal with `refused(why)` (`if (read.denied) throw refused(read.denied)`)
   and it is `offline` when the server was not reached (`E_OFFLINE`), else
-  `error`, with `failure(x).message` the refusal's `CODE: message` on every
-  host: branch on a query's `require … else NOT_MANAGER` with
-  `startsWith(f.message, "NOT_MANAGER:")`, or return the code in the
-  shape's own field. The driver's own refusals are thrown the same way:
+  `error`, and `failure(x).reason` is the refusal's code on every host
+  (`""` for a failure that was not a Snapback refusal): branch on a query's
+  `require … else NOT_MANAGER` with `f.reason == "NOT_MANAGER"`, a full
+  slot with `f.reason == "SLOT_FULL"`. `failure(x).message` is the
+  refusal's `CODE: message`, for a developer. The driver's own refusals are thrown the same way:
   `readAll` throws a page's (where `read` answers `denied`), and a first
   read that cannot reach the server throws `E_OFFLINE`. A mutation's
   refusal is not a failure: it is the outcome's `why`. A mutation source's

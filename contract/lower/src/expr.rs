@@ -286,7 +286,7 @@ pub(crate) fn compile(
                     asm.failed_resource(r);
                     return Ok(Ty::Bool);
                 }
-                // @ref LLP 1109 D3 — `none`, or `some` of `{ code, message }`.
+                // @ref LLP 1109 D3 — `none`, or `some` of `{ code, message, reason }`.
                 asm.failure_resource(r);
                 return Ok(Ty::Option(Box::new(Ty::Record("Failure".into()))));
             }

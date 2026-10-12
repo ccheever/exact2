@@ -121,9 +121,9 @@ structure Env where
   mutationSlots : List Nat := []
   pendingResources : List Bool := []
   failedResources : List Bool := []
-  /-- Why each failed resource failed, (code, message), as the runner's
-  `failed_why`: read only while `failedResources` holds. -/
-  failures : List (Option (String × String)) := []
+  /-- Why each failed resource failed, (code, message, reason), as the
+  runner's `failed_why`: read only while `failedResources` holds. -/
+  failures : List (Option (String × String × String)) := []
   pendingMutations : List Bool := []
   /-- The route table the router verbs read (the runner's `Routing`). -/
   routes : Route.Table := []
@@ -232,14 +232,14 @@ def popN (n : Nat) (s : List Value) : Option (List Value × List Value) :=
   if s.length < n then Option.none else Option.some ((s.take n).reverse, s.drop n)
 
 /-- What `FailureResource r` pushes once `r` settled: `none` until it
-failed, then the compiler's `Failure` record, `{ code, message }`, the
-runner's `error`/`it failed` where it has no reason (vm.rs
+failed, then the compiler's `Failure` record, `{ code, message, reason }`,
+the runner's `error`/`it failed`/empty where it has no reason (vm.rs
 `resource_failure`). -/
 def failureValue (env : Env) (r : Nat) : Value :=
   if env.failedResources[r]?.getD false then
     .some (.record "Failure" (match env.failures[r]? with
-      | Option.some (Option.some (c, msg)) => [.str c, .str msg]
-      | _ => [.str "error", .str "it failed"]))
+      | Option.some (Option.some (c, msg, why)) => [.str c, .str msg, .str why]
+      | _ => [.str "error", .str "it failed", .str ""]))
   else .none
 
 /-- Run the instruction `i` at `m.pc` (in code of `size` instructions). -/

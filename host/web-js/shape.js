@@ -54,3 +54,6 @@ export function failureCode(e) {
   if (e.name === "FetchError") return FETCH_FAILURE[e.kind] ?? "error";
   return e.kind === "Unavailable" && typeof e.code === "string" ? "storage" : "error";
 }
+/** `failure(x).reason`: a string the thrown value carries as `reason` (the snapback4 driver's refusal code, `SLOT_FULL`),
+ * else empty; as js/src/prelude.js `fail` reads it (the author's ruling of 2026-10-12). */
+export const failureReason = e => e && typeof e === "object" && typeof e.reason === "string" ? e.reason : "";

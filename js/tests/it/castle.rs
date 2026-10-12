@@ -45,6 +45,8 @@ component App
     send probe = refused()
   action refusedLater
     send probe = refusedLater()
+  action refusedWhy(offline: string)
+    send probe = refusedWhy(offline)
   action parallel
     send probe = parallel()
 
@@ -625,9 +627,36 @@ fn a_rejection_let_through_keeps_its_class() {
         };
         let err = m.parse(&mut s, "refusedLater", &[], failed).unwrap_err();
         match code {
-            Some(code) => assert_eq!(err, DataError::Failed(code, message), "{kind:?}"),
+            Some(code) => assert_eq!(
+                err,
+                DataError::Failed(code, message, String::new()),
+                "{kind:?}"
+            ),
             None => assert_eq!(err, DataError::Unavailable(message), "{kind:?}"),
         }
+    }
+}
+
+/// LLP 1109 D3, amended (the author's ruling of 2026-10-12): an error's
+/// `reason` crosses the seam as `failure(x).reason`, its code unchanged.
+#[test]
+fn a_thrown_reason_crosses_the_seam() {
+    use exact_runner::failure::FailureCode;
+    for (offline, code, reason) in [
+        ("", FailureCode::Error, "SLOT_FULL"),
+        ("yes", FailureCode::Offline, "E_OFFLINE"),
+    ] {
+        let mut m = module();
+        let mut s = store();
+        let args = [Value::str(offline)];
+        later(m.answer(&mut s, "refusedWhy", &args).unwrap());
+        let err = m
+            .parse(&mut s, "refusedWhy", &args, response(200, "{}"))
+            .unwrap_err();
+        assert_eq!(
+            err,
+            DataError::Failed(code, format!("{reason}: no"), reason.into())
+        );
     }
 }
 

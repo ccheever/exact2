@@ -701,6 +701,7 @@ impl Module {
                 return Step::Done(Err(DataError::Failed(
                     FailureCode::Shape,
                     format!("`{source}` answered outside its shape: {error}"),
+                    String::new(),
                 )));
             }
             value = from_json(reply.get("value").unwrap_or(&Json::Null), &sig.result);
@@ -709,7 +710,7 @@ impl Module {
         match num("tag") {
             Some(0) => Step::Done(value.map_err(|e| {
                 let why = format!("`{source}` answered outside its shape: {e}");
-                DataError::Failed(FailureCode::Shape, why)
+                DataError::Failed(FailureCode::Shape, why, String::new())
             })),
             Some(1) => match (num("call"), num("ticket")) {
                 (Some(call), Some(0)) if reply.get("waiting") == Some(&Json::Bool(true)) => {
@@ -741,6 +742,7 @@ impl Module {
                     _ => FailureCode::seam_error(
                         reply.get("failure").and_then(Json::as_str),
                         message,
+                        reply.get("reason").and_then(Json::as_str),
                     ),
                 }))
             }
@@ -990,6 +992,7 @@ impl Module {
                     DataError::Failed(
                         FailureCode::Shape,
                         format!("`{source}`'s overlay is outside its shape: {e}"),
+                        String::new(),
                     )
                 }),
             Some(4) => Ok(None),

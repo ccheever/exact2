@@ -824,15 +824,17 @@ impl Host<Value> for Run<'_, '_> {
     }
 
     // @ref LLP 1109 D3 — `failure(x)`: known once settled, as `failed(x)`;
-    // the `Failure` record is `{ code, message }` by position.
+    // the `Failure` record is `{ code, message, reason }` by position.
     fn resource_failure(&mut self, i: u64, pc: usize) -> Result<Value, Trap> {
         if !self.resource_flag(Opcode::FailedResource, i, pc)? {
             return Ok(Value::Option(None));
         }
         let why = self.env.failed_why.get(i as usize).and_then(Option::as_ref);
-        let (code, message) = why.map_or(("error", "it failed"), |w| (w.code.name(), &w.message));
+        let (code, message, reason) = why.map_or(("error", "it failed", ""), |w| {
+            (w.code.name(), w.message.as_str(), w.reason.as_str())
+        });
         let record = Value::Record(
-            [Value::str(code), Value::str(message)]
+            [Value::str(code), Value::str(message), Value::str(reason)]
                 .into_iter()
                 .collect(),
         );

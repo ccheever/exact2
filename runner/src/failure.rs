@@ -1,7 +1,9 @@
 //! Why a resource failed, as `failure(x)` answers it (LLP 1109 D3): a code
 //! from a closed vocabulary an app can branch on, the same on every host,
-//! and the message the agent's `state.failed` shows, which says more and
-//! differs by host.
+//! the message the agent's `state.failed` shows, which says more and
+//! differs by host, and the `reason` the source's error named, empty when it
+//! named none: a Snapback refusal's code (`SLOT_FULL`, `E_RULE`), which the
+//! snapback4 driver sets (the author's ruling of 2026-10-12).
 //!
 //! A code names what reached the runner. A request's failure (`offline`,
 //! `timeout`, `refused`) or a storage call's (`storage`) is the source's
@@ -65,12 +67,18 @@ impl FailureCode {
     }
 
     /// What a TypeScript module let through, by the class its seam names
-    /// (`failure` in js/src/prelude.js `fail`): `Failed`, or `Unavailable`
-    /// for its own error.
-    pub fn seam_error(failure: Option<&str>, message: String) -> DataError {
-        match failure.and_then(FailureCode::from_name) {
-            Some(code) if code != FailureCode::Error => DataError::Failed(code, message),
-            _ => DataError::Unavailable(message),
+    /// (`failure` in js/src/prelude.js `fail`) and the `reason` its error
+    /// carried: `Failed`, or `Unavailable` for its own error that names no
+    /// reason.
+    pub fn seam_error(failure: Option<&str>, message: String, reason: Option<&str>) -> DataError {
+        let reason = reason.unwrap_or("").to_string();
+        let code = failure
+            .and_then(FailureCode::from_name)
+            .unwrap_or(FailureCode::Error);
+        if code == FailureCode::Error && reason.is_empty() {
+            DataError::Unavailable(message)
+        } else {
+            DataError::Failed(code, message, reason)
         }
     }
 
@@ -92,34 +100,43 @@ pub struct Failure {
     pub code: FailureCode,
     /// What `failure(x).message` and `state.failed` read.
     pub message: String,
+    /// What `failure(x).reason` reads: the reason the source's error named
+    /// (a Snapback refusal's code), else empty.
+    pub reason: String,
 }
 
 impl Failure {
     /// The failure a reply's error makes.
     pub fn of(error: &RunnerError) -> Failure {
-        let (code, message) = match error {
+        let (code, message, reason) = match error {
             RunnerError::Data { error, .. } => match error {
-                DataError::Failed(code, s) => (*code, s.clone()),
+                DataError::Failed(code, s, reason) => (*code, s.clone(), reason.clone()),
                 DataError::UnknownSource(s)
                 | DataError::BadArguments(s)
                 | DataError::Unavailable(s)
                 | DataError::DeferredAtBake(s)
-                | DataError::Interface(s) => (FailureCode::Error, s.clone()),
+                | DataError::Interface(s) => (FailureCode::Error, s.clone(), String::new()),
             },
             RunnerError::Shape { resource, why } => (
                 FailureCode::Shape,
                 format!("`{resource}` answered outside its shape: {why}"),
+                String::new(),
             ),
-            other => (FailureCode::Error, format!("{other:?}")),
+            other => (FailureCode::Error, format!("{other:?}"), String::new()),
         };
-        Failure { code, message }
+        Failure {
+            code,
+            message,
+            reason,
+        }
     }
 
-    /// An `error` saying `message`.
+    /// An `error` saying `message`, naming no reason.
     pub fn error(message: String) -> Failure {
         Failure {
             code: FailureCode::Error,
             message,
+            reason: String::new(),
         }
     }
 }

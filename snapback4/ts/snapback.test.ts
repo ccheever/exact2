@@ -365,7 +365,7 @@ test('a failed save after the server answered keeps the answer and never resends
 }, 60_000);
 
 test('a sync after a write settles it while other sources sync at once; send is all three; refusals reach failure(x)', async () => {
-  const { failureCode } = await import('../../host/web-js/shape.js');
+  const { failureCode, failureReason } = await import('../../host/web-js/shape.js');
   const { refused } = await import('./snapback.ts');
   const db = await open('nell', join(scratch, 'nell'));
   expect(await db.sync()).toEqual({ ok: true });
@@ -418,14 +418,21 @@ test('a sync after a write settles it while other sources sync at once; send is 
   await db.sync();
 
   // A query's `require … else CODE`, thrown as the driver throws it: the
-  // code leads the message failure(x) shows, under the closed code `error`.
+  // code is failure(x).reason, under the closed code `error`, and leads the
+  // message.
   const read = await db.read('leads', {}, Date.now());
   expect(read.denied?.code).toBe('NOT_LEAD');
   const error = refused(read.denied!);
-  expect([error.message.startsWith('NOT_LEAD: '), (error as { code?: string }).code, failureCode(error)]).toEqual([true, 'NOT_LEAD', 'error']);
-  await expect(db.readAll('leads', {}, Date.now())).rejects.toThrow(/^NOT_LEAD: /);
-  // Unreached is `offline`, as a lost fetch is.
-  expect(failureCode(refused({ code: 'E_OFFLINE', message: 'not reached' }))).toBe('offline');
+  expect([error.message.startsWith('NOT_LEAD: '), (error as { code?: string }).code, failureCode(error), failureReason(error)]).toEqual([true, 'NOT_LEAD', 'error', 'NOT_LEAD']);
+  await expect(db.readAll('leads', {}, Date.now())).rejects.toMatchObject({ reason: 'NOT_LEAD' });
+  // Unreached is `offline`, as a lost fetch is; its reason is still its code.
+  const lost = refused({ code: 'E_OFFLINE', message: 'not reached' });
+  expect([failureCode(lost), failureReason(lost)]).toEqual(['offline', 'E_OFFLINE']);
+  // Natively Error.prototype is frozen, so `name` is defined, not assigned.
+  const frozen = Object.getOwnPropertyDescriptor(Error.prototype, 'name')!;
+  Object.defineProperty(Error.prototype, 'name', { ...frozen, writable: false });
+  try { expect(failureCode(refused({ code: 'E_OFFLINE', message: 'not reached' }))).toBe('offline'); }
+  finally { Object.defineProperty(Error.prototype, 'name', frozen); }
   const never = await open('olive', join(scratch, 'olive'), 'http://127.0.0.1:9');
   const unreached = await never.read('inbox', {}, Date.now()).catch(e => e as Error);
   expect([unreached.message.startsWith('E_OFFLINE: '), failureCode(unreached)]).toEqual([true, 'offline']);

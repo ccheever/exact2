@@ -160,21 +160,24 @@ export interface Options {
 
 /** The error to throw for a refusal (a read's `denied`, a round's), as the
  * driver throws its own: its `message` is `CODE: message` and it carries
- * `refusal` and `code`. A source that lets it through fails its resource,
- * and `failure(x)` says why on every host: `code` `offline` for `E_OFFLINE`
- * (the server was not reached, as a lost `fetch` is), else `error`, whose
- * `message` begins with the refusal's code, so the view can branch with
- * `startsWith(f.message, "NOT_MANAGER:")`. `failure(x).code` itself is
- * Exact's closed list, never a Snapback code.
+ * `refusal`, `code` and `reason` (the refusal's code). A source that lets it
+ * through fails its resource, and `failure(x)` says why on every host:
+ * `reason` is the refusal's code (`NOT_MANAGER`, `SLOT_FULL`, `E_RULE`), so
+ * the view branches with `f.reason == "NOT_MANAGER"`; `code` is Exact's
+ * closed list, never a Snapback code: `offline` for `E_OFFLINE` (the server
+ * was not reached, as a lost `fetch` is), else `error`. `message` is
+ * `CODE: message`, for a developer.
  *
  *   const read = await db.read<Row[]>('board', {}, now);
  *   if (read.denied) throw refused(read.denied);
  */
 export function refused(why: Refusal): Error {
-  const error = Object.assign(new Error(`${why.code}: ${why.message}`), { refusal: why, code: why.code });
+  const error = Object.assign(new Error(`${why.code}: ${why.message}`), { refusal: why, code: why.code, reason: why.code });
   // What `failure(x)` reads as `offline` on every host (host/web-js/shape.js
   // and js/src/prelude.js `failureCode`): a fetch's `Network` rejection.
-  if (why.code === 'E_OFFLINE') Object.assign(error, { name: 'FetchError', kind: 'Network' });
+  // Defined, not assigned: natively Error.prototype's `name` is read-only
+  // (frozen intrinsics), and assigning it throws.
+  if (why.code === 'E_OFFLINE') Object.defineProperties(error, { name: { value: 'FetchError', configurable: true }, kind: { value: 'Network', configurable: true, enumerable: true } });
   return error;
 }
 

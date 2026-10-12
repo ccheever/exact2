@@ -604,8 +604,11 @@ returned in a shaped answer is data to inspect, not a failed transport request.
 `failure(resource)` says why, so the view can tell a lost connection from a bug:
 `none` until the request fails, then `some` of a `Failure` record with a `code`
 from a short closed list (`offline`, `timeout`, `refused`, `shape`, `storage`,
-`error`; the grammar says when each applies) and a `message` for a developer.
-The code is the same on every host; the message is not, so branch on the code:
+`error`; the grammar says when each applies), a `message` for a developer, and
+a `reason`: the code of a backend's refusal when the source threw one (the
+snapback4 driver puts a Snapback refusal's code there, `SLOT_FULL`), else empty.
+The code and the reason are the same on every host; the message is not, so
+branch on the code or the reason:
 
 ```contract
 shape Item

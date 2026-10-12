@@ -1,7 +1,7 @@
 # LLP 1109: What the app farm asks of Exact2 — the decisions left after round 1
 
 **Type:** RFC (a decision brief: each item proposes, Charlie decides)
-**Status:** Accepted, 2026-10-08: every question ruled by Charlie (§R). D1 is implemented (`9731c8056`); D3 is implemented (`513450bda`); D2 is "no change".
+**Status:** Accepted, 2026-10-08: every question ruled by Charlie (§R). D1 is implemented (`9731c8056`); D3 is implemented (`513450bda`), and amended 2026-10-12 with `failure(x).reason`; D2 is "no change".
 **Systems:** Contract's `now()` (the roster, the runner's clock and every host's clock origin, the JS target's runtime, the Lean semantics and `contract-difftest`); the data seam's answer check (`host/web-js/ts-data.js`, `js/src/lib.rs`, `js/web/src/lib.rs`, the runner's `conform`); `failed(x)`; the agent driver and authored tests (`scripts/agent.mjs`, `scripts/agent-test.mjs`)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-08
@@ -52,6 +52,27 @@
   web's and Apple's plain HTTP, `refused` on Apple's event stream; the
   server answered, so `offline`'s "reached no server" is wrong, and a
   retry gets the same answer).
+- **D3, amended: `failure(x).reason` (author ruling 2026-10-12, via the
+  sb4 app farm).** The farm's wave 4 (014) branched on a Snapback query's
+  `require … else NOT_MANAGER` only with `startsWith(f.message, …)`.
+  `failure(x).code` keeps its closed six-word list on every host; no seventh
+  code. `Failure` gains a third field, `reason`: the server's refusal code
+  (`SLOT_FULL`, `E_RULE`) when the failure came from a Snapback refusal,
+  `""` otherwise, the same on the web and native runners.
+  *Implemented:* the mechanism is generic and the driver uses it. A
+  TypeScript source's thrown (or let-through) error with a string `reason`
+  property carries it (host/web-js `shape.js` `failureReason`, js/src
+  `prelude.js` `fail`); natively it crosses the seam as
+  `DataError::Failed(code, message, reason)` (an `error` with a reason is
+  `Failed`, not `Unavailable`), the worker envelope carries it, and the VM's
+  `Failure` record is `{ code, message, reason }` by position (the
+  compiler's shape, `vm.rs`, the JS target's `r_N.e()`, the Lean VM model's
+  `failureValue`). A Rust source's own error has none. The snapback4
+  driver's `refused(why)` sets `reason` to the refusal's code (so
+  `E_OFFLINE` is `offline` with reason `E_OFFLINE`), and now defines, not
+  assigns, the `FetchError` name it gives `E_OFFLINE`: on Hermes
+  `Error.prototype.name` is read-only, so the assignment threw and a native
+  `E_OFFLINE` was `error`.
 
 ## 0. Summary
 
