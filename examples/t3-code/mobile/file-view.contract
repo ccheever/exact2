@@ -71,7 +71,7 @@ component MobileFileView
               text data.svgTitle font-size=18 font-weight=700 text-align="center" color=colors.foreground
               text data.svgDetail font-size=14 text-align="center" color=colors.muted
               when data.svgTrace != ""
-                button `Trace ID: ${data.svgTrace}` press=action(data.svgTraceCopy) aria-label=`Copy trace ID ${data.svgTrace}` aria-description="Copies the trace ID" font-size=12 color=colors.muted
+                button appearance="none" `Trace ID: ${data.svgTrace}` press=action(data.svgTraceCopy) aria-label=`Copy trace ID ${data.svgTrace}` aria-description="Copies the trace ID" font-size=12 color=colors.muted
               when data.svgRetryAllowed
                 button "Retry now" press=action(data.svgRetry) margin-top=4 border-radius=999 background-color=colors.subtle padding-left=16 padding-right=16 padding-top=10 padding-bottom=10
         else when data.svgFailure == "failed"
