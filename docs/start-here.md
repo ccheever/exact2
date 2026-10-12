@@ -14,19 +14,20 @@ The only required reading; the rest is lookup.
    `light-dark(light, dark)` pair. A card is `-exact-secondary-background`
    (`-exact-secondary-grouped-background` on a grouped page). White text on a prominent
    button reads on blue, indigo, purple, pink, red, brown, gray, not on green, mint, teal,
-   cyan, yellow, orange (under 2.6:1: `check` refuses it; `RoundButton` draws them tinted).
+   cyan, yellow, orange (`check` refuses it, under 2.6:1; `RoundButton` tints them).
 3. **Design your content:** a focal point (big type, a fill, a shape), a hierarchy in
    rows, an empty state with its next step; inset-grouped is for settings and forms.
    `use X from "exact:content"` draws them (`none` for an option):
    - `RoundButton(label, tint, press, disabled, testId)`: Start, Stop
    - `AnswerTile(label, status, press, testId)`: a choice; `status` is `"idle"`,
      `"selected"`, `"correct"`, `"wrong"` or `"dimmed"`
-   - `SummaryCard(label, value, detail, progress, symbol)`: the one number
+   - `SummaryCard(label, value, detail, progress, symbol)`: the one number, shown once
    - `RingProgress` and `StatBar(label, value, fraction, tint)`
    - `RowText(title, detail, value)`, `Badge(label, tint)` a status, `DoneMark(caption, done)`
    - `EmptyState(symbol, title, message)` over your `button`
-4. **A wide window** needs no code for tabs (a sidebar) or a list whose rows push (beside
-   its detail); two columns are wrapping cards (`flex="1 1 320px"`; `responsive-columns`).
+4. **A wide window:** tabs (a sidebar) and a list whose rows push (beside its detail) need no
+   code. One number and its buttons is a centred column (`max-width=420`); a dashboard is
+   wrapping cards (`flex="1 1 320px"`).
 
 ## The workflow
 
@@ -40,11 +41,10 @@ bun exact.mjs ios --prebuild  # the first iOS build: minutes, in the background
 |---|---|
 |`contract build app.contract --json`|`[]` or each diagnostic with its fix; it rewrites the types `app.ts` imports.|
 |`verify`, `verify ios`|Builds, runs `app.test.contract`, `check`s the first screen and where each test ends (light, dark, two widths), relaunches once on real time: one report. A clean run on the app's platform is done.|
-|`agent web --storage s1 "clock data" "tap add" "check both"`|Drives the app by hand, to see why something fails; without `--storage`, no data.|
+|`agent web --storage s1 "clock data" "tap add" "check both"`|Drives the app by hand, to see why something fails; `--storage` keeps data.|
 |`web`, `ios --run`|For a person watching: its URL, rebuilds on save; a simulator.|
 
-`verify`, `test web` (the tests alone) and `agent` build and serve their own copy: no dev
-server is needed. Run `verify` after each edit, `verify ios` at milestones. A screen you
+`verify`, `test web` and `agent` build and serve their own copy: no dev server. Run `verify` after each edit, `verify ios` at milestones. A screen you
 want checked or captured is a test's end; `verify --shots <dir>` copies its screenshots;
 one drive takes any others (`resize`, `prefer prefers-color-scheme dark`, `screenshot`).
 Keep scratch files in `.exact/` (any other new file makes the build stale).
@@ -131,7 +131,7 @@ type Item = Result<'loadItems'>[number];
 const FILE = 'app:/data/items.json';
 const load = (storage: Storage): Promise<Item[]> => storage.fs.readFile(FILE).then(
   (bytes) => JSON.parse(new TextDecoder().decode(bytes)),
-  (e) => { if (e.code === 'ENOENT') return []; throw e; }); // no file yet ('bake', the build, passes through)
+  (e) => { if (e.code === 'ENOENT') return []; throw e; }); // no file yet ('bake', the build, passes)
 const save = async (storage: Storage, items: Item[]) => {
   await storage.fs.atomicWriteFile(FILE, new TextEncoder().encode(JSON.stringify(items)));
   return { ok: true, error: '' };
@@ -172,7 +172,7 @@ test "an item is added, a repeat refused, checked off and kept"
 Steps: `tap "id"`, `type "id" "text"` or `type "id" key "Enter"`, `expect text "id" == "…"`,
 `expect tree has|missing "id"`, `expect state a.0 .b == v`, `clock data`
 `|settle` `|+ms`, `reload`, `back`, `fail fetch "/p"`
-and `pass fetch`, `request POST "/p" {…} as grace`. Launch lines, the rest: `tests`.
+and `pass fetch`. Launch lines (`epoch "…"`, `time-zone "…"`, `size 390x844`), the rest: `tests`.
 
 ## Pitfalls that cost the most
 
@@ -186,32 +186,27 @@ and `pass fetch`, `request POST "/p" {…} as grace`. Launch lines, the rest: `t
 
 ## Look it up
 
-Open a recipe (`recipes/<name>.md`) when you write that part..
+Start from the nearest pattern: a working, tested app with what the recipes teach. A recipe
+(`recipes/<name>.md`) is for what it lacks.
 
-|The app has|Read|
+|Pattern|Already has|
 |---|---|
-|a second screen, list → detail, a delete alert|`pattern list-detail`; in an app you have, `navigation-stack`|
-|tabs|`pattern tabs`|
-|a summary or chart|`pattern dashboard`, `content-design`|
-|its own server|`pattern rest`, `rest-backend`|
-|a form in a sheet|`grouped-form`|
-|a write that may be refused|`after-a-write`|
-|a number or money field|`number-field`, `money`|
-|a count 1–99|`contract vocab stepper`|
-|dates, a day's records|`dates-and-days`|
-|a timer|`timers`; still running after relaunch, `timer-that-survives-relaunch`|
-|a saved setting|`persisted-setting`|
-|randomness|`random-and-shuffle`|
-|keyboard and focus|`keyboard-and-focus`|
-|symbols|`symbols`|
-|a chat thread|`chat-thread`|
-|files or SQLite|`files-and-grants`|
-|loading and errors|`fetch-loading-error`|
-|a wide window|`web-look`, `responsive-columns`|
-|driving iOS|`ios-driving`|
-|functions|`functions`|
+|`one-screen`|a tracker: a total, buttons, a dated log kept in a file, a centred column|
+|`dashboard`|a summary, bars, dated rows, an add sheet validated after Save, two columns|
+|`list-detail`|a detail, an add sheet, a delete alert, a missing record, a file; split when wide|
+|`tabs`|two tabs, a stack in each, a saved set kept with `persist`|
+|`rest`|its own server, polled; a signed-in person (`rest-backend`)|
 
-**Otherwise:** `bun exact.mjs contract vocab <name> …` answers any tag, property or
-how-to (`screen`, `modal`); `docs/contract-for-agents.md`,
-`docs/agent-pitfalls.md` and `docs/reference.md` by section; `<exact2>/apps/shelf` is a
-whole app.
+|Not in a pattern|Read|
+|---|---|
+|a settings form|`grouped-form`|
+|a write that may be refused|`after-a-write`|
+|a count 1–99|`contract vocab stepper`|
+|SQLite, grants|`files-and-grants`|
+|another wide layout, a chart|`web-look`, `responsive-columns`, `content-design`|
+
+The others are named for their topic: `dates-and-days`, `timers`, `money`, `symbols`…
+
+**Otherwise:** `contract vocab <name> …` answers any tag, property or how-to (`screen`,
+`modal`); `docs/contract-for-agents.md`, `agent-pitfalls.md` and
+`reference.md` by section; `<exact2>/apps/shelf` is a whole app.
