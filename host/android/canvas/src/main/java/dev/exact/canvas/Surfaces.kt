@@ -241,9 +241,10 @@ internal class Surfaces(private val activity: ExactActivity, private val root: V
                     // Material's scrim: 32% over everything behind the dialog, the system bars included.
                     window.setDimAmount(SCRIM)
                 }
-                // An alert has no outside. Back and Escape cancel it where exact2 says they may.
-                dialog.setCanceledOnTouchOutside(false)
+                // An alert has no outside unless its author wrote one (`closedby="any"`, LLP 1115.000 D13.4): exact2
+                // says which, as it does for a menu. Back and Escape cancel it where exact2 says they may.
                 dialog.setCancelable(flags and BACK_DISMISSES != 0)
+                dialog.setCanceledOnTouchOutside(flags and OUTSIDE_DISMISSES != 0)
                 dialog.setOnCancelListener { dismissed(serial) }
                 known?.headline?.let { dialog.window?.setTitle(it) }
                 Shown(serial, pane, dialog, null).also { dialog.show() }
