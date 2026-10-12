@@ -128,6 +128,7 @@ final class T3MobileModule: ExactModule {
     let media: T3MobileMedia
     private let attachments: T3MobileAttachments
     private var shareForegroundObserver: NSObjectProtocol?
+    private var questionObserver: UUID?
     private let homePreferences: T3MobilePreferences
     private let clientCache: T3MobileClientCache
     private var faviconDownload: T3MobileFaviconDownload?
@@ -161,6 +162,9 @@ final class T3MobileModule: ExactModule {
         fleet = T3Fleet(persistent: !context.agent, credentials: credentials, saved: saved,
                         activity: activity, queuedEdits: queuedEdits, changed: context.changed)
         super.init(context: context)
+        questionObserver = queuedEdits.observeQuestions { [weak self] in
+            DispatchQueue.main.async { [weak self] in guard let self, self.alive else { return }; self.context.changed("t3") }
+        }
         shareForegroundObserver = NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self, self.alive else { return }; self.context.changed("t3.incoming-shares")
         }
@@ -323,6 +327,19 @@ final class T3MobileModule: ExactModule {
                 case .failure(let error):
                     let problem = error as? T3Failure ?? T3Failure(kind: "Persistence", message: "The outbox could not be saved.")
                     reply.send(["ok": false, "generation": request["generation"] ?? 0, "error": problem.json])
+                }
+            }
+            return
+        }
+        if request["op"] as? String == "mobileQuestionJournal",
+           ["terminal", "phase", "release", "ack", "remove", "seal"].contains(request["action"] as? String ?? "") {
+            let store = queuedEdits
+            DispatchQueue.global(qos: .userInitiated).async {
+                do { reply.send(["ok": true, "generation": request["generation"] ?? 0, "value": try store.questionRequest(request)]) }
+                catch {
+                    let problem = error as? T3QuestionCommandFailure
+                    reply.send(["ok": false, "generation": request["generation"] ?? 0,
+                        "error": ["kind": problem?.kind ?? "Persistence", "message": problem?.message ?? "The saved answer needs recovery.", "uncertain": true]])
                 }
             }
             return
@@ -592,6 +609,7 @@ final class T3MobileModule: ExactModule {
 
     override func destroy() {
         alive = false
+        if let questionObserver { queuedEdits.unobserveQuestions(questionObserver) }; questionObserver = nil
         composerFileHolds.destroy()
         composerOperations.destroy()
         composerPaste.destroy()

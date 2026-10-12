@@ -10,6 +10,7 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
     private final class Weak { weak var value: T3MobileQueuedEdit?; init(_ value: T3MobileQueuedEdit) { self.value = value } }
     private static let registryLock = NSLock()
     private static var registry: [String: Weak] = [:]
+    private static var questionWork: [String: T3MobileQueuedEdit] = [:]
     static func shared(root: URL, replace: @escaping (Data, URL) throws -> Void = T3MobileQueuedEdit.durableReplace) -> T3MobileQueuedEdit {
         registryLock.lock(); defer { registryLock.unlock() }
         let key = root.standardizedFileURL.resolvingSymlinksInPath().path
@@ -20,6 +21,9 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
     }
     private let lock = NSLock()
     private let root: URL
+    private lazy var questions = T3QuestionCommands(root: root, read: { [unowned self] in try self.readJSON(self.preferences) },
+        save: { [unowned self] in try self.writePreferencesLocked($0, questionCAS: true) },
+        inventory: { [unowned self] in T3QuestionAttachments.shared(dataRoot: self.root) })
     private lazy var pickerIntakes = T3MobilePickerIntakeStore(root: root, replace: replace)
     private lazy var composerPaste = T3MobileComposerPasteStore(root: root, replace: replace)
     private let outboxStore: T3MobileOutbox
@@ -201,7 +205,12 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
         }
         return value
     }
-    private func save(_ value: [String: Any]) throws { try replace(Self.encoded(value), file) }
+    private func save(_ value: [String: Any]) throws {
+        let owned = try questions.ownedIDs()
+        let ids = Set(operations(value).values.flatMap(Self.commandIDs))
+        guard owned.isDisjoint(with: ids) else { throw refusal("A native question receipt already owns this command ID.", kind: "stale") }
+        try replace(Self.encoded(value), file)
+    }
     private func records(_ value: [String: Any]) -> [String: [String: Any]] { value["records"] as? [String: [String: Any]] ?? [:] }
     private func operations(_ value: [String: Any]) -> [String: [String: Any]] { value["operations"] as? [String: [String: Any]] ?? [:] }
     func outboxDraftHandoffStatus(_ id: String) throws -> [String: Any] {
@@ -319,6 +328,9 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
         try locked {
             let prepared = try T3OutboxInlineReceipt.prepare(request, origin: origin, environment: environment)
             let id = prepared["operationId"] as! String, command = (prepared["record"] as! [String: Any])["commandId"] as! String
+            guard try questions.ownedIDs().isDisjoint(with: [id, command]) else {
+                throw refusal("A native question receipt already owns this command ID.", kind: "stale")
+            }
             let value = try store(), commands = operations(value)
             if let existing = commands[id] {
                 guard existing["kind"] as? String == "outbox-inline", T3OutboxInlineReceipt.sameInput(existing, prepared) else {
@@ -1030,6 +1042,9 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
         }
         return try locked {
             let commands = operations(try store())
+            if let payload = payload as? [String: Any], let id = payload["commandId"] as? String, try questions.ownedIDs().contains(id) {
+                throw refusal("This command belongs to the native question journal.", kind: "stale")
+            }
             guard !inlineSendEnvironmentLocked(origin, environment), !inlinePreparations.values.contains(where: { ($0["prepared"] as? [String: Any])?["origin"] as? String == origin && ($0["prepared"] as? [String: Any])?["environmentId"] as? String == environment }) else {
                 throw refusal("Inline image preparation owns this environment.", kind: "Busy")
             }
@@ -1080,9 +1095,13 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
     }
     /// Cancellation invokes this only after its exact draft CAS and durable intent;
     /// all existing pending-operation admission still runs under the same mutex.
-    private func writePreferencesLocked(_ value: [String: Any], incomingCancellation: Bool = false) throws {
+    private func writePreferencesLocked(_ incoming: [String: Any], incomingCancellation: Bool = false, questionCAS: Bool = false) throws {
+        let previous = try readJSON(preferences)
+        let value = questionCAS ? incoming : try T3QuestionCommands.merge(previous: previous, incoming: incoming, owned: questions.ownedIDs())
         guard value["pending"] == nil || value["pending"] is [String: Any] else { throw refusal("Saved preferences are invalid.", kind: "Persistence") }
-        let pending = value["pending"] as? [String: Any] ?? [:]
+        let pending = (value["pending"] as? [String: Any] ?? [:]).filter {
+            !questionCAS || !T3MobileOutbox.jsonEqual($0.value, (previous["pending"] as? [String: Any] ?? [:])[$0.key])
+        }
         for entry in inlineSendPreparations.values {
             let operation = entry["operation"] as! [String: Any]
             if pending[operation["environmentId"] as! String] != nil { throw refusal("Finish inline expansion before saving another pending operation.", kind: "Busy") }
@@ -1096,14 +1115,59 @@ final class T3MobileQueuedEdit: @unchecked Sendable {
         }
         if !incomingCancellation {
             var journal = try store()
-            try T3MobileIncomingShareTransfer.validatePreferences(previous: readJSON(preferences), next: value, records: journal["incomingShares"])
-            let captured = try T3MobileIncomingShareTransfer.captureAdoptions(value, previous: readJSON(preferences), records: journal["incomingShares"])
+            try T3MobileIncomingShareTransfer.validatePreferences(previous: previous, next: value, records: journal["incomingShares"])
+            let captured = try T3MobileIncomingShareTransfer.captureAdoptions(value, previous: previous, records: journal["incomingShares"])
             if !T3MobileOutbox.jsonEqual(captured, journal["incomingShares"] ?? [String: Any]()) {
                 journal["incomingShares"] = captured; try save(journal)
             }
         }
-        try composerPaste.validatePreferences(previous: readJSON(preferences), next: value)
+        try composerPaste.validatePreferences(previous: previous, next: value)
         try replace(Self.encoded(value), preferences)
+        if questionCAS && (!T3QuestionCommands.equal(previous[T3QuestionCommands.recordsKey], value[T3QuestionCommands.recordsKey])
+            || !T3QuestionCommands.equal(previous[T3QuestionCommands.metadataKey], value[T3QuestionCommands.metadataKey])) { questions.committed() }
+    }
+    private func retainQuestionWork() {
+        Self.registryLock.lock(); defer { Self.registryLock.unlock() }
+        if questions.hasWork { Self.questionWork[root.standardizedFileURL.resolvingSymlinksInPath().path] = self }
+        else { Self.questionWork.removeValue(forKey: root.standardizedFileURL.resolvingSymlinksInPath().path) }
+    }
+    private func ordinaryCommandIDs() throws -> Set<String> {
+        let journal = try store(), prefs = try readJSON(preferences)
+        let durable = operations(journal).values.flatMap(Self.commandIDs)
+        let inline = Array(inlinePreparations.values) + Array(inlineSendPreparations.values) + Array(inlineSendAttempts.values)
+        return Set(durable).union(inline.flatMap(Self.commandIDs))
+            .union((prefs["pending"] as? [String: [String: Any]] ?? [:]).values.flatMap(Self.commandIDs))
+    }
+    private static func commandIDs(_ value: [String: Any]) -> [String] {
+        [value["payload"], value["record"]].compactMap { ($0 as? [String: Any])?["commandId"] as? String }
+            + [value["prepared"], value["operation"]].flatMap { ($0 as? [String: Any]).map(commandIDs) ?? [] }
+    }
+    private func questionTransaction<T>(_ body: () throws -> T) rethrows -> T {
+        var callbacks: [() -> Void] = []; defer { callbacks.forEach { $0() } }
+        return try locked { defer { retainQuestionWork(); callbacks = questions.notifications() }; return try body() }
+    }
+    func observeQuestions(_ callback: @escaping () -> Void) -> UUID { locked { questions.observe(callback) } }
+    func unobserveQuestions(_ id: UUID) { locked { questions.unobserve(id) } }
+    var questionWake: Int { locked { questions.wake } }
+    func questionRequest(_ request: [String: Any], connection: T3QuestionConnection? = nil) throws -> [String: Any] {
+        try questionTransaction { var result = try questions.request(request, connection: connection, ordinaryIDs: ordinaryCommandIDs()); result["journalWake"] = questions.wake; return result }
+    }
+    func questionPreferences() throws -> String {
+        try questionTransaction { try questions.preferencesRead() }
+    }
+    func questionWire(_ marker: [String: Any], rpcID: String) throws -> String { try questionTransaction { try questions.frame(marker, rpcID: rpcID) } }
+    func issueQuestion(_ marker: [String: Any], connection: T3QuestionConnection, rpcID: String) throws -> (String, String, String) {
+        try questionTransaction {
+            guard !inlineSendEnvironmentLocked(connection.home, connection.environment),
+                  !inlinePreparations.values.contains(where: { ($0["prepared"] as? [String: Any])?["environmentId"] as? String == connection.environment }),
+                  !operations(try store()).values.contains(where: { $0["environmentId"] as? String == connection.environment && unresolved($0) }) else {
+                throw refusal("Resolve the ordinary queued update first.", kind: "Busy")
+            }
+            return try questions.issue(marker, connection: connection, rpcID: rpcID)
+        }
+    }
+    func completeQuestion(command: String, attempt: String, result: [String: Any]) throws -> [String: Any] {
+        try questionTransaction { try questions.complete(command: command, attempt: attempt, result: result) }
     }
     func retire(_ request: [String: Any]) throws -> [String: Any] {
         try locked {

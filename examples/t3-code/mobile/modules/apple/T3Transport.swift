@@ -165,6 +165,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
                 case "http": try readHTTP(request, completion: completion)
                 case "uploadAttachment": try uploadAttachment(request, completion: completion)
                 case "request": try rpc(request, completion: completion)
+                case "mobileQuestionJournal": try questionJournal(request, completion: completion)
                 case "mobileQueuedEdit": try queuedEdit(request, completion: completion)
                 case "mobileOutboxDelivery": try outboxDelivery(request, completion: completion)
                 case "mobileOutboxInline": try outboxInline(request, completion: completion)
@@ -204,6 +205,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
 
     func arguments(_ text: String) -> T3Failure { T3Failure(kind: "Arguments", message: text) }
     private func readPreferences() throws -> String {
+        if let queuedEdits { return try queuedEdits.questionPreferences() }
         guard let preferencesURL else { throw T3Failure(kind: "Persistence", message: "The app data directory is unavailable.") }
         do {
             let attributes = try FileManager.default.attributesOfItem(atPath: preferencesURL.path)
@@ -259,7 +261,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
     func status() -> [String: Any] {
         ["state": state, "origin": origin?.absoluteString ?? "", "environmentId": descriptor["environmentId"] as? String ?? "",
          "message": message, "descriptor": descriptor, "failureKind": failureKind, "traceId": failureTrace,
-         "traces": pending.values.compactMap { $0.trace }, "activeRouteId": routes.activeId, "homeOrigin": routes.home]
+         "traces": pending.values.compactMap { $0.trace }, "activeRouteId": routes.activeId, "questionWake": queuedEdits?.questionWake ?? 0, "homeOrigin": routes.home.isEmpty ? origin?.absoluteString ?? "" : routes.home]
     }
     func setStatus(_ next: String, _ text: String) {
         let cleaned = clean(text)
@@ -289,6 +291,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         return String(result.prefix(700))
     }
     func failure(_ error: Error) -> T3Failure {
+        if let error = error as? T3QuestionCommandFailure { return T3Failure(kind: error.kind, message: clean(error.message), uncertain: error.kind == "Persistence") }
         if let error = error as? T3Failure { return T3Failure(kind: error.kind, message: clean(error.message), uncertain: error.uncertain, reason: error.reason, detail: clean(error.detail)) }
         return T3Failure(kind: "Network", message: clean(error.localizedDescription))
     }
@@ -660,6 +663,10 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         guard state == "connected" else { throw T3Failure(kind: "Disconnected", message: "The server is not connected.") }
         guard let method = request["method"] as? String, !method.isEmpty else { throw arguments("request requires a method.") }
         guard pending.count < 64 else { throw T3Failure(kind: "Busy", message: "Too many server requests are already pending.") }
+        if request["question"] != nil {
+            guard journal == nil, inline == nil else { throw arguments("Question commands require their own native receipt.") }
+            return try questionRPC(request, completion: completion)
+        }
         let id: String, text: String, payload: Any
         if let inline {
             guard method == "assets.persistChatAttachments", journal != nil, request["payload"] == nil else {
@@ -687,6 +694,57 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
             outbox.append(OutgoingFrame(text: text, inlineMemory: inline.memory))
             flush(epoch: generation)
         } else { send(text, epoch: generation) }
+    }
+    private func questionConnection() throws -> T3QuestionConnection {
+        guard state == "connected", let origin, let environment = descriptor["environmentId"] as? String, !environment.isEmpty else {
+            throw T3Failure(kind: "Disconnected", message: "The question server is not connected.")
+        }
+        let endpoint = try T3Endpoint.origin(origin.absoluteString).absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let home = try T3Endpoint.origin(routes.home.isEmpty ? origin.absoluteString : routes.home).absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        var catalog: Set<String> = [home]
+        if let saved = savedEnvironments.entry(environment: environment),
+           (try? T3Endpoint.origin(saved["origin"] as? String ?? "").absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))) == home {
+            for route in saved["routes"] as? [[String: Any]] ?? [] {
+                if let url = try? T3Endpoint.origin(route["origin"] as? String ?? "") { catalog.insert(url.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))) }
+            }
+        }
+        return T3QuestionConnection(home: home, endpoint: endpoint, environment: environment, generation: generation, catalog: catalog)
+    }
+    func questionJournal(_ request: [String: Any], completion: @escaping Completion) throws {
+        guard let queuedEdits else { throw arguments("The question journal is unavailable.") }
+        let action = request["action"] as? String ?? ""
+        let connection = try? questionConnection()
+        if ["prepare", "create", "bind"].contains(action) {
+            guard let connection else { throw arguments("Open the captured question connection.") }
+            if action == "prepare" { try connection.verify(request) }
+            else if T3QuestionCommands.integer(request["generation"]) != generation { throw arguments("The question connection changed.") }
+        }
+        var value = try queuedEdits.questionRequest(request, connection: connection)
+        if let connection { value["verifiedHome"] = ["home": connection.home, "endpoint": connection.endpoint, "environmentId": connection.environment, "generation": connection.generation] }
+        finish(completion, value: value)
+    }
+    private func questionRPC(_ request: [String: Any], completion: @escaping Completion) throws {
+        try T3QuestionCommands.fields(request, required: ["op", "method", "question", "generation", "expectedOrigin", "expectedEnvironmentId"], optional: ["trace", "fleet"])
+        guard request["method"] as? String == "orchestration.dispatchCommand", let marker = request["question"] as? [String: Any],
+              let queuedEdits, alive, socket != nil, outbox.count < 4096 else { throw arguments("Choose an immutable native question receipt.") }
+        let connection = try questionConnection(); try connection.verify(request)
+        let rpcID = nextID(), preview = try queuedEdits.questionWire(marker, rpcID: rpcID)
+        guard outboxBytes + preview.utf8.count <= T3Wire.maximumBytes else { throw T3Failure(kind: "Busy", message: "The connection cannot accept this answer frame yet.") }
+        let (text, command, attempt) = try queuedEdits.issueQuestion(marker, connection: connection, rpcID: rpcID)
+        assert(text == preview)
+        // No hop between durable admission, completion registration and enqueue on this queue.
+        pending[rpcID] = Pending(completion: { [self, queuedEdits] result in
+            do {
+                let saved = try queuedEdits.completeQuestion(command: command, attempt: attempt, result: result)
+                if result["ok"] as? Bool == true { finish(completion, value: saved) }
+                else {
+                    let error = result["error"] as? [String: Any] ?? [:]
+                    finish(completion, failure: T3Failure(kind: error["kind"] as? String ?? "RPC", message: error["message"] as? String ?? "The question response was not confirmed.", uncertain: result["_outboxNotAccepted"] as? Bool != true))
+                }
+            }
+            catch { finish(completion, failure: T3Failure(kind: "Persistence", message: "Could not save the answer outcome. Retry will finish saving it.", uncertain: true)) }
+        }, deadline: Date().addingTimeInterval(30), journal: true, trace: request["trace"] as? Int)
+        send(text, epoch: generation)
     }
     private func subscribe(_ request: [String: Any], completion: @escaping Completion) throws {
         guard state == "connected" else { throw T3Failure(kind: "Disconnected", message: "The server is not connected.") }

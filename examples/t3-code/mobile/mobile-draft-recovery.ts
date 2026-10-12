@@ -1,4 +1,4 @@
-import { questionJournalDocument, questionJournalHydrate, questionJournalReconcile, questionJournalPersistence } from './pending-input-journal';
+import { questionJournalDocument, questionJournalHydrate, questionJournalReconcile, questionJournalStatus, questionJournalRefresh, questionJournalNeedsRead } from './pending-input-journal';
 import { mobileEditorDocumentsHydrate, mobileEditorPersistSnapshot, mobileEditorPersistDocument, mobileEditorSendCapture, mobileEditorSendFailed, mobileEditorSendConfirmed } from './composer-editor-persistence';
 import { mobileComposerContextsHydrate, mobileComposerContextsPersisted, mobileComposerContextForSend } from './composer-command-context';
 import { mobileObserveFaviconRpc } from './mobile-favicon-runtime';
@@ -18,7 +18,7 @@ import { mobileOutboxTransferCompletionsHydrate, mobileOutboxTransferCompletions
 // @ref llp/1109.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
 import { T3Client, type Pending } from './shared/client';
 import { fleet } from './shared/settings-b-fleet';
-import { letGoAware } from './shared/let-go';
+import { letGo, letGoAware } from './shared/let-go';
 import { mobileCacheBeforeStatus, mobileCacheSync } from './mobile-client-cache-sync';
 import { mobileCacheObserveAdoption } from './mobile-client-cache-lifecycle';
 import { mobileCacheFleetSync } from './mobile-client-cache-fleet';
@@ -147,7 +147,7 @@ export function mobileDraftRecoveryHandles(client: T3Client, native: Native | nu
         try { saved = text ? obj(JSON.parse(text)) : { version: 1 }; }
         catch { /* Shared load reports malformed JSON; delivery stays unhydrated. */ }
       }
-      return bytes;
+      return saved ? new TextEncoder().encode(JSON.stringify(questionJournalDocument(saved))).buffer : bytes;
     } } };
   const handle: Native | null | undefined = native ? { available: native.available, watch: topic => native.watch(topic), later: request => {
     if (obj(request).op === 'devicePresentation' && saved) { hydrate(client, saved); saved = null; }
@@ -233,6 +233,7 @@ export class MobileDraftClient extends T3Client {
     const owner = [this.generation, this.origin, this.environmentId, this.local], connected = this.connection === 'connected';
     mobileCacheBeforeStatus(this, value, generation);
     super.adoptStatus(value, generation);
+    questionJournalStatus(this, value, generation);
     if (owner.some((part, index) => part !== [this.generation, this.origin, this.environmentId, this.local][index])
       || connected && this.connection !== 'connected') mobileSessionRetire(this);
   }
@@ -242,10 +243,18 @@ export class MobileDraftClient extends T3Client {
 
   override async refresh(...args: Parameters<T3Client['refresh']>): Promise<void> {
     let serial = 0;
-    const native = args[0]?.available ? letGoAware(args[0]) : args[0];
+    const base = args[0]?.available ? letGoAware(args[0]) : args[0];
+    let live = true;
+    const native: Native | null | undefined = base ? { available: base.available, watch: topic => base.watch(topic), later: async request => {
+      try { return await base.later(request); } catch (error) { if (letGo(error)) live = false; throw error; }
+    } } : base;
     await super.refresh(native, args[1], () => { serial = ++this.cacheRefresh; args[2]?.(); });
     mobileOutboxRecoveryDraftApplyChoices(this);
-    if (!serial || serial !== this.cacheRefresh) return;
+    if (!serial || serial !== this.cacheRefresh || !live) return;
+    if (native?.available && questionJournalNeedsRead(this)) {
+      try { await questionJournalRefresh(this, native, args[1]); } catch (error) { if (letGo(error)) return; throw error; }
+    }
+    if (serial !== this.cacheRefresh) return;
     await mobileCacheSync(this, native, () => fleet.saved);
     if (serial !== this.cacheRefresh) return;
     await mobileCacheFleetSync(fleet, native, this);
@@ -323,7 +332,6 @@ export class MobileDraftClient extends T3Client {
     if (independent) mobileNewTaskDraftChoicesRestore(this, independent.key);
   }
   override async persist(storage: Files): Promise<void> {
-    const questionSaved = questionJournalPersistence(this);
     pruneRetiredMarkers(this);
     const store = mobileNewTaskDraftStore(this);
     for (const slot of Object.keys(store.receipts)) {
@@ -354,9 +362,8 @@ export class MobileDraftClient extends T3Client {
         }
       }
       output = mobileEditorPersistDocument(editorSnapshot, output);
-      await storage.fs.atomicWriteFile(path, new TextEncoder().encode(JSON.stringify(questionJournalDocument(output))));
+      await storage.fs.atomicWriteFile(path, new TextEncoder().encode(JSON.stringify(output)));
     } } });
-    questionSaved();
   }
   override async write(native: Native, storage: Files, pending: Parameters<T3Client['write']>[2], beforeRequest?: () => void): Promise<Obj> {
     const previous = this.local.pending[this.environmentId];
