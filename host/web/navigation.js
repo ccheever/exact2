@@ -82,7 +82,7 @@ const backControl = (nav, route = selectedRoute(nav), name = nav.getAttribute("n
 // `navigationBack` control, and none when that control is disabled. The button is the header's shadow
 // root's, before its slot, so the header's children stay the renderer's. Its words are the control's when
 // one is named elsewhere in the route (a symbol alone: the chevron alone), else the route beneath's title
-// while it is short, else "Back".
+// while it is short, else "Back" where the page is in English (`<html lang>`, LLP 1115.000 D4.14): the bar has that word in no other language, so there it is the chevron alone, named for assistive technology by the title beneath, and an app gives it words by naming a Back control.
 const BACK = `<style>button{all:unset;display:inline-flex;align-items:center;gap:2px;flex:none;vertical-align:middle;margin-inline:-6px 6px;padding:4px 8px 4px 4px;border-radius:8px;color:var(--exact-accent,AccentColor);cursor:pointer;white-space:nowrap;-webkit-user-select:none;user-select:none}button[hidden],span[hidden]{display:none}button:focus-visible{outline:2px solid var(--exact-accent,AccentColor);outline-offset:1px}button:active>*{opacity:.5}@media (hover:hover){button:hover{background-color:light-dark(#7676801f,#7676803d)}}svg{width:.75em;height:1.25em;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}button:dir(rtl) svg{scale:-1 1}</style><button part="back" type="button"><svg viewBox="6 3 11 18" aria-hidden="true"><path d="M15 5 8 12l7 7"/></svg><span></span></button><slot></slot>`;
 const headerOf = route => [...(route?.children ?? [])].find(child => child.localName === "header");
 // @ref LLP 1115.000 D4.1 — a route is a page, so the title follows it: `document.title` is the authored `head`'s title
@@ -112,8 +112,8 @@ function appBarBack(nav, routes, index, split = false) {
     button = header.shadowRoot.querySelector("button");
     button.addEventListener("click", event => { event.stopPropagation(); appBack(header.parentElement); });
   }
-  const title = control ? control.textContent.trim() : titleOf(routes[index - 1]);
-  const label = control || (title && title.length <= 14) ? title : "Back", name = control ? control.getAttribute("aria-label") || label || "Back" : label === "Back" ? label : `Back to ${label}`;
+  const title = control ? control.textContent.trim() : titleOf(routes[index - 1]), english = /^en\b/i.test(document.documentElement.lang || "en");
+  const label = control || (title && title.length <= 14) ? title : english ? "Back" : "", name = control ? control.getAttribute("aria-label") || label || "Back" : !english ? title || "Back" : label === "Back" ? label : `Back to ${label}`;
   button.hidden = false; button.lastChild.hidden = !label;
   if (button.lastChild.textContent !== label) button.lastChild.textContent = label;
   if (button.getAttribute("aria-label") !== name) button.setAttribute("aria-label", name);
@@ -233,7 +233,7 @@ export const navigation = {
   connect(hostRoot, dispatch, journal, back = null, goTo = null) {
     root = hostRoot; navigate = dispatch; log = journal; hostBack = back; hostGo = goTo;
     // A row a press reaches in a list column (`project` marks it once its detail shows), a resize across WIDE, and one under an author's split placeholder (its pane's width). Heard at the document, before the listener that follows a link row there (input-glue.js, router.js), whose commit lands within the click.
-    document.addEventListener("click", event => { const row = event.target.closest?.('[data-exact-split="list"] :is(button, a[href], [data-exact-on~="press"])'); if (row && root.contains(row)) pressedRow = [row, performance.now(), last?.url]; }, true);
+    document.addEventListener("click", event => { const row = event.target.closest?.('[data-exact-split="list"] :is(button, a[href], [data-exact-on~="press"])'); if (row && root.contains(row)) pressedRow = [row, performance.now(), last?.url]; }, true); document.addEventListener("dragstart", event => { if (root.contains(event.target) && event.target.matches?.('img[data-symbol-source], :is(button, a[href], [data-exact-on~="press"]) img')) event.preventDefault(); }); // @ref LLP 1115.000 D4.14 — and a symbol, or an image in something pressable, is not dragged out as a picture (the shell's rule says so where an engine has the property)
     globalThis.matchMedia?.(WIDE).addEventListener?.("change", () => navigation.project(root, log)); addEventListener("resize", () => root.querySelector("[data-exact-split-placeholder]") && navigation.project(root, log));
     addEventListener("popstate", event => {
       if (!last) return;

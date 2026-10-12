@@ -244,3 +244,14 @@ check('a closed sheet or a popped screen leaves the route beneath it live when t
   const refusal = 'log navigationKey "0" matches no route among the root\'s children or those of the tabpanels its tablist names; the stack is unchanged';
   expect(await evaluate(`calls.filter(c => c.startsWith('log '))`)).toEqual([refusal, refusal]);
 }, keyed), 30000);
+
+check('the bar says its own word, "Back", only on a page in English; elsewhere the chevron alone, named by the title beneath', () => inChrome(async (evaluate) => {
+  // LLP 1115.000 D4.14. No `lang` reads as English, as every app here is until it says otherwise.
+  const english = ['r2:People|Back to People', 'r3:Done|Done', 't2:Back|Back'];
+  expect(await evaluate('backs()')).toEqual(english);
+  // In another language the app's own words stay (a short title beneath, the Back control's) and are the name; the
+  // bar's word is not said, so a long title beneath leaves the chevron alone, named by that title.
+  expect(await evaluate(`document.documentElement.lang = 'de'; select('2'); backs()`)).toEqual(['r2:People|People', 'r3:Done|Done', 't2:|Favorites of everyone']);
+  expect(await evaluate(`(b => [b.lastChild.hidden, b.hidden])(document.querySelector('#t2 > header').shadowRoot.querySelector('button'))`)).toEqual([true, false]);
+  for (const lang of ['en-GB', 'EN', '']) expect([lang, await evaluate(`document.documentElement.lang = ${JSON.stringify(lang)}; select('2'); backs()`)]).toEqual([lang, english]);
+}), 30000);

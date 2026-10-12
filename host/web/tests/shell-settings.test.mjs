@@ -137,3 +137,27 @@ check('the shell carries the resets a careful web app ships', () => inChrome(asy
   expect(await evaluate(`document.documentElement.setAttribute('data-scrolldocument', ''); ${ends}`)).toBe('["auto","auto"]');
 }));
 
+check('the small ones: a control\'s image is not dragged out, the chevron and the thumb follow the page\'s direction, a plain dialog has no padding', () => inChrome(async (evaluate) => {
+  for (const id of ['symbol', 'in-button', 'in-link', 'in-pressable']) {
+    expect([id, await css(evaluate, id, 'webkitUserDrag')]).toEqual([id, 'none']);
+    // Where an engine has no such property, the drag that starts is cancelled.
+    expect(await evaluate(`drag(${JSON.stringify(id)})`)).toEqual([`${id}:true`]);
+  }
+  // An image that is content is the browser's, as on any page.
+  expect(await css(evaluate, 'content', 'webkitUserDrag')).toBe('auto');
+  expect(await evaluate(`drag('content')`)).toEqual(['content:false']);
+
+  // Left to right: room for the select's chevron at the right, where it is drawn; the switch's thumb starts at the left.
+  expect([await css(evaluate, 'select', 'paddingLeft'), await css(evaluate, 'select', 'paddingRight')]).toEqual(['12px', '32px']);
+  expect(await css(evaluate, 'select', 'backgroundPosition')).toMatch(/^calc\(100% - 16px\) 50%, calc\(100% - 12px\) 50%/);
+  expect(await css(evaluate, 'switch', 'backgroundPosition', '::before')).toBe('0px 0px, 0px 1px');
+  expect(await css(evaluate, 'switch-on', 'backgroundPosition', '::before')).toBe('16px 0px, 16px 1px');
+  // Right to left: both mirrored.
+  expect([await css(evaluate, 'rtl-select', 'paddingLeft'), await css(evaluate, 'rtl-select', 'paddingRight')]).toEqual(['32px', '12px']);
+  expect(await css(evaluate, 'rtl-select', 'backgroundPosition')).toMatch(/^12px 50%, 16px 50%/);
+  expect(await css(evaluate, 'rtl-switch', 'backgroundPosition', '::before')).toBe('16px 0px, 16px 1px');
+  expect(await css(evaluate, 'rtl-switch-on', 'backgroundPosition', '::before')).toBe('0px 0px, 0px 1px');
+  // A plain dialog's box is its author's; an alert keeps the padding the page gives it.
+  expect(await css(evaluate, 'dialog', 'padding')).toBe('0px');
+  expect(await css(evaluate, 'alert', 'padding')).toBe('20px 16px 16px');
+}));

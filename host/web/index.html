@@ -50,6 +50,9 @@
   html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
   html:not([data-scrolldocument]), html:not([data-scrolldocument]) body { overscroll-behavior: contain; }
   #exact-root :is(button, a[href], input, select, textarea, summary, [data-exact-on~="press"]) { touch-action: manipulation; }
+  /* LLP 1115.000 D4.14: a symbol, and an image in something pressable, is part of the control, not content: no long-press
+     callout and no image drag (the navigation glue cancels the drag where the engine has no property for it). */
+  #exact-root img[data-symbol-source], #exact-root :is(button, a[href], [data-exact-on~="press"]) img { -webkit-touch-callout: none; -webkit-user-drag: none; }
   /* The unsaid press (LLP 1115.000 D6): a custom `button`, a link or a box
      with a `press` that declares no feedback shows 65% of its opacity, the iOS
      host's dim (PressFeedback.swift), while the browser holds it `:active` (a
@@ -293,7 +296,9 @@
   /* A dialog is a card over a dimmed page. An alert (`role="alertdialog"`) is
      the system's: a fixed width, its title (the label, which assistive
      technology already reads) over its message, its actions side by side. */
-  :where(#exact-root dialog) { border: none; border-radius: 14px; background-color: light-dark(#fff, #2c2c2e); color: CanvasText; box-shadow: 0 10px 40px #0000004d, 0 0 0 .5px #0000001f; }
+  /* A dialog's padding is its author's (LLP 1115.000 D4.14): the user agent's own `1em` is a box the kernel does not
+     know, so a plain `dialog` has none; the alert's is the page's, below. */
+  :where(#exact-root dialog) { border: none; border-radius: 14px; padding: 0; background-color: light-dark(#fff, #2c2c2e); color: CanvasText; box-shadow: 0 10px 40px #0000004d, 0 0 0 .5px #0000001f; }
   :where(#exact-root dialog)::backdrop { background-color: #00000066; }
   :where(#exact-root dialog[role="alertdialog"]) { box-sizing: border-box; width: min(300px, calc(100vw - 32px)); padding: 20px 16px 16px; display: flex; flex-wrap: wrap; gap: 8px; text-align: center; }
   :where(#exact-root dialog[role="alertdialog"][aria-label])::before { content: attr(aria-label) / ""; flex-basis: 100%; font-weight: 600; font-size: 1.0625em; }
@@ -304,12 +309,14 @@
      a 1 px line, 8 px corners, the field's own background. A select's height
      is its line height, so an authored padding adds to it as to the UA's and
      its box keeps the recorded rules (kernel/tests/it/browser_controls.rs);
-     its chevron is drawn in its ink. A date, time or local date-time control
+     its chevron is drawn in its ink, at its inline end. A date, time or local date-time control
      whose appearance is the platform's (`data-exact-field`) is a border box
      the same way (LLP 1116.001 D1); the browser keeps its picker and icon. */
   #exact-root input[data-native], #exact-root textarea[data-native] { border: 1px solid light-dark(#c7c7cc, #48484a); border-radius: 8px; padding: .5em .75em; background-color: light-dark(#fff, #1c1c1e); }
   #exact-root input[data-native]:disabled, #exact-root textarea[data-native]:disabled { background-color: light-dark(#f2f2f7, #2c2c2e); }
-  #exact-root select:not([multiple]) { appearance: none; font: inherit; letter-spacing: inherit; color: inherit; line-height: 2.125; padding: 0 2em 0 .75em; border: 1px solid light-dark(#c7c7cc, #48484a); border-radius: 8px; background: linear-gradient(45deg, #0000 50%, currentColor 50%) right calc(.75em + 4px) center / 4px 4px no-repeat, linear-gradient(135deg, currentColor 50%, #0000 50%) right .75em center / 4px 4px no-repeat, light-dark(#fff, #1c1c1e); }
+  #exact-root select:not([multiple]) { appearance: none; font: inherit; letter-spacing: inherit; color: inherit; line-height: 2.125; padding-block: 0; padding-inline: .75em 2em; border: 1px solid light-dark(#c7c7cc, #48484a); border-radius: 8px; background: linear-gradient(45deg, #0000 50%, currentColor 50%) right calc(.75em + 4px) center / 4px 4px no-repeat, linear-gradient(135deg, currentColor 50%, #0000 50%) right .75em center / 4px 4px no-repeat, light-dark(#fff, #1c1c1e); }
+  /* LLP 1115.000 D4.14: the chevron is at the inline end, so on a right-to-left page it is at the left. */
+  #exact-root select:not([multiple]):dir(rtl) { background-position: left .75em center, left calc(.75em + 4px) center, 0 0; }
   #exact-root select:not([multiple]):disabled { color: GrayText; }
   #exact-root input[data-exact-field] { box-sizing: border-box; line-height: 2; padding: 0 .75em; border: 1px solid light-dark(#c7c7cc, #48484a); border-radius: 8px; background-color: light-dark(#fff, #1c1c1e); }
   #exact-root input[data-exact-field]:disabled { color: GrayText; background-color: light-dark(#f2f2f7, #2c2c2e); }
@@ -328,11 +335,15 @@
      is a block pseudo-element's, so the input shrinks to it and stretches
      past it as a native control does (the recorded cases, Chrome, Firefox and
      WebKit alike), and its padding draws nothing, as a native checkbox's.
-     `appearance: none` on the node hands it to the author (no marker). */
+     `appearance: none` on the node hands it to the author (no marker). The
+     thumb is at the inline start until it is on (LLP 1115.000 D4.14): on a
+     right-to-left page it travels from the right to the left. */
   @supports not selector(::thumb) {
     #exact-root input[data-exact-switch] { appearance: none; display: inline-block; vertical-align: top; padding: 0 !important; border-radius: 11px; }
     #exact-root input[data-exact-switch]::before { content: ""; display: block; width: 38px; height: 22px; border-radius: 11px; background: radial-gradient(circle closest-side, #fff 8.5px, #fff0 9.25px) 0 0 / 22px 22px no-repeat, radial-gradient(circle closest-side, #00000038 7px, #0000 11px) 0 1px / 22px 22px no-repeat light-dark(#78788029, #78788052); transition: background-position .2s, background-color .2s; }
     #exact-root input[data-exact-switch]:checked::before { background-color: var(--exact-accent, AccentColor); background-position: 16px 0, 16px 1px; }
+    #exact-root input[data-exact-switch]:dir(rtl)::before { background-position: 16px 0, 16px 1px; }
+    #exact-root input[data-exact-switch]:checked:dir(rtl)::before { background-position: 0 0, 0 1px; }
     #exact-root input[data-exact-switch]:disabled::before { opacity: .5; }
   }
   /* An indeterminate progress (LLP 1069.001, amended 2026-10-07): HTML's draws a bar, so the page draws the
