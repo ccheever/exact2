@@ -928,8 +928,9 @@ nothing presses.
 On macOS, the unmodified `ContextMenu` key opens it at the focused node's
 visible centre, after `key` handlers run, with `buttons=0` and `pressure=0`.
 A `key` handler's `preventDefault()` cancels it. The nearest `contextmenu`
-handler runs before its `contextPopover` opens; a field keeps its editing
-menu. Drive it with `type "row" key "ContextMenu"`. Shift+F10 has no menu
+handler runs before its `contextPopover` opens; a text field keeps its editing
+menu, and a control in the node (a checkbox, a range, a date) has none, so the
+node's runs. Drive it with `type "row" key "ContextMenu"`. Shift+F10 has no menu
 default on macOS, matching Chrome on that platform. Native context menus retain
 the existing `disabled` guard, including on plain containers.
 
