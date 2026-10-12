@@ -584,13 +584,16 @@ fn a_fit_content_row_is_as_tall_as_its_wrapped_text() {
 /// clamped by its minimum and maximum (CSS Flexbox §9.2 step 4, §9.9.1),
 /// whatever space it is offered (issue X86, vendored Taffy patch 33). A
 /// leaf's flex base size is its whole content, and the column took it past
-/// the leaf's `max-height`: as a row's unstretched item or a block's child
-/// when the leaf scrolls (`overflow: hidden`, as a textarea scrolls), and
-/// absolutely positioned (D) whatever the leaf. E, F and G held before. W:
-/// a row's min-content width, where an unbroken word at `max-width: 130px`
-/// made a fit-content row as wide as the word. Chrome 155, 2026-10-12, plain
-/// HTML by the method of `browser_cases.rs`; `prose` is the issue's 1,220
-/// characters, and every size asserted is one a clamp sets, not the font.
+/// the leaf's `max-height`. In definite space it did whatever the leaf: C,
+/// a row of definite height's unstretched item (the issue's case C), and D,
+/// absolutely positioned. Under a max-content offer (R, a row of automatic
+/// height's item, and H, a block's child) it did when the leaf scrolls
+/// (`overflow: hidden`) or may not shrink (S, `flex-shrink: 0`). E, F and G
+/// held before. W: a row's min-content width, where an unbroken word at
+/// `max-width: 130px` made a fit-content row as wide as the word. Chrome
+/// 155, 2026-10-12, plain HTML by the method of `browser_cases.rs`; `prose`
+/// is the issue's 1,220 characters, and every size asserted is one a clamp
+/// sets, not the font.
 #[test]
 fn a_column_is_as_tall_as_its_items_clamped_by_max_height() {
     let prose = "The quick brown fox jumps over the lazy dog. "
@@ -610,7 +613,36 @@ fn a_column_is_as_tall_as_its_items_clamped_by_max_height() {
             (4, 3, css_rows(leaf)),
         ]
     };
+    // The same in a row 300 tall: the column is measured in definite space.
+    let in_tall_row = |leaf: &str| {
+        vec![
+            (2, 1, css_rows(&format!("{row};height:300px"))),
+            (3, 2, css_rows(col)),
+            (4, 3, css_rows(leaf)),
+        ]
+    };
+    // An absolutely positioned column in a 300-tall box.
+    let absolute = |leaf: &str| {
+        vec![
+            (2, 1, css_rows("width:200px;height:300px;position:relative")),
+            (
+                3,
+                2,
+                css_rows(&format!("{col};position:absolute;top:0px;left:0px")),
+            ),
+            (4, 3, css_rows(leaf)),
+        ]
+    };
+    // A column in a 300-tall block, offered a max-content height.
+    let in_block = |leaf: &str| {
+        vec![
+            (2, 1, css_rows("width:200px;height:300px")),
+            (3, 2, css_rows("display:flex;flex-direction:column")),
+            (4, 3, css_rows(leaf)),
+        ]
+    };
     let clipped = "max-height:160px;overflow:hidden";
+    let under_padding = "max-height:10px;padding:20px;box-sizing:border-box;overflow:hidden";
     // A name, the nodes, the text leaves, the images and Chrome's frames.
     type Case<'a> = (
         &'a str,
@@ -621,28 +653,28 @@ fn a_column_is_as_tall_as_its_items_clamped_by_max_height() {
     );
     let cases: Vec<Case> = vec![
         (
-            "C: a text leaf at max-height",
+            "R: a text leaf at max-height",
             in_row(clipped),
             vec![4],
             &[],
             &[(3, [0.0, 0.0, 200.0, 160.0]), (4, [0.0, 0.0, 200.0, 160.0])],
         ),
         (
-            "C: without overflow",
+            "R: without overflow",
             in_row("max-height:160px"),
             vec![4],
             &[],
             &[(3, [0.0, 0.0, 200.0, 160.0]), (4, [0.0, 0.0, 200.0, 160.0])],
         ),
         (
-            "C: min-height wins over max-height",
+            "R: min-height wins over max-height",
             in_row("min-height:200px;max-height:160px;overflow:hidden"),
             vec![4],
             &[],
             &[(3, [0.0, 0.0, 200.0, 200.0]), (4, [0.0, 0.0, 200.0, 200.0])],
         ),
         (
-            "C: margins outside the clamp",
+            "R: margins outside the clamp",
             in_row("max-height:160px;overflow:hidden;margin-top:10px;margin-bottom:4px"),
             vec![4],
             &[],
@@ -652,7 +684,7 @@ fn a_column_is_as_tall_as_its_items_clamped_by_max_height() {
             ],
         ),
         (
-            "C: a negative margin",
+            "R: a negative margin",
             in_row("max-height:160px;overflow:hidden;margin-top:-20px"),
             vec![4],
             &[],
@@ -662,35 +694,35 @@ fn a_column_is_as_tall_as_its_items_clamped_by_max_height() {
             ],
         ),
         (
-            "C: content-box padding",
+            "R: content-box padding",
             in_row("max-height:160px;overflow:hidden;padding:10px"),
             vec![4],
             &[],
             &[(3, [0.0, 0.0, 200.0, 180.0]), (4, [0.0, 0.0, 200.0, 180.0])],
         ),
         (
-            "C: border-box padding",
+            "R: border-box padding",
             in_row("max-height:160px;overflow:hidden;padding:10px;box-sizing:border-box"),
             vec![4],
             &[],
             &[(3, [0.0, 0.0, 200.0, 160.0]), (4, [0.0, 0.0, 200.0, 160.0])],
         ),
         (
-            "C: a border-box max-height under its padding",
-            in_row("max-height:10px;padding:20px;box-sizing:border-box;overflow:hidden"),
+            "R: a border-box max-height under its padding",
+            in_row(under_padding),
             vec![4],
             &[],
             &[(3, [0.0, 0.0, 200.0, 40.0]), (4, [0.0, 0.0, 200.0, 40.0])],
         ),
         (
-            "C: a definite height",
+            "R: a definite height",
             in_row("height:10px"),
             vec![4],
             &[],
             &[(3, [0.0, 0.0, 200.0, 10.0]), (4, [0.0, 0.0, 200.0, 10.0])],
         ),
         (
-            "C: two leaves and a gap",
+            "R: two leaves and a gap",
             vec![
                 (2, 1, css_rows(row)),
                 (3, 2, css_rows(&format!("{col};gap:6px"))),
@@ -706,30 +738,116 @@ fn a_column_is_as_tall_as_its_items_clamped_by_max_height() {
             ],
         ),
         (
-            "C: an image, max-width through its ratio",
+            "R: an image, max-width through its ratio",
             in_row("max-width:100px"),
             vec![],
             &[(4, Some((200.0, 656.0)))],
             &[(3, [0.0, 0.0, 200.0, 328.0]), (4, [0.0, 0.0, 100.0, 328.0])],
         ),
         (
-            "C: an image at max-height",
+            "R: an image at max-height",
             in_row("max-height:130px"),
             vec![],
             &[(4, Some((200.0, 656.0)))],
             &[(3, [0.0, 0.0, 200.0, 130.0]), (4, [0.0, 0.0, 200.0, 130.0])],
         ),
         (
+            "C: a row 300 tall, a text leaf at max-height",
+            in_tall_row("max-height:160px"),
+            vec![4],
+            &[],
+            &[(3, [0.0, 0.0, 200.0, 160.0]), (4, [0.0, 0.0, 200.0, 160.0])],
+        ),
+        (
+            "C: a row 300 tall, the leaf clipped",
+            in_tall_row(clipped),
+            vec![4],
+            &[],
+            &[(3, [0.0, 0.0, 200.0, 160.0]), (4, [0.0, 0.0, 200.0, 160.0])],
+        ),
+        (
+            "C: a row 300 tall, a margin outside a max-height under its padding",
+            in_tall_row(&format!("{under_padding};margin-top:10px")),
+            vec![4],
+            &[],
+            &[(3, [0.0, 0.0, 200.0, 50.0]), (4, [0.0, 10.0, 200.0, 40.0])],
+        ),
+        (
             "D: an absolutely positioned column",
-            vec![
-                (2, 1, css_rows("width:200px;height:300px;position:relative")),
-                (
-                    3,
-                    2,
-                    css_rows(&format!("{col};position:absolute;top:0px;left:0px")),
-                ),
-                (4, 3, css_rows(clipped)),
+            absolute(clipped),
+            vec![4],
+            &[],
+            &[(3, [0.0, 0.0, 200.0, 160.0]), (4, [0.0, 0.0, 200.0, 160.0])],
+        ),
+        (
+            "D: a margin outside a max-height under its padding",
+            absolute(&format!("{under_padding};margin-top:10px")),
+            vec![4],
+            &[],
+            &[(3, [0.0, 0.0, 200.0, 50.0]), (4, [0.0, 10.0, 200.0, 40.0])],
+        ),
+        (
+            "D: a negative margin past a max-height under its padding",
+            absolute(&format!("{under_padding};margin-top:-20px")),
+            vec![4],
+            &[],
+            &[(3, [0.0, 0.0, 200.0, 20.0]), (4, [0.0, -20.0, 200.0, 40.0])],
+        ),
+        (
+            "S: flex-shrink: 0, the leaf clipped",
+            in_row(&format!("flex-shrink:0;{clipped}")),
+            vec![4],
+            &[],
+            &[(3, [0.0, 0.0, 200.0, 160.0]), (4, [0.0, 0.0, 200.0, 160.0])],
+        ),
+        (
+            "S: flex-shrink: 0 without overflow",
+            in_row("flex-shrink:0;max-height:160px"),
+            vec![4],
+            &[],
+            &[(3, [0.0, 0.0, 200.0, 160.0]), (4, [0.0, 0.0, 200.0, 160.0])],
+        ),
+        (
+            "S: flex-shrink: 0 in a block",
+            in_block(&format!("flex-shrink:0;{clipped}")),
+            vec![4],
+            &[],
+            &[(3, [0.0, 0.0, 200.0, 160.0]), (4, [0.0, 0.0, 200.0, 160.0])],
+        ),
+        (
+            "S: flex-shrink: 0 in a block without overflow",
+            in_block("flex-shrink:0;max-height:160px"),
+            vec![4],
+            &[],
+            &[(3, [0.0, 0.0, 200.0, 160.0]), (4, [0.0, 0.0, 200.0, 160.0])],
+        ),
+        (
+            "S: flex-shrink: 0, a height past max-height",
+            in_row(&format!("flex-shrink:0;height:300px;{clipped}")),
+            vec![4],
+            &[],
+            &[(3, [0.0, 0.0, 200.0, 160.0]), (4, [0.0, 0.0, 200.0, 160.0])],
+        ),
+        (
+            "S: flex-shrink: 0, min-height wins over max-height",
+            in_row("flex-shrink:0;min-height:200px;max-height:160px;overflow:hidden"),
+            vec![4],
+            &[],
+            &[(3, [0.0, 0.0, 200.0, 200.0]), (4, [0.0, 0.0, 200.0, 200.0])],
+        ),
+        (
+            "S: flex-shrink: 0, a margin outside the clamp",
+            in_row(&format!("flex-shrink:0;{clipped};margin-top:10px")),
+            vec![4],
+            &[],
+            &[
+                (3, [0.0, 0.0, 200.0, 170.0]),
+                (4, [0.0, 10.0, 200.0, 160.0]),
             ],
+        ),
+        (
+            "S: flex-shrink: 0 and flex-grow: 1",
+            in_row(&format!("flex-shrink:0;flex-grow:1;{clipped}")),
             vec![4],
             &[],
             &[(3, [0.0, 0.0, 200.0, 160.0]), (4, [0.0, 0.0, 200.0, 160.0])],
@@ -769,26 +887,14 @@ fn a_column_is_as_tall_as_its_items_clamped_by_max_height() {
         ),
         (
             "H: a column in a 300-tall block",
-            vec![
-                (2, 1, css_rows("width:200px;height:300px")),
-                (3, 2, css_rows("display:flex;flex-direction:column")),
-                (4, 3, css_rows(clipped)),
-            ],
+            in_block(clipped),
             vec![4],
             &[],
             &[(3, [0.0, 0.0, 200.0, 160.0]), (4, [0.0, 0.0, 200.0, 160.0])],
         ),
         (
             "H: a border-box max-height under its padding",
-            vec![
-                (2, 1, css_rows("width:200px;height:300px")),
-                (3, 2, css_rows("display:flex;flex-direction:column")),
-                (
-                    4,
-                    3,
-                    css_rows("max-height:10px;padding:20px;box-sizing:border-box;overflow:hidden"),
-                ),
-            ],
+            in_block(under_padding),
             vec![4],
             &[],
             &[(3, [0.0, 0.0, 200.0, 40.0]), (4, [0.0, 0.0, 200.0, 40.0])],
@@ -805,6 +911,8 @@ fn a_column_is_as_tall_as_its_items_clamped_by_max_height() {
         ("nowrap", "max-width:130px;overflow:hidden"),
         ("wrap", "max-width:130px"),
         ("nowrap", "max-width:130px"),
+        ("nowrap", "flex-shrink:0;max-width:130px;overflow:hidden"),
+        ("nowrap", "flex-shrink:0;max-width:130px"),
     ] {
         let nodes = vec![
             (
