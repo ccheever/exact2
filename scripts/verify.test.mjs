@@ -29,6 +29,7 @@ test('the report: clean in four lines; a failed test fails it; a finding is said
     'tests: 2 passed, 0 failed',
     'check first screen · 390x844, 1280x900 · light, dark: no findings',
     'screenshots (.exact/verify): web-390x844-light.png web-390x844-dark.png web-1280x900-light.png web-1280x900-dark.png',
+    'open it: bun exact.mjs web (serves what verify checked)',
     'verify: clean in 4.0 s',
   ]);
   assert.equal(clean.exit, 0);
@@ -53,6 +54,7 @@ test('the report: clean in four lines; a failed test fails it; a finding is said
     '  (light only) contrast Text "Due"#12 [16,78 60×18]: 1.3:1 (#dddddd on #ffffff), needs 4.5:1',
   ]);
   assert.equal(failing.lines.at(-1), 'verify: 3 problems (1 failed test, 2 findings) in 6.5 s');
+  assert.ok(!failing.lines.some((l) => l.startsWith('open it')), 'a run whose test failed does not point at the app');
   assert.equal(failing.exit, 1);
 
   // Findings alone are counted, never fail it; a launch that could not drive does.
@@ -80,6 +82,7 @@ test('the journeys: a test end\'s finding under its name, deduplicated across sc
     'relaunch on "adds a card"\'s store (0.4 s of real time): the first screen shows what it stored: "Everyday French"',
     'screenshots (.exact/verify): web-390x844-light.png web-390x844-dark.png web-1280x900-light.png web-1280x900-dark.png',
     '  test ends: web-t1-adds-a-card.png web-t2-studies-the-deck.png; relaunch: web-relaunch.png',
+    'open it: bun exact.mjs web (serves what verify checked)',
     'verify: clean in 9.0 s',
   ]);
   assert.equal(clean.exit, 0);
@@ -153,12 +156,13 @@ test('the relaunch keeps a test\'s pinned date, zone, locale and seed', () => {
 test('the compiler\'s warnings: a group before the tests, capped as findings are, counted as findings', () => {
   const warning = (n) => `app.contract:${n}:23 warning [lower-colour-one-scheme] \`#336699\` on \`color\` stays the same in dark mode`;
   const one = report({ host: 'web', built: null, compiler: [warning(25)], tested: { passed: 2, failed: 0, results: [] }, checks: runs(() => []), shots: [], ms: 4000 });
-  assert.deepEqual(one.lines, ['compiler: 1 warning', `  ${warning(25)}`, 'tests: 2 passed, 0 failed', 'check first screen · 390x844, 1280x900 · light, dark: no findings', 'verify: 1 problem (1 finding; the tests passed) in 4.0 s']);
+  assert.deepEqual(one.lines, ['compiler: 1 warning', `  ${warning(25)}`, 'tests: 2 passed, 0 failed', 'check first screen · 390x844, 1280x900 · light, dark: no findings', 'open it: bun exact.mjs web (serves what verify checked)', 'verify: 1 problem (1 finding; the tests passed) in 4.0 s']);
   assert.equal(one.exit, 0);
   const many = report({ host: 'ios', built: { ms: 1200, said: ['iOS: app.contract changed; running the new plan on the existing build (no native rebuild)'], warnings: [] },
     compiler: Array.from({ length: 8 }, (_, i) => warning(i + 1)), tested: { none: true }, checks: [], shots: [], ms: 9000 });
   assert.deepEqual(many.lines.slice(1, 9), ['compiler: 8 warnings', ...Array.from({ length: 6 }, (_, i) => `  ${warning(i + 1)}`), '  … and 2 more (bun exact.mjs contract build app.contract prints them all)']);
   assert.equal(many.lines.at(-1), 'verify: 8 problems (8 findings; the tests passed) in 9.0 s');
+  assert.equal(many.lines.at(-2), 'open it: bun exact.mjs ios --run (launches what verify checked)');
   assert.equal(many.exit, 0);
 });
 
@@ -420,6 +424,7 @@ test.skipIf(!!chromium().unavailable)('verify on a new app: clean, a failing tes
     // The starter keeps nothing: the relaunch on the second test's store opens as a fresh launch does, and says so.
     assert.match(clean.stdout, /^relaunch on "the header's button likes it"'s store \(\d+\.\d s of real time\): the first screen is a fresh launch's; that test wrote no storage$/m);
     assert.match(clean.lines.at(-1), /^verify: clean in \d+\.\d s$/);
+    assert.equal(clean.lines.at(-2), 'open it: bun exact.mjs web (serves what verify checked)'); // how a person opens it, with no dev server of the builder's own
     for (const [w, h] of SIZES) for (const scheme of ['light', 'dark']) assert.ok(existsSync(resolve(dir, `.exact/verify/web-${w}x${h}-${scheme}.png`)), `${w}x${h} ${scheme}`);
     for (const f of ['web-t1-the-greeting-loads.png', 'web-t2-the-header-s-button-likes-it.png', 'web-relaunch.png']) assert.ok(existsSync(resolve(dir, '.exact/verify', f)), f);
     // `--shots out/shots` made the directory and copied every one, under the names verify keeps (LLP 1116.008 D2).

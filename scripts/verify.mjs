@@ -530,6 +530,8 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
     const more = [ends.length && `test ends: ${ends.map(name).join(' ')}`, again.length && `relaunch: ${again.map(name).join(' ')}`].filter(Boolean);
     if (more.length) out.push(`  ${more.join('; ')}`);
   }
+  // How a person opens what ran (LLP 1116.008 D2): the dev loop serves the web app, the simulator build launches on iOS.
+  if (!failedTests && !broken) out.push(host === 'ios' ? 'open it: bun exact.mjs ios --run (launches what verify checked)' : 'open it: bun exact.mjs web (serves what verify checked)');
   const problems = failedTests + findings + broken;
   const why = [failedTests && plural(failedTests, 'failed test'), broken && plural(broken, 'failure', 'failures') + ' to compile or drive', findings && plural(findings, 'finding')].filter(Boolean);
   out.push(problems ? `verify: ${plural(problems, 'problem')} (${why.join(', ')}${failedTests || broken ? '' : '; the tests passed'}) in ${secs(ms)}` : `verify: clean in ${secs(ms)}`);
