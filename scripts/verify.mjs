@@ -9,7 +9,8 @@
 // relaunches once on the store a passing test left, on real time (at most REAL_MS) and under the zone, locale and seed
 // the test launched with and the date it had reached (its launch date plus its `clock` steps, as a `reload` relaunches,
 // LLP 1116.007 D3.4, LLP 1116.009 D1), and its first screen is compared with a fresh launch's under the same (the
-// driver's, for an app whose server holds the tests' writes): what the test stored should come back. One capture of each screen is kept in
+// driver's, for an app whose server holds the tests' writes): what the test stored should come back. A refusal
+// the host journaled during the run (`logs`: 'swipeContent … is refused: …') is shown first in the report (LLP 1116.010 D5). One capture of each screen is kept in
 // .exact/verify/ for milestones (four of the first screen: each width and scheme). It prints one short report
 // ending "verify: clean" or "verify: N problems" (`--json`: one object). Exit 1 when the build, a test, a launch
 // or the relaunch fails; check's findings, the relaunch's and the compiler's warnings (`contract build`'s,
@@ -289,6 +290,21 @@ async function seen(s, state) {
   return { texts, resources: state.resources ?? {}, slots: state.slots ?? {}, ops: b ? b.done + b.failed : 0 };
 }
 
+/** A line of the journal or the host's output that says the host refused what the app asked (LLP 1116.010 D5), with the
+ * journal's `t=N` and the host's `app: exact: ` taken off. A refusal the app's own rule makes when a person tries (a
+ * dismissal its `closedby` refuses, a Back its control disables) and a connection a `fail fetch` refused are the app's design. */
+export function refusalsOf({ lines = [], host = [] } = {}) {
+  const found = [];
+  for (const raw of [...lines, ...host]) {
+    const line = String(raw).replace(/^t=\d+(?:\.\d+)?\s+/, '').replace(/^(?:app|console\.\w+|chrome|warning|error): /, '').replace(/^exact: /, '').trim();
+    if (/\brefus(?:ed|es|al)\b/i.test(line) && !/\b(?:dismissal|back|back gesture|drag) refused\b|connection[ _]refused/i.test(line) && !found.includes(line)) found.push(line);
+  }
+  return found;
+}
+
+/** A session's refusals so far (`refusalsOf` its `logs`). */
+const refusalsIn = async (s) => refusalsOf(await s.logs().catch(() => ({})));
+
 /** `check both` on the session at each of `sizes` (null: as it is; else resized to it first), a run per size and scheme
  * tagged with its `screen`; a resource that failed is a line of each. `shot(viewport, scheme)` names a capture to keep. */
 async function checkHere(s, { screen, sizes = [null], shot, state }) {
@@ -317,7 +333,8 @@ const testEnd = (host, shots) => async (s, t) => {
   const shot = (vp, scheme) => (scheme === 'light' && (host !== 'web' || vp.w === near[0]) ? path : undefined);
   const facts = await seen(s, state);
   const runs = await checkHere(s, { screen: t.name, sizes: host === 'web' ? WEB_SIZES : [null], shot, state });
-  return { keep: true, runs, shot: path, resources: facts.resources, ops: facts.ops, reload: t.reload, launch: t.launch, reached: t.reached };
+  const refusals = await refusalsIn(s);
+  return { keep: true, runs, shot: path, resources: facts.resources, ops: facts.ops, reload: t.reload, launch: t.launch, reached: t.reached, refusals };
 };
 
 /** The authored tests: `{ passed, failed, results }` (each with its end screen's `end`, and the store it left), `{ none }`
@@ -347,6 +364,7 @@ async function checkAt(host, app, size, store, shots) {
     const facts = !size || size === WEB_SIZES[0] ? await seen(s, state) : null;
     const runs = await checkHere(s, { screen: FIRST, shot: (vp, scheme) => resolve(shots, `${host}-${vp.w}x${vp.h}-${scheme}.png`), state });
     if (facts) Object.defineProperty(runs, 'seen', { value: facts });
+    Object.defineProperty(runs, 'refusals', { value: await refusalsIn(s) });
     return runs;
   } finally {
     await s.close();
@@ -438,7 +456,7 @@ async function relaunch(host, app, test, fresh, shots) {
     const after = await seen(s, state);
     const path = resolve(shots, `${host}-relaunch.png`);
     const runs = await checkHere(s, { screen: RELAUNCH, sizes: host === 'web' ? [null, WEB_SIZES[1]] : [null], shot: (vp, scheme) => (scheme === 'light' && (host !== 'web' || vp.w === WEB_SIZES[0][0]) ? path : undefined) });
-    return { test: test.name, ms, shot: path, runs, ...judgeRelaunch(test, fresh, after, { busy, failed: state.failed }) };
+    return { test: test.name, ms, shot: path, runs, refusals: await refusalsIn(s), ...judgeRelaunch(test, fresh, after, { busy, failed: state.failed }) };
   } finally {
     await s.close();
     if (host === 'web') await removeBrowserProfile(driveStore(app, test.store).profile).catch(() => {});
@@ -484,9 +502,17 @@ export function distinctFindings(runs) {
 }
 
 /** The report's lines and its problem count, from what each stage gave. */
-export function report({ host, built, compiler = [], server, tested, checks, relaunched, shots, copied, own = [], ms, cwd = process.cwd() }) {
+export function report({ host, built, compiler = [], server, tested, checks, relaunched, refused = [], shots, copied, own = [], ms, cwd = process.cwd() }) {
   const out = [];
   let failedTests = 0, findings = 0, broken = 0;
+  // What the host refused while the app ran (LLP 1116.010 D5): first, since each is a call or a wiring the app got wrong.
+  if (refused.length) {
+    const shownAt = (where) => where.length > 2 ? `${where.slice(0, 2).join(', ')} and ${where.length - 2} more` : where.join(', ');
+    out.push(`refused at run time: ${refused.length} (the host's journal, 'logs'; each is a call or a wiring the app got wrong)`,
+      ...refused.slice(0, SHOWN).map((r) => `  ${r.line.length > 260 ? `${r.line.slice(0, 259)}…` : r.line} (${shownAt(r.where)})`));
+    if (refused.length > SHOWN) out.push(`  … and ${refused.length - SHOWN} more (verify --json lists them all)`);
+    findings += refused.length;
+  }
   // The app's own server (LLP 1116.006 D3): run on an empty database, or why not; one that died mid-run is a failure.
   if (server?.died) { broken++; out.push(`server: ${server.died}`); }
   else if (server) out.push(`server: ${server.said}`);
@@ -642,11 +668,18 @@ async function main(argv) {
     for (const p of kept) copyFileSync(p, resolve(copyTo, basename(p)));
     results.forEach((t, i) => { for (const p of (t.shots ?? []).filter((p) => existsSync(p))) { own.push(`${host}-t${i + 1}-${basename(p)}`); copyFileSync(p, resolve(copyTo, own.at(-1))); } });
   }
-  const r = report({ host, built, compiler, server: serverSaid, tested, checks, relaunched, shots: kept, copied: copyTo && resolve(copyTo), own, ms: Date.now() - started });
+  // Refusals the host journaled, once each with where it was seen.
+  const refused = new Map();
+  const refusedAt = (where, lines) => { for (const line of lines ?? []) { if (!refused.has(line)) refused.set(line, []); if (!refused.get(line).includes(where)) refused.get(line).push(where); } };
+  firsts.forEach((runs) => refusedAt(FIRST, runs.refusals));
+  results.forEach((t) => refusedAt(`test ${quoted(t.name, 28)}`, t.end?.refusals));
+  refusedAt(RELAUNCH, relaunched?.refusals);
+  const refusedList = [...refused].map(([line, where]) => ({ line, where }));
+  const r = report({ host, built, compiler, server: serverSaid, tested, checks, relaunched, refused: refusedList, shots: kept, copied: copyTo && resolve(copyTo), own, ms: Date.now() - started });
   if (json) {
     const testsOut = tested?.results ? { ...tested, results: results.map(({ name, failures, end }) => ({ name, failures, ...(end?.shot && existsSync(end.shot) ? { shot: end.shot } : {}), ...(end?.error ? { endError: end.error } : {}) })) } : tested;
     const relaunchOut = relaunched && (({ runs, ...rest }) => rest)(relaunched);
-    console.log(JSON.stringify({ host, built: built && { ms: built.ms, said: built.said ?? [], warnings: built.warnings }, compiler, ...(serverSaid ? { server: serverSaid } : {}), tests: testsOut, checks, relaunch: relaunchOut, screenshots: kept, problems: r.problems, exit: r.exit, ms: Date.now() - started }));
+    console.log(JSON.stringify({ host, built: built && { ms: built.ms, said: built.said ?? [], warnings: built.warnings }, compiler, ...(serverSaid ? { server: serverSaid } : {}), refused: refusedList, tests: testsOut, checks, relaunch: relaunchOut, screenshots: kept, problems: r.problems, exit: r.exit, ms: Date.now() - started }));
   } else say(r.lines);
   return r.exit;
 }
