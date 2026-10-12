@@ -195,6 +195,17 @@ pub fn nav_height(font_scale: f32) -> f32 {
 }
 
 impl Layout {
+    /// Each text it draws, by the node it stands for, with its box in the
+    /// bar, points: what an accessibility service reads there.
+    pub fn texts(&self) -> Vec<(ViewId, Rect4)> {
+        (self.items.iter())
+            .filter_map(|item| match item {
+                Item::Text(p, at, _, source) => Some((*source, (at.0, at.1, p.width, p.height))),
+                _ => None,
+            })
+            .collect()
+    }
+
     /// The target at a point of the bar.
     pub fn target_at(&self, x: f32, y: f32) -> Option<usize> {
         self.targets.iter().position(|t| {

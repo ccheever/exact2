@@ -31,6 +31,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tiny_skia::Pixmap;
 
+pub mod access;
 mod addressed_tap;
 mod ahead;
 mod arrange;
@@ -219,6 +220,8 @@ pub struct Presenter<D: DataSource> {
     top: top::State,
     /// The shell's top app bar and navigation bar, where it has them (D11).
     bars: bars::State,
+    /// The accessibility tree its shell was last told, where one asks (D13).
+    access: access::State,
     /// The viewport segments the agent set (LLP 1078 D7), for `layout.env`;
     /// the posture and counts are the runner's.
     pub(crate) segments: Vec<exact_kernel::Rect>,
@@ -468,6 +471,7 @@ impl<D: DataSource> Presenter<D> {
             hosted: Default::default(),
             top: Default::default(),
             bars: Default::default(),
+            access: Default::default(),
             segments: Vec::new(),
             surfaces: Default::default(),
             module: None,
