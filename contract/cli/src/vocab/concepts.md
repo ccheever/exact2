@@ -190,6 +190,29 @@ component App
 
 More: docs/recipes/navigation-stack.md (a list, its detail, a create sheet, a delete alert)
 
+## notfound: a location no route matches (404, an unknown page)
+names: not-found, 404, unknown-route, unknown-url, missing-page
+
+A location no route matches (a mistyped link, a stale bookmark) keeps its URL and shows "Page not
+found" with a Go Home link: with no `notfound` line in `routes`, the compiler writes it and that
+screen into your `each e in stack(nav)`. Write `notfound` (last, no path) to draw your own, a
+route like any other. A detail whose id names nothing (`/recipe/999`) matches its route: say "No
+such recipe" there, with a way back (`pattern list-detail`).
+
+```contract
+routes nav
+  recipes "/"
+  notfound
+
+component App
+  view
+    main navigationKey=`${top(nav).id}` width="100%" height="100%"
+      each e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` position="absolute" inset=0
+          when e.name == "notfound"
+            text `Nothing at ${e.url}` testId="missing"
+```
+
 ## modal: a form over the screen, with Save and Cancel
 names: dialog, sheet, closedby, popup
 

@@ -503,7 +503,7 @@ fn concepts_answer_together_after_the_tags_of_their_name() {
 fn the_grammars_words_each_answer_in_under_a_kilobyte() {
     for word in [
         "task", "every", "after", "send", "match", "each", "when", "let", "fn", "shape", "persist",
-        "props", "derive", "action", "resource", "mutation", "stepper",
+        "props", "derive", "action", "resource", "mutation", "stepper", "notfound",
     ] {
         let one: Value = serde_json::from_str(&stdout(&vocab(&["--json", word]))).unwrap();
         let concept = &one["concept"];
