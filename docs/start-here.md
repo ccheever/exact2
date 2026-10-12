@@ -96,7 +96,7 @@ component Groceries
               aria-label="New item" testId="draft"
             when addError != "" and not pending(added)
               text addError font="-exact-footnote" color="-exact-system-red" testId="add-error"
-          button press=add disabled=(trim(draft) == "") testId="add"
+          button press=add disabled=(trim(draft) == "") buttonStyle="filled" testId="add"
             text "Add"
       section
         each i in groceries key=i.id
@@ -178,7 +178,7 @@ and `pass fetch`, `request POST "/p" {…} as grace`. Launch lines, the rest: `t
 
 1. **Styling a platform control.** Paint (`background-color`, `border`, `font-size`)
    on a `button`, field or bar makes it your box. Emphasis is a part (above) or
-   `buttonStyle="bordered-prominent"`.
+   `buttonStyle="filled"` on the screen's main action.
 2. **A `header` holds a heading, one text after it (the subtitle) and buttons** (or a
    search field, a `tablist`); anything else isn't in the iOS bar. A control fixed under
    the bar goes with an inline title (`aria-level=2`); one that may scroll away, in the

@@ -35,8 +35,7 @@ component Chat
         column navigationKey=`${e.id}` navigationScroll="transcript" position="absolute" inset=0
           header padding="8px 16px"
             text "Ada" role="heading" aria-level=2
-          list id="transcript" virtualized=true scroll-start="end" scrollFollowEnd=true
-            flex=1 min-height=0 padding="8px 0"
+          list id="transcript" virtualized=true scroll-start="end" scrollFollowEnd=true flex=1 min-height=0 padding="8px 0"
             each m in thread key=m.id
               row justify-content=(m.mine ? "flex-end" : "flex-start") padding="3px 12px"
                 text m.body padding="8px 12px" border-radius=18 max-width="75%" overflow-wrap="anywhere"
@@ -45,7 +44,7 @@ component Chat
           row gap=8 padding="8px 12px" align-items="center"
             input value=draft input=edit submit=post placeholder="Message"
               enterkeyhint="send" testId="composer" flex=1 min-width=0
-            button press=post disabled=(trim(draft) == "" or pending(sent)) aria-label="Send" testId="send"
+            button press=post disabled=(trim(draft) == "" or pending(sent)) buttonStyle="filled" aria-label="Send" testId="send"
               image "symbol:send"
 ```
 
@@ -79,5 +78,5 @@ test "a sent message lands, and the composer clears"
 - `scroll-start="end"` opens at the newest row; `scrollFollowEnd=true` follows new rows
   while the reader is there. `interactive-widget="resizes-content"` on the root keeps the
   composer above the keyboard.
-- The draft clears in `then` on an ok reply; a refusal keeps it and says why above the
+- The draft clears in `then` on an ok reply; a refusal keeps it, says why above the
   composer ([after-a-write](after-a-write.md)).

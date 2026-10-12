@@ -86,8 +86,6 @@ column navigationKey=`${e.id}` navigationScroll="notes-list" position="absolute"
           image "symbol:forward-chevron"
 ```
 
-The detail:
-
 <!-- check: route note -->
 ```contract
 column navigationKey=`${e.id}` navigationScroll="note-list" position="absolute" inset=0
@@ -111,7 +109,7 @@ column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="
     button id="back" press=back testId="add-cancel"
       text "Cancel"
     text "New Note" role="heading"
-    button press=save testId="add-save"
+    button press=save buttonStyle="filled" testId="add-save"
       text "Save"
   list id="add-form" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
     section
