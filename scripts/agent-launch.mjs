@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { types as utilTypes } from 'node:util';
 import { filesystemLock } from './filesystem.mjs';
 import { bakeOutput, linuxBinary, moduleDirectory, pendingBuildInputs, resolveApp, windowsFile, shaderWatchRoots, webDist } from './app.mjs';
+import { DEFAULT_LOOK, LOOK } from '../host/web/look.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
@@ -563,11 +564,13 @@ export function webInputs(app, js, since = -Infinity) {
   return { app: appFiles, shared };
 }
 const contentDigest = path => { try { return createHash('sha1').update(readFileSync(resolve(ROOT, path))).digest('hex'); } catch { return null; } };
-/** Content digests of every input of a web build, recorded in its marker. */
+/** Content digests of every input of a web build, recorded in its marker; and the look it was built in, where that is
+ * not the default one (LLP 1115.000 D4 part B; host/web/look.mjs): a setting, so no file's digest says it. */
 export function webInputDigests(app, js) {
   const { app: own, shared } = webInputs(app, js);
-  return Object.fromEntries([...own, ...shared].map(path => [path, contentDigest(path)]));
+  return { ...Object.fromEntries([...own, ...shared].map(path => [path, contentDigest(path)])), ...(LOOK === DEFAULT_LOOK ? {} : { [LOOK_INPUT]: LOOK }) };
 }
+const LOOK_INPUT = 'EXACT_WEB_LOOK';
 /** Inputs whose content changed since the build in `dist`. Modification times only
  * nominate candidates; a checkout that rewrote a file with its own bytes is not a
  * change. A marker without digests (an older build) trusts the times. */
@@ -577,7 +580,9 @@ export function webChanges(dist, app) {
   const built = JSON.parse(readFileSync(marker, 'utf8'));
   const changed = path => !built.inputs || built.inputs[path] !== contentDigest(path);
   const { app: own, shared: roots } = webInputs(app, built.target === 'js', statSync(marker).mtimeMs);
-  const appChanges = own.filter(changed), shared = roots.filter(changed);
+  // A build in another look than this drive's is stale, whatever its files say.
+  const look = built.inputs && (built.inputs[LOOK_INPUT] ?? DEFAULT_LOOK) !== LOOK ? [`${LOOK_INPUT}=${LOOK}`] : [];
+  const appChanges = own.filter(changed), shared = [...roots.filter(changed), ...look];
   return { app: appChanges, shared, all: [...new Set([...appChanges, ...shared])] };
 }
 
