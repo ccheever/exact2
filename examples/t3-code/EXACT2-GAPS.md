@@ -997,7 +997,7 @@ or file header). Their fence words and file names (every one @pierre/diffs maps 
 `.dax`, `.dm`, `.glsl`, `.vert`, `.frag`, `.gp`, `.plt`, `.gnuplot`, `.rkt`, `.rktl`, `.tcl`) paint as plain text in the
 clone, coloured in the reference. A held grammar is an empty grammar of its scope
 name, so a rule that embeds one stays and paints its content plain where the reference colours it: cpp's
-`R"glsl(…)glsl"` strings (the delimiters keep their string colour), elm's `[glsl| … |]`, nim's `glsl"""…"""`, the
-`/* glsl */` template tags of ts-tags, and latex's gnuplot code. bird2, hcl and terraform (MPL-2.0) are in, with the
+`R"glsl(…)glsl"` strings (the delimiters keep their string colour), elm's `[glsl| … |]`, the
+`/* glsl */` and `glsl` template tags of ts-tags, and latex's gnuplot code (nim's `glsl"""…"""` is a string in both). bird2, hcl and terraform (MPL-2.0) are in, with the
 licence's notice in `LICENSE-T3` and in their chunks. Not a framework limit; taking a name off the list and running the
 generator brings it back.

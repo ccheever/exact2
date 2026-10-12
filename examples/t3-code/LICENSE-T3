@@ -53,7 +53,7 @@ GPL-3.0 for ada, gnuplot, nginx and racket; no licence stated upstream for dax, 
 tcl; and the 18 grammars Shiki packages only for embedding (the angular-*, es-tag-*, vue-* and
 markdown-* injections, cpp-macro, jinja-html) are not listed there. The generator leaves out
 (LICENCE_HELD) the four GPL-3.0 grammars and the four with no licence, so the data holds 245; in the
-clone each of the eight paints as plain text, and a grammar that embeds one (cpp, elm and nim embed
+clone each of the eight paints as plain text, and a grammar that embeds one (cpp, elm and ts-tags embed
 glsl, latex gnuplot) paints that part plain.
 
 bird2, hcl and terraform: Mozilla Public License 2.0

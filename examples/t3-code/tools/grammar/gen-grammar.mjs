@@ -40,8 +40,8 @@ export const EMBEDDED_ONLY = ['angular-expression', 'angular-inline-style', 'ang
  *  lists each grammar's licence as its upstream states it): GPL-3.0 ada, gnuplot, nginx and racket, and dax, dream-maker,
  *  glsl and tcl, whose upstream grants no licence. A held language is no fence word or file language (it paints plain),
  *  and a held grammar is an empty grammar of its scope name: an include of it matches nothing, so the rule that embeds it
- *  stays and its content paints plain (cpp's R"glsl(…)glsl" strings, elm's [glsl| … |], nim's glsl"""…""", latex's gnuplot
- *  code, JavaScript's glsl`…` tags). Reversible: taking a name off the list and running the generator brings it back. */
+ *  stays and its content paints plain (cpp's R"glsl(…)glsl" strings, elm's [glsl| … |], ts-tags' glsl templates, latex's
+ *  gnuplot code). Reversible: taking a name off the list and running the generator brings it back. */
 export const LICENCE_HELD = ['ada', 'dax', 'dream-maker', 'glsl', 'gnuplot', 'nginx', 'racket', 'tcl'];
 /** The grammars generated: every one of @shikijs/langs but those held. */
 const NAMES = languageNames.filter(name => !LICENCE_HELD.includes(name));

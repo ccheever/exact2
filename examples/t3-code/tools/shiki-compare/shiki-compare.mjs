@@ -23,7 +23,7 @@
 //
 // code-highlighting-languages: the grammars the generator leaves out for their licences (LICENCE_HELD) are left out on
 // both sides: no Shiki highlighter here loads them as languages, and each is the same empty grammar of its scope name the
-// generator makes it, so a language that embeds one (cpp, elm and nim glsl, latex gnuplot) keeps the embedding rule and
+// generator makes it, so a language that embeds one (cpp, elm and ts-tags glsl, latex gnuplot) keeps the embedding rule and
 // paints its content plain on both sides.
 //
 // Prints each file's size and sha256, the differing characters per file, and the first differences.
