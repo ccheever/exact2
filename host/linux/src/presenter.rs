@@ -385,6 +385,7 @@ impl<D: DataSource> Presenter<D> {
             delivery,
             launch,
             region,
+            Some(text.clone()),
         )?;
         // @ref LLP 1115.000 D10.3 — a hairline is one device pixel of this.
         let error = error.or(host.set_display_scale(f64::from(scale)));

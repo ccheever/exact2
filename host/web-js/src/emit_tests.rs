@@ -12,6 +12,26 @@ impl DataSource for Answers {
     }
 }
 
+#[test]
+fn a_state_family_is_applied_as_css_when_it_changes() {
+    let plan = contract::compile(
+        "component App\n  state family = \"Arial\"\n  action pick(name: string)\n    family = name\n  view\n    column\n      button \"Menlo\" press=pick(\"Menlo\")\n      text \"The quick brown fox\" font-family=family testId=\"sample\"\n",
+    )
+    .unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    assert!(js.contains("fontFamily"), "{js}");
+    assert!(js.contains("\"font-family\""), "{js}");
+}
+
+#[test]
+fn a_constant_template_family_emits_as_a_literal_stack() {
+    let plan = contract::compile(
+        "component App\n  view\n    text \"x\" font-family=`Arial, ui-monospace`\n",
+    )
+    .unwrap();
+    crate::emit::emit(&plan, false, false).unwrap();
+}
+
 /// Review B4: an `else` row's build-time answer is the bake's for every
 /// launch (the runner never asks it again), so the JS target receives it
 /// settled (`res`'s last argument), while the resource it stands in for

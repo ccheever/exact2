@@ -384,6 +384,8 @@ pub struct InstanceWork {
 pub struct Update<'a> {
     /// The environment every expression sees.
     pub env: Env<'a>,
+    /// Run-time installed-family stack ids shared across commits in a session.
+    pub fonts: Option<Rc<RefCell<bridge::RuntimeFonts>>>,
     /// Immutable child sites for this environment's plan.
     pub sites: &'a SiteIndex,
     /// The id allocator.
@@ -446,6 +448,7 @@ impl<'a> Update<'a> {
     pub fn new(env: Env<'a>, sites: &'a SiteIndex, ids: &'a mut Ids) -> Self {
         Update {
             env,
+            fonts: None,
             sites,
             ids,
             ops: Vec::new(),
@@ -997,7 +1000,35 @@ impl NodeInst {
                 }
                 BindingKind::Style => {
                     let p = patch.get_or_insert_with(Box::default);
-                    match bridge::set_binding_style(p, binding, &value, plan) {
+                    let family_value = if binding.id == exact_kernel::StyleId::FontFamily as u16 {
+                        match &value {
+                            Value::Option(Some(inner)) => inner.as_ref(),
+                            _ => &value,
+                        }
+                    } else {
+                        &value
+                    };
+                    let family_id = if binding.id == exact_kernel::StyleId::FontFamily as u16 {
+                        family_value.as_str().and_then(|name| {
+                            u.fonts
+                                .as_ref()?
+                                .borrow_mut()
+                                .intern(name, plan.stacks.len())
+                        })
+                    } else {
+                        None
+                    };
+                    let styled = if let Some(id) = family_id {
+                        bridge::set_runtime_font_style(
+                            p,
+                            binding,
+                            id,
+                            plan.stacks.len() + u.fonts.as_ref().unwrap().borrow().names().len(),
+                        )
+                    } else {
+                        bridge::set_binding_style(p, binding, family_value, plan)
+                    };
+                    match styled {
                         // Unlinked, the plan names no rule: it was refused at
                         // boot (LLP 1047.001 D5).
                         Ok(exact_kernel::StyleId::Animation) => {

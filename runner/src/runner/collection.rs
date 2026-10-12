@@ -140,6 +140,7 @@ impl<D: DataSource> Runner<D> {
         let mut ids = std::mem::take(&mut self.ids);
         let result = {
             let mut update = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
+            update.fonts = Some(self.fonts.clone());
             update.reuse = self.reuse;
             tree.update_collection(&mut update, feedback, fill)
                 .map(|changed| {
@@ -302,6 +303,7 @@ impl<D: DataSource> Runner<D> {
         let mut ids = std::mem::take(&mut self.ids);
         let shown = {
             let mut update = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
+            update.fonts = Some(self.fonts.clone());
             tree.show_collection(&mut update, view, offset);
             update.shown
         };

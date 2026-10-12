@@ -59,6 +59,14 @@ fn a_style_shows_its_rows_codec_and_default() {
 }
 
 #[test]
+fn font_family_vocabulary_describes_runtime_native_lists() {
+    let out = stdout(&vocab(&["font-family"]));
+    assert!(out.contains("state or data"), "{out}");
+    assert!(out.contains("macOS, iOS and Linux"), "{out}");
+    assert!(!out.contains("pending"), "{out}");
+}
+
+#[test]
 fn navigation_detent_vocab_names_its_validated_forms() {
     let out = stdout(&vocab(&["navigationDetent"]));
     for form in [

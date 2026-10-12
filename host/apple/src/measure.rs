@@ -168,7 +168,7 @@ pub type FontsFn = extern "C" fn(ctx: *mut c_void, catalog: *const CFontCatalog)
 
 /// Project the validated plan's tables across the host-only font seam. This
 /// is deliberately separate from `exact_out()`, whose payload remains ops.
-pub fn install_fonts(plan: &Plan, callback: FontsFn, ctx: *mut c_void) {
+pub fn install_fonts(plan: &Plan, runtime: &[String], callback: FontsFn, ctx: *mut c_void) {
     let mut faces = Vec::new();
     for (stack_index, stack) in plan.stacks.iter().enumerate() {
         if stack_index < 8 {
@@ -208,6 +208,39 @@ pub fn install_fonts(plan: &Plan, callback: FontsFn, ctx: *mut c_void) {
                 }
             }
         }
+    }
+    let runtime_members: Vec<_> = runtime
+        .iter()
+        .enumerate()
+        .flat_map(|(i, list)| {
+            exact_runner::bridge::runtime_family_members(list)
+                .into_iter()
+                .map(move |member| (member, (plan.stacks.len() + i) as u16))
+        })
+        .collect();
+    for (member, stack) in &runtime_members {
+        let name = &member.name;
+        let generic = !member.quoted
+            && matches!(
+                name.to_ascii_lowercase().as_str(),
+                "system-ui"
+                    | "ui-sans-serif"
+                    | "sans-serif"
+                    | "ui-serif"
+                    | "serif"
+                    | "ui-monospace"
+                    | "monospace"
+                    | "ui-rounded"
+            );
+        faces.push(CFontFace {
+            family: name.as_ptr(),
+            family_len: name.len(),
+            source: "".as_ptr(),
+            source_len: 0,
+            stack: *stack,
+            weight: u16::from(generic),
+            italic: 0,
+        });
     }
     let catalog = CFontCatalog {
         faces: faces.as_ptr(),

@@ -92,6 +92,7 @@ fn boot(measurer: CachedChrome) -> Result<(Host<NoData>, String), crate::HostErr
         false,
         None,
         crate::link::Links::ALL,
+        None,
         |runner| {
             let mut env = runner.kernel().env();
             env.control_text_styles = Some(styles(17.0));
@@ -379,6 +380,7 @@ fn control_size_fonts_feed_em_resolution_and_the_shared_face_payload() {
         false,
         None,
         crate::link::Links::ALL,
+        None,
         |runner| {
             let mut env = runner.kernel().env();
             env.control_text_styles = Some(platform);

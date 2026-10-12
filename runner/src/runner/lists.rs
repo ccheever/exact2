@@ -32,6 +32,7 @@ impl<D: DataSource> Runner<D> {
         }
         let mut ids = Ids::default();
         let mut u = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
+        u.fonts = Some(self.fonts.clone());
         Ok(self
             .tree
             .as_ref()
@@ -72,6 +73,7 @@ impl<D: DataSource> Runner<D> {
         let rows = std::mem::take(&mut self.row_writes);
         let result = {
             let mut u = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
+            u.fonts = Some(self.fonts.clone());
             u.full = self.full;
             u.discard = self.kernel.is_detached();
             u.rows = rows;

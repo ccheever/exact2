@@ -148,6 +148,7 @@ pub(crate) struct Mirror {
 /// One runner, one presenter.
 pub struct Host<D: DataSource> {
     runner: Runner<D>,
+    font_hook: Option<(crate::measure::FontsFn, *mut std::ffi::c_void, usize)>,
     /// Whether the plan declares a `head`, and the title the presenter was
     /// last told (LLP 1048.003 D1): the window or scene title.
     has_heads: bool,
@@ -322,6 +323,7 @@ impl<D: DataSource> Host<D> {
             false,
             None,
             crate::link::Links::ALL,
+            None,
             |_| Ok(()),
         )?;
         host.commit_boot();
@@ -347,6 +349,7 @@ impl<D: DataSource> Host<D> {
         start_on_frame: bool,
         region: Option<crate::content_region::ContentRegionRegistration>,
         links: crate::link::Links<D>,
+        font_hook: Option<(crate::measure::FontsFn, *mut std::ffi::c_void)>,
         prepare: impl FnOnce(&mut Runner<D>) -> Result<(), HostError>,
     ) -> Result<(Host<D>, String), HostError> {
         Self::boot_stored_after_decode_mode(
@@ -365,6 +368,7 @@ impl<D: DataSource> Host<D> {
             region,
             None,
             links,
+            font_hook,
             prepare,
         )
     }
@@ -386,6 +390,7 @@ impl<D: DataSource> Host<D> {
         region: Option<crate::content_region::ContentRegionRegistration>,
         native: Option<crate::content_region::NativeProjectionLimits>,
         links: crate::link::Links<D>,
+        font_hook: Option<(crate::measure::FontsFn, *mut std::ffi::c_void)>,
         prepare: impl FnOnce(&mut Runner<D>) -> Result<(), HostError>,
     ) -> Result<(Host<D>, String), HostError> {
         if let Some(json) = compat {
@@ -448,10 +453,10 @@ impl<D: DataSource> Host<D> {
                 crate::content_region::NativeProjection::new(limits).map_err(HostError::Layout)?,
             );
         }
-        // The candidate catalog is installed before first text measurement.
-        // Platform registration is deferred until the app accepts it.
+        // Install the candidate catalog before first text measurement.
         prepare(&mut runner)?;
-
+        let font_hook =
+            font_hook.map(|(callback, ctx)| (callback, ctx, runner.runtime_font_count()));
         let has_heads = runner
             .plan()
             .nodes
@@ -464,6 +469,7 @@ impl<D: DataSource> Host<D> {
             language: None,
             hatches: paragraph::HatchWords::of(runner.plan()),
             runner,
+            font_hook,
             mirror: IdMap::default(),
             keys: IdMap::default(),
             inline_runs: IdMap::default(),

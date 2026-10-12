@@ -651,6 +651,9 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
             if name == "backdrop-filter" {
                 lines.push("macOS samples only the parent's subtree; make the glass a sibling of what it covers (LLP 1053.000 §3)".into());
             }
+            if name == "font-family" {
+                lines.push("CSS family list: literal lists and literal choices work on every host; a string from state or data names installed or generic families on web, macOS, iOS and Linux. Invalid lists leave the row unset. Bundled faces use a `font` declaration".into());
+            }
             lines
         }
         AttrTarget::Prop(p) => {

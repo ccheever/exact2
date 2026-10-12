@@ -631,7 +631,7 @@ package final class TextEngine {
             if row.source_len == 0 {
                 if stack < 8 { continue }
                 let generics = ["system-ui", "ui-sans-serif", "sans-serif", "ui-serif", "serif", "ui-monospace", "monospace", "ui-rounded"]
-                let generic = row.weight == 1 ? generics.firstIndex(of: name) : nil
+                let generic = row.weight == 1 ? generics.firstIndex(of: name.lowercased()) : nil
                 let descriptor: CTFontDescriptor?
                 if let generic { descriptor = CTFontCopyFontDescriptor(font(size: 16, weight: 400, family: generic, italic: false) as CTFont) }
                 else {

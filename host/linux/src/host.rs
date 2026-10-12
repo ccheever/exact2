@@ -95,6 +95,7 @@ impl PlanBytes<'_> {
 /// One runner, one painter.
 pub struct Host<D: DataSource> {
     runner: Runner<D>,
+    font_sync: Option<(crate::text::Shared, usize)>,
     engine: Engine,
     keys: BTreeMap<NodeKey, ViewId>,
     presented: BTreeMap<ViewId, Presented>,
@@ -145,7 +146,6 @@ pub struct Host<D: DataSource> {
     /// The plan marks nodes `hatch` (`presenter/hatches.rs` says what follows).
     pub(crate) hatched: bool,
 }
-
 impl<D: DataSource> Host<D> {
     /// Boot from plan bytes with a text measurer under a viewport (points):
     /// decode, boot the runner, lay out, hear the whole tree in the engine.
@@ -207,7 +207,7 @@ impl<D: DataSource> Host<D> {
     ) -> Result<(Host<D>, Option<String>), HostError> {
         let plan = Plan::decode(plan_bytes).map_err(HostError::Plan)?;
         Self::boot_decoded(
-            plan, data, measurer, width, height, carried, delivery, launch, region,
+            plan, data, measurer, width, height, carried, delivery, launch, region, None,
         )
     }
 
@@ -224,6 +224,7 @@ impl<D: DataSource> Host<D> {
         delivery: Option<exact_runner::Delivery>,
         launch: &str,
         region: Option<crate::content_region::ContentRegionRegistration>,
+        font_sync: Option<crate::text::Shared>,
     ) -> Result<(Host<D>, Option<String>), HostError> {
         // @ref LLP 1075.003.000 §3.3 — whether the plan marks nodes for a hatch.
         let hatched = plan.bindings.iter().any(|b| {
@@ -267,6 +268,7 @@ impl<D: DataSource> Host<D> {
         }
         let mut host = Host {
             runner,
+            font_sync: font_sync.map(|text| (text, 0)),
             engine: Engine::new(),
             keys: BTreeMap::new(),
             presented: BTreeMap::new(),

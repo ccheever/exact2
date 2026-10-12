@@ -28,6 +28,7 @@ impl<D: DataSource> Host<D> {
             false,
             Some(registration),
             crate::link::Links::ALL,
+            None,
             |_| Ok(()),
         )?;
         host.commit_boot();
@@ -199,6 +200,7 @@ impl<D: DataSource> Host<D> {
             Some(registration),
             Some(limits),
             crate::link::Links::ALL,
+            None,
             |_| Ok(()),
         )?;
         host.commit_boot();

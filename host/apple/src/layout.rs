@@ -45,6 +45,13 @@ impl<D: DataSource> Host<D> {
     /// Lay every root out under the viewport and emit the parent-relative
     /// frames and scroll content sizes that changed.
     pub(super) fn layout(&mut self, batch: &mut Batch) -> Result<(), String> {
+        if let Some((callback, ctx, installed)) = self.font_hook.as_mut() {
+            if self.runner.runtime_font_count() != *installed {
+                let runtime = self.runner.runtime_font_stacks();
+                crate::measure::install_fonts(self.runner.plan(), &runtime, *callback, *ctx);
+                *installed = runtime.len();
+            }
+        }
         #[cfg(test)]
         {
             self.layout_calls += 1;

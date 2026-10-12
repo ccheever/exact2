@@ -177,7 +177,8 @@ impl Em<'_> {
             // A stack index: css.rs's declaration for each, by index.
             StyleId::FontFamily => {
                 let table = serde_json::to_string(&style::font_family_table(plan)).unwrap();
-                one("font-family", Some(format!("v=>{table}[v]??null")))
+                let runtime = self.uses.rt("fontFamily");
+                one("font-family", Some(format!("v=>typeof v===\"string\"?{runtime}(v):{table}[v]??null")))
             }
             // css.rs's legacy clamp, on a non-scrolling block only.
             StyleId::Display if parts.props.contains_key("data-button-style") =>

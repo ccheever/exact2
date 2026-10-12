@@ -2388,6 +2388,16 @@ matching (a family without the face draws its nearest one, never a synthesized
 slant or smear: LLP 1019 §5). Web and Apple retain the ordered glyph fallback cascade. Linux selects the first
 installed family, then uses cosmic-text's platform glyph fallback; it logs
 this declared limitation for a multi-member stack (LLP 1001).
+Under Charlie's 2026-10-11 ruling, a string from state or data may also name
+an installed or generic family list, as in `font-family=family`. The JS web
+target applies it as CSS; macOS, iOS and Linux register session-scoped stacks
+and resolve installed faces when the string changes. An invalid list (an
+unquoted name that is not CSS identifiers, such as `Arial;` or `1Arial`: quote
+it) and `inherit`, `unset` or `revert` leave the family unset, so the text
+inherits its parent's family, as the browser does; `initial` is `system-ui`. Runtime strings do
+not load font files.
+A runtime choice with a bundled-font literal is refused so it cannot silently
+select an installed face with the same name; write bundled choices as literals.
 
 A `text` with `selectionchange=act` hears the reader's real text selection
 on the web and macOS: `action act(s: Selection)` gets `s.text`, `s.start` and

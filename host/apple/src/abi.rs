@@ -545,9 +545,15 @@ impl<D: DataSource> Bridge<D> {
             self.start_on_frame,
             self.region,
             self.links.clone(),
+            fonts.map(|callback| (callback, fonts_ctx)),
             move |runner| {
                 if let Some(callback) = fonts {
-                    install_fonts(runner.plan(), callback, fonts_ctx);
+                    install_fonts(
+                        runner.plan(),
+                        &runner.runtime_font_stacks(),
+                        callback,
+                        fonts_ctx,
+                    );
                 }
                 control_text::prepare(runner, control_text, ctx)
             },
@@ -841,9 +847,15 @@ impl<D: DataSource> Bridge<D> {
             self.start_on_frame,
             self.region,
             self.links.clone(),
+            fonts.map(|callback| (callback, fonts_ctx)),
             move |runner| {
                 if let Some(callback) = fonts {
-                    install_fonts(runner.plan(), callback, fonts_ctx);
+                    install_fonts(
+                        runner.plan(),
+                        &runner.runtime_font_stacks(),
+                        callback,
+                        fonts_ctx,
+                    );
                 }
                 control_text::prepare(runner, control_text, ctx)
             },

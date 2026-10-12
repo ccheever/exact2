@@ -295,6 +295,39 @@ impl Default for Cache {
     }
 }
 impl Cache {
+    /// A forecast can shape a new stack id before the live catalog has it.
+    /// Retire only identities that used those ids when the catalog catches up.
+    pub fn invalidate_families(&mut self, added: std::ops::Range<u16>) {
+        let mut removed = HashSet::new();
+        self.identities.retain(|_, bucket| {
+            bucket.retain(|entry| {
+                let uses = added.contains(&entry.spec.strut.family)
+                    || entry
+                        .spec
+                        .runs
+                        .iter()
+                        .any(|run| added.contains(&run.family));
+                if uses {
+                    removed.insert(entry.id);
+                }
+                !uses
+            });
+            !bucket.is_empty()
+        });
+        if removed.is_empty() {
+            return;
+        }
+        self.bindings
+            .retain(|_, binding| !removed.contains(&binding.key.1));
+        self.handoffs
+            .retain(|handoff| !removed.contains(&handoff.identity));
+        self.superseded.retain(|_, keys| {
+            keys.retain(|key| !removed.contains(&key.1));
+            !keys.is_empty()
+        });
+        self.walked_bytes = 0;
+    }
+
     /// The catalog owns these specs; shortcut handles never retain them.
     pub fn spec(&self, key: (u64, u64)) -> Option<Arc<Spec>> {
         #[cfg(test)]

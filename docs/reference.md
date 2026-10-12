@@ -88,6 +88,11 @@ never to block. Its design documents are imported under `llp/research/`.
 
 ## What exists
 
+`font-family` accepts a CSS family-list string from state or data on web,
+macOS, iOS and Linux. A change resolves the new installed or generic family
+and remeasures affected text. Bundled faces are declared at compile time on
+every host; a runtime string does not load a font file.
+
 | Crate | What it is | Spec |
 |---|---|---|
 | `kernel/` (`exact-kernel`) | Typed columnar arena, EXWF wire frames, validate-then-apply transactions, Taffy layout with changed-geometry receipts, EXNODE columnar export, injected text measurement. Builds for `wasm32-unknown-unknown`. | `llp/1001-kernel-v1.spec.md` |

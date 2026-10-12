@@ -144,6 +144,9 @@ out of the app's font files at build time and breaks lines with the hosts'
 own `exact-textflow` walker. Unblocks a public comparison on every host with
 no new kernel row and no app-side measurement seam. Take: no Pretext library,
 no runtime font parsing, and auto-height flow (LLP 1043.000 §8) stays owed
+(Charlie, 2026-10-11: the font-picker consumer may supply installed/generic
+`font-family` names as runtime strings under LLP 1019 D2; this does not admit
+runtime font parsing, downloaded files or `loadFont`)
 (built 2026-09-26 as §8's Stage 2, a bounded re-layout restricted to block
 contexts; **accepted (Charlie, 2026-09-27)** on condition that `metrics.mjs`
 shows a still layout costs about nothing and names the worst case for a page

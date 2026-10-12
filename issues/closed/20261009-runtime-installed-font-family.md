@@ -1,17 +1,47 @@
 # `font-family` from a string at run time, so a font picker can apply any installed family
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Runtime installed-family lists resolve on the runner, wasm web, AppKit, UIKit and Linux; boot resize, quoted generic, invalid-list inheritance and foreseen-text regressions are covered.
 **Systems:** Contract, runner, text, GUI hosts
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)
 **Date:** 2026-10-09
 **Related:** https://github.com/ccheever/exact2/issues/318
 
-## Current scope
+## Resolution scope
 
-Decision needed under LLP 1019/1053: runtime installed-family strings versus a declared allow-list. Preserve fallback, weights/styles and measurement invalidation. Reporter recommendations are not accepted amendments. Bundled fonts remain compile-time; no runtime font-file loading/parsing.
+### 2026-10-12 implementation
 
-Transferred at exact2 `5e8da7027` on 2026-10-09. This preserves reported evidence; this triage has not reproduced or fixed the runtime behavior. The current scope and Charlie's decisions below supersede conflicting proposals/acceptance in the original report. This file is the live issue after the GitHub copy is closed.
+Charlie approved runtime strings naming installed or generic families, including
+fallback lists; bundled faces stay compile-time. Contract preserves runtime
+string expressions and resolves constant templates through the literal stack
+path and its diagnostics. The runner interns each runtime list above the plan's
+stack IDs. The wasm web, AppKit, UIKit and Linux hosts register those IDs before
+layout, then use their installed-family matching and fallback. A changed family
+invalidates measurement. The JS web target applies the string as CSS.
+
+The review fix keeps quotes on family-list members, so a quoted generic is an
+installed name. Malformed lists, including an unquoted member that is not a
+sequence of CSS identifiers (`Arial;`, the one rule `exact_plan::is_css_family_name`
+that compiled literals also meet), and `inherit`, `unset`, `revert` and
+`revert-layer` leave the runtime family row unset, so the parent's family
+applies as in the browser. `initial` sets the row's initial family, stack 0
+(`system-ui`); the JS target writes that too, not the browser's own default. Apple hooks font synchronization before boot's resize rounds, and
+Linux retires foreseen shapes and metrics when a new family id is installed.
+The regressions exercise the Apple boot callback, Linux touch-down/when-open
+path, host family resolution, and runner inheritance.
+
+The Contract font tests cover data-source names, quoted lists, stable IDs,
+case-insensitive bundled-name protection and constant templates. The AppKit and
+UIKit font XCTests select installed faces; Linux's pinned catalog test checks
+missing-name fallback. macOS and wasm web picker drives switched Arial
+(354.92 points) to Menlo (433.48 points) and back, with the family and measured
+width changing each time. Mixed runtime expressions with a bundled-font literal
+remain diagnosed because a runtime string names installed families only.
+
+Charlie's ruling under LLP 1019/1053 selected runtime installed-family strings. Preserve fallback, weights/styles and measurement invalidation. Bundled fonts remain compile-time; no runtime font-file loading/parsing.
+
+Transferred at exact2 `5e8da7027` on 2026-10-09. This preserves reported evidence. The current scope and Charlie's decisions below supersede conflicting proposals/acceptance in the original report. This file is the live issue after the GitHub copy is closed.
 
 ## Original report
 

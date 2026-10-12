@@ -13,7 +13,7 @@
 //! [`Skipped`], never guessed.
 
 mod fonts;
-pub use fonts::{font_alias, font_family_names};
+pub use fonts::{font_alias, font_family_names, runtime_font_family};
 
 use exact_kernel::style::ColorValue;
 use exact_kernel::{Color, Dimension, Display, Overflow, RowValue, StyleId, StyleProps};

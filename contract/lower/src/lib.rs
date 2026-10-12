@@ -942,9 +942,14 @@ impl<'a> Lowerer<'a> {
             }
             tags::AttrTarget::Styles(rows) => {
                 if rows == [StyleId::FontFamily] {
-                    // @ref LLP 1053 G7 — each arm's family is a stack id now.
                     let stacks = self.family_stacks(&a.value)?;
-                    let (code, _) = self.typed_code(&stacks, scope, locals)?;
+                    let (code, ty) = self.typed_code(&stacks, scope, locals)?;
+                    if ty != Ty::String
+                        && !(ty == Ty::Number && Self::literal_family_arms(&a.value))
+                        && !matches!(ty, Ty::Option(ref inner) if **inner == Ty::String)
+                    {
+                        return err("lower-attr-type", "`font-family` needs a string", a.span);
+                    }
                     bindings.push(style_row(StyleId::FontFamily, code, a.written));
                     return Ok(());
                 }

@@ -618,6 +618,14 @@ impl TextEngine {
         self.install_plan_assets(plan, &Assets::embedded(assets.to_path_buf()));
     }
 
+    /// Add newly interned installed-family lists before the next measure.
+    pub fn install_runtime(&mut self, compiled: usize, lists: &[String]) {
+        let added = self.catalog.borrow_mut().install_runtime(compiled, lists);
+        if !added.is_empty() {
+            self.paragraphs.invalidate_families(added);
+        }
+    }
+
     fn install_plan_assets(&mut self, plan: &Plan, assets: &Assets) {
         *self = Self::with_catalog(catalog::Catalog::for_assets(plan, assets));
     }

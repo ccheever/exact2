@@ -13,6 +13,7 @@ mod control;
 mod event;
 pub mod faults;
 mod field;
+mod fonts;
 pub mod foresee;
 pub use field::{FieldSelection, SelectionDirection};
 mod host_kinds;
@@ -510,6 +511,7 @@ pub struct Runner<D: DataSource> {
     sounds: crate::sound::Sounds,
     /// The app's `setRootFontSize` over the host's size (LLP 1069.000 D3).
     root_font: root_font::RootFont,
+    fonts: std::rc::Rc<std::cell::RefCell<crate::bridge::RuntimeFonts>>,
     /// Auth sessions (LLP 1069.006): live ones, and answers to deliver.
     auth: crate::auth::Sessions,
     /// The device capabilities linked (LLP 1047 D3): [`DeviceLinks`].
@@ -818,6 +820,7 @@ impl<D: DataSource> Runner<D> {
             commands: Vec::new(),
             sounds: Default::default(),
             root_font: Default::default(),
+            fonts: Default::default(),
             into_view: Vec::new(),
             scrolled: Default::default(),
             resized: Vec::new(),
@@ -1019,6 +1022,7 @@ impl<D: DataSource> Runner<D> {
         let mut ids = std::mem::take(&mut runner.ids);
         let (tree, ops, surfaces, notes, shown) = {
             let mut u = Update::new(runner.env(&[], &[]), &runner.sites, &mut ids);
+            u.fonts = Some(runner.fonts.clone());
             u.discard = runner.kernel.is_detached();
             let tree = Tree::create(&mut u)?;
             (tree, u.ops, u.surfaces, u.notes, u.shown)
@@ -1149,11 +1153,6 @@ impl<D: DataSource> Runner<D> {
     /// The kernel, mutably (a host lays out through it).
     pub fn kernel_mut(&mut self) -> &mut Kernel {
         &mut self.kernel
-    }
-
-    /// The plan.
-    pub fn plan(&self) -> &Plan {
-        &self.plan
     }
 
     /// Same immutable plan as a targeted node read. No work until an inspector
