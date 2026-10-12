@@ -113,11 +113,12 @@ extension NodeView {
         // Square sides in one colour that differ only in width (a row's
         // `border-bottom` separator) are rectangles of one shape layer.
         let drawn = p.widths.indices.filter { p.widths[$0] > 0 }
+        let patterned = drawn.contains { ["dotted", "dashed"].contains(style["border_style_" + sides[$0]]?.string ?? "solid") }
         p.sideColor = drawn.first.map { p.colors[$0] }
-        p.edges = !p.oneBorder && !p.own && radii.allSatisfy { $0 == 0 } && drawn.allSatisfy { p.colors[$0] == p.sideColor }
+        p.edges = !patterned && !p.oneBorder && !p.own && radii.allSatisfy { $0 == 0 } && drawn.allSatisfy { p.colors[$0] == p.sideColor }
         // A layout transition's size shows the surface on its own layer.
         let away = surface != nil
-        p.drawn = !away && (!((p.oneBorder || p.edges) && p.oneRadius && (shape == nil || continuous)) || gradientDraws || backgroundClip != "border-box") && (p.fill != nil || gradient || p.widths.contains { $0 > 0 })
+        p.drawn = !away && (patterned || !((p.oneBorder || p.edges) && p.oneRadius && (shape == nil || continuous)) || gradientDraws || backgroundClip != "border-box") && (p.fill != nil || gradient || p.widths.contains { $0 > 0 })
         // A border over the children needs the backing layer's own radius,
         // and AppKit makes a backing layer's radius clip: where the node
         // does not clip, a rounded one draws.

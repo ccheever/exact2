@@ -52,6 +52,29 @@ enum BorderParity {
         return styles.enumerated().map { i, s in Case(name: s.0, x: [20, 145, 270][i % 3], y: [20, 115, 210, 305][i / 3], style: s.1) }
     }
 
+    static func patterns() -> [Case] {
+        let clear = c(0), purple = c(0x6a1b9aff)
+        let rows: [(String, [Double], [BatchValue], [Double], [String])] = [
+            ("dot1", [1, 1, 1, 1], [R, R, R, R], [0, 0, 0, 0], Array(repeating: "dotted", count: 4)),
+            ("dot2", [2, 2, 2, 2], [R, R, R, R], [0, 0, 0, 0], Array(repeating: "dotted", count: 4)),
+            ("dot4", [4, 4, 4, 4], [R, R, R, R], [0, 0, 0, 0], Array(repeating: "dotted", count: 4)),
+            ("dash1", [1, 1, 1, 1], [G, G, G, G], [0, 0, 0, 0], Array(repeating: "dashed", count: 4)),
+            ("dash2", [2, 2, 2, 2], [G, G, G, G], [0, 0, 0, 0], Array(repeating: "dashed", count: 4)),
+            ("dash4", [4, 4, 4, 4], [G, G, G, G], [0, 0, 0, 0], Array(repeating: "dashed", count: 4)),
+            ("round-dot", [4, 4, 4, 4], [B, B, B, B], [20, 20, 20, 20], Array(repeating: "dotted", count: 4)),
+            ("round-dash", [4, 4, 4, 4], [B, B, B, B], [20, 20, 20, 20], Array(repeating: "dashed", count: 4)),
+            ("mixed", [4, 4, 4, 4], [R, G, B, Y], [16, 16, 16, 16], ["dotted", "solid", "dashed", "solid"]),
+            ("unequal-dot", [1, 2, 4, 2], [purple, purple, purple, purple], [12, 12, 12, 12], Array(repeating: "dotted", count: 4)),
+            ("underline-dot", [0, 0, 1, 0], [clear, clear, R, clear], [0, 0, 0, 0], ["none", "none", "dotted", "none"]),
+            ("underline-dash", [0, 0, 4, 0], [clear, clear, G, clear], [0, 0, 0, 0], ["none", "none", "dashed", "none"]),
+        ]
+        return rows.enumerated().map { i, row in
+            var style = box(row.1, row.2, radii: row.3, background: false)
+            for (side, kind) in zip(["top", "right", "bottom", "left"], row.4) { style["border_style_" + side] = .string(kind) }
+            return Case(name: row.0, x: [20, 145, 270][i % 3], y: [20, 115, 210, 305][i / 3], style: style)
+        }
+    }
+
     /// An image's straight sRGB bytes.
     static func pixels(_ image: CGImage) -> (Int, Int, [UInt8]) {
         let (w, h) = (image.width, image.height)
@@ -99,6 +122,52 @@ enum BorderParity {
             if mean > band.mean || over > band.over { failures.append("\(c.name) \(dark ? "dark" : "light"): mean \(mean), \(over)% beyond 48") }
         }
         return failures
+    }
+
+    // CoreGraphics and Skia differ on the one-pixel dots and curved joins.
+    // The 1× fixture's measured worst case stays under 5/255 mean and 5%.
+    static func checkPatterns(band: (mean: Double, over: Double) = (5, 5), render: (NodeStyle, Bool, CGColor) -> [UInt8]) -> [String] {
+        let reference = chrome("border-patterns.web.png")
+        let page = CGColor(gray: 1, alpha: 1)
+        return patterns().compactMap { c in
+            let pixels = render(c.style, false, page)
+            let (mean, over) = compare(pixels, reference, at: c.x, c.y)
+            print("border pattern parity \(c.name): mean \(String(format: "%.2f", mean))/255, \(String(format: "%.2f", over))% beyond 48")
+            if mean > band.mean || over > band.over { return "\(c.name): mean \(mean), \(over)% beyond 48" }
+            if c.name == "underline-dot" && !underlineHasInkAndGaps(pixels) { return "\(c.name): missing ink or gaps" }
+            if ["dot1", "dash1"].contains(c.name) && !thinBoxEdgesHaveInkAndGaps(pixels) { return "\(c.name): missing ink or gaps on an edge" }
+            if c.name == "dot1" && !thinDotPhaseMatchesChrome(pixels, reference: reference, at: c.x, c.y) { return "\(c.name): wrong dot phase" }
+            return nil
+        }
+    }
+
+    static func underlineHasInkAndGaps(_ pixels: [UInt8]) -> Bool {
+        let greens = (10..<90).map { pixels[(69 * 100 + $0) * 4 + 1] }
+        return greens.filter { $0 < 160 }.count >= 20 && greens.filter { $0 > 245 }.count >= 20
+    }
+
+    static func thinBoxEdges() -> [[(Int, Int)]] {
+        [(10..<90).map { ($0, 0) }, (10..<60).map { (99, $0) },
+         (10..<90).map { ($0, 69) }, (10..<60).map { (0, $0) }]
+    }
+
+    static func thinBoxEdgesHaveInkAndGaps(_ pixels: [UInt8]) -> Bool {
+        thinBoxEdges().allSatisfy { edge in
+            let lows = edge.map { point -> UInt8 in
+                let i = (point.1 * 100 + point.0) * 4
+                return min(pixels[i], pixels[i + 1], pixels[i + 2])
+            }
+            return lows.filter { $0 < 160 }.count >= 10 && lows.filter { $0 > 245 }.count >= 10
+        }
+    }
+
+    static func thinDotPhaseMatchesChrome(_ pixels: [UInt8], reference: (Int, Int, [UInt8]), at x: Int, _ y: Int) -> Bool {
+        thinBoxEdges().allSatisfy { edge in
+            edge.filter { point in
+                (pixels[(point.1 * 100 + point.0) * 4 + 1] < 160) !=
+                    (reference.2[((y + point.1) * reference.0 + x + point.0) * 4 + 1] < 160)
+            }.count <= 4
+        }
     }
 
     /// A 1× opaque bitmap context over the page's colour, y down.

@@ -232,9 +232,10 @@ extension NodeView {
         // mitred join is that same colour, so their union paints the same,
         // and the view keeps no backing store of its size for a hairline.
         let drawn = widths.indices.filter { widths[$0] > 0 }
+        let patterned = drawn.contains { ["dotted", "dashed"].contains(style["border_style_" + sides[$0]]?.string ?? "solid") }
         let sideColor = drawn.first.map { colors[$0] }
-        let edges = !oneBorder && !own && radii.allSatisfy { $0 == 0 } && drawn.allSatisfy { colors[$0] == sideColor }
-        boxDrawn = !away && (!((oneBorder || edges) && oneRadius && (shape == nil || continuous)) || gradientDraws || backgroundClip != "border-box") && (fill != nil || gradient || widths.contains { $0 > 0 })
+        let edges = !patterned && !oneBorder && !own && radii.allSatisfy { $0 == 0 } && drawn.allSatisfy { colors[$0] == sideColor }
+        boxDrawn = !away && (patterned || !((oneBorder || edges) && oneRadius && (shape == nil || continuous)) || gradientDraws || backgroundClip != "border-box") && (fill != nil || gradient || widths.contains { $0 > 0 })
         let onLayer = !boxDrawn
         var corners: CACornerMask = []
         let masks: [CACornerMask] = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner, .layerMinXMaxYCorner]

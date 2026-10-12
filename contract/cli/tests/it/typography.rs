@@ -100,7 +100,7 @@ fn text_indent_is_a_length_that_inherits_and_reaches_the_paragraph() {
 
 #[test]
 fn multicol_rows_lower_with_their_keywords() {
-    use exact_kernel::{BorderStyle, BreakBetween, BreakInside, ColumnFill, Dimension, StyleId};
+    use exact_kernel::{BreakBetween, BreakInside, ColumnFill, Dimension, StyleId};
     let r = boot(concat!(
         "component App\n  view\n    column\n",
         "      view columns=\"120px 3\" column-gap=10 column-fill=\"auto\" widows=3 testId=\"flow\"\n",
@@ -131,7 +131,7 @@ fn multicol_rows_lower_with_their_keywords() {
     );
     assert_eq!(
         (rule.column_rule_width, rule.column_rule_style),
-        (1.0, BorderStyle::Solid)
+        (1.0, exact_kernel::ColumnRuleStyle::Solid)
     );
     assert!(rule.column_rule_color.is_some());
     let two = node("two").style;

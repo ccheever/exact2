@@ -23,8 +23,8 @@ use crate::image::Bitmap;
 use crate::text::{Paragraph, Run, RunPaint, Shared, Spec, TextEngine};
 use exact_kernel::style::{BackdropFilter, BackdropOp};
 use exact_kernel::{
-    Dimension, Display, Kernel, NodeRef, NodeType, ObjectFit, Overflow, PropId, StyleId, StyleMask,
-    StyleProps, ViewId,
+    BorderStyle, Dimension, Display, Kernel, NodeRef, NodeType, ObjectFit, Overflow, PropId,
+    StyleId, StyleMask, StyleProps, ViewId,
 };
 use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
@@ -158,6 +158,7 @@ struct BoxPaint {
     clip: exact_kernel::BackgroundClip,
     corners: Option<exact_kernel::corner::CornerShape>,
     widths: [f32; 4],
+    styles: [BorderStyle; 4],
     colors: [[u8; 4]; 4],
     background: [u8; 4],
     gradients: Vec<gradient::Captured>,
@@ -216,6 +217,12 @@ impl BoxPaint {
             corners: Some(s.rare.corner_shape).filter(|c| !c.is_round()),
             clip: s.background_clip,
             widths,
+            styles: [
+                s.border_style_top,
+                s.border_style_right,
+                s.border_style_bottom,
+                s.border_style_left,
+            ],
             colors: colors.map(|c| rgba(c.resolve(dark))),
             background: match material {
                 // The material's tint where the author painted no background,
@@ -363,7 +370,15 @@ impl BoxPaint {
     }
     /// The border, one fill per colour, joined as the web joins sides.
     fn borders(&self, geometry: &BoxGeometry) -> Vec<border::BorderFill> {
-        border::border_fills(&geometry.outer, self.widths, self.colors)
+        let mut fills =
+            border::border_fills_styled(&geometry.outer, self.widths, self.colors, self.styles);
+        fills.extend(border::pattern_fills(
+            &geometry.outer,
+            self.widths,
+            self.colors,
+            self.styles,
+        ));
+        fills
     }
 }
 type ProjectiveHit = ([f32; 9], Rect4, Option<Rect4>, [[f32; 3]; 2]);

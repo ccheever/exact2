@@ -2058,8 +2058,14 @@
         "none",
         "hidden",
         "solid",
-        "inset"
+        "inset",
+        "dotted",
+        "dashed"
       ],
+      "default": "none"
+    },
+    "ColumnRuleStyle": {
+      "values": ["none", "hidden", "solid"],
       "default": "none"
     },
     "WrapFlow": {
@@ -3696,8 +3702,8 @@
     {
       "bit": 184,
       "field": "column_rule_style",
-      "codec": "enum:BorderStyle",
-      "_comment": "@ref LLP 1093 §1, D7: CSS `column-rule-style`, the styles the hosts paint for borders; the others are refused by the compiler.",
+      "codec": "enum:ColumnRuleStyle",
+      "_comment": "@ref LLP 1093 §1, D7: CSS `column-rule-style`; only none, hidden and solid are painted by every host, including bound values.",
       "cold": true
     },
     {

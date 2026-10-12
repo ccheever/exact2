@@ -226,14 +226,7 @@ fn decorated(s: &StyleProps) -> bool {
         Some(ColorValue::LightDark(a, b)) => a.a() > 0 || b.a() > 0,
         _ => true,
     };
-    let borders = [
-        (s.border_width_top, s.border_style_top),
-        (s.border_width_right, s.border_style_right),
-        (s.border_width_bottom, s.border_style_bottom),
-        (s.border_width_left, s.border_style_left),
-    ]
-    .iter()
-    .any(|(w, style)| *w > 0.0 && *style == crate::BorderStyle::Solid);
+    let borders = s.border_widths().into_iter().any(|w| w > 0.0);
     let radius = [
         s.border_radius_top_left,
         s.border_radius_top_right,

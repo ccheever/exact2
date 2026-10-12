@@ -1308,7 +1308,8 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             let top = color("border_color_top", .clear)
             let colors = ["top", "right", "bottom", "left"].map { color("border_color_" + $0, top).cgColor }
             let radii = BorderPaint.radii(style, in: bounds)
-            BorderPaint.paint(ctx, box: bounds, widths: widths, colors: colors, radii: radii, shape: CornerShape(style["corner_shape"]))
+            let styles = ["top", "right", "bottom", "left"].map { style["border_style_" + $0]?.string ?? "solid" }
+            BorderPaint.paint(ctx, box: bounds, widths: widths, colors: colors, radii: radii, styles: styles, shape: CornerShape(style["corner_shape"]))
         }
         if !cssVisibilityHidden, kind == "image", symbolView == nil, flightLook == nil || imageLayer == nil, !(layerBoxEligible && !Capture.capturing && imageLayer != nil), let bitmap = raster?.image {
             // CSS object-fit over the content box (the frame inside border

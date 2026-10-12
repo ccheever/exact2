@@ -386,6 +386,29 @@ fn border_style_controls_pixels_and_layout_with_current_color() {
     }
 }
 
+#[test]
+fn patterned_borders_leave_gaps_without_losing_width() {
+    for style in ["dotted", "dashed"] {
+        let source = format!(
+            "component Borders\n  view\n    column background-color=\"#ffffff\" width=200 height=100 padding=10\n      box testId=\"border\" width=100 height=40 border-width=4 border-style=\"{style}\" border-color=\"#ff0000\"\n"
+        );
+        for painter in painters() {
+            let mut p = compiled(&source, 1.0, painter);
+            let (x, y, w, h) = rect(&mut p, "border");
+            assert_eq!((w, h), (108.0, 48.0));
+            let frame = p.frame();
+            let top: Vec<_> = (10..90)
+                .map(|dx| px(&frame, x + dx as f32, y + 2.0))
+                .collect();
+            assert!(top.contains(&(255, 0, 0)), "{style} has ink on {painter:?}");
+            assert!(
+                top.contains(&(255, 255, 255)),
+                "{style} leaves gaps on {painter:?}"
+            );
+        }
+    }
+}
+
 /// LLP 1064 D2: a `box-shadow` falls outside the border box only — offset
 /// hard, or blurred as a Gaussian of half the blur radius — on every painter,
 /// and a clipping node's shadow is not clipped by it.

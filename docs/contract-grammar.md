@@ -693,6 +693,10 @@ name, no name for all, `--json` for a document. From an app made by
 CSS's one to four values (`padding="12px 40px"`: top and bottom 12, sides 40), and
 `border-radius` its one to four corners (`border-radius="18px 18px 0 0"`: top-left,
 top-right, bottom-right, bottom-left; no `/` elliptical radii).
+`border-style` and each `border-<side>-style` accept `none`, `hidden`, `solid`,
+`inset`, `dotted` and `dashed`. The two patterned styles keep their authored
+border widths in layout. AppKit, UIKit and Linux paint their dots and dashes;
+`column-rule-style` still accepts only `none`, `hidden` and `solid` on native hosts.
 CSS hyphens are part of the authored name. `testId` and admitted host-specific
 props retain their declared spelling.
 

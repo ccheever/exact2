@@ -169,10 +169,12 @@ one length or percentage; paired horizontal/vertical radii and the slash-separat
 `border-radius` shorthand are not implemented. Percentage ellipses do not require
 that separate value-pair syntax.
 
-**Border semantics (Codex, 2026-09-11):** four `border_style_*` rows
-(bits 91–94) accept `none | hidden | solid | inset`, initially `none`. Contract's
+**Border semantics (Codex, 2026-09-11; amended by Charlie, 2026-10-08):** four `border_style_*` rows
+(bits 91–94) accept `none | hidden | solid | inset | dotted | dashed`, initially `none`. Contract's
 single-value `border-style` sets all four; `border-<side>-style` sets one.
-Other line styles are refused until a consumer needs their painting. `inset`
+`dotted` and `dashed` retain their widths in layout, like `solid`; their paint
+follows Chrome for each side's width, mixed styles and rounded corners. Other
+line styles remain refused. `inset`
 came with HTML's `hr` (LLP 1021 D1, 2026-10-04): the browser draws it, and
 `border_colors()` gives the native hosts Chrome's two shades, measured from its
 pixels and Blink's `CalculateInsetOutsetColor` — the top and left
@@ -209,8 +211,24 @@ and follows inherited colour through appearance and explicit colour changes.
 Existing app borders now declare solid, including Messages and Fieldnotes.
 The Messages iOS comparison is pixel-identical and the browser badge gains its
 declared one-point border (`/tmp/messages-border-semantics/`). Fractional device
-pixel snapping, patterned borders and compound shorthand values remain unverified
+pixel snapping and compound shorthand values remain unverified
 or unsupported; these checks do not establish all CSS border painting.
+
+**Declared raster deviation (2026-10-11, issue 20261009-dotted-dashed-border-style):**
+the kernel and Contract admit `dotted` and `dashed`; both web targets emit
+CSS for Chrome, while AppKit, UIKit and Linux stroke dots and dashes along
+each side or a rounded centreline. All keep the authored width in layout.
+Against Chrome's 1× `border-patterns.contract` screenshot, AppKit and Linux's
+12 cases (1/2/4px, mixed styles and widths, rounded corners and single
+underlines) stay within 5/255 mean absolute channel difference and 5% of
+pixels differing by more than 48 in a 100×70 box. UIKit uses the same
+`BorderPaint` as AppKit. Four UIKit parity tests passed on iOS 27.0 before
+the 1 px edge-phase checks were added. The updated test bundle builds, but
+its round-3 run remains unmeasured: Xcode lost its simulator destination, a
+retry stalled on iOS 26.5, and an iOS 27.0 simulator could not boot.
+Rasterization of thin dots and curved joins accounts for the
+remaining visible pixel variance; the band does not claim identical pixels
+at other device scales.
 
 **Motion rows (2026-08-28, LLP 1002/1003).** The animatable rows carry CSS's
 individual transform property names — `translate` (vec2, with its percentages
@@ -1420,8 +1438,9 @@ other CSS values. Portable user-select admits auto/none: macOS selection omits
 none subtrees and resolves auto as AppKit does (LLP 1115 D8: a control's or the
 chrome's label is not selectable, `article` and other content text is); iOS/Linux have no ordinary selectable text executor, so
 text/all/contain are diagnosed at compile time. Border shorthands reset and
-lower to existing side rows. Native border painters support none/hidden/solid;
-other line styles are diagnosed. Text-decoration lowers solid currentcolor
+lower to existing side rows, including `inset`, `dotted` and `dashed` under
+§1's border semantics and raster deviation; other line styles are diagnosed.
+Text-decoration lowers solid currentcolor
 underline/line-through to the existing line row; other color/style/thickness
 components are diagnosed. Linux draws its UA lines from font size and glyph
 advances; underline skip-ink:auto is not implemented and its driver log names

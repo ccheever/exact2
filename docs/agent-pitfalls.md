@@ -982,6 +982,9 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   older commit left there. Fix: name the apps and pass `--build` with a
   `--wasm-root` of your own (`conform.mjs <app> --build --strict --wasm-root
   /tmp/<yours>`). With no apps named, an empty root compares nothing and passes.
+- **An `EXACT_WEB_DIST` build compiles, then fails renaming its stage.** The
+  destination's parent directory does not exist. Create that parent before
+  running `host/web/build.mjs --wasm` with an external dist path.
 - **A web size or speed number is inflated.** Cause: a development web build
   carries the agent adapter, install pages and the source map. Fix: measure the
   release: `host/web-js/build.mjs <app> --plan <wasm bake>/app.plan --production`,

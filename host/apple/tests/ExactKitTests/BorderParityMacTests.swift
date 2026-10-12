@@ -115,6 +115,7 @@ final class BorderParityMacTests: XCTestCase {
         }
         let band = (mean: 3.0, over: 4.0)
         var failures = BorderParity.check(flipped: false, dark: false, band: band, render: onScreen(BorderParity.cases(flipped: false)))
+        failures += BorderParity.checkPatterns(band: (5, 5), render: onScreen(BorderParity.patterns()))
         failures += GradientParity.check(dark: false, band: band, render: onScreen(GradientParity.cases()))
         failures += GradientParity.check(dark: true, band: band, render: onScreen(GradientParity.cases()))
         XCTAssert(failures.isEmpty, failures.joined(separator: "\n"))
@@ -124,6 +125,59 @@ final class BorderParityMacTests: XCTestCase {
         var failures = BorderParity.check(flipped: false, dark: false) { render($0, dark: $1, page: $2) }
         failures += BorderParity.check(flipped: true, dark: true) { render($0, dark: $1, page: $2) }
         XCTAssert(failures.isEmpty, failures.joined(separator: "\n"))
+    }
+
+    func testPatternedBordersMatchChrome() {
+        let failures = BorderParity.checkPatterns { render($0, dark: $1, page: $2) }
+        XCTAssert(failures.isEmpty, failures.joined(separator: "\n"))
+    }
+
+    func testThinDottedUnderlineBandRejectsMissingInk() {
+        var blank = [UInt8](repeating: 255, count: 100 * 70 * 4)
+        XCTAssertFalse(BorderParity.underlineHasInkAndGaps(blank), "blank passed")
+        for x in 10..<90 {
+            let i = (69 * 100 + x) * 4
+            blank[i] = 229; blank[i + 1] = 57; blank[i + 2] = 53
+        }
+        XCTAssertFalse(BorderParity.underlineHasInkAndGaps(blank), "solid line passed")
+    }
+
+    func testThinBoxGuardsRejectBlankAndSolidEdges() {
+        let chrome = BorderParity.chrome("border-patterns.web.png")
+        for (x, y) in [(20, 20), (20, 115)] {
+            var box: [UInt8] = []
+            for py in 0..<70 {
+                for px in 0..<100 {
+                    let i = ((y + py) * chrome.0 + x + px) * 4
+                    box.append(contentsOf: chrome.2[i..<i + 4])
+                }
+            }
+            XCTAssertTrue(BorderParity.thinBoxEdgesHaveInkAndGaps(box))
+            var blank = [UInt8](repeating: 255, count: 100 * 70 * 4)
+            XCTAssertFalse(BorderParity.thinBoxEdgesHaveInkAndGaps(blank), "blank passed")
+            for py in 0..<70 { for px in 0..<100 where px == 0 || px == 99 || py == 0 || py == 69 {
+                let i = (py * 100 + px) * 4
+                blank[i] = 229; blank[i + 1] = 57; blank[i + 2] = 53
+            } }
+            XCTAssertFalse(BorderParity.thinBoxEdgesHaveInkAndGaps(blank), "solid passed")
+        }
+    }
+
+    func testPatternedBorderLeavesGaps() {
+        for pattern in ["dotted", "dashed"] {
+            var style = BorderParity.cases(flipped: false)[0].style
+            style["background_color"] = .array([.number(255), .number(255), .number(255), .number(255)])
+            for side in ["top", "right", "bottom", "left"] {
+                style["border_width_" + side] = .number(4)
+                style["border_color_" + side] = .array([.number(255), .number(0), .number(0), .number(255)])
+                style["border_style_" + side] = .string(pattern)
+            }
+            let pixels = render(style, dark: false, page: CGColor(gray: 1, alpha: 1))
+            let rows = (0..<70).map { y in (10..<90).map { pixels[(y * 100 + $0) * 4 + 1] } }
+            let borderRows = rows.filter { $0.filter { $0 < 100 }.count > 4 }
+            XCTAssertFalse(borderRows.isEmpty, "\(pattern) has ink")
+            XCTAssertTrue(borderRows.allSatisfy { $0.contains(where: { $0 > 245 }) }, "\(pattern) leaves gaps")
+        }
     }
 
     /// LLP 1066: the gradient page's cases (`GradientParity`), light then dark.

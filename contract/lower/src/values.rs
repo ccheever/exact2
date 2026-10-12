@@ -1432,7 +1432,7 @@ fn multicol_value(rows: &[StyleId], v: &str) -> Option<&'static str> {
             "dashed" | "dotted" | "double" | "groove" | "ridge" | "inset" | "outset"
         )
     {
-        return Some("the native hosts paint `none`, `hidden` and `solid` rules, as they paint borders; Chrome would paint this one and they would not");
+        return Some("the native hosts paint only `none`, `hidden` and `solid` column rules; Chrome would paint this one and they would not");
     }
     if (has(StyleId::BreakBefore) || has(StyleId::BreakAfter))
         && matches!(

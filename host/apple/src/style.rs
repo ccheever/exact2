@@ -82,10 +82,6 @@ fn presenter_ignores(name: &str) -> bool {
             | "justify_items"
             | "field_sizing"
             | "text_transform"
-            | "border_style_top"
-            | "border_style_right"
-            | "border_style_bottom"
-            | "border_style_left"
     )
 }
 

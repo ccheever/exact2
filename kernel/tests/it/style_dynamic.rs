@@ -42,6 +42,24 @@ fn borrowed_css_parses_like_owned_css_and_retains_no_source_borrow() {
 }
 
 #[test]
+fn bound_column_rule_refuses_patterns_without_changing_the_solid_rule() {
+    let mut style = StyleProps::default();
+    style
+        .set_dynamic(StyleId::ColumnRuleStyle, &StyleValue::Text("solid".into()))
+        .unwrap();
+    for value in ["dotted", "dashed"] {
+        let before = style.clone();
+        assert!(
+            style
+                .set_dynamic(StyleId::ColumnRuleStyle, &StyleValue::Text(value.into()))
+                .is_err(),
+            "{value}"
+        );
+        assert_eq!(style, before, "{value} changed the column rule");
+    }
+}
+
+#[test]
 fn translate_text_is_a_narrow_css_pixel_subset_with_atomic_refusal() {
     let mut s = StyleProps::default();
     for (text, x, y) in [
@@ -150,9 +168,16 @@ fn border_defaults_clear_and_wire_preserve_authored_width_separately_from_used_w
     assert!(style
         .set_dynamic(StyleId::BorderColorTop, &StyleValue::Auto)
         .is_err());
-    assert!(style
+    style
         .set_dynamic(StyleId::BorderStyleTop, &StyleValue::Text("dashed".into()))
-        .is_err());
+        .unwrap();
+    style
+        .set_dynamic(
+            StyleId::BorderStyleRight,
+            &StyleValue::Text("dotted".into()),
+        )
+        .unwrap();
+    assert_eq!(style.border_widths(), [8.0, 3.0, 0.0, 0.0]);
     let mut k = Kernel::with_monospace();
     k.apply_frame(&wire::encode(
         0,

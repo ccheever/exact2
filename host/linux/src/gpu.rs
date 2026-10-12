@@ -660,6 +660,9 @@ impl Backend for Gpu {
 
     fn fill_border(&mut self, part: &BorderFill, ts: Transform) {
         let a = self.affine(ts);
+        if let Some(ring) = &part.ring_clip {
+            self.scene.push_clip_layer(Fill::EvenOdd, a, &bez(ring));
+        }
         if let Some(clip) = &part.clip {
             self.scene.push_clip_layer(Fill::NonZero, a, &bez(clip));
         }
@@ -671,6 +674,9 @@ impl Backend for Gpu {
             &bez(&part.region),
         );
         if part.clip.is_some() {
+            self.scene.pop_layer();
+        }
+        if part.ring_clip.is_some() {
             self.scene.pop_layer();
         }
     }

@@ -317,11 +317,31 @@ fn border_layout_paint_and_current_color_follow_live_style_changes() {
         if control == "hidden" {
             assert!(op(&batch, wide).contains("\"border_width_top\":0"));
         } else {
-            // `hidden` to `none` paints the same box: the presenter gets no
-            // style (it never reads `border-style`, the widths say it).
-            assert_eq!(count(&batch, "style"), 0, "{batch}");
+            // The width and geometry stay zero, but the presenter now reads
+            // the authored style so a later dotted/dashed change can paint.
+            assert_eq!(count(&batch, "style"), 3, "{batch}");
+            assert!(op(&batch, wide).contains("\"border_style_top\":\"none\""));
         }
     }
+}
+
+#[test]
+fn patterned_border_styles_reach_the_presenter() {
+    use exact_kernel::{Env, StyleId, StyleProps, StyleValue};
+    let mut style = StyleProps::default();
+    style
+        .set_dynamic(StyleId::BorderStyleTop, &StyleValue::Text("dotted".into()))
+        .unwrap();
+    style
+        .set_dynamic(
+            StyleId::BorderStyleRight,
+            &StyleValue::Text("dashed".into()),
+        )
+        .unwrap();
+    let json = exact_apple::style::style_json(&style, &Env::default()).0;
+    let json: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(json["border_style_top"], "dotted");
+    assert_eq!(json["border_style_right"], "dashed");
 }
 
 #[test]

@@ -121,7 +121,9 @@ fn border(name: &str, text: &str, span: Span) -> Result<[String; 3], LowerError>
         let lower = word.to_ascii_lowercase();
         // A border paints `inset`; a column rule does not (LLP 1093 §1).
         let rule = name == "column-rule";
-        if matches!(lower.as_str(), "none" | "hidden" | "solid") || (lower == "inset" && !rule) {
+        if matches!(lower.as_str(), "none" | "hidden" | "solid")
+            || (!rule && matches!(lower.as_str(), "inset" | "dotted" | "dashed"))
+        {
             if style.replace(lower).is_some() {
                 return err(
                     "lower-css-shorthand",
@@ -131,12 +133,12 @@ fn border(name: &str, text: &str, span: Span) -> Result<[String; 3], LowerError>
             }
         } else if matches!(
             lower.as_str(),
-            "dotted" | "dashed" | "double" | "groove" | "ridge" | "inset" | "outset"
+            "double" | "groove" | "ridge" | "outset" | "dotted" | "dashed" | "inset"
         ) {
             let supported = if rule {
                 "none, hidden and solid"
             } else {
-                "none, hidden, solid and inset"
+                "none, hidden, solid, inset, dotted and dashed"
             };
             return err("lower-css-shorthand", format!("CSS line style `{word}` in `{name}` is not implemented by native painters; supported styles are {supported}"), span);
         } else if matches!(lower.as_str(), "thin" | "medium" | "thick")

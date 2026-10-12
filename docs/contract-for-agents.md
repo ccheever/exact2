@@ -2584,7 +2584,11 @@ What the app stores (`state.slots`, its data module) is the app's own; an
 
 `border`, `border-top/right/bottom/left` take CSS width/style/color in any order,
 resetting omitted components to medium/none/currentcolor. Widths are px/pt,
-unitless zero, or thin/medium/thick (1/3/5 px); styles are none/hidden/solid.
+unitless zero, or thin/medium/thick (1/3/5 px); styles are none/hidden/solid/inset/dotted/dashed.
+The web and native GUI hosts paint dotted and dashed while keeping their widths.
+At 1×, AppKit and Linux dot and curved-join pixels have a bounded raster
+difference from Chrome. UIKit uses AppKit's painter; its simulator parity is
+still unmeasured (LLP 1001, border semantics).
 Other CSS border styles are diagnosed as native painter gaps. `text-decoration`
 takes none, underline, line-through, or both lines; solid/currentcolor/auto
 components retain the supported defaults. Color/style/thickness extensions are

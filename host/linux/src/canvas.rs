@@ -6,10 +6,8 @@
 //! RenderThread, with its glyph atlas) does the drawing; text is drawn with
 //! `Canvas.drawGlyphs` from the same font files Parley shaped with, so
 //! measurement and pixels agree.
-//!
 //! The presenter lives on the Android main thread ([`CanvasHost`]); every
 //! call comes from there.
-//!
 //! The stream is `u32` words (floats as bits), little-endian:
 //! - `1 MATRIX a b c d e f` — device pixels; the rest of the stream until
 //!   the next MATRIX is drawn under it (saved/restored by the reader around
@@ -571,9 +569,13 @@ impl Backend for Recorder {
             self.ops.extend([CLIP_PATH, 0]);
             self.path(clip);
         }
+        if let Some(ring) = &part.ring_clip {
+            self.ops.extend([CLIP_PATH, 1]);
+            self.path(ring);
+        }
         self.ops.extend([PATH, Self::color(part.color), 1]);
         self.path(&part.region);
-        if part.clip.is_some() {
+        for _ in 0..usize::from(part.clip.is_some()) + usize::from(part.ring_clip.is_some()) {
             self.ops.push(RESTORE);
         }
     }

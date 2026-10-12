@@ -178,7 +178,7 @@ fn enum_refusals_list_accepted_values_and_each_suggestion_compiles() {
         ("object-fit", StyleId::ObjectFit, "stretch"),
         ("font-style", StyleId::FontStyle, "slanted"),
         ("position", StyleId::PositionType, "fixed"),
-        ("border-style", StyleId::BorderStyleTop, "dashed"),
+        ("border-style", StyleId::BorderStyleTop, "double"),
         ("align-self", StyleId::AlignSelf, "middle"),
         (
             "overscroll-behavior",
@@ -1399,7 +1399,7 @@ fn css_native_interaction_gaps_are_named_precisely() {
     for (name, value, reason) in [
         ("resize", "vertical", "user-controlled box geometry"),
         ("user-select", "all", "selection ownership"),
-        ("border", "1px dashed red", "native painters"),
+        ("border", "1px double red", "native painters"),
         ("text-decoration", "underline wavy", "native text painters"),
     ] {
         let source = format!("component App\n  view\n    text \"x\" {name}=\"{value}\"\n");
