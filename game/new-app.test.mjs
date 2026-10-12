@@ -509,6 +509,25 @@ test('a new Snapback app is wired to the backend above it, and update follows a 
     assert.match(wireSnapback(dir, { build: false }), /snapback4 check: wrote/);
     assert.equal(manifest().typescript.sources.backend, '../snapback/generated');
     assert.equal(readFileSync(resolve(parent, 'snapback/schema.q'), 'utf8'), 'use personas carol\n');
+    writeFileSync(resolve(dir, 'app.ts'), readFileSync(resolve(dir, 'app.ts'), 'utf8') + '\n// Another service: net.fetch http://127.0.0.1:44100\n');
+    mkdirSync(resolve(dir, 'tests/nested'), { recursive: true });
+    writeFileSync(resolve(dir, 'tests/nested/offline.test.contract'), 'fail fetch "http://127.0.0.1:4410/sync"\n');
+    assert.match(wireSnapback(dir, { build: false, port: 4411 }), /dev --port 4411/);
+    assert.match(readFileSync(resolve(dir, 'app.ts'), 'utf8'), /const origin = 'http:\/\/127\.0\.0\.1:4411'/);
+    assert.match(readFileSync(resolve(dir, 'app.test.contract'), 'utf8'), /fail fetch "http:\/\/127\.0\.0\.1:4411"/);
+    assert.match(readFileSync(resolve(dir, 'tests/nested/offline.test.contract'), 'utf8'), /4411\/sync/);
+    assert.ok(readFileSync(resolve(dir, 'app.ts'), 'utf8').includes('net.fetch http://127.0.0.1:44100'));
+    assert.throws(() => wireSnapback(dir, { build: false, port: 'x' }), /is not a port/);
+    const custom = resolve(parent, 'custom');
+    assert.match(createApp(custom, { snapback: { build: false, port: 4412 } }), /backend already has a schema: kept the greeting app[^]*dev --port 4412/);
+    assert.match(readFileSync(resolve(custom, 'app.ts'), 'utf8'), /http:\/\/127\.0\.0\.1:4412/);
+    writeFileSync(resolve(custom, 'app.ts'), readFileSync(resolve(custom, 'app.ts'), 'utf8').replace('http://127.0.0.1:4412', 'https://api.example.com'));
+    assert.throws(() => wireSnapback(custom, { build: false, port: 4413 }), /not a loopback backend/);
+    writeFileSync(resolve(custom, 'app.ts'), "export const grants = '';\n");
+    assert.throws(() => wireSnapback(custom, { build: false, port: 4413 }), /needs app.ts's const origin/);
+    assert.ok(!readFileSync(resolve(custom, 'app.ts'), 'utf8').includes('api.post'));
+    assert.ok(!readFileSync(resolve(custom, 'app.contract'), 'utf8').includes('Guestbook'));
+    assert.equal(readFileSync(resolve(parent, 'snapback/schema.q'), 'utf8'), 'use personas carol\n');
     // The app's exact.mjs runs it, with the app's directory.
     const sdk = resolve(parent, 'sdk');
     mkdirSync(resolve(sdk, 'scripts'), { recursive: true });

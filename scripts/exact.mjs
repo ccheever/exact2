@@ -598,8 +598,9 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
                                a new app wired to a Snapback backend in the
                                directory above (a guestbook to start from; the
                                origin's port, 4400 unless --port)
-  exact snapback <app>         wire an app to the backend above it (its
-                               exact.mjs: bun exact.mjs snapback)
+  exact snapback <app> [--port <n>]
+                               wire an app to the backend above it; --port moves
+                               its loopback origin, grants and test fetch prefixes
   exact new <path> --game      a new game (game/README.md): a Rust world under
                                Contract's menus, with the same exact.mjs verbs;
                                --assets declares game.assets
@@ -916,7 +917,8 @@ function main(argv) {
   if (verb === 'snapback') {
     const args = guardFlags('snapback', argv.slice(1));
     if (!args[0]) throw new Error('exact snapback: name the app’s directory');
-    return console.log(wireSnapback(resolve(args[0])));
+    const port = args.indexOf('--port');
+    return console.log(wireSnapback(resolve(args[0]), { port: port < 0 ? null : args[port + 1] ?? '' }));
   }
   if (!['run', 'install', 'uninstall', 'release'].includes(verb)) { console.error(`exact: no verb ${verb}\n\n${USAGE}`); process.exit(2); }
   if (!name) { console.error(`exact ${verb}: name an app (exact list)`); process.exit(2); }

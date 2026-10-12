@@ -56,8 +56,8 @@ const PREBUILD = ['--prebuild', 'start the build apart from this shell and retur
 export const HELP = {
   snapback: {
     line: 'wire the Snapback backend above the app',
-    usage: 'bun exact.mjs snapback',
-    flags: [],
+    usage: 'bun exact.mjs snapback [--port <n>]',
+    flags: [['--port <n>', 'move a loopback backend origin, matching grants and test fetch prefixes']],
     body: 'Mounts the driver and generated operations, builds assets/snapback4.wasm, and names the server to start.',
   },
   web: {

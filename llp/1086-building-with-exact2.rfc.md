@@ -424,7 +424,7 @@ or `issues/`. A storage-backed task (D2's example) is a good second prompt.
 in wave 6 pasted the snapback4 README's setup block; the ruling is the
 approval RULES asks for a new flag and verb). `exact new <path> --snapback
 [--port <n>]`, run in the backend's directory, writes the app with a
-guestbook in place of the greeting: `app.contract`, `app.ts` (its `appId`
+guestbook when there is no backend schema yet: `app.contract`, `app.ts` (its `appId`
 the manifest's, the origin `http://127.0.0.1:<port>`, 4400 by default, and
 the grants for it and for the partition), `app.test.contract` (`epoch now`,
 the fetch prefixes at that origin), `/assets/snapback4.wasm` in
@@ -441,6 +441,14 @@ notes' backend paragraph describes a wired app, else how to wire one.
 the Cargo paths. Not done: native linking of `exact_snapback4::Module` (the
 farm's apps are driven on the web).
 
+**Wave 8 correction (Charlie’s EX3 task, 2026-10-12):** when the backend
+already has a schema, `new --snapback` keeps the greeting app and wires its
+generated operations; it does not write the guestbook for a different
+schema. `snapback --port N` updates an identifiable loopback `const origin`,
+matching literal grants and test fetch prefixes, and prints `dev --port N`.
+A grant written as `net.fetch ${origin}` follows the constant. An origin it
+cannot identify or a production origin is refused for this port edit.
+
 ### D13. `fresh`: a test file empties the backend before each test
 
 **Author ruling 2026-10-12, via the sb4 app farm** (wave 4: 091; wave 7:
@@ -455,11 +463,13 @@ directory. Before each such test opens, `scripts/agent-test.mjs`
 server (a `storeId`) gets `POST /dev/reset`, with the file's
 `[{table, row}]` as the body when one is named. The door is snapback4's
 (dev only: the app's tables and derived data emptied, then seeded; it
-answers `{reset: true, seeded, generation}`); it is not in 0.4.22, which
-answers 404, and a 404 fails the test naming the older server and the
-per-file workaround. No `test web --fresh` flag: the line says it in the
-file, as `epoch now` does. Until a snapback4 with the door is pinned, the
-README keeps the per-file server (`test-fresh.mjs`); delete it then.
+answers `{reset: true, seeded, generation}`); 0.4.23 has it. A 404
+fails the test naming the older server and the pinned version to install.
+No `test web --fresh` flag: the line says it in the file, as `epoch now`
+does. Verified against the published 0.4.23 door and a scratch app's two
+tests that each start empty (2026-10-12); the README's per-file
+`test-fresh.mjs` workaround is removed. `serve` has no development reset.
+
 
 ## 3. Implementation order
 

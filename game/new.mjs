@@ -118,22 +118,28 @@ export function createApp(destination, options = {}) {
   const port = options.snapback ? snapbackPort(options.snapback.port) : null;
   mkdirSync(dir, { recursive: true });
   let created;
+  const existingBackend = options.snapback && existsSync(resolve(dir, '..', 'snapback/schema.q'));
   try {
     created = writeApp(dir, name);
     if (!options.snapback) return created;
-    snapbackStarter(dir, name, port);
+    if (!existingBackend) snapbackStarter(dir, name, port);
+    else {
+      const source = resolve(dir, 'app.ts');
+      const ts = readFileSync(source, 'utf8');
+      writeFileSync(source, ts.replace("export const grants = '';", `const origin = 'http://127.0.0.1:${port}';\nexport const grants = \`net.fetch \${origin}\\nsqlite.open app:/data\`;`));
+    }
   } catch (error) {
     rmSync(dir, { recursive: true, force: true });
     throw error;
   }
   // The app stands; what wiring could not do (no server installed yet, a cold device build that failed) it says.
-  return `${created}\n${wireSnapback(dir, { build: options.snapback.build ?? true, port })}`;
+  return `${created}${existingBackend ? '\nThe backend already has a schema: kept the greeting app. Write app.ts and app.contract for its generated operations; no guestbook was substituted.' : ''}\n${wireSnapback(dir, { build: options.snapback.build ?? true, port })}`;
 }
 
 /** The Snapback origin's port `--port` names (`snapback4 dev`'s default, 4400, else). */
-function snapbackPort(port = 4400) {
+function snapbackPort(port = 4400, command = 'exact new --snapback --port') {
   const n = Number(port);
-  if (!Number.isInteger(n) || n < 1 || n > 65535) throw new Error(`exact new --snapback --port: ${port} is not a port (1-65535)`);
+  if (!Number.isInteger(n) || n < 1 || n > 65535) throw new Error(`${command}: ${port} is not a port (1-65535)`);
   return n;
 }
 
@@ -324,6 +330,33 @@ export function wireSnapback(dir, { build = true, port = null } = {}) {
   const manifestPath = resolve(dir, 'app.json');
   if (!existsSync(manifestPath)) throw new Error(`${dir}: no app.json here (bun exact.mjs snapback runs in the app's directory, the backend's above it)`);
   const parent = dirname(dir), said = [], version = snapbackVersion();
+  if (port !== null) {
+    port = snapbackPort(port, 'exact snapback --port');
+    const source = resolve(dir, 'app.ts'), ts = existsSync(source) ? readFileSync(source, 'utf8') : '';
+    const origin = /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(ts)?.[1];
+    if (!origin) throw new Error('exact snapback --port needs app.ts\'s const origin = "http://127.0.0.1:…"; name the origin and use net.fetch ${origin} in its grants first');
+    const next = new URL(origin);
+    if (!['127.0.0.1', 'localhost', '[::1]'].includes(next.hostname)) throw new Error(`exact snapback --port: ${origin} is not a loopback backend`);
+    next.port = String(port);
+    const moved = next.href.replace(/\/$/, '');
+    const files = [source];
+    const tests = (path, nested = false) => {
+      for (const entry of readdirSync(path, { withFileTypes: true })) {
+        if (entry.isFile() && entry.name.endsWith('.test.contract')) files.push(resolve(path, entry.name));
+        else if (entry.isDirectory() && (nested || entry.name === 'tests') && !entry.name.startsWith('.') && entry.name !== 'node_modules') tests(resolve(path, entry.name), true);
+      }
+    };
+    tests(dir);
+    for (const file of files) {
+      const before = readFileSync(file, 'utf8');
+      const after = before.replaceAll(origin, (match, at) => {
+        const next = before[at + match.length];
+        return next === undefined || /[\s\\/?#'"`]/.test(next) ? moved : match;
+      });
+      if (after !== before) writeFileSync(file, after);
+    }
+    said.push(`Snapback origin: ${origin} → ${moved}; updated app.ts (origin and matching grants) and test fetch prefixes.`);
+  }
   const cli = resolve(parent, 'node_modules/.bin/snapback4'), generated = resolve(parent, 'snapback/generated/api.ts');
   if (!existsSync(resolve(parent, 'snapback/schema.q'))) said.push(`No backend above: ${parent}/snapback/schema.q is missing. Write one there (snapback4/README.md's guestbook is a start), then run this again.`);
   else if (!existsSync(cli)) said.push(`The backend's server is not installed in ${parent}: \`npm i snapback4@${version}\` there (or \`bun add\`), then \`bun exact.mjs snapback\` here.`);
@@ -338,6 +371,9 @@ export function wireSnapback(dir, { build = true, port = null } = {}) {
   if (existsSync(generated)) sources.backend = '../snapback/generated';
   const next = JSON.stringify(app, null, 2) + '\n';
   if (next !== text) writeFileSync(manifestPath, next);
+  const ignore = resolve(dir, '.gitignore');
+  const ignored = existsSync(ignore) ? readFileSync(ignore, 'utf8') : '';
+  if (!ignored.split('\n').includes('/assets/snapback4.wasm')) writeFileSync(ignore, `${ignored}${ignored.endsWith('\n') || !ignored ? '' : '\n'}/assets/snapback4.wasm\n`);
   said.unshift(`app.json: ${JSON.stringify({ typescript: app.typescript })}`);
   if (!sources.backend) said.push('app.json mounts no `backend` yet: app.ts imports ./backend/api.ts once ../snapback/generated exists.');
   const ts = existsSync(resolve(dir, 'app.ts')) ? readFileSync(resolve(dir, 'app.ts'), 'utf8') : '';

@@ -48,11 +48,12 @@ is handed to whoever drives it. Pinned to Snapback4 **0.4.16**
 ### Set it up: one command
 
 A new app: from the backend's directory (`snapback/schema.q`, and
-`snapback4@0.4.16` installed there: `bun add snapback4@0.4.16` or `npm i
-snapback4@0.4.16`), `bun /path/to/exact2/scripts/exact.mjs new app --snapback`
-(`--port <n>` for an origin other than 4400). It writes the guestbook below as
+`snapback4@0.4.23` installed there: `bun add snapback4@0.4.23` or `npm i
+snapback4@0.4.23`), `bun /path/to/exact2/scripts/exact.mjs new app --snapback`
+(`--port <n>` for an origin other than 4400). With no backend schema yet, it writes the guestbook below as
 the app (`app.contract`, `app.ts` at that origin with its grants,
-`app.test.contract`) and `snapback/schema.q` when there is none, then wires it.
+`app.test.contract`) and `snapback/schema.q` when there is none, then wires it. With an existing schema it keeps the greeting app and mounts
+the backend's operations: write the view and data sources for those operations.
 An existing app (the one holding `app.json`, the backend in the directory
 above it): `bun exact.mjs snapback`. Either one:
 
@@ -124,9 +125,12 @@ web storage. Use a separate key for each origin. `open` drops malformed or
 expired stored sessions and refreshes within 60 seconds of expiry using the
 supplied Contract time. `refreshSession(now)` also rotates explicitly and
 stores the replacement before returning. `E_AUTH` on refresh forgets the
-session: show sign-in again. Offline refresh keeps it. `logout` always forgets
-locally; `ok: true` confirms server revocation, `offline: true` says it could
-not be confirmed. Logout before signing into another account. No DOM
+session: show sign-in again. A refusal for an older token never clears a
+replacement already stored by refresh. Offline refresh keeps it. `logout` always forgets
+locally and retires the previous partition, including shared native handles;
+`ok: true` confirms server revocation, `offline: true` says it could
+not be confirmed. Await logout before signing into another account. Data and asset requests
+that finish after an account change reject with `E_STALE`; open a new handle. No DOM
 `Storage`, npm auth import, `Date.now()` or timers are needed in `app.ts`.
 
 `name` is a base for password apps: the driver adds the safely encoded
@@ -140,12 +144,14 @@ this mixed switcher needs no cast on its conditional headers:
 import type { Session } from './snapback4/snapback.ts';
 const sessions = new Map<string, Session>();           // populated from db.session after sign-in
 const viewers = Snapback.switcher((key: string) => ({ app: appId, origin,
+  name: sessions.has(key) ? `account-${Snapback.partitionName(key)}` : Snapback.partitionName(`dev:${key}`),
   viewer: sessions.get(key)?.principal ?? `dev:${key}`,
   headers: () => {
     const session = sessions.get(key);
     return session ? { authorization: `Bearer ${session.token}` } : { 'x-snapback-persona': key };
   } }));
 // Password key: its principal; persona key: its declared name (dev only).
+// The password name matches the `name: 'account'` auth opening above.
 // In a source: viewers.use(key, storage, native, db => db.read(api.recent, {}, now)).
 ```
 
@@ -383,7 +389,7 @@ each wrote. A later test sees an earlier test's rows and a second run sees
 the first's: a total is off, a `unique` code answers `CODE_TAKEN`, a position
 holds another test's row. A failed test whose server already held commits
 when it began says so in a note, counting those from before the run and
-those from earlier tests in it. Three ways out:
+those from earlier tests in it. Two ways out:
 
 - **Each test starts empty: `fresh`.** A `fresh` line at the top of the
   test file (or leading one test) empties the `snapback4 dev` server the
@@ -417,7 +423,11 @@ Two ports, set apart. **The Snapback origin** is a constant in `app.ts`
 module reads no environment, so the server must come to it:
 `snapback4 dev --port 4400` (4400 is also `dev`'s default), and the test
 file's `fail fetch`/`pass fetch` prefixes name the same origin. To move it,
-change the constant, the `--port` and the prefixes together. `test web` reads
+run `bun exact.mjs snapback --port <n>` to update a literal loopback
+`const origin`, matching grant literals and test fetch prefixes; it prints
+the matching `dev --port <n>`. `${origin}` grants follow automatically.
+An origin it cannot identify or a production origin is refused for this
+port edit: set production origins yourself. `test web` reads
 this origin from the build's `net.fetch` grants (`app.ts`'s `grants`), asks
 whether anything listens there, and refuses the run when nothing does.
 **The Exact page's port** is separate: `EXACT_PORT=<n>` (or `--port <n>`)

@@ -263,3 +263,8 @@ notes show its last lines.
 via `POST /dev/reset` (Snapback4 0.4.24, `dev` only) before each test. `fresh "seed.json"` then seeds it with
 `[{"table": …, "row": {…}}]`, from a path relative to the test file. Without
 `fresh`, backend rows survive tests and runs. A server lacking reset fails the test.
+
+With an existing backend schema, `new --snapback` keeps the starter app: write
+its sources for those generated operations. `snapback --port <n>` moves a
+loopback origin, its grants and test fetch prefixes together. Password sign-in,
+stored sessions and refresh with Contract time are in [the adapter guide](../snapback4/README.md#personas-and-password-accounts).
