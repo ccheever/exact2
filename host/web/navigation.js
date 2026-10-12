@@ -1106,9 +1106,9 @@ export function settleValue(el, acted = false) {
 // What `type <id> <value>` sets rather than types into (D9): the valued controls, a checkbox (or `switch`), which a
 // value turns on or off, and a radio, which `true` checks (x2apps survey #2).
 export const typedControl = (el) => valuedControl(el) || (el instanceof HTMLInputElement && (el.type === "checkbox" || el.type === "radio"));
-// A text field (x2apps codeedit #2): an input that is no control, or a textarea that is not the Markdown editor; its
-// `input` and `change` carry its selection, and its `select` is HTML's.
+// A text field (x2apps codeedit #2): an input that is no control, or a textarea that is not the Markdown editor; its `input` and `change` carry its selection, and its `select` is HTML's.
 export const textField = (el) => el instanceof HTMLTextAreaElement ? el.getAttribute("markup") !== "markdown" : el instanceof HTMLInputElement && !typedControl(el) && el.type !== "file";
+export const editMenu = (target) => { const f = target.closest("input,textarea,[contenteditable]"); return !!f && (!(f instanceof HTMLInputElement) || textField(f)); }; // a `contextmenu` from a text field, a textarea or an editable region opens the browser's edit menu and runs no handler (review b5-b 3); a control's input (a checkbox, switch, radio, range, date, time or file) has no such menu, so its node's handler runs and its popover opens, as Chrome sends the event and macOS runs it (#487)
 // Its selection as host kinds 40 to 42 carry it, before its text: `start,end,direction,` in UTF-16 units, the DOM's; a
 // type with none (email, number) has its caret after its text, as the runner assumes.
 export const fieldSelection = (el) => { const end = el.value.length; return `${el.selectionStart ?? end},${el.selectionEnd ?? end},${el.selectionDirection ?? "none"},`; };

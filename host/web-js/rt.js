@@ -1,4 +1,4 @@
-import { renderMarkup, reportPlace, onSelection, textField, settleRadios, installFits } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; // synced animations (LLP 1055.002, emit.rs `clocks`)
+import { renderMarkup, reportPlace, onSelection, textField, editMenu, settleRadios, installFits } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; // synced animations (LLP 1055.002, emit.rs `clocks`)
 import { Docs, Head, head, markDocument, projectRoots } from "./document.js"; export { Head }; import { conforms, eq, equal, failureCode } from "./shape.js"; import { pointer, record } from "./pointer.js"; import { commands } from "./commands.js"; import { autofocus, press } from "./focus.js";
 let Paint; export function usePaint(pass) { Paint = pass; } export { conforms, eq, equal }; // the compiler installs `Paint` only when a plan can layer boxes
 import * as Ov from "./overlay.js"; // optimistic writes shown over answers (the runner's writes.rs)
@@ -782,9 +782,9 @@ export function c2(e, name, values, types, names) {
 let Painted = null, Native = null;
 export const painted = () => Painted ??= new Promise(r => { let o; const done = () => { o?.disconnect(); r(); }; try { o = new PerformanceObserver(() => requestAnimationFrame(done)); o.observe({ type: "paint", buffered: true }); } catch {} requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(done, 250))); });
 /** A context menu's popover (LLP 1021 §5.1): after the node's own `contextmenu` (both fire), the popover its `contextpopover` names opens anchored to it,
- * the browser's own menu prevented and no ancestor hearing the event (macOS consumes the click too); a field's edit menu stays the browser's, and a disabled or inert node opens nothing. */
+ * the browser's own menu prevented and no ancestor hearing the event (macOS consumes the click too); a text field's edit menu stays the browser's (navigation.js `editMenu`), and a disabled or inert node opens nothing. */
 export function cp(e) {
-  e.addEventListener("contextmenu", ev => { if (ev.$cp || !e.getAttribute("contextpopover") || ev.target.closest("input,textarea,[contenteditable]") || e.matches(":disabled") || e.closest("[inert]")) return; ev.$cp = 1; ev.preventDefault(); ev.stopPropagation(); setTimeout(() => { if (!e.isConnected || e.matches(":disabled") || e.closest("[inert]")) return; const p = document.getElementById(e.getAttribute("contextpopover") ?? ""); try { if (p && !p.matches(":popover-open")) p.showPopover({ source: e }); } catch {} }); });
+  e.addEventListener("contextmenu", ev => { if (ev.$cp || !e.getAttribute("contextpopover") || editMenu(ev.target) || e.matches(":disabled") || e.closest("[inert]")) return; ev.$cp = 1; ev.preventDefault(); ev.stopPropagation(); setTimeout(() => { if (!e.isConnected || e.matches(":disabled") || e.closest("[inert]")) return; const p = document.getElementById(e.getAttribute("contextpopover") ?? ""); try { if (p && !p.matches(":popover-open")) p.showPopover({ source: e }); } catch {} }); });
 }
 /** A native module's element (LLP 1024 D3): the real custom element, empty until the web host's adapter (`native.js`)
  * and the app's module artifact load (`painted`); the module renders into it, its events reaching the handlers as `exact-native` events (`on`). */
@@ -926,8 +926,8 @@ export const onDblclick = (e, kind, f, l) => { return l(kind, ev => { ev.prevent
 // pointer.js (LLP 1005 §Events, 1056 §3)
 export const onPointer = (e, kind, f, l) => { return pointer(e, kind, f); };
 // UI Events' `contextmenu` is a PointerEvent: where the secondary click was (studio diary R22).
-// A field's own edit menu stays the browser's; the nearest handler alone hears it, as on the wasm host and macOS (review b5-b 3).
-export const onContextmenu = (e, kind, f, l) => { return l(kind, ev => { if (ev.target.closest("input,textarea,[contenteditable]")) return; ev.preventDefault(); ev.stopPropagation(); f(record(e, ev)); }); };
+// A text field's own edit menu stays the browser's (navigation.js `editMenu`); a control's input has none, so its node's handler runs (#487). The nearest handler alone hears it, as on the wasm host and macOS (review b5-b 3).
+export const onContextmenu = (e, kind, f, l) => { return l(kind, ev => { if (editMenu(ev.target)) return; ev.preventDefault(); ev.stopPropagation(); f(record(e, ev)); }); };
 // DOM's own, bubbling to every ancestor's handler; one that calls `preventDefault()` keeps the scroll (a pinch is a Control-held wheel) from happening (studio diary R3).
 export const onWheel = (e, kind, f, l) => { return e.addEventListener("wheel", ev => { if (e.matches(":disabled") || e.closest("[inert]")) return; const outer = KeyEvent; KeyEvent = ev; try { f([...record(e, ev).slice(0, 2), ev.deltaX, ev.deltaY, ev.deltaMode, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey]); } finally { KeyEvent = outer; } }, { passive: false }); };
 // Files dropped from outside, each a `doc:` handle (files.js, documents-glue.js; studio diary R19).
