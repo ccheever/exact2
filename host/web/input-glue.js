@@ -53,6 +53,37 @@ function radioArrow(root, event) {
   if (next !== el) { rove(all, next); next.focus(); next.click(); }
   return true;
 }
+/** @ref LLP 1115.000 D4.5 — a `tablist`'s tabs and a `menu`'s items move by the arrow keys, as WAI-ARIA's patterns give
+ * the roles and a web developer expects of them: Left and Right along a tablist (Up and Down when it is vertical: its
+ * `aria-orientation`, or a root tab bar the shell draws as a sidebar), Up and Down in a menu (and into an open one from
+ * outside it), Home and End to the ends, wrapping, past disabled ones. The focus moves and nothing is pressed: a tab's
+ * press is the app's action (a fetch, in Shelf's Discover), so Enter or Space chooses, as a `<button>` takes them. A
+ * tablist is one Tab stop: its selected tab, or the tab the arrows left the focus on. */
+const ROVES = '[role="tablist"], [role="menu"]';
+const roversOf = group => [...group.querySelectorAll(group.getAttribute("role") === "menu" ? 'button, a[href], [role^="menuitem"]' : '[role="tab"]')].filter(el => el.closest(ROVES) === group);
+function tabStops(root) {
+  for (const list of root.querySelectorAll('[role="tablist"]')) {
+    const all = roversOf(list), at = document.activeElement;
+    rove(all, all.includes(at) ? at : all.find(t => t.getAttribute("aria-selected") === "true" && radioUsable(t)) ?? all.find(radioUsable));
+  }
+}
+/** An arrow, Home or End among a tablist's tabs or a menu's items moves the focus; whether it did. */
+function roveArrow(root, event) {
+  const el = event.target, key = event.key, within = el?.closest?.(ROVES);
+  if (!el || !(root.contains(el) || el === document.body)) return false;
+  const open = !within && /^Arrow(Up|Down)$/.test(key) && !el?.matches?.("input, textarea, select, [contenteditable]") ? root.querySelector('[role="menu"]:popover-open') : null;
+  const group = open ?? within;
+  if (!group || !root.contains(group)) return false;
+  const menu = group.getAttribute("role") === "menu", all = roversOf(group), live = all.filter(item => item === el || radioUsable(item));
+  if (!open && !all.includes(el)) return false;
+  const vertical = menu || group.getAttribute("aria-orientation") === "vertical" || group.parentElement?.hasAttribute("data-exact-sidebar"), rtl = getComputedStyle(group).direction === "rtl";
+  const step = (vertical ? { ArrowDown: 1, ArrowUp: -1 } : { ArrowRight: rtl ? -1 : 1, ArrowLeft: rtl ? 1 : -1 })[key];
+  const next = open ? live.at(key === "ArrowDown" ? 0 : -1) : step ? live[(live.indexOf(el) + step + live.length) % live.length] : key === "Home" ? live[0] : key === "End" ? live.at(-1) : null;
+  if (!next) return false;
+  event.preventDefault();
+  if (next !== el) { if (!menu) rove(all, next); next.focus(); }
+  return true;
+}
 export function createInputHandlers({ root, views, retiredViews, ready, inertAncestor, dispatch, release: dispatchRelease = () => {}, velocity = {}, agentMode = false, log = () => {}, documents = null }) {
   // @ref LLP 1038 §7 — a plain click on a same-origin link to a declared
   // route stays in this document: a link with its own `press` navigates by
@@ -78,7 +109,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     if (!(heard ? navigate(to) : go(to))?.ops?.some(op => op.op === "router")) wasm.exact_log(writeIn(`history: link ${JSON.stringify(to)} refused`));
   }, true);
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Tab") radioStops(root); // a radio group's one stop, before the focus moves
+    if (event.key === "Tab") { radioStops(root); tabStops(root); } // a radio group's one stop, and a tablist's, before the focus moves
     if (event.isComposing || !ready() || event.defaultPrevented) return;
     if (event.key === "Enter" || event.key === " ") note(event, true); // a key's press begins (`arrive`, below)
     const editing = event.composedPath().some(el => el?.isContentEditable || el?.matches?.("input, textarea, [role=textbox], [role=searchbox], [role=combobox]"));
@@ -119,11 +150,12 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // where its handlers are) activates as one, as it does natively: Enter, or
   // Space unless it is a link, after the key's handlers, unless one
   // prevented it — the bubble phase at the document is after them all (chat F14).
-  // A radio group's arrows move its choice, held or not, after the key's own handlers too.
+  // A radio group's arrows move its choice, held or not, after the key's own handlers too; a tablist's and a menu's
+  // move the focus.
   document.addEventListener("keydown", (event) => {
     const el = event.target;
     if (event.defaultPrevented || event.isComposing || event.metaKey || event.ctrlKey || event.altKey || !ready()) return;
-    if (radioArrow(root, event) || event.repeat) return;
+    if (radioArrow(root, event) || roveArrow(root, event) || event.repeat) return;
     // @ref LLP 1115.000 D4.14 — Space holds a `<button>` down until its keyup,
     // when the browser clicks it. A press it declares shows meanwhile, as under
     // a pointer: a native button's highlight, a `-exact-press-scale`. (The
@@ -242,8 +274,22 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   document.addEventListener("pointerdown", e => note(e, false), true);
   document.addEventListener("click", e => { if (!pressed?.el?.contains?.(e.target) || performance.now() - pressed.at > 2000) note(e, e.detail === 0); }, true);
   const lands = el => !!el?.isConnected && !el.closest("[inert]") && el.getClientRects().length > 0 && !el.matches(":disabled");
+  const titleOf = route => [...route.children].find(c => c.localName === "header")?.querySelector("h1, h2, h3, h4, h5, h6, [role=heading]");
+  // @ref LLP 1115.000 D4.5 — a modal route (a sheet) is a dialog to assistive technology: `role="dialog"` and
+  // `aria-modal`, named by its header's heading, and the focus moves into it and returns on close as it does for any
+  // route (`arrive`). The host's marks (`data-exact-dialog`: "named" when the name is its own too) are not the app's:
+  // a role or a label the author wrote is left as written, and the agent's tree leaves the marks out (agent.js).
+  const dialog = route => {
+    const mark = route.getAttribute("data-exact-dialog"), modal = /^(modal|fullscreen)$/.test(route.getAttribute("navigationPresentation") ?? "") && (mark != null || !route.hasAttribute("role"));
+    if (!modal) { if (mark != null) for (const name of ["data-exact-dialog", "role", "aria-modal", ...(mark ? ["aria-labelledby"] : [])]) route.removeAttribute(name); return; }
+    const title = titleOf(route), names = !!title && !route.hasAttribute("aria-label") && (!!mark || !route.hasAttribute("aria-labelledby"));
+    if (names) { title.id ||= `exact-title-${route.getAttribute("navigationKey")}`; if (route.getAttribute("aria-labelledby") !== title.id) route.setAttribute("aria-labelledby", title.id); }
+    else if (mark) route.removeAttribute("aria-labelledby");
+    if (mark !== (names ? "named" : "")) { route.setAttribute("data-exact-dialog", names ? "named" : ""); route.setAttribute("role", "dialog"); route.setAttribute("aria-modal", "true"); }
+  };
   const arrive = () => {
     const nav = root.querySelector("[navigationBack]"), key = nav?.getAttribute("navigationKey");
+    for (const route of nav?.querySelectorAll("[navigationPresentation], [data-exact-dialog]") ?? []) dialog(route);
     const top = key == null ? null : [...nav.querySelectorAll("[navigationKey]")].find(r => r.getAttribute("navigationKey") === key && r.parentElement.closest("[navigationKey]") === nav);
     if (!top) return;
     const routes = [...top.parentElement.children].filter(r => r.hasAttribute("navigationKey")), stack = routes.slice(0, routes.indexOf(top) + 1);
@@ -255,7 +301,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     pressed = null;
     if (active && active !== document.body && (top.contains(active) || ![by?.el, by?.focus].includes(active))) return;
     const origin = back ? origins.get(was[was.indexOf(top) + 1]) : null;
-    const to = lands(origin) ? origin : [...top.children].find(c => c.localName === "header")?.querySelector("h1, h2, h3, h4, h5, h6, [role=heading]") ?? top;
+    const to = lands(origin) ? origin : titleOf(top) ?? top;
     if (!to.hasAttribute("tabindex") && to.tabIndex < 0) { to.tabIndex = -1; to.addEventListener("blur", () => to.removeAttribute("tabindex"), { once: true }); }
     to.focus({ preventScroll: true, ...(by ? { focusVisible: by.key } : {}) });
   };

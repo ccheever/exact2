@@ -319,8 +319,8 @@ export const navigation = {
         const selected = stack === at ? routes.findIndex(route => route.getAttribute("navigationKey") === key) : routes.length - 1;
         if (stack === at) shown.set(nav, routes.slice(0, selected + 1).map(route => route.getAttribute("navigationKey")));
         const modal = routes[selected]?.getAttribute("navigationPresentation") === "modal", split = splitOf(routes), live = split && !sheet(routes[selected]);
-        // A split's detail shown is the top, or the route a sheet covers; its row is the one whose press pushed it, or
-        // pushed a route beneath it in its column.
+        if (stack === at && list) list.inert = sheet(routes[selected]) || !!list.authoredInert; // a sheet is modal: the root's tab bar is inert beneath it, as the route it covers is (LLP 1115.000 D4.5)
+        // A split's detail shown is the top, or the route a sheet covers; its row is the one whose press pushed it, or pushed a route beneath it in its column.
         const detail = split ? routes.findLastIndex((r, i) => i > 0 && i <= selected && !sheet(r)) : -1;
         if (detail > 0 && detail === selected && pressedRow && last?.url !== pressedRow[2] && routes[0].contains(pressedRow[0]) && performance.now() - pressedRow[1] < 2000) { rowOf.set(routes[detail], pressedRow[0]); pressedRow = null; }
         for (const [index, route] of routes.entries()) {

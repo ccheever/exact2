@@ -39,6 +39,7 @@ const page = readFileSync(resolve(WEB, 'index.html'), 'utf8').match(/<style>[\s\
           <div style="height:2000px"></div>
           <button id="row-far" style="height:60px">Far</button>
         </div>
+        <div id="menu" role="menu" popover="auto"><button id="m-1">Open</button><button id="m-2" disabled>Share</button><a id="m-3" href="#x">Copy</a><button id="m-4">Remove</button></div>
       </div>
     </div>
     <div role="tabpanel" id="p2" style="flex:1;position:relative">
@@ -62,10 +63,11 @@ const page = readFileSync(resolve(WEB, 'index.html'), 'utf8').match(/<style>[\s\
     const after = window.then; window.then = null; after?.();
     input?.arrive();
   };
-  window.push = (key, url, { sheet = false, heading = 'Detail ' + key, field = false } = {}) => {
+  window.push = (key, url, { sheet = false, heading = 'Detail ' + key, field = false, role = null } = {}) => {
     const route = document.createElement('div');
     route.setAttribute('navigationKey', key); route.id = 'route-' + key; route.style.cssText = 'position:absolute;inset:0';
     if (sheet) route.setAttribute('navigationPresentation', 'modal');
+    if (role) route.setAttribute('role', role);
     route.innerHTML = (heading ? '<header>' + (sheet ? '<button id="back">Cancel</button>' : '') + '<h2 id="title-' + key + '">' + heading + '</h2></header>' : '') + '<button id="in-' + key + '">Inside</button>' + (field ? '<input id="field-' + key + '" data-native>' : '');
     route.querySelector('#back')?.addEventListener('click', () => pop());
     panel.append(route); stack.push([key, url]); show();
@@ -200,6 +202,87 @@ check('a focus the commit set is left alone, and another tab is no arrival', () 
   expect(await evaluate(`push('t', '/timer'); focus()[0]`)).toBe('tab-1');
   expect(await evaluate(`pop(); document.activeElement.blur(); push('t2', '/timer'); focus()[0]`)).toBe('title-t2');
 }), 30000);
+
+check('a modal route is a dialog to assistive technology: the focus moves in, and returns on close', () => inChrome(async (evaluate, press, key) => {
+  // LLP 1115.000 D4.5. The sheet is `role="dialog"` and `aria-modal`, named by its header's heading; the focus is on
+  // that heading, inside it, and the route it covers is inert.
+  const sheet = id => `(r => [r.getAttribute('role'), r.getAttribute('aria-modal'), r.getAttribute('aria-labelledby'), r.getAttribute('data-exact-dialog')])(document.getElementById('route-${id}'))`;
+  await press('add');
+  expect(await evaluate(sheet('add'))).toEqual(['dialog', 'true', 'title-add', 'named']);
+  expect(await evaluate(`[...focus().slice(0, 2), document.getElementById('route-add').contains(document.activeElement), document.getElementById('list').inert]`)).toEqual(['title-add', false, true, true]);
+  // It is modal: the root's tab bar is inert beneath it too, and live again when it closes.
+  expect(await evaluate(`document.getElementById('tabs').inert`)).toBe(true);
+  // A heading with no id of its own is given one to be named by.
+  expect(await evaluate(`document.getElementById('title-add').removeAttribute('id'); show(); ${sheet('add')}`)).toEqual(['dialog', 'true', 'exact-title-add', 'named']);
+  expect(await evaluate(`document.getElementById('exact-title-add').textContent`)).toBe('New Book');
+  // Its Cancel closes it (so does Escape, navigation.js's), and the focus returns to the button that opened it.
+  await press('back');
+  expect(await evaluate(`[focus()[0], stack.length, document.getElementById('tabs').inert]`)).toEqual(['add', 1, false]);
+  await evaluate(`document.getElementById('add').focus()`);
+  await enter(key);
+  expect(await evaluate('focus().slice(0, 2)')).toEqual(['title-add', true]);
+  await key('Escape', 'Escape', 27);
+  expect(await evaluate('[...focus().slice(0, 2), stack.length]')).toEqual(['add', true, 1]);
+
+  // What the author wrote wins: a role of their own, or a label, is left as written; a sheet with no heading has no name.
+  expect(await evaluate(`push('own', '/own', { sheet: true, role: 'region' }); ${sheet('own')}`)).toEqual(['region', null, null, null]);
+  expect(await evaluate(`pop(); push('said', '/said', { sheet: true }); document.getElementById('route-said').setAttribute('aria-label', 'Said'); show(); ${sheet('said')}`)).toEqual(['dialog', 'true', null, '']);
+  expect(await evaluate(`pop(); push('bare', '/bare', { sheet: true, heading: '' }); ${sheet('bare')}`)).toEqual(['dialog', 'true', null, '']);
+  // A route that is no longer modal is no longer a dialog, and a pushed route never was.
+  expect(await evaluate(`document.getElementById('route-bare').removeAttribute('navigationPresentation'); show(); ${sheet('bare')}`)).toEqual([null, null, null, null]);
+  expect(await evaluate(`pop(); push('1', '/item/1'); ${sheet('1')}`)).toEqual([null, null, null, null]);
+}), 30000);
+
+check('a tablist\'s tabs and a menu\'s items move by the arrow keys', () => inChrome(async (evaluate, press, key) => {
+  const arrow = name => key(name, name, { ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, Home: 36, End: 35 }[name]);
+  const after = async (name) => { await arrow(name); return evaluate('document.activeElement.id + " " + nav.getAttribute("navigationKey")'); };
+  // Left and Right along a tablist, wrapping, with Home and End: the focus moves and nothing is pressed (the selected
+  // route is still the list's), so Enter or Space chooses.
+  await evaluate(`document.getElementById('tab-1').focus()`);
+  expect(await after('ArrowRight')).toBe('tab-2 list');
+  expect(await after('ArrowRight')).toBe('tab-1 list');
+  expect(await after('ArrowLeft')).toBe('tab-2 list');
+  expect(await after('Home')).toBe('tab-1 list');
+  expect(await after('End')).toBe('tab-2 list');
+  expect(await after('ArrowDown')).toBe('tab-2 list'); // not this bar's axis: the page's own key
+  await enter(key);
+  expect(await evaluate('document.activeElement.id + " " + nav.getAttribute("navigationKey")')).toBe('tab-2 other');
+  // A tablist is one Tab stop: the tab the focus is on, else its selected tab.
+  await key('Tab', 'Tab', 9);
+  expect(await evaluate(`[document.getElementById('tab-1').tabIndex, document.getElementById('tab-2').tabIndex]`)).toEqual([-1, 0]);
+  await press('tab-1');
+  await evaluate(`document.getElementById('tab-1').setAttribute('aria-selected', 'true'); document.getElementById('add').focus()`);
+  await key('Tab', 'Tab', 9);
+  expect(await evaluate(`[document.getElementById('tab-1').tabIndex, document.getElementById('tab-2').tabIndex]`)).toEqual([0, -1]);
+
+  // Up and Down in a menu, past a disabled item, wrapping, with Home and End; and into an open menu from outside it.
+  await evaluate(`document.getElementById('menu').showPopover(); document.getElementById('m-1').focus()`);
+  expect(await after('ArrowDown')).toBe('m-3 list');
+  expect(await after('ArrowDown')).toBe('m-4 list');
+  expect(await after('ArrowDown')).toBe('m-1 list');
+  expect(await after('ArrowUp')).toBe('m-4 list');
+  expect(await after('Home')).toBe('m-1 list');
+  expect(await after('End')).toBe('m-4 list');
+  expect(await after('ArrowRight')).toBe('m-4 list'); // not a menu's axis
+  await evaluate(`document.getElementById('add').focus()`);
+  expect(await after('ArrowDown')).toBe('m-1 list');
+  await evaluate(`document.getElementById('add').focus()`);
+  expect(await after('ArrowUp')).toBe('m-4 list');
+  // With the menu closed, and in a field, the arrows are the page's own.
+  await evaluate(`document.getElementById('menu').hidePopover(); document.getElementById('search').focus()`);
+  expect(await after('ArrowDown')).toBe('search list');
+}), 30000);
+
+check('a root tab bar drawn as a sidebar moves by Up and Down', () => inChrome(async (evaluate, press, key) => {
+  expect(await evaluate(`nav.hasAttribute('data-exact-sidebar')`)).toBe(true);
+  await evaluate(`document.getElementById('tab-1').focus()`);
+  await key('ArrowRight', 'ArrowRight', 39);
+  expect(await evaluate('document.activeElement.id')).toBe('tab-1');
+  await key('ArrowDown', 'ArrowDown', 40);
+  expect(await evaluate('document.activeElement.id')).toBe('tab-2');
+  await key('ArrowUp', 'ArrowUp', 38);
+  expect(await evaluate('document.activeElement.id')).toBe('tab-1');
+}, 1200), 30000);
 
 check('in a wide window\'s split the focus follows the detail and comes back to its row', () => inChrome(async (evaluate, press) => {
   // The list stays live beside its detail (LLP 1116.004 D1), so the pressed row still has the focus when the detail
