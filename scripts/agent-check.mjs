@@ -46,14 +46,14 @@ function backdrop(png, scale, it) {
 }
 
 /** The contrast a text needs (WCAG 1.4.3, and LLP 1115's platform answers): 4.5:1; 3:1 for large text (24 px, or 18.66 px bold), for a
- *  control's label on its own fill (D3's ink rule), for ink the platform chose (a tab bar's item) and for text in a platform colour (the
+ *  control's label on its own fill (D3's ink rule), for ink the platform chose (a tab bar's item, `AccentColorText` on the accent) and for text in a platform colour (the
  *  secondary label, system red: the platform's palette, as a hand-built app draws it). The platform's tertiary and quaternary labels and its placeholders are its own and not judged,
  *  nor is a disabled control's label (WCAG's inactive component). */
 function floor(it, scheme) {
   if (it.inactive) return null;
   const r = role(it.fgRole) ?? drawnRole(it.fg, scheme);
   if (r && /^(tertiary|quaternary)-label$|^placeholder$|^GrayText$/.test(r)) return null;
-  if (it.size >= 24 || (it.size >= 18.66 && it.weight >= 700) || it.label || it.platformInk || (r && /^secondary-label$|^system-|^link$|^LinkText$|^AccentColor$|^ButtonText$/.test(r))) return 3;
+  if (it.size >= 24 || (it.size >= 18.66 && it.weight >= 700) || it.label || it.platformInk || (r && /^secondary-label$|^system-|^link$|^LinkText$|^AccentColor$|^AccentColorText$|^ButtonText$/.test(r))) return 3;
   return 4.5;
 }
 /** The platform role an ink is, by its value in this scheme: UIKit's own labels carry no name, nor does a text whose colour
