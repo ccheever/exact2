@@ -128,6 +128,10 @@ New rows (`schema.json`):
 
 `opacity` is the existing row. On `g` it is group opacity, as in CSS.
 
+> **Amended by LLP 1115.000 D3.8 (2026-10-11).** `fill`'s initial value is `currentcolor`,
+> not SVG's black, on every host: a shape nobody filled is its text's colour. Declared in
+> LLP 1001; the web's stylesheet says it on the outermost `svg`.
+
 **Which inputs are props and which are rows follows SVG 2.** A property CSS can set (and so animate) is a row. An attribute CSS cannot set (`points`, `d`, `x1`…`y2`, `x`, `y`, `rx`, `ry`, `pathLength`, `viewBox`, `preserveAspectRatio`) is a prop. `d` is a CSS property in Chrome only; it stays an attribute here, so it is not animatable in v1.
 
 `paint` and `dasharray` use the kernel's existing `CssValue` codec shape (the wire carries the CSS text, as `clip-path` and `aspect-ratio` do), so the web host emits exactly what was authored.

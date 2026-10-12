@@ -2,8 +2,8 @@
 // screenshot back to find it — text clipped against its box, controls overlapping or covered by a bar, the keyboard
 // or a sheet, targets under the platform's minimum, horizontal overflow, text below a contrast floor, and a card
 // whose fill is what lies behind it. The host observes (host/web-js/check.js, AgentCheckIOS.swift: its presented
-// boxes, ink, fills, clips and hit tests); the background a text stands on is read from a capture's pixels; this
-// file only judges. `check dark` (or `light`) runs it under that `prefers-color-scheme`, `check both` under each.
+// boxes, ink, fills, clips and hit tests, and the fill painted under each text, LLP 1116.006 D5); where no fill is
+// known, the background a text stands on is read from a capture's pixels; this file only judges. `check dark` (or `light`) runs it under that `prefers-color-scheme`, `check both` under each.
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
@@ -19,9 +19,6 @@ const ROLES = (() => {
   for (const [name, webkit, ios, mac, light, dark] of rows) for (const n of [name, webkit, ios, mac, ios?.replace(/Color$/, '')]) if (n && !byName.has(n)) byName.set(n, { name, light, dark });
   return byName;
 })();
-/** Colours the compiler writes for a role where UIKit's measured value is newer than the table's: the grouped sheet's red
- *  (contract/lower/src/grouped.rs `RED`), which a destructive row's title is drawn in on the web. */
-const DRAWN = [{ name: 'system-red', light: '#ff383c', dark: '#ff4245' }];
 const role = (raw) => (raw && ROLES.get(String(raw).replace(/^-exact-/, ''))?.name) ?? null;
 const hex = (c) => '#' + c.slice(0, 3).map((v) => Math.round(v).toString(16).padStart(2, '0')).join('');
 const lum = (c) => { const [r, g, b] = c.slice(0, 3).map((v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
@@ -63,7 +60,7 @@ function floor(it, scheme) {
  *  is inherited or the grouped list's sheet's (a section footer's secondary label on the web). */
 function drawnRole(fg, scheme = 'light') {
   if (!fg) return null;
-  for (const r of [...new Set(ROLES.values()), ...DRAWN]) {
+  for (const r of new Set(ROLES.values())) {
     const h = String(r[scheme] ?? ''), n = parseHex(h), a = h.length === 9 ? parseInt(h.slice(7), 16) / 255 : 1;
     if (h.startsWith('#') && near(fg, n, 2) && Math.abs((fg[3] ?? 1) - a) < 0.03) return r.name;
   }
@@ -96,12 +93,13 @@ export function judge(obs, png, { host = 'web' } = {}) {
         Math.hypot((o.x + o.w / 2) - (it.x + it.w / 2), (o.y + o.h / 2) - (it.y + it.h / 2)) >= obs.target);
       if (!spaced) add('target', it, { min: obs.target, unit }, `make its box at least ${obs.target}×${obs.target} (padding, or \`min-height\`/\`min-width\`)`);
     }
-    // Contrast against what the pixels show behind it.
-    if (it.text && it.fg && png) {
-      const need = floor(it, obs.scheme), bg = need && backdrop(png, scale, it);
+    // Contrast against what it stands on: the fill the host found painted under it (LLP 1116.006 D5), else what the
+    // pixels show behind it.
+    if (it.text && it.fg && (it.bg || png)) {
+      const need = floor(it, obs.scheme), bg = need && (it.bg ?? backdrop(png, scale, it));
       if (bg) {
         const ink = over(it.fg, bg), got = ratio(ink, bg);
-        if (got < need - 0.005) add('contrast', it, { got: Math.floor(got * 10) / 10, need, fg: hex(ink), bg: hex(bg) },
+        if (got < need - 0.005) add('contrast', it, { got: Math.floor(got * 10) / 10, need, fg: hex(ink), bg: hex(bg), ...(it.bg ? { on: it.on ?? 'page' } : {}) },
           it.label ? 'name a `color` for the label, or a fill it reads on in this scheme' : role(it.fgRole) ? `-exact-${role(it.fgRole)} is too light for text on this: use -exact-label or -exact-secondary-label, or keep the colour for a fill or a symbol` : 'use a role (`-exact-label`, `-exact-secondary-label`) or a colour that changes with the scheme');
       }
     }
@@ -119,12 +117,13 @@ export function judge(obs, png, { host = 'web' } = {}) {
       }
     }
   }
-  // Controls overlapping each other, or a text: neither holds the other and they share more than a sliver.
+  // Controls overlapping each other, or a text: neither holds the other and they share more than a sliver of what is
+  // presented of each (`vis`: a row its list or scroller cuts overlaps nothing past that edge, LLP 1116.006 D5).
   const controls = items.filter((it) => it.control && !it.inline);
   for (const a of controls) for (const b of items) {
     if (a === b || !(b.control || b.text) || (b.control && b.id < a.id && controls.includes(b))) continue;
     if (!b.control && (b.of === a.id || controls.some((c) => c !== a && holds(c, b)))) continue; // its own label, or another control's
-    const i = inter(a, b);
+    const i = inter(a.vis ?? a, b.vis ?? b);
     if (i.w >= 2 && i.h >= 2 && !holds(a, b) && !holds(b, a)) add('overlap', a, { with: b.id, by: [r0(i.w), r0(i.h)] }, 'give them room (a gap, or let the row wrap)');
   }
   // A control's own text covered with it is one finding: the control's.
@@ -156,7 +155,7 @@ function line(f, nodes) {
     clipped: () => d.need ? `its text is ${[d.need[0] ? `${d.need[0]} ${d.unit} wider` : '', d.need[1] ? `${d.need[1]} ${d.unit} taller` : ''].filter(Boolean).join(' and ')} than its box${d.clips ? ', which clips it' : ', and spills'}` : `${d.edge ? `the ${d.edge} of the screen` : named(d.by, nodes)} cuts ${[d.cut[0] ? `${d.cut[0]} ${d.unit} of its width` : '', d.cut[1] ? `${d.cut[1]} ${d.unit} of its height` : ''].filter(Boolean).join(' and ')}`,
     overflow: () => `runs ${d.past} ${d.unit} past the ${d.width}-wide viewport's side, and nothing scrolls it`,
     target: () => `${f.box[2]}×${f.box[3]} ${d.unit}, under the ${d.min}×${d.min} minimum`,
-    contrast: () => `${d.got}:1 (${d.fg} on ${d.bg}), needs ${d.need}:1`,
+    contrast: () => `${d.got}:1 (${d.fg} on ${d.bg}${d.on == null ? '' : d.on === 'own' ? ', its own fill' : d.on === 'page' ? ', the page' : `, ${named(d.on, nodes)}'s fill`}), needs ${d.need}:1`,
     card: () => `its fill ${d.fill} is what lies behind it (${d.behind}): it does not show`,
     overlap: () => `overlaps ${named(d.with, nodes)} by ${d.by[0]}×${d.by[1]}`,
   }[f.kind]();

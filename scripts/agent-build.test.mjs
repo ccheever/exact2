@@ -97,6 +97,8 @@ test('a missing or stale build is built first, said in one line; a fresh one run
 
     // An exact.mjs from before test and agent built first is told how to get that.
     assert.equal(rebuildCommand(app, 'ios'), `(cd '${dir}' && bun exact.mjs ios)`);
+    write('exact.mjs', "const cli = resolve(EXACT2, 'scripts/app-cli.mjs');\n"); // the launcher (LLP 1116.006 D7)
+    assert.equal(rebuildCommand(app, 'ios'), `(cd '${dir}' && bun exact.mjs ios)`);
     write('exact.mjs', '// an older one\n');
     assert.equal(rebuildCommand(app, 'mac'), `(cd '${dir}' && bun exact.mjs mac) (after bun exact.mjs update, test and agent build it themselves)`);
   } finally {

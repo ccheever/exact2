@@ -197,11 +197,15 @@ test "add validates, saves, refuses a repeat, opens and deletes after asking"
   tap "add-save"
   clock data
   expect text "error-title" == "There’s already a note called Milk. Choose another title."
-  tap "add-cancel"
+  back
   clock settle
   tap "Milk"
   clock settle
   expect text "detail-title" == "Milk"
+  back
+  clock settle
+  tap "Milk"
+  clock settle
   tap "delete-note"
   clock settle
   tap "remove-confirm"
@@ -226,13 +230,17 @@ test "add validates, saves, refuses a repeat, opens and deletes after asking"
   the save's reply is ok: a refusal keeps the sheet, its text and the reason
   ([after-a-write](after-a-write.md)).
 - In tests, `clock settle` after every push, sheet or alert, and `clock data` before
-  reading what a save wrote. Swipe to delete and long-press menus: [list-rows](list-rows.md).
+  reading what a save wrote. `back` is the platform's Back: it cancels the alert,
+  dismisses the sheet (pressing its Cancel) and pops the detail, on every host.
+  Swipe to delete and long-press menus: [list-rows](list-rows.md).
 - A wide window (900 px and up on the web) shows the list beside its detail with nothing
   to write, as a split view does: its rows push, because they draw the disclosure (the
   `forward-chevron`). A sheet stays a sheet; a phone pushes. A row pressed while a detail
   shows pushes another, so to swap the detail instead, `follow` replaces when one is shown:
   `nav = top(nav).name == "note" and startsWith(url, "/note/") ? replace(nav, url) : go(nav, url)`.
   `navigationSplit="none"` on the list's route keeps it pushed; `contract vocab navigationSplit`.
+  Until a row is chosen the detail pane says "No Selection", as an iPad's does. For your own, mark a box
+  in the list's route `navigationSplit="placeholder"` (an `EmptyState`): it shows there then, and nowhere else.
 - On the web a route is a page: the tab's title is the route's heading, the focus moves to
   it on a push and back to the row on Back, and the browser's Back and Forward follow the
   stack.

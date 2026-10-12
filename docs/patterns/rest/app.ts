@@ -1,9 +1,10 @@
 import type { Answer, Result, Sources } from './app.contract.d.ts';
 
 export const appId = 'com.example.starter';
-const API = 'http://127.0.0.1:8787'; // a phone reaches the Mac by its LAN address or HTTPS, granted instead
+// The server's address, its one place: server.ts listens on it (a phone reaches the Mac by its LAN address or HTTPS).
+export const API = 'http://127.0.0.1:8787';
 export const grants = `net.fetch ${API}`;
-const TOKEN = 'token-ada'; // a real sign-in keeps its token with `secret.keep token` and store.set
+const TOKEN = 'ada'; // a real sign-in keeps its token with `secret.keep token` and store.set
 
 type Answered = { ok: true; body: unknown } | { ok: false; error: string };
 async function call(path: string, init: RequestInit = {}): Promise<Answered> {

@@ -26,6 +26,7 @@ final class ClickFocusMacTests: XCTestCase {
         window.isReleasedWhenClosed = false
         window.autorecalculatesKeyViewLoop = false
         window.contentView = p.viewport
+        clicksArriveAsInTheKeyWindow()
         func row(_ id: Int, _ kind: String, _ props: [String: String] = [:], handlers: [String] = [], style: [String: Any] = [:], y: Int) -> [[String: Any]] {
             [["op": "create", "id": id, "kind": kind, "props": props, "handlers": handlers, "style": style],
              ["op": "frame", "id": id, "x": 10, "y": y, "w": 200, "h": 30]]

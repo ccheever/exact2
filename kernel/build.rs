@@ -24,7 +24,7 @@ struct Schema {
     materials: Vec<[String; 7]>,
     #[serde(rename = "buttonStyles")]
     button_styles: Vec<[String; 5]>,
-    colors: Vec<[String; 6]>,
+    colors: Vec<[String; 8]>,
     #[serde(rename = "textStyleBodies")]
     text_style_bodies: Vec<f32>,
     #[serde(rename = "textStyles")]

@@ -14,7 +14,11 @@ impl<D: DataSource + Default> CanvasHost<D> {
     /// has somewhere to go, whether a field wants the keyboard). The state
     /// is not read during a scroll's own frames, which run no command and
     /// commit only rows: it is told with the frame after.
+    ///
+    /// The reader calls this after every turn of the host, which is where
+    /// the journal is written out when asked for (`canvas/journal.rs`).
     pub fn requests(&mut self) -> Option<Vec<i32>> {
+        self.echo_journal();
         if !self.scrolled {
             self.p.tell_shell();
         }

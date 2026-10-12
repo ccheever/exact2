@@ -221,7 +221,8 @@ fn the_sheet_draws_ios_metrics_and_the_author_replaces_it() {
     // (each draws its separator and overlaps the next by its width).
     let profile = frame("profile");
     assert_eq!(profile.height, 53.0, "52 and its 1-point separator");
-    assert_eq!(frame("notes").y - profile.y, 52.0);
+    // (to a float's rounding: the header above is a line of the body style).
+    assert!((frame("notes").y - profile.y - 52.0).abs() < 0.01);
     assert_eq!(
         profile.x, 72.0,
         "the row starts at the text, after an icon, as UIKit's label does"
@@ -581,8 +582,11 @@ fn a_stack_of_lines_takes_the_subtitle_cells_text_styles() {
     // LLP 1116.000 D3.2: household-list's items (a title, who added it, who
     // checked it) drew three lines alike. A stack of lines in a row is drawn
     // as the subtitle cell draws its two: the first text the title, a later
-    // one 15 points in the secondary colour. What the author wrote wins,
-    // row by row, on the text or on the stack its texts inherit from.
+    // one the subheadline in the secondary colour. What the author wrote wins,
+    // row by row, on the text or on the stack its texts inherit from. The
+    // sizes are text styles (LLP 1115.000 D3.3), read here at the kernel's
+    // own root, CSS's 16: the body is 16 and the subheadline 14, where iOS's
+    // 17 reads 17 and 15 (`the_sheets_text_follows_the_root_font_size`).
     let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go\n      column\n        text \"Privacy\" testId=\"cell-title\"\n        text \"Screen lock\" testId=\"cell-detail\"\n    row\n      input type=\"checkbox\" checked=on input=flip\n      column flex=1 min-width=0\n        text \"Milk\" testId=\"title\"\n        text \"Added by Alice\" testId=\"by\"\n        when on\n          text \"Checked by Bob\" testId=\"checked\"\n      button press=go\n        text \"Delete\" testId=\"delete\"\n    row\n      column flex=1 min-width=0 gap=8\n        text \"Ship it\" testId=\"card\"\n        text \"Ada\" font=\"-exact-footnote\" color=\"#123456\" testId=\"authored\"\n        text \"Late\" color=\"#ff0000\" testId=\"red\"\n        text \"Big\" font-size=20 testId=\"big\"\n        row gap=8\n          button press=go\n            text \"To Doing\" testId=\"move\"\n    row padding-top=8 padding-bottom=8\n      column color=\"#00ff00\" font-size=13\n        text \"A\" testId=\"own-a\"\n        text \"B\" testId=\"own-b\"\n        text \"C\" testId=\"own-c\"\n    row\n      column color=\"#00ff00\"\n        text \"Title\"\n        text \"Detail\" testId=\"cell-own\"");
     let k = r.kernel();
     let hex = |h: &str| Color::parse_hex(h).unwrap();
@@ -597,8 +601,8 @@ fn a_stack_of_lines_takes_the_subtitle_cells_text_styles() {
     let (title, detail) = (look("cell-title"), look("cell-detail"));
     assert_eq!(
         (title.0, detail.0),
-        (17.0, 15.0),
-        "the subtitle cell's own lines"
+        (16.0, 14.0),
+        "the subtitle cell's own lines: the body and the subheadline"
     );
     assert_eq!(look("title"), title, "the first text is the title");
     assert_eq!(look("by"), detail, "a later one the subtitle's line");
@@ -607,10 +611,10 @@ fn a_stack_of_lines_takes_the_subtitle_cells_text_styles() {
     assert_ne!(look("delete"), detail, "a control's label is its own");
     assert_ne!(look("move"), detail, "and a button's in the stack");
     let authored = look("authored");
-    assert!(authored.0 < 15.0, "an authored font wins: {authored:?}");
+    assert!(authored.0 < 14.0, "an authored font wins: {authored:?}");
     assert_eq!(authored.1, hex("#123456"), "an authored colour wins");
     let red = look("red");
-    assert_eq!((red.0, red.1), (15.0, hex("#ff0000")), "row by row");
+    assert_eq!((red.0, red.1), (14.0, hex("#ff0000")), "row by row");
     let big = look("big");
     assert_eq!((big.0, big.1, big.2), (20.0, detail.1, detail.2));
     // The stack's own rows reach its lines; a row with its own padding keeps
@@ -622,9 +626,53 @@ fn a_stack_of_lines_takes_the_subtitle_cells_text_styles() {
     let own = look("cell-own");
     assert_eq!(
         (own.0, own.1),
-        (15.0, hex("#00ff00")),
+        (14.0, hex("#00ff00")),
         "the subtitle cell's too"
     );
+}
+
+/// LLP 1115.000 D3.3: the sheet's text sizes are text styles, so a grouped
+/// list's text is the platform's body size and not iOS's 17 on every host: a
+/// row and a header the body style, a second line the subheadline, a footer
+/// the footnote, each read from the ramp at the root font size the host set.
+/// The row's own metrics do not follow: a cell is 52 points at any of them.
+#[test]
+fn the_sheets_text_follows_the_root_font_size() {
+    let body = "list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    header\n      text \"Account\" testId=\"header\"\n    row testId=\"row\"\n      text \"Title\" testId=\"title\"\n      text \"Value\" testId=\"value\"\n    button press=go testId=\"cell\"\n      column\n        text \"Privacy\" testId=\"line\"\n        text \"Screen lock\" testId=\"second\"\n    footer\n      text \"Who can see you.\" testId=\"footer\"";
+    // (the root, then the body, the subheadline and the footnote there)
+    for (root, name, sizes) in [
+        (17.0, "iOS at its default size", (17.0, 15.0, 13.0)),
+        (13.0, "the Mac", (13.0, 11.0, 10.0)),
+        (16.0, "the web", (16.0, 14.0, 12.0)),
+        (23.0, "iOS at its largest ordinary size", (23.0, 21.0, 19.0)),
+    ] {
+        let mut r = boot(body);
+        // The kernel starts at CSS's 16; a host tells it its own.
+        let told = r.set_root_font_size(root).unwrap();
+        assert_eq!(told.is_some(), root != 16.0, "{name}");
+        let k = r.kernel_mut();
+        let page = k.node_by_key(k.find_by_test_id("root")[0]).unwrap().id;
+        k.compute_layout(page, Offer::definite(402.0, 874.0))
+            .unwrap();
+        let k = r.kernel();
+        let size = |t: &str| {
+            let node = k.node(id(&r, t)).unwrap();
+            node.computed_style(StyleMask::ALL).font_size
+        };
+        let (b, sub, foot) = sizes;
+        for (t, want) in [
+            ("header", b),
+            ("title", b),
+            ("value", b),
+            ("line", b),
+            ("second", sub),
+            ("footer", foot),
+        ] {
+            assert_eq!(size(t), want, "{name}: {t}");
+        }
+        let row = k.node(id(&r, "row")).unwrap().frame.height;
+        assert_eq!(row, 53.0, "{name}: a row is 52 and its separator");
+    }
 }
 
 #[test]
@@ -718,7 +766,7 @@ fn an_authored_margin_is_the_webs_space_and_the_sheets_is_uikits() {
 
 #[test]
 fn authored_margins_collapse_as_the_web_lays_them_out() {
-    let body = "list appearance=\"auto\" testId=\"list\" flex=1\n  section margin-bottom=30\n    button press=go testId=\"a\"\n      text \"Account\"\n  section margin-top=40\n    header\n      text \"More\"\n    button press=go testId=\"b\"\n      text \"Chats\"\n  section margin-top=0.5\n    button press=go testId=\"c\"\n      text \"Help\"";
+    let body = "list appearance=\"auto\" testId=\"list\" flex=1\n  section margin-bottom=30\n    button press=go testId=\"a\"\n      text \"Account\"\n  section margin-top=40\n    header testId=\"more\"\n      text \"More\"\n    button press=go testId=\"b\"\n      text \"Chats\"\n  section margin-top=0.5\n    button press=go testId=\"c\"\n      text \"Help\"";
     let r = boot(body);
     let k = r.kernel();
     let list = k.grouped_list(id(&r, "list")).unwrap();
@@ -734,7 +782,7 @@ fn authored_margins_collapse_as_the_web_lays_them_out() {
     // The kernel's own layout (which the web host follows) agrees: the
     // rows are 40 apart where the margins meet, less the separator's overlap.
     let a = k.node(id(&r, "a")).unwrap().frame;
-    let header_top = k.node(id(&r, "b")).unwrap().frame.y - 40.33;
+    let header_top = k.node(id(&r, "more")).unwrap().frame.y;
     assert!(
         (header_top - (a.y + a.height - 1.0) - 40.0).abs() < 0.5,
         "web gap {}",
@@ -880,7 +928,7 @@ fn an_authored_colour_and_font_reach_the_platforms_texts_and_unsaid_ones_stay_it
     );
     assert_eq!(s0.footer_look.font, None, "its font left unsaid");
     let header = s0.header_look.font.expect("the header's own font");
-    assert!(header.size < 17.0 && header.weight == 400, "{header:?}");
+    assert!(header.size < 16.0 && header.weight == 400, "{header:?}");
     assert_eq!(s0.header_look.color, None);
     let rows = &s0.rows;
     assert_eq!(
@@ -918,8 +966,8 @@ fn an_authored_colour_and_font_reach_the_platforms_texts_and_unsaid_ones_stay_it
     assert_eq!(privacy.title_look, TextLook::default());
     assert_eq!(
         privacy.secondary_look.font.map(|f| (f.size, f.italic)),
-        Some((15.0, true)),
-        "the subtitle line's size is the sheet's, its style the author's"
+        Some((14.0, true)),
+        "the subtitle line's size is the sheet's (the subheadline, at this root), its style the author's"
     );
     assert_eq!(privacy.secondary_look.color, None);
     assert_eq!(
@@ -997,11 +1045,17 @@ fn a_destructive_rows_conditional_title_leaves_its_colour_unsaid() {
 /// label colour, bound or not.
 #[test]
 fn a_disabled_row_is_the_tertiary_labels_grey() {
-    // The tertiary label is a role since the sheet named its colours (KRN-01).
-    let grey = ColorValue::Role(exact_kernel::style::roles::role("-exact-tertiary-label").unwrap());
-    let red = ColorValue::LightDark(
-        Color::rgba(0xff, 0x38, 0x3c, 255),
-        Color::rgba(0xff, 0x42, 0x45, 255),
+    // Both are roles since the sheet named its colours (KRN-01; the red
+    // with LLP 1115.000 D3.2, whose table holds iOS 27's measured pair).
+    let role = |name: &str| ColorValue::Role(exact_kernel::style::roles::role(name).unwrap());
+    let (grey, red) = (role("-exact-tertiary-label"), role("-exact-system-red"));
+    assert_eq!(
+        red.fallback(),
+        ColorValue::LightDark(
+            Color::rgba(0xff, 0x38, 0x3c, 255),
+            Color::rgba(0xff, 0x42, 0x45, 255),
+        ),
+        "where no host has the platform's red, the one the sheet drew before"
     );
     let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go destructive=true disabled=true testId=\"off\"\n      text \"Delete\"\n    button press=go destructive=true disabled=dark testId=\"bound\"\n      text \"Delete\"\n    button press=go disabled=on testId=\"plain\"\n      text \"Open\"");
     let colour = |r: &Runner<NoData>, t: &str| r.kernel().node(id(r, t)).unwrap().style.text_color;

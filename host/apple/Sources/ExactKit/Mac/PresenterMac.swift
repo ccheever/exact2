@@ -140,6 +140,7 @@ package final class Presenter {
         }
         viewport.pressedGround = { [weak self] in self?.selection.clear() }
         viewport.pointerTracking = { [weak self] event in self?.trackPointer(event) }
+        viewport.lostKey = { [weak self] in self?.windowLostKey() }
         viewport.documentView = root
         viewport.hasVerticalScroller = true
         viewport.hasHorizontalScroller = true
@@ -812,6 +813,12 @@ package final class Presenter {
     weak var trackedPointerEvent: NSEvent?
     /// The canvas input the tracked move reached through the hit's ancestors.
     weak var trackedCanvas: AnyObject?
+    /// Whether the pointer was last over text that shows the I-beam, and
+    /// whether this presenter set that cursor (`pointerCursor`).
+    var pointerOverText = false, textCursorSet = false
+    /// The node whose key down the system's key bindings are naming, and
+    /// whether the command they named was taken (`NodeView.keyCommand`).
+    var keyCommand: (source: NodeView, taken: Bool)?
     private var hoverTransition: UInt64 = 0
     var hoveredInline: UInt32?
     var inlineHoverTransition: UInt64 = 0
@@ -1110,7 +1117,7 @@ package final class Presenter {
             case .surface:
                 if let v = views[id] { session?.canvases.surface(view: v, name: op.payload["name"] as? String ?? "", values: op.payload["values"] ?? []) }
             case .canvas2d: if let v = views[id] { canvas2d.apply(id, op.payload, layer: v.layer) }
-            case .svg: if let v = views[id] { svg.scene(id, op.payload, layer: v.layer, dark: v.drawsDark, clock: session?.clock, limit: v.style["dynamic_range_limit"]?.string) }
+            case .svg: if let v = views[id] { svg.scene(id, op.payload, layer: v.layer, dark: v.drawsDark, clock: session?.clock, limit: v.style["dynamic_range_limit"]?.string, tint: v.viewTint) }
             case .animations: svg.animations(id, op.payload, layer: views[id]?.layer, clock: session?.clock)
             case .command:
                 let name = op.payload["name"] as? String ?? ""

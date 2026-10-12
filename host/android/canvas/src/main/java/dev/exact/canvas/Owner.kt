@@ -423,6 +423,14 @@ internal object Exact {
 
     fun back(): Boolean = owner?.sync { Native.back() } ?: Native.back()
 
+    /** A driver's request ([Native.agent], [AgentDrive]): answered on exact2's thread, which then publishes what it
+     * painted; waited for, since the driver's next request follows its answer. Carried only where exact2 has a
+     * thread of its own (not with owner=0, the benchmark's compare switch). */
+    fun agent(line: String): String {
+        val o = owner ?: return "{\"error\":\"the reader carries a driver only with exact2 on its own thread (owner=0 is set)\"}"
+        return o.sync { String(Native.agent(line.toByteArray(Charsets.UTF_8)), Charsets.UTF_8) }
+    }
+
     /** Main thread, where exact2 runs there too (owner=0) and a hosted field told it something: the reader draws
      * what that changed. */
     var turned: () -> Unit = {}

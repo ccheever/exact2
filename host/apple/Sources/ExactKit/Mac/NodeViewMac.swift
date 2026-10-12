@@ -56,6 +56,8 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var contextClicked = false
     var cachedTextSpec: Spec?
     var textLayoutValid = false
+    /// The node whose `accent-color` this view last read as its tint, nil for the system's (NodeColorMac.swift).
+    var tintSource: ObjectIdentifier?
     /// The paragraph's text as a worker-painted surface (TextRasterMac.swift).
     var textRaster: IOSurface?
     var textRasterScale: CGFloat = 2
@@ -248,6 +250,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             finishPress(canvas: canvas, window: ownerWindow, pointer: false)
             return
         }
+        if keyCommand(event) { return }
         super.keyDown(with: event)
     }
     package override func keyUp(with event: NSEvent) {
@@ -321,7 +324,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     func syncHoverTracking() {
         let wants = handlers.contains("hover") || handlers.contains("pointermove") || inlineText.contains(where: { $0.handlers.contains("hover") })
         if wants, tracking == nil {
-            let t = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
+            let t = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil)
             addTrackingArea(t)
             tracking = t
         } else if !wants, let t = tracking {
@@ -734,7 +737,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// the four; a `light-dark()` pair is two fours and this picks one
     /// (LLP 1034 D1). Anything else is not a colour.
     func channels(_ key: String, dark: Bool? = nil) -> [Double]? {
-        style[key]?.channels(dark: dark ?? drawsDark, contrast: drawsHighContrast)
+        style[key].flatMap { $0.channels(dark: dark ?? drawsDark, contrast: drawsHighContrast, tint: ownTint(for: $0)) }
     }
 
     /// Whether any colour on this node is a pair — what says an appearance
@@ -753,7 +756,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         super.viewDidChangeEffectiveAppearance()
         if let regions = presenter?.session?.regions, regions.owns(self) { regions.geometryChanged() }
         // An `svg`'s paints are resolved again; paint motion hears the appearance (LLP 1062 D4).
-        presenter?.svg.reappear(id, dark: drawsDark, clock: presenter?.session?.clock); presenter?.session?.noteAppearance(self)
+        presenter?.svg.reappear(id, dark: drawsDark, clock: presenter?.session?.clock, tint: viewTint); presenter?.session?.noteAppearance(self)
         guard hasSchemeColor || inlineText.contains(where: { $0.hasSchemeColor }) else { return }
         reapplyColors()
     }
@@ -764,7 +767,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         guard hasSchemeColor || symbolView != nil || inlineText.contains(where: { $0.hasSchemeColor }) else { return }
         reapplyColors()
     }
-    private func reapplyColors() {
+    func reapplyColors() {
         paragraphOwner.invalidateText()
         paragraphOwner.needsDisplay = true
         applyStyle(style)
@@ -989,6 +992,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if old["display"] != s["display"] { isHidden = hostHidden }
         if old["cursor"] != s["cursor"] { window?.invalidateCursorRects(for: self) }
         if old["color_scheme"] != s["color_scheme"] { applyColorScheme() }
+        if old["accent_color"] != s["accent_color"] { accentChanged() }
         if s["transform_origin"] != origin { applyTransform() }
         applySpace(changedFrom: old)
         syncDynamicRange(from: old)
@@ -1139,6 +1143,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if superview == nil { boxFilter?.remove() } else if boxFilter != nil { renderFilter() }
         paintOrderMoved()
         syncDisabledLook() // a list's row is known by where it is mounted (PressLookMac.swift)
+        if window != nil { retintSubtree() } // and its tint by what is above it (NodeColorMac.swift)
     }
 
     /// `overflow: hidden` clips to the rounded corners: one radius rides the
@@ -1187,6 +1192,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     package override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if window != nil { retint() }
         presenter?.transformGeometry.changed()
         presenter?.videoVisibility?.changed()
     }
@@ -1321,11 +1327,10 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         }
     }
 
-    /// A click counts even when it is the one that activates the window —
-    /// the web's rule (a click on an unfocused page still clicks). AppKit's
-    /// default swallows it, which made a `tap` sent before the window became
-    /// key vanish (found driving the app by hand over stdin).
-    package override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    /// The click that activates a window presses a control and nothing else,
+    /// as in AppKit (LLP 1115.000 D7.9; `clicksThrough`, FocusMac.swift).
+    /// The agent's window is never key, so its every click counts.
+    package override func acceptsFirstMouse(for event: NSEvent?) -> Bool { Self.everyClickCounts || clicksThrough }
 
     // Press: down and up inside the bounds. A click on a button or a
     // pressable leaves the first responder where it is, as a click on an
@@ -1354,11 +1359,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             presenter?.selection.begin(self, event: event)
             return
         }
-        if selectsText {
-            window?.makeFirstResponder(self)
-            presenter?.selection.begin(self, event: event)
-            return
-        }
+        if selectsText { presenter?.selection.press(self, event: event); return }
         // NSView forwards a click up the chain: a node under it that took the focus (not a paragraph selecting) keeps it (LLP 1088 D7.3).
         let inner = (window?.firstResponder as? NodeView).map { $0 !== self && ($0.tabbable || $0.explicitTabIndex != nil) && (window?.contentView?.hitTest(event.locationInWindow)?.isDescendant(of: $0) ?? false) } ?? false
         if takesClickFocus, !inner { window?.makeFirstResponder(self) }

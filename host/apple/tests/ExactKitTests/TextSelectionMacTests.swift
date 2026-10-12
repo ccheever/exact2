@@ -52,9 +52,37 @@ final class TextSelectionMacTests: XCTestCase {
         return p
     }
 
-    private func mouse(_ type: NSEvent.EventType, _ point: NSPoint, clicks: Int = 1) -> NSEvent {
-        NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+    private func mouse(_ type: NSEvent.EventType, _ point: NSPoint, clicks: Int = 1, flags: NSEvent.ModifierFlags = []) -> NSEvent {
+        NSEvent.mouseEvent(with: type, location: point, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
                            windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: clicks, pressure: type == .leftMouseUp ? 0 : 1)!
+    }
+    /// A point of a character of a one-line paragraph, in the window: a
+    /// tenth into the glyph, where its own leading caret is the nearest.
+    private func at(_ node: NodeView, _ index: Int) throws -> NSPoint {
+        let g = try glyph(node, index)
+        return node.convert(NSPoint(x: g.x + g.width * 0.1, y: 10), to: nil)
+    }
+    /// A press on a character of `node`, dragged to another when asked, and released.
+    private func press(_ node: NodeView, _ index: Int, to: Int? = nil, in other: NodeView? = nil, clicks: Int = 1, flags: NSEvent.ModifierFlags = []) throws {
+        let down = try at(node, index), up = try to.map { try at(other ?? node, $0) } ?? down
+        node.mouseDown(with: mouse(.leftMouseDown, down, clicks: clicks, flags: flags))
+        if to != nil { node.mouseDragged(with: mouse(.leftMouseDragged, up, clicks: clicks, flags: flags)) }
+        node.mouseUp(with: mouse(.leftMouseUp, up, clicks: clicks, flags: flags))
+    }
+    /// An arrow key down, as AppKit sends it: 123 to 126 are left, right, down and up.
+    private func arrow(_ code: UInt16, _ flags: NSEvent.ModifierFlags) -> NSEvent {
+        let character = String(UnicodeScalar([123: 0xF702, 124: 0xF703, 125: 0xF701, 126: 0xF700][Int(code)]!)!)
+        return NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags.union([.numericPad, .function]), timestamp: ProcessInfo.processInfo.systemUptime,
+                                windowNumber: window.windowNumber, context: nil, characters: character, charactersIgnoringModifiers: character, isARepeat: false, keyCode: code)!
+    }
+    /// A second paragraph under the first of `laidOut`'s session.
+    private func paragraph(_ p: Presenter, _ text: String) -> NodeView {
+        let other = NodeView(id: 2, kind: "text", presenter: p)
+        other.frame = NSRect(x: 0, y: 30, width: 380, height: 20)
+        other.props = ["text": text]
+        other.style = ["font_size": 16.0, "line_height": "20px"]
+        p.root.addSubview(other); p.views[2] = other
+        return other
     }
     /// One line of text a session lays out (a bare presenter has no text
     /// engine), in the window; the session is the caller's to destroy.
@@ -248,6 +276,229 @@ final class TextSelectionMacTests: XCTestCase {
             XCTAssertTrue(p.selection.secondaryClick(node, event: right, answered: {}), "a laid-out paragraph places the click at once")
             XCTAssertFalse(word.isEmpty)
             XCTAssertEqual(p.selection.selectedText(), word, "character \(index) at \(fraction) of its width")
+        }
+    }
+
+    /// LLP 1115.000 D7.9: a Shift-click extends the selection as an
+    /// `NSTextView`'s does (measured on macOS 27.0): the end nearer the click
+    /// moves to it and the other stays, whichever way the selection was
+    /// dragged, so a click inside it shrinks it; after a double click it
+    /// grows by word; and it reaches into another paragraph.
+    func testAShiftClickMovesTheNearerEndOfTheSelection() throws {
+        // Alpha 0, beta 6, gamma 11, delta 17, epsilon 23.
+        let (session, node) = laidOut("Alpha beta gamma delta epsilon zeta eta theta")
+        defer { session.destroy() }
+        let p = session.presenter
+        let other = paragraph(p, "Second paragraph here")
+        for (from, to) in [(11, 16), (16, 11)] {
+            for (click, expected) in [(7, "eta gamma"), (13, "mma"), (25, "gamma delta ep")] {
+                try press(node, from, to: to)
+                XCTAssertEqual(p.selection.selectedText(), "gamma")
+                try press(node, click, flags: .shift)
+                XCTAssertEqual(p.selection.selectedText(), expected, "gamma dragged from \(from), a Shift-click at \(click)")
+            }
+        }
+        try press(node, 12, clicks: 2)
+        XCTAssertEqual(p.selection.selectedText(), "gamma")
+        try press(node, 25, flags: .shift)
+        XCTAssertEqual(p.selection.selectedText(), "gamma delta epsilon", "after a double click a Shift-click takes the word it lands in")
+        try press(node, 7, flags: .shift)
+        XCTAssertEqual(p.selection.selectedText(), "beta gamma delta epsilon", "the nearer end, by word")
+        // Into the next paragraph: the focus moves there and the selection is not cleared on the way.
+        try press(node, 11, to: 16)
+        try press(other, 6, flags: .shift)
+        XCTAssertEqual(p.selection.selectedText(), "gamma delta epsilon zeta eta theta\n\nSecond")
+        XCTAssertTrue(window.firstResponder === other)
+        // With nothing selected a Shift-click is a click.
+        p.selection.clear()
+        try press(node, 3, flags: .shift)
+        XCTAssertEqual(p.selection.selectedText(), "")
+        XCTAssertEqual(p.selection.range(node), NSRange(location: 3, length: 0))
+    }
+
+    /// LLP 1115.000 D7.9: a drag after a double click grows the selection by
+    /// word, the first word staying whole whichever way the drag goes, and
+    /// after a triple click by paragraph (it grew by character).
+    func testADragAfterADoubleClickGrowsByWordAndAfterATripleByParagraph() throws {
+        let (session, node) = laidOut("Alpha beta gamma delta epsilon zeta eta theta")
+        defer { session.destroy() }
+        let p = session.presenter
+        let other = paragraph(p, "Second paragraph here")
+        try press(node, 12, to: 19, clicks: 2)
+        XCTAssertEqual(p.selection.selectedText(), "gamma delta", "to the end of the word the drag is in")
+        try press(node, 19, to: 7, clicks: 2)
+        XCTAssertEqual(p.selection.selectedText(), "beta gamma delta", "back from \"delta\", which stays whole")
+        try press(node, 12, to: 8, in: other, clicks: 2)
+        XCTAssertEqual(p.selection.selectedText(), "gamma delta epsilon zeta eta theta\n\nSecond paragraph", "into the next paragraph, by word")
+        try press(node, 12, to: 8, in: other, clicks: 3)
+        XCTAssertEqual(p.selection.selectedText(), "Alpha beta gamma delta epsilon zeta eta theta\n\nSecond paragraph here", "by paragraph")
+        try press(node, 12, to: 19)
+        XCTAssertEqual(p.selection.selectedText(), "amma de", "a single click's drag is still by character")
+    }
+
+    /// LLP 1115.000 D7.9: Shift with an arrow moves the focus end of the
+    /// selection and leaves its anchor, by the system's key bindings (a
+    /// character; with Option a word; with Command the line's end), from the
+    /// click that placed it, and into the paragraph beside this one. An
+    /// arrow alone is not the selection's.
+    func testShiftWithAnArrowExtendsTheSelection() throws {
+        let (session, node) = laidOut("Alpha beta gamma delta epsilon zeta eta theta")
+        defer { session.destroy() }
+        let p = session.presenter
+        let other = paragraph(p, "Second paragraph here")
+        let left: UInt16 = 123, right: UInt16 = 124, down: UInt16 = 125, up: UInt16 = 126
+        try press(node, 12)
+        XCTAssertTrue(window.firstResponder === node)
+        node.keyDown(with: arrow(right, .shift))
+        XCTAssertEqual(p.selection.selectedText(), "a")
+        node.keyDown(with: arrow(right, .shift))
+        XCTAssertEqual(p.selection.selectedText(), "am")
+        for _ in 0..<3 { node.keyDown(with: arrow(left, .shift)) }
+        XCTAssertEqual(p.selection.selectedText(), "g", "back past the anchor, which stays at 12")
+        XCTAssertEqual(p.selection.range(node), NSRange(location: 11, length: 1))
+        try press(node, 12)
+        node.keyDown(with: arrow(right, [.shift, .option]))
+        XCTAssertEqual(p.selection.selectedText(), "amma", "to the word's end")
+        node.keyDown(with: arrow(right, [.shift, .option]))
+        XCTAssertEqual(p.selection.selectedText(), "amma delta")
+        node.keyDown(with: arrow(left, [.shift, .option]))
+        XCTAssertEqual(p.selection.selectedText(), "amma ", "back to the start of the word")
+        node.keyDown(with: arrow(right, [.shift, .command]))
+        XCTAssertEqual(p.selection.selectedText(), "amma delta epsilon zeta eta theta", "to the line's end")
+        node.keyDown(with: arrow(left, [.shift, .command]))
+        XCTAssertEqual(p.selection.selectedText(), "Alpha beta g", "to its start")
+        // Down from a paragraph's last line: the same place across in the next.
+        try press(node, 12)
+        node.keyDown(with: arrow(down, .shift))
+        let across = p.selection.selectedText()
+        XCTAssertTrue(across.hasPrefix("amma delta epsilon zeta eta theta\n\nS"), "into the paragraph below: \(across)")
+        XCTAssertGreaterThan(try XCTUnwrap(p.selection.range(other)).length, 0)
+        try press(node, 12)
+        node.keyDown(with: arrow(up, .shift))
+        XCTAssertEqual(p.selection.selectedText(), "Alpha beta g", "up from a page's first line is its start")
+        // A selection made by a drag keeps its anchor: its focus end moves.
+        try press(node, 16, to: 11)
+        node.keyDown(with: arrow(left, .shift))
+        XCTAssertEqual(p.selection.selectedText(), " gamma")
+        // An arrow alone moves no selection.
+        node.keyDown(with: arrow(right, []))
+        XCTAssertEqual(p.selection.selectedText(), " gamma")
+    }
+
+    /// LLP 1115.000 D7.9: the selected glyphs are AppKit's colour for text
+    /// on the selection's fill, whatever ink the text had. White text that
+    /// stood on a dark ground is black on the light appearance's pale fill
+    /// (the fill alone hid it) and stays white on the dark appearance's; an
+    /// ink that is part transparent is solid; an underline takes the colour
+    /// too, and what is not selected keeps its own ink.
+    func testSelectedGlyphsAreAppKitsSelectedTextColour() throws {
+        XCTAssertEqual(TextSelection.ink(focused: true), .selectedTextColor)
+        XCTAssertEqual(TextSelection.ink(focused: false), .unemphasizedSelectedTextColor)
+        // A full block's middle is ink and nothing else; the space between
+        // the words is the fill, and the underline where it crosses it.
+        // Solid white underlined, and under it white at half strength.
+        let (session, solid) = laidOut("████ ████")
+        defer { session.destroy() }
+        let p = session.presenter
+        solid.style["text_color"] = [255, 255, 255, 255]
+        solid.style["text_decoration_line"] = "underline"
+        let faint = NodeView(id: 2, kind: "text", presenter: p)
+        faint.frame = NSRect(x: 0, y: 30, width: 380, height: 20)
+        faint.props = solid.props
+        faint.style = ["font_size": 16.0, "line_height": "20px", "text_color": [255, 255, 255, 128]]
+        p.root.addSubview(faint); p.views[2] = faint
+        // A system colour as this kind of picture shows it, in the window's appearance.
+        let swatch = Swatch(frame: NSRect(x: 0, y: 60, width: 10, height: 10))
+        p.root.addSubview(swatch)
+        func painted(_ color: NSColor) throws -> NSColor {
+            swatch.color = color
+            return try XCTUnwrap(Capture.picture(of: swatch)?.colorAt(x: 2, y: 2)?.usingColorSpace(.sRGB))
+        }
+        func near(_ got: NSColor, _ want: NSColor) -> Bool {
+            abs(got.redComponent - want.redComponent) < 0.03 && abs(got.greenComponent - want.greenComponent) < 0.03
+                && abs(got.blueComponent - want.blueComponent) < 0.03 && abs(got.alphaComponent - want.alphaComponent) < 0.03
+        }
+        for (node, own, underlined) in [(solid, NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 1), true), (faint, NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.5), false)] {
+            let first = try glyph(node, 1), space = try glyph(node, 4), last = try glyph(node, 6)
+            let baseline = node.paragraphBox().minY + (try XCTUnwrap(node.paragraphLayout())).baselines[0].rounded()
+            func picture() throws -> (at: ((x: CGFloat, width: CGFloat), CGFloat) -> NSColor, underline: () -> [NSColor]) {
+                let rep = try XCTUnwrap(Capture.picture(of: node))
+                let scale = CGFloat(rep.pixelsWide) / rep.size.width
+                func at(_ glyph: (x: CGFloat, width: CGFloat), _ y: CGFloat) -> NSColor {
+                    rep.colorAt(x: Int((glyph.x + glyph.width / 2) * scale), y: Int(y * scale))?.usingColorSpace(.sRGB) ?? .clear
+                }
+                // Down the space's column, from the baseline: the underline is in these rows.
+                return (at, { stride(from: baseline, to: baseline + 4, by: 1 / scale).map { at(space, $0) } })
+            }
+            let before = try picture()
+            XCTAssertTrue(near(before.at(first, 10), own), "the text's own ink: \(before.at(first, 10))")
+            XCTAssertEqual(before.underline().contains { near($0, own) }, underlined, "and its underline")
+            for dark in [false, true] {
+                let name = "\(dark ? "dark" : "light"), ink at \(own.alphaComponent)"
+                window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+                // A drag from the paragraph's start to the second word: the first word and its space.
+                p.selection.begin(node, event: mouse(.leftMouseDown, node.convert(NSPoint(x: node.paragraphBox().minX, y: 10), to: nil)))
+                p.selection.drag(mouse(.leftMouseDragged, node.convert(NSPoint(x: last.x - last.width, y: 10), to: nil)))
+                XCTAssertEqual(p.selection.range(node), NSRange(location: 0, length: 5))
+                // A test process's window has the focus only if a person gave it.
+                let focused = PageFacts.hasFocus(window)
+                let ink = try painted(TextSelection.ink(focused: focused)), fill = try painted(TextSelection.fill(focused: focused))
+                XCTAssertEqual(ink.redComponent, dark ? 1 : 0, accuracy: 0.01, "AppKit's selected text is \(dark ? "white" : "black") in the \(dark ? "dark" : "light") appearance")
+                let shown = try picture()
+                XCTAssertTrue(near(shown.at(first, 10), ink), "\(name): a selected glyph is \(shown.at(first, 10)), not \(ink), and solid")
+                XCTAssertTrue(near(shown.at(space, 10), fill), "\(name): the fill between the words is \(shown.at(space, 10)), not \(fill)")
+                XCTAssertEqual(shown.underline().contains { near($0, ink) }, underlined, "\(name): the selected underline is the glyphs' colour: \(shown.underline())")
+                XCTAssertTrue(near(shown.at(last, 10), own), "\(name): a glyph outside the selection keeps its ink: \(shown.at(last, 10))")
+                p.selection.clear()
+            }
+        }
+    }
+    private final class Swatch: NSView {
+        var color = NSColor.clear { didSet { needsDisplay = true } }
+        override func draw(_ dirtyRect: NSRect) { color.setFill(); bounds.fill() }
+    }
+
+    /// LLP 1115.000 D7.9: the selection is filled as an `NSTextView` fills it.
+    /// AppKit's colour at full strength (it was 45 % of it), the unemphasized
+    /// grey in a window without the focus; and a change of the window's
+    /// focus paints what is selected again, and nothing else.
+    func testTheSelectionIsAppKitsColourForTheWindowsFocus() throws {
+        XCTAssertEqual(TextSelection.fill(focused: true), .selectedTextBackgroundColor)
+        XCTAssertEqual(TextSelection.fill(focused: false), .unemphasizedSelectedTextBackgroundColor)
+        let (session, node) = laidOut("Alpha beta gamma")
+        defer { session.destroy() }
+        let p = session.presenter
+        let other = NodeView(id: 2, kind: "text", presenter: p)
+        other.frame = NSRect(x: 0, y: 30, width: 380, height: 20)
+        other.props = ["text": "Another paragraph"]
+        p.root.addSubview(other); p.views[2] = other
+        p.selection.begin(node, event: mouse(.leftMouseDown, node.convert(NSPoint(x: 5, y: 10), to: nil), clicks: 3))
+        XCTAssertEqual(p.selection.selectedText(), "Alpha beta gamma")
+
+        // The space after "Alpha": inside the selection, under no glyph. A
+        // test process's window has the focus only if a person gave it.
+        let space = try glyph(node, 5)
+        let rep = try XCTUnwrap(Capture.picture(of: node))
+        let scale = CGFloat(rep.pixelsWide) / rep.size.width
+        let drawn = try XCTUnwrap(rep.colorAt(x: Int((space.x + space.width / 2) * scale), y: Int(10 * scale))?.usingColorSpace(.sRGB))
+        var wanted: NSColor?
+        node.effectiveAppearance.performAsCurrentDrawingAppearance {
+            wanted = TextSelection.fill(focused: PageFacts.hasFocus(self.window)).usingColorSpace(.sRGB)
+        }
+        let fill = try XCTUnwrap(wanted)
+        XCTAssertEqual(drawn.alphaComponent, 1, accuracy: 0.01, "at full strength: the page does not show through it")
+        for (got, want) in [(drawn.redComponent, fill.redComponent), (drawn.greenComponent, fill.greenComponent), (drawn.blueComponent, fill.blueComponent)] {
+            XCTAssertEqual(got, want, accuracy: 0.06, "\(drawn) is not \(fill)")
+        }
+
+        // A layer that has displayed needs no display until something asks.
+        let selected = try XCTUnwrap(node.layer), unselected = try XCTUnwrap(other.layer)
+        for name in [NSWindow.didResignKeyNotification, NSWindow.didBecomeKeyNotification] {
+            selected.displayIfNeeded(); unselected.displayIfNeeded()
+            XCTAssertFalse(selected.needsDisplay() || unselected.needsDisplay())
+            NotificationCenter.default.post(name: name, object: window)
+            XCTAssertTrue(selected.needsDisplay(), "the selected paragraph is painted again when the window's focus may have changed")
+            XCTAssertFalse(unselected.needsDisplay(), "a paragraph without a selection is not")
         }
     }
 

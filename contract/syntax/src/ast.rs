@@ -266,6 +266,20 @@ pub enum Step {
         /// Where.
         span: Span,
     },
+    /// `request POST "/items" {"title": "Bread"} as grace` (LLP 1116.006
+    /// D8): the driver writes through the app's server as another person.
+    Request {
+        /// `GET`, `POST`, `PUT`, `PATCH` or `DELETE`.
+        method: String,
+        /// Under the server URL the app calls (`/items`), or a whole URL.
+        path: String,
+        /// The body, as JSON text.
+        body: Option<String>,
+        /// Whose bearer token it carries.
+        persona: Option<String>,
+        /// Where.
+        span: Span,
+    },
     /// `seed 7`: the session's `exactTime().seed`, `--seed`.
     Seed {
         /// A whole number from 0 through 2^32 − 1.
@@ -375,6 +389,14 @@ pub enum Step {
     /// it, asking its `beforeunload` first (the driver's `close`, studio
     /// diary R17); a window a handler keeps stays, and the test goes on.
     Close {
+        /// Where.
+        span: Span,
+    },
+    /// `back`: the platform's Back, as a person takes it (LLP 1116.006 D4):
+    /// an open dialog's cancel (Escape), else the top sheet dismissed (its
+    /// swipe down), else the pushed route popped (iOS's Back button, the
+    /// browser's Back, ⌘[). With nothing to go back from, the step fails.
+    Back {
         /// Where.
         span: Span,
     },
@@ -1363,6 +1385,7 @@ impl Step {
             | Step::BeforeData { span }
             | Step::FailFetch { span, .. }
             | Step::PassFetch { span, .. }
+            | Step::Request { span, .. }
             | Step::Type { span, .. }
             | Step::Key { span, .. }
             | Step::Pick { span, .. }
@@ -1370,6 +1393,7 @@ impl Step {
             | Step::Clock { span, .. }
             | Step::Reload { span, .. }
             | Step::Close { span }
+            | Step::Back { span }
             | Step::Resize { span, .. }
             | Step::Screenshot { span, .. }
             | Step::ExpectTree { span, .. }

@@ -95,6 +95,36 @@ extension NodeView {
     /// that accepts and is asked here without taking keys, takes the focus
     /// itself as its selection begins (`mouseDown`).
     package override var needsPanelToBecomeKey: Bool { takesClickFocus }
+    /// Whether a click on this node in a window that is not key is also a
+    /// press (LLP 1115.000 D7.9). Every node used to answer true, a
+    /// browser's rule. AppKit's answer, measured on macOS 27.0
+    /// (`acceptsFirstMouse(for:)` of each): true for an `NSButton`, an
+    /// `NSSegmentedControl`, an `NSSwitch`, an `NSSlider`, an
+    /// `NSPopUpButton`, an `NSTextField`, and for an `NSTableView`, an
+    /// `NSOutlineView` and an `NSCollectionView`; false for an `NSView`, an
+    /// `NSTextView`, an `NSImageView` and an `NSScrollView`. So a control
+    /// clicks through, and a list's row does, as a table's row is selected
+    /// by the click that brings its window forward; a card, a box, an image
+    /// and the ground do not, and no text selection begins. A control here
+    /// is a `button`, a native or surface control, or a node with a
+    /// control's role, and what is inside one or inside a list's row.
+    var clicksThrough: Bool {
+        if selectsText { return false }
+        var next: NSView? = self
+        while let view = next {
+            next = view.superview
+            guard let node = view as? NodeView else { continue }
+            if node.isButton || node.isSurfaceControl || node.kind == "control" || node.isListRow
+                || Self.clickThroughRoles.contains(node.props["accessibilityRole"] ?? "") { return true }
+        }
+        return false
+    }
+    private static let clickThroughRoles: Set<String> = ["button", "tab", "checkbox", "radio", "switch", "menuitem", "menuitemcheckbox", "menuitemradio"]
+    /// Every node takes the click that would activate its window: under the
+    /// agent, whose window is never key and whose app is never active, so
+    /// AppKit asks this of every click it sends. A test that sends a click
+    /// through the application says so too, for the same reason.
+    nonisolated(unsafe) static var everyClickCounts = ExactEnv.agentMode
     /// A bare button is ringed even when only its ancestor handles the press.
     var ringsFocus: Bool { !isNativeButton && (isButton || pressable) }
 

@@ -2,8 +2,9 @@
 // navigation glue's projection (navigation.js, which both web targets run) over nodes as the hosts write them. A root
 // tab bar whose placement is unsaid is a sidebar on a wide window and a bar on a phone; an arrangement the app wrote
 // stays its own. A stack whose root route is a list whose rows push shows that route beside its top on a wide window
-// (the list live, its disclosure gone, the row whose press pushed the detail marked, no Back in the detail) and pushes
-// on a phone; `navigationSplit` opts out or names the width; a sheet stays a sheet; a resize changes nothing else. At a
+// (the list live, its disclosure gone, the row whose press pushed the detail marked, no Back in the detail, and while
+// nothing is selected the platform's placeholder in the pane or the author's own) and pushes on a phone;
+// `navigationSplit` opts out or names the width; a sheet stays a sheet; a resize changes nothing else. At a
 // desktop width `check` advises (D1.3) on a tab bar left along the bottom and on a list that pushes unsplit.
 import { test, expect } from 'bun:test';
 import { spawn } from 'node:child_process';
@@ -22,9 +23,9 @@ const check = unavailable ? (name, ...args) => test.skip(`${name} — ${unavaila
 const style = readFileSync(resolve(WEB, 'index.html'), 'utf8').match(/<style>[\s\S]*?<\/style>/)[0];
 const chevron = '<img data-symbol-source="symbol:forward-chevron" alt="" style="width:17px;height:17px">';
 const abs = 'position:absolute;inset:0;display:flex;flex-direction:column';
-// A route of rows (`rows` true: each row draws the disclosure), as the hosts write a `list` of `button`s.
-const list = (id, key, rows = true, extra = '') => `<div navigationKey="${key}" id="${id}" style="${abs}" ${extra}><header><h1>People</h1></header>
-  <div role="list" id="${id}-list">${['ada', 'bo'].map(n => `<button id="${id}-${n}" data-exact-on="press" style="display:flex"><span data-exact-text>${n}</span>${rows ? chevron : ''}</button>`).join('')}</div></div>`;
+// A route of rows (`rows` true: each row draws the disclosure), as the hosts write a `list` of `button`s; `inner` after it.
+const list = (id, key, rows = true, extra = '', inner = '') => `<div navigationKey="${key}" id="${id}" style="${abs}" ${extra}><header><h1>People</h1></header>
+  <div role="list" id="${id}-list">${['ada', 'bo'].map(n => `<button id="${id}-${n}" data-exact-on="press" style="display:flex"><span data-exact-text>${n}</span>${rows ? chevron : ''}</button>`).join('')}</div>${inner}</div>`;
 const detail = (id, key, extra = '') => `<div navigationKey="${key}" id="${id}" style="${abs}" ${extra}><header><h2>${id}</h2></header><div>${id}</div></div>`;
 const tabs = (bar) => `<main id="nav" navigationKey="2" navigationBack="back" style="width:100%;height:100%;display:flex;flex-direction:column;position:relative">
     <div id="panels" style="flex:1 1 0%;min-height:0;position:relative">
@@ -46,6 +47,8 @@ const page = (body) => style + `<div id="exact-root">${body}</div>
   window.shown = id => { const e = document.getElementById(id); return getComputedStyle(e).visibility === 'visible' && !e.closest('[inert]'); };
   window.off = () => unselected(document.getElementById('nav')).map(e => e.id);
   window.back = id => { const b = document.querySelector('#' + id + ' > header')?.shadowRoot?.querySelector('button'); return !!b && !b.hidden; };
+  // The platform's placeholder in a stack's detail pane: its words, its left edge and colour (null where none shows).
+  window.placeholder = id => { const e = document.getElementById(id), p = getComputedStyle(e, '::before'); return e.hasAttribute('data-exact-split-empty') && p.content !== 'none' ? [p.content, Math.round(parseFloat(p.left)), p.color] : null; };
   select(document.getElementById('nav').getAttribute('navigationKey'));
   window.ready = true;
 </script>`;
@@ -109,14 +112,15 @@ check('an arrangement the app wrote stays its own on a wide window', async () =>
 }, 60000);
 
 check('a list whose rows push is beside its detail on a wide window, and pushes on a phone', () => inChrome(page(tabs(BAR)), async (evaluate, size) => {
-  // Wide, nothing chosen: the list is a 320-wide column, its disclosure gone; the rest of the stack's width is empty.
+  // Wide, nothing chosen: the list is a 320-wide column, its disclosure gone; the rest of the stack's width is the
+  // platform's placeholder (LLP 1116.006 D2), one line in the secondary label's colour.
   await evaluate(`select('1')`);
-  expect(await evaluate(`[document.getElementById('r1').getAttribute('data-exact-split'), box('r1'), getComputedStyle(document.querySelector('#r1 img')).display, shown('r1')]`))
-    .toEqual(['list', [240, 0, 320, 800], 'none', true]);
+  expect(await evaluate(`[document.getElementById('r1').getAttribute('data-exact-split'), box('r1'), getComputedStyle(document.querySelector('#r1 img')).display, shown('r1'), placeholder('p1')]`))
+    .toEqual(['list', [240, 0, 320, 800], 'none', true, ['"No Selection"', 320, 'rgba(60, 60, 67, 0.6)']]);
   // A row's press pushes its detail: both show, the list live and the row marked; the detail has no Back.
   await evaluate(`document.getElementById('r1-bo').click(); push('2', '/people/bo')`);
-  expect(await evaluate(`[shown('r1'), shown('r2'), box('r2'), document.getElementById('r2').getAttribute('data-exact-split'), document.getElementById('r1-bo').hasAttribute('data-exact-split-row'), back('r2'), off()]`))
-    .toEqual([true, true, [560, 0, 720, 800], 'detail', true, false, ['p2', 'r3']]);
+  expect(await evaluate(`[shown('r1'), shown('r2'), box('r2'), document.getElementById('r2').getAttribute('data-exact-split'), document.getElementById('r1-bo').hasAttribute('data-exact-split-row'), back('r2'), off(), placeholder('p1')]`))
+    .toEqual([true, true, [560, 0, 720, 800], 'detail', true, false, ['p2', 'r3'], null]);
   // A sheet stays a sheet over both: the whole stack's width, the list and the detail inert beneath it.
   await evaluate(`push('3', '/people/bo/edit')`);
   expect(await evaluate(`[box('r3'), document.getElementById('r3').hasAttribute('data-exact-split'), shown('r1'), shown('r2'), document.getElementById('r1').hasAttribute('data-exact-covered'), off()]`))
@@ -126,15 +130,41 @@ check('a list whose rows push is beside its detail on a wide window, and pushes 
   await size(390);
   expect(await evaluate(`[shown('r1'), shown('r2'), box('r2')[2], box('r2')[3] + box('bar')[3], document.getElementById('r1').hasAttribute('data-exact-split'), back('r2'), getComputedStyle(document.querySelector('#r1 img')).display, off()]`))
     .toEqual([false, true, 390, 800, false, true, 'block', ['p2', 'r1', 'r3']]);
+  // A phone's list, nothing chosen, is the whole width: no placeholder.
+  await evaluate(`select('1')`);
+  expect(await evaluate(`[shown('r1'), box('r1')[2], placeholder('p1')]`)).toEqual([true, 390, null]);
+  await evaluate(`select('2')`);
   await size(1280);
   expect(await evaluate(`[shown('r1'), shown('r2'), box('r1')[2], document.getElementById('r1-bo').hasAttribute('data-exact-split-row')]`)).toEqual([true, true, 320, true]);
-  // The other tab's list draws no disclosure: it pushes, unsplit.
-  expect(await evaluate(`document.getElementById('t1').hasAttribute('data-exact-split')`)).toBe(false);
+  // The other tab's list draws no disclosure: it pushes, unsplit, with no placeholder.
+  expect(await evaluate(`[document.getElementById('t1').hasAttribute('data-exact-split'), placeholder('p2')]`)).toEqual([false, null]);
   // A row that is a link (LLP 1115.000 D4.4) is followed from the document's capture phase (input-glue.js, router.js),
   // so its commit lands within the click, before a listener nearer the row would hear it: its row is marked all the same.
   await evaluate(`select('1'); document.addEventListener('click', e => { if (e.target.closest('#r1-ada')) push('2', '/people/ada'); }, true); document.getElementById('r1-ada').click()`);
   expect(await evaluate(`[shown('r2'), document.getElementById('r1-ada').hasAttribute('data-exact-split-row'), document.getElementById('r1-bo').hasAttribute('data-exact-split-row')]`)).toEqual([true, true, false]);
 }), 30000);
+
+check('the author\'s placeholder in the root route takes the detail pane while nothing is selected, and shows nowhere else', () => {
+  // As the lowerer writes it: `display: none` but where the split shows it (LLP 1116.006 D2).
+  const own = '<div navigationSplit="placeholder" id="own" style="display:none;gap:8px"><span id="own-text">Pick a person</span><button id="own-add">Add</button></div>';
+  return inChrome(page(`<main id="nav" navigationKey="1" navigationBack="back" style="width:100%;height:100%;position:relative">${list('r1', 1, true, '', own)}${detail('r2', 2)}</main>`), async (evaluate, size) => {
+    const hit = `(e => document.elementFromPoint(box(e)[0] + box(e)[2] / 2, box(e)[1] + box(e)[3] / 2)?.id)`;
+    // Wide, nothing chosen: the author's box is the pane beside the list, its content centred and pressable; no host line.
+    expect(await evaluate(`[box('r1'), box('own'), shown('own'), Math.round(box('own-text')[0] + box('own-text')[2] / 2), ${hit}('own-add'), placeholder('nav'), document.getElementById('nav').hasAttribute('data-exact-split-empty')]`))
+      .toEqual([[0, 0, 320, 800], [320, 0, 960, 800], true, 800, 'own-add', null, false]);
+    // A narrower wide window: the pane follows.
+    await size(1000);
+    expect(await evaluate(`box('own')`)).toEqual([320, 0, 680, 800]);
+    // A detail shown: the author's box is gone; back at the list, it returns.
+    await evaluate(`document.getElementById('r1-bo').click(); push('2', '/people/bo')`);
+    expect(await evaluate(`[box('own'), getComputedStyle(document.getElementById('own')).display, box('r2')]`)).toEqual([[0, 0, 0, 0], 'none', [320, 0, 680, 800]]);
+    await evaluate(`push('1', '/')`);
+    expect(await evaluate(`box('own')`)).toEqual([320, 0, 680, 800]);
+    // A phone: the list alone, the author's box nowhere.
+    await size(390);
+    expect(await evaluate(`[box('r1'), getComputedStyle(document.getElementById('own')).display, placeholder('nav')]`)).toEqual([[0, 0, 390, 800], 'none', null]);
+  });
+}, 30000);
 
 check('navigationSplit opts a stack out, or names the width of a list the rule does not find', async () => {
   const stack = (extra, rows) => `<main id="nav" navigationKey="2" navigationBack="back" style="width:100%;height:100%;position:relative">${list('r1', 1, rows, extra)}${detail('r2', 2)}</main>`;

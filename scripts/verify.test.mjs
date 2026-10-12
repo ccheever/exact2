@@ -5,12 +5,12 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { createApp } from '../game/new.mjs';
+import { applyPattern, createApp } from '../game/new.mjs';
 import { chromium } from './agent-launch.mjs';
-import { groups, judgeRelaunch, relaunchStore, report, shotName } from './verify.mjs';
+import { appServer, groups, judgeRelaunch, relaunchStore, report, serverUrl, shotName } from './verify.mjs';
 
 const SIZES = [[390, 844], [1280, 900]];
 const runs = (lines, screen) => SIZES.flatMap((size) => ['light', 'dark'].map((scheme) => ({ ...(screen ? { screen } : {}), size, scheme, asked: scheme, lines: lines(size, scheme), hidden: 0 })));
@@ -146,6 +146,62 @@ test('check\'s text splits by scheme, counting what its own cap left out', () =>
   assert.ok(r.lines.includes('  advice   tabs: a bottom tab bar 1280 px wide'));
 });
 
+// LLP 1116.006 D3: the server an app calls, found where the rest pattern and the builders put it.
+test('the app\'s server: its entry, the URL app.ts calls, and why it cannot be run on an empty database', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-server-'));
+  const put = (files) => { rmSync(dir, { recursive: true, force: true }); for (const [path, text] of Object.entries(files)) { mkdirSync(resolve(dir, path, '..'), { recursive: true }); writeFileSync(resolve(dir, path), text); } };
+  const reads = "const db = new Database(process.env.DB ?? 'data.db');\n";
+  try {
+    put({ 'app.ts': "const API = 'http://127.0.0.1:6810'; // a phone reaches http://192.168.1.2:6810\n", 'server/index.ts': reads });
+    assert.deepEqual(appServer(dir), { entry: 'server/index.ts', url: 'http://127.0.0.1:6810', port: 6810, why: null });
+    put({ 'app.ts': "export const API = 'http://127.0.0.1:8787';\n", 'server.ts': reads, 'srv/main.ts': reads, 'app.json': JSON.stringify({ commands: { server: ['bun', '--watch', 'srv/main.ts'] } }) });
+    assert.equal(appServer(dir).entry, 'srv/main.ts');
+    put({ 'app.ts': "import type { Answer } from './app.contract.d.ts';\nimport { API } from './api';\n", 'api.ts': "export const API = 'http://localhost:3000/v1/';\n", 'server/server.ts': 'const DB = Bun.env.DB;\n' });
+    assert.deepEqual([serverUrl(dir), appServer(dir).port, appServer(dir).why], ['http://localhost:3000/v1', 3000, null]);
+    put({ 'app.ts': "const API = 'http://127.0.0.1:8787';\n", 'server.ts': "new Database('data.db');\n" });
+    assert.match(appServer(dir).why, /^server\.ts is left alone: it does not read its database's path from DB/);
+    put({ 'app.ts': "const API = 'https://api.example.com';\n", 'server.ts': reads });
+    assert.match(appServer(dir).why, /^server\.ts is left alone: app\.ts calls no local URL/);
+    put({ 'app.ts': "const API = 'http://127.0.0.1:8787';\n" });
+    assert.equal(appServer(dir), null);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// The rest pattern, verified as a builder would with a data.db of their own: verify runs its server on an empty
+// database and leaves theirs as it was; with their dev server up it refuses in one line and leaves that one running.
+test.skipIf(!!chromium().unavailable)('verify on a server app: its own server on an empty database, the builder\'s data untouched, a dev server refused', async () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-verify-server-'));
+  try {
+    const dir = resolve(parent, 'shared-list');
+    createApp(dir);
+    applyPattern(dir, 'rest');
+    const { Database } = await import('bun:sqlite');
+    const theirs = new Database(resolve(dir, 'data.db'));
+    theirs.run('CREATE TABLE items (id INTEGER PRIMARY KEY, title TEXT NOT NULL, notes TEXT NOT NULL, by TEXT NOT NULL, locked INTEGER NOT NULL DEFAULT 0)');
+    theirs.run("INSERT INTO items (title, notes, by) VALUES ('Theirs', '', 'Ada')");
+    theirs.close();
+    const before = readFileSync(resolve(dir, 'data.db'));
+    const verify = () => { const r = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'verify'], { cwd: dir, encoding: 'utf8', timeout: 240_000 }); return { ...r, lines: r.stdout.trim().split('\n') }; };
+    const clean = verify();
+    assert.equal(clean.status, 0, clean.stdout + clean.stderr);
+    assert.equal(clean.lines[0], 'server: bun server.ts at http://127.0.0.1:8787, on an empty database (.exact/verify/db.sqlite, removed after)', clean.stdout);
+    assert.ok(clean.lines.includes('tests: 1 passed, 0 failed'), clean.stdout);
+    assert.match(clean.stdout, /^relaunch on .*: the first screen shows what it stored: /m);
+    assert.ok(readFileSync(resolve(dir, 'data.db')).equals(before), 'the builder\'s data.db is as it was');
+    assert.deepEqual(['data.db-wal', '.exact/verify/db.sqlite'].filter((f) => existsSync(resolve(dir, f))), []);
+    // Their dev server (started here, so this test may stop it) holds the port: one line naming it, and it runs on.
+    const dev = Bun.spawn([process.execPath, 'server.ts'], { cwd: dir, stdout: 'ignore', stderr: 'ignore' });
+    try {
+      for (let i = 0; !(await fetch('http://127.0.0.1:8787/health').then((r) => r.ok, () => false)); i++) { assert.ok(i < 100, 'the dev server answers'); await Bun.sleep(100); }
+      const refused = verify();
+      assert.equal(refused.status, 1, refused.stdout + refused.stderr);
+      assert.equal(refused.lines.length, 1, refused.stdout);
+      assert.match(refused.lines[0], new RegExp(`^verify: http://127\\.0\\.0\\.1:8787 already answers \\(pid ${dev.pid}: .*server\\.ts\\), and the tests would write into that server's database: stop it \\(kill ${dev.pid}\\) and run this again, which starts server\\.ts itself on an empty one$`));
+      assert.equal(dev.exitCode, null, 'the dev server runs on');
+    } finally { dev.kill(); await dev.exited; }
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+}, 300_000);
+
 // A new app, built and driven as a builder would: clean; a failing test fails it; a finding does not; a
 // compiler warning reaches the builder from `test web`'s build and from verify, and a clean app says none.
 test.skipIf(!!chromium().unavailable)('verify on a new app: clean, a failing test, a check finding, a compiler warning, --json', () => {
@@ -202,7 +258,7 @@ test.skipIf(!!chromium().unavailable)('verify on a new app: clean, a failing tes
     assert.equal(found.status, 0, found.stdout + found.stderr);
     assert.equal(found.lines[0], 'compiler: 1 warning', found.stdout);
     assert.match(found.lines[1].trim(), warning);
-    assert.match(found.stdout, /^ {2}\(light only\) contrast Text "Faint"#\d+ \[.*\]: 1\.\d:1 \(#dddddd on #ffffff\), needs 4\.5:1/m);
+    assert.match(found.stdout, /^ {2}\(light only\) contrast Text "Faint"#\d+ \[.*\]: 1\.\d:1 \(#dddddd on #ffffff(?:, [^)]*)?\), needs 4\.5:1/m);
     assert.match(found.lines.at(-1), /^verify: 2 problems \(2 findings; the tests passed\) in /);
 
     const json = verify('--json');

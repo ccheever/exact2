@@ -64,7 +64,9 @@ export function rebuildCommand(app, verb) {
   const own = app.dir && !resolve(app.dir).startsWith(`${ROOT}/`) && existsSync(resolve(app.dir, 'exact.mjs'));
   if (!own) return `bun host/apple/build.mjs${verb === 'ios' ? ' --ios' : ''} ${app.crate('apple')}`;
   const command = `(cd '${String(app.dir).replaceAll("'", "'\\''")}' && bun exact.mjs ${verb})`;
-  return readFileSync(resolve(app.dir, 'exact.mjs'), 'utf8').includes('agent-build.mjs') ? command
+  const runner = readFileSync(resolve(app.dir, 'exact.mjs'), 'utf8');
+  // A launcher (LLP 1116.006 D7) runs this checkout's app-cli.mjs, which builds first.
+  return runner.includes('agent-build.mjs') || runner.includes('scripts/app-cli.mjs') ? command
     : `${command} (after bun exact.mjs update, test and agent build it themselves)`;
 }
 

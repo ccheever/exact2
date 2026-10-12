@@ -3,11 +3,13 @@
 Edit and check on the web host (`verify`: seconds), and run `verify ios` at milestones:
 the tests with UIKit's bars, then `check` light and dark on the first screen and where
 each test ends, and a relaunch ([tests](tests.md#before-you-call-it-done)). A clean
-`verify ios` is done; look at its screenshots. `verify ios`, `test ios` and `agent ios` build
-first when the build is missing or older than its sources, and say so in one line; its
-log is `.exact/ios-build.log`. The first build takes minutes, later
-ones a minute or two, so start the first early with `--prebuild`: it returns at once,
-the build going on apart from the shell, and a drive started meanwhile waits for it.
+`verify ios` is done; look at its screenshots. For an iPhone app the last `verify` is
+`verify ios`: a clean web `verify` doesn't show a bar covering a control. `verify ios`,
+`test ios` and `agent ios` build first when the build is missing or older than its
+sources, and say so in one line; its log is `.exact/ios-build.log`. The first build
+takes minutes, later ones a minute or two, so start the first early with `--prebuild`:
+it returns at once, the build going on apart from the shell, and a drive started
+meanwhile waits for it.
 
 An edit to only `app.contract` (or another `.contract`) or what `app.ts` imports reaches
 iOS in seconds, with no native rebuild: the drive bakes the new plan and runs it on the

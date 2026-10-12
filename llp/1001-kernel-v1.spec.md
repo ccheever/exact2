@@ -57,7 +57,11 @@ The schema metadata changes its digest, so producers and hosts re-bake together.
 > - `font-size` takes a text style (`-exact-title1`, …) that the kernel resolves
 >   against that root, and a `role="heading"` is lowered to one by its level;
 > - `hr` is one solid edge in the separator role, not Chrome's two shades;
-> - an `href` run is `LinkText` and is not underlined;
+> - an `href` run is `LinkText` and is not underlined, and so is a block `link` of
+>   text (LLP 1115.000 D3.5);
+> - an unsaid SVG `fill` is `currentcolor`, not SVG's black, so a shape nobody filled
+>   is its text's colour and follows the scheme; a gradient stop's, a flood's and a
+>   light's initial colours stay SVG's (LLP 1115.000 D3.8);
 > - an unset root background is the platform's, never a fixed white;
 > - a pushed route has the platform's Back whether or not one is authored;
 > - a custom pressable that declares no press feedback dims while held on iOS.

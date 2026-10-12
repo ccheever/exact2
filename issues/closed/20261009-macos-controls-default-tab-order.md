@@ -1,7 +1,7 @@
 # macOS: date, time and select inputs are not Tab stops
 
 **Status:** Closed
-**Resolution:** PR #327: native date, time, and select controls enter the default Tab order and own focus
+**Resolution:** PR #327: native date, time, and select controls enter the default Tab order and own focus. Re-read under LLP 1115.000 D7.2 (2026-10-11): with Keyboard Navigation on, Tab stops at each of the three in tree order (`KeyboardNavigationMacTests.testADateATimeAndASelectAreStopsWithKeyboardNavigationOn`, which measured it on a tree that has #327; `QUEUE.md` had said they were skipped in both modes, and on that tree they are not). With it off, whether each is a stop is its own AppKit control's answer, as for any `NSDatePicker` or `NSPopUpButton`, and no longer "as on the web".
 **Systems:** host/apple macOS, controls, focus
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)

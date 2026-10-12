@@ -1035,7 +1035,22 @@ extension NavigationHost {
         }
         // Never inside a batch: the stack is installed partway through the
         // first one, whose remaining frames would overwrite the covered ones.
-        presenter.afterBatch { [weak presenter = self.presenter] in presenter?.onCovers?(changes) }
+        presenter.afterBatch { [weak self] in self?.deliverCovers() }
+    }
+
+    /// What the kernel is told is what is wanted when it is told. A report
+    /// queued behind a batch ran after later ones that did not wait, and its
+    /// covers, measured under the bar's first frame before the status bar's
+    /// inset (116 points with a large title of 168), won: team-kanban's
+    /// persona switcher lay under the large title, drawn over by it and
+    /// untappable (LLP 1116.006 D1).
+    private func deliverCovers() {
+        var changes: [(UInt32, HostCover?)] = []
+        for (id, cover) in covers where delivered[id] != cover { changes.append((id, cover)) }
+        for id in delivered.keys where covers[id] == nil && presenter.views[id] != nil { changes.append((id, nil)) }
+        delivered = covers
+        guard !changes.isEmpty else { return }
+        presenter.onCovers?(changes)
     }
 
     // MARK: The development check (LLP 1075.003 §3.5)

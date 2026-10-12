@@ -1,6 +1,7 @@
 # macOS: hover does not follow the pointer during a mouse drag
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Re-read under LLP 1115.000 D7 (2026-10-11), which makes the Mac's rules the Mac's and retires browser parity as the reason for a change. Settled in two parts. (1) While a button is held the hover stays where it was: that is AppKit's own rule. This report's AppKit oracle saw no `mouseEntered` or `mouseExited` during a drag in any configuration, and `NSTrackingArea.h` gives a plain area none; a hover that follows a held pointer is a browser's, so that ask is retired, not fixed. A gutter that must follow a held pointer has the held node's `pointermove` (LLP 1056 §3), which this report says works. (2) When the button comes up, the node under the pointer is hovered with no further move, as the header says AppKit reports an enter "on mouseUp after a drag": that part was a defect here (the hover stayed on the pressed node until the next move) and is fixed (`NodeView.pointerReleased` asks for the pointer to be hit-tested at the next frame; `PointerMannersMacTests.testHoverHoldsThroughADragAndFollowsTheRelease`). Not checked with a hardware mouse.
 **Systems:** host/apple macOS, pointer events
 **Severity:** P3
 **Author:** daehyeon-mun (T3 Code clone)

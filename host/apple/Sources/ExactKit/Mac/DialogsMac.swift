@@ -282,7 +282,9 @@ final class DialogBackdrop: NSView {
     private var downOutside = false
     override var isFlipped: Bool { true }
     override func draw(_ dirtyRect: NSRect) { NSColor.black.withAlphaComponent(0.18).setFill(); dirtyRect.fill() }
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    /// A backdrop is not a control: the click that activates its window does
+    /// not also dismiss the dialog (LLP 1115.000 D7.9). The agent's does.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { NodeView.everyClickCounts }
     private func outside(_ event: NSEvent) -> Bool {
         guard let parent = superview else { return false }
         return hitTest(parent.convert(event.locationInWindow, from: nil)) === self

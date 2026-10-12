@@ -177,6 +177,9 @@ export function parseFlags(argv) {
     else if (argv[i] === '--open') (flags.open ??= []).push(resolve(argv[++i]));
     else if (argv[i] === '--url') flags.url = argv[++i];
     else if (argv[i] === '--device') flags.device = true;
+    // Android: the app on the Canvas reader (its APK), not the Linux host headless. Said as the variable
+    // `agent-android.mjs` reads, as `--sim` is said as EXACT_SIM: the driver's own file is at its line cap.
+    else if (argv[i] === '--reader') { flags.reader = true; process.env.EXACT_ANDROID_READER = '1'; }
     else if (argv[i] === '--seed') flags.seed = Number(argv[++i]);
     else if (argv[i] === '--locale') flags.locale = argv[++i];
     else if (argv[i] === '--time-zone') flags.timeZone = argv[++i];
@@ -719,6 +722,22 @@ export async function closePage(req, { cdp, sessionId, call, frame }) {
     return { closed: false, kept: 'a `beforeunload` called `preventDefault()`: the browser asked "Leave site?", answered "Stay"', delivery: 'browser-window', native: 'Page.close' };
   } finally { clearTimeout(timer); cdp.listeners.splice(cdp.listeners.indexOf(listener), 1); }
 }
+
+/** The agent's `back` on the web (LLP 1116.006 D4), the carrier's half: an open modal `dialog` or `role="alertdialog"`
+ * popover takes the Escape a person presses, a real key the browser makes the dialog's close request (`closedby="none"`
+ * keeps it open, as a `cancel` handler that prevents it does). `escape` presses it (CDP's, or Playwright's keyboard).
+ * Null with none open: the page's agent then takes the browser's Back from the selected route (navigation.js `back`). */
+export async function backLayer(req, { evaluate, escape, frame }) {
+  if (Object.keys(req).some(k => !['op', 'back'].includes(k)) || req.back !== true) return { error: 'tap back takes no other input fields' };
+  const open = `document.querySelectorAll('dialog:modal, [role="alertdialog"]:popover-open').length`, before = await evaluate(open);
+  if (!before) return null;
+  await escape();
+  await frame();
+  return { back: 'dialog', delivery: 'platform', ...(await evaluate(open) >= before ? { refused: 'the dialog stayed open: its closedby is "none", or a `cancel` handler prevented the close' } : {}) };
+}
+
+/** Escape pressed through CDP, down and up, as a keyboard's (`backLayer`). */
+export const cdpEscape = (call) => async () => { for (const type of ['rawKeyDown', 'keyUp']) await call('Input.dispatchKeyEvent', { type, key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 }); };
 
 /** The simulator has one running process per bundle id, across every checkout.
  * Hold an OS lock through launch and close; a crashed driver releases it through

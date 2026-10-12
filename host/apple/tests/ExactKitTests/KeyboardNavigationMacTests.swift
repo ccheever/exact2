@@ -74,6 +74,33 @@ final class KeyboardNavigationMacTests: XCTestCase {
         if !p.routeKey(event, focused: true, in: window) { window.sendEvent(event) }
     }
 
+    /// A date, a time and a `select` (X52, #280, #327): with Keyboard
+    /// Navigation on, Tab stops at each, in order, as at every control (LLP
+    /// 1115.000 D7.2). Off, each is its own AppKit control's answer, which
+    /// follows the machine's setting and so is not asserted here.
+    func testADateATimeAndASelectAreStopsWithKeyboardNavigationOn() {
+        _ = NSApplication.shared
+        let p = Presenter()
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 500), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.autorecalculatesKeyViewLoop = false
+        window.contentView = p.viewport
+        func row(_ id: Int, _ kind: String, _ props: [String: String]) -> [[String: Any]] {
+            [["op": "create", "id": id, "kind": kind, "props": props, "handlers": ["change"], "style": ["appearance": "auto"]],
+             ["op": "frame", "id": id, "x": 10, "y": id * 40, "w": 200, "h": 30]]
+        }
+        var ops: [[String: Any]] = [["op": "create", "id": 1, "kind": "view"], ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 400, "h": 500]]
+        ops += row(2, "input", ["value": ""])
+        ops += row(3, "control", ["type": "date", "value": "2026-10-08"])
+        ops += row(4, "control", ["type": "time", "value": "09:30"])
+        ops += row(5, "control", ["type": "select", "value": "a", "options": "[{\"label\":\"A\",\"value\":\"a\"}]"])
+        ops += row(6, "input", ["value": ""])
+        ops += [["op": "children", "id": 1, "ids": [2, 3, 4, 5, 6]], ["op": "roots", "ids": [1]]]
+        p.apply(wireBatch(ops))
+        keyboardNavigation(true)
+        XCTAssertEqual(stops(p), [2, 3, 4, 5, 6], "on: every control")
+    }
+
     func testOffTabMovesBetweenFieldsAndWhatTakesKeysOfItsOwn() throws {
         keyboardNavigation(false)
         let p = fixture()

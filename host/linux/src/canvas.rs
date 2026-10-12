@@ -135,6 +135,8 @@ static SLOTS: std::sync::LazyLock<bool> =
 /// from the decoded picture, a copy rather than a decode.
 const IDLE_FRAMES: u64 = 10;
 
+#[path = "canvas/agent.rs"]
+pub mod agent;
 #[path = "canvas/clip.rs"]
 mod clip;
 #[path = "canvas/colors.rs"]
@@ -149,6 +151,8 @@ mod input;
 pub use device::{configure, window, Told};
 #[path = "canvas/jni.rs"]
 pub mod jni;
+#[path = "canvas/journal.rs"]
+mod journal;
 #[path = "canvas/keys.rs"]
 mod keys;
 #[path = "canvas/layer.rs"]
@@ -914,7 +918,7 @@ impl Backend for Recorder {
     fn finish(&mut self) -> Result<Pixmap, String> {
         self.layers_finish();
         let ops = std::mem::take(&mut self.ops);
-        FINISHED.with(|f| *f.borrow_mut() = Some(ops));
+        FINISHED.with(|f| agent::kept(f.borrow_mut().replace(ops)));
         Pixmap::new(1, 1).ok_or_else(|| "placeholder".to_string())
     }
 }
@@ -1205,7 +1209,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
     }
 
     fn now(&self) -> f64 {
-        self.started.elapsed().as_secs_f64() * 1000.0
+        agent::clock(&self.p).unwrap_or_else(|| self.started.elapsed().as_secs_f64() * 1000.0)
     }
 
     /// One turn: the presenter's work, then a recording when anything
@@ -1217,8 +1221,8 @@ impl<D: DataSource + Default> CanvasHost<D> {
             exact_runner::set_lead_scale(1.0);
             self.p.refine_deferred(true);
         }
+        let now = self.now();
         let p = &mut self.p;
-        let now = self.started.elapsed().as_secs_f64() * 1000.0;
         let _frame = Section::begin(c"exact frame");
         p.hold_collections(self.scrolled);
         let frame = self.frame_held(now);

@@ -647,6 +647,16 @@ final class MenuHost {
         guard let owner = confirmation, let pop = owner.popover, pop.props["id"] == name else { return }
         finish(owner, chosen: nil)
     }
+    /// The agent's `back` (LLP 1116.006 D4): the open confirmation's cancel,
+    /// as a keyboard's Escape or a tap outside it chooses it. nil with none
+    /// open; false while it is still moving.
+    func agentCancel() -> Bool? {
+        guard let owner = confirmation else { return nil }
+        guard !inTransition, valid(owner) else { return false }
+        finish(owner, chosen: nil)
+        return true
+    }
+
     /// The controller a presentation from `view` goes over: its own, or the
     /// dialog sheet that is already up over it.
     private func controller(for view: UIView) -> UIViewController? {

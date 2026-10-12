@@ -46,6 +46,20 @@ extension Presenter {
         }
     }
 
+    /// The colour the content at the viewport's bottom edge goes on with
+    /// below it (ExactView `paintUnderKeys`): the background of the scroller
+    /// there (a grouped list's), or the nearest painted box above it (a
+    /// route's backdrop), never a row's own. Nil where nothing is painted.
+    func bottomEdgeColor() -> UIColor? {
+        let b = viewport.bounds
+        guard b.height > 1, let hit = viewport.hitTest(CGPoint(x: b.midX, y: b.maxY - 1), with: nil) else { return nil }
+        let chain = Array(sequence(first: hit, next: { $0 === self.viewport ? nil : $0.superview }))
+        let from = chain.firstIndex { $0 is UIScrollView } ?? 0
+        return chain[from...].lazy.compactMap { v in
+            v.backgroundColor.flatMap { $0.resolvedColor(with: v.traitCollection).cgColor.alpha > 0.99 ? $0 : nil }
+        }.first
+    }
+
     /// A grouped list laid out at its offset and the rows of its cells
     /// carried into them: put in place, not slid there by the animation
     /// this may run inside, which moves only the list's offset.

@@ -1392,8 +1392,7 @@ component Editor
 Choose a colour by what it means, not by how it looks. **The accent is for
 what the user can act on**: a link, a plain button's title or symbol, a filled
 button's fill, a toggle's on state, the icon of a tappable row. Write it as
-`AccentColor` (or leave `-exact-tint-color` unset, whose initial value is
-`AccentColor`), never as the colour the accent happens to be today
+`AccentColor`, never as the colour the accent happens to be today
 (`-exact-system-blue`): the platform keeps the accent dynamic and dims it to
 grey behind an alert or a sheet to say the screen under it is inert. **A
 colour of its own is for what means something by itself**: status
@@ -1479,8 +1478,10 @@ column navigationKey=`${e.id}` position="absolute" inset=0 display="flex" flex-d
 
 That scroller is the route's content scroller with nothing written: the first in the
 route that scrolls vertically. On iOS it goes under the bar and collapses a large
-title, which happens only when it is the route's child right after its `header` (in
-a route with no header, its first child); a tap on the status bar, or on the selected
+title, which happens when it is the route's child right after its `header` (in a route
+with no header, its first child); with content between them (a switcher, a filter, an
+error line) the title keeps still and that content sits below the bar, large title
+included; a tap on the status bar, or on the selected
 tab at its root, scrolls it to the top. A route with several scrollers names a
 different one with `navigationScroll`, by its `id`. The compiler refuses a literal
 name that no element of the route carries, or one whose element is a box that never
@@ -1558,11 +1559,12 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   iOS alone sizes a sheet (LLP 1075.003 §9.11).
 - Without tabs, the routes are the root's own children, laid out the same way.
 - Tests reach a tab by `tap`, or deliver a location as `type <root> "/saved"` (LLP
-  1038 D11), which calls the root's `navigate`. On the web a CLI drive goes back as
-  the browser's back button does with `tap <root> history -1`, `<root>` being the
-  navigation root (the node with `navigationBack`) by its `testId`, the simplest
-  handle, or its view number from `tree`; native hosts refuse it, and a
-  test file has no such step yet.
+  1038 D11), which calls the root's `navigate`. `back`, an operation and a test
+  step, is the platform's Back on every host (LLP 1116.006 D4): an open dialog's
+  cancel, else the top sheet dismissed, else the pushed route popped, as iOS's Back
+  button, the browser's Back or ⌘[ goes; with nothing to go back from it fails. On
+  the web `tap <root> history -1` is the browser's history alone (native hosts
+  refuse it).
 
 A `head` node supplies document metadata. The innermost active value wins for
 each field. `head edited=dirty` marks a document with unsaved changes (the dot in
@@ -2091,6 +2093,13 @@ test "the list shows an error, then retries and loads"
   expect tree has "recipes"
 ```
 
+To write through the app's own server as another person, `request POST "/items"
+{"title": "Bread"} as grace` is the driver calling it (`Authorization: Bearer grace`,
+under app.ts's local URL; a status outside 2xx fails the step with the status and
+body). The app shows the write when it next reads: `clock +<its poll's ms>`, `clock
+data`, then `expect` ([rest-backend](recipes/rest-backend.md),
+[authored tests](contract-grammar.md#authored-tests)).
+
 A slow server is bounded in the source, not the view: `fetch(url, {
 exactTimeout: 10000 })` cancels the exchange after 10 s (headers and body) and
 rejects with a `FetchError` of kind `"Timeout"`, which the source catches and
@@ -2135,7 +2144,9 @@ clock starting over, so a test shows what persists; the web reloads its current
 URL, including its agent launch facts; a native app reopens at its launch
 location), `close` (the window's close button, as ⌘W: a `beforeunload` that
 calls `preventDefault()` keeps it open and the test goes on to the app's "Save
-changes?"; macOS and the web),
+changes?"; macOS and the web), `back` (the platform's Back: a dialog's cancel,
+a sheet's dismissal, the pushed route popped; a refusal is a note, nothing to
+go back from fails),
 `screenshot "file"`, `expect tree has|missing "id"`, `expect text "id" == "…"`
 (the node's text; a control's value, so a `select` reads its chosen value, not its
 options, and a checkbox with a `checked` binding `true` or `false`; else its descendants' — a button's label — else a field's value), and
@@ -2411,6 +2422,8 @@ tint: the nearest `accent-color` a node or an ancestor sets, else the platform's
 UIKit's inherited `tintColor` is), and Exact's `-exact-label`,
 `-exact-secondary-label`, `-exact-tertiary-label`, `-exact-quaternary-label`,
 `-exact-placeholder`, `-exact-separator`, `-exact-opaque-separator`, `-exact-link`,
+`-exact-symbol` (what a symbol nobody tinted is, the initial `-exact-tint-color`:
+the tint on iOS and the web, the secondary label colour on the Mac),
 `-exact-background`, `-exact-secondary-background`, `-exact-tertiary-background`,
 `-exact-grouped-background`, `-exact-secondary-grouped-background`,
 `-exact-tertiary-grouped-background`, `-exact-fill` (and `secondary-`, `tertiary-`,

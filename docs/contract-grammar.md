@@ -386,7 +386,10 @@ step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu"
               | "reload" NL
               | "fail" "fetch" STRING [ "times" NUMBER ] NL (* later fetches whose URL starts with it fail *)
               | "pass" "fetch" STRING NL             (* it stops failing *)
+              | "request" METHOD STRING [ json ] [ "as" ( IDENT | STRING ) ] NL
+                                                     (* the driver writes through the app's server *)
               | "close" NL                           (* the window's close button *)
+              | "back" NL                            (* the platform's Back *)
               | "screenshot" STRING NL
               | "expect" "tree" ( "has" | "missing" ) STRING NL
               | "expect" "text" STRING "==" STRING NL
@@ -396,6 +399,10 @@ step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu"
               | "expect" "mediasession" ( IDENT "==" ( STRING | "none" )
                   | ( "has" | "missing" ) STRING ) NL ;
 test-value    = [ "-" ] NUMBER | STRING | "true" | "false" | "none" | "[" "]" ;
+METHOD        = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" ;
+json          = "{" [ STRING ":" json { "," STRING ":" json } ] "}"   (* strict JSON: quoted keys, no *)
+              | "[" [ json { "," json } ] "]"                         (* trailing comma; brackets may *)
+              | STRING | [ "-" ] NUMBER | "true" | "false" | "null" ; (* span lines *)
 ```
 
 Targets are driver test ids. Each test is a session of its own, opened with its
@@ -423,7 +430,19 @@ replaces it. A file's line applies to every test that does not arm the same
 prefix itself. A counted fault that matched no fetch by the test's end (or
 before it is armed again) fails the test at the line that armed it, and
 `reload` relaunches with the table as it is then. A stream (`exactStream`, a
-WebSocket) is not matched. `tap "id" drag to "other" [at x y]` ends on the other
+WebSocket) is not matched. `request POST "/polls/1/votes" {"option": 2} as bob`
+(LLP 1116.006 D8) is the driver, not the app, writing through the app's server as
+another person: a method, a path in quotes under the server URL app.ts calls (its
+first local one, `http://127.0.0.1:8787`; or a whole `http://` URL), an optional JSON
+body (sent as `content-type: application/json`), and `as <persona>`, sent as
+`Authorization: Bearer <persona>` (the `rest` pattern's tokens are `ada` and `grace`;
+`as "token-grace"` for a token that is not one word). A status outside 200 through
+299, or no answer, fails the step naming the status and the body's start. The app
+shows the write when it next reads, so follow it with `clock +<its poll's ms>` and
+`clock data` before the `expect` (a failed `expect` before the clock moved says so).
+`verify` and `api-test` run the server on an empty database; `test` uses the one
+running. `fail fetch` does not reach a `request`: the driver sends it, not the app.
+`tap "id" drag to "other" [at x y]` ends on the other
 node (LLP 1094 D12). `tap "id" drag dx dy` is the driver's `tap … drag` (from the
 node's middle, or `from x y` in its box, in points; `press`, `over`, `hold` in
 milliseconds; each once). It is a finger where the carrier has one (the web,
@@ -457,6 +476,16 @@ test goes on to the app's own "Save changes?" (on the web the browser's "Leave
 site?", answered "Stay"). A window that closes, by `close` or by a press the app
 answers with `close()`, takes the session with it, and a step after it fails
 naming the line. macOS and the web; iOS and Linux close no window and refuse it.
+`back` is the platform's Back, as a person takes it, from what is on top: an
+open dialog's cancel (a modal `dialog` or `role="alertdialog"` popover: Escape
+on the web and macOS, the alert's Cancel on iOS), else the top sheet dismissed
+(a `navigationPresentation="modal"` route: iOS's swipe down), else the pushed
+route popped (iOS's Back button, the browser's Back, ⌘[ on macOS, Alt+Left on
+Linux). A route goes back as those do: its Back control pressed, else the root's
+`navigate` with the location beneath, else the router's own `back`. One the app
+refuses (a disabled Back control, `closedby="none"`) is a note, and the test
+goes on; with nothing to go back from the step fails. It names no target: `tap`
+the app's own control to press it.
 `type` on a `select` chooses an enabled option by value, else by its one label;
 on a date, time or range input it sets the value in HTML's format; on a checkbox
 it takes `true` or `false`, on a radio `true`. A target out of view is scrolled into view first.

@@ -919,6 +919,7 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                 }
                 Step::Reload { .. } => s.push_str("{\"op\":\"reload\""),
                 Step::Close { .. } => s.push_str("{\"op\":\"close\""),
+                Step::Back { .. } => s.push_str("{\"op\":\"back\""),
                 Step::BeforeData { .. } => s.push_str("{\"op\":\"before-data\""),
                 Step::FailFetch { prefix, times, .. } => {
                     s.push_str("{\"op\":\"fail-fetch\",\"prefix\":");
@@ -931,6 +932,26 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                 Step::PassFetch { prefix, .. } => {
                     s.push_str("{\"op\":\"pass-fetch\",\"prefix\":");
                     q(prefix, &mut s);
+                }
+                // @ref LLP 1116.006 D8 — the body as JSON text, the persona as `as`.
+                Step::Request {
+                    method,
+                    path,
+                    body,
+                    persona,
+                    ..
+                } => {
+                    s.push_str("{\"op\":\"request\",\"method\":");
+                    q(method, &mut s);
+                    s.push_str(",\"path\":");
+                    q(path, &mut s);
+                    for (key, value) in [("body", body), ("as", persona)] {
+                        s.push_str(&format!(",\"{key}\":"));
+                        match value {
+                            Some(v) => q(v, &mut s),
+                            None => s.push_str("null"),
+                        }
+                    }
                 }
                 Step::Resize { width, height, .. } => {
                     s.push_str(&format!(
@@ -1393,7 +1414,7 @@ fn lint<D: DataSource>(runner: &mut Runner<D>, answered: bool) -> Result<(), Bak
                 if node.frame.width > 0.0 && node.frame.height > 0.0 {
                     continue;
                 }
-                if !answered && !styled_out(kernel, node) {
+                if (!answered && !styled_out(kernel, node)) || in_placeholder(kernel, node) {
                     continue;
                 }
                 let mut stack = node.children();
@@ -1422,6 +1443,19 @@ fn lint<D: DataSource>(runner: &mut Runner<D>, answered: bool) -> Result<(), Bak
         }
     }
     Ok(())
+}
+
+/// Whether a node is in the split's own placeholder (LLP 1116.006 D2): no box
+/// but where a wide window's split shows it, which this layout is not.
+fn in_placeholder(kernel: &Kernel, node: exact_kernel::NodeRef<'_>) -> bool {
+    let mut at = Some(node);
+    while let Some(n) = at {
+        if n.props.str(exact_kernel::PropId::NavigationSplit) == Some("placeholder") {
+            return true;
+        }
+        at = n.parent.and_then(|p| kernel.node(p));
+    }
+    false
 }
 
 /// Whether a node's zero area is its style's: `display: none` on it or an

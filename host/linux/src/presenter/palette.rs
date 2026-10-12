@@ -89,6 +89,10 @@ const ROLES: &[(&str, Material, u32)] = &[
     ("-exact-link", Primary, 100),
     ("ButtonText", Primary, 100),
     ("-exact-system-blue", Primary, 100),
+    // A symbol nobody tinted (LLP 1115.000 D3.9): `primary`, as it was
+    // while its default was `AccentColor`. Material's own answer for an
+    // icon is LLP 1115.001's to give.
+    ("-exact-symbol", Primary, 100),
     ("AccentColorText", OnPrimary, 100),
     ("Field", SurfaceContainerHighest, 100),
     ("-exact-fill", SurfaceContainerHighest, 100),

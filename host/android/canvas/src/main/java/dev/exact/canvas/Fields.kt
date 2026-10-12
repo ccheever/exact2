@@ -362,8 +362,10 @@ internal class Fields(context: Context) : FrameLayout(context) {
 
     /** A value of the app's that is not the field's: the text is replaced where it stands, so the field keeps its
      * undo, and the caret stays where it was among the text after it, or else as far from the start. The keyboard
-     * starts over: a composition does not outlive the text it was composing. `maxlength` is the person's limit, not
-     * the app's. */
+     * starts over: a composition does not outlive the text it was composing. The field's filters are the person's
+     * limits, not the app's: its `maxlength`, and the characters its keyboard's kind admits (a number field's key
+     * listener drops a "." the app sets, and the caret was then put past the end of what was left: a crash, seen on
+     * a Pixel with Shelf's own test of its pages field). */
     private fun replace(f: Field, value: String) {
         val e = f.text.editableText ?: return
         val old = e.toString()
@@ -377,10 +379,11 @@ internal class Fields(context: Context) : FrameLayout(context) {
         try {
             BaseInputConnection.removeComposingSpans(e)
             val filters = e.filters
-            e.filters = filters.filter { it !is InputFilter.LengthFilter }.toTypedArray()
+            e.filters = arrayOf()
             e.replace(0, e.length, value)
             e.filters = filters
-            val a = at(start); val b = at(end)
+            val n = e.length
+            val a = min(at(start), n); val b = min(at(end), n)
             f.text.setSelection(min(a, b), max(a, b))
         } finally { quiet = false }
         if (f.text.isFocused) imm.restartInput(f.text)
@@ -408,8 +411,12 @@ internal class Fields(context: Context) : FrameLayout(context) {
         fields.remove(f.id)
         byView.remove(f.text)
         nodes = null
+        // A field that goes while it holds the focus (its page closed) hands the focus to the reader's own view
+        // first. Removed with it, the platform gives the focus to the first field left in the window, which told
+        // exact2 as a person's tap would: the page beneath came back with its search field focused and the keyboard
+        // up (seen on a Pixel with Shelf: Save in the add form).
+        if (f.text.isFocused) { yielded(f); hide() }
         if (focused === f) focused = null
-        if (f.text.isFocused) hide()
         removeView(f.port)
         f.node.discardDisplayList()
     }
@@ -493,7 +500,15 @@ internal class Fields(context: Context) : FrameLayout(context) {
 
     private fun position(f: Field) {
         val inert = f.flags and INERT != 0
-        if (f.text.isFocusable == inert) { f.text.isFocusable = !inert; f.text.isFocusableInTouchMode = !inert }
+        if (f.text.isFocusable == inert) {
+            // A field that is covered while it holds the focus (a route was pushed over its own) gives the focus up
+            // itself, before it stops being focusable. Left to the platform, a view that can no longer hold the
+            // focus drops it with the keyboard still up and still connected to it: the page on top then sat under
+            // a keyboard that typed into the field beneath, and Back left the page before it closed the keyboard
+            // (seen on a Pixel with Shelf: search, then a tap on a result).
+            if (inert && f.text.isFocused) { yielded(f); hide() }
+            f.text.isFocusable = !inert; f.text.isFocusableInTouchMode = !inert
+        }
         f.port.importantForAccessibility =
             if (inert || f.flags and PLACED == 0) IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS else IMPORTANT_FOR_ACCESSIBILITY_AUTO
         if (f.flags and PLACED == 0) {
@@ -532,17 +547,22 @@ internal class Fields(context: Context) : FrameLayout(context) {
         f.text.windowInsetsController?.show(WindowInsets.Type.ime())
     }
 
-    /** exact2 says no hosted field holds the focus: the one that did lets go of it and the keyboard goes. */
-    fun blur() {
+    /** exact2 says no hosted field holds the focus: the one that did lets go of it and the keyboard goes. Where
+     * exact2 wants no keyboard at all ([down]) it goes whether or not a field is known to hold the focus: one that
+     * lost it by another road may have left its keyboard up. */
+    fun blur(down: Boolean = true) {
         wanted = 0
-        val f = focused ?: return
+        val f = focused
+        if (f != null) yielded(f)
+        if (f != null || down) hide()
+    }
+
+    /** [f] lets go of the focus because exact2 took it away, so exact2 is told nothing. The reader's own view takes
+     * the focus where it can, so keys go on to exact2. */
+    private fun yielded(f: Field) {
         quiet = true
-        try {
-            // The reader's own view takes the focus where it can, so keys go on to exact2.
-            if (view?.requestFocus() != true) f.text.clearFocus()
-        } finally { quiet = false }
-        focused = null
-        hide()
+        try { if (view?.requestFocus() != true) f.text.clearFocus() } finally { quiet = false }
+        if (focused === f) focused = null
     }
 
     private fun hide() { imm.hideSoftInputFromWindow(windowToken, 0) }

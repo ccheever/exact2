@@ -872,3 +872,49 @@ fn a_driver_reads_the_open_surface_from_state_and_taps_a_row_by_its_node() {
     assert_eq!(text(&p, "said"), "removed");
     assert!(state(&mut p)["surface"].is_null());
 }
+
+#[test]
+fn a_driver_reveals_a_row_of_the_surface_and_opens_a_context_menu_by_its_node() {
+    let ask = |p: &mut Presenter<Nothing>, request: String| -> serde_json::Value {
+        let reply = crate::agent::handle(p, &request);
+        p.run_commands(|| Nothing);
+        serde_json::from_str(&reply).unwrap()
+    };
+    // A host with no shell refuses a context menu's popover, as it did.
+    let mut desktop = boot();
+    let held = id(&desktop, "held");
+    let refused = ask(
+        &mut desktop,
+        format!(r#"{{"op":"tap","id":{held},"contextmenu":true}}"#),
+    );
+    assert_eq!(refused["error"], crate::navigation::POPOVER_UNSUPPORTED);
+
+    let (mut p, _) = windowed();
+    // The driver scrolls a target into view before it taps it. A row of the
+    // open alert is no box of the page's: it is in view in its window.
+    tap(&mut p, "ask").unwrap();
+    let delete = id(&p, "confirm-delete");
+    let revealed = ask(&mut p, format!(r#"{{"op":"reveal","id":{delete}}}"#));
+    assert_eq!(revealed["revealed"], delete, "{revealed}");
+    assert_eq!(revealed["scrolled"], false);
+    let cancel = id(&p, "confirm-cancel");
+    ask(&mut p, format!(r#"{{"op":"tap","id":{cancel}}}"#));
+    assert!(p.surface().is_none());
+
+    // `tap <node> contextmenu` is the finger held on it: its `contextmenu`
+    // runs, the menu it names opens, and a row is chosen by its node.
+    let held = id(&p, "held");
+    let opened = ask(
+        &mut p,
+        format!(r#"{{"op":"tap","id":{held},"contextmenu":true}}"#),
+    );
+    assert_eq!(opened["tapped"], held, "{opened}");
+    assert_eq!(text(&p, "aimed"), "row");
+    assert_eq!(p.surface().map(|s| s.kind), Some(SurfaceKind::Menu));
+    let share = id(&p, "menu-share");
+    ask(&mut p, format!(r#"{{"op":"reveal","id":{share}}}"#));
+    ask(&mut p, format!(r#"{{"op":"tap","id":{share}}}"#));
+    assert_eq!(text(&p, "said"), "sent");
+    // The row's own press did not run.
+    assert!(p.surface().is_none());
+}

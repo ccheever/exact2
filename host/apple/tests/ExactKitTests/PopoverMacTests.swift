@@ -21,6 +21,7 @@ final class PopoverMacTests: XCTestCase {
         p.onPress = { presses.append($0) }; p.onPointer = { id, _, _ in pointers.append(id) }
         window.makeKeyAndOrderFront(nil)
         window.makeFirstResponder(behind)
+        clicksArriveAsInTheKeyWindow()
         for type: NSEvent.EventType in [.leftMouseDown, .leftMouseUp] {
             let event = try XCTUnwrap(NSEvent.mouseEvent(with: type, location: at, modifierFlags: [], timestamp: 0,
                 windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))

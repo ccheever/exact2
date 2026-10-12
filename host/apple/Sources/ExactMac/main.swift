@@ -179,8 +179,9 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
         if first { ExactEnv.stamp("Presenter (NSScrollView)") }
         window = ExactWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         super.init()
-        // Present the reading surface at its final size as soon as it is ready.
-        window.animationBehavior = .none
+        // AppKit's own opening animation, and window tabs only where documents
+        // have windows of their own (LLP 1115.000 D7.9).
+        ExactDocuments.furnish(window)
         // Nothing restores this window — a session boots its plan and the frame has
         // its own autosave below — so AppKit's restoration has nothing to keep for it.
         // Left on, a scroll view invalidates restorable state as it scrolls and AppKit
@@ -193,7 +194,6 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
         if first { ExactEnv.stamp("NSWindow") }
         // Until the app's `head` names it (LLP 1069.010 D6), the app's name.
         window.title = ExactEnv.appName
-        window.tabbingIdentifier = ExactEnv.appMetadata["CFBundleIdentifier"] as? String ?? ExactEnv.appName
         if !scripted {
             window.contentMinSize = minimumSize
             window.setContentSize(NSSize(width: max(size.width, minimumSize.width), height: max(size.height, minimumSize.height)))

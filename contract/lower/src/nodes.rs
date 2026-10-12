@@ -230,7 +230,7 @@ impl Lowerer<'_> {
         for (prop, value) in t.fixed_props {
             bindings.push(prop_row(*prop, self.fixed(false, value), IMPLIED));
         }
-        self.link_run_color(tag, parent_tag, expanded, &mut bindings);
+        self.link_color(tag, parent_tag, expanded, children, &mut bindings);
         self.heading_style(tag, expanded, scope, locals, &mut bindings)?;
         // @ref LLP 1069.001 (amended 2026-10-07) — an indeterminate
         // `progress` (no `value`, LLP 1116 D8) is busy, as ARIA's
@@ -343,6 +343,14 @@ impl Lowerer<'_> {
                     Origin::Own
                 };
                 origins.resize(bindings.len(), origin);
+            }
+        }
+        // @ref LLP 1116.006 D2 — no box where no split shows it (the web shell shows it).
+        if routes::split_placeholder(expanded).is_some() {
+            let none = self.fixed(true, "none");
+            bindings.push(style_row(StyleId::Display, none, IMPLIED));
+            if let Some(origins) = &mut origins {
+                origins.resize(bindings.len(), Origin::Tag);
             }
         }
         if button.as_ref().is_some_and(|b| !b.native)

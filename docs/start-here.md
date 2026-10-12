@@ -31,12 +31,12 @@ bun exact.mjs pattern      # lists the starting apps; `pattern list-detail` writ
 bun exact.mjs ios --prebuild  # the first iOS build: minutes, in the background
 ```
 
-Start from the nearest pattern; it passes its tests.
+Start from the nearest pattern.
 
 | `bun exact.mjs …` | What it does |
 | --- | --- |
-| `contract build app.contract --json` | `[]` or each diagnostic with its fix; it rewrites the types `app.ts` imports. Builds print the warnings. |
-| `verify`, `verify ios` | Builds if stale, runs `app.test.contract` (`test web` alone), `check`s the first screen and where each test ends light and dark at phone and desktop widths, relaunches once on real time, in one report. A clean `verify` is done. |
+| `contract build app.contract --json` | `[]` or each diagnostic with its fix; it rewrites the types `app.ts` imports. Builds print warnings. |
+| `verify`, `verify ios` | Builds if stale, runs `app.test.contract` (`test web` alone), `check`s the first screen and where each test ends light and dark at phone and desktop widths, relaunches once on real time: one report. A clean `verify` on the app's platform is done (`verify ios` for iPhone). |
 | `agent web --storage s1 "clock data" "tap add" "check both"` | Drives the app by hand, to see why something fails. iOS with its bars: [ios-driving](recipes/ios-driving.md). |
 | `web`, `ios --run` | The dev loop (it prints its URL, rebuilds on save); a simulator. |
 
@@ -185,7 +185,7 @@ test "an item is added, a repeat refused, checked off and kept"
    (or a search field, a `tablist`); anything else isn't in the iOS bar.
 4. **A drive without `--storage <name>`** refuses storage, so the app looks empty.
 5. **A screen no test ends on** is one `verify` never checks or captures: end a test
-   there, rather than driving it by hand.
+   there instead of driving it by hand.
 
 ## Look it up
 

@@ -2,12 +2,14 @@
 /**
  * async — the async lane (rules/RULES.md §Loop shape): every first-parent
  * commit on origin/main, checked out in a dedicated worktree with its own
- * target/, gets the five checks over the whole workspace plus the tests marked
+ * target/, gets the six checks over the whole workspace (its build covers the
+ * sixth, `cargo check --workspace`) plus the tests marked
  * `#[ignore = "async lane: …"]`, every web host unit test found by one glob
  * and the script capture fixtures,
  * the web host's app-building document test in its own step, the web JS target's conformance run
  * (`host/web-js/conform.mjs --strict`), the separate game workspace tests,
- * the UIKit XCTests on a simulator for any range beyond documentation-only edits,
+ * the UIKit XCTests on a simulator and the tvOS compile (`build.mjs --tvos
+ * --no-install`) for any range beyond documentation-only edits,
  * the
  * Contract semantics' proofs and differential run (`semantics/README.md`), then
  * `metrics.mjs --long` (every RULES budget;
@@ -66,7 +68,8 @@ function laneTests() {
 const workspace = ['--workspace'];
 const WEB_APPS = ['realworld', 'weatherlight', 'completion-storm', 'video-player', 'caltrain', 'typetour', 'carousel', 'sparkline', 'svg-gallery', 'spark', 'markdown-stress', 'reflow', 'textflow', 'canvas-gallery', 'duo-lab', 'update-lab', 'native-fixture', 'photo-editor', 'recorder', 'fieldnotes', 'markdown', 'messages', 'interaction-gallery', 'motion-gallery'];
 // The second lane: tvOS uses Caltrain (its TypeScript-free build needs no
-// Hermes); Linux and Windows compile their target-only branches and one app each.
+// Hermes) and installs it on an Apple TV simulator, which the first lane's
+// compile does not; Linux and Windows compile their target-only branches and one app each.
 export function tierTwoChecks() {
   return [
     ['tvos', 'env', ['EXACT_JS_ENGINE=stub', 'bun', 'host/apple/build.mjs', '--tvos']],
@@ -74,6 +77,7 @@ export function tierTwoChecks() {
     ['windows', 'env', ['CRATE_CC_NO_DEFAULTS=1', 'CC_x86_64_pc_windows_gnu=zig cc -target x86_64-windows-gnu', 'cargo', 'check', '--locked', '--keep-going', '--target', 'x86_64-pc-windows-gnu', '-p', 'exact-windows', '-p', 'windows-desk']],
   ];
 }
+export const tvosCompile = ['tvos', 'env', ['EXACT_JS_ENGINE=stub', 'bun', 'host/apple/build.mjs', '--tvos', '--no-install']];
 export const gameCheck = ['game', 'cargo', ['test', '--manifest-path', 'game/Cargo.toml', '--workspace', '--locked', '--lib', '--bins', '--tests', '--no-fail-fast']];
 export function glueTests(root) {
   const files = [...new Bun.Glob('host/web/**/*.test.mjs').scanSync({ cwd: root, onlyFiles: true })].sort().map(file => `./${file}`);
@@ -114,6 +118,11 @@ export function checks(sha, since, selection = {}) {
     // Real touches through the XCTest runner on a simulator (LLP 1080.000 §6):
     // a runner that does not start fails here, never skips.
     ...(apple ? [['ios-touch', 'bun', ['scripts/smoke-touch.mjs', '--build']]] : []),
+    // tvOS compiles the UIKit presenter's Swift a second time, and an iOS-only
+    // name in shared code breaks it (twice on 2026-10-11, seen by hand). Built
+    // and signed, installed on nothing (Charlie, 2026-10-12): it needs the tvOS
+    // SDK and Rust's tvOS simulator target, and no simulator. Tier 2 installs.
+    ...(apple ? [tvosCompile] : []),
     // The Contract semantics (semantics/README.md; Charlie, 2026-10-03): the
     // Lean project builds with every proof checked (the app proofs among
     // them, over embeddings `difftest apps` checks are current), then the runner against

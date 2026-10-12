@@ -33,7 +33,7 @@ const DRIVE = [
   ['--url <url>', 'web: drive a page already served (the dev loop\'s) instead of building'],
   ['--browser chrome|firefox|webkit', 'web (default chrome; bunx playwright@1.63.0 install firefox webkit)'],
   ['--sim <udid|name>', 'iOS: which simulator (else EXACT_SIM, a booted iPhone, or the newest iPhone Pro)'],
-  ['--device · --phone <udid|name>', 'a connected iPhone (built with ios --device), and which'],
+  ['--device · --phone <udid|name> · --reader', 'a connected iPhone (built with ios --device), and which · Android: the app on the Canvas reader (its APK)'],
   ['--plan <file>', 'a compiled plan (contract build -o) in place of the app\'s'],
   ['--world <file>', 'a game: a saved world to load'],
   ['--open <file> · --json', 'macOS: a document on its command line · replies as JSON lines'],
@@ -46,7 +46,7 @@ const DRIVE_INTERNAL = ['--app <name>', '--session <label>'];
 const NATIVE_PORTS = 'iOS simulator: a Unix socket; --device: a free TCP port; macOS, Linux, Android: stdio.';
 
 // host/apple/build.mjs's flags, which `ios` and `mac` both run: each documents its own, and takes the rest.
-const APPLE = ['--ios', '--tvos', '--device', '--run', '--prebuild', '--host', '--embed', '--bundle', '--distribution', '--unsigned', '--test',
+const APPLE = ['--ios', '--tvos', '--device', '--run', '--no-install', '--prebuild', '--host', '--embed', '--bundle', '--distribution', '--unsigned', '--test',
   '--archive <out.ipa>', '--sim <udid|name>', '--phone <udid|name>', '--url <url>', '--optimize <speed|size>', '--link <plan>'];
 const appleRest = (documented) => APPLE.filter((spec) => !documented.some(([row]) => specs(row).some((d) => name(d) === name(spec))));
 const OPTIMIZE = ['--optimize speed|size', 'the Rust archive\'s (default speed, or app.json host.ios|macos.optimize)'];
@@ -102,8 +102,9 @@ older than its sources, saying so on stderr. Each test launches the app fresh wi
 store, after its first data has landed; its leading lines (size, epoch, fail fetch …)
 override flags.
 Runs     to completion, exit 1 when a test fails; nothing is left running.
-Lines    tap, type, expect text|tree|state, clock data|settle|+<ms>, reload, fail|pass fetch:
-         docs/recipes/tests.md; all: docs/contract-grammar.md "Authored tests".`,
+Lines    tap, type, expect text|tree|state, clock data|settle|+<ms>, reload, back, fail|pass fetch,
+         request <METHOD> "/path" [json] [as <persona>]: docs/recipes/tests.md; all:
+         docs/contract-grammar.md "Authored tests".`,
     bodyAll: `A phone's build is ios --device's.
 Ports    none to choose. web: headless Chrome over a pipe; the page on 127.0.0.1, each test at a
          port fixed by its own store's name (20000-47999).
@@ -125,7 +126,7 @@ Ops      a target is a testId, else a view's exact text or label
   type <target> <text> · type <target> key <Name>   (a select, date or checkbox: its value)
   clock data · clock settle · clock +<ms> [real]    land what is in flight · end transitions
   check [dark|both] · screenshot <file.png> [window]  what is wrong, in text, before a picture · window: bars
-  prefer <feature> <value> · perf [<target>] · resize <w>x<h> · close · fail|pass fetch <prefix>
+  prefer <feature> <value> · perf [<target>] · resize <w>x<h> · close · back · fail|pass fetch <prefix>
 Runs     to completion; each drive launches the app anew (--storage keeps its data).`,
     bodyAll: `Trace    trace <file> reads a saved development trace. Every op's forms: docs/contract-for-agents.md
          "Inspection and testing", or agent web with no op.
@@ -156,6 +157,9 @@ each test's named by the test, the relaunch's): look at them at milestones.
 Runs     to completion: exit 1 when the build, a test, a launch or the relaunch fails; the
          findings (check's, the relaunch's) and the compiler's warnings are counted, never
          fail it. A screen no test ends on is not checked: end a test there.
+Server   an app with its own (server.ts, the rest pattern's): verify runs it where app.ts calls
+         it, on an empty database (DB=.exact/verify/db.sqlite), through the relaunch, then stops
+         it; one already answering there (a dev server) is refused, named, never written to.
 Ports    none to choose: test's and agent's (headless Chrome over a pipe; a simulator's socket).`,
     example: 'bun exact.mjs verify            # bun exact.mjs verify ios at a milestone',
   },
@@ -247,7 +251,7 @@ Ports    none. Runs to completion: exit 0 when it compiled.`,
 app.test.contract here (and what else it needs: rest's server.ts and test.mjs) with this
 app's id and name, then the types app.ts imports. A file still as exact new or a pattern
 wrote it is replaced; one you edited is refused unless --force. Each pattern passes its own
-tests and no-tells; rest's run with bun exact.mjs api-test web, which starts its server.
+tests and no-tells; rest's run with bun exact.mjs api-test web or verify, which run its server.
 Ports    none. Runs to completion.`,
     example: 'bun exact.mjs pattern list-detail && bun exact.mjs test web',
   },

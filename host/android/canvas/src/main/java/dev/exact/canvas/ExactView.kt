@@ -274,7 +274,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
     internal fun keyboard(state: Int, field: Int) {
         val hosted = fields
         if (state != 0 && field != 0 && hosted != null) { keys?.show(0); hosted.focus(field) }
-        else { hosted?.blur(); keys?.show(state) }
+        else { hosted?.blur(state == 0); keys?.show(state) }
     }
 
     /** exact2 runs here (owner=0) and was told something of a field: what that changed is drawn. */
