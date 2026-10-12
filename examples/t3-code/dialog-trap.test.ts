@@ -461,7 +461,7 @@ describe('every modal dialog gives the focus back as it closes (Base UI\'s final
     'settings-b-icons.contract "project-icon-dialog"': { final: ['app-settings.contract', '"project-choose-icon"'] },
     'settings-b-icons.contract "project-favicon-picker"': { final: ['app-settings.contract', '"project-choose-file"'] },
     'settings-core-body.contract "restore-defaults-dialog"': { final: ['app-settings.contract', '"settings-restore-defaults"'] },
-    'settings-scheduled.contract "scheduled-task-dialog"': { final: ['app-settings.contract', '(restSubject == "" ? "new-scheduled-task" : `task-actions-${restSubject}`)'] },
+    'settings-scheduled.contract "scheduled-task-dialog"': { final: ['app-settings.contract', '(restSubject == "" or startsWith(restSubject, "new|") ? "new-scheduled-task" : `task-actions-${restSubject}`)'] },
     'snapshot.contract "snapshot-setup-dialog"': { final: ['app-settings.contract', 'snapshotSetupFrom'] },
     'ssh-prompt.contract "ssh-password-dialog"': { own: ['app.contract', 'focus("ssh-connect")'] },
     'timeline-attachments.contract "image-preview"': { none: 'opened from a message\'s image, a video\'s play button or a context chip, and the view keeps only the image' },

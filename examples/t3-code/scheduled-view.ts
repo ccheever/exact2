@@ -79,9 +79,13 @@ export function taskScope(client: T3Client, environments: { environmentId: strin
   return resolveTaskScope({ machine, project: projectKey || (projectId ? `project:${projectId}` : ''), checkout: checkout || (!projectKey && projectId ? projectId : '') }, groups, environments);
 }
 
-/** Editing targets: `<environmentId>|<taskId>` from a row, `link|<environmentId>|<taskId>` from a deep link. */
+/**
+ * Editing targets: `<environmentId>|<taskId>` from a row, `link|<environmentId>|<taskId>` from a deep link, `new|<environmentId>`
+ * for a new task its Runs on moved to that environment (settings-scheduled.contract ScheduledEditor).
+ */
 export function editTarget(value: string, fallbackEnvironment: string): { environmentId: string; taskId: string; link: boolean } {
   const parts = value.split('|');
+  if (parts[0] === 'new' && parts.length === 2) return { environmentId: parts[1] || fallbackEnvironment, taskId: '', link: false };
   if (parts[0] === 'link' && parts.length >= 3) return { environmentId: parts[1] || fallbackEnvironment, taskId: parts.slice(2).join('|'), link: true };
   if (parts.length >= 2) return { environmentId: parts[0] || fallbackEnvironment, taskId: parts.slice(1).join('|'), link: false };
   return { environmentId: fallbackEnvironment, taskId: value, link: false };
@@ -169,7 +173,7 @@ export async function scheduledPage(client: T3Client, native: Native | null | un
     const all = editing.tasks.value;
     // A deep link opens the editor once its task is known; a missing one is the section's "Task unavailable".
     if (target?.link && (!all || !all.some(task => task.id === target.taskId))) return base;
-    const task = target && all ? all.find(entry => entry.id === target.taskId) : undefined;
+    const task = target?.taskId && all ? all.find(entry => entry.id === target.taskId) : undefined;
     const config = editing.config;
     const projects = editing.shell.projects.filter(project => matchesScheduledTaskScope(scope, editing.environmentId, str(project.id)));
     const firstProject = projects[0] ?? null;
@@ -180,7 +184,9 @@ export async function scheduledPage(client: T3Client, native: Native | null | un
     // asks for it by name (limit 10), so a local branch past the first page still reads "From origin/<ref>". The base is
     // the draft's in its project, and the editor's (`taskBase`, settings-scheduled.contract taskPicker). A failed lookup
     // leaves it unknown.
-    const key = `${editing.environmentId}:${target?.taskId || 'new'}`;
+    // The dialog's identity (the reference keys it by the environment it opened on and the task): a new task keeps its
+    // dialog, and the fields typed into it, when Runs on moves it to another environment (scheduled-tasks-followups ST-1).
+    const key = target?.taskId ? `${editing.environmentId}:${target.taskId}` : 'new';
     const picker = pickerOf(taskBase, key);
     const shown = picker?.project || draft.projectId;
     const search = sanitizeNewRefName(picker?.query ?? '').slice(0, 256);
@@ -250,12 +256,13 @@ export async function scheduledPage(client: T3Client, native: Native | null | un
       try { await native.later({ op: 'r10Wake', topic: TASK_REFS_WAKE }); } catch (error) { if (letGo(error)) throw error; }
     }
     // editingTaskMissing: the task went away while its editor was open.
-    const missing = !!target && !!all && !task;
+    const missing = !!target?.taskId && !!all && !task;
     return { ...base, missing,
       editors: [{ ...draft, key, missing }],
       projects: projects.map(project => ({ value: str(project.id), label: str(project.title), selected: false })),
       workspaces: ['worktree', 'root', 'existing_worktree'].map(value => ({ value, label: WORKSPACE_LABELS[value], selected: false })),
-      environments: environments.filter(environment => environment.connected).map(environment => ({ value: environment.environmentId, label: environment.label, selected: environment.environmentId === editing.environmentId })),
+      // Runs on: the scope's connected environments (selectScopedSettingsEnvironments' connectedEnvironments).
+      environments: inScope.filter(environment => environment.connected).map(environment => ({ value: environment.environmentId, label: environment.label, selected: environment.environmentId === editing.environmentId })),
       branches, marks };
   } catch (error) { return { ...empty, error: error instanceof Error ? error.message : 'Could not load scheduled tasks.' }; }
 }
