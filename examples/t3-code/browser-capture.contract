@@ -115,7 +115,8 @@ component BrowserMiniPlayer
     canvasWidth: number
     local: action
     gesture: action
-    // A primary press on the player: outside the thread details popover under it (Base UI's outside press; ChatColumn).
+    // The thread details popover's act (ChatColumn): a primary press on the player is outside the popover under it, and
+    // dismisses it (Base UI's outside press).
     outside: action
   // The pointer over the player (its box's hover) and the part of it under the pointer (its `pointermove`): the pill
   // shows on the handle and stays while the pointer is on its box (the group's hover takes the pill in while it shows).
@@ -151,7 +152,7 @@ component BrowserMiniPlayer
     tipShut = id
   action pressDown(e: PointerEvent)
     if e.buttons == 1
-      outside()
+      outside("dismiss", "", "")
   action focusPill(id: string, value: bool)
     pillFocus = value ? id : (pillFocus == id ? "" : pillFocus)
   action pan(direction: string, dx: number, dy: number)

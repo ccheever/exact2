@@ -301,7 +301,8 @@ component R6DeviceMiniPlayer
     still: bool
     local: action
     gesture: action
-    // A primary press on the player: outside the thread details popover under it (Base UI's outside press; ChatColumn).
+    // The thread details popover's act (ChatColumn): a primary press on the player is outside the popover under it, and
+    // dismisses it (Base UI's outside press).
     outside: action
   state dotOver = false
   state pillOver = false
@@ -316,7 +317,7 @@ component R6DeviceMiniPlayer
     pillOver = value
   action pressDown(e: PointerEvent)
     if e.buttons == 1
-      outside()
+      outside("dismiss", "", "")
   action focusPill(id: string, value: bool)
     pillFocus = value ? id : (pillFocus == id ? "" : pillFocus)
   // MiniPlayerShell beginGesture / handlePointerMove: the frame at the first pan, then the total.

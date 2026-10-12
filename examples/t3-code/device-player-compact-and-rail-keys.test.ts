@@ -165,12 +165,12 @@ describe('DP-2: the card becomes the header\'s popover where no placement is lef
     // The right panel's details button is drawn only on a sheet, under the window's backdrop: no exception names it.
     expect(press).not.toContain('panel-toggle-details');
     for (const file of ['r4-surfaces.contract', 'shell-panels.contract']) expect(await source(file)).not.toContain('id="panel-toggle-details"');
-    expect(column).toContain('R6DeviceMiniPlayer(mini=shell.panel.deviceMini, frame=canvas.mini, still=viewport.prefersReducedMotion, local=chatLocal, gesture=canvasGesture, outside=detailsAct("dismiss", "", ""))');
-    expect(column).toContain('BrowserMiniPlayer(mini=shell.panel.browserMini, frame=canvas.mini, canvasWidth=canvas.containerWidth, local=chatLocal, gesture=canvasGesture, outside=detailsAct("dismiss", "", ""))');
+    expect(column).toContain('R6DeviceMiniPlayer(mini=shell.panel.deviceMini, frame=canvas.mini, still=viewport.prefersReducedMotion, local=chatLocal, gesture=canvasGesture, outside=detailsAct)');
+    expect(column).toContain('BrowserMiniPlayer(mini=shell.panel.browserMini, frame=canvas.mini, canvasWidth=canvas.containerWidth, local=chatLocal, gesture=canvasGesture, outside=detailsAct)');
     for (const [file, name, root_] of [['r6-device.contract', 'R6DeviceMiniPlayer', 'z-index=40 pointerdown=pressDown role="region" aria-label="Floating device preview"'],
       ['browser-capture.contract', 'BrowserMiniPlayer', 'z-index=40 hover=overPlayer pointermove=movePlayer pointerdown=pressDown role="region" aria-label="Floating browser preview"']] as const) {
       const player = await component(file, name);
-      expect(player).toContain('  action pressDown(e: PointerEvent)\n    if e.buttons == 1\n      outside()');
+      expect(player).toContain('  action pressDown(e: PointerEvent)\n    if e.buttons == 1\n      outside("dismiss", "", "")');
       expect(player).toContain(root_);
     }
     expect(root).toContain('op != "ui:changes" and op != "dismiss")');
