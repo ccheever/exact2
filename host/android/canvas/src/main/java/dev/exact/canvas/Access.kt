@@ -6,6 +6,7 @@ import android.content.res.Resources
 import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.view.MotionEvent
 import android.view.View
 import android.view.accessibility.AccessibilityEvent
@@ -48,7 +49,7 @@ import android.widget.FrameLayout
  * **Events.** A statement says what changed since the last (`presenter::access::change`), and only that is sent:
  * a content change for the node whose subtree, text or state changed, a scroll for a scroller that moved, a
  * selection for a tab that became selected, and a content change from a live region so that TalkBack speaks it.
- * A statement told whole is one content change of the view. The page's route is its pane: its title is the
+ * A statement told whole is one content change of the view, and a live region it names still speaks. The page's route is its pane: its title is the
  * view's pane title, which TalkBack announces when it changes.
  */
 internal class Access(private val host: View) {
@@ -67,7 +68,7 @@ internal class Access(private val host: View) {
     class Told(w: IntArray) {
         /** The surface whose window the nodes are in; 0 for the page's. */
         val surface = w[1]
-        /** The tree is told whole, and nothing is said of what changed. */
+        /** The tree is told whole; the only changes then listed are live regions that speak. */
         val whole = w[2] == 1
         /** The route that shows and its title, as the top app bar has it. */
         val pane = w[3]
@@ -128,6 +129,27 @@ internal class Access(private val host: View) {
     private var placed = ArrayList<FieldText>()
     private val at = IntArray(2)
     private val box = Rect()
+    /** `x_log_access=1` (exact2's EXACT_LOG_ACCESS): each statement, each node a service focuses or acts on and each
+     * event sent, to the log: what TalkBack was on and did, where its speech cannot be read. */
+    private val log = android.system.Os.getenv("EXACT_LOG_ACCESS") == "1"
+
+    private fun say(what: String) { if (log) Log.i("exact", "access: $what") }
+
+    /** A node as the log names it: its class, its words and its state. */
+    private fun named(id: Int): String {
+        val n = nodes[id] ?: return "node $id (gone)"
+        val state = buildList {
+            if (n.role == HEADING) add("heading"); if (n.role == LINK) add("link"); if (n.role == TAB) add("tab ${n.at} of ${n.of}")
+            if (n.has(CHECKABLE)) add(if (n.has(CHECKED)) "checked" else "not checked")
+            if (n.has(SELECTED)) add("selected"); if (n.has(DISABLED)) add("disabled")
+            if (n.has(EXPANDABLE)) add(if (n.has(EXPANDED)) "expanded" else "collapsed")
+            if (n.has(RANGE)) add("${n.now} in ${n.min}..${n.max}")
+            if (n.has(CLICK)) add("click"); if (n.has(LONG_CLICK)) add("long click")
+            if (n.has(FORWARD)) add("forward"); if (n.has(BACKWARD)) add("backward")
+        }
+        return "${kind(n).substringAfterLast('.')} \"${n.name.ifEmpty { if (n.role == UP) up(host.context) else "" }}\"" +
+            (if (n.value.isEmpty()) "" else " value \"${n.value}\"") + (if (state.isEmpty()) "" else " [${state.joinToString(", ")}]")
+    }
 
     /** exact2's statement of this view's tree. */
     fun told(t: Told) {
@@ -140,13 +162,15 @@ internal class Access(private val host: View) {
         stand()
         if (focused != NONE && focused !in now) focused = NONE
         if (hovered != NONE && hovered !in now) hovered = NONE
+        say("told surface ${t.surface}, ${t.nodes.size} nodes, ${if (t.whole) "whole" else "${t.changes.size / 4} changes"}, pane \"${t.title}\"")
         if (t.surface == 0 && (t.pane != pane || host.accessibilityPaneTitle?.toString() != t.title)) {
             // The route is the page's pane: TalkBack announces its title when it changes.
             pane = t.pane
             host.accessibilityPaneTitle = t.title.ifEmpty { null }
         }
         if (!manager.isEnabled) return
-        if (t.whole) { changed(HOST, AccessibilityEvent.CONTENT_CHANGE_TYPE_SUBTREE); return }
+        // Told whole: one change, of everything. The changes it still lists are live regions that speak.
+        if (t.whole) changed(HOST, AccessibilityEvent.CONTENT_CHANGE_TYPE_SUBTREE)
         var i = 0
         while (i < t.changes.size) {
             val id = t.changes[i]; val what = t.changes[i + 1]
@@ -196,6 +220,12 @@ internal class Access(private val host: View) {
         override fun performAction(id: Int, action: Int, args: Bundle?): Boolean {
             if (id == HOST) return host.performAccessibilityAction(action, args)
             val n = nodes[id] ?: return false
+            if (log && action != AccessibilityNodeInfo.ACTION_CLEAR_ACCESSIBILITY_FOCUS) say(when (action) {
+                AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS -> "focus"
+                AccessibilityNodeInfo.ACTION_CLICK -> "click"
+                AccessibilityNodeInfo.ACTION_LONG_CLICK -> "long click"
+                else -> "action $action"
+            } + " " + named(id))
             return when (action) {
                 AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS -> focus(id)
                 AccessibilityNodeInfo.ACTION_CLEAR_ACCESSIBILITY_FOCUS -> unfocus(id)
@@ -285,7 +315,11 @@ internal class Access(private val host: View) {
             val sideways = nodes[n.parent]?.has(SIDEWAYS) == true
             info.collectionItemInfo = AccessibilityNodeInfo.CollectionItemInfo(if (sideways) 0 else n.at - 1, 1, if (sideways) n.at - 1 else 0, 1, false)
         }
-        if (n.has(CHECKABLE)) { info.isCheckable = true; info.isChecked = n.has(CHECKED) }
+        if (n.has(CHECKABLE)) {
+            info.isCheckable = true
+            if (Build.VERSION.SDK_INT >= 36) info.checked = if (n.has(CHECKED)) AccessibilityNodeInfo.CHECKED_STATE_TRUE else AccessibilityNodeInfo.CHECKED_STATE_FALSE
+            else @Suppress("DEPRECATION") { info.isChecked = n.has(CHECKED) }
+        }
         info.isSelected = n.has(SELECTED)
         if (n.has(POLITE)) info.liveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
         if (n.has(ASSERTIVE)) info.liveRegion = View.ACCESSIBILITY_LIVE_REGION_ASSERTIVE
@@ -307,6 +341,85 @@ internal class Access(private val host: View) {
         }
         under(info, n.children)
         return info
+    }
+
+    /**
+     * What Android has for this view, for a driver's `tree --ax` (LLP 1080.002; [AgentDrive]): each node's own
+     * [AccessibilityNodeInfo], the object Android hands a service, read back in the order a service walks it; for a
+     * hosted field, the field's own. Appended to [out] as the driver's elements: what the node stands for, by its
+     * class, its heading flag and its role description; its name, value and states as the node says them; its box
+     * in points; and the view it is, which is exact2's to join.
+     */
+    fun ax(out: org.json.JSONArray, limit: Int): Int {
+        val density = host.resources.displayMetrics.density
+        var more = 0
+        fun walk(ids: List<Int>, parent: Int?) {
+            for (id in ids) {
+                val n = nodes[id] ?: continue
+                val info = (if (n.role == FIELD) fields?.text(n.view)?.createAccessibilityNodeInfo() else provider.createAccessibilityNodeInfo(id)) ?: continue
+                if (out.length() >= limit) { more++; continue }
+                val i = out.length()
+                out.put(element(i, parent, n, info, density))
+                walk(n.children, i)
+            }
+        }
+        walk(top, null)
+        return more
+    }
+
+    @Suppress("DEPRECATION")
+    private fun element(i: Int, parent: Int?, n: Node, info: AccessibilityNodeInfo, density: Float): org.json.JSONObject {
+        val kind = info.className?.toString().orEmpty()
+        val said = info.extras.getCharSequence(ROLE)?.toString()
+        val field = kind.endsWith("EditText")
+        val actions = info.actionList.map { it.id }
+        val role = when {
+            info.isHeading -> "heading"
+            said == "link" -> "link"
+            said == "Tab" -> "tab"
+            else -> when (kind.substringAfterLast('.')) {
+                "Button", "ImageButton", "ToggleButton" -> "button"
+                "CheckBox" -> "checkbox"; "Switch" -> "switch"; "RadioButton" -> "radio"
+                "SeekBar" -> "slider"; "ProgressBar" -> "progressbar"; "EditText" -> "textbox"
+                "ImageView" -> "image"; "Spinner" -> "combobox"; "TextView" -> "StaticText"
+                else -> if (info.collectionInfo?.selectionMode == AccessibilityNodeInfo.CollectionInfo.SELECTION_MODE_SINGLE) "tablist" else "group"
+            }
+        }
+        // An edit box is named by its hint, and its text is its value; anything else by its description, else its text.
+        val name = (if (field) info.hintText else info.contentDescription ?: info.text)?.toString().orEmpty()
+        val value = (if (field) info.text?.takeUnless { info.isShowingHintText } else info.stateDescription)?.toString()
+        val states = org.json.JSONObject()
+        if (info.isCheckable) states.put("checked", info.isChecked)
+        if (info.isSelected || said == "Tab") states.put("selected", info.isSelected)
+        if (!info.isEnabled) states.put("disabled", true)
+        if (AccessibilityNodeInfo.ACTION_EXPAND in actions) states.put("expanded", false)
+        if (AccessibilityNodeInfo.ACTION_COLLAPSE in actions) states.put("expanded", true)
+        if (info.isPassword) states.put("protected", true)
+        info.getBoundsInScreen(box)
+        host.rootView.getLocationOnScreen(at)
+        val native = org.json.JSONObject().put("class", kind)
+        said?.let { native.put("role", it) }
+        if (info.isHeading) native.put("heading", true)
+        info.rangeInfo?.let { native.put("range", org.json.JSONArray(listOf(it.min, it.max, it.current))) }
+        if (info.liveRegion != View.ACCESSIBILITY_LIVE_REGION_NONE) native.put("live", if (info.liveRegion == View.ACCESSIBILITY_LIVE_REGION_ASSERTIVE) "assertive" else "polite")
+        native.put("actions", org.json.JSONArray(info.actionList.mapNotNull { a ->
+            when (a.id) {
+                AccessibilityNodeInfo.ACTION_CLICK -> "click"; AccessibilityNodeInfo.ACTION_LONG_CLICK -> "longClick"
+                AccessibilityNodeInfo.ACTION_SCROLL_FORWARD -> "scrollForward"; AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD -> "scrollBackward"
+                android.R.id.accessibilityActionSetProgress -> "setProgress"
+                AccessibilityNodeInfo.ACTION_EXPAND -> "expand"; AccessibilityNodeInfo.ACTION_COLLAPSE -> "collapse"
+                else -> null
+            }
+        }))
+        val e = org.json.JSONObject().put("i", i).put("parent", parent ?: org.json.JSONObject.NULL)
+            .put("id", if (n.view != 0) n.view else org.json.JSONObject.NULL).put("via", if (n.view != 0) "self" else "none")
+            .put("role", role).put("name", name)
+        if (!value.isNullOrEmpty() && !info.isPassword) e.put("value", value)
+        info.tooltipText?.let { e.put("description", it.toString()) }
+        return e.put("states", states).put("interactive", info.isClickable || info.isCheckable || field || AccessibilityNodeInfo.ACTION_SCROLL_FORWARD in actions || AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD in actions)
+            .put("frame", org.json.JSONObject().put("x", ((box.left - at[0]) / density).toDouble()).put("y", ((box.top - at[1]) / density).toDouble())
+                .put("w", (box.width() / density).toDouble()).put("h", (box.height() / density).toDouble()).put("source", "accessibility"))
+            .put("native", native)
     }
 
     private fun focus(id: Int): Boolean {
@@ -378,6 +491,8 @@ internal class Access(private val host: View) {
             if (n.name.isNotEmpty()) e.text.add(n.name)
         }
         fill?.invoke(e)
+        if (log && type != AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUSED && type != AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUS_CLEARED)
+            say("event ${AccessibilityEvent.eventTypeToString(type)}${if (e.contentChangeTypes != 0) " change ${e.contentChangeTypes}" else ""} from ${if (id == HOST) "the view" else named(id)}")
         parent.requestSendAccessibilityEvent(host, e)
     }
 

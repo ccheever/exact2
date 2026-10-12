@@ -113,7 +113,7 @@ object Native {
      * this last returned (else null). Called only while an accessibility service is on; exact2 builds nothing
      * otherwise. [again]: the reader holds nothing of the tree (it was made again, or a service was just turned on)
      * and is told it whole. The words: the statement's number; the surface whose window the nodes are in (its
-     * serial; 0: the page's window); 1 when the tree is told whole and nothing is said of what changed; the
+     * serial; 0: the page's window); 1 when the tree is told whole (the only changes then listed speak); the
      * identity of the route that shows (0: none) and its title, a string (its bytes' count, then UTF-8 padded to
      * whole words); a count of changes and four words each (a node's identity, 0 for the view itself; what changed:
      * bit 0 its subtree, bit 1 its text, bit 2 its state, bit 3 it scrolled, bit 4 it is a live region that

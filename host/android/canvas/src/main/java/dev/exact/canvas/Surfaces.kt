@@ -172,6 +172,9 @@ internal class Surfaces(private val activity: ExactActivity, private val root: V
      * or one whose window is about to be made (the tree comes with the stream, the window's request after it). */
     private var tree: Access.Told? = null
 
+    /** What the open surface's window answers accessibility services with; null while none is open. */
+    val answers: Access? get() = shown?.pane?.access
+
     /** exact2's statement of the accessibility tree: a surface's ([t] names which), or the page's again (null). The
      * open surface's pane answers with it, and an alert's window is titled by its headline, as the platform's own
      * alert is, so TalkBack says it when the window comes. */
