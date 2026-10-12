@@ -99,10 +99,15 @@ impl<D: DataSource> Bridge<D> {
     /// (LLP 1078 D4, D6) above them — bit 8 `folded`, bits 9–16 the columns,
     /// bits 17–24 the rows (0 reads as 1). The browser resolves the
     /// `env(viewport-segment-*)` lengths itself; the runner answers the
-    /// three `exactViewport` fields.
+    /// three `exactViewport` fields. Bit 25 is the page's look (LLP 1115.000
+    /// D4 part B): set where its stylesheet is the neutral one, and every
+    /// role then falls back to the table's neutral column.
     pub fn set_preferences(&mut self, bits: u32) {
         self.preferences = exact_runner::Preferences::from_bits(bits);
         self.fold = fold_bits(bits);
+        if bits & (1 << 25) != 0 {
+            exact_kernel::style::roles::set_column(exact_kernel::style::roles::Column::Neutral);
+        }
     }
 
     /// UTF-8 launch location carried after optional plan bytes.
@@ -691,6 +696,16 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// The display's scale (LLP 1115.000 D10.3): the page's
+    /// `devicePixelRatio`.
+    pub fn set_display_scale(&mut self, scale: f64) -> u32 {
+        let out = self.host.as_mut().map_or_else(
+            || exact_runner::agent::error("not booted"),
+            |h| h.set_display_scale(scale),
+        );
+        self.emit(out)
+    }
+
     /// A topic the page module announced, in the input buffer.
     pub fn changed(&mut self, len: usize) -> u32 {
         let Ok(topic) = std::str::from_utf8(&self.input[..len.min(self.input.len())]) else {
@@ -1202,6 +1217,13 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_set_root_font_size(px: f64) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().set_root_font_size(px))
+        }
+
+        /// The display's scale, the page's `devicePixelRatio` (LLP 1115.000
+        /// D10.3); returns the batch length.
+        #[no_mangle]
+        pub extern "C" fn exact_set_display_scale(scale: f64) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().set_display_scale(scale))
         }
 
         /// A topic the page module announced, in the input buffer.

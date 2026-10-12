@@ -88,6 +88,11 @@ mod layout;
 use layout::content_size;
 #[path = "resize.rs"]
 mod resize;
+#[path = "scale.rs"]
+mod scale;
+#[cfg(test)]
+#[path = "spacing_tests.rs"]
+mod spacing_tests;
 #[cfg(test)]
 #[path = "storage_tests.rs"]
 mod storage_tests;

@@ -678,18 +678,25 @@ final class MenuHost {
                 children.filter { $0.isButton && !$0.handlers.contains("press") && closes($0, pop) })
     }
     /// Why `pop` is not a confirmation, or nil when it is one: text, actions
-    /// that also close it and at most one cancel, and, for a `dialog`, the
-    /// `closedby="any"` an alertdialog implies (an alert's Cancel or a tap
-    /// outside an action sheet always dismisses it).
+    /// that also close it and at most one cancel, and, for a `dialog`, a
+    /// `closedby` the confirmation of its shape has (LLP 1115.000 D13.4).
+    /// An alert has no outside and always has its Cancel, so its is
+    /// `closerequest`, what lowering implies for the shape. An action sheet
+    /// and a popover are dismissed by a tap outside, so theirs is `any`.
     private func unconfirmable(_ pop: NodeView) -> String? {
-        if isDialog(pop) && pop.props["closedby"] != "any" { return "closedby is \(pop.props["closedby"] ?? "closerequest")" }
         let (children, actions, cancels) = rows(of: pop)
         if actions.isEmpty { return "no action (a button with press)" }
         if cancels.count > 1 { return "\(cancels.count) cancels; at most one hide-only button" }
         if !children.allSatisfy({ child in child.kind == "text" || actions.contains { $0 === child } || cancels.contains { $0 === child } }) {
             return "only text, actions and one cancel may be its rows"
         }
-        return actions.allSatisfy({ closes($0, pop) }) ? nil : "each action must also hide it (popovertargetaction=hide)"
+        if !actions.allSatisfy({ closes($0, pop) }) { return "each action must also hide it (popovertargetaction=hide)" }
+        guard isDialog(pop), pop.props["closedby"] != "any" else { return nil }
+        let closedby = pop.props["closedby"] ?? "closerequest"
+        if closedby == "none" { return "closedby is none: an alert always has its Cancel" }
+        let texts = children.filter { $0.kind == "text" && !title(of: $0).isEmpty }.count
+        return ConfirmationShape.isAlert(texts: texts, actions: actions.count, cancels: cancels.count)
+            ? nil : "closedby is \(closedby), and only an alert has no outside"
     }
     /// LLP 1115.000 D11.5: a `dialog` that is not a confirmation by its rows
     /// is a sheet, its content laid out by the kernel (DialogSheetIOS.swift).
@@ -733,7 +740,8 @@ final class MenuHost {
         let texts = children.filter { $0.kind == "text" }.map(title(of:)).filter { !$0.isEmpty }
         let label = pop.props["accessibilityLabel"].flatMap { $0.isEmpty ? nil : $0 }
         let style = Self.style(texts: texts.count, actions: actions.count, cancels: cancels.count,
-                               compact: controller.traitCollection.horizontalSizeClass != .regular)
+                               compact: controller.traitCollection.horizontalSizeClass != .regular,
+                               outside: isDialog(pop) && pop.props["closedby"] == "any")
         // The alert's title is its aria-label ("Remove book?"), else its
         // first line; the message is the rest. A sheet is headed by its
         // label, its text the message (LLP 1115 D6).
@@ -784,9 +792,11 @@ final class MenuHost {
     /// kept (React Native's `Alert.alert`, SwiftUI's `.alert`). Anything
     /// else is an action sheet: UIKit's unanchored one on a compact screen
     /// when it has a cancel to show (UIKit draws no cancel in a popover), else a
-    /// popover, which a tap outside dismisses.
-    private static func style(texts: Int, actions: Int, cancels: Int, compact: Bool) -> Confirmation.Style {
-        if ConfirmationShape.isAlert(texts: texts, actions: actions, cancels: cancels) { return .alert }
+    /// popover, which a tap outside dismisses. An alert has no outside (LLP
+    /// 1115.000 D13.4), so a `dialog` of the alert's shape whose author wrote
+    /// `closedby="any"` (`outside`) is the dismissible form too.
+    private static func style(texts: Int, actions: Int, cancels: Int, compact: Bool, outside: Bool) -> Confirmation.Style {
+        if !outside, ConfirmationShape.isAlert(texts: texts, actions: actions, cancels: cancels) { return .alert }
         #if os(tvOS)
         return .sheet
         #else

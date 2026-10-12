@@ -31,6 +31,11 @@ pub struct Skipped {
     pub reason: &'static str,
 }
 
+/// A hairline as a page that keeps no kernel writes it (LLP 1115.000 D10.3):
+/// the custom property the shell's sheet (`index.html`) holds at one device
+/// pixel, by the display's resolution.
+pub const HAIRLINE: &str = "var(--exact-hairline, 1px)";
+
 /// The `cssText` for a node's set rows, plus what was skipped.
 pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipped>) {
     css_text_in(style, font_names, false)
@@ -71,9 +76,12 @@ fn css_text_in(
             // `medium`, in `rem`, so it follows the browser's root size.
             Unit::TextStyle(_) => {
                 let medium = exact_kernel::style::relative::MEDIUM;
-                num_into(out, n * unit.basis(medium, medium) / medium);
+                num_into(out, n * unit.basis(medium, medium, 1.0) / medium);
                 out.push_str("rem");
             }
+            // @ref LLP 1115.000 D10.3 — one device pixel: the page's sheet
+            // keeps `--exact-hairline` at it, whatever the display's scale.
+            Unit::Hairline => out.push_str(HAIRLINE),
         }
         true
     };

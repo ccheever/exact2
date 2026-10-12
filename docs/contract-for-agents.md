@@ -1119,10 +1119,10 @@ lists any literal colour, font size or weight an app's `.contract` files still w
 | `list appearance="auto" listStyle="inset-grouped"` of `section`s (`header`, rows, `footer`) | `UICollectionView` list, as Settings ([human guide](contract-for-humans.md#choosing-a-native-button)) |
 | `input type="checkbox" switch` | `UISwitch` |
 | `input type="radio"` (the radios of one `name` are a group) | the SF Symbols circle, filled at its centre when checked, at body size; in a grouped list's row no circle but the row's checkmark, which a tap on the row moves (LLP 1115.000 D13.2) |
-| `input type="range"` | `UISlider` |
+| `input type="range"` (as wide as what holds it; in a `row`, `flex=1 min-width=0` beside its label) | `UISlider` |
 | `input type="date"`, `"time"`, `"datetime-local"` | `UIDatePicker`; with an empty `value` its pill shows your `placeholder` (`placeholder="Add a date"`) or, with none, no words, and a choice fills it (LLP 1115.000 D13.1; macOS's field likewise; the web shows the browser's own empty field) |
 | `select` of `option`s | a pop-up button with its menu |
-| `progress value=done max=goal` (a goal, an upload; `width="100%"` to fill) | `UIProgressView`, tinted by `accent-color` (LLP 1116 D8); never a drawn track and fill |
+| `progress value=done max=goal` (a goal, an upload; as wide as what holds it) | `UIProgressView`, tinted by `accent-color` (LLP 1116 D8); never a drawn track and fill |
 | `progress` (no `value`) | `UIActivityIndicatorView`, `.large` from a 37-point box (LLP 1069.001) |
 | `popover="auto" role="menu"` of `button`s, opened by `popovertarget` (a row whose `popovertarget` names another menu: its submenu) | `UIMenu`, nested (LLP 1021) |
 | `dialog role="alertdialog" aria-label="Remove book?"` of a `text`, its action(s) and one Cancel | `UIAlertController(.alert)`: the label its title, the text its message (LLP 1115 D6; recipe [below](#a-confirmation)) |
@@ -1779,6 +1779,12 @@ one (LLP 1115.000 D7.6). Text, a cancel and at most three buttons make an
 alert; several actions with no text (an "Open in…" chooser) make an action
 sheet, unanchored on an iPhone (its Cancel drawn) when it has a Cancel and a popover
 at its invoker when it has none, so a tap outside can dismiss it (LLP 1115 D6).
+An alert has no outside, on every host (LLP 1115.000 D13.4): Escape and Back
+cancel it and a tap or click beside it does nothing, which is `closedby="closerequest"`,
+implied for the alert's shape, so leave `closedby` unwritten. Write
+`closedby="any"` only to ask for the platform's dismissible form in its place:
+an action sheet on an iPhone (a popover on an iPad), a dialog a click outside
+closes on the web and the Mac, a Material dialog a tap outside cancels on Android.
 `close("<id>")` from an action closes it as its Cancel does.
 
 A submenu is a row whose `popovertarget` names another menu popover (`Copy ▸
@@ -1956,7 +1962,10 @@ Production artifacts do not need a development source map.
 The driver has ten operations: `tree`, `screenshot`, `tap`, `type`, `state`,
 `layout`, `logs`, `clock`, `prefer`, and `perf`. Variations are arguments, not new
 commands; `prefer` takes CSS's media feature names (`"prefer prefers-color-scheme dark"`,
-`"prefer prefers-reduced-motion reduce"`). Targets are `testId`s (or view ids): give every control a `testId` and
+`"prefer prefers-reduced-motion reduce"`). The display's scale, which a hairline is one
+device pixel of, is the device's: a simulator's or the Mac's own, and on the web and the
+Linux host what `EXACT_SCALE=2` launches them at (1 otherwise; `"prefer display-scale 2"`
+changes it under a native host, and `layout` shows the boxes that follow). Targets are `testId`s (or view ids): give every control a `testId` and
 drive it on every host, iOS included (`agent ios`), never by screen coordinates.
 On a machine with several booted iPhone simulators, name yours: `EXACT_SIM=<udid>`
 for `agent ios` and the smokes, `--sim <udid>` for `host/apple/build.mjs`; a
@@ -2514,7 +2523,12 @@ key on the web and iOS. A bare number on a length row is pixels (except
 `line-height`, where it is CSS's multiple of the font size), and the row takes
 CSS's spellings too (`font-size="14px"`, `letter-spacing="-0.5px"`,
 `padding="1.5rem"`; `stroke-width="2px"` but no `rem` there), bound or literal
-(``font-size=`${size}px` ``). A row whose value is a number and no text
+(``font-size=`${size}px` ``). A separator's thickness is `-exact-hairline`, one
+device pixel on whatever display the app is on (a third of a point on a phone,
+half on a Retina Mac, a pixel on a 1x screen), where `0.5` is one only at 2x:
+`border-bottom="-exact-hairline solid -exact-separator"`, or `hr`, which is that
+line with no margin of its own (space around it is the `gap` or `margin` you
+write). A row whose value is a number and no text
 (`opacity`, `flex-grow`, `z-index`, `font-weight`, `column-count`,
 `column-rule-width`) takes a number where it is computed: a string-typed
 expression there is refused, since the native hosts read no text on it (the

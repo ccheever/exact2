@@ -31,8 +31,10 @@
 //! node loses it) and returns, when it closes, to the node that held it. A
 //! row's tap closes the surface and then runs the row's `press`; an alert's
 //! cancel, Back and Escape close it and run nothing; a tap outside closes
-//! a menu and does nothing to an alert. System Back closes it before any
-//! route is asked ([`Presenter::system_back`]).
+//! a menu, and does nothing to an alert, which has no outside (LLP 1115.000
+//! D13.4), unless its author wrote `closedby="any"`: then it dismisses it,
+//! as it does a Material dialog left to itself. System Back closes it
+//! before any route is asked ([`Presenter::system_back`]).
 use super::*;
 use exact_kernel::NodeKey;
 
@@ -149,6 +151,17 @@ struct Open {
     focused: Option<usize>,
     /// The kernel epoch its plan was read at.
     epoch: u64,
+}
+
+impl Open {
+    /// Whether a tap outside dismisses it: a menu always, an alert when its
+    /// `closedby` is `any`.
+    fn outside(&self) -> bool {
+        match &self.plan {
+            Plan::Alert { outside, .. } => *outside,
+            Plan::Menu(_) => true,
+        }
+    }
 }
 
 /// What the presenter keeps of the top layer.
@@ -546,12 +559,13 @@ impl<D: DataSource> Presenter<D> {
 
     /// A touch reached the page while a surface is open: it is outside the
     /// surface, since the page is inert under it. A menu closes (the
-    /// platform's own popup does this itself and the touch never arrives);
-    /// an alert has no outside. Whether the touch was taken from the page.
+    /// platform's own popup does this itself and the touch never arrives),
+    /// and so does an alert whose `closedby` is `any`; any other alert has
+    /// no outside. Whether the touch was taken from the page.
     pub(super) fn top_takes_pointer(&mut self, now_ms: f64) -> bool {
-        match self.top.open.as_ref().map(|open| open.kind) {
-            Some(SurfaceKind::Menu) => self.close_surface(now_ms),
-            Some(SurfaceKind::Alert) => {}
+        match self.top.open.as_ref().map(|open| open.outside()) {
+            Some(true) => self.close_surface(now_ms),
+            Some(false) => {}
             None => return false,
         }
         true
@@ -570,7 +584,7 @@ impl<D: DataSource> Presenter<D> {
     /// where a tap closes a menu and does nothing through an alert.
     pub(super) fn surface_tap(&mut self, id: ViewId) -> Option<Result<String, String>> {
         let open = self.top.open.as_ref()?;
-        let (serial, pop, kind) = (open.serial, open.node, open.kind);
+        let (serial, pop, kind, outside) = (open.serial, open.node, open.kind, open.outside());
         let row = open.layout.targets.iter().position(|t| t.node == id);
         let enabled = row.is_some_and(|index| open.layout.targets[index].enabled);
         let now = self.host.now();
@@ -582,11 +596,11 @@ impl<D: DataSource> Presenter<D> {
                 self.choose(index, now);
                 Ok(format!("{{\"tapped\":{id},\"surface\":{serial}}}"))
             }
-            (None, SurfaceKind::Menu) => {
+            (None, _) if outside => {
                 self.close_surface(now);
                 Ok(format!("{{\"tapped\":{id},\"dismissed\":{serial}}}"))
             }
-            (None, SurfaceKind::Alert) => Err(format!(
+            (None, _) => Err(format!(
                 "view {id} is under the open alert (view {pop}): the page is inert until it closes"
             )),
         })
@@ -834,9 +848,7 @@ impl<D: DataSource> Presenter<D> {
         Some(Surface {
             serial: open.serial,
             kind: Some(open.kind),
-            flags: u32::from(cancellable)
-                | u32::from(open.kind == SurfaceKind::Menu) << 1
-                | origin << 2,
+            flags: u32::from(cancellable) | u32::from(open.outside()) << 1 | origin << 2,
             frame: [px(at.0), px(at.1), px(layout.size.0), px(layout.size.1)],
             shape: (layout.radius * scale, layout.elevation * scale),
             stream,

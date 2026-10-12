@@ -7,10 +7,13 @@ import XCTest
 @testable import ExactKit
 
 final class NativeFieldsIOSTests: XCTestCase {
-    // component Fieldless / view / box testId="fieldless" width=100 height=100
+    // component Fieldless / view / column / box testId="fieldless" width=100 height=100 / hr testId="rule"
     // Compiled fixture has no data/module dependencies: preparation must still
     // supply a valid control environment even when no control is in the plan.
-    private var fieldlessPlan: Data { Data(base64Encoded: "RVhQTAUAAAAoP5pgsA4NjxPpGasI3T2tGA1E2ggCJPIAAAAA//////////8BAAAACQAAAGZpZWxkbGVzcxIAAAAEKAIAAAAAKAAAAAAAAABZQCgAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAQAAAAEAAAABAAAAAgAAAAEAAAADAAAAAQAAAAQAAAABAAAABQAAAAEAAAAGAAAAAQAAAAcAAAABAAAACAAAAAH/////Av////8D/////wT/////Bf////8G/////wf/////CP////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAD//////////wAAAAAAAAAAAwAAAAAAAAAAAAAA/////wMAAAAACwACAAAABgAAAAEBAAAIAAAACgAAAAEBAQAIAAAACgAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==")! }
+    // Its `hr` is a hairline, which the display's scale resolves (LLP 1115.000
+    // D10.3). A plan carries the kernel schema's digest: compile it again when
+    // that moves (`contract build`, then base64).
+    private var fieldlessPlan: Data { Data(base64Encoded: "RVhQTAUAAAAoP5pgsA4NjwL6d34cKpHqGA1E2ggCJPIAAAAA//////////8JAAAABAAAAGZsZXgGAAAAY29sdW1uCQAAAGZpZWxkbGVzcwUAAABzb2xpZA8AAAAtZXhhY3QtaGFpcmxpbmUQAAAALWV4YWN0LXNlcGFyYXRvcgYAAABoaWRkZW4CAAAAaHIEAAAAcnVsZUIAAAAEKAIAAAAAKAIBAAAAKAICAAAAKAAAAAAAAABZQCgCAwAAACgCBAAAACgCBQAAACgCBgAAACgCBwAAACgCCAAAACgAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAQAAAAEAAAABAAAAAgAAAAEAAAADAAAAAQAAAAQAAAABAAAABQAAAAEAAAAGAAAAAQAAAAcAAAABAAAACAAAAAH/////Av////8D/////wT/////Bf////8G/////wf/////CP////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwAAAAD//////////wAAAAAAAAAAAgAAAAAAAAAAAAAA/////wAAAAAA/////wAAAAACAAAAAwAAAAAAAAAAAAAA/////wAAAAAA/////wEAAAAFAAAABwAAAAAAAAAAAAAA/////wwAAAABHwACAAAABgAAAAABDgAIAAAABgAAAAAACwAOAAAABgAAAAEBAAAUAAAACgAAAAEBAQAUAAAACgAAAAEBWAAeAAAABgAAAAABKwAkAAAABgAAAAABSwAqAAAABgAAAAABIQAwAAAABgAAAAABIgAwAAAABgAAAAAAIQA2AAAABgAAAAAACwA8AAAABgAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==")! }
 
     func testInitialSelectedPlanLaunchAndReplacementOfARunningFieldlessPlan() throws {
         let app = ExactApp.shared
@@ -31,6 +34,46 @@ final class NativeFieldsIOSTests: XCTestCase {
         XCTAssertTrue(session.apply(fieldlessPlan))
         XCTAssertTrue(session.presenter.views.values.contains { $0.props["testId"] == "fieldless" })
         XCTAssertEqual(session.fieldChrome.presentedProvisional, 0)
+    }
+
+    /// LLP 1115.000 D10.3: a booted session tells the kernel its display's
+    /// scale with the page's facts, so the plan's `hr` is one device pixel
+    /// of this simulator's display (a third of a point at 3x, where a plan
+    /// that is never told stays at a whole point), and a drive's `prefer
+    /// display-scale` moves it in the next batch.
+    func testABootedSessionTellsItsDisplaysScaleAndAHairlineFollows() throws {
+        let app = ExactApp.shared
+        let previous = app.lastPlan.map { ExactGeneration(plan: $0, assets: app.resolver, token: app.selectedToken, module: app.lastModule) }
+        app.installInitial(ExactGeneration(plan: fieldlessPlan, assets: AssetResolver(root: app.assetRoot)))
+        let session = app.makeSession(label: "display-scale")
+        session.presenter.viewport.frame = CGRect(x: 0, y: 0, width: 400, height: 800)
+        defer {
+            PageFacts.agentDisplayScale = nil
+            session.destroy()
+            if let previous { app.installInitial(previous) }
+            else {
+                app.installInitial(ExactGeneration(plan: fieldlessPlan, assets: app.resolver, token: 1104))
+                _ = app.fallBackFromInitial(reason: "test cleanup")
+            }
+        }
+        XCTAssertNil(session.boot(size: CGSize(width: 400, height: 800)).error)
+        session.tellPage()
+        let display = Double(session.presenter.viewport.traitCollection.displayScale)
+        XCTAssertEqual(PageFacts.displayScale(session.presenter.viewport), display)
+        func edge() throws -> Double {
+            let rule = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "rule" })
+            return try XCTUnwrap(rule.style["border_width_top"]?.number)
+        }
+        XCTAssertEqual(try edge(), 1 / display, accuracy: 1e-4, "one device pixel of a \(display)x display")
+        let rule = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "rule" })
+        XCTAssertEqual(Double(rule.frame.height), 1 / display, accuracy: 1e-4, "and laid out as one")
+        // The drive's scale stands in; the session hears the change and tells the kernel.
+        PageFacts.agentDisplayScale = display == 2 ? 3 : 2
+        session.tellPage()
+        XCTAssertEqual(try edge(), display == 2 ? 1.0 / 3 : 0.5, accuracy: 1e-4)
+        PageFacts.agentDisplayScale = nil
+        session.tellPage()
+        XCTAssertEqual(try edge(), 1 / display, accuracy: 1e-4, "the display's again")
     }
 
     func testProvisionalBatchKeepsUpdatesWithholdsGeometryAndIsCounted() throws {

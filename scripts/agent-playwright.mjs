@@ -319,6 +319,7 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
       async prefer(media, pageFacts) {
         const unsupported = Object.entries(media).find(([key, value]) => (key === 'prefers-reduced-transparency' && value !== 'no-preference') || (key === 'prefers-contrast' && !['more', 'no-preference'].includes(value)));
         if (unsupported) throw new Error(`${name} prefer cannot emulate ${unsupported[0]} ${unsupported[1]} through Playwright`);
+        if (pageFacts['display-scale'] != null && pageFacts['display-scale'] !== 1) throw new Error(`${name} prefer cannot set display-scale ${pageFacts['display-scale']}: a browser's scale is fixed when it launches, and Playwright's is 1 here`);
         Object.assign(emulated, media);
         const options = { colorScheme: emulated['prefers-color-scheme'], reducedMotion: emulated['prefers-reduced-motion'], contrast: emulated['prefers-contrast'] };
         if (Object.keys(options).length) { await page.emulateMedia(options); await frame(); }

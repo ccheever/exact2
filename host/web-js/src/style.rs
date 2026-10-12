@@ -471,7 +471,7 @@ pub static TEXT_STYLE_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::ne
     use exact_kernel::style::relative::{Unit, MEDIUM};
     let mut pairs = Vec::new();
     for (i, s) in exact_kernel::TEXT_STYLES.iter().enumerate() {
-        let rem = Unit::TextStyle(i as u8).basis(MEDIUM, MEDIUM) / MEDIUM;
+        let rem = Unit::TextStyle(i as u8).basis(MEDIUM, MEDIUM, 1.0) / MEDIUM;
         let css = format!("{rem}rem");
         pairs.push(format!("{:?}:{css:?}", format!("-exact-{}", s.name)));
         if !s.alias.is_empty() {

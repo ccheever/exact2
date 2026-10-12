@@ -5335,6 +5335,10 @@
       "#68a5fe"
     ]
   ],
+  "_lengths": "@ref LLP 1115.000 D10.3: the named lengths, written `-exact-<name>` on any length row but a font's size and line height. `hairline` is one device pixel: 1 px over the display's scale, which the host reports as it reports the root font size (`Kernel::set_display_scale`: UIKit's `displayScale`, AppKit's `backingScaleFactor`, the browser's `devicePixelRatio`, the pixels a point a Linux, Android or Windows shell draws at) and which is 1 until a host says. The row holds the pixels the kernel resolves at the end of each commit, so every reader and the wire see pixels; the web's JS target, which keeps no kernel, writes `var(--exact-hairline)`, which the page's sheet keeps at one device pixel.",
+  "lengths": [
+    "hairline"
+  ],
   "_textStyles": "@ref LLP 1115 D3: the platform's text styles, written `-exact-<name>` (or the WebKit alias) as a `font-size` and lowered from a heading's level. Each row: the name, WebKit's `-apple-system-*` alias or empty, UIFont's and NSFont's TextStyle, the weight, and the size at each body size in `textStyleBodies` (the root font size the host sets). The ramp is Apple's: 13 is the Mac's (NSFont.preferredFont, macOS 11), 14 to 53 iOS Dynamic Type's categories xSmall to AX5 (17 is Large, the default; the web's 16 reads Small's row). A root between two bodies interpolates; outside, the nearest row scales.",
   "textStyleBodies": [
     13,

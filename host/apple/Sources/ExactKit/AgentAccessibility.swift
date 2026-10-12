@@ -135,6 +135,17 @@ extension Presenter {
         // A scroll view's indicators and other unexposed views cost visits too.
         var w = AxWalk(limit: limit, budget: 5 * limit + 64, excluded: excluded, foreign: foreign, modalRoot: modalRoot, limits: limits)
         for root in roots where !w.stopped { visit(root, parent: nil, depth: 0, exclusion: [], into: &w) }
+        #if os(macOS)
+        if let modal = w.modalView as? NodeView {
+            let popovers = menus.presented(within: modal)
+            let presented: [Int] = w.elements.compactMap { e in
+                guard let id = e["id"] as? UInt32, let view = views[id],
+                      popovers.contains(where: { menus.contains($0, view) }) else { return nil }
+                return e["i"] as? Int
+            }
+            w.modal["presented"] = presented
+        }
+        #endif
         #if os(iOS) || os(tvOS)
         markModalLeaks(&w)
         let platform = "iOS \(UIDevice.current.systemVersion)", source = "uikit", order = "containment"
@@ -233,6 +244,11 @@ extension Presenter {
         if let root = w.modalRoot, root === obj {
             here = emit(obj, role: "group", parent: parent, exclusion: exclusion, into: &w) ?? parent
             w.modal = ["present": true, "by": "sheet", "element": here as Any, "id": here.flatMap { w.elements[$0]["id"] } ?? NSNull()]
+        } else if let view = obj as? NodeView, view === macAccessibilityModal {
+            w.modalView = obj
+            here = emit(obj, role: nil, parent: parent, exclusion: exclusion, into: &w) ?? parent
+            w.modal = ["present": true, "by": view.props["accessibilityModal"] == "true" ? "aria-modal" : "showModal",
+                       "element": here as Any, "id": here.flatMap { w.elements[$0]["id"] } ?? NSNull()]
         } else if f?.element == true, depth > 0 || !(obj is ExactView) {
             here = emit(obj, role: nil, parent: parent, exclusion: exclusion, into: &w) ?? parent
         }

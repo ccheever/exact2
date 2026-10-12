@@ -82,8 +82,8 @@ const backControl = (nav, route = selectedRoute(nav), name = nav.getAttribute("n
 // `navigationBack` control, and none when that control is disabled. The button is the header's shadow
 // root's, before its slot, so the header's children stay the renderer's. Its words are the control's when
 // one is named elsewhere in the route (a symbol alone: the chevron alone), else the route beneath's title
-// while it is short, else "Back".
-const BACK = `<style>button{all:unset;display:inline-flex;align-items:center;gap:2px;flex:none;vertical-align:middle;margin-inline:-6px 6px;padding:4px 8px 4px 4px;border-radius:8px;color:var(--exact-accent,AccentColor);cursor:pointer;white-space:nowrap;-webkit-user-select:none;user-select:none}button[hidden],span[hidden]{display:none}button:focus-visible{outline:2px solid var(--exact-accent,AccentColor);outline-offset:1px}button:active>*{opacity:.5}@media (hover:hover){button:hover{background-color:light-dark(#7676801f,#7676803d)}}svg{width:.75em;height:1.25em;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}button:dir(rtl) svg{scale:-1 1}</style><button part="back" type="button"><svg viewBox="6 3 11 18" aria-hidden="true"><path d="M15 5 8 12l7 7"/></svg><span></span></button><slot></slot>`;
+// while it is short, else "Back" where the page is in English (`<html lang>`, LLP 1115.000 D4.14): the bar has that word in no other language, so there it is the chevron alone, named for assistive technology by the title beneath, and an app gives it words by naming a Back control.
+const BACK = `<style>button{all:unset;display:inline-flex;align-items:center;gap:2px;flex:none;vertical-align:middle;margin-inline:-6px 6px;padding:4px 8px 4px 4px;border-radius:8px;color:var(--exact-accent,AccentColor);cursor:pointer;white-space:nowrap;-webkit-user-select:none;user-select:none}button[hidden],span[hidden]{display:none}button:focus-visible{outline:2px solid var(--exact-accent,AccentColor);outline-offset:1px}button:active>*{opacity:var(--exact-back-press,.5)}@media (hover:hover){button:hover{background-color:light-dark(#7676801f,#7676803d)}}svg{width:.75em;height:1.25em;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}button:dir(rtl) svg{scale:-1 1}</style><button part="back" type="button"><svg viewBox="6 3 11 18" aria-hidden="true"><path d="M15 5 8 12l7 7"/></svg><span></span></button><slot></slot>`;
 const headerOf = route => [...(route?.children ?? [])].find(child => child.localName === "header");
 // @ref LLP 1115.000 D4.1 — a route is a page, so the title follows it: `document.title` is the authored `head`'s title
 // (`said`: each target's head writer passes it, null for none), else the selected route's header's heading (what iOS
@@ -112,8 +112,8 @@ function appBarBack(nav, routes, index, split = false) {
     button = header.shadowRoot.querySelector("button");
     button.addEventListener("click", event => { event.stopPropagation(); appBack(header.parentElement); });
   }
-  const title = control ? control.textContent.trim() : titleOf(routes[index - 1]);
-  const label = control || (title && title.length <= 14) ? title : "Back", name = control ? control.getAttribute("aria-label") || label || "Back" : label === "Back" ? label : `Back to ${label}`;
+  const title = control ? control.textContent.trim() : titleOf(routes[index - 1]), english = /^en\b/i.test(document.documentElement.lang || "en");
+  const label = control || (title && title.length <= 14) ? title : english ? "Back" : "", name = control ? control.getAttribute("aria-label") || label || "Back" : !english ? title || "Back" : label === "Back" ? label : `Back to ${label}`;
   button.hidden = false; button.lastChild.hidden = !label;
   if (button.lastChild.textContent !== label) button.lastChild.textContent = label;
   if (button.getAttribute("aria-label") !== name) button.setAttribute("aria-label", name);
@@ -233,7 +233,7 @@ export const navigation = {
   connect(hostRoot, dispatch, journal, back = null, goTo = null) {
     root = hostRoot; navigate = dispatch; log = journal; hostBack = back; hostGo = goTo;
     // A row a press reaches in a list column (`project` marks it once its detail shows), a resize across WIDE, and one under an author's split placeholder (its pane's width). Heard at the document, before the listener that follows a link row there (input-glue.js, router.js), whose commit lands within the click.
-    document.addEventListener("click", event => { const row = event.target.closest?.('[data-exact-split="list"] :is(button, a[href], [data-exact-on~="press"])'); if (row && root.contains(row)) pressedRow = [row, performance.now(), last?.url]; }, true);
+    document.addEventListener("click", event => { const row = event.target.closest?.('[data-exact-split="list"] :is(button, a[href], [data-exact-on~="press"])'); if (row && root.contains(row)) pressedRow = [row, performance.now(), last?.url]; }, true); document.addEventListener("dragstart", event => { if (root.contains(event.target) && event.target.matches?.('img[data-symbol-source], :is(button, a[href], [data-exact-on~="press"]) img')) event.preventDefault(); }); // @ref LLP 1115.000 D4.14 — and a symbol, or an image in something pressable, is not dragged out as a picture (the shell's rule says so where an engine has the property)
     globalThis.matchMedia?.(WIDE).addEventListener?.("change", () => navigation.project(root, log)); addEventListener("resize", () => root.querySelector("[data-exact-split-placeholder]") && navigation.project(root, log));
     addEventListener("popstate", event => {
       if (!last) return;
@@ -805,12 +805,12 @@ export function foldEnv() {
   const f = fold();
   return { "device-posture": f.posture, "horizontal-viewport-segments": f.cols, "vertical-viewport-segments": f.rows, "viewport-segments": f.rects.map((r) => r.map(r2)) };
 }
-/** The fold as `exact_resize`'s facts word carries it beside the preference bits (LLP 1078 D6): bit 8 `folded`, bits 9–16 the columns, 17–24 the rows. */
-export function foldBits() { const f = fold(); return (f.posture === "folded" ? 256 : 0) | ((f.cols & 255) << 9) | ((f.rows & 255) << 17); }
+/** The fold as `exact_resize`'s facts word carries it beside the preference bits (LLP 1078 D6): bit 8 `folded`, bits 9–16 the columns, 17–24 the rows. Bit 25 is the page's look (LLP 1115.000 D4 part B): set where its stylesheet is the neutral one, which says so on the root (`--exact-look`, neutral.css), so the wasm page's kernel shows the role table's neutral column. */
+let neutralLook; export function foldBits() { const f = fold(); return (f.posture === "folded" ? 256 : 0) | ((f.cols & 255) << 9) | ((f.rows & 255) << 17) | ((neutralLook ??= getComputedStyle(document.documentElement).getPropertyValue("--exact-look").trim() === "neutral") ? 1 << 25 : 0); }
 export function onFold(changed) {
   globalThis.navigator?.devicePosture?.addEventListener?.("change", changed);
   addEventListener("resize", changed);
-}
+} /** A context menu's popover, opened for the `contextmenu` event `e` (LLP 1021 §5.1): `find` answers `[popover, source]` when there is still one to open. It opens once the press that asked is over: a Mac's `contextmenu` comes with the button still down, and Firefox and WebKit take the release that follows, outside a popover just opened, for its light dismiss, so the menu never showed there. And it opens at the pointer (LLP 1115.000 D4.7): where the press was is left on the popover (`--exact-context-x`, `-y`) until it closes, for the page's sheet to place it by (neutral.css; the shell's own reads neither). A menu key has no point, and its menu opens at its row. */ export function contextAt(e, find) { const open = () => { const [p, source] = find() ?? []; if (!p) return; if (e.clientX || e.clientY) { p.style.setProperty("--exact-context-x", `${e.clientX}px`); p.style.setProperty("--exact-context-y", `${e.clientY}px`); p.exactAt ??= (p.addEventListener("toggle", t => { if (t.newState === "closed") for (const axis of "xy") p.style.removeProperty(`--exact-context-${axis}`); }), true); } try { p.showPopover({ source }); } catch {} }, ends = ["pointerup", "pointercancel", "mouseup"], end = () => { for (const type of ends) removeEventListener(type, end, true); setTimeout(open); }; if (!e.buttons) return void setTimeout(open); for (const type of ends) addEventListener(type, end, true); }
 /** The grid a host without a fold makes for `prefer segments <cols>x<rows> [gap <points>]`: the viewport split evenly, the gap centred on each divider; refused by name. */
 export function evenSegments(width, height, cols, rows, gap = 0) {
   if (!(cols >= 1 && rows >= 1)) throw new Error(`segments ${cols}x${rows}: each count is at least 1`);
@@ -855,13 +855,13 @@ export const onPreferences = (changed) => queries().forEach(([q]) => q.addEventL
 // bit 1 `!navigator.onLine`, bit 2 `typeof navigator.share === "function"` (LLP 1069.003 D5), bit 3 `typeof
 // showOpenFilePicker === "function"` (LLP 1069.010 D2; studio diary R31), bit 4 `!document.hasFocus()` (#114), told
 // again at the window's `focus` and `blur`. Under the agent the drive's values stand in (visible, online, a share
-// sheet, the pickers, focus: LLP 1069.000 D6), set by `prefer`'s `page` group; the machine is never read.
+// sheet, the pickers, focus: LLP 1069.000 D6), set by `prefer`'s `page` group; the machine is never read, but for the display's scale (below).
 export function pageReporter(agent, platform = globalThis) {
   const facts = { "visibility-state": "visible", online: true, "can-share": true, "can-open-files": true, "has-focus": true, "root-font-size": 16 };
   // @ref LLP 1069.000 D3 — the root font size: the document element's computed `font-size`, the browser's setting
   // unless a page sets it; under the agent the drive sets it on the element (`prefer root-font-size`). The app's own
   // size (`appRootFontSize`) is set over it and read past.
-  const rootFontSize = () => agent ? facts["root-font-size"] : beneathApp(platform, () => parseFloat(platform.getComputedStyle(platform.document.documentElement).fontSize) || 16);
+  const rootFontSize = () => agent ? facts["root-font-size"] : beneathApp(platform, () => parseFloat(platform.getComputedStyle(platform.document.documentElement).fontSize) || 16), displayScale = () => platform.devicePixelRatio > 0 ? platform.devicePixelRatio : 1; // @ref LLP 1115.000 D10.3 — the display's scale is the page's own `devicePixelRatio`, read under the agent too: the drive sets it through the browser's emulation (`prefer display-scale`), never by a substitute, and a zoom fires `resize`, which tells it again
   const read = () => agent ? { ...facts } : { "visibility-state": platform.document.visibilityState === "hidden" ? "hidden" : "visible", online: platform.navigator.onLine !== false, "can-share": typeof platform.navigator.share === "function", "can-open-files": typeof platform.showOpenFilePicker === "function", "has-focus": typeof platform.document.hasFocus !== "function" || platform.document.hasFocus() };
   const bits = () => { const f = read(); return (f["visibility-state"] === "hidden" ? 1 : 0) | (f.online ? 0 : 2) | (f["can-share"] ? 4 : 0) | (f["can-open-files"] ? 8 : 0) | (f["has-focus"] ? 0 : 16); };
   const prefer = (page) => {
@@ -870,14 +870,14 @@ export function pageReporter(agent, platform = globalThis) {
       const value = String(raw);
       if (name === "visibility-state" && (value === "visible" || value === "hidden")) next[name] = value;
       else if ((name === "online" || name === "can-share" || name === "can-open-files" || name === "has-focus") && (value === "true" || value === "false")) next[name] = value === "true";
-      else if (name === "root-font-size" && Number(value) > 0 && Number.isFinite(Number(value))) next[name] = Number(value);
+      else if (name === "root-font-size" && Number(value) > 0 && Number.isFinite(Number(value))) next[name] = Number(value); else if (name === "display-scale" && Number(value) > 0 && Number.isFinite(Number(value))) { if (Math.abs(displayScale() - Number(value)) > 0.01) throw new Error(`prefer: display-scale: ${value}: the page's is ${displayScale()}, which the browser sets (its own emulation, or the device)`); }
       else throw new Error(`prefer: ${name}: ${value} is not a page fact this host sets`);
     }
     Object.assign(facts, next);
     if (page?.["root-font-size"] !== undefined) platform.document.documentElement.style.fontSize = `${facts["root-font-size"]}px`;
   };
   const onChange = (changed) => { if (agent) return; platform.document.addEventListener("visibilitychange", changed); for (const name of ["online", "offline", "focus", "blur"]) platform.addEventListener(name, changed); };
-  return { bits, read: () => ({ ...read(), "root-font-size": rootFontSize() }), prefer, onChange, rootFontSize };
+  return { bits, read: () => ({ ...read(), "root-font-size": rootFontSize(), "display-scale": displayScale() }), prefer, onChange, rootFontSize, displayScale };
 }
 
 // @ref LLP 1069.000 D3 — the app's `setRootFontSize(px)`: `:root { font-size: <px> !important }`, an author rule over

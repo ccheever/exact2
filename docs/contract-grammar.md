@@ -695,6 +695,21 @@ top-right, bottom-right, bottom-left; no `/` elliptical radii).
 CSS hyphens are part of the authored name. `testId` and admitted host-specific
 props retain their declared spelling.
 
+`-exact-hairline` is a length every length row takes but a font's size and line
+height ([LLP 1115.000](../llp/1115.000-no-tells-on-every-host.rfc.md) D10.3): one
+device pixel, 1 px over the display's scale, which each host tells the kernel as
+it tells it the root font size (UIKit's `displayScale`, AppKit's
+`backingScaleFactor`, the browser's `devicePixelRatio`, the pixels a point a
+Linux, Android or Windows shell draws at; 1 where a host says none). It is a
+third of a point on a phone and half on a Retina Mac, in layout and in paint,
+and follows a window to another display. Write it where a separator's
+thickness was `0.5`, which is one device pixel only at 2x: `border-width`, the
+`border` shorthand (`border-bottom="-exact-hairline solid -exact-separator"`), a
+`height`, a `gap`; literal or bound. `hr` is that line: one solid top edge a
+hairline thick in the separator role, as wide as what holds it (a flex column
+included), with no margin of its own. Its `color`, `border-*` and `margin` are
+yours to write.
+
 A `button` is the platform's own control by default ([LLP
 1104](../llp/1104-the-platforms-controls-by-default.rfc.md) D1). Your bare box
 (`appearance="none"`, or a button given a background, border, radius or rich
@@ -1029,9 +1044,16 @@ tint where none is said); a determinate `NSProgressIndicator` bar on macOS
 the browser's `<progress>` on the web; and on Linux a painted bar, a 4-pixel
 track filled with the accent. `max` is 1 unless said (a number above 0), and
 `value` is held to 0 and `max`, as HTML holds it; both take numbers, bound or
-literal. Its box is HTML's: `10em` by `1em` (160 × 16 at 16 px), specified
-sizes, so a flex column or grid does not stretch it; write `width="100%"` for a
-full-width bar. The bar is centred in the box at its own thickness. Its role is
+literal. It is as wide as what holds it and `1em` tall: the compiler gives it
+`width: 100%`, as it gives `input type="range"`, since neither platform control
+has a width of its own (LLP 1115.000 D10.2). That is an ordinary CSS row, so a
+`width` you write replaces it, and in a `row` the bar or slider takes what the
+row's other children leave and shrinks below its own width to do so, while a
+label of several words beside it shrinks too and wraps: give the control
+`flex=1 min-width=0` and the label keeps its line. Where the percentage has
+nothing to resolve against (a box sized by its content), or under
+`width="auto"`, each is its intrinsic size: a progress `10em` by `1em` (160 × 16
+at 16 px), a range 129 wide. The bar is centred in the box at its own thickness. Its role is
 `progressbar`, its value the platform's (UIKit's "25%", AppKit's value of its
 maximum, the DOM's attributes); name it with `aria-label`, and `aria-valuetext`
 gives the words a reader speaks instead. A change of value eases on iOS, except
@@ -1054,7 +1076,7 @@ the bar's), and so are children, `type`, and `aria-valuenow`, `aria-valuemin`
 and `aria-valuemax` (`value` and `max` are its range).
 
 ```text
-progress value=glasses max=8 width="100%" aria-label="Water today"
+progress value=glasses max=8 aria-label="Water today"
 progress aria-label="Loading"
 progress width=37 height=37 color="#1083fe" aria-label="Loading posts"
 ```

@@ -179,7 +179,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             if placementHidden && !oldValue { hiddenBeforePlacement = hostHidden }
             if placementHidden { isHidden = true }
             else if oldValue { isHidden = hiddenBeforePlacement }
-            setAccessibilityHidden(placementHidden || inert)
+            setAccessibilityHidden(placementHidden || accessibilityInert)
         }
     }
     /// An image node's picture, once loaded (decoded off the main thread),
@@ -199,8 +199,10 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var presentedAlpha: CGFloat = 1, disabledShown = false // the opacity presented, and whether the disabled look halves it (PressLookMac.swift)
     // @ref LLP 1038 D6 — projection does not overwrite authored inert.
     var routeInert = false
-    package var inert: Bool {
-        if presenter?.dialogs.blocks(self) == true { return true }
+    package var inert: Bool { inert(forAccessibility: false) }
+    var accessibilityInert: Bool { inert(forAccessibility: true) }
+    private func inert(forAccessibility: Bool) -> Bool {
+        if forAccessibility ? presenter?.dialogs.accessibilityBlocks(self) == true : presenter?.dialogs.blocks(self) == true { return true }
         var ancestor: NSView? = self
         while let view = ancestor {
             if let node = view as? NodeView, node.routeInert || node.props["inert"] == "true" { return true }
@@ -358,6 +360,15 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if actsAsButton { return controlAccessibilityChildren() }
         return props["accessibilityRole"] == "img" || rangeRole != nil ? nil : textAccessibilityChildren() ?? super.accessibilityChildren()
     }
+    /// The viewport's projected children must point back to it. Otherwise
+    /// moving to a modal's authored container exposes the page behind it.
+    private var modalAccessibilityParent: NSView? {
+        guard let presenter, presenter.macModalAccessibilityChildren?.contains(where: { $0 === self }) == true else { return nil }
+        return presenter.viewport
+    }
+    package override func accessibilityParent() -> Any? {
+        modalAccessibilityParent ?? super.accessibilityParent()
+    }
     /// A control's descendants with a role of their own, as the web keeps
     /// them: Chrome's `<button><h2>` is button › heading (X74). Nil when it
     /// holds only text and images, so it stays a leaf read once by its name.
@@ -374,6 +385,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         super.accessibilityAttributeNames() + (["AXLanguage"] + Self.ariaAttributes.filter { ariaAttribute($0) != nil }).map { .init(rawValue: $0) }
     }
     package override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        if attribute == .parent, let parent = modalAccessibilityParent { return parent }
         if attribute.rawValue == "AXLanguage" {
             let language = presenter?.documentLanguage ?? ""
             return language.isEmpty ? nil : language

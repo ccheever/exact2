@@ -82,7 +82,8 @@ pub fn tag(name: &str) -> Option<Tag> {
             &[(StyleId::PositionType, "absolute")],
             &[(PropId::SemanticTag, "dialog")],
         ),
-        // @ref LLP 1021 D1 — HTML's separator, its UA sheet's rows; void.
+        // @ref LLP 1021 D1 — HTML's separator, one hairline (LLP 1115.000
+        // D10.3); void.
         "hr" => view(crate::menus::HR, &[(PropId::SemanticTag, "hr")]),
         "main" => view(&[], &[(PropId::SemanticTag, "main")]),
         "header" => view(&[], &[(PropId::SemanticTag, "header")]),

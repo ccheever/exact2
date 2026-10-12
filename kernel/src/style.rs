@@ -1400,8 +1400,11 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
         {
             s.box_sizing = taffy::style::BoxSizing::BorderBox;
         }
-        // HTML's UA sheet sizes a determinate `progress` (LLP 1116 D8).
+        // A determinate `progress` is a block of intrinsic size `10em` by
+        // `1em` (LLP 1116 D8; LLP 1115.000 D10.2).
         Some(crate::ControlKind::ProgressBar) => crate::control::progress_box(arena, slot, &mut s),
+        // A percentage-wide range is compressible (LLP 1115.000 D10.2).
+        Some(crate::ControlKind::Range) => crate::control::range_box(arena, slot, &mut s),
         _ => {}
     }
     let direction = arena.computed_source(slot, StyleId::Direction).direction;

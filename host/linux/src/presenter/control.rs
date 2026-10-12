@@ -413,7 +413,7 @@ mod tests {
         assert_eq!(
             fixed_painted_size(ControlKind::ProgressBar),
             None,
-            "HTML's UA box"
+            "the kernel's `10em` by `1em`, under the plan's `width: 100%`"
         );
     }
 
@@ -474,7 +474,8 @@ mod tests {
 
     /// LLP 1116 D8: a determinate progress is painted as UIKit's progress
     /// view: a 4 px track across its box, centred, filled with the accent
-    /// to its value; HTML's box (10em by 1em); a press is its ancestor's.
+    /// to its value; as wide as its column and `1em` tall (LLP 1115.000
+    /// D10.2: 160 by 16 before, HTML's box); a press is its ancestor's.
     #[test]
     fn a_progress_bar_paints_its_value_in_the_accent_and_takes_no_press() {
         let app = "component App\n  view\n    column width=200 height=100 background-color=\"#ffffff\" align-items=\"flex-start\"\n      progress testId=\"bar\" value=3 max=4 accent-color=\"#ff0000\"\n";
@@ -493,7 +494,7 @@ mod tests {
             k.node_by_key(k.find_by_test_id("bar")[0]).unwrap().id
         };
         let (x, y, w, h) = p.rect_of(bar).unwrap();
-        assert_eq!((w, h), (160.0, 16.0));
+        assert_eq!((w, h), (200.0, 16.0));
         let mut at = |dx: f32, dy: f32| {
             let c = p
                 .frame()
@@ -503,7 +504,8 @@ mod tests {
             [c.red(), c.green(), c.blue()]
         };
         assert_eq!(at(60.0, 8.0), [0xff, 0, 0], "filled to three quarters");
-        let rest = at(140.0, 8.0);
+        assert_eq!(at(140.0, 8.0), [0xff, 0, 0], "of 200: to 150");
+        let rest = at(180.0, 8.0);
         assert!(rest[0] < 0xff && rest[0] == rest[1], "the track: {rest:?}");
         assert_eq!(at(60.0, 2.0), [0xff, 0xff, 0xff], "above the track");
         let now = p.host().now();

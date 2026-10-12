@@ -1056,11 +1056,17 @@ impl LayoutTree {
                         // overridden by a known one; until the host
                         // reports, the kind's default. Native modules use the
                         // same non-ratio seam, with no default content size
-                        // (LLP 1024 D4).
-                        let (iw, ih) = arena.intrinsic(slot).unwrap_or_else(|| {
-                            crate::ControlKind::of(arena.node_type(slot), arena.props(slot))
-                                .map_or((0.0, 0.0), crate::ControlKind::default_size)
-                        });
+                        // (LLP 1024 D4). A determinate `progress` is `10em`
+                        // by `1em` whatever its host's bar reports (LLP
+                        // 1115.000 D10.2).
+                        let kind = crate::ControlKind::of(arena.node_type(slot), arena.props(slot));
+                        let (iw, ih) = if kind == Some(crate::ControlKind::ProgressBar) {
+                            crate::control::progress_size(arena, slot)
+                        } else {
+                            arena.intrinsic(slot).unwrap_or_else(|| {
+                                kind.map_or((0.0, 0.0), crate::ControlKind::default_size)
+                            })
+                        };
                         return Size {
                             width: known.width.unwrap_or(iw),
                             height: known.height.unwrap_or(ih),

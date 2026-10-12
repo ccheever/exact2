@@ -3,6 +3,20 @@
 // which the agent's own chrome still paints — fails, and says why (LLP 1116 D2).
 import { test, expect } from 'bun:test';
 import { serverRequest, textExpectation, treeExpectation } from './agent-test.mjs';
+import { axFindings } from './agent-ax.mjs';
+
+test('a presented popover belongs to its AppKit modal for outside-modal findings', () => {
+  const elements = [
+    { i: 0, parent: null, id: null, via: 'none', role: 'scrollarea', name: '' },
+    { i: 1, parent: 0, id: 10, via: 'self', role: 'dialog', name: 'Setup' },
+    { i: 2, parent: 1, id: 11, via: 'self', role: 'button', name: 'Options' },
+    { i: 3, parent: 0, id: 12, via: 'self', role: 'group', name: 'Options' },
+    { i: 4, parent: 3, id: 13, via: 'self', role: 'textbox', name: 'Filter' },
+  ];
+  const modal = { present: true, by: 'aria-modal', element: 1, presented: [3] };
+  expect(axFindings({ ax: { source: 'appkit', modal, elements } }).filter(f => f.kind === 'outside-modal')).toEqual([]);
+  expect(axFindings({ ax: { source: 'appkit', modal: { ...modal, presented: [] }, elements } }).filter(f => f.kind === 'outside-modal').map(f => f.id)).toEqual([12, 13]);
+});
 
 const why = 'the iOS navigation bar does not show this node; in the app it is not visible';
 const nodes = [

@@ -57,6 +57,14 @@ impl Hooks {
     }
 }
 
+/// The alert shape (LLP 1115 D6), the kernel's rule
+/// (`exact_kernel::confirmation`), for the presenter's Swift
+/// (`ConfirmationShape.isAlert`): lowering, this host and the Linux one read
+/// one rule.
+pub fn confirmation_is_alert(texts: u32, actions: u32, cancels: u32) -> bool {
+    exact_kernel::confirmation::is_alert(texts as usize, actions as usize, cancels as usize)
+}
+
 /// The buffers and the host behind the exports.
 pub struct Bridge<D: DataSource> {
     document_owner: u64,
@@ -1256,6 +1264,16 @@ impl<D: DataSource> Bridge<D> {
             .host
             .as_mut()
             .map_or_else(not_booted, |h| h.set_root_font_size(px));
+        self.emit(out)
+    }
+
+    /// The display's scale (LLP 1115.000 D10.3): a relayout where a row is a
+    /// hairline.
+    pub fn set_display_scale(&mut self, scale: f64) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.set_display_scale(scale));
         self.emit(out)
     }
 

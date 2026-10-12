@@ -3,6 +3,13 @@
 // AppKit's (`Mac/AlertsMac.swift`, LLP 1115.000 D7.6). An `alertdialog`'s
 // rows are its text, its actions (buttons with a `press` that also close it)
 // and its cancel (a button that only closes it).
+//
+// What counts as an alert is one rule, the kernel's
+// (`exact_kernel::confirmation`): lowering reads it to imply an alert's
+// `closedby` (LLP 1115.000 D13.4: an alert has no outside), the Linux host to
+// draw Android's, and these hosts ask it here, so the three cannot drift. The
+// counting of rows stays each host's, since each reads its own tree.
+import CExact
 import Foundation
 
 enum ConfirmationShape {
@@ -10,7 +17,7 @@ enum ConfirmationShape {
     /// buttons with it. Anything else is a chooser (a menu or action sheet)
     /// or stays as authored.
     static func isAlert(texts: Int, actions: Int, cancels: Int) -> Bool {
-        texts > 0 && cancels == 1 && actions + cancels <= 3
+        exact_confirmation_is_alert(UInt32(max(0, texts)), UInt32(max(0, actions)), UInt32(max(0, cancels))) != 0
     }
 
     /// An alert's words: its title is the `aria-label` ("Remove Book?"),

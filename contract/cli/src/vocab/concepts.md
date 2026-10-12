@@ -276,6 +276,9 @@ component App
 
 - Its rows are only text, actions and one Cancel; a form is a sheet (`contract vocab modal`).
   In tests, `clock settle` after it opens, then `tap "remove-confirm"`.
+- An alert has no outside: Escape and Back cancel it, a tap beside it does nothing. Leave
+  `closedby` unwritten; `closedby="any"` asks for the platform's dismissible form in its place
+  (an action sheet on an iPhone, a dialog a click outside closes on the web).
 
 More: docs/recipes/navigation-stack.md
 

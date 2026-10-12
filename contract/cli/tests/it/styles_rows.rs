@@ -148,8 +148,8 @@ fn position_area_places_a_popover_in_the_admitted_subset_only() {
 #[test]
 fn a_node_knows_which_of_its_rows_its_author_wrote() {
     use exact_kernel::StyleId::{
-        Appearance, BackgroundColor, Display, FontSize, FontWeight, MarginBottom, MarginTop,
-        MinHeight, PaddingTop, TextColor, TintColor, Width,
+        Appearance, BackgroundColor, BorderWidthTop, Display, FontSize, FontWeight, MarginBottom,
+        MarginTop, MinHeight, PaddingTop, TextColor, TintColor, Width,
     };
     let src = r##"style Loud
   color="#ff0000"
@@ -229,9 +229,15 @@ component A
         ("link", TextColor, implied, "a link run's colour"),
         ("link-red", TextColor, written, "its author's colour"),
         ("rule", TextColor, implied, "`hr`'s separator colour"),
-        ("rule", MarginTop, implied, "and its margins"),
+        ("rule", BorderWidthTop, implied, "and its hairline edge"),
+        ("rule", MarginTop, unset, "no margin of its own"),
         ("rule-red", TextColor, written, "the author's on an `hr`"),
-        ("rule-red", MarginTop, implied, "keeps the tag's other rows"),
+        (
+            "rule-red",
+            BorderWidthTop,
+            implied,
+            "keeps the tag's other rows",
+        ),
         ("row", Display, implied, "a tag's fixed row"),
         ("editor", Appearance, implied, "a field never native"),
         ("editor-none", Appearance, written, "the same, written"),

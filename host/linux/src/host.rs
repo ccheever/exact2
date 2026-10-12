@@ -45,6 +45,8 @@ mod paint_motion;
 mod presence;
 #[path = "press.rs"]
 mod press;
+#[path = "scale.rs"]
+mod scale;
 #[path = "system_support.rs"]
 mod system;
 #[path = "transform_binding.rs"]
@@ -1218,22 +1220,6 @@ impl<D: DataSource> Host<D> {
             ),
             Ok(None) => None,
             Err(e) => Some(format!("page: {e:?}")),
-        }
-    }
-
-    /// The root font size `rem` follows (LLP 1069.000 D3): a relayout in one
-    /// commit, no resource asked again.
-    pub fn set_root_font_size(&mut self, px: f64) -> Option<String> {
-        match self.runner.set_root_font_size(px) {
-            Ok(Some(receipt)) => self.commit(
-                &[Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                }],
-                None,
-            ),
-            Ok(None) => None,
-            Err(e) => Some(format!("root font size: {e:?}")),
         }
     }
 

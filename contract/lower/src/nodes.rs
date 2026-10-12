@@ -122,8 +122,8 @@ impl Lowerer<'_> {
         let children: &[Node] = face.as_deref().unwrap_or(authored_children.as_slice());
         controls::check_nesting(tag, parent_tag, *span)?;
         controls::check_progress(tag, expanded, children)?;
-        self.check_menu_shapes(tag, expanded, children, *span)?;
-        let closedby = menus::implied_closedby(tag, expanded, *span);
+        let alert = self.check_menu_shapes(tag, expanded, children, *span)?;
+        let closedby = menus::implied_closedby(tag, expanded, *span, alert);
         let expanded = closedby.as_deref().unwrap_or(expanded);
         let numeric = controls::range_attrs(tag, control, expanded);
         let expanded = numeric.as_deref().unwrap_or(expanded);
@@ -241,13 +241,21 @@ impl Lowerer<'_> {
         // @ref LLP 1069.001 (amended 2026-10-07) — an indeterminate
         // `progress` (no `value`, LLP 1116 D8) is busy, as ARIA's
         // `aria-busy`: a bool, which a fixed prop (text) cannot be.
-        if tag == "progress" && !expanded.iter().any(|a| a.name == "value") {
-            let busy = self.b.constant(&Value::Bool(true));
-            bindings.push(prop_row(
-                exact_kernel::PropId::AccessibilityBusy,
-                busy,
-                IMPLIED,
-            ));
+        // @ref LLP 1115.000 D10.2 — a determinate one is full width, as a
+        // range is; the indicator keeps its 20 by 20.
+        if tag == "progress" {
+            if expanded.iter().any(|a| a.name == "value") {
+                for (style, value) in controls::FULL_WIDTH {
+                    bindings.push(style_row(*style, self.fixed(true, value), IMPLIED));
+                }
+            } else {
+                let busy = self.b.constant(&Value::Bool(true));
+                bindings.push(prop_row(
+                    exact_kernel::PropId::AccessibilityBusy,
+                    busy,
+                    IMPLIED,
+                ));
+            }
         }
         // @ref LLP 1048.003 D4 — the page scrolls where this does.
         let positional = match positional.as_slice() {

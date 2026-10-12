@@ -15,7 +15,7 @@ import { appDigest, developmentStore } from '../../../scripts/agent-launch.mjs';
 
 const webJs = new URL('../../web-js/', import.meta.url).pathname, web = new URL('../', import.meta.url).pathname;
 const root = mkdtempSync(resolve(tmpdir(), 'exact-js-storage-'));
-const STANDINS = { 'navigation.js': ['renderMarkup', 'reportPlace', 'onSelection', 'textField', 'editMenu', 'settleRadios', 'installFits', 'animationClocks', 'launchLocation'], 'shape.js': ['conforms', 'eq', 'equal', 'failureCode'], 'pointer.js': ['pointer', 'record'], 'commands.js': ['commands'], 'focus.js': ['autofocus', 'press', 'hold', 'within'],
+const STANDINS = { 'navigation.js': ['renderMarkup', 'reportPlace', 'onSelection', 'textField', 'editMenu', 'settleRadios', 'installFits', 'contextAt', 'animationClocks', 'launchLocation'], 'shape.js': ['conforms', 'eq', 'equal', 'failureCode'], 'pointer.js': ['pointer', 'record'], 'commands.js': ['commands'], 'focus.js': ['autofocus', 'press', 'hold', 'within'],
   'paint.js': ['paintList', 'paintFacts', 'paintFlush', 'paintOwn'], 'document.js': ['Docs', 'Head', 'head', 'markDocument', 'projectRoots'],
   'svg-transform.js': ['svgTransform'], 'backdrop.js': ['backdropValue'], 'dataset.js': ['ds'], 'hatches.js': ['ht'], 'perf.js': ['pf'], 'format.js': ['x_formatTime', 'x_formatDate', 'x_formatNumber', 'x_toFixed', 'x_formatDecimal'] };
 /** The runtime as a build lays it out for the app at `appDir`, or as written (a release) when it is null. */

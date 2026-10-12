@@ -135,6 +135,14 @@ the schema changes (LLP 1030 D3a). Agreed in advance: "it's ok if things break a
   dismiss it on iOS with no invoker, show the `dialog` on the web and macOS; LLP 1021's "no title
   row" is superseded. macOS keeps its `NSMenu` chooser for invoker-opened alertdialog popovers
   (no `NSAlert` yet).
+  > **Amended by LLP 1115.000 D13.4 (2026-10-11).** "An alert has no outside" holds on every
+  > host now, not only where UIKit draws it: a `dialog` of the alert's shape implies
+  > `closedby="closerequest"`, where every `alertdialog` implied `any`, so the web's `dialog`
+  > and Android's are not dismissed by a tap outside either (the Mac's is `NSAlert` since
+  > LLP 1115.000 D7.6). An author's `closedby="any"` is the platform's dismissible form: an
+  > action sheet or popover on iOS, a light-dismiss dialog on the web, the painted dialog on
+  > the Mac, a Material dialog cancelled by a touch outside on Android. The shape rule is one
+  > function in the kernel (`kernel/src/confirmation.rs`), which lowering and each host read.
 - **D7. Docs say less.** The agent guide, `exact new` and the recipe apps omit colours, fonts and
   control metrics; where colour is needed they name roles. A short starter guide is the only
   required reading.

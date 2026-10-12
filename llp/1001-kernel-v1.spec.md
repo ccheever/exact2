@@ -56,12 +56,41 @@ The schema metadata changes its digest, so producers and hosts re-bake together.
 >   `Kernel::set_root_font_size`; the table's 16 is what a host that sets none shows;
 > - `font-size` takes a text style (`-exact-title1`, …) that the kernel resolves
 >   against that root, and a `role="heading"` is lowered to one by its level;
-> - `hr` is one solid edge in the separator role, not Chrome's two shades;
+> - `hr` is one solid edge in the separator role, not Chrome's two shades, and it is
+>   one hairline with no margin of its own (LLP 1115.000 D10.3): lowering writes it a
+>   top edge `-exact-hairline` thick and no margin, where Chrome's UA sheet gives it
+>   `margin: 0.5em auto` and a 1px inset border on four sides (2px tall, and 0 wide in
+>   a flex column, where the `auto` side margins stop the stretch); the web's sheet
+>   resets both;
+> - `-exact-hairline` is a length CSS does not have: one device pixel, 1 px over the
+>   display's scale, on every length row but `font-size` and `line-height`. The scale
+>   is a layout input the host sets, as it sets the root font size
+>   (`Kernel::set_display_scale`): UIKit's `displayScale`, AppKit's
+>   `backingScaleFactor`, the browser's `devicePixelRatio`, the pixels a point a Linux,
+>   Android or Windows shell draws at; 1 until a host says, which is what a terminal,
+>   whose border is a cell, keeps. The row holds the resolved pixels, re-resolved at
+>   the end of the commit after the scale changes (`kernel/src/style/relative.rs`), so
+>   layout and paint agree on one device pixel where an authored `0.5` is one only at
+>   2x. The web's JS target, which keeps no kernel, writes `var(--exact-hairline)`,
+>   which the sheet holds at 1px over the resolution a media query reports (1, 1.5, 2,
+>   2.5, 3 and 4 dppx; between two a border still snaps down to one device pixel).
+>   The schema's `lengths` names it, so `SCHEMA_DIGEST` covers it;
 > - an `href` run is `LinkText` and is not underlined, and so is a block `link` of
 >   text (LLP 1115.000 D3.5);
 > - an unsaid SVG `fill` is `currentcolor`, not SVG's black, so a shape nobody filled
 >   is its text's colour and follows the scheme; a gradient stop's, a flood's and a
 >   light's initial colours stay SVG's (LLP 1115.000 D3.8);
+> - a checkbox, a radio and a range carry no margin (Chrome's UA sheet gives them `3px 3px
+>   3px 4px`, `3px 3px 0 5px` and `2px`): lowering writes none and the web's sheet zeroes
+>   them, as the common resets do (LLP 1115.000 D10.1);
+> - a range and a determinate `progress` are `width: 100%` by a row lowering implies, so
+>   each is as wide as what holds it where HTML's are 129 px and `10em`. Those are their
+>   intrinsic sizes still: what `width: auto` or an unresolvable percentage falls back to.
+>   The progress is a block of intrinsic size `10em` by `1em` that may shrink below it in
+>   a flex row; the web's sheet makes a `<progress>` one (`contain-intrinsic-size`,
+>   `min-width: 0`). A percentage-wide range shrinks below its 129 there too, which is
+>   CSS's own rule for a form control (Sizing 3 §5.2.2) and no deviation (LLP 1115.000
+>   D10.2);
 > - an unset root background is the platform's, never a fixed white;
 > - a pushed route has the platform's Back whether or not one is authored;
 > - a custom pressable that declares no press feedback dims while held on iOS.
@@ -402,6 +431,12 @@ confirmation grammar and `closedby="any"`; AppKit/Linux do not present dialogs
 > **Superseded by LLP 1115 D6.** An alert-shaped `alertdialog` is the platform's alert on iOS,
 > and `closedby="any"` is implied, not required; macOS and the web show the `dialog`. The
 > Linux host still presents none.
+>
+> **And by LLP 1115.000 D13.4 (2026-10-11).** An alert has no outside: what is implied for a
+> `dialog` of the alert's shape is `closedby="closerequest"`, and `any` only for a chooser's.
+> The shape rule is the kernel's (`kernel/src/confirmation.rs`), read by lowering and by
+> every host. On the Mac the alert shape is `NSAlert` (LLP 1115.000 D7.6), and on Android a
+> `Dialog` window (LLP 1115.001 D10).
 
 `emojiPicker` (prop 63, boolean, absent/false by default) is an explicit
 selection-input policy on `input`, not an HTML `inputmode` value. A single emoji

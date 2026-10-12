@@ -92,7 +92,10 @@ extension ControlHost {
     /// HTML sizes a select to its widest option, whichever is shown (D3).
     func naturalSize(_ control: UIControl, _ owner: NodeView) -> CGSize {
         #if !os(tvOS)
-        // A slider has no natural width; Chrome's range is 129 wide.
+        // A slider has no width of its own: it is as wide as its node, which
+        // the plan makes `width: 100%` (LLP 1115.000 D10.2). 129 is the
+        // range's intrinsic width on every host (`ControlKind::default_size`):
+        // what the node falls back to where that has nothing to resolve against.
         if control is UISlider { return CGSize(width: 129, height: ceil(control.intrinsicContentSize.height)) }
         // A compact date picker sizes by Auto Layout, not before it lays out.
         if control is UIDatePicker {

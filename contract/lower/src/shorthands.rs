@@ -74,7 +74,8 @@ pub(crate) fn component(value: &Expr, name: &str, index: usize) -> Result<Expr, 
             if name == "text-decoration" { out = Expr::Str(decoration(text, *span)?, *span); }
             else {
                 let part = border(name, text, *span)?[index % 3].clone();
-                out = if index.is_multiple_of(3) {
+                // A named width (`-exact-hairline`) stays its name: the kernel resolves it.
+                out = if index.is_multiple_of(3) && exact_kernel::style::relative::named_length(&part).is_none() {
                     let pt = part.ends_with("pt");
                     let value: f64 = part.strip_suffix("px").or_else(|| part.strip_suffix("pt")).unwrap_or(&part).parse().unwrap();
                     Expr::Number(value * if pt { 4.0 / 3.0 } else { 1.0 }, *span)
@@ -139,6 +140,8 @@ fn border(name: &str, text: &str, span: Span) -> Result<[String; 3], LowerError>
             };
             return err("lower-css-shorthand", format!("CSS line style `{word}` in `{name}` is not implemented by native painters; supported styles are {supported}"), span);
         } else if matches!(lower.as_str(), "thin" | "medium" | "thick")
+            // @ref LLP 1115.000 D10.3 — one device pixel, by name.
+            || exact_kernel::style::relative::named_length(word).is_some()
             || word
                 .strip_suffix("px")
                 .or_else(|| word.strip_suffix("pt"))
@@ -170,7 +173,7 @@ fn border(name: &str, text: &str, span: Span) -> Result<[String; 3], LowerError>
                 )
                 .is_err()
             {
-                return err("lower-css-shorthand", format!("`{word}` is not an admitted `{name}` width, style or color; widths are nonnegative px/pt lengths or thin/medium/thick{}", crate::values::role_hint(word).unwrap_or_default()), span);
+                return err("lower-css-shorthand", format!("`{word}` is not an admitted `{name}` width, style or color; widths are nonnegative px/pt lengths, `-exact-hairline` or thin/medium/thick{}", crate::values::role_hint(word).unwrap_or_default()), span);
             }
             if color.replace(word.into()).is_some() {
                 return err(

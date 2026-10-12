@@ -61,7 +61,7 @@ fn checked(r: &Runner<NoData>, test_id: &str) -> (Option<bool>, Option<bool>) {
 }
 
 #[test]
-fn a_checkbox_is_a_control_with_a_role_and_chromes_margins() {
+fn a_checkbox_is_a_control_with_a_role() {
     let r = boot(SETTINGS);
     let muted = r.kernel().node(view_of(&r, "muted")).unwrap();
     assert_eq!(muted.node_type, NodeType::Control);
@@ -72,17 +72,58 @@ fn a_checkbox_is_a_control_with_a_role_and_chromes_margins() {
         airplane.props.str(PropId::AccessibilityRole),
         Some("checkbox")
     );
-    assert_eq!(
-        airplane.style.margin_left,
-        exact_kernel::Dimension::Points(4.0)
-    );
-    assert_eq!(
-        airplane.style.margin_top,
-        exact_kernel::Dimension::Points(3.0)
-    );
     let draft = r.kernel().node(view_of(&r, "draft")).unwrap();
     assert_eq!(draft.node_type, NodeType::TextInput);
     assert_eq!(checked(&r, "muted"), (Some(false), Some(false)));
+}
+
+/// LLP 1115.000 D10.1: a checkbox, a radio and a range have no margin of
+/// their own on any host (Chrome's UA sheet gives them `3px 3px 3px 4px`,
+/// `3px 3px 0 5px` and `2px`, which lowering wrote into every plan). The
+/// rows are unset, so the space beside a label is the author's `gap`, and a
+/// margin the author writes is the control's.
+#[test]
+fn a_checkbox_a_radio_and_a_range_have_no_margin_of_their_own() {
+    use exact_kernel::{Dimension, StyleId};
+    let mut r = boot(
+        r#"component App
+  view
+    row testId="root"
+      input type="checkbox" testId="check"
+      input type="checkbox" switch testId="switch"
+      input type="radio" testId="radio"
+      input type="range" width=90 testId="range"
+      input type="checkbox" margin-left=6 testId="spaced"
+"#,
+    );
+    let root = view_of(&r, "root");
+    r.kernel_mut()
+        .compute_layout(root, exact_kernel::Offer::definite(320.0, 480.0))
+        .unwrap();
+    let margins = [
+        StyleId::MarginTop,
+        StyleId::MarginRight,
+        StyleId::MarginBottom,
+        StyleId::MarginLeft,
+    ];
+    for id in ["check", "switch", "radio", "range"] {
+        let node = r.kernel().node(view_of(&r, id)).unwrap();
+        for margin in margins {
+            assert!(!node.style.mask.has(margin), "{id} sets {margin:?}");
+        }
+        let frame = node.frame;
+        assert_eq!(frame.y, 0.0, "{id} sits at the top of its row");
+    }
+    // Nothing between the controls but their own boxes.
+    let x = |id: &str| r.kernel().node(view_of(&r, id)).unwrap().frame;
+    assert_eq!(x("check").x, 0.0);
+    assert_eq!(x("switch").x, x("check").width);
+    assert_eq!(x("radio").x, x("switch").x + x("switch").width);
+    assert_eq!(x("range").x, x("radio").x + x("radio").width);
+    let spaced = r.kernel().node(view_of(&r, "spaced")).unwrap();
+    assert_eq!(spaced.style.margin_left, Dimension::Points(6.0));
+    assert!(spaced.style.written.has(StyleId::MarginLeft));
+    assert_eq!(spaced.frame.x, x("range").x + x("range").width + 6.0);
 }
 
 #[test]
@@ -204,11 +245,9 @@ fn a_radio_is_a_control_of_its_name_whose_change_carries_its_value() {
     assert_eq!(node.node_type, NodeType::Control);
     assert_eq!(node.props.str(PropId::AccessibilityRole), Some("radio"));
     assert_eq!(node.props.str(PropId::Name), Some("color"));
-    assert_eq!(node.style.margin_left, exact_kernel::Dimension::Points(5.0));
-    assert_eq!(
-        node.style.margin_bottom,
-        exact_kernel::Dimension::Points(0.0)
-    );
+    // No margin of its own (LLP 1115.000 D10.1; Chrome's is `3px 3px 0 5px`).
+    assert!(!node.style.mask.has(exact_kernel::StyleId::MarginLeft));
+    assert_eq!(node.style.margin_left, exact_kernel::Dimension::Points(0.0));
     let green = view_of(&r, "green");
     assert_eq!(
         r.kernel().node(green).unwrap().props.str(PropId::Type),
@@ -534,7 +573,9 @@ fn a_range_carries_a_number_clamped_and_snapped_as_html_does() {
     assert_eq!(node.props.str(PropId::Min), Some("0"));
     assert_eq!(node.props.str(PropId::Step), Some("5"));
     assert_eq!(node.props.str(PropId::Value), Some("40"));
-    assert_eq!(node.style.margin_top, exact_kernel::Dimension::Points(2.0));
+    // No margin of its own (LLP 1115.000 D10.1; Chrome's is `2px`).
+    assert!(!node.style.mask.has(exact_kernel::StyleId::MarginTop));
+    assert_eq!(node.style.margin_top, exact_kernel::Dimension::Points(0.0));
     // `input` moves, `change` commits; each payload a number on the step.
     r.dispatch(volume, Event::Input("62".into())).unwrap();
     let preview = r.kernel().node(view_of(&r, "preview")).unwrap();
@@ -766,12 +807,13 @@ fn an_indeterminate_progress_is_a_busy_control_of_twenty_points() {
 
 /// LLP 1116 D8: `progress value=… max=…` is HTML's determinate bar: the
 /// same `Control`, its `value` and `max` HTML's strings (a bound number
-/// follows its state), not busy, and the box HTML's UA sheet gives it —
-/// `10em` by `1em`, kept in a flex column, `width` and `height` winning.
+/// follows its state), not busy. LLP 1115.000 D10.2: it is as wide as what
+/// holds it and `1em` tall, `width` and `height` winning, and `10em` wide
+/// where the author says `auto`.
 #[test]
 fn a_progress_with_a_value_is_the_determinate_bar() {
     let mut r = boot(
-        "component App\n  state glasses = 2\n  action drink\n    glasses = glasses + 1\n  view\n    column testId=\"root\"\n      progress value=glasses max=8 aria-label=\"Water\" testId=\"water\"\n      progress value=0.5 width=\"100%\" height=4 testId=\"wide\"\n      column font-size=20\n        progress value=1 testId=\"big\"\n      button press=drink testId=\"drink\"\n        text \"Drink\"\n",
+        "component App\n  state glasses = 2\n  action drink\n    glasses = glasses + 1\n  view\n    column testId=\"root\"\n      progress value=glasses max=8 aria-label=\"Water\" testId=\"water\"\n      progress value=0.5 width=120 height=4 testId=\"sized\"\n      column font-size=20\n        progress value=1 testId=\"big\"\n        row\n          progress value=1 width=\"auto\" testId=\"auto\"\n      button press=drink testId=\"drink\"\n        text \"Drink\"\n",
     );
     let water = r.kernel().node(view_of(&r, "water")).unwrap();
     assert_eq!(water.node_type, NodeType::Control);
@@ -804,9 +846,65 @@ fn a_progress_with_a_value_is_the_determinate_bar() {
         let f = r.kernel().node(view_of(r, t)).unwrap().frame;
         (f.width, f.height)
     };
-    assert_eq!(size(&r, "water"), (160.0, 16.0), "a flex column keeps it");
-    assert_eq!(size(&r, "wide"), (320.0, 4.0));
-    assert_eq!(size(&r, "big"), (200.0, 20.0), "in `em`s");
+    assert_eq!(size(&r, "water"), (320.0, 16.0), "as wide as its column");
+    assert_eq!(size(&r, "sized"), (120.0, 4.0), "an authored size wins");
+    assert_eq!(size(&r, "big"), (320.0, 20.0), "`1em` tall");
+    assert_eq!(size(&r, "auto"), (200.0, 20.0), "`10em` by `1em`");
+}
+
+/// LLP 1115.000 D10.2: a range and a determinate `progress` are full width
+/// by a row lowering implies, `width: 100%`, which is not the author's (LLP
+/// 1115.000 D2): the mask has it and the written bit does not. A `width` the
+/// author writes replaces it, written; an indeterminate `progress` and every
+/// other control keep their own size.
+#[test]
+fn a_range_and_a_determinate_progress_are_full_width_by_an_implied_row() {
+    use exact_kernel::{Dimension, StyleId};
+    let mut r = boot(
+        r#"component App
+  view
+    column width=300 testId="root"
+      input type="range" testId="range"
+      progress value=0.5 testId="bar"
+      input type="range" width=90 testId="narrow"
+      progress value=0.5 width="50%" testId="half"
+      progress testId="spinner"
+      input type="checkbox" testId="check"
+      row testId="beside"
+        box width=100 height=10 flex-shrink=0
+        input type="range" testId="beside-range"
+      row
+        column testId="fit"
+          input type="range" testId="fit-range"
+"#,
+    );
+    let row = |r: &Runner<NoData>, id: &str| {
+        let style = r.kernel().node(view_of(r, id)).unwrap().style;
+        (
+            style.mask.has(StyleId::Width).then_some(style.width),
+            style.written.has(StyleId::Width),
+        )
+    };
+    assert_eq!(row(&r, "range"), (Some(Dimension::Percent(100.0)), false));
+    assert_eq!(row(&r, "bar"), (Some(Dimension::Percent(100.0)), false));
+    assert_eq!(row(&r, "narrow"), (Some(Dimension::Points(90.0)), true));
+    assert_eq!(row(&r, "half"), (Some(Dimension::Percent(50.0)), true));
+    assert_eq!(row(&r, "spinner"), (None, false));
+    assert_eq!(row(&r, "check"), (None, false));
+    let root = view_of(&r, "root");
+    r.kernel_mut()
+        .compute_layout(root, exact_kernel::Offer::definite(320.0, 480.0))
+        .unwrap();
+    let width = |r: &Runner<NoData>, id: &str| r.kernel().node(view_of(r, id)).unwrap().frame.width;
+    assert_eq!(width(&r, "range"), 300.0);
+    assert_eq!(width(&r, "bar"), 300.0);
+    assert_eq!(width(&r, "narrow"), 90.0);
+    assert_eq!(width(&r, "half"), 150.0);
+    // In a row it takes what the row's other children leave.
+    assert_eq!(width(&r, "beside-range"), 200.0);
+    // Where the percentage has nothing to resolve against, its own 129.
+    assert_eq!(width(&r, "fit"), 129.0);
+    assert_eq!(width(&r, "fit-range"), 129.0);
 }
 
 #[test]

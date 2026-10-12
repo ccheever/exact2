@@ -109,6 +109,10 @@ mod events_tests;
 #[path = "presenter/visibility_tests.rs"]
 mod visibility_tests;
 
+#[cfg(test)]
+#[path = "presenter/spacing_tests.rs"]
+mod spacing_tests;
+
 pub use device::Device;
 pub use hosted::action as field_action;
 use painter::cpu_info;
@@ -384,6 +388,8 @@ impl<D: DataSource> Presenter<D> {
             launch,
             region,
         )?;
+        // @ref LLP 1115.000 D10.3 — a hairline is one device pixel of this.
+        let error = error.or(host.set_display_scale(f64::from(scale)));
         let mut images = Images::with_assets(assets.clone());
         images.fit(viewport, scale);
         if assets.is_selected() {
@@ -687,7 +693,8 @@ impl<D: DataSource> Presenter<D> {
         }
         self.brush.scale = scale;
         self.dirty = true;
-        self.resize(width, height)
+        let told = self.host.set_display_scale(f64::from(scale));
+        told.or(self.resize(width, height))
     }
 
     /// A display needs another animation or GPU canvas frame.
