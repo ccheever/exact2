@@ -245,6 +245,12 @@ try {
     assert.equal((await state()).slots.blurPresses, 2, 'the retained live editor still delivers blur');
     rows.push({name:'focused route teardown',blurPresses:2,errors:consoleErrors.slice(beforeErrors),logs});
   });
+  // LLP 1115.000 D4.6: this plan has no strings table, so it names no language, and the running page keeps the one
+  // its build wrote from the manifest (the wasm runtime's `language` op used to clear it).
+  await run('the running page keeps the manifest\'s lang', async () => {
+    await fresh();
+    assert.deepEqual(await evaluate('[document.documentElement.lang, document.documentElement.dir]'), ['en', js ? '' : 'ltr']);
+  });
   await run('Back, Forward, replace and programmatic pop', async () => {
     const n = await fresh();
     await record('boot', '/', n, 1, 0);

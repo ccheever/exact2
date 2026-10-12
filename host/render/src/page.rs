@@ -38,12 +38,7 @@ pub fn page(shell: &str, rendered: &Rendered) -> Result<String, String> {
         html.replace_range(at..stop, with);
         Ok(())
     };
-    let lang = rendered
-        .document
-        .lang
-        .replace('&', "&amp;")
-        .replace('"', "&quot;")
-        .replace('<', "&lt;");
+    let lang = lang_attr(shell, &rendered.document.lang);
     cut(
         &mut html,
         "<html",
@@ -246,6 +241,27 @@ fn preloads(shell: &str, places: &Places) -> Vec<(usize, usize)> {
     found
 }
 
+/// A rendered page's `<html lang>` value, escaped: the language of the
+/// strings table the render resolved, or, for a plan with no table (`lang`
+/// is empty), the one the shell carries, which the build wrote from the
+/// manifest's `lang` (LLP 1115.000 D4.6).
+fn lang_attr(shell: &str, lang: &str) -> String {
+    if !lang.is_empty() {
+        return lang
+            .replace('&', "&amp;")
+            .replace('"', "&quot;")
+            .replace('<', "&lt;");
+    }
+    // As the build wrote it, escaped already.
+    let tag = shell
+        .find("<html")
+        .and_then(|at| shell[at..].find('>').map(|end| &shell[at..at + end]));
+    tag.and_then(|tag| tag.split(" lang=\"").nth(1))
+        .and_then(|value| value.split('"').next())
+        .unwrap_or("")
+        .to_string()
+}
+
 /// What of a JavaScript page comes before anything its render decides: the
 /// doctype and `<html lang dir>`, the charset and base, the capture script,
 /// the entry's `modulepreload`s when `preload` (an `interaction` page has
@@ -263,10 +279,7 @@ pub(crate) fn head_js(
     scroll: bool,
 ) -> String {
     let at = &js.at;
-    let lang = lang
-        .replace('&', "&amp;")
-        .replace('"', "&quot;")
-        .replace('<', "&lt;");
+    let lang = lang_attr(shell, lang);
     let mut out = String::with_capacity(at.root + 1024);
     out.push_str(&shell[..at.html.0]);
     let _ = std::fmt::Write::write_fmt(
@@ -726,5 +739,21 @@ mod tests {
         assert!(!body_js(shell, &js, &rendered, false, true).contains(&mark));
         rendered.document.scroll_document = false;
         assert!(!body_js(shell, &js, &rendered, false, false).contains(&mark));
+    }
+
+    /// LLP 1115.000 D4.6: a rendered page keeps the manifest's `lang`, which
+    /// the build wrote on the shell, when its plan has no strings table to
+    /// name a language (`lang` empty); a resolved table's language still wins.
+    #[test]
+    fn a_rendered_page_keeps_the_shells_lang_when_the_plan_names_none() {
+        let shell = "<!doctype html>\n<html lang=\"pt-BR\">\n<meta charset=\"utf-8\">\n<base href=\"/\">\n<title>Olá</title>\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<style></style>\n<div id=\"exact-root\"></div>\n<script type=\"module\" src=\"./app.js\"></script>\n";
+        let js = Js::of(shell).unwrap();
+        let head = head_js(shell, &js, "", "ltr", true, false);
+        assert!(head.contains("<html lang=\"pt-BR\" dir=\"ltr\">"), "{head}");
+        let head = head_js(shell, &js, "fr", "ltr", true, false);
+        assert!(head.contains("<html lang=\"fr\" dir=\"ltr\">"), "{head}");
+        assert_eq!(lang_attr("<html lang=\"pt-BR\">", ""), "pt-BR");
+        assert_eq!(lang_attr("<html>", ""), "");
+        assert_eq!(lang_attr("<html lang=\"en\">", "a\"b"), "a&quot;b");
     }
 }

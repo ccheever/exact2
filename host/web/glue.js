@@ -610,7 +610,7 @@ function apply(batch) {
       switch (op.op) {
       case "textflow": break; // consumed once after the complete DOM batch
       case "keyframes": motion.keyframes(op.name, op.css); break; // LLP 1055 D7: the page's @keyframes
-      case "language": document.documentElement.lang = op.lang; document.documentElement.dir = op.dir; break;
+      case "language": if (op.lang) document.documentElement.lang = op.lang; document.documentElement.dir = op.dir; break; // a plan with no strings table names no language: the page keeps the manifest's (LLP 1115.000 D4.6) // a plan with no strings table names no language: the page keeps the manifest's (LLP 1115.000 D4.6)
       case "head": pageTitle(op.title ?? null); (headGlue ??= loadAfterPaint('./document-glue.js', 'documentHead')).then(head => head(op)); break; // the title at once: the head's, else the route's (LLP 1115.000 D4.1)
       case "router": navigation.apply(op); break;
       case "sound": if (!agentMode) (soundModule ??= new Promise(r => requestAnimationFrame(r)).then(() => loadAfterPaint('./sound-glue.js', 'installSound')).then(install => install({ files: op.files ?? [], log, origin: () => t0 }))).then(s => { soundOut = s; if (op.files && op.files !== s.files) s.reset(op.files); s.ops(op.ops); }).catch(console.error); break; // LLP 1096 D7: the voice table's ops, after first paint; never under the agent, whose clock is virtual (D10)
