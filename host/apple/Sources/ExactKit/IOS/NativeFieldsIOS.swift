@@ -10,6 +10,14 @@ extension NodeView {
     /// kernel publishes it with the editor box: borderless, its cell being
     /// the field, as a hand-built settings form's is.
     var isCellField: Bool { isNativeTextControl && fieldInCell }
+    /// Whether a touch a grouped row leaves to no control falls to the row's
+    /// field (`cellField`). It widens the field's target to the cell, as a
+    /// hand-built settings cell's field has it, and draws nothing: the
+    /// field's frame is its kernel box, and a text or message beside or
+    /// under it is not covered by it. `check` judges what lies over a view
+    /// by where a finger at its middle lands, so it asks with this off
+    /// (LLP 1116.009 D5): a title under its field read as covered by it.
+    package static var touchFallsToCellField = true
     func nativeEditorRect(in proposed: CGRect) -> CGRect? {
         guard isNativeTextControl, let rect = nativeFieldContent else { return nil }
         // UIKit also asks with a synthetic 100×100 box to derive its insets.
@@ -81,6 +89,7 @@ extension NodeView {
     /// its content view or a box or text with no handler.
     package static func cellField(in cell: UICollectionViewCell, hit: UIView?) -> UIView? {
         guard let hit else { return nil }
+        guard touchFallsToCellField else { return hit }
         if let node = hit as? NodeView {
             guard node.handlers.isEmpty, node.kind == "view" || node.kind == "text" else { return hit }
         } else if hit !== cell && hit !== cell.contentView {
