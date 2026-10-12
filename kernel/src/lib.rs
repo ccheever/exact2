@@ -76,7 +76,9 @@ pub use generated::*;
 pub use grouped::{Accessory, GroupedList, GroupedRow, GroupedSection, TextFont, TextLook};
 pub use handoff::Handoff;
 pub use id::{AxisOffer, Frame, NodeFlags, NodeKey, Offer, ViewId};
-pub use kernel::{HostCover, Kernel, NodeRef, PresentedHeight, StickyConstraint};
+pub use kernel::{
+    BlockAxis, HostBlock, HostCover, Kernel, NodeRef, PresentedHeight, StickyConstraint,
+};
 pub use layout::LayoutReceipt;
 pub use motion::{motion_node, MotionSync};
 pub use node::NodeFacts;

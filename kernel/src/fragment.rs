@@ -416,6 +416,10 @@ fn laid_out_under(arena: &NodeArena, root: u32, slot: u32) -> Option<bool> {
         if s == root {
             return Some(shown);
         }
+        // A host's containing block is another layout's (LLP 1115.002 D8.2).
+        if arena.blocks.holds(s) {
+            return None;
+        }
         at = arena.parent(s);
     }
     None
