@@ -632,25 +632,72 @@ final class TextSelectionMacTests: XCTestCase {
         }
     }
 
-    /// A secondary click on selected text, with no authored `contextmenu`,
-    /// is a read-only text view's menu (LLP 1115 D8) for the selection.
-    func testASecondaryClickOnSelectedTextIsTheTextMenu() throws {
-        let p = fixture()
-        let text = try XCTUnwrap(p.views[2])
-        let point = text.convert(NSPoint(x: 20, y: 10), to: nil)
-        let right = NSEvent.mouseEvent(with: .rightMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                                       windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!
-        try select(p)
-        let menu = try XCTUnwrap(text.menu(for: right))
-        XCTAssertEqual(menu.items.filter { !$0.isSeparatorItem }.map(\.title), ["Look Up “Alpha beta gamma”", "Copy", "Speech"])
-        XCTAssertTrue(text.validRequestor(forSendType: .string, returnType: nil) as AnyObject? === text, "Services can take the selection")
-        let board = NSPasteboard(name: .init("exact.test.services"))
-        XCTAssertTrue(text.writeSelection(to: board, types: [.string]))
-        XCTAssertEqual(board.string(forType: .string), "Alpha beta gamma")
-        let copy = try XCTUnwrap(menu.items.first { $0.title == "Copy" })
-        NSPasteboard.general.clearContents()
-        _ = (copy.target as? NSObject)?.perform(copy.action, with: copy)
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "Alpha beta gamma")
+    /// LLP 1115.000 D7.9: a secondary click on selected text, with no
+    /// authored `contextmenu`, is AppKit's own menu for the selection, the
+    /// one a read-only `NSTextView` holding it gives, and not one the host
+    /// assembles: Look Up and Translate with the selection in their titles,
+    /// Search With, Copy, Share, Speech, each AppKit's own item. It is asked
+    /// of a text view over the selection that nobody sees, clicks or
+    /// focuses; Copy is still the page's.
+    func testASecondaryClickOnSelectedTextIsAppKitsOwnMenu() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "the agent opens no native menu")
+        // A bare presenter lays nothing out (the text view is plain, at the
+        // click); a session's does (the paragraph's own runs, on its line).
+        for measured in [false, true] {
+            let p = fixture(measured: measured)
+            defer { tearDown() }
+            let text = try XCTUnwrap(p.views[2])
+            let point = text.convert(NSPoint(x: 20, y: 10), to: nil)
+            let right = NSEvent.mouseEvent(with: .rightMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                           windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!
+            try select(p)
+            let focus = window.firstResponder
+            let menu = try XCTUnwrap(text.menu(for: right))
+            let items = menu.items.filter { !$0.isSeparatorItem }, titles = items.map(\.title)
+            XCTAssertEqual(titles.first, "Look Up “Alpha beta gamma”", "\(titles)")
+            XCTAssertTrue(titles.contains("Translate “Alpha beta gamma”"), "\(titles)")
+            XCTAssertTrue(titles.contains { $0.hasPrefix("Search With ") }, "the person's own search engine: \(titles)")
+            for title in ["Copy", "Share…", "Speech"] { XCTAssertTrue(titles.contains(title), "\(title) in \(titles)") }
+            // AppKit's items, not the host's: none is the node's to perform.
+            let held = try XCTUnwrap(p.selection.menuText)
+            XCTAssertFalse(items.contains { $0.target === text }, "no item is the page view's own")
+            XCTAssertFalse(items[0].target is NSView, "Look Up is AppKit's own item: \(String(describing: items[0].target))")
+            XCTAssertTrue(window.firstResponder === focus, "asking for the menu moves no focus")
+            // The text view that answered: the selection, selected, over it, and out of everyone's way.
+            XCTAssertTrue(held.superview === text)
+            XCTAssertEqual(held.string, "Alpha beta gamma")
+            XCTAssertEqual(held.selectedRange(), NSRange(location: 0, length: 16))
+            XCTAssertEqual(held.alphaValue, 0)
+            XCTAssertFalse(held.isEditable || held.acceptsFirstResponder || held.isAccessibilityElement())
+            XCTAssertNil(held.hitTest(NSPoint(x: held.frame.midX, y: held.frame.midY)), "a click there is the page's")
+            XCTAssertTrue(text.hitTest(text.superview!.convert(point, from: nil)) === text)
+            if measured {
+                let first = try XCTUnwrap(text.paragraphLayout()?.selectionRects(NSRange(location: 0, length: 16), align: 0, in: text.paragraphBox(), dirty: text.bounds).first)
+                XCTAssertEqual(held.frame.minY, first.minY, accuracy: 0.5, "on the selection's own line")
+                let glyph = held.convert(window.convertFromScreen(held.firstRect(forCharacterRange: NSRange(location: 0, length: 1), actualRange: nil)), from: nil)
+                XCTAssertEqual(held.convert(glyph, to: text).minX, first.minX, accuracy: 0.5, "and where it starts")
+                XCTAssertEqual((held.textStorage?.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)?.pointSize, 16, "in the paragraph's own font")
+            }
+            // Its own items answer for it: Copy can, Cut cannot (the text is not editable).
+            menu.update()
+            let copy = try XCTUnwrap(items.first { $0.title == "Copy" })
+            XCTAssertTrue(copy.target === held)
+            XCTAssertTrue(copy.isEnabled)
+            XCTAssertEqual(items.first { $0.title == "Cut" }?.isEnabled, false)
+            XCTAssertTrue(items.first { $0.title.hasPrefix("Search With ") }?.isEnabled == true)
+            // Copy is the page's: the whole selection, through the node's own copy.
+            NSPasteboard.general.clearContents()
+            _ = (copy.target as? NSObject)?.perform(copy.action, with: copy)
+            XCTAssertEqual(NSPasteboard.general.string(forType: .string), "Alpha beta gamma")
+            XCTAssertTrue(text.validRequestor(forSendType: .string, returnType: nil) as AnyObject? === text, "Services can take the selection")
+            let board = NSPasteboard(name: .init("exact.test.services"))
+            XCTAssertTrue(text.writeSelection(to: board, types: [.string]))
+            XCTAssertEqual(board.string(forType: .string), "Alpha beta gamma")
+            // Another selection: the text view that held the last one is gone.
+            p.selection.clear()
+            XCTAssertNil(held.superview)
+            XCTAssertEqual(held.string, "")
+        }
     }
 
     /// X76: a secondary click on a word outside the selection selects that
@@ -696,8 +743,9 @@ final class TextSelectionMacTests: XCTestCase {
         try rightClick(2, at: on(1, 1))
         XCTAssertEqual(p.selection.selectedText(), "Alpha", "the word under the pointer")
         XCTAssertTrue(window.firstResponder === text, "which takes the focus, as a double click does")
-        XCTAssertEqual(menus.last?.titles, ["Look Up “Alpha”", "Copy", "Speech"])
-        XCTAssertEqual(menus.last?.copy, true)
+        XCTAssertEqual(menus.last?.titles.first, "Look Up “Alpha”")
+        for title in ["Translate “Alpha”", "Copy", "Share…", "Speech"] { XCTAssertEqual(menus.last?.titles.contains(title), true, "\(title) in \(menus.last?.titles ?? [])") }
+        XCTAssertEqual(menus.last?.copy, true, "AppKit's Copy is enabled in the menu as it tracks")
         XCTAssertEqual(menus.last?.heard, "2 0-5:Alpha", "its selectionchange before the menu opens")
         try rightClick(2, at: on(3, 1))
         XCTAssertEqual(p.selection.selectedText(), "Alpha", "inside the selection it stays")

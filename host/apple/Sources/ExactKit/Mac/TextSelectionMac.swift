@@ -35,6 +35,8 @@ package final class TextSelection {
     private var pendingBegin = false
     private var deferredDrag: NSEvent?
     private var deferredEnd: (NodeView, NSEvent)?
+    /// The text view AppKit's menu for the selection is asked of (`systemMenu`).
+    var menuText: SelectionMenuText?
 
     func structureChanged() {
         shown = nil; ordered = nil
@@ -147,6 +149,7 @@ package final class TextSelection {
             if let selected { next[node.id] = selected }
             if selected != painted[node.id] { node.needsDisplay = true }
         }
+        if next != painted { forgetMenuText() }
         painted = next
         report(next)
     }
@@ -751,15 +754,16 @@ extension NodeView {
 
 /// A secondary click on selectable text with no authored `contextmenu` or
 /// `contextPopover` here or above is the menu an `NSTextView` shows for
-/// read-only text (LLP 1115 D8): on a word outside the selection it first
-/// selects the word, as Chrome and AppKit do on a Mac (X76); then Look Up
-/// the selection, Copy (the `copy` event first, as ⌘C), Speech, and the
-/// Services that take text, which AppKit adds itself to a contextual menu
-/// whose responder can send them (`validRequestor`). A reader paragraph
-/// whose raster worker must place the click opens it when the answer
-/// comes. An authored handler above, or on the run under the pointer,
-/// hears the click instead and nothing is selected, as in Chrome, which
-/// selects only for its own menu. Anywhere else there is no menu, as
+/// read-only text, AppKit's own (LLP 1115.000 D7.9, `TextMenuMac.swift`):
+/// on a word outside the selection it first selects the word, as Chrome
+/// and AppKit do on a Mac (X76); then Look Up and Translate the selection,
+/// Search With, Copy (the `copy` event first, as ⌘C), Share, Speech, and
+/// the Services that take text, which AppKit adds itself to a contextual
+/// menu whose responder can send them (`validRequestor`). A reader
+/// paragraph whose raster worker must place the click opens it when the
+/// answer comes. An authored handler above, or on the run under the
+/// pointer, hears the click instead and nothing is selected, as in Chrome,
+/// which selects only for its own menu. Anywhere else there is no menu, as
 /// before, and under the agent none: AppKit's tracking of it would hold
 /// the agent's click.
 extension NodeView: NSServicesMenuRequestor {
@@ -771,47 +775,19 @@ extension NodeView: NSServicesMenuRequestor {
                // The reader's worker placed the click: its menu opens on the
                // next turn, once the reader has taken the answer in.
                DispatchQueue.main.async { [weak self] in
-                   guard let self, self.window != nil, let menu = self.textMenu() else { return }
+                   guard let self, self.window != nil, let menu = self.textMenu(event) else { return }
                    NSMenu.popUpContextMenu(menu, with: event, for: self)
                }
            }) {
             return super.menu(for: event)
         }
-        return textMenu() ?? super.menu(for: event)
+        return textMenu(event) ?? super.menu(for: event)
     }
-    private func textMenu() -> NSMenu? {
-        guard !ExactEnv.agentMode, let selection = presenter?.selection, let range = selection.range(self), range.length > 0 else { return nil }
-        let text = selection.selectedText()
-        guard !text.isEmpty else { return nil }
+    /// AppKit's menu for the selection, with the Services that take its text.
+    private func textMenu(_ event: NSEvent) -> NSMenu? {
+        guard let menu = presenter?.selection.systemMenu(for: self, event: event) else { return nil }
         _ = Self.servicesRegistered
-        let menu = NSMenu()
-        let shown = text.count > 24 ? String(text.prefix(23)) + "…" : text
-        let lookUp = menu.addItem(withTitle: String(format: NSLocalizedString("Look Up “%@”", comment: ""), shown.replacingOccurrences(of: "\n", with: " ")),
-                                  action: #selector(lookUpSelection(_:)), keyEquivalent: "")
-        lookUp.target = self
-        menu.addItem(.separator())
-        let copy = menu.addItem(withTitle: NSLocalizedString("Copy", comment: ""), action: #selector(copy(_:)), keyEquivalent: "")
-        copy.target = self
-        menu.addItem(.separator())
-        let speech = NSMenu(title: NSLocalizedString("Speech", comment: ""))
-        speech.addItem(withTitle: NSLocalizedString("Start Speaking", comment: ""), action: Selector(("startSpeaking:")), keyEquivalent: "")
-        speech.addItem(withTitle: NSLocalizedString("Stop Speaking", comment: ""), action: Selector(("stopSpeaking:")), keyEquivalent: "")
-        menu.addItem(withTitle: speech.title, action: nil, keyEquivalent: "").submenu = speech
         return menu
-    }
-    /// The dictionary's panel over the selection's first line, as a text
-    /// view shows it (the selection's own baseline, its own size).
-    @objc func lookUpSelection(_ sender: Any?) {
-        guard let selection = presenter?.selection, let range = selection.range(self), range.length > 0 else { return }
-        let size = CGFloat(style["font_size"]?.number ?? NSFont.systemFontSize)
-        let font = NSFont.systemFont(ofSize: size)
-        let string = NSAttributedString(string: selection.selectedText(), attributes: [.font: font])
-        var origin = NSPoint(x: paragraphBox().minX, y: paragraphBox().minY + font.ascender)
-        if let paragraph = paragraphLayout(),
-           let first = paragraph.selectionRects(range, align: paragraphSpec().align, in: paragraphBox(), dirty: bounds).first {
-            origin = NSPoint(x: first.minX, y: first.maxY + font.descender)
-        }
-        showDefinition(for: string, at: origin)
     }
     private static let servicesRegistered: Void = {
         NSApp.registerServicesMenuSendTypes([.string], returnTypes: [])
