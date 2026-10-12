@@ -235,8 +235,8 @@ export const navigation = {
   /** `dispatch(location)` is false when no `navigate` handler heard it; `back(id)` is the runner's own `back` from visit `id`, `goTo(location)` its own `go`. */
   connect(hostRoot, dispatch, journal, back = null, goTo = null) {
     root = hostRoot; navigate = dispatch; log = journal; hostBack = back; hostGo = goTo;
-    // A row a press reaches in a list column (`project` marks it once its detail shows), and a resize across WIDE.
-    root.addEventListener("click", event => { const row = event.target.closest?.('[data-exact-split="list"] :is(button, a[href], [data-exact-on~="press"])'); if (row) pressedRow = [row, performance.now(), last?.url]; }, true);
+    // A row a press reaches in a list column (`project` marks it once its detail shows), and a resize across WIDE. Heard at the document, before the listener that follows a link row there (input-glue.js, router.js), whose commit lands within the click.
+    document.addEventListener("click", event => { const row = event.target.closest?.('[data-exact-split="list"] :is(button, a[href], [data-exact-on~="press"])'); if (row && root.contains(row)) pressedRow = [row, performance.now(), last?.url]; }, true);
     globalThis.matchMedia?.(WIDE).addEventListener?.("change", () => navigation.project(root, log));
     addEventListener("popstate", event => {
       if (!last) return;

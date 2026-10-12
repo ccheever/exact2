@@ -37,9 +37,6 @@ component App
   // Said after the first Save, in red under the field; the next attempt clears it.
   derive formError = not submitted ? "" : trim(draftTitle) == "" ? "Enter a title." : pending(added) ? "" : saveError
 
-  // An item shown beside the list (a wide window) is replaced by the next one opened.
-  action open(id: string)
-    nav = selected == "" ? push(nav, path("item", id)) : replace(nav, path("item", id))
   action openAdd
     draftTitle = ""
     draftNotes = ""
@@ -47,9 +44,10 @@ component App
     nav = push(nav, "/add")
   action back
     nav = back(nav)
-  // The browser's Back and a deep link arrive here.
+  // A row is a link to its item; the browser's Back, Forward and a deep link arrive here too.
+  // An item shown beside the list (a wide window) is replaced by the next one opened.
   action follow(url: string)
-    nav = go(nav, url)
+    nav = top(nav).name == "item" and startsWith(url, "/item/") ? replace(nav, url) : go(nav, url)
   action editTitle(v: string)
     draftTitle = v
   action editNotes(v: string)
@@ -83,9 +81,9 @@ component App
                 image "symbol:add"
             list id="items-list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
               section
-                // A title over its notes; the chevron says the row pushes.
+                // A title over its notes; the chevron says the row pushes. It only navigates, so it is a link.
                 each it in lib key=it.id
-                  button press=open(it.id) testId=`item-${it.id}`
+                  link href=path("item", it.id) testId=`item-${it.id}`
                     column flex=1 min-width=0 gap=2 padding-top=4 padding-bottom=4
                       text it.title
                       when it.notes != ""

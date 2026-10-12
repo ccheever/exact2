@@ -130,6 +130,10 @@ check('a list whose rows push is beside its detail on a wide window, and pushes 
   expect(await evaluate(`[shown('r1'), shown('r2'), box('r1')[2], document.getElementById('r1-bo').hasAttribute('data-exact-split-row')]`)).toEqual([true, true, 320, true]);
   // The other tab's list draws no disclosure: it pushes, unsplit.
   expect(await evaluate(`document.getElementById('t1').hasAttribute('data-exact-split')`)).toBe(false);
+  // A row that is a link (LLP 1115.000 D4.4) is followed from the document's capture phase (input-glue.js, router.js),
+  // so its commit lands within the click, before a listener nearer the row would hear it: its row is marked all the same.
+  await evaluate(`select('1'); document.addEventListener('click', e => { if (e.target.closest('#r1-ada')) push('2', '/people/ada'); }, true); document.getElementById('r1-ada').click()`);
+  expect(await evaluate(`[shown('r2'), document.getElementById('r1-ada').hasAttribute('data-exact-split-row'), document.getElementById('r1-bo').hasAttribute('data-exact-split-row')]`)).toEqual([true, true, false]);
 }), 30000);
 
 check('navigationSplit opts a stack out, or names the width of a list the rule does not find', async () => {

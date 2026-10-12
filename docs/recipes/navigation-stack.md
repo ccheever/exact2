@@ -54,8 +54,6 @@ component App
   derive saveError = match added { case some(r) => r.error, case none => "" }
   derive formError = not submitted ? "" : titleError != "" ? titleError : pending(added) ? "" : saveError
 
-  action open(id: string)
-    nav = push(nav, path("note", id))
   action openAdd
     draft = ""
     submitted = false
@@ -98,8 +96,11 @@ component App
           text "Cancel"
 ```
 
-The list: a large title (`aria-level=1`), a bar button, rows that push. A row button's
-`text` is its title and a trailing `forward-chevron` its disclosure.
+The list: a large title (`aria-level=1`), a bar button, rows that push. A row that only
+navigates is a `link` to its route (`href=path(…)`): `follow` pushes it on every host, and
+on the web it is a real link (a new tab, "Copy Link"). A row's `text` is its title and a
+trailing `forward-chevron` its disclosure. A row that does more than navigate (`openAdd`
+clears the draft first) stays a `button` with a `press`.
 
 <!-- check: route notes -->
 ```contract
@@ -112,7 +113,7 @@ column navigationKey=`${e.id}` navigationScroll="notes-list" testId="route-notes
   list id="notes-list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
     section
       each n in lib.notes key=n.id
-        button press=open(n.id) testId=`note-${n.id}`
+        link href=path("note", n.id) testId=`note-${n.id}`
           text n.title
           image "symbol:forward-chevron"
 ```
@@ -228,6 +229,9 @@ test "add validates, saves, refuses a repeat, opens and deletes after asking"
 - A wide window (900 px and up on the web) shows the list beside its detail with nothing
   to write, as a split view does: its rows push, because they draw the disclosure (the
   `forward-chevron`). A sheet stays a sheet; a phone pushes. A row pressed while a detail
-  shows pushes another, so to swap the detail instead, `open` replaces when one is shown:
-  `nav = top(nav).name == "note" ? replace(nav, path("note", id)) : push(nav, path("note", id))`.
+  shows pushes another, so to swap the detail instead, `follow` replaces when one is shown:
+  `nav = top(nav).name == "note" and startsWith(url, "/note/") ? replace(nav, url) : go(nav, url)`.
   `navigationSplit="none"` on the list's route keeps it pushed; `contract vocab navigationSplit`.
+- On the web a route is a page: the tab's title is the route's heading, the focus moves to
+  it on a push and back to the row on Back, and the browser's Back and Forward follow the
+  stack.
