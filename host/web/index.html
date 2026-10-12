@@ -212,7 +212,7 @@
   /* LLP 1116.006 D2: a split showing no detail fills the detail pane as an iPad's split view does: one quiet line,
      centred, in the secondary label's colour (in English: the web host has no strings table of its own). A box of
      the root route marked `navigationSplit="placeholder"`, the author's own, takes the pane instead: a centred
-     column at the pane's width (navigation.js sets it), its alignment the author's. The lowerer hides that box
+     column at the pane's width (the navigation glue sets it), its alignment the author's. The lowerer hides that box
      wherever no split shows it (a phone, a detail shown, a host that does not split). */
   #exact-root [data-exact-split-empty]::before { content: "No Selection"; position: absolute; inset: 0; inset-inline-start: var(--exact-split, 320px); display: flex; align-items: center; justify-content: center; padding: 16px; color: var(--exact-secondary-label, light-dark(#3c3c4399, #ebebf599)); font-size: 1.25rem; text-align: center; pointer-events: none; }
   #exact-root [data-exact-split-placeholder] { display: flex !important; position: absolute !important; inset-block: 0 !important; inset-inline: 100% auto !important; box-sizing: border-box !important; width: var(--exact-split-pane) !important; height: auto !important; margin: 0 !important; }
