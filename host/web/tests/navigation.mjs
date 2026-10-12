@@ -391,7 +391,9 @@ try {
     await historyTap(-1); await until(`location.pathname==='/post/42'`);
     const back = await record('refused Back', '/post/42', n + 1, 2, 0, 'history: Back refused');
     assert.deepEqual(back.calls.filter(c => c.name === 'go').map(c => c.args[0]), [-1, 1]);
-    assert.equal(back.logs.lines.length, 1);
+    // One refusal. The fixture's three resources fail (it has no data), and say so in the same log whenever they
+    // settle: before this step's lines begin on a fast boot, among them on a slower one (a page that loads a face).
+    assert.equal(back.logs.lines.filter(l => l.includes('Back refused')).length, 1, back.logs.lines.join('\n'));
   });
   await run('Back from a route with no Back control follows navigate', async () => {
     const n = await fresh(); await tap('push-notifications'); await record('no-control prelude', '/notifications', n + 1, 2, 0);
