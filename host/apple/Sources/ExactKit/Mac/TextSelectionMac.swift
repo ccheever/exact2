@@ -568,8 +568,9 @@ package final class TextSelection {
         return NSRange(location: min(lo, count), length: max(0, min(hi, count) - min(lo, count)))
     }
 
-    /// The wrapper's key survives retirement. Paragraph ordinals follow the
-    /// same outer-text traversal as the runner's read-only text projection.
+    /// The wrapper's key survives retirement. Paragraph ordinals count every
+    /// text of the row, selectable or not, as the runner's read-only text
+    /// projection does; it leaves the unselectable ones out of a copy (X81).
     private func position(_ node: NodeView, offset: Int) -> (NodeView, Position)? {
         var ancestor: NSView? = node
         var wrapper: NodeView?
@@ -582,9 +583,10 @@ package final class TextSelection {
         while let view = ancestor {
             if let owner = view as? NodeView, owner.kind == "list" {
                 if positions[node.id] == nil {
-                    let nodes = paragraphs.filter { $0.isDescendant(of: wrapper) }
-                    for (ordinal, text) in nodes.enumerated() {
-                        positions[text.id] = Position(key: key, row: index - 1, paragraph: ordinal, offset: 0)
+                    var ordinal = 0
+                    texts(in: wrapper) {
+                        positions[$0.id] = Position(key: key, row: index - 1, paragraph: ordinal, offset: 0)
+                        ordinal += 1
                     }
                 }
                 guard var result = positions[node.id] else { return nil }
