@@ -945,6 +945,20 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   1101.002 §0 P15). Fix: list it in `exclude` while it is written, which lets
   `cargo build --manifest-path <it>/Cargo.toml` build it alone, and move it
   to `members` once that passes.
+- **`EXACT_APP_DIR` selects the source, but the build names the wrong Cargo adapter.**
+  With no app argument, `resolveApp` derives the name from the directory's
+  basename. A nested directory called `mobile` can therefore select
+  `mobile-ios` instead of its actual `t3-code-ios` package. Pass the app's
+  documented adapter name: `EXACT_APP_DIR="$PWD/examples/t3-code/mobile"
+  bun host/apple/build.mjs --ios t3-code-ios`. The omitted argument failed
+  before app compilation; the explicit argument built successfully.
+- **A journal read shows the new value after its atomic save reported an error.**
+  Rename may have completed before directory sync failed. Readback proves
+  visibility, not a durable outcome. Keep it uncertain until the exact state
+  receives a successful sync or replacement, including when a new owner
+  loads it. The T3 question inventory's replay returned adopted descriptors
+  without that acknowledgement in a real-file fault-boundary witness;
+  the witness modeled an omitted sync and did not test actual power loss.
 - **"I opened it in a terminal" is not "it is running".** `open -na
   Ghostty.app --args -e …` can return success while the window reports "The
   terminal failed to initialize". Before telling a person the app is up,
