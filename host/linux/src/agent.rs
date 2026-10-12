@@ -244,6 +244,13 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                     false => serde_json::json!({"unavailable": true}),
                 };
                 s.push_str(&format!(",\"surface\":{surface}"));
+                // The shell's bars (LLP 1115.001 D11): each target's authored
+                // node and its box in the window. No shell has bars here.
+                let bars = match p.has_bars() {
+                    true => p.bars_json(),
+                    false => serde_json::json!({"unavailable": true}),
+                };
+                s.push_str(&format!(",\"bars\":{bars}"));
                 s.push_str(
                     ",\"keyboard\":{\"unavailable\":true},\"navigation\":{\"unavailable\":true}}",
                 );

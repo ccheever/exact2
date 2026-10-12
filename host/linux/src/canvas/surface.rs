@@ -5,6 +5,12 @@
 //! half: how a surface's picture is recorded, and the one call the reader
 //! makes about a window.
 //!
+//! The app's bars are shown the same way (D11; `presenter/bars.rs`,
+//! `Bars.kt`): Material's top app bar and its navigation bar, each a picture
+//! of its own in a view of its own over the page. Their statement is taken
+//! with each stream and not on the channel, so a bar and the page under it
+//! change in one frame.
+//!
 //! **A second stream, in a second view.** A surface is not part of the
 //! page's stream. The presenter paints it through a recorder of its own
 //! and the words go to the reader with the statement of the surface
@@ -16,6 +22,7 @@
 use super::{CanvasHost, Recorder};
 use crate::paint::Backend;
 use crate::presenter::top::SurfacePainter;
+use crate::presenter::Presenter;
 use exact_runner::DataSource;
 
 /// Records a surface's picture for the reader's window.
@@ -39,7 +46,33 @@ impl SurfacePainter for Windows {
     }
 }
 
+/// The reader makes this presenter's top layer as windows and shows its
+/// bars, each from a recording of its own.
+pub(super) fn serve<D: DataSource>(p: &mut Presenter<D>) {
+    p.serve_windows(Box::new(Windows));
+    if let Some(e) = p.serve_bars(Box::new(Windows)) {
+        eprintln!("exact: bars: {e}");
+    }
+}
+
 impl<D: DataSource + Default> CanvasHost<D> {
+    /// What the reader is told of the app's bars, when that is not what it
+    /// was last told ([`crate::presenter::Presenter::reader_bars`] has the
+    /// words): taken with each stream.
+    pub fn bars(&mut self) -> Option<Vec<i32>> {
+        self.p.reader_bars(self.scale)
+    }
+
+    /// What happened in bar `which` (1 the top app bar, 2 the navigation
+    /// bar): a touch (0 down, 1 up, 2 move, 3 cancel) at (`x`, `y`), pixels
+    /// from the bar's own top left. What it pressed commits, and the page
+    /// paints with it.
+    pub fn bar(&mut self, which: i32, what: i32, x: f32, y: f32) {
+        let now = self.now();
+        let (x, y) = (x / self.scale, y / self.scale);
+        self.p.bar_event(which, what, x, y, now);
+    }
+
     /// What happened in the window the reader made for surface `serial`
     /// ([`crate::presenter::top::event`]): a touch (0 down, 1 up, 2 move,
     /// 3 cancel) at (`x`, `y`), pixels from the window's own top left; the

@@ -160,6 +160,8 @@ impl<D: DataSource> Presenter<D> {
             error = self.resize(frame[2], frame[3]);
         }
         error = error.or(self.set_safe_area(env));
+        // The shell's bars take their room of the page as it is now placed.
+        error = error.or(self.fit_bars());
         // The field being edited stays above the keyboard. Where a picture
         // is shown, the boxes a reveal goes by are that picture's, painted
         // before the keyboard rose: the field is kept in view once the page

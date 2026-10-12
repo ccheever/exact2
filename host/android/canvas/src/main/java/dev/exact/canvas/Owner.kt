@@ -70,8 +70,12 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
      * includes, and the feed's group (0 before the first scroll). [scrollers]: what exact2 tells the reader of its
      * scrollers as of this stream ([Native.scrollers]), null when that is what it last told; with no [ops], that
      * statement alone. [fields]: what exact2 tells of the text fields the reader hosts as of this stream
-     * ([Native.fields], LLP 1115.001 D8), null when that is what it last told. */
-    class Pub(val ops: IntBuffer?, val move: Boolean, val seq: Int, val feed: Int, val scrollers: IntArray?, val fields: IntArray?)
+     * ([Native.fields], LLP 1115.001 D8), null when that is what it last told. [bars]: what it tells of its bars as
+     * of this stream ([Native.bars], D11), null likewise. */
+    class Pub(
+        val ops: IntBuffer?, val move: Boolean, val seq: Int, val feed: Int, val scrollers: IntArray?, val fields: IntArray?,
+        val bars: IntArray?,
+    )
 
     /** At the main thread's own priority, not above it ([priority]): its work is ahead of the frame the main thread
      * draws, never instead of it (THREAD_PRIORITY_DISPLAY let it preempt the main thread on a phone with few big cores:
@@ -346,8 +350,9 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
         android.os.Trace.endSection()
         val told = Native.scrollers()
         val fields = Native.fields()
-        if (fresh == null && (told != null || fields != null)) {
-            queue.add(Pub(null, true, seq, 0, told, fields))
+        val bars = Native.bars()
+        if (fresh == null && (told != null || fields != null || bars != null)) {
+            queue.add(Pub(null, true, seq, 0, told, fields, bars))
             if (!notifying.getAndSet(true)) main.post { notifying.set(false); published() }
         }
         if (fresh != null) {
@@ -362,7 +367,7 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
                 for (k in pics.indices step 3) if (!made.containsKey(pics[k])) made[pics[k]] = makePicture(pics[k], pics[k + 1], pics[k + 2], hwbuf)
                 android.os.Trace.endSection()
             }
-            queue.add(Pub(ints, ints.limit() > 0 && ints.get(0) == 22, seq, Native.feed(), told, fields))
+            queue.add(Pub(ints, ints.limit() > 0 && ints.get(0) == 22, seq, Native.feed(), told, fields, bars))
             if (!notifying.getAndSet(true)) main.post { notifying.set(false); published() }
         }
         Native.chrome()?.let { c -> main.post { chrome(c) } }
@@ -454,6 +459,14 @@ internal object Exact {
         val o = owner
         if (o != null) { if (what != 2) o.input(); o.call { Native.surface(serial, what, x, y) } }
         else { Native.surface(serial, what, x, y); turned() }
+    }
+
+    /** What happened in bar [which] ([Bars], [Native.bar], LLP 1115.001 D11): told on exact2's thread, in order.
+     * exact2 answers with the bar painted again (a target lit) and with whatever the press changed in the page. */
+    fun bar(which: Int, what: Int, x: Float, y: Float) {
+        val o = owner
+        if (o != null) { if (what != 2) o.input(); o.call { Native.bar(which, what, x, y) } }
+        else { Native.bar(which, what, x, y); turned() }
     }
 
     /** When the last touch lifted, or was held long enough to be a long press ([android.os.SystemClock.uptimeMillis]):

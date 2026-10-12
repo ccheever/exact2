@@ -11,8 +11,9 @@ impl<D: DataSource> Presenter<D> {
     /// `{"revealed":id,"scrolled":…}`, with where the middle moved from and to.
     pub fn reveal(&mut self, id: ViewId) -> Result<String, String> {
         // A row of the top layer's open surface is no box of the page's:
-        // it is in view in its window (LLP 1115.001 D10).
-        if self.surface_row(id) {
+        // it is in view in its window (LLP 1115.001 D10). Nor is what a
+        // shell's bar stands for (D11): it is in view in the bar.
+        if self.surface_row(id) || self.bar_node(id) {
             return Ok(format!("{{\"revealed\":{id},\"scrolled\":false}}"));
         }
         let middle = |b: &PaintedBox| (b.rect.0 + b.rect.2 / 2.0, b.rect.1 + b.rect.3 / 2.0);

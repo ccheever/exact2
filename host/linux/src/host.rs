@@ -25,6 +25,8 @@ mod activation;
 mod arrange;
 #[path = "back.rs"]
 mod back;
+#[path = "bars.rs"]
+mod bars;
 #[path = "content_region/host.rs"]
 mod content;
 #[path = "hatches/host.rs"]
@@ -1391,7 +1393,7 @@ impl<D: DataSource> Host<D> {
         for line in self.navigation.sync(self.runner.kernel(), &navigation) {
             self.runner.log(line);
         }
-        changed
+        changed | self.project_bars()
     }
 
     /// The last router op; this host has no foreign batch consumer.

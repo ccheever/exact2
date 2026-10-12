@@ -21,13 +21,19 @@ import android.widget.PopupWindow
 import java.nio.IntBuffer
 
 /**
- * The view a surface's picture is replayed in: the content of its window. exact2 paints the surface (Material 3's
- * basic dialog, its menu) and records it as an op stream of its own, whole, which this replays as [ExactView]
- * replays the page's, with a [Player] and faces of its own. A touch here is told to exact2 at the surface's own
- * pixels ([Exact.surface]); exact2 knows the rows and answers with the surface painted again (a row lit) or closed.
+ * The view a picture of exact2's own is replayed in: a surface of the top layer, as the content of its window, and
+ * a bar ([Bars]), over the page. exact2 paints it (Material 3's basic dialog, its menu, its top app bar, its
+ * navigation bar) and records it as an op stream of its own, whole, which this replays as [ExactView] replays the
+ * page's, with a [Player] and faces of its own. A touch here is told to exact2 at the picture's own pixels
+ * ([touch]: 0 down, 1 up, 2 move, 3 cancel); exact2 knows what is where and answers with the picture painted again
+ * (a row lit) or gone. [key]: what a hardware keyboard's key in it is told by, for a view that takes the focus (a
+ * surface's window); null for one that takes none (a bar).
  */
 @SuppressLint("ViewConstructor")
-internal class Pane(context: Context, val serial: Int, private val faces: HashMap<List<Int>, Font>) : View(context) {
+internal class Pane(
+    context: Context, private val faces: HashMap<List<Int>, Font>,
+    private val touch: (Int, Float, Float) -> Unit, private val key: ((Int) -> Unit)?,
+) : View(context) {
     private val fonts = HashMap<Int, Font>()
     private val player = Player(fonts)
     private var ops: IntBuffer? = null
@@ -45,8 +51,8 @@ internal class Pane(context: Context, val serial: Int, private val faces: HashMa
 
     init {
         // Keys reach the window's focused view: a hardware keyboard's Tab, arrows and Enter go to exact2 from here.
-        isFocusable = true
-        isFocusableInTouchMode = true
+        isFocusable = key != null
+        isFocusableInTouchMode = key != null
         defaultFocusHighlightEnabled = false
         outlineProvider = object : ViewOutlineProvider() {
             override fun getOutline(view: View, outline: Outline) = outline.setRoundRect(0, 0, view.width, view.height, radius)
@@ -95,11 +101,12 @@ internal class Pane(context: Context, val serial: Int, private val faces: HashMa
             MotionEvent.ACTION_DOWN -> 0; MotionEvent.ACTION_UP -> 1; MotionEvent.ACTION_MOVE -> 2; else -> 3
         }
         if (action == 1) Exact.touched = e.eventTime
-        Exact.surface(serial, action, e.x, e.y)
+        touch(action, e.x, e.y)
         return true
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        val tell = key ?: return super.onKeyDown(keyCode, event)
         val key = when (keyCode) {
             KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_DPAD_CENTER -> Surfaces.ENTER
             KeyEvent.KEYCODE_TAB -> if (event.isShiftPressed) Surfaces.TAB_BACK else Surfaces.TAB
@@ -109,7 +116,7 @@ internal class Pane(context: Context, val serial: Int, private val faces: HashMa
             KeyEvent.KEYCODE_ESCAPE -> { val leave = escape ?: return super.onKeyDown(keyCode, event); leave(); return true }
             else -> return super.onKeyDown(keyCode, event)
         }
-        Exact.surface(serial, key, 0f, 0f)
+        tell(key)
         return true
     }
 }
@@ -179,7 +186,7 @@ internal class Surfaces(private val activity: ExactActivity, private val root: V
     }
 
     private fun open(serial: Int, what: Int, flags: Int, frame: IntArray, radius: Float, elevation: Float, stream: IntBuffer) {
-        val pane = Pane(activity, serial, faces)
+        val pane = Pane(activity, faces, { action, x, y -> Exact.surface(serial, action, x, y) }) { key -> Exact.surface(serial, key, 0f, 0f) }
         pane.radius = radius
         if (log) {
             val asked = SystemClock.uptimeMillis() - Exact.touched

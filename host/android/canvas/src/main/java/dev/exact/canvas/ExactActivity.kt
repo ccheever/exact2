@@ -207,6 +207,9 @@ open class ExactActivity : Activity() {
             })
         } else root.addView(ticker, FrameLayout.LayoutParams(1, 1))
         view.ticker = ticker
+        // The app's bars (LLP 1115.001 D11), over the page and everything it hosts. The host tells this reader its
+        // bars anew, as it paints everything again for it.
+        view.bars = Bars(this, root)
     }
 
     private lateinit var root: FrameLayout

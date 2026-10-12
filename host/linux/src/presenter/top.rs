@@ -36,8 +36,8 @@
 use super::*;
 use exact_kernel::NodeKey;
 
-mod look;
-mod shape;
+pub(super) mod look;
+pub(super) mod shape;
 pub use look::Target;
 use look::{Inputs, Layout};
 pub use shape::{Plan, Row};
@@ -282,6 +282,10 @@ impl<D: DataSource> Presenter<D> {
         let [px, py, ..] = self.chrome().frame;
         if let Some((x, y)) = point {
             return (px + x, py + y, 0.0, 0.0);
+        }
+        // A button its shell's top bar shows hangs its menu from the bar.
+        if let Some(at) = invoker.and_then(|id| self.bar_box(id)) {
+            return at;
         }
         let b = invoker.and_then(|id| self.box_of(id));
         b.map_or((px, py, 0.0, 0.0), |b| {

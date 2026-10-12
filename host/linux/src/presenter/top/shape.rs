@@ -145,7 +145,7 @@ fn text_of(kernel: &Kernel, node: &NodeRef<'_>) -> String {
 }
 
 /// A button's row: its face's title, else its label, else its text.
-fn row(kernel: &Kernel, node: &NodeRef<'_>, cancel: bool) -> Row {
+pub(in crate::presenter) fn row(kernel: &Kernel, node: &NodeRef<'_>, cancel: bool) -> Row {
     let face = kernel.press_face(node.id).unwrap_or_default();
     let title = face
         .title

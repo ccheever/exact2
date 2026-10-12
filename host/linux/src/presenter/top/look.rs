@@ -22,7 +22,8 @@ use tiny_skia::Transform;
 /// 1115.001 D4's table gives it (`presenter/palette.rs`): the device's
 /// colour where its shell reports a palette, the table's pair elsewhere.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Role {
+pub(in crate::presenter) enum Role {
+    Surface,
     SurfaceContainer,
     SurfaceContainerHigh,
     OnSurface,
@@ -30,19 +31,22 @@ enum Role {
     /// `onSurface` at 38%: Material's disabled content.
     Disabled,
     Primary,
+    SecondaryContainer,
     Error,
     OutlineVariant,
 }
 
 impl Role {
-    fn color(self, dark: bool) -> [u8; 4] {
+    pub(in crate::presenter) fn color(self, dark: bool) -> [u8; 4] {
         let name = match self {
+            Role::Surface => "Canvas",
             Role::SurfaceContainer => "-exact-secondary-grouped-background",
             Role::SurfaceContainerHigh => "-exact-tertiary-grouped-background",
             Role::OnSurface => "-exact-label",
             Role::OnSurfaceVariant => "-exact-secondary-label",
             Role::Disabled => "-exact-tertiary-label",
             Role::Primary => "AccentColor",
+            Role::SecondaryContainer => "ButtonFace",
             Role::Error => "-exact-system-red",
             Role::OutlineVariant => "-exact-separator",
         };
@@ -54,10 +58,10 @@ impl Role {
 
 /// A Material type style: size and line height in sp, weight, tracking in sp.
 #[derive(Clone, Copy)]
-struct Type(f32, f32, u16, f32);
+pub(in crate::presenter) struct Type(pub f32, pub f32, pub u16, pub f32);
 const HEADLINE_SMALL: Type = Type(24.0, 32.0, 400, 0.0);
 const BODY_MEDIUM: Type = Type(14.0, 20.0, 400, 0.25);
-const LABEL_LARGE: Type = Type(14.0, 20.0, 500, 0.1);
+pub(in crate::presenter) const LABEL_LARGE: Type = Type(14.0, 20.0, 500, 0.1);
 
 /// The dialog's padding on every side, and the space under its headline
 /// and under its supporting text.
@@ -82,7 +86,7 @@ const MENU_INSET: f32 = 12.0;
 const MENU_SYMBOL: f32 = 24.0;
 const MENU_RULE: (f32, f32) = (1.0, 8.0);
 /// Material's state layer under a press or a keyboard's focus.
-const STATE_LAYER: f32 = 0.10;
+pub(in crate::presenter) const STATE_LAYER: f32 = 0.10;
 
 /// What a surface's look depends on besides what it says.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -130,7 +134,7 @@ pub struct Layout {
     pub targets: Vec<Target>,
 }
 
-fn paragraph(
+pub(in crate::presenter) fn paragraph(
     engine: &mut TextEngine,
     text: &str,
     Type(size, line, weight, tracking): Type,
@@ -215,10 +219,26 @@ impl Layout {
 
 /// A symbol role's path in `rect`, as the page draws one at a regular
 /// weight (`paint/svg.rs`): stroked, or filled for a `-fill` role.
-fn symbol(backend: &mut dyn Backend, role: &str, rect: Rect4, color: [u8; 4]) {
+pub(in crate::presenter) fn symbol(
+    backend: &mut dyn Backend,
+    role: &str,
+    rect: Rect4,
+    color: [u8; 4],
+) {
     let Some((_, d, filled)) = exact_kernel::generated::symbol(role) else {
         return;
     };
+    glyph(backend, d, filled, rect, color);
+}
+
+/// A 24-unit path in `rect`: stroked as a symbol role's is, or filled.
+pub(in crate::presenter) fn glyph(
+    backend: &mut dyn Backend,
+    d: &str,
+    filled: bool,
+    rect: Rect4,
+    color: [u8; 4],
+) {
     let path = exact_kernel::svg::parse_d(d);
     let paint = SvgPaint {
         path: &path,

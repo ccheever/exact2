@@ -24,6 +24,11 @@ impl<D: DataSource> Presenter<D> {
         if let Some(result) = self.surface_tap(id) {
             return result;
         }
+        // What a shell's bar stands for is chosen in the bar: the page
+        // holds no box for it.
+        if let Some(result) = self.bar_tap(id) {
+            return result;
+        }
         if self.host.route_visibility(id).1 || self.placement_hidden(id) {
             return Err(format!("view {id} is hidden or inert"));
         }
@@ -212,7 +217,7 @@ impl<D: DataSource> Presenter<D> {
     }
 
     /// Strictly inside `ancestor` in the kernel's tree.
-    fn is_inside(&self, node: ViewId, ancestor: ViewId) -> bool {
+    pub(super) fn is_inside(&self, node: ViewId, ancestor: ViewId) -> bool {
         let kernel = self.host.kernel();
         let mut at = kernel.node(node).and_then(|n| n.parent);
         while let Some(p) = at {

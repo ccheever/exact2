@@ -672,6 +672,35 @@ macro_rules! canvas_jni {
                 with(|h| h.surface(serial as u32, what, x, y));
             }
 
+            /// What the reader is told of the app's bars (LLP 1115.001
+            /// D11), when that is not what this last returned (else
+            /// null): `Presenter::reader_bars` has the words.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_bars(
+                env: *mut JNIEnv,
+                _class: jclass,
+            ) -> jintArray {
+                match with(|h| h.bars()).flatten() {
+                    Some(words) => ints(env, &words),
+                    None => std::ptr::null_mut(),
+                }
+            }
+
+            /// What happened in bar `which` (1 the top app bar, 2 the
+            /// navigation bar): a touch (0 down, 1 up, 2 move, 3 cancel)
+            /// at (`x`, `y`), pixels from the bar's own top left.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_bar(
+                _env: *mut JNIEnv,
+                _class: jclass,
+                which: jint,
+                what: jint,
+                x: jfloat,
+                y: jfloat,
+            ) {
+                with(|h| h.bar(which, what, x, y));
+            }
+
             /// One slice of laying out what the touch that is down would
             /// open (`CanvasHost::ahead`); whether more is left.
             #[no_mangle]

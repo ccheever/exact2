@@ -57,6 +57,33 @@ pub fn route_visibility(keys: &[&str], selected: &str, modal: bool) -> Option<Ve
     )
 }
 
+/// A navigation root's stacks (LLP 1075.003 §3.7): with tabs (the kernel's
+/// rule, which every host with a tab bar reads, LLP 1115.001 D11) each
+/// panel is one, its children that carry a `navigationKey`; with none, the
+/// root's own such children are the one stack.
+pub(crate) fn stacks(
+    kernel: &Kernel,
+    root: ViewId,
+) -> (Option<exact_kernel::RootTabs>, Vec<Vec<ViewId>>) {
+    let route_rows = |id: ViewId| -> Vec<ViewId> {
+        let children = kernel.node(id).map(|n| n.children()).unwrap_or_default();
+        children
+            .into_iter()
+            .filter(|id| {
+                kernel
+                    .node(*id)
+                    .is_some_and(|n| n.props.str(PropId::NavigationKey).is_some())
+            })
+            .collect()
+    };
+    let tabs = kernel.root_tabs(root);
+    let stacks = match &tabs {
+        Some(tabs) => tabs.panels.iter().map(|p| route_rows(*p)).collect(),
+        None => vec![route_rows(root)],
+    };
+    (tabs, stacks)
+}
+
 #[derive(Default)]
 pub(crate) struct Navigation {
     routes: BTreeMap<ViewId, (bool, bool)>,
@@ -70,6 +97,46 @@ pub(crate) struct Navigation {
     /// as windows): a press on an invoker is then the presenter's to act on
     /// (`presenter/top.rs`), not refused here.
     pub(crate) top_layer: bool,
+    /// What a shell's bars are made from (LLP 1115.001 D11; `bars.rs`),
+    /// and the nodes a bar stands for: a header its top bar replaces, a
+    /// tablist its navigation bar replaces. Those are neither painted nor
+    /// hit, as iOS hides the header its bar lifts.
+    pub(crate) bars: Projection,
+    pub(crate) lifted: BTreeSet<ViewId>,
+}
+
+/// A route whose `header` is its bar (the kernel's rule,
+/// `exact_kernel::bars`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct RouteBar {
+    /// The route.
+    pub route: ViewId,
+    /// Not the first of its stack, nor presented over it: the bar's Up
+    /// arrow goes Back from it, and stands for its Back control.
+    pub pushed: bool,
+    /// Its header as the bar shows it.
+    pub shape: exact_kernel::HeaderShape<ViewId>,
+}
+
+/// The structure a shell's bars are made from (LLP 1115.001 D11), read
+/// from the first navigation root after each commit (`bars.rs`). Empty on a
+/// host whose shell has no bars: desktop Linux, a headless run.
+#[derive(Debug, Default)]
+pub struct Projection {
+    /// The room the shell's bars take of a route: the top bar from its top
+    /// edge and the navigation bar from its bottom, in points. `None`: no
+    /// shell has bars, and nothing is projected.
+    pub(crate) room: Option<(f32, f32)>,
+    /// The navigation root.
+    pub root: Option<ViewId>,
+    /// Its routes whose header is a bar, in every stack.
+    pub routes: Vec<RouteBar>,
+    /// Its tabs, when its tablist is the navigation bar.
+    pub tabs: Option<exact_kernel::RootTabs>,
+    /// Its stacks of routes: one a tab, in the tabs' order; else the one.
+    pub stacks: Vec<Vec<ViewId>>,
+    /// What the bars cover of the tree, as the kernel was last told.
+    pub(crate) covers: BTreeMap<ViewId, exact_kernel::HostCover>,
 }
 
 impl Navigation {
@@ -105,30 +172,10 @@ impl Navigation {
             if nav.props.str(PropId::NavigationBack).is_none() {
                 continue;
             }
-            let route_rows = |ids: &[ViewId]| -> Vec<ViewId> {
-                ids.iter()
-                    .copied()
-                    .filter(|id| {
-                        kernel
-                            .node(*id)
-                            .is_some_and(|n| n.props.str(PropId::NavigationKey).is_some())
-                    })
-                    .collect()
-            };
-            // @ref LLP 1075.003 §3.7 — with tabs, each panel is a stack. What
-            // the root's tabs are is the kernel's rule, which every host
-            // with a tab bar reads (LLP 1115.001 D11).
-            let panels = kernel.root_tabs(*id).map_or(Vec::new(), |tabs| tabs.panels);
+            // @ref LLP 1075.003 §3.7 — with tabs, each panel is a stack.
+            let (tabs, stacks) = stacks(kernel, *id);
+            let panels = tabs.map_or(Vec::new(), |tabs| tabs.panels);
             self.panels.extend(panels.iter().copied());
-            let stacks: Vec<Vec<ViewId>> = if panels.is_empty() {
-                vec![route_rows(&nav.children())]
-            } else {
-                panels
-                    .iter()
-                    .filter_map(|p| kernel.node(*p))
-                    .map(|p| route_rows(&p.children()))
-                    .collect()
-            };
             let key = |id: &ViewId| {
                 kernel
                     .node(*id)
@@ -200,8 +247,15 @@ impl Navigation {
     }
 
     pub fn visibility(&self, kernel: &Kernel, id: ViewId) -> (bool, bool) {
+        self.visibility_of(kernel, id, true)
+    }
+
+    /// [`Navigation::visibility`], and whether what a shell's bar stands
+    /// for counts as gone from the page (`lifted`).
+    pub(crate) fn visibility_of(&self, kernel: &Kernel, id: ViewId, lifted: bool) -> (bool, bool) {
         // No route, popover or inert node anywhere: nothing to climb for.
         if self.routes.is_empty()
+            && (self.lifted.is_empty() || !lifted)
             && !(self.popovers && kernel.has_prop(PropId::Popover))
             && !kernel.has_prop(PropId::Inert)
         {
@@ -215,8 +269,10 @@ impl Navigation {
             // Linux has no top-layer presenter yet. Closed popovers retain
             // their logical tree but must never paint or intercept input.
             let closed = self.popovers && node.props.str(PropId::Popover).is_some();
-            result.0 |= hidden || closed;
-            result.1 |= inert || closed || node.props.bool(PropId::Inert) == Some(true);
+            // What a shell's bar stands for shows in the bar, not the page.
+            let gone = closed || lifted && self.lifted.contains(&id);
+            result.0 |= hidden || gone;
+            result.1 |= inert || gone || node.props.bool(PropId::Inert) == Some(true);
             at = node.parent;
         }
         result

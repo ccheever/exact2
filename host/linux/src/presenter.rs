@@ -36,6 +36,7 @@ mod ahead;
 mod arrange;
 mod arrange_geometry;
 mod back;
+pub mod bars;
 mod clock;
 mod collection;
 mod commands;
@@ -212,6 +213,8 @@ pub struct Presenter<D: DataSource> {
     hosted: hosted::State,
     /// The top layer's open surface, where a shell makes windows (D10).
     top: top::State,
+    /// The shell's top app bar and navigation bar, where it has them (D11).
+    bars: bars::State,
     /// The viewport segments the agent set (LLP 1078 D7), for `layout.env`;
     /// the posture and counts are the runner's.
     pub(crate) segments: Vec<exact_kernel::Rect>,
@@ -458,6 +461,7 @@ impl<D: DataSource> Presenter<D> {
             requests: Default::default(),
             hosted: Default::default(),
             top: Default::default(),
+            bars: Default::default(),
             segments: Vec::new(),
             surfaces: Default::default(),
             module: None,

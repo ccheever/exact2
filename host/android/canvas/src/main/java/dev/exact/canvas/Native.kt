@@ -98,6 +98,17 @@ object Native {
      * could not make it (9); a key (16 Enter, 17 Tab, 18 Shift+Tab, 19 to 22 the arrows up, down, left and right, 23
      * Space). What is said of a surface that is no longer the one open is dropped. */
     @JvmStatic external fun surface(serial: Int, what: Int, x: Float, y: Float)
+    /** What exact2 tells the reader of its bars ([Bars], LLP 1115.001 D11), when that is not what this last returned
+     * (else null): a route's header as Material's top app bar and the navigation root's tablist as its navigation
+     * bar, each painted by exact2 and shown over the page. A count, then for each bar which it is (1 the top app
+     * bar, 2 the navigation bar), its frame in the window (x, y, width, height, pixels), a count of words and that
+     * many: its picture, an op stream of its own, whole. A bar a statement leaves out is gone. Taken with each
+     * stream, so a bar and the page under it change in one frame. */
+    @JvmStatic external fun bars(): IntArray?
+    /** What happened in bar [which] (1 the top app bar, 2 the navigation bar), on the host's thread: a touch ([what]
+     * 0 down, 1 up, 2 move, 3 cancel) at ([x], [y]), pixels from the bar's own top left. exact2 knows what is
+     * there: the Up arrow goes Back, a header's button and a destination are pressed. */
+    @JvmStatic external fun bar(which: Int, what: Int, x: Float, y: Float)
     /** One slice ([budgetUs] of shaping) of laying out what the touch that is down would open; whether more is left. */
     @JvmStatic external fun ahead(budgetUs: Int): Boolean
     @JvmStatic external fun copyImage(id: Int, bitmap: Bitmap): Boolean

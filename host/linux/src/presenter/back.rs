@@ -104,7 +104,9 @@ impl<D: DataSource> Presenter<D> {
                 let disabled = kernel
                     .node(*id)
                     .is_some_and(|n| n.props.bool(PropId::Disabled) == Some(true));
-                pressable && !disabled && !self.host.route_visibility(*id).1
+                // A control its shell's bar stands for (the Up arrow's) is
+                // still the route's own: only its route's state counts.
+                pressable && !disabled && !self.host.authored_visibility(*id).1
             })
             .min();
         if let Some(control) = control {

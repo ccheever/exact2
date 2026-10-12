@@ -29,6 +29,8 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
     var natives: Natives? = null
     /** The app's text fields, each the platform's own ([Fields], LLP 1115.001 D8): op 28, kind 4, draws one. */
     internal var fields: Fields? = null
+    /** The app's bars, over this view ([Bars], LLP 1115.001 D11): told with the stream they belong to. */
+    internal var bars: Bars? = null
     /** The row whose body [ingest] is in (0: none), and the elements the unrowed stream names. */
     private val flatAlpha = (context as Activity).intent.getStringExtra("flatalpha") != "0"
     private var ingestRow = 0
@@ -427,6 +429,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
             any = true
             // The fields first: the stream that came with them draws their nodes.
             p.fields?.let { fields?.told(it) }
+            p.bars?.let { bars?.told(it) }
             val ops = p.ops
             if (ops != null) {
                 if (p.move) { move = p; applyMoveTracks(ops) } else {
@@ -806,6 +809,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         android.os.Trace.endSection()
         // The fields first: the stream that came with them draws their nodes; a statement may come with none.
         Native.fields()?.let { fields?.told(it) }
+        Native.bars()?.let { bars?.told(it) }
         fresh ?: return false
         Native.chrome()?.let(chrome)
         val told = Native.scrollers()
