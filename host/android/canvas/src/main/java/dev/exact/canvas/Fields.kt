@@ -195,9 +195,16 @@ internal class Fields(context: Context) : FrameLayout(context) {
     private var nodes: Map<Int, RenderNode>? = null
     fun snapshot(): Map<Int, RenderNode> = nodes ?: fields.mapValues { it.value.node }.also { nodes = it }
 
+    /** The fields leave the window: their reader is being made again (the activity starts after a stop), or their
+     * activity goes. A field that loses the focus that way has not lost it in the app: exact2 is told nothing, and
+     * asks the reader that comes for the focus and the keyboard again ([focus]). */
+    fun leaving() { away = true }
+    private var away = false
+
     /** The reader was made again: its stream draws these nodes anew, and Android has discarded what they held. */
     fun adopted(by: ExactView) {
         view = by
+        away = false
         for (f in fields.values) f.dirty = true
     }
 
@@ -293,13 +300,13 @@ internal class Fields(context: Context) : FrameLayout(context) {
             if (has) {
                 focused = f
                 tint(f)
-                if (!quiet) Exact.fieldFocused(f.id, f.generation, true)
+                if (!quiet && !away) Exact.fieldFocused(f.id, f.generation, true)
             } else if (focused === f) {
                 focused = null
                 // Told once the turn is over, and only when no other field took the focus: a tap from one field to
                 // the next is one move of the focus to exact2, not a loss and then a gain (which would put the
                 // keyboard away between them).
-                if (!quiet) post { if (focused == null && fields[f.id] === f) Exact.fieldFocused(f.id, f.generation, false) }
+                if (!quiet && !away) post { if (focused == null && !away && fields[f.id] === f) Exact.fieldFocused(f.id, f.generation, false) }
             }
         }
         text.setOnEditorActionListener { _, id, event ->

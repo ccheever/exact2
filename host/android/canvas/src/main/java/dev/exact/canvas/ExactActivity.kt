@@ -123,6 +123,7 @@ open class ExactActivity : Activity() {
      */
     private fun read() {
         natives?.destroyAll()
+        fields?.leaving()
         root.removeAllViews()
         // Before the host boots: its first layout measures the app's text fields in a field of this activity's
         // theme ([Fields.measure], LLP 1115.001 D8).
@@ -356,6 +357,7 @@ open class ExactActivity : Activity() {
     private fun release() {
         natives?.destroyAll()
         natives = null
+        fields?.leaving()
         if (Fields.context === this) Fields.context = null
         if (!reads()) return
         Exact.reader = null
