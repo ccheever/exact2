@@ -88,6 +88,7 @@ const KEYED: Record<string, { component: string; wraps: string[] }> = {
 const NOT_MODAL: Record<string, string> = {
   'auto-balance.contract `notice-machines-${notice.id}`': 'Popover',
   'composer-chip-popover.contract "chip-popover"': 'Popover',
+  'citation-comment.contract "citation-comment"': 'Popover (AssistantCitationChip\'s comment, diff-cite-popover)',
   'diff.contract "diff-base-picker"': 'Popover',
   'markdown.contract `Terminal excerpt, ${chip.label}`': 'Popover',
   'markdown.contract "context-chip-details"': 'Popover',

@@ -6,6 +6,7 @@ import { arr, num, obj, str, type Obj } from './domain';
 import type { Native } from './protocol';
 import { closedView, flatten, row, type PalettePart, type PaletteRow, type PaletteView } from './palette';
 import { highlight } from './timeline-highlight';
+import { fileLanguage } from './r12-render-highlight';
 import { letGo } from './let-go';
 
 export const FILE_RESULT_LIMIT = 200;
@@ -89,7 +90,9 @@ export async function filePickerView(client: T3Client, native: Native | null | u
 export function lineParts(line: string, ranges: Obj[], path = ''): PalettePart[] {
   const marks = ranges.map(range => [num(range.start), num(range.end)] as const).filter(([start, end]) => end > start).sort((a, b) => a[0] - b[0]);
   const hit = (at: number) => marks.some(([start, end]) => at >= start && at < end);
-  const tokens = path ? highlight(line, path) : [{ text: line, cls: '' }];
+  // HighlightedSearchLine: getFiletypeFromFileName(path) picks the language (a root Dockerfile too).
+  const language = path ? fileLanguage(path) : '';
+  const tokens = language ? highlight(line, language) : [{ text: line, cls: '' }];
   const parts: PalettePart[] = [];
   let offset = 0;
   for (const token of tokens.length ? tokens : [{ text: line, cls: '' }]) {

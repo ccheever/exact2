@@ -18,6 +18,8 @@ import { sidebarPrefs, sidebarSession } from './sidebar-state';
 import { terminalProcessCount, shortcutLabel, type SidebarHelpers } from './sidebar-view';
 import { currentPullRequestLink } from './shell-pr';
 import { lifecycle, lifecycleIcon, shortName, providerOfUrl } from './r5-panels-pr';
+import { portLabels, rowPorts } from './legacy-sidebar-ports';
+import { formatWorktreePathForDisplay } from './worktree-cleanup';
 import { DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT, orderItemsByPreferredIds, relativeTimeLabel, resolveProjectExpanded, resolveProjectStatusIndicator,
   resolveAdjacentThreadId, resolveThreadStatusPill, sortProjectsForSidebar, sortThreads, type LegacyMember, type ProjectSortOrder, type StatusPill, type ThreadSortOrder } from './legacy-sidebar-model';
 
@@ -25,15 +27,17 @@ export interface LegacyThreadRow {
   id: string; title: string; label: string; active: boolean; selected: boolean; renaming: boolean; running: boolean;
   terminalCount: number;
   statusLabel: string; statusColor: string; statusDot: string; statusPulse: boolean;
-  prIcon: string; prState: string; prTooltip: string; prPending: boolean;
+  prIcon: string; prState: string; prTooltip: string; prPending: boolean; portLabel: string; portTip: string;
   worktree: boolean; worktreeLabel: string; remoteMachine: string; remoteLabel: string; age: string; jump: string;
+  /** autoAnimate's addition: the row came into a shown list (not the sidebar's first draw, not a scroll back into view). */
+  enter: boolean;
 }
 export interface LegacyProjectRow {
   key: string; name: string; countLabel: string; glyph: ProjectGlyph; expanded: boolean;
   statusLabel: string; statusColor: string; statusDot: string; statusPulse: boolean;
   remoteMachine: string; remoteLabel: string; remoteTooltip: string;
   threads: LegacyThreadRow[]; showEmpty: boolean; showMore: boolean; showLess: boolean;
-  hiddenLabel: string; hiddenDot: string; hiddenColor: string; hiddenPulse: boolean; newThreadLabel: string;
+  hiddenLabel: string; hiddenDot: string; hiddenColor: string; hiddenPulse: boolean; newThreadLabel: string; enter: boolean;
 }
 export interface LegacySidebarView {
   enabled: boolean; projects: LegacyProjectRow[]; manual: boolean; projectSort: string; threadSort: string; previewCount: number;
@@ -66,37 +70,59 @@ export function previewCount(client: T3Client): number {
 }
 
 const projectPath = (value: unknown) => str(value).trim().replace(/\\/g, '/').replace(/\/+$/, '');
-export interface LegacyGroup { key: string; name: string; members: (LegacyMember & { project: Obj })[]; createdAt: unknown; updatedAt: unknown; remoteOnly: boolean; remoteLabels: string[] }
+/** `aliases`: the member's own id and the ids of the stale rows of the same checkout it won over (their threads join it). */
+export type LegacyGroupMember = LegacyMember & { project: Obj; aliases: string[] };
+export interface LegacyGroup { key: string; name: string; members: LegacyGroupMember[]; createdAt: unknown; updatedAt: unknown; remoteOnly: boolean; remoteLabels: string[] }
+/** projectGrouping.ts projectFreshnessTime / shouldReplacePhysicalProjectWinner: the newer row wins, then the larger id. */
+const freshness = (project: Obj): number => { const updated = Date.parse(str(project.updatedAt)); if (Number.isFinite(updated)) return updated; const created = Date.parse(str(project.createdAt)); return Number.isFinite(created) ? created : 0; };
+export const replacesWinner = (existing: Obj, candidate: Obj): boolean => {
+  const delta = freshness(candidate) - freshness(existing);
+  return delta > 0 || (delta === 0 && str(candidate.id) > str(existing.id));
+};
 /**
  * buildSidebarProjectSnapshots over orderItemsByPreferredIds(projects, projectOrder): this environment's projects,
  * then each synchronized background environment's (ids `fleet:<environment>:<id>`, as fleetThreads names them).
+ * buildProjectGroups' physical dedupe: rows of one checkout (environment and path) keep the freshest, grouped by the
+ * freshest identity among them (selectProjectIdentitySource), and the stale rows' threads join the winner.
  */
 export function legacyGroups(client: T3Client, source: EnvironmentFleet = fleet): LegacyGroup[] {
-  const members: (LegacyMember & { project: Obj; key: string })[] = client.shell.projects.map(project => ({
+  type Row = LegacyMember & { project: Obj; environmentId: string };
+  const rows: Row[] = client.shell.projects.map(project => ({
     id: str(project.id), physicalKey: `${client.environmentId}:${projectPath(project.workspaceRoot)}`, title: str(project.title), workspaceRoot: str(project.workspaceRoot),
-    environmentLabel: '', remote: false, project, key: logicalKey(client, client.environmentId, project) }));
+    environmentLabel: '', remote: false, project, environmentId: client.environmentId }));
   for (const entry of source.entries.values()) {
     if (entry.phase !== 'connected' || entry.synchronized !== entry.generation || entry.environmentId === client.environmentId) continue;
     const label = str(obj(entry.config.environment).label);
-    for (const project of entry.shell.projects) members.push({ id: `fleet:${entry.environmentId}:${str(project.id)}`,
+    for (const project of entry.shell.projects) rows.push({ id: `fleet:${entry.environmentId}:${str(project.id)}`,
       physicalKey: `${entry.environmentId}:${projectPath(project.workspaceRoot)}`, title: str(project.title), workspaceRoot: str(project.workspaceRoot),
-      environmentLabel: label, remote: true, project, key: logicalKey(client, entry.environmentId, project) });
+      environmentLabel: label, remote: true, project, environmentId: entry.environmentId });
   }
+  const byPhysical = new Map<string, Row[]>();
+  for (const row of rows) byPhysical.set(row.physicalKey, [...(byPhysical.get(row.physicalKey) ?? []), row]);
+  const members = [...byPhysical.values()].map(list => {
+    const winner = list.reduce((current, candidate) => replacesWinner(current.project, candidate.project) ? candidate : current);
+    const identified = list.filter(row => row.project.repositoryIdentity != null);
+    const identity = winner.project.repositoryIdentity != null || !identified.length ? winner
+      : identified.reduce((current, candidate) => replacesWinner(current.project, candidate.project) ? candidate : current);
+    const key = logicalKey(client, winner.environmentId, { ...winner.project, repositoryIdentity: identity.project.repositoryIdentity });
+    const { environmentId: _environment, ...member } = winner;
+    return { ...member, key, aliases: list.map(row => row.id) };
+  });
   const ordered = orderItemsByPreferredIds({ items: members, preferredIds: sidebarPrefs(client).projectOrder, getId: member => member.physicalKey });
   const groups = new Map<string, LegacyGroup>();
-  for (const member of ordered) {
-    const group = groups.get(member.key) ?? { key: member.key, name: '', members: [], createdAt: member.project.createdAt, updatedAt: member.project.updatedAt ?? member.project.createdAt, remoteOnly: true, remoteLabels: [] };
+  for (const { key, ...member } of ordered) {
+    const group = groups.get(key) ?? { key, name: '', members: [], createdAt: member.project.createdAt, updatedAt: member.project.updatedAt ?? member.project.createdAt, remoteOnly: true, remoteLabels: [] };
     group.members.push(member);
     group.remoteOnly = group.remoteOnly && member.remote;
     if (member.remote && member.environmentLabel && !group.remoteLabels.includes(member.environmentLabel)) group.remoteLabels.push(member.environmentLabel);
-    groups.set(member.key, group);
+    groups.set(key, group);
   }
   return [...groups.values()].map(group => ({ ...group, name: groupLabel(group.members.map(member => member.project)) || group.members[0]!.title }));
 }
-/** Every unarchived thread of this environment and the fleet, by its group's key. */
+/** Every unarchived thread of this environment and the fleet, by its group's key (a stale row's threads by its winner's). */
 function threadsByGroup(client: T3Client, groups: LegacyGroup[]): Map<string, Obj[]> {
   const groupOf = new Map<string, string>();
-  for (const group of groups) for (const member of group.members) groupOf.set(member.id, group.key);
+  for (const group of groups) for (const member of group.members) for (const id of member.aliases) groupOf.set(id, group.key);
   const out = new Map<string, Obj[]>();
   for (const thread of [...client.shell.threads, ...fleetThreads()]) {
     if (thread.archivedAt != null || thread.deletedAt != null) continue;
@@ -138,7 +164,7 @@ export function legacyProjectOrder(client: T3Client, threadId: string): string[]
 
 const blank = { label: '', color: '', dot: '', pulse: false };
 const pillFields = (status: StatusPill | null) => status ?? blank;
-function threadRow(client: T3Client, thread: Obj, now: number, jump: string): LegacyThreadRow {
+function threadRow(client: T3Client, thread: Obj, now: number, jump: string): Omit<LegacyThreadRow, 'enter'> {
   const id = str(thread.id), title = str(thread.title, 'Untitled thread'), session = sidebarSession(client);
   const status = pillFields(statusOf(client, thread));
   const link = currentPullRequestLink(thread.pullRequests), snapshot = link && link.snapshot && typeof link.snapshot === 'object' ? obj(link.snapshot) : null;
@@ -153,8 +179,9 @@ function threadRow(client: T3Client, thread: Obj, now: number, jump: string): Le
     statusLabel: status.label, statusColor: status.color, statusDot: status.dot, statusPulse: status.pulse,
     prIcon: link ? (snapshot ? lifecycleIcon(state) : 'git-pull-request-arrow') : '', prState: state,
     prTooltip: link ? (snapshot ? `${shortName(providerOfUrl(str(link.url)))} #${Number(link.number) || 0} - ${stateLabel}: ${str(snapshot.title)}` : `PR #${Number(link.number) || 0}, status pending`) : '',
-    prPending: !!link && !snapshot,
-    worktree: worktree !== '', worktreeLabel: worktree ? (branch ? `Worktree: ${worktree} (${branch})` : `Worktree: ${worktree}`) : '',
+    prPending: !!link && !snapshot, ...portLabels(rowPorts(client, id)),
+    // ThreadWorktreeIndicator: the worktree's display name (its last segment), then the branch.
+    worktree: worktree !== '', worktreeLabel: worktree ? (branch ? `Worktree: ${formatWorktreePathForDisplay(worktree)} (${branch})` : `Worktree: ${formatWorktreePathForDisplay(worktree)}`) : '',
     remoteMachine: remote ? (remote === 'desktop' ? 'monitor' : remote) : '', remoteLabel: remote ? str(thread.fleetEnvironmentLabel, 'Remote') : '',
     age: relativeTimeLabel(thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt, now), jump,
   };
@@ -188,6 +215,26 @@ function dialogView(client: T3Client) {
   };
 }
 
+/**
+ * autoAnimate's additions (SIDEBAR_LIST_ANIMATION_OPTIONS): a project or thread row that appears in a list the sidebar
+ * already shows fades in once. A row is new for the projection tick it appears in (`now`, the window's clock, which
+ * the snapshot is asked again with each second); the rows of the sidebar's first draw, and rows a windowed list mounts
+ * again as they scroll into view, are not new, so they do not fade.
+ */
+type Arrivals = { shown: boolean; since: Map<string, number> };
+const arrivals = new WeakMap<T3Client, Arrivals>();
+function arrivalsOf(client: T3Client, now: number, keys: readonly string[]): (key: string) => boolean {
+  let state = arrivals.get(client);
+  if (!state) { state = { shown: false, since: new Map() }; arrivals.set(client, state); }
+  const first = !state.shown, present = new Set(keys);
+  for (const key of [...state.since.keys()]) if (!present.has(key)) state.since.delete(key);
+  for (const key of keys) if (!state.since.has(key)) state.since.set(key, first ? Number.NEGATIVE_INFINITY : now);
+  state.shown = true;
+  const since = state.since;
+  return key => (since.get(key) ?? Number.NEGATIVE_INFINITY) === now;
+}
+const forgetArrivals = (client: T3Client) => { arrivals.delete(client); };
+
 export function legacySidebarSnapshot(client: T3Client, now: number, helpers: Pick<SidebarHelpers, 'projectIdentity'>): LegacySidebarView {
   const enabled = legacyEnabled(client);
   const newThread = shortcutLabel(client, 'chat.newLocal') || shortcutLabel(client, 'chat.new');
@@ -195,12 +242,14 @@ export function legacySidebarSnapshot(client: T3Client, now: number, helpers: Pi
     newThreadTip: newThread ? `New thread (${newThread})` : 'New thread', searchShortcut: shortcutLabel(client, 'commandPalette.toggle'),
     confirmArchive: client.local.clientSettings?.confirmThreadArchive === true, noProjects: client.shell.projects.length === 0,
     jumpHints: !terminalFocused(client) && client.presentation.sidebarJumpHints === true, ...dialogView(client) };
-  if (!enabled) return { ...base, projects: [] };
+  if (!enabled) { forgetArrivals(client); return { ...base, projects: [] }; }
   const entries = sortedGroups(client);
+  const views = entries.map(({ group, threads }) => projectThreads(client, group, threads));
+  const entering = arrivalsOf(client, now, [...entries.map(entry => `project:${entry.group.key}`), ...views.flatMap(view => view.rendered.map(thread => `thread:${str(thread.id)}`))]);
   const jumps = base.jumpHints ? Array.from({ length: 9 }, (_, index) => shortcutLabel(client, `thread.jump.${index + 1}`)) : [];
   let visibleIndex = 0;
-  const projects = entries.map(({ group, threads }): LegacyProjectRow => {
-    const view = projectThreads(client, group, threads);
+  const projects = entries.map(({ group, threads }, at): LegacyProjectRow => {
+    const view = views[at]!;
     const status = resolveProjectStatusIndicator(threads.map(thread => statusOf(client, thread)));
     const hidden = pillFields(resolveProjectStatusIndicator(view.hidden.map(thread => statusOf(client, thread))));
     const representative = group.members.find(member => !member.remote) ?? group.members[0]!;
@@ -211,10 +260,10 @@ export function legacySidebarSnapshot(client: T3Client, now: number, helpers: Pi
       statusLabel: shown.label, statusColor: shown.color, statusDot: shown.dot, statusPulse: shown.pulse,
       remoteMachine: group.remoteOnly ? 'cloud' : '', remoteLabel: group.remoteOnly ? 'Remote project' : '',
       remoteTooltip: group.remoteOnly ? `Remote environment: ${group.remoteLabels.join(', ')}` : '',
-      threads: view.rendered.map(thread => threadRow(client, thread, now, jumps[visibleIndex++] ?? '')),
+      threads: view.rendered.map(thread => ({ ...threadRow(client, thread, now, jumps[visibleIndex++] ?? ''), enter: entering(`thread:${str(thread.id)}`) })),
       showEmpty: view.expanded && threads.length === 0, showMore: view.expanded && view.overflowing && !view.listExpanded, showLess: view.expanded && view.overflowing && view.listExpanded,
       hiddenLabel: hidden.label, hiddenDot: hidden.dot, hiddenColor: hidden.color, hiddenPulse: hidden.pulse,
-      newThreadLabel: `Create new thread in ${group.name}`,
+      newThreadLabel: `Create new thread in ${group.name}`, enter: entering(`project:${group.key}`),
     };
   });
   return { ...base, projects };

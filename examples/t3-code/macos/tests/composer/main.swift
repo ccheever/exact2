@@ -294,8 +294,23 @@ final class ComposerTests: XCTestCase {
     }
 }
 
+// diff-cite-popover DC-1: a citation comment's Command/Ctrl+Enter presses Send as the composer's Return does (submitCitationAndSend).
+final class ComposerSendPressTests: XCTestCase {
+    func testPressSendClicksTheLiveSendButtonOnly() {
+        let fixture = ComposerFixture()
+        XCTAssertTrue(fixture.controller.pressSend())
+        XCTAssertEqual(fixture.clicks.pointee, 1)
+        fixture.send.ended = true
+        XCTAssertFalse(fixture.controller.pressSend(), "an ended Send is not pressed")
+        fixture.send.ended = false
+        fixture.controller.remove(fixture.send)
+        XCTAssertFalse(fixture.controller.pressSend())
+        XCTAssertEqual(fixture.clicks.pointee, 1)
+    }
+}
+
 var executed = 0, failures = 0, succeeded = true
-for suite in [ComposerTests.defaultTestSuite, ComposerEditorTests.defaultTestSuite, ComposerImageChipTests.defaultTestSuite, ComposerChipTipTests.defaultTestSuite, ImageAccentTests.defaultTestSuite, PromptPreviewEditorTests.defaultTestSuite, ComposerChipPressTests.defaultTestSuite] {
+for suite in [ComposerTests.defaultTestSuite, ComposerEditorTests.defaultTestSuite, ComposerImageChipTests.defaultTestSuite, ComposerChipTipTests.defaultTestSuite, ImageAccentTests.defaultTestSuite, PromptPreviewEditorTests.defaultTestSuite, ComposerChipPressTests.defaultTestSuite, ComposerCitationTests.defaultTestSuite, ComposerSendPressTests.defaultTestSuite] {
     suite.run()
     guard let run = suite.testRun, run.executionCount == suite.testCaseCount else { exit(1) }
     executed += run.executionCount; failures += run.totalFailureCount; succeeded = succeeded && run.hasSucceeded

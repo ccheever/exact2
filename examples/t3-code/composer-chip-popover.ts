@@ -14,6 +14,7 @@ import { bridgeReply, ClientError, type Native } from './protocol';
 import { workspaceValues } from './composer-workspace-snapshots';
 import { selectedProvider, workspaceCwd } from './composer-editor';
 import { openFileSurface } from './r4-surfaces-panel';
+import { citationCommentLocal, citationPopover, citedStart } from './citation-comment';
 
 export type ChipPopover = {
   /** The press's sequence (newest across the composer and the prompt sample); 0 before any. */
@@ -32,20 +33,36 @@ export type ChipPopover = {
   y: number;
   width: number;
   height: number;
+  /** "skill", or "citation" (diff-cite-popover DC-1: its comment, citation-comment.ts). */
+  kind: string;
+  /** A citation's saved comment. */
+  comment: string;
+  /** A citation's anchor: "chip" (its comment button) or "source" (the cited text, after Cite), and its frame. */
+  anchor: string;
+  ax: number;
+  ay: number;
+  aw: number;
+  ah: number;
+  /** The cited answer (its message id without "message:" / "turn-item:"), its quote and the quote's start in the answer's text stream when this app cited it (-1). */
+  message: string;
+  quote: string;
+  at: number;
 };
-export const NO_CHIP: ChipPopover = { seq: 0, open: false, surface: '', label: '', title: '', description: '', path: '', x: 0, y: 0, width: 0, height: 0 };
+export const NO_CHIP: ChipPopover = { seq: 0, open: false, surface: '', label: '', title: '', description: '', path: '', x: 0, y: 0, width: 0, height: 0,
+  kind: '', comment: '', anchor: '', ax: 0, ay: 0, aw: 0, ah: 0, message: '', quote: '', at: -1 };
 export const NO_DESCRIPTION = 'No description is available for this skill.';
 
 /** The popover for a press the native editor reported; `skills` is what the chip's editor was given. */
-export function chipPopover(press: Obj, skills: Obj[]): ChipPopover {
+export function chipPopover(press: Obj, skills: Obj[], startOf?: Parameters<typeof citationPopover>[2]): ChipPopover {
   const seq = Number(press.seq) || 0;
+  if (press.open === true && str(press.kind) === 'citation') return citationPopover(press, NO_CHIP, startOf);
   if (press.open !== true || str(press.kind) !== 'skill') return { ...NO_CHIP, seq };
   const frame = Array.isArray(press.frame) ? (press.frame as unknown[]).map(Number) : [];
   const name = str(press.name), label = str(press.label) || name;
   // ComposerSkillNodeView: `skill?.description ?? skillDescription ?? "No description…"`.
   const skill = skills.find(candidate => str(candidate.name) === name);
   const description = skill && typeof skill.description === 'string' ? skill.description : NO_DESCRIPTION;
-  return { seq, open: true, surface: str(press.surface), label, title: `Skill ${label}`, description, path: skill ? str(skill.path) : '',
+  return { ...NO_CHIP, seq, open: true, surface: str(press.surface), kind: 'skill', label, title: `Skill ${label}`, description, path: skill ? str(skill.path) : '',
     x: frame[0] || 0, y: frame[1] || 0, width: frame[2] || 0, height: frame[3] || 0 };
 }
 
@@ -62,11 +79,15 @@ export async function chipPopoverView(client: T3Client, native: Native | null | 
   // The composer's press is the thread's on screen; the sample's skills are none.
   const composer = str(press.surface) === 'composer';
   if (composer && str(press.owner) && str(press.owner) !== client.snapshotOwner) return { ...NO_CHIP, seq: Number(press.seq) || 0 };
-  return chipPopover(press, composer ? workspaceValues(selectedProvider(client), workspaceCwd(client), 'skills') : []);
+  return chipPopover(press, composer ? workspaceValues(selectedProvider(client), workspaceCwd(client), 'skills') : [], citation => citedStart(client, citation));
 }
 
-/** `editorlocal:chip-close` (a press outside, Escape on the window) and `editorlocal:chip-instructions` (View instructions). */
+/**
+ * `editorlocal:chip-close` (a press outside, Escape on the window) and `editorlocal:chip-instructions` (View instructions);
+ * a citation's comment's `chip-cite-…` (citation-comment.ts).
+ */
 export async function chipPopoverLocal(client: T3Client, native: Native, op: string, id: string, value: string): Promise<string> {
+  if (op.startsWith('chip-cite-') && ['save', 'send', 'commit', 'cancel', 'escape'].includes(op.slice(10))) return citationCommentLocal(native, op, id, value);
   if (op !== 'chip-close' && op !== 'chip-instructions') throw new ClientError(`Unknown editor action: ${op}`);
   await bridgeReply(native, { op: 'editorChipClose', seq: Number(id) || 0 }).catch(() => undefined);
   if (op === 'chip-instructions' && value) await openFileSurface(client, native, value, 0);

@@ -143,11 +143,18 @@ describe('the reply link menu hookup', () => {
     // FlowRuns: prose, an emptied anchor's text and a mailto, irc or xmpp link's later words carry no href, so a click on
     // them follows nothing (the host would hand a mailto URL to the mail app), and no handler; a link's words keep its
     // pointer, which ExactKit gave them for their href before (an emptied anchor has no label and no pointer).
-    const plain = lines.findIndex(line => line.includes('text run.text aria-hidden=(run.kind == "link" and run.label != "") cursor=(run.kind == "link" and run.label != "" ? "pointer" : "auto") white-space="pre"'));
+    // diff-cite-popover: each word reports its part of a selection (Cite) and, while a citation comment is open, draws its
+    // marked part (MarkedText); both arms carry no href and no menu.
+    const word = 'selectionchange=cite(blockId, run.id) aria-hidden=(run.kind == "link" and run.label != "") cursor=(run.kind == "link" and run.label != "" ? "pointer" : "auto") white-space="pre"';
+    const plain = lines.findIndex(line => line.includes(`text run.text id=\`cite-\${source}-\${blockId}-\${run.id}\` ${word}`));
     expect(plain).toBeGreaterThan(0);
-    expect(lines[plain]).not.toContain('href=');
-    expect(lines[plain]).not.toContain('contextmenu=');
-    expect(lines[plain - 1]).toContain('and run.kind != "link-start" and not (run.kind == "link" and pressLink(run.href))');
+    for (const at of [plain, plain + 2]) {
+      expect(lines[at]).toContain(word);
+      expect(lines[at]).not.toContain('href=');
+      expect(lines[at]).not.toContain('contextmenu=');
+    }
+    expect(lines[plain - 1]!.trim()).toBe('when ms < 0');
+    expect(lines[plain - 2]).toContain('and run.kind != "link-start" and not (run.kind == "link" and pressLink(run.href))');
     expect(markdown).toContain('contextmenu=linkMenu(run.href) hover=hover role="link"'); // PrLinkRun: a pull request link, a web link by construction
     expect(markdown).toMatch(/component PrLinkRun\n {2}inject\n {4}rem: number\n {4}hoverTipAt: action\n {4}linkMenu: action\n/);
     expect(markdown.match(/ {2}inject\n {4}linkOpen: action\n {4}linkMenu: action\n/g)?.length).toBe(2);

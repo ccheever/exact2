@@ -214,11 +214,23 @@ describe('Cite', () => {
     const { client, command, calls } = harness(false);
     const stream = 'First paragraph of the answer.\nSecond block with more words.';
     // Block 2 starts after the line break at 31; the reader selected "answer." and "Second".
-    await command('diffreview', 'cite:["t1","turn-item:provider:codex:native-item:a1"]', `23-30,31-37|${stream}`);
+    await command('diffreview', 'cite:["t1","turn-item:provider:codex:native-item:a1"]', `23-30,31-37|412,180.5,540,22|${stream}`);
     const insert = calls.filter(call => call.op === 'editorInsert').at(-1)!;
     const href = /^\[Assistant quote\]\((t3-citation:\/\/v1\/[^\s)]+)\)$/.exec(String(insert.text))![1]!;
     const { parseAssistantCitationHref } = await import('./diff-citations');
     expect(parseAssistantCitationHref(href)).toEqual({ version: 1, environmentId: 'env', threadId: 't1', messageId: 'message:provider:codex:native-item:a1',
       text: 'answer.\nSecond', start: 23, end: 37, prefix: 'First paragraph of the ', suffix: ' block with more words.' });
+    // diff-cite-popover DC-1: then its comment opens under the cited text's last part (ChatComposer citeAssistantText).
+    const open = calls.filter(call => call.op === 'editorCiteOpen');
+    expect(open).toEqual([{ op: 'editorCiteOpen', href, source: [412, 180.5, 540, 22] }]);
+    expect(calls.indexOf(open[0]!)).toBeGreaterThan(calls.indexOf(insert));
+  });
+
+  test('no chip, no comment: a composer that refuses the quote opens nothing (citeAssistantText returns false)', async () => {
+    const { command, calls, native } = harness(false);
+    const later = native.later;
+    native.later = async (input: unknown) => obj(input).op === 'editorInsert' ? { ok: true, generation: 1, value: { applied: false } } : later(input);
+    await command('diffreview', 'cite:["t1","a1"]', '0-5||Hello world');
+    expect(calls.filter(call => call.op === 'editorCiteOpen')).toEqual([]);
   });
 });
