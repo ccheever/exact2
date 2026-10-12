@@ -749,6 +749,7 @@ mod tests {
                 kind: exact_plan::BindingKind::Prop,
                 id: exact_kernel::PropId::Hatch as u16,
                 expr,
+                written: true,
             }];
             b.node(
                 exact_kernel::NodeType::Video as u8,
@@ -807,6 +808,7 @@ mod tests {
                 kind: exact_plan::BindingKind::Prop,
                 id: prop as u16,
                 expr,
+                written: true,
             }];
             b.node(
                 exact_kernel::NodeType::Video as u8,

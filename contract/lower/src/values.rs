@@ -747,7 +747,7 @@ pub(crate) fn check_style_value(
                 } else if let Some(pct) = s.strip_suffix('%').and_then(|p| p.parse::<f64>().ok()) {
                     StyleValue::Percent(pct)
                 } else {
-                    StyleValue::Text(s.clone())
+                    StyleValue::Text(s.as_str().into())
                 },
             ),
             Expr::Bool(b, _) => {
@@ -897,7 +897,7 @@ fn css_wide_branches(e: &Expr, rows: &[StyleId]) -> bool {
     match e {
         Expr::Str(s, _) => rows
             .iter()
-            .all(|row| StyleValue::Text(s.clone()).unsets(*row)),
+            .all(|row| StyleValue::Text(s.as_str().into()).unsets(*row)),
         Expr::Ternary(_, yes, no, _) => css_wide_branches(yes, rows) && css_wide_branches(no, rows),
         Expr::Match { some, none, .. } => {
             css_wide_branches(some, rows) && css_wide_branches(none, rows)
@@ -985,7 +985,7 @@ fn computed_string_arm<'a>(
         Expr::Str(s, _)
             if rows
                 .iter()
-                .all(|row| StyleValue::Text(s.clone()).unsets(*row)) =>
+                .all(|row| StyleValue::Text(s.as_str().into()).unsets(*row)) =>
         {
             None
         }
@@ -1104,6 +1104,16 @@ pub(crate) fn check_prop_value(
         return err(
             "lower-attr-value",
             "`navigationSplit` takes \"none\" (the stack pushes on a wide window too) or the list column's width, a positive number",
+            span,
+        );
+    }
+    // @ref LLP 1115.000 D5.2 — no bar is something a route says, in one word.
+    if prop == PropId::NavigationBar
+        && matches!(value, Expr::Str(s, _) if !matches!(s.as_str(), "none" | "auto"))
+    {
+        return err(
+            "lower-attr-value",
+            "`navigationBar` takes \"none\" (this route shows no navigation bar: a full-bleed screen that draws its own way back) or \"auto\" (the platform's bar, the default)",
             span,
         );
     }

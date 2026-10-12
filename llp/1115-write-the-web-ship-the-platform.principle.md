@@ -57,8 +57,12 @@ user can see or feel that the author did not write is the platform's.
 
 **Inherited is unsaid.** A `color` the author set on the page and a button only inherits is not
 the button's colour: the bar item keeps UIKit's tint (d33eb49dd). The host's rule is: a value
-counts as written on a node when it differs from what the node would inherit from the node
-above it, or when the property does not inherit.
+counts as written on a node when its row carries the bit that says its author wrote it there
+(LLP 1115.000 D2): an attribute of the node or a row of its class, a platform colour and a
+value equal to its parent's included. An inherited value has no row on the child and so no
+bit, and a row the compiler implied (a sheet's, a heading's, a tag's own) is set and not
+written. Until 2026-10-11 hosts guessed this from the value: written when it differed from
+what the node would inherit.
 
 ## 3. Mechanism
 
@@ -197,7 +201,9 @@ which read as "on every host" where it was iOS and the web:
 - Ten items of Appendix A are in neither list above. LLP 1115.000 §1 names them and gives
   each a decision.
 
-What is left, on every host, is LLP 1115.000 (and LLP 1115.001 for Android).
+What is left, on every host, is LLP 1115.000 (and LLP 1115.001 for Android). Since this
+note, LLP 1115.000's wave 1 has landed D5 and D6's alert on macOS, and LLP 1115.001's first
+slice has begun Android's; each document's "as built" says what holds.
 
 **Later, needs an owner.** A plain `button`'s default style on iOS (bordered → plain; changes
 every app), checkbox on iOS (switch or checkmark), plain-list separators and highlight, Mac

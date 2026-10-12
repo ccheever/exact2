@@ -38,7 +38,7 @@ fn list_region<'a>(
                 }
                 Child::Region(r) => match &r.active {
                     Active::Arm { roots, frame, .. } => {
-                        frames.push(frame.clone());
+                        frames.push(frame.scope());
                         if let Some(r) = walk(roots, view, frames) {
                             return Some(r);
                         }
@@ -100,7 +100,7 @@ fn collect(
             Child::Region(r) => match &r.active {
                 Active::Arm { roots, frame, .. } => {
                     let mut inner = frames.to_vec();
-                    inner.push(frame.clone());
+                    inner.push(frame.scope());
                     collect(u, roots, &inner, inline, out)?;
                 }
                 Active::Rows { rows } => {

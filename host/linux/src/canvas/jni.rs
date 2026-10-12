@@ -70,6 +70,29 @@ macro_rules! canvas_jni {
                 }
             }
 
+            /// Whether a host runs in this process: a reader that starts
+            /// again adopts it (LLP 1115.001 D15.1) and boots no second one.
+            static RUNNING: std::sync::atomic::AtomicBool =
+                std::sync::atomic::AtomicBool::new(false);
+            /// The size and scale a reader asked `startAsync` for while a
+            /// host ran: what `adopt` adopts it at.
+            static ADOPT: std::sync::Mutex<Option<(u32, u32, f32)>> = std::sync::Mutex::new(None);
+
+            /// The host on this thread, adopted by a new reader at `size`
+            /// and `scale` (`CanvasHost::adopt`): what this thread kept of
+            /// the last reader's streams goes with it. False when no host
+            /// runs here.
+            fn adopt_running(size: (u32, u32), scale: f32) -> bool {
+                if with(|h| h.adopt(size, scale)).is_none() {
+                    return false;
+                }
+                LAST.with(|l| l.borrow_mut().clear());
+                MOVE.with(|m| m.borrow_mut().clear());
+                DRAWN.with(|d| *d.borrow_mut() = None);
+                PRIMED.with(|p| *p.borrow_mut() = None);
+                true
+            }
+
             #[no_mangle]
             pub unsafe extern "system" fn Java_dev_exact_canvas_Native_start(
                 env: *mut JNIEnv,
@@ -82,6 +105,12 @@ macro_rules! canvas_jni {
             ) -> jboolean {
                 static LOG: std::sync::Once = std::sync::Once::new();
                 LOG.call_once($crate::android::redirect_stdio);
+                // The activity was made again in this process: its reader
+                // adopts the host that runs. Nothing boots, and the
+                // environment, which other threads read by now, is left alone.
+                if adopt_running((width as u32, height as u32), scale) {
+                    return JNI_TRUE;
+                }
                 let dir = string(env, dir);
                 std::env::set_var("HOME", &dir);
                 std::env::set_var("XDG_DATA_HOME", format!("{dir}/data"));
@@ -92,6 +121,7 @@ macro_rules! canvas_jni {
                 match Host::boot(PLAN, COMPAT, (width as u32, height as u32), scale) {
                     Ok(h) => {
                         HOST.with(|slot| *slot.borrow_mut() = Some(h));
+                        RUNNING.store(true, std::sync::atomic::Ordering::Release);
                         $crate::android::release_library_pages_after(RELEASE_AFTER);
                         JNI_TRUE
                     }
@@ -131,6 +161,13 @@ macro_rules! canvas_jni {
             ) {
                 static LOG: std::sync::Once = std::sync::Once::new();
                 LOG.call_once($crate::android::redirect_stdio);
+                // A host runs already (the activity was made again): nothing
+                // boots, and `adopt` adopts that one at this size.
+                if RUNNING.load(std::sync::atomic::Ordering::Acquire) {
+                    *ADOPT.lock().unwrap_or_else(|e| e.into_inner()) =
+                        Some((width as u32, height as u32, scale));
+                    return;
+                }
                 // The environment is set here, before any other thread reads it.
                 let dir = string(env, dir);
                 std::env::set_var("HOME", &dir);
@@ -163,6 +200,10 @@ macro_rules! canvas_jni {
                 _env: *mut JNIEnv,
                 _class: jclass,
             ) -> jboolean {
+                let again = ADOPT.lock().unwrap_or_else(|e| e.into_inner()).take();
+                if let Some((width, height, scale)) = again {
+                    return flag(adopt_running((width, height), scale));
+                }
                 let mut slot = BOOTED.lock().unwrap_or_else(|e| e.into_inner());
                 while slot.is_none() {
                     slot = READY.wait(slot).unwrap_or_else(|e| e.into_inner());
@@ -171,6 +212,7 @@ macro_rules! canvas_jni {
                     Ok(Booted(mut h, first)) => {
                         h.set_borrowed(false);
                         HOST.with(|s| *s.borrow_mut() = Some(h));
+                        RUNNING.store(true, std::sync::atomic::Ordering::Release);
                         PRIMED.with(|p| *p.borrow_mut() = first);
                         $crate::android::release_library_pages_after(RELEASE_AFTER);
                         JNI_TRUE
@@ -182,15 +224,142 @@ macro_rules! canvas_jni {
                 }
             }
 
-            /// The view's size in pixels, when it is not the size `start` was given.
+            /// The device's settings, whole (LLP 1115.001 D3.1): before
+            /// `start`, from any thread, and on the host's thread again
+            /// whenever one changes. A host that runs on the calling thread
+            /// takes them now; one that boots later starts with them.
             #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_resize(
-                _env: *mut JNIEnv,
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_configure(
+                env: *mut JNIEnv,
+                _class: jclass,
+                night: jboolean,
+                font_scale: jfloat,
+                locale: jstring,
+                rtl: jboolean,
+                hour24: jboolean,
+                no_animations: jboolean,
+                bold_text: jboolean,
+                high_contrast: jboolean,
+                touch: jboolean,
+                touch_slop: jfloat,
+            ) {
+                let device = $crate::presenter::Device {
+                    night: night == JNI_TRUE,
+                    font_scale,
+                    locale: string(env, locale),
+                    rtl: rtl == JNI_TRUE,
+                    hour24: hour24 == JNI_TRUE,
+                    reduced_motion: no_animations == JNI_TRUE,
+                    bold_text: bold_text == JNI_TRUE,
+                    high_contrast: high_contrast == JNI_TRUE,
+                    touch: touch == JNI_TRUE,
+                    touch_slop,
+                };
+                $crate::canvas::configure(&device);
+                with(|h| h.configure(&device));
+            }
+
+            /// The window (LLP 1115.001 D3.3): its size in pixels, the
+            /// display's pixels a point, and sixteen raw insets in pixels,
+            /// four (top, right, bottom, left) each for the system bars,
+            /// the display cutout, the software keyboard and the system's
+            /// gestures. Before `start`, from any thread, so the host boots
+            /// laid out in it, and on the host's thread again whenever any
+            /// of it changes. The reader pads nothing itself: `chrome` says
+            /// where the page is.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_window(
+                env: *mut JNIEnv,
                 _class: jclass,
                 width: jint,
                 height: jint,
+                scale: jfloat,
+                insets: jintArray,
             ) {
-                with(|h| h.resize((width as u32, height as u32)));
+                let mut told = $crate::canvas::Told {
+                    size: (width.max(0) as u32, height.max(0) as u32),
+                    scale,
+                    insets: [0; 16],
+                };
+                let n = ((**env).GetArrayLength.expect("jni"))(env, insets).clamp(0, 16);
+                ((**env).GetIntArrayRegion.expect("jni"))(
+                    env,
+                    insets,
+                    0,
+                    n,
+                    told.insets.as_mut_ptr(),
+                );
+                $crate::canvas::window(told);
+                with(|h| h.set_window(told));
+            }
+
+            /// The device's colours (LLP 1115.001 D4): Material 3's colour
+            /// roles as the reader resolved them, twelve light and then the
+            /// same twelve dark, ARGB, in `presenter::Material`'s order.
+            /// Before `start`, from any thread, so the host boots resolving
+            /// every role by them, and on the host's thread again whenever
+            /// one changes. Any other count of colours is ignored.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_colors(
+                env: *mut JNIEnv,
+                _class: jclass,
+                roles: jintArray,
+            ) {
+                let n = ((**env).GetArrayLength.expect("jni"))(env, roles).max(0);
+                let mut words = vec![0i32; n as usize];
+                ((**env).GetIntArrayRegion.expect("jni"))(env, roles, 0, n, words.as_mut_ptr());
+                let Some(palette) = $crate::presenter::Palette::from_words(&words) else {
+                    return;
+                };
+                $crate::canvas::colors(palette);
+                with(|h| h.set_colors(&palette));
+            }
+
+            /// What the presenter asks of the platform since the reader
+            /// last took it (LLP 1115.001 D5), as words, or null when it
+            /// asks nothing: for each request its kind, its id, the count
+            /// of words that follow and those words
+            /// (`presenter/requests.rs`). The presenter wakes the reader
+            /// (the first of `fds`) when it queues one.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_requests(
+                env: *mut JNIEnv,
+                _class: jclass,
+            ) -> jintArray {
+                match with(|h| h.requests()).flatten() {
+                    Some(words) => ints(env, &words),
+                    None => std::ptr::null_mut(),
+                }
+            }
+
+            /// The reader's answer to request `id`, or null for its
+            /// cancellation.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_answer(
+                env: *mut JNIEnv,
+                _class: jclass,
+                id: jint,
+                answer: jstring,
+            ) {
+                let answer = (!answer.is_null()).then(|| string(env, answer));
+                with(|h| h.answer(id as u32, answer.as_deref()));
+            }
+
+            /// What the reader draws around the page, when that is not what
+            /// this last returned (else null): where the page is in the
+            /// window (x, y, width, height, pixels), the colour behind it
+            /// (ARGB), and 1 when its scheme is dark.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_chrome(
+                env: *mut JNIEnv,
+                _class: jclass,
+            ) -> jintArray {
+                let Some(chrome) = with(|h| h.chrome()).flatten() else {
+                    return std::ptr::null_mut();
+                };
+                let arr = ((**env).NewIntArray.expect("jni"))(env, 6);
+                ((**env).SetIntArrayRegion.expect("jni"))(env, arr, 0, 6, chrome.as_ptr());
+                arr
             }
 
             /// A new op stream as a direct ByteBuffer over Rust memory (valid until
@@ -304,6 +473,67 @@ macro_rules! canvas_jni {
                 with(|h| h.scroll(dy));
             }
 
+            fn ints(env: *mut JNIEnv, words: &[i32]) -> jintArray {
+                // SAFETY: `env` is the JNI call's; the region is `words`.
+                unsafe {
+                    let arr = ((**env).NewIntArray.expect("jni"))(env, words.len() as i32);
+                    ((**env).SetIntArrayRegion.expect("jni"))(
+                        env,
+                        arr,
+                        0,
+                        words.len() as i32,
+                        words.as_ptr(),
+                    );
+                    arr
+                }
+            }
+
+            /// What is under a point of the view (pixels), for the reader
+            /// deciding what a drag from there is (LLP 1115.001 D7.3):
+            /// the presenter's own claims, a count, and eleven words a
+            /// scroller, innermost first (`Presenter::reader_under`).
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_under(
+                env: *mut JNIEnv,
+                _class: jclass,
+                x: jfloat,
+                y: jfloat,
+            ) -> jintArray {
+                let words = with(|h| h.under(x, y)).unwrap_or_else(|| vec![0, 0]);
+                ints(env, &words)
+            }
+
+            /// The reader moved scroller `id` by (`dx`, `dy`) pixels,
+            /// knowing revision `rev` of it.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_scrolled(
+                _env: *mut JNIEnv,
+                _class: jclass,
+                id: jint,
+                dx: jfloat,
+                dy: jfloat,
+                rev: jint,
+            ) {
+                with(|h| h.scrolled(id as u32, dx, dy, rev as u32));
+            }
+
+            /// What the reader is told of the scrollers it knows, nine
+            /// words each (`Presenter::reader_scrollers`), when that is not
+            /// what this last returned (else null).
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_scrollers(
+                env: *mut JNIEnv,
+                _class: jclass,
+            ) -> jintArray {
+                match with(|h| h.scrollers()).flatten() {
+                    Some(words) => ints(env, &words),
+                    None => std::ptr::null_mut(),
+                }
+            }
+
+            /// A touch (0 down, 1 up, 2 move, 3 cancel) at the view's
+            /// pixels, and what touched: Android's tool type (1 a finger,
+            /// 2 a stylus, 3 a mouse, 4 an eraser; LLP 1115.001 D7.4).
             #[no_mangle]
             pub unsafe extern "system" fn Java_dev_exact_canvas_Native_touch(
                 _env: *mut JNIEnv,
@@ -311,8 +541,9 @@ macro_rules! canvas_jni {
                 action: jint,
                 x: jfloat,
                 y: jfloat,
+                tool: jint,
             ) {
-                with(|h| h.touch(action, x, y));
+                with(|h| h.touch(action, x, y, tool));
             }
 
             /// One slice of laying out what the touch that is down would
@@ -460,24 +691,6 @@ macro_rules! canvas_jni {
                 with(|h| h.key(ch, backspace == JNI_TRUE));
             }
 
-            /// Whether an editable field holds the focus (1), a textarea (3), or none (0).
-            #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_editing(
-                _env: *mut JNIEnv,
-                _class: jclass,
-            ) -> jint {
-                with(|h| {
-                    if !h.editing() {
-                        0
-                    } else if h.multiline() {
-                        3
-                    } else {
-                        1
-                    }
-                })
-                .unwrap_or(0)
-            }
-
             /// Pictures announced and not yet fetched, as id, width, height triples:
             /// a reader on its own thread makes them before the stream that draws
             /// them reaches its main thread.
@@ -575,7 +788,8 @@ macro_rules! canvas_jni {
                 flag($crate::android_hint::fast_thread(tid, fast != 0))
             }
 
-            /// The scroller `scroll` moves (its group's id in the stream), or 0.
+            /// The feed: the scroller a finger last moved up or down, or a
+            /// driver's `scroll` found (its group's id in the stream), or 0.
             #[no_mangle]
             pub unsafe extern "system" fn Java_dev_exact_canvas_Native_feed(
                 _env: *mut JNIEnv,

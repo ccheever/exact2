@@ -686,10 +686,10 @@ final class MenuHost {
         // The alert's title is its aria-label ("Remove book?"), else its
         // first line; the message is the rest. A sheet is headed by its
         // label, its text the message (LLP 1115 D6).
-        var heading = label, lines = texts
-        if style == .alert, heading == nil, !lines.isEmpty { heading = lines.removeFirst() }
+        let words = style == .alert ? ConfirmationShape.alertText(label: label, lines: texts)
+            : (title: label, message: texts.isEmpty ? nil : texts.joined(separator: "\n"))
         let owner = Confirmation(host: self, source: source, popover: pop, actions: presented, style: style,
-                                 title: heading, message: lines.isEmpty ? nil : lines.joined(separator: "\n"))
+                                 title: words.title, message: words.message)
         // A native action's tint is its accent (LLP 1069.011.000 D5); the
         // alert has one tint, the first action's. Unsaid, it is UIKit's
         // (LLP 1115 D4): a `color` the action only inherits is not its own.
@@ -736,7 +736,7 @@ final class MenuHost {
     /// when it has a cancel to show (UIKit draws no cancel in a popover), else a
     /// popover, which a tap outside dismisses.
     private static func style(texts: Int, actions: Int, cancels: Int, compact: Bool) -> Confirmation.Style {
-        if texts > 0, cancels == 1, actions + cancels <= 3 { return .alert }
+        if ConfirmationShape.isAlert(texts: texts, actions: actions, cancels: cancels) { return .alert }
         #if os(tvOS)
         return .sheet
         #else

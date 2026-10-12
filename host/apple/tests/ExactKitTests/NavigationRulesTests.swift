@@ -243,6 +243,27 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertNil(NavigationRules.back(control: nil, declared: false, hearsNavigate: true, beneath: { nil }), "a stack's root")
     }
 
+    /// LLP 1115.000 D5.2, D5.3: a route's bar is its own. Its header when
+    /// that is the bar's; the system Back alone on any other pushed route;
+    /// none on a stack's first route with no such header, and none wherever
+    /// the route says so, which is the only way a pushed route has none.
+    func testARoutesBarIsItsHeaderElseTheSystemBackAloneUnlessItSaysNone() {
+        typealias Bar = NavigationRules.Bar
+        for pushed in [false, true] {
+            XCTAssertEqual(NavigationRules.bar(asked: nil, header: true, pushed: pushed), Bar.header, "a header that is the bar's, whatever is beneath")
+            XCTAssertEqual(NavigationRules.bar(asked: "auto", header: true, pushed: pushed), Bar.header)
+            for header in [false, true] {
+                XCTAssertEqual(NavigationRules.bar(asked: "none", header: header, pushed: pushed), Bar.hidden, "no bar is what the route says")
+            }
+        }
+        XCTAssertEqual(NavigationRules.bar(asked: nil, header: false, pushed: true), Bar.back, "pushed, with no bar of its own: Back alone")
+        XCTAssertEqual(NavigationRules.bar(asked: "", header: false, pushed: true), Bar.back, "an unset word is no request")
+        XCTAssertEqual(NavigationRules.bar(asked: nil, header: false, pushed: false), Bar.hidden, "a stack's first route has nothing to go back to")
+        // tvOS's bar has no Back button to show alone; a header is still its bar.
+        XCTAssertEqual(NavigationRules.bar(asked: nil, header: false, pushed: true, backButton: false), Bar.hidden)
+        XCTAssertEqual(NavigationRules.bar(asked: nil, header: true, pushed: true, backButton: false), Bar.header)
+    }
+
     /// D1: an interactive pop needs a stack to pop, no transition, no sheet,
     /// a Back control, and no context preview.
     func testWhenAPopMayBegin() {
@@ -640,8 +661,13 @@ final class MacShortcutTests: XCTestCase {
         let new = file.items.first { $0.keyEquivalent == "n" }!
         XCTAssertEqual(app.items[2].title, "Settings…")
         XCTAssertEqual(app.items[2].keyEquivalent, ",")
-        XCTAssertEqual(go.items.map(\.title), ["Back", "Home"])
-        XCTAssertEqual(go.items[1].state, .on)
+        // The app's own ⌘[ Back stands in for the host's (LLP 1115.000 D5.1),
+        // which keeps its place, hidden and without the chord.
+        let shown = { go.items.filter { !$0.isHidden } }
+        XCTAssertEqual(shown().map(\.title), ["Back", "Home"])
+        XCTAssertTrue(shown()[0].target is ShortcutHost)
+        XCTAssertEqual(go.items.filter { $0.target is GoMenuTarget }.map(\.keyEquivalent), [""])
+        XCTAssertEqual(shown()[1].state, .on)
         XCTAssertFalse(file.items.contains { $0.keyEquivalent == "," || $0.keyEquivalent == "[" })
         XCTAssertNotNil(app.items.first { $0.action == #selector(NSApplication.hideOtherApplications(_:)) })
         XCTAssertNotNil(bar.items.first { $0.submenu?.title == "Window" })
@@ -654,7 +680,7 @@ final class MacShortcutTests: XCTestCase {
         home.props["inert"] = "true"
         presenter.shortcuts.sync()
         XCTAssertFalse(new.isEnabled)
-        XCTAssertFalse(go.items[1].isEnabled)
+        XCTAssertFalse(shown()[1].isEnabled)
         compose.removeFromSuperview()
         presenter.views.removeValue(forKey: compose.id)
         presenter.shortcuts.sync()
@@ -780,6 +806,45 @@ final class MacShortcutTests: XCTestCase {
         let field = NSTextView()
         XCTAssertTrue(field.responds(to: #selector(NSResponder.uppercaseWord(_:))))
         XCTAssertTrue(field.responds(to: #selector(NSTextView.toggleAutomaticQuoteSubstitution(_:))))
+    }
+
+    /// LLP 1115.000 D7.8: a release build has no Develop menu, and so takes
+    /// none of its chords (Reload ⌘R, Open Project… ⌘O, App Info… ⌘D, Save
+    /// Trace ⌥⌘T); a development build's bar is as it was.
+    func testOnlyADevelopmentBuildsBarHasDevelopAndItsChords() {
+        let presenter = Presenter()
+        let window = window(presenter)
+        defer { window.close() }
+        let previous = (NSApp.servicesMenu, NSApp.windowsMenu, NSApp.helpMenu)
+        defer { NSApp.servicesMenu = previous.0; NSApp.windowsMenu = previous.1; NSApp.helpMenu = previous.2 }
+        let titles = { (bar: NSMenu) in Array(bar.items.compactMap { $0.submenu?.title }.dropFirst()) }
+        func items(_ menu: NSMenu) -> [NSMenuItem] { menu.items.flatMap { [$0] + ($0.submenu.map(items) ?? []) } }
+        let shipped = DevMenu.makeMenu(shortcuts: presenter.shortcuts, documents: false, develop: false)
+        XCTAssertEqual(titles(shipped), ["File", "Edit", "View", "Go", "Window", "Help"])
+        XCTAssertFalse(items(shipped).contains { $0.target === DevMenu.target }, "no development command is in a shipped bar")
+        for key in ["r", "o", "d", "t"] {
+            XCTAssertFalse(items(shipped).contains { $0.keyEquivalent == key && $0.keyEquivalentModifierMask.contains(.command) }, "⌘\(key) is not taken")
+        }
+        let development = DevMenu.makeMenu(shortcuts: presenter.shortcuts, documents: false, develop: true)
+        XCTAssertEqual(titles(development), ["File", "Edit", "View", "Go", "Window", "Develop", "Help"])
+        let develop = development.items.first { $0.submenu?.title == "Develop" }!.submenu!
+        XCTAssertEqual(develop.items.map(\.title), ["Reload", "Open Project…", "App Info…", "Save Trace"])
+        XCTAssertEqual(develop.items.map(\.keyEquivalent), ["r", "o", "d", "t"])
+        XCTAssertEqual(develop.items.map(\.keyEquivalentModifierMask), [.command, .command, .command, [.command, .option]])
+        // Which build is which: production trust, or `build.mjs`'s stamp of a
+        // production or distributed build (`exact release`); an unstamped
+        // host, as this test's, is a development one. The environment
+        // overrides either.
+        XCTAssertTrue(DevMenu.develops(kind: "debug", production: false, override: nil))
+        XCTAssertTrue(DevMenu.develops(kind: nil, production: false, override: nil))
+        for kind in ["release", "archive"] {
+            XCTAssertFalse(DevMenu.develops(kind: kind, production: false, override: nil), "\(kind): a shipped app has no Develop menu")
+        }
+        XCTAssertFalse(DevMenu.develops(kind: "debug", production: true, override: nil))
+        XCTAssertFalse(DevMenu.develops(kind: nil, production: true, override: nil))
+        XCTAssertTrue(DevMenu.develops(kind: "release", production: true, override: "1"))
+        XCTAssertFalse(DevMenu.develops(kind: "debug", production: false, override: "0"))
+        XCTAssertEqual(DevMenu.enabled, ExactEnv.environment["EXACT_DEV_MENU"] != "0", "the tests' host is a development build")
     }
 
     func testShortcutsRespectDisabledInertHiddenRepeatedAndWindowOwnership() {

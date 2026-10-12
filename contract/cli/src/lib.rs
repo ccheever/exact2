@@ -1337,7 +1337,7 @@ fn lint<D: DataSource>(runner: &mut Runner<D>, answered: bool) -> Result<(), Bak
             continue;
         };
         let test_id = node.props.iter().find_map(|(id, v)| match v {
-            PropValue::Str(s) if id.name() == "testId" => Some(s.clone()),
+            PropValue::Str(s) if id.name() == "testId" => Some(s.to_string()),
             _ => None,
         });
         let at = match &test_id {

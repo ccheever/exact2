@@ -4,6 +4,8 @@ import XCTest
 @testable import ExactKit
 
 final class AccessibilityTests: XCTestCase {
+    /// These cases walk Tab through buttons: Keyboard Navigation on (LLP 1115.000 D7.2).
+    override func setUp() { super.setUp(); keyboardNavigation(true) }
     private func fixture() -> (Presenter, NSWindow, NodeView, NodeView) {
         _ = NSApplication.shared
         let p = Presenter()

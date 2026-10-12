@@ -278,6 +278,47 @@ impl Cache {
     }
 }
 
+/// EXACT PATCH 30: tree-owned cache storage, allocated after a result is cached. Inline
+/// text runs have engine nodes but their paragraph is the measured box, so
+/// they never need the nine-entry layout cache. Keep an allocated cache when
+/// cleared: active boxes reuse it across edits without another allocation.
+#[cfg(feature = "taffy_tree")]
+#[derive(Debug, Clone, PartialEq, Default)]
+pub(crate) struct LazyCache(Option<std::boxed::Box<Cache>>);
+
+#[cfg(feature = "taffy_tree")]
+impl LazyCache {
+    pub const fn new() -> Self {
+        Self(None)
+    }
+
+    #[inline]
+    pub fn get(&mut self, input: &LayoutInput) -> Option<LayoutOutput> {
+        self.0.as_deref_mut().and_then(|cache| cache.get(input))
+    }
+
+    pub fn store(&mut self, input: &LayoutInput, output: LayoutOutput) {
+        if let Some(cache) = self.0.as_deref_mut() {
+            cache.store(input, output);
+        } else {
+            let mut cache = Cache::new();
+            cache.store(input, output);
+            if !cache.is_empty {
+                self.0 = Some(std::boxed::Box::new(cache));
+            }
+        }
+    }
+
+    #[inline]
+    pub fn clear(&mut self) -> ClearState {
+        self.0.as_deref_mut().map_or(ClearState::AlreadyEmpty, Cache::clear)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.as_deref().map_or(true, Cache::is_empty)
+    }
+}
+
 /// Clear operation outcome. See [`Cache::clear`]
 pub enum ClearState {
     /// Cleared some values
@@ -307,6 +348,56 @@ mod tests {
 
     fn output(width: f32) -> LayoutOutput {
         LayoutOutput::from_outer_size(Size { width, height: width })
+    }
+
+    #[cfg(feature = "taffy_tree")]
+    #[test]
+    fn lazy_storage_preserves_cache_answers_and_clear_state() {
+        let mut lazy = LazyCache::new();
+        let mut eager = Cache::new();
+        let mut seen = Vec::new();
+        for i in 0..240 {
+            let mut request = input((i % 17) as f32);
+            request.run_mode = [RunMode::PerformHiddenLayout, RunMode::ComputeSize, RunMode::PerformLayout][i % 3];
+            request.axis = [RequestedAxis::Both, RequestedAxis::Vertical, RequestedAxis::Horizontal][(i / 3) % 3];
+            request.sizing_mode = if i % 2 == 0 { SizingMode::InherentSize } else { SizingMode::ContentSize };
+            request.parent_size.height = (i % 5 != 0).then_some((i % 7) as f32);
+            request.known_dimensions_are_definite.width = i % 4 == 0;
+            request.vertical_margins_are_collapsible.start = i % 2 == 0;
+            let mut result = output(i as f32);
+            if i % 7 == 0 { result.top_margin = CollapsibleMarginSet::from_margin(10.0); }
+            if i % 11 == 0 { result.margins_can_collapse_through = true; }
+            assert_eq!(lazy.get(&request), eager.get(&request));
+            lazy.store(&request, result);
+            eager.store(&request, result);
+            seen.push(request);
+            for request in seen.iter().rev().take(19) { assert_eq!(lazy.get(request), eager.get(request)); }
+            assert_eq!(lazy.is_empty(), eager.is_empty());
+            if i % 31 == 0 {
+                assert_eq!(matches!(lazy.clear(), ClearState::Cleared), matches!(eager.clear(), ClearState::Cleared));
+            }
+        }
+    }
+
+    #[cfg(feature = "taffy_tree")]
+    #[test]
+    fn lazy_storage_allocates_only_for_a_cached_result_and_reuses_it() {
+        let mut cache = LazyCache::new();
+        assert!(matches!(cache.clear(), ClearState::AlreadyEmpty));
+        assert!(cache.get(&input(10.0)).is_none());
+        cache.store(&LayoutInput { run_mode: RunMode::PerformHiddenLayout, ..input(10.0) }, output(10.0));
+        let mut carried = output(10.0);
+        carried.top_margin = CollapsibleMarginSet::from_margin(3.0);
+        cache.store(&input(10.0), carried);
+        assert!(cache.0.is_none());
+        cache.store(&input(10.0), output(10.0));
+        let allocation = cache.0.as_deref().unwrap() as *const Cache;
+        let mut cloned = cache.clone();
+        assert!(matches!(cache.clear(), ClearState::Cleared));
+        assert_eq!(cloned.get(&input(10.0)), Some(output(10.0)));
+        assert!(cache.get(&input(10.0)).is_none());
+        cache.store(&input(11.0), output(11.0));
+        assert_eq!(allocation, cache.0.as_deref().unwrap() as *const Cache);
     }
 
     #[test]

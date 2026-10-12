@@ -148,6 +148,22 @@ fn terminate_from_signal(signal: i32) -> ! {
     }
 }
 
+/// A resize wakes the same socket as data arrivals. Its signal action owns
+/// a separate descriptor and does only an async-signal-safe, nonblocking write.
+struct ResizeWake(signal_hook::SigId);
+
+impl ResizeWake {
+    fn new(wake: UnixStream) -> std::io::Result<Self> {
+        signal_hook::low_level::pipe::register(signal_hook::consts::SIGWINCH, wake).map(Self)
+    }
+}
+
+impl Drop for ResizeWake {
+    fn drop(&mut self) {
+        signal_hook::low_level::unregister(self.0);
+    }
+}
+
 /// Alternate screen, SGR mouse with drags, bracketed paste, kitty keyboard
 /// disambiguation (LLP 1101 D6).
 const ENTER_FULL: &str = "\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?1002h\x1b[?1006h\x1b[?2004h\x1b[>1u";
@@ -551,13 +567,23 @@ impl Inline {
 
     /// The record to publish once this frame's bytes are out, when what is
     /// printed changed since the last one (LLP 1101.002 §0 P5).
-    pub(crate) fn printed(&mut self, mode: Mode) -> Option<String> {
+    pub(crate) fn printed(
+        &mut self,
+        mode: Mode,
+        colors: crate::color::ColorDepth,
+    ) -> Option<String> {
         let now = (self.logs, self.through.clone());
         if now == self.published {
             return None;
         }
         self.published = now;
-        Some(record(mode, self.protocol, self.logs, &self.through))
+        Some(record(
+            mode,
+            self.protocol,
+            colors,
+            self.logs,
+            &self.through,
+        ))
     }
 
     /// Position queries asked and not yet answered.
@@ -629,8 +655,11 @@ impl Inline {
             fresh = true;
             out.push_str("\x1b[J");
             let (from, to) = (bottom_of(lead), bottom_of(settled));
-            if to > from {
-                let painted = host.render_settled(from, to - from);
+            // Scrollback can arrive in a single large burst. Rasterize it
+            // in bounded strips instead of allocating a cell for every
+            // column of the entire transcript before writing any of it.
+            for top in (from..to).step_by(128) {
+                let painted = host.render_settled(top, (to - top).min(128));
                 self.print_rows(&painted, &host.images, out);
             }
             self.printed
@@ -728,7 +757,10 @@ impl Inline {
             out.push_str(&painted.grid.row_sgr(y));
             if self.protocol != Protocol::Blocks {
                 for (id, r) in &painted.images {
-                    if r.y + r.h - 1 == y as i32 && r.y >= 0 && r.h > 0 {
+                    // An image may begin in an earlier strip. Its last
+                    // row emits the protocol image over the rows already
+                    // printed, exactly once.
+                    if r.y + r.h - 1 == y as i32 && r.h > 0 {
                         if let Some(image) = images.of(*id) {
                             let bytes =
                                 protocol_bytes(self.protocol, image, r.w as usize, r.h as usize);
@@ -775,7 +807,13 @@ fn json_string(s: &str) -> String {
 /// The terminal's record for the app, `exactSurface("terminal")`: `log`
 /// counts the logs seen (a new one is a new transcript), and `printed` is
 /// the `id` of that log's last child written to scrollback.
-pub(crate) fn record(mode: Mode, images: Protocol, log: u64, printed: &str) -> String {
+pub(crate) fn record(
+    mode: Mode,
+    images: Protocol,
+    colors: crate::color::ColorDepth,
+    log: u64,
+    printed: &str,
+) -> String {
     let mode = if mode == Mode::Inline {
         "inline"
     } else {
@@ -787,8 +825,9 @@ pub(crate) fn record(mode: Mode, images: Protocol, log: u64, printed: &str) -> S
         Protocol::Blocks => "blocks",
     };
     let printed = json_string(printed);
+    let colors = colors as u8;
     format!(
-        "{{\"mode\":\"{mode}\",\"images\":\"{images}\",\"colors\":24,\"log\":{log},\"printed\":\"{printed}\"}}"
+        "{{\"mode\":\"{mode}\",\"images\":\"{images}\",\"colors\":{colors},\"log\":{log},\"printed\":\"{printed}\"}}"
     )
 }
 
@@ -812,6 +851,7 @@ fn open_outbound<D: DataSource>(host: &mut Host<D>) {
 
 /// Run the host in this terminal until the app or the user quits.
 pub fn run<D: DataSource>(host: &mut Host<D>) -> std::io::Result<()> {
+    host.set_colors(host.colors.unwrap_or_else(crate::color::ColorDepth::detect));
     let stdin = rustix::stdio::stdin();
     let saved = tcgetattr(stdin)?;
     let signals = Signals::install()?;
@@ -853,6 +893,7 @@ fn run_raw<D: DataSource>(host: &mut Host<D>, signal_rx: &UnixStream) -> std::io
     let (mut wake_rx, wake_tx) = UnixStream::pair()?;
     wake_rx.set_nonblocking(true)?;
     wake_tx.set_nonblocking(true)?;
+    let _resize_wake = ResizeWake::new(wake_tx.try_clone()?)?;
     let wake_tx = Arc::new(Mutex::new(wake_tx));
     host.listen(Arc::new(move || {
         if let Ok(mut w) = wake_tx.lock() {
@@ -867,7 +908,7 @@ fn run_raw<D: DataSource>(host: &mut Host<D>, signal_rx: &UnixStream) -> std::io
     let mut shown: Option<crate::grid::Grid> = None;
     let mut inline = Inline::new(Protocol::detect());
     let mut buf = [0u8; 8192];
-    host.publish(&record(mode, inline.protocol, 0, ""));
+    host.publish(&record(mode, inline.protocol, host.colors(), 0, ""));
     loop {
         if SIGNAL.load(Ordering::SeqCst) != 0 {
             return Ok(());
@@ -904,7 +945,7 @@ fn run_raw<D: DataSource>(host: &mut Host<D>, signal_rx: &UnixStream) -> std::io
         // Tell the app what is in scrollback now that the bytes are out,
         // so it can let go (LLP 1101.001 P1; 1101.002 §0 P5).
         if mode == Mode::Inline {
-            if let Some(r) = inline.printed(mode) {
+            if let Some(r) = inline.printed(mode, host.colors()) {
                 host.publish(&r);
             }
         }
@@ -955,7 +996,11 @@ fn run_raw<D: DataSource>(host: &mut Host<D>, signal_rx: &UnixStream) -> std::io
         if !input_ready {
             continue;
         }
-        let n = rustix::io::read(stdin, &mut buf)?;
+        let n = match rustix::io::read(stdin, &mut buf) {
+            Ok(n) => n,
+            Err(rustix::io::Errno::INTR) => continue,
+            Err(error) => return Err(error.into()),
+        };
         if n == 0 {
             return Ok(());
         }
@@ -987,6 +1032,84 @@ fn run_raw<D: DataSource>(host: &mut Host<D>, signal_rx: &UnixStream) -> std::io
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resize_registration_wakes_and_releases_only_its_socket_writer() {
+        let (mut rx, mut tx) = UnixStream::pair().unwrap();
+        rx.set_nonblocking(true).unwrap();
+        let registration = ResizeWake::new(tx.try_clone().unwrap()).unwrap();
+        let mut bytes = [0; 8];
+        signal_hook::low_level::raise(signal_hook::consts::SIGWINCH).unwrap();
+        assert_eq!(rx.read(&mut bytes).unwrap(), 1);
+        drop(registration);
+        signal_hook::low_level::raise(signal_hook::consts::SIGWINCH).unwrap();
+        assert_eq!(
+            rx.read(&mut bytes).unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+        // Unregistering a resize must not close the data module's writer.
+        tx.write_all(b"data").unwrap();
+        assert_eq!(rx.read(&mut bytes).unwrap(), 4);
+        assert_eq!(&bytes[..4], b"data");
+    }
+
+    #[test]
+    fn protocol_images_cross_paint_strips_without_being_dropped_or_repeated() {
+        let path =
+            std::env::temp_dir().join(format!("terminal-strip-image-{}.png", std::process::id()));
+        let file = std::fs::File::create(&path).unwrap();
+        let mut encoder = png::Encoder::new(file, 1, 1);
+        encoder.set_color(png::ColorType::Rgb);
+        encoder.set_depth(png::BitDepth::Eight);
+        encoder
+            .write_header()
+            .unwrap()
+            .write_image_data(&[20, 40, 60])
+            .unwrap();
+        let source = format!(
+            "component App\n  view\n    column\n      text \"before\"\n      image \"{}\" width=\"2ch\" height=\"260lh\"\n      text \"after\"\n",
+            path.display()
+        );
+        let plan = contract::compile_terminal(&source).unwrap();
+        let mut host = Host::boot(plan, (), Mode::Inline, 20, 12).unwrap();
+        for protocol in [Protocol::Kitty, Protocol::Iterm] {
+            let writer = Inline::new(protocol);
+            let mut whole = String::new();
+            writer.print_rows(
+                &host.render_settled(0, host.document_rows()),
+                &host.images,
+                &mut whole,
+            );
+            let mut strips = String::new();
+            for top in (0..host.document_rows()).step_by(128) {
+                writer.print_rows(
+                    &host.render_settled(top, (host.document_rows() - top).min(128)),
+                    &host.images,
+                    &mut strips,
+                );
+            }
+            assert_eq!(strips, whole);
+            let command = match protocol {
+                Protocol::Kitty => "a=T",
+                _ => "1337;File=",
+            };
+            assert_eq!(strips.matches(command).count(), 1);
+        }
+        host.set_colors(crate::color::ColorDepth::Monochrome);
+        for protocol in [Protocol::Blocks, Protocol::Kitty, Protocol::Iterm] {
+            let writer = Inline::new(protocol);
+            let painted = host.render_settled(0, host.document_rows());
+            assert!(painted.images.is_empty());
+            // The fixture is only two columns wide, so its alternate text
+            // is clipped to the same image box.
+            assert!(painted.grid.text().contains("[i"));
+            let mut out = String::new();
+            writer.print_rows(&painted, &host.images, &mut out);
+            assert!(!out.contains("a=T") && !out.contains("1337;File="));
+            assert!(!out.contains("38;") && !out.contains("48;"));
+        }
+        std::fs::remove_file(path).unwrap();
+    }
 
     fn keys(bytes: &[u8]) -> Vec<Input> {
         decode(&mut Parser::new(), &mut Decoder::default(), bytes)

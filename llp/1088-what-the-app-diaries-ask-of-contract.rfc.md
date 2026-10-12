@@ -847,10 +847,11 @@ pass that cannot loop instead.
   `replaceItems(sourceItems)` repros). `state other = items` after a typed
   write is still `type-cannot-infer`, without a `?`. `derive d = some(d)`
   and `press=a(a, a)` are refused as before (tests in `instance.rs`).
-- **D7.1** as specified, `contract/analyze/src/payload.rs`, shared by
-  analysis and lowering. Payloads without a DOM property are named as the
-  in-repo apps name them (`scrollLeft, scrollTop`, `dx, dy`, `vx, vy`,
-  `height, velocity`, `item, before`).
+- **D7.1** as specified, `contract/types/src/payload.rs`, shared by
+  analysis and lowering, and by the type checker for an action a miscount
+  leaves untyped, which analysis never reaches (#478). Payloads without a
+  DOM property are named as the in-repo apps name them (`scrollLeft,
+  scrollTop`, `dx, dy`, `vx, vy`, `height, velocity`, `item, before`).
 - **D7.2** as specified, plus `hook` on a module tag keeping its own
   refusal (`lower-hook-module`). No in-repo or x2apps module tag changed.
 - **D7.4** as specified. Until stage 3, `replace(s, a, b)` points to

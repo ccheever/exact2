@@ -5,16 +5,24 @@ On iOS each route's `header` is its navigation bar, a pushed route gets the syst
 button and edge swipe, a sheet swipes down, and the alert is `UIAlertController`. On the
 web the browser's Back pops the stack, a reload keeps the place and each screen has a
 link. A second screen is always a route: screens swapped by a `when` over a state get
-none of that, and warn (`lower-screen-by-state`). The contract blocks below are one app;
-each route block fills its `when` in the first.
+none of that, and warn (`lower-screen-by-state`). On the
+Mac a pushed route gets Go ▸ Back (⌘[), a back chevron in the window's toolbar and the
+trackpad's swipe back; each presses a Back control the route declares, as iOS's do; the
+chevron stays in the toolbar, disabled, at the stack's root, so the title bar does not
+change height as routes come and go; the alert is `NSAlert`, a sheet on the window. The
+contract blocks below are one app; each route block fills its `when` in the first.
 
 A `header` is the bar when it is the route's first child and holds exactly one heading
 (`text role="heading"`): the heading is the title (large at `aria-level=1`), buttons
 before it lead and after it trail, the first text after it is the subtitle, and the rest
-of the header is hidden. With no heading or two the route has no bar, no title and no
-Back button, and the header draws in the page; a stack has bars only when its first
-route's header is one. `contract vocab header` states it whole, and the compiler warns
-(`lower-header-no-bar`, `lower-header-unplaced`). The bar's title names the screen: a
+of the header is hidden. With no heading or two the header is no bar and draws in the
+page. Each route's bar is its own: a stack whose first route has none still shows a
+later route's, and a pushed route with no bar of its own (no header, or one that is no
+bar) gets a bar holding the system Back button alone. A full-bleed screen that draws
+its own way back says `navigationBar="none"` on its route: no bar, and the edge swipe
+still goes back. `contract vocab header` states it whole, and the compiler warns
+(`lower-header-no-bar`, `lower-header-unplaced`, and `lower-back-twice` for a Back
+control drawn under the bar's). The bar's title names the screen: a
 heading at the top of the content that says it again shows it twice (`lower-title-twice`).
 
 <!-- check: app -->

@@ -156,6 +156,7 @@ fn fixture_plan(root: &str, nodes: &str) -> Plan {
                     kind: BindingKind::Style,
                     id: row as u16,
                     expr: builder.constant(&value),
+                    written: true,
                 }
             })
             .collect();
@@ -163,6 +164,7 @@ fn fixture_plan(root: &str, nodes: &str) -> Plan {
             kind: BindingKind::Prop,
             id: PropId::TestId as u16,
             expr: builder.constant(&Value::str(&format!("n{id}"))),
+            written: true,
         });
         let node = builder.node(
             NodeType::View as u8,
@@ -627,6 +629,7 @@ fn bound_transition_stacking_matches_kernel() {
             kind: BindingKind::Style,
             id: StyleId::Transition as u16,
             expr: Default::default(),
+            written: true,
         },
     )
     .unwrap();
@@ -661,7 +664,7 @@ fn bound_transition_stacking_matches_kernel() {
         let mut style = exact_kernel::StyleProps::default();
         let _ = style.set_dynamic(
             StyleId::Transition,
-            &exact_kernel::StyleValue::Text(value.clone()),
+            &exact_kernel::StyleValue::Text(value.as_str().into()),
         );
         let own = exact_kernel::paint_order::own_from(exact_kernel::paint_order::Facts {
             style: &style,

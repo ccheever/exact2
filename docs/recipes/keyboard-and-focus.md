@@ -78,14 +78,25 @@ test "Return in the add field adds and keeps typing"
 - **Return** is the field's `submit`; `enterkeyhint` labels the key. On iOS `done`,
   `go`, `search` and `send` also put the keyboard away, and `next` moves to the next
   field (at the last, puts it away). No hint keeps the keyboard up, for typing several
-  in a row, as the add field does.
+  in a row, as the add field does. On the Mac Return also ends the editing as a text
+  field's does: the field keeps the focus with its text selected, unless the action
+  moved it. There Space presses the focused control, and Return a `dialog`'s default
+  button: its one `buttonStyle="filled"` button that is not `destructive`, when there
+  is exactly one (a field with `submit` takes Return itself; one without passes it on).
 - **`blur()`** puts the keyboard away from an action on every host (the web keeps the
   focus on Enter): call it where the typing is finished, as `searched` does.
   `blur("search")` takes the focus from that field only.
 - **`focus("id")`** moves the focus to a field by its `id`, from an action; a sheet's
-  first field takes `autofocus=true` instead.
+  first field takes `autofocus=true` instead. On the Mac a new window opens with the
+  caret in its first text field, as AppKit's windows do (its `focus=` runs then);
+  `autofocus=true` on another control starts there instead.
 - **`focus=` and `blur=`** on a field say when it is being edited. Keep Cancel while
-  there is a query too: on the web, pressing it blurs the field first.
+  there is a query too: on the web, pressing it blurs the field first. On the Mac a
+  click on a button leaves the focus in the field, as AppKit's buttons do, so say
+  `blur()` or `focus("id")` in the action when the press should move it.
+- **Tab** moves between the fields. On the Mac it reaches the buttons too only where the
+  person has turned Keyboard navigation on in System Settings, as in every Mac app; a
+  `tabindex=0` you write makes a control a stop whatever the setting.
 - **On scroll:** `keyboardDismissMode="interactive"` on the `list` or `scroll` lets a drag
   pull the keyboard down, as Messages does; `"on-drag"` puts it away as the drag starts;
   without it the keyboard stays, as UIKit's default. A composer that rides above the

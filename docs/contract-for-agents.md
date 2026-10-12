@@ -1095,6 +1095,8 @@ lists any literal colour, font size or weight an app's `.contract` files still w
 | `role="tablist"`: each tab a symbol over a label / one text or image | `UITabBar` / `UISegmentedControl`, the tablist at least its native height unless `min-height` says otherwise (LLP 1059) |
 | `role="radiogroup"` of `button role="radio" aria-checked=…`, each one text or image (a value chosen from a few) | `UISegmentedControl`, as a tablist's; never a tab bar (LLP 1116.004 D5.2) |
 | a route whose first child is a `header` holding one heading, a text after it and its buttons | the navigation bar; a level-1 heading (`aria-level=1`) is a large title, the text after it the subtitle |
+| a pushed route with no such `header` | a bar holding the system Back button alone (LLP 1115.000 D5.2) |
+| a route with `navigationBar="none"` | no navigation bar: a full-bleed screen that draws its own way back; the edge swipe still goes back |
 | a route with `navigationPresentation="modal"` | a sheet |
 
 `contract vocab <name>` lists each one's props. A route does not scroll by
@@ -1710,7 +1712,9 @@ dialog id="remove" role="alertdialog" aria-label="Remove book?"
 ```
 
 iOS shows the centred alert, its Cancel kept; the web its modal `dialog`;
-macOS its painted dialog. Text, a cancel and at most three buttons make an
+macOS `NSAlert`, a sheet on the window, its Cancel on Escape and Return on the
+one `buttonStyle="filled"` button that is not destructive, when there is exactly
+one (LLP 1115.000 D7.6). Text, a cancel and at most three buttons make an
 alert; several actions with no text (an "Open in…" chooser) make an action
 sheet, unanchored on an iPhone (its Cancel drawn) when it has a Cancel and a popover
 at its invoker when it has none, so a tap outside can dismiss it (LLP 1115 D6).
@@ -1804,6 +1808,39 @@ P1; `apps/harness/terminal.contract` shows the task). Declare its shape
 other host it stays unloaded. A new host fact uses this channel before
 anyone proposes a new reserved source (LLP 1101.002 §0 P11).
 
+The terminal's `colors` is the selected output bit depth: `0` (monochrome),
+`4` (16 ANSI colours), `8` (256 colours), or `24` (RGB). The host reduces
+authored colours to that palette; at zero it emits no foreground/background
+colour codes, while preserving bold, underline, italic and reverse-video
+focus. Images use alternate text in monochrome. Authors can choose different
+content, symbols or emphasis rather than relying on colour alone:
+
+```contract
+shape Terminal
+  colors: number
+component App
+  resource terminal = exactSurface("terminal") as shape Terminal
+  view
+    column
+      when terminal.colors == 0
+        text "! Attention required" font-weight=700
+      else
+        text "Attention required" color="#d78700"
+```
+
+Interactive and headless CLI runs detect the palette from `TERM` and
+`COLORTERM`. Nonempty `NO_COLOR` disables colour (including `NO_COLOR=0`);
+empty `NO_COLOR` does not. `TERM=dumb`, `unknown`, an absent terminal type
+without a colour hint, and unrecognized terminal types fall back to monochrome.
+This is conservative environment detection, not a terminal capability query.
+Use `--color auto|never|16|256|truecolor` on any terminal app or `exact-terminal`
+to override it (`always` means `truecolor`; `--color=never` also works).
+An explicit choice overrides `NO_COLOR`. Plain `print`/`document` output is
+always text; the selected palette also applies to `.ans` screenshots. A Rust
+embedder may call `Host::set_colors(ColorDepth::Monochrome)` before starting
+the loop or emulator; direct painting and `Vt` otherwise default to RGB for
+deterministic tests.
+
 A `text` inside a paragraph can carry `press=` (a `span`'s `onclick`) and
 `href=` (an `a`). In the terminal a click on the run runs its
 handler; without one (and on every host for `href`) it follows the link: a path naming one of the app's routes is `navigate` on the
@@ -1826,7 +1863,7 @@ agent operations below for Exact's native tree. Production builds
 (`EXACT_UPDATE_TRUST=production`), `exact release`, and IPA archives leave
 web-view inspection disabled.
 
-An Apple build's dev menu (a four-finger tap, or ⌘D on a hardware keyboard or a simulator's; on a Mac, Develop › App Info…, ⌘D) opens with the
+An Apple build's dev menu (a four-finger tap, or ⌘D on a hardware keyboard or a simulator's; on a Mac, Develop › App Info…, ⌘D, in a development build: a Mac build with production trust, `EXACT_UPDATE_TRUST=production`, or made by `exact release` has no Develop menu and takes none of its chords unless it is launched with `EXACT_DEV_MENU=1`) opens with the
 build it is in: the app and version, when, where and with which Xcode it was
 built, the exact2 commit and the app's own (with branch and a dirty flag), the
 build kind, the device, and the app's release notes. `host/apple/build.mjs`
@@ -1937,7 +1974,9 @@ text is the rest of the op's words, joined by one space, quotes included:
 `"type new-task buy milk"`;
 in a test file each value is one quoted string, a checkbox's `"true"` too); `change` comes as a
 person's would, when the field commits (`type <id> key Enter` on a field, or the
-focus leaving it), so an edit saved on `change` needs one of those. A CLI drive's
+focus leaving it), so an edit saved on `change` needs one of those (on macOS a
+`tap` on a button leaves the focus in the field, and commits the field's `change`
+before the button's `press` runs). A CLI drive's
 input does not wait for a request its action sends; `clock data` lands it.
 `tap <target> drag <dx> <dy> … during "<op>" …` runs the quoted reads after the
 move, with the finger still down, before the hold. Under `--touch platform` the

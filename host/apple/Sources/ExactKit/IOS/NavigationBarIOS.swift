@@ -1,14 +1,19 @@
-// @ref LLP 1075.003 §3.5, §3.7 — Exact's navigation bar on iOS, one per
-// stack and fixed (titles that do not collapse): the header-shaped route's
-// projection, the content area the bar leaves (`HostCover`), the delegate
-// slot Exact keeps and forwards, the authored elements a hatch acts on, and
-// the development check of what Exact owns. When the hatches run is
-// NavigationIOS.swift's; the module side is ExactNativeModule.swift.
+// @ref LLP 1075.003 §3.5, §3.7 — Exact's navigation bar on iOS: the
+// header-shaped route's projection, the content area the bar leaves
+// (`HostCover`), the delegate slot Exact keeps and forwards, the authored
+// elements a hatch acts on, and the development check of what Exact owns.
+// When the hatches run is NavigationIOS.swift's; the module side is
+// ExactNativeModule.swift.
+// @ref LLP 1115.000 D5.3 — whether the bar shows is each route's, never
+// decided once for its stack (`routeShowsBar`, NavigationTitleIOS.swift).
 #if os(iOS) || os(tvOS)
 import UIKit
 
-/// What a route's bar item is projected from. A change projects it again.
+/// What a route's bar item is projected from: what it shows of the bar
+/// (its header, the system Back alone, nothing) and that header's parts. A
+/// change projects it again.
 struct BarSource: Equatable {
+    let bar: NavigationRules.Bar
     let header: UInt32?, title: String, level: Int, leading: [String], trailing: [String], group: String, canGoBack: Bool
 }
 
@@ -41,9 +46,9 @@ struct HeaderShape: Equatable {
         /// as LLP 1069.011.000 D2 maps `NSToolbarItem`.
         let prominent: Bool
         /// The colour the author gave the item's face, light and dark: a
-        /// symbol's tint, else a `color` set on the button itself. Nil
-        /// (UIKit's tint, the platform default) for an inherited or
-        /// platform colour.
+        /// symbol's tint, else a `color` written on the button itself. Nil
+        /// (UIKit's tint, the platform default) for a colour the button
+        /// only inherits or the compiler implied.
         let tint: [[Double]]?
         init(_ button: NodeView) {
             var symbol: String?, text = "", ink: (NodeView, String)?
@@ -72,11 +77,12 @@ struct HeaderShape: Equatable {
             label = button.props["accessibilityLabel"] ?? face?.label
             disabled = button.disabled
             prominent = ["filled", "bordered-prominent", "prominent-glass", "prominent-clear-glass"].contains(face?.style ?? "")
-            // The platform's tint unless the button says otherwise: a
-            // symbol's own tint, or a `color` set on the button rather than
-            // inherited from the page (the same as the nearest node above).
-            let symbolTint = ink?.1 == "tint_color" ? ink?.0.style["tint_color"] : nil
-            let row = symbolTint.flatMap { $0.isSystemColor ? nil : $0 } ?? button.ownColor("text_color")
+            // The platform's tint unless the author said otherwise (LLP
+            // 1115.000 D2): a tint written on the symbol, else a `color`
+            // written on the button, a platform colour as much as a literal.
+            // One the button only inherits, or a sheet wrote, is unsaid.
+            let symbolTint = ink?.1 == "tint_color" ? ink?.0.ownColor("tint_color") : nil
+            let row = symbolTint ?? button.ownColor("text_color")
             if let row, let light = row.channels(dark: false), let dark = row.channels(dark: true) {
                 tint = [light, dark]
             } else {
@@ -362,8 +368,10 @@ final class BarPress: NSObject {
     @objc func press() { _ = host?.act(id, 0) }
 }
 
-/// One stack Exact built: its delegate, whether it shows the bar (LLP 1037
-/// F1: for its whole life), and what the development check last saw.
+/// One stack Exact built: its delegate, whether its routes may show the bar
+/// (they may unless the app's `navigation` hatch says no; which of them
+/// shows it is each route's, LLP 1115.000 D5.3), and what the development
+/// check last saw.
 final class NavigationStack {
     let proxy = NavigationDelegateProxy()
     var showsBar: Bool
@@ -379,9 +387,10 @@ final class NavigationStack {
 }
 
 extension NavigationHost {
-    /// Whether a stack's bar shows: the stack's choice, except under the
-    /// agent's own chrome, where the authored header paints (LLP 1075.003
-    /// §3.4).
+    /// Whether a stack's routes may show the bar: they may, unless the app's
+    /// hatch chose otherwise, and never under the agent's own chrome, where
+    /// the authored header paints (LLP 1075.003 §3.4). Whether one route
+    /// shows it is `routeShowsBar`.
     func barShows(_ nav: UINavigationController) -> Bool {
         !ExactEnv.authoredChrome && stacks[ObjectIdentifier(nav)]?.showsBar == true
     }
@@ -412,16 +421,18 @@ extension NavigationHost {
     }
 
     /// A navigation controller for a stack whose first route is `first`:
-    /// Exact's delegate, the bar's visibility from the plan, then the
-    /// `navigation` hatch (LLP 1075.003 Q3 (c)). Large titles are on, and each
-    /// route's item says whether its title is large, so a level-1 heading
-    /// pushed over an inline one is large; `prefersLargeTitles` is the app's
-    /// from the hatch on (§3.5).
+    /// Exact's delegate, the `navigation` hatch (LLP 1075.003 Q3 (c)), then
+    /// the bar as the first route has it. The stack's routes may show the
+    /// bar whatever its first route is (LLP 1115.000 D5.3: a stack that
+    /// opens on a route with no header still shows the bar for a later
+    /// route that has one). Large titles are on, and each route's item says
+    /// whether its title is large, so a level-1 heading pushed over an
+    /// inline one is large; `prefersLargeTitles` is the app's from the
+    /// hatch on (§3.5).
     func makeNavigation(first: NodeView?) -> UINavigationController {
         let nav = UINavigationController()
-        let shape = first.flatMap { HeaderShape(route: $0, back: container?.props["navigationBack"]) }
         stackCount += 1
-        let stack = NavigationStack(showsBar: shape != nil, order: stackCount)
+        let stack = NavigationStack(showsBar: true, order: stackCount)
         stack.proxy.host = self
         stacks[ObjectIdentifier(nav)] = stack
         nav.delegate = stack.proxy
@@ -432,7 +443,10 @@ extension NavigationHost {
             stack.showsBar = presenter.session?.natives.navigationHatch(nav, built: true, showsBar: stack.showsBar, label: stack.label) ?? stack.showsBar
             stack.hatched = true
         }
-        nav.setNavigationBarHidden(!barShows(nav), animated: false)
+        // Hidden for a first route that shows none, before UIKit shows it;
+        // `showBar` follows every route from `willShow` on.
+        let shows = barShows(nav) && first.map { bar(of: $0, pushed: false) != .hidden } ?? false
+        nav.setNavigationBarHidden(!shows, animated: false)
         return nav
     }
 
@@ -466,15 +480,22 @@ extension NavigationHost {
         #endif
         projectBack(routes, in: nav)
         followTablist(routes, in: nav)
+        let stackShows = barShows(nav)
+        let back = container?.props["navigationBack"]
         for (index, c) in routes.enumerated() {
-            let shows = barShows(nav)
-            let back = container?.props["navigationBack"]
-            // A route with no header, or a hidden one, has no bar (§9.10).
-            let shape = shows ? HeaderShape(route: c.node, back: back, backIsUIKits: index > 0).flatMap(HeaderShape.shown) : nil
+            // The bar is each route's (LLP 1115.000 D5.2, D5.3): its header,
+            // the system Back alone on a pushed route with none of its own
+            // (no header, a hidden one, one that is not a bar's), or no bar
+            // where the route says so or has nothing to go back to.
+            c.pushed = index > 0
+            let shape = stackShows ? HeaderShape.bar(of: c.node, back: back, backIsUIKits: index > 0) : nil
+            let bar = stackShows ? NavigationRules.bar(asked: c.node.props["navigationBar"], header: shape != nil, pushed: index > 0,
+                                                       backButton: Self.barHasBackButton) : .hidden
+            let shows = bar != .hidden
             let canGoBack = index > 0 && canInvokeBack
             let scroll = contentScroll(of: c)
             let dataset = c.node.props["dataset"]
-            let source = BarSource(header: shape?.header.id, title: shape?.title ?? "", level: shape?.level ?? 0, leading: shape?.leading.map(\.source) ?? [],
+            let source = BarSource(bar: bar, header: shape?.header.id, title: shape?.title ?? "", level: shape?.level ?? 0, leading: shape?.leading.map(\.source) ?? [],
                                    trailing: shape?.trailing.map(\.source) ?? [], group: shape?.group?.source ?? "", canGoBack: canGoBack)
             // The hatch runs again after anything Exact wrote to the item (the
             // Back control the route above gives it, too) and when the route
@@ -505,7 +526,10 @@ extension NavigationHost {
     }
 
     /// Write the defaults an authored header gives a navigation item, and
-    /// lift the header out of the route's layout while the bar shows it.
+    /// lift the header out of the route's layout while the bar shows it. A
+    /// route that shows the bar with no header of the bar's (`shape` nil)
+    /// is left UIKit's Back button alone: no title and no items, the
+    /// button's title read from the route beneath, as UIKit reads it.
     private func project(_ shape: HeaderShape?, into c: RouteController, canGoBack: Bool, shows: Bool) {
         let item = c.navigationItem
         if let lifted = c.lifted, lifted !== shape?.header {

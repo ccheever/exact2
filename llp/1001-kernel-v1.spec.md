@@ -37,6 +37,13 @@ The generator fails closed: a row it cannot validate is a build error. A second
 copy of any table anywhere is a defect — the TypeScript encoder, when it exists,
 reads the same file.
 
+Non-inherited effect rows marked `cold` in the schema share their initial
+values until written (`kernel/build/cold.rs`). A cloned style copies the
+shared pointer; a later write owns its copy. Layout and inherited rows stay
+inline. This reduces temporary style-patch memory in terminal animations;
+row values, masks, patch/clear behavior and encoded bytes are unchanged.
+The schema metadata changes its digest, so producers and hosts re-bake together.
+
 > **Amended by LLP 1115 (2026-10-09).** `rules/RULES.md` §Scope now reads "write the
 > web, ship the platform". **Layout defaults and names are still CSS's**, as every
 > example in the paragraph below is. A **presentation default** (a colour, a text
@@ -905,7 +912,10 @@ class by comparing the EXNODE export before and after.
 
 The closed op list (revision 1): `CreateView`, `DestroyView` (**subtree** — the
 WS-I correction, from day one), `SetProp`, `ClearProp`, `SetStyle` (a **masked
-patch**), `ClearStyle` (a mask), `SetChildren`, `AttachRoot`. There is no
+patch**: the mask of the rows it sets, the mask of those its author wrote, then
+each set row's value; the second mask since 2026-10-11, LLP 1115.000 D2, and a
+row marked written and not set is a typed rejection), `ClearStyle` (a mask),
+`SetChildren`, `AttachRoot`. There is no
 `ComputeLayout` op: layout is a host call (`Kernel::compute_layout`), because the
 host owns the frame clock. A root with `width: auto` fills the width it is
 offered — CSS's block rule, which Taffy does not apply to a root — and stays
@@ -970,6 +980,11 @@ in a vector. Adjacent duplicates collapse before sorting; publication removes
 remaining duplicates, destroyed generations and newly created nodes, in slot
 order. The retained vector releases excess scratch capacity. The same-batch
 reuse case is held by `tests/apply.rs::touched_receipt_is_unique_ordered_and_excludes_destroyed_or_created_generations`.
+The history stores adjacent, consecutive keys with the same generation as ranges
+when that takes less space; short or sparse lists stay raw. It preserves every
+key's order and generation and every receipt field. `Kernel::receipts()` decodes
+owned receipts on demand; live commits still return ordinary receipts directly.
+The ring's 64-batch retention and reset behavior are unchanged (`kernel/history.rs`).
 `compute_layout(root, offer)` runs Taffy over that root, publishes absolute frames,
 and returns a `LayoutReceipt` naming exactly the nodes whose frame bits changed —
 the changed-geometry receipt.

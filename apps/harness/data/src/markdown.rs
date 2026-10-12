@@ -12,11 +12,13 @@ pub const CODE: &str = "#e5c07b";
 /// A link's colour.
 pub const LINK: &str = "#61afef";
 
-fn runs(rs: &[markdown_parse::Run]) -> Vec<Run> {
-    let mut line = Line::default();
+fn runs(rs: Vec<markdown_parse::Run>) -> Vec<Run> {
+    let mut line = Line {
+        runs: Vec::with_capacity(rs.len()),
+    };
     for r in rs {
         let mut run = Run {
-            text: r.text.clone(),
+            text: r.text,
             bold: r.bold,
             italic: r.italic,
             ..Run::default()
@@ -27,7 +29,7 @@ fn runs(rs: &[markdown_parse::Run]) -> Vec<Run> {
         if !r.href.is_empty() {
             run.fg = LINK.into();
             run.under = true;
-            run.href = r.href.clone();
+            run.href = r.href;
         }
         line.push(run);
     }
@@ -36,10 +38,21 @@ fn runs(rs: &[markdown_parse::Run]) -> Vec<Run> {
 
 /// Render `source` as blocks.
 pub fn blocks(source: &str) -> Vec<Block> {
+    blocks_with(source, true)
+}
+
+/// Render an unfinished streaming tail, which will be rebuilt on the next token.
+pub(super) fn streaming_blocks(source: &str) -> Vec<Block> {
+    blocks_with(source, false)
+}
+
+fn blocks_with(source: &str, compact_code: bool) -> Vec<Block> {
     let doc = parse(source, &|href| href.to_string());
-    doc.blocks
-        .iter()
-        .map(|b| match b.kind {
+    // The parsed block vector can have spare capacity for much larger rows.
+    // Move its contents into exactly the number of transcript blocks needed.
+    let mut out = Vec::with_capacity(doc.blocks.len());
+    out.extend(doc.blocks.into_iter().map(|b| {
+        match b.kind {
             Kind::Heading => Block {
                 kind: match b.depth {
                     1 => "h1",
@@ -47,20 +60,28 @@ pub fn blocks(source: &str) -> Vec<Block> {
                     _ => "h3",
                 }
                 .into(),
-                runs: runs(&b.runs),
+                runs: runs(b.runs),
                 ..Block::default()
             },
-            Kind::Paragraph => Block::p(runs(&b.runs)),
-            Kind::Code => Block {
-                kind: "code".into(),
-                lang: b.href.clone(),
-                lines: highlight(&b.text, &b.href),
-                ..Block::default()
-            },
+            Kind::Paragraph => Block::p(runs(b.runs)),
+            Kind::Code => {
+                let mut lines = highlight(&b.text, &b.href);
+                if compact_code {
+                    for line in &mut lines {
+                        line.runs.shrink_to_fit();
+                    }
+                }
+                Block {
+                    kind: "code".into(),
+                    lines,
+                    lang: b.href,
+                    ..Block::default()
+                }
+            }
             Kind::Quote => Block {
                 kind: "quote".into(),
                 depth: b.depth.saturating_sub(1) as f64,
-                runs: runs(&b.runs),
+                runs: runs(b.runs),
                 ..Block::default()
             },
             Kind::Rule => Block {
@@ -70,14 +91,14 @@ pub fn blocks(source: &str) -> Vec<Block> {
             Kind::Item => Block {
                 kind: "li".into(),
                 depth: b.depth as f64,
-                marker: b.marker.clone(),
-                runs: runs(&b.runs),
+                marker: b.marker,
+                runs: runs(b.runs),
                 ..Block::default()
             },
             Kind::Image => Block::p(vec![Run::fg(format!("[image: {}]", b.text), LINK)]),
             Kind::TableRow => {
                 let mut out = Vec::new();
-                for (i, cell) in b.cells.iter().enumerate() {
+                for (i, cell) in b.cells.into_iter().enumerate() {
                     if i > 0 {
                         out.push(Run::dim(" │ "));
                     }
@@ -89,9 +110,10 @@ pub fn blocks(source: &str) -> Vec<Block> {
                 }
                 Block::p(out)
             }
-            Kind::Html => Block::p(vec![Run::plain(b.text.clone())]),
-        })
-        .collect()
+            Kind::Html => Block::p(vec![Run::plain(b.text)]),
+        }
+    }));
+    out
 }
 
 #[cfg(test)]

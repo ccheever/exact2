@@ -48,7 +48,7 @@ fn a_fn_is_a_pure_expression_over_its_parameters_expanded_where_called() {
         .props
         .iter()
         .find_map(|(id, v)| match v {
-            PropValue::Str(s) if id.name() == "text" => Some(s.clone()),
+            PropValue::Str(s) if id.name() == "text" => Some(s.to_string()),
             _ => None,
         });
     assert_eq!(text.as_deref(), Some("12"));

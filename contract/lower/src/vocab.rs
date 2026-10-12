@@ -58,8 +58,9 @@ pub const CONTEXTUAL: &[(&str, &str)] = &[
 /// the web: `contract vocab <tag>` prints it under the tag.
 pub const TAG_NOTES: &[(&str, &str)] = &[(
     "header",
-    // @ref LLP 1116.003 D2.2 — NavigationBarIOS.swift's `HeaderShape`.
-    "on iOS a route's `header` is its navigation bar when it is the route's first child, is shown, and holds exactly one heading (`text role=\"heading\"`, or a `text` with `aria-level`); a stack has a bar when its first route's header is one. The heading is the title, large at `aria-level=1`, else inline; buttons that press or open a popover are the bar's items, leading before the heading and trailing after it; the first text after the heading is the subtitle; one `input type=\"search\"` is the bar's search field and one `role=\"tablist\"` its segmented title; the root's `navigationBack` control is the system Back button. The rest of the header is hidden (warning `lower-header-unplaced`). A header with no heading or with two is no bar: the route shows no title and no Back button, and the header is drawn in the page as written (warning `lower-header-no-bar`). docs/recipes/navigation-stack.md",
+    // @ref LLP 1116.003 D2.2, LLP 1115.000 D5.2, D5.3 —
+    // NavigationBarIOS.swift's `HeaderShape`, `NavigationRules.bar`.
+    "on iOS a route's `header` is its navigation bar when it is the route's first child, is shown, and holds exactly one heading (`text role=\"heading\"`, or a `text` with `aria-level`), whatever the stack's other routes have. The heading is the title, large at `aria-level=1`, else inline; buttons that press or open a popover are the bar's items, leading before the heading and trailing after it; the first text after the heading is the subtitle; one `input type=\"search\"` is the bar's search field and one `role=\"tablist\"` its segmented title; the root's `navigationBack` control is the system Back button. The rest of the header is hidden (warning `lower-header-unplaced`). A header with no heading or with two is no bar and is drawn in the page as written (warning `lower-header-no-bar`). A pushed route with no bar of its own (no header, or one that is no bar) still gets a bar holding the system Back button alone, with no title; a stack's first route with none has no bar. A route that draws its own chrome says `navigationBar=\"none\"`: no bar, and the edge swipe still goes back; without it, a `navigationBack` control drawn in a pushed route's page is a second Back under the bar's (warning `lower-back-twice`). docs/recipes/navigation-stack.md",
 )];
 
 /// A tag's note, if it has one ([`TAG_NOTES`]).
@@ -194,6 +195,7 @@ pub fn refusal(name: &str) -> String {
         name: name.into(),
         value: Expr::Bool(true, span),
         span,
+        written: true,
     };
     let attr = crate::lint::unknown_attr("view", &attr).message;
     let mut hints: Vec<&str> = Vec::new();

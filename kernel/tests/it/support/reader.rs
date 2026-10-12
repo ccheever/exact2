@@ -26,11 +26,11 @@ pub fn style(id: u32, rows: &[(StyleId, StyleValue)]) -> Op {
         patch: Box::new(patch),
     }
 }
-pub fn number(value: f64) -> StyleValue {
+pub fn number(value: f64) -> StyleValue<'static> {
     StyleValue::Number(value)
 }
-pub fn text(value: &str) -> StyleValue {
-    StyleValue::Text(value.into())
+pub fn text(value: &str) -> StyleValue<'static> {
+    StyleValue::Text(value.to_owned().into())
 }
 pub fn initial(workaround: bool, border_box: bool, long_word: bool) -> Vec<Op> {
     let mut ops: Vec<_> = (1..=LAST)

@@ -54,7 +54,9 @@ fn reorder_handler_rejects_wrong_option_and_key_types_after_currying() {
             .replace("received = item", "received = \"constant\"");
         let error = contract::compile(&invalid).unwrap_err().to_string();
         assert!(
-            error.contains("handler-type") || error.contains("handler-arity"),
+            error.contains("handler-type")
+                || error.contains("handler-payload")
+                || error.contains("handler-arity"),
             "{error}"
         );
     }

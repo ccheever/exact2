@@ -6,7 +6,9 @@ use super::{
     checks::{check_view, infer_owned_state_initializers},
     err, infer, record_source, ComponentTypes, Ref, Scope, Shapes, Sink, Ty, TypeError, Types,
 };
-use contract_syntax::{Component, Expr, Node, Owner, Span, TemplatePart};
+use crate::calls::CAPTURE;
+use contract_syntax::inline::calls::shown;
+use contract_syntax::{Component, Expr, Node, Owner, Span, Stmt, TemplatePart};
 use std::{collections::BTreeMap, sync::Arc};
 
 /// Check one component, recording each refusal in `sink` and carrying on
@@ -209,9 +211,27 @@ pub(crate) fn check_component(
     // Row initializers have just resolved the lifted child slots. Curried
     // action-prop arguments must see those types too, not the earlier scope.
     let scope = types.component_scope(c, &ct);
-    sink.keep_unit(refine_params_from_view(&c.view, &scope, c, &mut ct, shapes));
+    let mut miscounted = Vec::new();
+    sink.keep_unit(refine_params_from_view(
+        &c.view,
+        &scope,
+        c,
+        &mut ct,
+        shapes,
+        &mut miscounted,
+    ));
     // Then the calls in action bodies (LLP 1089 D8), before any body is checked.
     crate::calls::refine(c, &mut ct, types);
+    share_captures(c, &mut ct);
+    // A handler whose payload does not fit its action, which it left with
+    // a parameter untyped: its arity refusal, at the handler, before any
+    // body reads that parameter. Analysis gives it when every parameter is
+    // typed, and never runs after this stage refuses.
+    for (ai, e) in &miscounted {
+        if !ct.actions[*ai].iter().all(Ty::is_complete) {
+            sink.push(e.clone());
+        }
+    }
     // Action bodies: writes refine slots; assignments must unify. Two
     // rounds, so a `send` whose argument is a state a later action writes
     // (`state q = none`, typed by `q = some(s)`) records the written type
@@ -345,11 +365,24 @@ pub(crate) fn check_component(
             });
         }
     }
+    let mut said = Vec::new();
     for (ai, a) in c.actions.iter().enumerate() {
+        // Said at its handler, above.
+        if miscounted.iter().any(|(i, _)| *i == ai) {
+            continue;
+        }
         for (i, p) in a.params.iter().enumerate() {
-            if !ct.actions[ai][i].is_complete() {
-                sink.push(TypeError { id: "type-cannot-infer", message: format!("cannot infer the type of parameter `{}`; write `{}: <type>` or call the action from a handler", p.name, p.name), span: p.span });
+            if ct.actions[ai][i].is_complete() || said.contains(&p.name) {
+                continue;
             }
+            if p.name.starts_with(CAPTURE) {
+                // Hidden: what an action prop was curried with (LLP 1089
+                // D7), said once, at that prop's binding.
+                said.push(p.name.clone());
+                sink.push(untyped_capture(c, &p.name, p.span));
+                continue;
+            }
+            sink.push(TypeError { id: "type-cannot-infer", message: format!("cannot infer the type of parameter `{}`; write `{}: <type>` or call the action from a handler", p.name, p.name), span: p.span });
         }
     }
     // A child's `provide` section and the view type. The expanded root's
@@ -450,6 +483,7 @@ fn refine_params_from_view(
     c: &Component,
     ct: &mut ComponentTypes,
     shapes: &Shapes,
+    miscounted: &mut Vec<(usize, TypeError)>,
 ) -> Result<(), TypeError> {
     for n in nodes {
         match n {
@@ -467,7 +501,8 @@ fn refine_params_from_view(
                 // A text field's `select` is HTML's, its selection the
                 // `InputEvent` (x2apps codeedit #2); the Markdown editor's
                 // carries its formats.
-                let field = contract_syntax::payload_control(tag, attrs) == Some("field");
+                let payload_control = contract_syntax::payload_control(tag, attrs);
+                let field = payload_control == Some("field");
                 // A file input's `change` carries the picked files (LLP
                 // 1069.002 D3); its `cancel`, nothing.
                 let file = control == Some("file");
@@ -514,7 +549,12 @@ fn refine_params_from_view(
                             | "reachstart"
                             | "reachend"
                             | "scroll"
+                            | "pan"
                             | "panrelease"
+                            | "heightrelease"
+                            | "transformgeometry"
+                            | "transformrelease"
+                            | "reorderdrop"
                             | "loadedmetadata"
                             | "durationchange"
                             | "fullscreenchange"
@@ -592,9 +632,15 @@ fn refine_params_from_view(
                                 "hover" | "fullscreenchange" => vec![Ty::Bool],
                                 "select" if field => vec![Ty::Record("InputEvent".into())],
                                 "select" => vec![Ty::Record("MarkdownSelection".into())],
-                                "scroll" | "panrelease" | "resize" => {
+                                // A drag's numbers and a drop's keys, as
+                                // analysis's `handler_arity` counts them
+                                // (LLP 1057 §1.1).
+                                "scroll" | "pan" | "panrelease" | "heightrelease" | "resize" => {
                                     vec![Ty::Number, Ty::Number]
                                 }
+                                "transformgeometry" => vec![Ty::Number; 4],
+                                "transformrelease" => vec![Ty::Number; 6],
+                                "reorderdrop" => vec![Ty::String, Ty::Option(Box::new(Ty::String))],
                                 _ => vec![],
                             };
                             // Then the event's record, when the action
@@ -614,6 +660,38 @@ fn refine_params_from_view(
                                     payload.push(Ty::Record(record.into()));
                                 }
                             }
+                            // The payload types the last parameters. When
+                            // their count is off, it may land on the wrong
+                            // ones (a `reorderdrop` action's third, not a
+                            // `ReorderEvent`): a clash there is no type
+                            // mistake but analysis's arity refusal, which
+                            // spells what fits. This stage says it for an
+                            // action the miscount leaves untyped
+                            // (`check_component`), as analysis never runs
+                            // then. A bound `type` leaves the payload
+                            // unknown, its count too.
+                            let counted = args.len() + payload.len() == ct.actions[ai].len();
+                            let unknown = payload.is_empty()
+                                && bound_type
+                                && matches!(a.name.as_str(), "change" | "input");
+                            if !counted && !unknown && !miscounted.iter().any(|(i, _)| *i == ai) {
+                                let params: Vec<(String, Ty)> = (c.actions[ai].params.iter())
+                                    .map(|p| p.name.clone())
+                                    .zip(ct.actions[ai].iter().cloned())
+                                    .collect();
+                                let arg_types: Vec<Option<Ty>> =
+                                    args.iter().map(|x| infer(x, scope, shapes).ok()).collect();
+                                let message = crate::handler_arity_message(
+                                    &a.name,
+                                    payload_control,
+                                    name,
+                                    args,
+                                    &params,
+                                    &arg_types,
+                                );
+                                let (id, span) = ("analyze-handler-arity", a.span);
+                                miscounted.push((ai, TypeError { id, message, span }));
+                            }
                             let start = ct.actions[ai].len().saturating_sub(payload.len());
                             for (offset, ty) in payload.into_iter().enumerate() {
                                 let last = start + offset;
@@ -621,6 +699,9 @@ fn refine_params_from_view(
                                 {
                                     let declared = ct.actions[ai][last].clone();
                                     let Some(unified) = declared.unify(&ty) else {
+                                        if !counted {
+                                            continue;
+                                        }
                                         return err(
                                             "type-handler-payload",
                                             format!(
@@ -636,10 +717,10 @@ fn refine_params_from_view(
                         }
                     }
                 }
-                refine_params_from_view(children, scope, c, ct, shapes)?;
+                refine_params_from_view(children, scope, c, ct, shapes, miscounted)?;
             }
             Node::Use { args, children, .. } => {
-                refine_params_from_view(children, scope, c, ct, shapes)?;
+                refine_params_from_view(children, scope, c, ct, shapes, miscounted)?;
                 for a in args {
                     let _ = a;
                 }
@@ -647,8 +728,8 @@ fn refine_params_from_view(
             Node::When {
                 then, otherwise, ..
             } => {
-                refine_params_from_view(then, scope, c, ct, shapes)?;
-                refine_params_from_view(otherwise, scope, c, ct, shapes)?;
+                refine_params_from_view(then, scope, c, ct, shapes, miscounted)?;
+                refine_params_from_view(otherwise, scope, c, ct, shapes, miscounted)?;
             }
             Node::Each {
                 var,
@@ -660,7 +741,7 @@ fn refine_params_from_view(
                 if let Ok(Ty::List(item)) = infer(list, scope, shapes) {
                     let mut inner = scope.clone();
                     inner.push_each(var, index.as_deref(), *item);
-                    refine_params_from_view(body, &inner, c, ct, shapes)?;
+                    refine_params_from_view(body, &inner, c, ct, shapes, miscounted)?;
                 }
             }
             Node::Match {
@@ -672,15 +753,80 @@ fn refine_params_from_view(
                 if let Ok(Ty::Option(item)) = infer(subject, scope, shapes) {
                     let mut inner = scope.clone();
                     inner.push_region(Some((some.0.clone(), Ref::Bound(0), *item)));
-                    refine_params_from_view(&some.1, &inner, c, ct, shapes)?;
+                    refine_params_from_view(&some.1, &inner, c, ct, shapes, miscounted)?;
                 }
                 let mut none_scope = scope.clone();
                 none_scope.push_region(None);
-                refine_params_from_view(none, &none_scope, c, ct, shapes)?;
+                refine_params_from_view(none, &none_scope, c, ct, shapes, miscounted)?;
             }
         }
     }
     Ok(())
+}
+
+/// Every lifted action of one use takes the same hidden captures, of the
+/// same values (LLP 1089 D7): one that a handler or a call types gives its
+/// type to the others, a sibling nothing binds included.
+fn share_captures(c: &Component, ct: &mut ComponentTypes) {
+    let mut typed: BTreeMap<&str, Ty> = BTreeMap::new();
+    for (a, params) in c.actions.iter().zip(&ct.actions) {
+        for (p, t) in a.params.iter().zip(params) {
+            if p.name.starts_with(CAPTURE) && t.is_complete() {
+                typed.entry(&p.name).or_insert_with(|| t.clone());
+            }
+        }
+    }
+    for (a, params) in c.actions.iter().zip(&mut ct.actions) {
+        for (p, t) in a.params.iter().zip(params) {
+            if let Some(u) = typed.get(p.name.as_str()).and_then(|known| t.unify(known)) {
+                *t = u;
+            }
+        }
+    }
+}
+
+/// The refusal of a hidden capture nothing typed: no action of its use is
+/// bound or called. It names the prop's binding (`tell=note`) and the
+/// action that calls the prop, never the capture, which no author wrote.
+fn untyped_capture(c: &Component, capture: &str, declared: Span) -> TypeError {
+    let found = (c.actions.iter()).find_map(|a| Some((a, handed_on(&a.body, capture)?)));
+    let message = match found {
+        Some((a, (callee, _))) => {
+            let (caller, callee) = (shown(&a.name), shown(callee));
+            format!("cannot infer the type of what `{callee}` carries from this binding into `{caller}`, which calls it: bind `{caller}` to a handler or call it from one")
+        }
+        None => "cannot infer the type of what this action prop was curried with: bind the action that calls it to a handler or call it from one".into(),
+    };
+    let span = found.map_or(declared, |(_, (_, binding))| binding);
+    TypeError {
+        id: "type-cannot-infer",
+        message,
+        span,
+    }
+}
+
+/// The call in `body` that hands `capture` on, as its callee and the
+/// binding of the prop it calls through.
+fn handed_on<'b>(body: &'b [Stmt], capture: &str) -> Option<(&'b str, Span)> {
+    body.iter().find_map(|s| match s {
+        Stmt::Call {
+            action,
+            args,
+            binding,
+            body,
+            ..
+        } => binding
+            .filter(|_| (args.iter()).any(|x| matches!(x, Expr::Ident(n, _) if n == capture)))
+            .map(|at| (action.as_str(), at))
+            .or_else(|| handed_on(body, capture)),
+        Stmt::If {
+            then, otherwise, ..
+        } => handed_on(then, capture).or_else(|| handed_on(otherwise, capture)),
+        Stmt::Match { some, none, .. } => {
+            handed_on(&some.1, capture).or_else(|| handed_on(none, capture))
+        }
+        _ => None,
+    })
 }
 
 /// Derive indices, each after the derives its expression names (a cycle is

@@ -434,6 +434,219 @@ fn entry(name: &str) -> PathBuf {
     path
 }
 
+#[test]
+fn color_modes_reach_authored_branches_and_every_writer() {
+    use exact_terminal::{
+        color::ColorDepth,
+        host::{Host, Mode},
+        vt::Vt,
+    };
+    let source = r##"shape Terminal
+  colors: number
+component App
+  resource terminal = exactSurface("terminal") as shape Terminal
+  state changed = false
+  action change
+    changed = true
+  view
+    column
+      column role="log"
+        column id="entry"
+          text "history" color="#ff0000" background-color="#0000ff"
+      when terminal.colors == 0
+        text "MONO" font-weight=700 text-decoration-line="underline"
+      else
+        text `COLOR ${terminal.colors}` color="#00ff00"
+      button appearance="none" press=change testId="change"
+        text (changed ? "changed" : "ready") color=(changed ? "#0000ff" : "#ff0000")
+"##;
+    for mode in [Mode::Inline, Mode::Fullscreen] {
+        for colors in [
+            ColorDepth::Monochrome,
+            ColorDepth::Ansi16,
+            ColorDepth::Ansi256,
+            ColorDepth::TrueColor,
+        ] {
+            let plan = contract::compile_terminal(source).unwrap();
+            let mut host = Host::boot(plan, (), mode, 32, 10).unwrap();
+            host.set_colors(colors);
+            let mut vt = Vt::new(&mut host);
+            let first = vt.render(&mut host);
+            assert!(vt.text(true).contains("history"));
+            assert!(vt
+                .text(false)
+                .contains(if colors == ColorDepth::Monochrome {
+                    "MONO"
+                } else {
+                    "COLOR"
+                }));
+            host.act("change");
+            let second = vt.render(&mut host);
+            assert!(vt.text(false).contains("changed"));
+            for out in [
+                first,
+                second,
+                vt.ansi(),
+                host.render(0, 10).grid.ansi(),
+                host.render_settled(0, 10).grid.ansi(),
+            ] {
+                let mut parser = vt100::Parser::new(10, 32, 0);
+                parser.process(out.as_bytes());
+                for row in 0..10 {
+                    for col in 0..32 {
+                        let cell = parser.screen().cell(row, col).unwrap();
+                        for color in [cell.fgcolor(), cell.bgcolor()] {
+                            match (colors, color) {
+                                (ColorDepth::Monochrome, vt100::Color::Default)
+                                | (
+                                    ColorDepth::Ansi16
+                                    | ColorDepth::Ansi256
+                                    | ColorDepth::TrueColor,
+                                    vt100::Color::Default,
+                                ) => {}
+                                (ColorDepth::Ansi16, vt100::Color::Idx(i)) => assert!(i < 16),
+                                (ColorDepth::Ansi256, vt100::Color::Idx(_))
+                                | (ColorDepth::TrueColor, vt100::Color::Rgb(..)) => {}
+                                other => panic!("wrong output palette: {other:?}"),
+                            }
+                        }
+                    }
+                }
+            }
+            if colors == ColorDepth::Monochrome {
+                let grid = &host.frame().grid;
+                let mut found = false;
+                for y in 0..grid.rows {
+                    for x in 0..grid.cols {
+                        let c = grid.cell(x, y);
+                        if c.text == "M" && c.style.bold && c.style.underline {
+                            found = true;
+                        }
+                    }
+                }
+                assert!(found, "monochrome preserves authored emphasis");
+            }
+        }
+    }
+}
+
+#[test]
+fn cli_color_detection_and_explicit_overrides_agree_with_the_app() {
+    let path = entry("colors");
+    std::fs::write(&path, "shape Terminal\n  colors: number\ncomponent App\n  resource terminal = exactSurface(\"terminal\") as shape Terminal\n  view\n    text `depth ${terminal.colors}` color=\"#ff0000\"\n").unwrap();
+    for (term, no_color, flag, expected) in [
+        ("xterm-256color", "1", "auto", "depth 0"),
+        ("xterm-256color", "0", "auto", "depth 0"),
+        ("xterm-256color", "", "auto", "depth 8"),
+        ("dumb", "", "auto", "depth 0"),
+        ("vt100", "", "auto", "depth 0"),
+        ("xterm", "", "auto", "depth 4"),
+        ("xterm-256color", "", "never", "depth 0"),
+        ("dumb", "1", "truecolor", "depth 24"),
+        ("dumb", "1", "16", "depth 4"),
+    ] {
+        let out = Command::new(env!("CARGO_BIN_EXE_exact-terminal"))
+            .arg(&path)
+            .args(["--color", flag, "print"])
+            .env("TERM", term)
+            .env("NO_COLOR", no_color)
+            .env_remove("COLORTERM")
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(
+            String::from_utf8_lossy(&out.stdout).contains(expected),
+            "{term} {no_color} {flag}: {}",
+            String::from_utf8_lossy(&out.stdout)
+        );
+    }
+    std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+}
+
+#[test]
+fn inline_paint_carries_colours_decorations_and_links_without_crossing_siblings() {
+    use exact_terminal::{
+        grid::Rgb,
+        host::{Host, Mode},
+    };
+    let plan = contract::compile(r##"component App
+  state changed = false
+  action change
+    changed = true
+  view
+    column color=(changed ? "#abcdef" : "light-dark(#112233, #334455)") text-decoration-line="underline"
+      text href="https://paragraph.invalid"
+        text "A" testId="a"
+        text ""
+        text color="#445566" background-color="#778899" text-decoration-line="line-through" font-style="italic"
+          text "B" font-weight=700 href="https://leaf.invalid" testId="b"
+          text "C" color="inherit" background-color="transparent" text-decoration-line="none" testId="c"
+          text "D" color="#aabbcc" background-color="#ddeeff" font-weight=300 href="bad\nlink" testId="d"
+        text "E" testId="e"
+      text "F" opacity=0.5
+"##).unwrap();
+    let mut host = Host::boot(plan, (), Mode::Fullscreen, 20, 5).unwrap();
+    for (changed, dark, inherited) in [
+        (false, false, Rgb(0x11, 0x22, 0x33)),
+        (false, true, Rgb(0x33, 0x44, 0x55)),
+        (true, true, Rgb(0xab, 0xcd, 0xef)),
+    ] {
+        if changed {
+            host.act("change");
+        }
+        host.dark = dark;
+        let painted = host.render(0, 5);
+        let grid = &painted.grid;
+        assert!(grid.text().starts_with("ABCDE"), "{}", grid.text());
+        // B is a run with an `href` in its paragraph and no colour of its
+        // own: the link role's, not its parent's (LLP 1115 §3). C says
+        // `inherit`, and the paragraph's own link keeps inheriting.
+        let link = exact_kernel::ColorValue::parse_light_dark("LinkText")
+            .unwrap()
+            .resolve(dark);
+        let ink = [
+            inherited,
+            Rgb(link.r(), link.g(), link.b()),
+            Rgb(0x44, 0x55, 0x66),
+            Rgb(0xaa, 0xbb, 0xcc),
+            inherited,
+        ];
+        for (x, ink) in ink.into_iter().enumerate() {
+            let style = grid.cell(x, 0).style;
+            assert_eq!(style.fg, Some(ink));
+            assert!(style.underline);
+            assert_eq!(style.strike, (1..=3).contains(&x));
+            assert_eq!(style.italic, (1..=3).contains(&x));
+            assert_eq!(style.bold, x == 1);
+            assert_eq!(style.faint, x == 3);
+        }
+        assert_eq!(grid.cell(1, 0).style.bg, Some(Rgb(0x77, 0x88, 0x99)));
+        assert_eq!(grid.cell(2, 0).style.bg, Some(Rgb(0x77, 0x88, 0x99)));
+        assert_eq!(grid.cell(3, 0).style.bg, Some(Rgb(0xdd, 0xee, 0xff)));
+        assert_eq!(grid.cell(4, 0).style.bg, None);
+        assert!(grid.cell(0, 1).style.faint);
+        let paragraph_link = grid.cell(0, 0).style.link;
+        assert_ne!(paragraph_link, 0);
+        assert_ne!(grid.cell(1, 0).style.link, paragraph_link);
+        assert_eq!(grid.cell(2, 0).style.link, paragraph_link);
+        assert_eq!(grid.cell(3, 0).style.link, 0);
+        assert_eq!(grid.cell(4, 0).style.link, paragraph_link);
+        assert!(grid.ansi().contains("https://leaf.invalid"));
+        assert!(!grid.ansi().contains("bad\nlink"));
+        for (x, label) in ["a", "b", "c", "d", "e"].into_iter().enumerate() {
+            let id = host.by_test_id(label).unwrap();
+            assert!(painted
+                .runs
+                .iter()
+                .any(|(at, rect)| *at == id && rect.contains(x as i32, 0)));
+        }
+    }
+}
+
 fn run(name: &str, ops: &[&str]) -> (bool, String, String) {
     run_in("--inline", name, ops)
 }
@@ -518,7 +731,7 @@ fn a_terminal_field_is_a_filled_row() {
     let (ok, _, err) = run_in(
         "--fullscreen",
         "field",
-        &["screenshot", shot.to_str().unwrap()],
+        &["--color", "truecolor", "screenshot", shot.to_str().unwrap()],
     );
     assert!(ok, "{err}");
     let ans = std::fs::read_to_string(&shot).unwrap();

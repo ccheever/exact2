@@ -43,7 +43,7 @@ fn a_slot_takes_the_nodes_under_a_use_in_the_use_sites_scope() {
     let body = k.find_by_test_id("body")[0];
     let body = k.node_by_key(body).unwrap();
     let text = body.props.iter().find_map(|(id, v)| match v {
-        PropValue::Str(s) if id.name() == "text" => Some(s.clone()),
+        PropValue::Str(s) if id.name() == "text" => Some(s.to_string()),
         _ => None,
     });
     assert_eq!(text.as_deref(), Some("2 trains"));

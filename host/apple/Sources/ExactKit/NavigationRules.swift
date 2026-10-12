@@ -107,6 +107,35 @@ enum NavigationRules {
         return hearsNavigate ? .navigate(location) : .pop
     }
 
+    /// What a route shows of the platform's navigation bar.
+    enum Bar: Equatable {
+        /// The route's `header`, projected: its heading the title, its
+        /// buttons the items, and the system Back when it is pushed.
+        case header
+        /// The system Back alone, with no title: a pushed route with no bar
+        /// of its own, as a screen a hand-built app pushes with nothing set.
+        case back
+        /// No bar: UIKit's is hidden while the route is on top.
+        case hidden
+    }
+
+    /// LLP 1115.000 D5.2, D5.3: the bar is decided route by route, never
+    /// once for a stack, and Back is always there. A route that says
+    /// `navigationBar="none"` has no bar (a full-bleed screen; the edge
+    /// swipe still pops it): no bar is something the author says, never
+    /// inferred from a missing header or an authored Back control. A route
+    /// whose `header` is the bar's (`header`: its first child, shown,
+    /// holding one heading) shows that. Any other pushed route shows the
+    /// system Back alone, where the platform's bar has a Back button
+    /// (`backButton`; tvOS's has none, its Back is the remote's Menu). The
+    /// first route of a stack, with nothing to go back to and no such
+    /// header, has nothing to show.
+    static func bar(asked: String?, header: Bool, pushed: Bool, backButton: Bool = true) -> Bar {
+        if asked == "none" { return .hidden }
+        if header { return .header }
+        return pushed && backButton ? .back : .hidden
+    }
+
     /// D1: whether an interactive pop may begin at all — a stack to pop, no
     /// transition in flight, no sheet, a way back (`back`), and no
     /// context preview anywhere in the session.

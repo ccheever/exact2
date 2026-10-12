@@ -486,9 +486,9 @@ pub struct Painter {
     pub text: Shared,
     /// Device pixels per point.
     pub scale: f32,
-    /// Which appearance a `light-dark()` colour resolves to (LLP 1034 D2).
-    /// This host has no system appearance of its own, so it is whatever the
-    /// app's `setScheme` last said; `light` until it says otherwise.
+    /// Which appearance a `light-dark()` colour resolves to (LLP 1034 D2):
+    /// what the app's `setScheme` last said, else the system's, which the
+    /// device's shell or an agent tells the presenter; `light` until one does.
     pub dark: bool,
     backend: Box<dyn Backend>,
     #[cfg(test)]
@@ -520,6 +520,9 @@ pub struct Painter {
     /// The node a 3D island paints flat, its own transform being the warp's
     /// (LLP 1077 D8).
     pub(crate) flatten: Option<ViewId>,
+    /// The control a finger's press focused: it is the focus and shows no
+    /// ring, which is for a focus a key moved (LLP 1115.001 D7.6).
+    pub(crate) ringless: Option<ViewId>,
     rows: rows::Rows,
     /// The `svg` painting now: its elements the reader animates.
     svg_layers: Vec<(ViewId, Presented)>,
@@ -617,6 +620,7 @@ impl Painter {
             viewport: (0., 0.),
             cpu_ms: None,
             flatten: None,
+            ringless: None,
             rows: Default::default(),
             boxes_hint: 0,
             svg_layers: Vec::new(),
@@ -750,6 +754,7 @@ impl Painter {
     ) -> Result<Frame, String> {
         let started = std::time::Instant::now();
         self.viewport = viewport;
+        self.backend.page(page_color(self.dark));
         let partial = if let Some(previous) = self
             .damage
             .pixels
@@ -1136,7 +1141,7 @@ impl Painter {
                     self.field_caret(&field, caret, selection.unwrap_or_else(at_end), ts);
                     // LLP 1104 D6: `outline: none` (the row's one value) draws no ring.
                     if !node.style.mask.has(exact_kernel::StyleId::OutlineStyle) {
-                        let accent = control::accent(node, self.dark).unwrap_or(control::ACCENT);
+                        let accent = control::ring(node, self.dark);
                         self.field_ring(field_shape.as_ref().unwrap_or(&outer), accent, ts);
                     }
                 }
@@ -1184,7 +1189,7 @@ impl Painter {
                     ts,
                     &face,
                     &rows,
-                    walk.scene.focus == Some(node.id),
+                    walk.scene.focus == Some(node.id) && self.ringless != Some(node.id),
                 );
             }
             NodeType::Control => control::paint(
@@ -1232,9 +1237,10 @@ impl Painter {
             && node.node_type == NodeType::Pressable
             && node.props.str(PropId::Href).is_none()
             && walk.scene.focus == Some(node.id)
+            && self.ringless != Some(node.id)
             && node.props.bool(PropId::Disabled) != Some(true)
         {
-            let accent = control::accent(node, self.dark).unwrap_or(control::ACCENT);
+            let accent = control::ring(node, self.dark);
             self.field_ring(&outer, accent, ts);
         }
         // @ref LLP 1075.003.000.001 §2.2.1 — a hatch's overlay: over the
@@ -1380,6 +1386,17 @@ pub fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
         }
     }
     (w, h)
+}
+
+/// The page's own colour under a scheme: the `Canvas` role, the platform's
+/// surface where a host reported one and the role's pair elsewhere. What an
+/// unset background shows (LLP 1115 D2), never white under a dark scheme.
+pub fn page_color(dark: bool) -> [u8; 4] {
+    static CANVAS: std::sync::LazyLock<Option<u8>> =
+        std::sync::LazyLock::new(|| exact_kernel::style::roles::role("Canvas"));
+    CANVAS.map_or([255; 4], |id| {
+        rgba(exact_kernel::ColorValue::Role(id).resolve(dark))
+    })
 }
 
 /// A kernel color's channels.

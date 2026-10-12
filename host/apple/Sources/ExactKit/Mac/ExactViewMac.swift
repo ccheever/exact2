@@ -41,6 +41,15 @@ public final class ExactView: NSView {
     /// is the window's business, LLP 1008 §9); the insets themselves are
     /// computed here.
     public var onViewportFit: (() -> Void)?
+    /// The window's owner asks that its new window put the caret in the
+    /// session's first key view (LLP 1115.000 D7.5), as AppKit does a
+    /// window's `initialFirstResponder`: with Keyboard Navigation off the
+    /// first text field, with none nothing. Done once, the turn after the
+    /// first frame, unless the author's `autofocus` said where the focus
+    /// goes or the first key view is in a canvas that takes input
+    /// (`Presenter.focusInitialKeyView`). Off by default: a view embedded in
+    /// someone else's window takes no focus they did not give it.
+    public var focusesFirstKeyView = false
 
     /// The window owner opts in; embedded Exact views never claim chrome by
     /// mounting. Returns false rather than replacing an existing toolbar.
@@ -59,6 +68,10 @@ public final class ExactView: NSView {
     }
 
     public init(session: ExactSession) {
+        // Under the agent its light is the app's before this view reads an
+        // appearance, which a windowless view keeps: the control text is
+        // primed from it before the first layout (LLP 1104 D4).
+        _ = Agent.systemAppearance
         self.session = session
         super.init(frame: .zero)
         let viewport = session.presenter.viewport
@@ -103,6 +116,19 @@ public final class ExactView: NSView {
             return nil
         }
         return session(in: content) === self
+    }
+
+    /// The trackpad's swipe back from a pushed route (LLP 1115.000 D5.1,
+    /// `BackSwipe`): the page's scroll view passes a sideways gesture up
+    /// here when it is pinned for it and this says a swipe may be tracked.
+    public override func wantsScrollEventsForSwipeTracking(on axis: NSEvent.GestureAxis) -> Bool {
+        axis == .horizontal && session.presenter.navigation.canGoBack
+    }
+    public override func scrollWheel(with event: NSEvent) {
+        if !session.presenter.backSwipe.scroll(event) { super.scrollWheel(with: event) }
+    }
+    public override func swipe(with event: NSEvent) {
+        if !session.presenter.backSwipe.swiped(deltaX: event.deltaX) { super.swipe(with: event) }
     }
 
     public override func performKeyEquivalent(with event: NSEvent) -> Bool {

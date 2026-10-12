@@ -6,7 +6,7 @@
 //! is no longer current and leaves without touching anything.
 
 use crate::providers::{self, Ask, Route};
-use crate::settle::Reply;
+use crate::settle::{Reply, TailUpdate};
 use crate::sse::Event;
 use crate::state::{Block, Choice, Entry, Line, Msg, Part, Role, Run, Shared, State, Turn};
 use crate::tools;
@@ -224,16 +224,20 @@ fn round(shared: &Arc<Shared>, turn: &Turn, route: &Route) -> Option<bool> {
         match event {
             Event::Text(t) => {
                 let step = reply.push(&t);
+                let crate::settle::Step {
+                    finished,
+                    tail: update,
+                } = step;
                 let mut s = shared.lock();
                 if !s.current(turn) {
                     stale = true;
                     return;
                 }
                 s.round_text.push_str(&t);
-                for blocks in step.finished {
+                for blocks in finished {
                     settle(&mut s, &mut tail, &mut settled, blocks);
                 }
-                show_tail(&mut s, &mut tail, settled, step.tail);
+                show_tail(&mut s, &mut tail, settled, update);
                 s.phase = "streaming".into();
                 drop(s);
                 shared.changed();
@@ -338,11 +342,12 @@ fn settle(s: &mut State, tail: &mut Option<String>, settled: &mut usize, blocks:
 }
 
 /// Show the unfinished blocks in the one busy tail entry.
-fn show_tail(s: &mut State, tail: &mut Option<String>, settled: usize, blocks: Vec<Block>) {
+fn show_tail(s: &mut State, tail: &mut Option<String>, settled: usize, update: TailUpdate<'_>) {
     if let Some(e) = tail.as_deref().and_then(|id| s.busy_entry(id)) {
-        e.blocks = blocks;
+        update.apply(&mut e.blocks);
         return;
     }
+    let blocks = update.into_blocks();
     let model = s.turn_model();
     let id = s.push(Entry {
         kind: if settled == 0 { "assistant" } else { "more" }.into(),
@@ -483,4 +488,39 @@ fn tool(
         content: done.text,
         is_error: done.is_error,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::markdown;
+
+    #[test]
+    fn live_code_update_falls_back_for_replaced_or_missing_busy_entries() {
+        let mut reply = Reply::default();
+        let mut state = State::default();
+        let mut tail = None;
+
+        let update = reply.push("```rust\nfn").tail;
+        show_tail(&mut state, &mut tail, 0, update);
+        let id = tail.clone().expect("tail entry");
+        assert_eq!(state.busy_entry(&id).unwrap().blocks[0].kind, "code");
+
+        state.busy_entry(&id).unwrap().blocks = vec![Block::p(vec![Run::plain("replaced")])];
+        let update = reply.push(" main() {}\n").tail;
+        show_tail(&mut state, &mut tail, 0, update);
+        assert_eq!(
+            state.busy_entry(&id).unwrap().blocks,
+            markdown::streaming_blocks("```rust\nfn main() {}\n")
+        );
+
+        state.entries.clear();
+        let update = reply.push("let x = 1;\n").tail;
+        show_tail(&mut state, &mut tail, 0, update);
+        let recreated = tail.as_deref().and_then(|id| state.busy_entry(id)).unwrap();
+        assert_eq!(
+            recreated.blocks,
+            markdown::streaming_blocks("```rust\nfn main() {}\nlet x = 1;\n")
+        );
+    }
 }

@@ -6,13 +6,36 @@ import java.nio.ByteBuffer
 /** exact2 on the main thread: layout, shaping and the paint walk, recorded as Canvas ops. */
 object Native {
     init { System.loadLibrary("exactcanvas") }
+    /** Boot the app's host on the calling thread, in a window of this size in pixels ([window] told its insets);
+     * whether it booted. Where a host already runs on this thread (the activity was made again in this process,
+     * LLP 1115.001 D15.1) nothing boots: that host is adopted in this window, and paints everything again for the
+     * reader that calls, which has none of the last one's rows, faces or pictures. */
     @JvmStatic external fun start(width: Int, height: Int, scale: Float, dir: String, live: Boolean): Boolean
-    /** [start] on a thread of its own, at the size the view is expected to have; [adopt] takes the host. */
+    /** [start] on a thread of its own; [adopt] takes the host. Where a host already runs in this process nothing
+     * boots, and [adopt] adopts that one as [start] does. */
     @JvmStatic external fun startAsync(width: Int, height: Int, scale: Float, dir: String, live: Boolean)
     /** Wait for [startAsync]'s host and run it on this thread from now on; whether it booted. */
     @JvmStatic external fun adopt(): Boolean
-    /** The view is this size after all. */
-    @JvmStatic external fun resize(width: Int, height: Int)
+    /** The device's settings, whole ([Device], LLP 1115.001 D3.1): before [start], from any thread, so the host boots
+     * with them, and again on the host's thread whenever one changes. */
+    @JvmStatic external fun configure(
+        night: Boolean, fontScale: Float, locale: String, rtl: Boolean, hour24: Boolean, noAnimations: Boolean,
+        boldText: Boolean, highContrast: Boolean, touch: Boolean, touchSlop: Float,
+    )
+    /** The device's colours ([Palette], LLP 1115.001 D4): Material 3's colour roles as the reader resolved them for
+     * this device, twelve under the light scheme and then the same twelve under the dark one, ARGB. Before [start],
+     * from any thread, so the host boots resolving every colour role by them, and again on the host's thread whenever
+     * one changes. */
+    @JvmStatic external fun colors(roles: IntArray)
+    /** The window (LLP 1115.001 D3.3): its size in pixels, the display's pixels a point, and the system's raw insets
+     * in pixels, sixteen numbers: top, right, bottom, left for the system bars, then the display cutout, the software
+     * keyboard and the system's gestures. Before [start], from any thread, so the host boots laid out in it, and on
+     * the host's thread again whenever any of it changes. The reader pads nothing: [chrome] says where the page is. */
+    @JvmStatic external fun window(width: Int, height: Int, scale: Float, insets: IntArray)
+    /** What the reader draws around the page, when that is not what this last returned (else null): where the page is
+     * in the window (x, y, width, height, in pixels), the colour behind it and in the edges it keeps out of (ARGB),
+     * and 1 when its scheme is dark (the bars' icons are then light). */
+    @JvmStatic external fun chrome(): IntArray?
     @JvmStatic external fun frame(): ByteBuffer?
     @JvmStatic external fun poll(): Boolean
     @JvmStatic external fun animating(): Boolean
@@ -22,8 +45,29 @@ object Native {
     @JvmStatic external fun refine(limit: Int, velocity: Float): Int
     @JvmStatic external fun nextDue(): Double
     @JvmStatic external fun fds(): IntArray
+    /** A driver from outside scrolls the feed by [dy] px ([ExactActivity.drive]). A finger's scroll is the three
+     * calls below. */
     @JvmStatic external fun scroll(dy: Float)
-    @JvmStatic external fun touch(action: Int, x: Float, y: Float)
+    /** What is under a point of the view (pixels), for the reader to decide what a drag from there is (LLP 1115.001
+     * D7.3): the axes exact2's own gestures there claim (bit 0 sideways, bit 1 up and down), a count, and eleven
+     * numbers a scroller, innermost first: its id, flags (bit 0 it takes a sideways drag from here, bit 1 one up or
+     * down, bit 2 its rows are a node the reader can move), its revision, then as float bits its offset (x, y), its
+     * farthest offset (x, y) and the box it shows in (x, y, width, height). exact2 tells the reader of each of them
+     * from then on ([scrollers]). */
+    @JvmStatic external fun under(x: Float, y: Float): IntArray
+    /** The reader moved scroller [id] by ([dx], [dy]) px, knowing revision [rev] of it. exact2 clamps the move to
+     * the scroller's travel, and drops one sent under a revision the app's own scroll has moved on from. */
+    @JvmStatic external fun scrolled(id: Int, dx: Float, dy: Float, rev: Int)
+    /** What exact2 tells the reader of the scrollers it knows, when that is not what this last returned (else
+     * null): nine numbers each: its id, flags (as [under]'s, for any drag), its revision, then as float bits where
+     * it is (x, y), the offset its rows were last painted at (x, y) and its farthest offset (x, y). The revision
+     * moves on when the app scrolled it (a `scrollTop` write, a reveal): the reader then takes this offset and ends
+     * its fling. A scroller the reader knew that is not among them is gone. */
+    @JvmStatic external fun scrollers(): IntArray?
+    /** A touch (0 down, 1 up, 2 move, 3 cancel) at the view's pixels, and what touched: the event's tool type
+     * ([android.view.MotionEvent.getToolType]). A finger is reported to the app as a touch that hovers nothing and
+     * leaves no focus ring, a mouse as a mouse (LLP 1115.001 D7.4). */
+    @JvmStatic external fun touch(action: Int, x: Float, y: Float, tool: Int)
     /** One slice ([budgetUs] of shaping) of laying out what the touch that is down would open; whether more is left. */
     @JvmStatic external fun ahead(budgetUs: Int): Boolean
     @JvmStatic external fun copyImage(id: Int, bitmap: Bitmap): Boolean
@@ -39,13 +83,21 @@ object Native {
     @JvmStatic external fun canvasFrame(view: Int): Long
     /** That frame's buffer, or null. */
     @JvmStatic external fun canvasBuffer(view: Int): android.hardware.HardwareBuffer?
-    /** A key at the focused field: a character (or '\n' for Enter), or Backspace. Apps whose activity sets
-     * [ExactActivity.input] export it (and [editing], [back]). */
+    /** A key at the focused field: a character (or '\n' for Enter), or Backspace. */
     @JvmStatic external fun key(code: Int, backspace: Boolean)
-    /** Whether an editable field holds the focus: 0 none, 1 an input, 3 a textarea. */
-    @JvmStatic external fun editing(): Int
-    /** System Back: whether the app pressed its `id="back"` control. */
+    /** System Back (LLP 1115.001 D6): whether the app took it. From its navigation root's selected route it goes to
+     * the Back control the root names, else to the root's `navigate` handler, else it is the runner's own `back`;
+     * false when there is nowhere to go back to, and the activity finishes. The reader takes Back only while the
+     * host says it has somewhere to go (a request, [requests]). */
     @JvmStatic external fun back(): Boolean
+    /** What exact2 asks of the platform since this last returned any (LLP 1115.001 D5), or null when it asks
+     * nothing: the one channel out, which [Requests] reads and acts on, on the main thread. exact2 queues a request
+     * and makes the first of [fds] readable, so the reader comes for it whether or not a frame follows. The words:
+     * for each request its kind, its id, the count of words that follow, and those words. */
+    @JvmStatic external fun requests(): IntArray?
+    /** The answer to request [id] (the share sheet's: `shared` or `dismissed`, or why it could not be shown), or null
+     * when it was cancelled. On the host's thread. */
+    @JvmStatic external fun answer(id: Int, answer: String?)
     /** Run the calling thread on the cores outside the slowest cluster; whether it was set. */
     @JvmStatic external fun fastCores(): Boolean
     /** An ADPF hint session over [tids] (this process's threads), [targetNs] their work's target. */
@@ -62,6 +114,7 @@ object Native {
     @JvmStatic external fun hardwarePictures(on: Boolean)
     /** Pictures announced and not fetched yet: id, width, height triples. */
     @JvmStatic external fun pendingPictures(): IntArray
-    /** The scroller [scroll] moves (its group's id in the stream), 0 before the first scroll found one. */
+    /** The feed: the scroller a finger last moved up or down, or a driver's [scroll] found (its group's id in the
+     * stream); 0 before either. */
     @JvmStatic external fun feed(): Int
 }

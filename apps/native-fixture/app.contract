@@ -297,7 +297,7 @@ component NativeFixture
   action askedMenu
     nav = push((top(nav).name == "sheet" ? nav : push(nav, "/sheet")), "/menu")
   // LLP 1075.003 §9.10: a pressable title with an avatar and a subtitle, a
-  // route pushed with the tablist hidden, and one with no header.
+  // route pushed with the tablist hidden, and one that asks for no bar.
   state subtitle = "Online"
   state titlePresses = 0
   action openChat
@@ -333,8 +333,10 @@ component NativeFixture
         each t in nav.tabs key=t.name
           column role="tabpanel" id=`panel-${t.name}` testId=`panel-${t.name}` position="absolute" top=0 right=0 bottom=0 left=0
             each e in t.stack key=e.id
-              column navigationKey=`${e.id}` navigationPresentation=(e.name == "sheet" or e.name == "menu" or e.name == "note" ? "modal" : "") navigationDetent=(e.name == "sheet" ? "300 large" : (e.name == "menu" ? (menuLarge ? "fit-content large" : "fit-content") : "")) navigationScroll=(e.name == "second" ? "list-second" : (e.name == "chat" ? "list-chat" : "list-detail")) data-screen=e.name data-menu="compose" data-violate=violate data-transition=transition testId=`route-${e.name}` position="absolute" top=0 right=0 bottom=0 left=0 display="flex" flex-direction="column" background-color="#ffffff"
-                // A route with no header has no bar (§9.10).
+              column navigationKey=`${e.id}` navigationBar=(e.name == "photo" ? "none" : "auto") navigationPresentation=(e.name == "sheet" or e.name == "menu" or e.name == "note" ? "modal" : "") navigationDetent=(e.name == "sheet" ? "300 large" : (e.name == "menu" ? (menuLarge ? "fit-content large" : "fit-content") : "")) navigationScroll=(e.name == "second" ? "list-second" : (e.name == "chat" ? "list-chat" : "list-detail")) data-screen=e.name data-menu="compose" data-violate=violate data-transition=transition testId=`route-${e.name}` position="absolute" top=0 right=0 bottom=0 left=0 display="flex" flex-direction="column" background-color="#ffffff"
+                // Photo is a full-bleed viewer that draws its own Close: it
+                // says it has no bar (`navigationBar="none"`, LLP 1115.000
+                // D5.2). Menu, a sheet's first route, has nothing to go back to.
                 when e.name != "photo" and e.name != "menu"
                   header testId=`header-${e.name}` display="flex" flex-direction="row" align-items="center" gap=8 padding=12 flex-shrink=0 border-bottom-width=1 border-bottom-style="solid" border-color="#e5e7eb"
                     when e.name == "detail" or e.name == "rows" or e.name == "chat"

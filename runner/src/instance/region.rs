@@ -13,7 +13,7 @@ impl RegionInst {
                 RegionKind::Each => Active::Rows { rows: Vec::new() },
                 _ => Active::Arm {
                     arm: None,
-                    frame: Frame::default(),
+                    frame: ArmFrame::default(),
                     roots: Vec::new(),
                 },
             },
@@ -58,7 +58,7 @@ impl RegionInst {
                     frame,
                     roots,
                     want,
-                    Frame::default(),
+                    ArmFrame::default(),
                     frames,
                 )
             }
@@ -69,15 +69,14 @@ impl RegionInst {
                     match u.eval(row.subject, frames)? {
                         Value::Option(Some(v)) => (
                             Some(0),
-                            Frame {
-                                item: None,
+                            ArmFrame {
                                 bound: Some((*v).clone()),
                                 ..Default::default()
                             },
                         ),
                         Value::Option(None) => (
                             if row.arms.len > 1 { Some(1) } else { None },
-                            Frame::default(),
+                            ArmFrame::default(),
                         ),
                         _ => {
                             return Err(InstanceError::SubjectKind {
@@ -116,9 +115,51 @@ impl RegionInst {
                     });
                 };
                 let arm = row.arms.iter().next();
+                let mut slots_needed = None;
+                // An index key gives each position its identity, regardless
+                // of which item occupies it. No key evaluation or lookup is
+                // needed, including when the list grows or shrinks. Stay on
+                // the general path if indices could cease to be unique f64s.
+                if deps.index_keys[index] && items.len() as u64 <= 1 << 53 {
+                    let mut changed = items.len() != rows.len();
+                    for (position, item) in items.iter().enumerate() {
+                        let mut frame = Frame {
+                            item: Some(item.clone()),
+                            index: Some(position),
+                            bound: None,
+                            ..Default::default()
+                        };
+                        if let Some(r) = rows.get_mut(position) {
+                            changed |= Self::update_item(u, r, frames, frame, body)?;
+                        } else {
+                            let slots = new_row_slots(plan, arm, body, &mut slots_needed);
+                            frame.region = Some(self.region.0);
+                            frame.row = slots.clone();
+                            let inner = with_frame(frames, frame.clone());
+                            if let (Some(arm), Some(slots)) = (arm, slots.as_ref()) {
+                                init_owned(u, arm, slots, &inner)?;
+                            }
+                            let roots = realize(u, None, arm, &inner)?;
+                            rows.push(Row {
+                                key: Value::Number(position as f64),
+                                dup: 0,
+                                frame,
+                                roots,
+                                slots,
+                            });
+                        }
+                    }
+                    for gone in rows.drain(items.len()..) {
+                        destroy_all(u, gone.roots);
+                    }
+                    self.subject = Some(subject);
+                    return Ok(changed);
+                }
                 // Key every item. A repeated key is the data's error, not the
                 // plan's: its later rows get their own identity, in order.
                 let mut keyed: Vec<(String, Value, u32, Frame)> = Vec::with_capacity(items.len());
+                let mut same_order = items.len() == rows.len();
+                let mut inner = with_frame(frames, Frame::default());
                 for (index, item) in items.iter().enumerate() {
                     u.work.rows_keyed += 1;
                     let frame = Frame {
@@ -127,12 +168,38 @@ impl RegionInst {
                         bound: None,
                         ..Default::default()
                     };
-                    let inner = with_frame(frames, frame.clone());
+                    *inner.last_mut().unwrap() = frame.clone();
                     let key = u.eval(row.key, &inner)?;
-                    let key_text = key_text(&key).ok_or(InstanceError::KeyKind {
-                        region: self.region,
-                    })?;
+                    // Equal scalar keys have the same canonical spelling,
+                    // including +0/-0. An old key is already validated. Delay
+                    // spelling and sorting until the key sequence changes.
+                    let same = rows
+                        .get(index)
+                        .is_some_and(|r| crate::compare::equal(&r.key, &key) == Some(true));
+                    same_order &= same;
+                    let key_text = if same {
+                        String::new()
+                    } else {
+                        key_text(&key).ok_or(InstanceError::KeyKind {
+                            region: self.region,
+                        })?
+                    };
                     keyed.push((key_text, key, 0, frame));
+                }
+                if same_order {
+                    // The duplicate ordinal is also unchanged: it is the
+                    // count of equal keys earlier in this same sequence.
+                    let mut roots = false;
+                    for (r, (_, _, _, frame)) in rows.iter_mut().zip(keyed) {
+                        roots |= Self::update_item(u, r, frames, frame, body)?;
+                    }
+                    self.subject = Some(subject);
+                    return Ok(roots);
+                }
+                for (text, key, _, _) in &mut keyed {
+                    if text.is_empty() {
+                        *text = key_text(key).expect("validated key");
+                    }
                 }
                 // A key's rows after its first are numbered in item order.
                 let order = stable_order(keyed.len(), &|i, j| keyed[i].0 < keyed[j].0);
@@ -181,34 +248,18 @@ impl RegionInst {
                     match existing {
                         Some(mut r) => {
                             roots |= found != Some(position);
-                            // Row bodies may distinguish signed zero (`1 / n > 0`):
-                            // compare by bits, not by the language's `==`. An
-                            // equivalent item keeps its object for nested memos.
-                            // A row that moved reads a new position (LLP 1062
-                            // D8): every field counts as changed, since the
-                            // index is read as the whole frame.
-                            let dirty = if r.frame.index != frame.index {
-                                !0
-                            } else {
-                                crate::compare::changed_fields(&r.frame.item, &frame.item)
-                            };
-                            if dirty == 0 {
-                                frame.item = r.frame.item.take();
-                            }
-                            frame.row = Some(r.slots.clone());
-                            r.frame = frame;
-                            roots |= update_row(u, &mut r, frames, dirty, body)?;
+                            roots |= Self::update_item(u, &mut r, frames, frame, body)?;
                             next.push(r);
                         }
                         None => {
                             roots = true;
                             // A new row: its slots start from their initializers,
                             // evaluated here so an initializer may read the item.
-                            let slots: RowSlots = Rc::new(RefCell::new(BTreeMap::new()));
-                            frame.row = Some(slots.clone());
+                            let slots = new_row_slots(plan, arm, body, &mut slots_needed);
+                            frame.row = slots.clone();
                             let inner = with_frame(frames, frame.clone());
-                            if let Some(arm) = arm {
-                                init_owned(u, arm, &slots, &inner)?;
+                            if let (Some(arm), Some(slots)) = (arm, slots.as_ref()) {
+                                init_owned(u, arm, slots, &inner)?;
                             }
                             let roots = realize(u, None, arm, &inner)?;
                             if dup > 0 {
@@ -235,16 +286,39 @@ impl RegionInst {
         }
     }
 
+    fn update_item(
+        u: &mut Update<'_>,
+        r: &mut Row,
+        frames: &[Frame],
+        mut frame: Frame,
+        body: &Reads,
+    ) -> Result<bool, InstanceError> {
+        // Items may distinguish signed zero even though keys do not. A moved
+        // row also reads a new position (LLP 1062 D8), which dirties all fields.
+        let dirty = if r.frame.index != frame.index {
+            !0
+        } else {
+            crate::compare::changed_fields(&r.frame.item, &frame.item)
+        };
+        if dirty == 0 {
+            frame.item = r.frame.item.take();
+        }
+        frame.region = r.frame.region;
+        frame.row = r.slots.clone();
+        r.frame = frame;
+        update_row(u, r, frames, dirty, body)
+    }
+
     /// Show arm `want`; whether the roots changed.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn switch(
         u: &mut Update<'_>,
         region: RegionsId,
         arm: &mut Option<usize>,
-        frame: &mut Frame,
+        frame: &mut ArmFrame,
         roots: &mut Vec<Child>,
         want: Option<usize>,
-        new_frame: Frame,
+        new_frame: ArmFrame,
         frames: &[Frame],
     ) -> Result<bool, InstanceError> {
         let plan = u.env.plan;
@@ -256,7 +330,7 @@ impl RegionInst {
                 frame.bound = new_frame.bound;
             }
             let saved = u.enter(dirty, frame.row.as_ref());
-            let result = update_all(u, roots, &with_frame(frames, frame.clone()));
+            let result = update_all(u, roots, &with_frame(frames, frame.scope()));
             u.leave(saved);
             return result;
         }
@@ -273,9 +347,9 @@ impl RegionInst {
                 let slots: RowSlots = Rc::new(RefCell::new(BTreeMap::new()));
                 frame.region = Some(region.0);
                 frame.row = Some(slots.clone());
-                init_owned(u, id, &slots, &with_frame(frames, frame.clone()))?;
+                init_owned(u, id, &slots, &with_frame(frames, frame.scope()))?;
             }
-            *roots = realize(u, None, arm_id, &with_frame(frames, frame.clone()))?;
+            *roots = realize(u, None, arm_id, &with_frame(frames, frame.scope()))?;
         }
         Ok(true)
     }
@@ -308,6 +382,21 @@ impl RegionInst {
             }
         }
     }
+}
+
+// A row needs an identity table if it owns state, or if nested state reads
+// use its identity to limit traversal to the written instance's scope chain.
+// Decide once, only when this update actually creates a row.
+fn new_row_slots(
+    plan: &Plan,
+    arm: Option<ArmsId>,
+    body: &Reads,
+    needed: &mut Option<bool>,
+) -> Option<RowSlots> {
+    let needed = *needed.get_or_insert_with(|| {
+        body.opaque || body.row_slots || arm.is_some_and(|arm| owns_slots(plan, arm))
+    });
+    needed.then(|| Rc::new(RefCell::new(BTreeMap::new())))
 }
 
 /// Whether arm `arm`'s instance owns any slot.

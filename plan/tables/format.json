@@ -484,6 +484,11 @@
         {
           "name": "expr",
           "codec": "code"
+        },
+        {
+          "name": "written",
+          "codec": "bool",
+          "_comment": "@ref LLP 1115.000 D2: whether the author wrote this row on this node: an attribute of the node, or a row of a `style` its `class` names. False for a row the compiler implies (a tag's fixed row, a heading's size and weight, a link run's colour, a sheet's rows, a row derived from another). Set where lowering emits the row; where two rows set one property, the winner's. The runner hands a style row's to the kernel, which keeps it beside the row (`StyleProps::written`); a prop row's is carried and read by nothing yet."
         }
       ]
     },

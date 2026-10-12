@@ -10,7 +10,7 @@ final class NativeFieldsIOSTests: XCTestCase {
     // component Fieldless / view / box testId="fieldless" width=100 height=100
     // Compiled fixture has no data/module dependencies: preparation must still
     // supply a valid control environment even when no control is in the plan.
-    private var fieldlessPlan: Data { Data(base64Encoded: "RVhQTAUAAACZ4aML49316h+5Cda39EGrGA1E2ggCJPIAAAAA//////////8BAAAACQAAAGZpZWxkbGVzcxIAAAAEKAIAAAAAKAAAAAAAAABZQCgAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAQAAAAEAAAABAAAAAgAAAAEAAAADAAAAAQAAAAQAAAABAAAABQAAAAEAAAAGAAAAAQAAAAcAAAABAAAACAAAAAH/////Av////8D/////wT/////Bf////8G/////wf/////CP////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAD//////////wAAAAAAAAAAAwAAAAAAAAAAAAAA/////wMAAAAACwACAAAABgAAAAEAAAgAAAAKAAAAAQEACAAAAAoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==")! }
+    private var fieldlessPlan: Data { Data(base64Encoded: "RVhQTAUAAAAoP5pgsA4NjwMBWFudXAPqGA1E2ggCJPIAAAAA//////////8BAAAACQAAAGZpZWxkbGVzcxIAAAAEKAIAAAAAKAAAAAAAAABZQCgAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAQAAAAEAAAABAAAAAgAAAAEAAAADAAAAAQAAAAQAAAABAAAABQAAAAEAAAAGAAAAAQAAAAcAAAABAAAACAAAAAH/////Av////8D/////wT/////Bf////8G/////wf/////CP////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAD//////////wAAAAAAAAAAAwAAAAAAAAAAAAAA/////wMAAAAACwACAAAABgAAAAEBAAAIAAAACgAAAAEBAQAIAAAACgAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==")! }
 
     func testInitialSelectedPlanLaunchAndReplacementOfARunningFieldlessPlan() throws {
         let app = ExactApp.shared
@@ -242,9 +242,10 @@ final class NativeFieldsIOSTests: XCTestCase {
     }
     /// LLP 1115: a bare (`appearance="none"`) field's placeholder is UIKit's
     /// `placeholderText`, which follows Increase Contrast, while the field's
-    /// `color` is not its own (§2): no row, the platform's label colour, or
-    /// the colour of the node above it, as a grouped list's row gives its
-    /// field. A colour written on the field is the ink its placeholder mutes.
+    /// `color` is not its own (§2, LLP 1115.000 D2): no row, or a colour its
+    /// author did not write on it, as the one a grouped list's row gives its
+    /// field. A colour written on the field is the ink its placeholder
+    /// mutes, the platform's label colour and the row's own colour included.
     func testABareFieldsPlaceholderIsUIKitsUntilItsColourIsWritten() throws {
         let session = ExactApp.shared.makeSession(label: "bare-field-placeholder")
         defer { session.destroy() }
@@ -255,22 +256,28 @@ final class NativeFieldsIOSTests: XCTestCase {
         field.applyProps(set: ["placeholder": "Name"], clear: [])
         let native = try XCTUnwrap(field.field)
         func ink() -> UIColor? { native.attributedPlaceholder?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? UIColor }
+        let wrote: BatchValue = .array([.string("text_color")])
         field.applyStyle(["appearance": .string("none")])
         XCTAssertEqual(native.borderStyle, .none)
         XCTAssertEqual(ink(), .placeholderText, "no colour row")
         let label: BatchValue = .object(["sys": .string("labelColor"), "c": .array([.array([.number(0), .number(0), .number(0), .number(255)]), .array([.number(255), .number(255), .number(255), .number(255)])])])
         field.applyStyle(["appearance": .string("none"), "text_color": label])
-        XCTAssertEqual(ink(), .placeholderText, "the platform's label colour is nobody's `color`")
+        XCTAssertEqual(ink(), .placeholderText, "the label colour it was given is not a `color` its author wrote")
         let rust: BatchValue = .array([.number(181), .number(86), .number(43), .number(255)])
-        row.applyStyle(["text_color": rust])
+        row.applyStyle(["text_color": rust, "written": wrote])
         field.applyStyle(["appearance": .string("none"), "text_color": rust])
         XCTAssertEqual(ink(), .placeholderText, "the row's colour, inherited, is not the field's own")
-        field.applyStyle(["appearance": .string("none"), "text_color": .array([.number(43), .number(86), .number(181), .number(255)])])
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        XCTAssertTrue(try XCTUnwrap(ink()).getRed(&r, green: &g, blue: &b, alpha: &a))
-        for (got, want) in zip([r, g, b, a], [43.0 / 255, 86.0 / 255, 181.0 / 255, 0.30]) {
-            XCTAssertEqual(got, want, accuracy: 0.01, "the field's own ink, muted: \([r, g, b, a])")
+        func muted(_ want: [Double], _ why: String) throws {
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            XCTAssertTrue(try XCTUnwrap(ink()).getRed(&r, green: &g, blue: &b, alpha: &a))
+            for (got, want) in zip([r, g, b, a], want + [0.30]) { XCTAssertEqual(got, want, accuracy: 0.01, "\(why): \([r, g, b, a])") }
         }
+        field.applyStyle(["appearance": .string("none"), "text_color": rust, "written": wrote])
+        try muted([181.0 / 255, 86.0 / 255, 43.0 / 255], "the row's colour, written on the field too, is its own ink")
+        field.applyStyle(["appearance": .string("none"), "text_color": .array([.number(43), .number(86), .number(181), .number(255)]), "written": wrote])
+        try muted([43.0 / 255, 86.0 / 255, 181.0 / 255], "the field's own ink, muted")
+        field.applyStyle(["appearance": .string("none"), "text_color": .array([.number(43), .number(86), .number(181), .number(255)])])
+        XCTAssertEqual(ink(), .placeholderText, "the same colour from a sheet (no word that its author wrote it) is not")
     }
     /// LLP 1115 wave 2: an in-content search field is `UISearchTextField`'s
     /// look — its fill and magnifier behind the editing field, the text

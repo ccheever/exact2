@@ -33,16 +33,19 @@ extension ControlHost {
         setOn(control, on)
     }
 
-    /// The focus moves to a radio, as Chrome focuses one a click or an
-    /// arrow checks; a node that takes no focus leaves it where it is.
+    /// The focus moves to the radio an arrow checks, from the radio that
+    /// had it; a node that takes no focus leaves it where it is.
     func focusRadio(_ node: NodeView, keyboard: Bool = false) {
         guard let window = node.window, node.acceptsFirstResponder, window.firstResponder !== node else { return }
         window.makeFirstResponder(node)
     }
 
+    /// A click checks the radio and moves no focus, as a click on AppKit's
+    /// radio button does (LLP 1115.000 D7.1): a field being edited keeps its
+    /// editor, its edit committed before the radio's `change`.
     @objc func radioClicked(_ sender: NSControl) {
         guard let node = presenter.views[UInt32(sender.tag)] else { return }
-        focusRadio(node)
+        presenter.commitPendingEdit()
         checkRadio(node.id)
     }
 }

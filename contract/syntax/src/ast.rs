@@ -1216,6 +1216,9 @@ pub struct Attr {
     pub value: Expr,
     /// Where.
     pub span: Span,
+    /// Whether the author wrote it (LLP 1115.000 D2): the parser's are; a
+    /// row the compiler adds to an element (a sheet's, an implied one) is not.
+    pub written: bool,
 }
 
 /// A binary operator.

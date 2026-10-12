@@ -23,6 +23,8 @@ use std::collections::BTreeMap;
 mod activation;
 #[path = "arrange.rs"]
 mod arrange;
+#[path = "back.rs"]
+mod back;
 #[path = "content_region/host.rs"]
 mod content;
 #[path = "hatches/host.rs"]

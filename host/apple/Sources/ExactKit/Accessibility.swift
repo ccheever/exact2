@@ -584,6 +584,9 @@ extension Presenter {
             guard let self, !launchAutofocusReleased, session?.state != .destroyed else { return }
             launchAutofocusReleased = true
             syncAccessibility()
+            #if os(macOS)
+            focusInitialKeyView() // LLP 1115.000 D7.5, after the author's `autofocus` had its say
+            #endif
         }
     }
 

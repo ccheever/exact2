@@ -27,11 +27,14 @@ public final class Agent {
     let session: ExactSession
     init(session: ExactSession) {
         self.session = session
-        // The system appearance is the agent's from its first operation:
-        // light, as `prefer` would set it, never the machine's (LLP 1069.007
-        // D2). Reduced motion and transparency start at no-preference
-        // (`DisplayPreferences.agent`).
+        // The system appearance is the agent's: light, as `prefer` would set
+        // it, never the machine's (LLP 1069.007 D2). On iOS and tvOS the
+        // scene's, from the agent's first operation; on the Mac the app's,
+        // from launch (`Agent.systemAppearance`). Reduced motion and
+        // transparency start at no-preference (`DisplayPreferences.agent`).
+        #if os(iOS) || os(tvOS)
         if ExactEnv.agentMode { systemScheme(dark: false) }
+        #endif
     }
 
     /// Inline IDs name shaped fragments, not their paragraph owner's box.
@@ -422,9 +425,16 @@ public final class Agent {
             }
         }
         var facts = PageFacts.agent
+        #if os(macOS)
+        var keyboardNavigation: Bool?
+        #endif
         for (name, raw) in page ?? [:] {
             let value = name == "root-font-size" ? "\(raw)" : (raw as? Bool).map { $0 ? "true" : "false" } ?? "\(raw)"
             switch (name, value) {
+            #if os(macOS)
+            // The Mac's Keyboard Navigation setting (LLP 1115.000 D7.2): whether Tab reaches every control.
+            case ("keyboard-navigation", "true"), ("keyboard-navigation", "false"): keyboardNavigation = value == "true"
+            #endif
             case ("visibility-state", "visible"), ("visibility-state", "hidden"): facts.hidden = value == "hidden"
             case ("online", "true"), ("online", "false"): facts.onLine = value == "true"
             case ("can-share", "true"), ("can-share", "false"): facts.canShare = value == "true"
@@ -445,6 +455,13 @@ public final class Agent {
         systemContrast(more: DisplayPreferences.contrast == "more")
         DisplayPreferences.agent = (motion, transparency)
         if page != nil { PageFacts.agent = facts }
+        var pageFacts: [String: Any] = ["visibility-state": PageFacts.hidden ? "hidden" : "visible",
+                                       "online": PageFacts.onLine, "can-share": PageFacts.canShare, "can-open-files": PageFacts.canOpenFiles,
+                                       "has-focus": PageFacts.hasFocus(session.view?.window), "root-font-size": PageFacts.rootFontSize]
+        #if os(macOS)
+        if let keyboardNavigation { KeyboardNavigation.agent = keyboardNavigation }
+        pageFacts["keyboard-navigation"] = KeyboardNavigation.on
+        #endif
         let keyword = { (on: Bool) in on ? "reduce" : "no-preference" }
         return ["media": ["prefers-reduced-motion": keyword(DisplayPreferences.reducedMotion),
                           "prefers-reduced-transparency": keyword(DisplayPreferences.reducedTransparency),
@@ -452,9 +469,7 @@ public final class Agent {
                           "prefers-color-scheme": systemDark ? "dark" : "light",
                           "color-gamut": DisplayPreferences.gamut,
                           "dynamic-range": DisplayPreferences.highDynamicRange ? "high" : "standard"],
-                "page": ["visibility-state": PageFacts.hidden ? "hidden" : "visible",
-                         "online": PageFacts.onLine, "can-share": PageFacts.canShare, "can-open-files": PageFacts.canOpenFiles,
-                         "has-focus": PageFacts.hasFocus(session.view?.window), "root-font-size": PageFacts.rootFontSize],
+                "page": pageFacts,
                 "fold": presenter.fold.env]
     }
 

@@ -115,7 +115,8 @@ extension Agent {
     /// and the routes as the props declare them — macOS projects nothing
     /// natively, so the stack is the rule's prefix and the phase is idle.
     func stateSections() -> [String: Any] {
-        var focus: [String: Any] = ["logical": NSNull(), "editor": NSNull(), "responder": NSNull(), "pending": NSNull()]
+        // `keyboardNavigation`: the mode Tab is in (LLP 1115.000 D7.2), the drive's (`prefer keyboard-navigation`), never the machine's.
+        var focus: [String: Any] = ["logical": NSNull(), "editor": NSNull(), "responder": NSNull(), "pending": NSNull(), "keyboardNavigation": KeyboardNavigation.on]
         let responder = presenter.viewport.window?.firstResponder
         if let node = presenter.views.values.filter({ n in
             session.natives.ownsFocus(n) || presenter.keyTarget(responder) === n
@@ -139,6 +140,8 @@ extension Agent {
                 navigation["closedby"] = selected.props["closedby"] ?? NSNull()
             }
         }
+        // The platform's Back (LLP 1115.000 D5.1): how it goes now, or null.
+        navigation["back"] = presenter.navigation.backObservation
         // @ref LLP 1038 D11 — last op, never inferred from route props.
         navigation["url"] = session.routerOp?["url"] ?? NSNull()
         navigation["popover"] = presenter.menus.observation ?? NSNull()
@@ -482,6 +485,13 @@ extension Agent {
     }
 
     func tap(_ req: [String: Any]) -> [String: Any] {
+        // An alert's buttons are AppKit's (LLP 1115.000 D7.6): a tap on an
+        // authored button of it presses the alert's, and nothing behind its
+        // sheet takes one.
+        if presenter.alerts.presented != nil, let id = req["id"] as? Int, let node = presenter.views[UInt32(id)] {
+            guard req["phase"] == nil, let activated = presenter.alerts.click(node) else { return ["error": "view \(id) is behind an alert"] }
+            return activated ? ["tapped": id, "delivery": "host-activation", "native": "NSAlert"] : ["error": "alert button #\(id) is unavailable"]
+        }
         if let node = view(req), presenter.dialogs.blocks(node) { return ["error": "view \(node.id) is blocked by a modal dialog"] }
         if view(req)?.placedAncestor?.placementHidden == true { return ["error": "placed child is hidden"] }
         if req["phase"] == nil, req["wheel"] == nil,
@@ -729,6 +739,14 @@ extension Agent {
     /// Set an input's text as typing does: the field editor, all selected,
     /// the text inserted — the delegate hears one change with the new value.
     func type(_ req: [String: Any]) -> [String: Any] {
+        // An alert's sheet holds the keys while it is up (LLP 1115.000 D7.6):
+        // Return is its default button's, Escape its cancel's, whatever is named.
+        if presenter.alerts.presented != nil {
+            guard let key = req["key"] as? String else { return ["error": "an alert is up: only a key reaches it"] }
+            let typed = req["id"] ?? NSNull()
+            if req["phase"] as? String == "up" { return ["typed": typed, "key": key, "phase": "up", "delivery": "unhandled", "native": "NSAlert"] }
+            return ["typed": typed, "key": key, "delivery": presenter.alerts.key(key) ? "host-activation" : "unhandled", "native": "NSAlert"]
+        }
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         guard presenter.toolbar.visible(v), !v.inert else { return ["error": "view \(v.id) is hidden or inert"] }
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
@@ -950,6 +968,21 @@ extension Agent {
         return image
     }
 
+    /// `image`, the window server's picture of `window`, with the window's
+    /// sheet drawn where it sits: a sheet (an alert's) is a window of its
+    /// own, which the picture of one window leaves out.
+    private static func withSheet(_ image: CGImage, of window: NSWindow) -> CGImage {
+        guard let sheet = window.attachedSheet, let picture = ownWindowImage(sheet.windowNumber), window.frame.width > 0,
+              let context = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return image }
+        let scale = CGFloat(image.width) / window.frame.width
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        context.draw(picture, in: CGRect(x: (sheet.frame.minX - window.frame.minX) * scale, y: (sheet.frame.minY - window.frame.minY) * scale,
+                                         width: CGFloat(picture.width), height: CGFloat(picture.height)))
+        return context.makeImage() ?? image
+    }
+
     /// Whether the window server's picture holds nothing. A display that is
     /// asleep, or a locked screen, still answers, with a transparent picture
     /// a pixel or two short of the window: no picture, not a wrong one. An
@@ -987,7 +1020,8 @@ extension Agent {
             CATransaction.flush()
             let refresh = 1 / Double(max(30, window.screen?.maximumFramesPerSecond ?? 60))
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 2 * refresh + 0.004))
-            guard let image = Self.ownWindowImage(window.windowNumber) else { return ["error": "the window server gave no picture of window \(window.windowNumber); a display that is asleep or a locked screen gives an empty one"] }
+            guard let alone = Self.ownWindowImage(window.windowNumber) else { return ["error": "the window server gave no picture of window \(window.windowNumber); a display that is asleep or a locked screen gives an empty one"] }
+            let image = Self.withSheet(alone, of: window)
             guard let png = NSBitmapImageRep(cgImage: image).converting(to: .sRGB, renderingIntent: .default)?.representation(using: .png, properties: [:]) else { return ["error": "no PNG"] }
             do { try png.write(to: URL(fileURLWithPath: path)) } catch { return ["error": "write \(path): \(error)"] }
             var r: [String: Any] = ["screenshot": path, "window": true, "w": Agent.r2(v.bounds.width), "h": Agent.r2(v.bounds.height), "scale": Agent.r2(window.backingScaleFactor)]
@@ -1012,16 +1046,30 @@ extension Agent {
     /// The system appearance (LLP 1061 D5). AppKit has no layer beneath the
     /// app's own appearance (`setScheme`'s `NSApp.appearance`): the agent's
     /// stands in it while the app follows the system, and an app that
-    /// returns to `system` later shows the Mac's own again.
+    /// returns to `system` later shows the Mac's own again. Every session
+    /// tells its runner, as for any other preference.
     func systemScheme(dark: Bool) {
         let following = NSApp.appearance == nil || NSApp.appearance === Agent.systemAppearance
         Agent.systemAppearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         if following { NSApp.appearance = Agent.systemAppearance }
+        DisplayPreferences.changed()
     }
     var systemDark: Bool {
         (Agent.systemAppearance ?? NSApp.effectiveAppearance).bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
     }
-    nonisolated(unsafe) static var systemAppearance: NSAppearance?
+    /// The agent's system appearance, the whole process's; `nil` follows the
+    /// Mac. Under the agent it is set at launch (`launchAppearance`): its
+    /// first reader is the first `ExactView`, before it reads an appearance.
+    nonisolated(unsafe) static var systemAppearance: NSAppearance? = ExactEnv.agentMode ? launchAppearance() : nil
+    /// Light, as `prefer` would set it, never the machine's (LLP 1069.007 D2),
+    /// and the app's while it follows the system: so the first boot tells
+    /// the runtime the scheme the window draws, and the first `prefer`
+    /// changes only what it names.
+    static func launchAppearance() -> NSAppearance? {
+        let light = NSAppearance(named: .aqua)
+        if let app = NSApp, app.appearance == nil { app.appearance = light }
+        return light
+    }
     /// `prefer contrast more` (LLP 1095 D7): the high-contrast variant of the
     /// system appearance, so views redraw and platform colours resolve as
     /// Increase Contrast shows them.

@@ -119,6 +119,30 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 
 ## Lists and scrolling
 
+- **A frame's cell count is not its stretched layout width.** Giving the
+  harness's animation rows a width of `animCols` cells changed fullscreen layout in
+  a window narrower than the animation's minimum 20 cells. `width="100%"`
+  preserved the stretched box, but adding it with `height="1lh"` did not reduce
+  text measurement calls. Keep auto sizing unless the alternative is both
+  behaviorally equivalent and measurably faster. Verified across animation
+  frames and resizes, 2026-10-10.
+
+- **A closed dialog still creates an eager `each`'s rows.** Hiding a dialog
+  hides its presentation; an ordinary `each` still instantiates the children.
+  For a large optional list, gate the rows with `when`, or use a supported
+  `list virtualized=true` shape. The terminal now reports a closed dialog's
+  virtual list with a zero viewport, releasing its row views while retaining
+  its index and scroll position. The LLP tree initializes that index on first
+  use. Keep the dialog itself mounted for the host command to address.
+  Found and verified in the LLP terminal reader (2026-10-10).
+
+- **An unchanged row style is evaluated on every animation tick.** Passing the
+  whole row to a helper, such as `weight(run)`, makes the runner's dependency
+  scan count every field of that row. A color change then reevaluates its font
+  weight too. Pass the fields the helper uses (`weight(run.bold, run.dim)`)
+  so the binding can skip unrelated changes. Found in the harness's matrix
+  animation, 2026-10-10; LLP 1017.003 D6 describes the field mask.
+
 - **A tap that changes one row of a long list takes ~80 ms on the web.** Cause: the
   mutation answers the whole list (10,000 rows), and on the JS target a Rust
   module's answer crosses into JS as a copy and every row is checked again. Fix:

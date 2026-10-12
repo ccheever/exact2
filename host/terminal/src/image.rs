@@ -146,6 +146,9 @@ impl Images {
     /// Find the tree's images and decode any new source.
     pub fn load(&mut self, kernel: &Kernel) {
         self.nodes.clear();
+        if !kernel.has_type(NodeType::Image) {
+            return;
+        }
         let mut stack = kernel.roots();
         while let Some(id) = stack.pop() {
             let Some(n) = kernel.node(id) else { continue };

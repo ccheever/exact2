@@ -40,10 +40,16 @@ final class NativeButtonFocusMacTests: XCTestCase {
         if !p.routeKey(event, focused: true, in: window) { window.sendEvent(event) }
     }
 
-    /// Override only the process's AppKit query; never change the person's preferences.
-    /// AppKit's key-view eligibility and traversal are exercised with both answers.
-    func testTabAndShiftTabUseOnlyTheNativeOwnerWithKeyboardNavigationOnAndOff() throws {
+    /// LLP 1115.000 D7.2: Tab honours the Mac's Keyboard Navigation setting,
+    /// read from AppKit where no drive or test says (this overrides only the
+    /// process's AppKit query; it never changes the person's preferences).
+    /// On, Tab and Shift-Tab reach each button, only its native owner in the
+    /// loop. Off, no button is a key view, as an `NSButton` is none: the
+    /// loop holds what takes keys of its own, and Tab from a button an
+    /// action focused goes on to the next stop.
+    func testTabHonoursKeyboardNavigationAndUsesOnlyTheNativeOwner() throws {
         _ = NSApplication.shared  // NSApp, read below before any fixture creates it
+        XCTAssertNil(KeyboardNavigation.agent, "nothing stands in for the setting here: it is AppKit's answer")
         let method = try XCTUnwrap(class_getInstanceMethod(NSApplication.self, #selector(getter: NSApplication.isFullKeyboardAccessEnabled)))
         let original = method_getImplementation(method)
         defer { method_setImplementation(method, original) }
@@ -53,29 +59,43 @@ final class NativeButtonFocusMacTests: XCTestCase {
             method_setImplementation(method, replacement)
             defer { method_setImplementation(method, original); imp_removeBlock(replacement) }
             XCTAssertEqual(NSApp.isFullKeyboardAccessEnabled, enabled)
+            XCTAssertEqual(KeyboardNavigation.on, enabled)
             let p = try fixture()
             let first = try XCTUnwrap(p.controls.controls[2] as? NativeButtonMac)
             let bare = try XCTUnwrap(p.views[3])
             let last = try XCTUnwrap(p.controls.controls[4] as? NativeButtonMac)
-            XCTAssertTrue(first.acceptsFirstResponder)
-            XCTAssertTrue(first.canBecomeKeyView)
+            let page = try XCTUnwrap(p.views[1])
+            XCTAssertTrue(first.acceptsFirstResponder, "focus() and autofocus reach it either way")
+            XCTAssertEqual(first.canBecomeKeyView, enabled)
+            XCTAssertEqual(bare.canBecomeKeyView, enabled)
+            XCTAssertEqual(last.canBecomeKeyView, enabled)
             XCTAssertFalse(try XCTUnwrap(p.views[2]).acceptsFirstResponder)
             XCTAssertFalse(try XCTUnwrap(p.views[2]).canBecomeKeyView)
+            XCTAssertTrue(page.canBecomeKeyView, "a box with key handlers takes keys of its own: a stop either way")
             XCTAssertEqual(first.focusRingType, .default)
             XCTAssertTrue(try XCTUnwrap(p.views[2]).focusRingMaskBounds.isEmpty)
-            XCTAssertTrue(first.nextKeyView === bare)
-            XCTAssertTrue(bare.nextKeyView === last)
-            XCTAssertTrue(last.nextKeyView === p.views[1], "the pressable ancestor has its own independent stop")
             XCTAssertTrue(window.makeFirstResponder(first))
-            deliver(p, try key("\t", 48))
-            XCTAssertTrue(window.firstResponder === bare)
-            XCTAssertEqual(bare.focusRingMaskBounds, bare.bounds, "no own press handler needed")
-            deliver(p, try key("\t", 48))
-            XCTAssertTrue(window.firstResponder === last)
-            deliver(p, try key("\t", 48, flags: .shift))
-            XCTAssertTrue(window.firstResponder === bare)
-            deliver(p, try key("\t", 48, flags: .shift))
-            XCTAssertTrue(window.firstResponder === first)
+            if enabled {
+                XCTAssertTrue(first.nextKeyView === bare)
+                XCTAssertTrue(bare.nextKeyView === last)
+                XCTAssertTrue(last.nextKeyView === page, "the pressable ancestor has its own independent stop")
+                deliver(p, try key("\t", 48))
+                XCTAssertTrue(window.firstResponder === bare)
+                XCTAssertEqual(bare.focusRingMaskBounds, bare.bounds, "no own press handler needed")
+                deliver(p, try key("\t", 48))
+                XCTAssertTrue(window.firstResponder === last)
+                deliver(p, try key("\t", 48, flags: .shift))
+                XCTAssertTrue(window.firstResponder === bare)
+                deliver(p, try key("\t", 48, flags: .shift))
+                XCTAssertTrue(window.firstResponder === first)
+            } else {
+                XCTAssertTrue(p.viewport.nextValidKeyView === page, "the loop holds no button")
+                deliver(p, try key("\t", 48))
+                XCTAssertTrue(window.firstResponder === page, "Tab from a focused button that is no stop goes on to the next stop")
+                XCTAssertTrue(window.makeFirstResponder(last))
+                deliver(p, try key("\t", 48, flags: .shift))
+                XCTAssertTrue(window.firstResponder === page, "and Shift-Tab to the one before")
+            }
             window.close(); window = nil
         }
     }
@@ -104,21 +124,27 @@ final class NativeButtonFocusMacTests: XCTestCase {
         XCTAssertNil(p.focusedNode)
     }
 
-    func testSpaceAndReturnPressExactlyOnceAndCancellationPreventsTheAction() throws {
+    /// LLP 1115.000 D7.3: Space presses the focused control, once. Return is
+    /// the default button's, and outside a dialog there is none: a merely
+    /// focused button does nothing with it (DefaultButtonMacTests holds the
+    /// default). A key the app prevented does nothing more.
+    func testSpacePressesTheFocusedButtonOnceReturnDoesNotAndCancellationPreventsTheAction() throws {
         let p = try fixture()
         var pressed: [UInt32] = [], heard: [UInt32] = []
         p.onPress = { pressed.append($0) }
         p.onKey = { id, _ in heard.append(id) }
-        for (chars, code) in [(" ", UInt16(49)), ("\r", UInt16(36))] {
-            for target in ["first", "bare", "last"] {
-                p.focusElement([target])
-                let count = pressed.count
-                deliver(p, try key(chars, code))
-                deliver(p, try key(chars, code, up: true))
-                XCTAssertEqual(pressed.count, count + 1)
-                XCTAssertEqual(pressed.last, target == "last" ? 4 : 1, "a handlerless button activates its ancestor")
-                XCTAssertEqual(p.focusedNode?.props["id"], target, "activation preserves the button's owner")
-            }
+        for target in ["first", "bare", "last"] {
+            p.focusElement([target])
+            let count = pressed.count
+            deliver(p, try key(" ", 49))
+            deliver(p, try key(" ", 49, up: true))
+            XCTAssertEqual(pressed.count, count + 1)
+            XCTAssertEqual(pressed.last, target == "last" ? 4 : 1, "a handlerless button activates its ancestor")
+            XCTAssertEqual(p.focusedNode?.props["id"], target, "activation preserves the button's owner")
+            deliver(p, try key("\r", 36))
+            deliver(p, try key("\r", 36, up: true))
+            XCTAssertEqual(pressed.count, count + 1, "\(target): Return presses no merely focused button")
+            XCTAssertEqual(p.focusedNode?.props["id"], target)
         }
         p.focusElement(["first"])
         p.onKey = { id, _ in heard.append(id); p.defaultPrevented = true }

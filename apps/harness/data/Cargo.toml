@@ -31,3 +31,4 @@ contract = { path = "../../../contract/cli" }
 [dev-dependencies]
 contract = { path = "../../../contract/cli" }
 exact-kernel = { path = "../../../kernel" }
+exact-terminal = { path = "../../../host/terminal" }

@@ -3,7 +3,7 @@ use crate::{err, expr, values::numeric_literal, LowerError, Lowerer};
 use contract_syntax::{Attr, Expr, Span};
 use contract_types::{Scope, Ty};
 use exact_kernel::PropId;
-use exact_plan::{asm::Asm, BindingKind, BindingsRow};
+use exact_plan::{asm::Asm, BindingsRow};
 
 pub(crate) fn check(name: &str, value: &Expr, span: Span) -> Result<(), LowerError> {
     if let Expr::Str(text, _) = value {
@@ -97,6 +97,7 @@ pub(crate) fn audio_rows(
         name: name.into(),
         value,
         span,
+        written: crate::IMPLIED,
     };
     let sized = || {
         [
@@ -240,11 +241,7 @@ impl Lowerer<'_> {
             let value = named
                 .unwrap_or_else(|| Expr::Member(Box::new(a.value.clone()), field.into(), a.span));
             let (code, _) = self.typed_code(&value, scope, locals)?;
-            bindings.push(BindingsRow {
-                kind: BindingKind::Prop,
-                id: prop as u16,
-                expr: code,
-            });
+            bindings.push(crate::prop_row(prop, code, a.written));
         }
         Ok(())
     }

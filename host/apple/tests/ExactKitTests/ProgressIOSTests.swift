@@ -21,10 +21,12 @@ final class ProgressIOSTests: XCTestCase {
         p.apply(wireBatch(ops))
         return p
     }
-    private func progress(_ id: Int, _ props: [String: String] = [:], side: Double = 20, y: Double = 0) -> [[String: Any]] {
+    /// A spinner whose style has the red `color` it computes; `written`, its
+    /// author wrote that on it (LLP 1115.000 D2), else it only inherits it.
+    private func progress(_ id: Int, _ props: [String: String] = [:], side: Double = 20, y: Double = 0, written: Bool = false) -> [[String: Any]] {
         [["op": "create", "id": id, "kind": "control",
           "props": ["type": "progress", "accessibilityRole": "progressbar", "accessibilityBusy": "true"].merging(props) { $1 },
-          "handlers": [], "style": ["text_color": [255, 0, 0, 255]]],
+          "handlers": [], "style": ["text_color": [255, 0, 0, 255]].merging(written ? ["written": ["text_color"]] : [:]) { $1 }],
          ["op": "frame", "id": id, "x": 0.0, "y": y, "w": side, "h": side]]
     }
     private func box(_ id: Int) -> [[String: Any]] {
@@ -33,16 +35,29 @@ final class ProgressIOSTests: XCTestCase {
     }
 
     /// LLP 1115 D4: a `color` the indicator only inherits is not its own;
-    /// it keeps UIKit's.
+    /// it keeps UIKit's. A colour its author wrote on it is its own, the
+    /// parent's colour written again and a platform colour included (LLP
+    /// 1115.000 D2).
     func testAnInheritedColourLeavesUIKitsIndicatorColour() throws {
-        var ops = box(1) + progress(2)
-        ops[0]["style"] = ["text_color": [255, 0, 0, 255]]
-        let p = presenter(ops + [["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]])
+        var ops = box(1) + progress(2) + progress(3, written: true) + progress(4, written: true)
+        ops[0]["style"] = ["text_color": [255, 0, 0, 255], "written": ["text_color"]]
+        let red: [String: Any] = ["sys": "systemRedColor", "c": [[255, 56, 60, 255], [255, 66, 69, 255]]]
+        ops[6]["style"] = ["text_color": red, "written": ["text_color"]]
+        let p = presenter(ops + [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "roots", "ids": [1]]])
         XCTAssertEqual(try XCTUnwrap(p.controls.spinners[2]).color, ControlHost.platformInk)
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        try XCTUnwrap(p.controls.spinners[3]).color.getRed(&r, green: &g, blue: &b, alpha: &a)
+        XCTAssertEqual([r, g, b, a], [1, 0, 0, 1], "equal to its parent's, and written")
+        // A platform colour its author wrote: UIKit's red for these traits.
+        var want: (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
+        let spinner = try XCTUnwrap(p.controls.spinners[4])
+        UIColor.systemRed.resolvedColor(with: spinner.traitCollection).getRed(&want.0, green: &want.1, blue: &want.2, alpha: &want.3)
+        spinner.color.getRed(&r, green: &g, blue: &b, alpha: &a)
+        for (got, want) in zip([r, g, b, a], [want.0, want.1, want.2, want.3]) { XCTAssertEqual(got, want, accuracy: 0.01, "\([r, g, b, a])") }
     }
 
     func testItIsUIKitsActivityIndicatorSizedByItsBox() throws {
-        let p = presenter(box(1) + progress(2, ["testId": "busy", "accessibilityLabel": "Loading"]) + progress(3, side: 40, y: 40)
+        let p = presenter(box(1) + progress(2, ["testId": "busy", "accessibilityLabel": "Loading"], written: true) + progress(3, side: 40, y: 40)
                           + [["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]]])
         let medium = try XCTUnwrap(p.controls.spinners[2])
         XCTAssertEqual(medium.style, .medium)

@@ -11,7 +11,6 @@ const DIGEST_DOMAIN: &[u8] = b"exact-kernel-schema-v1\0";
 
 enum GridSeam {
     Decode,
-    Encode,
     Dynamic,
 }
 
@@ -30,12 +29,42 @@ fn emit_grid_seam(w: &mut String, id: &str, seam: GridSeam) -> bool {
     if id == "GridAutoFlow" {
         let line = match seam {
             GridSeam::Decode => "crate::style::decode_grid_rows(&mut out, mask, r)?;",
-            GridSeam::Encode => "crate::style::encode_grid_rows(self, mask, w);",
             GridSeam::Dynamic => "StyleId::GridAutoFlow | StyleId::GridTemplateColumns | StyleId::GridTemplateRows | StyleId::GridColumn | StyleId::GridRow | StyleId::JustifyItems => crate::style::set_grid_dynamic(self, id, value)?,",
         };
         writeln!(w, "            {line}").unwrap();
     }
     true
+}
+
+fn emit_style_encoding(w: &mut String, schema: &Schema) {
+    w.push_str(
+        "    /// Encode the rows in `mask` as a masked patch.\n\
+         pub fn encode_masked(&self, mask: StyleMask, w: &mut Writer) {\n\
+             self.encode_overlaid(mask, self, w);\n\
+         }\n\
+         /// Encode these rows, taking explicitly patched rows from `patch`.\n\
+         pub(crate) fn encode_overlaid(&self, mask: StyleMask, patch: &StyleProps, w: &mut Writer) {\n\
+             w.style_mask(mask);\n\
+             w.style_mask(self.written.minus(patch.mask).union(patch.written.intersect(patch.mask)).intersect(mask));\n\
+             for id in mask.iter() {\n\
+                 let source = if patch.mask.has(id) { patch } else { self };\n\
+                 match id {\n",
+    );
+    for row in &schema.styles {
+        let id = pascal(&row.field);
+        // Keep grid's optional wasm codec behind its existing linked seam.
+        let encode = if matches!(
+            id.as_str(),
+            "GridAutoFlow" | "GridTemplateColumns" | "GridTemplateRows"
+                | "GridColumn" | "GridRow" | "JustifyItems"
+        ) {
+            "crate::style::encode_grid_rows(source, StyleMask::of(id), w);".into()
+        } else {
+            parse_codec(&row.codec).encode_stmt(&format!("source.{}", at(row)))
+        };
+        writeln!(w, "                    StyleId::{id} => {{ {encode} }}").unwrap();
+    }
+    w.push_str("                }\n            }\n        }\n");
 }
 
 enum Codec {

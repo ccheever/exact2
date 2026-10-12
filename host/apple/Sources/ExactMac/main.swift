@@ -198,12 +198,17 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
             window.contentMinSize = minimumSize
             window.setContentSize(NSSize(width: max(size.width, minimumSize.width), height: max(size.height, minimumSize.height)))
         }
-        // Nothing is focused at launch — the web's rule (a page focuses no field on
-        // load). AppKit would otherwise make the first key view the first responder
-        // when the window becomes key, and a canvas holding an input would show a
-        // caret from its first frame (found by the readback fixture, LLP 1014).
+        // A new window puts the caret in its first key view (LLP 1115.000 D7.5),
+        // unless the author's `autofocus` says where. The session does it the turn
+        // after its first frame, when its launch autofocus runs, so no field editor
+        // stands before the first pixel (`ExactView.focusesFirstKeyView`). Until
+        // then nothing is focused, and a window whose first key view is in a canvas
+        // that takes input stays so: AppKit's own pick as the window came on screen
+        // gave such a canvas a caret in its first frame (found by the readback
+        // fixture, LLP 1014).
         window.initialFirstResponder = view
         window.autorecalculatesKeyViewLoop = false
+        view.focusesFirstKeyView = true
         window.delegate = self
         view.onViewportFit = { [weak self] in self?.coverChrome() }
         // Attaching the view can boot its embedded plan before this hook is installed.

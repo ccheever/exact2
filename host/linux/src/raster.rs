@@ -38,6 +38,8 @@ struct ClipKey {
 pub struct Raster {
     target: Option<Pixmap>,
     transparent: bool,
+    /// The page's colour ([`Backend::page`]); white until one is told.
+    page: Option<[u8; 4]>,
     scale: f32,
     width: u32,
     height: u32,
@@ -387,6 +389,10 @@ impl Backend for Raster {
         "cpu"
     }
 
+    fn page(&mut self, color: [u8; 4]) {
+        self.page = Some(color);
+    }
+
     fn begin(&mut self, width: f32, height: f32, scale: f32) {
         self.reset(width, height, scale);
         // A frame past the largest side is never allocated (420×860 points at
@@ -398,7 +404,8 @@ impl Backend for Raster {
             .flatten()
             .map(|mut pixmap| {
                 if !self.transparent {
-                    pixmap.fill(Color::WHITE);
+                    let [r, g, b, a] = self.page.unwrap_or([255; 4]);
+                    pixmap.fill(Color::from_rgba8(r, g, b, a));
                 }
                 pixmap
             });
@@ -444,7 +451,7 @@ impl Backend for Raster {
                     .all(|v| (v * self.scale).is_finite() && (v * self.scale).abs() <= 8191.0)
             });
         let mut target = previous.clone();
-        let mut clear = solid([255; 4]);
+        let mut clear = solid(self.page.unwrap_or([255; 4]));
         clear.anti_alias = false;
         let mut bounds = (f32::INFINITY, f32::INFINITY, 0.0_f32, 0.0_f32);
         for &(x, y, w, h) in rects {

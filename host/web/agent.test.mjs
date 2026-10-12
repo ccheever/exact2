@@ -856,7 +856,7 @@ test('moved keyboard shortcuts preserve modifiers, readiness, repeat and modal g
 // a link, as a click, after the key's handlers and unless one prevented it.
 test('a pressable that is no button activates by Enter or Space', () => {
   const h = inputFixture(); h.load(); let clicks = 0;
-  const pressable = (tag, role = null) => ({ dataset: { exactOn: 'press' }, matches: s => s.split(', ').includes(tag), getAttribute: () => role, click() { clicks++; } });
+  const pressable = (tag, role = null) => ({ dataset: { exactOn: 'press' }, matches: s => s.split(', ').includes(tag), getAttribute: () => role, click() { clicks++; }, toggleAttribute() {}, style: { getPropertyValue: () => '' }, addEventListener() {}, removeEventListener() {} }); // Space also shows the press (tests/press.test.mjs)
   const key = (target, extra) => { const e = { key: 'Enter', target, preventDefault() { this.prevented = true; }, ...extra }; h.f.keyActivate(e); return e; };
   expect(key(pressable('div')).prevented).toBe(true);
   expect(key(pressable('div'), { key: ' ' }).prevented).toBe(true);

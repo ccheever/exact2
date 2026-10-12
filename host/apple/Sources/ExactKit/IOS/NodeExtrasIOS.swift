@@ -241,15 +241,18 @@ extension UIColor {
     }
 }
 extension NodeView {
-    /// LLP 1115 §2, "inherited is unsaid": the colour row `key` when it is
-    /// written on this node — not a platform colour, and not the same as
-    /// the nearest node view above it has (what CSS's inheritance gave it).
-    /// Nil leaves the control the platform's tint (D4).
-    func ownColor(_ key: String) -> BatchValue? {
-        guard let row = style[key], !row.isSystemColor else { return nil }
-        let above = sequence(first: superview, next: { $0?.superview }).lazy.compactMap { $0 as? NodeView }.first
-        return row.key == above?.style[key]?.key ? nil : row
+    /// LLP 1115.000 D2: whether the author wrote the row `key` on this node,
+    /// as an attribute or a row of its class. The style says so row by row
+    /// (`written`); it is false of a value the node only inherits and of a
+    /// row the compiler implied (a sheet's, a heading's, a tag's own).
+    func wrote(_ key: String) -> Bool {
+        guard case .array(let rows)? = style["written"] else { return false }
+        return rows.contains(.string(key))
     }
+    /// LLP 1115 §2, "what the author writes wins": the colour row `key` when
+    /// its author wrote it on this node, a platform colour and one equal to
+    /// its parent's included. Nil leaves the control the platform's (D4).
+    func ownColor(_ key: String) -> BatchValue? { wrote(key) ? style[key] : nil }
     /// `ownColor` as this node draws it now, or nil.
     func ownUIColor(_ key: String) -> UIColor? {
         ownColor(key) == nil ? nil : cgColor(key).map { UIColor(cgColor: $0) }

@@ -65,10 +65,12 @@ final class NativeContextsIOSTests: XCTestCase {
     }
     func testANativeSwipeActionIsDrawnFromItsFace() throws {
         let p = presenter(
-            view(1, ["swipeContent": "body", "swipeTrailing": "delete mute pin flag"], style: ["overflow_x": "scroll", "overflow_y": "hidden"])
-                + view(2, w: 490, h: 80) + view(3, ["id": "body"], h: 80)
+            view(1, ["swipeContent": "body", "swipeTrailing": "delete mute pin flag archive"], style: ["overflow_x": "scroll", "overflow_y": "hidden"])
+                + view(2, w: 540, h: 80) + view(3, ["id": "body"], h: 80)
+                // An accent it only inherits (LLP 1115.000 D2): the value, and no word that its author wrote it.
+                + native(11, ["id": "archive", "accessibilityLabel": "Archive"], style: ["accent_color": [88, 86, 214, 255]], x: 490, w: 50, h: 50)
                 + native(4, ["id": "delete", "destructive": "true"], style: ["accent_color": [0, 255, 0, 255]], x: 300, w: 50, h: 50)
-                + native(5, ["id": "mute", "accessibilityLabel": "Hide alerts"], style: ["accent_color": [88, 86, 214, 255]], x: 360, w: 50, h: 50)
+                + native(5, ["id": "mute", "accessibilityLabel": "Hide alerts"], style: ["accent_color": [88, 86, 214, 255], "written": ["accent_color"]], x: 360, w: 50, h: 50)
                 + [["op": "create", "id": 6, "kind": "button", "handlers": ["press"], "props": ["id": "pin", "accessibilityLabel": "Pin"], "style": ["text_color": [0, 0, 0, 255]]],
                    ["op": "frame", "id": 6, "x": 410.0, "y": 0.0, "w": 40.0, "h": 50.0],
                    ["op": "create", "id": 9, "kind": "button", "handlers": ["press"], "props": ["id": "flag", "accessibilityLabel": "Flag"], "style": ["text_color": [0, 0, 0, 255]]],
@@ -77,15 +79,16 @@ final class NativeContextsIOSTests: XCTestCase {
                 + [["op": "create", "id": 7, "kind": "text", "props": [:], "handlers": [], "style": [:]],
                    ["op": "create", "id": 10, "kind": "text", "props": [:], "handlers": [], "style": ["display": "none"]],
                    ["op": "children", "id": 6, "ids": [7]], ["op": "children", "id": 9, "ids": [10]]]
-                + [["op": "children", "id": 1, "ids": [2]], ["op": "children", "id": 2, "ids": [3, 4, 5, 6, 9]], ["op": "roots", "ids": [1]],
-                   ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 80.0], ["op": "content", "id": 1, "x": 0.0, "y": 0.0, "w": 490.0, "h": 80.0]],
-            faces: [4: face("Delete", symbol: "trash"), 5: face(nil, symbol: "bell", label: "Hide alerts"), 6: face("Pin", symbol: "pin", label: "Pin"), 9: face("Flag", symbol: "flag", label: "Flag")])
+                + [["op": "children", "id": 1, "ids": [2]], ["op": "children", "id": 2, "ids": [3, 4, 5, 6, 9, 11]], ["op": "roots", "ids": [1]],
+                   ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 80.0], ["op": "content", "id": 1, "x": 0.0, "y": 0.0, "w": 540.0, "h": 80.0]],
+            faces: [4: face("Delete", symbol: "trash"), 5: face(nil, symbol: "bell", label: "Hide alerts"), 6: face("Pin", symbol: "pin", label: "Pin"), 9: face("Flag", symbol: "flag", label: "Flag"),
+                    11: face(nil, symbol: "archivebox", label: "Archive")])
         let owner = try XCTUnwrap(p.views[1])
         p.swipeActions.touch(owner)
         let table = try XCTUnwrap(owner.subviews.compactMap { $0 as? UITableView }.first)
         XCTAssertTrue(table.touchesShouldCancel(in: NativeButtonIOS(configuration: .bordered())), "a pan takes a native body button's touch")
         let configuration = try XCTUnwrap(table.delegate?.tableView?(table, trailingSwipeActionsConfigurationForRowAt: IndexPath(row: 0, section: 0)))
-        XCTAssertEqual(configuration.actions.count, 4)
+        XCTAssertEqual(configuration.actions.count, 5)
         let delete = configuration.actions[0], mute = configuration.actions[1], pin = configuration.actions[2], flag = configuration.actions[3]
         XCTAssertEqual(delete.style, .destructive)
         XCTAssertNotNil(delete.image, "its symbol")
@@ -98,7 +101,9 @@ final class NativeContextsIOSTests: XCTestCase {
         XCTAssertEqual(pin.image?.isSymbolImage, true, "a custom action's symbol is a system image, not a snapshot")
         XCTAssertEqual(delete.accessibilityLabel, "Delete", "its title names it")
         XCTAssertEqual(mute.accessibilityLabel, "Hide alerts")
-        XCTAssertEqual(mute.backgroundColor, TextEngine.color([88, 86, 214, 255]), "its accent")
+        XCTAssertEqual(mute.backgroundColor, TextEngine.color([88, 86, 214, 255]), "the accent its author wrote on it")
+        XCTAssertEqual(configuration.actions[4].backgroundColor, UIContextualAction(style: .normal, title: nil) { _, _, _ in }.backgroundColor,
+                       "UIKit's grey: an accent the action only inherits is not its own")
         var pressed: [UInt32] = []
         p.onPress = { pressed.append($0) }
         mute.handler(mute, UIView()) { _ in }

@@ -72,11 +72,7 @@ impl Lowerer<'_> {
                         (Expr::Number(x, _), Expr::Number(y, _)) if x == y => va.clone(),
                         _ => Expr::Ternary(cond.clone(), Box::new(va), Box::new(vb), *span),
                     };
-                    rows.push(Attr {
-                        name: s.name.clone(),
-                        value,
-                        span: s.span,
-                    });
+                    rows.push(Attr { value, ..s.clone() });
                 }
                 Ok(Some((format!("{a}/{b}"), rows)))
             }

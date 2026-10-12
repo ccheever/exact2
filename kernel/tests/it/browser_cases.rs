@@ -11,7 +11,7 @@ use exact_kernel::{
 };
 use std::collections::BTreeMap;
 
-pub(crate) type Rows = Vec<(StyleId, StyleValue)>;
+pub(crate) type Rows = Vec<(StyleId, StyleValue<'static>)>;
 
 pub(crate) fn props(rows: &Rows) -> StyleProps {
     let mut p = StyleProps::default();

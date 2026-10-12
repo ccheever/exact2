@@ -339,7 +339,8 @@ app: a Contract file, a TypeScript file, and a test. This exact app was built fo
 macOS, and the iOS Simulator, and its test passed on all three.
 
 ```contract
-// app.contract: the view, its state, and what each action changes
+// app.contract: the view, its state, and what each action changes. It names no colour,
+// font or control size: each host draws its own heading, field, button, checkbox and list.
 shape Todo
   id: string
   title: string
@@ -347,10 +348,6 @@ shape Todo
 
 shape Change
   count: number
-
-style Card
-  padding=12 border-radius=10 gap=10 align-items="center"
-  background-color="light-dark(#f2f2f5, #1c1c1e)"
 
 component Todos
   state draft = ""
@@ -364,25 +361,27 @@ component Todos
     if trim(draft) != ""
       send changed = addTodo(trim(draft))
       draft = ""
-  action toggle(id: string)
-    send changed = toggleTodo(id)
+  action toggle(id: string, done: bool)
+    send changed = setDone(id, done)
   action remove(id: string)
     send changed = removeTodo(id)
 
   view
-    column padding=24 gap=12
-      text `${left} left` font-size=28 font-weight=700 testId="count"
-      row gap=8
-        input value=draft input=edit submit=add placeholder="What needs doing?" aria-label="New todo" testId="new-todo" flex=1 padding=10
-        button press=add padding=10 testId="add"
-          text "Add"
-      each t in todos key=t.id
-        row class=Card testId=`todo-${t.id}`
-          button press=toggle(t.id) aria-label="Toggle" testId=`toggle-${t.id}`
-            text (t.done ? "✓" : "○")
-          text t.title flex=1 text-decoration-line=(t.done ? "line-through" : "none")
-          button press=remove(t.id) aria-label="Delete" testId=`remove-${t.id}`
-            text "✕"
+    list appearance="auto" height="100%"
+      section
+        header
+          text `${left} left` role="heading" testId="count"
+        row
+          input value=draft input=edit submit=add placeholder="What needs doing?" aria-label="New todo" testId="new-todo" flex=1 min-width=0
+          button press=add testId="add"
+            text "Add"
+      section
+        each t in todos key=t.id
+          row testId=`todo-${t.id}`
+            input type="checkbox" checked=t.done change=toggle(t.id) aria-label=t.title testId=`toggle-${t.id}`
+            text t.title flex=1
+            button press=remove(t.id) destructive=true testId=`remove-${t.id}`
+              text "Delete"
 ```
 
 ```ts
@@ -402,8 +401,8 @@ const sources: Sources = {
     todos = [...todos, { id: String(next++), title, done: false }];
     return { count: todos.length };
   },
-  toggleTodo: ([id]) => {
-    todos = todos.map((t) => (t.id === id ? { ...t, done: !t.done } : t));
+  setDone: ([id, done]) => {
+    todos = todos.map((t) => (t.id === id ? { ...t, done } : t));
     return { count: todos.length };
   },
   removeTodo: ([id]) => {

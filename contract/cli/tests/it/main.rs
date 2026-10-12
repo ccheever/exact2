@@ -67,6 +67,7 @@ mod motion_feel;
 mod mutation;
 mod names;
 mod native_buttons;
+mod navigation_bar;
 mod navigation_detent;
 mod negative_margin;
 mod notify;

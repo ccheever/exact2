@@ -7,7 +7,11 @@ import XCTest
 /// pressable group around the heading (an avatar, a subtitle) is the item's
 /// title, drawn and tapped; Chat, pushed while the authored tablist is
 /// hidden, hides the tab bar; its inline title's scroller goes under the
-/// bar; Photo, with no header, has no bar, and the bar comes back with Chat.
+/// bar; Photo, which says it has no bar, has none, and the bar comes back
+/// with Chat. LLP 1115.000 D5.2 and D5.3 over
+/// `scripts/fixtures/navigation-bars.contract`: the bar is each route's, a
+/// pushed route with none of its own gets the system Back alone, and no bar
+/// is something a route says.
 /// UIKit synthesizes no touches for a unit test: the title is driven by its
 /// control's action, an interactive pop by the `willShow` UIKit sends.
 final class NavigationBasicsIOSTests: XCTestCase {
@@ -30,9 +34,11 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertTrue(done(), what)
     }
 
-    private func fixture(_ label: String) throws -> ExactSession {
+    /// A session over the native fixture's plan, or over the one `plan`
+    /// names: `EXACT_NAVIGATION_BARS_PLAN` is `scripts/fixtures/navigation-bars.contract`.
+    private func fixture(_ label: String, plan: String = "EXACT_FIXTURE_PLAN") throws -> ExactSession {
         let env = ProcessInfo.processInfo.environment
-        let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(env["EXACT_FIXTURE_PLAN"], "build.mjs --test --ios compiles the fixture's plan")))
+        let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(env[plan], "build.mjs --test --ios compiles the fixtures' plans")))
         let session = ExactApp.shared.makeSession(label: label)
         sessions.append(session)
         let view = ExactView(session: session)
@@ -365,7 +371,9 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertEqual(rgb(.light), [0, 0, 255, 255], "the route's own wins")
     }
 
-    func testARouteWithNoHeaderHasNoBarAndTheBarFollowsAPop() throws {
+    /// LLP 1115.000 D5.2: no bar is something a route says. Photo, a
+    /// full-bleed viewer that draws its own Close, is `navigationBar="none"`.
+    func testARouteThatAsksForNoBarHasNoneAndTheBarFollowsAPop() throws {
         let session = try fixture("basics-nobar")
         let (_, nav, chat) = try chat(session)
         let chatTop = chat.view.safeAreaInsets.top
@@ -373,12 +381,16 @@ final class NavigationBasicsIOSTests: XCTestCase {
         until("Photo pushed") { nav.viewControllers.count == 3 && nav.transitionCoordinator == nil }
         spin(0.3)
         let photo = try XCTUnwrap(nav.topViewController as? RouteController)
-        XCTAssertTrue(nav.isNavigationBarHidden, "a route with no header has no bar")
+        XCTAssertEqual(photo.node.props["navigationBar"], "none")
+        XCTAssertTrue(nav.isNavigationBarHidden, "a route that says it has no bar has none")
         XCTAssertLessThan(photo.view.safeAreaInsets.top, chatTop, "only the status bar is left above it")
         let view = try node(session, "photo-view")
         XCTAssertEqual(view.convert(view.bounds, to: photo.view).minY, photo.view.safeAreaInsets.top, accuracy: 0.5,
                        "its content starts below the status bar, the page not covering it")
         XCTAssertFalse(journal(session).contains("navigation bar visibility changed outside Exact"))
+        // With no bar the edge swipe still pops it.
+        let swipe = try XCTUnwrap(nav.interactivePopGestureRecognizer)
+        XCTAssertTrue(session.presenter.navigation.popMayBegin(swipe, from: CGPoint(x: 4, y: 400), in: nav.view, velocity: CGPoint(x: 600, y: 20)))
         // An interactive pop's start, and its cancel: UIKit asks for the
         // destination, then for the source again.
         let proxy = try XCTUnwrap(nav.delegate)
@@ -393,6 +405,150 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertFalse(nav.isNavigationBarHidden)
         XCTAssertEqual(chat.view.safeAreaInsets.top, chatTop, accuracy: 0.5)
         XCTAssertTrue(chat.navigationItem.titleView is HeaderTitleView)
+    }
+
+    /// LLP 1115.000 D5.3, over `scripts/fixtures/navigation-bars.contract`:
+    /// the bar is each route's, never decided once for its stack. A stack
+    /// that opens on a route with no header has no bar there, shows the bar
+    /// for a pushed route whose header is one, and hides it again when that
+    /// route is popped.
+    func testAStackWhoseFirstRouteHasNoHeaderShowsTheBarForALaterRouteThatHasOne() throws {
+        let session = try fixture("bars-per-route", plan: "EXACT_NAVIGATION_BARS_PLAN")
+        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        let start = try XCTUnwrap(nav.topViewController as? RouteController)
+        XCTAssertTrue(nav.isNavigationBarHidden, "the stack's first route has no header: no bar")
+        let bare = start.view.safeAreaInsets.top
+        let content = try node(session, "content-start")
+        XCTAssertEqual(content.convert(content.bounds, to: start.view).minY, bare, accuracy: 0.5, "its content starts below the status bar")
+        try tapNode(session, "start-open-detail")
+        until("Detail pushed") { nav.viewControllers.count == 2 && nav.transitionCoordinator == nil }
+        let detail = try XCTUnwrap(nav.topViewController as? RouteController)
+        XCTAssertFalse(nav.isNavigationBarHidden, "a later route's header is the bar, whatever the first route had")
+        XCTAssertEqual(detail.navigationItem.title, "Detail")
+        XCTAssertFalse(detail.navigationItem.hidesBackButton, "with UIKit's Back button")
+        XCTAssertTrue(try node(session, "header-detail").isHidden, "the bar shows the header; iOS does not paint it")
+        until("Detail's content starts below the bar") { detail.view.safeAreaInsets.top > bare + 20 }
+        // UIKit's Back button pops it: the bar leaves with Detail.
+        nav.popViewController(animated: true)
+        until("back to Start") { nav.viewControllers.count == 1 && nav.transitionCoordinator == nil }
+        until("no bar on the first route again") { nav.isNavigationBarHidden && abs(start.view.safeAreaInsets.top - bare) < 0.5 }
+        until("its content below the status bar, as before") { abs(content.convert(content.bounds, to: start.view).minY - bare) < 0.5 }
+    }
+
+    /// The navigation-bars fixture's one stack, at its first route.
+    private func bars(_ label: String) throws -> (ExactSession, UINavigationController, RouteController) {
+        let session = try fixture(label, plan: "EXACT_NAVIGATION_BARS_PLAN")
+        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        return (session, nav, try XCTUnwrap(nav.topViewController as? RouteController))
+    }
+
+    /// `from`'s button to `name`, pressed: the route now on top of `nav`,
+    /// `depth` deep, once UIKit's push has ended.
+    private func push(_ session: ExactSession, _ nav: UINavigationController, from: String, _ name: String, depth: Int) throws -> RouteController {
+        let tap = Agent(session: session).tap(["id": Int(try node(session, "\(from)-open-\(name)").id)])
+        XCTAssertNil(tap["error"], "\(tap)")
+        until("\(name) pushed") { nav.viewControllers.count == depth && nav.transitionCoordinator == nil }
+        let route = try XCTUnwrap(nav.topViewController as? RouteController)
+        XCTAssertEqual(route.node.props["testId"], "route-\(name)")
+        return route
+    }
+
+    /// LLP 1115.000 D5.2: every pushed route with no bar of its own gets a
+    /// bar that holds the system Back alone, with no title; the button's
+    /// title is the route beneath's, as UIKit reads it. A header that is no
+    /// bar's (two headings) still paints in the page as written, under it.
+    func testAPushedRouteWithNoBarOfItsOwnGetsTheSystemBackAlone() throws {
+        let (session, nav, start) = try bars("bars-back-alone")
+        let bare = start.view.safeAreaInsets.top
+        // No header at all.
+        let plain = try push(session, nav, from: "start", "plain", depth: 2)
+        XCTAssertFalse(nav.isNavigationBarHidden, "a pushed route with no header still has the bar")
+        let item = plain.navigationItem
+        XCTAssertNil(item.title, "no title")
+        XCTAssertNil(item.titleView)
+        XCTAssertFalse(item.hidesBackButton, "the system Back")
+        XCTAssertTrue((item.leftBarButtonItems ?? []).isEmpty && (item.rightBarButtonItems ?? []).isEmpty, "alone")
+        XCTAssertEqual(item.largeTitleDisplayMode, .never)
+        XCTAssertNil(start.navigationItem.backButtonTitle, "Back's title is UIKit's, read from the route beneath")
+        XCTAssertEqual(start.navigationItem.backButtonDisplayMode, .default)
+        until("Plain's content starts below the bar") { plain.view.safeAreaInsets.top > bare + 20 }
+        let content = try node(session, "content-plain")
+        until("the page is laid out under the bar") { abs(content.convert(content.bounds, to: plain.view).minY - plain.view.safeAreaInsets.top) < 0.5 }
+        // A header of two headings is no bar's: Back alone, and the header in the page.
+        let twin = try push(session, nav, from: "plain", "twin", depth: 3)
+        XCTAssertFalse(nav.isNavigationBarHidden)
+        XCTAssertNil(twin.navigationItem.title, "two headings give the bar no title")
+        XCTAssertFalse(twin.navigationItem.hidesBackButton)
+        XCTAssertTrue((twin.navigationItem.leftBarButtonItems ?? []).isEmpty && (twin.navigationItem.rightBarButtonItems ?? []).isEmpty)
+        let header = try node(session, "header-twin")
+        XCTAssertFalse(header.isHidden, "its header paints in the page as the author wrote it")
+        XCTAssertNil(twin.lifted)
+        until("the header sits under the bar") { abs(header.convert(header.bounds, to: twin.view).minY - twin.view.safeAreaInsets.top) < 0.5 }
+        XCTAssertGreaterThan(header.bounds.height, 0)
+        // UIKit's Back button pops each, by the root's `navigate`: neither names a control.
+        nav.popViewController(animated: true)
+        until("back to Plain") { nav.viewControllers.count == 2 && nav.transitionCoordinator == nil && nav.topViewController === plain }
+        XCTAssertFalse(nav.isNavigationBarHidden, "Plain's bar, as it was")
+        nav.popViewController(animated: true)
+        until("back to Start") { nav.viewControllers.count == 1 && nav.transitionCoordinator == nil }
+        until("the first route, with nothing to go back to, has no bar") { nav.isNavigationBarHidden }
+        XCTAssertEqual(text(session, "start-backs"), "backs 0", "no Back control was pressed: none is declared")
+    }
+
+    /// LLP 1115.000 D5.2: no bar is something the author says, not
+    /// something inferred. Own draws its own Back control and says nothing:
+    /// it gets the bar, whose Back presses that control (LLP 1115 D5).
+    /// Viewer draws one too and says `navigationBar="none"`: no bar, over a
+    /// route with a bar or without, and the edge swipe and its own control
+    /// still pop it.
+    func testNoBarIsWhatARouteSaysNotAnAuthoredBackControl() throws {
+        let (session, nav, start) = try bars("bars-said")
+        let own = try push(session, nav, from: "start", "own", depth: 2)
+        XCTAssertFalse(nav.isNavigationBarHidden, "a drawn Back control does not take the bar away")
+        XCTAssertFalse(own.navigationItem.hidesBackButton)
+        XCTAssertFalse(try node(session, "own-back").isHidden, "the authored control is drawn too, in the page")
+        XCTAssertEqual(start.navigationItem.backButtonTitle, "Close", "the system's Back is shaped as the control it stands for")
+        // UIKit's Back button: the authored control, pressed once.
+        nav.popViewController(animated: true)
+        until("back to Start") { nav.viewControllers.count == 1 && nav.transitionCoordinator == nil }
+        until("the system's Back pressed the authored control") { self.text(session, "start-backs") == "backs 1" }
+        until("no bar on the first route") { nav.isNavigationBarHidden }
+        // Viewer over the first route (no bar beneath), then over Detail (a bar beneath).
+        let viewer = try push(session, nav, from: "start", "viewer", depth: 2)
+        XCTAssertEqual(viewer.node.props["navigationBar"], "none")
+        XCTAssertTrue(nav.isNavigationBarHidden, "the route asked for no bar")
+        let swipe = try XCTUnwrap(nav.interactivePopGestureRecognizer)
+        XCTAssertTrue(session.presenter.navigation.popMayBegin(swipe, from: CGPoint(x: 4, y: 400), in: nav.view, velocity: CGPoint(x: 600, y: 20)),
+                      "the edge swipe still pops it")
+        try tapNode(session, "viewer-back")
+        until("its own control pops it") { nav.viewControllers.count == 1 && nav.transitionCoordinator == nil }
+        XCTAssertEqual(text(session, "start-backs"), "backs 2")
+        _ = try push(session, nav, from: "start", "detail", depth: 2)
+        XCTAssertFalse(nav.isNavigationBarHidden, "Detail's header is the bar")
+        _ = try push(session, nav, from: "detail", "viewer", depth: 3)
+        until("the bar leaves for the route that asked for none") { nav.isNavigationBarHidden }
+        nav.popViewController(animated: true)
+        until("back to Detail") { nav.viewControllers.count == 2 && nav.transitionCoordinator == nil }
+        until("and comes back with Detail") { !nav.isNavigationBarHidden }
+    }
+
+    /// The first route of a stack has nothing to go back to: with no header
+    /// it keeps no bar, a sheet's first route included, pushed though it is
+    /// in the router's stack. (This window finishes no presentation, so a
+    /// route pushed inside the sheet is not driven here.)
+    func testASheetsFirstRouteWithNoHeaderHasNoBar() throws {
+        let (session, nav, start) = try bars("bars-sheet")
+        let navigation = session.presenter.navigation
+        try tapNode(session, "start-open-sheet")
+        until("the sheet has its own stack") { navigation.modalNavigation?.viewControllers.count == 1 }
+        let sheet = try XCTUnwrap(navigation.modalNavigation)
+        let route = try XCTUnwrap(sheet.topViewController as? RouteController)
+        XCTAssertEqual(route.node.props["testId"], "route-sheet")
+        XCTAssertFalse(route.pushed, "the first route of the presented stack")
+        XCTAssertTrue(sheet.isNavigationBarHidden, "a sheet's first route with no header has no bar")
+        XCTAssertFalse(navigation.routeShowsBar(route, in: sheet))
+        XCTAssertTrue(nav.viewControllers.count == 1 && nav.topViewController === start && nav.isNavigationBarHidden,
+                      "and the stack beneath is as it was")
     }
 
 

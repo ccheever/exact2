@@ -58,6 +58,103 @@ fn boot(cols: usize, rows: usize) -> (Host<()>, Vt) {
     (host, vt)
 }
 
+#[test]
+fn an_image_can_appear_disappear_and_reappear_after_image_free_commits() {
+    let path = std::env::temp_dir().join(format!("terminal-late-image-{}.png", std::process::id()));
+    let file = std::fs::File::create(&path).unwrap();
+    let mut encoder = png::Encoder::new(file, 1, 1);
+    encoder.set_color(png::ColorType::Rgb);
+    encoder.set_depth(png::BitDepth::Eight);
+    encoder
+        .write_header()
+        .unwrap()
+        .write_image_data(&[20, 40, 60])
+        .unwrap();
+    let source = format!(
+        "component App\n  state shown = false\n  action show\n    shown = true\n  action hide\n    shown = false\n  view\n    column\n      text \"anchor\"\n      when shown\n        image \"{}\" width=\"2ch\" height=\"1lh\" testId=\"picture\"\n",
+        path.display()
+    );
+    let plan = contract::compile_terminal(&source).unwrap();
+    let mut host = Host::boot(plan, (), Mode::Fullscreen, 20, 6).unwrap();
+    let mut vt = Vt::new(&mut host);
+    vt.render(&mut host);
+    assert!(host.images.nodes.is_empty());
+    assert!(!vt.text(false).contains('▀'));
+    for pass in 0..2 {
+        host.act("show");
+        vt.render(&mut host);
+        let id = host.by_test_id("picture").unwrap();
+        assert_eq!(host.images.nodes.len(), 1);
+        assert_eq!(host.images.of(id).unwrap().rgba, [20, 40, 60, 255]);
+        assert!(vt.text(false).contains('▀'));
+        if pass == 0 {
+            // A remount reuses the source decoded on its first appearance.
+            std::fs::remove_file(&path).unwrap();
+        }
+        host.act("hide");
+        vt.render(&mut host);
+        assert!(host.images.nodes.is_empty());
+        assert!(host.images.of(id).is_none());
+        assert!(!vt.text(false).contains('▀'));
+    }
+}
+
+#[test]
+fn a_large_settled_burst_keeps_every_row_across_paint_strips() {
+    let mut source = String::from("component App\n  view\n    column\n      column role=\"log\"\n");
+    // One multiline child crosses several paint strips; the next child
+    // must still start on its own row. Wide glyphs retain their columns.
+    let lines: Vec<String> = (0..300).map(|n| format!("row {n:03} 界 é")).collect();
+    source.push_str(&format!(
+        "        text \"{}\" white-space=\"pre\" id=\"long\"\n        text \"last entry\" id=\"last\"\n      text \"live tail\"\n",
+        lines.join("\\n")
+    ));
+    let plan = contract::compile_terminal(&source).unwrap();
+    let mut host = Host::boot(plan, (), Mode::Inline, 30, 12).unwrap();
+    let mut vt = Vt::new(&mut host);
+    vt.render(&mut host);
+    let expected = format!("{}\nlast entry\nlive tail", lines.join("\n"));
+    assert_eq!(vt.text(true).trim_end(), expected);
+    // Painting another live frame must not print the settled burst again.
+    host.resize(31, 12);
+    vt.render(&mut host);
+    assert_eq!(vt.text(true).matches("row 000").count(), 1);
+    assert_eq!(vt.text(true).matches("last entry").count(), 1);
+}
+
+#[test]
+fn retiring_a_large_tree_returns_slots_and_keeps_keys_and_frames_correct() {
+    let items = (0..500)
+        .map(|n| n.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let source = format!(
+        "component App\n  state filled = false\n  action fill\n    filled = true\n  action retire\n    filled = false\n  view\n    column\n      text \"anchor\" testId=\"anchor\"\n      when filled\n        each n in [{items}] key=n\n          text `row ${{n}}` testId=`row-${{n}}`\n"
+    );
+    for mode in [Mode::Inline, Mode::Fullscreen] {
+        let plan = contract::compile_terminal(&source).unwrap();
+        let mut host = Host::boot(plan, (), mode, 30, 12).unwrap();
+        let anchor = host.by_test_id("anchor").unwrap();
+        let key = host.kernel().node(anchor).unwrap().key;
+        let initial = host.frame().grid.clone();
+        let slots = host.kernel().arena().slot_count();
+        let mut previous = None;
+        for _ in 0..3 {
+            host.act("fill");
+            let leaf = host.by_test_id("row-499").unwrap();
+            let retired = host.kernel().node(leaf).unwrap().key;
+            assert_ne!(previous, Some(retired), "reused slots get fresh identities");
+            assert!(host.kernel().arena().slot_count() >= slots + 500);
+            host.act("retire");
+            assert_eq!(host.kernel().arena().slot_count(), slots);
+            assert!(host.kernel().node_by_key(retired).is_none());
+            assert_eq!(host.kernel().node(anchor).unwrap().key, key);
+            assert_eq!(host.frame().grid, initial);
+            previous = Some(retired);
+        }
+    }
+}
+
 /// One read's keys, against what the screen showed when it was read.
 fn read(host: &mut Host<()>, vt: &mut Vt, keys: &[Key]) {
     host.read_at = host.frames;

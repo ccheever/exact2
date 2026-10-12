@@ -6,7 +6,15 @@ use super::*;
 pub trait Backend {
     /// `"gpu"` or `"cpu"`.
     fn name(&self) -> &'static str;
-    /// A new frame of this size in points at this scale, cleared to white.
+    /// The page's own colour, told before each frame begins: what a frame
+    /// is cleared to, so an unset background is the platform's surface for
+    /// the scheme and never white under a dark one (LLP 1115 D2; LLP
+    /// 1115.001 D3.6). A backend that draws over a shell's own surface (the
+    /// Canvas recorder, whose reader paints it behind the view) clears
+    /// nothing and ignores it.
+    fn page(&mut self, _color: [u8; 4]) {}
+    /// A new frame of this size in points at this scale, cleared to the
+    /// page's colour ([`Backend::page`]; white until one is told).
     fn begin(&mut self, width: f32, height: f32, scale: f32);
     /// Seed a clipped repaint from an accepted frame; false means full repaint.
     fn damage(&mut self, _previous: &Pixmap, _rects: &[Rect4]) -> bool {

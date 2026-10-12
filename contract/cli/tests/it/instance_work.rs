@@ -60,7 +60,7 @@ fn text(r: &Runner<Rows>, id: &str) -> String {
         .props
         .iter()
         .find_map(|(p, v)| match v {
-            PropValue::Str(s) if p.name() == "text" => Some(s.clone()),
+            PropValue::Str(s) if p.name() == "text" => Some(s.to_string()),
             _ => None,
         })
         .unwrap()
@@ -201,7 +201,7 @@ fn pending_mutation_flags_invalidate_rows_without_changing_their_data() {
             .props
             .iter()
             .find_map(|(p, v)| match v {
-                PropValue::Str(s) if p.name() == "text" => Some(s.clone()),
+                PropValue::Str(s) if p.name() == "text" => Some(s.to_string()),
                 _ => None,
             })
             .unwrap()
@@ -255,7 +255,7 @@ fn signed_zero_changes_are_observable_inside_an_unchanged_row_key() {
             .props
             .iter()
             .find_map(|(p, v)| match v {
-                PropValue::Str(s) if p.name() == "text" => Some(s.clone()),
+                PropValue::Str(s) if p.name() == "text" => Some(s.to_string()),
                 _ => None,
             })
             .unwrap()

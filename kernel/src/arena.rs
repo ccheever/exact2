@@ -672,7 +672,15 @@ impl NodeArena {
     /// [`Self::text_runs`] at `scale` of their size (a fit's measurement).
     pub(crate) fn text_runs_at<'a>(&'a self, slot: u32, scale: f32, out: &mut Vec<TextRun<'a>>) {
         let start = out.len();
-        self.text_runs_after(slot, out, &mut crate::text::case::WordBoundary::default());
+        let rows = crate::text::RunRows::from_rows(&self.styles[slot as usize], |rows, take| {
+            self.copy_inherited(slot, rows, take)
+        });
+        self.text_runs_after(
+            slot,
+            rows,
+            out,
+            &mut crate::text::case::WordBoundary::default(),
+        );
         if scale != 1.0 {
             for run in &mut out[start..] {
                 run.style = run.style.scaled(scale);
@@ -683,13 +691,14 @@ impl NodeArena {
     fn text_runs_after<'a>(
         &'a self,
         slot: u32,
+        rows: crate::text::RunRows,
         out: &mut Vec<TextRun<'a>>,
         boundary: &mut crate::text::case::WordBoundary,
     ) {
         let s = slot as usize;
-        let style = self.text_style(slot);
         match self.node_types[s] {
             NodeType::TextInput => {
+                let style = rows.style();
                 // An input has a line box even when empty (the web's
                 // `<input>`): its value, else its placeholder, else one space.
                 let props = &self.props[s];
@@ -732,18 +741,26 @@ impl NodeArena {
                     let shown = if self.markup(slot) == crate::text::Markup::Markdown {
                         text.into()
                     } else {
-                        let hyphens = self.computed_source(slot, StyleId::Hyphens).hyphens;
-                        let transform = self
-                            .computed_source(slot, StyleId::TextTransform)
-                            .text_transform;
-                        hyphens.shown(crate::text::case::shown(transform, text, *boundary))
+                        rows.hyphens.shown(crate::text::case::shown(
+                            rows.transform,
+                            text,
+                            *boundary,
+                        ))
                     };
                     boundary.push(text);
-                    out.push(TextRun { text: shown, style });
+                    out.push(TextRun {
+                        text: shown,
+                        style: rows.style(),
+                    });
                 } else {
                     for child in &self.children[s] {
                         if self.node_types[*child as usize] == NodeType::Text {
-                            self.text_runs_after(*child, out, boundary);
+                            self.text_runs_after(
+                                *child,
+                                rows.child(&self.styles[*child as usize]),
+                                out,
+                                boundary,
+                            );
                         }
                     }
                 }
@@ -958,6 +975,23 @@ impl NodeArena {
 
     /// Replace the slot's style, sharing an equal one's allocation.
     pub(crate) fn set_style(&mut self, slot: u32, style: StyleProps) {
+        let style = self.shared.intern(style);
+        self.set_shared_style(slot, style);
+    }
+
+    /// Patch a slot without copying a style another node already holds.
+    pub(crate) fn patch_style(&mut self, slot: u32, patch: &StyleProps) {
+        let style = self.shared.patch(&self.styles[slot as usize], patch);
+        self.set_shared_style(slot, style);
+    }
+
+    /// Clear rows without copying a style another node already holds.
+    pub(crate) fn clear_style(&mut self, slot: u32, mask: crate::StyleMask) {
+        let style = self.shared.clear(&self.styles[slot as usize], mask);
+        self.set_shared_style(slot, style);
+    }
+
+    fn set_shared_style(&mut self, slot: u32, style: Rc<StyleProps>) {
         if style.relative.is_empty() {
             self.relative_slots.remove(slot);
         } else {
@@ -973,7 +1007,7 @@ impl NodeArena {
         } else {
             self.frag.containers.remove(slot);
         }
-        self.styles[slot as usize] = self.shared.intern(style);
+        self.styles[slot as usize] = style;
     }
 
     /// Distinct styles the arena holds for its nodes, beyond the initial one.
@@ -1020,6 +1054,14 @@ impl NodeArena {
         self.type_counts
             .get(node_type as usize)
             .is_some_and(|n| *n > 0)
+    }
+
+    /// Paint and prop export flags do not invalidate layout publication.
+    /// Their callers mark any changed geometry or measure owner separately.
+    pub(crate) fn mark_export_dirty(&mut self, slot: u32, flag: NodeFlags) {
+        debug_assert!(flag == NodeFlags::PAINT_DIRTY || flag == NodeFlags::PROPS_DIRTY);
+        self.flags[slot as usize] = self.flags(slot);
+        self.flags[slot as usize].insert(flag);
     }
 
     pub(crate) fn flags_mut(&mut self, slot: u32) -> &mut NodeFlags {
@@ -1145,7 +1187,9 @@ mod tests {
     fn compact_inheritance_matches_full_styles_through_overrides_and_detach() {
         use crate::style::StyleValue;
         let number = StyleValue::Number;
-        let text = |s: &str| StyleValue::Text(s.into());
+        fn text(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
         let samples = [
             (StyleId::Direction, text("rtl")),
             (StyleId::CaretColor, text("light-dark(#ffffff, #112233)")),

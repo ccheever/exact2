@@ -92,7 +92,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         }
     }
     var clipPath: CGPath?, clipRule = CGPathFillRule.winding
-    package var handlers: Set<String> = [] { didSet { video?.update(); if handlers.contains("hover") != oldValue.contains("hover") || handlers.contains("pointermove") != oldValue.contains("pointermove") { syncHoverTracking() }; if handlers.contains("drop") != oldValue.contains("drop") { syncDropTypes() } } } // the media events the player reports; a hover handler's tracking area; a drop handler's dragged types
+    package var handlers: Set<String> = [] { didSet { video?.update(); if handlers.contains("hover") != oldValue.contains("hover") || handlers.contains("pointermove") != oldValue.contains("pointermove") { syncHoverTracking() }; if handlers.contains("drop") != oldValue.contains("drop") { syncDropTypes() }; syncDisabledLook() } } // the media events the player reports; a hover handler's tracking area; a drop handler's dragged types; a disabled pressable's look
     var translatePx = CGPoint.zero, translatePercent = CGPoint.zero // `translate`: its lengths, and its percentages of the box (chess diary #4)
     var layoutOffset = CGPoint.zero, layoutScale = CGPoint(x: 1, y: 1) // layout*: the box layout moved it from (LLP 1063)
     var surface: SurfaceLayer? { didSet { layerPaintCache = nil } } // its surface at a layout transition's size (`Surface.swift`)
@@ -183,6 +183,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var loadGeneration = 0
     package var pressed = false { didSet { if pressed != oldValue { pressChanged() } } }
     var press = PressFeedback() // LLP 1061: the feedback `pressed` drives
+    var presentedAlpha: CGFloat = 1, disabledShown = false // the opacity presented, and whether the disabled look halves it (PressLookMac.swift)
     // @ref LLP 1038 D6 — projection does not overwrite authored inert.
     var routeInert = false
     package var inert: Bool {
@@ -215,7 +216,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var fieldFocused = false { didSet { if fieldFocused != oldValue { applyBoxLayer(); needsDisplay = true } } }
     /// A key down's default action at a focused node; its `key` handlers
     /// heard it before AppKit delivered it (`Presenter.keyDown`, KeyEvents.swift).
-    /// Space and Enter on a pressable fire `press`, as they do on a `<button>`.
+    /// Space on a pressable fires `press`; Return is the default button's (LLP 1115.000 D7.3), and here only follows a focused link, as Safari does.
     package override func keyDown(with event: NSEvent) {
         guard !inert else { return }
         if inputCanvas?.canvasInput?.key(event, down: true, source: self) == true { return }
@@ -229,20 +230,17 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             }
         }
         let name = NodeView.keyName(event)
-        // Sequential focus from every stop, as on the web: AppKit moves on from
-        // a non-text view only with macOS "Keyboard navigation" on, while
-        // Exact's loop holds buttons and native editors either way.
+        // Sequential focus from here, a stop or not (KeyViewLoopMac.swift): which views are stops follows macOS "Keyboard navigation" (LLP 1115.000 D7.2).
         if name == "Tab", event.modifierFlags.intersection([.command, .control, .option]).isEmpty, let window {
-            presenter?.flushKeyViewLoop()
-            if event.modifierFlags.contains(.shift) { window.selectPreviousKeyView(self) } else { window.selectNextKeyView(self) }
+            presenter?.tab(from: self, back: event.modifierFlags.contains(.shift), in: window)
             return
         }
         if reorderKey(name) || presenter?.controls.radioKey(self, name, held: KeyCodes.held(event.modifierFlags)) == true { return }
-        if isButton, !pressable, name == "Enter" || name == " " {
+        if isButton, !pressable, name == " " {
             activateNative()
             return
         }
-        if pressable, name == "Enter" || (name == " " && props["href"] == nil) {
+        if pressable, props["href"] == nil ? name == " " : name == "Enter" {
             let canvas = inputCanvas, ownerWindow = window
             presenter?.press(id)
             finishPress(canvas: canvas, window: ownerWindow, pointer: false)
@@ -1143,6 +1141,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         super.viewDidMoveToSuperview()
         if superview == nil { boxFilter?.remove() } else if boxFilter != nil { renderFilter() }
         paintOrderMoved()
+        syncDisabledLook() // a list's row is known by where it is mounted (PressLookMac.swift)
     }
 
     /// `overflow: hidden` clips to the rounded corners: one radius rides the
@@ -1331,10 +1330,10 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// key vanish (found driving the app by hand over stdin).
     package override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    // Press: down and up inside the bounds. A pressed node that does not
-    // take the focus ends the editing, as a click on a button blurs a page's
-    // input; a click nothing consumes reaches the viewport, which does the
-    // same (a click on the page's ground).
+    // Press: down and up inside the bounds. A click on a button or a
+    // pressable leaves the first responder where it is, as a click on an
+    // `NSButton` does, and so does one nothing consumes, which reaches the
+    // viewport (LLP 1115.000 D7.1; `takesClickFocus`, FocusMac.swift).
     package override func accessibilityPerformPress() -> Bool {
         if isSurfaceControl { return control("down") && control("up") }
         guard !disabled, !inert, pressable else { return false }
@@ -1362,19 +1361,10 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             presenter?.selection.begin(self, event: event)
             return
         }
-        var focusNode: NSView? = self
-        var retainFocus = false
-        while let view = focusNode {
-            if (view as? NodeView)?.props["retainFocus"] == "true" { retainFocus = true; break }
-            focusNode = view.superview
-        }
-        // NSView forwards a click up the chain: a node under it the web would focus (not a paragraph selecting) took it first and keeps it (LLP 1088 D7.3).
+        // NSView forwards a click up the chain: a node under it that took the focus (not a paragraph selecting) keeps it (LLP 1088 D7.3).
         let inner = (window?.firstResponder as? NodeView).map { $0 !== self && ($0.tabbable || $0.explicitTabIndex != nil) && (window?.contentView?.hitTest(event.locationInWindow)?.isDescendant(of: $0) ?? false) } ?? false
-        if acceptsFirstResponder, !retainFocus, !inner { window?.makeFirstResponder(self) }
-        if pressable {
-            if !acceptsFirstResponder, !retainFocus { window?.makeFirstResponder(nil) }
-            pressed = true
-        } else { super.mouseDown(with: event) }
+        if takesClickFocus, !inner { window?.makeFirstResponder(self) }
+        if pressable { pressed = true } else { super.mouseDown(with: event) }
     }
     /// A paragraph's drag selects its text unless a press takes it: its
     /// own handler (a `<span onClick>`, spreadsheet F12) or an ancestor's.

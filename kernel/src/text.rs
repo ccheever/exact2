@@ -871,6 +871,7 @@ impl MonospaceMeasurer {
 }
 
 /// What [`TextStyle::from_style`] reads, gathered row by row.
+#[derive(Clone, Copy)]
 struct TextRows {
     font_size: f32,
     font_weight: u16,
@@ -926,6 +927,65 @@ impl TextRows {
             letter_spacing: self.letter_spacing,
             font_variant_numeric: self.font_variant_numeric,
         }
+    }
+}
+
+/// Computed run rows carried down one inline tree. Keep line-height unresolved
+/// until a leaf: an inherited unitless value scales with that leaf's font size.
+#[derive(Clone, Copy)]
+pub(crate) struct RunRows {
+    text: TextRows,
+    pub hyphens: crate::Hyphens,
+    pub transform: crate::TextTransform,
+    mask: StyleMask,
+}
+
+impl RunRows {
+    pub fn from_rows(
+        own: &StyleProps,
+        inherit: impl FnOnce(StyleMask, &mut dyn FnMut(&StyleProps, StyleMask)),
+    ) -> Self {
+        let mut rows = StyleMask::EMPTY;
+        for id in TextStyle::ROWS {
+            rows.set(id);
+        }
+        rows.set(StyleId::Hyphens);
+        rows.set(StyleId::TextTransform);
+        let mut out = Self {
+            text: TextRows::of(own),
+            hyphens: own.hyphens,
+            transform: own.text_transform,
+            mask: own.mask,
+        };
+        inherit(rows, &mut |from, mask| {
+            out.take(from, mask);
+            out.mask = out.mask.union(mask);
+        });
+        out
+    }
+
+    /// Only Text children participate in an inline traversal, so control
+    /// typography boundaries have already been resolved at the traversal root.
+    pub fn child(mut self, own: &StyleProps) -> Self {
+        // A row set nowhere retains the child's own initial value, unmarked,
+        // exactly as computed_style does (including arena-only test styles).
+        self.take(own, own.mask.union(StyleMask::INHERITED.minus(self.mask)));
+        self.mask = self.mask.union(own.mask);
+        self
+    }
+
+    fn take(&mut self, from: &StyleProps, mask: StyleMask) {
+        self.text.take(from, mask);
+        if mask.has(StyleId::Hyphens) {
+            self.hyphens = from.hyphens;
+        }
+        if mask.has(StyleId::TextTransform) {
+            self.transform = from.text_transform;
+        }
+    }
+
+    pub fn style(&self) -> TextStyle {
+        self.text.style()
     }
 }
 

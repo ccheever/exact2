@@ -25,13 +25,40 @@
      first frame of an app that never calls `setScheme` is wrong. `setScheme`
      overrides this on the element, as an app choosing light or dark. */
   html { color-scheme: light dark; }
-  /* Press feedback is the node's own (`-exact-press-scale`, LLP 1061); a page
-     shows none unless it declares one (the iOS host dims an undeclared custom
-     pressable as UIKit does, LLP 1115, which a web page is not). Mobile
-     WebKit's grey tap highlight would paint over it on every button and link. A
-     native button keeps a highlight as UIButton does: the input glue marks it
-     `data-pressed` by the same rule as a press, and its face dims. */
+  /* Every pressable shows its own press (LLP 1115.000 D6), so mobile WebKit's
+     grey tap highlight, which would paint a second response over each button
+     and link, stays off. A node's `-exact-press-scale` is its own (LLP 1061).
+     A native button keeps a highlight as UIButton does: the input glue marks
+     it `data-pressed` by the same rule as a press, and while Space holds it
+     (D4.14), and its face dims. */
   html { -webkit-tap-highlight-color: transparent; }
+  /* The unsaid press (LLP 1115.000 D6): a custom `button`, a link or a box
+     with a `press` that declares no feedback shows 65% of its opacity, the iOS
+     host's dim (PressFeedback.swift), while the browser holds it `:active` (a
+     mouse button, a finger after the browser's tap delay, Space on a button)
+     or the input glue holds it `data-pressed` (Space on a box it presses by
+     key). It goes at once on release: iOS's fades back, and a transition here
+     would stay dimmed under the agent's clock until the clock moved.
+     Only the innermost pressable shows it (the last line). Not dimmed, in the
+     selector's order: a disabled button; a native control, which keeps its own
+     feedback, and a game's action button, which is held; an authored press,
+     which replaces it (`-exact-press-scale`, or `pointerdown` or `pointerup`
+     handlers, which draw one; a `hover` handler observes and replaces
+     nothing); a pressable covering the window, a surface the input glue
+     measures at the press; a row of a `list`, whose press is its cell's
+     highlight (D16): the list's child, through a virtualized list's row
+     wrapper, or a grouped list's row in its section, but not an item of a
+     virtualized list that scrolls sideways, a carousel's. An `opacity` the
+     author wrote on the node wins (inline, or the JS target's classes). */
+  #exact-root :is(button, a[data-view][href], [data-exact-on~="press"]):is(:active, [data-pressed]):not(
+    :disabled,
+    [data-button-style], [data-native], input, select, textarea, [data-action],
+    [style*="--exact-press:"], [data-exact-on~="pointerdown"], [data-exact-on~="pointerup"],
+    [data-exact-surface],
+    [role="list"]:not([data-estimateditemwidth]) > *, [role="list"]:not([data-estimateditemwidth]) > [data-listitemkey] > *, [data-liststyle] > section > * > *,
+    :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):is(:active, [data-pressed]))) { opacity: .65; }
+  /* A disabled custom button dims as the drawn switch does, and takes no press. */
+  #exact-root button:disabled:not([data-button-style], [data-native]) { opacity: .5; }
   /* LLP 1019 §5: nearest real face, never browser-synthesized bold/italic. */
   #exact-root { height: 100%; font-synthesis: none; }
   /* LLP 1069.000 D3: unsized text takes the root font size (16 unless the

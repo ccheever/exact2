@@ -30,11 +30,13 @@ pub fn border(widths: [f32; 4]) -> [f32; 4] {
 /// `<number>ch` or `<number>lh` in pixels, or `None` when the text is neither.
 pub fn parse(text: &str) -> Option<f32> {
     let t = text.trim_matches(['\t', '\n', '\u{c}', '\r', ' ']);
-    let lower = t.get(t.len().saturating_sub(2)..)?.to_ascii_lowercase();
-    let scale = match lower.as_str() {
-        "ch" => COLUMN,
-        "lh" => ROW,
-        _ => return None,
+    let suffix = t.get(t.len().saturating_sub(2)..)?;
+    let scale = if suffix.eq_ignore_ascii_case("ch") {
+        COLUMN
+    } else if suffix.eq_ignore_ascii_case("lh") {
+        ROW
+    } else {
+        return None;
     };
     let number = &t[..t.len() - 2];
     let n = super::parse_pixel_length(&format!("{number}px"))?;
@@ -43,7 +45,10 @@ pub fn parse(text: &str) -> Option<f32> {
 
 /// The row's value in pixels when `value` is in cells, refused where the row
 /// admits no length.
-pub(crate) fn of(id: StyleId, value: &StyleValue) -> Result<Option<StyleValue>, StyleValueError> {
+pub(crate) fn of(
+    id: StyleId,
+    value: &StyleValue,
+) -> Result<Option<StyleValue<'static>>, StyleValueError> {
     let StyleValue::Text(text) = value else {
         return Ok(None);
     };
@@ -57,7 +62,7 @@ pub(crate) fn of(id: StyleId, value: &StyleValue) -> Result<Option<StyleValue>, 
         });
     }
     Ok(Some(if id.codec() == StyleCodec::LineHeight {
-        StyleValue::Text(format!("{}px", exact_num::Shortest(px as f64)))
+        StyleValue::Text(format!("{}px", exact_num::Shortest(px as f64)).into())
     } else {
         StyleValue::Number(px as f64)
     }))
@@ -72,8 +77,13 @@ mod tests {
     fn cells_are_eight_by_sixteen() {
         assert_eq!(parse("2ch"), Some(16.0));
         assert_eq!(parse(" 1.5lh "), Some(24.0));
+        assert_eq!(parse("\t+.5Ch\n"), Some(4.0));
+        assert_eq!(parse("1e1LH"), Some(160.0));
         assert_eq!(parse("ch"), None);
         assert_eq!(parse("2em"), None);
+        for text in ["", "界ch", "é", "light-dark(#000, #fff)", "#ababab", "2 ch"] {
+            assert_eq!(parse(text), None, "{text}");
+        }
         let mut s = StyleProps::default();
         s.set_dynamic(StyleId::ColumnGap, &StyleValue::Text("1ch".into()))
             .unwrap();
