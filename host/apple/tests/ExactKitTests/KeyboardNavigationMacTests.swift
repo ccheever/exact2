@@ -98,7 +98,7 @@ final class KeyboardNavigationMacTests: XCTestCase {
         XCTAssertNotNil(try XCTUnwrap(p.views[2]?.field).currentEditor(), "Shift-Tab from a button that is no stop: the field before it")
         // A tabindex=-1 box: focusable, never a stop, and Tab leaves it for the stop after it,
         // Shift-Tab for the one before (it used to keep the focus for good:
-        // issues/20261010-macos-tab-from-a-focused-box.md).
+        // issues/closed/20261010-macos-tab-from-a-focused-box.md).
         p.focusElement(["skipped"])
         XCTAssertTrue(window.firstResponder === p.views[8])
         try tab(p)
@@ -114,7 +114,7 @@ final class KeyboardNavigationMacTests: XCTestCase {
     /// after it in tree order, its own first button when it holds some, and
     /// Shift-Tab to the stop before it, a positive `tabindex` included; with
     /// none before it, to the loop's last, as Tab wraps to its first
-    /// (issues/20261010-macos-tab-from-a-focused-box.md).
+    /// (issues/closed/20261010-macos-tab-from-a-focused-box.md).
     func testTabFromAFocusedBoxThatIsNoStop() throws {
         keyboardNavigation(true)
         // A box (2) holding two buttons (3, 4), a button (5), a second box (6), and a button with tabindex=1 (7).

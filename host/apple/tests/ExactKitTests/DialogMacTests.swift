@@ -463,7 +463,7 @@ final class DialogMacTests: XCTestCase {
     /// `tabindex=-1` box an action focused, is where Tab starts, as on the
     /// page: the stop after it in tree order, and Shift-Tab the one before
     /// it, not the trap's first and last
-    /// (issues/20261010-macos-tab-from-a-focused-box.md).
+    /// (issues/closed/20261010-macos-tab-from-a-focused-box.md).
     func testTabFromAFocusedBoxThatIsNoStopInTheDialog() throws {
         let p = fixture()
         p.apply(wireBatch([

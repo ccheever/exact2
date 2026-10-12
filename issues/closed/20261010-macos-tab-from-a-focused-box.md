@@ -1,6 +1,7 @@
 # macOS: Tab from a focused box that is no Tab stop (tabindex=-1) goes nowhere
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by #490
 **Systems:** host/apple macOS, focus, keyboard
 **Severity:** P2
 **Author:** daehyeon-mun (T3 Code clone)
