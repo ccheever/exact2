@@ -604,6 +604,12 @@ uint32_t exact_select_options(ExactRuntime rt, uint32_t view);
  * {"group":[view...],"next":view|null,"previous":view|null} — the radios of its
  * name in tree order, and the enabled radio ArrowDown/ArrowUp moves the check to. */
 uint32_t exact_radio_group(ExactRuntime rt, uint32_t view);
+/* A navigation root's tabs by the kernel's rule (LLP 1115.001 D11), JSON in the
+ * output buffer, not a batch: {"tablist":view,"tabs":[view...],"panels":[view...],
+ * "unsaid":bool}, the tabs that name a panel and those panels in tab order, and
+ * whether the app left the bar's placement unsaid (the web's rule for its sidebar,
+ * LLP 1116.004 D1.1); null for one stack. */
+uint32_t exact_root_tabs(ExactRuntime rt, uint32_t view);
 /* A button's face, custom or native (LLP 1069.011.000 D1), JSON in the output
  * buffer, not a batch: {"button":bool,"title":string|null,"symbol":apple-name|null,
  * "raster","leading","fits":bool,"label":string|null,"style",...the native style}. */

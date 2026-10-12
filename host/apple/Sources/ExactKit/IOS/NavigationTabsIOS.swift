@@ -7,7 +7,7 @@
 // tab the bar selects presses its authored tab, so selection, history and
 // reselect-pops-to-root stay the router's (LLP 1038 D4, D12). Under the
 // agent the authored tablist paints and the bar stays hidden. Which tabs a
-// root has is NavigationTabs.swift's.
+// root has is NavigationTabs.swift's; what a tab shows, TabFace.swift's.
 #if os(iOS) || os(tvOS)
 import UIKit
 
@@ -30,47 +30,6 @@ final class TabDelegateProxy: NSObject, UITabBarControllerDelegate {
 
     override func forwardingTarget(for selector: Selector!) -> Any? {
         app?.responds(to: selector) == true ? app : nil
-    }
-}
-
-/// A tab bar item an authored tab supplies: its symbol, if it has one, and
-/// its label (a text-only tab is a title-only item).
-private struct TabFace: Equatable {
-    let base: String?, title: String, disabled: Bool, accessibilityDisabled: Bool
-    /// A filled box holding a text among the tab's children: the item's
-    /// badge (LLP 1075.003 §9.9), as the web paints it on the tab.
-    let badge: String?
-    init(_ tab: NodeView) {
-        var symbol: String?, label = tab.props["accessibilityLabel"] ?? "", badges: [String] = []
-        if tab.isNativeButton, let face = tab.face {
-            // A native button's children are its face (LLP 1069.011.000 D1).
-            symbol = face.symbol
-            if let title = face.title, !title.isEmpty { label = title }
-        }
-        for case let child as NodeView in tab.container.subviews {
-            if child.kind == "image", let name = child.props["symbolName"], !name.isEmpty { symbol = name }
-            else if child.isParagraph, !child.accessibleText.isEmpty { label = child.accessibleText }
-            else if let text = Self.badgeText(child) { badges.append(text) }
-        }
-        // One badge box, or none: two are not a badge.
-        self.badge = badges.count == 1 ? badges[0] : nil
-        base = symbol.map { $0.hasSuffix(".fill") ? String($0.dropLast(5)) : $0 }
-        title = label
-        disabled = tab.disabled
-        accessibilityDisabled = tab.ariaUnavailable
-    }
-    /// A shown box with a visible fill whose only child (views and flat
-    /// leaves alike) is one shown, non-empty text: that text. A pill around
-    /// a symbol and a label is not, nor a transparent box or text.
-    private static func badgeText(_ box: NodeView) -> String? {
-        let shown = { (v: NodeView) in !v.isHidden && v.style["display"]?.string != "none" && v.alpha > 0 }
-        guard !box.isParagraph, box.kind != "image", shown(box),
-              let fill = box.channels("background_color"), fill[3] > 0,
-              box.presenter?.flats.holdsLeaves(box.id) != true else { return nil }
-        let children = box.container.subviews.compactMap { $0 as? NodeView }
-        guard children.count == 1, let text = children.first, text.isParagraph, shown(text),
-              !text.accessibleText.isEmpty else { return nil }
-        return text.accessibleText
     }
 }
 

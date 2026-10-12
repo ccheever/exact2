@@ -291,7 +291,14 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         let navigation = presenter.navigation
         let held = navigation.hasStack && (heldForBack || navigation.barRoute)
         let back = held && navigation.backInToolbar
-        guard declared != nil || held else { reset(); return }
+        // A window whose sidebar is the app's root tab bar (LLP 1115.002 D3)
+        // has a toolbar for it: the sidebar's button, then the separator
+        // that follows its divider, ahead of Back and the rest, which so
+        // begin at the page's edge. Both are AppKit's own items. The author
+        // hiding the tab bar on a screen takes the two away with the
+        // sidebar; the toolbar stays, as it stays for a stack.
+        let sidebar = presenter.sidebar.installed(in: window), sidebarItems = sidebar && presenter.sidebar.inToolbar(of: window)
+        guard declared != nil || held || sidebar else { reset(); return }
         // A host that takes its toolbar back wins. Never overwrite it on a tick.
         guard window.toolbar == nil || window.toolbar === toolbar else { refuse("window owner installed another toolbar"); return }
         if declared == nil { items.removeAll(); symbols.removeAll() }
@@ -343,7 +350,8 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             if node === heading { return .flexibleSpace }
             return items[node.id]?.itemIdentifier
         }
-        order = (back ? [Self.backIdentifier] : []) + nextOrder + appItems.map(\.itemIdentifier)
+        order = (sidebarItems ? [.toggleSidebar, .sidebarTrackingSeparator] : []) + (back ? [Self.backIdentifier] : [])
+            + nextOrder + appItems.map(\.itemIdentifier)
         // Keep both toolbar and command objects stable through route changes.
         for index in stride(from: toolbar.items.count - 1, through: 0, by: -1) {
             if !order.contains(toolbar.items[index].itemIdentifier) { toolbar.removeItem(at: index) }
@@ -373,6 +381,12 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { order }
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         if identifier == Self.backIdentifier { return backItem }
+        // AppKit's own separator, told which divider it follows: the
+        // standard one looks for it in the toolbar's window, and these items
+        // are placed before the toolbar has one.
+        if identifier == .sidebarTrackingSeparator, let split = presenter.sidebar.splitView {
+            return NSTrackingSeparatorToolbarItem(identifier: identifier, splitView: split, dividerIndex: 0)
+        }
         return items.values.first { $0.itemIdentifier == identifier } ?? appItems.first { $0.itemIdentifier == identifier }
     }
     func validateToolbarItem(_ item: NSToolbarItem) -> Bool {

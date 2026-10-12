@@ -734,6 +734,7 @@ public final class ExactSession {
             self?.presenter.elements.replay()
             self?.presenter.toolbar.hatchToolbar()
         }
+        presenter.rootTabs = { [unowned self] id in runtime.rootTabs(id) }
         #endif
         presenter.onHover = { [unowned self] id, over in apply(runtime.hover(id, over: over, now: now())) }
         presenter.onFocus = { [unowned self] id in apply(runtime.focus(id, now: now())) }

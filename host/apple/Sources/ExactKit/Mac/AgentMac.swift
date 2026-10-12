@@ -160,7 +160,8 @@ extension Agent {
         navigation["url"] = session.routerOp?["url"] ?? NSNull()
         navigation["popover"] = presenter.menus.observation ?? NSNull()
         // The window's title as AppKit shows it (LLP 1048.003 D1).
-        let window: [String: Any] = ["title": presenter.root.window?.title ?? NSNull(), "toolbar": presenter.toolbar.summary]
+        let window: [String: Any] = ["title": presenter.root.window?.title ?? NSNull(), "toolbar": presenter.toolbar.summary,
+                                     "sidebar": presenter.sidebar.summary]
         let kernelState = (try? JSONSerialization.jsonObject(with: Data(session.agent("{\"op\":\"state\"}").utf8))) as? [String: Any]
         let kernelLayout = kernelState?["kernelLayout"] as? [String: Any] ?? [:]
         let layout = kernelLayout.merging(["provisional": session.fieldChrome.presentedProvisional]) { _, host in host }
@@ -322,6 +323,7 @@ extension Agent {
         if let stepper = host.stepperObservation { native["stepper"] = stepper }
         if let t = host.textArea { native["editor"] = String(describing: Swift.type(of: t)); native["firstResponder"] = host.window?.firstResponder === t }
         if let segment = presenter.segments.observation(host) { native["segmentedControl"] = segment }
+        if let sidebar = presenter.sidebar.observation(host) { native["sidebar"] = sidebar }
         if let control = presenter.controls.observation(host) { native["control"] = control }
         if let toolbar = presenter.toolbar.observation(host) {
             native["windowToolbar"] = toolbar
@@ -510,7 +512,7 @@ extension Agent {
         if let node = view(req), presenter.dialogs.blocks(node) { return ["error": "view \(node.id) is blocked by a modal dialog"] }
         if view(req)?.placedAncestor?.placementHidden == true { return ["error": "placed child is hidden"] }
         if req["phase"] == nil, req["wheel"] == nil,
-           let node = view(req), node.isDescendant(of: presenter.viewport), !presenter.toolbar.suppresses(node) {
+           let node = view(req), node.isDescendant(of: presenter.viewport), !presenter.toolbar.suppresses(node), !presenter.sidebar.suppresses(node) {
             guard let point = tapPoint(req, node: node) else {
                 return ["error": "tap #\(req["id"] ?? node.id): no visible text fragment; scroll it into view first"]
             }
@@ -528,6 +530,18 @@ extension Agent {
         }
 
         if let phase = req["phase"] as? String { return contact(phase, req) }
+        // `--chrome platform`: a root tab the window's sidebar stands for is
+        // pressed as its row presses it (LLP 1115.002 D3), as iOS's tab bar
+        // item is. The tablist's own boxes are nowhere to click.
+        if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
+           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil, req["mouse"] == nil, req["auxclick"] == nil, req["clicks"] == nil,
+           let activated = presenter.sidebar.activate(node) {
+            return activated ? ["tapped": id, "pressed": id, "delivery": "host-activation", "native": "sidebar-row"]
+                : ["error": "sidebar row #\(id) is unavailable (its tab is disabled or inert, or the sidebar is hidden)"]
+        }
+        if let node = view(req), presenter.sidebar.suppresses(node) {
+            return ["error": "view \(node.id) is in the authored tablist AppKit's sidebar stands for; only a tab's host activation is supported"]
+        }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil, req["mouse"] == nil, req["auxclick"] == nil, req["clicks"] == nil,
            let activated = presenter.toolbar.activate(node) {
@@ -910,6 +924,13 @@ extension Agent {
             // as the menu would send it (spreadsheet F14: ⌘V's paste).
             let edits: [String: Selector] = ["x": #selector(NSText.cut(_:)), "c": #selector(NSText.copy(_:)), "v": #selector(NSText.paste(_:))]
             if phase != "up", modifiers == .command, let action = edits[key], win.firstResponder?.tryToPerform(action, with: nil) == true {
+                releaseHeard()
+                return ["typed": Int(v.id), "key": chord, "delivery": "platform"]
+            }
+            // View ▸ Show Sidebar ⌃⌘S likewise (LLP 1115.002 D3): the split
+            // view controller's own action, up the responder chain from the focus.
+            if phase != "up", modifiers == [.command, .control], key == "s",
+               win.firstResponder?.tryToPerform(#selector(NSSplitViewController.toggleSidebar(_:)), with: nil) == true {
                 releaseHeard()
                 return ["typed": Int(v.id), "key": chord, "delivery": "platform"]
             }

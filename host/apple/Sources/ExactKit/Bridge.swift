@@ -578,6 +578,13 @@ package final class Runtime {
             return RadioGroup(json: Data(bytes: exact_out(rt), count: Int(len)))
         }
     }
+    /// A navigation root's tabs by the kernel's rule (LLP 1115.001 D11); nil for one stack.
+    func rootTabs(_ view: UInt32) -> RootTabs? {
+        return on(busy: nil) {
+            let len = exact_root_tabs(rt, view)
+            return RootTabs(json: Data(bytes: exact_out(rt), count: Int(len)))
+        }
+    }
     /// Host intrinsic sizes (nil clears one), under one layout.
     func intrinsics(_ sizes: [(UInt32, CGSize?)]) -> Batch {
         return on {
