@@ -218,6 +218,12 @@ final class TextSelectionMacTests: XCTestCase {
                   row height=28 align-items="center" gap=12
                     text `wcode ${n} body`
                     text `L${n}` user-select="none" width=24
+              list virtualized=true height=140 width=360 estimated-item-height=28
+                each n in [1, 2, 3, 4, 5] key=n
+                  row height=28 align-items="center" gap=12
+                    view role="button"
+                      text `R${n}`
+                    text `rcode ${n} body`
 
         """
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -231,15 +237,15 @@ final class TextSelectionMacTests: XCTestCase {
         XCTAssertEqual(compiler.terminationStatus, 0)
         let session = ExactApp.shared.makeSession(label: "list-copy")
         self.session = session
-        XCTAssertNil(session.boot(plan: try Data(contentsOf: dir.appendingPathComponent("app.plan")), size: CGSize(width: 400, height: 320)).error)
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 320), styleMask: [.titled], backing: .buffered, defer: false)
+        XCTAssertNil(session.boot(plan: try Data(contentsOf: dir.appendingPathComponent("app.plan")), size: CGSize(width: 400, height: 480)).error)
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 480), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = ExactView(session: session)
         let p = session.presenter
         func text(_ value: String) -> NodeView? { p.views.values.first { $0.isParagraph && $0.props["text"] == value } }
         // The rows mount once the lists report their geometry.
         let limit = Date(timeIntervalSinceNow: 20)
-        while text("wcode 3 body") == nil || text("vcode 3 body") == nil, Date() < limit {
+        while text("wcode 3 body") == nil || text("vcode 3 body") == nil || text("rcode 3 body") == nil, Date() < limit {
             window.contentView?.layoutSubtreeIfNeeded()
             RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
         }
@@ -257,6 +263,13 @@ final class TextSelectionMacTests: XCTestCase {
         XCTAssertEqual(try drag("vcode 1 body", "vcode 3 body"), "vcode 1 body\n\nvcode 2 body\n\nvcode 3 body", "the label first")
         XCTAssertNil(p.selection.range(try XCTUnwrap(text("L2"))), "and none is painted")
         XCTAssertEqual(try drag("wcode 1 body", "wcode 3 body"), "wcode 1 body\n\nwcode 2 body\n\nwcode 3 body", "the label after the code")
+        // A pressable's label is a paragraph AppKit's `auto` rule leaves
+        // unselectable: it counts toward the ordinals too, so the endpoints
+        // land on the code. The runner still copies such a label between
+        // them (issues/20261012-list-copy-control-labels.md).
+        let pressable = try drag("rcode 1 body", "rcode 3 body")
+        XCTAssertTrue(pressable.hasPrefix("rcode 1 body") && pressable.hasSuffix("rcode 3 body"), pressable)
+        XCTAssertNil(p.selection.range(try XCTUnwrap(text("R2"))))
         // A drag that ends inside row 3's code copies what is painted.
         let copied = try drag("vcode 1 body", "vcode 3 body", x: 30)
         let painted = try XCTUnwrap(p.selection.range(try XCTUnwrap(text("vcode 3 body"))))

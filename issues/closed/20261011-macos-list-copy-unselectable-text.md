@@ -6,7 +6,7 @@
 **Severity:** P2
 **Author:** daehyeon-mun (T3 Code clone)
 **Date:** 2026-10-11
-**Related:** https://github.com/ccheever/exact2/blob/feat(example)/t3-code/examples/t3-code/.exact/implementation/20261005-t3code-macos-parity/issues/closed/20261011-x81-macos-list-copy-unselectable-text.md; LLP 1010 §6 (a list selection's logical endpoints); main PR #327
+**Related:** https://github.com/ccheever/exact2/blob/feat(example)/t3-code/examples/t3-code/.exact/implementation/20261005-t3code-macos-parity/issues/closed/20261011-x81-macos-list-copy-unselectable-text.md; LLP 1010 §6 (a list selection's logical endpoints); main PR #327; follow-up issues/20261012-list-copy-control-labels.md
 
 ## Summary
 
@@ -117,7 +117,8 @@ code only.
 - On macOS, "selectable" also covers AppKit's `auto` rule (`textSelectable`: a control's label, window chrome). The
   runner cannot see that rule from `user-select` alone. How the two agree is open. The runner could apply the host's
   rule, the host could tell the runner which paragraphs count, or the host could number every text and let the runner
-  skip the unselectable ones.
+  skip the unselectable ones. 2026-10-12: #493 fixes the authored `user-select` and leaves this open; a control's
+  label in a row is issues/20261012-list-copy-control-labels.md.
 - A copy still does not mount the selected range (LLP 1010 §6). For a row that is not mounted, which texts are
   unselectable has to come from the plan (the authored `user-select` on the text or an ancestor), not from views.
 - The wasm web target shares `list_text` and should follow. The JS target needs no change.
