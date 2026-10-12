@@ -91,7 +91,7 @@ final class TableFeedPerfMacTests: XCTestCase {
         let screen = try XCTUnwrap(NSScreen.main)
         let hz = Double(max(1, screen.maximumFramesPerSecond))
         // Both arrangements at once, side by side on the screen, and each travel run on one then the other and back: the load is the same for both.
-        NSApp.setActivationPolicy(.accessory)
+        NSApplication.shared.setActivationPolicy(.accessory)
         let table = try TableFixture(count: 10_000), today = try TableFixture(count: 10_000, table: false)
         defer { table.close(); today.close() }
         for (f, x) in [(table, CGFloat(40)), (today, 560)] {
