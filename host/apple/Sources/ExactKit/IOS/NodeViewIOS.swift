@@ -1186,7 +1186,9 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         updateTextAccessibility()
         if actsAsButton {
             isAccessibilityElement = true
-            accessibilityTraits.insert(kind == "view" && props["accessibilityRole"] == "link" ? .link : .button)
+            // A `link`, pressable or a box with the role, is a link to VoiceOver, never also a button (LLP 1115.000 D11.6).
+            let link = props["accessibilityRole"] == "link"
+            accessibilityTraits.insert(link ? .link : .button); accessibilityTraits.remove(link ? .button : .link)
             if props["accessibilitySelected"] == "true" { accessibilityTraits.insert(.selected) } else { accessibilityTraits.remove(.selected) }
             setAccessibilityToggle(pressedState)
             if let checked = checkedRole { setAccessibilityChecked(checked.role, checked.checked) }
