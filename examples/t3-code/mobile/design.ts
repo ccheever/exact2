@@ -83,6 +83,16 @@ export function mobileHomeColors(scheme: string, palette = "t3-code") {
       };
 }
 
+export function mobilePendingInputColors(scheme: string, palette = 't3-code') {
+  const dark = scheme === 'dark', variant = `${palette === 't3-code' ? '' : `${palette}-`}${dark ? 'dark' : 'light'}`;
+  const tokens = themes[variant] ?? themes[dark ? 'dark' : 'light'];
+  const token = (name: string) => tokens[`--color-${name}`]!;
+  return { foreground: token('foreground'), secondary: token('foreground-secondary'), muted: token('foreground-muted'), tertiary: token('foreground-tertiary'),
+    iconSubtle: token('icon-subtle'), card: token('card-alt'), border: token('border'), input: token('input'), inputBorder: token('input-border'),
+    primary: token('primary'), primaryForeground: token('primary-foreground'), selected: withAlpha(token('primary'), 0.1),
+    subtleStrong: token('subtle-strong'), danger: token('danger'), dangerForeground: token('danger-foreground') };
+}
+
 export function mobileThreadColors(scheme: string, palette = 't3-code') {
   const dark = scheme === 'dark';
   const variant = `${palette === 't3-code' ? '' : `${palette}-`}${dark ? 'dark' : 'light'}`;

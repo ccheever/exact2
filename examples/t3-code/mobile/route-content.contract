@@ -1,4 +1,5 @@
 use HtmlRenderContext from "./html-render.contract"
+use PendingInputCard from "./pending-input.contract"
 use ComposerRootView from "./composer-root.contract"
 use ThreadSubmission, ThreadLocalColors, ThreadSubmissionRecoveryNotice from "./thread-send-root.contract"
 use ThreadLocalFeedback, ThreadLocalUsage from "./thread-local-dock.contract"
@@ -285,10 +286,18 @@ component MobileRouteContent
   state threadGeometryOwner = ""
   state threadMeasuredBottom = 0
   state threadMeasuredDock = 0
+  state pendingInputCoverage = 0
+  state pendingInputCoverageOwner = ""
   derive threadGeometryKey = `${routeId}:${threadData.environmentId}:${threadData.threadId}:${threadData.composer.contentOwner}`
   derive threadBottomInset = composerExpanded or composerFocused ? 0 : max(layout.safeBottom, 12)
   derive threadCoveredBottom = threadGeometryOwner == threadGeometryKey ? threadMeasuredBottom : 0
-  derive threadDockClearance = (threadData.queued and not threadData.queuedFailed) ? max(layout.safeBottom, 12) : (threadGeometryOwner == threadGeometryKey and threadMeasuredDock > 0 ? threadMeasuredDock : (threadData.queuedFailed ? 190 : composerExpanded ? 156 : 60) + threadBottomInset) + (workingControl.visible ? 48.5 : 0)
+  derive threadDockClearance = ((threadData.queued and not threadData.queuedFailed) ? max(layout.safeBottom, 12) : (threadGeometryOwner == threadGeometryKey and threadMeasuredDock > 0 ? threadMeasuredDock : (threadData.queuedFailed ? 190 : composerExpanded ? 156 : 60) + threadBottomInset) + (workingControl.visible ? 48.5 : 0)) + (threadData.pendingInput.active and pendingInputCoverageOwner == threadData.pendingInput.cardId ? pendingInputCoverage : 0)
+  action pendingInputAct(owner: string, op: string, question: string, value: string)
+    threadAction(`pending-input:${op}:${question}`, owner, value)
+  action pendingInputMeasured(owner: string, height: number)
+    if owner == threadData.pendingInput.cardId
+      pendingInputCoverageOwner = owner
+      pendingInputCoverage = max(0, height)
   action threadGeometryChanged(owner: string, width: number, height: number)
     if owner == threadGeometryKey
       let routeFrame = frame(`thread-route-bounds-${routeId}`)
@@ -391,8 +400,13 @@ component MobileRouteContent
               ThreadLocalFeedback(data=threadSubmission.dock, colors=threadLook, card=threadLocalLook.card, command=threadLocalCommand)
               ThreadSubmissionRecoveryNotice(data=threadSubmission.recovery, colors=threadLook, card=threadLocalLook.card, busy=threadSubmission.busy or changedPending, command=threadLocalCommand)
               ThreadLocalUsage(data=threadSubmission.dock, colors=threadLook, card=threadLocalLook.card, tertiary=threadLocalLook.tertiary, subtleStrong=threadLocalLook.subtleStrong, dark=appearance.scheme == "dark", command=threadLocalCommand)
-            ComposerAttachmentStrip(data=composerAttachments, open=openDraftMedia, remove=removeAttachment, colors=threadLook)
-            ThreadComposer(attachments=composerAttachments, attachmentBusy=(data.busy or changedPending or taskChangedPending), liquidGlass=layout.liquidGlass, displayScale=layout.displayScale, submission=threadSubmission, rich=richComposer, richAction=richComposerAction, richEvent=richComposerEvent, richMessage=richComposerMessage, editorId=`thread-composer-${routeId}`, showQueue=false, showBackdrop=true, voiceDisabled=(data.busy or changedPending or taskChangedPending or (threadData.composer.editing and not threadData.composer.canCancel)), voice=voiceData, voiceOwner=(focused ? voiceFocus.owner : ""), voiceColors=voiceLook, voiceAction=voiceAction, enterBehavior=appearance.enterBehavior, data=threadData.composer, expanded=composerExpanded, dark=appearance.scheme == "dark", bottomInset=threadBottomInset, contentMaxWidth=min(workspace.contentSettledWidth, workspace.chatContentMaxWidth), focusChanged=composerFocus, editDraft=editDraft, action=threadAction, pickAttachments=pickAttachments, openModelSettings=openModelSettings, colors=threadLook)
+            when threadData.pendingInput.active
+              each requestOwner in [threadData.pendingInput.cardId] key=requestOwner
+                column width="100%" max-width=workspace.chatContentMaxWidth align-self="center" padding-left=14 padding-right=14 padding-bottom=threadBottomInset box-sizing="border-box"
+                  PendingInputCard(data=threadData.pendingInput, colors=threadData.pendingInput.colors, maxHeight=max(160, min(560, viewport.height - 336 - 44 - threadBottomInset - 12)), act=pendingInputAct, coverage=pendingInputMeasured)
+            column display=(threadData.pendingInput.active ? "none" : "flex")
+              ComposerAttachmentStrip(data=composerAttachments, open=openDraftMedia, remove=removeAttachment, colors=threadLook)
+              ThreadComposer(attachments=composerAttachments, attachmentBusy=(data.busy or changedPending or taskChangedPending), liquidGlass=layout.liquidGlass, displayScale=layout.displayScale, submission=threadSubmission, rich=richComposer, richAction=richComposerAction, richEvent=richComposerEvent, richMessage=richComposerMessage, editorId=`thread-composer-${routeId}`, showQueue=false, showBackdrop=true, voiceDisabled=(data.busy or changedPending or taskChangedPending or (threadData.composer.editing and not threadData.composer.canCancel)), voice=voiceData, voiceOwner=(focused ? voiceFocus.owner : ""), voiceColors=voiceLook, voiceAction=voiceAction, enterBehavior=appearance.enterBehavior, data=threadData.composer, expanded=composerExpanded, dark=appearance.scheme == "dark", bottomInset=threadBottomInset, contentMaxWidth=min(workspace.contentSettledWidth, workspace.chatContentMaxWidth), focusChanged=composerFocus, editDraft=editDraft, action=threadAction, pickAttachments=pickAttachments, openModelSettings=openModelSettings, colors=threadLook)
     else when routeName == "threadQueue"
       MobileQueueView(data=queueData, colors=gitLook, bottomInset=(max(layout.safeBottom, 16) + 8), action=threadAction)
     else when routeName == "gitOverview"

@@ -601,7 +601,7 @@ component App
       if result.openKey != "" and result.attachmentId != "" and not htmlRenderContext.full and length(filter(threadData.rows, row => row.htmlRender.identifier == result.identifier and row.htmlRender.key == result.openKey)) > 0
         mediaUi = mediaUiOpen(mediaUi, wallTime.epochAtZero + performanceNow())
         nav = push(nav, path("threadMedia", data.environmentId, data.threadId, result.attachmentId) + "?htmlRender=" + encodeURIComponent(result.openKey))
-  resource threadData = threadView(data.revision, wallTime.epochAtZero + elapsed, appearance.scheme, top(nav).params.threadEnvironment, top(nav).params.threadId, startsWith(top(nav).name, "thread"), `${top(nav).id}`, top(nav).name, htmlRenderContext.context, workspace.contentSettledWidth - workspace.chatHorizontalPadding * 2, appearance.themeId) as shape ThreadSnapshot
+  resource threadData = threadView(data.revision, wallTime.epochAtZero + elapsed, appearance.scheme, top(nav).params.threadEnvironment, top(nav).params.threadId, startsWith(top(nav).name, "thread"), `${top(nav).id}`, top(nav).name, htmlRenderContext.context, workspace.contentSettledWidth - workspace.chatHorizontalPadding * 2, appearance.themeId, top(nav).url) as shape ThreadSnapshot
   resource queueData = queueSnapshot(`${top(nav).id}`, top(nav).name == "threadQueue" and workspaceRouteReady, wallTime.epochAtZero + elapsed, data.revision) as shape MobileQueueSnapshot
   mutation queuePrepared as shape Change refreshes queueData
   task prepareQueueThumbnails when top(nav).name == "threadQueue" and workspaceRouteReady and queueData.visit == `${top(nav).id}` and queueData.thumbnailRequest != "" and not pending(queuePrepared) key=`${queueData.owner}:${queueData.visit}:${queueData.thumbnailRequest}`
@@ -663,7 +663,7 @@ component App
           send threadSubmissionChanged = threadSubmissionAction(threadSubmissionInput, op, "", value, id, `${top(nav).id}`, wallTime.epochAtZero + performanceNow())
       else
         lastOperation = "thread-action"
-        send changed = command(op, id, value, `${wallTime.epochAtZero + performanceNow()}`, taskGuardOwner, taskGuardRoute)
+        send changed = command(op, id, value, startsWith(op, "pending-input:") ? `${top(nav).id}\n${top(nav).url}` : `${wallTime.epochAtZero + performanceNow()}`, taskGuardOwner, taskGuardRoute)
   derive workspaceRouteReady = data.ready and top(nav).params.threadEnvironment == data.environmentId and top(nav).params.threadId == data.threadId
   derive threadHeaderOptions = ThreadHeaderOptions(routeKey=`${top(nav).id}`, routeIdentity=`${top(nav).url}:${terminalId}`, focused=(workspaceRouteReady and (top(nav).name == "thread" or top(nav).name == "threadReview" or (top(nav).name == "threadFiles" and workspace.fileInspectorSupported and filesData.error == ""))), split=workspace.usesSplitView, sidebarVisible=workspace.sidebarVisible, canGoBack=depth(nav) > 1, returnToChat=top(nav).name == "threadFiles", foreground=threadLook.foreground, review=top(nav).name == "threadReview", reviewRevision=reviewData.revision, dark=appearance.scheme == "dark", inspectorAvailable=workspace.fileInspectorSupported, inspectorVisible=workspace.inspectorVisible)
   resource threadHeader = threadHeader(threadHeaderOptions, data.revision) as shape ThreadHeaderSnapshot
