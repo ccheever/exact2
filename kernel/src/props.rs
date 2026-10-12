@@ -138,6 +138,21 @@ impl PropList {
         self.str(PropId::Href).filter(|href| !href.is_empty())
     }
 
+    /// The level of a heading: its `aria-level`, else ARIA's default 2,
+    /// which lowering also writes. `None` when the node is no heading.
+    /// @ref LLP 1115.000 D12.5 — only `role="heading"` makes one, to
+    /// assistive technology as to the bar and the heading's style: an
+    /// `aria-level` alone is not a heading on any host (`treeitem`, `row`
+    /// and `listitem` take a level of their own). Every host asks this.
+    pub fn heading(&self) -> Option<i64> {
+        (self.str(PropId::AccessibilityRole) == Some("heading")).then(|| {
+            match self.get(PropId::AccessibilityHeadingLevel) {
+                Some(PropValue::Int(level)) if *level >= 1 => *level,
+                _ => 2,
+            }
+        })
+    }
+
     /// Whether `id` is set.
     pub fn contains(&self, id: PropId) -> bool {
         self.position(id).is_ok()

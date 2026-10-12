@@ -811,8 +811,9 @@ const LEVEL: &str = "lower-level-without-heading";
 
 #[test]
 fn a_level_with_no_heading_role_is_named_with_its_repair() {
-    // LLP 1115.000 D12.5: `aria-level` alone is not a heading. It gets no
-    // heading style, and the iOS bar does not take it for the title.
+    // LLP 1115.000 D12.5: `aria-level` alone is not a heading. No host tells
+    // a screen reader it is one, it gets no heading style, and the iOS bar
+    // does not take it for the title.
     let bare =
         buttons("text \"Results\" aria-level=2\ntext \"More\" aria-level=(label == \"\" ? 2 : 3)");
     assert_eq!(
@@ -824,7 +825,8 @@ fn a_level_with_no_heading_role_is_named_with_its_repair() {
     assert!(
         m.starts_with(
             "`aria-level` on a `text` with no `role=\"heading\"` does not make a heading"
-        ) && m.contains("no heading style")
+        ) && m.contains("a screen reader is not told it is one on any platform")
+            && m.contains("no heading style")
             && m.contains("the iOS navigation bar does not take it for the screen's title")
             && m.contains("`text \"Results\" role=\"heading\" aria-level=2`"),
         "{m}"

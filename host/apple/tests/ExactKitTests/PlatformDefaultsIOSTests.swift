@@ -389,8 +389,12 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         XCTAssertFalse(text.isHeading)
         XCTAssertNil(HeaderShape(route: route, back: nil), "a level alone: the header holds no heading, so it is not the bar")
         XCTAssertFalse(HeaderTitle.holdsHeading(pressable), "nor is a pressable around one the title's group")
+        // Nor a heading to VoiceOver (D12.5 in full, ruled 2026-10-12): the header trait is the role's.
+        XCTAssertNil(text.headingLevel)
+        XCTAssertFalse(text.accessibilityTraits.contains(.header), "a level alone is text to assistive technology")
         p.apply(wireBatch([["op": "props", "id": 3, "set": ["accessibilityRole": "heading"], "clear": []],
                            ["op": "props", "id": 5, "set": ["accessibilityRole": "heading"], "clear": []]]))
+        XCTAssertTrue(text.accessibilityTraits.contains(.header), "with its role it is a heading")
         let shape = try XCTUnwrap(HeaderShape(route: route, back: nil), "with its role it is the bar's title")
         XCTAssertEqual(shape.title, "Inbox")
         XCTAssertEqual(shape.level, 1, "level 1: the large title")

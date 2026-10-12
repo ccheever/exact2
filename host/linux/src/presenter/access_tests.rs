@@ -54,9 +54,10 @@ impl DataSource for Data {
 
 const SHELF: &str = include_str!("../../../../apps/shelf/app.contract");
 
-/// A heading, a checkbox, a switch, a slider, a toggle, a status line the
-/// button changes, a link, a named image, words hidden from assistive
-/// technology, a disabled button, and a field.
+/// A heading, a level with no heading's role (text, LLP 1115.000 D12.5), a
+/// checkbox, a switch, a slider, a toggle, a status line the button changes,
+/// a link, a named image, words hidden from assistive technology, a
+/// disabled button, and a field.
 const CONTROLS: &str = r#"component App
   state on = false
   state loud = true
@@ -73,6 +74,7 @@ const CONTROLS: &str = r#"component App
   view
     column width=320 height=600 align-items="flex-start"
       text "Settings" role="heading" aria-level=1 testId="title"
+      text "On this phone" aria-level=2 testId="levelled"
       input type="checkbox" checked=on change=flip aria-label="Remember me" testId="check"
       input type="checkbox" role="switch" checked=loud change=shout aria-label="Sound" testId="switch"
       input type="range" min=0 max=100 step=10 value=level input=set aria-label="Volume" testId="slider"
@@ -370,6 +372,8 @@ fn a_control_is_its_kind_with_its_state_and_what_is_hidden_is_no_node() {
         said,
         [
             (role::HEADING, "Settings", 0),
+            // A level alone is text: only `role="heading"` is a heading.
+            (role::TEXT, "On this phone", 0),
             (role::CHECKBOX, "Remember me", check),
             (role::SWITCH, "Sound", check | flag::CHECKED),
             (

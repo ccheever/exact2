@@ -676,8 +676,9 @@ impl<D: DataSource> Presenter<D> {
                 true => kernel.bar_text(id).unwrap_or_default(),
                 false => String::new(),
             });
-            let heading = aria == Some("heading")
-                || node.props.get(PropId::AccessibilityHeadingLevel).is_some();
+            // @ref LLP 1115.000 D12.5 — a heading by its role, never by an
+            // `aria-level` alone (the kernel's `Props::heading`).
+            let heading = node.props.heading().is_some();
             let role = match (text, heading) {
                 (true, true) => role::HEADING,
                 (true, false) => role::TEXT,

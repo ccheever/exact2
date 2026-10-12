@@ -55,12 +55,15 @@ extension NodeView {
         guard !inlineText.isEmpty else { return paragraphText }
         return inlineText.filter { $0.paints && !$0.run(dark: drawsDark).hidden }.map(\.text).joined()
     }
-    /// A heading's level, 1–6: its `aria-level`, else ARIA's default 2 for
-    /// `role="heading"` alone (LLP 1115 D3 styles it as level 2 too); nil
-    /// for any other text.
+    /// A heading's level, 1–6, which is what assistive technology is told:
+    /// its `aria-level`, else ARIA's default 2 (LLP 1115 D3 styles it as
+    /// level 2 too). Only a text with `role="heading"` is a heading: an
+    /// `aria-level` alone is not one, on any host (LLP 1115.000 D12.5,
+    /// the kernel's `Props::heading`); nil for any other text.
     var headingLevel: Int? {
+        guard props["accessibilityRole"] == "heading" else { return nil }
         if let level = Int(props["accessibilityHeadingLevel"] ?? ""), (1...6).contains(level) { return level }
-        return props["accessibilityRole"] == "heading" ? 2 : nil
+        return 2
     }
     /// A heading by its role, which is what the iOS bar takes for a route's
     /// title: an `aria-level` with no `role="heading"` is not one there (LLP
@@ -89,7 +92,7 @@ extension NodeView {
         // accessibility element. Expose the paragraph plus its link targets.
         isAccessibilityElement = !inlineText.contains(where: { !($0.props["href"] ?? "").isEmpty || !$0.handlers.isEmpty || $0.props["accessibilityLabel"] != nil })
         accessibilityTraits.insert(.staticText)
-        // `aria-level` is a heading, as on the web and macOS (found by `tree --ax` parity, LLP 1080.002).
+        // A heading says so, as on the web and macOS (found by `tree --ax` parity, LLP 1080.002).
         if headingLevel != nil { accessibilityTraits.insert(.header) } else { accessibilityTraits.remove(.header) }
         accessibilityLabel = label
         #endif
