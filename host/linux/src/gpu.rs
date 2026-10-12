@@ -649,10 +649,21 @@ impl Backend for Gpu {
             ),
         };
         let a = self.affine(ts);
+        // Vello samples the ramp at integer device coordinates; CSS uses
+        // pixel centres. Shift the repeating brush, not its clipped shape.
+        let placed = if g.repeat {
+            Some(a.inverse() * Affine::translate((-0.5, -0.5)) * a)
+        } else {
+            placed
+        };
         self.scene.fill(
             Fill::NonZero,
             a,
-            &brush.with_stops(stops.as_slice()),
+            &brush.with_stops(stops.as_slice()).with_extend(if g.repeat {
+                vello::peniko::Extend::Repeat
+            } else {
+                vello::peniko::Extend::Pad
+            }),
             placed,
             &shape(s),
         );

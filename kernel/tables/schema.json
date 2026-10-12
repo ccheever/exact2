@@ -3381,7 +3381,7 @@
       "bit": 141,
       "field": "background_image",
       "codec": "background-image",
-      "_comment": "@ref LLP 1066: CSS `background-image` — `none`, or one linear-gradient()/radial-gradient(). Painted over background-color, clipped as the background is.",
+      "_comment": "@ref LLP 1066: CSS `background-image` — `none`, or up to four linear/radial/conic/repeating-linear gradients; linear/radial stops take px or %. Painted over background-color, clipped as the background is.",
       "cold": true
     },
     {

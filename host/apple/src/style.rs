@@ -16,6 +16,7 @@
 //! 1115.000 D2): a presenter reads it where the platform's answer stands for
 //! what the author left unsaid, and an inherited value is never in it.
 
+use crate::gradient::gradient_json;
 use exact_kernel::style::ColorValue;
 use exact_kernel::{
     Dimension, Env, NodeRef, NodeType, Overflow, PositionArea, PropId, PropValue, RowValue,
@@ -1031,89 +1032,6 @@ pub fn glass_auto_props(node: &NodeRef<'_>, out: &mut std::collections::BTreeMap
         out.insert(PropId::GlassGroup.name().to_string(), num(points));
         out.insert("glassGroupAuto".to_string(), "true".to_string());
     }
-}
-
-/// A gradient for the presenter (LLP 1066): its shape — `linear` degrees,
-/// a `to <corner>` as `[right, bottom]`, or `radial` as `[circle, extent,
-/// x%, xpx, y%, ypx]` (extent: closest-side, closest-corner, farthest-side,
-/// farthest-corner) — and `stops` flat as `t, r, g, b, a`, positions 0–1.
-/// The box, so the placement, is the presenter's. Stops are already expanded
-/// to mix as CSS's premultiplied ones do (Core Graphics and Core Animation
-/// mix unpremultiplied); a `light-dark()` gradient also carries `dark`, and
-/// the view picks by its own appearance (LLP 1034 D2).
-fn gradient_json(g: &exact_kernel::gradient::Gradient) -> String {
-    use exact_kernel::gradient::{premultiplied_ramp, Direction, GradientKind, Length};
-    // LLP 1100 D2: interpolated outside sRGB, the ramp crosses as unclipped
-    // extended linear sRGB floats, alpha 0–1.
-    let stops = |dark: bool| {
-        if let Some(ramp) = g.interpolated(dark) {
-            let parts: Vec<String> = ramp
-                .into_iter()
-                .map(|(at, c, a)| {
-                    format!(
-                        "{},{},{},{},{}",
-                        num(at),
-                        c[0] as f32,
-                        c[1] as f32,
-                        c[2] as f32,
-                        a as f32
-                    )
-                })
-                .collect();
-            return format!("[{}]", parts.join(","));
-        }
-        let parts: Vec<String> = premultiplied_ramp(&g.resolved(dark))
-            .into_iter()
-            .map(|(at, c)| format!("{},{},{},{},{}", num(at), c.r(), c.g(), c.b(), c.a()))
-            .collect();
-        format!("[{}]", parts.join(","))
-    };
-    let shape = match g.kind {
-        GradientKind::Linear(Direction::Angle(deg)) => format!("\"linear\":{}", num(deg)),
-        GradientKind::Linear(Direction::Corner { right, bottom }) => {
-            format!("\"corner\":[{},{}]", u8::from(right), u8::from(bottom))
-        }
-        // @ref LLP 1077 D5 — `[from, x%, xpx, y%, ypx]`.
-        GradientKind::Conic { from, at } => {
-            let axis = |l: Length| match l {
-                Length::Percent(p) => format!("{},0", num(p)),
-                Length::Px(px) => format!("0,{}", num(px)),
-            };
-            format!("\"conic\":[{},{},{}]", num(from), axis(at[0]), axis(at[1]))
-        }
-        GradientKind::Radial { circle, extent, at } => {
-            let axis = |l: Length| match l {
-                Length::Percent(p) => format!("{},0", num(p)),
-                Length::Px(px) => format!("0,{}", num(px)),
-            };
-            format!(
-                "\"radial\":[{},{},{},{}]",
-                u8::from(circle),
-                extent as u8,
-                axis(at[0]),
-                axis(at[1])
-            )
-        }
-    };
-    let dark = if g.is_scheme_aware() {
-        format!(",\"dark\":{}", stops(true))
-    } else {
-        String::new()
-    };
-    let space = if g.interpolation(false).is_some() {
-        ",\"space\":\"srgb-linear\""
-    } else {
-        ""
-    };
-    let dark_space = if g.is_scheme_aware() && g.interpolation(true).is_some() {
-        ",\"darkSpace\":\"srgb-linear\""
-    } else {
-        ""
-    };
-    format!(
-        "{{{shape},\"stops\":{}{dark}{space}{dark_space}}}",
-        stops(false)
-    )
 }
 
 /// Shortest exact decimal for a number: `24`, not `24.0`; `0.5`.

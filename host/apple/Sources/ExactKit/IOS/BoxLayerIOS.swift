@@ -126,7 +126,7 @@ extension NodeView {
     /// unless it is `background-attachment: fixed` (`gradientLayered`).
     func applyGradientLayer() {
         let fixed = gradientLayered
-        guard !cssVisibilityHidden, !drawsPaint || fixed, surface == nil, let gradient = Gradient(style["background_image"]), !gradient.isConic else {
+        guard !cssVisibilityHidden, !drawsPaint || fixed, surface == nil, let gradient = Gradient(style["background_image"]), !gradient.needsDrawing else {
             boxGradient?.removeFromSuperlayer(); boxGradient = nil
             presenter?.fixedGradients.remove(self)
             return
@@ -163,7 +163,7 @@ extension NodeView {
     /// gradient would repaint the box every frame. Over a box `draw(_:)`
     /// paints (corners of different radii: a chat bubble) the layer is
     /// masked to the outline, over the drawn fill — and over a drawn
-    /// border, which is owed. Several layers, a conic one, or another
+    /// border, which is owed. Several layers, a conic or repeating one, or another
     /// `background-clip` draw as before, unfixed.
     var gradientLayered: Bool { gradientFixed && !gradientDraws && backgroundClip == "border-box" }
 
