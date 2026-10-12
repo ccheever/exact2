@@ -10,6 +10,11 @@ use super::*;
 impl<D: DataSource> Presenter<D> {
     /// `{"revealed":id,"scrolled":…}`, with where the middle moved from and to.
     pub fn reveal(&mut self, id: ViewId) -> Result<String, String> {
+        // A row of the top layer's open surface is no box of the page's:
+        // it is in view in its window (LLP 1115.001 D10).
+        if self.surface_row(id) {
+            return Ok(format!("{{\"revealed\":{id},\"scrolled\":false}}"));
+        }
         let middle = |b: &PaintedBox| (b.rect.0 + b.rect.2 / 2.0, b.rect.1 + b.rect.3 / 2.0);
         let inside =
             |(x, y): (f32, f32), r: Rect4| x >= r.0 && y >= r.1 && x < r.0 + r.2 && y < r.1 + r.3;

@@ -551,6 +551,14 @@ impl<D: DataSource> Presenter<D> {
         true
     }
 
+    /// Whether `id` is a row of the open surface, by its authored node: it
+    /// shows in the surface's window, so the agent's `reveal` has nothing
+    /// to scroll into view before a tap on it.
+    pub(super) fn surface_row(&self, id: ViewId) -> bool {
+        (self.top.open.as_ref())
+            .is_some_and(|open| open.layout.targets.iter().any(|t| t.node == id))
+    }
+
     /// The agent's `tap` while a surface is open: a row of the surface is
     /// chosen, by its authored node; any other node is under the surface,
     /// where a tap closes a menu and does nothing through an alert.
