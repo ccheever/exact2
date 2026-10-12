@@ -5,7 +5,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { applyPattern, createApp } from '../game/new.mjs';
@@ -32,6 +32,9 @@ test('the report: clean in four lines; a failed test fails it; a finding is said
     'verify: clean in 4.0 s',
   ]);
   assert.equal(clean.exit, 0);
+  // `--shots <dir>` (LLP 1116.008 D2): the line says where they were copied too.
+  assert.equal(report({ host: 'web', built: null, tested: { passed: 2, failed: 0, results: [] }, checks: runs(() => []), shots, copied: '/app/shots', ms: 4000, cwd: '/app' }).lines[2],
+    'screenshots (.exact/verify, copied to shots): web-390x844-light.png web-390x844-dark.png web-1280x900-light.png web-1280x900-dark.png');
 
   // The clipped text is at every width and scheme, its box moved by the width; the contrast only in light.
   const clipped = ([w]) => `  clipped  Text "Total"#9 [16,96 ${w - 330}×18]: its text is 40 px wider than its box, which clips it`;
@@ -408,7 +411,7 @@ test.skipIf(!!chromium().unavailable)('verify on a new app: clean, a failing tes
     assert.equal(quiet.status, 0, quiet.stdout + quiet.stderr);
     assert.match(quiet.stderr, /app\.css \d+ B, 0 warnings$/m);
     assert.deepEqual([warned(quiet.stderr), warned(quiet.stdout)], [[], []]);
-    const clean = verify();
+    const clean = verify('--shots', 'out/shots');
     assert.equal(clean.status, 0, clean.stdout + clean.stderr);
     assert.ok(clean.lines.length <= 8, clean.stdout);
     assert.ok(!clean.lines.some((l) => l.startsWith('compiler:')), clean.stdout);
@@ -419,6 +422,14 @@ test.skipIf(!!chromium().unavailable)('verify on a new app: clean, a failing tes
     assert.match(clean.lines.at(-1), /^verify: clean in \d+\.\d s$/);
     for (const [w, h] of SIZES) for (const scheme of ['light', 'dark']) assert.ok(existsSync(resolve(dir, `.exact/verify/web-${w}x${h}-${scheme}.png`)), `${w}x${h} ${scheme}`);
     for (const f of ['web-t1-the-greeting-loads.png', 'web-t2-the-header-s-button-likes-it.png', 'web-relaunch.png']) assert.ok(existsSync(resolve(dir, '.exact/verify', f)), f);
+    // `--shots out/shots` made the directory and copied every one, under the names verify keeps (LLP 1116.008 D2).
+    const kept = readdirSync(resolve(dir, '.exact/verify')).filter((f) => f.endsWith('.png')).sort();
+    assert.equal(kept.length, 7);
+    assert.deepEqual(readdirSync(resolve(dir, 'out/shots')).sort(), kept);
+    assert.ok(readFileSync(resolve(dir, 'out/shots/web-relaunch.png')).equals(readFileSync(resolve(dir, '.exact/verify/web-relaunch.png'))));
+    assert.match(clean.stdout, /^screenshots \(\.exact\/verify, copied to out\/shots\): /m);
+    const bare = verify('--shots');
+    assert.deepEqual([bare.status, bare.stdout, bare.stderr], [2, '', 'verify: --shots takes a directory: the screenshots are copied there, under the names in .exact/verify/\n']);
 
     const tests = resolve(dir, 'app.test.contract'), authored = readFileSync(tests, 'utf8');
     writeFileSync(tests, authored.replace('expect state liked == true', 'expect state liked == false'));

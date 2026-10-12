@@ -141,9 +141,10 @@ Ports    none to choose. web: headless Chrome over a pipe; the page on 127.0.0.1
   },
   verify: {
     line: 'build if stale, run app.test.contract, check each screen it reaches light and dark, relaunch once',
-    usage: 'bun exact.mjs verify [web|ios] [--sim <udid|name>] [--json]',
+    usage: 'bun exact.mjs verify [web|ios] [--sim <udid|name>] [--shots <dir>] [--json]',
     flags: [
       ['--sim <udid|name>', 'iOS: which simulator (else EXACT_SIM, a booted iPhone, or the newest Pro)'],
+      ['--shots <dir>', 'also copy every screenshot it captured there, named as in .exact/verify/'],
       ['--json', 'the report as one JSON object'],
     ],
     internal: ['--app <name>'],

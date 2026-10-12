@@ -19,10 +19,10 @@
 // app calls it, on an empty scratch database kept through the run and removed after (LLP 1116.006 D3, `appServer`); a server
 // entry that does not read DB is refused before the build, in one line naming it and the fix (LLP 1116.008 D1).
 //
-//   bun scripts/verify.mjs [web|ios] --app <name> [--sim <udid|name>] [--json]
+//   bun scripts/verify.mjs [web|ios] --app <name> [--sim <udid|name>] [--shots <dir>] [--json]
 import { spawn, spawnSync } from 'node:child_process';
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, relative, resolve } from 'node:path';
+import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { guardFlags } from './help.mjs';
 
@@ -475,7 +475,7 @@ export function distinctFindings(runs) {
 }
 
 /** The report's lines and its problem count, from what each stage gave. */
-export function report({ host, built, compiler = [], server, tested, checks, relaunched, shots, ms, cwd = process.cwd() }) {
+export function report({ host, built, compiler = [], server, tested, checks, relaunched, shots, copied, ms, cwd = process.cwd() }) {
   const out = [];
   let failedTests = 0, findings = 0, broken = 0;
   // The app's own server (LLP 1116.006 D3): run on an empty database, or why not; one that died mid-run is a failure.
@@ -524,9 +524,9 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
     findings += relaunched.problems.length;
   }
   if (shots.length) {
-    const dir = relative(cwd, resolve(shots[0], '..')) || '.', name = (p) => relative(resolve(p, '..'), p);
+    const place = (p) => { const r = relative(cwd, p); return r.startsWith('..') ? p : r || '.'; }, name = (p) => relative(resolve(p, '..'), p);
     const first = shots.filter((p) => /^\w+-\d+x\d+-(light|dark)\.png$/.test(name(p))), ends = shots.filter((p) => /^\w+-t\d+[-.]/.test(name(p))), again = shots.filter((p) => /^\w+-relaunch\.png$/.test(name(p)));
-    out.push(`screenshots (${dir.startsWith('..') ? resolve(shots[0], '..') : dir}): ${first.map(name).join(' ')}`);
+    out.push(`screenshots (${place(resolve(shots[0], '..'))}${copied ? `, copied to ${place(copied)}` : ''}): ${first.map(name).join(' ')}`);
     const more = [ends.length && `test ends: ${ends.map(name).join(' ')}`, again.length && `relaunch: ${again.map(name).join(' ')}`].filter(Boolean);
     if (more.length) out.push(`  ${more.join('; ')}`);
   }
@@ -539,8 +539,9 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
 async function main(argv) {
   const args = guardFlags('verify', argv);
   const value = (flag) => args.indexOf(flag) >= 0 ? args[args.indexOf(flag) + 1] : undefined;
-  const json = args.includes('--json'), sim = value('--sim');
-  const flagged = new Set([args.indexOf('--app') + 1, args.indexOf('--sim') + 1].filter((i) => i > 0));
+  const json = args.includes('--json'), sim = value('--sim'), copyTo = value('--shots');
+  const flagged = new Set([args.indexOf('--app') + 1, args.indexOf('--sim') + 1, args.indexOf('--shots') + 1].filter((i) => i > 0));
+  if (args.includes('--shots') && (!copyTo || copyTo.startsWith('-'))) { console.error('verify: --shots takes a directory: the screenshots are copied there, under the names in .exact/verify/'); return 2; }
   const host = args.find((a, i) => !a.startsWith('-') && !flagged.has(i)) ?? 'web';
   if (!['web', 'ios'].includes(host)) { console.error(`verify: web or ios, not ${host} (test ${host} runs the tests there)`); return 2; }
   if (sim) process.env.EXACT_SIM = sim; // as the driver names it (devices.mjs `simulator`)
@@ -619,7 +620,9 @@ async function main(argv) {
   const checks = [...firsts.flat(), ...ends, ...(relaunched?.runs ?? [])];
   const compiler = await compiling;
   const kept = [...new Set([...checks.map((c) => c.shot), relaunched?.shot])].filter((p) => p && existsSync(p));
-  const r = report({ host, built, compiler, server: serverSaid, tested, checks, relaunched, shots: kept, ms: Date.now() - started });
+  // `--shots <dir>`: every capture of this run copied out, under its own name (LLP 1116.008 D2).
+  if (copyTo) { mkdirSync(resolve(copyTo), { recursive: true }); for (const p of kept) copyFileSync(p, resolve(copyTo, basename(p))); }
+  const r = report({ host, built, compiler, server: serverSaid, tested, checks, relaunched, shots: kept, copied: copyTo && resolve(copyTo), ms: Date.now() - started });
   if (json) {
     const testsOut = tested?.results ? { ...tested, results: results.map(({ name, failures, end }) => ({ name, failures, ...(end?.shot && existsSync(end.shot) ? { shot: end.shot } : {}), ...(end?.error ? { endError: end.error } : {}) })) } : tested;
     const relaunchOut = relaunched && (({ runs, ...rest }) => rest)(relaunched);
