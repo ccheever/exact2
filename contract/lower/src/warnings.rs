@@ -21,8 +21,8 @@ use std::collections::BTreeSet;
 
 mod counts;
 mod roles;
-mod title;
 mod screens;
+mod title;
 
 /// At most this many warnings from one compile, before the colours that
 /// stay one scheme: those name every site, each in a short line, since a

@@ -452,18 +452,6 @@ impl NodeRef<'_> {
     }
 }
 
-/// A margin Contract's sheet writes (LLP 1084 §2): 0 beside a header or a
-/// footer and in a plain list, else 17.33, or 35.33 above a first section.
-/// Any other number is the author's. Compared as the f32 the sheet's
-/// numbers become, so only those exact numbers match.
-fn sheet_margin(value: f32, top: bool, labelled: bool, plain: bool) -> bool {
-    if labelled || plain {
-        value == 0.0
-    } else {
-        value == 17.33 || (top && value == 35.33)
-    }
-}
-
 /// Two adjoining vertical margins as CSS collapses them: the largest
 /// positive plus the most negative (CSS 2 §8.3.1).
 fn collapse(a: f32, b: f32) -> f32 {
