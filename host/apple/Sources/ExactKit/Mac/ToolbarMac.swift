@@ -171,6 +171,15 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         reset()
     }
 
+    /// Whether a batch can change what the bar shows: one that makes,
+    /// removes or moves a node, writes props, style or words, or carries a
+    /// command (a dialog opening). A batch of none of these (a scroll's
+    /// frames, an animation's values) leaves the bar as it stands and pays
+    /// nothing for it: its pass reads the route's header, each button's
+    /// face and AppKit's items.
+    func concerns(_ batch: Batch) -> Bool { batch.ops.contains { Self.read.contains($0.op) } }
+    private static let read: Set<BatchOp.Kind> = [.create, .destroy, .children, .roots, .props, .style, .paragraph, .command]
+
     /// Restore the authored visibility before a batch can change it. Hidden
     /// here is a presentation detail, never the command's availability state.
     func prepare() {

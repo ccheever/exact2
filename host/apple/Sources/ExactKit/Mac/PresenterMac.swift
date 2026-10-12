@@ -1028,7 +1028,9 @@ package final class Presenter {
         defer { Self.signposts.endInterval("apply", post) }
         viewport.invalidateDocumentFit()
         collections.beginBatch(batch)
-        toolbar.prepare()
+        // The window's bar is read again only by a batch that can change it (`WindowToolbarHost.concerns`).
+        let bar = toolbar.concerns(batch)
+        if bar { toolbar.prepare() }
         anchorChanges.reset()
         for id in scrollers where !collections.owns(id) { views[id]?.captureScrollPosition() }
         if let e = batch.error { FileHandle.standardError.write(Data("exact: \(e)\n".utf8)) }
@@ -1264,7 +1266,7 @@ package final class Presenter {
         menus.sync()
         glassGroups.reconcile()
         positionContexts()
-        toolbar.sync()
+        if bar { toolbar.sync() }
         shortcuts.sync()
         if structureChanged { selection.structureChanged() }
         // The key-view loop is read only by a key event (Tab): it is marked

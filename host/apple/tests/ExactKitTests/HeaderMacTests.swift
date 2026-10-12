@@ -110,6 +110,14 @@ final class HeaderMacTests: XCTestCase {
         XCTAssertEqual(p.toolbar.activate(try node(p, 13)), true)
         XCTAssertEqual(pressed, [13, 13])
         XCTAssertNil(p.toolbar.activate(try node(p, 15)), "a node that is no part of the bar")
+        // A batch that only places a box (a scroll's, an animation's) reads nothing of the bar and leaves it standing.
+        let placed = wireBatch([["op": "frame", "id": 15, "x": 0, "y": 0, "w": 700, "h": 400]])
+        XCTAssertFalse(p.toolbar.concerns(placed))
+        XCTAssertTrue(p.toolbar.concerns(wireBatch([["op": "props", "id": 13, "set": ["accessibilityLabel": "Add Book"]]])))
+        p.apply(placed)
+        XCTAssertTrue(try node(p, 10).isHidden)
+        XCTAssertTrue(p.toolbar.projected)
+        XCTAssertEqual(identifiers(), [back, "exact.command.11", "exact.command.13", "exact.command.14"])
         // What `state` says of it.
         let summary = try XCTUnwrap(p.toolbar.summary["header"] as? [String: Any])
         XCTAssertEqual(summary["title"] as? String, "Library")
