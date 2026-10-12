@@ -234,6 +234,15 @@ extension NodeView {
     /// (`invalidateText`, `textRasterGeometryChanged`, `dropTextRaster`).
     var textRasterSettled: Bool { textRasterReady && textRasterWhole }
     func textRasterGeometryChanged() {
+        // Laid out to nothing (a text that became a collapsed space, as
+        // stopwatch's status line did on Reset, LLP 1116.005 D4), it paints
+        // nothing. Neither the pump nor UIKit's `draw(_:)`, which lets go of
+        // a raster that no longer applies, visits an empty box: the old ink
+        // goes here, or it stays on screen beside the text that replaced it.
+        if bounds.isEmpty {
+            if textRaster != nil || textRasterLayer != nil { dropTextRaster() }
+            return
+        }
         if let key = textRasterKey, key.size == bounds.size, key.box == contentBox() { return }
         textRasterKey = nil
         presenter?.requestTextPublication()
