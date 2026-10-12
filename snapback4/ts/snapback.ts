@@ -292,7 +292,7 @@ export class Snapback {
   }
   get session(): Session | null {
     const auth = this.options.auth;
-    return auth ? sessionFrom(auth.store.get(auth.key), 0) : null;
+    return auth ? sessionFrom(auth.store.get(auth.key), auth.now) : null;
   }
   private headers(): Record<string, string> {
     const headers: Record<string, string> = {};
@@ -324,7 +324,16 @@ export class Snapback {
    * reaching whatever partition its device holds now. */
   private call(request: Request): Promise<Request> {
     if (this.closed) return Promise.reject(new Error('Snapback4: this client is closed'));
-    return this.partition.device.call(request);
+    const check = this.fence(), partition = this.partition;
+    return partition.device.call(request).then(answer => { check(); return answer; });
+  }
+
+  private fence(): () => void {
+    const partition = this.partition;
+    return () => {
+      if (this.closed || this.held !== partition || (this.options.auth && this.session?.principal !== partition.viewer))
+        throw refusal('E_STALE', 'the account changed while this request was in flight');
+    };
   }
 
   /** Open the partition this device keeps. Offline is fine once it has
@@ -449,7 +458,8 @@ export class Snapback {
     return switcher(options);
   }
 
-  /** Whether this client can still be used: not closed, and its device has
+  /** Whether this client can still be used (including sign-in when signed
+   * out; `session` is the authentication check): not closed, and its device has
    * not given up (the web's, when even rebuilding from the disk failed). An
    * app replaces an unusable client by opening the partition again: the new
    * device takes over what the old one could not save. */
@@ -479,14 +489,19 @@ export class Snapback {
     const name = nameOf(op), args = given as Args;
     type R = ResultOf<O, T>;
     const at = clock(now);
+    if (this.options.auth) this.options.auth.now = at;
+    const check = this.fence();
     await this.ready();
+    check();
     let route = this.partition.routes.get(name);
     if (!route) {
       route = ok<'device' | 'server' | 'held'>(await this.call({ op: 'route', name }));
+      check();
       this.partition.routes.set(name, route);
     }
     if (route === 'server') return this.serverRead<R>(name, args);
     const local = ok<Read<R>>(await this.call({ op: 'read', name, args: args as Request, now: at }));
+    check();
     // Whose answer (CLIENT-AND-OPERATIONS.md, "The device reply"): the
     // device's when it is not `unknown`, when it is `retained` history, or
     // when the schema holds the query to the device; otherwise the server's.
@@ -501,6 +516,7 @@ export class Snapback {
         : { ...local, ...extra };
     if (((await this.status()).queued ?? []).length) return placeholder({});
     const served = await this.serverRead<R>(name, args);
+    check();
     if (served.denied?.code === 'E_OFFLINE') return placeholder({ offline: true });
     if (((await this.status()).queued ?? []).length) return placeholder({});
     return served;
@@ -508,13 +524,18 @@ export class Snapback {
 
   private async serverRead<T>(name: string, args: Args): Promise<Read<T>> {
     if (this.closed) throw new Error('Snapback4: this client is closed');
+    const check = this.fence();
     const reply = await this.exchange({ method: 'POST', path: `/q/${encodeURIComponent(name)}`, body: { args: args as Request } });
+    check();
     if (reply.error !== undefined) {
       return { server: true, denied: { code: 'E_OFFLINE', family: 'transport', retryable: true,
         message: `${name} reads data this device does not keep (online only), so the server answers it, and it was not reached: ${String(reply.error)}` } };
     }
     const body = (reply.body ?? {}) as { data?: T; complete?: boolean; next?: string | null; denied?: Refusal };
-    if (body.denied) return { server: true, denied: body.denied };
+    if (body.denied) {
+      if (body.denied.code === 'E_AUTH') this.options.auth?.store.forget(this.options.auth.key);
+      return { server: true, denied: body.denied };
+    }
     if (typeof reply.status === 'number' && (reply.status < 200 || reply.status >= 300)) {
       return { server: true, denied: { code: 'E_SERVER', family: 'transport', retryable: reply.status >= 500, message: `the server answered ${name} with HTTP ${reply.status}` } };
     }
@@ -530,12 +551,14 @@ export class Snapback {
    * device's partial with the server unreached, which also sets `offline`).
    * Show such a list as partial, never as all there is. */
   async readAll<T = Json, O extends string | QueryOp<unknown, readonly unknown[]> = string>(op: O, given: NoInfer<ArgsOf<O>>, now: number, cursor = 'c', limit = Infinity): Promise<Rows<ResultOf<O, T[]>[number]>> {
+    const check = this.fence();
     type E = ResultOf<O, T[]>[number];
     const name = nameOf(op), args = given as Args;
     const rows = Object.assign([] as E[], { complete: true, offline: false });
     const seen = new Set<string>();
     let next: string | null = null;
     do {
+      check();
       const page: Read<E[]> = await this.read<E[]>(name, next === null ? args : { ...args, [cursor]: next }, now);
       if (page.denied) throw refused(page.denied);
       if (!Array.isArray(page.data)) throw new Error(`${name}: not on this device yet`);
@@ -564,7 +587,10 @@ export class Snapback {
    * still answers the first write's fate. */
   async write<O extends string | MutationOp<unknown, unknown>, K extends string | undefined = undefined>(op: O, args: NoInfer<ArgsOf<O>>, now: number, key?: K): Promise<K extends string ? Write | Outcome<ResultOf<O>> : Write> {
     const at = clock(now);
+    if (this.options.auth) this.options.auth.now = at;
+    const check = this.fence();
     await this.ready();
+    check();
     return ok(await this.call({ op: 'write', name: nameOf(op), args: args as Request, now: at, ...(key === undefined ? {} : { key }) }));
   }
 
@@ -576,9 +602,12 @@ export class Snapback {
    * `pending` means the round did not deliver it (offline: kept, and sent
    * by the next round). `key` is `write`'s idempotency key. */
   async send<R = Json, O extends string | MutationOp<unknown, unknown> = string>(op: O, args: NoInfer<ArgsOf<O>>, now: number, key?: string): Promise<Sent<ResultOf<O, R>>> {
+    const check = this.fence();
     const written = await this.write(nameOf(op), args as Args, now, key);
+    check();
     if (written.state !== 'pending') return written as Sent<ResultOf<O, R>>;
     const round = await this.sync();
+    check();
     return { ...await this.outcome<ResultOf<O, R>>(written.id), round };
   }
 
@@ -615,32 +644,38 @@ export class Snapback {
 
   private async round(): Promise<Round> {
     const partition = this.partition;
+    const check = this.fence();
+    const call = (request: Request): Promise<Request> => {
+      try { check(); } catch (error) { return Promise.reject(error); }
+      return partition.device.call(request).then(answer => { check(); return answer; });
+    };
     // A round an earlier answer could neither finish nor cancel is cancelled
     // first. Natively that is a superseded answer's round: its reply still
     // comes, but the device refuses calls once its answer has ended, and
     // left there the client would answer `busy` to every round after it.
     const abandoned = partition.abandoned;
     if (abandoned !== undefined) {
-      await this.call({ op: 'cancel', exchange: abandoned });
+      await call({ op: 'cancel', exchange: abandoned });
       if (partition.abandoned === abandoned) partition.abandoned = undefined;
     }
-    let step = ok<{ fetch?: Request; done?: Round }>(await this.call({ op: 'sync' }));
+    let step = ok<{ fetch?: Request; done?: Round }>(await call({ op: 'sync' }));
     try {
       while (step.fetch) {
         const exchange = step.fetch.exchange as string;
         try {
           const reply = await this.exchange(step.fetch);
-          step = ok(await this.call({ op: 'deliver', exchange, reply }));
+          step = ok(await call({ op: 'deliver', exchange, reply }));
         } catch (error) {
           // Only this round's own exchange can be cancelled; one that cannot
           // be now is cancelled by the next round.
-          await this.call({ op: 'cancel', exchange }).catch(() => { partition.abandoned = exchange; });
+          await call({ op: 'cancel', exchange }).catch(() => { partition.abandoned = exchange; });
           throw error;
         }
       }
     } finally { partition.routes.clear(); }
     const done = step.done ?? { ok: false };
-    if (done.ok) this.partition.opened = true;
+    if (done.ok) partition.opened = true;
+    if (done.denied?.code === 'E_AUTH') this.options.auth?.store.forget(this.options.auth.key);
     return done;
   }
 
@@ -648,16 +683,21 @@ export class Snapback {
    * `sync()`. Throws when the server is unreachable or refuses. A poll while
    * another client of the partition has one in flight shares its answer. */
   async poll(wait = 20): Promise<boolean> {
+    const check = this.fence();
     await this.ready();
+    check();
     const partition = this.partition;
     // One at a time for every client of the partition: a caller while one is
     // in flight shares its answer (a second poll would supersede it).
     partition.polling ??= (async () => {
       const request = ok<{ fetch: Request }>(await this.call({ op: 'changes', wait }));
       const reply = await this.exchange(request.fetch);
+      check();
       return ok<boolean>(await this.call({ op: 'changed', exchange: request.fetch.exchange, reply }));
     })().finally(() => { partition.polling = undefined; });
-    return partition.polling;
+    const changed = await partition.polling;
+    check();
+    return changed;
   }
 
   /** Trade the session `headers()` sends for a fresh one (`POST
@@ -690,7 +730,7 @@ export class Snapback {
 
   private async refreshAuth(now: number): Promise<Refreshed> {
     if (this.closed) throw new Error('Snapback4: this client is closed');
-    clock(now);
+    this.options.auth!.now = clock(now);
     const auth = this.options.auth!, session = this.session;
     if (!session) return { ok: false, denied: { code: 'E_AUTH', message: 'sign in again' } };
     const reply = await this.exchange({ method: 'POST', path: '/auth/refresh' });
@@ -751,6 +791,7 @@ export class Snapback {
    * unpredicted, and the server judges it. */
   async upload(file: string | ArrayBuffer | ArrayBufferView, options: UploadOptions = {}): Promise<Uploaded> {
     if (this.closed) throw new Error('Snapback4: this client is closed');
+    const check = this.fence();
     const headers = { ...this.headers(), 'content-type': options.file?.type ?? 'application/octet-stream' };
     const query = options.file ? `?as=file&name=${encodeURIComponent(options.file.name)}` : '';
     const init: RequestInit & { exactBodyFrom?: string } = typeof file === 'string'
@@ -759,7 +800,9 @@ export class Snapback {
       : { method: 'POST', headers, body: Uint8Array.from(ArrayBuffer.isView(file) ? new Uint8Array(file.buffer, file.byteOffset, file.byteLength) : new Uint8Array(file)) };
     let response: Response;
     try { response = await fetch(`${this.options.origin}/assets${query}`, init); } catch (error) { return { ok: false, why: unreached(error) }; }
+    check();
     const body = await response.json().catch(() => null) as { asset?: Asset; denied?: Refusal } | null;
+    check();
     if (response.ok && body?.asset?.id) return { ok: true, asset: body.asset };
     return { ok: false, why: body?.denied ?? { code: 'E_SERVER', family: 'transport', retryable: response.status >= 500, message: `the server answered the upload with HTTP ${response.status}` } };
   }
@@ -773,10 +816,12 @@ export class Snapback {
    * principal, which this download spends) a path under `app:/tmp`. */
   async download(id: string, path?: string): Promise<Downloaded> {
     if (this.closed) throw new Error('Snapback4: this client is closed');
+    const check = this.fence();
     const fs = this.options.storage?.fs;
     if (!fs) return { ok: false, why: { code: 'E_CLIENT', family: 'client', message: 'download writes an app file: pass the dispatcher\'s `storage`, and grant fs.write for the path' } };
     let response: Response;
     try { response = await fetch(`${this.options.origin}/assets/${encodeURIComponent(id)}`, { headers: this.headers() }); } catch (error) { return { ok: false, why: unreached(error) }; }
+    check();
     if (!response.ok) {
       const body = await response.json().catch(() => null) as { denied?: Refusal } | null;
       return { ok: false, why: body?.denied ?? { code: 'E_SERVER', family: 'transport', retryable: response.status >= 500, message: `the server answered asset ${id} with HTTP ${response.status}` } };
@@ -789,8 +834,10 @@ export class Snapback {
     // An attachment name is metadata, never an app path supplied by the server.
     const filename = name?.replace(/[/\\\x00-\x1f\x7f]/g, '_');
     const bytes = new Uint8Array(await response.arrayBuffer());
+    check();
     const file = path ?? `app:/cache/snapback4-${this.options.name}-${id}${filename ? `-${filename}` : `.${EXTENSIONS[type] ?? 'bin'}`}`;
     try { await fs.writeFile(file, bytes); } catch (error) { return { ok: false, why: { code: 'E_CLIENT', family: 'client', message: `could not write ${file}: ${error instanceof Error ? error.message : String(error)}` } }; }
+    check();
     return { ok: true, path: file, type, bytes: bytes.byteLength, ...(name === undefined ? {} : { name }) };
   }
 

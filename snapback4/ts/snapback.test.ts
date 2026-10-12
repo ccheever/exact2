@@ -988,7 +988,45 @@ test('password accounts on serve: signup, reopen, refresh, login, logout and iso
     expect((await db.signup('bob@example.com', 'correct-horse-battery-staple')).ok).toBe(true);
     expect(db.options.name).not.toBe(name);
     expect((await db.send('send', { body: 'bob hello' }, Date.now())).state).toBe('sent');
-    await db.logout(); await db.close(); secrets.close();
+    await db.logout();
+    expect((await db.login('alice@example.com', 'correct-horse-battery-staple')).ok).toBe(true);
+    expect((await db.send('draft', { body: 'Alice private' }, Date.now())).state).toBe('sent');
+    const staleAlice = await Snapback.open({ ...options, auth: { ...options.auth, now: Date.now() } });
+    let enter!: () => void, release!: () => void;
+    const entered = new Promise<void>(done => { enter = done; });
+    const heldReply = new Promise<void>(done => { release = done; });
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const response = await realFetch(input as never, init);
+      if (String(input).endsWith('/q/myDrafts')) { enter(); await heldReply; }
+      return response;
+    }) as typeof fetch;
+    const reading = db.read<{ body: string }[]>('myDrafts', {}, Date.now()).catch(error => error);
+    try {
+      await entered;
+      await db.logout();
+      expect((await db.login('bob@example.com', 'correct-horse-battery-staple')).ok).toBe(true);
+      await expect(staleAlice.download('not-even-fetched')).rejects.toThrow(/E_AUTH/);
+      await expect(staleAlice.upload(new Uint8Array([1]))).rejects.toThrow(/E_AUTH/);
+      release();
+      expect((await reading as { code: string }).code).toBe('E_STALE');
+    } finally { release(); globalThis.fetch = realFetch; }
+    await staleAlice.close();
+    // A revoked session, including one kept across a backend reset, is forgotten.
+    await realFetch(`${url}/auth/logout`, { method: 'POST', headers: { authorization: `Bearer ${db.session!.token}` } });
+    expect((await db.sync()).denied?.code).toBe('E_AUTH');
+    expect(db.session).toBeNull();
+    expect(store.get('session')).toBeNull();
+    await db.logout(); await db.close();
+    store.set('session', JSON.stringify({ ...held, expiresAt: Date.now() - 1 }));
+    db = await Snapback.open({ ...options, auth: { ...options.auth, now: Date.now() } });
+    expect(db.session).toBeNull();
+    expect(store.get('session')).toBeNull();
+    await db.close();
+    store.set('session', '{broken');
+    db = await Snapback.open({ ...options, auth: { ...options.auth, now: Date.now() } });
+    expect(db.session).toBeNull();
+    expect(store.get('session')).toBeNull();
+    await db.close(); secrets.close();
     const mixed = Snapback.switcher((viewer: string) => ({ app: 'test.exact.password', origin: url,
       viewer, wasm: `file://${wasm}`, headers: () => ({ authorization: `Bearer ${held.token}`, 'x-snapback-persona': undefined }) }));
     expect(await mixed.use(principal, page, null, async client => client.options.name)).toBe(Snapback.partitionName(principal));
