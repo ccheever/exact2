@@ -1,6 +1,7 @@
 # macOS: date, time and select inputs are not Tab stops
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** PR #327: native date, time, and select controls enter the default Tab order and own focus
 **Systems:** host/apple macOS, controls, focus
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)

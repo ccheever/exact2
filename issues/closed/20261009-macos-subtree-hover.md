@@ -1,6 +1,7 @@
 # macOS: hover is not pointerenter/pointerleave — entering a descendant leaves its ancestors, and a node outside its parent's box hears no pointer
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** PR #327 and review follow-ups: hit-tested hover follows overflowing descendants; canvas raw motion stays continuous across covered children and siblings
 **Systems:** host/apple macOS, pointer events
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)

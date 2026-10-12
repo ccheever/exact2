@@ -58,11 +58,18 @@ writing apps should therefore say less — structure (a header's heading and but
   origin/main) runs the same with `--workspace` plus the `async lane:` ignored tests,
   the web JS target's conformance run (`host/web-js/conform.mjs --strict`) and its
   Chrome-oracle Firefox/WebKit steps (`conform-firefox`, `conform-webkit`),
-  the UIKit XCTests for commits under `host/apple` (`build.mjs --test --ios`), the
+  the separate game workspace's locked tests, the UIKit XCTests and touch smoke
+  when a coalesced range changes anything outside `llp/`, `issues/`, `rules/`,
+  `docs/`, `QUEUE.md`, and `*.md` paths
+  (`build.mjs --test --ios`), the
   Contract semantics (`semantics/README.md`: the Lean proofs, then `contract-difftest`
   running the runner against the Lean semantics over `semantics/corpus` and a fixed
   random sweep), then `metrics.mjs --long`. A second, hourly tier (`bun scripts/async.mjs --tier 2`) builds
-  the platforms that ride on another host's code: tvOS on the UIKit presenter. Building
+  the platforms that ride on another host's code: tvOS on the UIKit presenter,
+  plus cross-target Cargo checks of the Linux host with Caltrain and the Windows
+  host with Windows Desk. Other Linux apps are not yet selected. Tier 2 needs
+  both Rust cross targets and Zig on this Mac. These checks qualify
+  compilation, not native window, KMS, or input behavior. Building
   `--all-targets` resolves features as `cargo test` does, so the two share artifacts.
 - A green `--workspace` build proves the apps compile, not that they work: their Apple
   crates are rlibs to Cargo, and the archive an app links is built only by

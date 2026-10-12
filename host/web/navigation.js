@@ -1,19 +1,16 @@
 // @ref LLP 1038 D6/D7/D11 — host projection and the last committed URL.
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
-let last = null;
-let refused = new WeakMap();
+let last = null, refused = new WeakMap();
 // The tabpanels each root last hid or showed (one it stops naming shows again); the keys of the stack it last showed.
 let managed = new WeakMap(), shown = new WeakMap();
 let written = [], gone = new Set(), cursor = 0, first = null, originIndex = null;
 let echo = null, pop = null, draining = false;
-const queue = [];
-const waiters = new Set();
-let root, navigate, log, hostBack;
+const queue = [], waiters = new Set();
+let root, navigate, log, hostBack, hostGo;
 const routesIn = node => [...node.children].filter(r => r.hasAttribute("navigationKey"));
-// @ref LLP 1075.003 §3.7 — a navigation root's tabs: the tabpanels its own
-// tablist's tabs name with aria-controls, in tab order (a tablist inside a
-// route is that route's). Each tab's stack is its panel's route rows, kept
-// mounted; without tabs the stack is the root's own rows.
+// @ref LLP 1075.003 §3.7 — a navigation root's tabs: the tabpanels its own tablist's tabs name with
+// aria-controls, in tab order (a tablist inside a route is that route's). Each tab's stack is its panel's
+// route rows, kept mounted; without tabs the stack is the root's own rows.
 const tabsOf = nav => {
   for (const list of nav?.querySelectorAll('[role="tablist"]') ?? []) {
     if (list.parentElement?.closest("[navigationKey]") !== nav) continue;
@@ -79,17 +76,25 @@ const stamp = (index, op) => ({ exact: index, id: op.top, url: op.url });
 
 /** A route's Back control, the selected route's unless named (1035.001 D1: the `id` the root's `navigationBack` names), pressable or not. */
 const backControl = (nav, route = selectedRoute(nav), name = nav.getAttribute("navigationBack")) => route && name !== null ? route.querySelector(`[id="${CSS.escape(name)}"]`) : undefined;
-// @ref LLP 1116.000 D4 — a pushed route's app bar draws Back, as iOS draws
-// UIKit's system Back button (NavigationBarIOS.swift `prepareRoutes`): a
-// route above its stack's root (a tab's root has none), not itself a sheet
-// (whose Cancel is its Back), whose `header` does not already hold the
-// root's `navigationBack` control, and none when that control is disabled.
-// The button is the header's shadow root's, before its slot, so the header's
-// children stay the renderer's. Its words are the control's when one is
-// named elsewhere in the route (a symbol alone: the chevron alone), else the
-// route beneath's title while it is short, else "Back".
+// @ref LLP 1116.000 D4 — a pushed route's app bar draws Back, as iOS draws UIKit's system Back button
+// (NavigationBarIOS.swift `prepareRoutes`): a route above its stack's root (a tab's root has none), not
+// itself a sheet (whose Cancel is its Back), whose `header` does not already hold the root's
+// `navigationBack` control, and none when that control is disabled. The button is the header's shadow
+// root's, before its slot, so the header's children stay the renderer's. Its words are the control's when
+// one is named elsewhere in the route (a symbol alone: the chevron alone), else the route beneath's title
+// while it is short, else "Back".
 const BACK = `<style>button{all:unset;display:inline-flex;align-items:center;gap:2px;flex:none;vertical-align:middle;margin-inline:-6px 6px;padding:4px 8px 4px 4px;border-radius:8px;color:var(--exact-accent,AccentColor);cursor:pointer;white-space:nowrap;-webkit-user-select:none;user-select:none}button[hidden],span[hidden]{display:none}button:focus-visible{outline:2px solid var(--exact-accent,AccentColor);outline-offset:1px}button:active>*{opacity:.5}@media (hover:hover){button:hover{background-color:light-dark(#7676801f,#7676803d)}}svg{width:.75em;height:1.25em;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}button:dir(rtl) svg{scale:-1 1}</style><button part="back" type="button"><svg viewBox="6 3 11 18" aria-hidden="true"><path d="M15 5 8 12l7 7"/></svg><span></span></button><slot></slot>`;
 const headerOf = route => [...(route?.children ?? [])].find(child => child.localName === "header");
+// @ref LLP 1115.000 D4.1 — a route is a page, so the title follows it: `document.title` is the authored `head`'s title
+// (`said`: each target's head writer passes it, null for none), else the selected route's header's heading (what iOS
+// puts in the bar), else the app's name. Read again after every projection.
+const titleOf = route => headerOf(route)?.querySelector("h1, h2, h3, h4, h5, h6, [role=heading]")?.textContent.trim() ?? "";
+let saidTitle = null, appName = null;
+export function pageTitle(said = saidTitle) {
+  saidTitle = said; appName ??= document.querySelector('meta[property="og:site_name"]')?.content ?? document.title;
+  const nav = root?.querySelector("[navigationBack]"), title = said ?? ((nav && titleOf(selectedRoute(nav))) || appName);
+  if (document.title !== title) document.title = title;
+}
 function appBarBack(nav, routes, index, split = false) {
   const route = routes[index], header = headerOf(route);
   if (!header) return;
@@ -107,7 +112,7 @@ function appBarBack(nav, routes, index, split = false) {
     button = header.shadowRoot.querySelector("button");
     button.addEventListener("click", event => { event.stopPropagation(); appBack(header.parentElement); });
   }
-  const title = control ? control.textContent.trim() : headerOf(routes[index - 1])?.querySelector("h1, h2, h3, h4, h5, h6, [role=heading]")?.textContent.trim() ?? "";
+  const title = control ? control.textContent.trim() : titleOf(routes[index - 1]);
   const label = control || (title && title.length <= 14) ? title : "Back", name = control ? control.getAttribute("aria-label") || label || "Back" : label === "Back" ? label : `Back to ${label}`;
   button.hidden = false; button.lastChild.hidden = !label;
   if (button.lastChild.textContent !== label) button.lastChild.textContent = label;
@@ -183,15 +188,15 @@ function popped({ j, state, url }) {
   const routes = routesOf(nav), selected = routes.indexOf(selectedRoute(nav));
   // A completed pop presses the selected route's Back control; a route with none still goes back by the root's `navigate`
   // with the entry's URL. Unheard, a Back one entry down is the platform's own, as iOS's (NavigationRules.back): the route's
-  // control pressed (disabled, or closedby="none", refuses), else the runner's `back` from the visit the entry left (LLP 1115 D5), however routes are keyed.
+  // control pressed (disabled, or closedby="none", refuses), else the runner's `back` from the visit the entry left (LLP 1115 D5), however routes are keyed. Any other entry unheard (Forward, or more than one away) is the runner's own `go` there (LLP 1115.000 D4.3).
   const step = owned && j === cursor - 1, beneath = step && selected > 0 && routes[selected - 1].getAttribute("navigationKey") === String(entry.id);
   let back = beneath && !!backControl(nav), own = false, why = null;
   pop = {};
   try {
     if (back) why = pressBack(nav);
-    else if (navigate(target) === false && step) {
-      own = true; back = !!backControl(nav) || closedNone(selectedRoute(nav));
-      if (back) why = pressBack(nav); else hostBack?.(written[cursor].id);
+    else if (navigate(target) === false) {
+      own = true; back = step && (!!backControl(nav) || closedNone(selectedRoute(nav)));
+      if (back) why = pressBack(nav); else if (step) hostBack?.(written[cursor].id); else hostGo?.(target);
     }
     const accepted = back ? last?.top === entry.id : pop.op?.url === target;
     if (accepted) {
@@ -208,7 +213,7 @@ function popped({ j, state, url }) {
       }
     } else {
       if (back) log(`history: Back refused: ${why ?? `pressing the Back control did not select entry ${entry.id}`}; restoring the entry`);
-      else log(`history: ${own ? `Back to ${JSON.stringify(target)} refused: the navigation root has no navigate handler (navigate=…), and the runner's own back from visit ${written[cursor].id} committed no router change` : `${beneath ? `Back to ${JSON.stringify(target)} refused: route ${nav.getAttribute("navigationKey")} has no id="${nav.getAttribute("navigationBack")}" control, and` : `navigate ${JSON.stringify(target)} refused:`} the navigation root's navigate handler (navigate=…) committed no router change, or the root has none`}; restoring the entry`);
+      else log(`history: ${own ? `${step ? "Back to" : "navigate"} ${JSON.stringify(target)} refused: the navigation root has no navigate handler (navigate=…), and the runner's own ${step ? `back from visit ${written[cursor].id}` : "go there"} committed no router change` : `${beneath ? `Back to ${JSON.stringify(target)} refused: route ${nav.getAttribute("navigationKey")} has no id="${nav.getAttribute("navigationBack")}" control, and` : `navigate ${JSON.stringify(target)} refused:`} the navigation root's navigate handler (navigate=…) committed no router change, or the root has none`}; restoring the entry`);
       if (j !== null && j !== cursor) go(cursor, j);
       else history.replaceState(written[cursor], "", historyURL(written[cursor].url));
     }
@@ -218,23 +223,17 @@ function popped({ j, state, url }) {
 function drain() {
   if (draining || echo !== null) return;
   draining = true;
-  try {
-    while (queue.length && echo === null) {
-      const item = queue.shift();
-      if (item.op) commit(item.op);
-      else popped(item);
-    }
-  } finally { draining = false; }
+  try { for (let item; queue.length && echo === null;) { item = queue.shift(); if (item.op) commit(item.op); else popped(item); } } finally { draining = false; }
 }
 
 const settled = () => { if (echo === null && !queue.length) for (const finish of [...waiters]) finish(); };
 
 export const navigation = {
-  /** `dispatch(location)` is false when no `navigate` handler heard it; `back(id)` is the runner's own `back` from visit `id`. */
-  connect(hostRoot, dispatch, journal, back = null) {
-    root = hostRoot; navigate = dispatch; log = journal; hostBack = back;
-    // A row a press reaches in a list column (`project` marks it once its detail shows), a resize across WIDE, and one under an author's split placeholder (its pane's width).
-    root.addEventListener("click", event => { const row = event.target.closest?.('[data-exact-split="list"] :is(button, a[href], [data-exact-on~="press"])'); if (row) pressedRow = [row, performance.now(), last?.url]; }, true);
+  /** `dispatch(location)` is false when no `navigate` handler heard it; `back(id)` is the runner's own `back` from visit `id`, `goTo(location)` its own `go`. */
+  connect(hostRoot, dispatch, journal, back = null, goTo = null) {
+    root = hostRoot; navigate = dispatch; log = journal; hostBack = back; hostGo = goTo;
+    // A row a press reaches in a list column (`project` marks it once its detail shows), a resize across WIDE, and one under an author's split placeholder (its pane's width). Heard at the document, before the listener that follows a link row there (input-glue.js, router.js), whose commit lands within the click.
+    document.addEventListener("click", event => { const row = event.target.closest?.('[data-exact-split="list"] :is(button, a[href], [data-exact-on~="press"])'); if (row && root.contains(row)) pressedRow = [row, performance.now(), last?.url]; }, true);
     globalThis.matchMedia?.(WIDE).addEventListener?.("change", () => navigation.project(root, log)); addEventListener("resize", () => root.querySelector("[data-exact-split-placeholder]") && navigation.project(root, log));
     addEventListener("popstate", event => {
       if (!last) return;
@@ -319,8 +318,8 @@ export const navigation = {
         const selected = stack === at ? routes.findIndex(route => route.getAttribute("navigationKey") === key) : routes.length - 1;
         if (stack === at) shown.set(nav, routes.slice(0, selected + 1).map(route => route.getAttribute("navigationKey")));
         const modal = routes[selected]?.getAttribute("navigationPresentation") === "modal", split = splitOf(routes), live = split && !sheet(routes[selected]);
-        // A split's detail shown is the top, or the route a sheet covers; its row is the one whose press pushed it, or
-        // pushed a route beneath it in its column.
+        if (stack === at && list) list.inert = sheet(routes[selected]) || !!list.authoredInert; // a sheet is modal: the root's tab bar is inert beneath it, as the route it covers is (LLP 1115.000 D4.5)
+        // A split's detail shown is the top, or the route a sheet covers; its row is the one whose press pushed it, or pushed a route beneath it in its column.
         const detail = split ? routes.findLastIndex((r, i) => i > 0 && i <= selected && !sheet(r)) : -1;
         if (detail > 0 && detail === selected && pressedRow && last?.url !== pressedRow[2] && routes[0].contains(pressedRow[0]) && performance.now() - pressedRow[1] < 2000) { rowOf.set(routes[detail], pressedRow[0]); pressedRow = null; }
         for (const [index, route] of routes.entries()) {
@@ -345,7 +344,7 @@ export const navigation = {
       }
     }
     // The page module's container hatches, when it has them (LLP 1075.003.000 §3.7).
-    globalThis.exact?.onProject?.(root);
+    globalThis.exact?.onProject?.(root); pageTitle();
   },
   observation(root) {
     const nav = root.querySelector("[navigationBack]");
@@ -365,13 +364,12 @@ export const navigation = {
   },
 };
 
-// @ref LLP 1047 D5 — springs, holds and drags (`motion-glue.js`) and
-// virtualized collections (`collection-glue.js`) are after-paint pieces,
-// fetched when a batch first needs one. Until they arrive their calls wait in
-// order and replay then; before any use, a call with nothing to reconcile is
-// dropped, and a style is set at once, as the controller sets one with nothing
-// held. `o.wasm(name, bytes)` is one wasm call's reply, or null before the wasm;
-// `o.replayed()` follows a replay, as the end of a batch follows its ops.
+// @ref LLP 1047 D5 — springs, holds and drags (`motion-glue.js`) and virtualized collections
+// (`collection-glue.js`) are after-paint pieces, fetched when a batch first needs one. Until they arrive
+// their calls wait in order and replay then; before any use, a call with nothing to reconcile is dropped,
+// and a style is set at once, as the controller sets one with nothing held. `o.wasm(name, bytes)` is one
+// wasm call's reply, or null before the wasm; `o.replayed()` follows a replay, as the end of a batch
+// follows its ops.
 export function afterPaintPieces(load, o) {
   let live = null, loading = null;
   const queue = [];

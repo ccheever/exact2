@@ -553,6 +553,9 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
     if let Some(only) = only_on(name) {
         doc["only"] = only.into();
     }
+    if name == "accept" {
+        doc["note"] = "On input type=file, omit, leave empty, or use */* for any file; specific types are media or app file_handlers types".into();
+    }
     doc
 }
 
@@ -641,6 +644,9 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
                     ", one of {}",
                     exact_kernel::generated::BUTTON_STYLES.join("|")
                 );
+            }
+            if name == "accept" {
+                return vec![line, "on input type=file: omit, leave empty, or use */* for any file; specific types are media or app file_handlers types".into()];
             }
             vec![line]
         }

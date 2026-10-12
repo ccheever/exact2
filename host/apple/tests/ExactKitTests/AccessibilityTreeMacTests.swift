@@ -64,8 +64,9 @@ final class AccessibilityTreeMacTests: XCTestCase {
     }
 
     /// A box whose ARIA role is `button` is one, as the web's tree has it
-    /// (chat F14); an empty date reads empty and shows its format, never
-    /// the picker's 1/1/2001 (kanban F23).
+    /// (chat F14); an empty date reads empty and shows its author's
+    /// `placeholder` or no words (LLP 1115.000 D13.1), never the picker's
+    /// 1/1/2001 (kanban F23) and never a browser's `mm/dd/yyyy`.
     func testARoleButtonBoxIsAButtonAndAnEmptyDateReadsEmpty() throws {
         let p = try fixture()
         p.apply(wireBatch([
@@ -81,9 +82,17 @@ final class AccessibilityTreeMacTests: XCTestCase {
         let date = DateField()
         date.empty = true
         XCTAssertEqual(date.accessibilityValue() as? String, "")
-        XCTAssertEqual(DateField.placeholder("date", Locale(identifier: "en_US")), "mm/dd/yyyy")
-        XCTAssertEqual(DateField.placeholder("date", Locale(identifier: "en_GB")), "dd/mm/yyyy")
-        XCTAssertEqual(DateField.placeholder("time", Locale(identifier: "en_US")), "--:-- --")
+        p.apply(wireBatch([
+            ["op": "create", "id": 5, "kind": "control", "props": ["type": "date", "value": ""], "handlers": ["change"], "style": [:]],
+            ["op": "create", "id": 6, "kind": "control", "props": ["type": "time", "value": "", "placeholder": "Any time"], "handlers": ["change"], "style": [:]],
+            ["op": "children", "id": 1, "ids": [2, 3, 4, 5, 6]],
+            ["op": "frame", "id": 5, "x": 0.0, "y": 150.0, "w": 140.0, "h": 24.0],
+            ["op": "frame", "id": 6, "x": 0.0, "y": 180.0, "w": 140.0, "h": 24.0],
+        ]))
+        let bare = try XCTUnwrap(p.controls.controls[5] as? DateField), said = try XCTUnwrap(p.controls.controls[6] as? DateField)
+        XCTAssertTrue(bare.empty && said.empty)
+        XCTAssertEqual(bare.placeholder, "", "with no placeholder, no words: not a date format")
+        XCTAssertEqual(said.placeholder, "Any time", "the author's placeholder")
     }
 
     /// A date shows the person's choice until its bound value changes, as the

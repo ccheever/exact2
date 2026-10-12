@@ -482,7 +482,9 @@ kept between drives (on the web, Chrome's profile for the name and its page's
 origin; a Firefox or WebKit drive's is its own); an authored test gets a fresh
 one of its own, removed after it. A data module's `secret.keep` rides that same
 store: files under the named tree on Apple and Linux, `localStorage` in the named
-web profile. A drive with no `--storage` refuses app storage (`storage is unavailable
+web profile. Apple native modules receive the same named data, cache and temporary
+roots across launches. A fresh drive clears them; the picker's temporary documents
+alone are cleared on each launch. A drive with no `--storage` refuses app storage (`storage is unavailable
 in agent mode unless the drive names a scratch store (--storage <name>)`) and keeps
 no secrets. The driver's `state.storage` says
 which (`{available: false, code: 'agent', message}` or `{available: true,
@@ -694,6 +696,16 @@ an app whose plan claims the media session states both in `app.json`, or
 declaration, `playbackStateDeclared`); `artworkError` says why an artwork was
 not published. `tap <element> mediasession <action> [seconds]` calls the handler
 the platform would call (`delivery: "substituted"`).
+
+### Pick a file of any type
+
+An `input type="file"` with no `accept` (or `accept="*/*"`) offers any file;
+`multiple` allows more than one. `showPicker(id)` opens it, and `change`
+receives `list<Picked>` with each file's name, type, size and
+`app:/tmp/picked/` path. A specific `accept` list is limited to media types
+and types in the app's `file_handlers`. The live Linux picker is unavailable;
+its agent substitute accepts any file. Image pixel and Canvas readback remain
+deferred.
 
 ### Shrink a picked image for upload (`storage.fs.compressImage`)
 
@@ -1076,7 +1088,19 @@ Cargo's checks cover the root `default-members`: the deterministic, in-process
 crates, the web host's and the Apple host's Rust among them (the Apple host's
 real-socket, wall-clock and toolchain-launching tests are `async lane:`; a test
 may still re-run its own binary to isolate its environment). The async lane runs the same commands with
-`--workspace` (the other hosts, GPU, Hermes, platform shells, stress fixtures).
+`--workspace` (the other hosts, GPU, Hermes, platform shells, stress fixtures),
+and tests the separate game workspace with
+`cargo test --manifest-path game/Cargo.toml --workspace --locked --lib --bins --tests`.
+Changes to Apple host files, its Cargo path dependencies, or apps trigger the
+iOS simulator tests and touch smoke. Docs-only changes do not. The hourly
+`--tier 2` lane checks tvOS and runs target-specific `cargo check` for the Linux
+host and Caltrain and for the Windows host and Windows Desk. Install
+`x86_64-unknown-linux-gnu` and `x86_64-pc-windows-gnu` with `rustup target add`
+and provide `zig` for C dependencies on the Mac. Other Linux apps remain
+outside this check until their shared JavaScript host's target C++ build
+inputs are qualified. These cross checks cover compilation; native window
+presentation, KMS, and input devices
+remain unqualified until run on their platforms.
 
 Development and test builds optimize the third-party CPU rasterizer `tiny-skia`.
 Debug assertions and overflow checks remain enabled; the normal development

@@ -57,7 +57,11 @@ The schema metadata changes its digest, so producers and hosts re-bake together.
 > - `font-size` takes a text style (`-exact-title1`, …) that the kernel resolves
 >   against that root, and a `role="heading"` is lowered to one by its level;
 > - `hr` is one solid edge in the separator role, not Chrome's two shades;
-> - an `href` run is `LinkText` and is not underlined;
+> - an `href` run is `LinkText` and is not underlined, and so is a block `link` of
+>   text (LLP 1115.000 D3.5);
+> - an unsaid SVG `fill` is `currentcolor`, not SVG's black, so a shape nobody filled
+>   is its text's colour and follows the scheme; a gradient stop's, a flood's and a
+>   light's initial colours stay SVG's (LLP 1115.000 D3.8);
 > - an unset root background is the platform's, never a fixed white;
 > - a pushed route has the platform's Back whether or not one is authored;
 > - a custom pressable that declares no press feedback dims while held on iOS.
@@ -300,12 +304,13 @@ Reversal follows the offset; release/cancellation restores the authored values
 through their transitions. Its subtree does not take pointer hits, including at
 zero opacity. It has no CSS equivalent and creates no host artwork
 or runner gesture state. Other hosts ignore it.
-`keyboardDismissMode` (`none`, `on-drag`, `interactive`; absent means `none`)
-opts an iOS scroll container into UIKit's keyboard dismissal behavior. Other
-hosts retain their platform behavior. Linux does not yet implement either policy.
-
-> **LLP 1115.000 D9 proposes** that an unsaid `keyboardDismissMode` be `interactive` on iOS.
-> Until that is accepted, absent is still none.
+`keyboardDismissMode` (`none`, `on-drag`, `interactive`) says how a drag on an
+iOS scroll container puts the keyboard away, as UIKit's property of that name
+does. Absent, it is the platform's (LLP 1115.000 D9.1): on iOS a container that
+scrolls vertically is `interactive`, so the keyboard follows a drag that reaches
+it, and one that scrolls only sideways is `none`. A written value wins, `none`
+included. The prop has no default row, so a host tells "unsaid" by its absence.
+Other hosts retain their platform behavior. Linux does not yet implement either policy.
 
 `scrollbar-width` (bit 88; Messages, 2026-09-09) follows
 [CSS Scrollbars](https://www.w3.org/TR/css-scrollbars-1/#scrollbar-width):

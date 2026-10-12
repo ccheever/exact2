@@ -154,3 +154,23 @@ fn a_radio_group_is_native_radios_and_loads_the_input_piece() {
         "the group alone loads it: {bare}"
     );
 }
+
+/// LLP 1115.000 D4.5: a page with a `tablist` or a `menu` loads the input
+/// piece, which gives each its arrow keys, even when nothing in it declares a
+/// press look; a page with neither does not.
+#[test]
+fn a_tablist_and_a_menu_load_the_input_piece() {
+    let page = |role: &str| {
+        let plan = contract::compile(&format!(
+            "component App\n  state v = 1\n  action pick(n: number)\n    v = n\n  view\n    row{role}\n      button appearance=\"none\" press=pick(1)\n        text \"One\"\n      button appearance=\"none\" press=pick(2)\n        text \"Two\"\n"
+        ))
+        .unwrap();
+        crate::emit::emit(&plan, false, false).unwrap().js
+    };
+    for role in ["tablist", "menu"] {
+        let js = page(&format!(" role=\"{role}\""));
+        assert!(js.contains("pressFeedback()"), "{role}: {js}");
+    }
+    let plain = page("");
+    assert!(!plain.contains("pressFeedback()"), "{plain}");
+}

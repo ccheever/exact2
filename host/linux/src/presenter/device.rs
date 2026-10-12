@@ -112,6 +112,8 @@ impl<D: DataSource> Presenter<D> {
         // the text fields it hosts (D8).
         self.requests_reset();
         self.hosted_reset();
+        // Nor of the top layer's open surface, whose window it makes anew.
+        self.surface_reset();
         self.dirty = true;
     }
 }

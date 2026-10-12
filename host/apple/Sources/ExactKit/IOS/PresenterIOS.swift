@@ -274,9 +274,10 @@ package final class Presenter {
         work.perform()
         work.cancel() // its queued run, not this one
     }
+    /// A drag is moving the keyboard: on the scroller that shows, a grouped list's collection view included.
     var interactiveKeyboardDrag: Bool {
         views.values.contains { node in
-            guard let sv = node.scroll else { return false }
+            guard node.scroll != nil, let sv = navigation.shownScroll(node) else { return false }
             return sv.keyboardDismissMode == .interactive && (sv.isTracking || sv.isDragging)
         }
     }
@@ -504,7 +505,10 @@ package final class Presenter {
     /// A hatch's `focus()` on the node it resolved (LLP 1075.003 §3.4).
     func focusNode(_ target: NodeView) { focus(target, [target.props["id"] ?? ""], selectText: false) }
 
+    /// The node an action's `focus()` last named, delivered yet or not: a field's Return reads it to learn whether its `submit` asked for the keyboard back (LLP 1115.000 D9.2).
+    weak var focusAsked: NodeView?
     private func focus(_ target: NodeView, _ args: [Any], selectText: Bool) {
+        focusAsked = target
         let name = target.props["id"] ?? "#\(target.id)"
         // UIKit may not announce its next transition until after the outgoing
         // sheet starts dismissing. The selected route's editor already exists,
@@ -600,7 +604,7 @@ package final class Presenter {
     /// the leave when the pointer moves onto another (the agent's `hover`).
     weak var hovered: NodeView?
     var hoveredInline: UInt32?
-
+    var inlineHoverTransition: UInt64 = 0
     /// The modifiers held for the press being sent (its `MouseEvent`'s; gallery F20).
     private(set) var pressHeld = ""
     package func press(_ id: UInt32, held: String = "") {

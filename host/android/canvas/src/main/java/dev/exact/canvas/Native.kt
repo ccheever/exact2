@@ -88,8 +88,16 @@ object Native {
     @JvmStatic external fun scrollers(): IntArray?
     /** A touch (0 down, 1 up, 2 move, 3 cancel) at the view's pixels, and what touched: the event's tool type
      * ([android.view.MotionEvent.getToolType]). A finger is reported to the app as a touch that hovers nothing and
-     * leaves no focus ring, a mouse as a mouse (LLP 1115.001 D7.4). */
+     * leaves no focus ring, a mouse as a mouse (LLP 1115.001 D7.4). Action 4 is no new touch: the one that is down
+     * has been held still for the system's long-press time ([android.view.ViewConfiguration.getLongPressTimeout]).
+     * What names a context menu there opens it (D10), and that touch then presses nothing when it lifts. */
     @JvmStatic external fun touch(action: Int, x: Float, y: Float, tool: Int)
+    /** What happened in the window the reader made for surface [serial] of the top layer ([Surfaces], LLP 1115.001
+     * D10), on the host's thread: a touch ([what] 0 down, 1 up, 2 move, 3 cancel) at ([x], [y]), pixels from the
+     * window's own top left; the system dismissed the window (8: a tap outside a menu, Back, Escape); the reader
+     * could not make it (9); a key (16 Enter, 17 Tab, 18 Shift+Tab, 19 to 22 the arrows up, down, left and right, 23
+     * Space). What is said of a surface that is no longer the one open is dropped. */
+    @JvmStatic external fun surface(serial: Int, what: Int, x: Float, y: Float)
     /** One slice ([budgetUs] of shaping) of laying out what the touch that is down would open; whether more is left. */
     @JvmStatic external fun ahead(budgetUs: Int): Boolean
     @JvmStatic external fun copyImage(id: Int, bitmap: Bitmap): Boolean
@@ -121,6 +129,10 @@ object Native {
     /** The answer to request [id] (the share sheet's: `shared` or `dismissed`, or why it could not be shown), or null
      * when it was cancelled. On the host's thread. */
     @JvmStatic external fun answer(id: Int, answer: String?)
+    /** One request of the agent API (LLP 1012), a JSON line as UTF-8, and its answer the same way: the Linux
+     * host's own handler (`host/linux/src/canvas/agent.rs`), on the host's thread. From the first one the host's turns
+     * run at the driver's clock, which only a `clock` request moves. [AgentDrive] calls it for a driver over adb. */
+    @JvmStatic external fun agent(line: ByteArray): ByteArray
     /** Run the calling thread on the cores outside the slowest cluster; whether it was set. */
     @JvmStatic external fun fastCores(): Boolean
     /** An ADPF hint session over [tids] (this process's threads), [targetNs] their work's target. */

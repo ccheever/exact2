@@ -11,8 +11,20 @@
 #if os(macOS)
 import AppKit
 
+/// A native button's cell: AppKit ignores the button, so the cell is the
+/// accessibility element VoiceOver lands on. Its show menu (AXShowMenu) is
+/// its node's, offered where the node offers it (X84): a `contextPopover`.
+final class NativeButtonCellMac: NSButtonCell {
+    private var owner: NodeView? { (controlView as? NativeButtonMac)?.owner }
+    override func accessibilityPerformShowMenu() -> Bool { owner?.accessibilityPerformShowMenu() ?? false }
+    override func isAccessibilitySelectorAllowed(_ selector: Selector) -> Bool {
+        selector == #selector(accessibilityPerformShowMenu) ? owner?.isAccessibilitySelectorAllowed(selector) == true : super.isAccessibilitySelectorAllowed(selector)
+    }
+}
+
 /// AppKit's button, as a native button's control.
 final class NativeButtonMac: NSButton {
+    override class var cellClass: AnyClass? { get { NativeButtonCellMac.self } set {} }
     weak var owner: NodeView?
     struct Written: Equatable {
         var face: ButtonFace
@@ -87,6 +99,9 @@ final class NativeButtonMac: NSButton {
     // takes the button's mouse events, so the node hears them here. The up
     // goes before the action the loop sends, DOM's order.
     override func mouseDown(with event: NSEvent) {
+        // A Control-click that a `contextPopover` or `contextmenu` from its
+        // node up answers is no click (X85).
+        if contextClicked(event) { return }
         owner?.pointerPressed(event)
         // A click leaves the first responder where it is (LLP 1115.000
         // D7.1): AppKit's tracking must not take the editor beside it. The

@@ -202,6 +202,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         }
         val frames = android.view.Choreographer.getInstance()
         scrolling.released()
+        removeCallbacks(held)
         frames.removeFrameCallback(turn); turnPosted = false
         frames.removeFrameCallback(sampler); samplerPosted = false
         frames.removeFrameCallback(holder); holdFrom = 0L
@@ -211,21 +212,44 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
     /** A finger's scroll, its fling and its ends ([Scrolling], LLP 1115.001 D7). */
     private val scrolling = Scrolling(this)
 
+    /** The touch that is down becomes a long press once it has been held still for the system's own time
+     * ([android.view.ViewConfiguration.getLongPressTimeout], which follows the person's touch and hold delay):
+     * exact2 is told so (action 4), and what names a context menu under it opens it (LLP 1115.001 D10). A touch
+     * that moves past the system's slop, scrolls, lifts or is a hosted field's is none. */
+    private val slop = android.view.ViewConfiguration.get(context).scaledTouchSlop
+    private var heldX = 0f
+    private var heldY = 0f
+    private var heldTool = 0
+    private val held = Runnable { Exact.touched = android.os.SystemClock.uptimeMillis(); forward(4, heldX, heldY, heldTool, -1L) }
+    private fun hold(e: MotionEvent?) {
+        removeCallbacks(held)
+        if (e == null) return
+        heldX = e.x; heldY = e.y; heldTool = e.getToolType(0)
+        postDelayed(held, android.view.ViewConfiguration.getLongPressTimeout().toLong())
+    }
+
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: MotionEvent): Boolean {
         // A touch that scrolls is the reader's and exact2 hears no more of it; any other goes on to exact2.
-        if (started && scrolling.touch(e)) return true
+        if (started && scrolling.touch(e)) { hold(null); return true }
         val down = e.actionMasked == MotionEvent.ACTION_DOWN
         // A touch in a hosted text field's box is held for the field, and is the field's own once exact2 says the
         // field is what is under it ([Fields], LLP 1115.001 D8): exact2 hears of the focus, not of the touch.
         val hosted = fields
         if (started && hosted != null && hosted.touch(e)) {
+            hold(null)
             if (down) { val touch = hosted.serial; under(e.x, e.y) { hosted.under(touch, it.getOrElse(2) { 0 }) } }
             return true
         }
         val action = when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> 0; MotionEvent.ACTION_UP -> 1; MotionEvent.ACTION_MOVE -> 2; else -> 3
         }
+        when (action) {
+            0 -> if (started) hold(e)
+            2 -> if (Math.abs(e.x - heldX) > slop || Math.abs(e.y - heldY) > slop) hold(null)
+            else -> hold(null)
+        }
+        if (action == 1) Exact.touched = e.eventTime
         forward(action, e.x, e.y, e.getToolType(0), -1L)
         if (down && started) under(e.x, e.y) {}
         return true
@@ -250,7 +274,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
     internal fun keyboard(state: Int, field: Int) {
         val hosted = fields
         if (state != 0 && field != 0 && hosted != null) { keys?.show(0); hosted.focus(field) }
-        else { hosted?.blur(); keys?.show(state) }
+        else { hosted?.blur(state == 0); keys?.show(state) }
     }
 
     /** exact2 runs here (owner=0) and was told something of a field: what that changed is drawn. */
@@ -929,30 +953,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
                 7 -> i += 2
                 8 -> i += 6
                 9 -> i += 6 + 3 * b.get(i + 5)
-                10, 41 -> {
-                    // 41 (FONT_AXES) is 10 with the variation settings fontique chose (ital 1 for Roboto's
-                    // italic, wght, slnt, wdth) before the path; 'wght' is the weight unless it sets one.
-                    val key = b.get(i + 1); val index = b.get(i + 2); val weight = b.get(i + 3)
-                    val axes = if (b.get(i) == 41) b.get(i + 4) else 0
-                    val at = if (b.get(i) == 41) i + 5 + 2 * axes else i + 4
-                    val len = b.get(at)
-                    val bytes = ByteArray(len)
-                    for (k in 0 until len) bytes[k] = (b.get(at + 1 + k / 4) ushr (8 * (k % 4))).toByte()
-                    val settings = StringBuilder()
-                    var wght = false
-                    for (a in 0 until axes) {
-                        val t = b.get(i + 5 + 2 * a)
-                        val tag = String(charArrayOf((t ushr 24).toChar(), (t ushr 16 and 255).toChar(), (t ushr 8 and 255).toChar(), (t and 255).toChar()))
-                        if (tag == "wght") wght = true
-                        if (settings.isNotEmpty()) settings.append(", ")
-                        settings.append('\'').append(tag).append("' ").append(f(b, i + 6 + 2 * a))
-                    }
-                    if (!wght) settings.insert(0, if (axes > 0) "'wght' $weight, " else "'wght' $weight")
-                    val builder = Font.Builder(File(String(bytes))).setTtcIndex(index)
-                    try { builder.setFontVariationSettings(settings.toString()) } catch (e: Exception) {}
-                    fonts[key] = builder.setWeight(weight.coerceIn(1, 1000)).build()
-                    i = at + 1 + (len + 3) / 4
-                }
+                10, 41 -> { fonts[b.get(i + 1)] = fontAt(b, i); i = fontEnd(b, i) }
                 11 -> {
                     val id = b.get(i + 1)
                     // hwbuf=1: the picture straight into a GPU buffer, wrapped as a hardware bitmap (as an image

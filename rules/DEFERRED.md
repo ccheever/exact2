@@ -172,8 +172,10 @@ captioned figures — no camera, no generic file input. **Widened (Charlie,
 `file_handlers`, plus export and import copies to and from `app:/`. Unblocks
 the Markdown reader's remaining surfaces and Fieldnotes' backups. Take: none
 named (Charlie: "idk what to trade it for, maybe relax the limit slightly").
-Still no picker for any file, and no `capture` on the picker (the camera is a
-native module, §Components, 2026-10-02). Linux editing is v2
+**Waived (Charlie, 2026-10-11, coding-agent file attachments):** `input type="file"`
+with no `accept` (or `accept="*/*"`) may pick any file, with no trade.
+Specific `accept` types remain bounded as above. `capture` stays refused
+(the camera is a native module, §Components, 2026-10-02). Linux editing is v2
 (Charlie, 2026-09-21): web, iOS and macOS first; Linux reads.
 
 **Expanded (Charlie, 2026-09-21):** ship the full game engine from Black's
@@ -770,8 +772,10 @@ accessibility tree — Chrome's computed tree, UIKit's and AppKit's
 accessibility properties; Linux `unavailable` — and the driver reports four
 fixed findings over it: an unnamed interactive element, an element exposed
 under a declared-inert or hidden view, an element exposed outside an open
-modal, and a role or name disagreeing with the web for a `testId`-joined
-fixture control. Still refused: scoring, a rule catalog, WCAG checks
+modal, and a role, a name or a state that two hosts give differently for a
+`testId`-joined fixture control once each is read through its own platform's
+table (UIKit's toggle value is the platform's, not a disagreement with the
+web; LLP 1115.000 D14.4). Still refused: scoring, a rule catalog, WCAG checks
 (contrast, target size, heading structure), reading-order claims, and
 driving VoiceOver. The guessed `accessibleName` on `tree` is deleted because
 the platform's tree supersedes it, not as the take.

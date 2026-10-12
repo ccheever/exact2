@@ -99,7 +99,7 @@ fn a_reported_palette_is_what_the_roles_and_the_controls_paint_in() {
     // Before any report, desktop Linux's look: the roles' fallback pairs,
     // and this painter's own accent on its controls.
     assert_eq!(page(&mut p), [0xff, 0xff, 0xff]);
-    assert_eq!(pixel(&mut p, "accent", 20, 20), [0x00, 0x7a, 0xff]);
+    assert_eq!(pixel(&mut p, "accent", 20, 20), [0x00, 0x88, 0xff]);
     assert_eq!(pixel(&mut p, "check", 3, 3), [0x00, 0x75, 0xff]);
     assert_eq!(pixel(&mut p, "filled", 6, 20), [0x00, 0x75, 0xff]);
     assert_eq!(pixel(&mut p, "authored", 3, 3), [0xff, 0x00, 0x00]);

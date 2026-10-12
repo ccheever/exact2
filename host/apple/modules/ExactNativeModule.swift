@@ -588,8 +588,10 @@ public final class ExactRoute {
     public internal(set) var navigation: ExactNavigation?
     /// The route node's `data-*` words.
     public internal(set) var data: ExactData
-    /// The scroll view the route names with `navigationScroll`. Its offset,
-    /// insets, size and delegate are Exact's (LLP 1075.003 §3.5).
+    /// The route's content scroll view: the one it names with
+    /// `navigationScroll`, else its first that scrolls vertically (LLP
+    /// 1115.000 D11.1). Its offset, insets, size and delegate are Exact's
+    /// (LLP 1075.003 §3.5).
     public internal(set) weak var contentScrollView: UIScrollView?
     /// Whether this call is the controller's first.
     public internal(set) var isNew: Bool

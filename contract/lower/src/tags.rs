@@ -1265,19 +1265,45 @@ pub(crate) fn multicol_on_flex(
 }
 
 impl crate::Lowerer<'_> {
-    /// @ref LLP 1115 §3 — a run with an `href` in its paragraph is a link:
-    /// unsaid, its colour is the platform's link role (the tint on iOS,
-    /// `linkColor` on macOS, the browser's own on the web), as the UA's
-    /// `a:link` is. Pushed before the author's rows, so a `color` on the run
-    /// or its class wins; a block-level `link` keeps inheriting.
-    pub(crate) fn link_run_color(
+    /// @ref LLP 1115 §3, LLP 1115.000 D3.5 — a link's unsaid colour is the
+    /// platform's link role (the tint on iOS, `linkColor` on macOS, the
+    /// accent on the web), as the UA's `a:link` is: a run with an `href` in
+    /// its paragraph, and a block `link` of text (a `tel:` or `mailto:`
+    /// value, a "Learn more"), which a hand-built screen draws in the tint.
+    /// A `link` holding a row or a column, or given a `role`, is its
+    /// author's row or button and keeps inheriting. Pushed before the
+    /// author's rows, so a `color` on the link, the run or a class wins. A
+    /// terminal entry's block link is left as it is: what a terminal shows
+    /// for a link is the terminal's to decide (`QUEUE.md`).
+    pub(crate) fn link_color(
         &mut self,
         tag: &str,
         parent_tag: Option<&str>,
         attrs: &[contract_syntax::Attr],
+        children: &[contract_syntax::Node],
         bindings: &mut Vec<BindingsRow>,
     ) {
-        if tag == "text" && parent_tag == Some("text") && attrs.iter().any(|a| a.name == "href") {
+        use contract_syntax::Node;
+        // Texts and images alone, a `when` or an `each` of them included.
+        fn words(node: &Node) -> bool {
+            match node {
+                Node::Element { tag, .. } => tag == "text" || tag == "image",
+                Node::When {
+                    then, otherwise, ..
+                } => then.iter().chain(otherwise).all(words),
+                Node::Each { body, .. } => body.iter().all(words),
+                Node::Match { some, none, .. } => some.1.iter().chain(none).all(words),
+                Node::Use { .. } | Node::Children { .. } => false,
+            }
+        }
+        let has = |name: &str| attrs.iter().any(|a| a.name == name);
+        let run = tag == "text" && parent_tag == Some("text") && has("href");
+        let block = tag == "link"
+            && self.profile != crate::Profile::Terminal
+            && !has("role")
+            && !children.is_empty()
+            && children.iter().all(words);
+        if run || block {
             let link = self.fixed(true, "LinkText");
             bindings.push(crate::style_row(StyleId::TextColor, link, crate::IMPLIED));
         }

@@ -173,7 +173,7 @@
     #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"]):not(:disabled):hover { background-color: color-mix(in srgb, var(--exact-accent, AccentColor), #000 10%); }
   }
   #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]):not([role="tab"], [role="radio"])[data-pressed] { background-color: light-dark(#7676803d, #7676805c); }
-  #exact-root button[data-button-style][data-destructive="true"] { --exact-accent: light-dark(#ff3b30, #ff453a); }
+  #exact-root button[data-button-style][data-destructive="true"] { --exact-accent: var(--exact-system-red, light-dark(#ff383cff, #ff4245ff)); }
   /* A content `tablist` of native tabs is a segmented control: a track, the
      selected tab raised in it; so is a `radiogroup` of native radios, its
      checked radio raised (LLP 1116.004 D5.2; input-glue.js gives it the
@@ -184,18 +184,18 @@
   #exact-root :is([role="tablist"] > button[role="tab"], [role="radiogroup"] > button[role="radio"]):is([data-button-style="bordered"], [data-button-style="gray"]) { background: none; border-radius: 7px; padding: .375em .75em; }
   #exact-root :is([role="tablist"] > button[role="tab"], [role="radiogroup"] > button[role="radio"]):is([data-button-style="bordered"], [data-button-style="gray"]):enabled { color: CanvasText; }
   #exact-root :is([role="tablist"] > button[role="tab"]:not([aria-controls])[aria-selected="true"], [role="radiogroup"] > button[role="radio"][aria-checked="true"]):is([data-button-style="bordered"], [data-button-style="gray"]) { background: light-dark(#fff, #636366); box-shadow: 0 3px 8px #0000001f, 0 3px 1px #0000000a; }
-  :where(#exact-root [role="tablist"]:has(> [role="tab"][aria-controls])) { background-color: light-dark(#f9f9f9eb, #1d1d1feb); box-shadow: 0 -.5px 0 light-dark(#3c3c434a, #54545899); }
+  :where(#exact-root [role="tablist"]:has(> [role="tab"][aria-controls])) { background-color: light-dark(#f9f9f9eb, #1d1d1feb); box-shadow: 0 -.5px 0 var(--exact-separator, light-dark(#3c3c431f, #54545880)); }
   #exact-root [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]) { border-radius: 0; }
   #exact-root [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]):enabled { color: light-dark(#8e8e93, #98989d); }
   #exact-root [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]):enabled[aria-selected="true"] { color: var(--exact-accent, AccentColor); }
-  /* LLP 1116.004 D1: a wide window (900 px and up, navigation.js `WIDE`) adapts what the app left unsaid, as the
+  /* LLP 1116.004 D1: a wide window (900 px and up, the navigation glue's `WIDE`) adapts what the app left unsaid, as the
      projection marks it. A root tab bar whose placement is unsaid is a sidebar: the root's column turns, the tabs
      are rows (a symbol in the accent beside its label), the selected one in the accent's tint. An authored colour
      still wins; the layout is the platform's. A stack whose root route is a list whose rows push shows that route
      as a column beside the detail, as a split view does: `navigationSplit` wide (320 by default), its rows without
      the disclosure (they select, not push), the row whose press pushed the detail shown marked. */
   #exact-root [data-exact-sidebar] { flex-direction: row !important; }
-  #exact-root [data-exact-sidebar] > [role="tablist"] { order: -1; flex: none !important; box-sizing: border-box !important; width: 240px !important; height: auto !important; flex-direction: column !important; flex-wrap: nowrap !important; align-items: stretch !important; justify-content: flex-start !important; gap: 2px !important; padding: 12px 10px !important; overflow-y: auto; background-color: light-dark(#f9f9f9, #1d1d1f); box-shadow: .5px 0 0 light-dark(#3c3c434a, #54545899); }
+  #exact-root [data-exact-sidebar] > [role="tablist"] { order: -1; flex: none !important; box-sizing: border-box !important; width: 240px !important; height: auto !important; flex-direction: column !important; flex-wrap: nowrap !important; align-items: stretch !important; justify-content: flex-start !important; gap: 2px !important; padding: 12px 10px !important; overflow-y: auto; background-color: light-dark(#f9f9f9, #1d1d1f); box-shadow: .5px 0 0 var(--exact-separator, light-dark(#3c3c431f, #54545880)); }
   #exact-root [data-exact-sidebar] > [role="tablist"] > [role="tab"] { flex: none !important; width: auto !important; height: auto !important; min-height: 36px; justify-content: start !important; padding: 6px 10px !important; border-radius: 8px !important; }
   #exact-root [data-exact-sidebar] > [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]) { --exact-button-space-width: 10px; }
   #exact-root [data-exact-sidebar] > [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]):enabled { color: CanvasText; }
@@ -205,7 +205,7 @@
   /* A tab's symbol is in its ink as the page lays it out now (the runtimes copy the title's at a commit, and a resize is none). */
   #exact-root [role="tablist"] > button[role="tab"][aria-controls] > img { color: inherit !important; }
   #exact-root [data-exact-sidebar] > [role="tablist"] > button[role="tab"][aria-controls] > img { color: var(--exact-accent, AccentColor) !important; }
-  #exact-root [data-exact-split="list"] { inset-inline-end: auto !important; box-sizing: border-box !important; width: var(--exact-split, 320px) !important; box-shadow: .5px 0 0 light-dark(#3c3c434a, #54545899); }
+  #exact-root [data-exact-split="list"] { inset-inline-end: auto !important; box-sizing: border-box !important; width: var(--exact-split, 320px) !important; box-shadow: .5px 0 0 var(--exact-separator, light-dark(#3c3c431f, #54545880)); }
   #exact-root [data-exact-split="detail"] { inset-inline-start: var(--exact-split, 320px) !important; }
   #exact-root [data-exact-split="list"] :is(button, a[href], [data-exact-on~="press"]) img:is([data-symbol-source="symbol:forward-chevron"], [data-symbol-source="symbol:sf/chevron.forward"], [data-symbol-source="symbol:sf/chevron.right"]) { display: none !important; }
   #exact-root [data-exact-split="list"] [data-exact-split-row] { background-color: color-mix(in srgb, var(--exact-accent, AccentColor) 15%, transparent); box-shadow: -64px 0 0 color-mix(in srgb, var(--exact-accent, AccentColor) 15%, transparent); }
@@ -238,7 +238,7 @@
      sit under #exact-root#exact-root.
      A route's `header` is an app bar: a material over what scrolls under it
      (a `scroll document` page), a bottom separator, a minimum height. */
-  :where(#exact-root [navigationkey] > header) { position: sticky; top: 0; min-height: 32px; padding: 6px 16px; background-color: light-dark(#f9f9f9eb, #1d1d1feb); backdrop-filter: saturate(180%) blur(20px); box-shadow: 0 .5px 0 light-dark(#3c3c434a, #54545899); }
+  :where(#exact-root [navigationkey] > header) { position: sticky; top: 0; min-height: 32px; padding: 6px 16px; background-color: light-dark(#f9f9f9eb, #1d1d1feb); backdrop-filter: saturate(180%) blur(20px); box-shadow: 0 .5px 0 var(--exact-separator, light-dark(#3c3c431f, #54545880)); }
   /* A dialog is a card over a dimmed page. An alert (`role="alertdialog"`) is
      the system's: a fixed width, its title (the label, which assistive
      technology already reads) over its message, its actions side by side. */
@@ -269,8 +269,8 @@
      draw in their focus colour as `auto`. Only the lines the page draws: an
      authored border or outline wins, and a bare field (`appearance="none"`)
      draws none. */
-  #exact-root :is(input[data-native], textarea[data-native], input[data-exact-field], select:not([multiple]))[aria-invalid="true"] { border-color: light-dark(#ff3b30, #ff453a); }
-  #exact-root :is(input[data-native], textarea[data-native], input[data-exact-field], select:not([multiple]))[aria-invalid="true"]:focus-visible { outline: 2px solid light-dark(#ff3b30, #ff453a); outline-offset: 0; }
+  #exact-root :is(input[data-native], textarea[data-native], input[data-exact-field], select:not([multiple]))[aria-invalid="true"] { border-color: var(--exact-system-red, light-dark(#ff383cff, #ff4245ff)); }
+  #exact-root :is(input[data-native], textarea[data-native], input[data-exact-field], select:not([multiple]))[aria-invalid="true"]:focus-visible { outline: 2px solid var(--exact-system-red, light-dark(#ff383cff, #ff4245ff)); outline-offset: 0; }
   /* A switch where the browser draws none (LLP 1069.001 D1, amended by LLP
      1116 D1): a track and a thumb in WebKit's box, 38 × 22, which Linux
      paints too; a browser that styles its own (`::thumb`) keeps it. The box
@@ -327,6 +327,12 @@
   [data-itemheight], [data-estimateditemheight] { overflow-anchor: none; } /* List keys own the reading anchor. */
   /* LLP 1055 D3: an `svg` is a block, as every node is (declared deviation from HTML's inline replaced svg). */
   img, video, svg { display: block; }
+  /* LLP 1115.000 D3.8: an unsaid `fill` is `currentcolor` on every host, where SVG's own initial value is black, so an
+     icon nobody filled follows its text's colour and is not black on a dark page (the kernel's default, which native
+     hosts paint; declared in LLP 1001). `fill` inherits, so the outermost `svg` says it once: a nested `svg` saying
+     it too would end the inheritance of a `fill` its author wrote on a group above it. `:where()`, and the hosts write
+     an authored `fill` inline, so the author's wins. A gradient's stops and a filter's flood stay SVG's black. */
+  :where(#exact-root svg:not(svg svg)) { fill: currentColor; }
   /* The kernel owns the iframe's declared 300×150 content box. Browser UA
      borders and inline baseline space must not enlarge or shift it. Scope
      this to presented nodes: the data module's hidden iframe is not UI. */

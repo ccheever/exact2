@@ -40,6 +40,23 @@ final class MenuHost: NSObject {
     /// that stops showing what is there is cancelled for good.
     var choosing: [Confirmation] = []
     private var picking: [Pick] = []
+    private var nativeTracking = 0
+    private var afterTracking: [() -> Void] = []
+    /// Main-queue work continues during native tracking; only the chosen
+    /// item's action waits until popUp has unwound, then runs next turn.
+    func afterNativeTracking(_ work: @escaping () -> Void) {
+        if nativeTracking > 0 { afterTracking.append(work) }
+        else { DispatchQueue.main.async(execute: work) }
+    }
+    private func track(_ menu: NSMenu, at point: NSPoint, in source: NodeView) {
+        nativeTracking += 1
+        menu.popUp(positioning: nil, at: point, in: source)
+        nativeTracking -= 1
+        if nativeTracking == 0 {
+            let work = afterTracking; afterTracking.removeAll()
+            for action in work { DispatchQueue.main.async(execute: action) }
+        }
+    }
     /// Each popover's presentation count: a choice made in one presentation
     /// never dispatches once the popover has been presented again.
     private var presentations: [UInt32: Int] = [:]
@@ -156,10 +173,15 @@ final class MenuHost: NSObject {
               connected(pop), connected(source), !pop.inert, !source.inert, !source.disabled,
               pop.style["display"]?.string != "none", let window = presenter.viewport.window,
               !hidden(source) || presenter.toolbar.contains(source) else { return }
-        // Auto popovers may nest through the authored tree or their invoker;
-        // opening an unrelated one dismisses the existing branch.
-        let ancestor = entries.last { contains($0.popover, source) || contains($0.popover, pop) }
-        while let last = entries.last, last !== ancestor { close(last.popover, restoreFocus: false) }
+        // Only auto popovers form a dismissible stack. A manual popover does
+        // not close that stack when shown, or get closed by another auto.
+        if pop.props["popover"] != "manual" {
+            let ancestor = entries.last { $0.value != "manual" && (contains($0.popover, source) || contains($0.popover, pop)) }
+            for entry in entries.reversed() {
+                if entry === ancestor { break }
+                if entry.value != "manual" { close(entry.popover, restoreFocus: false) }
+            }
+        }
         guard live(pop), live(source), connected(pop), connected(source) else { return }
         // A confirmation in the alert shape is the platform's alert, a sheet
         // on the window (LLP 1115.000 D7.6, AlertsMac.swift); a chooser is
@@ -177,12 +199,12 @@ final class MenuHost: NSObject {
         entries.append(entry)
         if let menu = entry.menu {
             // Leave native tracking until the click and its app batch finish.
-            DispatchQueue.main.async { [weak self, weak source, weak entry] in
+            RunLoop.main.perform(inModes: [.common]) { [weak self, weak source, weak entry] in
                 guard let self, let entry, self.entries.contains(where: { $0 === entry }) else { return }
                 guard let source, self.live(source), self.live(entry.popover), source.window === window,
                       !source.inert, !source.disabled, entry.confirmation.map(self.valid) ?? true
                 else { self.close(entry.popover); return }
-                menu.popUp(positioning: nil, at: self.popUpPoint(menu, entry.popover, in: source), in: source)
+                self.track(menu, at: self.popUpPoint(menu, entry.popover, in: source), in: source)
                 // Escape or a click outside chose nothing. A chosen item has
                 // only been recorded: it presses on the next turn, after this
                 // stack and AppKit's tracking of `source` have unwound.
@@ -211,7 +233,7 @@ final class MenuHost: NSObject {
     /// popover opens painted, anchored to the node (D4).
     func context(_ source: NodeView, at point: NSPoint) {
         guard let name = source.props["contextPopover"] else { return }
-        DispatchQueue.main.async { [weak self, weak source] in
+        RunLoop.main.perform(inModes: [.common]) { [weak self, weak source] in
             guard let self, let presenter = self.presenter, let source, self.live(source), source.props["contextPopover"] == name,
                   !source.disabled, !source.inert, !self.hidden(source), source.window === presenter.viewport.window else { return }
             guard let pop = presenter.carrying("popover").first(where: { $0.props["id"] == name && !self.isConfirmation($0) }) else {
@@ -225,7 +247,7 @@ final class MenuHost: NSObject {
             self.presentations[pop.id, default: 0] += 1
             self.revalidate()
             let menu = self.menu(of: pop)
-            menu.popUp(positioning: nil, at: point, in: source)
+            self.track(menu, at: point, in: source)
         }
     }
     /// Where a menu presenting `pop` pops up in `source`: its top-left, by
@@ -238,7 +260,12 @@ final class MenuHost: NSObject {
     }
     func close(_ pop: NodeView, restoreFocus: Bool = true, cancelling: Bool = true) {
         guard let index = entries.firstIndex(where: { $0.popover === pop }) else { return }
-        while entries.count > index + 1, let last = entries.last { close(last.popover, restoreFocus: restoreFocus) }
+        // Hiding an auto stack never hides a manual popover above it.
+        if entries[index].value != "manual" {
+            for entry in entries[(index + 1)...].reversed() where entry.value != "manual" {
+                close(entry.popover, restoreFocus: restoreFocus)
+            }
+        }
         let entry = entries[index], window = presenter?.viewport.window
         let hadFocus = window.flatMap(focusOwner).map { contains(pop, $0) } ?? false
         entries.remove(at: index)
@@ -292,9 +319,9 @@ final class MenuHost: NSObject {
             guard let source = entry.source, live(source), live(entry.popover), connected(source), connected(entry.popover),
                   source.window === presenter.viewport.window, presenter.viewport.window != nil,
                   entry.value == entry.popover.props["popover"], !entry.popover.inert,
-                  entry.parent.map(hidden) != true,
+                  (entry.value == "manual" || entry.parent.map(hidden) != true),
                   entry.popover.style["display"]?.string != "none",
-                  !hidden(source) || presenter.toolbar.contains(source),
+                  entry.value == "manual" || !hidden(source) || presenter.toolbar.contains(source),
                   entry.menu == nil || (entry.confirmation.map(valid) ?? isMenuShaped(entry.popover))
             else { close(entry.popover); continue }
         }
@@ -341,7 +368,8 @@ final class MenuHost: NSObject {
         if let owner = focusOwner(window) {
             guard owner === viewport || owner.isDescendant(of: viewport) else { return false }
         } else if presenter?.session?.view?.ownsShortcutFocus() == false { return false }
-        guard let last = entries.last, (window.firstResponder as? NSTextInputClient)?.hasMarkedText() != true else { return false }
+        guard let last = entries.last(where: { $0.value != "manual" }),
+              (window.firstResponder as? NSTextInputClient)?.hasMarkedText() != true else { return false }
         if event.type == .keyDown, !event.isARepeat {
             escapeHeld = true
             close(last.popover)
@@ -354,6 +382,7 @@ final class MenuHost: NSObject {
               let content = event.window?.contentView else { return }
         let hit = content.hitTest(content.superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow)
         let ancestor = entries.last(where: { entry in
+            guard entry.value != "manual" else { return false }
             guard let hit else { return false }
             if contains(entry.popover, hit) { return true }
             return sequence(first: hit, next: { self.parent(of: $0) }).contains {
@@ -365,7 +394,10 @@ final class MenuHost: NSObject {
         } else {
             defer { pointerDown = nil }
             guard let down = pointerDown, down.button == event.buttonNumber, down.ancestor == ancestor else { return }
-            while let last = entries.last, last.popover.id != ancestor { close(last.popover, restoreFocus: false) }
+            for entry in entries.reversed() where entry.value != "manual" {
+                if entry.popover.id == ancestor { break }
+                close(entry.popover, restoreFocus: false)
+            }
         }
     }
     var observation: [String: Any]? {
@@ -512,7 +544,7 @@ final class MenuHost: NSObject {
         guard let pick = sender.representedObject as? Pick, !pick.once.taken else { return }
         pick.once.taken = true
         picking.append(pick)
-        DispatchQueue.main.async { [weak self, pick] in
+        afterNativeTracking { [weak self, pick] in
             guard let self else { return }
             self.picking.removeAll { $0 === pick }
             guard self.valid(pick), let row = pick.row else { return }
@@ -555,5 +587,16 @@ private final class PopoverLayer: NSView {
         let hit = raisedHit(super.hitTest(point), point)
         return hit === self ? nil : hit
     }
+    // A hit inside a popover may forward through plain views, but never
+    // beyond the top layer to the page's responder chain.
+    override func mouseDown(with event: NSEvent) {}
+    override func mouseDragged(with event: NSEvent) {}
+    override func mouseUp(with event: NSEvent) {}
+    override func rightMouseDown(with event: NSEvent) {}
+    override func rightMouseDragged(with event: NSEvent) {}
+    override func rightMouseUp(with event: NSEvent) {}
+    override func otherMouseDown(with event: NSEvent) {}
+    override func otherMouseDragged(with event: NSEvent) {}
+    override func otherMouseUp(with event: NSEvent) {}
 }
 #endif

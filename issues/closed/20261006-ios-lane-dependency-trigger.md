@@ -1,6 +1,7 @@
 # Trigger iOS verification for changes to shared runtime dependencies
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** iOS checks run for every non-documentation change, including separate modules and build scripts; Bun selector tests verify both scheduling and documentation-only skips.
 **Systems:** async lane, UIKit, shared runtime
 **Author:** Codex (GPT-6), for Charlie Cheever
 **Date:** 2026-10-06

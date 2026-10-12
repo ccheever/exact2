@@ -28,6 +28,8 @@ internal class Requests(private val activity: ExactActivity) {
     var view: ExactView? = null
     /** Called with whether system Back has somewhere to go in the app (LLP 1115.001 D6). */
     var back: (Boolean) -> Unit = {}
+    /** The top layer's windows (LLP 1115.001 D10): what exact2 says of its open surface goes to them. */
+    var surfaces: Surfaces? = null
 
     /** `x_log_requests=1` (exact2's EXACT_LOG_REQUESTS): each request as it is acted on, to the log. A haptic or a
      * clipboard write shows nowhere else. */
@@ -71,6 +73,7 @@ internal class Requests(private val activity: ExactActivity) {
                     BACK -> back(words[body] != 0)
                     // The second word, from D8 on: the hosted field the keyboard is for (0: one exact2 paints).
                     KEYBOARD -> view?.keyboard(words[body], if (i - body > 1) words[body + 1] else 0)
+                    SURFACE -> surfaces?.told(words, body)
                 }
             } catch (e: RuntimeException) {
                 // The platform refused (no activity to start from, a full clipboard transaction): the app goes on.
@@ -182,6 +185,7 @@ internal class Requests(private val activity: ExactActivity) {
         const val SHARE = 4
         const val BACK = 5
         const val KEYBOARD = 6
+        const val SURFACE = 7
         /** How long after the activity is in front again a share sheet's choice is still waited for. */
         const val DISMISSED_MS = 500L
     }

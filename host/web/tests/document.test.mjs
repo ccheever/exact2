@@ -586,6 +586,41 @@ for (const sheet of ['host/web/glue.js', 'host/web-js/symbols.js']) browserCheck
   }, {html});
 });
 
+// LLP 1115.000 D3.8: an SVG shape nobody filled is its text's colour, where
+// the browser's own initial `fill` is black. The page's sheet says it on the
+// outermost `svg`, so a `fill` on a shape or on a group wins and reaches a
+// nested `svg` below the group; `currentcolor` is each element's own colour;
+// a gradient's stop and a filter's flood stay SVG's black.
+browserCheck('an unsaid SVG fill is the text colour', async () => {
+  const shell = readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8');
+  const rect = (id, css = '') => `<rect id="${id}" width="4" height="4"${css ? ` style="${css}"` : ''}/>`;
+  const html = shell.replace('<div id="exact-root"></div>', `<div id="exact-root"><div style="color:rgb(10, 20, 30)">
+    <svg id="root" viewBox="0 0 20 20" style="width:20px;height:20px">${rect('unsaid')}${rect('own', 'fill:rgb(255, 0, 0)')}
+      <g style="fill:rgb(0, 128, 0)">${rect('group')}<svg>${rect('nested')}</svg></g>
+      <g style="color:rgb(1, 2, 3)">${rect('recoloured')}<svg>${rect('nested-colour')}</svg></g>
+      <g style="fill:none">${rect('none')}</g>
+      <linearGradient><stop id="stop"/></linearGradient><filter><feFlood id="flood"/></filter>
+    </svg></div><svg id="plain" viewBox="0 0 4 4" style="width:4px;height:4px">${rect('page')}</svg><span id="ink">ink</span></div>`)
+    .replace('<script type="module" src="./glue.js"></script>', '');
+  await withDocument('/', async tab => {
+    const page = await tab(true);
+    await page.until("document.readyState === 'complete'", 'svg fixture');
+    const of = (id, property = 'fill') => `[${JSON.stringify(id)}, getComputedStyle(document.getElementById(${JSON.stringify(id)}))[${JSON.stringify(property)}]]`;
+    const got = await page(`Object.fromEntries([${['unsaid', 'own', 'group', 'nested', 'recoloured', 'nested-colour', 'none', 'page'].map((id) => of(id)).join(',')},
+      ${of('stop', 'stopColor')}, ${of('flood', 'floodColor')}, ${of('ink', 'color')}])`);
+    expect(got.unsaid).toBe('rgb(10, 20, 30)');
+    expect(got.own).toBe('rgb(255, 0, 0)');
+    expect(got.group).toBe('rgb(0, 128, 0)');
+    expect(got.nested).toBe('rgb(0, 128, 0)'); // a nested svg does not end the group's fill
+    expect(got.recoloured).toBe('rgb(1, 2, 3)');
+    expect(got['nested-colour']).toBe('rgb(1, 2, 3)');
+    expect(got.none).toBe('none');
+    expect(got.page).toBe(got.ink); // no colour written: the page's own text colour
+    expect(got.stop).toBe('rgb(0, 0, 0)');
+    expect(got.flood).toBe('rgb(0, 0, 0)');
+  }, {html});
+});
+
 // LLP 1116.001 D1: a date, time or local date-time control takes the text
 // field's look (a 1 px line, 8 px corners, the field's background, 36 px
 // tall at the body size) in light and dark, as a border box the kernel

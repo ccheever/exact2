@@ -1,6 +1,7 @@
 # Any-type file input and image pixel readback/re-encode in data modules
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Admitted unrestricted file inputs; contract and Linux agent tests, Apple Picker.answered and panel tests, web JS accepts tests, runner/JS HEIC tests, and web/macOS agent drives verify the paths exercised.
 **Systems:** Contract, pickers, grants
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)

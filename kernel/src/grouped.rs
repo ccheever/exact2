@@ -64,6 +64,10 @@ pub enum Accessory {
     Checkmark,
     /// A trailing checkbox or switch control: a switch, which flips that control.
     Toggle(ViewId),
+    /// An `input type="radio"` at either end of the row, and whether it is
+    /// checked: the platform's checkmark on the chosen row, and a tap on
+    /// the row checks that radio (LLP 1115.000 D13.2).
+    Radio(ViewId, bool),
     /// A trailing button holding only an `info.circle` symbol: the detail
     /// button, which presses that button.
     Detail(ViewId),
@@ -337,6 +341,15 @@ impl Kernel {
             _ => None,
         };
         let mut rest = &parts[..];
+        // A radio's row is a choice: the radio is its accessory wherever its
+        // author put it, before the label as a web form has it or after.
+        let radio = |n: &NodeRef<'_>| {
+            matches!(
+                ControlKind::of(n.node_type, n.props),
+                Some(ControlKind::Radio)
+            )
+            .then(|| Accessory::Radio(n.id, n.props.bool(PropId::Checked) == Some(true)))
+        };
         // The trailing accessory, then the leading symbol, then the texts.
         if let Some((last, before)) = rest.split_last() {
             let toggle = matches!(
@@ -356,11 +369,17 @@ impl Kernel {
             } else if detail {
                 Some(Accessory::Detail(last.id))
             } else {
-                apple_symbol(last).and_then(|s| accessory(&s))
+                radio(last).or_else(|| apple_symbol(last).and_then(|s| accessory(&s)))
             };
             if let Some(found) = found {
                 out.accessory = found;
                 rest = before;
+            }
+        }
+        if let (Accessory::None, Some((first, after))) = (out.accessory, rest.split_first()) {
+            if let Some(found) = radio(first) {
+                out.accessory = found;
+                rest = after;
             }
         }
         if let Some((first, after)) = rest.split_first() {

@@ -228,6 +228,14 @@ extension NodeView {
     /// pixels stay up until the new ones replace them, as `invalidateText`
     /// leaves them for a changed paragraph.
     func textRasterGeometryChanged() {
+        // A worker will replace accepted pixels only while this node remains
+        // eligible. Crossing to draw must retire both the surface and any
+        // overflow/shadow sublayer before AppKit chooses its display path.
+        if textRaster != nil, !canRasterText {
+            dropTextRaster()
+            needsDisplay = true
+            return
+        }
         if let key = textRasterKey, key.size == bounds.size && key.box == contentBox() { return }
         textRasterKey = nil
         textRasterPending = false
@@ -312,7 +320,7 @@ extension NodeView {
     func dropTextRaster() {
         textRasterOverflowLayer?.dropTextCast(); textRasterOverflowLayer?.removeFromSuperlayer()
         textRasterOverflowLayer = nil
-        if textRaster != nil, wantsUpdateLayer { layer?.contents = nil }
+        if textRaster != nil { layer?.contents = nil }
         layer?.setValue(nil, forKey: CALayer.textHeadroomKey)
         textRaster = nil; textRasterCast = nil
         textRasterKey = nil

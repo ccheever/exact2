@@ -84,6 +84,7 @@ mod shortcuts;
 #[cfg(target_os = "android")]
 pub(crate) mod still;
 mod swipe;
+pub mod top;
 mod transform;
 mod transform_geometry;
 mod typing;
@@ -209,6 +210,8 @@ pub struct Presenter<D: DataSource> {
     requests: requests::State,
     /// The text fields the shell hosts, as it was told them (D8).
     hosted: hosted::State,
+    /// The top layer's open surface, where a shell makes windows (D10).
+    top: top::State,
     /// The viewport segments the agent set (LLP 1078 D7), for `layout.env`;
     /// the posture and counts are the runner's.
     pub(crate) segments: Vec<exact_kernel::Rect>,
@@ -454,6 +457,7 @@ impl<D: DataSource> Presenter<D> {
             colors: Default::default(),
             requests: Default::default(),
             hosted: Default::default(),
+            top: Default::default(),
             segments: Vec::new(),
             surfaces: Default::default(),
             module: None,
@@ -1127,7 +1131,8 @@ impl<D: DataSource> Presenter<D> {
     /// The deepest painted box under a point (viewport points), through
     /// every clip.
     pub fn hit(&mut self, x: f32, y: f32) -> Option<ViewId> {
-        if !self.display.contains(x, y) {
+        // Under an open surface of the top layer the page is inert.
+        if !self.display.contains(x, y) || self.top_open() {
             return None;
         }
         self.boxes();
@@ -1382,6 +1387,7 @@ impl<D: DataSource> Presenter<D> {
         self.hovered.clear();
         self.pointer_held = None;
         self.hatch_reset();
+        self.top_replaced();
         self.hosts += 1;
         self.measure();
     }

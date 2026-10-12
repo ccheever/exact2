@@ -51,10 +51,10 @@ final class ControlHost: NSObject {
         appliedRange.removeValue(forKey: node.id)
         let made: NSControl
         switch kind {
-        case "switch": made = NSSwitch()
+        case "switch": made = SwitchMac()
         case "button": made = makeNativeButton(node) // LLP 1069.011
         case "checkbox":
-            let box = NSButton(checkboxWithTitle: "", target: nil, action: nil)
+            let box = CheckboxMac(checkboxWithTitle: "", target: nil, action: nil)
             box.imagePosition = .imageOnly
             made = box
         case "radio": made = RadioButtonMac() // x2apps survey #2
@@ -200,5 +200,14 @@ final class ControlHost: NSObject {
         lastRange.removeAll()
         appliedRange.removeAll()
     }
+}
+
+/// The checkbox and the switch, AppKit's own, but for a Control-click their
+/// node's `contextmenu` answers (X85, `contextClicked`).
+final class CheckboxMac: NSButton {
+    override func mouseDown(with event: NSEvent) { if !contextClicked(event) { super.mouseDown(with: event) } }
+}
+final class SwitchMac: NSSwitch {
+    override func mouseDown(with event: NSEvent) { if !contextClicked(event) { super.mouseDown(with: event) } }
 }
 #endif

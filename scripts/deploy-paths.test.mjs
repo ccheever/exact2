@@ -7,7 +7,8 @@ import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve, sep, toNamespacedPath } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { assertCapturedContractSources, contractCompiler, installedContractPackage, unrelocatableContractDependency } from './deploy.mjs';
-import { appleTouched, glueTests, retainSkippedFailures } from './async.mjs';
+import * as asyncLane from './async.mjs';
+const {appleTouched, glueTests, retainSkippedFailures} = asyncLane;
 
 test('async retains only failures from checks skipped on this commit', () => {
   const previous = ['ios: failed', 'ios-touch: failed', 'lane: failed', 'tvos: failed', 'install: failed'];
@@ -32,9 +33,61 @@ test('async newest detects Apple edits anywhere in the coalesced range', () => {
     calls.push(args);
     return args[2] === 'old' ? 'host/apple/changed.swift' : '';
   })).toBe(true);
-  expect(calls[0]).toEqual(['diff', '--name-only', 'old', 'new', '--', 'host/apple']);
+  expect(calls[0]).toEqual(['diff', '--name-only', 'old', 'new']);
   appleTouched('new', null, args => { calls.push(args); return ''; });
-  expect(calls[1]).toEqual(['diff', '--name-only', 'new^', 'new', '--', 'host/apple']);
+  expect(calls[1]).toEqual(['diff', '--name-only', 'new^', 'new']);
+});
+
+test('async iOS schedules every non-documentation change in the coalesced range', () => {
+  const changed = [
+    'scripts/fixtures/keyboard-form.contract',
+    'scripts/smoke-touch.mjs',
+    'scripts/app.mjs',
+    'host/web/src/lib.rs',
+    'kernel/src/lib.rs',
+    'gpu/src/acquire.rs',
+    'host/svg-raster/src/lib.rs',
+    'apps/exact-live/runbook.md',
+    'apps/caltrain/assets/info.md',
+  ];
+  for (const path of changed) {
+    expect(appleTouched('new', 'old', () => `docs/reference.md\n${path}`)).toBe(true);
+  }
+  const docs = [
+    'llp/1000-exact2-root.explainer.md',
+    'llp/current/1000',
+    'issues/20261006-ios-lane-dependency-trigger.md',
+    'QUEUE.md',
+    'rules/RULES.md',
+    'docs/reference.md',
+    'docs/generated/index.html',
+  ].join('\n');
+  expect(appleTouched('new', 'old', () => docs)).toBe(false);
+  expect(appleTouched('new', 'old', () => '')).toBe(false);
+  for (const [paths, scheduled] of [['docs/reference.md', false], ['docs/reference.md\nscripts/app.mjs', true]]) {
+    const apple = appleTouched('new', 'old', () => paths);
+    expect(apple).toBe(scheduled);
+    const steps = asyncLane.checks('new', 'old', {lane: [], apple, glue: []});
+    for (const name of ['ios', 'ios-touch']) expect(steps.some(([step]) => step === name)).toBe(scheduled);
+  }
+});
+
+test('tier 2 checks platform host and app crates for their actual target', () => {
+  const checks = asyncLane.tierTwoChecks();
+  for (const name of ['linux', 'windows']) expect(checks.find(([step]) => step === name)?.[2]).toContain('CRATE_CC_NO_DEFAULTS=1');
+  expect(checks.find(([name]) => name === 'linux')?.[2]).toContain('x86_64-unknown-linux-gnu');
+  expect(checks.find(([name]) => name === 'linux')?.[2]).toContain('--keep-going');
+  expect(checks.find(([name]) => name === 'linux')?.[2]).toContain('caltrain-linux');
+  expect(checks.find(([name]) => name === 'linux')?.[2]).toContain('CC_x86_64_unknown_linux_gnu=zig cc -target x86_64-linux-gnu');
+  expect(checks.find(([name]) => name === 'windows')?.[2]).toContain('x86_64-pc-windows-gnu');
+  expect(checks.find(([name]) => name === 'windows')?.[2]).toContain('--keep-going');
+  expect(checks.find(([name]) => name === 'windows')?.[2]).toContain('windows-desk');
+  expect(checks.find(([name]) => name === 'windows')?.[2]).toContain('CC_x86_64_pc_windows_gnu=zig cc -target x86_64-windows-gnu');
+});
+
+test('async game step checks the separate workspace with its lockfile', () => {
+  const steps = asyncLane.checks('new', 'old', {lane: [], apple: false, glue: []});
+  expect(steps.find(([name]) => name === 'game')).toEqual(['game', 'cargo', ['test', '--manifest-path', 'game/Cargo.toml', '--workspace', '--locked', '--lib', '--bins', '--tests', '--no-fail-fast']]);
 });
 
 test('async glue runs the capture fixtures', () => {

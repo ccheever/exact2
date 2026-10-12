@@ -33,7 +33,7 @@ const DRIVE = [
   ['--url <url>', 'web: drive a page already served (the dev loop\'s) instead of building'],
   ['--browser chrome|firefox|webkit', 'web (default chrome; bunx playwright@1.63.0 install firefox webkit)'],
   ['--sim <udid|name>', 'iOS: which simulator (else EXACT_SIM, a booted iPhone, or the newest iPhone Pro)'],
-  ['--device · --phone <udid|name>', 'a connected iPhone (built with ios --device), and which'],
+  ['--device · --phone <udid|name> · --reader', 'a connected iPhone (built with ios --device), and which · Android: the app on the Canvas reader (its APK)'],
   ['--plan <file>', 'a compiled plan (contract build -o) in place of the app\'s'],
   ['--world <file>', 'a game: a saved world to load'],
   ['--open <file> · --json', 'macOS: a document on its command line · replies as JSON lines'],

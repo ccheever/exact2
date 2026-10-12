@@ -19,6 +19,10 @@ package protocol GroupedLists: AnyObject {
     func scroller(for id: UInt32) -> UIScrollView?
     /// Whether a list draws `id` (a row, or a row's toggle or detail button).
     func draws(_ id: UInt32) -> Bool
+    /// A route's screen is about to show again (a pop back to it, with the
+    /// transition it rides, if any): the rows its lists kept selected under
+    /// the screen they pushed let go (LLP 1115.000 D11.3).
+    func appearing(_ route: NodeView, alongside coordinator: UIViewControllerTransitionCoordinator?)
     /// The agent's reveal of what a list draws or carries: its row's cell
     /// scrolled into `port` (the collection view's visible part, in its
     /// bounds), with or without a cell now. Nil for a node no list draws or

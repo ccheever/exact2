@@ -679,6 +679,66 @@ fn a_dialog_a_popover_and_a_modal_route_are_not_named() {
     assert_eq!(warned(sheet), []);
 }
 
+const LEVEL: &str = "lower-level-without-heading";
+
+#[test]
+fn a_level_with_no_heading_role_is_named_with_its_repair() {
+    // LLP 1115.000 D12.5: `aria-level` alone is not a heading. It gets no
+    // heading style, and the iOS bar does not take it for the title.
+    let bare =
+        buttons("text \"Results\" aria-level=2\ntext \"More\" aria-level=(label == \"\" ? 2 : 3)");
+    assert_eq!(
+        warned(&bare),
+        [(LEVEL.to_string(), 7), (LEVEL.to_string(), 8)]
+    );
+    let (_, warnings) = contract::compile_warned(&bare);
+    let m = &warnings[0].message;
+    assert!(
+        m.starts_with(
+            "`aria-level` on a `text` with no `role=\"heading\"` does not make a heading"
+        ) && m.contains("no heading style")
+            && m.contains("the iOS navigation bar does not take it for the screen's title")
+            && m.contains("`text \"Results\" role=\"heading\" aria-level=2`"),
+        "{m}"
+    );
+    // In a route's header it is not the bar's title either: the header
+    // holds no heading, which the bar's own warning says beside this one.
+    let header = route("  text \"List\" aria-level=1");
+    assert_eq!(
+        warned(&header),
+        [
+            ("lower-header-no-bar".to_string(), 11),
+            (LEVEL.to_string(), 12)
+        ]
+    );
+    let (_, warnings) = contract::compile_warned(&header);
+    assert!(
+        warnings[0].message.contains("holds no heading"),
+        "{warnings:?}"
+    );
+}
+
+#[test]
+fn a_level_beside_a_role_is_not_named() {
+    for view in [
+        "text \"Results\" role=\"heading\" aria-level=2",
+        "text \"Results\" aria-level=2 role=\"heading\"",
+        // A heading with no level is a level-2 heading.
+        "text \"Results\" role=\"heading\"",
+        // A computed role is the benefit of the doubt.
+        "text \"Results\" role=(label == \"\" ? \"heading\" : \"none\") aria-level=2",
+        // A tree's item takes a level of its own.
+        "row role=\"treeitem\" aria-level=2\n  text \"src\"",
+        "text \"Results\"",
+    ] {
+        assert_eq!(warned(&buttons(view)), [], "{view}");
+    }
+    assert_eq!(
+        warned(&route("  text \"List\" role=\"heading\" aria-level=1")),
+        []
+    );
+}
+
 const COUNT_PLURAL: &str = "lower-count-plural";
 
 /// One screen over a count and a name, its view's lines at 9 on, with a
@@ -817,9 +877,16 @@ fn a_content_heading_that_says_the_bars_title_is_named_with_its_repair() {
     );
     let spaced = titled(
         "  text \"Trivia Quiz\" role=\"heading\" aria-level=1",
-        "text \" Trivia  Quiz\" aria-level=2",
+        "text \" Trivia  Quiz\" role=\"heading\" aria-level=2",
     );
     assert_eq!(warned(&spaced), [(TITLE_TWICE.to_string(), 14)]);
+    // A level with no role is not a heading (LLP 1115.000 D12.5): it is
+    // named for that, and not as a second title.
+    let bare = titled(
+        "  text \"Trivia Quiz\" role=\"heading\" aria-level=1",
+        "text \"Trivia Quiz\" aria-level=2",
+    );
+    assert_eq!(warned(&bare), [(LEVEL.to_string(), 14)]);
 }
 
 #[test]

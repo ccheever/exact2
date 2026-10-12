@@ -23,12 +23,6 @@ final class RouteController: UIViewController {
     weak var ownedScroll: NodeView?
     /// The scroller a large title collapses with (LLP 1075.003 Stage 3).
     weak var collapseScroll: NodeView?
-    /// The route's scroller with content between it and the header (a
-    /// switcher, a filter, a banner): the title collapses with it too, and
-    /// both stay below the bar, which that content follows (LLP 1116.006 D1).
-    weak var bandScroll: NodeView?
-    /// Whether UIKit was handed the band's scroller (`collapse`).
-    var bandHanded = false
     /// The scroller that is the route's last in-flow child, which reaches
     /// the screen's bottom edge (LLP 1116 D2).
     weak var edgeScroll: NodeView?
@@ -49,6 +43,12 @@ final class RouteController: UIViewController {
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
         host?.coversChanged()
+    }
+    // Back on a screen whose list pushed the one leaving: the row that was
+    // tapped fades with the transition (LLP 1115.000 D11.3).
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        host?.presenter.groupedLists?.appearing(node, alongside: animated ? transitionCoordinator : nil)
     }
     override func viewIsAppearing(_ animated: Bool) {
         super.viewIsAppearing(animated)
@@ -173,6 +173,10 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// animates it (`.pop`, LLP 1021 §5.1). The selected route's key tells
     /// whether its press navigated.
     var unanimated = false
+    /// Whether a reselected tab's scroll to the top (`scrollToTop`) is
+    /// UIKit's animated one: not under the agent's frozen clock, nor in a
+    /// unit test, whose host never moved an animated offset when measured.
+    var scrollsToTopAnimated = !ExactEnv.agentFreezes
     var activeKey: String? { container?.props["navigationKey"] }
     /// While a push or pop runs: paints what each frame newly reveals.
     /// LLP 1075.003: each stack Exact built, by controller; what each shown
@@ -961,7 +965,11 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             DispatchQueue.main.async { [weak self, weak navigationController] in
                 if let navigationController { self?.settleTablist(navigationController) }
             }
-            // At rest: a large title's insets are sampled now (§9.10).
+            // At rest: a large title's insets are sampled now (§9.10). A
+            // stack's first screen was given its scroller before it had a
+            // window, and UIKit showed its large title collapsed: still at
+            // its start, it opens as a new screen does (`restAtStart`).
+            if let route = viewController as? RouteController { restAtStart(route) }
             coversChanged()
             #if os(iOS)
             presenter.resolveStatusBar(settled: true)

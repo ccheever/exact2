@@ -105,7 +105,7 @@ async function inChrome(test) {
 const look = (evaluate, id) => evaluate(`(s => ({ background: s.backgroundColor, color: s.color }))(getComputedStyle(document.getElementById('${id}')))`);
 const centre = (evaluate, id) => evaluate(`(r => [r.x + r.width / 2, r.y + r.height / 2])(document.getElementById('${id}').getBoundingClientRect())`);
 const NEUTRAL = { light: 'rgba(118, 118, 128, 0.12)', dark: 'rgba(118, 118, 128, 0.24)' }; // `bordered`'s fill, Apple's tertiary system fill
-const RED = { light: 'rgb(255, 59, 48)', dark: 'rgb(255, 69, 58)' }; // -exact-system-red
+const RED = { light: 'rgb(255, 56, 60)', dark: 'rgb(255, 66, 69)' }; // -exact-system-red, as iOS 27 measures it (LLP 1115.000 D3.2)
 
 check('a disabled button looks disabled in every style and scheme, whatever its accent; an authored colour wins', () => inChrome(async (evaluate, call) => {
   for (const s of ['light', 'dark']) {

@@ -2,6 +2,7 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+import ExactGroupedLists
 
 /// LLP 1075.003 §9.10 over the native fixture's Chat and Photo routes: a
 /// pressable group around the heading (an avatar, a subtitle) is the item's
@@ -39,6 +40,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
     private func fixture(_ label: String, plan: String = "EXACT_FIXTURE_PLAN") throws -> ExactSession {
         let env = ProcessInfo.processInfo.environment
         let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(env[plan], "build.mjs --test --ios compiles the fixtures' plans")))
+        ExactGroupedLists.install() // navigation-bars.contract's `rows` route is a grouped list
         let session = ExactApp.shared.makeSession(label: label)
         sessions.append(session)
         let view = ExactView(session: session)

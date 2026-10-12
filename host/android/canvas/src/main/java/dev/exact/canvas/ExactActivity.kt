@@ -72,6 +72,8 @@ open class ExactActivity : Activity() {
         // No background of its own: the window's shows behind the page, the launch theme's surface until the host says
         // the page's ([chrome]).
         root = FrameLayout(this)
+        // The top layer's windows (LLP 1115.001 D10) are this activity's, and outlive its reader.
+        requests.surfaces = Surfaces(this, root).also { it.covering = { on -> fields?.covered(on) } }
         read()
         // The raw insets go to the host whenever they change, and the window's size when it does; nothing is padded
         // here (D3.3).
@@ -189,6 +191,8 @@ open class ExactActivity : Activity() {
         // field its own ([Fields.touch]).
         val hosted = fields ?: Fields(this).also { fields = it }
         hosted.adopted(view)
+        // A surface of the top layer that is open over this reader's page keeps its fields from the focus.
+        hosted.covered(requests.surfaces?.open == true)
         view.fields = hosted
         root.addView(elements, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         root.addView(hosted, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
@@ -355,6 +359,7 @@ open class ExactActivity : Activity() {
     /** This activity's reader lets go of the host: its hosted views and their surfaces go, and the owner stops
      * telling its view. Once: at [onDestroy], or sooner when the activity that replaces it is made first. */
     private fun release() {
+        requests.surfaces?.destroy()
         natives?.destroyAll()
         natives = null
         fields?.leaving()

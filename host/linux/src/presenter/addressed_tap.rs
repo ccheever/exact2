@@ -19,10 +19,15 @@ impl<D: DataSource> Presenter<D> {
     /// refused; one without never presses a control inside it.
     pub fn tap_at(&mut self, id: ViewId, at: Option<(f32, f32)>) -> Result<String, String> {
         self.boxes();
+        // An open surface of the top layer takes the tap: its own row is
+        // chosen, and the page under it is inert.
+        if let Some(result) = self.surface_tap(id) {
+            return result;
+        }
         if self.host.route_visibility(id).1 || self.placement_hidden(id) {
             return Err(format!("view {id} is hidden or inert"));
         }
-        if crate::navigation::popover_invoker(self.host.kernel(), id) {
+        if !self.has_windows() && crate::navigation::popover_invoker(self.host.kernel(), id) {
             return Err(crate::navigation::POPOVER_UNSUPPORTED.into());
         }
         let b = self

@@ -3,6 +3,8 @@ use exact_kernel::{Kernel, PropId, ViewId};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) const POPOVER_UNSUPPORTED: &str = "Linux does not support popover presentation";
+pub(crate) const DIALOG_UNSUPPORTED: &str =
+    "unsupported: Linux dialog presentation is not implemented";
 
 /// Popover invocation is a host default action, even without a press handler.
 /// Refuse it before running an application's accompanying refresh/action.
@@ -112,9 +114,30 @@ pub(crate) struct Navigation {
     /// Each root's stack as last shown, its keys through its selected route.
     shown: BTreeMap<ViewId, Vec<String>>,
     popovers: bool,
+    /// A shell presents the top layer (LLP 1115.001 D10: Android's reader,
+    /// as windows): a press on an invoker is then the presenter's to act on
+    /// (`presenter/top.rs`), not refused here.
+    pub(crate) top_layer: bool,
 }
 
 impl Navigation {
+    /// Why a press on `view` is refused before its handler runs, on a host
+    /// that presents no top layer: a popover's invoker (`dialog` false), or
+    /// a button that names a dialog with `commandfor` (`dialog` true).
+    pub(crate) fn refusal(&self, kernel: &Kernel, view: ViewId, dialog: bool) -> Option<&str> {
+        if self.top_layer {
+            return None;
+        }
+        match dialog {
+            false => popover_invoker(kernel, view).then_some(POPOVER_UNSUPPORTED),
+            true => kernel
+                .node(view)
+                .and_then(|node| node.props.str(PropId::Commandfor))
+                .is_some_and(|target| !target.is_empty())
+                .then_some(DIALOG_UNSUPPORTED),
+        }
+    }
+
     pub fn sync(&mut self, kernel: &Kernel, order: &[ViewId]) -> Vec<String> {
         self.routes.retain(|id, _| kernel.node(*id).is_some());
         self.refused.retain(|id, _| kernel.node(*id).is_some());

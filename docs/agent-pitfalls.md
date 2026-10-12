@@ -239,19 +239,22 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   by the root's `navigationBack`, and a route that declares one that is disabled
   refuses it (the log says "back gesture refused" and why). A route with no such
   control always goes back (LLP 1115 D5). Fix: enable the control, or leave it out.
-- **The browser's Forward does nothing on the web.** With no `navigate` handler the
-  browser's Back pops the router by itself (LLP 1115 D5), but Forward to the popped
-  `/item/1` is refused (the log says "navigate … refused") and an in-app link reloads the
-  page. Fix: `navigate=follow` on the root and `action follow(url: string)` with
-  `nav = go(nav, url)`, as every pattern has; `one-screen` keeps it with one route
-  (LLP 1116.002, 1116.003).
+- **A `link` to a route does nothing on iOS or the Mac.** On the web the browser's
+  Back and Forward and a `link` to a declared route work with no `navigate` handler:
+  the runner pops or goes there itself (LLP 1115 D5, LLP 1115.000 D4.3). A native host
+  has that only for Back; a link, or a URL the system opens, is refused there (the log
+  says "navigate refused"). Fix: `navigate=follow` on the root and
+  `action follow(url: string)` with `nav = go(nav, url)`, as every pattern has;
+  `one-screen` keeps it with one route (LLP 1116.002, 1116.003).
 - **A pushed screen's content is cut off and never scrolls, or its large title never
-  collapses.** Cause: a route is a box, not a scroller, and `navigationScroll` only
-  names one; a title collapses only with the scroller right after the route's
-  `header`. Fix: a `scroll id="feed" flex=1 min-height=0` right after the `header`
-  and `navigationScroll="feed"` on the route (docs/contract-for-agents.md, "Routes and
-  web documents"). The compiler refuses a name nothing in the route carries, or one
-  on a box that never scrolls (`lower-route-scroll`). **Candidate diagnostics:** the
+  collapses.** Cause: a route is a box, not a scroller; a title collapses only with
+  the scroller right after the route's `header`. Fix: a `scroll flex=1 min-height=0`
+  right after the `header`. It is the bar's scroller with nothing written, and
+  `navigationScroll="id"` on the route names a different one
+  (docs/contract-for-agents.md, "Routes and web documents"). A pushed route's large
+  title opens collapsed over its scroller and expands on a pull (QUEUE.md); keep
+  large titles for a stack's first screen. The compiler refuses a name nothing in the
+  route carries, or one on a box that never scrolls (`lower-route-scroll`). **Candidate diagnostics:** the
   compiler could refuse a named scroller that is not right after the `header` (an
   iOS-only rule today, so not refused); the hosts could journal a route whose
   content overflows with nothing to scroll it (QUEUE.md).
@@ -966,6 +969,18 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   Flush ranks before capture and disable actions for that flush, including
   mirror writes. A same-batch texture upload then sees the new front sibling.
   (LLP 1083.000, Astra 6 regression.)
+- **A view's `accessibilityActionNames()` read in-process is not what
+  VoiceOver is offered.** It answered `[]` for a `NodeView` while an
+  assistive app read `AXPress`. Cause: that method is the legacy list;
+  AppKit's server adds every `accessibilityPerform…` the class overrides and
+  then drops each that `isAccessibilitySelectorAllowed(_:)` refuses. Fix: read
+  `NSAccessibilityEntryPointActionNames(element)` (exported; AppKit's
+  `CopyActionNames` handler calls it), as `ContextMenuMacTests` does, and
+  offer an action conditionally through `isAccessibilitySelectorAllowed`. An
+  `NSButton` is ignored and its cell is the element, so a native button's
+  action goes on its cell (`NativeButtonCellMac`). While the session is
+  locked, an `AXUIElement` read from any process stops at the application.
+  (X84, 2026-10-12.)
 - **A sub-agent's half-written crate breaks every build in the worktree.**
   Cause: a crate listed in the root `Cargo.toml`'s `members` is resolved by
   every `cargo` command, so one that does not parse or compile yet stops

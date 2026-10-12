@@ -13,10 +13,10 @@ routes nav
 component App
   action pick(name: string)
     nav = select(nav, name)
-  action openDay(key: string)
-    nav = push(nav, path("day", key))
+  action follow(url: string)
+    nav = go(nav, url)
   view
-    main navigationKey=`${top(nav).id}` navigationBack="back" testId="app"
+    main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow testId="app"
       width="100%" height="100%" display="flex" flex-direction="column"
       column flex=1 min-height=0 position="relative"
         each t in nav.tabs key=t.name
@@ -29,7 +29,7 @@ component App
                     role="heading" aria-level=(e.name == "day" ? 2 : 1)
                 scroll id=`content-${e.id}` flex=1 min-height=0
                   when e.name == "history"
-                    button press=openDay("2026-10-09") testId="day-2026-10-09"
+                    link href=path("day", "2026-10-09") testId="day-2026-10-09"
                       text "Yesterday"
                   else
                     text "Nothing logged yet." color="-exact-secondary-label" padding=16
@@ -62,6 +62,9 @@ test "each tab keeps its own stack"
   ([persisted-setting](persisted-setting.md), `contract vocab choice`).
 - Every tab's stack stays mounted: a pushed screen, a draft and a scroll offset survive
   a visit to another tab. Selecting the shown tab again pops it to its root.
+- A row that only navigates is a `link` to its route, which the root's `navigate`
+  handler (`follow`) pushes onto the selected tab's stack; on the web it is a real link,
+  and the browser's Back, Forward and a deep link arrive at `follow` too.
 - To hide the bar on one screen, set `display="none"` on the tablist; never remove it
   with `when`, or the panels' routes are found by no host.
 - A wide window (900 px and up on the web) draws the bar, placed as above (the root

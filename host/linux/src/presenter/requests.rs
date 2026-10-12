@@ -42,6 +42,12 @@ pub enum Request {
     /// field (LLP 1115.001 D8), which then takes the focus and shows its
     /// own keyboard, else 0 (a field this host paints).
     Keyboard(u32, ViewId),
+    /// The top layer's surface (LLP 1115.001 D10): the window the shell
+    /// shows for a confirmation or a menu, with its picture, or that it
+    /// closed. A statement, told when it changes (`top.rs`). The shell says
+    /// what happens in the window by a call of its own
+    /// ([`Presenter::surface_event`]), not by this request's id.
+    Surface(super::top::Surface),
 }
 
 impl Request {
@@ -53,6 +59,7 @@ impl Request {
             Request::Share(_) => 4,
             Request::Back(_) => 5,
             Request::Keyboard(..) => 6,
+            Request::Surface(_) => 7,
         }
     }
 }
@@ -171,6 +178,7 @@ fn encode(id: u32, request: &Request, out: &mut Vec<i32>) {
         }
         Request::Back(goes) => out.push(i32::from(*goes)),
         Request::Keyboard(kind, field) => out.extend([*kind as i32, *field as i32]),
+        Request::Surface(surface) => surface.encode(out),
     }
     out[at + 2] = (out.len() - at - 3) as i32;
 }
@@ -188,11 +196,21 @@ impl<D: DataSource> Presenter<D> {
         self.requests.shell
     }
 
-    fn queue(&mut self, request: Request) -> u32 {
+    pub(super) fn queue(&mut self, request: Request) -> u32 {
         self.requests.last += 1;
         let id = self.requests.last;
         if *LOG {
-            eprintln!("exact: request {id}: {request:?}");
+            match &request {
+                // Its picture is words by the hundred: what it is, not that.
+                Request::Surface(s) => eprintln!(
+                    "exact: request {id}: Surface {} {:?} {:?}, {} words",
+                    s.serial,
+                    s.kind,
+                    s.frame,
+                    s.stream.len()
+                ),
+                request => eprintln!("exact: request {id}: {request:?}"),
+            }
         }
         self.requests.queued.push((id, request));
         id
@@ -216,6 +234,8 @@ impl<D: DataSource> Presenter<D> {
         if !self.requests.shell {
             return;
         }
+        // The top layer first: a surface that closes here changes Back.
+        self.tell_surface();
         let epoch = self.host.kernel().epoch();
         if self.requests.back_epoch != Some(epoch) {
             self.requests.back_epoch = Some(epoch);
@@ -230,6 +250,20 @@ impl<D: DataSource> Presenter<D> {
             self.requests.keyboard = Some(keyboard);
             self.queue(Request::Keyboard(keyboard.0, keyboard.1));
         }
+    }
+
+    /// Whether Back has somewhere to go may have changed with no commit (a
+    /// surface of the top layer opened or closed): it is read again.
+    pub(super) fn back_changed(&mut self) {
+        self.requests.back_epoch = None;
+    }
+
+    /// The shell's own idea of the keyboard may no longer be what it was
+    /// told (a hosted field's view took a focus this presenter refused):
+    /// it is told again, and woken for it.
+    pub(super) fn keyboard_changed(&mut self) {
+        self.requests.keyboard = None;
+        self.executor.notify();
     }
 
     /// Whether an editable text field holds the focus: 0 none, 1 an

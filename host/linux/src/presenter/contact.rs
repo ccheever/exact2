@@ -281,6 +281,10 @@ impl<D: DataSource> Presenter<D> {
     pub fn pointer_down(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
         // A hatch observes after this dispatch, and claims nothing
         // (LLP 1075.003.000.001 §2.2.2); so for a move, an up and a cancel.
+        // Under an open surface of the top layer the page takes no touch.
+        if self.top_takes_pointer(now_ms) {
+            return Ok(false);
+        }
         let mark = self.hatch_pointer_mark(crate::hatches::Phase::Down, x, y);
         let result = match self.contact_down(x, y, now_ms) {
             Ok(taken) => self.pointer_pressed(x, y, now_ms).map_or(Ok(taken), Err),
@@ -762,7 +766,7 @@ impl<D: DataSource> Presenter<D> {
         } else if let Some((key, box_)) = contact.press {
             if box_.contains(x, y) && self.input_live(key) {
                 if let Some(node) = self.host.kernel().node_by_key(key) {
-                    self.dispatch_press(node.id, now_ms, true);
+                    self.activate(node.id, now_ms);
                 }
             }
             Ok(false)

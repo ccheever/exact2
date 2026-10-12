@@ -71,8 +71,10 @@ resolves (`text_color` is `CanvasText`: `labelColor` on iOS, `textColor` on macO
 own on the web). This LLP extends it rather than inventing a second mechanism:
 
 - **Colours.** Every presentation colour default is a role, never a literal: page background
-  (`Canvas` → `systemBackground`/`windowBackgroundColor`), separators (`-exact-separator`),
-  links (`LinkText` → the tint on iOS), tint (`AccentColor`).
+  (`-exact-background` → `systemBackground`/`windowBackgroundColor`; `Canvas` is the
+  document's white, `textBackgroundColor` on the Mac, and is not what an unset page shows:
+  LLP 1115.000 D3.6), separators (`-exact-separator`), links (`LinkText` → the tint on iOS),
+  tint (`AccentColor`).
   > **Amended by LLP 1116.000 D4 (2026-10-10).** The link role reached only a run with an
   > `href` in its paragraph; a block `link` inherited, so a `tel:` or `mailto:` value was body
   > text on the web. On the web a block `link` of text whose colour is unsaid is in the accent
@@ -80,6 +82,12 @@ own on the web). This LLP extends it rather than inventing a second mechanism:
   > bar are and as `LinkText` is the tint on iOS, and every link shows the pointing hand. One
   > holding a row or column, or given a `role` or a `buttonStyle`, is the author's row or
   > button and still inherits; an inline run keeps `LinkText`; the native hosts are unchanged.
+  >
+  > **And by LLP 1115.000 D3.5 (2026-10-11).** The compiler gives such a block `link` the
+  > link role on every host (`contract/lower/src/tags.rs` `link_color`), so it is the tint on
+  > iOS and `linkColor` on the Mac as well, and `LinkText` on the web is the accent
+  > (`var(--exact-accent, AccentColor)`): one blue for links there. A terminal entry's block
+  > link is left as it was.
 - **Type.** The root font size is the platform's body size (iOS: Dynamic Type body, 17 at the
   default size; macOS: `NSFont.systemFontSize`, 13; the web: 16). Headings resolve to the
   platform's text styles by level (§5 D3).

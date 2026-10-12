@@ -121,7 +121,7 @@ struct HeaderShape: Equatable {
         var tap: NodeView?, items: [NodeView] = []
         func walk(_ node: NodeView) {
             for case let child as NodeView in node.container.subviews {
-                if child.isParagraph, child.headingLevel != nil {
+                if child.isHeading {
                     headings.append(child)
                 } else if child.kind == "input", child.props["type"] == "search" {
                     search = search ?? child
@@ -301,6 +301,16 @@ final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate
         guard let field, field.handlers.contains("focus") else { return }
         host?.presenter.focus(field.id)
     }
+    /// The keyboard's Search key is this field's Return (LLP 1115.000 D9.2):
+    /// its `submit`, then the keyboard goes away, as a hand-built search
+    /// bar's delegate resigns it, and the search stays as typed.
+    func searchBarSearchButtonClicked(_ bar: UISearchBar) {
+        if let field, let presenter = host?.presenter, presenter.views[field.id] === field {
+            presenter.commitEdit(field.id, bar.text ?? "", change: field.handlers.contains("change"))
+            if field.handlers.contains("submit") { presenter.submit(field.id) }
+        }
+        bar.resignFirstResponder()
+    }
     func searchBarTextDidEndEditing(_ bar: UISearchBar) {
         guard let field else { return }
         host?.presenter.commitEdit(field.id, bar.text ?? "", change: field.handlers.contains("change"))
@@ -327,14 +337,15 @@ final class TitleSegments: NSObject {
         }
     }
     /// Sized for `titles` unless it already is: sizing lays it out, and
-    /// every batch projects every tab's routes.
+    /// every batch projects every tab's routes. Its width is its own, the
+    /// one UIKit fits it to (LLP 1115.000 D11.6); Exact held each segment to
+    /// 90 points at least.
     func fit(_ titles: [String]) {
         let t = control.traitCollection
         let traits: [AnyHashable] = [t.preferredContentSizeCategory, t.legibilityWeight.rawValue]
         guard sized?.titles != titles || sized?.traits != traits else { return }
         sized = (titles, traits)
         control.sizeToFit()
-        control.frame.size.width = max(control.frame.width, CGFloat(titles.count) * 90)
     }
 }
 private var titleSegmentsKey: UInt8 = 0
@@ -403,9 +414,11 @@ extension NavigationHost {
     func activateChrome(_ node: NodeView) -> [String: Any]? {
         guard !ExactEnv.authoredChrome else { return nil }
         let id = Int(node.id)
-        if tabBarShows, let root = container, let tabs = NavigationTabs.of(root, presenter), tabs.tabs.contains(where: { $0 === node }) {
+        if tabBarShows, let root = container, let tabs = NavigationTabs.of(root, presenter), let index = tabs.tabs.firstIndex(where: { $0 === node }) {
             guard !node.disabled else { return ["error": "tab #\(id) is disabled"] }
+            let root = reselectedRoot(index) // as the bar's own tap: the selected tab at its root scrolls to the top
             presenter.press(node.id)
+            if let root { scrollToTop(root) }
             return ["tapped": id, "pressed": id, "delivery": "host-activation", "native": "tab-bar-item"]
         }
         let shown = controllers.values.filter { c in
@@ -493,7 +506,7 @@ extension NavigationHost {
                                                        backButton: Self.barHasBackButton) : .hidden
             let shows = bar != .hidden
             let canGoBack = index > 0 && canInvokeBack
-            let scroll = contentScroll(of: c)
+            let scroller = contentScroller(of: c), scroll = scroller?.scroll
             let dataset = c.node.props["dataset"]
             let source = BarSource(bar: bar, header: shape?.header.id, title: shape?.title ?? "", level: shape?.level ?? 0, leading: shape?.leading.map(\.source) ?? [],
                                    trailing: shape?.trailing.map(\.source) ?? [], group: shape?.group?.source ?? "", canGoBack: canGoBack)
@@ -506,7 +519,7 @@ extension NavigationHost {
                 c.projectedSource = source
                 project(shape, into: c, canGoBack: canGoBack, shows: shows)
             }
-            collapse(c, shape: shape, scroll: scroll)
+            collapse(c, shape: shape, shows: shows, scroller: scroller)
             reachBottom(c)
             c.paintBackdrop()
             if shows { searchField(shape?.search, in: c); segmentedTitle(shape?.segments, in: c); richTitle(shape, in: c) }
@@ -516,7 +529,7 @@ extension NavigationHost {
             presenter.session?.natives.routeHatch(c.hatched ? .changed : .built, controller: c, navigation: nav, scroll: scroll,
                                                  key: c.key, dataset: dataset)
             c.hatched = true
-            if let scroll { c.ownedScroll = element(named: c.node.props["navigationScroll"] ?? "", in: c.node).flatMap { $0.scroll === scroll ? $0 : nil } }
+            if scroll != nil { c.ownedScroll = scroller }
         }
         // A route's header shown or hidden in place; a push or pop sets the
         // bar in `willShow` instead, with UIKit's transition.
@@ -597,6 +610,9 @@ extension NavigationHost {
     /// A header's search field is the item's `UISearchController` (§9.6):
     /// its placeholder and value are the field's; what the reader types is
     /// the field's `input` (and `focus`, `blur`), as typing in it would be.
+    /// Where it sits and whether it hides as the content scrolls are
+    /// UIKit's own answers for the device and the bar (LLP 1115.000 D11.2):
+    /// Exact once pinned it under the title (`.stacked`, never hiding).
     private func searchField(_ field: NodeView?, in c: RouteController) {
         // tvOS navigation items carry no search controller.
         #if !os(tvOS)
@@ -608,8 +624,6 @@ extension NavigationHost {
         if c.search !== search {
             c.search = search
             c.navigationItem.searchController = search.controller
-            c.navigationItem.hidesSearchBarWhenScrolling = false
-            if #available(iOS 16.0, *) { c.navigationItem.preferredSearchBarPlacement = .stacked }
             c.definesPresentationContext = true
         }
         search.field = field
@@ -619,6 +633,10 @@ extension NavigationHost {
         // The Contract's value wins unless the reader is typing it.
         let value = field.props["value"] ?? ""
         if !bar.isFirstResponder, bar.text != value { bar.text = value }
+        // UIKit hides the field as the content scrolls and keeps an active
+        // search's in view. A search in effect that UIKit did not start (a
+        // value the app or the agent wrote) keeps its field in view too.
+        if c.navigationItem.hidesSearchBarWhenScrolling != value.isEmpty { c.navigationItem.hidesSearchBarWhenScrolling = value.isEmpty }
         // The field itself, which XCUITest finds as a search field and a
         // person types in, carries the test id (LLP 1116 D2).
         if bar.searchTextField.accessibilityIdentifier != field.props["testId"] { bar.searchTextField.accessibilityIdentifier = field.props["testId"] }
@@ -652,93 +670,52 @@ extension NavigationHost {
     }
 
     /// Stage 3 (LLP 1075.003 §3.7): a large title collapses with its route's
-    /// content scroll view when that scroller comes right after the header
-    /// the bar replaces. The scroller then goes under the bar, UIKit insets it
+    /// content scroller (`contentScroller`: with nothing written, the first
+    /// that scrolls vertically, LLP 1115.000 D11.1) when that scroller is at
+    /// the route's top: right after the header the bar replaces, or first in
+    /// a route whose bar holds the system Back alone. The scroller then goes
+    /// under the bar, UIKit insets it
     /// and follows its offset, and CSS `scrollTop` is measured from the
     /// expanded title's inset (`scrollOrigin`), so an authored offset lands
     /// where the browser's does while the bar's height changes. An inline
     /// title's scroller goes under the bar the same way (§9.10), so the bar's
-    /// scroll edge appearance follows it; its inset does not change.
-    ///
-    /// Content between the header and the scroller (team-kanban's persona
-    /// switcher, a filter, a failed load's reason) does not scroll: it sits
-    /// below the bar, its large title included, and the scroller below it
-    /// (`bandScroll`, LLP 1116.006 D1). UIKit follows that scroller too, as
-    /// a hand-built screen's control pinned to the safe area over a table: the
-    /// title collapses as it scrolls, the safe area shrinks, and the content
-    /// above it follows the bar (`reportCovers`). Nothing goes under the bar
-    /// and UIKit insets nothing.
-    private func collapse(_ c: RouteController, shape: HeaderShape?, scroll: UIScrollView?) {
-        let kids = c.node.container.subviews.compactMap { $0 as? NodeView }.filter(Self.flowing)
-        let after = kids.firstIndex { $0 === shape?.header }.map { Array(kids[($0 + 1)...]) } ?? []
-        let found = scroll == nil ? nil : after.first { $0.scroll === scroll }
-        let target = found != nil && found === after.first ? found : nil
-        let band = target == nil ? found : nil
-        let changed = c.collapseScroll !== target || c.bandScroll !== band
-        // A band's scroller not yet handed to UIKit is handed once it lies below the bar.
-        guard changed || (band != nil && !c.bandHanded) else { return }
-        if changed {
-            if c.collapseScroll !== target, let old = c.collapseScroll, let sv = old.scroll {
-                let top = sv.contentOffset.y + old.scrollTopInset(sv)
-                // The bottom edge's scroller stays UIKit's to inset (`reachBottom`).
-                if old !== c.edgeScroll { sv.contentInsetAdjustmentBehavior = .never }
-                old.scrollOrigin = 0
-                old.scrollCollapsed = 0
-                sv.contentOffset.y = top
-            }
-            c.collapseScroll = target
-            c.bandScroll = band
-            c.bandHanded = false
-            let under = shape?.level == 1 ? "collapses its title with its scroller" : "scrolls its content under the bar"
-            let below = shape?.level == 1 ? "collapses its title with its scroller below the content above it" : "keeps its content below the bar"
-            presenter.session?.log("navigation: route \(c.key) \(target != nil ? under : band != nil ? below : "keeps its title still")")
+    /// scroll edge appearance follows it; its inset does not change. A
+    /// scroller with something above it in the route keeps its place and the
+    /// title keeps still: what is above it would sit under the bar.
+    private func collapse(_ c: RouteController, shape: HeaderShape?, shows: Bool, scroller: NodeView?) {
+        let kids = c.node.container.subviews.compactMap { $0 as? NodeView }
+        let flowing = { (v: NodeView) in
+            !v.isHidden && v.style["display"]?.string != "none" && !["absolute", "fixed"].contains(v.style["position_type"]?.string ?? "")
         }
-        if unmountedList(target ?? band) {
-            presenter.afterBatch { [weak self, weak c, weak target, weak band] in
-                guard let self, let c, c.collapseScroll === target, c.bandScroll === band else { return }
-                follow(c)
-            }
-        } else { follow(c) }
-    }
-
-    /// UIKit follows the route's collapsing scroller, or none (`collapse`).
-    private func follow(_ c: RouteController) {
-        let target = c.collapseScroll, band = c.bandScroll
-        let shown = shownScroll(target ?? band)
-        // UIKit takes a large title into a scroller that lies under the bar
-        // and keeps it there when the scroller moves down (a band laid out
-        // over it, or the covers that put it below the bar, a batch later):
-        // drawn nowhere. A band's scroller is handed once it lies below the
-        // bar (`handBands`).
-        if band != nil, let sv = shown, sv.convert(sv.bounds, to: c.view).minY < c.view.safeAreaInsets.top - 0.5 { return }
-        c.bandHanded = band != nil
+        let node = shape.map { shape in kids.firstIndex { $0 === shape.header }.flatMap { kids.indices.contains($0 + 1) ? kids[$0 + 1] : nil } }
+            ?? (shows ? kids.first(where: flowing) : nil)
+        let target = node?.scroll != nil && node === scroller ? node : nil
+        guard c.collapseScroll !== target else { return }
+        if let old = c.collapseScroll, let sv = old.scroll {
+            let top = sv.contentOffset.y + old.scrollTopInset(sv)
+            // The bottom edge's scroller stays UIKit's to inset (`reachBottom`).
+            if old !== c.edgeScroll { sv.contentInsetAdjustmentBehavior = .never }
+            old.scrollOrigin = 0
+            old.scrollCollapsed = 0
+            sv.contentOffset.y = top
+        }
+        c.collapseScroll = target
         // A scroller at its start (CSS scrollTop 0) stays there as UIKit
         // begins to inset it: UIKit keeps the offset it had, a new
         // scroller's 0, which left its content's top under the bar.
-        let atStart = target != nil && shown.map { $0.contentOffset.y <= 0.5 - $0.adjustedContentInset.top } ?? false
-        if target != nil { for sv in [target?.scroll, shown].compactMap({ $0 }) { sv.contentInsetAdjustmentBehavior = .always } }
-        let left = c.contentScrollView(for: .top)
-        // The title made again goes where UIKit now looks (`retitle`): for a
-        // band's scroller, the bar, made there before UIKit follows it, out
-        // of the scroller it followed under the bar (the same one included).
-        if band != nil, let left, left.window != nil { c.setContentScrollView(nil, for: .top); retitle(c) }
-        c.setContentScrollView(shown, for: .top)
-        if band == nil, let left, left !== shown, left.window != nil { retitle(c) }
-        if atStart, let sv = shown { rest(sv, in: c) }
-    }
-
-    /// The band scrollers not yet handed to UIKit, handed if they now lie
-    /// below the bar: the covers that move them there land after the batch
-    /// that made them, with no projection of their own.
-    private func handBands() {
-        for c in controllers.values where c.bandScroll != nil && !c.bandHanded && presenter.views[c.node.id] === c.node && c.viewIfLoaded?.window != nil {
-            follow(c)
+        let attach = { [weak self, weak c, weak target] in
+            guard let self, let c, c.collapseScroll === target else { return }
+            let shown = shownScroll(target)
+            let atStart = shown.map { $0.contentOffset.y <= 0.5 - $0.adjustedContentInset.top } ?? false
+            for sv in [target?.scroll, shown].compactMap({ $0 }) { sv.contentInsetAdjustmentBehavior = .always }
+            let left = c.contentScrollView(for: .top)
+            c.setContentScrollView(shown, for: .top)
+            if let left, left !== shown, left.window != nil { retitle(c) }
+            if atStart, let sv = shown { rest(sv, in: c) }
         }
-    }
-
-    /// A route's child in its flow: shown, and not positioned out of it.
-    static func flowing(_ v: NodeView) -> Bool {
-        v.style["display"]?.string != "none" && !["absolute", "fixed"].contains(v.style["position_type"]?.string ?? "")
+        if unmountedList(target) { presenter.afterBatch(attach) } else { attach() }
+        let under = shape?.level == 1 ? "collapses its title with its scroller" : "scrolls its content under the bar"
+        presenter.session?.log("navigation: route \(c.key) \(target == nil ? "keeps its title still" : under)")
     }
 
     /// UIKit moves a large title into the content scroll view it follows and
@@ -770,7 +747,7 @@ extension NavigationHost {
     /// replaced in place (trivia-quiz's results after its questions) find
     /// the bar as the content before left it, collapsed or inline; UIKit
     /// fits it to the item again only when asked (`sizeToFit`).
-    private func rest(_ sv: UIScrollView, in c: RouteController) {
+    func rest(_ sv: UIScrollView, in c: RouteController) {
         if sv.contentOffset.y != -sv.adjustedContentInset.top { sv.contentOffset.y = -sv.adjustedContentInset.top }
         // tvOS has no large titles.
         #if !os(tvOS)
@@ -779,6 +756,17 @@ extension NavigationHost {
               !nav.isNavigationBarHidden else { return }
         nav.navigationBar.sizeToFit()
         #endif
+    }
+
+    /// A shown route whose collapsing scroller is still at its start gets
+    /// the title a new screen has, expanded (`rest`). A stack's first route
+    /// at launch needs it: its scroller was attached before its view had a
+    /// window, where `rest` cannot fit the bar, and UIKit then showed a
+    /// level-1 title inline over content that had not moved. Seen in a
+    /// single stack; under a tab bar UIKit fits it itself.
+    func restAtStart(_ c: RouteController) {
+        guard let node = c.collapseScroll, let sv = shownScroll(node), sv.contentOffset.y <= 0.5 - sv.adjustedContentInset.top else { return }
+        rest(sv, in: c)
     }
 
     /// The bottom edge, as `collapse` is the top's (LLP 1116 D2): a route
@@ -790,7 +778,10 @@ extension NavigationHost {
     /// the scroller keeps the cover; so does a page under `viewport-fit=cover`,
     /// whose own `env()` insets would be added to UIKit's.
     private func reachBottom(_ c: RouteController) {
-        let last = c.node.container.subviews.last { ($0 as? NodeView).map(Self.flowing) == true } as? NodeView
+        let flowing = { (v: NodeView) in
+            v.style["display"]?.string != "none" && !["absolute", "fixed"].contains(v.style["position_type"]?.string ?? "")
+        }
+        let last = c.node.container.subviews.last { ($0 as? NodeView).map(flowing) == true } as? NodeView
         // One that scrolls vertically: UIKit's bottom inset would let a
         // sideways carousel scroll up and down.
         let vertical = ["scroll", "auto"].contains(last?.style["overflow_y"]?.string ?? "")
@@ -879,11 +870,19 @@ extension NavigationHost {
         return item
     }
 
-    /// The scroll view a route names with `navigationScroll`, resolved
-    /// inside it by HTML id as its Back control is (E7: nothing searches).
-    func contentScroll(of c: RouteController) -> UIScrollView? {
-        guard let name = c.node.props["navigationScroll"], !name.isEmpty else { return nil }
-        return element(named: name, in: c.node)?.scroll
+    /// A route's content scroller (LLP 1115.000 D11.1). With nothing written
+    /// it is the first scroller under the route that scrolls vertically, as
+    /// a hand-built screen's scroll view is its bar's unasked; a route names
+    /// a different one with `navigationScroll`, resolved inside it by HTML
+    /// id as its Back control is (E7: nothing searches), and a name that
+    /// finds no scroller is none. One rule for everything that asks: the
+    /// bar's scroller (`collapse`), the status bar's tap and a reselected
+    /// tab's (`ScrollsToTopIOS`), and the scroll view a route hatch is given.
+    func contentScroller(of c: RouteController) -> NodeView? {
+        if let name = c.node.props["navigationScroll"], !name.isEmpty {
+            return element(named: name, in: c.node).flatMap { $0.scroll == nil ? nil : $0 }
+        }
+        return Presenter.firstVerticalScroller(under: c.node)
     }
 
     private func element(named name: String, in route: NodeView) -> NodeView? {
@@ -963,7 +962,6 @@ extension NavigationHost {
     /// page that did not ask to cover it — and the header a bar replaces,
     /// reported when they change, after the batch being applied.
     func reportCovers() {
-        handBands()
         var changes: [(UInt32, HostCover?)] = []
         var wanted: [UInt32: HostCover] = [:]
         let whole = wantsWholeView && presenter.viewportFit != "cover"
@@ -1053,7 +1051,6 @@ extension NavigationHost {
         delivered = covers
         guard !changes.isEmpty else { return }
         presenter.onCovers?(changes)
-        handBands()
     }
 
     // MARK: The development check (LLP 1075.003 §3.5)
@@ -1112,7 +1109,8 @@ extension NavigationHost {
     /// What Exact sets on a node's scroll view and nothing else may (LLP
     /// 1075.003 §3.5) and differs from what Exact writes: no inset (a
     /// refresh control insets it while it spins), no automatic adjustment
-    /// but a route's collapse or bottom-edge scroller's, the node as its delegate, the authored keyboard dismissal. The offset
+    /// but a route's collapse or bottom-edge scroller's, the node as its delegate, the node's keyboard dismissal (authored, or
+    /// the platform's for what it scrolls, LLP 1115.000 D9.1). The offset
     /// and the content size are Exact's too but are not checked: they move
     /// with the user and with layout, so no last write predicts them.
     static func ownedChanges(_ s: UIScrollView, of node: NodeView, insetByUIKit: Bool) -> [String] {
@@ -1124,12 +1122,7 @@ extension NavigationHost {
         #endif
         if s.contentInsetAdjustmentBehavior != (insetByUIKit ? .always : .never) { out.append("contentInsetAdjustmentBehavior") }
         if s.delegate !== node { out.append("delegate") }
-        let dismiss: UIScrollView.KeyboardDismissMode = switch node.props["keyboardDismissMode"] {
-        case "interactive": .interactive
-        case "on-drag": .onDrag
-        default: .none
-        }
-        if s.keyboardDismissMode != dismiss { out.append("keyboardDismissMode") }
+        if s.keyboardDismissMode != node.keyboardDismissal { out.append("keyboardDismissMode") }
         return out
     }
 }

@@ -423,6 +423,14 @@ internal object Exact {
 
     fun back(): Boolean = owner?.sync { Native.back() } ?: Native.back()
 
+    /** A driver's request ([Native.agent], [AgentDrive]): answered on exact2's thread, which then publishes what it
+     * painted; waited for, since the driver's next request follows its answer. Carried only where exact2 has a
+     * thread of its own (not with owner=0, the benchmark's compare switch). */
+    fun agent(line: String): String {
+        val o = owner ?: return "{\"error\":\"the reader carries a driver only with exact2 on its own thread (owner=0 is set)\"}"
+        return o.sync { String(Native.agent(line.toByteArray(Charsets.UTF_8)), Charsets.UTF_8) }
+    }
+
     /** Main thread, where exact2 runs there too (owner=0) and a hosted field told it something: the reader draws
      * what that changed. */
     var turned: () -> Unit = {}
@@ -438,6 +446,19 @@ internal object Exact {
         field { Native.fieldEdited(id, generation, seq, value, start, end) }
     fun fieldSelected(id: Int, generation: Int, start: Int, end: Int) = field { Native.fieldSelected(id, generation, start, end) }
     fun fieldAction(id: Int, generation: Int, action: Int) = field { Native.fieldAction(id, generation, action) }
+
+    /** What happened in the window of surface [serial] of the top layer ([Surfaces], [Native.surface], LLP 1115.001
+     * D10): told on exact2's thread, in order. exact2 answers with the surface painted again or closed (a request,
+     * [Requests]) and with whatever a chosen row's handler changed in the page (a stream). */
+    fun surface(serial: Int, what: Int, x: Float, y: Float) {
+        val o = owner
+        if (o != null) { if (what != 2) o.input(); o.call { Native.surface(serial, what, x, y) } }
+        else { Native.surface(serial, what, x, y); turned() }
+    }
+
+    /** When the last touch lifted, or was held long enough to be a long press ([android.os.SystemClock.uptimeMillis]):
+     * what a surface's first frame is timed from (`x_log_surfaces=1`). */
+    var touched = 0L
 
     /** The answer to a request exact2 made ([Native.answer]), or its cancellation (null): on exact2's thread. */
     fun answer(id: Int, answer: String?) {

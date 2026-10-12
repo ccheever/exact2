@@ -146,7 +146,7 @@ check('a block link of text is in the accent and points; the author\'s look wins
 // (`navigationKey="items"`), over a stand-in runner: each visit a route, each change the router's op, the runner's own
 // `back` (`host back`) popping the selected top, and a `navigate` handler, when heard, `go` to the location. With
 // `byVisit` the root names the visit at the stack's root too (`${top(nav).id}`), which no route carries.
-const keyed = page.match(/<style>[\s\S]*?<\/style>/)[0] + `
+const keyed = '<title>Starter</title>' + page.match(/<style>[\s\S]*?<\/style>/)[0] + `
 <div id="exact-root"><main id="nav" navigationKey="items" navigationBack="back" style="display:block">
   <div navigationKey="items"><header><h1>Items</h1></header></div>
 </main></div>
@@ -172,12 +172,18 @@ const keyed = page.match(/<style>[\s\S]*?<\/style>/)[0] + `
     calls.push('navigate ' + location);
     if (heard) while (stack.length > 1 && stack.at(-1)[1] !== location) pop();
     return heard;
-  }, line => calls.push('log ' + line), id => { calls.push('host back ' + id); if (stack.length > 1 && stack.at(-1)[0] === id) pop(); });
+  }, line => calls.push('log ' + line), id => { calls.push('host back ' + id); if (stack.length > 1 && stack.at(-1)[0] === id) pop(); },
+  // The runner's own go: to a location in the stack, else a push; window.lost names a location no route matches.
+  location => {
+    calls.push('host go ' + location);
+    if (location === window.lost) return;
+    if (stack.some(([, url]) => url === location)) while (stack.at(-1)[1] !== location) pop(); else push(100 + stack.length, location);
+  });
   show([]);
-  // The browser's Back, after the popstates it causes (a restored entry is a second).
-  window.back = (pops = 1) => new Promise(ok => {
+  // The browser's Back (Forward, or any number of entries), after the popstates it causes (a restored entry is a second).
+  window.back = (pops = 1, by = -1) => new Promise(ok => {
     const heardPop = () => { if (--pops === 0) { removeEventListener('popstate', heardPop); ok([calls.splice(0), location.pathname, stack.length]); } };
-    addEventListener('popstate', heardPop); history.back();
+    addEventListener('popstate', heardPop); history.go(by);
   });
   window.ready = true;
 </script>`;
@@ -192,6 +198,36 @@ check('the browser\'s Back with no navigate handler is the runner\'s own back, h
   expect(await evaluate(`push(3, '/add', true); back()`)).toEqual([['navigate /', 'pressed 3'], '/', 1]);
   expect(await evaluate(`push(4, '/add', true); document.querySelector('[navigationKey="4"] #back').disabled = true; back(2)`))
     .toEqual([['navigate /', 'log history: Back refused: its id="back" control is disabled, inert or not shown; restoring the entry'], '/add', 2]);
+}, keyed), 30000);
+
+check('the browser\'s Forward with no navigate handler is the runner\'s own go', () => inChrome(async (evaluate) => {
+  // LLP 1115.000 D4.3. Back pops two pushed routes, one entry at a time; Forward then re-pushes each: unheard, the
+  // runner's own `go` to the entry's location, accepted where it landed (no restoring traversal, nothing refused).
+  await evaluate(`push(1, '/item/1'); push(2, '/item/1/more'); back()`);
+  expect(await evaluate('back()')).toEqual([['navigate /', 'host back 1'], '/', 1]);
+  expect(await evaluate('back(1, 1)')).toEqual([['navigate /item/1', 'host go /item/1'], '/item/1', 2]);
+  expect(await evaluate('back(1, 1)')).toEqual([['navigate /item/1/more', 'host go /item/1/more'], '/item/1/more', 3]);
+  // Two entries back at once is not "the route beneath": the runner's `go` to that location, which pops to it.
+  expect(await evaluate('back(1, -2)')).toEqual([['navigate /', 'host go /'], '/', 1]);
+}, keyed), 30000);
+
+check('Forward to a location the runner\'s own go refuses restores the entry', () => inChrome(async (evaluate) => {
+  expect(await evaluate(`push(1, '/item/1'); back()`)).toEqual([['navigate /', 'host back 1'], '/', 1]);
+  expect(await evaluate(`lost = '/item/1'; back(2, 1)`)).toEqual([['navigate /item/1', 'host go /item/1',
+    'log history: navigate "/item/1" refused: the navigation root has no navigate handler (navigate=…), and the runner\'s own go there committed no router change; restoring the entry'], '/', 1]);
+}, keyed), 30000);
+
+check('the page\'s title follows the route: the head\'s, else the route header\'s heading, else the app\'s name', () => inChrome(async (evaluate) => {
+  // LLP 1115.000 D4.1. The selected route's header's heading, at the root, on a pushed route and on a sheet; back again.
+  expect(await evaluate('document.title')).toBe('Items');
+  expect(await evaluate(`push(1, '/item/1'); document.title`)).toBe('/item/1');
+  expect(await evaluate(`push(2, '/add', true); document.title`)).toBe('New');
+  expect(await evaluate(`pop(); pop(); document.title`)).toBe('Items');
+  // A route whose header has no heading is the app's name: the page's own title, before any route's.
+  expect(await evaluate(`push(3, '/bare'); document.querySelector('[navigationKey="3"] h2').remove(); show([]); document.title`)).toBe('Starter');
+  // An authored head's title wins on every route, as each target's head writer passes it; without it the route's is back.
+  expect(await evaluate(`(async () => { const { pageTitle } = await import('./navigation.js'); pageTitle('From the head'); const said = [document.title]; pop(); said.push(document.title); pageTitle(null); return [...said, document.title]; })()`))
+    .toEqual(['From the head', 'From the head', 'Items']);
 }, keyed), 30000);
 
 check('a closed sheet or a popped screen leaves the route beneath it live when the root names no route there', () => inChrome(async (evaluate) => {

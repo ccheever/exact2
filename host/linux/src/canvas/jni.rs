@@ -374,9 +374,12 @@ macro_rules! canvas_jni {
                 env: *mut JNIEnv,
                 _class: jclass,
             ) -> jobject {
-                // The first frame the booting thread painted, then the host's own.
+                // The first frame the booting thread painted; then what a driver's
+                // request painted and the reader has not taken (`canvas/agent.rs`);
+                // then the host's own turn.
                 let primed = PRIMED.with(|p| p.borrow_mut().take());
-                let Some(ops) = primed.or_else(|| with(|h| h.frame()).flatten()) else {
+                let waiting = primed.or_else($crate::canvas::agent::next_stream);
+                let Some(ops) = waiting.or_else(|| with(|h| h.frame()).flatten()) else {
                     return std::ptr::null_mut();
                 };
                 let new = (**env).NewDirectByteBuffer.expect("jni");
@@ -447,7 +450,25 @@ macro_rules! canvas_jni {
                 _env: *mut JNIEnv,
                 _class: jclass,
             ) -> jboolean {
-                flag(with(|h| h.animating()).unwrap_or(false))
+                // A stream a driver's request left is owed a turn to be taken in.
+                let waiting = $crate::canvas::agent::waiting();
+                flag(waiting || with(|h| h.animating()).unwrap_or(false))
+            }
+
+            /// One request of the agent API (LLP 1012; `canvas/agent.rs`), a
+            /// JSON line as UTF-8, and its answer the same way: the Linux
+            /// host's own handler, on the host's thread. A driver's carrier
+            /// calls it (`scripts/agent.mjs android --reader`).
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_agent(
+                env: *mut JNIEnv,
+                _class: jclass,
+                line: $crate::canvas::jni_sys::jbyteArray,
+            ) -> $crate::canvas::jni_sys::jbyteArray {
+                let line = $crate::canvas::jni::utf8(env, line);
+                let reply = with(|h| h.agent(&line));
+                let reply = reply.unwrap_or_else(|| r#"{"error":"no host on this thread"}"#.into());
+                $crate::canvas::jni::bytes(env, reply.as_bytes())
             }
 
             #[no_mangle]
@@ -618,6 +639,8 @@ macro_rules! canvas_jni {
             /// A touch (0 down, 1 up, 2 move, 3 cancel) at the view's
             /// pixels, and what touched: Android's tool type (1 a finger,
             /// 2 a stylus, 3 a mouse, 4 an eraser; LLP 1115.001 D7.4).
+            /// Action 4: the touch that is down was held for the system's
+            /// long-press time (a context menu opens, D10).
             #[no_mangle]
             pub unsafe extern "system" fn Java_dev_exact_canvas_Native_touch(
                 _env: *mut JNIEnv,
@@ -628,6 +651,25 @@ macro_rules! canvas_jni {
                 tool: jint,
             ) {
                 with(|h| h.touch(action, x, y, tool));
+            }
+
+            /// What happened in the window the reader made for surface
+            /// `serial` of the top layer (LLP 1115.001 D10;
+            /// `presenter::top::event`): a touch (0 down, 1 up, 2 move, 3
+            /// cancel) at (`x`, `y`), pixels from the window's top left;
+            /// the system dismissed the window (8: a tap outside a menu,
+            /// Back, Escape); the reader could not make it (9); a key (16
+            /// Enter, 17 Tab, 18 Shift+Tab, 19 to 22 the arrows, 23 Space).
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_surface(
+                _env: *mut JNIEnv,
+                _class: jclass,
+                serial: jint,
+                what: jint,
+                x: jfloat,
+                y: jfloat,
+            ) {
+                with(|h| h.surface(serial as u32, what, x, y));
             }
 
             /// One slice of laying out what the touch that is down would
@@ -1172,6 +1214,30 @@ pub unsafe fn copy_buffer(env: *mut JNIEnv, id: u32, buffer: jobject) -> bool {
     );
     AHardwareBuffer_unlock(hb, std::ptr::null_mut());
     true
+}
+
+/// A Java `byte[]` of UTF-8 as a string (what is not UTF-8 is replaced).
+///
+/// # Safety
+/// `env` and `array` are the JNI call's.
+pub unsafe fn utf8(env: *mut JNIEnv, array: jni_sys::jbyteArray) -> String {
+    let len = ((**env).GetArrayLength.expect("jni"))(env, array).max(0);
+    let mut buf = vec![0u8; len as usize];
+    ((**env).GetByteArrayRegion.expect("jni"))(env, array, 0, len, buf.as_mut_ptr().cast());
+    String::from_utf8_lossy(&buf).into_owned()
+}
+
+/// `bytes` as a new Java `byte[]`.
+///
+/// # Safety
+/// `env` is the JNI call's.
+pub unsafe fn bytes(env: *mut JNIEnv, bytes: &[u8]) -> jni_sys::jbyteArray {
+    let len = bytes.len() as i32;
+    let array = ((**env).NewByteArray.expect("jni"))(env, len);
+    if !array.is_null() {
+        ((**env).SetByteArrayRegion.expect("jni"))(env, array, 0, len, bytes.as_ptr().cast());
+    }
+    array
 }
 
 /// A `Surface`'s `ANativeWindow`, or null.
