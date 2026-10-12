@@ -56,13 +56,15 @@ export type WorktreePlan = { path: string; display: string; cwd: string };
  * "on delete" cleanup rule is off; when it is on the server cleans up).
  * Null when nothing is to be asked or removed.
  */
-export function worktreePlan(client: T3Client, threadId: string, deleted: ReadonlySet<string>): WorktreePlan | null {
-  const threads = client.shell.threads.filter(thread => thread.id === threadId || (!thread.archivedAt && !deleted.has(str(thread.id))));
+/** `env`: the thread's environment's reads (a background environment's for the legacy sidebar, legacy-sidebar-fleet.ts). */
+export function worktreePlan(client: T3Client, threadId: string, deleted: ReadonlySet<string>,
+  env: { shell: { projects: Obj[]; threads: Obj[] }; config: Obj; connected: boolean } = { shell: client.shell, config: client.config, connected: client.connection === 'connected' }): WorktreePlan | null {
+  const threads = env.shell.threads.filter(thread => thread.id === threadId || (!thread.archivedAt && !deleted.has(str(thread.id))));
   const path = getOrphanedWorktreePathForThread(threads, threadId);
-  const thread = client.shell.threads.find(entry => entry.id === threadId);
-  const project = thread ? client.shell.projects.find(entry => entry.id === thread.projectId) : undefined;
-  if (!path || !project || isScratch(project, scratchRootOf(client.connection === 'connected', obj(client.config)))) return null;
-  const settings = obj(obj(client.config).settings);
+  const thread = env.shell.threads.find(entry => entry.id === threadId);
+  const project = thread ? env.shell.projects.find(entry => entry.id === thread.projectId) : undefined;
+  if (!path || !project || isScratch(project, scratchRootOf(env.connected, obj(env.config)))) return null;
+  const settings = obj(obj(env.config).settings);
   const override = obj(obj(settings.projectSettingsOverrides)[str(project.id)]);
   const automatic = Object.keys(settings).length > 0 && effectiveWorktreeRules(settings, override).worktreeOnDelete === true;
   if (automatic) return null;
