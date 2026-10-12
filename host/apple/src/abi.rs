@@ -548,12 +548,8 @@ impl<D: DataSource> Bridge<D> {
             fonts.map(|callback| (callback, fonts_ctx)),
             move |runner| {
                 if let Some(callback) = fonts {
-                    install_fonts(
-                        runner.plan(),
-                        &runner.runtime_font_stacks(),
-                        callback,
-                        fonts_ctx,
-                    );
+                    let stacks = runner.runtime_font_stacks();
+                    install_fonts(runner.plan(), &stacks, callback, fonts_ctx);
                 }
                 control_text::prepare(runner, control_text, ctx)
             },
@@ -850,12 +846,8 @@ impl<D: DataSource> Bridge<D> {
             fonts.map(|callback| (callback, fonts_ctx)),
             move |runner| {
                 if let Some(callback) = fonts {
-                    install_fonts(
-                        runner.plan(),
-                        &runner.runtime_font_stacks(),
-                        callback,
-                        fonts_ctx,
-                    );
+                    let stacks = runner.runtime_font_stacks();
+                    install_fonts(runner.plan(), &stacks, callback, fonts_ctx);
                 }
                 control_text::prepare(runner, control_text, ctx)
             },

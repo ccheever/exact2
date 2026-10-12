@@ -217,8 +217,7 @@ pub struct Host<D: DataSource> {
     /// or grants that do not parse).
     secrets: Option<Box<dyn crate::store::KeptStore>>,
     data_activated: bool,
-    /// The session's wake (`listen`), which a pending activation leaves
-    /// with the data source.
+    /// The session's wake (`listen`), which a pending activation leaves with the data source.
     preload_wake: exact_runner::PreloadWake,
     /// The update store's last line this host journaled, so a sync after
     /// a check writes it once.
@@ -331,8 +330,7 @@ impl<D: DataSource> Host<D> {
     }
 
     /// Boot with one action over the accepted plan before its first layout.
-    /// The Apple ABI uses this for synchronous font registration without
-    /// decoding the plan twice.
+    /// The Apple ABI uses this for synchronous font registration without decoding the plan twice.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn boot_stored_after_decode(
         plan_bytes: PlanBytes<'_>,
@@ -667,8 +665,7 @@ impl<D: DataSource> Host<D> {
     /// What the update store has to say, into the runner (LLP 1030 D7) —
     /// after a check, after an activation: the `delivery` resource is
     /// answered again and the batch carries the commit; the check's line
-    /// goes to the journal once, so the agent's `logs` reads it beside the
-    /// app's own.
+    /// goes to the journal once, so the agent's `logs` reads it beside the app's own.
     pub fn sync_delivery(&mut self) -> String {
         let mut delivery = self.runner.delivery().clone();
         if let Some(hooks) = self.delivery {
@@ -924,8 +921,7 @@ impl<D: DataSource> Host<D> {
     /// Move the clock; every timer due fires at its own time; one batch for
     /// all of them, the engine hearing each commit at the time it was made.
     /// A timer's refusal stops the clock there: the commits before it are in
-    /// the batch, the refusal in `error`, and `clock` says where the runner
-    /// stands.
+    /// the batch, the refusal in `error`, and `clock` says where the runner stands.
     pub fn advance(&mut self, now_ms: f64) -> String {
         if self.engine.starts_on_frame() {
             self.now_ms = now_ms.max(self.now_ms);
@@ -1074,8 +1070,7 @@ impl<D: DataSource> Host<D> {
     }
 
     /// The page's visibility, connectivity and share sheet (LLP 1069.000
-    /// D2): re-answer `exactPage` in one commit; the same facts commit
-    /// nothing.
+    /// D2): re-answer `exactPage` in one commit; the same facts commit nothing.
     pub fn set_page(&mut self, page: exact_runner::Page) -> String {
         match self.runner.set_page(page) {
             Ok(Some(receipt)) => self.commit(
