@@ -3,10 +3,12 @@
 // aria-label "Cite selection in composer", or disabled "Shorten selection" ("Selection is too long
 // to cite") past 8,000 UTF-16 units; Escape dismisses it. The press keeps the selection
 // (`retainFocus`, so the paragraph keeps the first responder) and sends the parts to diff-review.ts,
-// which builds the t3-citation:// chip and inserts it at the composer's caret.
+// which builds the t3-citation:// chip and inserts it at the composer's caret. diff-cite-popover DC-1: with the frame of
+// the text holding the selection's end (a word, a code span, a block or a code block's code), where the chip's comment
+// opens (the reference anchors it to the range's last line rectangle, which Contract's selection does not carry, X33).
 use DiffGlyph from "./diff-glyphs.contract"
 
-// One prose block's part of the selection, in the answer's text stream (UTF-16 offsets).
+// One text's part of the selection, in the answer's text stream (UTF-16 offsets); `block` is the text's id suffix.
 shape CitePart
   block: string
   start: number
@@ -26,7 +28,9 @@ component CiteButton
   action hover(over: bool)
     hovering = over
   action press
-    cite(`cite:${source}`, `${join(map(parts, (p) => `${p.start}-${p.end}`), ",")}|${stream}`)
+    let last = join(map(filter(parts, (p) => length(filter(parts, (q) => q.end > p.end)) == 0), (p) => p.block), "|")
+    let end = frame(`cite-${source}-${indexOf(last, "|") < 0 ? last : slice(last, 0, indexOf(last, "|"))}`)
+    cite(`cite:${source}`, `${join(map(parts, (p) => `${p.start}-${p.end}`), ",")}|${end.unavailable ? "" : `${end.x},${end.y},${end.width},${end.height}`}|${stream}`)
     dismiss()
   action keys(k: string)
     if k == "Escape"

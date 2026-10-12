@@ -102,6 +102,29 @@ enum T3ComposerText {
         return cut >= 0 ? String(path.dropFirst(cut + 1)) : path
     }
 
+    /// A t3-citation:// href's query as `URLSearchParams` reads it (diff-citations.ts formats it with
+    /// `URLSearchParams`, which writes a space as "+"): the first value of each name.
+    static func citationQuery(_ href: String) -> [String: String] {
+        guard let mark = href.firstIndex(of: "?") else { return [:] }
+        var values: [String: String] = [:]
+        for pair in href[href.index(after: mark)...].split(separator: "&", omittingEmptySubsequences: true) {
+            let parts = pair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            let decode = { (raw: Substring) in String(raw).replacingOccurrences(of: "+", with: " ").removingPercentEncoding ?? String(raw) }
+            let name = decode(parts[0])
+            if values[name] == nil { values[name] = parts.count > 1 ? decode(parts[1]) : "" }
+        }
+        return values
+    }
+
+    /// AssistantCitationChip's label: the comment, else the quote, whitespace runs as one space, cut at 64 UTF-16
+    /// units with "…" (the chip's `max-w-[16em]` truncates it further where it is drawn).
+    static func citationLabel(text: String, comment: String?) -> String {
+        let trimmed = comment?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let source = trimmed.isEmpty ? text : trimmed
+        let preview = source.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression) as NSString
+        return preview.length > 64 ? preview.substring(to: 64) + "…" : preview as String
+    }
+
     /// Every chip in source order; overlapping plain tokens yield to links.
     static func chips(_ string: String) -> [T3ComposerChip] {
         let text = string as NSString
@@ -118,9 +141,10 @@ enum T3ComposerText {
         }
         if string.contains("[Assistant quote](t3-citation:") {
             for match in citationLink.matches(in: string, range: all) {
-                let href = text.substring(with: match.range(at: 1))
-                let quote = URLComponents(string: href)?.queryItems?.first(where: { $0.name == "text" })?.value ?? "Assistant quote"
-                links.append(T3ComposerChip(kind: "citation", start: match.range.location, end: NSMaxRange(match.range), label: quote, detail: ""))
+                let query = citationQuery(text.substring(with: match.range(at: 1)))
+                // diff-cite-popover DC-1: a comment the chip carries is its label, and marks its pencil "Edit citation comment".
+                links.append(T3ComposerChip(kind: "citation", start: match.range.location, end: NSMaxRange(match.range),
+                    label: citationLabel(text: query["text"] ?? "Assistant quote", comment: query["comment"]), detail: query["comment"] == nil ? "" : "comment"))
             }
         }
         var tokens: [T3ComposerChip] = []

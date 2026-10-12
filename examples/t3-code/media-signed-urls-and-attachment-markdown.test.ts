@@ -134,7 +134,7 @@ describe('the views', () => {
     expect(markdown).toContain('when run.kind == "media" and length(filter(chips, (chip) => chip.kind == "media" and chip.href == run.href)) > 0');
     expect(markdown).toContain('MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=(run.icon == "standalone"))');
     expect(markdown).toContain('MarkdownMedia(alt=chip.label, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=true)');
-    expect(markdown).toContain('and not (run.kind == "media" and length(filter(chips, (chip) => chip.kind == "media" and chip.href == run.href)) > 0)\n          text run.text');
+    expect(markdown).toContain('and not (run.kind == "media" and length(filter(chips, (chip) => chip.kind == "media" and chip.href == run.href)) > 0)\n          when ms < 0\n            text run.text');
     expect(media).not.toContain('MarkdownInlineMedia');
   });
   test('an inline image has a zero-size status span while it loads and the fallback chip with its menu when it fails; a figure keeps its 16:9 frame', () => {
