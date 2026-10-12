@@ -1262,7 +1262,7 @@
       "id": 209,
       "name": "accept",
       "kind": "str",
-      "_comment": "@ref LLP 1069.002 D1: HTML's `accept` on `input type=file`, the MIME list as HTML writes it; the bake bounds it to image/video types and the manifest's `file_handlers`."
+      "_comment": "@ref LLP 1069.002 D1: HTML's `accept` on `input type=file`, the MIME list as HTML writes it; absent, empty or */* picks any file. Specific types are bounded to image/video and the manifest's `file_handlers`."
     },
     {
       "id": 210,

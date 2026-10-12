@@ -198,13 +198,14 @@ pub(crate) fn control(
 
 /// The sentence of `rules/DEFERRED.md` that bounds the picker (LLP 1069.002
 /// D1), cited by each refusal.
-pub const PICKER_ADMISSION: &str = "rules/DEFERRED.md admits an image/video picker, widened to the types the app's `file_handlers` declare: \"Still no picker for any file, and no `capture` on the picker (the camera is a native module, §Components, 2026-10-02).\"";
+pub const PICKER_ADMISSION: &str = "rules/DEFERRED.md admits an unrestricted file input (Charlie, 2026-10-11); `capture` stays refused and specific `accept` types are bounded to media or the app's `file_handlers`";
 
-/// `input type="file"` (LLP 1069.002 D1): `accept` is a literal list of
+/// `input type="file"` (LLP 1069.002 D1): specific `accept` is a literal list of
 /// `image/*`, `video/*`, `image/<subtype>`, `video/<subtype>`, or a MIME
 /// type or extension the manifest's `file_handlers` declares (checked at
 /// bake, where the manifest is read: `contract::picker`); `capture` is
-/// refused, naming the camera's route, and so are `*/*` and an empty list.
+/// refused, naming the camera's route. Missing, empty, and `*/*` accept
+/// take any file.
 fn file_input(attrs: &[contract_syntax::Attr]) -> Result<(), LowerError> {
     if let Some(a) = attrs.iter().find(|a| a.name == "capture") {
         return err(
@@ -214,11 +215,7 @@ fn file_input(attrs: &[contract_syntax::Attr]) -> Result<(), LowerError> {
         );
     }
     let Some(a) = attrs.iter().find(|a| a.name == "accept") else {
-        return err(
-            "lower-picker-accept",
-            format!("`input type=\"file\"` needs a literal `accept` (`accept=\"image/*\"`): {PICKER_ADMISSION}"),
-            attrs.iter().find(|a| a.name == "type").map_or_else(Default::default, |a| a.span),
-        );
+        return Ok(());
     };
     let Expr::Str(list, _) = &a.value else {
         return err(
@@ -228,18 +225,11 @@ fn file_input(attrs: &[contract_syntax::Attr]) -> Result<(), LowerError> {
         );
     };
     let tokens = accept_tokens(list);
-    if tokens.is_empty() {
-        return err(
-            "lower-picker-accept",
-            format!("`accept` names no type: {PICKER_ADMISSION}"),
-            a.span,
-        );
-    }
     for t in tokens {
         let wild = t
             .split_once('/')
-            .is_some_and(|(k, s)| s == "*" && k != "image" && k != "video");
-        if t == "*" || t == "*/*" || wild || !(t.contains('/') || t.starts_with('.')) {
+            .is_some_and(|(k, s)| s == "*" && k != "*" && k != "image" && k != "video");
+        if t == "*" || wild || !(t.contains('/') || t.starts_with('.')) {
             return err(
                 "lower-picker-accept",
                 format!("`accept` may not name `{t}`: {PICKER_ADMISSION}"),

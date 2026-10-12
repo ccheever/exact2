@@ -929,6 +929,14 @@ or authenticated network session is available while baking. See
 
 ## Views, layout, and interaction
 
+For an attachment of any type, use `input type="file"` with no `accept` (or
+`accept="*/*"`) and `multiple` when needed. `showPicker("attach")` opens the
+input with `id="attach"`; `change` receives `list<Picked>` with copies under
+`app:/tmp/picked/`. A specific `accept` list remains bounded to image/video
+types and the app's `file_handlers`. On Linux the agent can answer a held
+picker, but the live picker is unavailable. See [the picker
+spec](../llp/1069.002-media-picker.rfc.md#any-type-input-charlie-2026-10-11).
+
 The view forms are element, component use, `when`/`else` (and `else when`),
 keyed `each`, exhaustive option `match`, and `children`. Wrap root regions in a
 stable element.

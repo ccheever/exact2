@@ -1046,8 +1046,9 @@ compiler does not check most commands' arguments, and hosts differ: the
 JavaScript web target has no `openURL`, and Linux carries neither `focus` nor
 `openURL`. Check the host you target.
 
-A file `input` needs a literal `accept`; types other than images and video must
-be listed in `app.json`'s `file_handlers`. `showPicker` delivers a `list<Picked>`
+A file `input` with no `accept`, an empty `accept`, or `accept="*/*"` offers any
+file. A specific `accept` must be literal; types other than images and video
+must be listed in `app.json`'s `file_handlers`. `showPicker` delivers a `list<Picked>`
 to the addressed element's `change` handler, while `showOpenFilePicker`,
 `showDirectoryPicker` and `showSaveFilePicker` deliver `doc:` handle strings;
 cancellation uses `cancel`. Where a browser has no open pickers (Firefox,
