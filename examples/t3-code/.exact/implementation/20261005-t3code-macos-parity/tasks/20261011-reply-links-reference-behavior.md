@@ -118,7 +118,8 @@ the page's `context-menu` params and `Menu.prototype.popup` (its items, options 
   `NodeView` answers no `AXShowMenu` and AppKit's `NSView` default performs nothing
   ([probe](https://raw.githubusercontent.com/ccheever/exact2/c838acad2f1032855738ec15598a80086a992cdf/reply-links-reference-behavior/X84-show-menu-probe.txt)),
   so no `contextmenu` runs: `EXACT2-GAPS.md` X84, filed on main by
-  [#483](https://github.com/ccheever/exact2/pull/483) (`issues/20261012-macos-voiceover-show-menu.md`).
+  [#483](https://github.com/ccheever/exact2/pull/483) (`issues/20261012-macos-voiceover-show-menu.md`) and fixed on main by
+  [#486](https://github.com/ccheever/exact2/pull/486), which this branch takes at its next adoption of main.
 - **Review fix (2026-10-12).** The first version answered every `shellMenu` with no fresh click at whichever page node
   was focused, in the key, main or any ordered window. So a key or click between a right-click and the bridge's reply, a
   right-click older than 5 s, or a `contextmenu` no key raised opened a menu at a focused node that could be another
@@ -133,9 +134,9 @@ the page's `context-menu` params and `Menu.prototype.popup` (its items, options 
 
 | Row | Result | Proof |
 | --- | --- | --- |
-| RL-4 | pass (reference, Bun, agent drive): before, a click on "notes" of "the notes" left the thread up (the later word has no press) and a cell's "the summary" was refused by the host (`exact: refused to open #summary`); after, both leave for "work / New thread" ("What should we build in work?") with the composer focused (`fragmentChanged`, `linkOpen` presses in the log), as the reference's `#/draft/…`. Modified clicks, measured on the reference in the review fix: ⌘ and ⇧ open nothing on both (the reference's window request is denied), pass; ⌥ opens nothing in the clone where the reference shows Electron's Save dialog for `download.html`, a declared difference decided not matched (EXACT2-GAPS "Reply links: ⌥-click on a fragment link"); ⌃ opens the reference's shell menu and is a press with Control held in the clone, which opens nothing (X85, filed on main by #485). The review round's drive: the ⌥- and ⌃-clicks on "notes" keep the thread | [modified clicks](https://raw.githubusercontent.com/ccheever/exact2/d27d2a1a4a5b251d47f4dbf4387093bec565c334/reply-links-reference-behavior/RL4-modified-clicks.txt), [clone ⌥ and ⌃](https://raw.githubusercontent.com/ccheever/exact2/c2ae9e0c2d869839bdae6ee92d5b6d05640bcb1a/reply-links-reference-behavior/RL4-modified-clicks-clone.png), [review drive](https://raw.githubusercontent.com/ccheever/exact2/4d180be3357a82131965d7ae80e6b529aca32b20/reply-links-reference-behavior/RL-review-drive.txt), [prose](https://raw.githubusercontent.com/ccheever/exact2/548ff623a4ab1e00aed20e783eb6dc4252cf8732/reply-links-reference-behavior/RL4-fragment-in-prose.png), [table cell](https://raw.githubusercontent.com/ccheever/exact2/7103638e1321d2156bce0611bb44a6067bda19af/reply-links-reference-behavior/RL4-fragment-in-table-cell.png), [drive](https://raw.githubusercontent.com/ccheever/exact2/e7b9ba2ad4e38e7e3ea9d7dc5e3a6b57fa1b9704/reply-links-reference-behavior/RL-drive-before-after.txt), [reference](https://raw.githubusercontent.com/ccheever/exact2/7f6f6ded49718e1f75932f3807573c454ef90054/reply-links-reference-behavior/RL-reference.txt) |
+| RL-4 | pass (reference, Bun, agent drive): before, a click on "notes" of "the notes" left the thread up (the later word has no press) and a cell's "the summary" was refused by the host (`exact: refused to open #summary`); after, both leave for "work / New thread" ("What should we build in work?") with the composer focused (`fragmentChanged`, `linkOpen` presses in the log), as the reference's `#/draft/…`. Modified clicks, measured on the reference in the review fix: ⌘ and ⇧ open nothing on both (the reference's window request is denied), pass; ⌥ opens nothing in the clone where the reference shows Electron's Save dialog for `download.html`, a declared difference decided not matched (EXACT2-GAPS "Reply links: ⌥-click on a fragment link"); ⌃ opens the reference's shell menu and is a press with Control held in the clone, which opens nothing (X85, filed on main by #485, fixed on main by #487, not adopted yet). The review round's drive: the ⌥- and ⌃-clicks on "notes" keep the thread | [modified clicks](https://raw.githubusercontent.com/ccheever/exact2/d27d2a1a4a5b251d47f4dbf4387093bec565c334/reply-links-reference-behavior/RL4-modified-clicks.txt), [clone ⌥ and ⌃](https://raw.githubusercontent.com/ccheever/exact2/c2ae9e0c2d869839bdae6ee92d5b6d05640bcb1a/reply-links-reference-behavior/RL4-modified-clicks-clone.png), [review drive](https://raw.githubusercontent.com/ccheever/exact2/4d180be3357a82131965d7ae80e6b529aca32b20/reply-links-reference-behavior/RL-review-drive.txt), [prose](https://raw.githubusercontent.com/ccheever/exact2/548ff623a4ab1e00aed20e783eb6dc4252cf8732/reply-links-reference-behavior/RL4-fragment-in-prose.png), [table cell](https://raw.githubusercontent.com/ccheever/exact2/7103638e1321d2156bce0611bb44a6067bda19af/reply-links-reference-behavior/RL4-fragment-in-table-cell.png), [drive](https://raw.githubusercontent.com/ccheever/exact2/e7b9ba2ad4e38e7e3ea9d7dc5e3a6b57fa1b9704/reply-links-reference-behavior/RL-drive-before-after.txt), [reference](https://raw.githubusercontent.com/ccheever/exact2/7f6f6ded49718e1f75932f3807573c454ef90054/reply-links-reference-behavior/RL-reference.txt) |
 | RL-5 | pass (reference, Bun, agent drive, plan): before, a click on the cell's irc link went to the host (`exact: refused to open irc://irc.example.test/t3`; the mailto one would reach the mail app, not clicked on the tip); after, both are the link's press (`linkOpen`) and nothing opens (no host line, no opened URL), as the reference. Plan +38,907 bytes for RL-4 and RL-5 together (accepted ceiling +308 KB) | [drive](https://raw.githubusercontent.com/ccheever/exact2/e7b9ba2ad4e38e7e3ea9d7dc5e3a6b57fa1b9704/reply-links-reference-behavior/RL-drive-before-after.txt), [fixture](https://raw.githubusercontent.com/ccheever/exact2/67b7935f6c4023c6b26bcabb3f03ef8afefd1cbe/reply-links-reference-behavior/RL5-RL6-fixture-reply.png), [reference](https://raw.githubusercontent.com/ccheever/exact2/7f6f6ded49718e1f75932f3807573c454ef90054/reply-links-reference-behavior/RL-reference.txt) |
-| RL-6 | partial. The ContextMenu key: pass (reference, AppKit, agent drive): before, the key on the focused "the team", "the channel", "chat" and "the notes" ran their `contextmenu` and opened no menu; after, each opens the shell's Cut, Copy (disabled), Paste (disabled), Select All with no Copy Link (`t3.textmenu:`), as the reference; the AppKit test puts it at the link's middle (6 of its assertions fail on the tip's module). Review fix: it answers only a ContextMenu key the module saw, at the node it went to, for the link the request names; the updated AppKit tests fail 23 assertions on the first version's module and pass on this one (64 run); the review round's drive opens the same menu for the four keys and for a right-click on "the team", and none for the ⌥- or ⌃-click. VoiceOver's show menu: blocked by the host (X84, filed on main by #483). A table cell's link: no keyboard focus on the host (X77's note, filed on main by #484) | [review drive](https://raw.githubusercontent.com/ccheever/exact2/4d180be3357a82131965d7ae80e6b529aca32b20/reply-links-reference-behavior/RL-review-drive.txt), [AppKit guard](https://raw.githubusercontent.com/ccheever/exact2/af7bca69678a1f2795eddf0d0fba02f37ac7829f/reply-links-reference-behavior/RL6-review-guard-appkit.txt), [drive](https://raw.githubusercontent.com/ccheever/exact2/e7b9ba2ad4e38e7e3ea9d7dc5e3a6b57fa1b9704/reply-links-reference-behavior/RL-drive-before-after.txt), [AppKit](https://raw.githubusercontent.com/ccheever/exact2/718d89fa32e199dd9b2cd7cdb243a1b0ae24707a/reply-links-reference-behavior/RL6-appkit.txt), [reference](https://raw.githubusercontent.com/ccheever/exact2/7f6f6ded49718e1f75932f3807573c454ef90054/reply-links-reference-behavior/RL-reference.txt), [X84 probe](https://raw.githubusercontent.com/ccheever/exact2/c838acad2f1032855738ec15598a80086a992cdf/reply-links-reference-behavior/X84-show-menu-probe.txt) |
+| RL-6 | partial. The ContextMenu key: pass (reference, AppKit, agent drive): before, the key on the focused "the team", "the channel", "chat" and "the notes" ran their `contextmenu` and opened no menu; after, each opens the shell's Cut, Copy (disabled), Paste (disabled), Select All with no Copy Link (`t3.textmenu:`), as the reference; the AppKit test puts it at the link's middle (6 of its assertions fail on the tip's module). Review fix: it answers only a ContextMenu key the module saw, at the node it went to, for the link the request names; the updated AppKit tests fail 23 assertions on the first version's module and pass on this one (64 run); the review round's drive opens the same menu for the four keys and for a right-click on "the team", and none for the ⌥- or ⌃-click. VoiceOver's show menu: blocked by the host on this branch (X84, filed on main by #483, fixed on main by #486, not adopted yet). A table cell's link: no keyboard focus on the host (X77's note, filed on main by #484) | [review drive](https://raw.githubusercontent.com/ccheever/exact2/4d180be3357a82131965d7ae80e6b529aca32b20/reply-links-reference-behavior/RL-review-drive.txt), [AppKit guard](https://raw.githubusercontent.com/ccheever/exact2/af7bca69678a1f2795eddf0d0fba02f37ac7829f/reply-links-reference-behavior/RL6-review-guard-appkit.txt), [drive](https://raw.githubusercontent.com/ccheever/exact2/e7b9ba2ad4e38e7e3ea9d7dc5e3a6b57fa1b9704/reply-links-reference-behavior/RL-drive-before-after.txt), [AppKit](https://raw.githubusercontent.com/ccheever/exact2/718d89fa32e199dd9b2cd7cdb243a1b0ae24707a/reply-links-reference-behavior/RL6-appkit.txt), [reference](https://raw.githubusercontent.com/ccheever/exact2/7f6f6ded49718e1f75932f3807573c454ef90054/reply-links-reference-behavior/RL-reference.txt), [X84 probe](https://raw.githubusercontent.com/ccheever/exact2/c838acad2f1032855738ec15598a80086a992cdf/reply-links-reference-behavior/X84-show-menu-probe.txt) |
 | RL-4..RL-6 under real keys and pointer | open: real-input steps 1–4 below | — |
 
 The review fix's drive (one, on this branch's bundle at `48d41d0be`'s app code, built once): [RL-review-drive.txt](https://raw.githubusercontent.com/ccheever/exact2/4d180be3357a82131965d7ae80e6b529aca32b20/reply-links-reference-behavior/RL-review-drive.txt).
@@ -162,7 +163,8 @@ payload_json = json_set(payload_json, '$.text', cast(readfile('fixture-text.txt'
    press any letter key and the ContextMenu key with "the team" focused: one menu per input, each at its own place. Note
    where the reference's menu opens for the same key (at the pointer, by its source).
 4. **RL-6, VoiceOver** (⌘F5 on, off afterwards). Move the VoiceOver cursor to "the team"; VO-⇧-M: expected nothing in the
-   clone (X84). The same in the reference T3 Code (Alpha) lane window: record whether its shell menu opens.
+   clone (X84, fixed on main by #486 but not adopted yet). The same in the reference T3 Code (Alpha) lane window: record
+   whether its shell menu opens.
 
 ## Tests
 
@@ -212,24 +214,29 @@ main's `apps/color-gallery`); Bun 4664 pass; AppKit 60 run, 0 failed.
 
 ## Not done / not verified
 
-- RL-6 under VoiceOver: blocked by the host, X84 (`NodeView` answers no `AXShowMenu`), filed on main by
-  [#483](https://github.com/ccheever/exact2/pull/483) (`issues/20261012-macos-voiceover-show-menu.md`). The clone's
-  change answers a show-menu `contextmenu` as soon as the host raises one; real-input step 4 records it.
+- RL-6 under VoiceOver: blocked by the host on this branch, X84 (`NodeView` answers no `AXShowMenu`), filed on main by
+  [#483](https://github.com/ccheever/exact2/pull/483) (`issues/20261012-macos-voiceover-show-menu.md`) and fixed on main
+  by [#486](https://github.com/ccheever/exact2/pull/486) (2026-10-12), not adopted yet. At the adoption the host raises the
+  link's `contextmenu` for VoiceOver's show menu, but `shellMenu` answers only a fresh right-click or a ContextMenu key its
+  monitor saw, so the shell's menu needs a change then (read from the code, not driven); real-input step 4 records it.
 - A table cell's link takes no keyboard focus (an inline run; the host's key-view loop lists views), so Tab skips it
   and the ContextMenu key cannot reach it, where the reference's anchor in a cell is a Tab stop: X77's note in
   `EXACT2-GAPS.md`, filed on main by [#484](https://github.com/ccheever/exact2/pull/484)
   (`issues/20261012-macos-inline-link-run-tab-stop.md`).
 - A ⌃-click on a reply's link: the reference opens its shell menu (Chromium's secondary click on a Mac); the clone
   presses the link with Control held (a fragment, mailto, irc or xmpp link opens nothing): X85, a host gap, filed on main
-  by [#485](https://github.com/ccheever/exact2/pull/485) (open; `issues/20261012-macos-control-click-contextmenu.md`).
+  by [#485](https://github.com/ccheever/exact2/pull/485) (`issues/20261012-macos-control-click-contextmenu.md`) and fixed on
+  main by [#487](https://github.com/ccheever/exact2/pull/487) (2026-10-12), not adopted yet. At the adoption a Control-click
+  runs the link's `contextmenu`, but the module's monitor takes only a right mouse-down as the page click `shellMenu`
+  answers, so the shell's menu needs a change then (read from the code, not driven).
 - Real-input steps 1–4: the coordinator's session.
 
-## Decision needed
+## Decision needed: decided
 
-- RL-6's menu position. The reference's shell pops its menu with no position, so Electron places it at the mouse
-  pointer, wherever that is, though Chromium reports the focused link's middle. The clone opens it at the focused link
-  (the specification's "at the link", and where ExactKit's ContextMenu key and the module's own keyboard menus put it).
-  Keep it at the link, or follow the pointer as Electron does (one line in `T3TextContextMenu.focusMenu`)?
+- RL-6's menu position: **decided, it stays at the focused link** (coordinator, 2026-10-12). A keyboard-invoked menu
+  opens at the focused element on the Mac; the reference's pointer position is Electron's default (its shell pops the
+  menu with no position, though Chromium reports the focused link's middle). The clone keeps `T3TextContextMenu.focusMenu`
+  as built, where ExactKit's ContextMenu key and the module's own keyboard menus put it.
 - RL-4's ⌥-click on a fragment link: **decided, not matched** (coordinator, 2026-10-12). The reference's Save dialog
   for `download.html` is Chromium's download gesture in the browser shell; the clone follows the platform for what the
   app does not say (LLP 1115) and opens nothing. Declared in `EXACT2-GAPS.md` ("Reply links: ⌥-click on a fragment
@@ -264,5 +271,6 @@ Draft PR [#474](https://github.com/ccheever/exact2/pull/474) into `feat(example)
 
 ## Next action
 
-The coordinator: review the draft PR; answer RL-6's menu position under "Decision needed"; land main #485 (X85); run
-real-input steps 1–4 in the next session.
+The coordinator: review the draft PR (both decisions are made); run real-input steps 1–4 in the next session. X84 (#483),
+the cell link's Tab stop (#484) and X85 (#485) are filed; X84 and X85 are fixed on main (#486, #487) and come with the
+next adoption of main, which also needs `shellMenu` to answer VoiceOver's show menu and a Control-click.
