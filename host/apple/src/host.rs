@@ -219,8 +219,7 @@ pub struct Host<D: DataSource> {
     data_activated: bool,
     /// The session's wake (`listen`), which a pending activation leaves with the data source.
     preload_wake: exact_runner::PreloadWake,
-    /// The update store's last line this host journaled, so a sync after
-    /// a check writes it once.
+    /// The update store's last line this host journaled, so a sync after a check writes it once.
     update_line: Option<String>,
     delivery: Option<&'static crate::delivery::Hooks>,
     /// The reported colours' generation this session last presented; `None`
