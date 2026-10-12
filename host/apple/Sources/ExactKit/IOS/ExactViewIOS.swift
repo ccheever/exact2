@@ -386,8 +386,19 @@ public final class ExactView: UIView {
     /// list shows there, never the canvas's band across the width (LLP
     /// 1116.006 D6).
     private func paintUnderKeys() {
-        let color = (session.presenter.keyboardInset > 0 ? session.presenter.bottomEdgeColor() : nil) ?? canvas
+        let edge = session.presenter.keyboardInset > 0 ? session.presenter.bottomEdgeColor() : nil
+        let color = edge ?? canvas
         if let color, backgroundColor != color { backgroundColor = color }
+        // A sheet's own surface is what shows there while one is up (LLP
+        // 1116.008 D8: a number pad's Done bar over a grouped form's sheet
+        // drew white across the list's grey): the list's colour goes on
+        // under the keys, and the sheet's own surface returns with them.
+        #if os(iOS)
+        if let sheet = session.presenter.modals.coordinateView {
+            let surface = edge ?? .systemBackground
+            if sheet.backgroundColor != surface { sheet.backgroundColor = surface }
+        }
+        #endif
     }
 
     /// The segments the container's division regions make of the viewport
