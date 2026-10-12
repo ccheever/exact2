@@ -979,6 +979,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::AccessibilitySelected => "aria-selected",
             PropId::AccessibilityExpanded => "aria-expanded",
             PropId::AccessibilityPressed => "aria-pressed",
+            PropId::AccessibilityDisabled => "aria-disabled",
             PropId::AccessibilityModal => "aria-modal",
             PropId::AccessibilityElementsHidden => "aria-hidden",
             PropId::AccessibilityInvalid => "aria-invalid",

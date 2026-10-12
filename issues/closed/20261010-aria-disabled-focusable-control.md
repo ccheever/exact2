@@ -1,6 +1,7 @@
 # `aria-disabled`: a control that reads as disabled and still takes the focus
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Contract and hosts preserve focus and press while exposing aria-disabled through logical route ancestry and on grouped-list switches, inline links and AppKit controls, covered by NavigationTabsIOSTests and GroupedListIOSTests; UIKit menu rows and alert actions remain a declared deviation, and macOS standard toolbar and UIKit lifted-popover inheritance gaps are tracked separately.
 **Systems:** kernel schema, Contract, GUI hosts, accessibility
 **Severity:** P3
 **Author:** daehyeon-mun (T3 Code clone)
@@ -88,8 +89,7 @@ https://raw.githubusercontent.com/ccheever/exact2/d4109d63e545054c04bda13fea1133
 - `tree --ax` reports it disabled and focusable on both hosts (macOS `AXEnabled` false, as Chrome maps it).
 - Without `aria-disabled`, nothing changes; `disabled=true` still leaves the Tab order.
 
-## Decision needed
+## Decision
 
-Whether a press on an `aria-disabled` control still runs its `press` action. ARIA's answer is yes (the
-author ignores it), which keeps the web's behavior; a host that suppresses it would be friendlier to apps
-but differ from the web.
+Charlie ruled on 2026-10-11 that a press on an `aria-disabled` control still runs its `press`
+action, as on the web. The author guards an unavailable action.

@@ -924,7 +924,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // Each AppKit accessibility write posts a notification, changed or
         // not: write only what differs from the last write (a new view's
         // is AppKit's own: enabled, no identifier, no label).
-        let ax = AccessibilityWrite(enabled: !disabled, identifier: props["testId"], label: props["accessibilityLabel"])
+        let ax = AccessibilityWrite(enabled: !disabled && !ariaUnavailable, identifier: props["testId"], label: props["accessibilityLabel"])
         if ax != lastAccessibilityWrite {
             let last = lastAccessibilityWrite
             if ax.enabled != last.enabled { setAccessibilityEnabled(ax.enabled) }

@@ -1318,6 +1318,14 @@ navigation off the first text field, and with no stop nothing. An `autofocus` yo
 elsewhere wins, and a window whose first stop is in a `canvas` that takes input opens
 with nothing focused. The web and iOS focus nothing on load unless `autofocus` says so.
 
+`aria-disabled=true` (or `aria-disabled="true"`) reports an unavailable control
+to accessibility while keeping its focus and Tab behavior. It accepts a bound
+boolean on a control or an element with a role, including a group. Its `press` still runs,
+as on the web; guard the action in the app when it must do nothing. Descendant
+controls and inline links inherit this state; an explicit
+`aria-disabled=false` on a descendant overrides it. Use HTML
+`disabled=true` when the control should leave the Tab order and refuse input.
+
 ## Host commands
 
 The current command name inventory is:

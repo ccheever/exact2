@@ -17,6 +17,7 @@ import UIKit
 /// a checkbox as it reads UIKit's own toggles (`updateAccessibility`).
 class ExactCheckbox: UIControl {
     var isOn = false { didSet { if isOn != oldValue { setNeedsDisplay(); updateAccessibility() } } }
+    var ariaUnavailable = false { didSet { if ariaUnavailable != oldValue { updateAccessibility() } } }
     var accent: UIColor? { didSet { setNeedsDisplay() } }
     override var isEnabled: Bool { didSet { setNeedsDisplay(); updateAccessibility() } }
     override init(frame: CGRect) {
@@ -70,7 +71,7 @@ class ExactCheckbox: UIControl {
     /// It had been Safari's English words, "checked" and "unchecked", read
     /// out as written in every language.
     func updateAccessibility() {
-        accessibilityTraits = isEnabled ? [.button, .toggleButton] : [.button, .toggleButton, .notEnabled]
+        accessibilityTraits = isEnabled && !ariaUnavailable ? [.button, .toggleButton] : [.button, .toggleButton, .notEnabled]
         accessibilityValue = isOn ? "1" : "0"
     }
     override func draw(_ rect: CGRect) {
@@ -238,6 +239,9 @@ final class ControlHost: NSObject {
                 configureValue(control, owner, accent: accent)
             }
             #endif
+            if let c = control as? ExactCheckbox {
+                c.ariaUnavailable = owner.ariaUnavailable
+            }
             if !(control is NativeButtonIOS) {
                 assign(control, \.isEnabled, !owner.disabled)
                 assign(control, \.accessibilityLabel, owner.props["accessibilityLabel"])

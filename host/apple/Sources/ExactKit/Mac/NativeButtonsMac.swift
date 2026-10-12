@@ -20,12 +20,20 @@ final class NativeButtonCellMac: NSButtonCell {
     override func isAccessibilitySelectorAllowed(_ selector: Selector) -> Bool {
         selector == #selector(accessibilityPerformShowMenu) ? owner?.isAccessibilitySelectorAllowed(selector) == true : super.isAccessibilitySelectorAllowed(selector)
     }
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        if attribute.rawValue == "AXEnabled", owner?.ariaUnavailable == true { return false }
+        return super.accessibilityAttributeValue(attribute)
+    }
 }
 
 /// AppKit's button, as a native button's control.
 final class NativeButtonMac: NSButton {
     override class var cellClass: AnyClass? { get { NativeButtonCellMac.self } set {} }
     weak var owner: NodeView?
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        if attribute.rawValue == "AXEnabled", owner?.ariaUnavailable == true { return false }
+        return super.accessibilityAttributeValue(attribute)
+    }
     struct Written: Equatable {
         var face: ButtonFace
         var accent: NSColor?

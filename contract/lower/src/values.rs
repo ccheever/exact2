@@ -1018,6 +1018,15 @@ pub(crate) fn aria_words(prop: PropId) -> Option<(&'static str, &'static [&'stat
     })
 }
 
+pub(crate) fn aria_disabled_literal(prop: PropId, value: &Expr) -> Option<Expr> {
+    match (prop, value) {
+        (PropId::AccessibilityDisabled, Expr::Str(s, span)) if s == "true" || s == "false" => {
+            Some(Expr::Bool(s == "true", *span))
+        }
+        _ => None,
+    }
+}
+
 pub(crate) fn bool_words(prop: PropId) -> Option<(&'static str, &'static str)> {
     match prop {
         PropId::Spellcheck => Some(("true", "false")),
@@ -1454,10 +1463,9 @@ fn multicol_value(rows: &[StyleId], v: &str) -> Option<&'static str> {
     None
 }
 
-/// LLP 1081 D2: the hint for a refused colour written with an Exact role's
-/// bare name (`secondary-label`), which is spelled `-exact-secondary-label`.
-/// A word is split at whitespace, commas and parentheses, so a role inside a
-/// gradient, a shadow, a filter or `light-dark()` is found too.
+/// LLP 1081 D2: a bare colour role (`secondary-label`) is spelled
+/// `-exact-secondary-label`. Splitting at spaces, commas and parentheses
+/// finds roles in gradients, shadows, filters and `light-dark()`.
 pub(crate) fn role_hint(text: &str) -> Option<String> {
     text.split(|c: char| c.is_whitespace() || matches!(c, ',' | '(' | ')'))
         .find_map(|w| {

@@ -947,7 +947,9 @@ blurs the backdrop, then increases its saturation. `saturate(0)` is grayscale;
 `saturate(180%)` is the same as `saturate(1.8)`. A function may appear only once.
 Web, macOS and Linux apply these functions; iOS/tvOS use the fixed `.light`
 system material approximation. macOS samples only the parent layer's subtree
-and clips children to the filter's border box. `backgroundMaterial` wins when
+and clips children to the filter's border box, so make a glass panel a sibling
+of what it covers (a floating composer beside its scrolling transcript), not a
+child of an empty wrapper. `backgroundMaterial` wins when
 both are present, and backdrop filters do not animate.
 
 Bound scroll containers. A typical full-height column gives its scroller

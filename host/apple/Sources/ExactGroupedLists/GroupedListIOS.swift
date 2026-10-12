@@ -840,6 +840,8 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         let on = node?.props["checked"] == "true"
         if toggle.isOn != on { toggle.setOn(on, animated: toggle.window != nil && !ExactEnv.agentFreezes) }
         assign(toggle, \.isEnabled, node != nil && rows[id]?.disabled == false && node?.disabled == false && node?.inert == false)
+        if !toggle.isEnabled || node?.ariaUnavailable == true { toggle.accessibilityTraits.insert(.notEnabled) }
+        else { toggle.accessibilityTraits.remove(.notEnabled) }
         assign(toggle, \.onTintColor, node?.channels("accent_color").map { TextEngine.color($0) })
         assign(toggle, \.accessibilityIdentifier, node?.props["testId"])
     }

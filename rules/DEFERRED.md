@@ -450,6 +450,7 @@ change can break.
   permission fact.
 
 **Components** — roughly 15 built-in tags, not 40; roughly 12 Facet components, not 47.
+
 **Restated (Charlie, 2026-09-27, LLP 1069.001):** the tag count guards against
 invented components, not HTML's own elements. A built-in tag is an HTML
 element with HTML's meaning; `select` and `option` are admitted on that

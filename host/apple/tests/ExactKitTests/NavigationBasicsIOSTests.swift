@@ -169,6 +169,22 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertTrue(item.titleView === hatches, "the hatch's title view is left alone")
     }
 
+    func testARIAUnavailablePressableTitleKeepsItsAction() throws {
+        let session = try fixture("aria-title")
+        let (_, _, chat) = try chat(session)
+        let view = try XCTUnwrap(chat.navigationItem.titleView as? HeaderTitleView)
+        let group = try node(session, "title-group")
+        let header = try node(session, "header-chat")
+        let heading = try node(session, "title-chat")
+        group.props["accessibilityDisabled"] = "true"
+        view.update(try XCTUnwrap(HeaderTitle(header: header, heading: heading, tap: group, apart: [])), title: "Chat")
+        XCTAssertTrue(view.isEnabled, "ARIA does not disable the title action")
+        XCTAssertTrue(view.accessibilityTraits.contains(.notEnabled))
+        group.props["accessibilityDisabled"] = "false"
+        view.update(try XCTUnwrap(HeaderTitle(header: header, heading: heading, tap: group, apart: [])), title: "Chat")
+        XCTAssertFalse(view.accessibilityTraits.contains(.notEnabled))
+    }
+
     /// LLP 1116 D2 (amending LLP 1075.003 §9.10): a heading the header holds
     /// directly takes the first text after it as its subtitle, UIKit's own
     /// on iOS 26 (a drawn title view before). A second text is not the

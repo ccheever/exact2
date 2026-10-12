@@ -6,14 +6,70 @@
 #if os(macOS)
 import AppKit
 
+private final class SegmentAccessibility: NSAccessibilityElement {
+    weak var control: ExactSegmentedControl?
+    let index: Int
+    init(_ control: ExactSegmentedControl, _ index: Int) {
+        self.control = control
+        self.index = index
+        super.init()
+    }
+    private var native: NSAccessibilityElement? { control?.nativeSegment(at: index) }
+    private var enabled: Bool {
+        guard let control, index < control.segmentCount else { return false }
+        return control.isEnabled(forSegment: index)
+            && !(control.accessibilityDisabledSegments.indices.contains(index) && control.accessibilityDisabledSegments[index])
+    }
+    override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] { native?.accessibilityAttributeNames() ?? [] }
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        if attribute == .enabled { return enabled }
+        if attribute == .parent { return control }
+        return native?.accessibilityAttributeValue(attribute)
+    }
+    override func accessibilityActionNames() -> [NSAccessibility.Action] { native?.accessibilityActionNames() ?? [] }
+    override func accessibilityPerformAction(_ action: NSAccessibility.Action) { native?.accessibilityPerformAction(action) }
+    override func accessibilityRole() -> NSAccessibility.Role? { native?.accessibilityRole() }
+    override func accessibilitySubrole() -> NSAccessibility.Subrole? { native?.accessibilitySubrole() }
+    override func accessibilityLabel() -> String? { native?.accessibilityLabel() }
+    override func accessibilityHelp() -> String? { native?.accessibilityHelp() }
+    override func accessibilityValue() -> Any? { native?.accessibilityValue() }
+    override func accessibilityFrame() -> NSRect { native?.accessibilityFrame() ?? .zero }
+    override func isAccessibilitySelected() -> Bool { native?.isAccessibilitySelected() ?? false }
+    override func isAccessibilityEnabled() -> Bool { enabled }
+    override func accessibilityParent() -> Any? { control }
+    override func accessibilityPerformPress() -> Bool { native?.accessibilityPerformPress() ?? false }
+}
+
 private final class ExactSegmentedControl: NSSegmentedControl {
     let ownerID: UInt32
+    var accessibilityDisabledSegments: [Bool] = []
+    private var segmentElements: [SegmentAccessibility] = []
+    private var exposingNativeChildren = false
     init(ownerID: UInt32) {
         self.ownerID = ownerID
         super.init(frame: .zero)
         trackingMode = .selectOne
     }
     required init?(coder: NSCoder) { nil }
+    func nativeSegment(at index: Int) -> NSAccessibilityElement? {
+        exposingNativeChildren = true
+        defer { exposingNativeChildren = false }
+        guard let cell = super.accessibilityChildren()?.first as? NSObject,
+              let segments = cell.accessibilityAttributeValue(.children) as? [NSAccessibilityElement],
+              segments.indices.contains(index) else { return nil }
+        return segments[index]
+    }
+    override func accessibilityChildren() -> [Any]? {
+        if exposingNativeChildren { return super.accessibilityChildren() }
+        if segmentElements.count != segmentCount { segmentElements = (0..<segmentCount).map { SegmentAccessibility(self, $0) } }
+        return segmentElements
+    }
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        if exposingNativeChildren { return super.accessibilityAttributeValue(attribute) }
+        if attribute == .children { return accessibilityChildren() }
+        return super.accessibilityAttributeValue(attribute)
+    }
+    override func accessibilityRole() -> NSAccessibility.Role? { .radioGroup }
 }
 
 final class SegmentHost {
@@ -148,6 +204,7 @@ final class SegmentHost {
             control.frame = owner.contentBox()
             control.setAccessibilityLabel(owner.props["accessibilityLabel"])
             control.segmentCount = tabs.count
+            control.accessibilityDisabledSegments = tabs.map(\.ariaUnavailable)
             for (index, tab) in tabs.enumerated() {
                 if case .image(let icon)? = tab.segmentFace {
                     // Keep the native accessibility description even with no glyph.

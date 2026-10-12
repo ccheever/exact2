@@ -69,6 +69,48 @@ final class NavigationTabsIOSTests: XCTestCase {
         if tabs.delegate?.tabBarController?(tabs, shouldSelect: target) ?? true { tabs.selectedIndex = index }
     }
 
+    func testARIAUnavailableRootTabProjectsToItsBarItem() throws {
+        let session = try fixture("aria-root-tab")
+        let tab = try node(session, "tab-second")
+        session.presenter.apply(wireBatch([["op": "props", "id": Int(tab.id), "set": ["accessibilityDisabled": "true"]]]))
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        let item = try XCTUnwrap(tabs.viewControllers?[1].tabBarItem)
+        XCTAssertTrue(item.isEnabled)
+        XCTAssertTrue(item.accessibilityTraits.contains(.notEnabled))
+        tapTab(tabs, 1)
+        until("ARIA-unavailable tab still selects") { tabs.selectedIndex == 1 }
+        session.presenter.apply(wireBatch([["op": "props", "id": Int(tab.id), "set": ["accessibilityDisabled": "false"]]]))
+        XCTAssertFalse(item.accessibilityTraits.contains(.notEnabled))
+    }
+
+    func testARIAUnavailableTabPanelReachesLiftedRouteAndRefreshesItsButton() throws {
+        let session = try fixture("aria-panel-route")
+        let p = session.presenter
+        let panel = try node(session, "panel-home")
+        let route = try node(session, "route-home")
+        let button = try node(session, "show-overlay")
+        XCTAssertTrue(p.navigation.logicalParent(of: route) === panel)
+        XCTAssertFalse(route.isDescendant(of: panel), "UIKit lifts the route into its controller")
+        XCTAssertFalse(button.accessibilityTraits.contains(.notEnabled))
+
+        p.apply(wireBatch([["op": "props", "id": Int(panel.id), "set": ["accessibilityDisabled": "true"]]]))
+        XCTAssertTrue(button.ariaUnavailable, "inherit from the authored panel")
+        XCTAssertTrue(button.accessibilityTraits.contains(.notEnabled), "the ancestor change refreshes the exposed button")
+        XCTAssertFalse(button.disabled, "ARIA state leaves input available")
+
+        p.apply(wireBatch([["op": "props", "id": Int(button.id), "set": ["accessibilityDisabled": "false"]]]))
+        XCTAssertFalse(button.ariaUnavailable, "an explicit false overrides the panel")
+        XCTAssertFalse(button.accessibilityTraits.contains(.notEnabled))
+        p.apply(wireBatch([["op": "props", "id": Int(button.id), "clear": ["accessibilityDisabled"]]]))
+        XCTAssertTrue(button.accessibilityTraits.contains(.notEnabled), "clearing the override restores inheritance")
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        p.press(button.id)
+        XCTAssertEqual(pressed, [button.id], "the lifted descendant still dispatches its press")
+        p.apply(wireBatch([["op": "props", "id": Int(panel.id), "set": ["accessibilityDisabled": "false"]]]))
+        XCTAssertFalse(button.accessibilityTraits.contains(.notEnabled), "the ancestor becoming available refreshes the lifted route")
+    }
+
     /// Regression (590d73531): a root overlay with a z-index after the
     /// tablist, the pattern docs/agent-pitfalls.md gives for full-screen
     /// overlays, paints and takes touches over the native tab container. Dense

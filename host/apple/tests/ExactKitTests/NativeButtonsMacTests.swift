@@ -79,6 +79,74 @@ final class NativeButtonsMacTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(p.views[2]).acceptsFirstResponder, "only the native control is in the key loop")
     }
 
+    func testARIAUnavailabilityKeepsNativeButtonFocusableAndPressable() throws {
+        let p = presenter(box(1) + native(2, ["accessibilityDisabled": "true", "testId": "update"])
+                          + box(3, ["accessibilityRole": "button", "tabIndex": "0", "accessibilityDisabled": "true"], handlers: ["press"])
+                          + [["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]]], faces: [2: face("Check for updates")])
+        let button = try XCTUnwrap(p.controls.controls[2] as? NativeButtonMac)
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        XCTAssertTrue(button.isEnabled)
+        XCTAssertTrue(button.acceptsFirstResponder)
+        XCTAssertTrue(button.canBecomeKeyView)
+        XCTAssertFalse(button.isAccessibilityEnabled(), "AXEnabled is false while the control remains operable")
+        let ax = p.axElements(roots: [p.viewport])
+        let update = try XCTUnwrap((ax["elements"] as? [[String: Any]])?.first { $0["testId"] as? String == "update" })
+        XCTAssertEqual((update["states"] as? [String: Any])?["disabled"] as? Bool, true)
+        let role = try XCTUnwrap(p.views[3])
+        XCTAssertTrue(role.acceptsFirstResponder)
+        XCTAssertFalse(role.isAccessibilityEnabled())
+        button.performClick(nil)
+        XCTAssertEqual(pressed, [2])
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["accessibilityDisabled": "false"]]]))
+        XCTAssertTrue(button.isAccessibilityEnabled(), "clearing ARIA restores AXEnabled")
+    }
+
+    func testAncestorARIAUnavailabilityReachesButtonAndRefreshes() throws {
+        let p = presenter(box(1, ["accessibilityRole": "group", "accessibilityDisabled": "true"])
+                          + native(2, ["testId": "nested"])
+                          + [["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]], faces: [2: face("Update")])
+        let button = try XCTUnwrap(p.controls.controls[2] as? NativeButtonMac)
+        XCTAssertTrue(button.isEnabled)
+        XCTAssertFalse(button.isAccessibilityEnabled(), "the descendant is refreshed when its ancestor changes")
+        XCTAssertEqual(button.accessibilityAttributeValue(.enabled) as? Bool, false)
+        XCTAssertEqual(button.cell?.accessibilityAttributeValue(.enabled) as? Bool, false)
+        let ax = p.axElements(roots: [p.viewport])
+        let nested = try XCTUnwrap((ax["elements"] as? [[String: Any]])?.first { $0["testId"] as? String == "nested" })
+        XCTAssertEqual((nested["states"] as? [String: Any])?["disabled"] as? Bool, true)
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["accessibilityDisabled": "false"]]]))
+        XCTAssertTrue(button.isAccessibilityEnabled())
+        XCTAssertEqual(button.accessibilityAttributeValue(.enabled) as? Bool, true, "an explicit false overrides the ancestor, as Chrome does")
+        p.apply(wireBatch([["op": "props", "id": 2, "clear": ["accessibilityDisabled"]]]))
+        XCTAssertFalse(button.isAccessibilityEnabled())
+        XCTAssertEqual(button.accessibilityAttributeValue(.enabled) as? Bool, false)
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["accessibilityDisabled": "false"]]]))
+        XCTAssertTrue(button.isAccessibilityEnabled())
+        XCTAssertEqual(button.accessibilityAttributeValue(.enabled) as? Bool, true)
+        XCTAssertEqual(button.cell?.accessibilityAttributeValue(.enabled) as? Bool, true)
+    }
+
+    func testARIAUnavailabilityReachesAppKitControlAndItsCell() throws {
+        for kind in ["checkbox", "radio", "switch", "select", "range", "date"] {
+            let props = ["type": kind == "switch" ? "checkbox" : kind, "accessibilityRole": kind == "switch" ? "switch" : kind, "accessibilityDisabled": "true", "testId": kind]
+            let p = presenter(box(1) + [["op": "create", "id": 2, "kind": "control", "props": props, "style": [:]],
+                                        ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 140.0, "h": 30.0],
+                                        ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]], faces: [:])
+            let control = try XCTUnwrap(p.controls.controls[2], kind)
+            XCTAssertTrue(control.isEnabled, kind)
+            XCTAssertEqual(control.accessibilityAttributeValue(.enabled) as? Bool, false, kind)
+            if let cell = control.cell { XCTAssertEqual(cell.accessibilityAttributeValue(.enabled) as? Bool, false, "\(kind) cell") }
+            let ax = p.axElements(roots: [p.viewport])
+            XCTAssertTrue((ax["elements"] as? [[String: Any]])?.contains {
+                ($0["states"] as? [String: Any])?["disabled"] as? Bool == true
+            } == true, "tree --ax reports the \(kind) disabled")
+            p.apply(wireBatch([["op": "props", "id": 2, "set": ["accessibilityDisabled": "false"]]]))
+            XCTAssertEqual(control.accessibilityAttributeValue(.enabled) as? Bool, true, kind)
+            if let cell = control.cell { XCTAssertEqual(cell.accessibilityAttributeValue(.enabled) as? Bool, true, "\(kind) cell") }
+            window.close()
+        }
+    }
+
     /// LLP 1115.000 D7.1: a click moves no focus, press or no press.
     func testAClickMovesNoFocusAndPressesOnlyAnAncestorItIsIn() throws {
         let p = presenter(box(1) + native(2, handlers: ["focus"]) + box(4, handlers: ["press"]) + native(3, handlers: [], x: 320) + native(5, handlers: [])

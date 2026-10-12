@@ -977,6 +977,7 @@ impl<'a> Lowerer<'a> {
             }
             tags::AttrTarget::Prop(prop) => {
                 let glass;
+                let aria_disabled = values::aria_disabled_literal(prop, &a.value);
                 let value = if prop == exact_kernel::PropId::GlassGroup {
                     glass = values::glass_group(&a.value)?;
                     &glass
@@ -991,7 +992,7 @@ impl<'a> Lowerer<'a> {
                     glass = role;
                     &glass
                 } else {
-                    &a.value
+                    aria_disabled.as_ref().unwrap_or(&a.value)
                 };
                 let (mut asm, mut depth) = (Asm::new(), locals);
                 let ty = expr::compile(self, &mut asm, value, scope, &mut depth)?;

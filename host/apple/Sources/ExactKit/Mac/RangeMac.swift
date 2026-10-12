@@ -62,6 +62,11 @@ extension ControlHost {
 /// A range's slider, AppKit's own, but for a Control-click its node's
 /// `contextmenu` answers (X85, `contextClicked`).
 final class SliderMac: NSSlider {
+    override class var cellClass: AnyClass? { get { SliderCellMac.self } set {} }
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        if attribute == .enabled, ariaUnavailableFromNode { return false }
+        return super.accessibilityAttributeValue(attribute)
+    }
     override func mouseDown(with event: NSEvent) { if !contextClicked(event) { super.mouseDown(with: event) } }
 }
 #endif

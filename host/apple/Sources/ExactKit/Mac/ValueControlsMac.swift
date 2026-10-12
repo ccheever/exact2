@@ -121,6 +121,11 @@ extension ControlHost {
 /// The pop-up itself receives focus and native editing keys, even with
 /// macOS Keyboard navigation off; its wrapper is never a second stop.
 final class SelectField: NSPopUpButton {
+    override class var cellClass: AnyClass? { get { PopupCellMac.self } set {} }
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        if attribute == .enabled, ariaUnavailableFromNode { return false }
+        return super.accessibilityAttributeValue(attribute)
+    }
     weak var owner: NodeView?
     override var acceptsFirstResponder: Bool { owner?.acceptsNativeValueFocus(self) == true }
     override var canBecomeKeyView: Bool { acceptsFirstResponder && owner?.tabbable == true }

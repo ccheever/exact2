@@ -18,6 +18,7 @@ import UIKit
 class LabelledSegmentedControl: UISegmentedControl {
     var segmentLabels: [String?] = [] { didSet { if segmentLabels != oldValue { setNeedsLayout() } } }
     var segmentIDs: [String?] = [] { didSet { if segmentIDs != oldValue { setNeedsLayout() } } }
+    var segmentUnavailable: [Bool] = [] { didSet { if segmentUnavailable != oldValue { setNeedsLayout() } } }
     override func layoutSubviews() {
         super.layoutSubviews()
         labelSegments()
@@ -46,6 +47,9 @@ class LabelledSegmentedControl: UISegmentedControl {
             let id = segmentIDs.indices.contains(index) ? segmentIDs[index] : nil
             if view.accessibilityLabel != label { view.accessibilityLabel = label }
             if view.accessibilityIdentifier != id { view.accessibilityIdentifier = id }
+            let unavailable = segmentUnavailable.indices.contains(index) && segmentUnavailable[index]
+            if unavailable { view.accessibilityTraits.insert(.notEnabled) }
+            else { view.accessibilityTraits.remove(.notEnabled) }
         }
     }
 }
@@ -357,6 +361,8 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         }
         for ((item, tab), face) in zip(zip(bar.items ?? [], tabs), faces) {
             assign(item, \.isEnabled, !tab.disabled)
+            if tab.disabled || tab.ariaUnavailable { item.accessibilityTraits.insert(.notEnabled) }
+            else { item.accessibilityTraits.remove(.notEnabled) }
             // Its test id is the tab's (LLP 1116 D2).
             if item.accessibilityIdentifier != tab.props["testId"] { item.accessibilityIdentifier = tab.props["testId"] }
             // Its name is the tab's, as the hidden tab's was (astra's code review).
@@ -453,6 +459,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             control.accessibilityIdentifier = owner.props["testId"]
             control.segmentLabels = tabs.map(Self.segmentLabel)
             control.segmentIDs = tabs.map { $0.props["testId"] }
+            control.segmentUnavailable = tabs.map { $0.disabled || $0.ariaUnavailable }
             let selected = tabs.firstIndex(where: Self.chosen) ?? UISegmentedControl.noSegment
             // A choice the finger made and the control has not reported yet
             // stays; resetting it would make the report name the old segment.

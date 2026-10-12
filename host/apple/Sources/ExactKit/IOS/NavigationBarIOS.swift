@@ -31,7 +31,7 @@ struct HatchSource: Equatable {
 /// the header; the web and the agent do (LLP 1021 D4's one presentation).
 struct HeaderShape: Equatable {
     struct Item: Equatable {
-        let id: UInt32, title: String, symbol: String?, label: String?, disabled: Bool
+        let id: UInt32, title: String, symbol: String?, label: String?, disabled: Bool, accessibilityDisabled: Bool
         /// The button's `testId`: the item's `accessibilityIdentifier`, so
         /// XCUITest and Maestro address it as any other node (LLP 1116 D2).
         let testId: String?
@@ -76,6 +76,7 @@ struct HeaderShape: Equatable {
             title = text
             label = button.props["accessibilityLabel"] ?? face?.label
             disabled = button.disabled
+            accessibilityDisabled = button.ariaUnavailable
             prominent = ["filled", "bordered-prominent", "prominent-glass", "prominent-clear-glass"].contains(face?.style ?? "")
             // The platform's tint unless the author said otherwise (LLP
             // 1115.000 D2): a tint written on the symbol, else a `color`
@@ -90,7 +91,7 @@ struct HeaderShape: Equatable {
             }
         }
         /// Everything a bar item is made from.
-        var source: String { "\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(prominent):\(badge?.source ?? ""):\(menu ?? ""):\(tint ?? []):\(testId ?? "")" }
+        var source: String { "\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(accessibilityDisabled):\(prominent):\(badge?.source ?? ""):\(menu ?? ""):\(tint ?? []):\(testId ?? "")" }
     }
     let header: NodeView
     let title: String
@@ -601,6 +602,8 @@ extension NavigationHost {
         control.accessibilityIdentifier = list?.props["testId"]
         control.segmentLabels = tabs.map(SegmentHost.segmentLabel)
         control.segmentIDs = tabs.map { $0.props["testId"] }
+        control.segmentUnavailable = tabs.map { $0.disabled || $0.ariaUnavailable }
+        for (index, tab) in tabs.enumerated() { control.setEnabled(!tab.disabled, forSegmentAt: index) }
         segments.fit(titles)
         if c.navigationItem.titleView !== control { c.navigationItem.titleView = control }
     }
@@ -872,6 +875,8 @@ extension NavigationHost {
         item.accessibilityLabel = i.label ?? (i.title.isEmpty ? nil : i.title)
         item.accessibilityIdentifier = i.testId
         item.isEnabled = !i.disabled
+        if i.disabled || i.accessibilityDisabled { item.accessibilityTraits.insert(.notEnabled) }
+        else { item.accessibilityTraits.remove(.notEnabled) }
         // The authored `color` of a plain item's face; a prominent item's
         // tint is its fill, which `color` is not.
         if let tint = i.tint, !i.prominent, i.badge == nil {

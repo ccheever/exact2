@@ -1181,7 +1181,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             if isNativeTextControl { styleNativeField() }
             updateNumberStepper() // the platform's stepping control for `type="number"` (LLP 1116.007 D4)
         }
-        if disabled { accessibilityTraits.insert(.notEnabled) } else { accessibilityTraits.remove(.notEnabled) }
+        if disabled || ariaUnavailable { accessibilityTraits.insert(.notEnabled) } else { accessibilityTraits.remove(.notEnabled) }
         accessibilityIdentifier = props["testId"]
         accessibilityLabel = props["accessibilityLabel"]
         updateTextAccessibility()

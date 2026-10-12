@@ -969,6 +969,16 @@ property names, invented CSS aliases, or unknown HTML tags. Read the schema and
 tag mapping for admitted properties and units. CSS standard behavior does not
 imply that every browser API is implemented on every host.
 
+For a control that should remain a Tab stop but be announced as unavailable,
+write `aria-disabled=true`. It does not stop `press`; check the unavailable
+state in the action. Descendant controls and inline links inherit this
+accessibility state unless they explicitly say `aria-disabled=false`. HTML
+`disabled=true` removes a form control from focus.
+Projected Apple segments, UIKit bar items and titles, and AppKit menu items keep
+that accessibility state on the native item people encounter. UIKit menu rows
+and alert actions stay selectable but read as enabled; UIKit's public disabled
+states would stop their input.
+
 `class=Style` applies literal style values; node attributes win. Conditional
 classes select two named styles with `class=(condition ? A : B)`. Computed values
 go on nodes. There is no selector cascade, dynamic style object, or arbitrary
@@ -2275,6 +2285,13 @@ of JavaScript, React Native, or the predecessor's Contract language.
 CSS overflow accepts `visible`, `hidden`, `scroll`, and `auto`. `auto` clips and
 permits scrolling, with indicators shown only when content overflows. A visible
 axis beside hidden/scroll/auto computes to auto, as on the web.
+
+`backdrop-filter="blur(8px) saturate(1.14)"` filters content behind a box;
+the two functions may appear in either order. On macOS it samples only the
+parent's subtree: the parent's own paint and earlier siblings. Content behind
+a clear wrapper can therefore show through sharp. Make the glass a direct
+sibling of the content it covers, including a scrolling list. iOS and tvOS
+draw the system blur approximation described in LLP 1053.000 §3.
 
 `flex` accepts CSS `none`, `auto`, a basis, or `<grow> [<shrink>] [<basis>]`
 (including `flex="0 1 auto"`). Numeric bindings keep the `n 1 0%` meaning.

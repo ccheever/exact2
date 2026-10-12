@@ -116,6 +116,14 @@ extension Presenter {
               node.inlineText.indices.contains(location.index) else { return nil }
         return node.inlineText[location.index]
     }
+    func inlineAriaUnavailable(_ id: UInt32) -> Bool {
+        var current = inlineText(id)
+        while let run = current {
+            if let value = run.props["accessibilityDisabled"] { return value == "true" }
+            current = inlineText(run.parent)
+        }
+        return textHost(id)?.ariaUnavailable == true
+    }
     func inlineEnabled(_ id: UInt32) -> Bool {
         guard let host = textHost(id), !host.inert, !host.disabled,
               let value = inlineText(id), value.props["disabled"] != "true" else { return false }

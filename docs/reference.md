@@ -109,6 +109,19 @@ never to block. Its design documents are imported under `llp/research/`.
 All four surfaces run the app; `QUEUE.md` is the ordered list of what would
 make sense to do next.
 
+Contract carries `aria-disabled` on controls and elements with a role, including
+groups and inline links. It is a boolean accessibility state: focusable elements
+remain in the Tab order, and `press` still runs. The app guards an unavailable action.
+`aria-disabled=true` also marks its focusable descendants, including inline
+links, as unavailable to accessibility; an explicit false on a descendant
+overrides the ancestor. HTML
+`disabled` retains its separate focus and input behavior; see
+[focus order](contract-grammar.md#focus-order-tabindex).
+On Apple hosts, a projected tab or pressable node reports the same accessibility
+state through its native segment, UIKit bar item or title, or AppKit menu item.
+UIKit menu rows and alert actions remain selectable but read as enabled: their
+public disabled states also stop selection.
+
 ## Serve RealWorld
 
 RealWorld's public pages can be served by the native renderer:

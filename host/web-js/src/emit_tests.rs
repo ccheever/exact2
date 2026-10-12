@@ -174,3 +174,16 @@ fn a_tablist_and_a_menu_load_the_input_piece() {
     let plain = page("");
     assert!(!plain.contains("pressFeedback()"), "{plain}");
 }
+#[test]
+fn aria_disabled_is_an_attribute_for_static_and_bound_values() {
+    let plan = contract::compile(
+        "component App\n  state unavailable = false\n  view\n    column\n      button \"Update\" aria-disabled=\"true\"\n      button \"Other\" aria-disabled=unavailable\n",
+    )
+    .unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    assert!(js.contains("\"aria-disabled\":\"true\""), "{js}");
+    assert!(
+        js.matches("\"aria-disabled\"").count() >= 2,
+        "the bound value uses the same DOM attribute: {js}"
+    );
+}

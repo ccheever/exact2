@@ -312,6 +312,13 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   inside a route draws under the native bars. Fix: render full-screen overlays
   (menus, action sheets) as root children after the tab container, or as a
   `navigationPresentation="fullscreen"` route. (Signal Clone, build 10.)
+- **A Mac glass panel shows sharp content behind a wrapper.** AppKit's
+  `backdrop-filter` samples only the parent's subtree, even when every wrapper
+  is transparent. Make the glass a direct sibling of what it covers; put a
+  floating composer beside its scrolling transcript. Check it with `agent macos
+  "screenshot glass.png window"`: only the composited window capture shows
+  background filters; a plain `screenshot` shows every macOS glass sharp.
+  (T3 Code backdrop case B; LLP 1053.000 §3.)
 - **A link in the app's own scheme never matches.** `signalclone://connect?x=1`
   reaches the root's `navigate` handler as the location `/connect?x=1`: the scheme
   is dropped and the host becomes the first path segment (`location_of`, LLP 1038
@@ -1079,3 +1086,22 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   draws the face. If the row was designed around bare text tabs, write
   `appearance="none"` on those tabs. Native Fixture's header needed this
   after buttons became native by default. (LLP 1059 D2a, LLP 1104 D9.)
+
+- **An AppKit segment's AX child lookup can recurse through its control.**
+  Asking the native cell for `AXChildren` while an `NSSegmentedControl`
+  overrides its children re-enters the control's override, even when the
+  query began at `super.accessibilityChildren()`. Expose the native children
+  temporarily during that lookup; test the exposed segment's AX attributes.
+
+- **UIKit menu and alert actions are models, not accessibility elements.**
+  Setting or testing `accessibilityTraits` on `UIAction`, `UIMenu` or
+  `UIAlertAction` does not change what VoiceOver reads from the presented row
+  or button. UIKit's public disabled states also stop selection. Test the
+  presented accessibility element when claiming an ARIA projection; leave
+  `aria-disabled` actions selectable and declare the UIKit deviation.
+
+- **AppKit's `setAccessibilityEnabled(false)` does not make a control's
+  `AXEnabled` false.** Check the exposed control and its cell with
+  `accessibilityAttributeValue(.enabled)` or `tree --ax`; checkbox, radio,
+  popup, slider and date cells keep reporting enabled until they answer that
+  attribute themselves. `NSSwitch` has no cell.

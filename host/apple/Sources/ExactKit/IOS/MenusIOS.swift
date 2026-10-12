@@ -194,6 +194,8 @@ final class MenuHost {
                 button.accessibilityLabel = v.props["accessibilityLabel"] ?? title(of: v)
                 button.accessibilityIdentifier = v.props["testId"] ?? v.props["id"]
                 button.isEnabled = !v.disabled
+                if v.disabled || v.ariaUnavailable { button.accessibilityTraits.insert(.notEnabled) }
+                else { button.accessibilityTraits.remove(.notEnabled) }
                 let actionId = UIAction.Identifier("exact.confirmation")
                 button.removeAction(identifiedBy: actionId, for: .touchUpInside)
                 button.addAction(UIAction(identifier: actionId) { [weak self, weak v, weak pop] _ in
@@ -220,6 +222,8 @@ final class MenuHost {
             button.accessibilityLabel = v.props["accessibilityLabel"] ?? title(of: v)
             button.accessibilityIdentifier = v.props["testId"] ?? v.props["id"]
             button.isEnabled = !v.disabled
+            if v.disabled || v.ariaUnavailable { button.accessibilityTraits.insert(.notEnabled) }
+            else { button.accessibilityTraits.remove(.notEnabled) }
             // One menu per invoker and press shape, kept across batches: it
             // reads its rows each time it opens, so a batch (a poll's answer,
             // every second) has nothing to change in it, and replacing it
@@ -751,7 +755,6 @@ final class MenuHost {
                 if let owner { self?.select(owner, index) }
             }
             alertAction.isEnabled = entry.enabled
-            if action.props["accessibilityChecked"] == "true" { alertAction.accessibilityTraits.insert(.selected) }
             owner.alert.addAction(alertAction)
         }
         if let cancel = cancels.first {
