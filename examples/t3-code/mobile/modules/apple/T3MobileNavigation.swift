@@ -23,6 +23,10 @@ enum T3MobileNavigation {
         let item = route.controller.navigationItem
         item.largeTitleDisplayMode = .never
         item.backButtonDisplayMode = .minimal
+        // Split Home retains Stack.tsx's headerBackVisible:false without compact chrome.
+        if route.isLive, route.element("workspace-home-header") != nil {
+            item.hidesBackButton = true
+        }
         // NewTaskRouteScreen lets UIKit integrate its project search beside the title.
         // Keep Exact's search owner and input delegates; only adapt this route's placement.
         if route.isLive, route.element("new-task-project-search") != nil,
