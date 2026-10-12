@@ -369,7 +369,8 @@ export function indexText({ verbs = Object.keys(HELP).filter((v) => v !== 'new')
     ...names.map((verb) => `  ${verb.padEnd(width)}  ${line(verb)}`),
     '',
     'bun exact.mjs <verb> --help: what a first build needs, whether it stays in the foreground, and',
-    'an example; --help all: every flag and the ports it opens. Read that, not exact2\'s scripts.',
+    'an example; --help all: every flag and the ports it opens. Read it when a flag is in question,',
+    'not exact2\'s scripts.',
   ].join('\n');
 }
 

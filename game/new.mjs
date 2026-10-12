@@ -477,8 +477,9 @@ first build resolves it, fetching them once (it needs the network then, not now)
 
 const BEGIN = '<!-- exact:begin (exact new writes this block; bun exact.mjs update rewrites it) -->', END = '<!-- exact:end -->';
 
-/** What an agent in the app's directory can't discover (LLP 1086 D1): where
- * the guides are, the app's commands, and the loop. Paths are from the app to
+/** What an agent in the app's directory can't discover (LLP 1086 D1): what
+ * its files are and the one guide to read, at most 1.5 KB because every step
+ * carries it (LLP 1116.007 D2); `help` holds the rest. Paths are from the app to
  * this checkout, so \`update\` follows a checkout that moved. The authoring
  * diary's instructions are \`feedback status\`'s to print, for a project that
  * keeps one (LLP 1116 D3), so a project that doesn't never carries them. */
@@ -489,44 +490,22 @@ function agentNotes(dir, name, {game = false} = {}) {
   return `${BEGIN}
 # ${name}: an Exact app
 
-The view is \`app.contract\` (Contract), its data \`app.ts\` (TypeScript), its tests
-\`app.test.contract\`; \`app.json\` is the manifest (its \`$schema\` gives an editor every
-key). The app uses the exact2 checkout at \`${pathFrom(dir, ROOT)}\` by path (\`EXACT2\`
+\`app.contract\` is the view, \`app.ts\` its data module, \`app.test.contract\` its tests, \`app.json\`
+the manifest. The app uses the exact2 checkout at \`${pathFrom(dir, ROOT)}\` by path (\`EXACT2\`
 overrides it).
 
-Read before writing code: ${doc('start-here.md')}, the only required reading (LLP 1115
-D7): the idea, the workflow and its commands, the language in one example. Then look
-things up, never reading front to back:
-
-- A pattern to start from: \`bun exact.mjs pattern\` lists them (\`one-screen\`, \`list-detail\`,
-  \`tabs\`, \`dashboard\`, \`rest\`); \`pattern <name>\` writes one, tested.
-- A recipe per question, in ${doc('recipes')} (start-here's last section is the index).
-- \`bun exact.mjs contract vocab <name> <name> …\`: any tag, property or function.
-- \`bun exact.mjs help\`, \`bun exact.mjs <verb> --help\`: the verbs; a verb's flags, whether
-  it stays in the foreground, and an example (\`--help all\`: every flag, its ports). Read
-  these, not exact2's scripts.
+Read ${doc('start-here.md')} before writing code: the only
+required reading (LLP 1115 D7); it names the one recipe to open for each feature when you
+write that part.
 
 ${DIARY_LINE}
 
-Beyond start-here's commands:
-
-| | |
-|---|---|
-| \`bun exact.mjs mac --run\`, \`linux\`, \`android\` | the Mac app; the Linux host (Android's too), driven headless by \`test linux\` and \`agent linux …\` |
-| \`bun exact.mjs hatch <word>\` | native code for what Contract can't say (${doc('reference.md')}, "Access hatches") |
-| \`bun exact.mjs update\` | after exact2 moves or changes its patches; it rewrites \`exact.mjs\` and this block |
-| app.json \`"commands": {"seed": ["bun", "seed.mjs"]}\` | the app's own verbs: \`bun exact.mjs seed web\` runs \`bun seed.mjs web\` here |
-
-Before the first native TypeScript build on a machine, run the one-time installer
-\`bun ${sdk('scripts/exact.mjs')} setup\` (\`setup --check\` only names what is missing).
-Cargo builds are forced offline for Hermes.
-
-Shared server data: your own server (${doc('recipes/rest-backend.md')}) or Snapback 4's
-client (${sdk('snapback4/README.md')}). Contract libraries: \`use Card from "@scope/ui"\`
-after \`bun add\`, or \`use Activity from "exact:motion"\`.
-
-Generated, so don't edit: the \`[patch.crates-io]\` table in \`Cargo.toml\`,
-\`rust-toolchain.toml\`, \`.cargo/config.toml\`, \`exact.mjs\`, and this block.
+The rest: \`bun exact.mjs help\` lists every verb (\`mac\`, \`linux\`, \`android\`, \`hatch\`, \`update\`, and
+your own in app.json \`"commands"\`); a verb's \`--help\` only when a flag is in question.
+\`bun exact.mjs contract vocab <name>\` answers for any tag, property or function, and
+\`bun ${sdk('scripts/exact.mjs')} setup --check\` names what a native build lacks.
+Generated, so don't edit: \`exact.mjs\`, \`rust-toolchain.toml\`, \`.cargo/config.toml\`,
+\`Cargo.toml\`'s \`[patch.crates-io]\` and this block.
 ${END}
 `;
 }

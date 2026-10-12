@@ -25,8 +25,9 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     const agents = () => readFileSync(resolve(dir, 'AGENTS.md'), 'utf8');
     assert.match(agents(), /<!-- exact:begin[^]*Run `bun exact\.mjs feedback status` first; it prints what to keep\.[^]*<!-- exact:end -->/);
     assert.doesNotMatch(agents(), /## The authoring diary|### Needed/);
-    assert.ok(Buffer.byteLength(agents()) <= 3 * 1024 + 512, `AGENTS.md is ${Buffer.byteLength(agents())} bytes`); // 3 KB, and long temp-dir paths (LLP 1116.001 D4)
-    assert.match(agents(), /one-time installer[^]*exact\.mjs[^]*setup[^]*forced offline for Hermes/);
+    // 1.5 KB, read at step one and carried to the end (LLP 1116.007 D2), and the three paths of a long temp dir
+    assert.ok(Buffer.byteLength(agents()) <= 1536 + 3 * resolve(import.meta.dir, '..').length, `AGENTS.md is ${Buffer.byteLength(agents())} bytes`);
+    assert.match(agents(), /exact\.mjs setup --check/);
     assert.match(readFileSync(resolve(dir, '.gitignore'), 'utf8'), /^\/\.exact\/$/m);
     // The runner is a few lines a builder can read (LLP 1116.006 D7): where the verbs are, and the checkout's app-cli.mjs.
     const launcher = readFileSync(resolve(dir, 'exact.mjs'), 'utf8');
@@ -301,27 +302,26 @@ test('a new app tells its agent where the guides are, and update keeps what the 
     const dir = resolve(parent, 'field-log');
     createApp(dir);
     const notes = readFileSync(resolve(dir, 'AGENTS.md'), 'utf8');
-    // The one required read and the recipes; the long guides are start-here's to name (LLP 1116 D3).
-    for (const guide of ['start-here.md', 'recipes', 'recipes/rest-backend.md', 'reference.md']) {
-      assert.ok(notes.includes(resolve(root, 'docs', guide)), guide);
-      assert.ok(existsSync(resolve(root, 'docs', guide)), guide);
-    }
-    // The patterns, the recipes and `--help`, and nothing start-here says (LLP 1116.001 D4).
-    assert.match(notes, /`bun exact\.mjs pattern` lists them \(`one-screen`, `list-detail`,\s+`tabs`, `dashboard`, `rest`\)/);
-    assert.match(notes, /bun exact\.mjs <verb> --help/);
-    assert.doesNotMatch(notes, /contract types|no-tells|\.exact\//);
+    // The one required read; everything else is start-here's to name (LLP 1116 D3, LLP 1116.007 D2).
+    assert.ok(notes.includes(resolve(root, 'docs/start-here.md')));
+    assert.ok(existsSync(resolve(root, 'docs/start-here.md')));
+    assert.match(notes, /the only\s+required reading/);
+    // `help` is the pointer to the rest, and a verb's `--help` is for a flag in question: no tour of the verbs' help.
+    assert.match(notes, /`bun exact\.mjs help` lists every verb/);
+    assert.match(notes, /`--help` only when a flag is in question/);
+    assert.doesNotMatch(notes, /Read\s+these|contract types|no-tells|\.exact\//);
     assert.ok(lstatSync(resolve(dir, 'CLAUDE.md')).isSymbolicLink());
     assert.equal(readFileSync(resolve(dir, 'CLAUDE.md'), 'utf8'), notes);
     const manifest = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
     assert.equal(realpathSync(resolve(dir, manifest.$schema)), resolve(root, 'scripts/app.schema.json'));
     readManifest(dir, 'field-log');
     // An author's notes around the block survive; the block is rewritten.
-    writeFileSync(resolve(dir, 'AGENTS.md'), `# Mine\n\n${notes.replace('Read before writing code', 'STALE')}\nKeep this.\n`);
+    writeFileSync(resolve(dir, 'AGENTS.md'), `# Mine\n\n${notes.replace('an Exact app', 'STALE')}\nKeep this.\n`);
     createApp(dir, { update: true });
     const updated = readFileSync(resolve(dir, 'AGENTS.md'), 'utf8');
     assert.match(updated, /^# Mine\n/);
     assert.match(updated, /Keep this\.\n$/);
-    assert.ok(updated.includes('Read before writing code') && !updated.includes('STALE'));
+    assert.ok(updated.includes('an Exact app') && !updated.includes('STALE'));
     // An app made before the notes existed gets both files.
     rmSync(resolve(dir, 'AGENTS.md')); rmSync(resolve(dir, 'CLAUDE.md'));
     createApp(dir, { update: true });
