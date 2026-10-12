@@ -67,14 +67,17 @@ writing apps should therefore say less — structure (a header's heading and but
   origin/main) runs the first three with `--workspace`, which covers the sixth, plus the `async lane:` ignored tests,
   the web JS target's conformance run (`host/web-js/conform.mjs --strict`) and its
   Chrome-oracle Firefox/WebKit steps (`conform-firefox`, `conform-webkit`),
-  the separate game workspace's locked tests, the UIKit XCTests and touch smoke
+  the separate game workspace's locked tests, the UIKit XCTests, touch smoke and
+  the tvOS compile
   when a coalesced range changes anything outside `llp/`, `issues/`, `rules/`,
   `docs/`, `QUEUE.md`, and `*.md` paths
-  (`build.mjs --test --ios`), the
+  (`build.mjs --test --ios`; `build.mjs --tvos --no-install`, which builds and signs
+  the Apple TV bundle and asks for no simulator), the
   Contract semantics (`semantics/README.md`: the Lean proofs, then `contract-difftest`
   running the runner against the Lean semantics over `semantics/corpus` and a fixed
   random sweep), then `metrics.mjs --long`. A second, hourly tier (`bun scripts/async.mjs --tier 2`) builds
-  the platforms that ride on another host's code: tvOS on the UIKit presenter,
+  the platforms that ride on another host's code: tvOS on the UIKit presenter
+  (installed on an Apple TV simulator, which that machine must have),
   plus cross-target Cargo checks of the Linux host with Caltrain and the Windows
   host with Windows Desk. Other Linux apps are not yet selected. Tier 2 needs
   both Rust cross targets and Zig on this Mac. These checks qualify
@@ -110,7 +113,8 @@ writing apps should therefore say less — structure (a header's heading and but
   (`--long` adds the macOS build and boot, and the loop's own budgets: the
   warm gate, touch one line, test what you changed). macOS: `bun host/apple/build.mjs --run`;
   iOS: `bun host/apple/build.mjs --ios --run` (a simulator; `--sim` or `EXACT_SIM` picks one);
-  tvOS: `bun host/apple/build.mjs --tvos --run` (an Apple TV simulator; LLP 1008 §9);
+  tvOS: `bun host/apple/build.mjs --tvos --run` (an Apple TV simulator; LLP 1008 §9;
+  `--tvos --no-install` compiles it with none, which is what to run after a change to Swift it shares with iOS);
   `--device --run` on a connected iPhone (signed with a team profile on this Mac);
   `--host` also builds the sample host (LLP 1031 D10), the native app that embeds two
   sessions, which `bun scripts/smoke.mjs host` drives and `scripts/agent.mjs host

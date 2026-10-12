@@ -68,8 +68,22 @@ test('async iOS schedules every non-documentation change in the coalesced range'
     const apple = appleTouched('new', 'old', () => paths);
     expect(apple).toBe(scheduled);
     const steps = asyncLane.checks('new', 'old', {lane: [], apple, glue: []});
-    for (const name of ['ios', 'ios-touch']) expect(steps.some(([step]) => step === name)).toBe(scheduled);
+    for (const name of ['ios', 'ios-touch', 'tvos']) expect(steps.some(([step]) => step === name)).toBe(scheduled);
   }
+});
+
+test('async compiles tvOS per commit with no simulator, and tier 2 installs it', () => {
+  const steps = asyncLane.checks('new', 'old', {lane: [], apple: true, glue: []});
+  expect(steps.find(([name]) => name === 'tvos')).toEqual(['tvos', 'env', ['EXACT_JS_ENGINE=stub', 'bun', 'host/apple/build.mjs', '--tvos', '--no-install']]);
+  expect(steps.filter(([name]) => name === 'tvos').length).toBe(1);
+  expect(asyncLane.tierTwoChecks().find(([name]) => name === 'tvos')).toEqual(['tvos', 'env', ['EXACT_JS_ENGINE=stub', 'bun', 'host/apple/build.mjs', '--tvos']]);
+  // Skipped on a documentation-only range, the step keeps its last failure until it runs again.
+  const skipped = {checks: {}, failures: []};
+  retainSkippedFailures(['tvos: IOS/RemoteTVOS.swift: cannot find type'], skipped);
+  expect(skipped.failures).toEqual(['tvos: IOS/RemoteTVOS.swift: cannot find type']);
+  const ran = {checks: {tvos: {status: 0}}, failures: []};
+  retainSkippedFailures(['tvos: IOS/RemoteTVOS.swift: cannot find type'], ran);
+  expect(ran.failures).toEqual([]);
 });
 
 test('tier 2 checks platform host and app crates for their actual target', () => {

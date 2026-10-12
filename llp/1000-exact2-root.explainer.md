@@ -161,12 +161,13 @@ runs none of their tests: on 2026-10-11 `exact-web-js` and `exact-linux`'s tests
 did not compile on `main` while the five passed. App crates' build scripts run
 Bun, so an older one than `package.json` pins fails it. The async lane runs the
 first three with `--workspace`, tests the separate
-`game/Cargo.toml` workspace with `--locked --no-fail-fast`, runs UIKit XCTests and touch smoke
+`game/Cargo.toml` workspace with `--locked --no-fail-fast`, runs UIKit XCTests, touch smoke
+and the tvOS compile (`build.mjs --tvos --no-install`: no simulator; Charlie, 2026-10-12)
 when the coalesced commit range changes anything outside documentation-only paths
 (`llp/`, `issues/`, `rules/`, `docs/`, `QUEUE.md`, or a `*.md` file). This includes
 separately built modules, build scripts, and fixtures. The lane then runs
 `metrics.mjs --long`.
-Its hourly tier 2 checks tvOS and cross-compiles the Linux host with Caltrain
+Its hourly tier 2 installs tvOS on an Apple TV simulator and cross-compiles the Linux host with Caltrain
 and the Windows host with Windows Desk for their actual targets. Tier 2
 requires those Rust targets and Zig's C cross compiler on the Mac. These
 Cargo checks qualify source compilation only; window presentation, KMS, and

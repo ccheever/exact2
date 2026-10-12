@@ -1099,8 +1099,11 @@ than …`. The async lane runs the first three with
 which covers the sixth, and tests the separate game workspace with
 `cargo test --manifest-path game/Cargo.toml --workspace --locked --lib --bins --tests`.
 Changes to Apple host files, its Cargo path dependencies, or apps trigger the
-iOS simulator tests and touch smoke. Docs-only changes do not. The hourly
-`--tier 2` lane checks tvOS and runs target-specific `cargo check` for the Linux
+iOS simulator tests, touch smoke and the tvOS compile
+(`EXACT_JS_ENGINE=stub bun host/apple/build.mjs --tvos --no-install`: the Apple TV
+bundle built and signed, installed on nothing, so it needs the tvOS SDK and
+Rust's `aarch64-apple-tvos-sim` target and no simulator). Docs-only changes do not. The hourly
+`--tier 2` lane installs that tvOS build on an Apple TV simulator and runs target-specific `cargo check` for the Linux
 host and Caltrain and for the Windows host and Windows Desk. Install
 `x86_64-unknown-linux-gnu` and `x86_64-pc-windows-gnu` with `rustup target add`
 and provide `zig` for C dependencies on the Mac. Other Linux apps remain
