@@ -156,6 +156,51 @@ fn the_kernel_reads_sections_and_rows_as_a_native_list_draws_them() {
     );
 }
 
+/// LLP 1115.000 D13.2: a radio in a row is the row's accessory, before its
+/// label as a web form writes it or after, with its bound `checked`; the
+/// row is a standard cell of its texts, and it reads live.
+#[test]
+fn a_radio_is_its_rows_accessory() {
+    let mut r = boot(
+        r#"list appearance="auto" listStyle="inset-grouped" testId="list"
+  section
+    row
+      text "Free" flex=1
+      input type="radio" name="plan" value="free" checked=(not dark) testId="free"
+    row
+      input type="radio" name="plan" value="pro" checked=dark testId="pro"
+      text "Pro"
+      text "Monthly"
+  section
+    button press=go testId="dark"
+      text "Dark""#,
+    );
+    let rows = |r: &Runner<NoData>| {
+        let list = r.kernel().grouped_list(id(r, "list")).unwrap();
+        list.sections[0].rows.clone()
+    };
+    let (free, pro) = (id(&r, "free"), id(&r, "pro"));
+    let before = rows(&r);
+    assert_eq!(before[0].accessory, Accessory::Radio(free, true));
+    assert_eq!(before[1].accessory, Accessory::Radio(pro, false));
+    assert!(!before[0].custom && !before[1].custom, "standard cells");
+    assert_eq!(before[0].title.as_deref(), Some("Free"));
+    assert_eq!(
+        (before[1].title.as_deref(), before[1].secondary.as_deref()),
+        (Some("Pro"), Some("Monthly")),
+        "a leading radio leaves the row's texts its title and value"
+    );
+    assert!(
+        !before[0].pressable,
+        "the row is no button: its tap is the radio's"
+    );
+    let dark = id(&r, "dark");
+    r.dispatch(dark, exact_runner::Event::Press).unwrap();
+    let after = rows(&r);
+    assert_eq!(after[0].accessory, Accessory::Radio(free, false));
+    assert_eq!(after[1].accessory, Accessory::Radio(pro, true));
+}
+
 #[test]
 fn the_rows_read_live() {
     let mut r = boot(SETTINGS);

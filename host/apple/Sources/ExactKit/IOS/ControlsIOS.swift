@@ -12,8 +12,8 @@ import UIKit
 
 /// The checklist mark: an SF Symbol circle at the body text's size, filled
 /// and checked when on (tvOS: a 16×16 rounded square). A radio is drawn on
-/// it (`ExactRadio`, RadioIOS.swift). VoiceOver reads either as Safari reads
-/// a checkbox, a button with a checked state.
+/// it, with its own symbols (`ExactRadio`, RadioIOS.swift). VoiceOver reads
+/// a checkbox as Safari reads one, a button with a checked state.
 class ExactCheckbox: UIControl {
     var isOn = false { didSet { if isOn != oldValue { setNeedsDisplay(); updateAccessibility() } } }
     var accent: UIColor? { didSet { setNeedsDisplay() } }
@@ -42,6 +42,21 @@ class ExactCheckbox: UIControl {
     override var intrinsicContentSize: CGSize {
         let s = mark(on: false, tint: .label)?.size ?? CGSize(width: 22, height: 22)
         return CGSize(width: ceil(s.width), height: ceil(s.height))
+    }
+    /// A finger's target is 44 points each way at least (Apple's minimum),
+    /// whatever the mark's size: the touch reaches past the mark's box,
+    /// which stays the mark's for layout (LLP 1115.000 D13.2). Where two
+    /// marks' margins meet (radios side by side), the nearer mark has it.
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        if bounds.contains(point) { return true }
+        guard bounds.insetBy(dx: min(0, (bounds.width - 44) / 2), dy: min(0, (bounds.height - 44) / 2)).contains(point) else { return false }
+        let mine = hypot(point.x - bounds.midX, point.y - bounds.midY)
+        let marks = superview?.superview?.subviews.flatMap { $0.subviews.compactMap { $0 as? ExactCheckbox } } ?? []
+        return !marks.contains { other in
+            guard other !== self, !other.isHidden else { return false }
+            let there = convert(point, to: other)
+            return hypot(there.x - other.bounds.midX, there.y - other.bounds.midY) < mine
+        }
     }
     #endif
     @objc func activated() {

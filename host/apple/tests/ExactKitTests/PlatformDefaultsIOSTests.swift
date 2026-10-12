@@ -329,7 +329,8 @@ final class PlatformDefaultsIOSTests: XCTestCase {
     /// checklist mark, as Reminders and Notes draw it: an empty circle at the
     /// body text's size that fills with a checkmark in the accent colour,
     /// read by VoiceOver as Safari reads a checkbox (a button, checked or
-    /// unchecked). A radio keeps Safari's 16 points.
+    /// unchecked). A radio is its own symbols at the same size (LLP 1115.000
+    /// D13.2, RadioIOSTests).
     func testACheckboxIsTheChecklistMark() throws {
         let p = presenter([
             ["op": "create", "id": 1, "kind": "view", "props": ["id": "n1"]],
@@ -347,7 +348,7 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         let size = box.intrinsicContentSize
         XCTAssertGreaterThan(size.width, 18, "the body text's mark, not Safari's 16-point box")
         XCTAssertEqual(size.width, size.height, accuracy: 1.5, "a circle's square")
-        XCTAssertEqual(try XCTUnwrap(p.controls.controls[3]).intrinsicContentSize, CGSize(width: 16, height: 16))
+        XCTAssertEqual(try XCTUnwrap(p.controls.controls[3]).intrinsicContentSize, size, "a radio is the same size")
         XCTAssertTrue(box.accessibilityTraits.contains(.button))
         XCTAssertEqual(box.accessibilityValue, "unchecked")
         // The mark as drawn: (alpha, red, green, blue) at a point given as a
