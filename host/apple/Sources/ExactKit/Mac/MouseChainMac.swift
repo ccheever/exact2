@@ -64,12 +64,20 @@ final class MouseChain {
         return false
     }
     func up(_ event: NSEvent) -> Bool {
-        let recognizers = order
+        let recognizers = order, captured = captor != nil
         order = []; downEvent = nil
         var taken = false
         for recognizer in recognizers { taken = recognizer.up(event) || taken }
+        // The capture ends with the button: the node under the pointer is
+        // hovered now, with no further move, as Chrome's boundary events
+        // after a released capture (X80).
+        if captured { _ = presenter?.hoverAt(event.locationInWindow) }
         return taken
     }
+    /// The node a gesture that engaged took the contact on. The web's
+    /// recognizers capture the pointer there (`setPointerCapture`), and
+    /// Chrome keeps a captured pointer's hover on its target (X80).
+    var captor: NodeView? { order.first { $0.engaged }?.armed }
     /// Indices of the armed candidates (non-nil depths), innermost first, then by rank.
     static func ordered(_ depths: [Int?]) -> [Int] {
         depths.enumerated().compactMap { index, depth in depth.map { (index, $0) } }
@@ -152,6 +160,18 @@ extension NodeView {
         }
         guard view === self else { return }
         presenter.hoverMoved(id, pointerSample(event))
+    }
+    /// A held button's drag moves the hover, as Chrome hit-tests a held
+    /// mouse as a free one (X80): the node it went down on leaves as the
+    /// pointer leaves it, each `hover` node it crosses enters and leaves,
+    /// and the one under it at the up stays hovered. The tracking areas
+    /// report none of it (they lack `.enabledDuringMouseDrag`, which a
+    /// synthesized drag never exercises), so each drag is hit-tested as a
+    /// move is; a gesture that engaged keeps it on its node (`captor`).
+    func hoverDragged(_ event: NSEvent) {
+        guard let presenter = holdPresenter, presenter.trackedPointerEvent !== event else { return }
+        presenter.trackedPointerEvent = event
+        _ = presenter.hoverAt(event.locationInWindow, captor: presenter.mouseChain.captor)
     }
     /// The presenter this view's held button reports to. AppKit sends the
     /// drags and the up to the view the button went down on even after it
@@ -261,12 +281,13 @@ extension Presenter {
     }
     /// A move and a resting-pointer layout update share the same hit test.
     /// Ancestor tracking exits cannot evict a child under visible overflow.
-    func hoverAt(_ point: NSPoint) -> NodeView? {
+    /// A `captor` stands for the hit wherever the pointer is.
+    func hoverAt(_ point: NSPoint, captor: NodeView? = nil) -> NodeView? {
         guard let content = viewport.window?.contentView,
-              viewport.bounds.contains(viewport.convert(point, from: nil)) else {
+              captor != nil || viewport.bounds.contains(viewport.convert(point, from: nil)) else {
             setHoverPath([]); return nil
         }
-        let hit = content.hitTest(content.superview?.convert(point, from: nil) ?? point)
+        let hit = captor ?? content.hitTest(content.superview?.convert(point, from: nil) ?? point)
         var path: [NodeView] = []
         var leaf: NodeView?
         var view = hit?.isDescendant(of: viewport) == true ? hit : nil
@@ -277,7 +298,7 @@ extension Presenter {
             }
             view = current.superview
         }
-        let run = leaf.flatMap { $0.inlineTarget(at: $0.local(point), handler: "hover") }
+        let run = captor != nil ? nil : leaf.flatMap { $0.inlineTarget(at: $0.local(point), handler: "hover") }
         setHoverPath(path, inline: run?.id)
         return leaf
     }
@@ -288,7 +309,7 @@ extension Presenter {
         // A held contact owns move delivery, but leaving the window still
         // ends hover. Other tracking areas may exit inside the window; hit
         // testing there keeps the subtree currently under the pointer.
-        if event.type == .mouseExited { _ = hoverAt(event.locationInWindow); return }
+        if event.type == .mouseExited { _ = hoverAt(event.locationInWindow, captor: mouseChain.captor); return }
         guard pointerHeld == nil, pointerSource == nil else { return }
         let leaf = hoverAt(event.locationInWindow)
         guard let leaf else { return }
