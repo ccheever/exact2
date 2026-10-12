@@ -172,3 +172,7 @@ the Linux and Windows hosts.
 - A macOS XCTest drags across two `hover` nodes and checks the enter and the leave.
 - Hover with no button down, the resting pointer's follow after a layout change (#139's fix), inline-run hover, and
   the held node's `pointermove` and `pointerup` keep working.
+
+2026-10-12: #492 checks the second to the fifth criteria with the agent's drives and `HoverDuringDragMacTests`. The
+first, a real pointer, is not run: the fix brief sends no real input, so it is left to the T3 clone's real-input
+session. Reopen this issue if that session sees the hover stay on the pressed row.
