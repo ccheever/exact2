@@ -893,7 +893,7 @@ function main(argv) {
   const [verb, name, ...rest] = argv;
   if (!verb || verb === '--help' || verb === '-h' || verb === 'help') return console.log(USAGE);
   // Help before any work (`setup --help` installed, `new --help` wrote an app); the compiler answers its own.
-  if (verb !== 'contract' && argv.some(arg => arg === '--help' || arg === '-h')) return console.log(USAGE);
+  if (verb !== 'contract' && argv.some(arg => arg === '--help' || arg === '-h')) return console.log(helpText(verb));
   if (verb === 'setup') return setup({check: name === '--check'});
   if (verb === 'list') return list();
   // The compiler parses its own flags; its help is printed here, so asking compiles nothing (LLP 1116 D4).
@@ -909,7 +909,7 @@ function main(argv) {
   if (verb === 'pattern') return pattern(guardFlags('pattern', argv.slice(1)));
   if (verb === 'new') {
     // Flags may come before the path: `exact new --game ./my-game`.
-    const args = guardFlags(argv.includes('--update') ? 'update' : 'new', argv.slice(1)), port = args.indexOf('--port'), path = args.find((arg, i) => !arg.startsWith('--') && i !== port + 1);
+    const args = guardFlags(argv.includes('--update') ? 'update' : 'new', argv.slice(1)), port = args.indexOf('--port'), path = args.find((arg, i) => !arg.startsWith('--') && (port < 0 || i !== port + 1));
     if (port >= 0 && !args.includes('--snapback')) throw new Error('exact new: --port is the Snapback origin’s, with --snapback');
     const snapback = args.includes('--snapback') ? { port: port >= 0 ? args[port + 1] : undefined } : null;
     return newApp(path, {update: args.includes('--update'), game: args.includes('--game'), assets: args.includes('--assets'), snapback});

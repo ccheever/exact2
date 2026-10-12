@@ -7,6 +7,8 @@ identity and generation adoption, at-most-once sends with receipts, the
 change poll), written once in Rust and performing no I/O. Each HTTP exchange
 is handed to whoever drives it. Pinned to Snapback4 **0.4.16**
 (`468d3aa5be`); the npm CLI in the root `package.json` matches.
+The retained `fresh` reset and generic `file`/PDF asset support require
+**0.4.24**, not yet on npm (see `QUEUE.md`). They fail against the pinned server.
 
 | | |
 |---|---|
@@ -40,7 +42,7 @@ is handed to whoever drives it. Pinned to Snapback4 **0.4.16**
 > - **Tests.** `epoch now` in the test file (the server keeps real time);
 >   `snapback4 dev` listening before `test web`; `clock data` before `fail
 >   fetch`; `fresh` for an empty dev server before each test through
->   0.4.23's `POST /dev/reset`
+>   0.4.24's `POST /dev/reset`
 >   (["Tests share the server"](#tests-share-the-server)).
 
 ## From TypeScript
@@ -48,8 +50,8 @@ is handed to whoever drives it. Pinned to Snapback4 **0.4.16**
 ### Set it up: one command
 
 A new app: from the backend's directory (`snapback/schema.q`, and
-`snapback4@0.4.23` installed there: `bun add snapback4@0.4.23` or `npm i
-snapback4@0.4.23`), `bun /path/to/exact2/scripts/exact.mjs new app --snapback`
+`snapback4@0.4.16` installed there: `bun add snapback4@0.4.16` or `npm i
+snapback4@0.4.16`), `bun /path/to/exact2/scripts/exact.mjs new app --snapback`
 (`--port <n>` for an origin other than 4400). With no backend schema yet, it writes the guestbook below as
 the app (`app.contract`, `app.ts` at that origin with its grants,
 `app.test.contract`) and `snapback/schema.q` when there is none, then wires it. With an existing schema it keeps the greeting app and mounts
@@ -413,7 +415,7 @@ those from earlier tests in it. Two ways out:
     expect tree missing "note-0"
   ```
 
-  Snapback4 0.4.23 has this door in `dev`; `serve` has no development
+  Snapback4 0.4.24 has this door in `dev`; `serve` has no development
   reset. `fresh` is for tests against `dev`.
 - **Each test owns its rows.** It writes a code or name no other test uses
   and asserts on that: newest first (`note-0` in a `last … by byTime` list),

@@ -122,7 +122,7 @@ export function createApp(destination, options = {}) {
   try {
     created = writeApp(dir, name);
     if (!options.snapback) return created;
-    if (!existingBackend) snapbackStarter(dir, name, port);
+    if (!existingBackend) snapbackStarter(dir, name, port, JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).app.id);
     else {
       const source = resolve(dir, 'app.ts');
       const ts = readFileSync(source, 'utf8');
@@ -173,7 +173,7 @@ export function snapbackVersion() {
 
 /** A guestbook on Snapback in place of the greeting (snapback4/README.md's complete app): the view, the data module
  * at the origin `port` names, its tests, and the backend's schema when the directory above has none. */
-function snapbackStarter(dir, name, port) {
+function snapbackStarter(dir, name, port, id) {
   const title = name.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
   const origin = `http://127.0.0.1:${port}`;
   const files = {
@@ -250,7 +250,7 @@ component ${title.replaceAll(' ', '')}
 import { Snapback, refused } from './snapback4/snapback.ts';
 import { api } from './backend/api.ts';                 // the backend's generated operations (app.json mounts ../snapback/generated)
 
-export const appId = 'com.example.${name}';            // app.json's "app": { "id" }: change the two together
+export const appId = '${id}';            // app.json's "app": { "id" }: change the two together
 // The Snapback origin: \`snapback4 dev --port ${port}\` in the directory above, and the tests' fetch prefixes.
 const origin = '${origin}';
 export const grants = \`net.fetch \${origin}\\nsqlite.open app:/data\`;
@@ -489,7 +489,8 @@ test "the header's button likes it"
 `,
     'app.ts': `import type { Answer, Result, Sources } from './app.contract.d.ts';
 
-export const appId = '${id}'; // app.json's app.id: change the two together
+// app.json’s app.id: change the two together.
+export const appId = '${id}';
 export const grants = '';
 
 const sources: Sources = {
@@ -751,26 +752,17 @@ function snapbackNotes(dir) {
   const readme = pathFrom(dir, resolve(ROOT, 'snapback4/README.md'));
   let wired = false;
   try { wired = Boolean(JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).typescript?.sources?.snapback4); } catch {}
-  const api = `It gives \`app.ts\` a local-first device (\`Snapback.open\`, \`read\`, \`write\`, \`sync\`, \`outcome\`, and \`send\`, a
-mutation source's write, sync and fate in one call), and typed operations: \`db.read(api.recent, {}, now)\` with \`api\`
-from the backend's generated \`snapback/generated/api.ts\`.`;
-  if (wired) return `A backend: this app's data is Snapback 4's, through this checkout's first-party client, never
-hand-written HTTP; read ${readme} before changing data code. ${api} The backend is the directory above
-(\`../snapback/schema.q\`, and \`snapback4@${snapbackVersion()}\` installed there). \`app.json\` mounts the driver
-(\`snapback4\`) and the generated operations (\`backend\`, \`../snapback/generated\`); \`assets/snapback4.wasm\` is the
-device the page loads; \`app.ts\` names the origin and grants it. After the first \`bunx snapback4 check\` above, or
-after exact2 moves, run \`bun exact.mjs snapback\`: it mounts what is there and builds the device again. \`test web\`
-talks to a running \`bunx snapback4 dev --port <the origin's port>\` above: start it first; \`fresh\` at the top of a
-test file empties it before each test (snapback4's \`POST /dev/reset\`; the README says which versions have it). A
-failure's \`failure(x).reason\` is the refusal's code (\`f.reason == "NOT_MANAGER"\`).`;
-  return `A backend: an app that keeps shared, server-authoritative data (accounts, other people's rows, offline writes
-that sync) uses Snapback 4 through this checkout's first-party client, never hand-written HTTP: read ${readme} before
-any data code. ${api} Wire it once with \`bun exact.mjs snapback\`, with the backend in the directory above (its
-\`snapback/schema.q\`, and \`snapback4@${snapbackVersion()}\` installed there): it runs \`snapback4 check\` there when
-nothing is generated yet, mounts the driver and the generated operations in \`app.json\`, builds the device the page
-loads, and names the \`appId\` line \`app.ts\` needs. The README says what each step does, to do one by hand.
-\`exact new <path> --snapback [--port <n>]\` makes an app wired this way, a guestbook to start from. \`test web\`
-talks to a running \`snapback4 dev\`: start it first.`;
+  if (wired) return `A backend: this app's data is Snapback 4's (${readme}). The backend is above it:
+\`../snapback/schema.q\`, with \`snapback4@${snapbackVersion()}\` installed. \`app.json\` mounts the driver and
+\`../snapback/generated\`; \`app.ts\` names and grants its origin. \`bun exact.mjs snapback\` generates operations
+and rebuilds the device, including after exact2 moves; \`snapback --port <n>\` moves the origin. Start
+\`bunx snapback4 dev --port <the origin's port>\` above before \`test web\`. \`fresh\` resets it per test
+(requires Snapback4 0.4.24). Typed reads use \`db.read(api.recent, {}, now)\`; \`send\` writes, syncs and answers
+the write's fate. \`failure(x).reason\` carries a refusal's code. Read the guide before data code.`;
+  return `Shared server data: your own server (${pathFrom(dir, resolve(ROOT, 'docs/recipes/rest-backend.md'))}) or Snapback 4 (${readme}).
+\`exact new <path> --snapback [--port <n>]\` wires an app to the backend above it; \`bun exact.mjs snapback\`
+wires an existing app, generates its operations and builds the device. Install \`snapback4@${snapbackVersion()}\`
+above and start \`snapback4 dev\` on app.ts's origin's port before \`test web\`. Read the guide before data code.`;
 }
 
 /** What an agent in the app's directory can't discover (LLP 1086 D1): what

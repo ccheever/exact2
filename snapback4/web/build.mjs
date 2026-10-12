@@ -32,6 +32,9 @@ const target = resolve(process.env.SNAPBACK4_TARGET_DIR ?? resolve(workspace, 't
 const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
   !/^(CARGO_(?!HOME$)|RUST(FLAGS|DOCFLAGS|C|C_WRAPPER|C_WORKSPACE_WRAPPER|UP_TOOLCHAIN)$|TARGET$|HOST$|OUT_DIR$|PROFILE$|OPT_LEVEL$|DEBUG$|NUM_JOBS$|SDKROOT$|DEVELOPER_DIR$|\w+_DEPLOYMENT_TARGET$|(TARGET_|HOST_)?(CC|CXX|AR|RANLIB|CFLAGS|CXXFLAGS|CPPFLAGS|LDFLAGS|ARFLAGS)(_[\w-]+)?$)/.test(key)));
 env.CARGO_TARGET_DIR = target;
+env.CARGO_INCREMENTAL = '0';
+env.CARGO_PROFILE_DEV_DEBUG = '0';
+env.CARGO_PROFILE_TEST_DEBUG = '0';
 // A package id, as cargo writes it: `name 1.0 (source)`, `source#name@1.0`, or
 // `path+file:///…/name#1.0`.
 const packageName = id => /^([\w-]+) \d/.exec(id)?.[1] ?? /#([\w-]+)@/.exec(id)?.[1] ?? /\/([\w-]+)#[\d.]+$/.exec(id)?.[1] ?? 'a dependency';

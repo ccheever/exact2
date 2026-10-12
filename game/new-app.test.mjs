@@ -80,14 +80,15 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     const helped = (...command) => spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), ...command], { cwd: parent, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
     const testHelp = helped('test', '--help');
     assert.equal(testHelp.status, 0, testHelp.stderr);
-    assert.deepEqual(testHelp.stdout.trim().split('\n').filter(l => l.startsWith('{')).map(l => JSON.parse(l).args), [['web', '--app', 'field-log', '--help']]);
+    assert.match(testHelp.stdout, /^bun exact\.mjs test /);
+    assert.ok(!testHelp.stdout.includes('{'), 'test --help starts no child');
     for (const command of [['ios', '-h'], ['update', '--help']]) {
       const said = helped(...command);
       assert.equal(said.status, 0, said.stderr);
-      assert.match(said.stdout, new RegExp(`^bun exact\\.mjs ${command[0]} `));
+      assert.match(said.stdout, new RegExp(`^bun exact\\.mjs ${command[0]}(?: |\\n)`));
       assert.ok(!said.stdout.includes('{'), `${command[0]} --help ran its script`);
     }
-    assert.match(helped('--help').stdout, /^Usage: bun exact\.mjs <verb>[^]*  test +\[web[^]*EXACT_PORT/);
+    assert.match(helped('--help').stdout, /^bun exact\.mjs <verb>[^]*  test +/ );
     // chat F19, calendar F13: the files named, from the current directory (a glob too), each run in turn.
     mkdirSync(resolve(dir, 'tests'));
     for (const name of ['b.test.contract', 'a.test.contract']) writeFileSync(resolve(dir, 'tests', name), '');
@@ -532,17 +533,18 @@ test('a new Snapback app is wired to the backend above it, and update follows a 
     const sdk = resolve(parent, 'sdk');
     mkdirSync(resolve(sdk, 'scripts'), { recursive: true });
     writeFileSync(resolve(sdk, 'scripts/exact.mjs'), 'console.log(JSON.stringify(process.argv.slice(2)));');
+    withCli(sdk);
     const verb = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'snapback'], { cwd: parent, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
     assert.deepEqual(JSON.parse(verb.stdout), ['snapback', realpathSync(dir)]);
     // An appId that disagrees is named. A checkout that moved: update rewrites the mount, as it does the Cargo paths.
     writeFileSync(resolve(dir, 'app.ts'), ts.replace(/export const appId = '[^']*'/, "export const appId = 'com.example.other'"));
-    assert.match(wireSnapback(dir, { build: false }), /app\.ts must say: export const appId = "com\.example\.app"; \(it says "com\.example\.other"\)/);
+    assert.ok(wireSnapback(dir, { build: false }).includes(`app.ts must say: export const appId = "${manifest().app.id}"; (it says "com.example.other")`));
     writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest(), typescript: { sources: { ...manifest().typescript.sources, snapback4: '../../moved/exact2/snapback4/ts' } } }, null, 2));
     createApp(dir, { update: true });
     assert.equal(realpathSync(resolve(dir, manifest().typescript.sources.snapback4)), resolve(root, 'snapback4/ts'));
     // A plain app's notes say how to wire one.
     const plain = resolve(parent, 'plain');
     createApp(plain);
-    assert.match(readFileSync(resolve(plain, 'AGENTS.md'), 'utf8'), /Wire it once with `bun exact\.mjs snapback`[^]*exact new <path> --snapback/);
+    assert.match(readFileSync(resolve(plain, 'AGENTS.md'), 'utf8'), /exact new <path> --snapback[^]*bun exact\.mjs snapback/);
   } finally { rmSync(parent, { recursive: true, force: true }); }
 }, 90_000); // Three offline Cargo resolutions.

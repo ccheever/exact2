@@ -22,6 +22,7 @@ const takesValue = (spec) => spec.includes(' ');
 // The drive flags `scripts/agent-launch.mjs` `parseFlags` takes, shared by `agent` and `test`
 // (`runTests` reads all but those `test` lists as internal).
 const DRIVE = [
+  ['--port <n>', 'web: the page’s port (or EXACT_PORT); backend origins remain those app.ts grants'],
   ['--storage <name>', 'a scratch store, kept between drives by name'],
   ['--size <w>x<h>', 'the viewport (default 420x900; a simulator\'s own)'],
   ['--scale <n>', 'shrink screenshots to n pixels per point; 1 captures points'],
@@ -113,11 +114,13 @@ Server   an app with its own (server.ts, the rest pattern's): test runs it where
          already answering there (a dev server) is refused, named, never written to; so is a
          server entry that does not read DB (process.env.DB), with the fix.
 Runs     to completion, exit 1 when a test fails; nothing is left running.
+Backend  test web checks loopback net.fetch origins before launch; start snapback4 dev on
+         app.ts’s origin’s port. EXACT_PORT sets only the page’s port.
 Lines    tap, type, expect text|tree|state|disabled, clock data|settle|+<ms>, reload, back, fail|pass
          fetch, request <METHOD> "/path" [json] [as <persona>] [expect <status>]: docs/recipes/tests.md;
          all: docs/contract-grammar.md "Authored tests".`,
     bodyAll: `A phone's build is ios --device's.
-Ports    none to choose. web: headless Chrome over a pipe; the page on 127.0.0.1, each test at a
+Ports    --port <n> or EXACT_PORT chooses the page’s port; otherwise web: headless Chrome over a pipe; the page on 127.0.0.1, each test at a
          port fixed by its own store's name (20000-47999).
          ${NATIVE_PORTS}`,
     example: 'bun exact.mjs test ios tests/*.test.contract --size 390x844',
@@ -143,7 +146,7 @@ Ops      a target is a testId, else a view's exact text or label
   check [dark|both] · screenshot <file.png> [window]  what is wrong, in text, before a picture · window: bars
   prefer <feature> <value> · perf [<target>] · resize <w>x<h> · close · back · fail|pass fetch <prefix>`,
     bodyAll: `Trace    trace <file> reads a saved trace. Op forms: docs/contract-for-agents.md, "Inspection and testing".
-Ports    none to choose. web: headless Chrome over a pipe; the page on 127.0.0.1 at a free port, or
+Ports    --port <n> or EXACT_PORT chooses the page’s port; otherwise web: headless Chrome over a pipe; the page on 127.0.0.1 at a free port, or
          with --storage one fixed by app and store (20000-47999; "in use": another drive has it).
          ${NATIVE_PORTS}`,
     example: 'bun exact.mjs agent web --storage s1 "clock data" tree "tap add" "screenshot .exact/a.png"',
