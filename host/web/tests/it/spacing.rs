@@ -52,3 +52,38 @@ fn a_checkbox_a_radio_and_a_range_carry_no_margin() {
     let spaced = css_of(&host, &batch, "spaced");
     assert!(spaced.contains("margin-left:6px"), "{spaced}");
 }
+
+/// D10.2: a range and a determinate `progress` reach the page `width: 100%`,
+/// the row lowering implies, so the browser makes them as wide as what holds
+/// them by CSS and the host fills nothing itself. An authored `width` is the
+/// only one sent; an indeterminate `progress` gets none.
+#[test]
+fn a_range_and_a_determinate_progress_are_sent_full_width() {
+    let (host, batch) = boot(
+        r#"component App
+  view
+    column
+      input type="range" testId="range"
+      progress value=0.5 testId="bar"
+      input type="range" width=90 testId="narrow"
+      progress value=0.5 width="auto" testId="auto"
+      progress testId="spinner"
+"#,
+    );
+    for id in ["range", "bar"] {
+        let css = css_of(&host, &batch, id);
+        assert!(css.contains("width:100%"), "{id}: {css}");
+    }
+    let narrow = css_of(&host, &batch, "narrow");
+    assert!(
+        narrow.contains("width:90px") && !narrow.contains("100%"),
+        "{narrow}"
+    );
+    let auto = css_of(&host, &batch, "auto");
+    assert!(
+        auto.contains("width:auto") && !auto.contains("100%"),
+        "{auto}"
+    );
+    let spinner = css_of(&host, &batch, "spinner");
+    assert!(!spinner.contains("width:100%"), "{spinner}");
+}

@@ -28,6 +28,17 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   (`row align-items="center" gap=8`), which a grouped `list`'s rows already have.
   (Wave 2 of LLP 1115.000, a scratch page on the web, the Mac and iOS, 2026-10-11.)
 
+- **A label beside a `range` or a `progress value=` wraps onto two lines, and the
+  control is wide.** Cause: both are `width: 100%` unless you say otherwise (LLP
+  1115.000 D10.2), and in a `row` that is the control's flex basis: the row
+  overflows by the label's width and CSS shrinks both children, the label down
+  to its longest word ("Screen brightness", 164 points, became 116 beside a
+  range in a 400-point row). Fix: `flex=1 min-width=0` on the control, which
+  then takes what the label leaves; or a `width`. In a `column` or a plain box
+  nothing is needed. **Candidate diagnostic:** a `range` or a determinate
+  `progress` with no `width` or `flex` beside a `text` in a `row`. (Wave 2 of
+  LLP 1115.000, Chrome 154 and the kernel alike, 2026-10-11.)
+
 - **A heading's lines are a screen apart with `line-height=28`.** Cause: a bare
   number is CSS's unitless `line-height`, a multiple of the font size (at 22 px,
   28 × 22 = 616 px), unlike a bare number on a length row such as `font-size` or

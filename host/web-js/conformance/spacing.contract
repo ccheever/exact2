@@ -8,14 +8,28 @@
 // sits where its row puts it and touches its neighbour until the row has a
 // `gap`, in a row and stacked in a block; one the author writes is the
 // control's.
+//
+// D10.2: a range and a determinate `progress` are `width: 100%` by a row
+// lowering implies. Each is as wide as its column or its box; in a row it
+// takes what the row's other children leave, and shrinks below its own
+// width to do so; an authored `width` or `flex` wins; and where the
+// percentage has nothing to resolve against (a column sized by its content)
+// or the author writes `auto`, it is its intrinsic size: 129 for a range,
+// `10em` by `1em` for a progress, which follows its font size.
 component Spacing
   state gap = 0
+  state narrow = false
   action space
     gap = gap == 0 ? 8 : 0
+  action squeeze
+    narrow = not narrow
   view
     column testId="root" width=420 box-sizing="border-box" padding=16 gap=12
-      button testId="space" press=space width=80 height=28
-        text "gap" line-height="18px"
+      row gap=8
+        button testId="space" press=space width=80 height=28
+          text "gap" line-height="18px"
+        button testId="squeeze" press=squeeze width=80 height=28
+          text "narrow" line-height="18px"
       row gap=gap align-items="center" testId="beside"
         input type="checkbox" testId="check"
         box width=40 height=18 testId="check-next"
@@ -29,3 +43,42 @@ component Spacing
         input type="radio" testId="stacked-radio"
         input type="range" width=90 testId="stacked-range"
         box width=40 height=10 testId="stacked-next"
+      row gap=8 testId="fill-row"
+        box width=100 height=10 flex-shrink=0 testId="fill-row-fixed"
+        input type="range" testId="fill-row-range"
+      row gap=8 testId="fill-pair"
+        input type="range" testId="pair-range"
+        progress value=0.5 testId="pair-progress"
+      column testId="fill-column"
+        input type="range" testId="column-range"
+        progress value=0.5 testId="column-progress"
+      box width=(narrow ? 120 : 200) testId="fill-box"
+        input type="range" testId="box-range"
+        progress value=0.5 testId="box-progress"
+      row gap=8 testId="fit"
+        column testId="fit-range-column"
+          input type="range" testId="fit-range"
+        column testId="fit-progress-column"
+          progress value=0.5 testId="fit-progress"
+      row gap=8 testId="authored"
+        input type="range" width=90 testId="authored-range"
+        progress value=0.5 width=60 testId="authored-progress"
+        input type="range" flex=1 min-width=0 testId="flexed-range"
+      row gap=8 testId="auto"
+        input type="range" width="auto" testId="auto-range"
+        progress value=0.5 width="auto" testId="auto-progress"
+      row width=(narrow ? 180 : 200) testId="tight"
+        box width=150 height=10 flex-shrink=0 testId="tight-fixed"
+        input type="range" testId="tight-range"
+      row width=(narrow ? 180 : 200) testId="tight-bar"
+        box width=150 height=10 flex-shrink=0 testId="tight-bar-fixed"
+        progress value=0.5 testId="tight-progress"
+      row width=200 testId="shared"
+        box width=150 height=10 testId="shared-box"
+        input type="range" testId="shared-range"
+      box testId="block-auto"
+        progress value=0.5 width="auto" testId="block-auto-progress"
+      column font-size=20 testId="em"
+        progress value=0.5 testId="em-progress"
+        row testId="em-row"
+          progress value=0.5 width="auto" testId="em-auto-progress"

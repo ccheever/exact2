@@ -807,12 +807,13 @@ fn an_indeterminate_progress_is_a_busy_control_of_twenty_points() {
 
 /// LLP 1116 D8: `progress value=… max=…` is HTML's determinate bar: the
 /// same `Control`, its `value` and `max` HTML's strings (a bound number
-/// follows its state), not busy, and the box HTML's UA sheet gives it —
-/// `10em` by `1em`, kept in a flex column, `width` and `height` winning.
+/// follows its state), not busy. LLP 1115.000 D10.2: it is as wide as what
+/// holds it and `1em` tall, `width` and `height` winning, and `10em` wide
+/// where the author says `auto`.
 #[test]
 fn a_progress_with_a_value_is_the_determinate_bar() {
     let mut r = boot(
-        "component App\n  state glasses = 2\n  action drink\n    glasses = glasses + 1\n  view\n    column testId=\"root\"\n      progress value=glasses max=8 aria-label=\"Water\" testId=\"water\"\n      progress value=0.5 width=\"100%\" height=4 testId=\"wide\"\n      column font-size=20\n        progress value=1 testId=\"big\"\n      button press=drink testId=\"drink\"\n        text \"Drink\"\n",
+        "component App\n  state glasses = 2\n  action drink\n    glasses = glasses + 1\n  view\n    column testId=\"root\"\n      progress value=glasses max=8 aria-label=\"Water\" testId=\"water\"\n      progress value=0.5 width=120 height=4 testId=\"sized\"\n      column font-size=20\n        progress value=1 testId=\"big\"\n        row\n          progress value=1 width=\"auto\" testId=\"auto\"\n      button press=drink testId=\"drink\"\n        text \"Drink\"\n",
     );
     let water = r.kernel().node(view_of(&r, "water")).unwrap();
     assert_eq!(water.node_type, NodeType::Control);
@@ -845,9 +846,65 @@ fn a_progress_with_a_value_is_the_determinate_bar() {
         let f = r.kernel().node(view_of(r, t)).unwrap().frame;
         (f.width, f.height)
     };
-    assert_eq!(size(&r, "water"), (160.0, 16.0), "a flex column keeps it");
-    assert_eq!(size(&r, "wide"), (320.0, 4.0));
-    assert_eq!(size(&r, "big"), (200.0, 20.0), "in `em`s");
+    assert_eq!(size(&r, "water"), (320.0, 16.0), "as wide as its column");
+    assert_eq!(size(&r, "sized"), (120.0, 4.0), "an authored size wins");
+    assert_eq!(size(&r, "big"), (320.0, 20.0), "`1em` tall");
+    assert_eq!(size(&r, "auto"), (200.0, 20.0), "`10em` by `1em`");
+}
+
+/// LLP 1115.000 D10.2: a range and a determinate `progress` are full width
+/// by a row lowering implies, `width: 100%`, which is not the author's (LLP
+/// 1115.000 D2): the mask has it and the written bit does not. A `width` the
+/// author writes replaces it, written; an indeterminate `progress` and every
+/// other control keep their own size.
+#[test]
+fn a_range_and_a_determinate_progress_are_full_width_by_an_implied_row() {
+    use exact_kernel::{Dimension, StyleId};
+    let mut r = boot(
+        r#"component App
+  view
+    column width=300 testId="root"
+      input type="range" testId="range"
+      progress value=0.5 testId="bar"
+      input type="range" width=90 testId="narrow"
+      progress value=0.5 width="50%" testId="half"
+      progress testId="spinner"
+      input type="checkbox" testId="check"
+      row testId="beside"
+        box width=100 height=10 flex-shrink=0
+        input type="range" testId="beside-range"
+      row
+        column testId="fit"
+          input type="range" testId="fit-range"
+"#,
+    );
+    let row = |r: &Runner<NoData>, id: &str| {
+        let style = r.kernel().node(view_of(r, id)).unwrap().style;
+        (
+            style.mask.has(StyleId::Width).then_some(style.width),
+            style.written.has(StyleId::Width),
+        )
+    };
+    assert_eq!(row(&r, "range"), (Some(Dimension::Percent(100.0)), false));
+    assert_eq!(row(&r, "bar"), (Some(Dimension::Percent(100.0)), false));
+    assert_eq!(row(&r, "narrow"), (Some(Dimension::Points(90.0)), true));
+    assert_eq!(row(&r, "half"), (Some(Dimension::Percent(50.0)), true));
+    assert_eq!(row(&r, "spinner"), (None, false));
+    assert_eq!(row(&r, "check"), (None, false));
+    let root = view_of(&r, "root");
+    r.kernel_mut()
+        .compute_layout(root, exact_kernel::Offer::definite(320.0, 480.0))
+        .unwrap();
+    let width = |r: &Runner<NoData>, id: &str| r.kernel().node(view_of(r, id)).unwrap().frame.width;
+    assert_eq!(width(&r, "range"), 300.0);
+    assert_eq!(width(&r, "bar"), 300.0);
+    assert_eq!(width(&r, "narrow"), 90.0);
+    assert_eq!(width(&r, "half"), 150.0);
+    // In a row it takes what the row's other children leave.
+    assert_eq!(width(&r, "beside-range"), 200.0);
+    // Where the percentage has nothing to resolve against, its own 129.
+    assert_eq!(width(&r, "fit"), 129.0);
+    assert_eq!(width(&r, "fit-range"), 129.0);
 }
 
 #[test]

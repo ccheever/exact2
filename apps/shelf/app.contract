@@ -753,14 +753,15 @@ component Empty
       text title role="heading" aria-level=3 text-align="center"
       text message color="-exact-secondary-label" text-align="center" testId=`${tid}-message`
 
-// A determinate progress bar, 0 to 100, across its column: the platform's own
-// (`UIProgressView` in the tint, LLP 1116 D8), which says its value itself.
+// A determinate progress bar, 0 to 100: the platform's own (`UIProgressView`
+// in the tint, LLP 1116 D8), which says its value itself. It is as wide as its
+// column with nothing written (LLP 1115.000 D10.2).
 component Meter
   props
     value: number
     tid: string
   view
-    progress value=value max=100 width="100%" testId=tid
+    progress value=value max=100 testId=tid
 
 // Five stars, filled to the rating, in the tint.
 component Stars

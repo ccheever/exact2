@@ -62,6 +62,17 @@ The schema metadata changes its digest, so producers and hosts re-bake together.
 > - an unsaid SVG `fill` is `currentcolor`, not SVG's black, so a shape nobody filled
 >   is its text's colour and follows the scheme; a gradient stop's, a flood's and a
 >   light's initial colours stay SVG's (LLP 1115.000 D3.8);
+> - a checkbox, a radio and a range carry no margin (Chrome's UA sheet gives them `3px 3px
+>   3px 4px`, `3px 3px 0 5px` and `2px`): lowering writes none and the web's sheet zeroes
+>   them, as the common resets do (LLP 1115.000 D10.1);
+> - a range and a determinate `progress` are `width: 100%` by a row lowering implies, so
+>   each is as wide as what holds it where HTML's are 129 px and `10em`. Those are their
+>   intrinsic sizes still: what `width: auto` or an unresolvable percentage falls back to.
+>   The progress is a block of intrinsic size `10em` by `1em` that may shrink below it in
+>   a flex row; the web's sheet makes a `<progress>` one (`contain-intrinsic-size`,
+>   `min-width: 0`). A percentage-wide range shrinks below its 129 there too, which is
+>   CSS's own rule for a form control (Sizing 3 §5.2.2) and no deviation (LLP 1115.000
+>   D10.2);
 > - an unset root background is the platform's, never a fixed white;
 > - a pushed route has the platform's Back whether or not one is authored;
 > - a custom pressable that declares no press feedback dims while held on iOS.

@@ -57,3 +57,49 @@ fn a_checkbox_a_radio_and_a_range_have_no_margin_of_their_own() {
     assert_eq!((range.0, range.1), (check.2 + radio.2, 0.0), "the range");
     assert_eq!(after.0, check.2 + radio.2 + 90.0, "and what follows");
 }
+
+/// D10.2: a range and a determinate `progress` are as wide as what holds
+/// them, by the plan's `width: 100%` and nothing of this host's: across a
+/// column and a box, what a row's other children leave, an authored width
+/// where one is written, and their own size (129; `10em` by `1em`) where
+/// the percentage has nothing to resolve against.
+#[test]
+fn a_range_and_a_determinate_progress_are_full_width() {
+    let mut p = boot(
+        r#"component App
+  view
+    column width=400 testId="root"
+      input type="range" testId="range"
+      progress value=0.5 testId="bar"
+      box width=200 testId="box"
+        input type="range" testId="box-range"
+        progress value=0.5 testId="box-bar"
+      row testId="row"
+        box width=100 height=10 flex-shrink=0
+        input type="range" testId="row-range"
+      row width=200
+        box width=150 height=10 flex-shrink=0
+        progress value=0.5 testId="tight-bar"
+      input type="range" width=90 testId="narrow"
+      row
+        column testId="fit"
+          input type="range" testId="fit-range"
+        column
+          progress value=0.5 testId="fit-bar"
+"#,
+        1.,
+    );
+    let mut size = |id: &str| {
+        let (_, _, w, h) = rect(&mut p, id);
+        (w, h)
+    };
+    assert_eq!(size("range").0, 400.0);
+    assert_eq!(size("bar"), (400.0, 16.0));
+    assert_eq!(size("box-range").0, 200.0);
+    assert_eq!(size("box-bar"), (200.0, 16.0));
+    assert_eq!(size("row-range").0, 300.0, "what the row's box leaves");
+    assert_eq!(size("tight-bar").0, 50.0, "below its own 160");
+    assert_eq!(size("narrow").0, 90.0, "an authored width wins");
+    assert_eq!(size("fit-range").0, 129.0, "its own width");
+    assert_eq!(size("fit-bar"), (160.0, 16.0), "10em by 1em");
+}

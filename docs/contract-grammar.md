@@ -1029,9 +1029,16 @@ tint where none is said); a determinate `NSProgressIndicator` bar on macOS
 the browser's `<progress>` on the web; and on Linux a painted bar, a 4-pixel
 track filled with the accent. `max` is 1 unless said (a number above 0), and
 `value` is held to 0 and `max`, as HTML holds it; both take numbers, bound or
-literal. Its box is HTML's: `10em` by `1em` (160 × 16 at 16 px), specified
-sizes, so a flex column or grid does not stretch it; write `width="100%"` for a
-full-width bar. The bar is centred in the box at its own thickness. Its role is
+literal. It is as wide as what holds it and `1em` tall: the compiler gives it
+`width: 100%`, as it gives `input type="range"`, since neither platform control
+has a width of its own (LLP 1115.000 D10.2). That is an ordinary CSS row, so a
+`width` you write replaces it, and in a `row` the bar or slider takes what the
+row's other children leave and shrinks below its own width to do so, while a
+label of several words beside it shrinks too and wraps: give the control
+`flex=1 min-width=0` and the label keeps its line. Where the percentage has
+nothing to resolve against (a box sized by its content), or under
+`width="auto"`, each is its intrinsic size: a progress `10em` by `1em` (160 × 16
+at 16 px), a range 129 wide. The bar is centred in the box at its own thickness. Its role is
 `progressbar`, its value the platform's (UIKit's "25%", AppKit's value of its
 maximum, the DOM's attributes); name it with `aria-label`, and `aria-valuetext`
 gives the words a reader speaks instead. A change of value eases on iOS, except
@@ -1054,7 +1061,7 @@ the bar's), and so are children, `type`, and `aria-valuenow`, `aria-valuemin`
 and `aria-valuemax` (`value` and `max` are its range).
 
 ```text
-progress value=glasses max=8 width="100%" aria-label="Water today"
+progress value=glasses max=8 aria-label="Water today"
 progress aria-label="Loading"
 progress width=37 height=37 color="#1083fe" aria-label="Loading posts"
 ```

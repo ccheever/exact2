@@ -1,3 +1,6 @@
 # The row's gap is the only space beside a control.
 tap space
 tap space
+# A full-width control follows what holds it, and gives way in a tighter row.
+tap squeeze
+tap squeeze

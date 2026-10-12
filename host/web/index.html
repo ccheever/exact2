@@ -81,8 +81,13 @@
      near black under a light accent (teal, mint, yellow) in light, near white under a dark one in dark. The element
      keeps no border (Firefox's UA would add 2 px to the box) or background, so an authored background is the box's,
      under the track, as on iOS. Firefox styles no track and puts its bar at the top of the box: there both are bands
-     centred in the box, square-ended. */
-  progress { display: block; appearance: none; border: none; background: none; }
+     centred in the box, square-ended.
+     Its size (LLP 1115.000 D10.2): the plan says `width: 100%`, so the bar is as wide as what holds it. Where that
+     percentage has nothing to resolve against (a shrink-to-fit box), or its author writes `width: auto` in a flex row,
+     it is its intrinsic size, `10em` by `1em`: a bare `<progress>` has none (it would be 0 wide), so size containment
+     gives it one, which is what the kernel measures. `min-width: 0` lets it shrink below that beside a row's other
+     children, as a percentage-wide range does of itself. */
+  progress { display: block; appearance: none; border: none; background: none; contain: size; contain-intrinsic-size: 10em 1em; min-width: 0; }
   progress::-webkit-progress-bar { position: relative; top: calc(50% - 2px); height: 4px; border-radius: 2px; background-color: var(--exact-fill, light-dark(#78788033, #7878805c)); }
   progress::-webkit-progress-value { border-radius: 2px; background-color: var(--exact-accent, AccentColor); }
   @supports (-moz-appearance: none) {

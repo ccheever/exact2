@@ -8,6 +8,12 @@
 //! (LLP 1116.001 D1), from the same Chrome on macOS, when the page gave them
 //! the field look: a border box 36 px tall, as a select is.
 //!
+//! The range and the determinate progress at `width: 100%`, which lowering
+//! writes for both (LLP 1115.000 D10.2), and the progress at `width: auto`
+//! and `height: auto`, were recorded on 2026-10-11 from Chrome 154.0.8037.98
+//! (macOS, headless), with the sheet's `contain-intrinsic-size` on the
+//! progress.
+//!
 //! Each case is a control with `display:block;margin:0` in a 400 px parent.
 //! The page uses `host/web/index.html`'s control reset. The intrinsic pairs
 //! below are Chrome's measured boxes; the matrix records how those boxes are
@@ -216,9 +222,21 @@ impl Variant {
 }
 
 fn laid_out(kind: Kind, context: Context, variant: Variant, report_intrinsic: bool) -> Kernel {
+    laid_out_as(kind, "", context, variant, report_intrinsic)
+}
+
+/// [`laid_out`] with `implied` under the variant's rows, as lowering writes
+/// a tag's own rows under its author's.
+fn laid_out_as(
+    kind: Kind,
+    implied: &str,
+    context: Context,
+    variant: Variant,
+    report_intrinsic: bool,
+) -> Kernel {
     let mut root = rows(context.root());
     root.push((StyleId::Width, n(400.0)));
-    let item = rows(&context.item(variant.css()));
+    let item = rows(&format!("{implied};{}", context.item(variant.css())));
     let mut ops = vec![
         Op::CreateView {
             id: 1,
@@ -305,12 +323,35 @@ fn controls_without_a_host_intrinsic_use_chromes_bare_defaults() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+/// LLP 1115.000 D10.2: a range is lowered `width: 100%`, and with that row
+/// it is as wide as what holds it in every placement, as Chrome's is; a
+/// variant's own `width` replaces the row. Its height is the control's.
+#[test]
+fn a_range_as_lowered_is_full_width_in_every_placement() {
+    let range = *KINDS.iter().find(|k| k.name == "range").unwrap();
+    let mut failures = Vec::new();
+    for context in Context::ALL {
+        for variant in Variant::ALL {
+            let kernel = laid_out_as(range, "width:100%", context, variant, true);
+            let (width, height) = RANGE_FULL[variant as usize];
+            failures.extend(mismatches(
+                &format!("range {} {}", context.name(), variant.name()),
+                &kernel,
+                &[(2, [0.0, 0.0, width, height])],
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 /// A determinate `progress` (`value` set) in each placement, its host
-/// reporting a size of its own (UIKit's bar is 4 points tall).
-fn progress_laid_out(context: Context, variant: Variant) -> Kernel {
+/// reporting a size of its own (UIKit's bar is 4 points tall). `implied` is
+/// under the variant's rows, as lowering writes a tag's rows under its
+/// author's.
+fn progress_laid_out(implied: &str, context: Context, variant: Variant) -> Kernel {
     let mut root = rows(context.root());
     root.push((StyleId::Width, n(400.0)));
-    let item = rows(&context.item(variant.css()));
+    let item = rows(&format!("{implied};{}", context.item(variant.css())));
     let mut ops = vec![
         Op::CreateView {
             id: 1,
@@ -352,25 +393,133 @@ fn progress_laid_out(context: Context, variant: Variant) -> Kernel {
     kernel
 }
 
-/// LLP 1116 D8: a determinate `progress` is Chrome's `<progress>` box in
-/// every placement. Its UA sheet's `width: 10em; height: 1em; box-sizing:
-/// border-box` are specified sizes, so a flex column or a grid keeps them
-/// where it stretches a range, and a host's own size does not move them.
-#[test]
-fn a_determinate_progress_is_chromes_ua_box_in_every_placement() {
+/// The boxes of a determinate `progress` whose rows under each variant's
+/// are `implied`, against `expected`, context by variant.
+fn progress_failures(implied: &str, expected: &[[(f32, f32); 10]; 6]) -> Vec<String> {
     let mut failures = Vec::new();
     for context in Context::ALL {
         for variant in Variant::ALL {
-            let kernel = progress_laid_out(context, variant);
-            let (width, height) = PROGRESS[context as usize][variant as usize];
+            let kernel = progress_laid_out(implied, context, variant);
+            let (width, height) = expected[context as usize][variant as usize];
             failures.extend(mismatches(
-                &format!("progress {} {}", context.name(), variant.name()),
+                &format!("progress `{implied}` {} {}", context.name(), variant.name()),
                 &kernel,
                 &[(2, [0.0, 0.0, width, height])],
             ));
         }
     }
+    failures
+}
+
+/// LLP 1115.000 D10.2: a determinate `progress` is lowered `width: 100%`,
+/// and with that row it is as wide as what holds it in every placement, as
+/// Chrome's `<progress>` is, `1em` tall in its border box (the UA sheet's
+/// height); a variant's own `width` replaces the row, and a host's own size
+/// does not move it.
+#[test]
+fn a_determinate_progress_as_lowered_is_full_width_in_every_placement() {
+    let failures = progress_failures("width:100%", &[PROGRESS_FULL; 6]);
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// What it falls back to. With `width: auto` it is a block of intrinsic
+/// size `10em` by `1em`: as wide as a block container or a stretching one
+/// (a flex column, a grid, between insets), and `10em` where CSS sizes a
+/// box by its content (a flex row's basis, an absolutely positioned box).
+/// With `height: auto` it is `1em` of content, so padding adds to it.
+#[test]
+fn a_determinate_progress_falls_back_to_10em_by_1em() {
+    let mut failures = progress_failures("width:auto", &PROGRESS_AUTO);
+    failures.extend(progress_failures(
+        "width:100%;height:auto",
+        &[PROGRESS_FULL_AUTO_HEIGHT; 6],
+    ));
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// LLP 1116 D8: with no width row at all (no plan has none: lowering writes
+/// one) a determinate `progress` is HTML's UA box in every placement. The
+/// UA sheet's `width: 10em; height: 1em; box-sizing: border-box` are
+/// specified sizes, so a flex column or a grid keeps them where it
+/// stretches a range, and a host's own size does not move them.
+#[test]
+fn a_determinate_progress_with_no_width_row_is_htmls_ua_box_in_every_placement() {
+    let failures = progress_failures("", &PROGRESS);
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// In a flex row a full-width range or progress gives way to its
+/// neighbours: both shrink below their intrinsic width, to what a sibling
+/// that does not shrink leaves (Chrome 154: 50 of a 200 px row beside a
+/// 150 px box; a percentage-wide range is compressible, and the page gives
+/// the progress `min-width: 0`). A range of `auto` width keeps its 129 and
+/// overflows, as Chrome's does.
+#[test]
+fn a_full_width_range_or_progress_shrinks_beside_a_rows_other_children() {
+    let squeezed = |ty: &str, value: bool, css: &str| {
+        let mut ops = vec![
+            Op::CreateView {
+                id: 1,
+                node_type: NodeType::View,
+            },
+            Op::SetStyle {
+                id: 1,
+                patch: Box::new(props(&rows("display:flex;width:200px"))),
+            },
+            Op::CreateView {
+                id: 2,
+                node_type: NodeType::View,
+            },
+            Op::SetStyle {
+                id: 2,
+                patch: Box::new(props(&rows("width:150px;height:10px;flex-shrink:0"))),
+            },
+            Op::CreateView {
+                id: 3,
+                node_type: NodeType::Control,
+            },
+            Op::SetStyle {
+                id: 3,
+                patch: Box::new(props(&rows(css))),
+            },
+            Op::SetProp {
+                id: 3,
+                prop: PropId::Type,
+                value: PropValue::Str(ty.into()),
+            },
+        ];
+        if value {
+            ops.push(Op::SetProp {
+                id: 3,
+                prop: PropId::Value,
+                value: PropValue::Str("0.5".into()),
+            });
+        }
+        ops.extend([
+            Op::SetChildren {
+                id: 1,
+                children: vec![2, 3],
+            },
+            Op::AttachRoot { id: 1 },
+        ]);
+        let mut kernel = Kernel::with_monospace();
+        kernel.apply(0, 1, &ops).unwrap();
+        kernel
+            .compute_layout(1, Offer::definite(800.0, 600.0))
+            .unwrap();
+        let frame = kernel.node(3).unwrap().frame;
+        (frame.x, frame.width)
+    };
+    assert_eq!(squeezed("range", false, "width:100%"), (150.0, 50.0));
+    assert_eq!(squeezed("range", false, "width:50%"), (150.0, 50.0));
+    assert_eq!(squeezed("range", false, "width:auto"), (150.0, 129.0));
+    assert_eq!(
+        squeezed("range", false, "width:100%;min-width:80px"),
+        (150.0, 80.0),
+        "an authored minimum is the author's"
+    );
+    assert_eq!(squeezed("progress", true, "width:100%"), (150.0, 50.0));
+    assert_eq!(squeezed("progress", true, "width:auto"), (150.0, 50.0));
 }
 
 /// The bar's `em`s follow its font size, and a `value` given or taken makes
@@ -904,9 +1053,36 @@ const DATETIME_LOCAL: [[(f32, f32); 10]; 6] = [
     [(247.0, 36.0), (300.0, 36.0), (247.0, 36.0), (247.0, 123.5), (300.0, 56.0), (247.0, 40.0), (247.0, 40.0), (247.0, 10.0), (247.0, 36.0), (247.0, 36.0)],
     [(400.0, 36.0), (300.0, 36.0), (300.0, 36.0), (400.0, 200.0), (300.0, 56.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 36.0), (300.0, 36.0)],
 ];
-// `<progress value=0.5>` (no `max`), recorded the same way from Chrome
-// 154.0 (macOS, headless) on 2026-10-10 (LLP 1116 D8): every context the
-// same, as its UA width and height are specified, not intrinsic.
+// A range at `width: 100%` (LLP 1115.000 D10.2), variant by variant: the
+// same in every context, since a percentage resolves against the 400 px
+// parent whatever lays the range out.
+#[rustfmt::skip]
+const RANGE_FULL: [(f32, f32); 10] =
+    [(400.0, 16.0), (300.0, 16.0), (300.0, 20.0), (400.0, 200.0), (320.0, 36.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 16.0), (300.0, 16.0)];
+// `<progress value=0.5>` at `width: 100%`: every context the same. Its
+// height is the UA sheet's `1em` in a border box, so `aspect-ratio` and
+// padding do not move it.
+#[rustfmt::skip]
+const PROGRESS_FULL: [(f32, f32); 10] =
+    [(400.0, 16.0), (300.0, 16.0), (300.0, 20.0), (400.0, 16.0), (300.0, 20.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 16.0), (300.0, 16.0)];
+// At `width: 100%; height: auto`: `1em` of content, which a ratio replaces
+// and padding adds to.
+#[rustfmt::skip]
+const PROGRESS_FULL_AUTO_HEIGHT: [(f32, f32); 10] =
+    [(400.0, 16.0), (300.0, 16.0), (300.0, 20.0), (400.0, 200.0), (300.0, 36.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 16.0), (300.0, 16.0)];
+// At `width: auto`: a block of intrinsic size 10em by 1em.
+#[rustfmt::skip]
+const PROGRESS_AUTO: [[(f32, f32); 10]; 6] = [
+    [(400.0, 16.0), (300.0, 16.0), (300.0, 20.0), (32.0, 16.0), (300.0, 20.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 16.0), (300.0, 16.0)],
+    [(160.0, 16.0), (300.0, 16.0), (160.0, 20.0), (32.0, 16.0), (300.0, 20.0), (160.0, 40.0), (160.0, 40.0), (160.0, 10.0), (160.0, 16.0), (160.0, 16.0)],
+    [(400.0, 16.0), (300.0, 16.0), (300.0, 20.0), (400.0, 16.0), (300.0, 20.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 16.0), (300.0, 16.0)],
+    [(400.0, 16.0), (300.0, 16.0), (300.0, 20.0), (32.0, 16.0), (300.0, 20.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 16.0), (300.0, 16.0)],
+    [(160.0, 16.0), (300.0, 16.0), (160.0, 20.0), (32.0, 16.0), (300.0, 20.0), (160.0, 40.0), (160.0, 40.0), (160.0, 10.0), (160.0, 16.0), (160.0, 16.0)],
+    [(400.0, 16.0), (300.0, 16.0), (300.0, 20.0), (32.0, 16.0), (300.0, 20.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 16.0), (300.0, 16.0)],
+];
+// `<progress value=0.5>` (no `max`) with no width row, recorded the same
+// way from Chrome 154.0 (macOS, headless) on 2026-10-10 (LLP 1116 D8): every
+// context the same, as its UA width and height are specified, not intrinsic.
 #[rustfmt::skip]
 const PROGRESS: [[(f32, f32); 10]; 6] = [
     [(160.0, 16.0), (300.0, 16.0), (160.0, 20.0), (160.0, 16.0), (300.0, 20.0), (160.0, 40.0), (160.0, 40.0), (160.0, 10.0), (160.0, 16.0), (160.0, 16.0)],

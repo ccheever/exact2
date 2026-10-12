@@ -98,3 +98,43 @@ fn a_checkbox_a_radio_and_a_range_have_no_margin_of_their_own() {
         assert!(margins.is_empty(), "{id}: {margins:?}");
     }
 }
+
+/// D10.2: a range and a determinate `progress` are framed as wide as what
+/// holds them, by the plan's `width: 100%`: the presenter is sent that
+/// frame and lays its slider or bar across it, widening nothing itself. The
+/// row is the compiler's, so it is not among the written ones (LLP 1115.000
+/// D2); an authored width is.
+#[test]
+fn a_range_and_a_determinate_progress_are_full_width() {
+    let (host, ops) = boot(
+        r#"component App
+  view
+    column width=400 testId="root"
+      input type="range" testId="range"
+      progress value=0.5 testId="bar"
+      row testId="row"
+        box width=100 height=10 flex-shrink=0
+        input type="range" testId="row-range"
+      input type="range" width=90 testId="narrow"
+      row
+        column
+          input type="range" testId="fit-range"
+        column
+          progress value=0.5 testId="fit-bar"
+"#,
+    );
+    let width = |id: &str| frame(&host, &ops, id)[2];
+    assert_eq!(width("range"), 400.0);
+    assert_eq!(width("bar"), 400.0);
+    assert_eq!(frame(&host, &ops, "bar")[3], 16.0, "1em tall");
+    assert_eq!(width("row-range"), 300.0, "what the row's box leaves");
+    assert_eq!(width("narrow"), 90.0, "an authored width wins");
+    assert_eq!(width("fit-range"), 129.0, "its own width");
+    assert_eq!(width("fit-bar"), 160.0, "10em");
+    let written = |id: &str| {
+        let node = host.runner().kernel().node(view(&host, id)).unwrap();
+        node.style.written.has(exact_kernel::StyleId::Width)
+    };
+    assert!(!written("range") && !written("bar"), "the compiler's row");
+    assert!(written("narrow"), "the author's");
+}

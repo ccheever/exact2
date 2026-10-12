@@ -260,6 +260,18 @@ pub fn media_accept(token: &str) -> bool {
     })
 }
 
+/// A range and a determinate `progress` are full width (LLP 1115.000 D10.2).
+/// Neither platform control has a width of its own (`UISlider`,
+/// `UIProgressView` and `NSSlider` take the width they are given), so each is
+/// lowered `width: 100%`: an ordinary row the compiler implies, not the
+/// author's (LLP 1115.000 D2), and CSS decides the rest on every host. An
+/// authored `width` replaces it; `flex=1` takes what a row's other children
+/// leave; and where a percentage has nothing to resolve against (a
+/// shrink-to-fit box), or the author writes `width="auto"`, the control
+/// falls back to its intrinsic size: 129 for a range, `10em` by `1em` for a
+/// progress (`kernel/src/control.rs`). No host widens either itself.
+pub(crate) const FULL_WIDTH: &[(StyleId, &str)] = &[(StyleId::Width, "100%")];
+
 /// The tag an `input` control lowers with (a `select` keeps its own).
 pub(crate) fn tag(kind: &str, t: Tag) -> Tag {
     match kind {
@@ -294,10 +306,11 @@ pub(crate) fn tag(kind: &str, t: Tag) -> Tag {
             fixed_props: &[(PropId::AccessibilityRole, "radio")],
             positional: None,
         },
-        // A range: ARIA's role.
+        // A range: ARIA's role, and the width of what holds it
+        // ([`FULL_WIDTH`]).
         "range" => Tag {
             node_type: NodeType::Control,
-            fixed_styles: &[],
+            fixed_styles: FULL_WIDTH,
             fixed_props: &[(PropId::AccessibilityRole, "slider")],
             positional: None,
         },
