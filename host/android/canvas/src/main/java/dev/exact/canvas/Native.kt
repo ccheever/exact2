@@ -88,8 +88,16 @@ object Native {
     @JvmStatic external fun scrollers(): IntArray?
     /** A touch (0 down, 1 up, 2 move, 3 cancel) at the view's pixels, and what touched: the event's tool type
      * ([android.view.MotionEvent.getToolType]). A finger is reported to the app as a touch that hovers nothing and
-     * leaves no focus ring, a mouse as a mouse (LLP 1115.001 D7.4). */
+     * leaves no focus ring, a mouse as a mouse (LLP 1115.001 D7.4). Action 4 is no new touch: the one that is down
+     * has been held still for the system's long-press time ([android.view.ViewConfiguration.getLongPressTimeout]).
+     * What names a context menu there opens it (D10), and that touch then presses nothing when it lifts. */
     @JvmStatic external fun touch(action: Int, x: Float, y: Float, tool: Int)
+    /** What happened in the window the reader made for surface [serial] of the top layer ([Surfaces], LLP 1115.001
+     * D10), on the host's thread: a touch ([what] 0 down, 1 up, 2 move, 3 cancel) at ([x], [y]), pixels from the
+     * window's own top left; the system dismissed the window (8: a tap outside a menu, Back, Escape); the reader
+     * could not make it (9); a key (16 Enter, 17 Tab, 18 Shift+Tab, 19 to 22 the arrows up, down, left and right, 23
+     * Space). What is said of a surface that is no longer the one open is dropped. */
+    @JvmStatic external fun surface(serial: Int, what: Int, x: Float, y: Float)
     /** One slice ([budgetUs] of shaping) of laying out what the touch that is down would open; whether more is left. */
     @JvmStatic external fun ahead(budgetUs: Int): Boolean
     @JvmStatic external fun copyImage(id: Int, bitmap: Bitmap): Boolean

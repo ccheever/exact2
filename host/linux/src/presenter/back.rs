@@ -23,9 +23,11 @@
 //! Back by ([`Presenter::back_key`]), whose default action it is.
 //!
 //! Before the route come the soft keyboard, which Android closes itself, and
-//! the top layer (an open menu, dialog or sheet closes: D6 step 2), which
-//! this presenter does not have yet (D10): it attaches at the head of
-//! [`Presenter::system_back`]. [`Presenter::back_goes`] is what the shell's
+//! the top layer: an open menu or alert closes first (D6 step 2, D10;
+//! `top.rs`), at the head of [`Presenter::system_back`]. On Android the
+//! surface is a window of its own, so the system sends Back to it and the
+//! shell says it was dismissed; this is the same step for a Back that
+//! reaches the presenter. [`Presenter::back_goes`] is what the shell's
 //! back callback is enabled by: the presenter tells the shell whenever it
 //! changes (`requests.rs`, D5), so Back at the first screen is the system's.
 use super::*;
@@ -166,14 +168,17 @@ impl<D: DataSource> Presenter<D> {
     /// is enabled by, so that Back with nowhere to go leaves the app with
     /// the system's own animation (D6).
     pub fn back_goes(&self) -> bool {
-        self.back().is_some()
+        self.top_open() || self.back().is_some()
     }
 
     /// System Back at `now_ms`: whether the app took it. `false` is the
     /// shell's to act on (Android finishes the activity).
     pub fn system_back(&mut self, now_ms: f64) -> bool {
-        // D6 step 2, when this presenter has a top layer (D10): an open
-        // menu, dialog or sheet closes here, before any route is asked.
+        // D6 step 2: an open surface of the top layer (D10) closes before
+        // any route is asked, where its own rule lets Back close it.
+        if self.dismiss_surface(now_ms) {
+            return true;
+        }
         let Some(back) = self.back() else {
             return false;
         };

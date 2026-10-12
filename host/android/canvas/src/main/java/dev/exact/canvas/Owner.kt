@@ -439,6 +439,19 @@ internal object Exact {
     fun fieldSelected(id: Int, generation: Int, start: Int, end: Int) = field { Native.fieldSelected(id, generation, start, end) }
     fun fieldAction(id: Int, generation: Int, action: Int) = field { Native.fieldAction(id, generation, action) }
 
+    /** What happened in the window of surface [serial] of the top layer ([Surfaces], [Native.surface], LLP 1115.001
+     * D10): told on exact2's thread, in order. exact2 answers with the surface painted again or closed (a request,
+     * [Requests]) and with whatever a chosen row's handler changed in the page (a stream). */
+    fun surface(serial: Int, what: Int, x: Float, y: Float) {
+        val o = owner
+        if (o != null) { if (what != 2) o.input(); o.call { Native.surface(serial, what, x, y) } }
+        else { Native.surface(serial, what, x, y); turned() }
+    }
+
+    /** When the last touch lifted, or was held long enough to be a long press ([android.os.SystemClock.uptimeMillis]):
+     * what a surface's first frame is timed from (`x_log_surfaces=1`). */
+    var touched = 0L
+
     /** The answer to a request exact2 made ([Native.answer]), or its cancellation (null): on exact2's thread. */
     fun answer(id: Int, answer: String?) {
         val o = owner

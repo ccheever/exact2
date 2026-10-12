@@ -34,7 +34,11 @@ impl<D: DataSource + Default> CanvasHost<D> {
 
     /// A touch (0 down, 1 up, 2 move, 3 cancel) at pixels, by Android's
     /// tool type `tool`: a mouse (3) is a mouse, a stylus or its eraser (2,
-    /// 4) a pen, and anything else a finger.
+    /// 4) a pen, and anything else a finger. Action 4 is no new touch: the
+    /// one that is down has been held still for the system's long-press
+    /// time, which the reader measures; what names a context menu there
+    /// takes it ([`crate::presenter::Presenter::long_press`]), and the
+    /// touch then presses nothing when it lifts.
     pub fn touch(&mut self, action: i32, x: f32, y: f32, tool: i32) {
         let _s = Section::begin(c"exact touch");
         self.p.set_pointer_kind(match tool {
@@ -55,6 +59,10 @@ impl<D: DataSource + Default> CanvasHost<D> {
             0 => self.p.pointer_down(x, y, now).map(|_| ()),
             1 => self.p.pointer_up(x, y, now).map(|_| ()),
             2 => self.p.pointer_move(x, y, now).map(|_| ()),
+            4 => {
+                self.p.long_press(x, y, now);
+                Ok(())
+            }
             _ => self.p.pointer_cancel(now),
         };
         self.touched(action, x, y, now, r);

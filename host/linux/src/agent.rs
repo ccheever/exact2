@@ -236,6 +236,14 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                 if let Some(hatches) = p.hatch_state() {
                     s.push_str(&format!(",\"hatches\":{hatches}"));
                 }
+                // The top layer's open surface (LLP 1115.001 D10): each row's
+                // authored node and its box in the surface's window, which
+                // `tap` takes by that node. No shell makes windows here.
+                let surface = match p.has_windows() {
+                    true => p.surface_json(),
+                    false => serde_json::json!({"unavailable": true}),
+                };
+                s.push_str(&format!(",\"surface\":{surface}"));
                 s.push_str(
                     ",\"keyboard\":{\"unavailable\":true},\"navigation\":{\"unavailable\":true}}",
                 );

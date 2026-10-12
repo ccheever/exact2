@@ -84,6 +84,11 @@ impl<D: DataSource> Presenter<D> {
                 name @ ("showOpenFilePicker" | "showDirectoryPicker" | "showSaveFilePicker") => {
                     self.document_picker(name, &c.args)
                 }
+                // The top layer, where a shell presents one (LLP 1115 D6;
+                // LLP 1115.001 D10): a confirmation by its `id`, and its
+                // close. With none, both stay as they were below.
+                "showModal" if self.has_windows() => self.show_modal(&c.args, c.source),
+                "close" if self.has_windows() && !c.args.is_empty() => self.close_modal(&c.args),
                 // The shell's clipboard, and its browser, mail app and dialer.
                 "copyText" if self.has_shell() => self.copy_text(&c.args),
                 "openURL" if self.has_shell() => self.open_url(&c.args),

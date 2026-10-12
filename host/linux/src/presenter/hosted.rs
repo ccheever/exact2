@@ -415,6 +415,15 @@ impl<D: DataSource> Presenter<D> {
         if !self.hosted_live(id, generation) {
             return;
         }
+        // Under an open surface of the top layer the page is inert (LLP
+        // 1115.001 D10): a field there is not given the focus, whatever
+        // made its view take it (a hardware key ends touch mode, and the
+        // platform then focuses the window's first focusable view). The
+        // shell is told again that no field holds it, which blurs the view.
+        if focused && self.top_open() {
+            self.keyboard_changed();
+            return;
+        }
         let next = match focused {
             true if self.focusable(id) => Some(id),
             false if self.focus == Some(id) => None,

@@ -569,9 +569,13 @@ impl<D: DataSource> Presenter<D> {
             return Some(select);
         }
         let hit = self.hit(x, y)?;
-        if crate::navigation::popover_invoker(self.host.kernel(), hit) {
-            self.host.log(crate::navigation::POPOVER_UNSUPPORTED);
-            return None;
+        // A popover's invoker, or a dialog's button: the top layer's, where
+        // a shell presents one (`presenter/top.rs`); else refused.
+        if let Some(invoker) = self.top_invoker(hit) {
+            if self.has_windows() {
+                self.focus_for_press(hit, now_ms);
+            }
+            return self.invoke(invoker, now_ms);
         }
         if self.brush.region_blocks_action(hit) {
             return self.retained_press(hit, now_ms);

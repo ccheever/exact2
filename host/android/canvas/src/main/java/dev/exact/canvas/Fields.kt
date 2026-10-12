@@ -547,6 +547,16 @@ internal class Fields(context: Context) : FrameLayout(context) {
 
     private fun hide() { imm.hideSoftInputFromWindow(windowToken, 0) }
 
+    /** A surface of the top layer is over the page ([on]), or no longer ([Surfaces], LLP 1115.001 D10). Under one
+     * the page is inert, so no field can take the focus, whatever would hand it one: a hardware key ends touch mode,
+     * and the platform then focuses the window's first focusable view, which is a field (seen on a Pixel: Tab in an
+     * alert put a caret in the field under its scrim, and the keyboard rose when the alert closed). exact2 refuses
+     * such a focus too (`Presenter::reader_field_focused`); this keeps the view from taking it at all. */
+    fun covered(on: Boolean) {
+        descendantFocusability = if (on) FOCUS_BLOCK_DESCENDANTS else FOCUS_AFTER_DESCENDANTS
+        if (on) blur()
+    }
+
     // Touches.
 
     private var state = NONE

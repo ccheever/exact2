@@ -618,6 +618,8 @@ macro_rules! canvas_jni {
             /// A touch (0 down, 1 up, 2 move, 3 cancel) at the view's
             /// pixels, and what touched: Android's tool type (1 a finger,
             /// 2 a stylus, 3 a mouse, 4 an eraser; LLP 1115.001 D7.4).
+            /// Action 4: the touch that is down was held for the system's
+            /// long-press time (a context menu opens, D10).
             #[no_mangle]
             pub unsafe extern "system" fn Java_dev_exact_canvas_Native_touch(
                 _env: *mut JNIEnv,
@@ -628,6 +630,25 @@ macro_rules! canvas_jni {
                 tool: jint,
             ) {
                 with(|h| h.touch(action, x, y, tool));
+            }
+
+            /// What happened in the window the reader made for surface
+            /// `serial` of the top layer (LLP 1115.001 D10;
+            /// `presenter::top::event`): a touch (0 down, 1 up, 2 move, 3
+            /// cancel) at (`x`, `y`), pixels from the window's top left;
+            /// the system dismissed the window (8: a tap outside a menu,
+            /// Back, Escape); the reader could not make it (9); a key (16
+            /// Enter, 17 Tab, 18 Shift+Tab, 19 to 22 the arrows, 23 Space).
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_surface(
+                _env: *mut JNIEnv,
+                _class: jclass,
+                serial: jint,
+                what: jint,
+                x: jfloat,
+                y: jfloat,
+            ) {
+                with(|h| h.surface(serial as u32, what, x, y));
             }
 
             /// One slice of laying out what the touch that is down would

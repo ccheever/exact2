@@ -170,6 +170,8 @@ mod shadow;
 mod slot;
 #[path = "canvas/stream.rs"]
 mod stream;
+#[path = "canvas/surface.rs"]
+mod surface;
 pub use picture::Picture;
 use picture::WeakPicture;
 pub use stream::drawing;
@@ -1127,8 +1129,10 @@ impl<D: DataSource + Default> CanvasHost<D> {
         if let Some(e) = device::configured().and_then(|d| p.set_device(&d)) {
             eprintln!("exact: device: {e}");
         }
-        // The reader takes what the presenter asks of the platform (D5).
+        // The reader takes what the presenter asks of the platform (D5),
+        // and makes the top layer's windows (D10).
         p.serve_requests();
+        p.serve_windows(Box::new(surface::Windows));
         if let Some(palette) = &palette {
             p.set_palette(palette);
         }
