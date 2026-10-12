@@ -276,7 +276,7 @@ fn a_hyphenated_name_no_built_in_has_says_so_before_the_module_note() {
 
 #[test]
 fn the_host_commands_are_listed_and_answer_by_name() {
-    let all = stdout(&vocab(&[]));
+    let all = stdout(&vocab(&["--all"]));
     assert!(all.contains("host commands ("), "{all}");
     assert!(all.contains("setRootFontSize"), "{all}");
     let one = stdout(&vocab(&["setRootFontSize"]));
@@ -366,7 +366,7 @@ fn a_function_the_web_has_and_contract_refuses_says_what_to_write() {
 
 #[test]
 fn the_functions_are_listed_and_in_the_json() {
-    let all = stdout(&vocab(&[]));
+    let all = stdout(&vocab(&["--all"]));
     let count = exact_plan::Stdlib::ALL.len();
     assert!(
         all.contains(&format!("standard functions ({count})")),
@@ -529,6 +529,50 @@ fn a_content_part_says_its_props_and_what_it_draws() {
     assert_eq!(json["part"]["props"][1], "status: string");
 }
 
+/// LLP 1116.010 D1: `contract vocab` with no name is the card, at most 8 KB,
+/// with every function, the tags, each part's call, the test steps, the agent's
+/// operations and the rules builders grepped for; `--all` is the full listing.
+#[test]
+fn no_name_prints_the_card_and_all_prints_every_table() {
+    let card = stdout(&vocab(&[]));
+    assert!(card.len() <= 8 * 1024, "the card is {} bytes", card.len());
+    for want in [
+        "functions: call -> result",
+        "parseNumber(text) -> option<number>",
+        "formatNumber(n,",
+        "tags: attributes; on events",
+        "input: value type inputmode min max step",
+        "parts: use X from \"exact:content\"",
+        "EmptyState(symbol=\"symbol:sparkles\"",
+        "test steps",
+        "expect text \"id\"",
+        "ops: a target is a testId",
+        "tap <target>",
+        "persist",
+        "negative `min` gives the pad its ± key",
+        "symbol roles: back close",
+        "idioms, whole with their code",
+    ] {
+        assert!(card.contains(want), "{want} missing:\n{card}");
+    }
+    // No SVG filter primitive: the listing has them, the card is what an app writes.
+    assert!(!card.contains("feGaussianBlur"), "{card}");
+    let all = stdout(&vocab(&["--all"]));
+    assert!(all.len() > 20 * 1024, "{} bytes", all.len());
+    assert!(all.contains("feGaussianBlur"), "{all}");
+    assert!(all.contains("tags ("), "{all}");
+    // The usage names both.
+    let help = stdout(&vocab(&["--help"]));
+    assert!(
+        help.contains("[--all]") && help.contains("the card"),
+        "{help}"
+    );
+    // A name still answers alone, and the JSON is unchanged.
+    assert!(stdout(&vocab(&["EmptyState"])).contains("call EmptyState("));
+    let json: Value = serde_json::from_str(&stdout(&vocab(&["--json"]))).unwrap();
+    assert!(json["tags"].is_array());
+}
+
 /// LLP 1116.010 D3: `min`, `max` and `step` say a number of either sign is
 /// their text on an `input`, and where the decimal pad's ± key comes from.
 #[test]
@@ -658,7 +702,7 @@ fn concepts_answer_together_after_the_tags_of_their_name() {
     let every = stdout(&vocab(&["every"]));
     assert!(every.starts_with("`every` is refused"), "{every}");
     assert!(every.contains("every(1000, tick)"), "{every}");
-    let all = stdout(&vocab(&[]));
+    let all = stdout(&vocab(&["--all"]));
     assert!(
         all.contains("concepts (") && all.contains("  choice "),
         "{all}"

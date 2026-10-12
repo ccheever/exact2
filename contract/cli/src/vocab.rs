@@ -13,6 +13,7 @@
 //! entries of a tag or attribute of the same name (`concepts.md`, LLP
 //! 1116.004 D5.1).
 
+mod card;
 mod concepts;
 
 use concepts::Concept;
@@ -24,10 +25,11 @@ use exact_kernel::{PropId, StyleId};
 use serde_json::{json, Value};
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: contract vocab [--json] [<name> …]";
+const USAGE: &str = "usage: contract vocab [--json] [--all] [<name> …]\n  no name: the card, what an app writes, in one read; --all: every tag, attribute and function\n  names: each one's entry in turn (exit 1 if one is unknown); --json: everything, as JSON";
 
 pub fn run(args: &[String]) -> ExitCode {
     let mut json = false;
+    let mut all = false;
     let mut names = Vec::new();
     for arg in args {
         match arg.as_str() {
@@ -36,6 +38,7 @@ pub fn run(args: &[String]) -> ExitCode {
                 return ExitCode::SUCCESS;
             }
             "--json" => json = true,
+            "--all" => all = true,
             // A vendor-prefixed name (`-exact-fit`, `-webkit-line-clamp`) is a name, not a flag.
             _ if !arg.starts_with('-') || (arg.len() > 2 && !arg.starts_with("--")) => {
                 names.push(arg.as_str())
@@ -51,8 +54,12 @@ pub fn run(args: &[String]) -> ExitCode {
             println!("{:#}", everything());
             ExitCode::SUCCESS
         }
-        [] => {
+        [] if all => {
             print!("{}", listing());
+            ExitCode::SUCCESS
+        }
+        [] => {
+            print!("{}", card::card());
             ExitCode::SUCCESS
         }
         [name] if json => {
