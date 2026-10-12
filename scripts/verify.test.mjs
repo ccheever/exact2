@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { applyPattern, createApp } from '../game/new.mjs';
 import { chromium } from './agent-launch.mjs';
-import { appServer, groups, judgeRelaunch, relaunchStore, report, serverUrl, shotName } from './verify.mjs';
+import { appServer, groups, judgeRelaunch, pinnedLaunch, relaunchStore, report, serverUrl, shotName } from './verify.mjs';
 
 const SIZES = [[390, 844], [1280, 900]];
 const runs = (lines, screen) => SIZES.flatMap((size) => ['light', 'dark'].map((scheme) => ({ ...(screen ? { screen } : {}), size, scheme, asked: scheme, lines: lines(size, scheme), hidden: 0 })));
@@ -117,6 +117,27 @@ test('the relaunch: the store of a passing test that wrote the most; what came b
   assert.deepEqual(judgeRelaunch(results[1], fresh, after(['Decks', 'No decks yet.'], { decks: [{ id: '1' }] }), {}).problems, []);
   const slow = judgeRelaunch(results[1], fresh, after(['Decks']), { busy: ['decks'], failed: { cards: 'a refused shape' } });
   assert.deepEqual(slow.problems.map((p) => p.trim().split(/\s+/)[0]), ['loading', 'failed']);
+});
+
+// LLP 1116.007 D3.4: a test that pinned its date left data a month-filtered screen shows only under that date, so the
+// relaunch is made under the test's launch facts and compared with a fresh launch under them; only a test whose facts
+// are not the driver's own asks for that second fresh launch.
+test('the relaunch keeps a test\'s pinned date, zone, locale and seed', () => {
+  const defaults = { epoch: Date.parse('2026-01-01T00:00:00Z'), timeZone: 'UTC', locale: 'en-US', seed: 1 };
+  const test = (launch) => ({ name: 'saves', failures: [], store: 's', end: { keep: true, resources: {}, ops: 3, launch } });
+  assert.equal(pinnedLaunch(test(defaults), defaults), false);
+  assert.equal(pinnedLaunch(test({ ...defaults, epoch: Date.parse('2026-10-12T12:00:00Z') }), defaults), true);
+  assert.equal(pinnedLaunch(test({ ...defaults, timeZone: 'Pacific/Auckland' }), defaults), true);
+  assert.equal(pinnedLaunch(test({ ...defaults, locale: 'fr-FR' }), defaults), true);
+  assert.equal(pinnedLaunch(test({ ...defaults, seed: 7 }), defaults), true);
+  assert.equal(pinnedLaunch({ name: 'saves', end: { keep: true } }, defaults), false); // a test run without launch facts
+
+  // The relaunch under October is compared with a fresh launch under October: the month's title is October's in both, so
+  // the entry's coming back, or its loss, is all that differs.
+  const october = (month) => ({ texts: new Set(['October 2026', ...month]), resources: { month: { title: 'October 2026', count: month.length } }, slots: {}, ops: 1 });
+  const saved = { ...test(defaults), end: { ...test(defaults).end, resources: october(['A fresh start.']).resources } };
+  assert.deepEqual(judgeRelaunch(saved, october([]), october(['A fresh start.'])).problems, []);
+  assert.equal(judgeRelaunch(saved, october([]), october([])).problems.length, 1);
 });
 
 test('the compiler\'s warnings: a group before the tests, capped as findings are, counted as findings', () => {
