@@ -109,7 +109,7 @@ and this one does not. Read them first.
   pixel. `apps/caltrain/gpu` is the app's module: the aurora, the glass and the
   deck. The line map left it for Canvas 2D (LLP 1056), drawn by the data crate.
 - `vendor/taffy/` — Taffy 0.9.2 plus six Exact patches (`EXACT-PATCHES.md`).
-- `scripts/` — `caps` and `boot` (two of the five checks), `metrics` (the startup and
+- `scripts/` — `caps` and `boot` (two of the six checks), `metrics` (the startup and
   speed numbers in one run, diagnostic), `issue` (filesystem issues, `docs/issues.md`),
   and `exact.mjs` (`exact new`, `setup`, `contract`, `run`, `install`).
 - `docs/` — the guides for people and agents building apps: `start-here.md` (the one
@@ -142,9 +142,9 @@ motion parity harness, the resident dev driver — the same day again, LLP 1007
 operations once in the runner, one export on each ABI, one driver with a carrier
 per host, and the smoke as a script of its operations.)
 
-## The five checks
+## The six checks
 
-`build` · `test` · `lint` · `caps` · `boot`
+`build` · `test` · `lint` · `caps` · `boot` · `workspace`
 
 ```sh
 cargo build --all-targets --keep-going
@@ -152,10 +152,15 @@ cargo test --lib --bins --tests --no-fail-fast
 cargo clippy --all-targets --keep-going -- -D warnings; cargo fmt --all -- --check
 bun scripts/caps.mjs
 bun scripts/boot.mjs   # counts the module graph before first pixel: host glue only, no app JS
+cargo check --workspace --all-targets --keep-going   # every crate compiles; the pinned Bun first on PATH
 ```
 
-Cargo's three cover the root `default-members` (deterministic, in-process
-crates). The async lane runs them with `--workspace`, tests the separate
+Cargo's first three cover the root `default-members` (deterministic, in-process
+crates). The sixth (Charlie, 2026-10-12) compiles every crate of the workspace and
+runs none of their tests: on 2026-10-11 `exact-web-js` and `exact-linux`'s tests
+did not compile on `main` while the five passed. App crates' build scripts run
+Bun, so an older one than `package.json` pins fails it. The async lane runs the
+first three with `--workspace`, tests the separate
 `game/Cargo.toml` workspace with `--locked --no-fail-fast`, runs UIKit XCTests and touch smoke
 when the coalesced commit range changes anything outside documentation-only paths
 (`llp/`, `issues/`, `rules/`, `docs/`, `QUEUE.md`, or a `*.md` file). This includes

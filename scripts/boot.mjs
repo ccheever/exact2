@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * boot — the fifth check (rules/RULES.md §The five checks): parse and count
+ * boot — the fifth check (rules/RULES.md §The six checks): parse and count
  * the module graph reachable before first pixel. A count cannot flake like a
  * timer, and parsing keeps valid HTML/ESM spellings from bypassing the count.
  */

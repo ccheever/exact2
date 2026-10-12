@@ -1411,8 +1411,8 @@ async function main(args) {
 
 /** `--test`: the Swift host tests (LLP 1033 D4a). They link `ExactKit`,
  *  which links an app's archive, so cargo builds one first — Caltrain's by
- *  default, any app's by name. Not one of the five checks (`rules/RULES.md`
- *  caps those at five); run it when the host's own behaviour changes. With
+ *  default, any app's by name. Not one of the six checks (`rules/RULES.md`
+ *  caps those at six); run it when the host's own behaviour changes. With
  *  `--ios`, the UIKit tests (`*IOSTests.swift`) through xcodebuild on a
  *  simulator: `--sim`/EXACT_SIM, else one that is not running (another
  *  session may be driving a booted one), shut down again only if booted here.

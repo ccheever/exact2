@@ -1073,7 +1073,7 @@ in a file per secret only the user can read (`0600`, under
 read is synchronous, and a scripted drive never keeps them. A best time is not
 a secret: keep it in app storage.
 
-## The five checks
+## The six checks
 
 ```sh
 cargo build --all-targets --keep-going                                  # build
@@ -1082,14 +1082,21 @@ cargo clippy --all-targets --keep-going -- -D warnings                  # lint, 
 cargo fmt --all -- --check                                              # lint (run both)
 bun scripts/caps.mjs                                                   # caps
 bun scripts/boot.mjs                                                   # boot graph
+cargo check --workspace --all-targets --keep-going                      # workspace
 ```
 
-Cargo's checks cover the root `default-members`: the deterministic, in-process
+The first three cover the root `default-members`: the deterministic, in-process
 crates, the web host's and the Apple host's Rust among them (the Apple host's
 real-socket, wall-clock and toolchain-launching tests are `async lane:`; a test
-may still re-run its own binary to isolate its environment). The async lane runs the same commands with
+may still re-run its own binary to isolate its environment). The sixth compiles
+every crate and target of the workspace and runs none of their tests: without it
+a crate outside `default-members` can stop compiling on `main` while the other
+five pass, as `exact-web-js` and `exact-linux`'s tests did on 2026-10-11. It
+needs the pinned Bun first on `PATH` (or named by `BUN`): app crates' build
+scripts run Bun, and under an older one each fails with `Bun <version> is older
+than …`. The async lane runs the first three with
 `--workspace` (the other hosts, GPU, Hermes, platform shells, stress fixtures),
-and tests the separate game workspace with
+which covers the sixth, and tests the separate game workspace with
 `cargo test --manifest-path game/Cargo.toml --workspace --locked --lib --bins --tests`.
 Changes to Apple host files, its Cargo path dependencies, or apps trigger the
 iOS simulator tests and touch smoke. Docs-only changes do not. The hourly

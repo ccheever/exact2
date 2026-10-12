@@ -42,20 +42,29 @@ writing apps should therefore say less — structure (a header's heading and but
   Rolldown remains the app bundler. Node and npm are not required.
 - The web artifacts (`app.wasm`, the Markdown editor, text flow) build with a pinned
   nightly (`WEB_TOOLCHAIN` in `scripts/app.mjs`) that builds std for size; everything
-  else is `rust-toolchain.toml`'s stable, which the five checks use. `build.mjs`
+  else is `rust-toolchain.toml`'s stable, which the six checks use. `build.mjs`
   names the install commands when the nightly or its `rust-src` is missing.
 
 - `kernel/tables/schema.json` is the one declaration authority; `kernel/build.rs`
   generates from it. Edit the table, never generated code.
 - Every source file ≤ 1,500 lines. Stage (`git add -A`) and run `bun scripts/caps.mjs`.
 - Writing or changing a test: read `docs/testing.md` (waits, isolation, coverage, measuring).
-- The five checks: `cargo build --all-targets --keep-going` ·
+- The six checks: `cargo build --all-targets --keep-going` ·
   `cargo test --lib --bins --tests --no-fail-fast` · `cargo clippy --all-targets
   --keep-going -- -D warnings` and `cargo fmt --all -- --check` (run both) ·
-  `bun scripts/caps.mjs` · `bun scripts/boot.mjs`. The flags keep Cargo from
-  stopping at the first failing crate or test binary. Cargo's scope is the root
-  `default-members`; the async lane (`bun scripts/async.mjs`, per commit on
-  origin/main) runs the same with `--workspace` plus the `async lane:` ignored tests,
+  `bun scripts/caps.mjs` · `bun scripts/boot.mjs` · `cargo check --workspace
+  --all-targets --keep-going`. The flags keep Cargo from
+  stopping at the first failing crate or test binary. The first three's scope is the root
+  `default-members`. The sixth (Charlie, 2026-10-12) compiles every crate and target
+  of the workspace and runs none of their tests: on 2026-10-11 six things outside
+  `default-members` were broken on origin/main while the five were green, and it
+  catches the ones that did not compile (`exact-web-js`, `exact-linux`'s tests). It
+  needs the pinned Bun first on PATH (or named by `BUN`): app crates' build scripts
+  run Bun, and under an older one each fails with "Bun … is older than …". It shares
+  no compiled crate with the build, so it costs its whole time again: on an 18-core
+  Mac, 2 to 5 s with nothing changed, 45 to 90 s after a touched kernel line
+  (the build: 7 to 13 s), 2.4 min cold. The async lane (`bun scripts/async.mjs`, per commit on
+  origin/main) runs the first three with `--workspace`, which covers the sixth, plus the `async lane:` ignored tests,
   the web JS target's conformance run (`host/web-js/conform.mjs --strict`) and its
   Chrome-oracle Firefox/WebKit steps (`conform-firefox`, `conform-webkit`),
   the separate game workspace's locked tests, the UIKit XCTests and touch smoke
@@ -120,8 +129,8 @@ writing apps should therefore say less — structure (a header's heading and but
   cargo build are `async lane:`, and its Swift is the XCTests). The
   others (`exact-web-js`, `exact-web-capabilities`, `exact-linux`, `exact-windows`,
   `exact-render`, …), `js/`, `gpu/` and most apps are
-  not tested by it (one is compiled when a member depends on it, and its tests still do
-  not run), and the async lane reports them only after the push. When you touch one, or
+  not tested by it (the sixth check compiles them, their tests too, and runs none),
+  and the async lane reports a failing test only after the push. When you touch one, or
   what its tests read, run its tests before landing: `cargo test -p exact-linux --lib
   --tests --no-fail-fast`, or `--bins` for a bin-only crate such as `exact-web-js`.
   Advice, not a check.

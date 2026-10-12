@@ -272,7 +272,7 @@ export function wasmRemapFlags(app, toolchain = null) {
  * reads no trap. Everything else builds with rust-toolchain.toml's stable. */
 export const WEB_TOOLCHAIN = 'nightly-2026-08-21';
 export const WEB_STD = ['-Zbuild-std=std,panic_abort', '-Zbuild-std-features=optimize_for_size'];
-// Deprecation is stable's to judge (the five checks' clippy): the nightly
+// Deprecation is stable's to judge (the six checks' clippy): the nightly
 // deprecates names, like `fetch_update`, before stable has their successors.
 const WEB_RUSTFLAGS = ['-Zunstable-options', '-Cpanic=immediate-abort', '-Zlocation-detail=none', '-Adeprecated'];
 /** The environment for a web build, refusing a machine without the toolchain

@@ -1,7 +1,7 @@
 // Where a wheel event goes.
 //
 // This target exists for one class of defect: a host routing decision that
-// no other check in this repository can see. The five checks compile and run
+// no other check in this repository can see. The six checks compile and run
 // Rust; the agent drives the app through the eight operations and its wheel
 // carries a delta and no gesture phase; a screenshot shows a stretched rubber
 // band and a scrolled pane as the same picture. So a lift dropped before

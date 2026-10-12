@@ -2,7 +2,8 @@
 /**
  * async — the async lane (rules/RULES.md §Loop shape): every first-parent
  * commit on origin/main, checked out in a dedicated worktree with its own
- * target/, gets the five checks over the whole workspace plus the tests marked
+ * target/, gets the six checks over the whole workspace (its build covers the
+ * sixth, `cargo check --workspace`) plus the tests marked
  * `#[ignore = "async lane: …"]`, every web host unit test found by one glob
  * and the script capture fixtures,
  * the web host's app-building document test in its own step, the web JS target's conformance run
