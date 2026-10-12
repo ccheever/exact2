@@ -236,7 +236,23 @@ only and logs every call to `target/lane/r2/adb-calls.log`). Window 1280×840, a
 
 ## Checks
 
-On `d6e29bcde` (merged with `origin/feat(example)/t3-code`, already up to date), once:
+Round 2, on `6d39e9154` (merged with `origin/feat(example)/t3-code` `8fa9446cc`), once:
+
+| Check | Exit | Note |
+| --- | --- | --- |
+| `bun test examples/t3-code --timeout 60000` | 0 | 4719 pass, 1 skip, 0 fail (318 files) |
+| strict `tsc` (README command) | 0 | |
+| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | 29,825,086 bytes; `app.contract` 1,429 lines |
+| `git add -A && bun scripts/caps.mjs` | 0 | all budgets within cap |
+| `cargo build --all-targets --keep-going` | 0 | |
+| `cargo test --lib --bins --tests --no-fail-fast` | 0 | 3,756 passed, 0 failed, 36 ignored |
+| `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | |
+| `cargo fmt --all -- --check` | 0 | |
+| `bun scripts/boot.mjs` | 0 | |
+| `cargo test -p t3-code-macos --lib`, AppKit binaries | not run | no Rust and no Swift changed in this task |
+| `host/apple/build.mjs t3-code-macos --bundle` | 0 | six builds in round 2 (one refused a type: a forwarded action called from an action, `type-cannot-infer`); the driven bundle `fec9669d6`; the merge of `8fa9446cc` after it brings the other tasks' work only and was not re-driven |
+
+Round 1, on `d6e29bcde` (merged with `origin/feat(example)/t3-code`, already up to date), once:
 
 | Check | Exit | Note |
 | --- | --- | --- |
@@ -259,8 +275,9 @@ On `d6e29bcde` (merged with `origin/feat(example)/t3-code`, already up to date),
 - With the right panel open at 1200×620 the popover's left edge is 383 in the clone and 388 in the reference: each ends
   at the chat header's thread details button, which sits 5 pt further left in the clone's header when the right panel
   is open. That is the header's control row (not this task's rows); left for the coordinator, with no pixel-perfect loop.
-- The plan grew by 0.46 MB (28,820,298 → 29,284,849 bytes): the popover is drawn in two places (the chat column and,
-  over a sheet, the window), each in two scheme branches.
+- The plan grew by 0.46 MB in round 1 (28,820,298 → 29,284,849 bytes): the popover is drawn in two places (the chat
+  column and, over a sheet, the window), each in two scheme branches. Round 2's plan sizes (29,331,860 bytes after the
+  first merge, 29,825,086 after the second) include the feature branch's growth, so its own share is not separated.
 
 ## Delivery
 
@@ -268,4 +285,5 @@ Draft pull request [#464](https://github.com/ccheever/exact2/pull/464) into `fea
 
 ## Next action
 
-The coordinator reviews draft PR [#464](https://github.com/ccheever/exact2/pull/464), runs the real-input steps in the next batch, and merges it.
+The coordinator reviews draft PR [#464](https://github.com/ccheever/exact2/pull/464) (review round 2 pushed), runs the
+real-input steps (six, with the fake Android SDK for the Pixel's menus) in the next batch, and merges it.
