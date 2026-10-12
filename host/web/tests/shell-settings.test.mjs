@@ -5,7 +5,8 @@
 // touched. The shell carries the resets a careful web app ships (text inflation, the double-tap zoom on a
 // control, a scroller's end pulling the page). A symbol, and an image in something pressable, is not
 // dragged out as a picture; the select's chevron and the switch's thumb follow the page's direction; and a
-// plain `dialog` has no padding of the user agent's. The nodes are as the hosts write them.
+// plain `dialog` has no padding of the user agent's. The nodes are as the hosts write them. Each test runs
+// under both looks a build can draw (look.mjs): the neutral one, every build's, and LLP 1116 D1's.
 import { test, expect } from 'bun:test';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -14,13 +15,16 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
+import { withLook } from '../look.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const { executable: chrome, unavailable } = chromium();
 if (unavailable) console.warn(`SKIP: ${unavailable}`);
 const check = unavailable ? (name, ...args) => test.skip(`${name} — ${unavailable}`, ...args) : test;
 
-const page = readFileSync(resolve(WEB, 'index.html'), 'utf8').match(/<style>[\s\S]*?<\/style>/)[0] + `
+const LOOKS = ['neutral', 'apple'];
+const sheet = (look) => withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8'), look).match(/<style>[\s\S]*?<\/style>/)[0];
+const body = `
 <div id="exact-root">
   <main id="nav" navigationKey="1" navigationBack="back" style="display:flex;flex-direction:column;height:300px">
     <div role="tabpanel" id="p1">
@@ -56,10 +60,10 @@ const page = readFileSync(resolve(WEB, 'index.html'), 'utf8').match(/<style>[\s\
   window.ready = true;
 </script>`;
 
-/** The page in headless Chrome: `test(evaluate, call)` with its `Runtime.evaluate` and its CDP session. */
-async function inChrome(test) {
+/** The page under `look`'s stylesheet in headless Chrome: `test(evaluate, call)` with its `Runtime.evaluate` and its CDP session. */
+async function inChrome(look, test) {
   const server = createServer((req, res) => {
-    if (req.url === '/') { res.writeHead(200, { 'content-type': 'text/html' }); res.end(page); return; }
+    if (req.url === '/') { res.writeHead(200, { 'content-type': 'text/html' }); res.end(sheet(look) + body); return; }
     res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(readFileSync(resolve(WEB, 'navigation.js')));
   });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
@@ -89,22 +93,25 @@ const css = (evaluate, id, property, pseudo) => evaluate(`css(${JSON.stringify(i
 const prefer = (call, features) => call('Emulation.setEmulatedMedia', { features: Object.entries(features).map(([name, value]) => ({ name, value })) });
 const opaque = (color) => /^rgb\(/.test(color);
 
-check('a material the host paints honours the person\'s settings: opaque with Reduce Transparency, the browser\'s own controls under forced colours', () => inChrome(async (evaluate, call) => {
-  // As a person leaves it: a material that blurs what scrolls under it.
-  expect(await css(evaluate, 'bar', 'backdropFilter')).toContain('blur(20px)');
-  expect(opaque(await css(evaluate, 'bar', 'backgroundColor'))).toBe(false);
-  expect(opaque(await css(evaluate, 'tabs', 'backgroundColor'))).toBe(false);
+for (const look of LOOKS) check(`${look}: a material the host paints honours the person's settings: opaque with Reduce Transparency, the browser's own controls under forced colours`, () => inChrome(look, async (evaluate, call) => {
+  // As a person leaves it: LLP 1116 D1's bar is a material that blurs what scrolls under it. The neutral
+  // look's is the page's ground, whole and unblurred, so the setting finds nothing of the host's to turn off.
+  const material = look === 'apple';
+  if (material) expect(await css(evaluate, 'bar', 'backdropFilter')).toContain('blur(20px)');
+  else expect(await css(evaluate, 'bar', 'backdropFilter')).toBe('none');
+  for (const id of ['bar', 'tabs']) expect([id, opaque(await css(evaluate, id, 'backgroundColor'))]).toEqual([id, !material]);
   await prefer(call, { 'prefers-reduced-transparency': 'reduce' });
   expect(await css(evaluate, 'bar', 'backdropFilter')).toBe('none');
-  expect(await css(evaluate, 'bar', 'backgroundColor')).toBe('rgb(249, 249, 249)'); // the material's own colour, whole
-  expect(await css(evaluate, 'tabs', 'backgroundColor')).toBe('rgb(249, 249, 249)');
+  const whole = material ? 'rgb(249, 249, 249)' : 'rgb(255, 255, 255)'; // the material's own colour, whole; the neutral ground, as it was
+  for (const id of ['bar', 'tabs']) expect([id, await css(evaluate, id, 'backgroundColor')]).toEqual([id, whole]);
   // The author's own effect on a header is the author's.
   expect(await css(evaluate, 'bar-said', 'backdropFilter')).toBe('blur(4px)');
   expect(await css(evaluate, 'bar-said', 'backgroundColor')).toBe('rgba(1, 2, 3, 0.5)');
   await prefer(call, {});
 
-  // Forced colours. Drawn, as a person leaves it: no border on a button, the switch and the select the page's own boxes.
-  expect(await css(evaluate, 'button', 'borderTopStyle')).toBe('none');
+  // Forced colours. Drawn, as a person leaves it: a button's edge is its look's (none in LLP 1116 D1's, the
+  // neutral one's line), the switch and the select the page's own boxes.
+  expect(await css(evaluate, 'button', 'borderTopStyle')).toBe(material ? 'none' : 'solid');
   expect([await css(evaluate, 'switch', 'appearance'), await css(evaluate, 'switch', 'content', '::before')]).toEqual(['none', '""']);
   expect(await css(evaluate, 'select', 'appearance')).toBe('none');
   expect(await css(evaluate, 'dialog', 'borderTopStyle')).toBe('none');
@@ -114,7 +121,7 @@ check('a material the host paints honours the person\'s settings: opaque with Re
   // The switch, the select and the progress bar are the browser's controls.
   expect([await css(evaluate, 'switch', 'appearance'), await css(evaluate, 'switch', 'content', '::before')]).toEqual(['auto', 'none']);
   expect(await css(evaluate, 'select', 'appearance')).toBe('auto');
-  expect(await css(evaluate, 'select', 'backgroundImage')).toBe('none');
+  expect((await css(evaluate, 'select', 'backgroundImage')).split(', ').every((layer) => layer === 'none')).toBe(true); // no layer draws a chevron beside the browser's own
   expect(await css(evaluate, 'progress', 'appearance')).toBe('auto');
   // The chosen segment and the selected tab are the system's selection, which their neighbours are not.
   for (const id of ['chosen', 'tab']) expect([id, await css(evaluate, id, 'forcedColorAdjust')]).toEqual([id, 'none']);
@@ -124,7 +131,7 @@ check('a material the host paints honours the person\'s settings: opaque with Re
   expect(parseFloat(await css(evaluate, 'spinner', 'borderLeftWidth', '::before'))).toBeGreaterThan(0);
 }));
 
-check('the shell carries the resets a careful web app ships', () => inChrome(async (evaluate) => {
+for (const look of LOOKS) check(`${look}: the shell carries the resets a careful web app ships`, () => inChrome(look, async (evaluate) => {
   // A phone does not inflate the text in landscape.
   expect(await evaluate('getComputedStyle(document.documentElement).textSizeAdjust')).toBe('100%');
   // A control answers a tap at once; content does not change, and a node that said its own keeps it.
@@ -137,7 +144,7 @@ check('the shell carries the resets a careful web app ships', () => inChrome(asy
   expect(await evaluate(`document.documentElement.setAttribute('data-scrolldocument', ''); ${ends}`)).toBe('["auto","auto"]');
 }));
 
-check('the small ones: a control\'s image is not dragged out, the chevron and the thumb follow the page\'s direction, a plain dialog has no padding', () => inChrome(async (evaluate) => {
+for (const look of LOOKS) check(`${look}: the small ones: a control's image is not dragged out, the chevron and the thumb follow the page's direction, a plain dialog has no padding`, () => inChrome(look, async (evaluate) => {
   for (const id of ['symbol', 'in-button', 'in-link', 'in-pressable']) {
     expect([id, await css(evaluate, id, 'webkitUserDrag')]).toEqual([id, 'none']);
     // Where an engine has no such property, the drag that starts is cancelled.
@@ -150,14 +157,16 @@ check('the small ones: a control\'s image is not dragged out, the chevron and th
   // Left to right: room for the select's chevron at the right, where it is drawn; the switch's thumb starts at the left.
   expect([await css(evaluate, 'select', 'paddingLeft'), await css(evaluate, 'select', 'paddingRight')]).toEqual(['12px', '32px']);
   expect(await css(evaluate, 'select', 'backgroundPosition')).toMatch(/^calc\(100% - 16px\) 50%, calc\(100% - 12px\) 50%/);
-  expect(await css(evaluate, 'switch', 'backgroundPosition', '::before')).toBe('0px 0px, 0px 1px');
-  expect(await css(evaluate, 'switch-on', 'backgroundPosition', '::before')).toBe('16px 0px, 16px 1px');
+  // (Each look draws its own thumb: LLP 1116 D1's is two layers, a disc and its shadow; the neutral one's is one.)
+  const [start, end] = look === 'apple' ? ['0px 0px, 0px 1px', '16px 0px, 16px 1px'] : ['0px 0px', '16px 0px'];
+  expect(await css(evaluate, 'switch', 'backgroundPosition', '::before')).toBe(start);
+  expect(await css(evaluate, 'switch-on', 'backgroundPosition', '::before')).toBe(end);
   // Right to left: both mirrored.
   expect([await css(evaluate, 'rtl-select', 'paddingLeft'), await css(evaluate, 'rtl-select', 'paddingRight')]).toEqual(['32px', '12px']);
   expect(await css(evaluate, 'rtl-select', 'backgroundPosition')).toMatch(/^12px 50%, 16px 50%/);
-  expect(await css(evaluate, 'rtl-switch', 'backgroundPosition', '::before')).toBe('16px 0px, 16px 1px');
-  expect(await css(evaluate, 'rtl-switch-on', 'backgroundPosition', '::before')).toBe('0px 0px, 0px 1px');
+  expect(await css(evaluate, 'rtl-switch', 'backgroundPosition', '::before')).toBe(end);
+  expect(await css(evaluate, 'rtl-switch-on', 'backgroundPosition', '::before')).toBe(start);
   // A plain dialog's box is its author's; an alert keeps the padding the page gives it.
   expect(await css(evaluate, 'dialog', 'padding')).toBe('0px');
-  expect(await css(evaluate, 'alert', 'padding')).toBe('20px 16px 16px');
+  expect(await css(evaluate, 'alert', 'padding')).toBe(look === 'apple' ? '20px 16px 16px' : '24px');
 }));

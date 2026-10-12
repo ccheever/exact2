@@ -5,7 +5,7 @@
 // source, a surface's pixel size, focus — is left out of both sides.
 import { test, expect } from 'bun:test';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
@@ -13,9 +13,12 @@ import { Cdp, assertWebDistApp, browserDiagnosticNoise } from '../../../scripts/
 import { chromium, refuseStale, webChanges } from '../../../scripts/agent-launch.mjs';
 import { hermesBundle, hermesTarget, resolveApp } from '../../../scripts/app.mjs';
 import { jsTargetBuild, serveStatic } from '../serve.mjs';
+import { DEFAULT_LOOK, withLook } from '../look.mjs';
 import { decodePng } from '../../../scripts/png.mjs';
 
 const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
+// The shell as a default build ships it (look.mjs): what the stylesheet's own tests below draw on.
+const SHIPPED = withLook(readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8'), DEFAULT_LOOK);
 const dist = resolve(process.env.EXACT_WEB_DIST ?? resolve(ROOT, 'host/web/dist'));
 const app = resolveApp('caltrain');
 const { executable: chrome, unavailable: browserUnavailable } = chromium();
@@ -51,11 +54,23 @@ const browserCheck = browserUnavailable ? test.skip : test;
 const weatherlightCheck = weatherlightUnavailable ? test.skip : test;
 const [width, height] = [390, 844]; // the page viewport documents render at
 
+/** The shell the renderer is given: host/web/index.html in this run's look (look.mjs), which is the dist's (one
+ * built in another look is stale, above), so the renderer resolves a role in the column the live page does. */
+let shellFile;
+function shellInLook() {
+  if (!shellFile) {
+    const dir = mkdtempSync(resolve(tmpdir(), 'exact-document-shell-'));
+    process.on('exit', () => rmSync(dir, { recursive: true, force: true }));
+    writeFileSync(shellFile = resolve(dir, 'index.html'), withLook(readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8')));
+  }
+  return shellFile;
+}
+
 /** The rendered page: the shell with the renderer's head, the document in
  * `#exact-root` and its checkpoint, as the build writes it. */
 function renderedPage(location) {
   const render = spawnSync('cargo', ['run', '-q', '-p', 'caltrain-linux', '--bin', 'caltrain-render', '--',
-    '--plan', resolve(dist, 'app.plan'), '--viewport', `${width}x${height}`, '--shell', resolve(ROOT, 'host/web/index.html'), location],
+    '--plan', resolve(dist, 'app.plan'), '--viewport', `${width}x${height}`, '--shell', shellInLook(), location],
   { cwd: ROOT, encoding: 'utf8', env: { ...process.env, EXACT_UPDATE_TRUST: process.env.EXACT_UPDATE_TRUST ?? 'development' } });
   if (render.status !== 0) throw new Error(`caltrain-render: ${render.stderr}${render.stdout}`);
   const page = JSON.parse(render.stdout.trim().split('\n').at(-1));
@@ -577,9 +592,9 @@ browserCheck(`early capture updates keep the same view's bubble handler${browser
 // kept accent on the web): a disabled button is the disabled look whatever
 // its accent, a glass its own material (form-chrome.test.mjs has the rest).
 for (const concern of ['defaults', 'nowrap', 'clamp', 'floor', 'disabled accent', 'disabled plain accent', 'disabled glass accent', 'disabled clear-glass accent']) browserCheck(`native button ${concern}`, async () => {
-  const shell = readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8');
+  const shell = SHIPPED;
   const button = (id, style = '', extra = '') => `<button id="${id}" data-native data-button-style="${id === 'plain-accent' ? 'plain' : id === 'glass-accent' ? 'glass' : id === 'clear-glass-accent' ? 'clear-glass' : 'filled'}" style="display:grid;width:120px;${style}" ${extra}><span data-exact-text>A native title long enough to wrap onto several lines</span></button>`;
-  const html = shell.replace('<div id="exact-root"></div>', `<div id="exact-root"><div style="white-space:nowrap;text-align:end">${button('wrap')}${button('nowrap', 'white-space:nowrap;--exact-button-title-min:0px;')}${button('clamp', '--exact-button-clamp:2;--exact-button-title-display:-webkit-box;')}${button('authored', '--exact-accent:#ff0000;', 'disabled')}${button('align', 'text-align:end;')}${button('plain-accent', '--exact-accent:#ff0000;', 'disabled')}${button('default-off', '', 'disabled')}${button('glass-accent', '--exact-accent:#ff0000;', 'disabled')}${button('clear-glass-accent', '--exact-accent:#ff0000;', 'disabled')}</div><div style="display:flex;width:40px">${button('floor', 'width:auto;flex:1 1 0;')}</div></div>`).replace('<script type="module" src="./glue.js"></script>', '');
+  const html = shell.replace('<div id="exact-root"></div>', `<div id="exact-root"><div style="white-space:nowrap;text-align:end">${button('wrap')}${button('nowrap', 'white-space:nowrap;--exact-button-title-min:0px;')}${button('clamp', '--exact-button-clamp:2;--exact-button-title-display:-webkit-box;')}${button('authored', '--exact-accent:#ff0000;', 'disabled')}${button('align', 'text-align:end;')}${button('plain-accent', '--exact-accent:#ff0000;', 'disabled')}${button('default-off', '', 'disabled')}${button('glass-accent', '--exact-accent:#ff0000;', 'disabled')}${button('clear-glass-accent', '--exact-accent:#ff0000;', 'disabled')}</div><div style="display:flex;width:40px">${button('floor', 'width:auto;flex:1 1 0;')}</div><span id="fill" style="background-color:var(--exact-tertiary-fill)"></span></div>`).replace('<script type="module" src="./glue.js"></script>', '');
   await withDocument('/', async tab => {
     const page = await tab(true);
     await page.until("document.readyState === 'complete'", 'native fixture');
@@ -614,18 +629,24 @@ for (const concern of ['defaults', 'nowrap', 'clamp', 'floor', 'disabled accent'
       expect(facts['plain-accent'].color).toBe(facts['default-off'].color);
     }
     if (concern === 'disabled accent') {
-      expect(facts.authored.background).toBe('rgba(118, 118, 128, 0.12)');
+      // The look's neutral fill (`-exact-tertiary-fill`, which its sheet carries), not the accent's red.
+      const fill = await page("getComputedStyle(document.getElementById('fill')).backgroundColor");
+      expect(fill).not.toBe('rgba(0, 0, 0, 0)');
+      expect(facts.authored.background).toBe(fill);
       expect(facts['default-off'].background).toBe(facts.authored.background);
     }
   }, {html});
 });
 
-// LLP 1116.003 D3.1: the ink on an accent fill is white until white falls
-// under 3:1 against the accent as the scheme resolves it, then black: a pale
-// dark-scheme accent (event-rsvp's, recipe-finder's) takes black there; the
-// unsaid accent and the destructive red keep white; an authored colour wins.
+// LLP 1116.003 D3.1, as the neutral look draws it (LLP 1115.000 D4 part B):
+// the ink on an accent fill is white or black, whichever reads at 4.5:1 or
+// better on the accent as the scheme resolves it. A pale dark-scheme accent
+// (event-rsvp's, recipe-finder's) takes black, and so does a mid-light blue
+// (`#007aff`, on which white is 4.0:1); the unsaid accent and the destructive
+// red are dark in light and light in dark, so white and then black; an
+// authored colour wins. (LLP 1116 D1's look kept white down to 3:1.)
 browserCheck('the ink on an accent fill is chosen for contrast in each scheme', async () => {
-  const shell = readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8');
+  const shell = SHIPPED;
   const cases = {
     pale: ['bordered-prominent', '--exact-accent:light-dark(#6652c5, #b5a4ff);'],
     salmon: ['filled', '--exact-accent:light-dark(#b74e2e, #f49d7d);'],
@@ -638,26 +659,27 @@ browserCheck('the ink on an accent fill is chosen for contrast in each scheme', 
   };
   const buttons = scheme => Object.entries(cases).map(([id, [look, style, extra = '']]) =>
     `<button id="${scheme}-${id}" data-native data-button-style="${look}" style="display:grid;${style}" ${extra}><span data-exact-text>Going</span></button>`).join('');
-  const html = shell.replace('<div id="exact-root"></div>', `<div id="exact-root"><div style="color-scheme:light">${buttons('light')}</div><div style="color-scheme:dark">${buttons('dark')}</div><span id="gray" style="color:GrayText"></span></div>`).replace('<script type="module" src="./glue.js"></script>', '');
+  const html = shell.replace('<div id="exact-root"></div>', `<div id="exact-root"><div style="color-scheme:light">${buttons('light')}</div><div style="color-scheme:dark">${buttons('dark')}</div><span id="light-gray" style="color-scheme:light;color:var(--exact-gray-text)"></span><span id="dark-gray" style="color-scheme:dark;color:var(--exact-gray-text)"></span></div>`).replace('<script type="module" src="./glue.js"></script>', '');
   await withDocument('/', async tab => {
     const page = await tab(true);
     await page.until("document.readyState === 'complete'", 'accent fill fixture');
-    const ink = await page(`(() => { const x = document.createElement('canvas').getContext('2d', {willReadFrequently: true});
-      const rgb = e => { x.clearRect(0, 0, 1, 1); x.fillStyle = getComputedStyle(e).color; x.fillRect(0, 0, 1, 1); const [r, g, b] = x.getImageData(0, 0, 1, 1).data; return r + ',' + g + ',' + b; };
-      return Object.fromEntries([...document.querySelectorAll('button, #gray')].map(e => [e.id, rgb(e)])); })()`);
+    // Each button's ink and fill as the engine paints them, and the ratio between the two.
+    const drawn = await page(`(() => { const x = document.createElement('canvas').getContext('2d', {willReadFrequently: true});
+      const rgb = c => { x.clearRect(0, 0, 1, 1); x.fillStyle = c; x.fillRect(0, 0, 1, 1); return [...x.getImageData(0, 0, 1, 1).data].slice(0, 3); };
+      const lum = c => { const [r, g, b] = c.map(v => { v /= 255; return v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; }); return .2126 * r + .7152 * g + .0722 * b; };
+      return Object.fromEntries([...document.querySelectorAll('button, #light-gray, #dark-gray')].map(e => { const s = getComputedStyle(e), ink = rgb(s.color), fill = rgb(s.backgroundColor), [hi, lo] = [lum(ink), lum(fill)].sort((a, b) => b - a);
+        return [e.id, { ink: ink.join(), ratio: (hi + .05) / (lo + .05) }]; })); })()`);
+    const ink = Object.fromEntries(Object.entries(drawn).map(([id, d]) => [id, d.ink]));
     const [white, black] = ['255,255,255', '0,0,0'];
-    expect(ink['light-pale']).toBe(white);
-    expect(ink['dark-pale']).toBe(black);
-    expect(ink['light-salmon']).toBe(white);
-    expect(ink['dark-salmon']).toBe(black);
-    expect(ink['light-teal']).toBe(white);
-    expect(ink['dark-teal']).toBe(black);
+    expect(Object.fromEntries(['pale', 'salmon', 'teal', 'unsaid', 'blue', 'destructive'].flatMap(id => ['light', 'dark'].map(scheme => [`${scheme}-${id}`, ink[`${scheme}-${id}`]])))).toEqual({
+      'light-pale': white, 'dark-pale': black, 'light-salmon': white, 'dark-salmon': black, 'light-teal': white, 'dark-teal': black,
+      'light-unsaid': white, 'dark-unsaid': black, 'light-blue': black, 'dark-blue': black, 'light-destructive': white, 'dark-destructive': black,
+    });
+    // On a fill that is the accent itself (a glass is its own material) the ink reads at 4.5:1 or better.
+    for (const id of ['pale', 'salmon', 'unsaid', 'blue', 'destructive']) for (const scheme of ['light', 'dark']) expect([scheme, id, drawn[`${scheme}-${id}`].ratio >= 4.5]).toEqual([scheme, id, true]);
     for (const scheme of ['light', 'dark']) {
-      expect(ink[`${scheme}-unsaid`]).toBe(white);
-      expect(ink[`${scheme}-blue`]).toBe(white);
-      expect(ink[`${scheme}-destructive`]).toBe(white);
       expect(ink[`${scheme}-authored`]).toBe('255,0,0');
-      expect(ink[`${scheme}-disabled`]).toBe(ink.gray);
+      expect(ink[`${scheme}-disabled`]).toBe(ink[`${scheme}-gray`]);
     }
   }, {html});
 });
@@ -668,9 +690,9 @@ browserCheck('the ink on an accent fill is chosen for contrast in each scheme', 
 // browser's blue. Both targets' symbol sheets; an authored tint still wins.
 for (const sheet of ['host/web/glue.js', 'host/web-js/symbols.js']) browserCheck(`an untinted symbol is the nearest accent (${sheet})`, async () => {
   const style = readFileSync(resolve(ROOT, sheet), 'utf8').match(/'(@property --exact-tint[^']*)'/)[1];
-  const shell = readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8');
+  const shell = SHIPPED;
   const img = (id, css = '') => `<img id="${id}" data-symbol-path="M0 0h16v16H0Z" style="width:16px;height:16px;${css}">`;
-  const html = shell.replace('<div id="exact-root"></div>', `<style>${style}</style><div id="exact-root"><div style="--exact-accent:light-dark(#6652c5, #b5a4ff)"><div style="color-scheme:light">${img('light')}</div><div style="color-scheme:dark">${img('dark')}</div>${img('authored', '--exact-tint:rgb(255, 0, 0)')}</div>${img('unsaid')}<span id="system" style="color:AccentColor"></span></div>`).replace('<script type="module" src="./glue.js"></script>', '');
+  const html = shell.replace('<div id="exact-root"></div>', `<style>${style}</style><div id="exact-root"><div style="--exact-accent:light-dark(#6652c5, #b5a4ff)"><div style="color-scheme:light">${img('light')}</div><div style="color-scheme:dark">${img('dark')}</div>${img('authored', '--exact-tint:rgb(255, 0, 0)')}</div>${img('unsaid')}<span id="system" style="color:var(--exact-accent, AccentColor)"></span></div>`).replace('<script type="module" src="./glue.js"></script>', '');
   await withDocument('/', async tab => {
     const page = await tab(true);
     await page.until("document.readyState === 'complete'", 'symbol fixture');
@@ -678,7 +700,7 @@ for (const sheet of ['host/web/glue.js', 'host/web-js/symbols.js']) browserCheck
     expect(tint.light).toBe('rgb(102, 82, 197)');
     expect(tint.dark).toBe('rgb(181, 164, 255)');
     expect(tint.authored).toBe('rgb(255, 0, 0)');
-    expect(tint.unsaid).toBe(tint.system);
+    expect(tint.unsaid).toBe(tint.system); // with no accent authored, the page's own: the look's (the browser's hue, fitted to read)
   }, {html});
 });
 
@@ -688,7 +710,7 @@ for (const sheet of ['host/web/glue.js', 'host/web-js/symbols.js']) browserCheck
 // nested `svg` below the group; `currentcolor` is each element's own colour;
 // a gradient's stop and a filter's flood stay SVG's black.
 browserCheck('an unsaid SVG fill is the text colour', async () => {
-  const shell = readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8');
+  const shell = SHIPPED;
   const rect = (id, css = '') => `<rect id="${id}" width="4" height="4"${css ? ` style="${css}"` : ''}/>`;
   const html = shell.replace('<div id="exact-root"></div>', `<div id="exact-root"><div style="color:rgb(10, 20, 30)">
     <svg id="root" viewBox="0 0 20 20" style="width:20px;height:20px">${rect('unsaid')}${rect('own', 'fill:rgb(255, 0, 0)')}
@@ -722,7 +744,7 @@ browserCheck('an unsaid SVG fill is the text colour', async () => {
 // tall at the body size) in light and dark, as a border box the kernel
 // models; the author's rows win, and `appearance: none` (no marker) is bare.
 browserCheck('date and time controls take the field look', async () => {
-  const shell = readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8');
+  const shell = SHIPPED;
   const field = (id, type, extra = '') => `<input id="${id}" type="${type}" ${extra}>`;
   const html = shell.replace('<div id="exact-root"></div>', `<div id="exact-root"><div style="width:300px">${
     field('date', 'date', 'data-exact-field')}${field('time', 'time', 'data-exact-field value="14:30"')}${
@@ -742,7 +764,7 @@ browserCheck('date and time controls take the field look', async () => {
       expect(facts[id].radius).toBe(facts.text.radius);
       expect(facts[id].background).toBe(facts.text.background);
     }
-    expect(facts.date.border).toBe('1px solid rgb(199, 199, 204)');
+    expect(facts.date.border).toMatch(/^1px solid (?!rgb\(0, 0, 0\)$)/); // the look's line for a control's edge, as the text field's is
     expect(facts.dark.border).toBe(facts['dark-text'].border);
     expect(facts.dark.background).toBe(facts['dark-text'].background);
     expect(facts.dark.background).not.toBe(facts.date.background);
@@ -762,33 +784,37 @@ browserCheck('date and time controls take the field look', async () => {
 // the accent (near black under teal in light, near white under indigo in
 // dark). An authored background is the box's, under the track, as on iOS.
 browserCheck('a determinate progress is the accent over the system fill in light and dark', async () => {
-  const shell = readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8');
+  const shell = SHIPPED;
   // As both targets write a role's accent: `accent-color` and the custom property beside it.
   const accent = (role, pair) => `accent-color:var(--exact-${role}, ${pair});--exact-accent:var(--exact-${role}, ${pair});`;
   const teal = accent('system-teal', 'light-dark(#30b0c7, #40c8e0)'), indigo = accent('system-indigo', 'light-dark(#5856d6, #5e5ce6)');
   const bar = (id, style) => `<progress id="${id}" value="0.25" max="1" style="width:160px;margin:8px;${style}"></progress>`;
+  // A box of the look's `-exact-fill` over the same ground as the bars beside it: what a track is drawn in.
+  const fill = (id, under = '') => `<div style="width:160px;margin:8px;${under}"><div id="${id}" style="height:16px;background-color:var(--exact-fill)"></div></div>`;
   const html = shell.replace('<div id="exact-root"></div>', `<div id="exact-root"><div style="color-scheme:light;background:#fff;padding:8px">${
-    bar('teal-light', teal)}${bar('indigo-light', indigo)}${bar('authored', teal + 'background-color:rgb(255, 0, 0)')}</div><div style="color-scheme:dark;background:#000;padding:8px">${
-    bar('teal-dark', teal)}${bar('indigo-dark', indigo)}</div></div>`).replace('<script type="module" src="./glue.js"></script>', '');
+    bar('teal-light', teal)}${bar('indigo-light', indigo)}${bar('authored', teal + 'background-color:rgb(255, 0, 0)')}${fill('fill-light')}${fill('fill-red', 'background-color:rgb(255, 0, 0)')}</div><div style="color-scheme:dark;background:#000;padding:8px">${
+    bar('teal-dark', teal)}${bar('indigo-dark', indigo)}${fill('fill-dark')}</div></div>`).replace('<script type="module" src="./glue.js"></script>', '');
   await withDocument('/', async tab => {
     const page = await tab(true);
     await page.until("document.readyState === 'complete'", 'progress fixture');
     await page(settled);
-    const boxes = await page(`(() => Object.fromEntries([...document.querySelectorAll('progress')].map(e => { const r = e.getBoundingClientRect(); return [e.id, [r.x, r.y, r.width, r.height]]; })))()`);
+    const boxes = await page(`(() => Object.fromEntries([...document.querySelectorAll('progress, [id^="fill-"]')].map(e => { const r = e.getBoundingClientRect(); return [e.id, [r.x, r.y, r.width, r.height]]; })))()`);
     const { data } = await page.call('Page.captureScreenshot', { format: 'png' });
     const shot = decodePng(Buffer.from(data, 'base64'));
     const at = (id, dx, dy) => { const [x, y] = boxes[id], i = (Math.round(y + dy) * shot.width + Math.round(x + dx)) * 4; return [...shot.data.slice(i, i + 3)]; };
     const near = (seen, want, what) => expect(seen.every((c, i) => Math.abs(c - want[i]) <= 3), `${what}: ${seen} for ${want}`).toBe(true);
     for (const id of Object.keys(boxes)) expect(boxes[id].slice(2)).toEqual([160, 16]);
-    // The fill over white (#78788033) and over black (#7878805c).
-    for (const id of ['teal-light', 'indigo-light']) { near(at(id, 120, 8), [228, 228, 230], `${id} track`); near(at(id, 120, 2), [255, 255, 255], `${id} above its track`); }
-    for (const id of ['teal-dark', 'indigo-dark']) { near(at(id, 120, 8), [43, 43, 46], `${id} track`); near(at(id, 120, 2), [0, 0, 0], `${id} above its track`); }
+    // The fill over white, over black and over the authored red, as the boxes of it show; it is a fill, so neither ground.
+    const [light, dark, red] = ['fill-light', 'fill-dark', 'fill-red'].map((id) => at(id, 80, 8));
+    expect([light.join() === '255,255,255', dark.join() === '0,0,0', red.join() === '255,0,0']).toEqual([false, false, false]);
+    for (const id of ['teal-light', 'indigo-light']) { near(at(id, 120, 8), light, `${id} track`); near(at(id, 120, 2), [255, 255, 255], `${id} above its track`); }
+    for (const id of ['teal-dark', 'indigo-dark']) { near(at(id, 120, 8), dark, `${id} track`); near(at(id, 120, 2), [0, 0, 0], `${id} above its track`); }
     near(at('teal-light', 20, 8), [0x30, 0xb0, 0xc7], 'teal bar in light');
     near(at('indigo-light', 20, 8), [0x58, 0x56, 0xd6], 'indigo bar in light');
     near(at('teal-dark', 20, 8), [0x40, 0xc8, 0xe0], 'teal bar in dark');
     near(at('indigo-dark', 20, 8), [0x5e, 0x5c, 0xe6], 'indigo bar in dark');
     near(at('authored', 120, 2), [255, 0, 0], 'the authored background is the box');
-    near(at('authored', 120, 8), [228, 24, 26], 'the track over it');
+    near(at('authored', 120, 8), red, 'the track over it');
     near(at('authored', 20, 8), [0x30, 0xb0, 0xc7], 'the bar over it');
   }, {html});
 });

@@ -1,28 +1,32 @@
-// LLP 1115.000 D4 part B: the web's neutral look, behind its switch (host/web/look.mjs).
+// LLP 1115.000 D4 part B: the web's neutral look, which is every build's since its switch was thrown
+// (host/web/look.mjs; Charlie, 2026-10-12).
 //
-// With the switch off, which is how every build is made today, a build's shell is the shell's own bytes and
-// a page looks as LLP 1116 D1 drew it: the first two tests hold that, the second by a handful of computed
-// styles. With it on, the neutral sheet (neutral.css) follows the shell's, and what the author left unsaid
-// is drawn the same in Chrome, Firefox and WebKit: the last test measures one page in each engine against
-// one set of numbers. Its colours are the role table's neutral column, which the third test holds the
-// sheet to. The nodes are as the hosts write them.
+// A build's shell is the shell's own stylesheet with the neutral sheet (neutral.css) after it, and what the
+// author left unsaid is drawn the same in Chrome, Firefox and WebKit: the last test measures one page in
+// each engine against one set of numbers. Its colours are the role table's neutral column, which the second
+// test holds the sheet to. `EXACT_WEB_LOOK=apple` still builds LLP 1116 D1's look, the shell's own bytes: the
+// first test holds the bytes and the third a handful of that look's computed styles. The nodes are as the
+// hosts write them.
 import { test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { DEFAULT_LOOK, withLook } from '../look.mjs';
+import { DEFAULT_LOOK, LOOK, withLook } from '../look.mjs';
 import { chromium as browserPath } from '../../../scripts/agent-launch.mjs';
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
 const shell = read('../index.html'), neutral = read('../neutral.css');
 const sheet = (look) => withLook(shell, look).match(/<style>([\s\S]*?)<\/style>/)[1];
 
-test('the switch is off: a build is the shell\'s own bytes, and the neutral sheet is in no page', () => {
-  expect(DEFAULT_LOOK).toBe('apple');
-  expect(withLook(shell)).toBe(shell);
+test('the switch is thrown: a build is the shell with the neutral sheet, and `apple` is still the shell\'s own bytes', () => {
+  expect(DEFAULT_LOOK).toBe('neutral');
+  // The neutral sheet is the end of the shell's own stylesheet, and says which look the page is.
+  expect(withLook(shell, DEFAULT_LOOK)).toBe(shell.replace('</style>', () => neutral + '</style>'));
+  expect(/:root \{ --exact-look: neutral;/.test(neutral)).toBe(true);
+  // `EXACT_WEB_LOOK=apple` builds LLP 1116 D1's look as it was: the shell's own bytes, which name no look.
   expect(withLook(shell, 'apple')).toBe(shell);
   expect(shell.includes('--exact-look')).toBe(false);
-  // Thrown, the neutral sheet is the end of the shell's own stylesheet, and says which look the page is.
-  expect(withLook(shell, 'neutral')).toBe(shell.replace('</style>', () => neutral + '</style>'));
-  expect(/:root \{ --exact-look: neutral;/.test(neutral)).toBe(true);
+  // A build draws the look its environment names, and the default where it names none.
+  expect(LOOK).toBe(process.env.EXACT_WEB_LOOK || DEFAULT_LOOK);
+  expect(withLook(shell)).toBe(withLook(shell, LOOK));
 });
 
 test('the neutral sheet\'s colours are the role table\'s neutral column', () => {
@@ -91,11 +95,11 @@ const launch = async (engine) => {
   return playwright[engine].launch({ headless: true, ...(engine === 'chromium' ? { executablePath: browserPath().executable } : {}) });
 };
 
-test('the switch is off: a page looks as it did (a handful of computed styles of LLP 1116 D1\'s look)', async () => {
+test('`EXACT_WEB_LOOK=apple`: a page looks as it did (a handful of computed styles of LLP 1116 D1\'s look)', async () => {
   const browser = await launch('chromium');
   try {
     const page = await browser.newPage({ viewport: { width: 1000, height: 700 }, colorScheme: 'light' });
-    await page.setContent(`<style>${sheet(DEFAULT_LOOK)}</style>${fixture}<script>${helpers}</script>`);
+    await page.setContent(`<style>${sheet('apple')}</style>${fixture}<script>${helpers}</script>`);
     const got = await page.evaluate(() => { document.getElementById('alert').showModal(); return {
       look: getComputedStyle(document.documentElement).getPropertyValue('--exact-look'),
       bordered: [css('bordered', 'backgroundColor'), css('bordered', 'borderTopStyle'), css('bordered', 'borderRadius'), box('bordered')[3]],

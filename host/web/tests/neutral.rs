@@ -17,8 +17,9 @@ impl DataSource for NoData {
 /// back to the table's neutral column, and each element is told what the
 /// neutral sheet has to know and CSS cannot say: which controls it draws
 /// (their appearance is the platform's), and which rows the author wrote
-/// where it would draw over an implied or inherited one. Before that, as
-/// every build is until the switch is thrown, the page is told none of it.
+/// where it would draw over an implied or inherited one. Before that, and
+/// on a page built `EXACT_WEB_LOOK=apple`, which never says it, the page is
+/// told none of it.
 #[test]
 fn a_page_in_the_neutral_look_boots_the_neutral_column_and_is_told_what_its_sheet_draws() {
     // A file control's picker is a capability the app links (LLP 1047).

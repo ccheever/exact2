@@ -69,7 +69,7 @@ function setup() {
 }
 
 test('the production page reset leaves native and appearance-none checkboxes border-box', async () => {
-  const page = readFileSync(new URL('./index.html', import.meta.url), 'utf8');
+  const look = await import('./look.mjs'), page = look.withLook(readFileSync(new URL('./index.html', import.meta.url), 'utf8'), look.DEFAULT_LOOK); // as a default build ships it
   const stylesheet = page.split('<style>')[1].split('</style>')[0];
   const result = await evaluate(`(() => {
     const style=document.createElement('style');style.textContent=${JSON.stringify(stylesheet)};document.head.append(style);
