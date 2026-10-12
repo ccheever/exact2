@@ -5,7 +5,7 @@ The only required reading; the rest is lookup.
 ## The idea
 
 1. **Write the web, ship the platform.** Layout and names are CSS's and HTML's (flex, gap,
-   `role`, `aria-*`, `inputmode`). Say what a thing *is* (a `header` with a heading and
+   `role`, `aria-*`). Say what a thing *is* (a `header` with a heading and
    buttons, a `tablist`, a `dialog role="alertdialog"`); each host draws its own control.
 2. **Leave the rest unsaid:** controls, bars, type and dark mode are the platform's. A
    colour or size names a role (`-exact-secondary-label`, `font="-exact-footnote"`; `bun
@@ -14,7 +14,7 @@ The only required reading; the rest is lookup.
    `light-dark(light, dark)` pair. A card is `-exact-secondary-background`
    (`-exact-secondary-grouped-background` on a grouped page). White text on a prominent
    button reads on blue, indigo, purple, pink, red, brown, gray, not on green, mint, teal,
-   cyan, yellow, orange (under 2.6:1: `check` refuses it; `RoundButton` takes black there).
+   cyan, yellow, orange (under 2.6:1: `check` refuses it; `RoundButton` draws them tinted).
 3. **Design your content:** a focal point (big type, a fill, a shape), a hierarchy in
    rows, an empty state with its next step; inset-grouped is for settings and forms.
    `use X from "exact:content"` draws them (`none` for an option):
@@ -26,8 +26,7 @@ The only required reading; the rest is lookup.
    - `RowText(title, detail, value)`, `Badge(label, tint)` a status, `DoneMark(caption, done)`
    - `EmptyState(symbol, title, message)` over your `button`
 4. **A wide window** needs no code for tabs (a sidebar) or a list whose rows push (beside
-   its detail); for two columns, wrap cards (`flex="1 1 320px"`) or `when viewport.width
-   >= 900` over `resource viewport = exactViewport() as shape Viewport`.
+   its detail); two columns are wrapping cards (`flex="1 1 320px"`; `responsive-columns`).
 
 ## The workflow
 
@@ -40,14 +39,15 @@ bun exact.mjs ios --prebuild  # the first iOS build: minutes, in the background
 |`bun exact.mjs …`|What it does|
 |---|---|
 |`contract build app.contract --json`|`[]` or each diagnostic with its fix; it rewrites the types `app.ts` imports.|
-|`verify`, `verify ios`|Builds, runs `app.test.contract`, `check`s the first screen and where each test ends (light, dark, two widths), relaunches once on real time: one report. A clean run on the app's platform is done; a screen no test ends on goes unchecked.|
-|`agent web --storage s1 "clock data" "tap add" "check both"`|Drives the app by hand, to see why something fails; without `--storage` it looks empty.|
+|`verify`, `verify ios`|Builds, runs `app.test.contract`, `check`s the first screen and where each test ends (light, dark, two widths), relaunches once on real time: one report. A clean run on the app's platform is done.|
+|`agent web --storage s1 "clock data" "tap add" "check both"`|Drives the app by hand, to see why something fails; without `--storage`, no data.|
 |`web`, `ios --run`|For a person watching: its URL, rebuilds on save; a simulator.|
 
 `verify`, `test web` (the tests alone) and `agent` build and serve their own copy: no dev
-server is needed to check the app. Run `verify` after each edit, `verify ios` at
-milestones; look at its screenshots (`.exact/verify/`). Keep scratch files in `.exact/`
-(any other new file makes the build stale).
+server is needed. Run `verify` after each edit, `verify ios` at milestones. A screen you
+want checked or captured is a test's end; `verify --shots <dir>` copies its screenshots;
+one drive takes any others (`resize`, `prefer prefers-color-scheme dark`, `screenshot`).
+Keep scratch files in `.exact/` (any other new file makes the build stale).
 
 ## One screen: the view, its data, its test
 
@@ -170,22 +170,23 @@ test "an item is added, a repeat refused, checked off and kept"
 ```
 
 Steps: `tap "id"`, `type "id" "text"` or `type "id" key "Enter"`, `expect text "id" == "…"`,
-`expect tree has|missing "id"`, `expect state a.0 .b == v`, `clock data` (lands replies)
-`|settle` (ends transitions) `|+ms`, `reload` (same storage), `back`, `fail fetch "/p"`
-and `pass fetch`, `request POST "/p" {…} as grace`; launch lines `size epoch time-zone
-locale seed`. The rest: `tests`.
+`expect tree has|missing "id"`, `expect state a.0 .b == v`, `clock data`
+`|settle` `|+ms`, `reload`, `back`, `fail fetch "/p"`
+and `pass fetch`, `request POST "/p" {…} as grace`. Launch lines, the rest: `tests`.
 
 ## Pitfalls that cost the most
 
-1. **Styling a platform control.** Paint (`background-color`, `border`, `font-size`,
-   `height`) on a `button`, field or bar makes it your box. Emphasis is a part (above) or
+1. **Styling a platform control.** Paint (`background-color`, `border`, `font-size`)
+   on a `button`, field or bar makes it your box. Emphasis is a part (above) or
    `buttonStyle="bordered-prominent"`.
-2. **A `header` holds a heading, one text after it (the bar's subtitle) and buttons**
-   (or a search field, a `tablist`); anything else isn't in the iOS bar.
+2. **A `header` holds a heading, one text after it (the subtitle) and buttons** (or a
+   search field, a `tablist`); anything else isn't in the iOS bar. A control fixed under
+   the bar goes with an inline title (`aria-level=2`); one that may scroll away, in the
+   list's first section.
 
 ## Look it up
 
-Open a recipe (`recipes/<name>.md`) when you write that part, not before: one per feature.
+Open a recipe (`recipes/<name>.md`) when you write that part..
 
 |The app has|Read|
 |---|---|
@@ -210,7 +211,7 @@ Open a recipe (`recipes/<name>.md`) when you write that part, not before: one pe
 |driving iOS|`ios-driving`|
 |functions|`functions`|
 
-**Otherwise:** `bun exact.mjs contract vocab <name> …` answers any tag, property,
-function, part or how-to (`screen`, `modal`); `docs/contract-for-agents.md`,
+**Otherwise:** `bun exact.mjs contract vocab <name> …` answers any tag, property or
+how-to (`screen`, `modal`); `docs/contract-for-agents.md`,
 `docs/agent-pitfalls.md` and `docs/reference.md` by section; `<exact2>/apps/shelf` is a
 whole app.

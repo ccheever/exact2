@@ -7,10 +7,10 @@ import XCTest
 /// The number pads' bar (LLP 1116.003 D7): the decimal pad has no minus key
 /// and no Return key, so a field on it gets, in the keyboard's accessory bar,
 /// ± where its `min` is below zero, which flips the sign and fires `input` as
-/// a keystroke does (round 5's unit converter), and Done where Return would
-/// act (`enterkeyhint="done"`, a `submit` handler), which does what Return
-/// does and puts the keyboard away. A field that asks for neither, or a
-/// keyboard that has both, gets no bar.
+/// a keystroke does (round 5's unit converter), and Done, always (LLP
+/// 1116.008 D8; expense-tracker's amount had no way to put the pad away),
+/// which does what Return does and puts the keyboard away. A keyboard that
+/// has both keys gets no bar.
 ///
 /// LLP 1116.006 D6 over `scripts/fixtures/pad-bar.contract`: the bar is the
 /// platform's. Round 8's converter showed an opaque white band across the
@@ -54,7 +54,7 @@ final class PadBarIOSTests: XCTestCase {
         }
         let field = try XCTUnwrap(node.field)
         XCTAssertEqual(field.keyboardType, .decimalPad)
-        XCTAssertEqual(keys(node), ["toggleSign"], "± alone: nothing asks for Done")
+        XCTAssertEqual(keys(node), ["toggleSign", "padDone"], "± and Done: a pad has no Return key")
         let sign = try XCTUnwrap((field.inputAccessoryView as? UIToolbar)?.items?.first)
         XCTAssertEqual(sign.title, "\u{00B1}")
         XCTAssertTrue(sign.target === node, "the key is the field's node's")
@@ -66,16 +66,24 @@ final class PadBarIOSTests: XCTestCase {
         field.text = ""
         node.toggleSign()
         XCTAssertEqual(heard.last, "-", "an empty field starts a negative number")
-        // The bar follows the props: it is the field's only while its keyboard lacks a key it asks for.
+        // The bar follows the props: it is the field's only while its keyboard lacks a key.
         node.applyProps(set: ["min": "0"], clear: [])
-        XCTAssertNil(field.inputAccessoryView, "min 0: no sign, no bar")
+        XCTAssertEqual(keys(node), ["padDone"], "min 0: no sign, but the pad's Done")
         node.applyProps(set: [:], clear: ["min"])
-        XCTAssertNil(field.inputAccessoryView, "no min: no bar")
+        XCTAssertEqual(keys(node), ["padDone"], "no min: Done alone")
         node.applyProps(set: ["inputMode": "text", "min": "-1"], clear: [])
         XCTAssertNil(field.inputAccessoryView, "a text keyboard has its minus and its Return")
         node.applyProps(set: ["type": "number", "min": "-273.15"], clear: ["inputMode"])
         XCTAssertEqual(field.keyboardType, .decimalPad)
-        XCTAssertEqual(keys(node), ["toggleSign"], "type=number with a negative min, as inputmode=decimal")
+        XCTAssertEqual(keys(node), ["toggleSign", "padDone"], "type=number with a negative min, as inputmode=decimal")
+        // A phone pad has no Return key either, and no minus to ask for.
+        node.applyProps(set: ["inputMode": "tel"], clear: ["type"])
+        XCTAssertEqual(field.keyboardType, .phonePad)
+        XCTAssertEqual(keys(node), ["padDone"])
+        // A digits-only pad: Done, whatever the hint or the handlers say.
+        node.applyProps(set: ["inputMode": "numeric", "enterKeyHint": "next"], clear: ["min"])
+        XCTAssertEqual(field.keyboardType, .numberPad)
+        XCTAssertEqual(keys(node), ["padDone"])
     }
 
     /// The keys' top, their accessory bar's included: an iPhone 17 Pro's
@@ -143,7 +151,7 @@ final class PadBarIOSTests: XCTestCase {
         XCTAssertEqual(view.backgroundColor?.resolvedColor(with: view.traitCollection), canvas.resolvedColor(with: view.traitCollection))
     }
 
-    func testDoneIsThereWhereReturnWouldActAndDoesWhatReturnDoes() throws {
+    func testDoneIsOnEveryPadAndDoesWhatReturnDoes() throws {
         // number-field's converter: a negative min and enterkeyhint="done", ± and Done.
         let (p, node, window) = field(["inputMode": "decimal", "min": "-273.15", "enterKeyHint": "done", "value": "-40"], handlers: ["input", "change"])
         defer { window.isHidden = true }
@@ -156,16 +164,19 @@ final class PadBarIOSTests: XCTestCase {
         node.padDone()
         XCTAssertEqual(committed, ["40"], "Done commits the edit, as Return does")
         XCTAssertFalse(field.isFirstResponder, "and puts the keyboard away")
-        // Done alone, without a sign: enterkeyhint="done" on a pad, or a submit handler.
-        node.applyProps(set: [:], clear: ["min"])
-        XCTAssertEqual(keys(node), ["padDone"])
-        node.applyProps(set: [:], clear: ["enterKeyHint"])
-        XCTAssertNil(field.inputAccessoryView, "no hint and no submit: no permanent Done")
+        // Done alone, without a sign, and with neither hint nor submit
+        // handler (expense-tracker's amount): the pad still has a way away.
+        node.applyProps(set: [:], clear: ["min", "enterKeyHint"])
+        XCTAssertEqual(keys(node), ["padDone"], "no hint and no submit: Done all the same")
+        XCTAssertTrue(field.becomeFirstResponder())
+        node.padDone()
+        XCTAssertFalse(field.isFirstResponder, "and it puts the keyboard away")
+        // With a submit handler, Done submits as Return does.
         node.handlers = ["input", "submit"]
         var submitted = 0
         p.onSubmit = { _ in submitted += 1 }
         XCTAssertTrue(node.textFieldShouldBeginEditing(field), "the bar is made as editing begins")
-        XCTAssertEqual(keys(node), ["padDone"], "a submit handler: Return would submit, so Done is there")
+        XCTAssertEqual(keys(node), ["padDone"])
         node.padDone()
         XCTAssertEqual(submitted, 1, "and Done submits")
     }

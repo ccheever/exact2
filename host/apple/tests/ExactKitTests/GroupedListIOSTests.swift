@@ -959,7 +959,7 @@ final class GroupedListIOSTests: GroupedListFixture {
 
     /// A grouped section holding a custom row that names a trailing swipe
     /// action (row 21: content 22, Delete 23) above a standard row.
-    private func swipeRow(_ onPress: @escaping (UInt32) -> Void = { _ in }) -> Presenter {
+    private func swipeRow(scrolls: Bool = false, _ onPress: @escaping (UInt32) -> Void = { _ in }) -> Presenter {
         ExactGroupedLists.install()
         let p = Presenter()
         host(p).model = { $0 == 1 ? GroupedListModel(sections: [
@@ -975,6 +975,7 @@ final class GroupedListIOSTests: GroupedListFixture {
             ["op": "create", "id": 2, "kind": "view", "props": ["semanticTag": "section"], "style": [:]],
             ["op": "create", "id": 4, "kind": "view", "props": [:], "style": [:]],
             ["op": "create", "id": 21, "kind": "view", "props": ["swipeContent": "body", "swipeTrailing": "delete", "testId": "swipe-row"],
+             "handlers": scrolls ? ["scroll"] : [String](),
              "style": ["overflow_x": "scroll", "overflow_y": "hidden", "padding_right": 16.0, "border_width_bottom": 1.0]],
             ["op": "create", "id": 22, "kind": "view", "props": ["id": "body"], "style": [:]],
             ["op": "create", "id": 23, "kind": "button", "props": ["id": "delete", "accessibilityLabel": "Delete Milk", "destructive": "true"], "handlers": ["press"], "style": [:]],
@@ -1037,6 +1038,32 @@ final class GroupedListIOSTests: GroupedListFixture {
         p.apply(wireBatch([["op": "props", "id": 2, "set": ["inert": "true"], "clear": [String]()]]))
         XCTAssertNil(l.swipeActions(at: IndexPath(item: 0, section: 0), leading: false), "inert: nothing offered")
         XCTAssertEqual(p.swipeActions.perform(23), false)
+    }
+
+    /// LLP 1116.008 D4 (grocery-list, round 10): the row's own horizontal snap
+    /// scroll never takes a pan the list cell's swipe should. At rest it is no
+    /// view at all (above); where something made it one (an authored `scroll`
+    /// handler or position, the agent's wheel) it is stilled and at its start
+    /// while the cell is UIKit's, and every batch gives it back and stills it
+    /// again, so UIKit's swipe sees the first pan of a short drag as a native
+    /// list's does (the grader's "short swipe" was Maestro's nine-point drag
+    /// from the checkbox, which a hand-built UIKit list takes no differently).
+    func testAGroupedSwipeRowsOwnScrollNeverPansWhileItsCellSwipes() throws {
+        let p = swipeRow(scrolls: true)
+        let owner = try XCTUnwrap(p.views[21])
+        let scroll = try XCTUnwrap(owner.scroll, "a `scroll` handler wants the scroll view")
+        XCTAssertFalse(scroll.isScrollEnabled, "its pan is off: the cell's swipe takes the touch")
+        XCTAssertEqual(scroll.contentOffset.x, -scroll.adjustedContentInset.left, "at its start")
+        XCTAssertNil(p.swipeActions.refusal(of: owner))
+        XCTAssertTrue(owner.isDescendant(of: try cell(p, 21).contentView), "the cell is UIKit's")
+        for _ in 0..<2 {
+            p.apply(wireBatch([["op": "props", "id": 21, "set": ["testId": "swipe-row"], "clear": [String]()]]))
+            XCTAssertFalse(try XCTUnwrap(owner.scroll).isScrollEnabled, "stilled again after each batch")
+        }
+        XCTAssertNotNil(try list(p).swipeActions(at: IndexPath(item: 0, section: 0), leading: false))
+        // A row that stops swiping is the scroll's again, as the web's.
+        p.apply(wireBatch([["op": "props", "id": 21, "set": [String: String](), "clear": ["swipeContent"]]]))
+        XCTAssertTrue(try XCTUnwrap(owner.scroll).isScrollEnabled)
     }
 
     /// LLP 1116.004 D2 (grocery-list, round 6): a contact in a swipe row

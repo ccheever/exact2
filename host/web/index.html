@@ -170,9 +170,14 @@
      darker under the pointer and while pressed (when the face also dims, as
      above). `destructive` is the system red as the button's accent, so each
      style draws it: red ink, a red tint, a red fill. An accent-color on the
-     button still wins. */
+     button still wins. LLP 1116.008 D7: the red ink a fill sits under (the
+     two neutral styles, the two tinted) is the system red mixed 12% toward
+     black in the light scheme, which `check` holds to 3:1 for a control's
+     label: #ff383c was 2.7:1 on a grey button over a card and 2.9:1 on a red
+     tint (team-kanban's Delete), a difference the eye does not find. */
   #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]) { background: light-dark(#7676801f, #7676803d); color: ButtonText; }
-  #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"])[data-destructive="true"] { color: light-dark(var(--exact-accent, AccentColor), color-mix(in srgb, var(--exact-accent, AccentColor) 80%, #fff)); }
+  #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"])[data-destructive="true"] { color: light-dark(color-mix(in srgb, var(--exact-accent, AccentColor) 88%, #000), color-mix(in srgb, var(--exact-accent, AccentColor) 80%, #fff)); }
+  #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"])[data-destructive="true"] { color: light-dark(color-mix(in srgb, var(--exact-accent, AccentColor) 88%, #000), var(--exact-accent, AccentColor)); }
   @media (hover: hover) {
     #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]):not([role="tab"], [role="radio"], :disabled):hover { background-color: light-dark(#7676802e, #7676804d); }
     #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"]):not(:disabled):hover { background-color: color-mix(in srgb, var(--exact-accent, AccentColor) 22%, transparent); }

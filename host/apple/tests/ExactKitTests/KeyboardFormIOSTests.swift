@@ -12,6 +12,11 @@ import XCTest
 /// Return with `enterkeyhint="next"` moves to the next field, a row the list
 /// had scrolled away included, and shows it likewise. D2.2: a grouped list
 /// taking a route's scroll's place in place is what the bar follows.
+///
+/// LLP 1116.008 D8: content pinned over the bottom of a scroller (an absolute
+/// bar, book-club's Add button) is not where the focused field is shown: the
+/// field is above it, the last of the form included, and the room the scroller
+/// took to get it there goes back when the keyboard does.
 final class KeyboardFormIOSTests: XCTestCase {
     private var window: UIWindow?
     private var session: ExactSession?
@@ -134,6 +139,53 @@ final class KeyboardFormIOSTests: XCTestCase {
             let shown = route.contentScrollView(for: edge)
             XCTAssertTrue(shown is GroupedScroller, "edge \(edge.rawValue) follows the list's collection view, not \(String(describing: shown))")
         }
+    }
+
+    func testTheFocusedFieldIsShownAboveABarPinnedOverItsScroller() throws {
+        let session = try fixture()
+        let p = session.presenter
+        _ = Agent(session: session).tap(["id": Int(try node("tab-pinned").id)])
+        spin(0.5)
+        let tabs = try XCTUnwrap(p.navigation.tabController)
+        let nav = try XCTUnwrap(tabs.selectedViewController as? UINavigationController)
+        let author = try node("pinned-author"), memo = try node("pinned-memo"), bar = try node("pinned-bar")
+        let scroll = try XCTUnwrap(p.navigation.shownScroll(try node("pinned-scroll")))
+        let base = scroll.contentInset.bottom
+        XCTAssertGreaterThan(box(memo).minY, keys, "the fixture's last field starts where the keys will be")
+        let top = box(nav.navigationBar).maxY
+
+        func assertShown(_ field: NodeView, _ name: String, file: StaticString = #filePath, line: UInt = #line) {
+            let r = box(field), cover = box(bar)
+            XCTAssertLessThanOrEqual(r.maxY, cover.minY + 0.5, "\(name) above the pinned bar: \(r) over \(cover)", file: file, line: line)
+            XCTAssertGreaterThanOrEqual(r.minY, top - 0.5, "\(name) below the navigation bar: \(r)", file: file, line: line)
+            XCTAssertLessThanOrEqual(cover.maxY, keys + 0.5, "the bar rides the keys' top", file: file, line: line)
+            let hit = window?.hitTest(CGPoint(x: r.midX, y: r.midY), with: nil)
+            XCTAssertTrue(hit.map { $0 === field || $0.isDescendant(of: field) } ?? false, "\(name) takes a touch at its middle, not \(String(describing: hit))", file: file, line: line)
+        }
+
+        // The last field of the form: no offset of the content alone shows it
+        // above the bar, so the scroller takes room below its content.
+        memo.textFieldDidBeginEditing(try XCTUnwrap(memo.field))
+        p.applyKeyboard(top: keys, duration: 0, curve: 0)
+        spin(0.3)
+        assertShown(memo, "memo")
+        XCTAssertGreaterThan(scroll.contentInset.bottom, base, "room below the content for the field at its end")
+
+        // Another field of it, higher up: the room already taken is counted, not added again.
+        let room = scroll.contentInset.bottom
+        author.textFieldDidBeginEditing(try XCTUnwrap(author.field))
+        p.applyKeyboard(top: keys, duration: 0, curve: 0)
+        spin(0.3)
+        assertShown(author, "author")
+        XCTAssertLessThanOrEqual(scroll.contentInset.bottom, room + 0.5, "no more room than it had")
+
+        memo.field?.resignFirstResponder()
+        author.field?.resignFirstResponder()
+        p.applyKeyboard(top: nil, duration: 0, curve: 0)
+        spin(0.3)
+        XCTAssertEqual(scroll.contentInset.bottom, base, accuracy: 0.5, "the room goes back with the keyboard")
+        let high = max(-scroll.adjustedContentInset.top, scroll.contentSize.height + scroll.adjustedContentInset.bottom - scroll.bounds.height)
+        XCTAssertLessThanOrEqual(scroll.contentOffset.y, high + 0.5, "and the offset is within the content again")
     }
 }
 #endif

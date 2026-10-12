@@ -55,6 +55,55 @@ final class NativeButtonsMacTests: XCTestCase {
          ["op": "frame", "id": id, "x": 0.0, "y": 0.0, "w": 300.0, "h": 40.0]]
     }
 
+    /// LLP 1116.008 (team-kanban: "Delete is not styled as destructive"): an ordinary
+    /// `button destructive=true` is AppKit's destructive role (`hasDestructiveAction`) in the
+    /// platform's red, whatever accent it only inherits: red ink on a push or borderless button,
+    /// a red bezel under AppKit's white on the accent look. What the author wrote wins: an accent
+    /// written on the button, a colour on its title.
+    func testADestructiveButtonIsAppKitsDestructiveRoleInTheSystemsRedUnlessTheAuthorPaintedIt() throws {
+        let indigo: [Int] = [97, 85, 245, 255]
+        let orange: [Int] = [255, 141, 40, 255]
+        func node(_ id: Int, destructive: Bool, accent: [Int], wrote: Bool = false) -> [[String: Any]] {
+            var ops = native(id, destructive ? ["destructive": "true"] : [:])
+            ops[0]["style"] = ["appearance": "auto", "accent_color": accent, "written": wrote ? ["accent_color"] : [String]()]
+            return ops
+        }
+        var green = face("Green", macos: "push", style: "bordered")
+        green.rows.title["text_color"] = .array([.number(0), .number(128), .number(0), .number(255)])
+        let faces: [UInt32: ButtonFace] = [
+            2: face("Delete", macos: "push"), 3: face("Delete", macos: "borderless", style: "plain"),
+            4: face("Delete", macos: "push-accent", style: "filled"), 5: face("Keep", macos: "push"),
+            6: face("Delete", macos: "push"), 7: green,
+        ]
+        let p = presenter(box(1) + node(2, destructive: true, accent: indigo) + node(3, destructive: true, accent: indigo)
+                          + node(4, destructive: true, accent: indigo) + node(5, destructive: false, accent: indigo)
+                          + node(6, destructive: true, accent: orange, wrote: true) + node(7, destructive: true, accent: indigo)
+                          + [["op": "children", "id": 1, "ids": [2, 3, 4, 5, 6, 7]], ["op": "roots", "ids": [1]]], faces: faces)
+        let button = { (id: UInt32) in try XCTUnwrap(p.controls.controls[id] as? NativeButtonMac, "\(id)") }
+        let red = NSColor.systemRed
+        func ink(_ b: NativeButtonMac) -> NSColor? {
+            guard b.attributedTitle.length > 0 else { return nil }
+            return b.attributedTitle.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
+        }
+        let push = try button(2), plain = try button(3), prominent = try button(4)
+        XCTAssertTrue(push.hasDestructiveAction); XCTAssertTrue(plain.hasDestructiveAction); XCTAssertTrue(prominent.hasDestructiveAction)
+        XCTAssertEqual(ink(push), red, "red ink on a push button")
+        XCTAssertEqual(plain.contentTintColor, red, "and on a borderless one")
+        XCTAssertEqual(ink(plain), red)
+        XCTAssertEqual(prominent.bezelColor, red, "a red bezel under AppKit's own white title on the accent look")
+        XCTAssertNotEqual(ink(prominent), red, "AppKit draws its own title on it")
+        // Not destructive: the accent it inherits, AppKit's ink.
+        let keep = try button(5)
+        XCTAssertFalse(keep.hasDestructiveAction)
+        XCTAssertNotEqual(ink(keep), red)
+        // An accent written on the button wins over the role's red; a colour on its title does too.
+        let accented = try button(6)
+        XCTAssertTrue(accented.hasDestructiveAction, "still the role")
+        XCTAssertNotEqual(ink(accented), red, "no red ink over an authored accent")
+        let painted = try button(7)
+        XCTAssertEqual(ink(painted), NSColor(srgbRed: 0, green: 128 / 255, blue: 0, alpha: 1))
+    }
+
     func testItIsAppKitsButtonPressingOnce() throws {
         let p = presenter(box(1, handlers: ["press"]) + native(2, ["testId": "go"]) + native(3, handlers: []) + native(4, ["disabled": "true"])
                           + [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "roots", "ids": [1]]],

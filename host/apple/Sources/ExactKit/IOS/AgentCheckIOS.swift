@@ -321,11 +321,24 @@ extension Agent {
             // A native button's title is its label wherever the button stands, a grouped list's cell included:
             // the cell's part holds for every view in it, so it would claim the title first (judged at 4.5:1,
             // not the 3:1 a control's label on its own fill gets outside a row: countdowns' indigo button in dark).
+            // So is the title of any UIKit button, a `select`'s pop-up button (the value it shows, in the accent
+            // UIKit tints it with) and a menu's: the platform's own ink for the control, as a hand-built screen
+            // draws it (LLP 1116.008 D7: countdowns' and expense-tracker's indigo menu in dark, 3.9:1).
             var held: UIView? = label.superview
-            while let cur = held, !(cur is NodeView), !(cur is NativeButtonIOS) { held = cur.superview }
-            var up: UIView? = held is NativeButtonIOS ? held : label.superview
+            while let cur = held, !(cur is NodeView), !(cur is UIButton) { held = cur.superview }
+            var up: UIView? = held is UIButton ? held : label.superview
             while let cur = up {
                 if let button = cur as? NativeButtonIOS { if let o = button.owner { item["of"] = Int(o.id) }; item["label"] = true; break }
+                if cur is UIButton {
+                    var owner = cur.superview
+                    while let o = owner, !(o is NodeView) {
+                        if Agent.isBar(o) { return } // a bar's button is the platform's chrome, not judged
+                        owner = o.superview
+                    }
+                    if let node = owner as? NodeView { item["of"] = Int(node.id) }
+                    item["label"] = true
+                    break
+                }
                 if cur is UISegmentedControl { item["label"] = true }
                 if Agent.isBar(cur) { return } // UIKit's bars draw their own ink, glass and vibrancy: the platform's chrome, not judged
                 if let row = GroupedListsLink.part?(cur)?["row"] as? Int { item["of"] = row; break }

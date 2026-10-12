@@ -7,6 +7,11 @@
 // floating tab bar is covered by them as UIKit's is, never riding above them
 // over the field. The viewport itself ends at the keyboard's top
 // (`resizes-content`, LLP 1116 D2; ExactView `fit`).
+//
+// @ref LLP 1116.008 D8 — and above content pinned over the scroller's bottom
+// edge (an absolute bar riding the keyboard): what a pinned bar hides of the
+// port is not the field's to be shown in, as a UIKit table whose bottom inset
+// takes in its toolbar scrolls the field above it.
 #if os(iOS) || os(tvOS)
 import CExact
 import UIKit
@@ -34,7 +39,7 @@ extension Presenter {
                 // and the rows of the cells it brought in are carried there
                 // (a cell kept from before the keys came up showed empty).
                 for _ in 0..<(sv is GroupedScroller ? 3 : 1) {
-                    guard Self.show(node, in: sv, keep: nearest) else { break }
+                    guard show(node, in: sv, keep: nearest, covered: pinnedCover(over: sv, field: node)) else { break }
                     guard sv is GroupedScroller else { continue }
                     carryRows(laying: sv)
                     sv.window?.layoutIfNeeded()
@@ -60,6 +65,41 @@ extension Presenter {
         }.first
     }
 
+    /// How much of the bottom of `sv`'s port content pinned over it hides:
+    /// the tallest box that is painted over the scroller (a later sibling of
+    /// it or of one of its ancestors, taken out of the flow by `position:
+    /// absolute`), spans most of its width and rests on its bottom edge.
+    /// Where a bar rides the keyboard's top over the scroller, the focused
+    /// field is shown above the bar, not under it (book-club's Add button over
+    /// its Author field). A box the field sits in is not a cover for it.
+    func pinnedCover(over sv: UIScrollView, field node: NodeView) -> CGFloat {
+        guard let window = sv.window else { return 0 }
+        let owner = (sv.superview as? NodeView).flatMap { $0.scrollView === sv ? $0 : nil }
+        let port = sv.convert(sv.bounds.inset(by: owner?.scrollPortInsets(sv) ?? sv.adjustedContentInset), to: window)
+        guard port.height > 1, port.width > 1 else { return 0 }
+        var top = port.maxY
+        func consider(_ box: NodeView) {
+            guard !box.isHidden, box.alpha > 0.01, box !== sv, box.window === window, !node.isDescendant(of: box),
+                  box.style["pointer_events"]?.string != "none" else { return }
+            let frame = box.convert(box.bounds, to: window)
+            let across = min(frame.maxX, port.maxX) - max(frame.minX, port.minX)
+            guard across >= port.width * 0.5, frame.maxY >= port.maxY - 40, frame.minY < port.maxY - 1,
+                  frame.minY >= port.minY + port.height * 0.4 else { return }
+            top = min(top, frame.minY)
+        }
+        var child: UIView = sv, up = sv.superview
+        while let parent = up {
+            if let at = parent.subviews.firstIndex(of: child) {
+                for case let sibling as NodeView in parent.subviews[(at + 1)...] where sibling.style["position_type"]?.string == "absolute" {
+                    consider(sibling)
+                }
+            }
+            child = parent
+            up = parent.superview
+        }
+        return port.maxY - top
+    }
+
     /// A grouped list laid out at its offset and the rows of its cells
     /// carried into them: put in place, not slid there by the animation
     /// this may run inside, which moves only the list's offset.
@@ -72,17 +112,25 @@ extension Presenter {
 
     /// Scroll `sv` by the least that shows the node, with a little air, and
     /// with `keep` the rest of its section when all of it fits; whether it moved.
-    private static func show(_ node: NodeView, in sv: UIScrollView, keep: Bool) -> Bool {
+    private func show(_ node: NodeView, in sv: UIScrollView, keep: Bool, covered: CGFloat = 0) -> Bool {
         let field = node.convert(node.bounds, to: sv)
         let owner = (sv.superview as? NodeView).flatMap { $0.scrollView === sv ? $0 : nil }
-        let visible = sv.bounds.inset(by: owner?.scrollPortInsets(sv) ?? sv.adjustedContentInset)
+        var visible = sv.bounds.inset(by: owner?.scrollPortInsets(sv) ?? sv.adjustedContentInset)
+        visible.size.height = max(0, visible.height - covered)
         var r = field.insetBy(dx: 0, dy: -8)
-        if keep, let span = kept(node, field: field, in: sv), span.height + 16 <= visible.height {
+        if keep, let span = Self.kept(node, field: field, in: sv), span.height + 16 <= visible.height {
             r = CGRect(x: field.minX, y: span.minY, width: field.width, height: span.height).insetBy(dx: 0, dy: -8)
         }
         var o = sv.contentOffset
         if r.maxY > visible.maxY { o.y += r.maxY - visible.maxY } else if r.minY < visible.minY { o.y -= visible.minY - r.minY }
         if r.maxX > visible.maxX { o.x += r.maxX - visible.maxX } else if r.minX < visible.minX { o.x -= visible.minX - r.minX }
+        // A field at the end of the content, under a bar pinned over it, has no
+        // offset that shows it above the bar: the scroller takes room below
+        // its content for as long as the keyboard is up (`PinnedRoom`).
+        if covered > 0 {
+            let high = sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height
+            if o.y > high + 0.5 { pinnedRoom.grow(sv, by: o.y - high) }
+        }
         let clamped = { (o: CGPoint, i: UIEdgeInsets) in
             CGPoint(x: min(max(o.x, -i.left), max(-i.left, sv.contentSize.width + i.right - sv.bounds.width)),
                     y: min(max(o.y, -i.top), max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height)))
@@ -127,6 +175,40 @@ extension Presenter {
         guard let group else { return nil }
         let box = group.convert(group.bounds, to: sv)
         return CGRect(x: box.minX, y: field.minY, width: box.width, height: max(field.height, box.maxY - field.minY))
+    }
+}
+
+/// The room below a scroller's content that lets a field at its end be shown
+/// above content pinned over its bottom edge (LLP 1116.008 D8): what a hand-
+/// built screen's bottom inset does for its toolbar. Taken as the field is
+/// revealed and given back when the keyboard goes, never at rest. The active
+/// scroll backend keeps this room alongside native content padding.
+final class PinnedRoom {
+    private struct Grown {
+        weak var scroll: UIScrollView?
+        var base: CGFloat, added: CGFloat
+    }
+    private var grown: [ObjectIdentifier: Grown] = [:]
+
+    /// `extra` more points below the content, on top of what it already took.
+    func grow(_ sv: UIScrollView, by extra: CGFloat) {
+        let id = ObjectIdentifier(sv)
+        var room = grown[id] ?? Grown(scroll: sv, base: sv.contentInset.bottom, added: 0)
+        room.added += extra
+        sv.contentInset.bottom = room.base + room.added
+        grown[id] = room
+    }
+
+    /// The keyboard went: each scroller keeps the inset it had, and an offset
+    /// that was past its end goes back to it.
+    func release() {
+        for room in grown.values {
+            guard let sv = room.scroll else { continue }
+            sv.contentInset.bottom = room.base
+            let high = max(-sv.adjustedContentInset.top, sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height)
+            if sv.contentOffset.y > high { sv.contentOffset.y = high }
+        }
+        grown = [:]
     }
 }
 

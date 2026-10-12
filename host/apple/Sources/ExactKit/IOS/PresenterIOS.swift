@@ -168,6 +168,9 @@ package final class Presenter {
     /// insets its content by this and reveals the field being edited, in the
     /// keyboard's own animation.
     package var keyboardInset: CGFloat = 0
+    /// What scrollers took below their content to show a field above pinned
+    /// content, while the keyboard is up (`PinnedRoom`).
+    let pinnedRoom = PinnedRoom()
 
     var hasKeyboardEditor: Bool {
         views.values.contains { $0.field?.isFirstResponder == true || $0.textArea?.isFirstResponder == true }
@@ -311,6 +314,7 @@ package final class Presenter {
                 let overlap = top.map { min(max(0, frame.maxY - max($0, frame.minY)), frame.height) } ?? 0
                 self.setKeyboardInset(overlap)
             }
+            if top == nil { self.pinnedRoom.release() }
             self.reveal(self.editing ?? self.views.values.first { $0.field?.isFirstResponder == true })
         }
         // Under the agent (LLP 1012) the change applies at once, as the
@@ -629,6 +633,13 @@ package final class Presenter {
     func commitEdit(_ id: UInt32, _ value: String, change: Bool) {
         guard edited == id else { return }
         edited = nil
+        var value = value
+        // A number input's typed value past `min` or `max` commits as the
+        // bound (LLP 1116.008 D5), told as a step is: `input`, then `change`.
+        if let node = views[id], let bound = node.clampTypedNumber(value) {
+            value = bound
+            if node.handlers.contains("input") { onInput?(id, bound) }
+        }
         if change { onChange?(id, value) }
     }
     package func checked(_ id: UInt32, _ on: Bool) { onChecked?(id, on) }

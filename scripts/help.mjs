@@ -23,16 +23,16 @@ const takesValue = (spec) => spec.includes(' ');
 // (`runTests` reads all but those `test` lists as internal).
 const DRIVE = [
   ['--storage <name>', 'a scratch store, kept between drives by name'],
-  ['--size <w>x<h>', 'the viewport (default 420x900; a simulator has its own)'],
-  ['--chrome platform', 'Apple: real navigation and tab bars (default: the authored ones, painted)'],
+  ['--size <w>x<h>', 'the viewport (default 420x900; a simulator\'s own)'],
+  ['--chrome platform', 'Apple: UIKit\'s navigation and tab bars (default: painted)'],
   ['--timing platform', 'Apple: UIKit\'s transitions keep their own timing (default: frozen)'],
   ['--touch platform', 'iOS simulator: every tap a real touch, through the XCTest runner'],
-  ['--epoch <ISO|ms|now>', 'the date at the agent clock\'s zero (default 2026-01-01T00:00:00Z)'],
+  ['--epoch <ISO|ms|now>', 'the date at the clock\'s zero (default 2026-01-01)'],
   ['--locale <tag> · --time-zone <zone> · --seed <n>', 'default en-US, UTC, 1'],
   ['--fail-fetch <prefix>', 'each fetch whose URL starts with it fails, from the first data load'],
   ['--url <url>', 'web: drive a page already served (the dev loop\'s) instead of building'],
   ['--browser chrome|firefox|webkit', 'web (default chrome; bunx playwright@1.63.0 install firefox webkit)'],
-  ['--sim <udid|name>', 'iOS: which simulator (default: a booted iPhone, else the newest Pro)'],
+  ['--sim <udid|name>', 'iOS: which simulator (default: a booted iPhone)'],
   ['--device · --phone <udid|name> · --reader', 'a connected iPhone (built with ios --device), and which · Android: the app on the Canvas reader (its APK)'],
   ['--plan <file>', 'a compiled plan (contract build -o) in place of the app\'s'],
   ['--world <file> · --open <file>', 'a game: a saved world to load · macOS: a document on its command line'],
@@ -65,11 +65,9 @@ export const HELP = {
       ['--wasm', 'the resident wasm loop (a game\'s always): a plan restarts in place, state carried'],
     ],
     internal: ['--app <name>', '--serve-as <port>'],
-    body: `Runs     in the foreground until ^C, printing its URL. test web and agent web build and
-         serve their own copy, so they do not need it. To keep it while you work:
-           bun exact.mjs web > .exact/web.log 2>&1 &      # $! is its PID; kill <PID> stops it
-         If your tool's shell ends background jobs when the command returns, use the
-         tool's own background mode.`,
+    body: `Runs     in the foreground until ^C, printing its URL. The dev loop is for a person watching
+         the app change: verify, test and agent build and serve their own copy, so checking
+         the app needs no dev server.`,
     bodyAll: `Ports    one HTTP port on 127.0.0.1 (--lan: every interface), printed with the URL. A native
          client opening <url>__dev/open starts the producers on a second, loopback-only port.
          The server stops with its process however it ends.`,
@@ -103,7 +101,8 @@ store, after its first data has landed; its leading lines (size, epoch, fail fet
 override flags.
 Server   an app with its own (server.ts, the rest pattern's): test runs it where app.ts calls it,
          on an empty database (DB=.exact/test/db.sqlite), then stops it, as verify does; one
-         already answering there (a dev server) is refused, named, never written to.
+         already answering there (a dev server) is refused, named, never written to; so is a
+         server entry that does not read DB (process.env.DB), with the fix.
 Runs     to completion, exit 1 when a test fails; nothing is left running.
 Lines    tap, type, expect text|tree|state, clock data|settle|+<ms>, reload, back, fail|pass fetch,
          request <METHOD> "/path" [json] [as <persona>]: docs/recipes/tests.md; all:
@@ -120,9 +119,9 @@ Ports    none to choose. web: headless Chrome over a pipe; the page on 127.0.0.1
     flags: DRIVE.filter(naming(DRIVE_FIRST, true)),
     more: DRIVE.filter(naming(DRIVE_FIRST, false)),
     internal: ['--test <file>', ...DRIVE_INTERNAL],
-    body: `Launches the app anew each drive (building first when missing or stale, said on stderr), runs
-each op (one quoted argument each) on the agent's clock, prints its reply. Without
---storage, storage is refused. Runs to completion.
+    body: `Launches the app anew each drive (building first if stale, said on stderr), runs each op (one
+quoted argument each) on the agent's clock, prints its reply. Without --storage, storage is
+refused. An app's server.ts runs for the drive, its database kept per --storage. Runs to completion.
 Ops      a target is a testId, else a view's exact text or label
   tree [<target>] · tree --ax · logs · layout [<target>]
   state [<name>]  a view's testId, else a state or resource, dotted: groceries.0.done
@@ -140,9 +139,10 @@ Ports    none to choose. web: headless Chrome over a pipe; the page on 127.0.0.1
   },
   verify: {
     line: 'build if stale, run app.test.contract, check each screen it reaches light and dark, relaunch once',
-    usage: 'bun exact.mjs verify [web|ios] [--sim <udid|name>] [--json]',
+    usage: 'bun exact.mjs verify [web|ios] [--sim <udid|name>] [--shots <dir>] [--json]',
     flags: [
       ['--sim <udid|name>', 'iOS: which simulator (else EXACT_SIM, a booted iPhone, or the newest Pro)'],
+      ['--shots <dir>', 'also copy every screenshot it captured there, named as in .exact/verify/ (a test\'s own `screenshot` steps too)'],
       ['--json', 'the report as one JSON object'],
     ],
     internal: ['--app <name>'],
@@ -162,7 +162,8 @@ Runs     to completion: exit 1 when the build, a test, a launch or the relaunch 
          fail it. A screen no test ends on is not checked: end a test there.
 Server   an app with its own (server.ts, the rest pattern's): verify runs it where app.ts calls
          it, on an empty database (DB=.exact/verify/db.sqlite), through the relaunch, then stops
-         it; one already answering there (a dev server) is refused, named, never written to.
+         it; one already answering there (a dev server) is refused, named, never written to; so is
+         a server entry that does not read DB (process.env.DB), with the fix.
 Ports    none to choose: test's and agent's (headless Chrome over a pipe; a simulator's socket).`,
     example: 'bun exact.mjs verify            # bun exact.mjs verify ios at a milestone',
   },

@@ -23,10 +23,12 @@ const check = unavailable ? (name, ...args) => test.skip(`${name} — ${unavaila
 // focus-timer's accent, as the JS target writes `accent-color` (style.rs): the property and `--exact-accent`.
 const ACCENT = 'accent-color:light-dark(#116f64, #62d5bd);--exact-accent:light-dark(#116f64, #62d5bd)';
 const STYLES = ['filled', 'bordered-prominent', 'tinted', 'bordered-tinted', 'plain', 'borderless', 'bordered', 'gray', 'glass', 'prominent-glass'];
+const DESTRUCTIVE = ['gray', 'bordered', 'tinted', 'bordered-tinted', 'plain', 'borderless', 'filled', 'bordered-prominent'];
 const button = (id, look, extra = '', style = '') => `<button type="button" data-native data-button-style="${look}" id="${id}" style="display:grid;${style}"${extra}><span data-exact-text>Save settings</span></button>`;
 const scheme = s => `<div style="color-scheme:${s};${ACCENT}" id="${s}">
   ${STYLES.map(look => button(`${s}-${look}-on`, look) + button(`${s}-${look}-off`, look, ' disabled')).join('')}
   ${button(`${s}-authored`, 'bordered-prominent', ' disabled', 'color:rgb(255, 0, 0);background-color:rgb(0, 0, 255)')}
+  ${DESTRUCTIVE.map(look => button(`${s}-destructive-${look}`, look, ' data-destructive="true"')).join('')}
   <span id="${s}-gray" style="color:GrayText"></span>
   <input data-native id="${s}-valid" value="25">
   <input data-native id="${s}-invalid" value="0" aria-invalid="true" aria-describedby="${s}-error"><span id="${s}-error">Enter a whole number from 1 to 60.</span>
@@ -143,6 +145,24 @@ check('a disabled button looks disabled in every style and scheme, whatever its 
   await call('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
   expect(await evaluate(`document.querySelectorAll('[data-pressed]').length`)).toBe(0);
   await call('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
+}), 30000);
+
+// LLP 1116.008 D7: a destructive button passes `check` as the platform draws it (a control's label at 3:1 on its
+// own fill, over the card a row of buttons sits on), in every style and both schemes: team-kanban's Delete was
+// #ff383c at 2.7:1 on the grey fill over -exact-secondary-background, so its builder removed `destructive=true`.
+check('a destructive button reads at 3:1 on its own fill over a card, in every style and scheme', () => inChrome(async (evaluate) => {
+  const contrast = (id, card) => evaluate(`(() => {
+    const x = document.createElement('canvas').getContext('2d', { willReadFrequently: true }), e = document.getElementById('${id}'), s = getComputedStyle(e);
+    const read = () => [...x.getImageData(0, 0, 1, 1).data].slice(0, 3);
+    x.fillStyle = '${card}'; x.fillRect(0, 0, 1, 1); x.fillStyle = s.backgroundColor; x.fillRect(0, 0, 1, 1);
+    const bg = read(); x.clearRect(0, 0, 1, 1); x.fillStyle = s.color; x.fillRect(0, 0, 1, 1);
+    const ink = read(), lum = c => { const [r, g, b] = c.map(v => { v /= 255; return v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; }); return .2126 * r + .7152 * g + .0722 * b; };
+    const [hi, lo] = [lum(ink), lum(bg)].sort((a, b) => b - a); return (hi + .05) / (lo + .05); })()`);
+  for (const [s, card] of [['light', '#f2f2f7'], ['dark', '#1c1c1e']]) {
+    for (const look of DESTRUCTIVE) expect([s, look, (await contrast(`${s}-destructive-${look}`, card)) >= 3]).toEqual([s, look, true]);
+    // The red is still red: not the label's ink on a neutral fill.
+    expect((await look(evaluate, `${s}-destructive-gray`)).color).not.toBe((await look(evaluate, `${s}-gray-on`)).color);
+  }
 }), 30000);
 
 check('a field marked aria-invalid is outlined in the system red, its focus ring red, in both schemes', () => inChrome(async (evaluate) => {

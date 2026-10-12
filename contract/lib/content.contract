@@ -189,9 +189,12 @@ component Badge
 // (`some("AccentColor")`) or a state (`-exact-system-red` to stop), whose
 // white ink the platform chooses, as on any filled button. The light system
 // hues, green (to start), mint, teal, cyan, yellow and orange, fail 4.5:1
-// under white (green is 2.2:1), so their label is black in either scheme,
-// as AnswerTile's green takes dark ink (LLP 1116.007 D3.3). Two sit at the
-// ends of a `row justify-content="space-between"` under the readout.
+// under white (green is 2.2:1) and look off-platform under black (LLP
+// 1116.007 D3.3, then trivia's teal Start, round 10), so they draw the
+// platform's tinted style as the Clock's Start does: the hue at low opacity
+// under the label's own ink, black in light and white in dark, which reads on
+// every one of them (LLP 1116.008 D6). Two sit at the ends of a
+// `row justify-content="space-between"` under the readout.
 component RoundButton
   props
     label: string
@@ -203,8 +206,8 @@ component RoundButton
     match tint
       case some(t)
         when includes(["-exact-system-green", "-exact-system-mint", "-exact-system-teal", "-exact-system-cyan", "-exact-system-yellow", "-exact-system-orange"], t)
-          button press=press disabled=disabled testId=testId buttonStyle="filled"
-            accent-color=t color="light-dark(black, black)"
+          button press=press disabled=disabled testId=testId buttonStyle="tinted"
+            accent-color=t color=(disabled ? "-exact-tertiary-label" : "-exact-label")
             -exact-corner-style="capsule" width=80 height=80 padding="0 6px" flex-shrink=0
             text label white-space="nowrap"
         else

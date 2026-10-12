@@ -60,8 +60,8 @@ test "a bad amount says so, and people commit on Enter"
   never as the person types: rewriting the text mid-edit puts the next keystroke in the wrong
   place. `parseNumber` answers `none` for `""`, `"12px"`, `"1.2.3"`: show a hint in words and
   leave the text as typed.
-- The number pad has no Return key: `enterkeyhint="done"` gives it a Done key that puts it away
-  (and fires `change`); a drag on the scroller that reaches the keyboard does too.
+- The number pad has no Return key, so iOS gives it a Done bar that puts it away (and fires
+  `change`); a drag on the scroller that reaches the keyboard does too.
 - A value that can be negative: the decimal pad has no minus key, so say the range: `min="-273.15"`
   gives iOS a ± key in the keyboard's bar. Never `inputmode="text"` for a number.
 - A number in a form that saves: `submit=save` on the field (Enter saves; there is no `form`),

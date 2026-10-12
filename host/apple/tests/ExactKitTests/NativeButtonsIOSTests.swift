@@ -183,6 +183,64 @@ final class NativeButtonsIOSTests: XCTestCase {
         XCTAssertEqual(focused, [2])
     }
 
+    /// LLP 1116.008 (team-kanban: "Delete is not styled as destructive"): an ordinary
+    /// `button destructive=true` draws in the platform's destructive red, as a hand-built
+    /// screen's does: red ink on the plain, gray, bordered and tinted styles, a red fill
+    /// under UIKit's white on the filled ones, whatever accent it only inherits. What the
+    /// author wrote wins: an accent on the button, a colour on its title.
+    func testADestructiveButtonDrawsInThePlatformsRedUnlessTheAuthorPaintedIt() throws {
+        let indigo: [Int] = [97, 85, 245, 255]
+        let orange: [Int] = [255, 141, 40, 255]
+        func node(_ id: Int, destructive: Bool, accent: [Int], wrote: Bool = false) -> [[String: Any]] {
+            var ops = native(id, destructive ? ["destructive": "true"] : [:])
+            ops[0]["style"] = ["appearance": "auto", "accent_color": accent, "written": wrote ? ["accent_color"] : [String]()]
+            return ops
+        }
+        var green = face("Green", style: "plain", ios: "plain")
+        green.rows.title["text_color"] = .array([.number(0), .number(128), .number(0), .number(255)])
+        let faces: [UInt32: ButtonFace] = [
+            2: face("Delete", style: "bordered", ios: "bordered"), 3: face("Delete", style: "plain", ios: "plain"),
+            4: face("Delete", style: "tinted", ios: "tinted"), 5: face("Delete", style: "bordered-prominent", ios: "borderedProminent"),
+            6: face("Delete", style: "filled", ios: "filled"), 7: face("Keep", style: "plain", ios: "plain"),
+            8: face("Delete", style: "plain", ios: "plain"), 9: green,
+        ]
+        let p = presenter(box(1)
+            + node(2, destructive: true, accent: indigo) + node(3, destructive: true, accent: indigo) + node(4, destructive: true, accent: indigo)
+            + node(5, destructive: true, accent: indigo) + node(6, destructive: true, accent: indigo)
+            + node(7, destructive: false, accent: indigo) + node(8, destructive: true, accent: orange, wrote: true) + node(9, destructive: true, accent: indigo)
+            + [["op": "children", "id": 1, "ids": [2, 3, 4, 5, 6, 7, 8, 9]], ["op": "roots", "ids": [1]]], faces: faces)
+        window.overrideUserInterfaceStyle = .light; window.updateTraitsIfNeeded()
+        p.controls.sync()
+        let light = UITraitCollection(userInterfaceStyle: .light)
+        func ink(_ id: UInt32) throws -> UIColor? { try button(p, id).configuration?.baseForegroundColor?.resolvedColor(with: light) }
+        let red = UIColor.systemRed.resolvedColor(with: light)
+        // Red ink where the style's ink is its own: the plain, gray, bordered and tinted; deepened a notch
+        // on the ones with a fill of their own, so it reads 3:1 on it (`check`).
+        XCTAssertEqual(try ink(3), red, "plain: systemRed")
+        for id: UInt32 in [2, 4] {
+            let c = try XCTUnwrap(try ink(id), "\(id)")
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0
+            XCTAssertTrue(c.getRed(&r, green: &g, blue: &b, alpha: nil))
+            XCTAssertGreaterThan(r, 0.85, "\(id): red"); XCTAssertLessThan(g, 0.3, "\(id): red"); XCTAssertLessThan(b, 0.3, "\(id): red")
+        }
+        // The tint is red whatever accent it inherits: the tinted fill, the filled one's fill under UIKit's white.
+        for id: UInt32 in [2, 3, 4, 5, 6] { XCTAssertEqual(try button(p, id).tintColor.resolvedColor(with: light), red, "\(id): the tint") }
+        XCTAssertNil(try ink(5), "borderedProminent keeps UIKit's ink, white, on the red fill")
+        XCTAssertNil(try ink(6), "filled keeps UIKit's ink, white, on the red fill")
+        // Not destructive: the accent it inherits, UIKit's own ink.
+        XCTAssertNil(try ink(7))
+        XCTAssertEqual(try button(p, 7).tintColor.resolvedColor(with: light), UIColor(red: 97 / 255, green: 85 / 255, blue: 245 / 255, alpha: 1))
+        // What the author wrote wins: an accent on the button itself, a colour on its title.
+        XCTAssertNil(try ink(8), "a written accent keeps UIKit's ink")
+        XCTAssertEqual(try button(p, 8).tintColor.resolvedColor(with: light), UIColor(red: 255 / 255, green: 141 / 255, blue: 40 / 255, alpha: 1))
+        let title = try XCTUnwrap(try button(p, 9).configuration?.titleTextAttributesTransformer)
+        XCTAssertEqual(title(AttributeContainer()).uiKit.foregroundColor?.cgColor.components, [0, 128 / 255, 0, 1])
+        XCTAssertEqual(try ink(9)?.cgColor.components, [0, 128 / 255, 0, 1], "the author's colour, not the red ink")
+        // Dark and increased contrast keep systemRed's own.
+        let dark = UITraitCollection(userInterfaceStyle: .dark)
+        XCTAssertEqual(try XCTUnwrap(try button(p, 2).configuration?.baseForegroundColor).resolvedColor(with: dark), UIColor.systemRed.resolvedColor(with: dark))
+    }
+
     func testAuthoredColoursFollowALightToDarkSwitch() throws {
         var f = face("Scheme", symbol: "lock.fill", style: "filled", ios: "filled")
         let pair: BatchValue = .array([.array([.number(0), .number(0), .number(0), .number(255)]),
