@@ -486,7 +486,7 @@ fn default_of(
     codec: &Codec,
     default: &serde_json::Value,
     field: &str,
-    colors: &[[String; 6]],
+    colors: &[[String; 8]],
 ) -> String {
     match (codec, default.as_str()) {
         (Codec::ColorValue, Some(name)) => role_default(colors, name, field),
@@ -497,7 +497,7 @@ fn default_of(
     }
 }
 
-pub fn role_default(colors: &[[String; 6]], name: &str, field: &str) -> String {
+pub fn role_default(colors: &[[String; 8]], name: &str, field: &str) -> String {
     let id = colors
         .iter()
         .position(|c| c[0] == name)
@@ -507,28 +507,33 @@ pub fn role_default(colors: &[[String; 6]], name: &str, field: &str) -> String {
 
 /// @ref LLP 1095 D2 — the colour roles' type and table, from the schema's
 /// `colors`: CSS's system colours, then Exact's.
-pub fn write_color_roles(w: &mut String, colors: &[[String; 6]], rgba: impl Fn(&str) -> u32) {
+pub fn write_color_roles(w: &mut String, colors: &[[String; 8]], rgba: impl Fn(&str) -> u32) {
     w.push_str(concat!(
         "/// One colour role (LLP 1095 D2): each Apple platform's class colour\n",
         "/// property (`@tint` for the view's inherited tint, `/a` for an alpha),\n",
-        "/// and the light and dark fallback every host without one shows.\n",
+        "/// and the two pairs a host without the platform's colour may show:\n",
+        "/// Apple's, and the neutral one (LLP 1115.000 D3.2; `roles::Column`).\n",
         "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n",
         "pub struct ColorRole {\n",
         "    /// The role's name: CSS's spelling for a system colour, which is how\n    /// it is written; else Exact's role, written `-exact-<name>` (LLP 1081\n    /// D2) and carried as `var(--exact-<name>, …)` on the web.\n    pub name: &'static str,\n",
         "    /// WebKit's `-apple-system-*` name this role answers to, or empty.\n    pub alias: &'static str,\n",
         "    /// `UIColor`'s class property.\n    pub ios: &'static str,\n",
         "    /// `NSColor`'s class property.\n    pub macos: &'static str,\n",
-        "    /// Under a light scheme, RGBA.\n    pub light: u32,\n",
-        "    /// Under a dark scheme, RGBA.\n    pub dark: u32,\n",
+        "    /// Apple's, under a light scheme, RGBA.\n    pub light: u32,\n",
+        "    /// Apple's, under a dark scheme, RGBA.\n    pub dark: u32,\n",
+        "    /// The neutral column's, under a light scheme, RGBA.\n    pub neutral_light: u32,\n",
+        "    /// The neutral column's, under a dark scheme, RGBA.\n    pub neutral_dark: u32,\n",
         "}\n",
         "/// Every role, by id (`ColorValue::Role`).\n",
         "pub const COLOR_ROLES: &[ColorRole] = &[\n",
     ));
-    for [name, alias, ios, macos, light, dark] in colors {
+    for [name, alias, ios, macos, light, dark, neutral_light, neutral_dark] in colors {
         w.push_str(&format!(
-            "ColorRole {{ name: {name:?}, alias: {alias:?}, ios: {ios:?}, macos: {macos:?}, light: {:#010x}, dark: {:#010x} }},\n",
+            "ColorRole {{ name: {name:?}, alias: {alias:?}, ios: {ios:?}, macos: {macos:?}, light: {:#010x}, dark: {:#010x}, neutral_light: {:#010x}, neutral_dark: {:#010x} }},\n",
             rgba(light),
-            rgba(dark)
+            rgba(dark),
+            rgba(neutral_light),
+            rgba(neutral_dark)
         ));
     }
     w.push_str("];\n");

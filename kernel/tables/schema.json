@@ -4674,6 +4674,7 @@
       "#282828b3"
     ]
   ],
+  "_colors": "@ref LLP 1095 D2, LLP 1115.000 D3.2: the colour roles, CSS's system colours first (written by their CSS names), then Exact's (written `-exact-<name>`). Each row: the name; WebKit's `-apple-system-*` alias or empty; UIColor's and NSColor's class property (`@tint` the view's inherited tint, `/a` an alpha); Apple's light and dark pair, which an Apple host shows before it reports its own and every other host shows until it says otherwise (the separator, the system red and blue and the tint were measured on an iOS 27 simulator, 2026-10-11); then the neutral light and dark pair, no platform's palette: what the web resolves the role to under the neutral look (LLP 1115.000 D4) and what a host that paints its own controls shows (D17), once that host says so (`roles::set_column`). In the neutral column a text role reads at 4.5:1 or better on every background role of its scheme, and an ink on its own fill does (`AccentColorText` on `AccentColor`, `ButtonText` on `ButtonFace`, `HighlightText` on `Highlight`, `FieldText` on `Field`); `kernel/src/style/roles.rs` holds it to that.",
   "colors": [
     [
       "Canvas",
@@ -4681,13 +4682,17 @@
       "systemBackgroundColor",
       "textBackgroundColor",
       "#ffffff",
-      "#000000"
+      "#000000",
+      "#ffffff",
+      "#121212"
     ],
     [
       "CanvasText",
       "",
       "labelColor",
       "textColor",
+      "#000000",
+      "#ffffff",
       "#000000",
       "#ffffff"
     ],
@@ -4696,8 +4701,10 @@
       "",
       "@tint",
       "linkColor",
-      "#007aff",
-      "#0984ff"
+      "#0088ff",
+      "#0091ff",
+      "#0b66d6",
+      "#68a5fe"
     ],
     [
       "GrayText",
@@ -4705,21 +4712,27 @@
       "tertiaryLabelColor",
       "disabledControlTextColor",
       "#3c3c434d",
-      "#ebebf54d"
+      "#ebebf54d",
+      "#707070",
+      "#929292"
     ],
     [
       "Highlight",
       "",
       "@tint/0.2",
       "selectedTextBackgroundColor",
-      "#007aff33",
-      "#0a84ff33"
+      "#0088ff33",
+      "#0091ff33",
+      "#0b66d640",
+      "#68a5fe59"
     ],
     [
       "HighlightText",
       "",
       "labelColor",
       "selectedTextColor",
+      "#000000",
+      "#ffffff",
       "#000000",
       "#ffffff"
     ],
@@ -4728,8 +4741,10 @@
       "",
       "@tint",
       "controlAccentColor",
-      "#007aff",
-      "#0a84ff"
+      "#0088ff",
+      "#0091ff",
+      "#0b66d6",
+      "#68a5fe"
     ],
     [
       "AccentColorText",
@@ -4737,7 +4752,9 @@
       "whiteColor",
       "alternateSelectedControlTextColor",
       "#ffffff",
-      "#ffffff"
+      "#ffffff",
+      "#ffffff",
+      "#000000"
     ],
     [
       "Field",
@@ -4745,13 +4762,17 @@
       "secondarySystemBackgroundColor",
       "textBackgroundColor",
       "#f2f2f7",
-      "#1c1c1e"
+      "#1c1c1e",
+      "#ffffff",
+      "#1e1e1e"
     ],
     [
       "FieldText",
       "",
       "labelColor",
       "textColor",
+      "#000000",
+      "#ffffff",
       "#000000",
       "#ffffff"
     ],
@@ -4761,7 +4782,9 @@
       "secondarySystemFillColor",
       "controlColor",
       "#78788029",
-      "#78788052"
+      "#78788052",
+      "#0000001a",
+      "#ffffff1f"
     ],
     [
       "ButtonText",
@@ -4769,13 +4792,17 @@
       "linkColor",
       "controlTextColor",
       "#007aff",
-      "#0a84ff"
+      "#0a84ff",
+      "#000000",
+      "#ffffff"
     ],
     [
       "label",
       "-apple-system-label",
       "labelColor",
       "labelColor",
+      "#000000",
+      "#ffffff",
       "#000000",
       "#ffffff"
     ],
@@ -4785,7 +4812,9 @@
       "secondaryLabelColor",
       "secondaryLabelColor",
       "#3c3c4399",
-      "#ebebf599"
+      "#ebebf599",
+      "#474747",
+      "#bdbdbd"
     ],
     [
       "tertiary-label",
@@ -4793,7 +4822,9 @@
       "tertiaryLabelColor",
       "tertiaryLabelColor",
       "#3c3c434d",
-      "#ebebf54d"
+      "#ebebf54d",
+      "#5c5c5c",
+      "#a3a3a3"
     ],
     [
       "quaternary-label",
@@ -4801,7 +4832,9 @@
       "quaternaryLabelColor",
       "quaternaryLabelColor",
       "#3c3c432e",
-      "#ebebf529"
+      "#ebebf529",
+      "#707070",
+      "#929292"
     ],
     [
       "placeholder",
@@ -4809,15 +4842,19 @@
       "placeholderTextColor",
       "placeholderTextColor",
       "#3c3c434d",
-      "#ebebf54d"
+      "#ebebf54d",
+      "#5c5c5c",
+      "#a3a3a3"
     ],
     [
       "separator",
       "-apple-system-separator",
       "separatorColor",
       "separatorColor",
-      "#3c3c434a",
-      "#54545899"
+      "#3c3c431f",
+      "#54545880",
+      "#0000001f",
+      "#ffffff29"
     ],
     [
       "opaque-separator",
@@ -4825,7 +4862,9 @@
       "opaqueSeparatorColor",
       "gridColor",
       "#c6c6c8",
-      "#38383a"
+      "#38383a",
+      "#e0e0e0",
+      "#383838"
     ],
     [
       "link",
@@ -4833,7 +4872,9 @@
       "linkColor",
       "linkColor",
       "#007aff",
-      "#0984ff"
+      "#0984ff",
+      "#0b66d6",
+      "#68a5fe"
     ],
     [
       "background",
@@ -4841,7 +4882,9 @@
       "systemBackgroundColor",
       "windowBackgroundColor",
       "#ffffff",
-      "#000000"
+      "#000000",
+      "#ffffff",
+      "#121212"
     ],
     [
       "secondary-background",
@@ -4849,7 +4892,9 @@
       "secondarySystemBackgroundColor",
       "controlBackgroundColor",
       "#f2f2f7",
-      "#1c1c1e"
+      "#1c1c1e",
+      "#f5f5f5",
+      "#1e1e1e"
     ],
     [
       "tertiary-background",
@@ -4857,7 +4902,9 @@
       "tertiarySystemBackgroundColor",
       "controlBackgroundColor",
       "#ffffff",
-      "#2c2c2e"
+      "#2c2c2e",
+      "#ffffff",
+      "#2a2a2a"
     ],
     [
       "grouped-background",
@@ -4865,7 +4912,9 @@
       "systemGroupedBackgroundColor",
       "windowBackgroundColor",
       "#f2f2f7",
-      "#000000"
+      "#000000",
+      "#f5f5f5",
+      "#121212"
     ],
     [
       "secondary-grouped-background",
@@ -4873,7 +4922,9 @@
       "secondarySystemGroupedBackgroundColor",
       "controlBackgroundColor",
       "#ffffff",
-      "#1c1c1e"
+      "#1c1c1e",
+      "#ffffff",
+      "#1e1e1e"
     ],
     [
       "tertiary-grouped-background",
@@ -4881,7 +4932,9 @@
       "tertiarySystemGroupedBackgroundColor",
       "controlBackgroundColor",
       "#f2f2f7",
-      "#2c2c2e"
+      "#2c2c2e",
+      "#f5f5f5",
+      "#2a2a2a"
     ],
     [
       "fill",
@@ -4889,7 +4942,9 @@
       "systemFillColor",
       "systemFillColor",
       "#78788033",
-      "#7878805c"
+      "#7878805c",
+      "#00000024",
+      "#ffffff29"
     ],
     [
       "secondary-fill",
@@ -4897,7 +4952,9 @@
       "secondarySystemFillColor",
       "secondarySystemFillColor",
       "#78788029",
-      "#78788052"
+      "#78788052",
+      "#0000001a",
+      "#ffffff1f"
     ],
     [
       "tertiary-fill",
@@ -4905,7 +4962,9 @@
       "tertiarySystemFillColor",
       "tertiarySystemFillColor",
       "#7676801f",
-      "#7676803d"
+      "#7676803d",
+      "#00000012",
+      "#ffffff17"
     ],
     [
       "quaternary-fill",
@@ -4913,15 +4972,19 @@
       "quaternarySystemFillColor",
       "quaternarySystemFillColor",
       "#74748014",
-      "#7676802e"
+      "#7676802e",
+      "#0000000a",
+      "#ffffff0f"
     ],
     [
       "system-red",
       "-apple-system-red",
       "systemRedColor",
       "systemRedColor",
-      "#ff3b30",
-      "#ff453a"
+      "#ff383c",
+      "#ff4245",
+      "#c90f1a",
+      "#fe7367"
     ],
     [
       "system-orange",
@@ -4929,7 +4992,9 @@
       "systemOrangeColor",
       "systemOrangeColor",
       "#ff9500",
-      "#ff9f0a"
+      "#ff9f0a",
+      "#a94e00",
+      "#eb874a"
     ],
     [
       "system-yellow",
@@ -4937,7 +5002,9 @@
       "systemYellowColor",
       "systemYellowColor",
       "#ffcc00",
-      "#ffd60a"
+      "#ffd60a",
+      "#886602",
+      "#c79e42"
     ],
     [
       "system-green",
@@ -4945,7 +5012,9 @@
       "systemGreenColor",
       "systemGreenColor",
       "#34c759",
-      "#30d158"
+      "#30d158",
+      "#048233",
+      "#63bc72"
     ],
     [
       "system-mint",
@@ -4953,7 +5022,9 @@
       "systemMintColor",
       "systemMintColor",
       "#00c7be",
-      "#63e6e2"
+      "#63e6e2",
+      "#007e68",
+      "#54b9a1"
     ],
     [
       "system-teal",
@@ -4961,7 +5032,9 @@
       "systemTealColor",
       "systemTealColor",
       "#30b0c7",
-      "#40c8e0"
+      "#40c8e0",
+      "#017b7f",
+      "#52b7ba"
     ],
     [
       "system-cyan",
@@ -4969,15 +5042,19 @@
       "systemCyanColor",
       "systemCyanColor",
       "#32ade6",
-      "#64d2ff"
+      "#64d2ff",
+      "#007894",
+      "#50b3d2"
     ],
     [
       "system-blue",
       "-apple-system-blue",
       "systemBlueColor",
       "systemBlueColor",
-      "#007aff",
-      "#0a84ff"
+      "#0088ff",
+      "#0091ff",
+      "#0b66d6",
+      "#68a5fe"
     ],
     [
       "system-indigo",
@@ -4985,7 +5062,9 @@
       "systemIndigoColor",
       "systemIndigoColor",
       "#5856d6",
-      "#5e5ce6"
+      "#5e5ce6",
+      "#5555dc",
+      "#8e9aff"
     ],
     [
       "system-purple",
@@ -4993,7 +5072,9 @@
       "systemPurpleColor",
       "systemPurpleColor",
       "#af52de",
-      "#bf5af2"
+      "#bf5af2",
+      "#8840c6",
+      "#be85f9"
     ],
     [
       "system-pink",
@@ -5001,7 +5082,9 @@
       "systemPinkColor",
       "systemPinkColor",
       "#ff2d55",
-      "#ff375f"
+      "#ff375f",
+      "#bc1e72",
+      "#f471aa"
     ],
     [
       "system-brown",
@@ -5009,7 +5092,9 @@
       "systemBrownColor",
       "systemBrownColor",
       "#a2845e",
-      "#ac8e68"
+      "#ac8e68",
+      "#896340",
+      "#c09d7f"
     ],
     [
       "system-gray",
@@ -5017,7 +5102,9 @@
       "systemGrayColor",
       "systemGrayColor",
       "#8e8e93",
-      "#8e8e93"
+      "#8e8e93",
+      "#6b6b6b",
+      "#9a9a9a"
     ]
   ],
   "_textStyles": "@ref LLP 1115 D3: the platform's text styles, written `-exact-<name>` (or the WebKit alias) as a `font-size` and lowered from a heading's level. Each row: the name, WebKit's `-apple-system-*` alias or empty, UIFont's and NSFont's TextStyle, the weight, and the size at each body size in `textStyleBodies` (the root font size the host sets). The ramp is Apple's: 13 is the Mac's (NSFont.preferredFont, macOS 11), 14 to 53 iOS Dynamic Type's categories xSmall to AX5 (17 is Large, the default; the web's 16 reads Small's row). A root between two bodies interpolates; outside, the nearest row scales.",

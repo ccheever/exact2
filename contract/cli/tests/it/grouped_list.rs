@@ -997,11 +997,17 @@ fn a_destructive_rows_conditional_title_leaves_its_colour_unsaid() {
 /// label colour, bound or not.
 #[test]
 fn a_disabled_row_is_the_tertiary_labels_grey() {
-    // The tertiary label is a role since the sheet named its colours (KRN-01).
-    let grey = ColorValue::Role(exact_kernel::style::roles::role("-exact-tertiary-label").unwrap());
-    let red = ColorValue::LightDark(
-        Color::rgba(0xff, 0x38, 0x3c, 255),
-        Color::rgba(0xff, 0x42, 0x45, 255),
+    // Both are roles since the sheet named its colours (KRN-01; the red
+    // with LLP 1115.000 D3.2, whose table holds iOS 27's measured pair).
+    let role = |name: &str| ColorValue::Role(exact_kernel::style::roles::role(name).unwrap());
+    let (grey, red) = (role("-exact-tertiary-label"), role("-exact-system-red"));
+    assert_eq!(
+        red.fallback(),
+        ColorValue::LightDark(
+            Color::rgba(0xff, 0x38, 0x3c, 255),
+            Color::rgba(0xff, 0x42, 0x45, 255),
+        ),
+        "where no host has the platform's red, the one the sheet drew before"
     );
     let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go destructive=true disabled=true testId=\"off\"\n      text \"Delete\"\n    button press=go destructive=true disabled=dark testId=\"bound\"\n      text \"Delete\"\n    button press=go disabled=on testId=\"plain\"\n      text \"Open\"");
     let colour = |r: &Runner<NoData>, t: &str| r.kernel().node(id(r, t)).unwrap().style.text_color;

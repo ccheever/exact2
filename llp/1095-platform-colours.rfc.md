@@ -260,6 +260,16 @@ The macOS rows are AppKit's own semantics, which are not iOS's. Where they
 differ visibly (`controlBackgroundColor`), the table says so. Open question
 §6.3 asks for a side-by-side on macOS 26.
 
+> **Amended by LLP 1115.000 D3.2 (2026-10-11).** The table holds two pairs a
+> role (`kernel/tables/schema.json`, `_colors`). Apple's are re-measured on
+> iOS 27 where the grouped list's sheet and the table disagreed: `separator`
+> is `#3c3c431f` / `#54545880`, `system-red` `#ff383c` / `#ff4245`, and
+> `system-blue` and the tint (`AccentColor`, `LinkText`, `Highlight` at 0.2)
+> `#0088ff` / `#0091ff`. The second pair is neutral, no platform's palette:
+> the web's under the neutral look and a painted host's (LLP 1115.000 D4,
+> D17). A host says which column it falls back to (`roles::set_column`), and
+> none says neutral yet, so every host still shows Apple's.
+
 **There is no `accent` role.** `AccentColor` is the accent: on iOS it is
 the view's inherited `tintColor`, which is what an app's `accent-color` row
 already sets. So `accent-color` stays the way to *set* the accent, and

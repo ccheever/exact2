@@ -7,7 +7,7 @@ use super::{Color, ColorValue};
 use crate::generated::{ColorRole, COLOR_ROLES};
 use crate::gradient::ColorText;
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 /// The role a keyword names, in any ASCII case: CSS's system colours by
@@ -64,11 +64,53 @@ pub fn is_css_system(role: &ColorRole) -> bool {
     role.name.starts_with(|c: char| c.is_ascii_uppercase())
 }
 
-/// A role's fallback: its light and dark values (transparent for no role).
-pub fn role_fallback(id: u8) -> ColorValue {
-    role_of(id).map_or(ColorValue::Fixed(Color::TRANSPARENT), |r| {
-        ColorValue::LightDark(Color(r.light), Color(r.dark))
+/// The role table's two fallback columns (LLP 1115.000 D3.2): what a role
+/// is where no host reported the platform's own colour for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Column {
+    /// Apple's measured pairs: what an Apple host shows before it reports
+    /// its own, and what every host shows until it says otherwise.
+    Apple,
+    /// The neutral pairs, no platform's palette: the web's under the
+    /// neutral look (D4), a host's that paints its own controls (D17).
+    Neutral,
+}
+
+/// The column this process shows. One platform per process, so one switch.
+static NEUTRAL: AtomicBool = AtomicBool::new(false);
+
+/// The one switch between the columns: a host says which it shows, once,
+/// before it presents (LLP 1115.000 D4 part B for the web, D17 for a host
+/// that paints its own controls). Every fallback follows: what the kernel
+/// resolves itself, the pair an Exact role carries to the browser
+/// (`var(--exact-<role>, …)`), what a painter reads. A reported colour
+/// still wins over either column. Nothing calls it yet: each host shows
+/// Apple's pairs, as before the neutral column existed.
+pub fn set_column(column: Column) {
+    NEUTRAL.store(column == Column::Neutral, Ordering::Release);
+}
+
+/// The column this process shows ([`set_column`]).
+pub fn column() -> Column {
+    if NEUTRAL.load(Ordering::Acquire) {
+        Column::Neutral
+    } else {
+        Column::Apple
+    }
+}
+
+/// A role's light and dark values in a column (transparent for no role).
+pub fn role_pair(id: u8, column: Column) -> ColorValue {
+    role_of(id).map_or(ColorValue::Fixed(Color::TRANSPARENT), |r| match column {
+        Column::Apple => ColorValue::LightDark(Color(r.light), Color(r.dark)),
+        Column::Neutral => ColorValue::LightDark(Color(r.neutral_light), Color(r.neutral_dark)),
     })
+}
+
+/// A role's fallback: its light and dark values in this process's column
+/// (transparent for no role).
+pub fn role_fallback(id: u8) -> ColorValue {
+    role_pair(id, column())
 }
 
 /// One `-exact-platform-color()`: a native name per platform, and the fallback.
@@ -523,6 +565,165 @@ mod tests {
             assert_eq!(css, name, "not the tint at full strength");
         }
         assert_eq!(role("var(--exact-accent, CanvasText)"), None);
+    }
+
+    /// LLP 1115.000 D3.2: the table holds two columns. Apple's are the
+    /// measurements (the separator, the system red and blue and the tint,
+    /// iOS 27); each host shows them until it throws the switch, which no
+    /// host does yet (`kernel/tests/column.rs` throws it, in a process of
+    /// its own).
+    #[test]
+    fn a_role_has_apples_pair_and_a_neutral_one_and_shows_apples() {
+        let pair = |name: &str, column| role_pair(role(name).unwrap(), column);
+        let both = |light, dark| ColorValue::LightDark(Color(light), Color(dark));
+        for (name, apple, neutral) in [
+            (
+                "-exact-separator",
+                both(0x3c3c_431f, 0x5454_5880),
+                both(0x0000_001f, 0xffff_ff29),
+            ),
+            (
+                "-exact-system-red",
+                both(0xff38_3cff, 0xff42_45ff),
+                both(0xc90f_1aff, 0xfe73_67ff),
+            ),
+            (
+                "-exact-system-blue",
+                both(0x0088_ffff, 0x0091_ffff),
+                both(0x0b66_d6ff, 0x68a5_feff),
+            ),
+            (
+                "Canvas",
+                both(0xffff_ffff, 0x0000_00ff),
+                both(0xffff_ffff, 0x1212_12ff),
+            ),
+        ] {
+            assert_eq!(pair(name, Column::Apple), apple, "{name}");
+            assert_eq!(pair(name, Column::Neutral), neutral, "{name}");
+        }
+        assert_eq!(column(), Column::Apple, "no host has thrown the switch");
+        for id in 0..COLOR_ROLES.len() as u8 {
+            assert_eq!(role_fallback(id), role_pair(id, Column::Apple));
+        }
+        assert_eq!(
+            role_pair(u8::MAX, Column::Neutral),
+            ColorValue::Fixed(Color::TRANSPARENT)
+        );
+        // The tint is one colour in each column: a role that is the tint
+        // (`LinkText`), or the tint at an alpha (`Highlight`), falls back to
+        // `AccentColor`'s pair, so a host without a tint shows one blue.
+        let accent = COLOR_ROLES[usize::from(role("AccentColor").unwrap())];
+        for r in COLOR_ROLES.iter().filter(|r| r.ios.starts_with("@tint")) {
+            let alpha = if r.ios == "@tint" { 0xff } else { 0x33 };
+            for (got, want) in [(r.light, accent.light), (r.dark, accent.dark)] {
+                assert_eq!(got, want & 0xffff_ff00 | alpha, "{}: Apple's", r.name);
+            }
+            for (got, want) in [
+                (r.neutral_light, accent.neutral_light),
+                (r.neutral_dark, accent.neutral_dark),
+            ] {
+                assert_eq!(got >> 8, want >> 8, "{}: neutral", r.name);
+            }
+        }
+    }
+
+    /// The neutral column's own rule (the schema's `_colors`): a text role
+    /// reads at WCAG's 4.5:1 or better on every background role of its
+    /// scheme, and an ink on the fill it is named for, over each of them.
+    #[test]
+    fn the_neutral_column_reads_at_4_5_to_1_on_its_grounds() {
+        fn linear(c: u8) -> f64 {
+            let c = f64::from(c) / 255.0;
+            if c <= 0.04045 {
+                c / 12.92
+            } else {
+                ((c + 0.055) / 1.055).powf(2.4)
+            }
+        }
+        // A colour over an opaque ground, as channels.
+        fn over(top: Color, ground: [f64; 3]) -> [f64; 3] {
+            let a = f64::from(top.a()) / 255.0;
+            let mix = |t: u8, g: f64| f64::from(t) * a + g * (1.0 - a);
+            [
+                mix(top.r(), ground[0]),
+                mix(top.g(), ground[1]),
+                mix(top.b(), ground[2]),
+            ]
+        }
+        fn luminance(c: [f64; 3]) -> f64 {
+            let l = |v: f64| linear(v.round() as u8);
+            0.2126 * l(c[0]) + 0.7152 * l(c[1]) + 0.0722 * l(c[2])
+        }
+        fn contrast(a: [f64; 3], b: [f64; 3]) -> f64 {
+            let (a, b) = (luminance(a), luminance(b));
+            (a.max(b) + 0.05) / (a.min(b) + 0.05)
+        }
+        let neutral = |name: &str, dark: bool| {
+            let r = COLOR_ROLES[usize::from(role(name).unwrap_or_else(|| panic!("{name}")))];
+            Color(if dark {
+                r.neutral_dark
+            } else {
+                r.neutral_light
+            })
+        };
+        const GROUNDS: &[&str] = &[
+            "Canvas",
+            "Field",
+            "-exact-background",
+            "-exact-secondary-background",
+            "-exact-tertiary-background",
+            "-exact-grouped-background",
+            "-exact-secondary-grouped-background",
+            "-exact-tertiary-grouped-background",
+        ];
+        const INKS: &[(&str, &str)] = &[
+            ("AccentColorText", "AccentColor"),
+            ("ButtonText", "ButtonFace"),
+            ("HighlightText", "Highlight"),
+            ("FieldText", "Field"),
+        ];
+        // Every other role is a text's colour: the labels, the links, the
+        // tint and the hues (a destructive row's red, an error's). The ink
+        // on the accent is no text on the page.
+        let text: Vec<String> = COLOR_ROLES
+            .iter()
+            .filter(|r| {
+                let name = r.name;
+                !name.ends_with("background")
+                    && !name.ends_with("fill")
+                    && !name.ends_with("separator")
+                    && !["Canvas", "Field", "ButtonFace", "Highlight"].contains(&name)
+                    && name != "AccentColorText"
+            })
+            .map(|r| {
+                if is_css_system(r) {
+                    r.name.to_owned()
+                } else {
+                    format!("-exact-{}", r.name)
+                }
+            })
+            .collect();
+        assert!(text.len() >= 24, "{text:?}");
+        for dark in [false, true] {
+            for ground_name in GROUNDS {
+                let ground = over(neutral(ground_name, dark), [0.0; 3]);
+                for name in &text {
+                    let ratio = contrast(over(neutral(name, dark), ground), ground);
+                    assert!(
+                        ratio >= 4.5,
+                        "{name} on {ground_name} (dark: {dark}) is {ratio:.2}:1"
+                    );
+                }
+                for (ink, fill) in INKS {
+                    let fill = over(neutral(fill, dark), ground);
+                    let ratio = contrast(over(neutral(ink, dark), fill), fill);
+                    assert!(
+                        ratio >= 4.5,
+                        "{ink} on its fill over {ground_name} (dark: {dark}) is {ratio:.2}:1"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

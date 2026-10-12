@@ -19,9 +19,6 @@ const ROLES = (() => {
   for (const [name, webkit, ios, mac, light, dark] of rows) for (const n of [name, webkit, ios, mac, ios?.replace(/Color$/, '')]) if (n && !byName.has(n)) byName.set(n, { name, light, dark });
   return byName;
 })();
-/** Colours the compiler writes for a role where UIKit's measured value is newer than the table's: the grouped sheet's red
- *  (contract/lower/src/grouped.rs `RED`), which a destructive row's title is drawn in on the web. */
-const DRAWN = [{ name: 'system-red', light: '#ff383c', dark: '#ff4245' }];
 const role = (raw) => (raw && ROLES.get(String(raw).replace(/^-exact-/, ''))?.name) ?? null;
 const hex = (c) => '#' + c.slice(0, 3).map((v) => Math.round(v).toString(16).padStart(2, '0')).join('');
 const lum = (c) => { const [r, g, b] = c.slice(0, 3).map((v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
@@ -63,7 +60,7 @@ function floor(it, scheme) {
  *  is inherited or the grouped list's sheet's (a section footer's secondary label on the web). */
 function drawnRole(fg, scheme = 'light') {
   if (!fg) return null;
-  for (const r of [...new Set(ROLES.values()), ...DRAWN]) {
+  for (const r of new Set(ROLES.values())) {
     const h = String(r[scheme] ?? ''), n = parseHex(h), a = h.length === 9 ? parseInt(h.slice(7), 16) / 255 : 1;
     if (h.startsWith('#') && near(fg, n, 2) && Math.abs((fg[3] ?? 1) - a) < 0.03) return r.name;
   }
