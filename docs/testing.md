@@ -1,7 +1,7 @@
 # Writing Exact's tests
 
 How to write and change a test in this repository so that it stays trustworthy
-and fast. The merge-blocking checks must run in under 60 seconds
+and fast. The merge-blocking checks must run in under 65 seconds
 (`rules/RULES.md`). The async lane runs everything else for every commit, so
 its time counts too.
 

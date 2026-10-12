@@ -111,7 +111,7 @@ every commit, and a regression is a P0 with a name on it.
 | Dev restart, edit to present | 100 ms p50 |
 | App JavaScript executed before first pixel | none |
 | Touch one line, rebuild that crate | 30 s |
-| The whole blocking check suite | 60 s |
+| The whole blocking check suite | 65 s |
 
 How the design keeps those numbers:
 
@@ -706,7 +706,7 @@ Start with [`rules/RULES.md`](rules/RULES.md), one page on how work happens here
 [`rules/DEFERRED.md`](rules/DEFERRED.md), what v1 deliberately leaves out. Agents should
 also read [`AGENTS.md`](AGENTS.md). In short:
 
-- **Five blocking checks, 60 seconds in total.** Anything slower runs asynchronously,
+- **Six blocking checks, 65 seconds in total.** Anything slower runs asynchronously,
   per commit.
 
   ```sh
@@ -715,7 +715,12 @@ also read [`AGENTS.md`](AGENTS.md). In short:
   cargo clippy --all-targets --keep-going -- -D warnings && cargo fmt --all -- --check
   bun scripts/caps.mjs     # budgets: 1,500 lines per source file, document caps
   bun scripts/boot.mjs     # counts the module graph before first pixel
+  cargo check --workspace --all-targets --keep-going   # every crate compiles
   ```
+
+  The first three build and test Cargo's `default-members`. The last compiles every
+  other crate too, so a host or an app outside them cannot stop compiling unseen. It
+  needs the pinned Bun (`package.json`) first on `PATH`: app crates' build scripts run it.
 
 - **Verify by running, not by reading.** Build the app a change touches and drive it:
   `bun scripts/smoke.mjs <web|macos|ios|linux>` drives the whole app on that host.

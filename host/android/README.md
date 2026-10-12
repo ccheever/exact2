@@ -711,7 +711,7 @@ The cut was the smallest one. Left in the reader:
     does no frame work while the activity is stopped. Android discards a stopped window's display lists, the reader's
     kept rows among them, so a start after a stop makes the reader again (`ExactActivity.read`) and the host paints
     everything for it; hosted views are made again with it. Nothing is saved for a process the system kills (D15.3).
-- **No check builds any of it.** Gradle is in none of the five checks or the async lane, and nothing builds
+- **No check builds any of it.** Gradle is in none of the six checks or the async lane, and nothing builds
   `exact-linux` for the Android target.
 - **The shell is a development build**: signed with the debug key, with no icon. Its one activity turns keys on for
   every app, and gives none a native module (LLP 1024) or a video player, which the benchmark's apps passed from an

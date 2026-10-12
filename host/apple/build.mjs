@@ -19,8 +19,8 @@
 // --ios builds the same archive for the simulator's Rust target, the UIKit
 // presenter for the simulator triple, assembles the .app here (its
 // Info.plist written, never committed), installs it on a simulator — --sim
-// or EXACT_SIM names one; else a booted iPhone; else the iPhone Pro on the
-// newest iOS — and with --run shows it in Simulator.app. --device is the
+// or EXACT_SIM names one; else a booted iPhone; else the iPhone Pro on the newest iOS;
+// --no-install stops before that and asks for no simulator, a compile check — and with --run shows it in Simulator.app. --device is the
 // same for a phone: the aarch64-apple-ios target and the iphoneos SDK, the
 // bundle signed with a development identity and a provisioning profile on
 // this Mac that covers the phone and the bundle id (EXACT_IDENTITY, a
@@ -1387,6 +1387,7 @@ async function main(args) {
     console.log(`host/apple: ${ipa} (${prof ? `signed by ${prof.name}` : 'ad-hoc signed, for re-signing'}, ${timing()}${svgFilterBuilt ? '' : '; no SVG filter kernels (no Metal toolchain)'}); symbols: ${stripped.dsym} (${(stripped.saved / 1048576).toFixed(1)} MB off the executable)`);
     return;
   }
+  if (args.includes('--no-install')) { if (args.includes('--run')) throw new Error('--no-install takes no --run'); console.log(`host/apple: ${paths.bundle} (${timing()}); built and signed, installed on nothing (--no-install)`); return; }
   const dev = device ? ph : simulator(args.includes('--sim') ? args[args.indexOf('--sim') + 1] : undefined, { tv, hint: '--sim <udid|name> (or EXACT_SIM)' });
   for (const [, host] of bundles) {
     const placed = host ? hostPaths.bundle : paths.bundle;
@@ -1411,8 +1412,8 @@ async function main(args) {
 
 /** `--test`: the Swift host tests (LLP 1033 D4a). They link `ExactKit`,
  *  which links an app's archive, so cargo builds one first — Caltrain's by
- *  default, any app's by name. Not one of the five checks (`rules/RULES.md`
- *  caps those at five); run it when the host's own behaviour changes. With
+ *  default, any app's by name. Not one of the six checks (`rules/RULES.md`
+ *  caps those at six); run it when the host's own behaviour changes. With
  *  `--ios`, the UIKit tests (`*IOSTests.swift`) through xcodebuild on a
  *  simulator: `--sim`/EXACT_SIM, else one that is not running (another
  *  session may be driving a booted one), shut down again only if booted here.

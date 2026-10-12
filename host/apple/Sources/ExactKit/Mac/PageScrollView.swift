@@ -18,12 +18,18 @@ package final class PageScrollView: NSScrollView {
     }
     // One viewport tracking area sees overflowing descendants and exits even
     // when no node's bounds contain the pointer. Nodes use the same hit test.
+    // It is the key window's, as AppKit's own hover is (LLP 1115.000 D7.9):
+    // a window behind another shows no hover, and `lostKey` ends what was
+    // hovered when this one stops being key.
     var pointerTracking: ((NSEvent) -> Void)?
+    var lostKey: (() -> Void)?
+    private var keyObserver: NSObjectProtocol?
+    deinit { if let keyObserver { NotificationCenter.default.removeObserver(keyObserver) } }
     private var pointerArea: NSTrackingArea?
     package override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if pointerArea == nil {
-            let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
+            let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil)
             addTrackingArea(area); pointerArea = area
         }
     }
@@ -105,6 +111,10 @@ package final class PageScrollView: NSScrollView {
     package override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         pinInsets()
+        if let keyObserver { NotificationCenter.default.removeObserver(keyObserver) }
+        keyObserver = window.map { window in
+            NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: .main) { [weak self] _ in self?.lostKey?() }
+        }
     }
     package override func tile() {
         super.tile()

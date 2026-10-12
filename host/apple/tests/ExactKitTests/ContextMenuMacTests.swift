@@ -342,6 +342,7 @@ final class ContextMenuMacTests: XCTestCase {
                                windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0)!
         }
         let up = event(.leftMouseUp)
+        clicksArriveAsInTheKeyWindow() // a test's process is never active (LLP 1115.000 D7.9)
         NSApp.postEvent(up, atStart: true)
         NSApp.sendEvent(event(.leftMouseDown))
         if NSApp.nextEvent(matching: [.leftMouseUp], until: nil, inMode: .default, dequeue: true) != nil { NSApp.sendEvent(up) }

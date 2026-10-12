@@ -41,7 +41,7 @@ its own. Tasks use it with rust-analyzer's `$rustc` for Cargo's output. Without
 rust-analyzer, VS Code reports `$rustc` as unknown and runs the task anyway.
 
 This repository's tasks are in `.vscode/tasks.json` (**Tasks: Run Task**): build
-or format the open `.contract` file, the five checks one by one or in order
+or format the open `.contract` file, the six checks one by one or in order
 (`check: caps` reads what git has staged), `contract: difftest quick`, and for an
 app under `apps/` (asked when the task runs) the web dev loop, its
 `app.test.contract` on the web, and a run on macOS or an iOS simulator. The

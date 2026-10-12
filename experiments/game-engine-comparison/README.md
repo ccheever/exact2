@@ -2,7 +2,7 @@
 
 See [LLP 1041.003](../../llp/1041.003-game-engines-for-agents.research.md)
 for the recommendation, method and limitations. These are diagnostic
-microfixtures, outside the five blocking checks. No production dependency
+microfixtures, outside the six blocking checks. No production dependency
 was added to Exact. Repetition counts are runtime executions, not agent trials.
 
 Each directory retains the actual authored source and JSON from its fleet
