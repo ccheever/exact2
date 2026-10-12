@@ -22,19 +22,21 @@ final class NavigationBasicsIOSTests: XCTestCase {
     func testNotificationClickSetsColdLaunchLocationOnlyOnce() {
         let session = ExactApp.shared.makeSession(label: "notification-\(UUID().uuidString)")
         sessions.append(session)
-        NotificationPresenter.shared.app = ExactApp.shared
-        defer { NotificationPresenter.shared.app = nil }
+        let presenter = NotificationPresenter()
+        presenter.app = ExactApp.shared
         let date = Date()
         let info: [AnyHashable: Any] = ["navigate": "/thread/42", "session": session.label,
                                         "owner": session.notificationOwnerID]
-        NotificationPresenter.shared.deliver(id: "thread-42", date: date, info: info)
+        presenter.deliver(id: "thread-42", date: date, info: info)
         XCTAssertEqual(session.launchLocation, "/thread/42")
-        NotificationPresenter.shared.deliver(id: "thread-42", date: date, info: ["navigate": "/other", "session": session.label,
+        presenter.deliver(id: "thread-42", date: date, info: ["navigate": "/other", "session": session.label,
                                                                            "owner": session.notificationOwnerID])
         XCTAssertEqual(session.launchLocation, "/thread/42")
-        NotificationPresenter.shared.deliver(id: "thread-43", date: date, info: ["navigate": "/thread/43", "session": session.label,
+        XCTAssertTrue(session.pendingLaunchLocations.isEmpty, "a duplicate click must not queue another navigation")
+        presenter.deliver(id: "thread-43", date: date, info: ["navigate": "/thread/43", "session": session.label,
                                                                            "owner": session.notificationOwnerID])
-        XCTAssertEqual(session.launchLocation, "/thread/43")
+        XCTAssertEqual(session.launchLocation, "/thread/42")
+        XCTAssertEqual(session.pendingLaunchLocations, ["/thread/43"])
     }
 
     override func tearDown() {
