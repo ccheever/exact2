@@ -131,7 +131,7 @@ extension Agent {
     func stateSections() -> [String: Any] {
         // `keyboardNavigation`: the mode Tab is in (LLP 1115.000 D7.2), the drive's (`prefer keyboard-navigation`), never the machine's.
         var focus: [String: Any] = ["logical": NSNull(), "editor": NSNull(), "responder": NSNull(), "pending": NSNull(), "keyboardNavigation": KeyboardNavigation.on]
-        let responder = presenter.viewport.window?.firstResponder
+        let responder = presenter.focusResponder // a sheet's window or a popover's, when the focus is there
         if let node = presenter.views.values.filter({ n in
             session.natives.ownsFocus(n) || presenter.keyTarget(responder) === n
         }).min(by: { $0.id < $1.id }) {

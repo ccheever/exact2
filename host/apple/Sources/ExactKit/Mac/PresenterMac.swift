@@ -728,9 +728,11 @@ package final class Presenter {
     /// The action's blur(): drop the first responder; blur(html-id) only when
     /// that node holds it (a field's responder is its editor).
     func blurElement(_ args: [Any]) {
-        guard let window = viewport.window else { return }
+        // In the window the keyboard is in: an open dialog's sheet, else the page's.
+        guard var window = frontWindow else { return }
         if let name = args.first as? String {
             guard let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }) else { return }
+            window = target.window ?? window
             if target.kind == "native" {
                 guard window.firstResponder === target || session?.natives.ownsFocus(target) == true else { return }
                 window.makeFirstResponder(nil)

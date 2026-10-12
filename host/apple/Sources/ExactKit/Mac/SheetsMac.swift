@@ -95,6 +95,13 @@ extension Presenter {
     /// The window a new sheet goes on and the keyboard is in: the open
     /// dialog's sheet, else the page's.
     var frontWindow: NSWindow? { dialogs.entries.last?.sheet?.window ?? viewport.window }
+    /// What holds the keyboard for this session: the first responder of the
+    /// front-most of its windows that has a node focused (a popover's, the
+    /// open dialog's sheet's), else the page's window's.
+    var focusResponder: NSResponder? {
+        let windows = menus.windowed.reversed().compactMap(\.window) + [frontWindow].compactMap { $0 }
+        return windows.lazy.compactMap(\.firstResponder).first { self.keyTarget($0) != nil } ?? viewport.window?.firstResponder
+    }
     /// The sheets on `window`, bottom to top: its own, the one on that, and so on.
     func sheets(on window: NSWindow?) -> [NSWindow] {
         Array(sequence(first: window?.attachedSheet, next: { $0?.attachedSheet }).prefix { $0 != nil }.compactMap { $0 })

@@ -202,6 +202,19 @@ extension ExactSession {
     }
 }
 
+extension ExactSession {
+    /// The window `document.hasFocus()` is read of: the session's view's. On
+    /// macOS, the one of the session's windows that is key when one is: a
+    /// `dialog`'s sheet holds the keyboard for its page (LLP 1115.002 D7.2),
+    /// which another app's sheet (an open panel) does not.
+    var pageWindow: FocusWindow? {
+        #if os(macOS)
+        if let key = NSApp.keyWindow, presenter.hosts(key) { return key }
+        #endif
+        return view?.window
+    }
+}
+
 #if !os(macOS)
 /// Whether the app is in the background, read from UIKit once per change.
 /// `applicationState` crosses into the scene machinery on every read — about

@@ -255,6 +255,7 @@ final class SheetHostMacTests: XCTestCase {
         pump(1) { sheet.isKeyWindow }
         XCTAssertTrue(sheet.isKeyWindow, "the sheet is the key window")
         XCTAssertTrue(f.window.isMainWindow && !f.window.isKeyWindow, "and the page's stays main")
+        XCTAssertTrue(PageFacts.hasFocus(f.session.pageWindow), "the page has the focus still: its own dialog holds the keyboard")
         let title = try XCTUnwrap(try f.node("title").field), author = try XCTUnwrap(try f.node("author").field)
         XCTAssertTrue(sheet.firstResponder === title.currentEditor(), "the caret arrives in its first field")
         XCTAssertNil(pageField.currentEditor(), "the page gave its focus up")
