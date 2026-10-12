@@ -22,6 +22,11 @@ object Native {
         night: Boolean, fontScale: Float, locale: String, rtl: Boolean, hour24: Boolean, noAnimations: Boolean,
         boldText: Boolean, highContrast: Boolean, touch: Boolean, touchSlop: Float,
     )
+    /** The device's colours ([Palette], LLP 1115.001 D4): Material 3's colour roles as the reader resolved them for
+     * this device, twelve under the light scheme and then the same twelve under the dark one, ARGB. Before [start],
+     * from any thread, so the host boots resolving every colour role by them, and again on the host's thread whenever
+     * one changes. */
+    @JvmStatic external fun colors(roles: IntArray)
     /** The window (LLP 1115.001 D3.3): its size in pixels, the display's pixels a point, and the system's raw insets
      * in pixels, sixteen numbers: top, right, bottom, left for the system bars, then the display cutout, the software
      * keyboard and the system's gestures. Before [start], from any thread, so the host boots laid out in it, and on
@@ -80,12 +85,19 @@ object Native {
     @JvmStatic external fun canvasBuffer(view: Int): android.hardware.HardwareBuffer?
     /** A key at the focused field: a character (or '\n' for Enter), or Backspace. */
     @JvmStatic external fun key(code: Int, backspace: Boolean)
-    /** Whether an editable field holds the focus: 0 none, 1 an input, 3 a textarea. */
-    @JvmStatic external fun editing(): Int
     /** System Back (LLP 1115.001 D6): whether the app took it. From its navigation root's selected route it goes to
      * the Back control the root names, else to the root's `navigate` handler, else it is the runner's own `back`;
-     * false when there is nowhere to go back to, and the activity finishes. */
+     * false when there is nowhere to go back to, and the activity finishes. The reader takes Back only while the
+     * host says it has somewhere to go (a request, [requests]). */
     @JvmStatic external fun back(): Boolean
+    /** What exact2 asks of the platform since this last returned any (LLP 1115.001 D5), or null when it asks
+     * nothing: the one channel out, which [Requests] reads and acts on, on the main thread. exact2 queues a request
+     * and makes the first of [fds] readable, so the reader comes for it whether or not a frame follows. The words:
+     * for each request its kind, its id, the count of words that follow, and those words. */
+    @JvmStatic external fun requests(): IntArray?
+    /** The answer to request [id] (the share sheet's: `shared` or `dismissed`, or why it could not be shown), or null
+     * when it was cancelled. On the host's thread. */
+    @JvmStatic external fun answer(id: Int, answer: String?)
     /** Run the calling thread on the cores outside the slowest cluster; whether it was set. */
     @JvmStatic external fun fastCores(): Boolean
     /** An ADPF hint session over [tids] (this process's threads), [targetNs] their work's target. */

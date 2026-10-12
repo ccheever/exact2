@@ -88,7 +88,7 @@ fn region(
         Active::Rows { rows } => {
             let body = &sites.deps.bodies[index];
             for row in rows {
-                let saved = u.enter(0, Some(&row.slots));
+                let saved = u.enter(0, row.slots.as_ref());
                 let walked = if u.stale(body) {
                     walk(
                         u,
@@ -107,7 +107,7 @@ fn region(
         }
         Active::Arm { arm, frame, roots } => {
             let (want, mut new_frame) = if !u.stale(&sites.deps.subjects[index]) {
-                (*arm, frame.clone())
+                (*arm, frame.scope())
             } else {
                 match (&row.kind, u.eval(row.subject, frames)?) {
                     (RegionKind::When, Value::Bool(true)) => (Some(0), Frame::default()),
@@ -131,7 +131,7 @@ fn region(
             if *arm == want {
                 // The arm stays: what is inside it may still switch.
                 let dirty = crate::compare::changed_fields(&frame.bound, &new_frame.bound);
-                let mut inner = frame.clone();
+                let mut inner = frame.scope();
                 if dirty != 0 {
                     inner.bound = new_frame.bound;
                 }

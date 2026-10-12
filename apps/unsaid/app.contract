@@ -14,16 +14,28 @@
 // above the list scrolls it to a row, as an app does (`scrollTop`). Nothing
 // says how any of it scrolls: the slop, the fling, the ends and the
 // indicator are the platform's.
+//
+// The third button opens the device's colours (LLP 1115.001 D4, D5): a text
+// in each label role and a card in each background role, by the roles'
+// names and no colour of the app's own, then the controls whose accent is
+// the platform's, a link of each kind that leaves the app, and a button for
+// each thing an app asks of the platform (a haptic, the clipboard, the
+// share sheet, a link). One screen shows a host's whole palette. Its last
+// button authors an `accent-color` over the page, the one colour written
+// here, which must win over the platform's.
 routes nav
   home "/"
     next "/next"
     rows "/rows"
+    colours "/colours"
 
 component Unsaid
   state name = ""
   state picked = -1
   state target = 60
   state top = 0
+  state authored = false
+  state said = "Nothing asked yet"
   derive ten = split("0 1 2 3 4 5 6 7 8 9", " ")
   derive forty = concat(concat(ten, ten), concat(ten, ten))
   derive cards = map(concat(ten, ten), (x, i) => i)
@@ -33,6 +45,24 @@ component Unsaid
     nav = push(nav, "/next")
   action openRows
     nav = push(nav, "/rows")
+  action openColours
+    nav = push(nav, "/colours")
+  action buzz
+    haptic("success")
+    said = "Asked for a haptic: success"
+  action thump
+    said = "Pressed, with a press haptic"
+  action copy
+    copyText("Copied from Unsaid")
+    said = "Copied: Copied from Unsaid"
+  action send
+    share(title="Unsaid", text="Shared from Unsaid", url="https://example.com/unsaid")
+    said = "Asked for the share sheet"
+  action browse
+    openURL("https://example.com/")
+    said = "Asked to open example.com"
+  action author
+    authored = not authored
   action rename(value)
     name = value
   action pick(i: number)
@@ -54,6 +84,64 @@ component Unsaid
             input value=name input=rename placeholder="A field" aria-label="A field" testId="field"
             button press=openRows testId="open-rows"
               text "Open a list to scroll"
+            button press=openColours testId="open-colours"
+              text "Open the device's colours"
+          when e.name == "colours"
+            column gap=10 accent-color=(authored ? "light-dark(#ad1457, #f48fb1)" : "auto") testId="colours"
+              text "The device's colours" role="heading" aria-level=1 testId="colours-heading"
+              row display="flex" flex-wrap="wrap" column-gap=12 row-gap=2 testId="labels"
+                text "label" color="-exact-label"
+                text "secondary" color="-exact-secondary-label"
+                text "tertiary" color="-exact-tertiary-label"
+                text "quaternary" color="-exact-quaternary-label"
+                text "placeholder" color="-exact-placeholder"
+                text "GrayText" color="GrayText"
+                text "LinkText" color="LinkText"
+                text "AccentColor" color="AccentColor" testId="accent-text"
+                text "red" color="-exact-system-red"
+                text "blue" color="-exact-system-blue"
+                text "green" color="-exact-system-green"
+              column display="grid" grid-template-columns="minmax(0, 1fr) minmax(0, 1fr)" gap=6 testId="cards"
+                Swatch(name="background", fill="-exact-background", ink="-exact-label")
+                Swatch(name="secondary", fill="-exact-secondary-background", ink="-exact-label")
+                Swatch(name="tertiary", fill="-exact-tertiary-background", ink="-exact-label")
+                Swatch(name="grouped", fill="-exact-grouped-background", ink="-exact-label")
+                Swatch(name="secondary grouped", fill="-exact-secondary-grouped-background", ink="-exact-label")
+                Swatch(name="tertiary grouped", fill="-exact-tertiary-grouped-background", ink="-exact-label")
+                Swatch(name="Field", fill="Field", ink="FieldText")
+                Swatch(name="fill", fill="-exact-fill", ink="-exact-label")
+                Swatch(name="ButtonFace", fill="ButtonFace", ink="ButtonText")
+                Swatch(name="Highlight", fill="Highlight", ink="HighlightText")
+                Swatch(name="AccentColor", fill="AccentColor", ink="AccentColorText")
+                Swatch(name="red", fill="-exact-system-red", ink="AccentColorText")
+              row display="flex" flex-wrap="wrap" align-items="center" gap=14 testId="controls"
+                input type="checkbox" checked=true aria-label="Checked" testId="check"
+                input type="radio" checked=true aria-label="Chosen" testId="radio"
+                input type="checkbox" role="switch" checked=true aria-label="On" testId="switch"
+                input type="range" min=0 max=100 value=60 aria-label="A range" width=90 testId="range"
+                progress value=60 max=100 width=60 testId="progress"
+                button "Filled" appearance="auto" buttonStyle="filled" press=buzz testId="filled"
+              row display="flex" flex-wrap="wrap" column-gap=20 testId="links"
+                link href="https://example.com/" testId="link-web"
+                  text "example.com"
+                link href="mailto:someone@example.com" testId="link-mail"
+                  text "Mail someone"
+                link href="tel:+15550100" testId="link-phone"
+                  text "Call 555 0100"
+              row display="flex" flex-wrap="wrap" gap=8 testId="asks"
+                button press=buzz testId="haptic"
+                  text "Haptic"
+                button press=thump -exact-press-haptic="impact-heavy" testId="press-haptic"
+                  text "Press haptic"
+                button press=copy testId="copy"
+                  text "Copy"
+                button press=send testId="share"
+                  text "Share"
+                button press=browse testId="open-url"
+                  text "openURL"
+                button press=author testId="author"
+                  text (authored ? "The platform's accent" : "Author an accent")
+              text said testId="said"
           when e.name == "next"
             text "The next page" role="heading" aria-level=1 testId="next-heading"
             text "It has no Back control. The system's Back returns to the first page, and from there it leaves the app." testId="next-paragraph"
@@ -79,3 +167,13 @@ component Unsaid
                     when i > 1
                       button press=pick(i) width="100%" height=56 box-sizing="border-box" text-align="start" testId=`row-${i}`
                         text `Row ${i}`
+
+// A card in a background role, labelled in the role that reads on it.
+component Swatch
+  props
+    name: string
+    fill: string
+    ink: string
+  view
+    column background-color=fill padding=8 border-radius=8 border-width=1 border-style="solid" border-color="-exact-separator"
+      text name color=ink

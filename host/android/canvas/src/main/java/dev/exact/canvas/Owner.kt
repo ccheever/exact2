@@ -84,11 +84,9 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
     /** Pictures the exact thread made for streams it published (copying exact2's pixels into a GPU buffer), so the
      * main thread's ingest only takes them. */
     val made = java.util.concurrent.ConcurrentHashMap<Int, android.graphics.Bitmap>()
-    /** Whether an editable field holds the focus (0, 1 an input, 3 a textarea), as of the last stream. */
-    @Volatile var editing = 0
-        private set
-    /** Called on the main thread when [editing] changed. */
-    var editingChanged: () -> Unit = {}
+    /** Called on the main thread with what exact2 asks of the platform ([Native.requests], LLP 1115.001 D5): the
+     * view's activity that reads this owner now acts on them ([Requests]). */
+    @Volatile var asked: (IntArray) -> Unit = {}
 
     // The exact thread's own state.
     private var seq = 0
@@ -152,7 +150,8 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
                         if (fd < 0) continue
                         val pfd = ParcelFileDescriptor.fromFd(fd)
                         wakes.addOnFileDescriptorEventListener(pfd.fileDescriptor, MessageQueue.OnFileDescriptorEventListener.EVENT_INPUT) { _, _ ->
-                            if (Native.poll()) produce() else schedule()
+                            // A reply, a picture, or a request exact2 queued with no frame to follow it.
+                            if (Native.poll()) produce() else { requests(); schedule() }
                             MessageQueue.OnFileDescriptorEventListener.EVENT_INPUT
                         }
                     }
@@ -167,6 +166,19 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
      * the main thread), and whenever they change, when the host takes them and publishes what they changed. */
     fun configure(device: Device) {
         handler.post { device.tell(); if (watching) produce() }
+    }
+
+    /** The device's colours ([Palette]): told before [boot] so the host's first frame is in them, and whenever they
+     * change, when the host paints the page again. */
+    fun colors(roles: IntArray) {
+        handler.post { Native.colors(roles); if (watching) produce() }
+    }
+
+    /** What exact2 asks of the platform since it was last asked ([Native.requests]): handed to the main thread, which
+     * acts on it. After every turn, and when exact2 wakes this thread for a request no frame follows (a haptic
+     * changes no pixel); also while the activity is stopped, when no stream is made. */
+    private fun requests() {
+        Native.requests()?.let { r -> main.post { asked(r) } }
     }
 
     /** The window ([Native.window]): told before [boot] so the host is laid out in it from its first frame, and
@@ -327,7 +339,7 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
 
     /** exact2's next stream, if it has one: copied, queued, and the main thread told. */
     private fun produce() {
-        if (!running) return
+        if (!running) { requests(); return }
         android.os.Trace.beginSection("exact native frame")
         val fresh = Native.frame()
         android.os.Trace.endSection()
@@ -352,8 +364,7 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
             if (!notifying.getAndSet(true)) main.post { notifying.set(false); published() }
         }
         Native.chrome()?.let { c -> main.post { chrome(c) } }
-        val now = Native.editing()
-        if (now != editing) { editing = now; main.post { editingChanged() } }
+        requests()
         schedule()
     }
 
@@ -408,9 +419,13 @@ internal object Exact {
     /** A key's wait: typing sends them in bursts. */
     const val KEY_WAIT_MS = 2L
 
-    fun editing(): Int = owner?.editing ?: Native.editing()
-
     fun back(): Boolean = owner?.sync { Native.back() } ?: Native.back()
+
+    /** The answer to a request exact2 made ([Native.answer]), or its cancellation (null): on exact2's thread. */
+    fun answer(id: Int, answer: String?) {
+        val o = owner
+        if (o != null) o.call { Native.answer(id, answer) } else Native.answer(id, answer)
+    }
 
     /** Give a GPU canvas its window: on the exact thread, without waiting for it; [done] there with the handle. */
     fun attachSurface(view: Int, surface: android.view.Surface, width: Int, height: Int, done: (Long) -> Unit) {

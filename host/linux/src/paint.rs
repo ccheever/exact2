@@ -1141,7 +1141,7 @@ impl Painter {
                     self.field_caret(&field, caret, selection.unwrap_or_else(at_end), ts);
                     // LLP 1104 D6: `outline: none` (the row's one value) draws no ring.
                     if !node.style.mask.has(exact_kernel::StyleId::OutlineStyle) {
-                        let accent = control::accent(node, self.dark).unwrap_or(control::ACCENT);
+                        let accent = control::ring(node, self.dark);
                         self.field_ring(field_shape.as_ref().unwrap_or(&outer), accent, ts);
                     }
                 }
@@ -1240,7 +1240,7 @@ impl Painter {
             && self.ringless != Some(node.id)
             && node.props.bool(PropId::Disabled) != Some(true)
         {
-            let accent = control::accent(node, self.dark).unwrap_or(control::ACCENT);
+            let accent = control::ring(node, self.dark);
             self.field_ring(&outer, accent, ts);
         }
         // @ref LLP 1075.003.000.001 §2.2.1 — a hatch's overlay: over the

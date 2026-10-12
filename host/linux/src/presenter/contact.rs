@@ -376,7 +376,13 @@ impl<D: DataSource> Presenter<D> {
             });
             return Ok(true);
         }
-        let press = self.handler_target(view, EventKind::Press).and_then(|id| {
+        let pressed = self.handler_target(view, EventKind::Press);
+        // `-exact-press-haptic` plays at the press, the host's own as the
+        // scale below is (LLP 1077 D14).
+        if let Some(id) = pressed {
+            self.press_haptic(id);
+        }
+        let press = pressed.and_then(|id| {
             let node = self.host.kernel().node(id)?;
             if node.style.press_scale == 1. {
                 return None;

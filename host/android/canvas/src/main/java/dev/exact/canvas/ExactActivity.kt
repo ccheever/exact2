@@ -65,12 +65,8 @@ open class ExactActivity : Activity() {
         // exact2's thread, made before the assets are checked: it loads exact2's library meanwhile.
         owner()
         installAssets(File(storage, "app"))
-        // System Back goes where the app's routes send it ([Native.back], LLP 1115.001 D6); with nowhere to go it
-        // leaves the app. The callback is always on: enabling it only while Back has somewhere to go, which gives
-        // the system's own leave animation and its predictive preview, waits for the host to be able to say so.
-        onBackInvokedDispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT) {
-            if (Exact.back()) view.invalidate() else finish()
-        }
+        // What the host asks of the platform (LLP 1115.001 D5), acted on here, on the main thread.
+        requests = Requests(this).also { it.back = { goes -> takeBack(goes) } }
         // No background of its own: the window's shows behind the page, the launch theme's surface until the host says
         // the page's ([chrome]).
         root = FrameLayout(this)
@@ -82,6 +78,21 @@ open class ExactActivity : Activity() {
             if (r - l != or - ol || b - t != ob - ot) root.rootWindowInsets?.let { window(it) }
         }
         setContentView(root)
+    }
+
+    private lateinit var requests: Requests
+
+    /** System Back goes where the app's routes send it ([Native.back], LLP 1115.001 D6). The callback is registered
+     * only while the host says Back has somewhere to go in the app ([Requests.back]): at the first screen there is
+     * none, so Back is the system's own, which leaves the app with its own animation. A Back that arrives and the
+     * app does not take (it had somewhere to go a moment ago) finishes the activity, as it always did. */
+    private val backCallback = android.window.OnBackInvokedCallback { if (Exact.back()) view.invalidate() else finish() }
+    private var takesBack = false
+    private fun takeBack(on: Boolean) {
+        if (on == takesBack) return
+        takesBack = on
+        if (on) onBackInvokedDispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, backCallback)
+        else onBackInvokedDispatcher.unregisterOnBackInvokedCallback(backCallback)
     }
 
     /** Where exact2 keeps the app's files, and the APK's assets are copied: the app's own files directory, which
@@ -112,8 +123,11 @@ open class ExactActivity : Activity() {
         natives?.destroyAll()
         root.removeAllViews()
         val owner = owner()?.also { it.published = { view.onPublished() } }
-        // The device's settings, told before the host boots: its first frame is laid out and painted with them.
+        // The device's settings, told before the host boots: its first frame is laid out and painted with them. Its
+        // colours too (D4): read again by each reader, since a wallpaper changed while the last one was stopped is
+        // another palette.
         val device = Device.read(this).also { told = it }
+        val colors = Palette.read(this).also { toldColors = it }
         // The window as it is now, with the system's raw insets (D3.3): told before the host boots too, so the page is
         // laid out where it will be shown. The view's own size is never told: the presenter places the page.
         val metrics = windowManager.currentWindowMetrics
@@ -128,18 +142,20 @@ open class ExactActivity : Activity() {
         val live = intent.getStringExtra("live").let { it == "1" || it == "true" }
         if (owner != null) {
             owner.chrome = { c -> chrome(c) }
+            owner.asked = { r -> requests.perform(r) }
             owner.configure(device)
+            owner.colors(colors)
             owner.window(size.first, size.second, density, edges)
             owner.boot(size.first, size.second, density, storage.absolutePath, live) { ok -> view.ownerStarted(ok) }
             booting = true
         } else if (intent.getStringExtra("asyncboot") != "0") {
             try { Native.hardwarePictures(intent.getStringExtra("hwbuf") != "0") } catch (e: UnsatisfiedLinkError) { }
             Thread({
-                device.tell(); Native.window(size.first, size.second, density, edges)
+                device.tell(); Native.colors(colors); Native.window(size.first, size.second, density, edges)
                 Native.startAsync(size.first, size.second, density, storage.absolutePath, live)
             }, "exact-load").apply { priority = Thread.MAX_PRIORITY }.start()
             booting = true
-        } else { device.tell(); Native.window(size.first, size.second, density, edges) }
+        } else { device.tell(); Native.colors(colors); Native.window(size.first, size.second, density, edges) }
         if (!driven) { driven = true; driver = drive { dy -> view.scrollBy(dy) } }
         view = ExactView(this, live) {
             if (!ready) {
@@ -153,8 +169,9 @@ open class ExactActivity : Activity() {
         view.booting = booting
         view.window = size
         view.chrome = { c -> chrome(c) }
+        view.asked = { r -> requests.perform(r) }
         view.owner = owner
-        owner?.editingChanged = { view.keys?.focusChanged() }
+        requests.view = view
         Exact.answered = { view.onPublished() }
         if (input) view.keys = Keys(view)
         val elements = Natives(this, File(storage, "app"), modules, video)
@@ -245,15 +262,24 @@ open class ExactActivity : Activity() {
     /** The device's settings as the host was last told them. */
     private var told: Device? = null
 
-    /** Read the device's settings and tell the host, whole, when any is not what it was last told (LLP 1115.001
-     * D3.1). */
+    /** The device's colours as the host was last told them ([Palette]). */
+    private var toldColors: IntArray? = null
+
+    /** Read the device's settings and its colours and tell the host each, whole, when any of it is not what it was
+     * last told (LLP 1115.001 D3.1, D4). */
     private fun configure() {
         if (!reads()) return
-        val now = Device.read(this)
-        if (now == told) return
-        told = now
         val owner = view.owner
-        if (owner != null) owner.configure(now) else { now.tell(); view.invalidate() }
+        val now = Device.read(this)
+        if (now != told) {
+            told = now
+            if (owner != null) owner.configure(now) else { now.tell(); view.invalidate() }
+        }
+        val colors = Palette.read(this)
+        if (!colors.contentEquals(toldColors)) {
+            toldColors = colors
+            if (owner != null) owner.colors(colors) else { Native.colors(colors); view.invalidate() }
+        }
     }
 
     /** The two settings the app is told that are no part of a [android.content.res.Configuration]: "remove
@@ -294,7 +320,14 @@ open class ExactActivity : Activity() {
         super.onStop()
     }
 
+    /** In front again: a share sheet that was up and chose nothing was dismissed ([Requests.resumed]). */
+    override fun onResume() {
+        super.onResume()
+        requests.resumed()
+    }
+
     override fun onDestroy() {
+        requests.destroy()
         release()
         super.onDestroy()
     }
@@ -311,7 +344,7 @@ open class ExactActivity : Activity() {
         natives = null
         if (!reads()) return
         Exact.reader = null
-        Exact.owner?.let { it.published = {}; it.editingChanged = {}; it.chrome = {} }
+        Exact.owner?.let { it.published = {}; it.asked = {}; it.chrome = {} }
         Exact.answered = {}
     }
 

@@ -293,6 +293,58 @@ macro_rules! canvas_jni {
                 with(|h| h.set_window(told));
             }
 
+            /// The device's colours (LLP 1115.001 D4): Material 3's colour
+            /// roles as the reader resolved them, twelve light and then the
+            /// same twelve dark, ARGB, in `presenter::Material`'s order.
+            /// Before `start`, from any thread, so the host boots resolving
+            /// every role by them, and on the host's thread again whenever
+            /// one changes. Any other count of colours is ignored.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_colors(
+                env: *mut JNIEnv,
+                _class: jclass,
+                roles: jintArray,
+            ) {
+                let n = ((**env).GetArrayLength.expect("jni"))(env, roles).max(0);
+                let mut words = vec![0i32; n as usize];
+                ((**env).GetIntArrayRegion.expect("jni"))(env, roles, 0, n, words.as_mut_ptr());
+                let Some(palette) = $crate::presenter::Palette::from_words(&words) else {
+                    return;
+                };
+                $crate::canvas::colors(palette);
+                with(|h| h.set_colors(&palette));
+            }
+
+            /// What the presenter asks of the platform since the reader
+            /// last took it (LLP 1115.001 D5), as words, or null when it
+            /// asks nothing: for each request its kind, its id, the count
+            /// of words that follow and those words
+            /// (`presenter/requests.rs`). The presenter wakes the reader
+            /// (the first of `fds`) when it queues one.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_requests(
+                env: *mut JNIEnv,
+                _class: jclass,
+            ) -> jintArray {
+                match with(|h| h.requests()).flatten() {
+                    Some(words) => ints(env, &words),
+                    None => std::ptr::null_mut(),
+                }
+            }
+
+            /// The reader's answer to request `id`, or null for its
+            /// cancellation.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_answer(
+                env: *mut JNIEnv,
+                _class: jclass,
+                id: jint,
+                answer: jstring,
+            ) {
+                let answer = (!answer.is_null()).then(|| string(env, answer));
+                with(|h| h.answer(id as u32, answer.as_deref()));
+            }
+
             /// What the reader draws around the page, when that is not what
             /// this last returned (else null): where the page is in the
             /// window (x, y, width, height, pixels), the colour behind it
@@ -637,24 +689,6 @@ macro_rules! canvas_jni {
             ) {
                 let ch = char::from_u32(code as u32).filter(|_| code > 0);
                 with(|h| h.key(ch, backspace == JNI_TRUE));
-            }
-
-            /// Whether an editable field holds the focus (1), a textarea (3), or none (0).
-            #[no_mangle]
-            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_editing(
-                _env: *mut JNIEnv,
-                _class: jclass,
-            ) -> jint {
-                with(|h| {
-                    if !h.editing() {
-                        0
-                    } else if h.multiline() {
-                        3
-                    } else {
-                        1
-                    }
-                })
-                .unwrap_or(0)
             }
 
             /// Pictures announced and not yet fetched, as id, width, height triples:

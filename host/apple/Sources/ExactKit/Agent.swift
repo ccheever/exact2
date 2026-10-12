@@ -27,11 +27,14 @@ public final class Agent {
     let session: ExactSession
     init(session: ExactSession) {
         self.session = session
-        // The system appearance is the agent's from its first operation:
-        // light, as `prefer` would set it, never the machine's (LLP 1069.007
-        // D2). Reduced motion and transparency start at no-preference
-        // (`DisplayPreferences.agent`).
+        // The system appearance is the agent's: light, as `prefer` would set
+        // it, never the machine's (LLP 1069.007 D2). On iOS and tvOS the
+        // scene's, from the agent's first operation; on the Mac the app's,
+        // from launch (`Agent.systemAppearance`). Reduced motion and
+        // transparency start at no-preference (`DisplayPreferences.agent`).
+        #if os(iOS) || os(tvOS)
         if ExactEnv.agentMode { systemScheme(dark: false) }
+        #endif
     }
 
     /// Inline IDs name shaped fragments, not their paragraph owner's box.

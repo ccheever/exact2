@@ -118,6 +118,10 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
     var window = 0 to 0
     /** What the host says to draw around the page ([Native.chrome]), when exact2 runs here: told as it changes. */
     var chrome: (IntArray) -> Unit = {}
+    /** What exact2 asks of the platform ([Native.requests], LLP 1115.001 D5), when it runs here: taken after each
+     * turn and whenever it wakes this thread ([asking]). With an [owner], the owner takes them. */
+    internal var asked: (IntArray) -> Unit = {}
+    private fun asking() { Native.requests()?.let(asked) }
     /** exact2's own thread, when it has one ([Owner]); null: exact2 runs here, on the main thread. */
     internal var owner: Owner? = null
     /** Scrolls sent to the owner that no published stream includes yet, and the feed's group with its translation in
@@ -166,7 +170,9 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
             val pfd = ParcelFileDescriptor.fromFd(fd)
             wakes.add(pfd)
             queue.addOnFileDescriptorEventListener(pfd.fileDescriptor, MessageQueue.OnFileDescriptorEventListener.EVENT_INPUT) { _, _ ->
-                if (Native.poll()) pump()
+                val turn = Native.poll()
+                asking()
+                if (turn) pump()
                 MessageQueue.OnFileDescriptorEventListener.EVENT_INPUT
             }
         }
@@ -247,7 +253,6 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
             return
         }
         Native.touch(action, x, y, tool)
-        if (action == 1) keys?.focusChanged()
         // A frame only when the touch changed what exact2 draws (a down on a plain row changes nothing).
         if (started) pump()
     }
@@ -860,6 +865,8 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
     }
 
     private fun schedule() {
+        // What this turn asked of the platform (a press's haptic, the keyboard for a field it focused).
+        asking()
         if (!running) return
         if (Native.animating() && !turnPosted) { turnPosted = true; android.view.Choreographer.getInstance().postFrameCallback(turn) }
         var due = Native.nextDue()

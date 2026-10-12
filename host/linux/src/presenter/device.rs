@@ -106,6 +106,8 @@ impl<D: DataSource> Presenter<D> {
         self.brush.forget_rows();
         // Nor of what it was told of the scrollers: the new one asks again.
         self.reader = Default::default();
+        // Nor of Back and the keyboard, which it is told anew (D5).
+        self.requests_reset();
         self.dirty = true;
     }
 }

@@ -73,7 +73,9 @@ mod height_drag;
 mod height_drag_tests;
 mod images;
 mod links;
+mod palette;
 mod preferences;
+mod requests;
 mod retained_action;
 mod reveal;
 mod scrollers;
@@ -108,7 +110,10 @@ pub use device::Device;
 use painter::cpu_info;
 pub(crate) use painter::PainterBoot;
 pub use painter::{set_custom_painter, PainterChoice, PainterFactory, PainterInfo};
+pub(crate) use palette::reported_accent;
+pub use palette::{Material, Palette, MATERIAL_ROLES};
 pub use pointer::PointerKind;
+pub use requests::{Haptic, Request};
 pub use scrollers::{Scroller, Under, PAGE};
 pub use window::{Chrome, Window};
 
@@ -196,6 +201,10 @@ pub struct Presenter<D: DataSource> {
     window: window::State,
     /// What a shell that scrolls by itself was told of its scrollers (D7.3).
     reader: scrollers::Reader,
+    /// The reported colours this presenter last painted from (D4), and what
+    /// it asks of its shell (D5).
+    colors: palette::State,
+    requests: requests::State,
     /// The viewport segments the agent set (LLP 1078 D7), for `layout.env`;
     /// the posture and counts are the runner's.
     pub(crate) segments: Vec<exact_kernel::Rect>,
@@ -438,6 +447,8 @@ impl<D: DataSource> Presenter<D> {
             slop: exact_motion::gesture::SLOP,
             window: Default::default(),
             reader: Default::default(),
+            colors: Default::default(),
+            requests: Default::default(),
             segments: Vec::new(),
             surfaces: Default::default(),
             module: None,

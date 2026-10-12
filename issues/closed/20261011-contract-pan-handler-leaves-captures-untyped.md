@@ -1,6 +1,7 @@
 # Contract: `pan=` types none of its action's parameters, so a child's pan action cannot call its parent component's action (`cannot infer the type of parameter @capture:…`)
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by #478
 **Systems:** Contract compiler
 **Severity:** P3
 **Author:** Daehyeon Mun (via the T3 Code clone)

@@ -897,7 +897,7 @@ fn css_wide_branches(e: &Expr, rows: &[StyleId]) -> bool {
     match e {
         Expr::Str(s, _) => rows
             .iter()
-            .all(|row| StyleValue::Text(s.clone()).unsets(*row)),
+            .all(|row| StyleValue::Text(s.as_str().into()).unsets(*row)),
         Expr::Ternary(_, yes, no, _) => css_wide_branches(yes, rows) && css_wide_branches(no, rows),
         Expr::Match { some, none, .. } => {
             css_wide_branches(some, rows) && css_wide_branches(none, rows)
@@ -985,7 +985,7 @@ fn computed_string_arm<'a>(
         Expr::Str(s, _)
             if rows
                 .iter()
-                .all(|row| StyleValue::Text(s.clone()).unsets(*row)) =>
+                .all(|row| StyleValue::Text(s.as_str().into()).unsets(*row)) =>
         {
             None
         }

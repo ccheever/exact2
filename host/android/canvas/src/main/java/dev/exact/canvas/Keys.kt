@@ -13,13 +13,14 @@ import android.view.inputmethod.InputMethodManager
  *
  * The view is focusable, so the window's key events (a hardware keyboard's, ones injected through the window's
  * dispatch, the IME's) reach it; each character, Enter and Backspace goes to exact2's focused field
- * ([Native.key]), as the Linux host's display keyboard does. When a tap leaves an editable field focused the view
+ * ([Native.key]), as the Linux host's display keyboard does. While an editable field holds the focus the view
  * shows the platform's keyboard, and hides it when the focus leaves, as a focused `<input>` does in Chrome on
- * Android. The IME talks to a [BaseInputConnection] in its dummy mode: what it commits arrives as key events.
+ * Android: exact2 says so as a request ([show], LLP 1115.001 D5), whatever moved the focus (a tap, a key, the app).
+ * The IME talks to a [BaseInputConnection] in its dummy mode: what it commits arrives as key events.
  */
 class Keys(private val view: ExactView) {
     private val imm = view.context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-    /** What [Native.editing] said after the last tap: 0 none, 1 an input, 3 a textarea. */
+    /** What exact2 last asked for ([show]): 0 none, 1 an input, 3 a textarea. */
     private var shown = 0
 
     init {
@@ -32,9 +33,9 @@ class Keys(private val view: ExactView) {
 
     fun editing() = shown != 0
 
-    /** After a tap: show the keyboard for a newly focused field, or hide it when none is focused. */
-    fun focusChanged() {
-        val now = Exact.editing()
+    /** exact2 asks for the keyboard ([Requests]): shown for a newly focused field ([now] 1 an input, 3 a textarea),
+     * hidden when none holds the focus (0). */
+    fun show(now: Int) {
         if (now == shown) return
         shown = now
         if (now != 0) {
@@ -58,7 +59,6 @@ class Keys(private val view: ExactView) {
                 Exact.key(c, false)
             }
         }
-        focusChanged()
         return true
     }
 

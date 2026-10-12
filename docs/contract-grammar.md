@@ -1289,6 +1289,10 @@ headless Linux host has no browser, clipboard, editor or dev menu: its
 journaled as unsupported there (it has no media player), `haptic` does nothing, and `showNotification` is refused
 (`showNotification: refused: unavailable`). Its `selectText` focuses the field
 with its whole text selected, which the next typed key or Backspace replaces.
+On Android the same host has the platform behind it (LLP 1115.001 D5): `openURL` and a
+link out open the browser, the mail app or the dialer, `copyText` writes the clipboard,
+`haptic` and `-exact-press-haptic` play, and `share` shows the Sharesheet; notifications
+and the pickers are still refused there.
 iOS closes no window either: its `close` is journaled as unsupported. On the web,
 `reload()` is the page's own reload, and `deliveryCheck` and
 `deliveryActivate` find nothing (a web build has no update store; the page is

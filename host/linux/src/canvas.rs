@@ -137,6 +137,9 @@ const IDLE_FRAMES: u64 = 10;
 
 #[path = "canvas/clip.rs"]
 mod clip;
+#[path = "canvas/colors.rs"]
+mod colors;
+pub use colors::colors;
 #[path = "canvas/device.rs"]
 mod device;
 #[path = "canvas/input.rs"]
@@ -155,6 +158,8 @@ mod picture;
 mod reader;
 #[path = "canvas/refine.rs"]
 mod refine;
+#[path = "canvas/requests.rs"]
+mod requests;
 #[path = "canvas/scroll.rs"]
 mod scroll;
 #[path = "canvas/shadow.rs"]
@@ -1100,6 +1105,11 @@ impl<D: DataSource + Default> CanvasHost<D> {
         crate::app::row_reuse_from_env(true);
         #[cfg(target_os = "android")]
         crate::surfaces::prepare_gpu(compat);
+        // The device's colours, before anything is resolved by a role (D4).
+        let palette = colors::palette();
+        if let Some(palette) = &palette {
+            palette.tell();
+        }
         let mut config = crate::app::Config::from_env_static(plan, compat);
         config.scale = scale;
         let (p, error) = crate::app::boot_presenter_with_painter::<D>(
@@ -1114,6 +1124,11 @@ impl<D: DataSource + Default> CanvasHost<D> {
         // What the reader read of the device, before the first frame (D3.1).
         if let Some(e) = device::configured().and_then(|d| p.set_device(&d)) {
             eprintln!("exact: device: {e}");
+        }
+        // The reader takes what the presenter asks of the platform (D5).
+        p.serve_requests();
+        if let Some(palette) = &palette {
+            p.set_palette(palette);
         }
         eprintln!(
             "exact: canvas {}x{} px, scale {scale}, boot {:.1} ms",
