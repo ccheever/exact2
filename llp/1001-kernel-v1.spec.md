@@ -990,6 +990,22 @@ as tall as its content: the page a viewport scrolls (added 2026-08-29 when the
 Apple host's first bare-root fixture laid out 89 pt wide; a root's engine
 style is re-derived on `AttachRoot`).
 
+**A containing block from the host** (LLP 1115.002 D8.2, 2026-10-12). A host
+that shows a subtree in a view of its own (a split's pane, a sheet) gives its
+root a containing block, `Kernel::set_host_block(view, Some(HostBlock { width,
+height }))`, each axis `Is` the size or `AtMost` a maximum. While it has one
+the node is out of its parent's layout and is laid out by the same
+`compute_layout` call as a root is, in that block: the engine's root for its
+subtree, so a block that changes lays out that subtree alone. Its frames are
+in the block's space; `Kernel::host_block_size` is the block's used size
+(under a maximum, the root's shrink-to-fit size); the environment, and so
+every viewport unit, stays the window's, as do the root font size and the
+display's scale. The receipt names the page's nodes,
+then each block's. The semantics, in CSS's terms, are that document's; the
+fixtures are Chrome's (`tests/it/browser_host_block.rs`). A host that gives
+no block lays out exactly as before. Refused: a block for a root, for an
+inline run, and beside a registered content region.
+
 `SetChildren` rejects: duplicate children, self-child, a root as a child, a cycle
 (child is an ancestor of the parent), children on a leaf type, a non-`Text`
 child under a `Text` (a text node's children are its inline runs; anything else

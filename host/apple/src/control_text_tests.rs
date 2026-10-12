@@ -326,8 +326,7 @@ fn resolved_button_geometry_has_one_measurement_and_presentation_payload() {
     assert_eq!(rows.button.padding_left, Dimension::Points(42.));
     assert_eq!(rows.button.padding_right, Dimension::Points(20.));
     assert!(rows.button.mask.has(StyleId::PaddingTop));
-    let presented =
-        crate::button::face_json(kernel.press_face(id).as_ref(), Some(&rows), "bordered");
+    let presented = crate::button::face_json(kernel.press_face(id).as_ref(), Some(&rows), None);
     assert_eq!(captured.borrow().last().unwrap(), &presented);
     let json: serde_json::Value = serde_json::from_str(&presented).unwrap();
     assert_eq!(json["rows"]["button"]["padding_top"], 31.);
@@ -399,7 +398,7 @@ fn control_size_fonts_feed_em_resolution_and_the_shared_face_payload() {
     let json: serde_json::Value = serde_json::from_str(&crate::button::face_json(
         kernel.press_face(id).as_ref(),
         Some(&rows),
-        "bordered",
+        None,
     ))
     .unwrap();
     assert_eq!(json["rows"]["title"]["font_size"], 57.);

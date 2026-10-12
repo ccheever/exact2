@@ -54,14 +54,37 @@ pub const CONTEXTUAL: &[(&str, &str)] = &[
     ),
 ];
 
+/// What a button with no `buttonStyle` is on each host (LLP 1115.000 D15,
+/// D14.5), in one sentence for both places that print it. The hosts hold the
+/// defaults themselves: `ButtonFace.unsaid` on Apple's, `bordered` wherever
+/// another host reads the prop.
+macro_rules! button_default {
+    () => {
+        "with no `buttonStyle` a button is the platform's default: plain tinted text on iOS (as `UIButton(type: .system)` and SwiftUI's `Button` are), a push button on macOS, bordered on the web (a bare text button there reads as unstyled)"
+    };
+}
+
+/// Printed under `contract vocab buttonStyle`.
+pub const BUTTON_DEFAULT_NOTE: &str = button_default!();
+
 /// What a tag means beyond its node, where the hosts make more of it than
 /// the web: `contract vocab <tag>` prints it under the tag.
-pub const TAG_NOTES: &[(&str, &str)] = &[(
-    "header",
-    // @ref LLP 1116.003 D2.2, LLP 1115.000 D5.2, D5.3 —
-    // NavigationBarIOS.swift's `HeaderShape`, `NavigationRules.bar`.
-    "on iOS a route's `header` is its navigation bar when it is the route's first child, is shown, and holds exactly one heading (`text role=\"heading\"`, or a `text` with `aria-level`), whatever the stack's other routes have. The heading is the title, large at `aria-level=1`, else inline; buttons that press or open a popover are the bar's items, leading before the heading and trailing after it; the first text after the heading is the subtitle; one `input type=\"search\"` is the bar's search field and one `role=\"tablist\"` its segmented title; the root's `navigationBack` control is the system Back button. The rest of the header is hidden (warning `lower-header-unplaced`). A header with no heading or with two is no bar and is drawn in the page as written (warning `lower-header-no-bar`). A pushed route with no bar of its own (no header, or one that is no bar) still gets a bar holding the system Back button alone, with no title; a stack's first route with none has no bar. A route that draws its own chrome says `navigationBar=\"none\"`: no bar, and the edge swipe still goes back; without it, a `navigationBack` control drawn in a pushed route's page is a second Back under the bar's (warning `lower-back-twice`). docs/recipes/navigation-stack.md",
-)];
+pub const TAG_NOTES: &[(&str, &str)] = &[
+    (
+        "header",
+        // @ref LLP 1116.003 D2.2, LLP 1115.000 D5.2, D5.3 —
+        // NavigationBarIOS.swift's `HeaderShape`, `NavigationRules.bar`.
+        "on iOS a route's `header` is its navigation bar when it is the route's first child, is shown, and holds exactly one heading (`text role=\"heading\"`, or a `text` with `aria-level`), whatever the stack's other routes have. The heading is the title, large at `aria-level=1`, else inline; buttons that press or open a popover are the bar's items, leading before the heading and trailing after it; the first text after the heading is the subtitle; one `input type=\"search\"` is the bar's search field and one `role=\"tablist\"` its segmented title; the root's `navigationBack` control is the system Back button. The rest of the header is hidden (warning `lower-header-unplaced`). A header with no heading or with two is no bar and is drawn in the page as written (warning `lower-header-no-bar`). A pushed route with no bar of its own (no header, or one that is no bar) still gets a bar holding the system Back button alone, with no title; a stack's first route with none has no bar. A route that draws its own chrome says `navigationBar=\"none\"`: no bar, and the edge swipe still goes back; without it, a `navigationBack` control drawn in a pushed route's page is a second Back under the bar's (warning `lower-back-twice`). docs/recipes/navigation-stack.md",
+    ),
+    (
+        "button",
+        // @ref LLP 1115.000 D15 — the default, then what an author says in its place.
+        concat!(
+            button_default!(),
+            ". Say what the action is and leave the look: `buttonStyle=\"filled\"` on the screen's main action (Save, Add, Send), `\"bordered\"` on one that must read as a button, nothing on a secondary or inline one (Cancel, Edit, an empty state's), and `destructive=true` on one that deletes, which iOS draws in the system red. In a `header` it is a bar item, in a `dialog role=\"alertdialog\"` an alert's action, and as a grouped `list`'s row a cell: each the platform's already. A background, border or radius of your own makes it your box, the same on every host (`contract vocab appearance`)"
+        ),
+    ),
+];
 
 /// A tag's note, if it has one ([`TAG_NOTES`]).
 pub fn tag_note(name: &str) -> Option<&'static str> {

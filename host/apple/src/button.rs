@@ -2,16 +2,22 @@
 //! @ref LLP 1069.011.001 D1–D15.
 use exact_kernel::{ButtonFaceStyle, PressFace};
 
+/// `style` is the `buttonStyle` the author wrote. A written name crosses
+/// with its row's platform columns (`bordered`'s for a name not in the
+/// table). With none written the face says so, `"style":null`, and carries
+/// no column: what an unsaid button draws is each platform's own default,
+/// which the host holds (`ButtonFace`, LLP 1115.000 D15).
 pub(crate) fn face_json(
     face: Option<&PressFace>,
     rows: Option<&ButtonFaceStyle>,
-    style: &str,
+    style: Option<&str>,
 ) -> String {
     let quote = exact_runner::agent::quote;
     let button = face.is_some();
     let face = face.cloned().unwrap_or_default();
-    let row = exact_kernel::generated::button_style(style);
-    let drawn = row.or_else(|| exact_kernel::generated::button_style("bordered"));
+    let row = style.and_then(exact_kernel::generated::button_style);
+    let drawn =
+        style.and_then(|_| row.or_else(|| exact_kernel::generated::button_style("bordered")));
     let mut json = format!("{{\"button\":{button},\"title\":");
     match &face.title {
         Some(t) => quote(t, &mut json),
@@ -38,7 +44,10 @@ pub(crate) fn face_json(
         None => json.push_str("null"),
     }
     json.push_str(",\"style\":");
-    quote(style, &mut json);
+    match style {
+        Some(style) => quote(style, &mut json),
+        None => json.push_str("null"),
+    }
     if let Some(d) = drawn {
         json.push_str(",\"ios\":");
         quote(d.ios, &mut json);
@@ -47,7 +56,7 @@ pub(crate) fn face_json(
         json.push_str(",\"macos\":");
         quote(d.macos, &mut json);
     }
-    json.push_str(&format!(",\"known\":{}", row.is_some()));
+    json.push_str(&format!(",\"known\":{}", style.is_none() || row.is_some()));
     json.push_str(",\"subtitle\":");
     match &face.subtitle {
         Some(t) => quote(t, &mut json),
@@ -121,7 +130,7 @@ mod tests {
         let face = kernel.press_face(id).unwrap();
         let rows = kernel.button_face_style(id).unwrap();
         let json: serde_json::Value =
-            serde_json::from_str(&face_json(Some(&face), Some(&rows), "tinted")).unwrap();
+            serde_json::from_str(&face_json(Some(&face), Some(&rows), Some("tinted"))).unwrap();
         assert_eq!(json["subtitle"], "Your vehicle");
         assert_eq!(json["symbol"], "lock.fill");
         assert_eq!(json["placement"], "top");
@@ -192,7 +201,7 @@ mod tests {
             let json: serde_json::Value = serde_json::from_str(&face_json(
                 kernel.press_face(id).as_ref(),
                 Some(&rows),
-                "bordered",
+                None,
             ))
             .unwrap();
             assert_eq!(json["rows"]["title"]["font_size"], title_size);
@@ -207,6 +216,37 @@ mod tests {
                 );
             }
         }
+    }
+    /// LLP 1115.000 D15: the face says whether its author wrote a
+    /// `buttonStyle`. A written name crosses with its row's columns; with
+    /// none written the style is null and no column crosses, since what an
+    /// unsaid button draws is the platform's default, which the host holds.
+    /// A name outside the table still draws `bordered` and says it is unknown.
+    #[test]
+    fn the_face_says_whether_its_author_wrote_a_style() {
+        let face = PressFace {
+            title: Some("Add".into()),
+            fits: true,
+            ..Default::default()
+        };
+        let json = |style| -> serde_json::Value {
+            serde_json::from_str(&face_json(Some(&face), None, style)).unwrap()
+        };
+        let said = json(Some("bordered"));
+        assert_eq!(said["style"], "bordered");
+        assert_eq!(said["ios"], "bordered");
+        assert_eq!(said["macos"], "push");
+        assert_eq!(said["known"], true);
+        let unsaid = json(None);
+        assert!(unsaid["style"].is_null(), "{unsaid}");
+        for column in ["ios", "iosBefore26", "macos"] {
+            assert!(unsaid.get(column).is_none(), "{column}: {unsaid}");
+        }
+        assert_eq!(unsaid["known"], true, "nothing written is not a wrong name");
+        let wrong = json(Some("chunky"));
+        assert_eq!(wrong["style"], "chunky");
+        assert_eq!(wrong["ios"], "bordered");
+        assert_eq!(wrong["known"], false);
     }
     struct NoData;
     impl exact_runner::DataSource for NoData {

@@ -101,6 +101,8 @@ package final class Presenter {
     /// The native menu arm (LLP 1021 D3).
     lazy var menus = MenuHost(presenter: self)
     lazy var dialogs = DialogHost(self)
+    /// Subtrees shown in a native container's view (LLP 1115.002 D8.2).
+    lazy var blocks = BlockHost(self)
     lazy var alerts = AlertHost(self)
     lazy var navigation = NavigationHost(presenter: self)
     lazy var backSwipe = BackSwipe(self)
@@ -1107,7 +1109,7 @@ package final class Presenter {
                     if let node = child as? NodeView { reparented.insert(node.id) }
                     child.removeFromSuperview()
                 }
-                let mounted = NodeView.keepingGhosts(want.filter { !dialogs.owns($0) && !menus.owns($0) && !isFlying($0) }, in: container)
+                let mounted = NodeView.keepingGhosts(want.filter { !dialogs.owns($0) && !menus.owns($0) && !blocks.owns($0) && !isFlying($0) }, in: container)
                 for (i, child) in mounted.enumerated() {
                     if child.superview !== container {
                         reparented.insert(child.id)
@@ -1145,8 +1147,10 @@ package final class Presenter {
                 if let rank = op.payload["rank"] as? NSNumber { views[id]?.setRank(rank.int64Value) }
             case .sticky: stickies.apply(id, op.payload)
             case .fragments: views[id]?.applyColumns(op.payload)
+            case .unknown: blocks.applied(op)
             case .destroy:
                 elements.destroyed(id)
+                blocks.destroyed(id)
                 stickies.forget(id)
                 forgetFlight(id)
                 if endExit(id) { continue }

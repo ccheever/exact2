@@ -134,6 +134,10 @@ pub struct LayoutTree {
     offers: IdMap<NodeId, Offer>,
     #[cfg(test)]
     pub(crate) publication_visits: usize,
+    /// Since the tree was made: nodes publication visited, and leaves the
+    /// engine laid out (not answered from its cache).
+    #[cfg(test)]
+    pub(crate) work: (usize, usize),
     /// Boundaries replayed whose parent-facing output held: layouts that
     /// stayed inside them.
     #[cfg(test)]
@@ -371,6 +375,8 @@ impl LayoutTree {
             offers: IdMap::default(),
             #[cfg(test)]
             publication_visits: 0,
+            #[cfg(test)]
+            work: (0, 0),
             #[cfg(test)]
             boundary_replays: 0,
             presented_heights: Vec::new(),
@@ -942,10 +948,16 @@ impl LayoutTree {
             .map(|(node, _, _)| *node)
             .collect();
         let button_records = &mut self.button_records;
+        #[cfg(test)]
+        let leaves = &mut self.work.1;
         let mut measure = |inputs: LayoutInput,
                            node,
                            context: Option<&mut MeasureContext>,
                            style: &taffy::Style| {
+            #[cfg(test)]
+            {
+                *leaves += 1;
+            }
             let mut first_baseline = None;
             let mut line_height = 0.0;
             let native_slot = context

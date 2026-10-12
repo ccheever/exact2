@@ -745,7 +745,9 @@ switch is resolved after class merging.
 Native face content, styles, transitions/keyframes, and enclosing contexts have
 an explicit allowlist in [`controls.rs`](../contract/lower/src/controls.rs).
 `buttonStyle` is a styleable host-policy prop whose complete vocabulary is the
-schema's `buttonStyles` table; default `bordered`. This adds no tag or new
+schema's `buttonStyles` table. Unsaid, a button is the platform's default: plain
+tinted text on iOS, a push button on macOS, bordered on the web and on the hosts
+that paint their own (`contract vocab button`). This adds no tag or new
 expression grammar. Platform looks and stand-ins are documented in
 [LLP 1069.011](../llp/1069.011-native-buttons.rfc.md).
 

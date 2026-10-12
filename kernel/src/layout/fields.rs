@@ -134,6 +134,11 @@ impl LayoutTree {
         self.provisional_chrome
     }
 
+    /// A stand-in answer an earlier root's pass of this layout used stands.
+    pub(crate) fn keep_provisional_chrome(&mut self, earlier: bool) {
+        self.provisional_chrome |= earlier;
+    }
+
     pub(super) fn settle_field_minima(&mut self, minima: IdMap<NodeId, f32>) -> bool {
         let mut changed = false;
         for (node, minimum) in minima {

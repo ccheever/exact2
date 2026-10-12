@@ -373,7 +373,7 @@ component Todos
           text `${left} left` role="heading" testId="count"
         row
           input value=draft input=edit submit=add placeholder="What needs doing?" aria-label="New todo" testId="new-todo" flex=1 min-width=0
-          button press=add testId="add"
+          button press=add buttonStyle="filled" testId="add"
             text "Add"
       section
         each t in todos key=t.id

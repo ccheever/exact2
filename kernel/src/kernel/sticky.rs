@@ -99,8 +99,15 @@ impl Kernel {
         self.laid_out_frame(key)?;
         let tree = self.layout.as_deref().and_then(LayoutMirror::tree_ref)?;
         let parent = arena.parent(slot)?;
+        // A host's containing block is a root's (LLP 1115.002 D8.2): the
+        // scrollport when nothing inside it scrolls, and its own root's
+        // parent is in another space.
+        if arena.blocks.holds(slot) {
+            return None;
+        }
         let mut scroller = parent;
-        while !arena.is_root(scroller) && !scrolls(arena, scroller) {
+        while !arena.is_root(scroller) && !arena.blocks.holds(scroller) && !scrolls(arena, scroller)
+        {
             scroller = arena.parent(scroller)?;
         }
         let origin = arena.frame(scroller);

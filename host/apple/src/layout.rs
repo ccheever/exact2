@@ -208,7 +208,13 @@ impl<D: DataSource> Host<D> {
             if native_protected {
                 continue;
             }
-            let parent = node.parent.and_then(|p| kernel.node(p)).map(|p| p.frame);
+            // A subtree a native container gave a containing block is laid
+            // out in that block's space, not its parent's (LLP 1115.002
+            // D8.2): its root's frame as published, sent again when it
+            // takes or loses the block, with the block's used size.
+            let block = kernel.host_block_size(id);
+            let parent = node.parent.filter(|_| block.is_none());
+            let parent = parent.and_then(|p| kernel.node(p)).map(|p| p.frame);
             let rel = relative(node.frame, parent);
             // A sheet sized to its route's content reads that extent too
             // (LLP 1075.003 §9.11). A route that scrolls itself keeps its
@@ -272,10 +278,16 @@ impl<D: DataSource> Host<D> {
                 m.field_cell = field_cell;
                 batch.field_content(id, field_content, field_cell);
             }
-            if m.frame != Some(rel) {
+            if m.frame != Some(rel) || m.block.is_some() != block.is_some() {
                 moved.insert(id);
                 m.frame = Some(rel);
                 batch.frame(id, rel.0, rel.1, rel.2, rel.3);
+            }
+            if m.block != block {
+                m.block = block;
+                if let Some((w, h)) = block {
+                    batch.block(id, w, h);
+                }
             }
             if let Some(c) = content {
                 if self.layout_withheld || m.content != Some(c) {
@@ -398,7 +410,9 @@ pub(super) fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
     };
     let (mut w, mut h) = node.content;
     for child in node.children() {
-        if let Some(c) = kernel.node(child) {
+        // A child in a containing block of its own is in another space.
+        let own = |c: &NodeRef<'_>| kernel.host_block(c.id).is_some();
+        if let Some(c) = kernel.node(child).filter(|c| !own(c)) {
             w = w.max(c.frame.x - node.frame.x + c.frame.width + pad_right);
             h = h.max(c.frame.y - node.frame.y + c.frame.height + pad_bottom);
         }

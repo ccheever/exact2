@@ -1124,7 +1124,12 @@ The kernel's optional host measure hook supplies the fitting size before the
 first frame and handles wrapping at the offered width. Existing hosts keep
 their intrinsic-size report until they implement it.
 
-`buttonStyle` needs a native button and defaults to `bordered`. If the default
+`buttonStyle` needs a native button. With none, a button is the platform's
+default: plain tinted text on iOS, as UIKit's and SwiftUI's own button is, a push
+button on macOS, and bordered on the web, where a bare text button reads as
+unstyled. So say what the action is: `filled` for the screen's main action,
+`bordered` for one that must read as a button, and nothing for a
+secondary or inline one (`contract vocab button`). If the default
 makes your button bare, `lower-button-style` names the first reason: remove it,
 or write `appearance="none"` without `buttonStyle`. The accepted styles are `plain`, `gray`,
 `tinted`, `filled`, `borderless`, `bordered`, `bordered-tinted`,

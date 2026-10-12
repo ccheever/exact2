@@ -1464,6 +1464,8 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     }
     // @ref LLP 1075.003 §3.5 — what a native container covers of the box.
     crate::kernel::apply_cover(arena, slot, &mut s);
+    // @ref LLP 1115.002 D8.2 — the containing block a host gave the subtree.
+    crate::kernel::apply_block(arena, slot, &mut s);
     // @ref LLP 1074 T1 — a root is the containing block of every absolutely
     // positioned box no positioned ancestor holds, on every host: a static
     // root is `relative` (its insets apply, as on the web's root element).

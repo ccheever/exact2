@@ -427,7 +427,7 @@ mod tests {
                 button: StyleProps::default(),
                 image_gap: None,
             },
-            button_style: "bordered".into(),
+            button_style: None,
             width: AxisOffer::MaxContent,
         }
     }
