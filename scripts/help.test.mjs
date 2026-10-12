@@ -8,7 +8,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync,
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { createApp } from '../game/new.mjs';
-import { HELP, helpText, knownFlags } from './help.mjs';
+import { HELP, helpText, indexText, knownFlags } from './help.mjs';
 
 const ROOT = resolve(import.meta.dir, '..');
 const APP_VERBS = ['web', 'web-build', 'test', 'agent', 'verify', 'ios', 'mac', 'linux', 'android', 'update', 'contract', 'hatch', 'pattern', 'feedback'];
@@ -129,4 +129,31 @@ test('a first build\'s helps are short, and --help all has every flag', () => {
   assert.match(helpText('agent'), /^ {2}--json +one compact JSON object per op reply, one per line/m);
   // LLP 1116.007 D3.9: `state <name>` is a view's, else a state or resource read down a dotted path.
   assert.match(helpText('agent'), /^ {2}state \[<name>\] +a view's testId, else a state or resource, dotted: groceries\.0\.done/m);
+});
+
+// LLP 1116.009 D6: builders read `help` and then four or five verbs' `--help`, each a step carried to the end of the build.
+// The index is the one read: each verb, then the forms a build uses, in one screen, and every flag a form names is one its
+// verb's script parses (a form never names a flag that does not exist).
+test('help is the one read: the verbs and the forms a build uses, in one screen, naming only flags the verbs parse', () => {
+  const text = indexText({ verbs: Object.keys(HELP).filter((v) => v !== 'new') });
+  assert.ok(text.split('\n').length <= 36, `the index is ${text.split('\n').length} lines`);
+  assert.ok(Buffer.byteLength(text) <= 2800, `the index is ${Buffer.byteLength(text)} bytes`);
+  // What builders used across rounds 10 and 11: verify's platform and `--shots`, test's platform, agent's `--storage`, `--size`
+  // and its common operations, web and ios `--run`, contract's build and vocab, pattern.
+  for (const form of [
+    /^ {2}verify \[ios\] \[--shots <dir>\]/m, /^ {2}test \[web\|ios\]/m, /^ {2}agent \[web\|ios\] \[--storage <name>\] \[--size <w>x<h>\]/m,
+    /"tap <target>"/, /"type <target> <text>"/, /"clock data\|settle\|\+<ms>"/, /"state \[<name>\]"/, /"screenshot <png>"/, /"check \[both\]"/, /"resize <w>x<h>"/, /"prefer <feature> <value>"/,
+    /^ {2}web \[--port <n>\]/m, /^ {2}ios \[--run\]/m, /^ {2}contract build <file> --json · contract vocab <name>/m, /^ {2}pattern \[<name>\]/m,
+  ]) assert.match(text, form);
+  for (const [verb, entry] of Object.entries(HELP)) {
+    const known = knownFlags(verb);
+    for (const form of entry.common ?? []) {
+      for (const [flag] of form.matchAll(/--[a-z][a-z-]*/g)) {
+        if (verb === 'contract') continue; // the compiler's own subcommand flags
+        assert.ok(known.has(flag) || [...HELP[verb].flags, ...(HELP[verb].more ?? [])].some(([row]) => row.includes(flag)), `${verb}'s form names ${flag}, which its script does not parse`);
+      }
+    }
+  }
+  // Without a verb's forms (a game's own verbs have none), the index is the verbs.
+  assert.doesNotMatch(indexText({ verbs: ['lock'] }), /The forms a build uses/);
 });

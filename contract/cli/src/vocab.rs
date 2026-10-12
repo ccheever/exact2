@@ -535,6 +535,10 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
     match a {
         AttrTarget::Styles(_) | AttrTarget::Flex | AttrTarget::Shorthand => {
             doc["rows"] = rows_of(name, a).iter().map(|r| row_json(*r)).collect();
+            if rows_of(name, a).iter().any(|r| vocab::takes_roles(*r)) {
+                let (exact, css) = vocab::color_roles();
+                doc["roles"] = json!({ "exact": exact, "css": css });
+            }
         }
         AttrTarget::Prop(p) | AttrTarget::InvertedBoolProp(p) => {
             doc["prop"] = p.name().into();
@@ -624,6 +628,15 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
             }
             if matches!(a, AttrTarget::Flex) {
                 lines.push("`flex: <n>` is CSS's `<n> 1 0%`".into());
+            }
+            // The roles a colour takes, by name: a builder guessed one (`contract vocab background-color`, tip-splitter).
+            if rows.iter().any(|r| vocab::takes_roles(*r)) {
+                let (exact, css) = vocab::color_roles();
+                lines.push(format!(
+                    "roles `-exact-<role>`, a role that follows the platform and the scheme: {}",
+                    exact.join(", ")
+                ));
+                lines.push(format!("CSS system colours, by name: {}", css.join(", ")));
             }
             if rows == [StyleId::Transition] {
                 lines.push(format!(

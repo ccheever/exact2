@@ -17,6 +17,39 @@ fn stdout(output: &Output) -> String {
     String::from_utf8(output.stdout.clone()).unwrap()
 }
 
+/// LLP 1116.009 D6: a builder guessed a colour role (tip-splitter), so a colour property's entry lists the roles it takes:
+/// Exact's, written `-exact-<role>`, and CSS's system colours by name; a property that is not a colour lists none.
+#[test]
+fn a_colour_lists_the_roles_it_takes() {
+    for name in ["background-color", "color", "border-color", "accent-color"] {
+        let out = stdout(&vocab(&[name]));
+        assert!(
+            out.contains("roles `-exact-<role>`")
+                && out.contains("secondary-label")
+                && out.contains("secondary-grouped-background")
+                && out.contains("system-indigo")
+                && out.contains("CSS system colours, by name: Canvas, CanvasText"),
+            "{name}: {out}"
+        );
+    }
+    let json: Value =
+        serde_json::from_str(&stdout(&vocab(&["--json", "background-color"]))).unwrap();
+    let roles = &json["attribute"]["roles"];
+    assert!(roles["exact"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|r| r == "secondary-background"));
+    assert!(roles["css"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|r| r == "Canvas"));
+    for name in ["width", "gap", "font-size"] {
+        assert!(!stdout(&vocab(&[name])).contains("roles `-exact"), "{name}");
+    }
+}
+
 #[test]
 fn a_style_shows_its_rows_codec_and_default() {
     let out = stdout(&vocab(&["padding"]));

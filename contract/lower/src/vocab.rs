@@ -169,6 +169,27 @@ pub fn default(row: StyleId) -> Option<&'static str> {
     })
 }
 
+/// Whether a style row takes a colour role by name (`-exact-label`, `Canvas`): the colour codecs that read one.
+pub fn takes_roles(row: StyleId) -> bool {
+    matches!(
+        row.codec(),
+        StyleCodec::ColorValue | StyleCodec::KeywordColor
+    )
+}
+
+/// The colour roles the schema's table gives, as written: Exact's (`-exact-<name>`, listed by `<name>`), then CSS's
+/// system colours (by their names). `contract vocab background-color` lists them (LLP 1116.009 D6: tip-splitter guessed one).
+pub fn color_roles() -> (Vec<&'static str>, Vec<&'static str>) {
+    let names = |css: bool| {
+        exact_kernel::generated::COLOR_ROLES
+            .iter()
+            .filter(|r| exact_kernel::style::roles::is_css_system(r) == css)
+            .map(|r| r.name)
+            .collect()
+    };
+    (names(false), names(true))
+}
+
 /// Whether `name` is in one of the open sets: a `data-*` attribute or a
 /// native module's tag. A built-in name is not (`align-items` is hyphenated).
 pub fn open_set(name: &str) -> Option<&'static str> {
