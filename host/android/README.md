@@ -483,6 +483,7 @@ ScrollView would.
 |---|---|---|
 | `Native.fieldFocused(id, generation, focused)` | the field took the focus (a finger tapped it), or lost it with no other field taking it | its focus follows, with the `blur`, `change` and `focus` that makes |
 | `Native.fieldEdited(id, generation, seq, value, start, end)` | the person's edit number `seq` left the field holding `value`, the selection at `start` to `end` (UTF-16 units) | the field's text is that; `input` fires, with the selection |
+| `Native.fieldComposing(id, generation, composing, value)` | the field's text began to compose, holding `value`, or its composition ended, committed or cancelled: before the edit that began or ended it | while it composes a statement says the field's own text, and the app's value is held; once it ends, the value the app then shows |
 | `Native.fieldSelected(id, generation, start, end)` | the selection moved with no edit | kept for the next `input`; `select` fires for a range |
 | `Native.fieldAction(id, generation, action)` | the action key, or Enter or Tab on a hardware keyboard: 0 Enter with no action, 2 done, 3 go, 4 next, 5 previous, 6 search, 7 send, 16 Tab, 17 Shift+Tab | Enter's `key` handlers, then `change` and `submit` for a single line; then `next` and `previous` move to the field after or before (the focus leaves where there is none), and `done`, `go`, `search` and `send` leave the field, which puts the keyboard away. Tab is the page's own Tab |
 
@@ -493,7 +494,14 @@ exact2 has reached beside the value the app then shows. The reader takes a told 
 field's newest edit and differs from what the field holds. So a commit that sets the value the field already has
 changes nothing in it (its composition and its selection stand), and one that sets another replaces the text where
 it stands (the field keeps its undo), puts the caret where it was among the text after it, and restarts the
-keyboard, which ends a composition. **Composing text is reported as it composes**: `input` fires for every change
+keyboard. **The app's value never ends a composition** (LLP 1115.000 §5, ruling 6): Contract gives an action no way
+to know text is composing, and Android's keyboards compose ordinary words, so an action that rewrites what it hears
+would end every word at its first letter. The field says when its text begins to compose and when that ends
+(`Native.fieldComposing`). While it composes exact2 holds a value the app writes and tells the field its own text,
+which changes nothing in it; when the composition ends, committed or cancelled, exact2 tells the value the app then
+shows, the last it wrote, after the app has heard the text. The action key commits what is composing first. The rule
+is held at exact2's side (`presenter/hosted_tests.rs`) and has not been seen on a phone. **Composing text is
+reported as it composes**: `input` fires for every change
 of the field's text, the composing region included, as the web reports it and as an Android `TextWatcher` hears it.
 Android's keyboards compose ordinary words, so reporting on commit (AppKit's way) would hold each word back until
 its space.

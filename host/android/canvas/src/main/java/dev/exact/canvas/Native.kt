@@ -71,6 +71,10 @@ object Native {
     /** Hosted field [id] holds [value] after the person's edit number [seq], its selection at [start] to [end]
      * (UTF-16 units). Composing text is part of the value: exact2 fires `input` as the text composes. */
     @JvmStatic external fun fieldEdited(id: Int, generation: Int, seq: Int, value: String, start: Int, end: Int)
+    /** Hosted field [id] began to compose, holding [value], or its composition ended, committed or cancelled: told
+     * before the edit that began or ended it. While it composes exact2 holds a value the app writes and tells the
+     * field its own text; once it ends, the value the app then shows (LLP 1115.000 §5, ruling 6). */
+    @JvmStatic external fun fieldComposing(id: Int, generation: Int, composing: Boolean, value: String)
     /** Hosted field [id] moved its selection with no edit. */
     @JvmStatic external fun fieldSelected(id: Int, generation: Int, start: Int, end: Int)
     /** Hosted field [id] had its action key pressed, or Enter or Tab on a hardware keyboard. [action] is what the

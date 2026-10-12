@@ -580,6 +580,24 @@ macro_rules! canvas_jni {
                 with(|h| h.field_edited(id as u32, edit, &value, selection));
             }
 
+            /// The reader's field `id` began to compose, holding `value`,
+            /// or its composition ended: told before the edit that began
+            /// or ended it (`Presenter::reader_field_composing`).
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_fieldComposing(
+                env: *mut JNIEnv,
+                _class: jclass,
+                id: jint,
+                generation: jint,
+                composing: jboolean,
+                value: jstring,
+            ) {
+                let value = $crate::canvas::field::text(env, value);
+                with(|h| {
+                    h.field_composing(id as u32, generation as u32, composing == JNI_TRUE, &value)
+                });
+            }
+
             /// The reader's field `id` moved its selection with no edit.
             #[no_mangle]
             pub unsafe extern "system" fn Java_dev_exact_canvas_Native_fieldSelected(
