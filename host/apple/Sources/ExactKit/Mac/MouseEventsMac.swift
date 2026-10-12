@@ -29,25 +29,8 @@ extension Presenter {
         let point: NSPoint
         var next: NSView?
         if let focus = keyTarget(window.firstResponder) {
-            guard !focus.disabled, !focus.inert, !focus.isHiddenOrHasHiddenAncestor,
-                  !dialogs.blocks(focus), focus.field == nil, focus.textArea == nil else { return false }
-            // AppKit's visibleRect clips the untransformed frame. Clip the
-            // drawn anchor instead, including a frame translated into view.
-            var drawn = focus.drawnRect(menus.anchor(focus, in: focus))
-            var ancestor = focus.superview
-            while let view = ancestor {
-                if let node = view as? NodeView, node.overflowClips {
-                    drawn = drawn.intersection(node.drawnRect(node.bounds))
-                } else if let clip = view as? NSClipView {
-                    let rect = (clip.superview?.superview as? NodeView).map {
-                        $0.drawnRect($0.convert(clip.bounds, from: clip))
-                    } ?? clip.convert(clip.bounds, to: nil)
-                    drawn = drawn.intersection(rect)
-                }
-                ancestor = view.superview
-            }
-            guard !drawn.isEmpty else { return false }
-            point = NSPoint(x: drawn.midX, y: drawn.midY)
+            guard let middle = contextPoint(focus) else { return false }
+            point = middle
             next = focus
         } else {
             // A handler removed the focus: Chrome hits the page at (1,1).
@@ -61,24 +44,54 @@ extension Presenter {
             point = clip.convert(NSPoint(x: clip.bounds.minX + 1, y: clip.bounds.minY + 1), to: nil)
             next = viewport.hitTest(viewport.superview?.convert(point, from: nil) ?? point)
         }
-        let client = self.client(point)
         while let view = next {
             if let node = view as? NodeView, (node.field != nil || node.textArea != nil) { return false }
-            if let node = view as? NodeView, views[node.id] === node,
-               node.handlers.contains("contextmenu") || node.props["contextPopover"]?.isEmpty == false {
-                let local = node.local(point), box = node.contentBox()
-                let sample = PointerSample(x: Double(local.x - box.minX), y: Double(local.y - box.minY),
-                                           buttons: 0, pressure: 0, type: "mouse", id: 1,
-                                           clientX: Double(client.x), clientY: Double(client.y))
-                return node.dispatchContextMenu(at: node.convert(point, from: nil), sample: sample)
-            }
+            if let node = view as? NodeView, views[node.id] === node, node.answersContextMenu { return contextMenu(node, at: point) }
             next = menus.parent(of: view)
         }
         return false
     }
+
+    /// Where a request from the keyboard lands on `node` (the ContextMenu
+    /// key at the focus, VoiceOver's show menu): the middle of `rect` in its
+    /// space (its box when nil) as drawn, clipped by what clips it, in the
+    /// window; nil when it takes no request or none of it is drawn.
+    func contextPoint(_ node: NodeView, rect: NSRect? = nil) -> NSPoint? {
+        guard !node.disabled, !node.inert, !node.isHiddenOrHasHiddenAncestor,
+              !dialogs.blocks(node), node.field == nil, node.textArea == nil else { return nil }
+        // AppKit's visibleRect clips the untransformed frame. Clip the
+        // drawn anchor instead, including a frame translated into view.
+        var drawn = node.drawnRect(rect ?? menus.anchor(node, in: node))
+        var ancestor = node.superview
+        while let view = ancestor {
+            if let node = view as? NodeView, node.overflowClips {
+                drawn = drawn.intersection(node.drawnRect(node.bounds))
+            } else if let clip = view as? NSClipView {
+                let rect = (clip.superview?.superview as? NodeView).map {
+                    $0.drawnRect($0.convert(clip.bounds, from: clip))
+                } ?? clip.convert(clip.bounds, to: nil)
+                drawn = drawn.intersection(rect)
+            }
+            ancestor = view.superview
+        }
+        return drawn.isEmpty ? nil : NSPoint(x: drawn.midX, y: drawn.midY)
+    }
+
+    /// `node`'s `contextmenu` and `contextPopover` at window point `point`,
+    /// as a request from the keyboard sends them: no button held.
+    func contextMenu(_ node: NodeView, at point: NSPoint) -> Bool {
+        let local = node.local(point), box = node.contentBox(), client = self.client(point)
+        let sample = PointerSample(x: Double(local.x - box.minX), y: Double(local.y - box.minY),
+                                   buttons: 0, pressure: 0, type: "mouse", id: 1,
+                                   clientX: Double(client.x), clientY: Double(client.y))
+        return node.dispatchContextMenu(at: node.convert(point, from: nil), sample: sample)
+    }
 }
 
 extension NodeView {
+    /// Whether its own `contextmenu` or `contextPopover` answers a context request.
+    var answersContextMenu: Bool { handlers.contains("contextmenu") || props["contextPopover"]?.isEmpty == false }
+
     /// The context action runs before the menu is read, for pointer and
     /// keyboard alike. A context action cannot leak its preventDefault to
     /// another input; keydown cancellation was handled before this default.
@@ -91,6 +104,29 @@ extension NodeView {
         if action { presenter.mouseEvent(id, 10, sample.line) }
         if menu { presenter.menus.context(self, at: point) }
         return action || menu
+    }
+
+    /// Whether run `id`'s own `contextmenu` answers a context request.
+    func inlineAnswersContextMenu(_ id: UInt32) -> Bool {
+        guard let presenter, presenter.inlineEnabled(id) else { return false }
+        return presenter.inlineText(id)?.handlers.contains("contextmenu") == true
+    }
+
+    /// Run `id`'s `contextmenu` for VoiceOver's show menu (X84), as the
+    /// ContextMenu key sends a node's: at the middle of its first line, from
+    /// that line's top left, no button held.
+    func inlineContextMenu(_ id: UInt32) -> Bool {
+        guard inlineAnswersContextMenu(id), let presenter, let run = presenter.inlineText(id),
+              let line = inlineRects(run).first, let point = presenter.contextPoint(self, rect: line) else { return false }
+        let local = self.local(point), client = presenter.client(point)
+        let sample = PointerSample(x: Double(local.x - line.minX), y: Double(local.y - line.minY),
+                                   buttons: 0, pressure: 0, type: "mouse", id: 1,
+                                   clientX: Double(client.x), clientY: Double(client.y))
+        let outer = presenter.defaultPrevented
+        presenter.defaultPrevented = false
+        defer { presenter.defaultPrevented = outer }
+        presenter.mouseEvent(id, 10, sample.line)
+        return true
     }
 
     // Any button holds the pointer, as in a browser (review b5-b 1): the
