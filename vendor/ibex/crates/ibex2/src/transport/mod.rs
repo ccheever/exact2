@@ -16,6 +16,10 @@ pub use dev_tcp::DevTcpTransport;
 pub mod darwin;
 #[cfg(target_vendor = "apple")]
 pub use darwin::DarwinTransport;
+#[cfg(target_vendor = "apple")]
+pub mod darwin_async;
+#[cfg(target_vendor = "apple")]
+pub use darwin_async::DarwinLane;
 #[cfg(any(
     not(target_vendor = "apple"),
     target_os = "macos",

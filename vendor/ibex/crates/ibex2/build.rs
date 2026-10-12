@@ -185,6 +185,7 @@ fn build_platform_backends(is_apple: bool) {
     }
     for source in [
         "src/transport/darwin_http.mm",
+        "src/transport/darwin_task.mm",
         "src/secrets/darwin_keychain.mm",
     ] {
         println!("cargo:rerun-if-changed={source}");
