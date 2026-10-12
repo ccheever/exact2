@@ -87,25 +87,57 @@ extension NodeView {
     /// view. A native single-line field is AppKit's own ring. Set as the
     /// editor takes the focus, cleared as it leaves. `outline: none` draws
     /// neither (`outlineNone`).
+    ///
+    /// A border the author wrote is left alone (LLP 1115.000 D7.9), as a
+    /// native control with a border of its own keeps it under AppKit's
+    /// ring. A bare field with one takes no ring of Exact's: its ring is
+    /// AppKit's exterior one around the node's box, which its field asks
+    /// for (`bareFieldMask`). A textarea with one keeps Exact's ring, since
+    /// AppKit's is cut off by its clip view, but outside the box where
+    /// AppKit's would be, in AppKit's colour at its own strength; where the
+    /// node clips its box, inside the border.
     func showFieldFocus(_ on: Bool) {
         let show = on && !disabled && !outlineNone && (!isNativeTextControl || textArea != nil)
+        let bordered = bordersItself
         // A textarea's scroll view covers the node's own border, so its ring
         // is a layer above the node's subviews instead.
-        guard textArea != nil else { fieldFocused = show; return }
+        guard textArea != nil else { fieldFocused = show && !bordered; return }
         fieldFocused = false
         let ring = layer?.sublayers?.first { $0.name == "exact.fieldFocus" }
         guard show, let layer else { ring?.removeFromSuperlayer(); return }
         let r = ring ?? CALayer()
         r.name = "exact.fieldFocus"
-        r.frame = layer.bounds
+        let radius = max(layer.cornerRadius, boxBorder?.cornerRadius ?? 0, boxFill?.cornerRadius ?? 0, isNativeTextControl ? 5 : 0)
+        let width: CGFloat = bordered ? Self.exteriorRing : 2
+        // Outside the box by the ring's width, or inside the author's border by its own.
+        let outset = !bordered ? 0 : layer.masksToBounds ? -authoredBorderWidth : width
+        r.frame = layer.bounds.insetBy(dx: -outset, dy: -outset)
         r.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
-        r.cornerRadius = max(layer.cornerRadius, boxBorder?.cornerRadius ?? 0, boxFill?.cornerRadius ?? 0, isNativeTextControl ? 5 : 0)
-        r.borderWidth = 2
+        r.cornerRadius = max(0, radius + outset)
+        r.borderWidth = width
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            r.borderColor = NSColor.keyboardFocusIndicatorColor.withAlphaComponent(1).cgColor
+            let color = NSColor.keyboardFocusIndicatorColor
+            r.borderColor = (bordered ? color : color.withAlphaComponent(1)).cgColor
         }
         r.zPosition = 1
         if ring == nil { layer.addSublayer(r) }
+    }
+    /// The width AppKit's exterior focus ring is drawn at.
+    static let exteriorRing: CGFloat = 3
+    /// The widest side of the border the author wrote, or 0.
+    private var authoredBorderWidth: CGFloat {
+        let uniform = number("border_width")
+        return bordersItself ? ["top", "right", "bottom", "left"].map { number("border_width_" + $0, uniform) }.max() ?? 0 : 0
+    }
+    /// Whether the author wrote a border on this node that draws: a side
+    /// with a width, and a border row in the rows they wrote (LLP 1115.000
+    /// D2's bit, `written`). A border the compiler implied is the
+    /// platform's stand-in, and the platform's ring may stand in for it.
+    var bordersItself: Bool {
+        guard case .array(let rows)? = style["written"] else { return false }
+        let wrote = rows.contains { row in ["border_width", "border_style", "border_color"].contains { row.string?.hasPrefix($0) == true } }
+        let uniform = number("border_width")
+        return wrote && (uniform > 0 || ["top", "right", "bottom", "left"].contains { number("border_width_" + $0, uniform) > 0 })
     }
     /// CSS `outline-style: none` on a text field (LLP 1104 D6): no ring,
     /// Exact's or AppKit's, since the author draws the focus another way.
