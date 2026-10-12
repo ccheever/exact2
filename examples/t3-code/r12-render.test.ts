@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
 import { highlight, messageCodeBlocks } from './timeline-highlight';
-import { resetHighlightSlicing, shikiLanguage, shikiTokens, SHIKI_MAX_CHARS } from './r12-render-highlight';
+import { fileLanguage, resetHighlightSlicing, shikiLanguage, shikiTokens, SHIKI_MAX_CHARS } from './r12-render-highlight';
 import { lineTokens } from './timeline-diff-syntax';
 import { codeLines } from './r4-surfaces-files';
 
@@ -37,14 +37,17 @@ describe('the shared highlighter against Shiki 4.2 (r12-render)', () => {
   test('fence names and file paths pick the grammar @pierre/diffs and Shiki pick', () => {
     expect(['ts', 'tsx', 'js', 'sh', 'zsh', 'py', 'yml', 'md', 'rs', 'go', 'swift', 'jsonc'].map(shikiLanguage))
       .toEqual(['typescript', 'tsx', 'javascript', 'shellscript', 'shellscript', 'python', 'yaml', 'markdown', 'rust', 'go', 'swift', 'jsonc']);
-    expect(['src/a.mts', 'a/b.tsx', 'x.cjs', 'run.bash', 'c.yaml', 'Cargo.toml', 'page.htm', 'notes.unknown', 'Makefile', 'ruby'].map(shikiLanguage))
-      .toEqual(['typescript', 'tsx', 'javascript', 'shellscript', 'yaml', 'toml', 'html', '', 'make', 'ruby']);
+    expect(['src/a.mts', 'a/b.tsx', 'x.cjs', 'run.bash', 'c.yaml', 'Cargo.toml', 'page.htm', 'notes.unknown', 'ruby'].map(shikiLanguage))
+      .toEqual(['typescript', 'tsx', 'javascript', 'shellscript', 'yaml', 'toml', 'html', '', 'ruby']);
+    // code-highlighting-languages: a bare name is a file only where the caller says so (fileLanguage).
+    expect([shikiLanguage('Makefile'), fileLanguage('Makefile')]).toEqual(['', 'make']);
     // shiki-residuals: the added grammars, by fence word and by file name.
     expect(['c', 'java', 'kt', 'cs', 'c#', 'xml', 'diff', 'dockerfile', 'makefile', 'rb', 'cobol'].map(shikiLanguage))
       .toEqual(['c', 'java', 'kotlin', 'csharp', 'csharp', 'xml', 'diff', 'docker', 'make', 'ruby', 'cobol']);
     // code-highlighting-languages: @pierre/diffs gives .h to objective-cpp, which is here now.
-    expect(['src/main.c', 'A.java', 'b/C.kt', 'D.cs', 'pom.xml', 'fix.patch', 'docker/Dockerfile', 'lib/x.mk', 'Gemfile', 'a/b.gemspec', 'x.h'].map(shikiLanguage))
-      .toEqual(['c', 'java', 'kotlin', 'csharp', 'xml', 'diff', 'docker', 'make', 'ruby', 'ruby', 'objective-cpp']);
+    // A whole name matches only as the whole path, as @pierre/diffs matches it: a nested Dockerfile has no language.
+    expect(['src/main.c', 'A.java', 'b/C.kt', 'D.cs', 'pom.xml', 'fix.patch', 'Dockerfile', 'docker/Dockerfile', 'lib/x.mk', 'Gemfile', 'a/b.gemspec', 'x.h'].map(fileLanguage))
+      .toEqual(['c', 'java', 'kotlin', 'csharp', 'xml', 'diff', 'docker', '', 'make', 'ruby', 'ruby', 'objective-cpp']);
   });
   test('every surface reaches it: chat fences, the diff panel, the Files panel', () => {
     const block = messageCodeBlocks('```tsx\nconst v = <b>{x}</b>;\n```')[0]!;

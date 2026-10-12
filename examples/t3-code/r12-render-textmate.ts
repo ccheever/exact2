@@ -6,7 +6,8 @@
 // the line's "\n", the earliest match wins (ties to the first pattern), begin/end and begin/while
 // rules stack, \A / \G variants, end back-references, nested captures, the loop guards that stop
 // a line when a rule does not advance, and the theme trie's specificity for colours and font styles.
-// code-highlighting-languages: every grammar of Shiki's bundle is here, in one rule space; each
+// code-highlighting-languages: every grammar of Shiki's bundle is here (but the ten its generator holds back for
+// a licence decision, LICENSE-T3), in one rule space; each
 // grammar's rules, scope names and regexes are a chunk (r12-render-grammar-<n>.ts) parsed the first
 // time a rule of it is needed, so a language costs nothing until it is highlighted.
 
@@ -15,8 +16,9 @@ import { GRAMMAR_CHUNKS, GRAMMAR_INDEX } from './r12-render-grammar';
 /** A converted regex: source, flags, hidden captures, capture transfers, clip-search strategy
  *  (oniguruma-to-es's EmulatedRegExp options), a back-reference marker, or four \A/\G variants
  *  (in the data a variant equal to an earlier one is that one's index; load() resolves it), and
- *  `u`, its form with Oniguruma's Unicode \b where that differs from the ASCII one (see exec). */
-interface Rx { s: string; f: string; h?: number[]; t?: [number, number[]][]; c?: 1; b?: 1; v?: Rx[]; u?: Rx; re?: RegExp }
+ *  `u`, its form with Oniguruma's Unicode \b where that differs from the ASCII one (see exec).
+ *  `o` marks an end / while regex made from one begin match (its back-references resolved). */
+interface Rx { s: string; f: string; h?: number[]; t?: [number, number[]][]; c?: 1; b?: 1; v?: Rx[]; u?: Rx; o?: 1; re?: RegExp }
 interface Capture { n?: number; c?: number; r?: number }
 type Captures = Record<string, Capture>;
 interface Rule { i?: number; n?: number; c?: number; m?: number; mc?: Captures; b?: number; bc?: Captures; e?: number; ec?: Captures; w?: number; wc?: Captures; l?: 1; p?: number[] }
@@ -77,18 +79,22 @@ export function grammarId(lang: string): string {
 
 // ── Regexes ─────────────────────────────────────────────────────────────────────────────────
 interface Match { start: number; end: number; indices: ([number, number] | undefined)[] }
-/** The entry's RegExp, compiled once and kept on the entry (back-reference variants are fresh entries). */
-/** While a line runs under a limit (tokenizeLineWithin): the work when it began, how many regexes it
- *  has compiled, and how much one-time work it may do. */
+/** While a line runs under a limit (tokenizeLineWithin): the work when it began, how many grammar
+ *  regexes it has compiled, and how much one-time work it may do. */
 let lineWork = 0, lineCompiled = 0, workLimit = Infinity;
 const OVER_LIMIT = new Error('over the line\'s work limit');
+/** The entry's RegExp, compiled once and kept on the entry. A line stops before compiling a grammar
+ *  regex that would pass its limit, once it has compiled one: those stay compiled, so each try gets
+ *  further and a line retried from its start always finishes. A regex made from a begin match (`o`)
+ *  never stops a line, since a retry makes it again; its compile is counted as work all the same. */
 function compile(rx: Rx): RegExp {
   if (!rx.re) {
     const cost = 1 + rx.s.length / 30 + 4 * (rx.s.split('\\p{').length - 1);
-    // A line stops before a compile that would pass its limit (once it has compiled one, so each try progresses).
-    if (lineCompiled > 0 && work - lineWork + cost > workLimit) throw OVER_LIMIT;
+    if (!rx.o) {
+      if (lineCompiled > 0 && work - lineWork + cost > workLimit) throw OVER_LIMIT;
+      lineCompiled++;
+    }
     work += cost;
-    lineCompiled++;
     rx.re = new RegExp(rx.s, rx.f + 'dg');
   }
   return rx.re;
@@ -126,13 +132,25 @@ function exec(given: Rx, line: string, from: number): Match | null {
 // vscode-textmate escapes a captured back-reference for Oniguruma; these are the characters a
 // JavaScript unicode-mode pattern lets (and needs) a backslash before.
 const escapeRx = (text: string) => text.replace(/[\\^$.*+?()[\]{}|\/-]/g, character => character === '-' ? '\\x2d' : '\\' + character);
-/** An end / while regex with its back-references (U+E000+n, see the generator) resolved from the begin match. */
-function resolveBackrefs(rx: Rx, line: string, begin: Match): Rx {
-  const swap = (one: Rx): Rx => ({ s: one.s.replace(/[\ue000-\ue0ff]/g, mark => {
+/** End / while regexes made from begin matches, by the regex and its resolved source: a text's `**` or
+ *  `r#"` is compiled once, as Shiki's JavaScript engine keeps compiled patterns by source. */
+const resolved = new Map<string, Rx>();
+/** The end / while regex `index` with its back-references (U+E000+n, see the generator) resolved from the begin match. */
+function resolveBackrefs(index: number, line: string, begin: Match): Rx {
+  const rx = REGEXES[index]!;
+  const resolve = (source: string) => source.replace(/[\ue000-\ue0ff]/g, mark => {
     const at = begin.indices[mark.charCodeAt(0) - 0xe000];
     return at ? escapeRx(line.slice(at[0], at[1])) : '';
-  }), f: one.f, ...(one.h ? { h: one.h } : {}), ...(one.t ? { t: one.t } : {}), ...(one.c ? { c: one.c } : {}), ...(one.u ? { u: swap(one.u) } : {}) });
-  return rx.v ? { s: '', f: '', v: rx.v.map(swap) } : swap(rx);
+  });
+  // Every form (the \A / \G variants, the Unicode \b one) holds the same back-references as the first.
+  const key = `${index}\u0000${resolve((rx.v ? rx.v[0]! : rx).s)}`;
+  const known = resolved.get(key);
+  if (known) return known;
+  const swap = (one: Rx): Rx => ({ s: resolve(one.s), f: one.f, o: 1, ...(one.h ? { h: one.h } : {}), ...(one.t ? { t: one.t } : {}), ...(one.c ? { c: one.c } : {}), ...(one.u ? { u: swap(one.u) } : {}) });
+  const made: Rx = rx.v ? { s: '', f: '', o: 1, v: rx.v.map(swap) } : swap(rx);
+  if (resolved.size >= 2000) resolved.clear();
+  resolved.set(key, made);
+  return made;
 }
 
 // ── Rules and scanners ──────────────────────────────────────────────────────────────────────
@@ -373,7 +391,7 @@ function tokenizeString(line: string, first: boolean, pos: number, frame: Frame,
         const closing = rule.e ?? rule.w;
         if (closing !== undefined) {
           const rx = REGEXES[closing]!;
-          pushed.end = rx.b ? resolveBackrefs(rx, line, match) : rx;
+          pushed.end = rx.b ? resolveBackrefs(closing, line, match) : rx;
         }
         frame = pushed;
         if (!advanced && hasSameRule(before, pushed)) { frame = before; out.produce(frame.content, length); return frame; }

@@ -36,6 +36,16 @@ export const EMBEDDED_ONLY = ['angular-expression', 'angular-inline-style', 'ang
   'angular-template', 'angular-template-blocks', 'cpp-macro', 'es-tag-css', 'es-tag-glsl', 'es-tag-html', 'es-tag-sql', 'es-tag-xml',
   'jinja-html', 'markdown-nix', 'markdown-vue', 'vue-directives', 'vue-interpolations', 'vue-sfc-style-variable-injection'];
 
+/** code-highlighting-languages, review: grammars left out until the user decides on their licences (task record,
+ *  "Decision needed"; LICENSE-T3 lists each grammar's licence as its upstream states it). GPL-3.0: ada, gnuplot, nginx,
+ *  racket; MPL-2.0: bird2, hcl, terraform; no licence granted upstream: dax, dream-maker, tcl. No kept language's module
+ *  loads one (latex includes gnuplot lazily; that include then finds nothing, as in a registry without gnuplot). glsl,
+ *  also without a licence upstream, stays: cpp, ruby, julia, elm, nim and five others load it. Emptying the list brings
+ *  them back. */
+export const LICENCE_HELD = ['ada', 'bird2', 'dax', 'dream-maker', 'gnuplot', 'hcl', 'nginx', 'racket', 'tcl', 'terraform'];
+/** The grammars generated: every one of @shikijs/langs but those held. */
+const NAMES = languageNames.filter(name => !LICENCE_HELD.includes(name));
+
 // Shiki 4.2's createJavaScriptRegexEngine options (@shikijs/engine-javascript), target ES2018
 // so the patterns compile in Hermes (no `v` flag, no ES2025 modifiers).
 const ENGINE = {
@@ -381,11 +391,13 @@ function themeData(file) {
 /** Every grammar of @shikijs/langs, with the grammars its own module loads (Shiki's embeddedLangs closure). */
 async function loadGrammars() {
   const grammars = new Map();
-  for (const name of languageNames) {
+  for (const name of NAMES) {
     const modules = (await import(`@shikijs/langs/${name}`)).default;
     const grammar = modules.find(one => one.name === name);
     if (!grammar) throw new Error(`@shikijs/langs has no grammar named ${name}`);
-    grammars.set(name, { grammar, loads: [...new Set(modules.map(one => one.name))] });
+    const loads = [...new Set(modules.map(one => one.name))];
+    if (loads.some(one => LICENCE_HELD.includes(one))) throw new Error(`${name}'s module loads a grammar LICENCE_HELD leaves out`);
+    grammars.set(name, { grammar, loads });
   }
   return grammars;
 }
@@ -394,11 +406,11 @@ async function loadGrammars() {
 export async function buildData() {
   const grammars = await loadGrammars();
   const space = createSpace(grammars);
-  for (const name of languageNames) space.context(name).finish();
-  dropMissingPatterns(space, languageNames.map(name => space.context(name).rootId));
+  for (const name of NAMES) space.context(name).finish();
+  dropMissingPatterns(space, NAMES.map(name => space.context(name).rootId));
 
   // Number the rules grammar by grammar (each grammar's rules one range), in languageNames order.
-  const order = new Map(languageNames.map((name, index) => [name, index]));
+  const order = new Map(NAMES.map((name, index) => [name, index]));
   const sorted = space.rules.map((_, id) => id).sort((a, b) => order.get(space.owner[a]) - order.get(space.owner[b]) || a - b);
   const renumber = new Array(space.rules.length);
   sorted.forEach((old, index) => { renumber[old] = index; });
@@ -406,7 +418,7 @@ export async function buildData() {
 
   const chunks = [], ranges = [];
   let ruleAt = 0, nameAt = 0, regexAt = 0;
-  for (const name of languageNames) {
+  for (const name of NAMES) {
     const names = [], nameIndex = new Map(), regexes = [], regexIndex = new Map(), rules = [];
     const nameOf = value => {
       let index = nameIndex.get(value);
@@ -454,7 +466,7 @@ export async function buildData() {
   // vscode-textmate applies to it as a root: its own grammar's, then each grammar its module loads
   // whose injectTo names the root's scope or a dotted prefix of it (Shiki's Registry).
   const roots = {}, aliases = {}, injections = {};
-  for (const name of languageNames) {
+  for (const name of NAMES) {
     if (EMBEDDED_ONLY.includes(name)) continue;
     const { grammar, loads } = grammars.get(name);
     roots[name] = id(space.context(name).rootId);

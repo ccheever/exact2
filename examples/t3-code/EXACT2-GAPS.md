@@ -945,10 +945,17 @@ grammars its module embeds, the first time something asks for it, and keeps it f
 that embeds another lazily (markdown's fences, `embeddedLangsLazy`) therefore colours that part only once the other
 language has been loaded in this window, and a grammar that injects into others (`injectTo`: vue's `markdown-vue`,
 ts-tags' `es-tag-*`, angular's templates) reaches them only after its own language has been opened. The clone holds
-every grammar of Shiki's bundle (235 languages; `r12-render-grammar.ts`, parsed on first use) as one registry with
-everything loaded: a markdown file's ` ```sh ` fence is coloured from the start, where a fresh reference window paints it
+every grammar of Shiki's bundle (235 languages; `r12-render-grammar.ts`, parsed on first use; until the licence decision
+the PR asks for, ten of them are left out, see below) as one registry with everything loaded: a markdown file's ` ```sh ` fence is coloured from the start, where a fresh reference window paints it
 plain until a shell text has been highlighted (lane images `markdown-*.png` of the task's PR), and only a root
 language's own module injects into it. Not a framework limit: the reference's result depends on the window's history.
 Modelling it would mean keeping the set of languages asked for in the session and resolving an include to another
 grammar only when that grammar is in it (with vscode-textmate's skip of a rule whose patterns all went missing,
 evaluated then instead of when generated); the task's PR asks whether to.
+
+Until the user decides on their licences (the task's PR, "Decision needed"; `LICENSE-T3` lists every grammar's), the
+generator leaves out ten grammars (`tools/grammar/gen-grammar.mjs` `LICENCE_HELD`): ada, gnuplot, nginx and racket
+(GPL-3.0), bird2, hcl and terraform (MPL-2.0), and dax, dream-maker and tcl (no licence stated upstream). Their fence
+words (with the aliases bird, tf, tfvars) and file names (`.tf`, `.hcl`, `.adb`, `nginx.conf`, `.rkt`, `.tcl`, …) paint
+plain in the clone, coloured in the reference; latex's lazy gnuplot include finds nothing, as in a window that has not
+loaded gnuplot. Not a framework limit; emptying the list and running the generator brings them back.

@@ -13,11 +13,16 @@
 //   bun shiki-compare.mjs --list                       the clone's languages and aliases against
 //                                                      Shiki's bundledLanguages (exit 1 on a difference)
 //   add --js to also run Shiki's JavaScript engine (tells engine differences from grammar ones)
+//   add --max-line <n> to run the clone's app path (highlight(), the Files and diffs line limit) against
+//                                                      Shiki's tokenizeMaxLineLength <n>, compared by synColor class
 //
 // code-highlighting-languages: each language runs in a Shiki highlighter of its own that holds the
 // language's module (its embedded grammars and injectors) and every other bundled language whose
 // module brings no injector, which is the clone's state: all grammars loaded, so a markdown fence
 // or an html script finds its language, and only the root language's own injectors apply.
+//
+// code-highlighting-languages, review: the grammars the generator holds back for the licence decision (LICENCE_HELD)
+// are left out on both sides: no Shiki highlighter here loads them either.
 //
 // Prints each file's size and sha256, the differing characters per file, and the first differences.
 // Exit status 1 when any character differs. Corpus files stay where they are (keep them in target/).
@@ -35,28 +40,33 @@ const here = dirname(fileURLToPath(import.meta.url));
 const example = join(here, '..', '..');
 const { tokenizeCode, styleOf } = await import(join(example, 'r12-render-textmate.ts'));
 const { CLASS_OF_PAIR } = await import(join(example, 'r12-render-highlight.ts'));
+const { highlight } = await import(join(example, 'timeline-highlight.ts'));
+const { EMBEDDED_ONLY, LICENCE_HELD } = await import(join(example, 'tools', 'grammar', 'gen-grammar.mjs'));
 const theme = name => JSON.parse(readFileSync(join(here, 'node_modules', '@pierre', 'theme', 'themes', `${name}.json`), 'utf8'));
 const THEMES = { light: theme('pierre-light'), dark: theme('pierre-dark') };
 
 const args = process.argv.slice(2);
 const withJs = args.includes('--js');
-const rest = args.filter(arg => arg !== '--js');
+const maxAt = args.indexOf('--max-line'), maxLine = maxAt >= 0 ? Number(args[maxAt + 1]) : 0;
+const rest = args.filter((arg, at) => arg !== '--js' && (maxAt < 0 || at !== maxAt && at !== maxAt + 1));
 
 if (rest[0] === '--list') {
   // The clone's fence words (ids and aliases) are Shiki's bundledLanguages keys, and the
   // generator's EMBEDDED_ONLY grammars are exactly those of @shikijs/langs Shiki does not bundle.
   const { GRAMMAR_LANGUAGES } = await import(join(example, 'r12-render-grammar.ts'));
-  const { EMBEDDED_ONLY } = await import(join(example, 'tools', 'grammar', 'gen-grammar.mjs'));
   const { languageNames } = await import('@shikijs/langs');
   const clone = new Set(GRAMMAR_LANGUAGES.split(' ')), shiki = new Set(Object.keys(bundledLanguages));
   const ids = new Set(bundledLanguagesInfo.map(info => info.id));
+  // A held language is missing with its aliases, and nothing else is.
+  const heldNames = new Set(bundledLanguagesInfo.filter(info => LICENCE_HELD.includes(info.id)).flatMap(info => [info.id, ...(info.aliases ?? [])]));
   const missing = [...shiki].filter(name => !clone.has(name)), extra = [...clone].filter(name => !shiki.has(name));
+  const unheld = missing.filter(name => !heldNames.has(name)), present = [...heldNames].filter(name => clone.has(name));
   const embedded = languageNames.filter(name => !ids.has(name));
   const embeddedDiff = embedded.join(' ') !== [...EMBEDDED_ONLY].sort().join(' ');
   console.log(`shiki 4.2 bundledLanguages: ${shiki.size} keys (${ids.size} languages); clone: ${clone.size}`);
-  console.log(`missing in the clone: ${missing.join(' ') || 'none'}; only in the clone: ${extra.join(' ') || 'none'}`);
+  console.log(`missing in the clone: ${missing.join(' ') || 'none'} (held for the licence decision: ${[...heldNames].join(' ') || 'none'}); only in the clone: ${extra.join(' ') || 'none'}`);
   console.log(`embedded-only grammars: ${embedded.length}${embeddedDiff ? ` (generator lists ${EMBEDDED_ONLY.join(' ')})` : ', as the generator lists'}`);
-  process.exit(missing.length || extra.length || embeddedDiff ? 1 : 0);
+  process.exit(unheld.length || present.length || extra.length || embeddedDiff ? 1 : 0);
 }
 
 let corpus;
@@ -65,7 +75,7 @@ else if (rest[0] === '--samples') {
   corpus = {};
   for (const name of readdirSync(rest[1]).sort()) {
     const lang = name.replace(/\.sample$/, '');
-    if (name.endsWith('.sample') && bundledLanguagesInfo.some(info => info.id === lang)) corpus[lang] = [join(rest[1], name)];
+    if (name.endsWith('.sample') && bundledLanguagesInfo.some(info => info.id === lang) && !LICENCE_HELD.includes(lang)) corpus[lang] = [join(rest[1], name)];
   }
 } else corpus = { [rest[0]]: rest.slice(1) };
 
@@ -74,6 +84,7 @@ else if (rest[0] === '--samples') {
 const moduleOf = async lang => (await bundledLanguages[lang]()).default;
 const shared = [];
 for (const info of bundledLanguagesInfo) {
+  if (LICENCE_HELD.includes(info.id)) continue;
   const modules = await moduleOf(info.id);
   if (modules.some(grammar => grammar.injectTo)) continue;
   for (const grammar of modules) if (!shared.some(one => one.name === grammar.name)) shared.push(grammar);
@@ -88,23 +99,31 @@ async function enginesFor(lang) {
   return out;
 }
 
-/** Shiki's per-character [light, dark, italic] for `code`. */
+const FG = { light: THEMES.light.colors['editor.foreground'].toLowerCase(), dark: THEMES.dark.colors['editor.foreground'].toLowerCase() };
+/** Shiki's per-character [light, dark, italic] for `code` (a token with no colour has the editor's). */
 function shikiChars(highlighter, code, lang) {
   const out = [];
-  const lines = highlighter.codeToTokensWithThemes(code, { lang, themes: { light: 'pierre-light', dark: 'pierre-dark' } });
+  const options = { lang, themes: { light: 'pierre-light', dark: 'pierre-dark' }, ...(maxLine ? { tokenizeMaxLineLength: maxLine } : {}) };
+  const lines = highlighter.codeToTokensWithThemes(code, options);
   lines.forEach((line, index) => {
     if (index) out.push(null);
     for (const token of line) {
       const light = token.variants.light, dark = token.variants.dark;
       const italic = ((light.fontStyle ?? 0) & 1) === 1;
-      for (const ch of token.content) out.push([ch, (light.color ?? '').toLowerCase(), (dark.color ?? '').toLowerCase(), italic]);
+      for (const ch of token.content) out.push([ch, (light.color || FG.light).toLowerCase(), (dark.color || FG.dark).toLowerCase(), italic]);
     }
   });
   return out;
 }
-/** The clone's per-character [light, dark, italic]. */
+/** --max-line: the class Shiki's colours name, as the clone's app path paints them. */
+const classOf = ([, light, dark, italic]) => { const base = CLASS_OF_PAIR[`${light}/${dark}`] ?? `?${light}/${dark}`; return italic ? `${base}+i` : base; };
+/** The clone's per-character [light, dark, italic] (--max-line: [character, class] by highlight()). */
 function cloneChars(code, lang) {
   const out = [];
+  if (maxLine) {
+    for (const token of highlight(code, lang, maxLine)) for (const ch of token.text) out.push(ch === '\n' ? null : [ch, token.cls]);
+    return out;
+  }
   for (const piece of tokenizeCode(code, lang)) {
     if (piece.text === '\n') { out.push(null); continue; }
     const light = styleOf(piece.scopes, 'light'), dark = styleOf(piece.scopes, 'dark');
@@ -145,9 +164,9 @@ for (const [lang, files] of Object.entries(corpus)) {
           const pair = `${a[1]}/${a[2]}`;
           if (CLASS_OF_PAIR[pair] === undefined) missingPairs.set(pair, (missingPairs.get(pair) ?? 0) + 1);
         }
-        if (a[1] !== b[1] || a[2] !== b[2] || a[3] !== b[3]) {
+        if (maxLine ? classOf(a) !== b[1] : a[1] !== b[1] || a[2] !== b[2] || a[3] !== b[3]) {
           diffs++;
-          if (shown.length < 4) shown.push(`${line}:${column} ${JSON.stringify(a[0])} shiki ${a.slice(1).join(' ')} clone ${b.slice(1).join(' ')}`);
+          if (shown.length < 4) shown.push(`${line}:${column} ${JSON.stringify(a[0])} shiki ${maxLine ? classOf(a) : a.slice(1).join(' ')} clone ${b.slice(1).join(' ')}`);
         }
       }
       results[name] = { diffs, shown };

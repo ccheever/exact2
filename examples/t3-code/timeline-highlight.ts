@@ -381,13 +381,14 @@ function yaml(text: string): Token[] {
     return tokens;
   });
 }
-/** Tokens for one code block or diff line; unknown languages stay one plain token. */
-export function highlight(text: string, language: string): Token[] {
+/** Tokens for one code block or diff line; unknown languages stay one plain token. `language` is a fence
+ *  word or a path (shikiLanguage); with `maxLineLength`, longer lines paint plain (lineTokens, as @pierre/diffs). */
+export function highlight(text: string, language: string, maxLineLength = 0): Token[] {
   if (!text) return [];
   // code-highlighting-languages: every language of the reference's Shiki bundle has its grammar here
   // (r12-render-highlight.ts); one Shiki lacks paints as plain text, as the reference falls back to "text".
   if (!shikiLanguage(language)) return [{ text, cls: '' }];
-  const shiki = shikiTokens(text, language);
+  const shiki = shikiTokens(text, language, maxLineLength);
   if (shiki) return shiki;
   // shiki-residuals: a text waiting for its Shiki tokens paints the heuristic colours meanwhile, and
   // plain text when it is long (the heuristic is slow there).

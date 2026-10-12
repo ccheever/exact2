@@ -1,9 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { highlight, messageCodeBlocks } from './timeline-highlight';
-import { CLASS_OF_PAIR, SLOW_LANGUAGES, highlightPending, highlightSlice, resetHighlightSlicing, shikiLanguage, shikiTokens, startHighlightTurn } from './r12-render-highlight';
-import { grammarId, grammarWork, loadedGrammarChunks } from './r12-render-textmate';
+import { CLASS_OF_PAIR, SLICE_BUDGET_CHARS, SLOW_LANGUAGES, TOKENIZE_MAX_LINE_LENGTH, fileLanguage, highlightPending, highlightSlice, resetHighlightSlicing, shikiLanguage, shikiTokens, startHighlightTurn } from './r12-render-highlight';
+import { grammarId, grammarWork, loadedGrammarChunks, tokenizeLine, tokenizeLineWithin } from './r12-render-textmate';
 import { GRAMMAR_CHUNKS, GRAMMAR_INDEX, GRAMMAR_LANGUAGES } from './r12-render-grammar';
 import { FILE_TYPES } from './r12-render-filetypes';
+
+/** tools/grammar/gen-grammar.mjs LICENCE_HELD: the grammars left out until the licence decision (the generator is a
+ *  developer tool with its own packages; gen-grammar.test.ts checks the committed data is what it makes). */
+const LICENCE_HELD = ['ada', 'bird2', 'dax', 'dream-maker', 'gnuplot', 'hcl', 'nginx', 'racket', 'tcl', 'terraform'];
 import { lineTokens } from './timeline-diff-syntax';
 
 // code-highlighting-languages: every language of the reference's Shiki 4.2 bundle has its grammar.
@@ -28,14 +32,17 @@ beforeEach(() => resetHighlightSlicing());
 afterEach(() => resetHighlightSlicing());
 
 describe('the reference\'s whole language list (code-highlighting-languages)', () => {
-  test('235 languages and 97 aliases, as Shiki 4.2 bundles them (tools/shiki-compare --list checks the names)', () => {
+  test('Shiki 4.2\'s 235 languages and 97 aliases but the 10 held for the licence decision (tools/shiki-compare --list checks the names)', () => {
     const index = JSON.parse(GRAMMAR_INDEX) as { roots: Record<string, number>; aliases: Record<string, string>; chunks: unknown[] };
-    expect(Object.keys(index.roots).length).toBe(235);
-    expect(Object.keys(index.aliases).length).toBe(97);
-    expect(GRAMMAR_LANGUAGES.split(' ').length).toBe(332);
-    // One chunk per @shikijs/langs grammar (18 of them only embedded in or injected into others).
-    expect(index.chunks.length).toBe(253);
-    expect(GRAMMAR_CHUNKS.length).toBe(253);
+    // Review: LICENCE_HELD (tools/grammar/gen-grammar.mjs) leaves out ten languages and their aliases bird, tf and tfvars.
+    expect(LICENCE_HELD.length).toBe(10);
+    expect(Object.keys(index.roots).length).toBe(235 - 10);
+    expect(Object.keys(index.aliases).length).toBe(97 - 3);
+    expect(GRAMMAR_LANGUAGES.split(' ').length).toBe(332 - 13);
+    expect([...LICENCE_HELD, 'bird', 'tf', 'tfvars'].map(grammarId).filter(Boolean)).toEqual([]);
+    // One chunk per @shikijs/langs grammar generated (18 of them only embedded in or injected into others).
+    expect(index.chunks.length).toBe(253 - 10);
+    expect(GRAMMAR_CHUNKS.length).toBe(253 - 10);
     expect(['cpp', 'c++', 'haskell', 'hs', 'julia', 'jl', 'php', 'sql', 'lua', 'scss', 'dart', 'scala', 'elixir', 'zig', 'vue', 'svelte', 'objective-c', 'objc', 'wolfram', 'emacs-lisp', 'elisp']
       .map(grammarId)).toEqual(['cpp', 'cpp', 'haskell', 'haskell', 'julia', 'julia', 'php', 'sql', 'lua', 'scss', 'dart', 'scala', 'elixir', 'zig', 'vue', 'svelte', 'objective-c', 'objective-c', 'wolfram', 'emacs-lisp', 'emacs-lisp']);
     // An embedded-only grammar is no fence word, and a name on Object.prototype is no language.
@@ -48,16 +55,29 @@ describe('the reference\'s whole language list (code-highlighting-languages)', (
   });
   test('a file name picks its language as @pierre/diffs does', () => {
     expect(Object.keys(FILE_TYPES).length).toBe(345);
-    expect(['src/a.hpp', 'x.cc', 'Main.hs', 'base/bool.jl', 'index.php', 'q.sql', 'init.lua', 'a.scss', 'App.vue', 'CMakeLists.txt', 'app.component.ts', 'x.blade.php', 'main.tf', 'notes.1c', 'x.h', 'run.unknown'].map(shikiLanguage))
-      .toEqual(['cpp', 'cpp', 'haskell', 'julia', 'php', 'sql', 'lua', 'scss', 'vue', 'cmake', 'angular-ts', 'blade', 'terraform', 'bsl', 'objective-cpp', '']);
-    // Every value of the table is a language (or alias) with its grammar here.
-    expect(Object.values(FILE_TYPES).filter(lang => !grammarId(lang))).toEqual([]);
+    expect(['src/a.hpp', 'x.cc', 'Main.hs', 'base/bool.jl', 'index.php', 'q.sql', 'init.lua', 'a.scss', 'App.vue', 'CMakeLists.txt', 'app.component.ts', 'x.blade.php', 'notes.1c', 'x.h', 'run.unknown'].map(shikiLanguage))
+      .toEqual(['cpp', 'cpp', 'haskell', 'julia', 'php', 'sql', 'lua', 'scss', 'vue', 'cmake', 'angular-ts', 'blade', 'bsl', 'objective-cpp', '']);
+    // Every value of the table is a language (or alias) with its grammar here, but the held ones, which paint plain.
+    const held = new Set([...LICENCE_HELD, 'bird', 'tf', 'tfvars']);
+    expect(Object.values(FILE_TYPES).filter(lang => !grammarId(lang) && !held.has(lang))).toEqual([]);
+    expect(['main.tf', 'nginx.conf', 'x.adb'].map(shikiLanguage)).toEqual(['', '', '']);
     expect(lineTokens(['int main() { return 0; }'], 'src/main.cpp')[0]!.some(token => token.cls === 'kw')).toBe(true);
   });
   test('a fence word Shiki does not know paints plain, gitignore reads as ini, and h is no fence word', () => {
     expect(shikiLanguage('gitignore')).toBe('ini');
     expect(messageCodeBlocks('```gitignore\n# build\ntarget/\n```')[0]!.tokens.some(token => token.cls === 'com')).toBe(true);
     for (const word of ['h', 'hpp', 'klingon']) expect(messageCodeBlocks(`\`\`\`${word}\nint x = 1;\n\`\`\``)[0]!.tokens).toEqual([{ id: '0', text: 'int x = 1;', cls: '' }]);
+  });
+  test('a fence word is looked up as written, and a whole file name matches only as the whole path (review)', () => {
+    // Shiki's bundledLanguages keys are lower case: ```Python and ```Dockerfile are plain in the reference.
+    expect(['python', 'Python', 'PYTHON', 'dockerfile', 'Dockerfile', 'Makefile', 'CODEOWNERS'].map(shikiLanguage)).toEqual(['python', '', '', 'docker', '', '', '']);
+    for (const word of ['Python', 'Dockerfile']) expect(messageCodeBlocks(`\`\`\`${word}\nRUN x = 1\n\`\`\``)[0]!.tokens).toEqual([{ id: '0', text: 'RUN x = 1', cls: '' }]);
+    // @pierre/diffs looks the path up whole first: a root Dockerfile, CMakeLists.txt or CODEOWNERS has its
+    // language, a nested one none (its simple-extension match finds nothing either).
+    expect(['Dockerfile', 'CMakeLists.txt', 'CODEOWNERS', 'docker/Dockerfile', 'src/CMakeLists.txt', '.github/CODEOWNERS', 'Makefile', 'lib/Makefile'].map(fileLanguage))
+      .toEqual(['docker', 'cmake', 'codeowners', '', '', '', 'make', '']);
+    expect(lineTokens(['FROM node:20'], 'Dockerfile')[0]).toEqual([{ text: 'FROM', cls: 'fn' }, { text: ' node:20', cls: '' }]);
+    expect(lineTokens(['FROM node:20'], 'docker/Dockerfile')[0]).toEqual([{ text: 'FROM node:20', cls: '' }]);
   });
   test('every converted regex has ES2018 flags (no v) and compiles, in its ASCII and Unicode \\b forms', () => {
     type Entry = { s: string; f: string; u?: Entry };
@@ -82,6 +102,59 @@ describe('the reference\'s whole language list (code-highlighting-languages)', (
     expect(highlight('x = 2π', 'julia').filter(token => token.cls === 'num').map(token => token.text)).toEqual(['2π']);
     // An ASCII line keeps the ASCII forms, which read \b the same there.
     expect(highlight('x = 2pi', 'julia').filter(token => token.cls === 'num').map(token => token.text)).toEqual(['2pi']);
+  });
+});
+
+describe('Files and diffs leave a line of 1,000 characters or more plain, as @pierre/diffs does (review)', () => {
+  test('the line is plain and the next one starts in the state before it; chat code has no limit', () => {
+    expect(TOKENIZE_MAX_LINE_LENGTH).toBe(1_000);
+    const long = '/* ' + 'x'.repeat(TOKENIZE_MAX_LINE_LENGTH - 3), short = long.slice(0, -1);
+    const lines = (first: string) => lineTokens([first, 'still */ const c = 1;'], 'a.ts');
+    // 1,000 characters: plain, and the comment it opens never opened (Shiki keeps the state before it).
+    const [plainLine, after] = lines(long);
+    expect(plainLine).toEqual([{ text: long, cls: '' }]);
+    expect(after!.find(token => token.text.includes('still'))?.cls).not.toBe('com');
+    expect(after!.find(token => token.text === 'const')?.cls).toBe('decl');
+    // 999 characters: tokenized, so the next line is still in the comment.
+    const [comment, inside] = lines(short);
+    expect(comment!.every(token => token.cls === 'com')).toBe(true);
+    expect(inside!.find(token => token.text.includes('still'))?.cls).toBe('com');
+    // A chat code block (ChatMarkdown, Shiki with no line limit) tokenizes the long line.
+    expect(highlight(`${long}\nstill */`, 'ts').every(token => token.cls === 'com' || !token.text.trim())).toBe(true);
+  });
+});
+
+describe('a long line under slicing always finishes (review: the per-line work limit looped)', () => {
+  test('a line retried from its start finishes, though each try makes its back-reference regexes again', () => {
+    // Raw strings with hash counts no other test uses: each closes with a regex made from its begin match.
+    const line = 'let a = r#######"x"#######; let b = r#########"y"#########; let c = r########"z"########;';
+    let result: ReturnType<typeof tokenizeLineWithin> = null, tries = 0;
+    // A limit below zero lets each try compile one grammar regex; before the fix the second
+    // back-reference regex stopped every try at the same place.
+    while (!result && tries < 500) { result = tokenizeLineWithin(line, 'rust', null, -1); tries++; }
+    expect(result).not.toBeNull();
+    expect(result!.pieces).toEqual(tokenizeLine(line, 'rust', null).pieces);
+  });
+  const sliced = (text: string, lang: string) => {
+    resetHighlightSlicing();
+    startHighlightTurn();
+    let slices = 0;
+    const first = shikiTokens(text, lang);
+    while (!first && highlightPending() && slices < 100) { startHighlightTurn(); highlightSlice(); slices++; }
+    const tokens = first ?? shikiTokens(text, lang);
+    resetHighlightSlicing();
+    return { slices, tokens, whole: highlight(text, lang) };
+  };
+  for (const [name, lang, text] of [
+    ['markdown with emphasis', 'markdown', 'see **strong** and *em* words, '.repeat(102) + 'end'],
+    ['Korean markdown with emphasis', 'markdown', '이것은 **굵게** 그리고 *기울임* 문장. '.repeat(60)],
+    ['rust raw strings', 'rust', 'let a = r#"raw"#; '.repeat(160)],
+    ['reStructuredText on its first use', 'rst', 'Some *emphasis*, **strong** and ``literal`` text, '.repeat(60)],
+  ] as const) test(`${name}: one line longer than a turn, done in a few slices`, () => {
+    expect(text.length).toBeGreaterThan(SLICE_BUDGET_CHARS / 2);
+    const { slices, tokens, whole } = sliced(text, lang);
+    expect(slices).toBeLessThan(10);
+    expect(tokens).toEqual(whole);
   });
 });
 
