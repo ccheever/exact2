@@ -54,6 +54,12 @@ const OPTIMIZE = ['--optimize speed|size', 'the Rust archive\'s (default speed, 
 const PREBUILD = ['--prebuild', 'start the build apart from this shell and return; its log: .exact/<ios|macos>-build.log'];
 
 export const HELP = {
+  snapback: {
+    line: 'wire the Snapback backend above the app',
+    usage: 'bun exact.mjs snapback',
+    flags: [],
+    body: 'Mounts the driver and generated operations, builds assets/snapback4.wasm, and names the server to start.',
+  },
   web: {
     line: 'the web dev loop: serves the app, rebuilds and reloads the page on every save (foreground)',
     usage: 'bun exact.mjs web [--port <n>] [--lan] [--allow-host <name>]… [--wasm]',
@@ -370,6 +376,8 @@ Ports    none; send makes one HTTPS request. Runs to completion.`,
     line: 'a new app outside this repo, using this checkout',
     usage: 'bun <exact2>/scripts/exact.mjs new <path> [--game [--assets]]',
     flags: [
+      ['--snapback', 'write a guestbook wired to the Snapback backend above the app'],
+      ['--port <n>', 'the Snapback origin’s port with --snapback (default 4400)'],
       ['--game', 'a game (game/README.md): a Rust world under Contract\'s menus'],
       ['--assets', 'with --game: declare game.assets'],
       ['--update', 'rewrite an existing app\'s generated files (its exact.mjs update runs this)'],

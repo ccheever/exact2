@@ -111,16 +111,249 @@ export function createApp(destination, options = {}) {
   const dir = resolve(destination ?? '');
   const name = basename(dir);
   if (!destination || !/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name) || /-(web|apple|linux|gpu)$/.test(name)) {
-    throw new Error('Usage: exact new <path> [--update] (the last part names the app: lowercase-hyphenated, no host suffix)');
+    throw new Error('Usage: exact new <path> [--update | --snapback [--port <n>]] (the last part names the app: lowercase-hyphenated, no host suffix)');
   }
   if (options.update) return updateApp(dir, name);
   if (existsSync(dir) && readdirSync(dir).length) throw new Error(`${dir} already exists and is not empty`);
+  const port = options.snapback ? snapbackPort(options.snapback.port) : null;
   mkdirSync(dir, { recursive: true });
-  try { return writeApp(dir, name); }
-  catch (error) {
+  let created;
+  try {
+    created = writeApp(dir, name);
+    if (!options.snapback) return created;
+    snapbackStarter(dir, name, port);
+  } catch (error) {
     rmSync(dir, { recursive: true, force: true });
     throw error;
   }
+  // The app stands; what wiring could not do (no server installed yet, a cold device build that failed) it says.
+  return `${created}\n${wireSnapback(dir, { build: options.snapback.build ?? true, port })}`;
+}
+
+/** The Snapback origin's port `--port` names (`snapback4 dev`'s default, 4400, else). */
+function snapbackPort(port = 4400) {
+  const n = Number(port);
+  if (!Number.isInteger(n) || n < 1 || n > 65535) throw new Error(`exact new --snapback --port: ${port} is not a port (1-65535)`);
+  return n;
+}
+
+// @ref LLP 1086 — `exact new --snapback` and `bun exact.mjs snapback` (the author's ruling of 2026-10-12, via the
+// sb4 app farm): what the README's pasted setup block did, as a verb. The backend is the directory above the app.
+const SNAPBACK_SCHEMA = `use personas alice, bob
+
+table notes:
+  author: principal
+  body: text 1..200
+  at: time
+  by byTime: at, id
+  public 'notes are public'
+  insert <- .author = viewer
+  update <- deny
+  delete <- .author = viewer
+  sync public last 100 by byTime
+
+query recent():
+  return notes last 50 by byTime
+
+mutation post(body: text 1..200):
+  row = insert notes { author: viewer, body, at: now }
+  return { id: row.id }
+`;
+
+/** The snapback4 server version this checkout's driver is pinned to (its root package.json). */
+export function snapbackVersion() {
+  return JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).devDependencies?.snapback4 ?? 'latest';
+}
+
+/** A guestbook on Snapback in place of the greeting (snapback4/README.md's complete app): the view, the data module
+ * at the origin `port` names, its tests, and the backend's schema when the directory above has none. */
+function snapbackStarter(dir, name, port) {
+  const title = name.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
+  const origin = `http://127.0.0.1:${port}`;
+  const files = {
+    'app.contract': `// ${title}: the view. app.ts answers it through Snapback4 (a guestbook to start from).
+shape Clock
+  epochAtZero: number
+shape Note
+  id: string
+  author: string
+  body: string
+  pending: bool
+shape Board
+  online: bool
+  message: string
+  latest: string
+  sending: number
+  notes: list<Note>
+shape Ack
+  ok: bool
+  message: string
+  id: string
+
+component ${title.replaceAll(' ', '')}
+  state persona = "alice"
+  state draft = ""
+  state notice = ""
+  resource time = exactTime() as shape Clock
+  resource board = notes(persona, time.epochAtZero + performanceNow()) as shape Board else empty(message="Connecting…")
+  mutation posted as shape Ack queue refreshes board then afterPost
+  derive banner = match failure(board) {
+    case some(f) => f.code == "offline" ? "You're offline" : f.reason != "" ? \`Couldn't load notes (\${f.reason})\` : \`Couldn't load notes (\${f.message})\`,
+    case none => ""
+  }
+  task live mount
+    every(5000, refreshBoard)
+  action refreshBoard
+    refresh board
+  action choosePersona(value: string)
+    persona = value
+  action editDraft(value: string)
+    draft = value
+  action postNote
+    send posted = post(persona, trim(draft), time.epochAtZero + performanceNow())
+  action afterPost
+    match posted
+      case some(result)
+        notice = result.message
+        draft = ""
+      case none
+        notice = ""
+  view
+    main testId="root" padding=24
+      column gap=12 max-width=600
+        text "${title}" role="heading" aria-level=1
+        select value=persona change=choosePersona appearance="auto" testId="persona" aria-label="Signed in as"
+          option value="alice"
+            text "Alice"
+          option value="bob"
+            text "Bob"
+        when banner != ""
+          text banner testId="banner"
+        text (board.online ? "Synced" : board.message) testId="status"
+        text \`\${board.sending} sending\` testId="sending"
+        row gap=8
+          input value=draft input=editDraft testId="draft" placeholder="Say something" aria-label="Note" flex=1
+          button appearance="auto" press=postNote disabled=(trim(draft) == "") testId="post"
+            text "Post"
+        text notice testId="notice"
+        text board.latest testId="latest"
+        each note, i in board.notes key=note.id
+          text \`\${note.author}: \${note.body}\${note.pending ? " (sending)" : ""}\` testId=\`note-\${i}\`
+`,
+    'app.ts': `import type { Answer, Result, Sources } from './app.contract.d.ts';
+import { Snapback, refused } from './snapback4/snapback.ts';
+import { api } from './backend/api.ts';                 // the backend's generated operations (app.json mounts ../snapback/generated)
+
+export const appId = 'com.example.${name}';            // app.json's "app": { "id" }: change the two together
+// The Snapback origin: \`snapback4 dev --port ${port}\` in the directory above, and the tests' fetch prefixes.
+const origin = '${origin}';
+export const grants = \`net.fetch \${origin}\\nsqlite.open app:/data\`;
+
+// One partition open at a time: switching persona waits for the other's work in flight, then closes its partition.
+const personas = Snapback.switcher((persona: string) => ({ app: appId, name: \`${name}-\${persona}\`, origin,
+  viewer: \`dev:\${persona}\`, headers: () => ({ 'x-snapback-persona': persona }) }));
+
+const sources: Sources = {
+  notes: ([persona, now], _store, storage, native) => personas.use(persona, storage, native, async (db): Promise<Result<'notes'>> => {
+    const round = await db.sync();                      // offline is fine once synced
+    const read = await db.read(api.recent, {}, now);
+    if (read.denied) throw refused(read.denied);        // failure(board): \`offline\`, or \`error\` with the refusal's code as \`reason\`
+    // Project each row onto the shape: an answer's extra fields are refused.
+    const notes = (read.data ?? []).map(row => ({ id: row.id, author: row.author, body: row.body, pending: row.pending === true }));
+    return { online: round.ok, message: round.ok ? '' : 'Offline: showing what this device keeps',
+      latest: notes.length ? \`\${notes[0].author}: \${notes[0].body}\` : '',
+      sending: notes.filter(note => note.pending).length, notes };
+  }),
+  post: ([persona, body, now], _store, storage, native) => personas.use(persona, storage, native, async (db): Promise<Result<'post'>> => {
+    // Write, sync and the write's fate in one call: \`sent\`, \`failed\` with the refusal's code, or \`pending\` (kept; sent later).
+    const fate = await db.send(api.post, { body }, now);
+    if (fate.state === 'failed') return { ok: false, message: \`Refused: \${fate.why?.code}\`, id: '' };
+    if (fate.state === 'sent') return { ok: true, message: 'Posted.', id: fate.result?.id ?? '' };
+    return { ok: true, message: 'Saved on this device; it sends when online.', id: '' };
+  }),
+};
+export const answer: Answer = (source, args, store, storage, native) =>
+  sources[source](args, store, storage, native);
+`,
+    'app.test.contract': `// Run \`snapback4 dev --port ${port}\` in the directory above first. \`epoch now\` dates the tests as the server does.
+epoch now
+
+test "a note posts, and another persona sees it"
+  clock data
+  expect text "status" == "Synced"
+  expect tree missing "banner"
+  type "draft" "hello from alice"
+  tap "post"
+  clock data
+  expect text "notice" == "Posted."
+  type "persona" "bob"
+  clock data
+  expect text "latest" == "dev:alice: hello from alice"
+
+test "offline, a note is kept, then delivered on reconnect"
+  clock data
+  fail fetch "${origin}"
+  type "draft" "from the tunnel"
+  tap "post"
+  clock data
+  expect text "notice" == "Saved on this device; it sends when online."
+  expect text "sending" == "1 sending"
+  pass fetch "${origin}"
+  clock +5000
+  clock data
+  expect text "sending" == "0 sending"
+`,
+  };
+  for (const [path, text] of Object.entries(files)) writeFileSync(resolve(dir, path), text);
+  const ignore = resolve(dir, '.gitignore');
+  writeFileSync(ignore, `${readFileSync(ignore, 'utf8')}/assets/snapback4.wasm\n`);
+  const schema = resolve(dir, '..', 'snapback/schema.q');
+  if (!existsSync(schema)) { mkdirSync(dirname(schema), { recursive: true }); writeFileSync(schema, SNAPBACK_SCHEMA); }
+}
+
+/** The driver's mount, from the app to this checkout: relative always, since the native bake refuses an absolute one. */
+function driverMount(dir) {
+  return relative(realpathSync(dir), realpathSync(resolve(ROOT, 'snapback4/ts')));
+}
+
+/** `bun exact.mjs snapback` (and the end of \`exact new --snapback\`): what the README's setup block did. Generates the backend's
+ * operations once its server is installed above, mounts the driver and those operations in app.json, builds the
+ * device the page loads, and says what is left: the server to install or start, an appId that disagrees. */
+export function wireSnapback(dir, { build = true, port = null } = {}) {
+  dir = resolve(dir);
+  const manifestPath = resolve(dir, 'app.json');
+  if (!existsSync(manifestPath)) throw new Error(`${dir}: no app.json here (bun exact.mjs snapback runs in the app's directory, the backend's above it)`);
+  const parent = dirname(dir), said = [], version = snapbackVersion();
+  const cli = resolve(parent, 'node_modules/.bin/snapback4'), generated = resolve(parent, 'snapback/generated/api.ts');
+  if (!existsSync(resolve(parent, 'snapback/schema.q'))) said.push(`No backend above: ${parent}/snapback/schema.q is missing. Write one there (snapback4/README.md's guestbook is a start), then run this again.`);
+  else if (!existsSync(cli)) said.push(`The backend's server is not installed in ${parent}: \`npm i snapback4@${version}\` there (or \`bun add\`), then \`bun exact.mjs snapback\` here.`);
+  else if (!existsSync(generated)) {
+    const check = spawnSync(cli, ['check'], { cwd: parent, encoding: 'utf8' });
+    said.push(check.status === 0 && existsSync(generated) ? `snapback4 check: wrote ${parent}/snapback/generated/`
+      : `snapback4 check in ${parent} failed; fix the schema, then run this again:\n${(check.stderr || check.stdout || '').trim()}`);
+  }
+  const text = readFileSync(manifestPath, 'utf8'), app = JSON.parse(text);
+  const sources = ((app.typescript ??= {}).sources ??= {});
+  sources.snapback4 = driverMount(dir);
+  if (existsSync(generated)) sources.backend = '../snapback/generated';
+  const next = JSON.stringify(app, null, 2) + '\n';
+  if (next !== text) writeFileSync(manifestPath, next);
+  said.unshift(`app.json: ${JSON.stringify({ typescript: app.typescript })}`);
+  if (!sources.backend) said.push('app.json mounts no `backend` yet: app.ts imports ./backend/api.ts once ../snapback/generated exists.');
+  const ts = existsSync(resolve(dir, 'app.ts')) ? readFileSync(resolve(dir, 'app.ts'), 'utf8') : '';
+  const appId = /export const appId\s*=\s*['"`]([^'"`]*)['"`]/.exec(ts)?.[1];
+  if (appId !== app.app?.id) said.push(`app.ts must say: export const appId = ${JSON.stringify(app.app?.id)};${appId ? ` (it says ${JSON.stringify(appId)})` : ''}`);
+  if (build) {
+    const built = spawnSync(process.execPath, [resolve(ROOT, 'snapback4/web/build.mjs'), 'assets/snapback4.wasm'], { cwd: dir, stdio: ['ignore', 'inherit', 'inherit'] });
+    said.push(built.status === 0 ? 'assets/snapback4.wasm: built (the device the page loads)'
+      : `the device did not build (above); \`bun exact.mjs snapback\` builds it again`);
+  }
+  const origin = /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(ts)?.[1];
+  const at = port ?? (origin ? new URL(origin).port || 80 : 4400);
+  said.push(`Before \`bun exact.mjs test web\`: \`bunx snapback4 dev --port ${at}\` in ${parent} (snapback4@${version}).`);
+  // The notes' backend paragraph now describes a wired app.
+  if (existsSync(resolve(dir, 'AGENTS.md'))) updateNotes(dir, basename(dir));
+  return said.join('\n');
 }
 
 /** The app's Linux host crate (LLP 1086): one executable with the runner, the kernel, the
@@ -477,6 +710,32 @@ first build resolves it, fetching them once (it needs the network then, not now)
 
 const BEGIN = '<!-- exact:begin (exact new writes this block; bun exact.mjs update rewrites it) -->', END = '<!-- exact:end -->';
 
+/** The notes' backend paragraph: an app `bun exact.mjs snapback` wired (app.json mounts `snapback4`), or how to wire one. */
+function snapbackNotes(dir) {
+  const readme = pathFrom(dir, resolve(ROOT, 'snapback4/README.md'));
+  let wired = false;
+  try { wired = Boolean(JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).typescript?.sources?.snapback4); } catch {}
+  const api = `It gives \`app.ts\` a local-first device (\`Snapback.open\`, \`read\`, \`write\`, \`sync\`, \`outcome\`, and \`send\`, a
+mutation source's write, sync and fate in one call), and typed operations: \`db.read(api.recent, {}, now)\` with \`api\`
+from the backend's generated \`snapback/generated/api.ts\`.`;
+  if (wired) return `A backend: this app's data is Snapback 4's, through this checkout's first-party client, never
+hand-written HTTP; read ${readme} before changing data code. ${api} The backend is the directory above
+(\`../snapback/schema.q\`, and \`snapback4@${snapbackVersion()}\` installed there). \`app.json\` mounts the driver
+(\`snapback4\`) and the generated operations (\`backend\`, \`../snapback/generated\`); \`assets/snapback4.wasm\` is the
+device the page loads; \`app.ts\` names the origin and grants it. After the first \`bunx snapback4 check\` above, or
+after exact2 moves, run \`bun exact.mjs snapback\`: it mounts what is there and builds the device again. \`test web\`
+talks to a running \`bunx snapback4 dev --port <the origin's port>\` above: start it first. A failure's
+\`failure(x).reason\` is the refusal's code (\`f.reason == "NOT_MANAGER"\`).`;
+  return `A backend: an app that keeps shared, server-authoritative data (accounts, other people's rows, offline writes
+that sync) uses Snapback 4 through this checkout's first-party client, never hand-written HTTP: read ${readme} before
+any data code. ${api} Wire it once with \`bun exact.mjs snapback\`, with the backend in the directory above (its
+\`snapback/schema.q\`, and \`snapback4@${snapbackVersion()}\` installed there): it runs \`snapback4 check\` there when
+nothing is generated yet, mounts the driver and the generated operations in \`app.json\`, builds the device the page
+loads, and names the \`appId\` line \`app.ts\` needs. The README says what each step does, to do one by hand.
+\`exact new <path> --snapback [--port <n>]\` makes an app wired this way, a guestbook to start from. \`test web\`
+talks to a running \`snapback4 dev\`: start it first.`;
+}
+
 /** What an agent in the app's directory can't discover (LLP 1086 D1): what
  * its files are, where to start and the one guide, at most 1.5 KB because every step
  * carries it (LLP 1116.007 D2). It orders no step: builders load this file as
@@ -503,6 +762,8 @@ vocab <name>\` answers it (no name: the card, which ${doc('card.md')} holds too)
 app. \`bun exact.mjs help\` lists the verbs, and your own in app.json \`"commands"\`.
 \`bun ${sdk('scripts/exact.mjs')} setup --check\` names what a native build lacks.
 ${DIARY_LINE}
+${snapbackNotes(dir)}
+
 Generated, so don't edit: \`exact.mjs\`, \`rust-toolchain.toml\`, \`.cargo/config.toml\`,
 \`Cargo.toml\`'s \`[patch.crates-io]\` and this block.
 ${END}
@@ -708,7 +969,9 @@ function updateApp(dir, name) {
   const manifestPath = resolve(dir, 'app.json');
   if (existsSync(manifestPath)) {
     const text = readFileSync(manifestPath, 'utf8');
-    const next = text.replace(/("\$schema"\s*:\s*)"[^"]*"/, (_, head) => head + JSON.stringify(pathFrom(dir, resolve(ROOT, 'scripts/app.schema.json'))));
+    let next = text.replace(/("\$schema"\s*:\s*)"[^"]*"/, (_, head) => head + JSON.stringify(pathFrom(dir, resolve(ROOT, 'scripts/app.schema.json'))));
+    // A Snapback app's driver mount follows the checkout, as the Cargo paths below do (`bun exact.mjs snapback` wrote it).
+    next = next.replace(/("snapback4"\s*:\s*)"[^"]*"/, (line, head) => JSON.parse(next).typescript?.sources?.snapback4 ? head + JSON.stringify(driverMount(dir)) : line);
     if (next !== text) writeFileSync(manifestPath, next);
   }
   // An older app may predate the generated test command. Preserve authored

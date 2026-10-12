@@ -18,10 +18,10 @@ is handed to whoever drives it. Pinned to Snapback4 **0.4.16**
 > **Exact + Snapback checklist.** Each line is a pair that must agree; a
 > mismatch fails late, as data that never loads.
 >
-> - **Directories.** The backend (`snapback/schema.q`, `snapback4@0.4.22`)
+> - **Directories.** The backend (`snapback/schema.q`, `snapback4@0.4.16`)
 >   is the directory above the app (the one holding `app.json`). Run
->   `snapback4` there and `bun exact.mjs …` and the setup block in the app;
->   `assets/snapback4.wasm` is built into the app's `assets/`.
+>   `snapback4` there and `bun exact.mjs …` (`snapback` among them) in the
+>   app; `assets/snapback4.wasm` is built into the app's `assets/`.
 > - **The app id.** `app.ts`'s `export const appId` is `app.json`'s
 >   `"app": { "id" }`.
 > - **The mounts.** `app.json`'s `typescript.sources`: `snapback4` (this
@@ -44,53 +44,47 @@ is handed to whoever drives it. Pinned to Snapback4 **0.4.16**
 
 ## From TypeScript
 
-### Set it up: one block
+### Set it up: one command
 
-From the app's directory (the one holding `app.json`), with the backend in
-the directory above it (`snapback/schema.q`, and `snapback4@0.4.16`
-installed there: `bun add snapback4@0.4.16` or `npm i snapback4@0.4.16`,
-then `bunx snapback4 check` once, which writes `snapback/generated/`). An app made by `exact new` has this
-block, with this checkout's path filled in, in its `AGENTS.md`:
+A new app: from the backend's directory (`snapback/schema.q`, and
+`snapback4@0.4.16` installed there: `bun add snapback4@0.4.16` or `npm i
+snapback4@0.4.16`), `bun /path/to/exact2/scripts/exact.mjs new app --snapback`
+(`--port <n>` for an origin other than 4400). It writes the guestbook below as
+the app (`app.contract`, `app.ts` at that origin with its grants,
+`app.test.contract`) and `snapback/schema.q` when there is none, then wires it.
+An existing app (the one holding `app.json`, the backend in the directory
+above it): `bun exact.mjs snapback`. Either one:
 
-```sh
-EXACT2=/path/to/exact2                  # this checkout
-EXACT2="$EXACT2" bun -e '
-const fs = require("fs"), path = require("path");
-const app = JSON.parse(fs.readFileSync("app.json", "utf8"));
-const sources = ((app.typescript ??= {}).sources ??= {});
-sources.snapback4 = path.relative(".", path.join(process.env.EXACT2, "snapback4/ts"));
-if (fs.existsSync("../snapback/generated/api.ts")) sources.backend = "../snapback/generated";
-fs.writeFileSync("app.json", JSON.stringify(app, null, 2) + "\n");
-console.log("app.json: " + JSON.stringify({ typescript: app.typescript }));
-console.log("app.ts must say: export const appId = " + JSON.stringify(app.app.id) + ";");'
-node "$EXACT2/snapback4/web/build.mjs" assets/snapback4.wasm
-```
-
-It does three things, each of which can be done by hand:
-
-1. **Mounts the driver** in `app.json`, as a path relative to the app's
+1. **Generates the operations** (`snapback4 check` above) when
+   `snapback/generated/` is not there yet and the server is installed; else
+   it says what to install.
+2. **Mounts the driver** in `app.json`, as a path relative to the app's
    directory, never absolute (the native bake refuses one): for an app at
    `~/work/lane/app` beside a checkout at `~/work/exact2`,
    `"typescript": { "sources": { "snapback4": "../../exact2/snapback4/ts" } }`.
    A path that is not there fails the web build with the directory it was
    resolved from, the full path, and this checkout's path from the app.
-2. **Mounts the backend's generated operations** (`"backend":
+   `bun exact.mjs update` rewrites it after the checkout moves.
+3. **Mounts the backend's generated operations** (`"backend":
    "../snapback/generated"`), when they are there, so `app.ts` can import
    `api` from `./backend/api.ts` (["Typed operations"](#typed-operations)).
    Its `snapback4/contract` types are read from the `snapback4` package
-   installed above that directory. Rerun the block after the backend first
-   writes `snapback/generated/`, or add the line.
-3. **Builds the device** the page loads into `assets/` (the output path is
-   from the current directory) and its glue, which every host's bake
-   type-checks. The first build compiles the client for a few minutes; later
-   ones take seconds. The web host serves `assets/snapback4.wasm` at
-   `/assets/snapback4.wasm`, the driver's default (`Snapback.open`'s `wasm`
-   names another). A web build of an app that mounts the driver without it
-   says so, with this command.
+   installed above that directory. Run `bun exact.mjs snapback` again after
+   the backend first writes `snapback/generated/`.
+4. **Builds the device** the page loads into `assets/snapback4.wasm` (`node
+   <exact2>/snapback4/web/build.mjs assets/snapback4.wasm` by hand) and its
+   glue, which every host's bake type-checks. The first build compiles the
+   client for a few minutes; later ones take seconds. The web host serves it
+   at `/assets/snapback4.wasm`, the driver's default (`Snapback.open`'s
+   `wasm` names another). A web build of an app that mounts the driver
+   without it says so.
 
-It prints the `appId` line `app.ts` needs: `app.json`'s `"app": { "id" }`,
-which `exact new` set from the directory's name. The two must match. The
-driver is pinned to Snapback4 0.4.16: install that version for the server.
+It names the `appId` line `app.ts` needs when the two disagree: `app.json`'s
+`"app": { "id" }`, which `exact new` set from the directory's name. Last it
+says the server to start, `bunx snapback4 dev --port <n>` above. The driver is
+pinned to Snapback4 0.4.16: install that version for the server. A new app
+made this way and tested as written against 0.4.16 (2026-10-12): both of the
+guestbook's tests pass.
 
 ### Time
 
@@ -227,7 +221,7 @@ import type { Answer, Result, Sources } from './app.contract.d.ts';
 import { Snapback, refused } from './snapback4/snapback.ts';
 import { api } from './backend/api.ts';                 // the backend's generated operations, mounted
 
-export const appId = 'com.example.app';                 // app.json's "app": { "id" }, as the setup block prints it
+export const appId = 'com.example.app';                 // app.json's "app": { "id" }, as `bun exact.mjs snapback` checks it
 const origin = 'http://127.0.0.1:4400';
 export const grants = `net.fetch ${origin}\nsqlite.open app:/data`;
 
@@ -313,9 +307,8 @@ test "offline, a note is kept, then delivered on reconnect"
   expect text "sending" == "0 sending"
 ```
 
-The app is `bun <this checkout>/scripts/exact.mjs new app`, run in the
-backend's directory, then wired by the setup block above (both mounts, and
-the device). Built that way and tested as written against 0.4.16
+The app is `bun <this checkout>/scripts/exact.mjs new app --snapback`, run in
+the backend's directory, which writes these four files and wires them. Built that way and tested as written against 0.4.16
 (2026-10-11): both tests pass, and pass again on the data a first run leaves.
 
 ### Tests share the server
@@ -338,7 +331,7 @@ those from earlier tests in it. Two ways out, which combine:
   needs a table empty, in a file of its own (`tests/*.test.contract`), and
   run each file against a fresh `--memory` server, seeded first, with an
   app verb. `test-fresh.mjs` in the app's directory (the backend's above it,
-  as the setup block has it):
+  as `exact new --snapback` has it):
 
 ```js
 // `bun exact.mjs test-fresh [file …]`: each test file against its own empty
@@ -375,7 +368,7 @@ process.exit(failed ? 1 : 0);
   "test-fresh.mjs"] }`, and run `bun exact.mjs test-fresh
   tests/*.test.contract` with no other server on that port (it starts its
   own, one a file). A file costs a server and a browser, about four seconds.
-  Tried on a scratch app against 0.4.22 (2026-10-12): three files that each
+  Tried on a scratch app against 0.4.16 (2026-10-12): three files that each
   assert a total of one, run twice, all pass; in one file on one server the
   second test fails, and a rerun fails all three.
 
@@ -403,7 +396,7 @@ one for `snapback4 dev --port` and the origin, and another for `EXACT_PORT`.
 
 `snapback4 check` (and `dev`) writes `snapback/generated/api.ts`: `api`, a
 handle per query and mutation, typed by the schema. Mount that directory
-(the setup block does, as `backend`) and pass a handle where a name goes:
+(`bun exact.mjs snapback` does, as `backend`) and pass a handle where a name goes:
 
 ```ts
 import { api } from './backend/api.ts';
@@ -598,7 +591,7 @@ if (got.ok) shown = got.path; else why = got.why.code; // E_ASSET_UNKNOWN: missi
   download spends its one view: give it an `app:/tmp` path.
 - In a test, `tap` the button whose action calls `showPicker`, then `pick
   "<input testId>" "<file>"` (the file relative to the test file).
-- Tried on a scratch app against 0.4.22 under `test web` (2026-10-12): a
+- Tried on a scratch app against 0.4.16 under `test web` (2026-10-12): a
   picked PNG uploads, is placed, shows from its app file, and another
   persona's download is `E_ASSET_UNKNOWN`. Not yet driven natively.
 

@@ -418,6 +418,29 @@ machine's provisioning state (warm Cargo cache, Hermes present). The README
 tip is updated to match, and anything rough goes in `docs/agent-pitfalls.md`
 or `issues/`. A storage-backed task (D2's example) is a good second prompt.
 
+### D12. `exact new --snapback`: an app wired to its backend in one step
+
+**Author ruling 2026-10-12, via the sb4 app farm** (waves 1–6: eleven builds
+in wave 6 pasted the snapback4 README's setup block; the ruling is the
+approval RULES asks for a new flag and verb). `exact new <path> --snapback
+[--port <n>]`, run in the backend's directory, writes the app with a
+guestbook in place of the greeting: `app.contract`, `app.ts` (its `appId`
+the manifest's, the origin `http://127.0.0.1:<port>`, 4400 by default, and
+the grants for it and for the partition), `app.test.contract` (`epoch now`,
+the fetch prefixes at that origin), `/assets/snapback4.wasm` in
+`.gitignore`, and `../snapback/schema.q` only when there is none. It then
+does what the pasted block did, as the app's new verb `bun exact.mjs
+snapback` (`scripts/exact.mjs snapback <app>`, `game/new.mjs`
+`wireSnapback`): `snapback4 check` above when nothing is generated and the
+server is installed there; the `snapback4` mount (always relative) and the
+`backend` mount of `../snapback/generated` when present; the device build
+(`snapback4/web/build.mjs assets/snapback4.wasm`); and lines naming what is
+left (the server to install or start, an `appId` that disagrees). The
+notes' backend paragraph describes a wired app, else how to wire one.
+`update` rewrites the `snapback4` mount after the checkout moves, as it does
+the Cargo paths. Not done: native linking of `exact_snapback4::Module` (the
+farm's apps are driven on the web).
+
 ## 3. Implementation order
 
 1. Land `origin/tuft/diary-fixes` (D4's prerequisite).

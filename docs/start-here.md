@@ -36,6 +36,11 @@ bun exact.mjs pattern      # lists the starters; `pattern <name>` writes one
 bun exact.mjs ios --prebuild  # the first iOS build: minutes, in the background
 ```
 
+For shared server data, `bun <exact2>/scripts/exact.mjs new app --snapback
+[--port <n>]` from the backend’s directory writes a guestbook and wires its
+driver, generated operations and device. The origin defaults to 4400.
+`bun exact.mjs snapback` wires an existing app; see [the guide](../snapback4/README.md).
+
 Start from the nearest pattern. `exact.mjs` runs from any directory: a file you
 name is found where you are, else in the app, and it says which it took. Your
 shell commands have no such help, so keep one directory.
@@ -188,7 +193,7 @@ Every step, launch lines (`epoch "…"`) and `verify`'s flags are on the card.
 | A node is there, or not | `expect tree has "<testId>"`, `expect tree missing "<testId>"` | `lacks`, `contains`, `not has`. It matches a `testId` only, never a label or text, unlike `tap` |
 | A node's text | `expect text "<testId>" == "the whole text"` | `contains`, `!=`. The text is compared whole, and a node with no text of its own reads its descendants' joined: a row's testId reads its buttons' labels too, so put the testId on the text node |
 | State | `expect state lib.notes.0 .title == "Milk"` (a space after a list index), `== []`, `== none`, `== true` | an expression on the right |
-| A failed request | `expect text` on what the view shows from `failed(x)` or `failure(x)` | `failed(m)` of a mutation: it takes a resource, and a mutation answers its failure as a result (`ok: false`) |
+| A failed request | `expect text` on what the view shows from `failed(x)` or `failure(x)` (its `code`, or `reason`: a Snapback refusal's code) | `failed(m)` of a mutation: it takes a resource, and a mutation answers its failure as a result (`ok: false`) |
 
 ## Pitfalls that cost the most
 

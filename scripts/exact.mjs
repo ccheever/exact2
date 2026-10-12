@@ -9,6 +9,8 @@
 //   exact list                   the apps this repo has, and what is installed
 //   exact new <path> [--update]  an app outside this repo, ready to run
 //   exact new <path> --game      a game outside this repo, ready to run
+//   exact new <path> --snapback  an app wired to the Snapback backend above it
+//   exact snapback <app>         wire an app to that backend (its exact.mjs's `snapback`)
 //
 // The two things this exists to get right, because they are the two that make
 // a Mac GUI app awkward from a shell:
@@ -37,7 +39,7 @@ import { BINARYEN } from '../host/web/stages.mjs';
 import { basename, delimiter, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cargoEnvironment, executableName, HERMES_INSTALLER, hermesBundle, hermesTarget, resolveApp, WEB_TOOLCHAIN, webToolchainEnv } from './app.mjs';
-import { applyPattern, createApp, createGame, patternList } from '../game/new.mjs';
+import { applyPattern, createApp, createGame, patternList, wireSnapback } from '../game/new.mjs';
 import { sdkFetch } from '../game/app/shells.mjs';
 import { appleArtifacts, assertAppleIdentity, macReleaseEntitlements, stripForDistribution } from '../host/apple/build.mjs';
 import { closeFilesystemReader } from './filesystem.mjs';
@@ -550,7 +552,7 @@ export function refreshTypes(dir, binary = resolve(ROOT, 'target/debug', process
 
 /** `exact new`: check the machine first, since a missing Cargo fails the
  * scaffold itself; then write the app and say what its builds will still need. */
-function newApp(path, {update = false, game = false, assets = false} = {}) {
+function newApp(path, {update = false, game = false, assets = false, snapback = null} = {}) {
   if (update) {
     console.log(createApp(path, {update}));
     // A file names what it uses (LLP 1091 D1): an app written before module
@@ -566,7 +568,7 @@ function newApp(path, {update = false, game = false, assets = false} = {}) {
     throw new Error('exact new needs Cargo (rustup) to resolve the new app; install it, then run exact new again');
   }
   // A game is a path here, as an app is: `game/new.mjs` alone takes a bare name for game/games.
-  console.log(game ? createGame(resolve(path), undefined, {assets}) : createApp(path));
+  console.log(game ? createGame(resolve(path), undefined, {assets}) : createApp(path, {snapback}));
   if (report.some(row => !row.ok)) {
     // Builders read a bare "still needs" list as the reason a later command failed (bench diaries,
     // 2026-10-07/08): say when nothing on it blocks the app.
@@ -592,6 +594,12 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
   exact list                   the apps in this repo
   exact new <path> [--update]  a new app outside this repo, using this checkout;
                                --update follows a moved checkout or a new patch
+  exact new <path> --snapback [--port <n>]
+                               a new app wired to a Snapback backend in the
+                               directory above (a guestbook to start from; the
+                               origin's port, 4400 unless --port)
+  exact snapback <app>         wire an app to the backend above it (its
+                               exact.mjs: bun exact.mjs snapback)
   exact new <path> --game      a new game (game/README.md): a Rust world under
                                Contract's menus, with the same exact.mjs verbs;
                                --assets declares game.assets
@@ -900,8 +908,15 @@ function main(argv) {
   if (verb === 'pattern') return pattern(guardFlags('pattern', argv.slice(1)));
   if (verb === 'new') {
     // Flags may come before the path: `exact new --game ./my-game`.
-    const args = guardFlags(argv.includes('--update') ? 'update' : 'new', argv.slice(1)), path = args.find(arg => !arg.startsWith('--'));
-    return newApp(path, {update: args.includes('--update'), game: args.includes('--game'), assets: args.includes('--assets')});
+    const args = guardFlags(argv.includes('--update') ? 'update' : 'new', argv.slice(1)), port = args.indexOf('--port'), path = args.find((arg, i) => !arg.startsWith('--') && i !== port + 1);
+    if (port >= 0 && !args.includes('--snapback')) throw new Error('exact new: --port is the Snapback origin’s, with --snapback');
+    const snapback = args.includes('--snapback') ? { port: port >= 0 ? args[port + 1] : undefined } : null;
+    return newApp(path, {update: args.includes('--update'), game: args.includes('--game'), assets: args.includes('--assets'), snapback});
+  }
+  if (verb === 'snapback') {
+    const args = guardFlags('snapback', argv.slice(1));
+    if (!args[0]) throw new Error('exact snapback: name the app’s directory');
+    return console.log(wireSnapback(resolve(args[0])));
   }
   if (!['run', 'install', 'uninstall', 'release'].includes(verb)) { console.error(`exact: no verb ${verb}\n\n${USAGE}`); process.exit(2); }
   if (!name) { console.error(`exact ${verb}: name an app (exact list)`); process.exit(2); }

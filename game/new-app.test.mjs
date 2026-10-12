@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { outsideWorkspaceProblems, pathFrom, readManifest } from '../scripts/app.mjs';
 import { appVerbs } from '../scripts/app-cli.mjs';
-import { applyPattern, createApp, createGame, patternFiles, patterns } from './new.mjs';
+import { applyPattern, createApp, createGame, patternFiles, patterns, wireSnapback } from './new.mjs';
 
 /** A fake exact2 at `sdk` runs the real app-cli.mjs that an app's exact.mjs hands its verb to (LLP 1116.006 D7), and the
  * verify.mjs whose server `test` runs for an app that has one (LLP 1116.007 D2). */
@@ -477,3 +477,53 @@ test('a pattern replaces the template, refuses an edited file unless forced, and
     rmSync(parent, { recursive: true, force: true });
   }
 });
+
+// `exact new --snapback` (the author's ruling of 2026-10-12, via the sb4 app farm): the README's setup block, run. The
+// backend is the directory above; the device build is `bun exact.mjs snapback`'s, skipped here (`build: false`).
+test('a new Snapback app is wired to the backend above it, and update follows a moved checkout\'s mount', () => {
+  const root = realpathSync(resolve(import.meta.dir, '..')), parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
+  try {
+    const dir = resolve(parent, 'app'), manifest = () => JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
+    assert.throws(() => createApp(dir, { snapback: { port: 'x' } }), /--port: x is not a port/);
+    const said = createApp(dir, { snapback: { port: 4410, build: false } });
+    // No backend server installed above: the schema is written, nothing generated, and it says what to do next.
+    assert.match(readFileSync(resolve(parent, 'snapback/schema.q'), 'utf8'), /^use personas alice, bob[^]*mutation post\(/);
+    assert.match(said, /not installed in .*npm i snapback4@\d+\.\d+\.\d+[^]*bunx snapback4 dev --port 4410/);
+    assert.equal(realpathSync(resolve(dir, manifest().typescript.sources.snapback4)), resolve(root, 'snapback4/ts'));
+    assert.ok(!manifest().typescript.sources.snapback4.startsWith('/'), 'the native bake refuses an absolute mount');
+    assert.equal(manifest().typescript.sources.backend, undefined);
+    readManifest(dir, 'app');
+    // The data module's origin, its grant and the tests' fetch prefixes name the port; its appId is app.json's.
+    const ts = readFileSync(resolve(dir, 'app.ts'), 'utf8'), tests = readFileSync(resolve(dir, 'app.test.contract'), 'utf8');
+    assert.match(ts, /const origin = 'http:\/\/127\.0\.0\.1:4410';[^]*net\.fetch \$\{origin\}\\nsqlite\.open app:\/data/);
+    assert.ok(ts.includes(`export const appId = '${manifest().app.id}'`));
+    assert.match(tests, /^epoch now$[^]*fail fetch "http:\/\/127\.0\.0\.1:4410"/m);
+    assert.match(readFileSync(resolve(dir, 'app.contract'), 'utf8'), /failure\(board\)[^]*f\.reason/);
+    assert.match(readFileSync(resolve(dir, '.gitignore'), 'utf8'), /^\/assets\/snapback4\.wasm$/m);
+    assert.match(readFileSync(resolve(dir, 'AGENTS.md'), 'utf8'), /this app's data is Snapback 4's[^]*bun exact\.mjs snapback/);
+    // With the server installed above, `snapback` generates the operations once and mounts them; a schema stays the author's.
+    writeFileSync(resolve(parent, 'snapback/schema.q'), 'use personas carol\n');
+    mkdirSync(resolve(parent, 'node_modules/.bin'), { recursive: true });
+    writeFileSync(resolve(parent, 'node_modules/.bin/snapback4'), '#!/bin/sh\n[ "$1" = check ] && mkdir -p snapback/generated && echo "export const api = {};" > snapback/generated/api.ts\n');
+    spawnSync('chmod', ['+x', resolve(parent, 'node_modules/.bin/snapback4')]);
+    assert.match(wireSnapback(dir, { build: false }), /snapback4 check: wrote/);
+    assert.equal(manifest().typescript.sources.backend, '../snapback/generated');
+    assert.equal(readFileSync(resolve(parent, 'snapback/schema.q'), 'utf8'), 'use personas carol\n');
+    // The app's exact.mjs runs it, with the app's directory.
+    const sdk = resolve(parent, 'sdk');
+    mkdirSync(resolve(sdk, 'scripts'), { recursive: true });
+    writeFileSync(resolve(sdk, 'scripts/exact.mjs'), 'console.log(JSON.stringify(process.argv.slice(2)));');
+    const verb = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'snapback'], { cwd: parent, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
+    assert.deepEqual(JSON.parse(verb.stdout), ['snapback', realpathSync(dir)]);
+    // An appId that disagrees is named. A checkout that moved: update rewrites the mount, as it does the Cargo paths.
+    writeFileSync(resolve(dir, 'app.ts'), ts.replace(/export const appId = '[^']*'/, "export const appId = 'com.example.other'"));
+    assert.match(wireSnapback(dir, { build: false }), /app\.ts must say: export const appId = "com\.example\.app"; \(it says "com\.example\.other"\)/);
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest(), typescript: { sources: { ...manifest().typescript.sources, snapback4: '../../moved/exact2/snapback4/ts' } } }, null, 2));
+    createApp(dir, { update: true });
+    assert.equal(realpathSync(resolve(dir, manifest().typescript.sources.snapback4)), resolve(root, 'snapback4/ts'));
+    // A plain app's notes say how to wire one.
+    const plain = resolve(parent, 'plain');
+    createApp(plain);
+    assert.match(readFileSync(resolve(plain, 'AGENTS.md'), 'utf8'), /Wire it once with `bun exact\.mjs snapback`[^]*exact new <path> --snapback/);
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+}, 90_000); // Three offline Cargo resolutions.

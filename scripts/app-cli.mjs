@@ -25,6 +25,7 @@ export function appVerbs(name, dir, { host = 'web', game = false } = {}) {
     contract: ['scripts/exact.mjs', 'contract'],
     tamber: ['scripts/exact.mjs', 'tamber'],
     hatch: ['scripts/exact.mjs', 'hatch'],
+    snapback: ['scripts/exact.mjs', 'snapback', dir],
     ...game ? {} : { pattern: ['scripts/exact.mjs', 'pattern'] },
     feedback: ['scripts/feedback.mjs'],
     // A game's own: its hostless Rust tests and its proof's baseline (exact2's game/README.md).
