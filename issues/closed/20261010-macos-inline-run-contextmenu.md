@@ -6,7 +6,7 @@
 **Severity:** P2
 **Author:** daehyeon-mun (T3 Code clone)
 **Date:** 2026-10-10
-**Related:** https://github.com/ccheever/exact2/blob/feat(example)/t3-code/examples/t3-code/.exact/implementation/20261005-t3code-macos-parity/issues/closed/20261010-x77-macos-inline-run-contextmenu.md; docs/contract-grammar.md ("A `contextmenu` (a right-click, a long press) …"); issues/20261009-apple-inline-run-frame-layout.md
+**Related:** https://github.com/ccheever/exact2/blob/feat(example)/t3-code/examples/t3-code/.exact/implementation/20261005-t3code-macos-parity/issues/closed/20261010-x77-macos-inline-run-contextmenu.md; docs/contract-grammar.md ("A `contextmenu` (a right-click, a long press) …"); issues/20261009-apple-inline-run-frame-layout.md; issues/20261012-macos-inline-link-run-tab-stop.md
 
 ## Summary
 
@@ -123,4 +123,4 @@ focused link run, iOS (a long press), Linux, and real hardware input (the agent'
 - `tap p2 at 106 14` still shows `run press=1`, and the node and link `contextmenu` counts are unchanged.
 - A macOS XCTest covers a secondary click on an inline run that declares `contextmenu`.
 
-2026-10-12: #491 fixes the right-click, the Control-click, show menu on a run's element (its `contextPopover` too) and the agent's `tap <run> contextmenu`. Left out, a decision: the ContextMenu key at a focused run, since a run takes no keyboard focus on macOS (the key reaches its paragraph).
+2026-10-12: #491 fixes the right-click, the Control-click, show menu on a run's element (its `contextPopover` too) and the agent's `tap <run> contextmenu`, which meets every acceptance criterion above. It leaves the ContextMenu key at a focused run, which nobody has decided. Today a run takes no keyboard focus on macOS (it is no responder and no key view), so the key reaches its paragraph; that is how the host is built, not a ruling. Whether runs take the focus, and so whether the key can reach one, is the open question for Charlie in `issues/20261012-macos-inline-link-run-tab-stop.md`, whose acceptance criteria include the key at the run.

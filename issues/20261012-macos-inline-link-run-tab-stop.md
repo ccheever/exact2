@@ -110,3 +110,5 @@ hardware keyboard; Linux; a run that wraps across lines; a focus ring on a run.
   key raises the run's `contextmenu` at the run (with X77). A host test covers forward and backward order, a run that
   wraps, and a paragraph with two runs.
 - The web's order is unchanged.
+
+2026-10-12: X77's fix (#491, which closes that issue) makes a secondary click reach a run's `contextmenu` and `contextPopover` on macOS. The ContextMenu key at a focused run is left to this decision. A run with `press` and no `href` is the same question: the web build gives every pressable `tabindex=0` (`host/web-js/src/emit.rs`), so Chrome can focus such a run (not driven), while macOS gives it no focus.
