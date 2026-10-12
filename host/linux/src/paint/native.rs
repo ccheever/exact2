@@ -18,6 +18,11 @@ pub enum NativeKind {
     /// A GPU canvas's window (LLP 1009): the reader makes one and gives it
     /// to the host, whose module presents into it.
     Surface = 3,
+    /// A text field the shell hosts (LLP 1115.001 D8): the platform's own
+    /// field, drawn here in the content box of the container this host
+    /// paints. What it is and what it holds are not in the stream: the
+    /// shell is told of its fields beside it (`presenter/hosted.rs`).
+    Field = 4,
 }
 
 impl Painter {

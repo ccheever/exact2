@@ -38,8 +38,10 @@ pub enum Request {
     /// first screen leaves with the system's own animation.
     Back(bool),
     /// The software keyboard: hidden (0), shown for an `input` (1) or for a
-    /// `textarea` (3).
-    Keyboard(u32),
+    /// `textarea` (3); and the field it is for where the shell hosts that
+    /// field (LLP 1115.001 D8), which then takes the focus and shows its
+    /// own keyboard, else 0 (a field this host paints).
+    Keyboard(u32, ViewId),
 }
 
 impl Request {
@@ -50,7 +52,7 @@ impl Request {
             Request::Copy(_) => 3,
             Request::Share(_) => 4,
             Request::Back(_) => 5,
-            Request::Keyboard(_) => 6,
+            Request::Keyboard(..) => 6,
         }
     }
 }
@@ -131,7 +133,7 @@ pub(super) struct State {
     /// at, and what it was last told of the keyboard.
     back: Option<bool>,
     back_epoch: Option<u64>,
-    keyboard: Option<u32>,
+    keyboard: Option<(u32, ViewId)>,
 }
 
 /// `EXACT_LOG_REQUESTS=1`: each request and each answer on stderr (a
@@ -140,7 +142,7 @@ static LOG: std::sync::LazyLock<bool> =
     std::sync::LazyLock::new(|| std::env::var("EXACT_LOG_REQUESTS").is_ok_and(|v| v == "1"));
 
 /// Length, then UTF-8 padded to whole words: a string as the op stream has it.
-fn string(out: &mut Vec<i32>, s: &str) {
+pub(super) fn string(out: &mut Vec<i32>, s: &str) {
     out.push(s.len() as i32);
     for chunk in s.as_bytes().chunks(4) {
         let mut word = [0u8; 4];
@@ -168,7 +170,7 @@ fn encode(id: u32, request: &Request, out: &mut Vec<i32>) {
             }
         }
         Request::Back(goes) => out.push(i32::from(*goes)),
-        Request::Keyboard(kind) => out.push(*kind as i32),
+        Request::Keyboard(kind, field) => out.extend([*kind as i32, *field as i32]),
     }
     out[at + 2] = (out.len() - at - 3) as i32;
 }
@@ -223,10 +225,10 @@ impl<D: DataSource> Presenter<D> {
                 self.queue(Request::Back(goes));
             }
         }
-        let keyboard = self.editing();
+        let keyboard = (self.editing(), self.hosted_focus());
         if self.requests.keyboard != Some(keyboard) {
             self.requests.keyboard = Some(keyboard);
-            self.queue(Request::Keyboard(keyboard));
+            self.queue(Request::Keyboard(keyboard.0, keyboard.1));
         }
     }
 

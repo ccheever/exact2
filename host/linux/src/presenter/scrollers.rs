@@ -61,6 +61,10 @@ pub struct Under {
     /// The axes (sideways; up and down) a gesture of the presenter's own
     /// there would take.
     pub claims: (bool, bool),
+    /// The text field the shell hosts that a touch there is for, when the
+    /// node hit is one (LLP 1115.001 D8): the touch is then that field's,
+    /// and the presenter hears of the focus it takes, not of the touch.
+    pub field: Option<ViewId>,
 }
 
 /// What a reader that scrolls by itself has been told: per scroller, the
@@ -183,6 +187,7 @@ impl<D: DataSource> Presenter<D> {
         Under {
             chain,
             claims: self.claims_at(hit),
+            field: self.hosted_at(hit),
         }
     }
 
@@ -297,7 +302,8 @@ impl<D: DataSource> Presenter<D> {
     }
 
     /// [`Presenter::scrollers_at`] for a reader, in its pixels (`scale` to a
-    /// point): the claims (bit 0 sideways, bit 1 up and down), a count, and
+    /// point): the claims (bit 0 sideways, bit 1 up and down), a count, the
+    /// hosted text field the touch is for (0: none; LLP 1115.001 D8), and
     /// eleven words a scroller: id, flags (bit 0 it takes a sideways drag
     /// from here, bit 1 one up or down, bit 2 it has rows the reader can
     /// move), revision, then as float bits its offset (x, y), its farthest
@@ -308,6 +314,7 @@ impl<D: DataSource> Presenter<D> {
         let mut out = vec![
             i32::from(under.claims.0) | i32::from(under.claims.1) << 1,
             under.chain.len() as i32,
+            under.field.unwrap_or(0) as i32,
         ];
         for s in &under.chain {
             let rev = self.reader_revision(s);

@@ -49,12 +49,34 @@ object Native {
      * calls below. */
     @JvmStatic external fun scroll(dy: Float)
     /** What is under a point of the view (pixels), for the reader to decide what a drag from there is (LLP 1115.001
-     * D7.3): the axes exact2's own gestures there claim (bit 0 sideways, bit 1 up and down), a count, and eleven
-     * numbers a scroller, innermost first: its id, flags (bit 0 it takes a sideways drag from here, bit 1 one up or
-     * down, bit 2 its rows are a node the reader can move), its revision, then as float bits its offset (x, y), its
-     * farthest offset (x, y) and the box it shows in (x, y, width, height). exact2 tells the reader of each of them
-     * from then on ([scrollers]). */
+     * D7.3) and whose a touch there is (D8): the axes exact2's own gestures there claim (bit 0 sideways, bit 1 up
+     * and down), a count, the hosted text field the touch is for (0: none; [Fields]), and eleven numbers a scroller,
+     * innermost first: its id, flags (bit 0 it takes a sideways drag from here, bit 1 one up or down, bit 2 its
+     * rows are a node the reader can move), its revision, then as float bits its offset (x, y), its farthest offset
+     * (x, y) and the box it shows in (x, y, width, height). exact2 tells the reader of each of them from then on
+     * ([scrollers]). */
     @JvmStatic external fun under(x: Float, y: Float): IntArray
+    /** What exact2 tells the reader of the text fields it hosts (LLP 1115.001 D8), when that is not what this last
+     * returned (else null): a count, then for each field, in tree order: its id, its generation (moved on when its
+     * node became another row's item: the view starts over), flags (bit 0 it was painted and has a place, bit 1 it
+     * takes no touch and no focus) and the scroller whose rows it was painted among (0: none); as float bits its
+     * content box and the clip it shows through (x, y, width, height each; a negative clip width: none); the count
+     * of the reader's edits that reached exact2 and the value the app shows as of it (a string: its bytes' count,
+     * then UTF-8 padded to whole words); its look, eighteen words (`Presenter::reader_fields` lists them), and three
+     * strings: its placeholder, its `autocomplete` and its font's file. A field it leaves out is gone. */
+    @JvmStatic external fun fields(): IntArray?
+    /** Hosted field [id], known at [generation], took the focus (a finger tapped it) or lost it. On the host's
+     * thread, as every `field` call is; what one says of a generation exact2 has moved on from is dropped. */
+    @JvmStatic external fun fieldFocused(id: Int, generation: Int, focused: Boolean)
+    /** Hosted field [id] holds [value] after the person's edit number [seq], its selection at [start] to [end]
+     * (UTF-16 units). Composing text is part of the value: exact2 fires `input` as the text composes. */
+    @JvmStatic external fun fieldEdited(id: Int, generation: Int, seq: Int, value: String, start: Int, end: Int)
+    /** Hosted field [id] moved its selection with no edit. */
+    @JvmStatic external fun fieldSelected(id: Int, generation: Int, start: Int, end: Int)
+    /** Hosted field [id] had its action key pressed, or Enter or Tab on a hardware keyboard. [action] is what the
+     * key said it does: 0 Enter with no action, 2 done, 3 go, 4 next, 5 previous, 6 search, 7 send, 16 Tab, 17
+     * Shift+Tab. exact2 does that: Enter's `key` handlers, `change` and `submit`, then the move or the leave. */
+    @JvmStatic external fun fieldAction(id: Int, generation: Int, action: Int)
     /** The reader moved scroller [id] by ([dx], [dy]) px, knowing revision [rev] of it. exact2 clamps the move to
      * the scroller's travel, and drops one sent under a revision the app's own scroll has moved on from. */
     @JvmStatic external fun scrolled(id: Int, dx: Float, dy: Float, rev: Int)
@@ -83,7 +105,8 @@ object Native {
     @JvmStatic external fun canvasFrame(view: Int): Long
     /** That frame's buffer, or null. */
     @JvmStatic external fun canvasBuffer(view: Int): android.hardware.HardwareBuffer?
-    /** A key at the focused field: a character (or '\n' for Enter), or Backspace. */
+    /** A key at the focused node when no hosted field holds the focus: a character (or '\n' for Enter), or
+     * Backspace. A hosted field ([Fields]) takes its keys itself. */
     @JvmStatic external fun key(code: Int, backspace: Boolean)
     /** System Back (LLP 1115.001 D6): whether the app took it. From its navigation root's selected route it goes to
      * the Back control the root names, else to the root's `navigate` handler, else it is the runner's own `back`;

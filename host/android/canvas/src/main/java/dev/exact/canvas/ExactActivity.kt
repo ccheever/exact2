@@ -28,6 +28,8 @@ open class ExactActivity : Activity() {
     /** The app's `video` player ([VideoPlayer]); none for an app without video. */
     protected open val video: ((Context) -> VideoPlayer)? = null
     private var natives: Natives? = null
+    /** The app's text fields, each the platform's own ([Fields], LLP 1115.001 D8). */
+    private var fields: Fields? = null
     /** The row pitch `start=N` scrolls by (0: the app's plan scrolls to it itself). */
     protected open val startPitchDp = 0f
     /** The app has text fields: keys and the software keyboard reach it ([Keys]). */
@@ -122,6 +124,9 @@ open class ExactActivity : Activity() {
     private fun read() {
         natives?.destroyAll()
         root.removeAllViews()
+        // Before the host boots: its first layout measures the app's text fields in a field of this activity's
+        // theme ([Fields.measure], LLP 1115.001 D8).
+        Fields.context = this
         val owner = owner()?.also { it.published = { view.onPublished() } }
         // The device's settings, told before the host boots: its first frame is laid out and painted with them. Its
         // colours too (D4): read again by each reader, since a wallpaper changed while the last one was stopped is
@@ -173,14 +178,23 @@ open class ExactActivity : Activity() {
         view.owner = owner
         requests.view = view
         Exact.answered = { view.onPublished() }
+        Exact.turned = { view.turned() }
         if (input) view.keys = Keys(view)
         val elements = Natives(this, File(storage, "app"), modules, video)
         natives = elements
         view.natives = elements
+        // The app's text fields (LLP 1115.001 D8) outlive a reader made again: a field keeps its view, and with it
+        // its selection and its undo, while its node lives. Under the view, which takes every touch and hands a
+        // field its own ([Fields.touch]).
+        val hosted = fields ?: Fields(this).also { fields = it }
+        hosted.adopted(view)
+        view.fields = hosted
         root.addView(elements, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        root.addView(hosted, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         root.addView(view, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         val ticker = if (intent.getStringExtra("tag") == "1") TagView(this) { view.tagState() } else View(this)
         elements.frame = { ticker.invalidate() }
+        hosted.frame = { ticker.invalidate() }
         if (ticker is TagView) {
             val d = resources.displayMetrics.density
             root.addView(ticker, FrameLayout.LayoutParams((12 * TagView.BIT_DP * d).toInt(), (TagView.BIT_DP * d).toInt()).apply {
@@ -247,7 +261,7 @@ open class ExactActivity : Activity() {
      * edges it keeps out of, which is the window's background; and whether its scheme is dark, which the bars' icons
      * follow (light icons over a dark page). */
     private fun chrome(c: IntArray) {
-        for (child in listOf<View>(view, natives ?: return)) {
+        for (child in listOfNotNull<View>(view, natives ?: return, fields)) {
             child.layoutParams = FrameLayout.LayoutParams(c[2], c[3]).apply {
                 gravity = android.view.Gravity.TOP or android.view.Gravity.LEFT
                 leftMargin = c[0]; topMargin = c[1]
@@ -342,10 +356,12 @@ open class ExactActivity : Activity() {
     private fun release() {
         natives?.destroyAll()
         natives = null
+        if (Fields.context === this) Fields.context = null
         if (!reads()) return
         Exact.reader = null
         Exact.owner?.let { it.published = {}; it.asked = {}; it.chrome = {} }
         Exact.answered = {}
+        Exact.turned = {}
     }
 
     /** The launch extras that reach exact2 as its environment, written before its library loads. */

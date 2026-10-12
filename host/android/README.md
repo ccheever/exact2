@@ -11,7 +11,7 @@ the stream or those calls, so both sides are built from one commit.
 
 | | |
 |---|---|
-| `canvas/` | the reader, an Android library, package `dev.exact.canvas`: `ExactActivity`, `ExactView`, `Native`, `Player` (the replay), `Owner` (exact2 on a thread of its own), `Layers`, `Natives` (hosted views), `Keys`, `Scrolling`, `Device` and `Palette` (what the device says), `Requests` (what exact2 asks of it) |
+| `canvas/` | the reader, an Android library, package `dev.exact.canvas`: `ExactActivity`, `ExactView`, `Native`, `Player` (the replay), `Owner` (exact2 on a thread of its own), `Layers`, `Natives` (hosted views), `Fields` (the app's text fields, each an `EditText`), `Keys`, `Scrolling`, `Device` and `Palette` (what the device says), `Requests` (what exact2 asks of it) |
 | `app/` | the shell: one activity over the reader, packaging the app that `-Papp=<name>` names |
 | `gradlew`, `gradle/` | the Gradle wrapper (9.8.0), committed. Its jar is Gradle's own (sha256 `238e777f…`, as services.gradle.org publishes it) and the distribution's sha256 is pinned in `gradle-wrapper.properties` |
 
@@ -99,7 +99,7 @@ Three calls cross, all in the view's pixels:
 
 | Call | Direction | What it says |
 |---|---|---|
-| `Native.under(x, y)` (`CanvasHost::under`, `Presenter::reader_under`) | reader asks, at a touch's down | Which scrollers are under the point, innermost first, then the page itself where the document is larger than the viewport (id 0). For each: its id, the axes it takes a drag from here on, its revision, its offset, its farthest offset and the box it shows in. Also the axes exact2's own gestures claim there: a swipe row sideways, a reorder grip or a height handle up and down, a transform drag both, a `pan` whatever its `touch-action` does not give to scrolling |
+| `Native.under(x, y)` (`CanvasHost::under`, `Presenter::reader_under`) | reader asks, at a touch's down | Which scrollers are under the point, innermost first, then the page itself where the document is larger than the viewport (id 0). For each: its id, the axes it takes a drag from here on, its revision, its offset, its farthest offset and the box it shows in. Also the axes exact2's own gestures claim there: a swipe row sideways, a reorder grip or a height handle up and down, a transform drag both, a `pan` whatever its `touch-action` does not give to scrolling. And, from D8 on, the hosted text field the touch is for (below) |
 | `Native.scrolled(id, dx, dy, rev)` (`CanvasHost::scrolled`, `Presenter::reader_scrolled`) | reader tells | It moved scroller `id` by that much, knowing revision `rev` of it. exact2 clamps the move to the scroller's travel |
 | `Native.scrollers()` (`CanvasHost::scrollers`, `Presenter::reader_scrollers`) | exact2 tells, with each stream | For every scroller it has told the reader of: its id, its axes, its revision, where it is, the offset its rows were last painted at, and its farthest offset. Null when nothing of it changed; a scroller it leaves out is gone, and the reader forgets it |
 
@@ -147,7 +147,7 @@ Not built of D7:
   their ends either. Giving each a node needs the recorder to open a group inside a row's recording.
 - `scroll-snap-type` and `scrollbar-width` are not read by this host (a swipe row written as a snapping scroller
   rests wherever it is let go). `keyboardDismissMode`, pull-to-refresh and a sheet's part in the hand-off are later
-  stages, as is a hosted `EditText`'s.
+  stages. A hosted `EditText` takes part as a child of a ScrollView does (below).
 - A mouse's wheel and a trackpad do not scroll (`onGenericMotionEvent`), and nothing scrolls for TalkBack.
 - A pressable under the finger shows its press at the down, not after the platform's tap delay, so a row may flash
   as a scroll starts.
@@ -231,7 +231,7 @@ capability has a call of its own.
 | 3 | `copyText` | a string | the clipboard (`ClipboardManager`) | none |
 | 4 | `share` | one word saying which of the three the app gave (bit 0 the title, 1 the text, 2 the URL), then three strings: title, text, URL | the Sharesheet (`ACTION_SEND` in a chooser) | `shared`, `dismissed`, or why it could not be shown; exact2 journals `share: shared`, `share: dismissed` or `share: refused: …` |
 | 5 | whether Back has somewhere to go in the app (D6) | one word: 1 or 0 | registers its `OnBackInvokedCallback` while it has, and unregisters it while it has not, so Back at the first screen is the system's own and leaves with its animation | none |
-| 6 | the software keyboard | one word: 0 hidden, 1 shown for an `input`, 3 for a `textarea` | `Keys.show` | none |
+| 6 | the software keyboard | two words: 0 hidden, 1 shown for an `input`, 3 for a `textarea`; then the hosted field it is for (D8), or 0 for a field exact2 paints | for a hosted field, that `EditText` takes the focus and shows its own keyboard (`Fields.focus`); else `Keys.show` | none |
 
 Kinds 5 and 6 are statements of the app's state, told when it changes and anew to a reader made again; exact2 reads
 them as the queue is taken (`Presenter::tell_shell`), Back only after a commit, and neither during a scroll's own
@@ -262,6 +262,141 @@ the top layer's windows (D10, D13) will take it too.
 `x_log_requests=1` at launch (exact2's `EXACT_LOG_REQUESTS`) logs each request as exact2 queues it and as the reader
 acts on it, with what `performHapticFeedback` returned: a haptic and a clipboard write show nowhere else.
 
+## Text fields (LLP 1115.001 D8)
+
+Each `input` of a text type and each `textarea` is the framework's own `android.widget.EditText` (`Fields.kt`), with
+no background of its own, over the container exact2 paints for it. No library: the one subclass (`FieldText`) only
+says when its selection moves, which no listener of the class tells. The IME and its composition, autofill's hints,
+the selection handles, the magnifier, the floating toolbar and the spell checker come with the class. A field is an
+`EditText` whether or not it is focused, so nothing shifts when it takes the focus. exact2's side is
+`host/linux/src/fields.rs`, `presenter/hosted.rs` and `canvas/field.rs`.
+
+**Desktop Linux hosts nothing.** A shell that hosts fields attaches when it boots the host: Android's reader does at
+`Native.start`, where the JNI finds `Fields.measure` (`canvas::field::attach`). No other host attaches, and with no
+shell a field is measured, painted and typed into as it always was. A Markdown editor (`markup="markdown"`) is not
+hosted on Android either: it keeps the field exact2 paints, typed into one key at a time through this view's own
+input connection (`Keys`, `Native.key`), because an `EditText` shows plain text.
+
+**Measured during layout.** The kernel lays the field out. The text in it is the `EditText`'s to set, so its size
+is the `EditText`'s to say: when the kernel measures a text control's text it asks its measurer
+(`TextMeasurer::field_text`, the control-measurement seam's new hook; a host that paints its fields answers
+nothing), and on Android that calls up into the reader, from the thread layout runs on, and has the answer before
+it returns:
+
+    Fields.measure(size px, weight, flags, tracking em, line px, font file, text, width px): Long
+
+An `EditText` of that thread's own, never attached, is set as the field is (no background, no padding, no font
+padding, the field's size, weight, slant, tracking, line height and face) and measured; the answer is its width,
+height and first baseline in pixels. A single line is as long as its text; a `textarea` wraps at the width
+offered. Each distinct question is asked once (a form of twenty fields in one font asks two). It is no request (D5):
+that queue is taken after the frame. The container's own insets are still the painter's (its border and padding,
+`field_chrome`); the `EditText` has none.
+
+**What exact2 tells** (`Native.fields(): IntArray?`, null while nothing changed; taken with each stream, before the
+stream is drawn). A count, then for each live field, in tree order:
+
+- its id; its **generation**, moved on when its node is renewed for another row's item (LLP 1078): the view then
+  starts over, with no text, selection or undo of the last item's; flags (bit 0 it was painted and the box that
+  follows is where it goes, bit 1 it takes no touch and no focus: disabled, or under a route that covers it); and
+  the scroller whose rows it was painted among (0: none);
+- its content box and the clip it shows through (x, y, width, height each, as float bits, in the view's pixels; a
+  negative clip width: none), where the last paint put them;
+- the count of the reader's edits that reached exact2, and the value the app shows as of it (a string as the op
+  stream writes one);
+- its look, eighteen words: what it is (bit 0 a `textarea`, 1 a password, 2 disabled, 3 read-only, 4 no
+  autocorrect, 5 no suggestions, 6 italic, 7 Enter submits, 8 another field follows it); its keyboard (0 text, 1
+  email, 2 URL, 3 telephone, 4 digits, 5 a decimal number, 6 search, 7 none), from `inputmode`, else `type`; its
+  capitalization (0 none, 1 sentences, 2 words, 3 characters); its enter key (0 unsaid, 1 enter, 2 done, 3 go, 4
+  next, 5 previous, 6 search, 7 send); its `maxlength` (-1 none); its alignment; the colours of its text, its
+  placeholder, its caret, its handles and its selection (ARGB, as the roles resolve in its scheme: `FieldText`,
+  `-exact-placeholder`, the accent for the caret, the handles and, thinned, the selection, with an authored `color`,
+  `caret-color` or `accent-color` winning); its font's size in pixels, weight, tracking and line height (the
+  computed font, whose own starting size is 16 by the device's font scale); and the revision, start and end of
+  the selection a command last set (`setSelectionRange`, `select()`);
+- three strings: its placeholder, its `autocomplete` and its font's file.
+
+A field a statement leaves out is gone, and its view with it. A field that was not painted (its row is out of the
+page's view) keeps its view, its focus and its keyboard, out of sight.
+
+**The keyboard's shape.** `type`, `inputmode`, `autocapitalize`, `autocorrect` and `spellcheck` are the `EditText`'s
+input type: an email, a URL, a telephone, a number pad with or without a decimal point, a password (masked; of
+digits with `inputmode="numeric"`), capitalization as said and none unsaid (the platform's), autocorrect on for
+prose unless `autocorrect="off"`, and no suggestions with `spellcheck="false"` (Android has one switch for the spell
+checker and the suggestions). `enterkeyhint` is the IME action. Unsaid, a search field's is Search, a field with a
+`submit` handler's Go, and any other's the platform's own default for a field: Next where another field follows it,
+Done where none does. `autocomplete`'s last token is autofill's hint (`email`, `username`, `current-password`,
+`new-password`, `one-time-code`, `name`, `tel`, `postal-code` and the address and card tokens); `off` takes the
+field out of autofill. `maxlength` is an `InputFilter.LengthFilter`.
+
+**Where a field is, and how it is drawn.** The view is put where its box was painted, for real: its handles, its
+magnifier and the keyboard's cursor anchor are placed by the view's own position. It sits in a `Port` the size of
+its clip (the platform hides a handle outside the field's ancestors, so it hides one the clip cuts), and it moves
+with its scroller's rows as the reader moves them between exact2's paints (`Fields.place`). The view system draws
+none of it: as for `Natives`, the field's own drawing is recorded into a `RenderNode` that the stream draws in the
+field's place (op 28, kind 4: `NATIVE view 4 rect radii ""`, in the content box, after the container's fill and
+border and under the clips around it). So a field stacks in tree order with what exact2 paints. A field that
+invalidates (its caret blinks, a character is typed) has only its node recorded again; Android frees a node's
+drawing when a paint leaves it out of the tree, so a field a stream draws again is recorded again
+(`Fields.drawn`). A transform over a field moves its box's corner and does not scale or turn the view (as for
+every hosted view).
+
+**Whose a touch is.** The reader's view still takes every touch. A down inside a field's box is held, with what
+follows it, until exact2 says what is under the point (`Native.under`'s third word: the hosted field the node hit
+is, by exact2's own hit test). If it is the field, the touch is the field's from its down on, in the field's own
+coordinates, and exact2 hears none of it: the caret lands under the finger, and a long press, the handles, the
+magnifier and the toolbar are the platform's. Otherwise (the field is under a bar or a sheet) it goes to exact2 as
+any touch does. A drag that begins on a field still scrolls the list around it: past the slop along an axis a
+scroller takes, the reader cancels the touch in the field and scrolls (`Scrolling`), unless the field asked its
+parents to leave it its touch (`requestDisallowInterceptTouchEvent`: a selection or a caret being dragged), as a
+ScrollView would.
+
+**What the reader tells back**, on exact2's thread and in order:
+
+| Call | When | What exact2 does |
+|---|---|---|
+| `Native.fieldFocused(id, generation, focused)` | the field took the focus (a finger tapped it), or lost it with no other field taking it | its focus follows, with the `blur`, `change` and `focus` that makes |
+| `Native.fieldEdited(id, generation, seq, value, start, end)` | the person's edit number `seq` left the field holding `value`, the selection at `start` to `end` (UTF-16 units) | the field's text is that; `input` fires, with the selection |
+| `Native.fieldSelected(id, generation, start, end)` | the selection moved with no edit | kept for the next `input`; `select` fires for a range |
+| `Native.fieldAction(id, generation, action)` | the action key, or Enter or Tab on a hardware keyboard: 0 Enter with no action, 2 done, 3 go, 4 next, 5 previous, 6 search, 7 send, 16 Tab, 17 Shift+Tab | Enter's `key` handlers, then `change` and `submit` for a single line; then `next` and `previous` move to the field after or before (the focus leaves where there is none), and `done`, `go`, `search` and `send` leave the field, which puts the keyboard away. Tab is the page's own Tab |
+
+What a call says of a generation exact2 has moved on from is dropped.
+
+**Who owns the text.** The field does, while the person edits it. Each edit is counted; a statement says the count
+exact2 has reached beside the value the app then shows. The reader takes a told value only when it answers the
+field's newest edit and differs from what the field holds. So a commit that sets the value the field already has
+changes nothing in it (its composition and its selection stand), and one that sets another replaces the text where
+it stands (the field keeps its undo), puts the caret where it was among the text after it, and restarts the
+keyboard, which ends a composition. **Composing text is reported as it composes**: `input` fires for every change
+of the field's text, the composing region included, as the web reports it and as an Android `TextWatcher` hears it.
+Android's keyboards compose ordinary words, so reporting on commit (AppKit's way) would hold each word back until
+its space.
+
+**The focus.** exact2 owns it. A focus the app moves (`autofocus`, `focus()`, the action key's Next) reaches the
+field through the keyboard request (kind 6, with the field's id): the `EditText` takes the focus and the keyboard
+shows. A focus that leaves the fields (a press on a button, `blur()`, Done) hides the keyboard and gives the focus
+back to the reader's view, so keys go on to exact2 (`Native.key`). Back closes the keyboard first, which the system
+does itself for an `EditText`: the IME takes Back before the reader's callback. A hardware keyboard types into the
+`EditText`; its Enter is the action key and its Tab the page's.
+
+`x_log_fields=1` at launch (exact2's `EXACT_LOG_FIELDS`) logs each edit told to exact2 with its composing region,
+and what the keyboard asks of the field's input connection (`setComposingText`, `commitText`, …).
+
+Not built of D8:
+
+- **A field's views are all made as its page appears**, on the main thread: about 0.7 to 1 ms a field on a Pixel
+  10 Pro XL (the `EditText`'s constructor is a third of it). A form of a hundred fields would stall its first
+  frame; making a view only once its field is near its port would bound it.
+- **A swipe row, a reorder grip or a `pan` under a field's touch does not get that touch**: exact2 never heard its
+  down. A drag there scrolls or stays the field's.
+- **A field inside a layer the reader animates** (a transition) is drawn moving, and its view is where the last
+  paint put it until the next.
+- **A font the app declares by its bytes** has no file to name: the field is set in the device's default family.
+- **A password's own width** is measured unmasked, and a `textarea`'s min-content width is its max-content.
+- **The Material container** (D9), the floating label, a field's place in TalkBack's order (D13: the `EditText`
+  reports itself, with its text, its hint and its bounds, and nothing orders it among the painted content yet), a
+  mouse's I-beam, and autofill's save UI.
+- **`inputmode="none"`** keeps the keyboard down on focus; nothing else of an app's own keys is built.
+
 ## Still the benchmark's
 
 The cut was the smallest one. Left in the reader:
@@ -276,8 +411,9 @@ The cut was the smallest one. Left in the reader:
 
 ## Not done
 
-- **Most of LLP 1115.001.** Text arrives one key at a time, the controls have the desktop painter's shapes, a
-  dialog or a menu is refused, and there is no accessibility. What is built of it:
+- **Most of LLP 1115.001.** The controls have the desktop painter's shapes, a dialog or a menu is refused, and
+  there is no accessibility tree. What is built of it:
+  - *A text field is a real `EditText`* (D8): the section above, with what is not built of it.
   - *The device's colours* (D4, colours only) and *the channel out* (D5): the two sections above. The type ramp
     is not reported yet.
   - *A finger scrolls* (D7.1 to D7.3): the section above, with what is not built of it.
@@ -288,7 +424,8 @@ The cut was the smallest one. Left in the reader:
     system's raw insets (bars, cutout, keyboard, gestures; `Native.window`) and pads nothing. exact2 says where the
     page is, what colour is behind it and whether its scheme is dark (`Native.chrome`); the reader puts the view
     there, makes that colour the window's background and sets the bars' icons by the scheme. The software keyboard
-    ends the page at its top, and the field being edited stays in view. The keyboard's own slide is not followed
+    ends the page at its top, and the field being edited stays in view (once the page has been painted in the
+    viewport the keyboard left: the boxes a reveal goes by are the last paint's). The keyboard's own slide is not followed
     frame by frame (`WindowInsetsAnimation`), and a `status-bar-style` (LLP 1105) is not read.
   - *The device's settings* (D3.1, `Device.kt`, `Native.configure`): night mode, the font scale (the root font size
     is 16 times it; Material's type ramp is a later stage), the locale, "remove animations", high contrast, and that

@@ -69,8 +69,9 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
     /** A published stream: [ops] (a copy, the reader's), whether it only moves the last paint, the last scroll it
      * includes, and the feed's group (0 before the first scroll). [scrollers]: what exact2 tells the reader of its
      * scrollers as of this stream ([Native.scrollers]), null when that is what it last told; with no [ops], that
-     * statement alone. */
-    class Pub(val ops: IntBuffer?, val move: Boolean, val seq: Int, val feed: Int, val scrollers: IntArray?)
+     * statement alone. [fields]: what exact2 tells of the text fields the reader hosts as of this stream
+     * ([Native.fields], LLP 1115.001 D8), null when that is what it last told. */
+    class Pub(val ops: IntBuffer?, val move: Boolean, val seq: Int, val feed: Int, val scrollers: IntArray?, val fields: IntArray?)
 
     /** At the main thread's own priority, not above it ([priority]): its work is ahead of the frame the main thread
      * draws, never instead of it (THREAD_PRIORITY_DISPLAY let it preempt the main thread on a phone with few big cores:
@@ -344,8 +345,9 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
         val fresh = Native.frame()
         android.os.Trace.endSection()
         val told = Native.scrollers()
-        if (fresh == null && told != null) {
-            queue.add(Pub(null, true, seq, 0, told))
+        val fields = Native.fields()
+        if (fresh == null && (told != null || fields != null)) {
+            queue.add(Pub(null, true, seq, 0, told, fields))
             if (!notifying.getAndSet(true)) main.post { notifying.set(false); published() }
         }
         if (fresh != null) {
@@ -360,7 +362,7 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
                 for (k in pics.indices step 3) if (!made.containsKey(pics[k])) made[pics[k]] = makePicture(pics[k], pics[k + 1], pics[k + 2], hwbuf)
                 android.os.Trace.endSection()
             }
-            queue.add(Pub(ints, ints.limit() > 0 && ints.get(0) == 22, seq, Native.feed(), told))
+            queue.add(Pub(ints, ints.limit() > 0 && ints.get(0) == 22, seq, Native.feed(), told, fields))
             if (!notifying.getAndSet(true)) main.post { notifying.set(false); published() }
         }
         Native.chrome()?.let { c -> main.post { chrome(c) } }
@@ -420,6 +422,22 @@ internal object Exact {
     const val KEY_WAIT_MS = 2L
 
     fun back(): Boolean = owner?.sync { Native.back() } ?: Native.back()
+
+    /** Main thread, where exact2 runs there too (owner=0) and a hosted field told it something: the reader draws
+     * what that changed. */
+    var turned: () -> Unit = {}
+
+    /** What a hosted text field tells exact2 ([Fields], LLP 1115.001 D8), on exact2's thread and in order. */
+    private fun field(f: () -> Unit) {
+        val o = owner
+        if (o != null) { o.input(); o.call(f) } else { f(); turned() }
+    }
+
+    fun fieldFocused(id: Int, generation: Int, focused: Boolean) = field { Native.fieldFocused(id, generation, focused) }
+    fun fieldEdited(id: Int, generation: Int, seq: Int, value: String, start: Int, end: Int) =
+        field { Native.fieldEdited(id, generation, seq, value, start, end) }
+    fun fieldSelected(id: Int, generation: Int, start: Int, end: Int) = field { Native.fieldSelected(id, generation, start, end) }
+    fun fieldAction(id: Int, generation: Int, action: Int) = field { Native.fieldAction(id, generation, action) }
 
     /** The answer to a request exact2 made ([Native.answer]), or its cancellation (null): on exact2's thread. */
     fun answer(id: Int, answer: String?) {

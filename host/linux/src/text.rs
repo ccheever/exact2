@@ -1059,6 +1059,15 @@ impl TextMeasurer for Measurer {
         crate::paint::control::field_chrome()
     }
 
+    /// The shell's own field measures a field it hosts (LLP 1115.001 D8).
+    fn field_text(
+        &mut self,
+        kind: exact_kernel::FieldKind,
+        request: &TextMeasureRequest<'_>,
+    ) -> Option<TextMetrics> {
+        crate::fields::measure(&mut self.0.borrow_mut(), kind, request)
+    }
+
     fn set_language(&mut self, language: &str) {
         let mut engine = self.0.borrow_mut();
         let catalog = engine.catalog.borrow();

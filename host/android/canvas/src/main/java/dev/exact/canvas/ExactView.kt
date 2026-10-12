@@ -27,6 +27,8 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
     var keys: Keys? = null
     /** The stream's platform elements (op 28). */
     var natives: Natives? = null
+    /** The app's text fields, each the platform's own ([Fields], LLP 1115.001 D8): op 28, kind 4, draws one. */
+    internal var fields: Fields? = null
     /** The row whose body [ingest] is in (0: none), and the elements the unrowed stream names. */
     private val flatAlpha = (context as Activity).intent.getStringExtra("flatalpha") != "0"
     private var ingestRow = 0
@@ -97,7 +99,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         p.layer = { layers.lookup(it) }
         p.image = { images[it] }
         p.animated = { animated[it] }
-        p.native = { natives?.node(it) }
+        p.native = { natives?.node(it) ?: fields?.node(it) }
         p.row = { id -> rows[id] ?: pending[id]?.let { rows[it] } }
         p.group = { id -> groups.getOrPut(id) { android.graphics.RenderNode("exact group").apply { setClipToBounds(false) } } }
         p.holder = { id -> scrolling.holder(id) }
@@ -213,24 +215,53 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
     override fun onTouchEvent(e: MotionEvent): Boolean {
         // A touch that scrolls is the reader's and exact2 hears no more of it; any other goes on to exact2.
         if (started && scrolling.touch(e)) return true
+        val down = e.actionMasked == MotionEvent.ACTION_DOWN
+        // A touch in a hosted text field's box is held for the field, and is the field's own once exact2 says the
+        // field is what is under it ([Fields], LLP 1115.001 D8): exact2 hears of the focus, not of the touch.
+        val hosted = fields
+        if (started && hosted != null && hosted.touch(e)) {
+            if (down) { val touch = hosted.serial; under(e.x, e.y) { hosted.under(touch, it.getOrElse(2) { 0 }) } }
+            return true
+        }
         val action = when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> 0; MotionEvent.ACTION_UP -> 1; MotionEvent.ACTION_MOVE -> 2; else -> 3
         }
         forward(action, e.x, e.y, e.getToolType(0), -1L)
-        // What is under it, asked behind the down itself: by the time the finger passes the slop the reader knows
-        // which scrollers it could move and which axes exact2's own gestures claim.
-        if (action == 0 && started) {
-            val serial = scrolling.serial
-            val o = owner
-            if (o != null) o.under(e.x, e.y) { scrolling.under(serial, it) } else scrolling.under(serial, Native.under(e.x, e.y))
-        }
+        if (down && started) under(e.x, e.y) {}
         return true
     }
+
+    /** What is under a touch's down ([Native.under]), asked behind the down itself: by the time the finger passes the
+     * slop the reader knows which scrollers it could move and which axes exact2's own gestures claim. [then]: with
+     * the answer, after the scrolling has it. */
+    private fun under(x: Float, y: Float, then: (IntArray) -> Unit) {
+        val serial = scrolling.serial
+        val o = owner
+        if (o != null) o.under(x, y) { scrolling.under(serial, it); then(it) }
+        else { val u = Native.under(x, y); scrolling.under(serial, u); then(u) }
+    }
+
+    /** Whether the touch that is down is a hosted field's that asked to keep it ([Fields.keeps]): no scroll takes it. */
+    internal fun fieldKeeps() = fields?.keeps == true
+
+    /** exact2 asks the software keyboard ([Requests], kind 6): hidden ([state] 0), or shown for an input (1) or a
+     * textarea (3). For a hosted field ([field], LLP 1115.001 D8) the field takes the focus and shows its own; for
+     * one exact2 paints, this view's ([Keys]). */
+    internal fun keyboard(state: Int, field: Int) {
+        val hosted = fields
+        if (state != 0 && field != 0 && hosted != null) { keys?.show(0); hosted.focus(field) }
+        else { hosted?.blur(); keys?.show(state) }
+    }
+
+    /** exact2 runs here (owner=0) and was told something of a field: what that changed is drawn. */
+    internal fun turned() = pump()
 
     /** A touch to exact2 (0 down, 1 up, 2 move, 3 cancel) at the view's pixels. [wait]: the ms the frame waits for
      * exact2's answer, or negative for the action's own. [Scrolling] cancels a touch its scroll won with this, and
      * waits for nothing. */
     internal fun forward(action: Int, x: Float, y: Float, tool: Int, wait: Long) {
+        // A scroll that takes a hosted field's touch cancels it in the field: exact2 never heard of it.
+        if (action == 3 && fields?.cancel() == true) return
         val o = owner
         // A press or release waits for exact2's answer within this frame, as a click handler holds the main thread; a
         // drag's moves barely wait, so the drag keeps its frames.
@@ -370,6 +401,8 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         while (true) {
             val p = o.queue.poll() ?: break
             any = true
+            // The fields first: the stream that came with them draws their nodes.
+            p.fields?.let { fields?.told(it) }
             val ops = p.ops
             if (ops != null) {
                 if (p.move) { move = p; applyMoveTracks(ops) } else {
@@ -388,8 +421,9 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
             applyMove(moveOps)
             groups[feed]?.let { feedBaseX = it.translationX; feedBaseY = it.translationY }
         }
-        // The feed where a driver's scrolls put it, then every scroller a finger moved where the reader has it.
-        if (any) { placeFeed(); scrolling.place() }
+        // The feed where a driver's scrolls put it, then every scroller a finger moved where the reader has it, and
+        // the hosted fields with their scrollers' rows.
+        if (any) { placeFeed(); scrolling.place(); fields?.place() }
         if (coverTrace && painted) traceNewRows()
         moved = !painted
         quiet = painted && allQuiet && move == null
@@ -608,7 +642,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         val s = ++mainSeq
         sent.addLast(s to dy)
         o.scroll(dy, s)
-        if (groups[feed] != null) { placeFeed(); ticker?.invalidate() }
+        if (groups[feed] != null) { placeFeed(); fields?.place(); ticker?.invalidate() }
     }
 
     /** How far the feed's drawn rows reach from the view, down ([reachDown]) and up ([reachUp]), in the group's own
@@ -746,6 +780,8 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         android.os.Trace.beginSection("exact native frame")
         val fresh = Native.frame()
         android.os.Trace.endSection()
+        // The fields first: the stream that came with them draws their nodes; a statement may come with none.
+        Native.fields()?.let { fields?.told(it) }
         fresh ?: return false
         Native.chrome()?.let(chrome)
         val told = Native.scrollers()
@@ -754,6 +790,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         if (moved) { applyMove(stream); applyMoveTracks(stream) } else applyStream(stream)
         told?.let { scrolling.told(it) }
         scrolling.place()
+        fields?.place()
         return true
     }
 
@@ -953,7 +990,9 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
                     val scale = resources.displayMetrics.density
                     val w = Math.round(f(b, i + 5) * scale); val h = Math.round(f(b, i + 6) * scale)
                     if (ingestRow == 0) unrowedSeen.add(id)
-                    natives?.ensure(id, kind, w, h, String(bytes), ingestRow)
+                    // A hosted text field (kind 4) is not the stream's to make: exact2 says its fields apart ([Fields]),
+                    // and the stream says only that it draws one.
+                    if (kind == 4) fields?.drawn(id) else natives?.ensure(id, kind, w, h, String(bytes), ingestRow)
                     i += 16 + (len + 3) / 4
                 }
                 26 -> {
@@ -1212,6 +1251,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         val pictures = picturesCopy ?: HashMap(images).also { picturesCopy = it }
         val playing = playingCopy ?: HashMap(animated).also { playingCopy = it }
         val elements = natives?.snapshot() ?: emptyMap()
+        val hosted = fields?.snapshot() ?: emptyMap()
         val held = heldCopy ?: HashMap(slots).also { heldCopy = it }
         val animating = layers.nodes()
         pending[id] = previous
@@ -1222,7 +1262,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
             android.os.Trace.beginSection(if (replacing) "exact row again" else "exact row new")
             background.image = { pictures[it] }
             background.animated = { playing[it] }
-            background.native = { elements[it] }
+            background.native = { elements[it] ?: hosted[it] }
             background.slot = { held[it] }
             background.layer = { animating[it] }
             val c = node.beginRecording()

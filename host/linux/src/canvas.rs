@@ -142,6 +142,8 @@ mod colors;
 pub use colors::colors;
 #[path = "canvas/device.rs"]
 mod device;
+#[path = "canvas/field.rs"]
+pub mod field;
 #[path = "canvas/input.rs"]
 mod input;
 pub use device::{configure, window, Told};

@@ -58,7 +58,7 @@ fn field_fill(dark: bool) -> [u8; 4] {
 }
 
 // Keep the fill opaque; disabled border and unauthored ink approach that fill.
-pub(super) fn disabled_field_ink(mut ink: [u8; 4], dark: bool) -> [u8; 4] {
+pub(crate) fn disabled_field_ink(mut ink: [u8; 4], dark: bool) -> [u8; 4] {
     let fill = field_fill(dark);
     for i in 0..3 {
         ink[i] = ((ink[i] as u16 + fill[i] as u16) / 2) as u8;

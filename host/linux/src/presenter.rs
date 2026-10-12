@@ -71,6 +71,7 @@ mod height;
 mod height_drag;
 #[cfg(test)]
 mod height_drag_tests;
+mod hosted;
 mod images;
 mod links;
 mod palette;
@@ -107,6 +108,7 @@ mod events_tests;
 mod visibility_tests;
 
 pub use device::Device;
+pub use hosted::action as field_action;
 use painter::cpu_info;
 pub(crate) use painter::PainterBoot;
 pub use painter::{set_custom_painter, PainterChoice, PainterFactory, PainterInfo};
@@ -205,6 +207,8 @@ pub struct Presenter<D: DataSource> {
     /// it asks of its shell (D5).
     colors: palette::State,
     requests: requests::State,
+    /// The text fields the shell hosts, as it was told them (D8).
+    hosted: hosted::State,
     /// The viewport segments the agent set (LLP 1078 D7), for `layout.env`;
     /// the posture and counts are the runner's.
     pub(crate) segments: Vec<exact_kernel::Rect>,
@@ -449,6 +453,7 @@ impl<D: DataSource> Presenter<D> {
             reader: Default::default(),
             colors: Default::default(),
             requests: Default::default(),
+            hosted: Default::default(),
             segments: Vec::new(),
             surfaces: Default::default(),
             module: None,
@@ -889,6 +894,7 @@ impl<D: DataSource> Presenter<D> {
         for id in &renewed {
             self.dirty |= self.scroll.remove(id).is_some();
         }
+        self.hosted_renewed(&renewed);
         self.hatches.renewed.extend(&renewed);
         let reports = self.images.renew(self.host.kernel(), &renewed);
         if reports.is_empty() {
