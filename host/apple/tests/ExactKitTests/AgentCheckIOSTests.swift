@@ -75,6 +75,55 @@ final class AgentCheckIOSTests: XCTestCase {
         XCTAssertEqual(title["of"] as? Int, 3, "of the button, not of row 99: \(title)")
     }
 
+    /// LLP 1116.008 D7: a `select` is UIKit's pop-up button, its value the button's title, drawn in the
+    /// accent UIKit tints it with: the platform's ink for the control, judged at 3:1 as a button's title
+    /// is, in a grouped list's cell as anywhere (countdowns' and expense-tracker's system indigo in dark
+    /// read 3.9:1 against 4.5:1, as body text of the row). A text of the row's own stays the row's.
+    func testASelectsValueInAGroupedRowIsItsControlsLabel() throws {
+        let saved = GroupedListsLink.part
+        GroupedListsLink.part = { view in
+            var at = view
+            while let v = at { if (v as? NodeView)?.props["testId"] == "row" { return ["row": 99, "part": "cell"] }; at = v.superview }
+            return nil
+        }
+        defer { GroupedListsLink.part = saved }
+        let session = ExactApp.shared.makeSession(label: "agent-check-select")
+        self.session = session
+        let p = session.presenter
+        p.selectOptions = { _ in SelectMenu(options: [.init(value: "party", label: "Party", disabled: false), .init(value: "star", label: "Star", disabled: false)], chosen: 0) }
+        let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+        let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        window.frame = CGRect(x: 0, y: 0, width: 400, height: 800)
+        window.rootViewController = UIViewController()
+        window.makeKeyAndVisible()
+        self.window = window
+        p.viewport.frame = window.bounds
+        window.rootViewController?.view.addSubview(p.viewport)
+        var batch = wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "style": ["background_color": [255, 255, 255, 255]]],
+            ["op": "create", "id": 2, "kind": "view", "props": ["testId": "row"]],
+            ["op": "create", "id": 3, "kind": "control", "props": ["type": "select", "testId": "emoji"], "handlers": ["input", "change"], "style": [:]],
+            ["op": "create", "id": 4, "kind": "text", "props": ["text": "Emoji"], "style": [:]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "children", "id": 2, "ids": [4, 3]], ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 800.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 100.0, "w": 400.0, "h": 52.0],
+            ["op": "frame", "id": 4, "x": 16.0, "y": 14.0, "w": 120.0, "h": 24.0],
+            ["op": "frame", "id": 3, "x": 244.0, "y": 0.0, "w": 140.0, "h": 52.0],
+        ])
+        batch.controls = true
+        p.apply(batch)
+        p.viewport.layoutIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        let reply = Agent(session: session).check([:])
+        XCTAssertNil(reply["error"], "\(reply)")
+        let items = try XCTUnwrap(reply["items"] as? [[String: Any]])
+        let value = try XCTUnwrap(items.first { $0["text"] as? String == "Party" }, "the value is observed: \(items)")
+        XCTAssertEqual(value["label"] as? Bool, true, "the control's label, not the row's text: \(value)")
+        XCTAssertEqual(value["of"] as? Int, 3, "of the select, not of row 99: \(value)")
+        let title = try XCTUnwrap(items.first { $0["text"] as? String == "Emoji" }, "the row's own text is observed: \(items)")
+        XCTAssertNil(title["label"], "a text of the row's own stays body text: \(title)")
+    }
+
     func testCheckObservesInkFitCoverTargetsOverflowCardsAndOverlap() throws {
         let white: [Double] = [255, 255, 255, 255]
         let agent = mounted([
