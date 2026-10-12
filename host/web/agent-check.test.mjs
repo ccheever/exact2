@@ -70,6 +70,34 @@ const TALL = `component TallFixture
       button testId="unreachable" press=bump flex-shrink=0
         text "Save"
 `;
+// LLP 1116.006 D5: a text judged on the fill under it — its own box's (a rounded bubble, whose corners show the page), a
+// bubble column's, the page's — in each scheme; and rows a scroller cuts, overlapping nothing past its edge.
+const BUBBLES = `component BubbleFixture
+  state n = 0
+  action bump
+    n = n + 1
+  view
+    column testId="root" gap=8 padding=16
+      text testId="page" "Text on the page"
+      text testId="own" padding="8px 12px" border-radius=18 background-color="light-dark(#5856d6, #8e8cf0)" color="white" "Own box"
+      column testId="bubble" padding="8px 12px" border-radius=18 background-color="light-dark(#5856d6, #8e8cf0)"
+        text testId="in" color="white" "In a bubble"
+      text testId="own-light" padding="8px 12px" border-radius=18 background-color="#e9e9eb" color="-exact-label" "Label on a light bubble"
+      column testId="light" padding="8px 12px" border-radius=18 background-color="#e9e9eb"
+        text testId="dark-ink" color="#1c1c1e" "Dark on light"
+      column testId="list" height=100 overflow-y="auto" flex-shrink=0
+        column testId="row1" press=bump height=44 flex-shrink=0
+          text "Row one"
+        column testId="row2" press=bump height=44 flex-shrink=0
+          text "Row two"
+        column testId="row3" press=bump height=44 flex-shrink=0
+          text "Row three"
+      row testId="bar" gap=0 flex-shrink=0
+        column testId="tab1" press=bump width=100 height=44
+          text "One"
+        column testId="tab2" press=bump width=100 height=44
+          text "Two"
+`;
 
 const built = (() => {
   const ready = new Map();
@@ -131,6 +159,18 @@ test('judging: WCAG ratios, the floors, a clamp asked for, a reachable cover, th
   expect(found([{ ...small(3, 0), sized: 'platform' }, { ...small(4, 18), sized: 'platform' }])).toEqual([]);
   // Covered at rest is a finding; the host leaves out what a scroller could move clear.
   expect(found([{ ...small(5, 0), w: 30, h: 30, cover: { by: 9, kind: 'node' } }])).toEqual(['covered:5']);
+  // LLP 1116.006 D5: a text on a fill the host found is judged on it, not on the pixels (here white): white on indigo reads,
+  // white on a pale indigo does not, and the finding names the fill's owner.
+  const white = { ...text, fg: [255, 255, 255, 1] };
+  expect(found([white])).toEqual(['contrast:1']);
+  expect(found([{ ...white, bg: [88, 86, 214], on: 'own' }])).toEqual([]);
+  const pale = judge(obs([{ ...white, bg: [142, 140, 240], on: 7 }]), png);
+  expect(pale.map((f) => [f.kind, f.detail.bg, f.detail.on])).toEqual([['contrast', '#8e8cf0', 7]]);
+  expect(judge(obs([{ ...white, bg: [142, 140, 240], on: 'own' }]), null).length).toBe(1); // no capture needed
+  // Overlap is judged on what is presented of each box: a row its scroller cuts at y = 10 overlaps nothing below.
+  const row = { id: 6, x: 0, y: 0, w: 40, h: 20, control: 'press', sized: 'platform' }, tab = { id: 7, x: 0, y: 10, w: 40, h: 20, control: 'press', sized: 'platform' };
+  expect(found([row, tab])).toEqual(['overlap:6']);
+  expect(found([{ ...row, vis: { x: 0, y: 0, w: 40, h: 10 } }, tab])).toEqual([]);
 });
 
 test('a page with every finding class has each found, by testId, in the scheme it shows in; a clean page has none', async () => {
@@ -172,6 +212,30 @@ test('a page with every finding class has each found, by testId, in the scheme i
     expect(r.text.split('\n')).toHaveLength(2);
     expect(r.text).toContain('check web · light: no findings');
   } finally { await clean.close(); }
+}, 900000);
+
+test('a text is judged on the fill under it in each scheme, and a row its scroller cuts overlaps nothing past it', async () => {
+  const session = await open({ host: 'web', url: await built('bubbles', BUBBLES) });
+  try {
+    const dir = mkdtempSync(join(tmpdir(), 'exact-check-bubbles-'));
+    const [light, dark] = (await checkOp(session, ['both'], { shots: (_, scheme) => join(dir, `${scheme}.png`) })).check;
+    expect(kinds(light)).toEqual({}); // white on the indigo bubble reads, though its box's corners show the white page
+    expect(kinds(dark)).toEqual({ own: ['contrast'], in: ['contrast'], 'own-light': ['contrast'] }); // on the pale bubbles, not the black page
+    const on = (run, id) => run.findings.find((f) => f.node === id)?.detail;
+    expect(on(dark, 'own')).toMatchObject({ bg: '#8e8cf0', on: 'own' });
+    expect(on(dark, 'in')).toMatchObject({ bg: '#8e8cf0' });
+    expect(on(dark, 'own-light')).toMatchObject({ fg: '#ffffff', bg: '#e9e9eb', on: 'own' });
+    const obs = await session.op({ op: 'check' }), ids = new Map(((await session.op({ op: 'tree' })).nodes ?? []).map((n) => [n.props?.testId, n.id]));
+    const item = (testId, pick = (it) => it.id === ids.get(testId)) => obs.items.find(pick);
+    expect(item('in').on).toBe(ids.get('bubble'));
+    // Its box's corners alone (round 8's chat bubbles) judged white on the white page.
+    const pixels = judge({ ...obs, items: obs.items.map(({ bg, ...it }) => it) }, decodePng(readFileSync(join(dir, 'light.png'))));
+    expect(pixels.filter((f) => f.kind === 'contrast').map((f) => f.id)).toEqual([ids.get('own')]);
+    expect([item('page').bg, item('page').on]).toEqual([[255, 255, 255], 'page']); // the canvas, which nothing above paints
+    expect(item('row3').vis.h).toBeLessThan(item('row3').h); // the list cuts it
+    const whole = { ...obs, items: obs.items.map(({ vis, ...it }) => it) }; // judged on its whole box, it overlapped the tabs
+    expect(judge(whole, null).filter((f) => f.kind === 'overlap').map((f) => f.id)).toContain(ids.get('row3'));
+  } finally { await session.close(); }
 }, 900000);
 
 test('a screenshot shows a transition where it ends, the clock unmoved; a film\'s frames are the clock\'s', async () => {
