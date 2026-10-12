@@ -626,6 +626,7 @@ fn document_with_links(
     if !cwd {
         links_without_cwd(&mut doc.blocks);
     }
+    unmark_runs(&mut doc.blocks);
     let mut tasks = task_items(&mut doc.blocks, source);
     if !toggle_tasks {
         tasks.iter_mut().for_each(|task| task.1 = -1.0);
@@ -715,6 +716,9 @@ fn document_with_links(
             );
         }
         fields[7] = chat_runs(&fields[7]);
+        if let Some(tokens) = &flow {
+            standalone_media(block, tokens, tasks[index].0, &mut fields[7]);
+        }
         if let Value::List(cells) = &fields[8] {
             fields[8] = Value::list(
                 cells

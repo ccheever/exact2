@@ -7,7 +7,7 @@ use CodeTip from "./r4-timeline-tips.contract"
 use Icon from "./icons.contract"
 use MorphMaximize from "./shell-morph.contract"
 use CiteButton, CitePart from "./diff-cite.contract"
-use MarkdownMedia, MarkdownInlineMedia from "./media-markdown.contract"
+use MarkdownMedia from "./media-markdown.contract"
 use hoverTipAtFrame from "./hover-layer.contract" // pr-links-previews-and-routing: a pull request link's card
 use kmArrow from "./menu-keys.contract"
 shape ChatRun
@@ -370,7 +370,7 @@ component BlockBody
       // media-actions: an image line draws through its media chip (media-views.ts markdownMediaChips).
       when length(filter(chips, (c) => c.kind == "media" and c.href == block.href)) > 0
         each chip in filter(chips, (c) => c.kind == "media" and c.href == block.href) key=chip.id
-          MarkdownMedia(alt=chip.label, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local)
+          MarkdownMedia(alt=chip.label, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=true)
       else
         image block.href aria-label=block.text max-width="100%" object-fit="contain"
     when block.kind == "quote"
@@ -506,11 +506,12 @@ component FlowRuns
         when not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and run.kind == "break"
           box width="100%" height=0 flex-shrink=0
         // media-signed-urls-and-attachment-markdown MD-1: an image inside a line of text (ChatMarkdownImage, not
-        // standalone), through its media chip (media-views.ts markdownInlineImages); a surface with no media chips
-        // (a pull request's text) keeps its alt text.
+        // standalone), or the only content of its paragraph, list item or quote (standalone: its `icon`), through its
+        // media chip (media-views.ts markdownInlineImages); a surface with no media chips (a pull request's text) keeps
+        // its alt text.
         when run.kind == "media" and length(filter(chips, (chip) => chip.kind == "media" and chip.href == run.href)) > 0
           each chip in filter(chips, (chip) => chip.kind == "media" and chip.href == run.href) key=chip.id
-            MarkdownInlineMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local)
+            MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=(run.icon == "standalone"))
         // pr-links-previews-and-routing: a pull request link in a pull request's text (its chip names the card's target).
         when not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and run.kind != "break" and ((run.kind == "link" or run.kind == "link-start") and length(filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href)) > 0)
           each chip in filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href) key=chip.id

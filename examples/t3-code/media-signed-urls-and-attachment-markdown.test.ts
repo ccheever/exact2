@@ -9,7 +9,7 @@ import { surfaceLocal, panelView } from './r4-surfaces-panel';
 import { draftThreadId } from './r7-handoff-thread';
 import { decodeClientPrefs } from './settings-core';
 import { decodeMediaSource } from './media-actions';
-import { INLINE_IMAGE, markdownInlineImages, markdownMedia, markdownMediaChips } from './media-views';
+import { INLINE_IMAGE, markdownImages, markdownInlineImages, markdownMedia, markdownMediaChips } from './media-views';
 
 type Call = { method: string; payload: Record<string, unknown> };
 const native = { available: true } as unknown as Native;
@@ -62,6 +62,18 @@ describe('MD-1: media in Files\' rendered Markdown', () => {
     ]);
     // An image line may be a block or continue a paragraph (markdown_media.rs decides): both hrefs have its chip.
     expect(markdownMediaChips('![Alone](a.png)', '/repo').map(chip => [chip.href, chip.target])).toEqual([['t3-file:a.png', 'media:/repo/a.png'], [`${INLINE_IMAGE}t3-file:a.png`, 'media:/repo/a.png']]);
+  });
+  test('a badge row is two inline images, not one image line; table lines and an alt text with a `[` are not media runs', () => {
+    // The review's case: `![CI](ci.png) ![npm](npm.png)` was one image whose source was `ci.png) ![npm](npm.png`.
+    const badges = '![CI](ci.png) ![npm](npm.png)\n\n![Alone](a.png "t")\n\n![a](x.png) and (b)';
+    expect(markdownImages(badges).map(image => image.src)).toEqual(['a.png']);
+    expect(markdownMediaChips(badges, '/repo').filter(chip => chip.icon === 'environment').map(chip => [chip.href, chip.target])).toEqual([
+      ['t3-file:a.png', 'media:/repo/a.png'], [`${INLINE_IMAGE}t3-file:ci.png`, 'media:/repo/ci.png'], [`${INLINE_IMAGE}t3-file:npm.png`, 'media:/repo/npm.png'],
+      [`${INLINE_IMAGE}t3-file:a.png`, 'media:/repo/a.png'], [`${INLINE_IMAGE}t3-file:x.png`, 'media:/repo/x.png'],
+    ]);
+    // A table's cells draw text (markdown_media.rs leaves table lines), so nothing there is signed; nor is an alt text with a `[`.
+    expect(markdownInlineImages('| a | b |\n| - | - |\n| ![cell](c.png) | x |\n\nSee ![a[b](x.png) and ![ok](o.png)')).toEqual([]);
+    expect(markdownInlineImages('See ![a[b](x.png) here\n\n| a |\n| - |\n| ![cell](c.png) |\n\nThen ![ok](o.png)')).toEqual([{ alt: 'ok', src: 'o.png', href: `${INLINE_IMAGE}t3-file:o.png` }]);
   });
   test('a source joins the file\'s folder, its references are the workspace\'s, its fragment rides on the signed URL', () => {
     const shot = markdownMedia('Shot', 'shot.png', '', '/repo/docs', { cwd: '/repo' });
@@ -117,24 +129,32 @@ describe('MD-2: a sent attachment\'s Markdown media', () => {
 describe('the views', () => {
   const markdown = readFileSync(new URL('./markdown.contract', import.meta.url), 'utf8');
   const media = readFileSync(new URL('./media-markdown.contract', import.meta.url), 'utf8');
-  test('FlowRuns draws a media run through its media chip, else its alt text', () => {
+  const component = (name: string) => media.slice(media.indexOf(`component ${name}\n`), media.indexOf('\ncomponent ', media.indexOf(`component ${name}\n`) + 1) >>> 0);
+  test('FlowRuns draws a media run through its media chip, standalone when its run says so, else its alt text', () => {
     expect(markdown).toContain('when run.kind == "media" and length(filter(chips, (chip) => chip.kind == "media" and chip.href == run.href)) > 0');
-    expect(markdown).toContain('MarkdownInlineMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local)');
+    expect(markdown).toContain('MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=(run.icon == "standalone"))');
+    expect(markdown).toContain('MarkdownMedia(alt=chip.label, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=true)');
     expect(markdown).toContain('and not (run.kind == "media" and length(filter(chips, (chip) => chip.kind == "media" and chip.href == run.href)) > 0)\n          text run.text');
+    expect(media).not.toContain('MarkdownInlineMedia');
   });
-  test('an inline image has no 16:9 slot while it loads, and the fallback chip with its menu when it fails', () => {
-    const inline = media.slice(media.indexOf('component MarkdownInlineMedia'));
-    expect(inline).toContain('box width=0 height=0 role="status"');
-    expect(inline).not.toContain('aspect-ratio="16 / 9" border-radius="0.5rem" background-color="light-dark(#f4f4f599');
-    expect(inline).toContain('MediaActions(source=source, tip=tip, local=local, elementId="", testId=(kind == "video" ? "markdown-video-actions" : "markdown-image-actions"))\n        MediaUnavailableLabel');
-    expect(inline).toContain('image url aria-label=alt error=broke');
-  });
-  test('an image alone in its block that cannot load keeps its 16:9 frame with the label in it (ChatMarkdownImage standalone)', () => {
-    const block = media.slice(media.indexOf('component MarkdownMedia\n'), media.indexOf('component MarkdownInlineMedia'));
-    expect(block.match(/MediaFailedFrame\(alt=alt\)/g)).toHaveLength(2);
-    expect(block).not.toContain('MediaUnavailableLabel(alt=alt, video=false)');
-    const frame = media.slice(media.indexOf('component MediaFailedFrame'), media.indexOf('component MarkdownMedia\n'));
+  test('an inline image has a zero-size status span while it loads and the fallback chip with its menu when it fails; a figure keeps its 16:9 frame', () => {
+    const block = component('MarkdownMedia');
+    expect(block).toContain('box width=(standalone or kind == "video" ? "100%" : "0px") max-width="40rem" aspect-ratio="16 / 9"');
+    expect(block).toContain('when kind != "video" and standalone\n          MediaFailedFrame(alt=alt)\n        when kind != "video" and not standalone\n          MediaUnavailableLabel(alt=alt, video=false)');
+    const body = component('MarkdownMediaBody');
+    expect(body).toContain('and standalone\n        MediaFailedFrame(alt=alt)');
+    expect(body).toContain('and not standalone\n        MediaUnavailableLabel(alt=alt, video=false)');
+    expect(body).toContain('image url aria-label=alt error=imageBroke');
+    const frame = component('MediaFailedFrame');
     expect(frame).toContain('max-width="30rem" aspect-ratio="16 / 9"');
     expect(frame).toContain('role="alert"');
+  });
+  test('a video in a line of text is the block\'s player: its failure slot has Retry video and the open link (ChatMarkdownVideo)', () => {
+    const block = component('MarkdownMedia');
+    expect(block).toContain('MarkdownMediaBody(url=url, alt=alt, kind=kind, tip=tip, source=source, original=(access == "direct" and (startsWith(target, "http:") or startsWith(target, "https:"))), local=local, standalone=standalone)');
+    expect(block).not.toMatch(/when [^\n]*kind == "video"[^\n]*\n\s+video url/);
+    const body = component('MarkdownMediaBody');
+    expect(body).toContain('aria-label="Retry video"');
+    expect(body).toContain('testId="markdown-video-open"');
   });
 });
