@@ -997,6 +997,14 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   platform's background, border and corners. `background-clip` and
   `background-attachment` alone keep the field native. (LLP 1104 r8 D2.)
 
+- **The T3 native bake needs the browser renderer's own locked dependencies.**
+  A fresh worktree's root `bun install --frozen-lockfile` does not install the
+  nested `examples/t3-code/mobile/browser-mobile-renderer` package. Run the
+  same frozen-lock install there before building T3. Its iOS build script
+  checks `effect/package.json` and refuses before the bake when it is absent.
+  This was observed in the isolated questionnaire UI build; installing the
+  nested lock resolved the prerequisite without an app source correction.
+
 ## Access hatches
 
 - **A view a hatch adds on macOS hears no click while its window is not key.**

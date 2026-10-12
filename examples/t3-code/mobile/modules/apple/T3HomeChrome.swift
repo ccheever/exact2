@@ -55,6 +55,9 @@ final class T3HomeChrome {
     fileprivate func unbind(_ view: T3HomeChromeView, key: String) {
         if views[key]?.value === view { views.removeValue(forKey: key) }
     }
+    fileprivate func owns(_ view: T3HomeChromeView, key: String, route: ExactRoute) -> Bool {
+        views[key]?.value === view && routes[key]?.value === route
+    }
 }
 
 private struct T3ChromeConfiguration: Decodable {
@@ -62,13 +65,25 @@ private struct T3ChromeConfiguration: Decodable {
     struct Project: Decodable { let key: String; let label: String }
     struct Status: Decodable { let label: String; let progress: Bool }
     struct Colors: Decodable { let foreground: String; let muted: String; let iconMuted: String; let subtle: String }
-    let routeKey: String; let layout: String; let query: String
+    var routeKey: String
+    let layout: String; let query: String
     let environmentId: String; let projectKey: String
     let environments: [Environment]; let projects: [Project]
     let status: Status; let colors: Colors
     var filtered: Bool { !environmentId.isEmpty || !projectKey.isEmpty }
     var filterIcon: String { filtered ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease" }
     var sidebarFilterIcon: String { filtered ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle" }
+    static func read(_ props: [String: String]) throws -> Self {
+        guard let routeKey = props["route-key"], !routeKey.isEmpty,
+              let raw = props["configuration"], let data = raw.data(using: .utf8),
+              var next = try? JSONDecoder().decode(Self.self, from: data),
+              ["compact", "sidebar"].contains(next.layout) else {
+            throw ExactNativeRefusal("Home chrome needs a valid configuration and navigation route key.")
+        }
+        // Shared menu/search data may name the first Home; the mounted visit owns this chrome.
+        next.routeKey = routeKey
+        return next
+    }
 }
 
 private final class T3ChromeOverlay: UIView {
@@ -125,6 +140,7 @@ private final class T3HomeChromeView: ExactNativeInstance {
     private var installedTitle: UIView?
     private var installedRight: [UIBarButtonItem] = []
     private var installedToolbar: [UIBarButtonItem] = []
+    private var previousBackVisibility: Bool?
     override var view: UIView { root }
     override var focusTarget: UIView? { field ?? searchController?.searchBar.searchTextField }
 
@@ -145,11 +161,7 @@ private final class T3HomeChromeView: ExactNativeInstance {
         }
     }
     override func setProps(_ props: [String: String]) throws {
-        guard let raw = props["configuration"], let data = raw.data(using: .utf8),
-              let next = try? JSONDecoder().decode(T3ChromeConfiguration.self, from: data),
-              ["compact", "sidebar"].contains(next.layout), !next.routeKey.isEmpty else {
-            throw ExactNativeRefusal("Home chrome needs a valid configuration and navigation route key.")
-        }
+        let next = try T3ChromeConfiguration.read(props)
         if key != next.routeKey {
             detach(); owner?.unbind(self, key: key); key = next.routeKey; query = next.query
         }
@@ -161,8 +173,12 @@ private final class T3HomeChromeView: ExactNativeInstance {
         if self.route !== route { detach(); self.route = route }
         refresh()
     }
+    private var isAttached: Bool {
+        guard alive, let route, route.isLive else { return false }
+        return owner?.owns(self, key: key, route: route) == true
+    }
     private func emit(_ kind: String, _ value: String = "") {
-        guard alive, !(config?.layout == "sidebar" && workspaceHidden), let data = try? JSONSerialization.data(withJSONObject: ["kind": kind, "value": value]) else { return }
+        guard isAttached, !(config?.layout == "sidebar" && workspaceHidden), let data = try? JSONSerialization.data(withJSONObject: ["kind": kind, "value": value]) else { return }
         events.change(String(decoding: data, as: UTF8.self))
     }
     private func menu() -> UIMenu {
@@ -181,7 +197,7 @@ private final class T3HomeChromeView: ExactNativeInstance {
         return UIMenu(title: "Thread list options", children: children)
     }
     private func refresh() {
-        guard alive, let config, let route, route.isLive else { return }
+        guard isAttached, let config, let route else { return }
         let glass: Bool
         if #available(iOS 26.0, *) { glass = config.layout == "compact" } else { glass = false }
         let mode = glass ? "glass" : config.layout
@@ -194,6 +210,7 @@ private final class T3HomeChromeView: ExactNativeInstance {
             replaceQuery(query)
         }
         let item = route.controller.navigationItem
+        updateBackVisibility()
         item.largeTitleDisplayMode = .never
         item.backButtonDisplayMode = .minimal
         // Pinned Stack.tsx GLASS_HEADER_OPTIONS uses the leading editor title.
@@ -219,6 +236,22 @@ private final class T3HomeChromeView: ExactNativeInstance {
         filter?.setImage(UIImage(systemName: config.filterIcon), for: .normal)
         filter?.menu = menu()
         updateStatus(); updateWidth()
+    }
+    private func updateBackVisibility() {
+        guard isAttached, let config, let route else { return }
+        if config.layout == "compact" {
+            let item = route.controller.navigationItem
+            if previousBackVisibility == nil { previousBackVisibility = item.hidesBackButton }
+            // Home keeps its native-stack headerBackVisible:false even above another Home.
+            item.hidesBackButton = true
+        } else { restoreBackVisibility() }
+    }
+    private func restoreBackVisibility() {
+        guard let previous = previousBackVisibility else { return }
+        previousBackVisibility = nil
+        guard let route, route.isLive, owner?.owns(self, key: key, route: route) == true else { return }
+        let item = route.controller.navigationItem
+        if item.hidesBackButton { item.hidesBackButton = previous }
     }
     private func makeHeaderSearch(_ route: ExactRoute) {
         let search = UISearchController(searchResultsController: nil)
@@ -288,7 +321,7 @@ private final class T3HomeChromeView: ExactNativeInstance {
             field.centerYAnchor.constraint(equalTo: glass.contentView.centerYAnchor), field.heightAnchor.constraint(equalToConstant: 42)])
     }
     private var acceptsSearch: Bool {
-        alive && !settingQuery && route?.isLive == true && !(config?.layout == "sidebar" && workspaceHidden)
+        isAttached && !settingQuery && !(config?.layout == "sidebar" && workspaceHidden)
     }
     private func searchChanged(_ value: String) {
         guard acceptsSearch else { return }; query = value; emit("search", value)
@@ -336,7 +369,7 @@ private final class T3HomeChromeView: ExactNativeInstance {
         renderTitle(animated: false)
     }
     private func renderTitle(animated: Bool) {
-        guard let config, let route else { return }
+        guard isAttached, let config, let route else { return }
         let title = T3ChromeTitle(config: config, status: statusShown, action: { [weak self] in self?.emit("environments") })
         title.alpha = animated ? 0 : 1
         let routeWidth = route.controller.view.bounds.width
@@ -380,6 +413,7 @@ private final class T3HomeChromeView: ExactNativeInstance {
         settingQuery = false
     }
     fileprivate func detach() {
+        restoreBackVisibility()
         statusWork?.cancel(); statusWork = nil; statusStarted = false; statusShown = false
         removeSearch()
         if let route {

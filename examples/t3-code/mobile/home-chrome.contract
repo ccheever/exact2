@@ -3,11 +3,12 @@
 // does not make its full authored wrapper transparent to pointer input.
 component HomeChrome
   props
+    routeKey: string
     configuration: string
     event: action
     height: number
   view
-    t3-home-chrome configuration=configuration
+    t3-home-chrome configuration=configuration route-key=routeKey
       change=event
       position="absolute"
       height=height
