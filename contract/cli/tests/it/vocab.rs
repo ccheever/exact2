@@ -502,7 +502,8 @@ fn every_concepts_code_compiles_and_its_names_are_its_own() {
     let path = dir.join("app.contract");
     let mut failures = Vec::new();
     for name in [
-        "scroll", "loading", "plural", "choice", "modal", "confirm", "date", "persist", "swipe",
+        "scroll", "loading", "plural", "choice", "screen", "modal", "confirm", "date", "persist",
+        "swipe",
     ] {
         let one: Value = serde_json::from_str(&stdout(&vocab(&["--json", name]))).unwrap();
         let blocks = one["concept"]["contract"].as_array().unwrap();
