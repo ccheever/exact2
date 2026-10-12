@@ -240,5 +240,5 @@
   @media (forced-colors: active) {
     #exact-root input[data-exact-control]:is([type="checkbox"], [type="radio"], [type="range"]), #exact-root input[data-exact-switch] { appearance: auto; width: auto; height: auto; border: revert; border-radius: 0; background: revert; }
     #exact-root input[data-exact-control]:is([type="checkbox"], [type="radio"])::before, #exact-root input[data-exact-switch]::before { content: none; }
-    :where(#exact-root [popover]), :where(#exact-root [navigationPresentation="modal"]) { border: 1px solid; }
+    :where(#exact-root [popover]), :where(#exact-root dialog), :where(#exact-root [navigationPresentation="modal"]) { border: 1px solid; }
   }
