@@ -594,6 +594,9 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             // scroll, which is hidden and never dragged: the keyboard follows
             // it unless the author said otherwise (LLP 1115.000 D9.1).
             assign(collection, \.keyboardDismissMode, scroll.keyboardDismissMode)
+            // Pull-to-refresh is on the list that shows (D11.3): the node
+            // moves its control here from the scroll no finger reaches.
+            owner.updateRefresh()
             // A route's bar follows the scroller its `navigationScroll` names;
             // this list is drawn in that scroller's place, so the bar follows
             // the list (a large title over a hidden scroll never showed).
@@ -949,6 +952,12 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         #endif
         collection.removeFromSuperview()
         owner.scrollView?.isHidden = scrollWasHidden
+        // Its refresh control goes with it; a list that stays, as a plain
+        // scroller now, takes one of its own.
+        #if !os(tvOS)
+        collection.refreshControl = nil
+        #endif
+        if host.lists[owner.id] !== self { owner.updateRefresh() }
     }
 
     /// A tap: UIKit's highlight, then the row's press.

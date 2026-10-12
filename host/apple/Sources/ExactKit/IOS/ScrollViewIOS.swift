@@ -164,7 +164,9 @@ package class ScrollView: UIScrollView {
 final class PaddedRefreshControl: UIRefreshControl {
     override func layoutSubviews() {
         super.layoutSubviews()
-        guard let owner = superview?.superview as? NodeView else { return }
+        // On a node's own scroll, whose padding is in its content. A grouped
+        // list's collection view holds the padding as an inset: UIKit's place.
+        guard superview is ScrollView, let owner = superview?.superview as? NodeView else { return }
         let top = owner.number("padding_top")
         guard top != 0 else { return }
         let gap = convert(CGPoint(x: 0, y: top), from: owner).y
@@ -176,10 +178,16 @@ final class PaddedRefreshControl: UIRefreshControl {
 extension NodeView {
     /// A `refresh` handler on a scroll container is UIKit's pull-to-refresh:
     /// the control fires the event; the app's `refreshing` going false ends it.
-    func updateRefresh() {
+    /// The control is on the scroller that shows (LLP 1115.000 D11.3): a
+    /// grouped list's collection view, which a finger pulls, never the
+    /// hidden scroll beneath it. The list asks again when its collection
+    /// view comes and goes.
+    package func updateRefresh() {
         // tvOS has no refresh control.
         #if !os(tvOS)
-        guard let sv = scroll else { return }
+        guard let own = scroll else { return }
+        let sv = presenter?.navigation.shownScroll(self) ?? own
+        if sv !== own, own.refreshControl != nil { own.refreshControl = nil }
         if handlers.contains("refresh") {
             if sv.refreshControl == nil {
                 let control = PaddedRefreshControl()

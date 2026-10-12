@@ -93,6 +93,32 @@ final class GroupedListIOSTests: XCTestCase {
         XCTAssertEqual(l.collection.keyboardDismissMode, UIScrollView.KeyboardDismissMode.none)
     }
 
+    /// LLP 1115.000 D11.3: pull-to-refresh is on the list that shows. The
+    /// control was on the list's own scroll, which a grouped list hides
+    /// under its collection view, so nothing could be pulled.
+    func testPullToRefreshIsOnTheListThatShows() throws {
+        let p = presenter { self.model() }
+        let l = try list(p), owner = try XCTUnwrap(p.views[1]), hidden = try XCTUnwrap(owner.scroll)
+        var refreshed: [UInt32] = []
+        p.onRefresh = { refreshed.append($0) }
+        owner.handlers = ["refresh"]
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["refreshing": "false"], "clear": []]]))
+        let control = try XCTUnwrap(l.collection.refreshControl, "the collection view, which a finger pulls, carries the control")
+        XCTAssertNil(hidden.refreshControl, "the hidden scroll beneath carries none")
+        XCTAssertEqual(control.actions(forTarget: owner, forControlEvent: .valueChanged), ["pulledToRefresh"], "a pull is the list's `refresh`")
+        owner.pulledToRefresh()
+        XCTAssertEqual(refreshed, [1])
+        // The app's `refreshing` going false ends the spinner, as on a scroll.
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["refreshing": "true"], "clear": []]]))
+        control.beginRefreshing()
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["refreshing": "false"], "clear": []]]))
+        XCTAssertFalse(control.isRefreshing)
+        // No handler, no control.
+        owner.handlers = []
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["refreshing": "false"], "clear": []]]))
+        XCTAssertNil(l.collection.refreshControl)
+    }
+
     func testARowIsAListCellOfTheModelsParts() throws {
         let p = presenter { self.model() }
         let profile = try cell(p, 10)
