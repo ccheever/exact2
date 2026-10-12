@@ -314,6 +314,13 @@ impl Store {
         }
     }
 
+    /// Whether any granted secret is kept: an empty-store answer the bake
+    /// computed does not describe this device (LLP 1027 D4, 2026-10-10).
+    /// Uncounted, as the runner's own question, not the app's read.
+    pub(crate) fn holds_secrets(&self) -> bool {
+        self.values.keys().any(|name| self.is_granted(name))
+    }
+
     /// The kept value under `name` — `None` when nothing is kept, or when
     /// `name` is not granted (the same fact, as `process.env` has it), or
     /// when what is kept is not text.

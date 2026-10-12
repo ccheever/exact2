@@ -164,6 +164,32 @@ impl<D: DataSource> Runner<D> {
         false
     }
 
+    /// What the first frame shows from the bake until its source is ready
+    /// (LLP 1048.003 D6; feed F24: say so in the journal), and each store
+    /// reader whose build-time answer a store holding secrets passed over
+    /// for its placeholder (LLP 1027 D4, 2026-10-10).
+    pub(super) fn journal_build_time(&mut self) {
+        let secrets = self.store.holds_secrets();
+        for i in 0..self.stale.len() {
+            let Some(state) = self.resources[i].as_ref().filter(|_| self.stale[i]) else {
+                continue;
+            };
+            let name = self.plan.str(self.plan.resources[i].name);
+            let line = if state.value.is_compiled() {
+                super::lines::build_time(name)
+            } else if state.placeholder
+                && secrets
+                && self.store_readers[i]
+                && self.plan.resources[i].initial.len > 0
+            {
+                super::lines::secrets_unseen(name)
+            } else {
+                continue;
+            };
+            self.log(line);
+        }
+    }
+
     /// Journal each kept answer the first frame shows, with the arguments it
     /// was kept for (development tools read the journal; its request lines
     /// already carry URLs), so a stale answer is traceable to its key.

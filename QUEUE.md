@@ -819,6 +819,12 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
 
 ## Cheap, any time
 
+- **The web JS target's build-time answer at a store holding secrets** (LLP 1027 D4,
+  approved 2026-10-10): the Rust runner shows a store reader's declared `else` placeholder
+  instead of the bake's empty-store answer when the store holds a granted secret and the
+  source is not ready; `rt.js` still shows the build-time answer until its Rust module
+  loads. It learns a store reader only from an answer (`ans.store`), so it needs the
+  plan's reader marker emitted first.
 - **The sky's capture on the phone** landed at the display's rate 2026-08-30 (LLP 1008
   §9): a shadow layer tree rendered by `CARenderer`, a nested canvas's readback cached,
   the texture handed to the module as it is (`gpu_texture_metal`, `gpu_sync`) — 119 fps

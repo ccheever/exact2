@@ -94,6 +94,19 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Whether resource `i` is another's `else` row (LLP 1048.003 D6).
+    /// A store reader whose build-time answer, the bake's empty store's,
+    /// is passed over for its declared placeholder: before its source is
+    /// ready, at a store holding granted secrets the bake never saw (LLP
+    /// 1027 D4, approved 2026-10-10). Without an `else` it stands.
+    fn secrets_unseen(&self, i: usize, row: &ResourcesRow, resources: &[Option<Held>]) -> bool {
+        !self.data.ready()
+            && self.store_readers[i]
+            && row.placeholder.map_or(row.placeholder_value.len > 0, |p| {
+                resources[p.0 as usize].is_some()
+            })
+            && self.store.holds_secrets()
+    }
+
     fn is_placeholder_row(&self, i: usize) -> bool {
         self.plan
             .resources
@@ -491,6 +504,7 @@ impl<D: DataSource> Runner<D> {
                             && self.plan.str(row.source) != crate::page::SOURCE
                             && self.plan.str(row.source) != crate::surface_record::SOURCE
                             && row.initial.len > 0
+                            && !self.secrets_unseen(i, &row, &resources)
                             && (!self.data.ready()
                                 || (Value::from_bytes(self.plan.bytes(row.initial_args))
                                     .map_err(RunnerError::Plan)?
