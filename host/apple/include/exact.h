@@ -260,6 +260,8 @@ typedef struct {
 } ExactControlFont;
 /* kind: 0 field/textarea, 1 mini, 2 small, 3 medium/default, 4 large button. */
 typedef ExactControlFont (*ExactControlTextFn)(void *ctx, uint8_t kind);
+/* kind: 0 field, 1 secure, 2 search, 3 textarea; plus 4 for a field in a
+ * grouped list's row (LLP 1116.005 D2), borderless in its cell on iOS. */
 typedef struct {
     uint8_t kind; uint16_t family_id; float size; uint16_t weight; uint8_t italic;
 } ExactFieldChromeRequest;

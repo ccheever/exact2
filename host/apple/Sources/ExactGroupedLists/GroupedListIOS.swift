@@ -1019,6 +1019,13 @@ extension UICollectionViewListCell {
 final class GroupedCell: UICollectionViewListCell {
     var row: UInt32?
     var height: CGFloat?
+    #if os(iOS)
+    /// A touch its row leaves to no control goes to the row's one field: the
+    /// cell is the field (LLP 1116.005 D2).
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        NodeView.cellField(in: self, hit: super.hitTest(point, with: event))
+    }
+    #endif
     override func preferredLayoutAttributesFitting(_ attributes: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutAttributes {
         guard let height else { return super.preferredLayoutAttributesFitting(attributes) }
         let fitted = attributes.copy() as! UICollectionViewLayoutAttributes

@@ -5,6 +5,7 @@
 //! `footer`. A row whose children are a standard cell's parts is read as
 //! data; any other row is custom, and the host carries its views.
 
+use crate::arena::NodeArena;
 use crate::control::ControlKind;
 use crate::generated::{
     Display, FlexDirection, FontStyle, NodeType, Overflow, PropId, StyleId, StyleMask,
@@ -487,6 +488,46 @@ impl Kernel {
             };
         }
         out
+    }
+}
+
+impl NodeArena {
+    /// Whether `slot` is a native text field (an unsaid `input` or
+    /// `textarea`, LLP 1104 D2) in a grouped list's row, at any depth: the
+    /// field a platform draws in a list's cell (LLP 1116.005 D2), which on
+    /// iOS is borderless, the cell being the field. A search field keeps its
+    /// own chrome. Read from the tree as it stands: a list with `listStyle`,
+    /// a section, its rows' group (not its `header` or `footer`), a row.
+    pub(crate) fn is_cell_field(&self, slot: u32) -> bool {
+        use crate::FieldKind;
+        if !self.is_native_text_control(slot)
+            || FieldKind::from_props(self.props(slot)) == FieldKind::SearchField
+        {
+            return false;
+        }
+        let mut at = slot;
+        while let Some(group) = self.parent(at) {
+            let list = self.parent(group).and_then(|section| self.parent(section));
+            if list.is_some_and(|l| self.props(l).str(PropId::ListStyle).is_some())
+                && !matches!(
+                    self.props(group).str(PropId::SemanticTag),
+                    Some("header" | "footer")
+                )
+            {
+                return true;
+            }
+            at = group;
+        }
+        false
+    }
+}
+
+impl NodeRef<'_> {
+    /// Whether this is a native text field in a grouped list's row, which a
+    /// host draws as its platform draws a field in a list's cell
+    /// (`NodeArena::is_cell_field`, LLP 1116.005 D2).
+    pub fn is_cell_field(&self) -> bool {
+        self.arena.is_cell_field(self.slot)
     }
 }
 

@@ -118,6 +118,84 @@ final class NativeFieldsIOSTests: XCTestCase {
         cache.presented(true)
         XCTAssertEqual(cache.presentedProvisional, 1, "count presented batches, independent of kernel relayouts")
     }
+    /// LLP 1116.005 D2: a field in a grouped list's row (the kind's cell
+    /// bit) is measured as UIKit's borderless field, a textarea there as the
+    /// text view with its own space above and below and none at its sides,
+    /// where the cell's other text starts.
+    func testChromeForAFieldInAListsCellIsTheBorderlessField() {
+        let cache = FieldChromeCache()
+        cache.configure(UITraitCollection { $0.preferredContentSizeCategory = .large; $0.displayScale = 3 })
+        let engine = TextEngine(resolve: { _ in nil })
+        let id = engine.registerControlFont(cache.body)
+        let font = engine.font(size: 17, weight: 400, family: Int(id), italic: false)
+        cache.prefill(family: id, font: font, weight: 400, italic: false)
+        for kind in [UInt8(0), 1] {
+            let chrome = cache.answer(ExactFieldChromeRequest(kind: kind | FieldChromeCache.cell, family_id: id, size: 17, weight: 400, italic: 0), font: font)
+            XCTAssertEqual(chrome.provisional, 0, "prefilled")
+            let plain = UITextField()
+            plain.borderStyle = .none
+            plain.font = font
+            plain.isSecureTextEntry = kind == 1
+            plain.text = "Hg"
+            let bounds = CGRect(x: 0, y: 0, width: 240, height: CGFloat(chrome.minimum_height))
+            let rect = plain.textRect(forBounds: bounds)
+            XCTAssertEqual(chrome.left, Float(rect.minX), accuracy: 0.00001)
+            XCTAssertEqual(chrome.right, Float(bounds.maxX - rect.maxX), accuracy: 0.00001)
+            XCTAssertGreaterThanOrEqual(chrome.minimum_height, Float(font.lineHeight))
+            let rounded = cache.answer(ExactFieldChromeRequest(kind: kind, family_id: id, size: 17, weight: 400, italic: 0), font: font)
+            XCTAssertLessThan(chrome.left, rounded.left, "no rounded rect's inset: the text starts at the cell's margin")
+            XCTAssertLessThan(chrome.minimum_height, rounded.minimum_height)
+        }
+        let area = cache.answer(ExactFieldChromeRequest(kind: 3 | FieldChromeCache.cell, family_id: id, size: 17, weight: 400, italic: 0), font: font)
+        let standard = UITextView()
+        XCTAssertEqual(area.provisional, 0, "prefilled")
+        XCTAssertEqual([area.left, area.right], [0, 0])
+        XCTAssertEqual(area.top, Float(standard.textContainerInset.top))
+        XCTAssertEqual(area.bottom, Float(standard.textContainerInset.bottom))
+    }
+    /// LLP 1116.005 D2: a field the kernel publishes as a grouped row's
+    /// (`cell`) is UIKit's borderless field, the cell being the field: no
+    /// rounded rect, the editor over the whole box at the published insets.
+    /// A textarea there has no line or corners. `appearance: none` is still
+    /// the author's bare box, and a field leaving the row is a field again.
+    func testAFieldInAGroupedRowIsBorderlessInItsCell() throws {
+        let session = ExactApp.shared.makeSession(label: "cell-field")
+        defer { session.destroy() }
+        let node = NodeView(id: 1, kind: "input", presenter: session.presenter)
+        node.bounds = CGRect(x: 0, y: 0, width: 338, height: 22)
+        node.applyProps(set: ["placeholder": "Title"], clear: [])
+        node.applyStyle(["font_size": .number(17)])
+        node.applyFieldContent(["rect": [0.0, 0.0, 338.0, 22.0], "cell": true])
+        let field = try XCTUnwrap(node.field)
+        XCTAssertTrue(node.isCellField)
+        XCTAssertEqual(field.borderStyle, .none, "no rounded box inside the row")
+        XCTAssertEqual(field.frame, node.bounds)
+        XCTAssertEqual(field.textRect(forBounds: node.bounds), node.bounds)
+        XCTAssertTrue(field.adjustsFontForContentSizeCategory, "still the platform's field: its font follows Dynamic Type")
+        XCTAssertEqual(field.attributedPlaceholder?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? UIColor, .placeholderText)
+        node.applyStyle(["font_size": .number(17), "padding_top": .number(1)])
+        XCTAssertEqual(field.borderStyle, .none, "a restyle keeps it the cell's")
+        node.applyFieldContent(["rect": [7.0, 6.0, 324.0, 22.0]])
+        XCTAssertFalse(node.isCellField)
+        XCTAssertEqual(field.borderStyle, .roundedRect, "out of the row, the platform's field again")
+        node.applyFieldContent(["rect": [0.0, 0.0, 338.0, 22.0], "cell": true])
+        node.applyStyle(["appearance": .string("none")])
+        XCTAssertEqual(field.borderStyle, .none)
+        XCTAssertFalse(node.isCellField, "appearance: none is the author's box, not the cell's field")
+        XCTAssertEqual(field.frame, node.contentBox())
+
+        let area = NodeView(id: 2, kind: "textarea", presenter: session.presenter)
+        area.bounds = CGRect(x: 0, y: 0, width: 338, height: 100)
+        area.applyStyle([:])
+        area.applyFieldContent(["rect": [0.0, 8.0, 338.0, 84.0], "cell": true])
+        let view = try XCTUnwrap(area.textArea)
+        XCTAssertEqual(view.layer.borderWidth, 0)
+        XCTAssertEqual(view.layer.cornerRadius, 0)
+        XCTAssertNil(view.layer.borderColor)
+        XCTAssertEqual(view.textContainerInset, UIEdgeInsets(top: 8, left: 0, bottom: 8, right: 0))
+        area.applyFieldContent(["rect": [12.0, 18.0, 312.0, 62.0]])
+        XCTAssertEqual(view.layer.cornerRadius, FieldChromeCache.textareaRadius, "out of the row, the extended field look")
+    }
     func testRegisteredFontIsThePreferredBodyFontAndChangesWithDynamicType() {
         let cache = FieldChromeCache()
         let engine = TextEngine.pair(resolve: { _ in nil })

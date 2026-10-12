@@ -369,6 +369,47 @@ final class GroupedListIOSTests: XCTestCase {
         XCTAssertEqual(try rgb(.dark), [1, 0, 0, 1])
     }
 
+    /// LLP 1116.005 D2: the cell is the field. A touch in a custom row's
+    /// cell that no control of the row takes (the cell's margin, a text
+    /// under the field) goes to the row's one field, published as the cell's;
+    /// a button in the row keeps its touch, and a disabled field takes none.
+    func testATouchInAFieldsCellGoesToTheField() throws {
+        ExactGroupedLists.install()
+        let p = Presenter()
+        host(p).model = { $0 == 1 ? GroupedListModel(style: "inset-grouped", sections: [.init(view: 2, header: nil, footer: nil, rows: [Row(view: 30, custom: true)])]) : nil }
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        p.viewport.frame = window.bounds
+        window.addSubview(p.viewport)
+        window.makeKeyAndVisible()
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "list", "props": ["listStyle": "inset-grouped"], "style": ["overflow_y": "scroll"]],
+            ["op": "create", "id": 2, "kind": "view", "props": ["semanticTag": "section"], "style": [:]],
+            ["op": "create", "id": 4, "kind": "view", "props": [:], "style": [:]],
+            ["op": "create", "id": 30, "kind": "view", "props": ["testId": "row"], "style": [:]],
+            ["op": "create", "id": 31, "kind": "input", "props": ["testId": "name", "placeholder": "Name"], "handlers": ["input"], "style": [:]],
+            ["op": "create", "id": 32, "kind": "text", "props": ["text": "Required"], "style": [:]],
+            ["op": "create", "id": 33, "kind": "button", "props": ["testId": "clear"], "handlers": ["press"], "style": [:]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "children", "id": 2, "ids": [4]], ["op": "children", "id": 4, "ids": [30]],
+            ["op": "children", "id": 30, "ids": [31, 32, 33]], ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 402.0, "h": 874.0],
+            ["op": "frame", "id": 30, "x": 16.0, "y": 35.0, "w": 370.0, "h": 74.0],
+            ["op": "frame", "id": 31, "x": 16.0, "y": 15.0, "w": 260.0, "h": 22.0],
+            ["op": "frame", "id": 32, "x": 16.0, "y": 41.0, "w": 260.0, "h": 18.0],
+            ["op": "frame", "id": 33, "x": 300.0, "y": 15.0, "w": 54.0, "h": 44.0],
+            ["op": "fieldContent", "id": 31, "rect": [0.0, 0.0, 260.0, 22.0], "cell": true],
+        ]))
+        let row = try cell(p, 30)
+        let field = try XCTUnwrap(p.views[31]?.field)
+        XCTAssertEqual(field.borderStyle, .none, "borderless in its cell")
+        func hit(_ point: CGPoint, in view: UIView? = nil) -> UIView? { row.hitTest(view.map { row.convert(point, from: $0) } ?? point, with: nil) }
+        XCTAssertTrue(hit(CGPoint(x: 4, y: 4)) === field, "the cell's margin")
+        XCTAssertTrue(hit(CGPoint(x: 10, y: 9), in: p.views[32]) === field, "a text under the field")
+        XCTAssertTrue(hit(CGPoint(x: 10, y: 11), in: p.views[31]) === field, "the field itself")
+        XCTAssertFalse(hit(CGPoint(x: 27, y: 22), in: p.views[33]) === field, "a button in the row keeps its own touch")
+        p.apply(wireBatch([["op": "props", "id": 31, "set": ["testId": "name", "placeholder": "Name", "disabled": "true"], "clear": [String]()]]))
+        XCTAssertFalse(hit(CGPoint(x: 4, y: 4)) === field, "a disabled field takes no touch from its cell")
+    }
+
     /// LLP 1116.004 D2 (polls, round 6): the sheet's accent is `AccentColor`,
     /// the platform's tint, and a symbol that follows it is UIKit's: the cell
     /// tints it with its own `tintColor`, which the root's accent sets. The

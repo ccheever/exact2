@@ -298,7 +298,7 @@ extension NodeView {
             f.typingAttributes[.kern] = number("letter_spacing")
             f.textStorage.addAttribute(.kern, value: number("letter_spacing"), range: NSRange(location: 0, length: f.textStorage.length))
         }
-        (f as? TextArea)?.configureNativeChrome(isNativeTextControl)
+        (f as? TextArea)?.configureNativeChrome(isNativeTextControl, cell: isCellField)
         (f as? TextArea)?.applyLineHeight(usedLineHeight)
         restyleMarkup()
         f.setNeedsDisplay()
