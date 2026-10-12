@@ -9,7 +9,7 @@
 // The conversation, the models and the tools live in the Rust data module
 // (apps/harness/data); this file is only the screen.
 
-use Run, Line, Block, Entry, Approval, ModelChoice, Session, Workspace, Frame, Ack from "./shapes.contract"
+use Run, Line, Block, Entry, Approval, ModelChoice, Session, Workspace, FrameRun, Frame, Ack from "./shapes.contract"
 
 shape Cmd
   name: string
@@ -267,7 +267,7 @@ component Harness
               button appearance="none" press=stopAnimation margin-left="auto" testId="stop-animation"
                 text "esc to stop" color="#6c6c6c"
             each l, i in frame.lines key=i
-              Runs(runs=l.runs, pre=true)
+              FrameRuns(runs=l.runs)
         when length(matches) > 0
           column margin-top="1lh" testId="completions"
             each c, i in matches key=c.name
@@ -339,6 +339,15 @@ component Runs
     text white-space=(pre ? "pre" : "pre-wrap")
       each r, i in runs key=i
         text r.text color=fg(r.fg) background-color=bg(r.bg) font-weight=weight(r.bold, r.dim) font-style=(r.italic ? "italic" : "normal") text-decoration-line=deco(r.under, r.strike) href=r.href
+
+// Animation runs carry only their effective terminal style.
+component FrameRuns
+  props
+    runs: list<FrameRun>
+  view
+    text white-space="pre"
+      each r, i in runs key=i
+        text r.text color=fg(r.fg) background-color=bg(r.bg) font-weight=r.weight font-style="normal" text-decoration-line="none" href=""
 
 // One block of rendered Markdown, or of pre-coloured lines.
 component BlockView

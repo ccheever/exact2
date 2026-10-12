@@ -99,10 +99,20 @@ shape Session
   // Which transcript: `/clear` starts a new one.
   epoch: number
 
+// Animation frames need only the effective terminal style.
+shape FrameRun
+  text: string
+  fg: string
+  bg: string
+  weight: number
+
+shape FrameLine
+  runs: list<FrameRun>
+
 // A running animation's frame (topic none: asked again on each tick).
 shape Frame
   title: string
-  lines: list<Line>
+  lines: list<FrameLine>
 
 shape Ack
   ok: bool
