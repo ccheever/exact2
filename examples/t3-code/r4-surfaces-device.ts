@@ -25,12 +25,12 @@ export type DeviceView = {
   /** 5318d054a5: a local host with no available platform; wizard step 0 also shows the platform check. */
   localPlatformsUnavailable: boolean;
 };
-type DeviceStore = { generation: number; id: string; floor: number; maxSeen: number; state: Obj | null; step: number; pending: string; tried: boolean };
+type DeviceStore = { generation: number; id: string; floor: number; maxSeen: number; state: Obj | null; step: number; pending: string; tried: boolean; listed: boolean };
 const stores = new WeakMap<T3Client, DeviceStore>();
 function store(client: T3Client): DeviceStore {
   let value = stores.get(client);
   if (!value || value.generation !== client.generation) {
-    value = { generation: client.generation, id: '', floor: value?.maxSeen ?? 0, maxSeen: value?.maxSeen ?? 0, state: null, step: 0, pending: '', tried: false };
+    value = { generation: client.generation, id: '', floor: value?.maxSeen ?? 0, maxSeen: value?.maxSeen ?? 0, state: null, step: 0, pending: '', tried: false, listed: false };
     stores.set(client, value);
   }
   return value;
@@ -99,9 +99,19 @@ export function agentStatusLabel(state: Obj, pending: boolean): string {
 }
 const EMPTY_STATE: Obj = { hosts: [], hostStatus: 'disabled', hostStatuses: {}, devices: [], sessions: [], onboardingCompleted: false, agentAccessEnabled: false };
 
-export async function deviceView(client: T3Client, native: Native): Promise<DeviceView> {
+/**
+ * DevicePanel (1e2ecbd975): each time the panel shows, once the device state has loaded with the hub enabled, it asks
+ * the environment for its devices (`device.list`, not awaited: the answer comes back on the state stream), so a hub
+ * started a moment ago lists what it found without Refresh devices. `shown`: the Device surface is the panel's
+ * visible one; `deviceHidden` ends the stint.
+ */
+export async function deviceView(client: T3Client, native: Native, shown = false): Promise<DeviceView> {
   await watchDevice(client, native);
   const value = store(client), state = value.state ?? EMPTY_STATE, hostStatus = str(state.hostStatus, 'disabled');
+  if (shown && value.state !== null && hostStatus !== 'disabled' && !value.listed && value.pending === '') {
+    value.listed = true;
+    void deviceCommand(client, native, 'list', '', '');
+  }
   const enabled = hostStatus !== 'disabled', busy = hostStatus === 'installing' || hostStatus === 'starting';
   const statuses = obj(state.hostStatuses);
   const notices = enabled ? arr(state.hosts).flatMap((host): HostNotice[] => {
@@ -134,6 +144,11 @@ export async function deviceView(client: T3Client, native: Native): Promise<Devi
     panelStatus: value.state === null ? 'Finding devices…' : hostStatus === 'installing' ? str(state.hostStatusDetail, 'Installing device support…') : busy ? 'Finding devices…' : '',
     refreshable: value.state !== null && !busy, r6: emptyR6Device(), localPlatformsUnavailable: localPlatformsUnavailable(state),
   };
+}
+/** The Device surface left the panel's view (another surface, the panel closed): its next show lists again. */
+export function deviceHidden(client: T3Client): void {
+  const value = stores.get(client);
+  if (value) value.listed = false;
 }
 export const emptyDevice = (): DeviceView => ({ loaded: false, step: 0, enabled: false, busy: false, pending: '', hostStatus: 'disabled', hubStatus: '', hubReady: false, platforms: [],
   agentEnabled: false, agentStatus: '', agentReady: false, failure: '', canContinue: false, doneLabel: 'Done', notices: [], groups: [], empty: '', hint: '', panelStatus: '', refreshable: false, r6: emptyR6Device(), localPlatformsUnavailable: false });
