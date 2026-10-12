@@ -999,7 +999,8 @@ the node is out of its parent's layout and is laid out by the same
 subtree, so a block that changes lays out that subtree alone. Its frames are
 in the block's space; `Kernel::host_block_size` is the block's used size
 (under a maximum, the root's shrink-to-fit size); the environment, and so
-every viewport unit, stays the window's. The receipt names the page's nodes,
+every viewport unit, stays the window's, as do the root font size and the
+display's scale. The receipt names the page's nodes,
 then each block's. The semantics, in CSS's terms, are that document's; the
 fixtures are Chrome's (`tests/it/browser_host_block.rs`). A host that gives
 no block lays out exactly as before. Refused: a block for a root, for an

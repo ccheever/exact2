@@ -12,9 +12,12 @@
 //! block instead of the viewport: it is the engine's root for its subtree,
 //! so a block that changes lays out that subtree and nothing else. Its
 //! frames are in the block's own space. Under a maximum it is sized as a
-//! modal `dialog` is (`apply`). Viewport units, `env()` and `rem` stay the
-//! window's: no block reaches the environment. Authored rows never change,
-//! and a host that gives no block lays out exactly as before.
+//! modal `dialog` is (`apply`). Viewport units, `env()`, `rem` and a
+//! hairline's device pixel stay the window's: no block reaches the
+//! environment, the root font size or the display's scale, which are
+//! resolved into rows at a commit while a block never touches a row.
+//! Authored rows never change, and a host that gives no block lays out
+//! exactly as before.
 
 use super::{engine, Kernel};
 use crate::arena::NodeArena;

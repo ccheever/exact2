@@ -373,6 +373,33 @@ fn refusals_and_a_destroyed_root() {
 }
 
 #[test]
+fn a_hairline_in_a_block_is_the_displays_and_a_new_scale_lays_that_subtree_out() {
+    // The display's scale is the window's fact, as the root font size is
+    // (LLP 1115.000 D10.3), resolved into rows at a commit: no block scopes
+    // it. A sheet as tall as its content, its route under a hairline edge.
+    let mut ops = small();
+    let edge = [
+        (StyleId::BorderWidthTop, t("-exact-hairline")),
+        (StyleId::BorderStyleTop, t("solid")),
+    ];
+    ops.push(style(3, &edge));
+    let mut k = laid_out(ops);
+    k.set_host_block(3, at_most(300.0, 200.0)).unwrap();
+    k.compute_layout(1, OFFER).unwrap();
+    assert_eq!(k.host_block_size(3), Some((150.0, 41.0)));
+    assert_eq!(k.set_display_scale(2.0), Ok(true));
+    k.apply(0, 2, &[]).unwrap();
+    let receipt = k.compute_layout(1, OFFER).unwrap();
+    assert_eq!(k.host_block_size(3), Some((150.0, 40.5)));
+    assert_eq!(k.node(4).unwrap().frame.y, 0.5);
+    // The page around the block is not named: its boxes did not move.
+    let named = receipt.updated.iter();
+    let mut named: Vec<_> = named.map(|key| k.node_by_key(*key).unwrap().id).collect();
+    named.sort();
+    assert_eq!(named, [3, 4]);
+}
+
+#[test]
 fn an_authored_height_is_measured_inside_a_block_while_another_is_presented() {
     let mut ops = small();
     ops.push(style(4, &[(StyleId::BoxSizing, t("border-box"))]));
