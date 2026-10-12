@@ -449,6 +449,22 @@ matching literal grants and test fetch prefixes, and prints `dev --port N`.
 A grant written as `net.fetch ${origin}` follows the constant. An origin it
 cannot identify or a production origin is refused for this port edit.
 
+**Wave 9 correction (Charlie’s EX4 task, 2026-10-12):** a plain scaffold
+with no origin gets a literal origin and fetch/SQLite grants from `snapback
+--port N`; an existing computed declaration requires an explicit edit.
+The device build validates bindgen and optimizer wasm, uses private output
+directories, and writes `assets/snapback4.wasm.json` with `engineVersion`
+from its resolved Cargo.lock and a SHA-256 binding to the wasm. An embedded
+`snapback4.build` JSON custom section, when supplied upstream, provides the
+engine version and capability list instead. `snapback` refuses installed or
+reachable server version skew; `--rebuild` builds and stamps in one step,
+then checks again. `contract build` checks local provenance and the installed
+CLI; `test web` and local `agent web` also check `/dev/status`, falling back to
+`GET /` (including `serve`), before opening any browser. Missing or altered
+provenance names the rebuild command. With no server stamp the comparison is
+exact version equality, not an invented compatibility floor. Guestbook tests
+now begin with `fresh` so the default dev suite can run repeatedly.
+
 ### D13. `fresh`: a test file empties the backend before each test
 
 **Author ruling 2026-10-12, via the sb4 app farm** (wave 4: 091; wave 7:
@@ -469,6 +485,17 @@ No `test web --fresh` flag: the line says it in the file, as `epoch now`
 does. Verified against the published 0.4.23 door and a scratch app's two
 tests that each start empty (2026-10-12); the README's per-file
 `test-fresh.mjs` workaround is removed. `serve` has no development reset.
+
+**Wave 9 browser-store correction (EX4):** a CLI `agent web --storage NAME`
+starts empty; `--keep-storage` preserves a named profile, and
+`--reset-storage` explicitly resets it. An OS lock owns the profile before
+any deletion, through browser shutdown, across different page ports. These
+flags do not alter `open()`'s programmatic persistence or authored tests:
+tests already use unique per-run/per-test stores and `reload` preserves that
+test's data. Backend rows remain server-owned; `fresh` is dev-only and a
+serve proof provisions uniquely keyed fixtures or logs in to an existing
+test account. Existing managed-auth `E_AUTH` handling forgets the refused
+current token, preserving a newer token after a late old-token refusal.
 
 
 ## 3. Implementation order
