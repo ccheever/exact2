@@ -64,7 +64,7 @@ const STUBS = {
   'shape.js': ['conforms', 'eq', 'equal', 'failureCode'], 'pointer.js': ['pointer', 'record'], 'commands.js': ['commands'],
   'focus.js': ['autofocus', 'press', 'hold', 'within'], 'paint.js': ['paintList', 'paintFacts', 'paintFlush', 'paintOwn'],
   'document.js': ['Docs', 'Head', 'head', 'markDocument', 'projectRoots'], 'svg-transform.js': ['svgTransform'], 'backdrop.js': ['backdropValue'],
-  'dataset.js': ['ds'], 'hatches.js': ['ht'], 'perf.js': ['pf'], 'format.js': ['x_formatTime', 'x_formatDate', 'x_formatNumber', 'x_toFixed', 'x_formatDecimal'],
+  'dataset.js': ['ds', 'x_querySelectorAll'], 'hatches.js': ['ht'], 'perf.js': ['pf'], 'format.js': ['x_formatTime', 'x_formatDate', 'x_formatNumber', 'x_toFixed', 'x_formatDecimal'],
   'media.js': ['media', 'mediaProp', 'mediaOn', 'mediaPiece', 'requestFullscreen'],
 };
 const module = name => name === 'input-glue.js' ? readFileSync(resolve(WEB, name))
