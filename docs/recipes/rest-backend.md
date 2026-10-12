@@ -179,5 +179,5 @@ process.exit(code);
 - The grant names the server's origin, `http://127.0.0.1:8787`. On the web the page is
   another origin, so the server answers CORS (the `OPTIONS` preflight too). A phone
   reaches the Mac by its LAN address or HTTPS, granted instead.
-- Before calling it done, drive each write on the real clock against the dev server:
-  [tests](tests.md), "Before you call it done".
+- Before calling it done, run `verify` with the dev server up: its tests write to it, and
+  its relaunch reads it back on real time ([tests](tests.md), "Before you call it done").

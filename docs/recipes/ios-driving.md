@@ -1,8 +1,9 @@
 # Recipe: driving iOS
 
 Edit and check on the web host (`verify`: seconds), and run `verify ios` at milestones:
-the tests, then `check` light and dark with UIKit's bars. A clean `verify ios` is done;
-take a screenshot only at milestones. `verify ios`, `test ios` and `agent ios` build
+the tests with UIKit's bars, then `check` light and dark on the first screen and where
+each test ends, and a relaunch ([tests](tests.md#before-you-call-it-done)). A clean
+`verify ios` is done; look at its screenshots. `verify ios`, `test ios` and `agent ios` build
 first when the build is missing or older than its sources, and say so in one line; its
 log is `.exact/ios-build.log`. The first build takes minutes, later
 ones a minute or two, so start the first early with `--prebuild`: it returns at once,
@@ -15,11 +16,11 @@ the new plan on the existing build"). A bake error fails the drive as a build wo
 its log `.exact/ios-plan.log`. Anything else (`app.json`, assets, fonts, Rust, new
 grants in `app.ts`) still rebuilds; a file `app.ts` never imports, such as a backend
 under `server/`, rebuilds nothing. Before calling the app done, run `bun exact.mjs ios`
-once (a real build) and drive it.
+once (a real build), then `verify ios`.
 
 ```sh
 bun exact.mjs ios --prebuild                   # the first build, apart from this shell
-bun exact.mjs verify ios                       # the tests, then check light and dark
+bun exact.mjs verify ios                       # the tests, check light and dark, a relaunch
 bun exact.mjs agent ios --storage s1 --chrome platform "prefer prefers-color-scheme dark" \
   "clock data" "screenshot .exact/ios-dark.png window"
 bun exact.mjs agent ios --storage s1 --chrome platform "tap add-item" "clock settle" \
@@ -47,5 +48,3 @@ bun exact.mjs agent ios --storage s1 --chrome platform "tap add-item" "clock set
   would, with no fling; any other drag is refused, naming the flag.
 - `tree --ax` prints the accessibility tree as VoiceOver reads it.
 - `bun exact.mjs ios --run` opens the app in Simulator.app, to look by hand.
-- Before calling it done, drive each write once on the real clock:
-  [tests](tests.md#before-you-call-it-done).

@@ -37,12 +37,13 @@ Start from the nearest pattern: it compiles and passes its tests.
 | `bun exact.mjs …` | What it does |
 | --- | --- |
 | `contract build app.contract --json` | `[]` or each diagnostic with its fix; it rewrites the types `app.ts` imports. Builds print the warnings. |
-| `verify`, `verify ios` | Builds if stale, runs `app.test.contract` (`test web` alone), then `check` light and dark at phone and desktop widths, in one report. A clean `verify` is done. |
-| `agent web --storage s1 "clock data" "tap add" "check both"` | Drives the app as a person would: another screen, a write; a screenshot at milestones. iOS with its bars: [ios-driving](recipes/ios-driving.md). |
+| `verify`, `verify ios` | Builds if stale, runs `app.test.contract` (`test web` alone), `check`s the first screen and where each test ends light and dark at phone and desktop widths, relaunches once on real time, in one report. A clean `verify` is done. |
+| `agent web --storage s1 "clock data" "tap add" "check both"` | Drives the app by hand, to see why something fails. iOS with its bars: [ios-driving](recipes/ios-driving.md). |
 | `web`, `ios --run` | The dev loop (it prints its URL, rebuilds on save); a simulator. |
 
-Run `verify` after each edit, `verify ios` at milestones. Drive by `testId`; keep
-scratch files in `.exact/` (any other new file is a source, and makes the build stale).
+Run `verify` after each edit, `verify ios` at milestones, and look at its screenshots
+(`.exact/verify/`). Drive by `testId`; keep scratch files in `.exact/` (any other new
+file is a source, and makes the build stale).
 
 ## One screen: the view, its data, its test
 
@@ -169,8 +170,7 @@ test "an item is added, a repeat refused, checked off and kept"
 ```
 
 `clock data` lands replies the next `expect` reads; `clock settle` ends transitions;
-`reload` relaunches on the same storage. Every step, and the real-clock drive to end
-with: [tests](recipes/tests.md).
+`reload` relaunches on the same storage. Every step: [tests](recipes/tests.md).
 
 ## Pitfalls that cost the most
 
@@ -183,8 +183,8 @@ with: [tests](recipes/tests.md).
 3. **A `header` holds a heading, one text after it (the bar's subtitle) and buttons**
    (or a search field, a `tablist`); anything else isn't in the iOS bar.
 4. **A drive without `--storage <name>`** refuses storage, so the app looks empty.
-5. **Trusting green tests.** They pass on the virtual clock: drive each write once on
-   the real clock. `verify` checks the first screen; `"check both"` the rest.
+5. **A screen no test ends on** is one `verify` never checks or captures: end a test
+   there, rather than driving it by hand.
 
 ## Look it up
 

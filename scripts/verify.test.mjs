@@ -1,6 +1,7 @@
-// LLP 1116.004 D7: `bun exact.mjs verify` is one call a builder can stop on: a clean run in a few lines, a
-// failing test that fails it, and a check finding or a compiler warning said once, reported but not failing it.
-// `bun test ./scripts/verify.test.mjs` (the second test builds and drives a new app in Chrome: about a minute).
+// LLP 1116.004 D7, 1116.005 D7: `bun exact.mjs verify` is one call a builder can stop on: a clean run in a few
+// lines, a failing test that fails it, a check finding or a compiler warning said once, reported but not failing
+// it, each test's end screen checked under its name, and one relaunch on a test's store.
+// `bun test ./scripts/verify.test.mjs` (the last test builds and drives a new app in Chrome: about a minute).
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -9,17 +10,17 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { createApp } from '../game/new.mjs';
 import { chromium } from './agent-launch.mjs';
-import { groups, report } from './verify.mjs';
+import { groups, judgeRelaunch, relaunchStore, report, shotName } from './verify.mjs';
 
 const SIZES = [[390, 844], [1280, 900]];
-const runs = (lines) => SIZES.flatMap((size) => ['light', 'dark'].map((scheme) => ({ size, scheme, asked: scheme, lines: lines(size, scheme), hidden: 0 })));
+const runs = (lines, screen) => SIZES.flatMap((size) => ['light', 'dark'].map((scheme) => ({ ...(screen ? { screen } : {}), size, scheme, asked: scheme, lines: lines(size, scheme), hidden: 0 })));
 const shots = SIZES.flatMap(([w, h]) => ['light', 'dark'].map((scheme) => `/app/.exact/verify/web-${w}x${h}-${scheme}.png`));
 
 test('the report: clean in four lines; a failed test fails it; a finding is said once, where it was', () => {
   const clean = report({ host: 'web', built: null, tested: { passed: 2, failed: 0, results: [] }, checks: runs(() => []), shots, ms: 4000, cwd: '/app' });
   assert.deepEqual(clean.lines, [
     'tests: 2 passed, 0 failed',
-    'check 390x844, 1280x900 · light, dark: no findings',
+    'check first screen · 390x844, 1280x900 · light, dark: no findings',
     'screenshots (.exact/verify): web-390x844-light.png web-390x844-dark.png web-1280x900-light.png web-1280x900-dark.png',
     'verify: clean in 4.0 s',
   ]);
@@ -37,7 +38,7 @@ test('the report: clean in four lines; a failed test fails it; a finding is said
     'built web (0.9 s)',
     'tests: 1 passed, 1 failed',
     '  FAIL "adds": line 4: text of "left" is "1 items left", expected "1 item left"',
-    'check 390x844, 1280x900 · light, dark: 2 findings',
+    'check first screen · 390x844, 1280x900 · light, dark: 2 findings',
     clipped(SIZES[0]),
     '  (light only) contrast Text "Due"#12 [16,78 60×18]: 1.3:1 (#dddddd on #ffffff), needs 4.5:1',
   ]);
@@ -54,10 +55,74 @@ test('the report: clean in four lines; a failed test fails it; a finding is said
   assert.equal(stuck.exit, 1);
 });
 
+// LLP 1116.005 D7: each test's end screen is in the one report, its findings under the test's name and said once
+// with the first screen's; the relaunch is a line of its own, and what it lost a finding.
+test('the journeys: a test end\'s finding under its name, deduplicated across screens; the relaunch line', () => {
+  const clipped = ([w]) => `  clipped  Text "Total"#9 [16,96 ${w - 330}×18]: its text is 40 px wider than its box, which clips it`;
+  const contrast = (y) => `  contrast summary [16,${y} 300×20]: 2.1:1 (#999999 on #ffffff), needs 4.5:1`;
+  const ends = ['web-t1-adds-a-card.png', 'web-t2-studies-the-deck.png'].map((f) => `/app/.exact/verify/${f}`);
+  const relaunched = { test: 'adds a card', ms: 400, shows: ['Everyday French'], problems: [], said: 'the first screen shows what it stored: "Everyday French"' };
+  const clean = report({ host: 'web', built: null, tested: { passed: 2, failed: 0, results: [] }, ms: 9000, cwd: '/app', relaunched,
+    checks: [...runs(() => []), ...runs(() => [], 'adds a card'), ...runs(() => [], 'studies the deck'), ...runs(() => [], 'relaunch')], shots: [...shots, ...ends, '/app/.exact/verify/web-relaunch.png'] });
+  assert.deepEqual(clean.lines, [
+    'tests: 2 passed, 0 failed',
+    'check first screen, 2 test ends, relaunch · 390x844, 1280x900 · light, dark: no findings',
+    'relaunch on "adds a card"\'s store (0.4 s of real time): the first screen shows what it stored: "Everyday French"',
+    'screenshots (.exact/verify): web-390x844-light.png web-390x844-dark.png web-1280x900-light.png web-1280x900-dark.png',
+    '  test ends: web-t1-adds-a-card.png web-t2-studies-the-deck.png; relaunch: web-relaunch.png',
+    'verify: clean in 9.0 s',
+  ]);
+  assert.equal(clean.exit, 0);
+
+  // The summary's contrast only on the second test's end, in dark; the clipped total on the first screen and both ends.
+  const found = report({ host: 'web', built: null, tested: { passed: 2, failed: 0, results: [] }, ms: 9000, cwd: '/app', shots: [], relaunched: { ...relaunched, problems: ['  lost     its first screen and resources are a fresh launch\'s, …'] },
+    checks: [...runs((size) => [clipped(size)]), ...runs((size) => [clipped(size)], 'adds a card'), ...runs((size, scheme) => [clipped(size), ...(scheme === 'dark' ? [contrast(size[0] === 390 ? 210 : 140)] : [])], 'studies the deck'), ...runs(() => [], 'relaunch')] });
+  assert.deepEqual(found.lines.slice(1, 4), [
+    'check first screen, 2 test ends, relaunch · 390x844, 1280x900 · light, dark: 2 findings',
+    `  (first screen, "adds a card", "studies the deck" only) ${clipped(SIZES[0]).trim()}`,
+    `  ("studies the deck", dark only) ${contrast(210).trim()}`,
+  ]);
+  assert.deepEqual(found.lines.slice(4, 6), ['relaunch on "adds a card"\'s store (0.4 s of real time): 1 problem', '  lost     its first screen and resources are a fresh launch\'s, …']);
+  assert.equal(found.lines.at(-1), 'verify: 3 problems (3 findings; the tests passed) in 9.0 s');
+  assert.equal(found.exit, 0);
+
+  // A test end or the relaunch that could not be driven fails it, as a launch does.
+  const stuck = report({ host: 'web', built: null, tested: { passed: 1, failed: 0, results: [] }, ms: 9000, shots: [], relaunched: { test: 'adds a card', error: 'the page never drew\nstack' },
+    checks: [...runs(() => []), { size: null, label: '"adds a card" end', error: 'resize: no page' }] });
+  assert.deepEqual(stuck.lines.slice(1), ['check "adds a card" end: could not drive: resize: no page', 'check first screen · 390x844, 1280x900 · light, dark: no findings', 'relaunch: could not drive: the page never drew', 'verify: 2 problems (2 failures to compile or drive) in 9.0 s']);
+  assert.equal(stuck.exit, 1);
+  assert.equal(shotName('web', 1, "the header's button likes it, then unlikes it"), 'web-t2-the-header-s-button-likes-it.png');
+});
+
+test('the relaunch: the store of a passing test that wrote the most; what came back, or that it was lost', () => {
+  const fresh = { texts: new Set(['Decks', 'No decks yet.']), resources: { decks: [] }, slots: { draft: '' }, ops: 1 };
+  const end = (resources, ops, reload = false) => ({ keep: true, resources, ops, reload });
+  const results = [
+    { name: 'reads', failures: [], store: 's0', end: end({ decks: [{ id: '1', name: 'Seeded deck with a long name' }] }, 1) },
+    { name: 'adds', failures: [], store: 's1', end: end({ decks: [{ id: '1', name: 'French' }] }, 3) },
+    { name: 'adds two', failures: ['line 9: …'], store: 's2', end: end({ decks: [{ id: '1' }, { id: '2' }] }, 5) },
+  ];
+  assert.equal(relaunchStore(results, fresh).name, 'adds'); // it wrote; the longer resources only read; the third failed
+  assert.equal(relaunchStore(results.slice(0, 1), fresh).name, 'reads');
+  assert.equal(relaunchStore([results[2]], fresh), null);
+
+  const after = (texts, resources = { decks: [] }, slots = { draft: '' }) => ({ texts: new Set(texts), resources, slots });
+  const back = judgeRelaunch(results[1], fresh, after(['Decks', 'French', '1 card']), { busy: [], failed: {} });
+  assert.deepEqual([back.shows, back.problems, back.said], [['French', '1 card'], [], 'the first screen shows what it stored: "French", "1 card"']);
+  const lost = judgeRelaunch(results[1], fresh, after(['Decks', 'No decks yet.']), {});
+  assert.equal(lost.problems.length, 1);
+  assert.match(lost.problems[0], /^ {2}lost {5}.*what it stored did not come back$/);
+  // A test that wrote nothing has nothing to lose; one whose resources came back off this screen lost nothing either.
+  assert.deepEqual(judgeRelaunch(results[0], fresh, after(['Decks', 'No decks yet.']), {}), { shows: [], problems: [], said: 'the first screen is a fresh launch\'s; that test wrote no storage' });
+  assert.deepEqual(judgeRelaunch(results[1], fresh, after(['Decks', 'No decks yet.'], { decks: [{ id: '1' }] }), {}).problems, []);
+  const slow = judgeRelaunch(results[1], fresh, after(['Decks']), { busy: ['decks'], failed: { cards: 'a refused shape' } });
+  assert.deepEqual(slow.problems.map((p) => p.trim().split(/\s+/)[0]), ['loading', 'failed']);
+});
+
 test('the compiler\'s warnings: a group before the tests, capped as findings are, counted as findings', () => {
   const warning = (n) => `app.contract:${n}:23 warning [lower-colour-one-scheme] \`#336699\` on \`color\` stays the same in dark mode`;
   const one = report({ host: 'web', built: null, compiler: [warning(25)], tested: { passed: 2, failed: 0, results: [] }, checks: runs(() => []), shots: [], ms: 4000 });
-  assert.deepEqual(one.lines, ['compiler: 1 warning', `  ${warning(25)}`, 'tests: 2 passed, 0 failed', 'check 390x844, 1280x900 · light, dark: no findings', 'verify: 1 problem (1 finding; the tests passed) in 4.0 s']);
+  assert.deepEqual(one.lines, ['compiler: 1 warning', `  ${warning(25)}`, 'tests: 2 passed, 0 failed', 'check first screen · 390x844, 1280x900 · light, dark: no findings', 'verify: 1 problem (1 finding; the tests passed) in 4.0 s']);
   assert.equal(one.exit, 0);
   const many = report({ host: 'ios', built: { ms: 1200, said: ['iOS: app.contract changed; running the new plan on the existing build (no native rebuild)'], warnings: [] },
     compiler: Array.from({ length: 8 }, (_, i) => warning(i + 1)), tested: { none: true }, checks: [], shots: [], ms: 9000 });
@@ -101,12 +166,15 @@ test.skipIf(!!chromium().unavailable)('verify on a new app: clean, a failing tes
     assert.deepEqual([warned(quiet.stderr), warned(quiet.stdout)], [[], []]);
     const clean = verify();
     assert.equal(clean.status, 0, clean.stdout + clean.stderr);
-    assert.ok(clean.lines.length <= 6, clean.stdout);
+    assert.ok(clean.lines.length <= 8, clean.stdout);
     assert.ok(!clean.lines.some((l) => l.startsWith('compiler:')), clean.stdout);
     assert.ok(clean.lines.includes('tests: 2 passed, 0 failed'), clean.stdout);
-    assert.ok(clean.lines.includes('check 390x844, 1280x900 · light, dark: no findings'), clean.stdout);
+    assert.ok(clean.lines.includes('check first screen, 2 test ends, relaunch · 390x844, 1280x900 · light, dark: no findings'), clean.stdout);
+    // The starter keeps nothing: the relaunch on the second test's store opens as a fresh launch does, and says so.
+    assert.match(clean.stdout, /^relaunch on "the header's button likes it"'s store \(\d+\.\d s of real time\): the first screen is a fresh launch's; that test wrote no storage$/m);
     assert.match(clean.lines.at(-1), /^verify: clean in \d+\.\d s$/);
     for (const [w, h] of SIZES) for (const scheme of ['light', 'dark']) assert.ok(existsSync(resolve(dir, `.exact/verify/web-${w}x${h}-${scheme}.png`)), `${w}x${h} ${scheme}`);
+    for (const f of ['web-t1-the-greeting-loads.png', 'web-t2-the-header-s-button-likes-it.png', 'web-relaunch.png']) assert.ok(existsSync(resolve(dir, '.exact/verify', f)), f);
 
     const tests = resolve(dir, 'app.test.contract'), authored = readFileSync(tests, 'utf8');
     writeFileSync(tests, authored.replace('expect state liked == true', 'expect state liked == false'));
@@ -140,7 +208,10 @@ test.skipIf(!!chromium().unavailable)('verify on a new app: clean, a failing tes
     const json = verify('--json');
     assert.equal(json.status, 0, json.stderr);
     const r = JSON.parse(json.stdout);
-    assert.deepEqual([r.host, r.built, r.tests.passed, r.tests.failed, r.problems, r.exit, r.screenshots.length, r.compiler.length], ['web', null, 2, 0, 2, 0, 4, 1]);
-    assert.deepEqual(r.checks.map((c) => `${c.size.join('x')} ${c.scheme} ${c.findings.map((f) => f.kind).join(',')}`), ['390x844 light contrast', '390x844 dark ', '1280x900 light contrast', '1280x900 dark ']);
+    assert.deepEqual([r.host, r.built, r.tests.passed, r.tests.failed, r.problems, r.exit, r.screenshots.length, r.compiler.length], ['web', null, 2, 0, 2, 0, 7, 1]);
+    // Each screen at each width and scheme: the first screen, the two test ends (in their own sessions), the relaunch.
+    const onScreen = (screen) => r.checks.filter((c) => c.screen === screen).map((c) => `${c.size.join('x')} ${c.scheme} ${c.findings.map((f) => f.kind).join(',')}`);
+    for (const screen of ['first screen', 'the greeting loads', "the header's button likes it", 'relaunch']) assert.deepEqual(onScreen(screen), ['390x844 light contrast', '390x844 dark ', '1280x900 light contrast', '1280x900 dark '], screen);
+    assert.deepEqual([r.relaunch.test, r.relaunch.problems, r.tests.results.map((t) => t.shot.split('/').at(-1))], ["the header's button likes it", [], ['web-t1-the-greeting-loads.png', 'web-t2-the-header-s-button-likes-it.png']]);
   } finally { rmSync(parent, { recursive: true, force: true }); }
 }, 300_000); // A new app's offline Cargo resolution and its first web build, then four runs.

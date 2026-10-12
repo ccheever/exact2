@@ -135,7 +135,7 @@ Ports    none to choose. web: headless Chrome over a pipe; the page on 127.0.0.1
     example: 'bun exact.mjs agent web --storage s1 "clock data" tree "tap add" "screenshot .exact/a.png"',
   },
   verify: {
-    line: 'build if stale, run app.test.contract, then check the screen light and dark at two widths',
+    line: 'build if stale, run app.test.contract, check each screen it reaches light and dark, relaunch once',
     usage: 'bun exact.mjs verify [web|ios] [--sim <udid|name>] [--json]',
     flags: [
       ['--sim <udid|name>', 'iOS: which simulator (else EXACT_SIM, a booted iPhone, or the newest iPhone Pro)'],
@@ -144,14 +144,18 @@ Ports    none to choose. web: headless Chrome over a pipe; the page on 127.0.0.1
     internal: ['--app <name>'],
     body: `web launches at 390x844 and 1280x900, ios at the simulator's own size with UIKit's bars
 (an edit to only app.contract or app.ts runs its new plan, no native rebuild), each on a
-fresh scratch store, and runs check light and dark on the screen it opens to. One short
-report: the build if it built, the compiler's warnings (as contract build says them, built
-or not), the tests, check's findings (each once), then "verify: clean" or "verify: N
-problems". A clean verify is done. One screenshot per width and scheme goes to
-.exact/verify/, for milestones; nothing needs to read them.
-Runs     to completion: exit 1 when the build, a test or a launch fails; check's findings and
-         the compiler's warnings are counted, never fail it. Another screen: agent … "tap x"
-         "check both".
+fresh scratch store, and runs check light and dark on the screen it opens to. Each test's
+last screen is checked the same way in the test's own session (web: at both widths; ios
+runs the tests with UIKit's bars). Then the app relaunches once, on real time, on the store
+a passing test left, and says whether its first screen shows what that test stored. One
+short report: the build if it built, the compiler's warnings (as contract build says them,
+built or not), the tests, check's findings (each once, naming the screens it was on), the
+relaunch, then "verify: clean" or "verify: N problems". A clean verify is done. One
+screenshot of each screen goes to .exact/verify/ (the first screen's per width and scheme,
+each test's named by the test, the relaunch's): look at them at milestones.
+Runs     to completion: exit 1 when the build, a test, a launch or the relaunch fails; the
+         findings (check's, the relaunch's) and the compiler's warnings are counted, never
+         fail it. A screen no test ends on is not checked: end a test there.
 Ports    none to choose: test's and agent's (headless Chrome over a pipe; a simulator's socket).`,
     example: 'bun exact.mjs verify            # bun exact.mjs verify ios at a milestone',
   },

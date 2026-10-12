@@ -465,7 +465,7 @@ exact_web::host!(
   ${run} pattern      start from a working app: ${patterns().map(p => p.name).join(', ')}
   ${run} web          the web dev loop
   ${run} test web     build, then run app.test.contract, or the files named (web, ios or macos)
-  ${run} verify       build, the tests, then check light and dark at two widths: done when clean
+  ${run} verify       build, the tests, check where each ends, relaunch: done when clean
   ${run} agent web tree  inspect or drive the app
   ${run} ios --run    build and launch on an iOS simulator
   ${run} mac --run    build and launch on this Mac
