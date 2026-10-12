@@ -37,6 +37,7 @@ import type { PrTarget } from './r5-panels-pr';
 import { letGo } from './let-go';
 // browser-surface part 1: Browser tabs over the module's WKWebView (browser-surface.ts).
 import { annotationSendSerial, browserMiniView, emptyBrowserMini, floatingTabOf, type BrowserMiniView } from './browser-capture'; // browser-surface part 3: the floating player's browser source, an annotation's send
+import { automationRecordingView, serveRecordingRequests, type AutomationRecordingView } from './browser-automation-recording';
 import { browserMiniPlayerSource } from './previewMiniPlayerStore';
 import { addBrowserSurface, browserLocal, browserMiniSessions, browserPrepare, browserTab, browserView, emptyBrowserView, installBrowserCleanup, type BrowserView } from './browser-surface';
 import { browserTabAudio, browserTabMute } from './browser-automation-tabs'; // browser-surface part 5: Mute / Unmute and the audible indicator
@@ -55,6 +56,9 @@ export type PanelView = {
   browserMini: BrowserMiniView;
   /** Part 3: bumps when an annotation's ⌘Return should send, whatever the panel shows (app.contract annotationSend). */
   annotationSend: number;
+  /** browser-recording-and-downloads: bumps when the previewAutomation host hands over a recording request, and names the
+   *  queued send to run it on (app.contract automationRecording). */
+  automationRecording: AutomationRecordingView;
 };
 
 type Store = { panels: Map<string, PanelState>; deviceSetup: string; terminalClose: { serial: number; title: string; body: string; target: string; op: string } };
@@ -187,6 +191,10 @@ export async function openFileSurface(client: T3Client, native: Native, requeste
 
 /** `shelllocal:surface-*`: tab and panel state, the explorer and every read. */
 export async function surfaceLocal(client: T3Client, native: Native, op: string, id: string, value: string): Promise<string> {
+  // The agent's recording requests (app.contract automationRecording; id = the send) are not the person's use of the
+  // panel: they run before its state, its userRevision and its cleanups (review of 2026-10-12: an agent's request before
+  // the panel was restored made restoreRightPanel skip the saved one).
+  if (op === 'browser-automation-recording') { await serveRecordingRequests(client, native, Number(id) || 0); return ''; }
   const targetSplit = op === 'close-confirmed' ? id.lastIndexOf('|') : -1;
   const targetKey = targetSplit >= 0 ? id.slice(0, targetSplit) : panelKey(client);
   if (targetSplit >= 0) id = id.slice(targetSplit + 1);
@@ -336,6 +344,7 @@ export async function panelView(client: T3Client, native: Native | null | undefi
     browser: open && active.kind === 'browser' ? browserView(client, active, now) : emptyBrowserView(client), // part 4: the client's profiles for the "+" menu and the launcher
     browserMini: browserMiniView(client, ref => browserMiniSessions(client, ref), shownBrowserTab(client)), // part 3: shouldRenderPreviewMiniPlayer's browser half
     annotationSend: annotationSendSerial(client), // part 3: after browserPrepare applied the picks
+    automationRecording: automationRecordingView(client), // the agent's recording tools (browser-automation-recording.ts)
   };
 }
 /** The Browser tab the rendered right panel shows, if any (shouldRenderPreviewMiniPlayer). */
@@ -348,4 +357,4 @@ export function shownDevice(client: T3Client): DeviceTarget | undefined {
   const state = panelState(client), active = state.surfaces.find(entry => entry.id === state.active);
   return state.visible && active?.kind === 'device' ? deviceTargetOf(client, panelKey(client)) : undefined;
 }
-export const closedPanel = (): PanelView => ({ key: '', launcher: false, terminalClose: { serial: 0, title: '', body: '', target: '', op: '' }, terminal: emptyTerminalDrawerView(), open: false, kind: '', active: '', count: 0, tabs: [], files: emptyFiles(), prs: emptyPrs(), device: emptyDevice(), deviceSetup: false, pr: emptyPrSurface(), attachment: emptyAttachment(), deviceMini: emptyMini(), tabStrip: NO_TAB_STRIP, browser: emptyBrowserView(), browserMini: emptyBrowserMini(), annotationSend: 0 });
+export const closedPanel = (): PanelView => ({ key: '', launcher: false, terminalClose: { serial: 0, title: '', body: '', target: '', op: '' }, terminal: emptyTerminalDrawerView(), open: false, kind: '', active: '', count: 0, tabs: [], files: emptyFiles(), prs: emptyPrs(), device: emptyDevice(), deviceSetup: false, pr: emptyPrSurface(), attachment: emptyAttachment(), deviceMini: emptyMini(), tabStrip: NO_TAB_STRIP, browser: emptyBrowserView(), browserMini: emptyBrowserMini(), annotationSend: 0, automationRecording: { serial: 0, slot: 0 } });

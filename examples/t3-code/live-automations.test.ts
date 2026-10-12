@@ -123,7 +123,7 @@ describe('Settings › Scheduled tasks', () => {
     let { view, group, reads } = await open(page(others, [{ name: 'main-old', isRemote: false }, local]));
     expect(reads).toEqual([{ cwd: '/repo', limit: 100 }, { cwd: '/repo', query: 'main', limit: 10 }]);
     expect([group.refs.length, group.selected]).toEqual([100, [{ value: 'main', label: 'main', search: 'main', badge: '', remote: false }]]);
-    expect(view.editors[0]!.key).toBe('env:new');
+    expect(view.editors[0]!.key).toBe('new'); // a new task's dialog keeps its key across Runs on (scheduled-tasks-followups ST-1)
     // On the first page: no lookup.
     ({ group, reads } = await open(page([local], [])));
     expect([reads.length, group.selected]).toEqual([1, []]);
@@ -133,12 +133,12 @@ describe('Settings › Scheduled tasks', () => {
     // After the editor switched to another project whose page lacks its base, that project's lookup; a stale key asks nothing.
     const fake = fakeClient(true, payload => ({ refs: payload.query ? [{ name: String(payload.query), isRemote: false }] : payload.cwd === '/repo' ? [local] : others }));
     fake.client.shell.projects = [...fake.client.shell.projects, { id: 'p2', title: 'second', workspaceRoot: '/second' }];
-    ({ view, reads } = await open(fake, 'key=env%3Anew&project=p2&ref=feature-200'));
+    ({ view, reads } = await open(fake, 'key=new&project=p2&ref=feature-200'));
     expect(reads.slice(-1)).toEqual([{ cwd: '/second', query: 'feature-200', limit: 10 }]);
     expect(view.branches.map(entry => [entry.projectId, entry.selected.map(ref => ref.value)])).toEqual([['p1', []], ['p2', ['feature-200']]]);
     // Asked again in the same editor visit (a wake, the minute tick): the refs and the lookup are kept, nothing is read.
     const read = reads.length;
-    ({ view, reads } = await open(fake, 'key=env%3Anew&project=p2&ref=feature-200'));
+    ({ view, reads } = await open(fake, 'key=new&project=p2&ref=feature-200'));
     expect([reads.length - read, view.branches[1]!.selected.map(ref => ref.value)]).toEqual([0, ['feature-200']]);
     ({ view, reads } = await open(fake, 'key=env%3Aold&project=p2&ref=feature-200'));
     expect(view.branches.map(entry => entry.selected.length)).toEqual([0, 0]);
