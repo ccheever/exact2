@@ -267,9 +267,7 @@ package final class Presenter {
     /// The last no-duration keyboard change, waiting to be applied.
     private var keyboardDebounce: DispatchWorkItem?
     var hasPendingKeyboardResize: Bool { keyboardDebounce != nil }
-    /// Apply a waiting no-duration keyboard change now: a stack change that
-    /// waited for the viewport a leaving keyboard frees must not start
-    /// before it (NavigationHost.sync).
+    /// Apply a pending keyboard change before a back swipe fixes its route frames.
     func flushKeyboardResize() {
         guard let work = keyboardDebounce else { return }
         keyboardDebounce = nil
@@ -330,33 +328,6 @@ package final class Presenter {
         var indicators = viewport.verticalScrollIndicatorInsets
         indicators.bottom = h
         viewport.verticalScrollIndicatorInsets = indicators
-    }
-
-    /// Scroll a node into the part of the viewport the keyboard leaves —
-    /// the browser's rule for a focused field — through every scroll
-    /// container above it, each moving only as far as it must, never past
-    /// its edges. Animated by whatever animation block this runs inside.
-    func reveal(_ node: NodeView?) {
-        guard let node, node.window != nil else { return }
-        var v: UIView? = node.superview
-        while let cur = v {
-            var target = cur as? ScrollView
-            if let waiting = cur as? NodeView, waiting.scrollDormant { waiting.needScroll(); target = waiting.scroll }
-            if let sv = target {
-                // The node's box in the container's content space, with a
-                // little air; the visible part of that space.
-                let r = node.convert(node.bounds, to: sv).insetBy(dx: 0, dy: -8)
-                let visible = sv.bounds.inset(by: sv.adjustedContentInset)
-                var o = sv.contentOffset
-                if r.maxY > visible.maxY { o.y += r.maxY - visible.maxY } else if r.minY < visible.minY { o.y -= visible.minY - r.minY }
-                if r.maxX > visible.maxX { o.x += r.maxX - visible.maxX } else if r.minX < visible.minX { o.x -= visible.minX - r.minX }
-                let i = sv.adjustedContentInset
-                o.y = min(max(o.y, -i.top), max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height))
-                o.x = min(max(o.x, -i.left), max(-i.left, sv.contentSize.width + i.right - sv.bounds.width))
-                if o != sv.contentOffset { sv.contentOffset = o }
-            }
-            v = cur.superview
-        }
     }
 
     /// The viewport's size in points: what the kernel lays out under.
@@ -621,7 +592,7 @@ package final class Presenter {
         scrollPump.settle()
         textRasters.settleVisible(textViews.values.filter { textIsVisible($0) })
     }
-    func requestTextPublication() { scrollPump.requestText() }
+    package func requestTextPublication() { scrollPump.requestText() }
     var onSubmit: ((UInt32) -> Void)?
     var onLoad: ((UInt32) -> Void)?
     var onMessage: ((UInt32, String) -> Void)?
@@ -1004,9 +975,6 @@ package final class Presenter {
         }
         pendingScrolls = pendingScrolls.filter { views[$0]?.pendingScrollTop != nil || views[$0]?.pendingScrollLeft != nil }
         if !flights.isEmpty { flightsBatchApplied() }
-        // A batch that only builds, moves or drops a list's rows changes no
-        // route, header or bar: the projection would come out the same.
-        if !rowsOnly || navigation.syncOwed { navigation.sync(batch) }
         #if os(tvOS)
         menuKey.sync()
         playPauseKey.sync()
@@ -1028,7 +996,12 @@ package final class Presenter {
         // dimmed, deaf to a finger); judge it again where it shows, in its cell.
         if groupedLists?.carriesRows == true { segments.sync() }
         positionContexts()
-        syncAccessibility(changed: changed)
+        // Finish controls and frames before UIKit synchronously lays out the destination.
+        afterBatch { [weak self] in
+            guard let self else { return }
+            if !rowsOnly || navigation.syncOwed { navigation.sync(batch) }
+            syncAccessibility(changed: changed)
+        }
         #if os(iOS)
         syncScrollsToTop()
         #endif
@@ -1329,9 +1302,9 @@ package final class Presenter {
     }
 
     /// The page's canvas colour — behind the document and into the safe
-    /// areas the layout keeps out of — is the first root's background, as
-    /// Safari paints the root element's background under the status bar
-    /// and the home indicator; white when the root sets none.
+    /// areas the layout keeps out of — is the first root's background, as a
+    /// view controller's view carries its own under the status bar and the
+    /// home indicator; `systemBackground` when it sets none (LLP 1115 D2).
     var onCanvasColor: ((UIColor) -> Void)?
     /// The head's title (LLP 1048.003 D1), for the app adapter that owns the
     /// scene; an embedded view never claims it.

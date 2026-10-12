@@ -134,7 +134,7 @@ package final class TextArea: NSTextView {
             let origin = textContainerOrigin
             let rect = NSRect(x: origin.x, y: origin.y, width: textContainer?.containerSize.width ?? bounds.width, height: bounds.height - origin.y)
             (placeholder as NSString).draw(in: rect, withAttributes: [
-                .font: font ?? NSFont.systemFont(ofSize: 16),
+                .font: font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize),
                 .foregroundColor: owner?.isNativeTextControl == true ? NSColor.placeholderTextColor : (textColor ?? SystemColor.canvasText).withAlphaComponent(0.3),
             ])
         }
@@ -238,10 +238,11 @@ extension NodeView {
         f.insertionPointColor = caretColor
         let native = isNativeTextControl
         textAreaScroll?.borderType = native ? .bezelBorder : .noBorder
-        textAreaScroll?.focusRingType = native ? .default : .none
+        textAreaScroll?.focusRingType = native && !outlineNone ? .default : .none
         textAreaScroll?.drawsBackground = native
         f.drawsBackground = native
-        f.focusRingType = native ? .default : .exterior
+        f.focusRingType = outlineNone ? .none : native ? .default : .exterior
+        restyleFieldFocus()
         f.textContainerInset = native ? FieldChromeCache.textareaInset(for: effectiveAppearance, scale: window?.backingScaleFactor ?? 1) : .zero
         let paragraph = NSMutableParagraphStyle()
         if let height = usedLineHeight {

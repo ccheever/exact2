@@ -118,9 +118,12 @@ component SettingsSelect
       keyed = kmBump(keyed, false)
   view
     box position="relative" width=width
-      button popovertarget=`${selectId}-menu` key=triggerKey focus=keyArm(true) blur=keyArm(false) role="combobox" aria-label=label disabled=disabled id=selectId testId=selectId class=SkField display="flex" flex-direction="row" align-items="center" gap="0.375rem" width=width opacity=(disabled ? 0.64 : 1)
-        // SelectTrigger is text-left: a button centres its text by default.
-        text valueLabel font-size="0.875rem" line-height="1.25rem" class=SkInk flex=1 min-width=0 line-clamp=1 text-align="left"
+      button popovertarget=`${selectId}-menu` key=triggerKey focus=keyArm(true) blur=keyArm(false) role="combobox" aria-label=label disabled=disabled id=selectId testId=selectId class=SkField display="flex" flex-direction="row" align-items="center" gap="0.375rem" width=width opacity=(disabled ? 0.64 : 1) title=""
+        // SelectTrigger is text-left: a button centres its text by default. The label names its own text node (X64 #316,
+        // X82): on macOS a rastered label under a button kept painting the value it had before a change made elsewhere
+        // (the scheduled task editor's Project after Runs on, scheduled-tasks-followups ST-1); a new value is a new node.
+        each shown in [valueLabel] key=shown
+          text shown font-size="0.875rem" line-height="1.25rem" class=SkInk flex=1 min-width=0 line-clamp=1 text-align="left"
         LucideChevronDown(size=12, color="light-dark(#71717b, #818181)")
       KeyMenuOpen(menuId=`${selectId}-menu`, armed=keyArmed, opened=keyOpened)
       SkPopup(menuId=`${selectId}-menu`, label=label, width=width, list=true, endAlign=0, items=map(options, (option) => KmItem(id=`${selectId}-option-${option.value}`, label=option.label)), keyed=keyed)
@@ -180,9 +183,8 @@ component SkMenuItem
 
 // settings-headings: a heading VoiceOver reads and nothing draws, as Tailwind's `sr-only` (1px, clipped, out of
 // flow): SettingsSection's `hideTitle` `<h2 className="sr-only">` (Appearance's "Colors & themes", the Project page's
-// "Project", Scheduled Tasks' environment). General's Legacy features uses one too: there the reference's trigger, a
-// button, holds the `<h2>` (SettingsPanels.tsx LegacyFeaturesSection), but the Mac host makes a button a leaf
-// (NodeViewMac `accessibilityChildren`), so the heading sits beside the button (EXACT2-GAPS.md).
+// "Project", Scheduled Tasks' environment). (General's Legacy features holds its `<h2>` inside its trigger, a drawn
+// heading in the button, since main #451 keeps a heading inside a Mac button: adopt-main-fixes-r10 RT-2.)
 component SettingsSrHeading
   props
     title: string

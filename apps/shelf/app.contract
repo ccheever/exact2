@@ -20,9 +20,9 @@
 //   the progress bar.
 //
 // The tint is the platform's: the app names none, so every bar button, control,
-// selected tab and star is the system's accent. (A root `accent-color` would tint
-// the tab bar and controls but not the bar buttons, so there is no one place to set
-// an app's tint yet: QUEUE.md.) Layout (flex, gap, padding) is
+// selected tab and star is the system's accent. (A root `accent-color` is the one
+// place to set an app's tint: on iOS it is the window's tint, so bars, sheets and
+// alerts take it too.) Layout (flex, gap, padding) is
 // CSS and the author's; the web host draws the same file as a web page.
 
 routes nav

@@ -98,11 +98,12 @@ function appBack(header) {
   const entry = written[cursor - 1], known = cursor > first && written[cursor]?.id === id && entry?.id === Number(below.getAttribute("navigationKey"));
   if (!known || navigate(entry.url) === false) hostBack?.(id);
 }
+const closedNone = route => ["modal", "fullscreen"].includes(route?.getAttribute("navigationPresentation")) && route.getAttribute("closedby") === "none";
 /** Press the Back control; else why it was not pressed. */
 function pressBack(nav) {
   const route = selectedRoute(nav), control = backControl(nav);
   if (!route) return "no route is selected";
-  if (["modal", "fullscreen"].includes(route.getAttribute("navigationPresentation")) && route.getAttribute("closedby") === "none") return `route ${route.getAttribute("navigationKey")} is closedby="none"`;
+  if (closedNone(route)) return `route ${route.getAttribute("navigationKey")} is closedby="none"`;
   if (!control) return `route ${route.getAttribute("navigationKey")} has no id="${nav.getAttribute("navigationBack")}" control`;
   if (control.matches(":disabled") || control.closest("[inert]") || !control.getClientRects().length || getComputedStyle(control).visibility !== "visible")
     return `its id="${control.id}" control is disabled, inert or not shown`;
@@ -153,18 +154,18 @@ function popped({ j, state, url }) {
   const target = owned ? entry.url : url;
   const nav = root.querySelector("[navigationBack]");
   const routes = routesOf(nav), selected = routes.indexOf(selectedRoute(nav));
-  // A completed pop presses the selected route's Back control. A route with
-  // none (a screen with no Back button) still goes back, as the web's Back
-  // does: the root's `navigate` with the entry's URL, as any other traversal,
-  // or with no `navigate` handler the runner's own `back` (LLP 1115 D5).
-  const beneath = owned && j === cursor - 1 && selected > 0
-    && routes[selected - 1].getAttribute("navigationKey") === String(entry.id);
-  const back = beneath && !!backControl(nav);
-  let why = null;
+  // A completed pop presses the selected route's Back control; a route with none still goes back by the root's `navigate`
+  // with the entry's URL. Unheard, a Back one entry down is the platform's own, as iOS's (NavigationRules.back): the route's
+  // control pressed (disabled, or closedby="none", refuses), else the runner's `back` from the visit the entry left (LLP 1115 D5), however routes are keyed.
+  const step = owned && j === cursor - 1, beneath = step && selected > 0 && routes[selected - 1].getAttribute("navigationKey") === String(entry.id);
+  let back = beneath && !!backControl(nav), own = false, why = null;
   pop = {};
   try {
     if (back) why = pressBack(nav);
-    else if (navigate(target) === false && beneath) hostBack?.(Number(nav.getAttribute("navigationKey")));
+    else if (navigate(target) === false && step) {
+      own = true; back = !!backControl(nav) || closedNone(selectedRoute(nav));
+      if (back) why = pressBack(nav); else hostBack?.(written[cursor].id);
+    }
     const accepted = back ? last?.top === entry.id : pop.op?.url === target;
     if (accepted) {
       cursor = j ?? cursor;
@@ -180,7 +181,7 @@ function popped({ j, state, url }) {
       }
     } else {
       if (back) log(`history: Back refused: ${why ?? `pressing the Back control did not select entry ${entry.id}`}; restoring the entry`);
-      else log(`history: ${beneath ? `Back to ${JSON.stringify(target)} refused: route ${nav.getAttribute("navigationKey")} has no id="${nav.getAttribute("navigationBack")}" control, and` : `navigate ${JSON.stringify(target)} refused:`} the navigation root's navigate handler (navigate=…) committed no router change, or the root has none; restoring the entry`);
+      else log(`history: ${own ? `Back to ${JSON.stringify(target)} refused: the navigation root has no navigate handler (navigate=…), and the runner's own back from visit ${written[cursor].id} committed no router change` : `${beneath ? `Back to ${JSON.stringify(target)} refused: route ${nav.getAttribute("navigationKey")} has no id="${nav.getAttribute("navigationBack")}" control, and` : `navigate ${JSON.stringify(target)} refused:`} the navigation root's navigate handler (navigate=…) committed no router change, or the root has none`}; restoring the entry`);
       if (j !== null && j !== cursor) go(cursor, j);
       else history.replaceState(written[cursor], "", historyURL(written[cursor].url));
     }
