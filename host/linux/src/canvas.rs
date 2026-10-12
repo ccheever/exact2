@@ -149,6 +149,8 @@ mod input;
 pub use device::{configure, window, Told};
 #[path = "canvas/jni.rs"]
 pub mod jni;
+#[path = "canvas/journal.rs"]
+mod journal;
 #[path = "canvas/keys.rs"]
 mod keys;
 #[path = "canvas/layer.rs"]
