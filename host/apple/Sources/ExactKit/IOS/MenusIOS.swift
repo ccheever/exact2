@@ -630,6 +630,15 @@ final class MenuHost {
         guard let owner = confirmation, let pop = owner.popover, pop.props["id"] == name else { return }
         finish(owner, chosen: nil)
     }
+    /// The agent's `back` (LLP 1116.006 D4): the open confirmation's cancel,
+    /// as a keyboard's Escape or a tap outside it chooses it. nil with none
+    /// open; false while it is still moving.
+    func agentCancel() -> Bool? {
+        guard let owner = confirmation else { return nil }
+        guard !inTransition, valid(owner) else { return false }
+        finish(owner, chosen: nil)
+        return true
+    }
     private func controller(for view: UIView) -> UIViewController? {
         var responder: UIResponder? = view
         while responder != nil && !(responder is UIViewController) { responder = responder?.next }

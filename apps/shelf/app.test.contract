@@ -95,6 +95,32 @@ test "Remove on a book's screen asks first, and Cancel keeps it"
   expect state current.name == "library"
   expect text "library-count" == "2 of 2 books"
 
+test "the platform's Back pops a book, dismisses the add sheet and cancels the alert"
+  tap "book-seed-2"
+  clock settle
+  expect state current.name == "book"
+  back
+  clock settle
+  expect state current.name == "library"
+  tap "add-book"
+  clock settle
+  type "add-title" "Draft"
+  back
+  clock settle
+  expect state current.name == "library"
+  expect text "library-count" == "3 of 3 books"
+  tap "book-seed-3"
+  clock settle
+  tap "remove-book"
+  clock settle
+  back
+  clock settle
+  expect tree has "book-detail"
+  back
+  clock settle
+  expect state current.name == "library"
+  expect text "library-count" == "3 of 3 books"
+
 test "a long press offers Remove, which asks first"
   tap "book-seed-1" contextmenu
   tap "menu-remove"

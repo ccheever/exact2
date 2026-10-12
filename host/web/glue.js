@@ -1160,7 +1160,7 @@ function agentReply(request) {
         const i = request.into; // @ref LLP 1070.000 §5 — the runner's request, its batch applied now
         if (i) { send(wasm.exact_into_view(request.id, writeIn(`${i.key ?? ''}\n${i.block ?? 'start'}\n${i.inline ?? 'nearest'}`))); return tagged({ tapped: request.id, into: i }); }
         const frame = views.get(request.id);
-        if (request.history !== undefined) return navigation.travel(frame, request.history);
+        if (request.history !== undefined || request.back) return request.back ? navigation.back(root) : navigation.travel(frame, request.history); // the agent's `back` (LLP 1116.006 D4)
         if (frame && (frame.closest("[inert]") || ["hidden", "collapse"].includes(getComputedStyle(frame).visibility)))
           return { handled: true, error: `view ${request.id} is hidden or inert` };
         return frame instanceof HTMLIFrameElement ? guestTap(frame, request) : { guest: false };

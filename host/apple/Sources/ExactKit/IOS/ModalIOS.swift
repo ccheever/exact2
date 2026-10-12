@@ -307,6 +307,18 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         guard canDismissByBackdrop(id), let route = layers.last?.route else { return }
         presenter.navigation.invokeBack(from: route)
     }
+    /// The agent's `back` on the top sheet (LLP 1116.006 D4): its swipe
+    /// down, refused as UIKit's is (`presentationControllerShouldDismiss`)
+    /// and ending as a completed one does (`invokeBack`). nil with no sheet
+    /// up; "" when it went, else why not.
+    func agentDismiss() -> String? {
+        guard let route = layers.last?.route else { return nil }
+        if inTransition { return "the sheet is still moving: `clock settle` first" }
+        if NavigationRules.modalRefusesDismissal(closedby: route.props["closedby"]) { return "its closedby is \"none\"" }
+        if refusesDismissal(of: route) { return presenter.navigation.backRefusal }
+        presenter.navigation.invokeBack(from: route)
+        return ""
+    }
 
     func prepare(_ batch: Batch) {
         for layer in layers where batch.ops.contains(where: {

@@ -387,6 +387,7 @@ step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu"
               | "fail" "fetch" STRING [ "times" NUMBER ] NL (* later fetches whose URL starts with it fail *)
               | "pass" "fetch" STRING NL             (* it stops failing *)
               | "close" NL                           (* the window's close button *)
+              | "back" NL                            (* the platform's Back *)
               | "screenshot" STRING NL
               | "expect" "tree" ( "has" | "missing" ) STRING NL
               | "expect" "text" STRING "==" STRING NL
@@ -457,6 +458,16 @@ test goes on to the app's own "Save changes?" (on the web the browser's "Leave
 site?", answered "Stay"). A window that closes, by `close` or by a press the app
 answers with `close()`, takes the session with it, and a step after it fails
 naming the line. macOS and the web; iOS and Linux close no window and refuse it.
+`back` is the platform's Back, as a person takes it, from what is on top: an
+open dialog's cancel (a modal `dialog` or `role="alertdialog"` popover: Escape
+on the web and macOS, the alert's Cancel on iOS), else the top sheet dismissed
+(a `navigationPresentation="modal"` route: iOS's swipe down), else the pushed
+route popped (iOS's Back button, the browser's Back, ⌘[ on macOS, Alt+Left on
+Linux). A route goes back as those do: its Back control pressed, else the root's
+`navigate` with the location beneath, else the router's own `back`. One the app
+refuses (a disabled Back control, `closedby="none"`) is a note, and the test
+goes on; with nothing to go back from the step fails. It names no target: `tap`
+the app's own control to press it.
 `type` on a `select` chooses an enabled option by value, else by its one label;
 on a date, time or range input it sets the value in HTML's format; on a checkbox
 it takes `true` or `false`, on a radio `true`. A target out of view is scrolled into view first.

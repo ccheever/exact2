@@ -1528,11 +1528,12 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   iOS alone sizes a sheet (LLP 1075.003 §9.11).
 - Without tabs, the routes are the root's own children, laid out the same way.
 - Tests reach a tab by `tap`, or deliver a location as `type <root> "/saved"` (LLP
-  1038 D11), which calls the root's `navigate`. On the web a CLI drive goes back as
-  the browser's back button does with `tap <root> history -1`, `<root>` being the
-  navigation root (the node with `navigationBack`) by its `testId`, the simplest
-  handle, or its view number from `tree`; native hosts refuse it, and a
-  test file has no such step yet.
+  1038 D11), which calls the root's `navigate`. `back`, an operation and a test
+  step, is the platform's Back on every host (LLP 1116.006 D4): an open dialog's
+  cancel, else the top sheet dismissed, else the pushed route popped, as iOS's Back
+  button, the browser's Back or ⌘[ goes; with nothing to go back from it fails. On
+  the web `tap <root> history -1` is the browser's history alone (native hosts
+  refuse it).
 
 A `head` node supplies document metadata. The innermost active value wins for
 each field. `head edited=dirty` marks a document with unsaved changes (the dot in
@@ -2105,7 +2106,9 @@ clock starting over, so a test shows what persists; the web reloads its current
 URL, including its agent launch facts; a native app reopens at its launch
 location), `close` (the window's close button, as ⌘W: a `beforeunload` that
 calls `preventDefault()` keeps it open and the test goes on to the app's "Save
-changes?"; macOS and the web),
+changes?"; macOS and the web), `back` (the platform's Back: a dialog's cancel,
+a sheet's dismissal, the pushed route popped; a refusal is a note, nothing to
+go back from fails),
 `screenshot "file"`, `expect tree has|missing "id"`, `expect text "id" == "…"`
 (the node's text; a control's value, so a `select` reads its chosen value, not its
 options, and a checkbox with a `checked` binding `true` or `false`; else its descendants' — a button's label — else a field's value), and

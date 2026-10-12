@@ -181,7 +181,7 @@ impl Parser {
                 return self.err(
                     "syntax-expected-step",
                     format!(
-                    "expected `tap`, `type`, `pick`, `clock`, `resize`, `reload`, `close`, `screenshot`, `fail fetch`, `pass fetch`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`, `before data`, `fail fetch`), found {}",
+                    "expected `tap`, `type`, `pick`, `clock`, `resize`, `reload`, `close`, `back`, `screenshot`, `fail fetch`, `pass fetch`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`, `before data`, `fail fetch`), found {}",
                     describe(&other)
                 ),
                 )
@@ -574,6 +574,16 @@ impl Parser {
             }
             "reload" => Step::Reload { span },
             "close" => Step::Close { span },
+            // @ref LLP 1116.006 D4 — the platform's Back from what is on top: it names no target.
+            "back" => {
+                if !matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Eof) {
+                    return self.err(
+                        "syntax-expected-step",
+                        "`back` takes nothing: it is the platform's Back from what is on top (a dialog, a sheet, a pushed route); `tap` the app's own control to press it",
+                    );
+                }
+                Step::Back { span }
+            }
             "screenshot" => Step::Screenshot {
                 path: self.str_lit("a file name")?,
                 span,
@@ -694,7 +704,7 @@ impl Parser {
                 return Err(SyntaxError {
                     id: "syntax-expected-step",
                     message: format!(
-                    "expected `tap`, `type`, `pick`, `clock`, `resize`, `reload`, `close`, `screenshot`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`, `before data`), found `{other}`"
+                    "expected `tap`, `type`, `pick`, `clock`, `resize`, `reload`, `close`, `back`, `screenshot`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`, `before data`), found `{other}`"
                 ),
                     span,
                 })

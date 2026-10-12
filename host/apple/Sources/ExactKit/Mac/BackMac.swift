@@ -59,8 +59,10 @@ extension NavigationHost {
 
     /// How Back goes from the selected route, resolved at use as iOS's is
     /// (`NavigationRules.back`); nil when it does not.
-    var back: NavigationRules.Back? {
-        guard let (root, route) = pushedRoute else { return nil }
+    var back: NavigationRules.Back? { pushedRoute.flatMap { way(from: $0.root, $0.route) } }
+
+    /// How Back goes from `route`, under `root`.
+    private func way(from root: NodeView, _ route: NodeView) -> NavigationRules.Back? {
         let named = backControls(in: route, of: root)
         let control = NavigationRules.backControl(named: root.props["navigationBack"], among: named, id: \.id, htmlID: { $0.props["id"] },
                                                   pressable: { $0.handlers.contains("press") }, disabled: \.disabled, inActiveRoute: { _ in true })
@@ -78,13 +80,42 @@ extension NavigationHost {
     /// root's `navigate` with the location beneath, else the runner's `back`.
     @discardableResult func goBack() -> Bool {
         guard canGoBack, let (root, route) = pushedRoute, let how = back else { return false }
+        take(how, from: root, route)
+        return true
+    }
+
+    private func take(_ how: NavigationRules.Back, from root: NodeView, _ route: NodeView) {
         switch how {
         case .press(let id): presenter.press(id)
         case .navigate(let location): presenter.session?.navigate(location, at: root)
         case .pop:
             if let key = route.props["navigationKey"] { presenter.session?.hostBack(key) }
         }
-        return true
+    }
+
+    /// The selected route when it is a sheet (a modal route over the route
+    /// beneath it), with its navigation root.
+    private var sheetRoute: (root: NodeView, route: NodeView)? {
+        guard let selection, selection.at > 0, selection.stack.indices.contains(selection.at),
+              let root = presenter.views[selection.root], let route = presenter.views[selection.stack[selection.at]],
+              ["modal", "fullscreen"].contains(route.props["navigationPresentation"] ?? "") else { return nil }
+        return (root, route)
+    }
+
+    /// The agent's `back` from a route (LLP 1116.006 D4): a pushed one's
+    /// as ⌘[ takes it (`goBack`); a sheet's as iOS's swipe down does, which
+    /// its `closedby="none"` refuses. nil with neither on top; the way, and
+    /// why the app refused it ("" when it did not).
+    func agentBack() -> (way: String, refused: String)? {
+        if pushedRoute != nil {
+            if presenter.dialogs.active != nil || presenter.viewport.window?.attachedSheet != nil { return ("route", "a dialog or a sheet is open over the page") }
+            return ("route", goBack() ? "" : "its navigationBack control is disabled or has no press handler")
+        }
+        guard let (root, route) = sheetRoute else { return nil }
+        if NavigationRules.modalRefusesDismissal(closedby: route.props["closedby"]) { return ("sheet", "its closedby is \"none\"") }
+        guard let how = way(from: root, route) else { return ("sheet", "its navigationBack control is disabled or has no press handler") }
+        take(how, from: root, route)
+        return ("sheet", "")
     }
 
     /// `state.navigation.back` (the agent): how Back goes now, or that it does not.

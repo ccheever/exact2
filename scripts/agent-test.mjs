@@ -277,7 +277,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       };
       // Before an input while counted faults are outstanding: those that fired leave the check, so a press the app
       // answers with `close()` cannot take an unfired one's evidence with it (LLP 1103 D3).
-      const INPUTS = new Set(['tap', 'drag', 'type', 'key', 'pick', 'clipboard', 'resize']);
+      const INPUTS = new Set(['tap', 'drag', 'type', 'key', 'pick', 'clipboard', 'resize', 'back']);
       const settleFired = async () => {
         if (!armed.size) return;
         const faults = (await s.state()).faults ?? [];
@@ -339,6 +339,9 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
             // one that closed takes the session, so a step after it fails naming it.
             // Counted faults are checked first: a window that closes takes the table with it.
             case 'close': for (const prefix of [...armed.keys()]) await unfired(prefix); delivered(await s.closeWindow()); input = st.line; break;
+            // The platform's Back (LLP 1116.006 D4): an open dialog's cancel, else the top sheet's dismissal, else the pushed
+            // route popped. Nothing to go back from fails the step; a Back the app refuses (a disabled control, closedby="none") is a note.
+            case 'back': { const r = await s.back(); delivered(r); if (r?.refused) notes.push(`line ${st.line}: back refused: ${r.refused}`); input = st.line; break; }
             case 'screenshot': await s.screenshot(st.path); break;
             case 'expect-tree': {
               const tree = await s.tree();

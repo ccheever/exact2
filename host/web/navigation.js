@@ -105,7 +105,7 @@ function appBarBack(nav, routes, index, split = false) {
     if (header.shadowRoot || !header.attachShadow) return; // a shadow root of someone else's
     header.attachShadow({ mode: "open" }).innerHTML = BACK;
     button = header.shadowRoot.querySelector("button");
-    button.addEventListener("click", event => { event.stopPropagation(); appBack(header); });
+    button.addEventListener("click", event => { event.stopPropagation(); appBack(header.parentElement); });
   }
   const title = control ? control.textContent.trim() : headerOf(routes[index - 1])?.querySelector("h1, h2, h3, h4, h5, h6, [role=heading]")?.textContent.trim() ?? "";
   const label = control || (title && title.length <= 14) ? title : "Back", name = control ? control.getAttribute("aria-label") || label || "Back" : label === "Back" ? label : `Back to ${label}`;
@@ -113,11 +113,11 @@ function appBarBack(nav, routes, index, split = false) {
   if (button.lastChild.textContent !== label) button.lastChild.textContent = label;
   if (button.getAttribute("aria-label") !== name) button.setAttribute("aria-label", name);
 }
-/** The app bar's Back, pressed: the browser's Back from its route (`popped`), applied at once: the route's control
+/** The app bar's Back on `route`, pressed: the browser's Back from its route (`popped`), applied at once: the route's control
  * pressed, else the root's `navigate` with the location beneath, else the runner's own `back` (LLP 1115 D5). The
  * history follows the commit as it follows any Back the app takes (`commit`). */
-function appBack(header) {
-  const route = header.parentElement, nav = route?.parentElement?.closest("[navigationBack]");
+function appBack(route) {
+  const nav = route?.parentElement?.closest("[navigationBack]");
   if (!nav || route !== selectedRoute(nav)) return;
   const routes = routesOf(nav), below = routes[routes.indexOf(route) - 1], id = Number(route.getAttribute("navigationKey"));
   if (!below) return;
@@ -274,6 +274,8 @@ export const navigation = {
     if (pop) { pop.op = op; for (const id of op.removed) gone.add(id); }
     else { queue.push({ op }); drain(); }
   },
+  // @ref LLP 1116.006 D4 — the agent's `back` from a route: the browser's Back where the entry beneath is the route beneath, else (a reload left none) the app bar's.
+  back(hostRoot) { const nav = hostRoot?.querySelector("[navigationBack]"), routes = nav ? routesOf(nav) : [], route = nav && selectedRoute(nav), at = routes.indexOf(route), way = sheet(route) ? "sheet" : "route", key = nav?.getAttribute("navigationKey"), kept = () => nav.getAttribute("navigationKey") === key ? { refused: "the app kept the route: its Back control is disabled, its closedby is \"none\", or its navigate changed nothing (logs say which)" } : {}; if (at < 1) return { error: "back: nothing to go back from: no dialog is open, and no route is beneath the selected one" }; if (cursor > first && written[cursor]?.id === Number(route.getAttribute("navigationKey")) && written[cursor - 1]?.id === Number(routes[at - 1].getAttribute("navigationKey"))) return navigation.travel(nav, -1).then(r => ({ ...r, back: way, ...kept() })); appBack(route); return { back: way, delivery: "app-bar", ...kept() }; },
   // @ref LLP 1038 D11 — the agent uses the real browser traversal.
   travel(nav, delta) {
     if (nav !== root.querySelector("[navigationBack]")) return { error: "history target is not the navigation root" };

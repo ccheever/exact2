@@ -259,3 +259,30 @@ fn back_is_its_keys_default_action_after_the_authors() {
     assert!(reply.contains("\"typed\""), "{reply}");
     assert!(!on_detail(&p), "the drive's Alt+Left popped the route");
 }
+
+/// LLP 1116.006 D4: a test's `back` is system Back, the wire's `tap` with
+/// `back`; with nowhere to go back to it is an error that says so, and a
+/// control that refuses it is the reply's `refused`.
+#[test]
+fn the_agents_back_is_system_back() {
+    let back = r#"{"op":"tap","back":true}"#;
+    let mut p = boot("navigationBack=\"back\" navigate=follow", BUTTON);
+    let reply = crate::agent::handle(&mut p, back);
+    assert!(reply.contains("nothing to go back from"), "{reply}");
+    open(&mut p);
+    let reply = crate::agent::handle(&mut p, back);
+    assert!(
+        reply.contains(r#""back":"route""#) && !reply.contains("refused"),
+        "{reply}"
+    );
+    assert!(!on_detail(&p), "the drive's back popped the route");
+    assert_eq!(slot(&mut p, "pressed"), 1, "by the author's control");
+    let disabled = BUTTON.replace("press=back", "press=back disabled=true");
+    let mut p = boot("navigationBack=\"back\" navigate=follow", &disabled);
+    open(&mut p);
+    let reply = crate::agent::handle(&mut p, back);
+    assert!(reply.contains(r#""refused""#), "{reply}");
+    assert!(on_detail(&p), "a disabled control keeps the route");
+    let reply = crate::agent::handle(&mut p, r#"{"op":"tap","back":true,"id":3}"#);
+    assert!(reply.contains("takes no other input fields"), "{reply}");
+}

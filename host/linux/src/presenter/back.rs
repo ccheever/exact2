@@ -169,6 +169,20 @@ impl<D: DataSource> Presenter<D> {
         self.back().is_some()
     }
 
+    /// The agent's `back` (LLP 1116.006 D4): system Back, as a desktop's
+    /// Back key takes it. `None` with nowhere to go back to; `Some(Err)`
+    /// for a route whose Back control refuses it (journaled, as a key's is).
+    pub(crate) fn agent_back(&mut self, now_ms: f64) -> Option<Result<(), String>> {
+        let refused = matches!(self.back()?, Back::Refused);
+        self.system_back(now_ms);
+        Some(match refused {
+            true => {
+                Err("the route's navigationBack control is disabled or has no press handler".into())
+            }
+            false => Ok(()),
+        })
+    }
+
     /// System Back at `now_ms`: whether the app took it. `false` is the
     /// shell's to act on (Android finishes the activity).
     pub fn system_back(&mut self, now_ms: f64) -> bool {

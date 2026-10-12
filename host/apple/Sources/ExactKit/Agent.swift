@@ -214,6 +214,13 @@ public final class Agent {
                 #else
                 r = ["error": "unsupported: an iOS app closes no window; close drives a macOS window or the browser's page (`beforeunload`)"]
                 #endif
+            } else if req["back"] != nil {
+                // The platform's Back, as a person takes it (LLP 1116.006
+                // D4): an input, as `close` is (AgentIOS, AgentMac `back`).
+                guard req.keys.allSatisfy({ ["op", "session", "back"].contains($0) }), req["back"] as? Bool == true else {
+                    Agent.reply(["error": "tap back takes no other input fields"]); return
+                }
+                r = back()
             } else if req["resize"] != nil {
                 // LLP 1041 §8's opt-in diagnostic is an input variant, not a
                 // ninth operation. Reject ambiguous input before touching UI.
@@ -348,6 +355,17 @@ public final class Agent {
         var out = r
         out["error"] = "\(error); native work is still in flight (a transition, the keyboard or a scroll): `clock settle` first, then try again"
         return out
+    }
+
+    /// `back`'s reply (LLP 1116.006 D4) from the way it went and why the app
+    /// refused it ("" when it did not): nil is nothing to go back from, an
+    /// error. A refusal is no error (a test may assert the sheet stays); it
+    /// is the reply's `refused` and a journal line.
+    func backReply(_ went: (way: String, refused: String)?) -> [String: Any] {
+        guard let went else { return ["error": "back: nothing to go back from: no dialog is open, no sheet is up and no route is beneath the selected one"] }
+        guard !went.refused.isEmpty else { return ["back": went.way, "delivery": "platform"] }
+        session.log("back refused: \(went.refused)")
+        return ["back": went.way, "delivery": "platform", "refused": went.refused]
     }
 
     /// A field's value as a reply shows it (#134): a password's, when not
