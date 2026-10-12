@@ -140,6 +140,7 @@ package final class Presenter {
         }
         viewport.pressedGround = { [weak self] in self?.selection.clear() }
         viewport.pointerTracking = { [weak self] event in self?.trackPointer(event) }
+        viewport.lostKey = { [weak self] in self?.windowLostKey() }
         viewport.documentView = root
         viewport.hasVerticalScroller = true
         viewport.hasHorizontalScroller = true

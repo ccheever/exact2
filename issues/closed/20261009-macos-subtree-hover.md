@@ -1,7 +1,7 @@
 # macOS: hover is not pointerenter/pointerleave — entering a descendant leaves its ancestors, and a node outside its parent's box hears no pointer
 
 **Status:** Closed
-**Resolution:** PR #327 and review follow-ups: hit-tested hover follows overflowing descendants; canvas raw motion stays continuous across covered children and siblings
+**Resolution:** PR #327 and review follow-ups: hit-tested hover follows overflowing descendants; canvas raw motion stays continuous across covered children and siblings. Re-read under LLP 1115.000 D7 (2026-10-11): it stands, since which nodes an authored `hover` covers is what the author wrote and not a Mac convention. What D7.9 adds is the window: hover is tracked in the key window only, as AppKit's is, and ends when the window stops being key (`PointerMannersMacTests.testHoverIsTheKeyWindowsOnly`).
 **Systems:** host/apple macOS, pointer events
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)
