@@ -11,9 +11,14 @@
 - **A status is a `Badge`** ("Full" beside the title). **An action that can't be taken is
   disabled with its reason** under it (`disabled=full`; in a grouped list, the section's
   `footer`), never left enabled to refuse after the tap.
-- **A wide window gets a layout:** two columns or cards (`flex="1 1 320px"` in a wrapping row).
+- **A wide window gets the composition the content wants.** One number and its actions (a
+  tracker, a timer): a focused column, centred, with a `max-width`. A list and its detail, or a
+  dashboard of cards (the hero leads, `pattern dashboard`): two columns (`flex="1 1 320px"` in a
+  wrapping row).
+- **A value is shown once:** a `SummaryCard`'s number with a second, larger copy beside it is a slip.
 
-A timer: round buttons at the row's ends. The column centres the readout, so the row says
+A timer is one number and its buttons: a column of `max-width=360`, centred, so on a wide window
+they stay a phone's width apart. The column centres the readout, so the row says
 `align-self="stretch"`; else it shrinks to its content and bunches them.
 
 ```contract
@@ -27,7 +32,7 @@ component Stopwatch
   action lapOrReset
     laps = running ? laps + 1 : 0
   view
-    column align-items="center" gap=32 padding=24
+    column align-items="center" gap=32 padding=24 max-width=360 margin-left="auto" margin-right="auto"
       text "00:12.40" font-size="4.5rem" font-variant-numeric="tabular-nums"
         -exact-fit="shrink" white-space="nowrap" testId="readout"
       row align-self="stretch" justify-content="space-between"
@@ -48,20 +53,4 @@ component Quiz
     column gap=12 padding=16
       each a in ["Mars", "Jupiter", "Venus"] key=a
         AnswerTile(label=a, status=(picked == "" ? "idle" : a == "Jupiter" ? "correct" : a == picked ? "wrong" : "dimmed"), press=pick(a), testId=`answer-${a}`)
-```
-
-A dashboard: the hero leads; a wide window puts the breakdown beside it (`pattern dashboard`).
-
-```contract
-use SummaryCard, StatBar from "exact:content"
-
-component Budget
-  view
-    scroll height="100%"
-      row flex-wrap="wrap" align-items="flex-start" gap=24 padding=16
-        column flex="1 1 320px" min-width=0
-          SummaryCard(label="Spent", value="$794.90", detail="$5.10 left", progress=some(0.99), symbol=some("symbol:chart"))
-        column flex="1 1 320px" min-width=0 gap=14
-          StatBar(label="Groceries", value="$412 of $450", fraction=0.92, tint=none)
-          StatBar(label="Eating Out", value="$286 of $200", fraction=1.43, tint=some("-exact-system-red"))
 ```
