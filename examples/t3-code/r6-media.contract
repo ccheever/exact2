@@ -1,0 +1,25 @@
+// Lane r6-media (MIT reference, see LICENSE-T3): AttachmentFilePreview's media bodies.
+// - PDF and HTML: BrowserDocumentFrame ("min-h-0 flex-1 border-0 bg-white"), drawn by the
+//   app module's `t3-media` hook (R6MediaPreview.swift): PDFKit fitted to the width, and the
+//   page's own bytes in a sandboxed WebKit view (allow-scripts/forms/popups/modals) with no
+//   network.
+// - Audio: AudioPreview, `<audio controls preload="metadata" class="w-full max-w-xl">` centred
+//   in `p-6`; Chrome's audio controls are a 54 px pill.
+// - Video: `<video controls playsInline class="max-h-full max-w-full">` centred on black.
+// Audio and video are Contract `video` nodes with `controls` (AVKit); their `error` event is the
+// reference's onError ("Unable to load audio." / "Unable to load video.", r6-media-preview.ts).
+use R5Attachment from "./r5-panels-shapes.contract"
+
+component R6MediaBody
+  props
+    att: R5Attachment
+    local: action
+  view
+    when att.preview == "pdf" or att.preview == "html"
+      box hatch="t3-media" data-media-url=att.url data-media-kind=att.preview data-media-name=att.name flex=1 min-height=0 width="100%" background-color="#ffffff" aria-label=att.name testId=`attachment-${att.preview}`
+    when att.preview == "audio"
+      column flex=1 min-height=0 width="100%" padding="1.5rem" box-sizing="border-box" align-items="center" justify-content="center" testId="attachment-audio"
+        video att.url controls=true preload="metadata" aria-label=att.name error=local("surface-r5-att-media-error", att.id) width="100%" max-width="36rem" height="3.375rem" flex-shrink=0 border-radius="1.6875rem" overflow="hidden" testId="attachment-audio-player"
+    when att.preview == "video"
+      column flex=1 min-height=0 width="100%" align-items="center" justify-content="center" overflow="hidden" background-color="#000000" testId="attachment-video"
+        video att.url controls=true playsinline=true preload="metadata" aria-label=att.name error=local("surface-r5-att-media-error", att.id) max-width="100%" max-height="100%" object-fit="contain" testId="attachment-video-player"

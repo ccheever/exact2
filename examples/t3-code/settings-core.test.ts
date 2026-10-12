@@ -1,0 +1,419 @@
+// Lane settings-core: settings shell, General and Appearance logic.
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import type { T3Client } from './client';
+import type { Obj } from './domain';
+import type { Native } from './protocol';
+import { applyCoreSetting, applyDeviceSetting, changedDeviceLabels, clientValue, decodeClientPrefs, effectiveSetting, generalSections, parseCoreTarget,
+  parseProjectFile, resolveScope, restoreLabels, serverContext, serverValue, settingPlan } from './settings-core';
+import { toasts } from './toast';
+import { fleet } from './settings-b-fleet';
+import { applyBrowserDefault, browserDefaultsView } from './browser-defaults';
+import { integrationRows } from './source-control-view';
+
+// The app's one fleet is shared across test files; these cases are single-environment unless they add entries.
+beforeEach(() => { fleet.entries.clear(); fleet.saved = []; });
+afterEach(() => { fleet.entries.clear(); fleet.saved = []; });
+import { appearanceSections, mix, modeTiles, palette, themeCards, themeRoles } from './settings-appearance';
+import { breadcrumbLabel, commandLabel, scopeAvailable, searchSettings, settingsNavigation } from './settings-search';
+import { settingsCore } from './settings-core-view';
+
+const provider = { instanceId: 'fixture', driver: 'codex', displayName: 'Exact fixture', enabled: true, installed: true, auth: { status: 'authenticated' }, status: 'ready',
+  models: [{ slug: 'luna', name: 'GPT-5.6-Luna', isDefault: true, capabilities: { optionDescriptors: [{ id: 'reasoningEffort', type: 'select', options: [{ id: 'low', label: 'Low' }, { id: 'medium', label: 'Medium', isDefault: true }, { id: 'high', label: 'High' }] }] } },
+    { slug: 'astra', name: 'GPT-6-Astra' }] };
+type Fake = { local: Obj; ready: boolean; environmentId: string; config: Obj; writes: Obj[]; files: Record<string, string>; projectGroups(): { key: string; name: string; members: Obj[] }[]; settingsCoreRequest(native: Native, method: string, payload: Obj): Promise<Obj> };
+function fake(settings: Obj = {}, ready = true): Fake {
+  const client: Fake = {
+    local: { deviceSettings: { composerCollapseOnScroll: true, planModeEnabled: false, timestampFormat: 'locale', appearanceMode: 'system', sendShortcut: 'enter' }, clientSettings: decodeClientPrefs({}), groupingMode: 'repository' },
+    ready, environmentId: 'env1', writes: [], files: {},
+    config: { environment: { environmentId: 'env1', label: 'Studio', serverVersion: '0.0.46', capabilities: { projectSettingsOverrides: true, threadAutoSettlement: true, threadRestartContinuation: true } }, providers: [provider], settings: { defaultRuntimeMode: 'full-access', projectSettingsOverrides: {}, ...settings } },
+    projectGroups: () => [{ key: 'repo', name: 'Parity fixture', members: [{ id: 'p1', title: 'Parity fixture', workspaceRoot: '/a' }, { id: 'p2', title: 'Parity fixture', workspaceRoot: '/b' }] },
+      { key: 'env1:/c', name: 'Single checkout two', members: [{ id: 'p3', title: 'Single checkout two', workspaceRoot: '/c' }] }],
+    async settingsCoreRequest(_native, method, payload) {
+      if (method === 'server.getSettings') return client.config.settings as Obj;
+      if (method === 'projects.readFile') { const file = client.files[String(payload.cwd)]; if (file === undefined) throw new Error('missing'); return { contents: file, truncated: false }; }
+      client.writes.push(payload);
+      const patch = payload.patch as Obj, current = client.config.settings as Obj;
+      const overrides = { ...(current.projectSettingsOverrides as Obj) };
+      for (const [id, entry] of Object.entries((patch.projectSettingsOverrides as Obj) || {})) { if (entry === null) delete overrides[id]; else overrides[id] = entry; }
+      client.config.settings = { ...current, ...patch, projectSettingsOverrides: overrides };
+      return client.config.settings as Obj;
+    },
+  };
+  return client;
+}
+const native = { available: true } as unknown as Native;
+const as = (client: Fake) => client as unknown as T3Client;
+
+describe('device settings', () => {
+  test('decode keeps valid reference ClientSettings values and drops the rest', () => {
+    const prefs = decodeClientPrefs({ chatWidth: 'wide', glassOpacity: 55, appearanceContrast: 133, fontSizeCode: 30, theme: 'grove', diffLayout: 'diagonal', fontFamilySans: 'Inter' });
+    expect(prefs.chatWidth).toBe('wide');
+    expect(prefs.glassOpacity).toBe(55);
+    expect(prefs.appearanceContrast).toBe(100);
+    expect(prefs.fontSizeCode).toBe(13);
+    expect(prefs.theme).toBe('grove');
+    expect(prefs.diffLayout).toBe('stacked');
+    expect(prefs.fontFamilySans).toBe('Inter');
+    expect(clientValue('fontFamilySans', 'x"; color: red')).toBeUndefined();
+  });
+  test('switches, selects and grouping write the device record; a whole theme sets both halves', () => {
+    const client = fake();
+    expect(applyDeviceSetting(client.local as never, 'diffIgnoreWhitespace', 'false')).toBe(true);
+    expect(applyDeviceSetting(client.local as never, 'sendShortcut', 'mod-enter')).toBe(true);
+    expect(applyDeviceSetting(client.local as never, 'theme', 'iris')).toBe(true);
+    expect(applyDeviceSetting(client.local as never, 'themeDark', 'ember')).toBe(true);
+    const prefs = client.local.clientSettings as Obj;
+    expect([prefs.diffIgnoreWhitespace, prefs.themeLight, prefs.themeDark]).toEqual([false, 'iris', 'ember']);
+    expect((client.local.deviceSettings as Obj).sendShortcut).toBe('mod-enter');
+    client.local.groupingMode = 'repository_path';
+    applyDeviceSetting(client.local as never, 'projectGrouping', 'false');
+    expect(client.local.groupingMode).toBe('separate');
+    applyDeviceSetting(client.local as never, 'projectGrouping', 'true');
+    expect(client.local.groupingMode).toBe('repository_path');
+    expect(() => applyDeviceSetting(client.local as never, 'chatWidth', 'huge')).toThrow('Unsupported device setting.');
+    expect(applyDeviceSetting(client.local as never, 'unknownKey', 'x')).toBe(false);
+    expect(changedDeviceLabels(client.local as never)).toEqual(expect.arrayContaining(['sendShortcut', 'diffIgnoreWhitespace', 'theme', 'projectGrouping']));
+  });
+});
+
+describe('scope', () => {
+  test('resolves all, environment, project group and checkout; removed targets stay unavailable', () => {
+    const client = as(fake());
+    expect(resolveScope(client, '', '', '').kind).toBe('all');
+    expect(resolveScope(client, 'env1', '', '').kind).toBe('environment');
+    expect(resolveScope(client, 'env1', '', '').connective).toBe('on');
+    const project = resolveScope(client, '', 'repo', '');
+    expect([project.kind, project.members.length, project.projectLabel, project.projectMark]).toEqual(['project', 2, 'Parity fixture', 'PF']);
+    expect(resolveScope(client, '', 'repo', 'p2').members.map(member => member.id)).toEqual(['p2']);
+    expect(resolveScope(client, '', 'gone', '').message).toBe('This project is no longer available.');
+    expect(resolveScope(client, 'env9', '', '').message).toBe('This environment is no longer available.');
+    expect(resolveScope(client, '', '', 'p1').message).toBe('Select a project to choose one of its checkouts.');
+    expect(resolveScope(client, '', 'repo', '').projectChoices.map(choice => choice.label)).toEqual(['All projects', 'Parity fixture', 'Single checkout two']);
+    expect(resolveScope(client, '', '', '').environmentChoices.map(choice => choice.label)).toEqual(['All environments', 'Studio']);
+  });
+  test('effective values: project override, environment, t3.json for file-backed keys, built-in', () => {
+    const settings = { defaultThreadEnvMode: null, worktreeSubmodules: 'none', projectSettingsOverrides: { p1: { defaultRuntimeMode: 'approval-required' } } };
+    expect(effectiveSetting(settings, 'p1', 'defaultRuntimeMode', null)).toEqual({ value: 'approval-required', source: 'project' });
+    expect(effectiveSetting(settings, 'p2', 'defaultThreadEnvMode', { defaultThreadEnvMode: 'worktree' })).toEqual({ value: 'worktree', source: 't3.json' });
+    expect(effectiveSetting(settings, '', 'defaultThreadEnvMode', { defaultThreadEnvMode: 'worktree' })).toEqual({ value: 'local', source: 'environment' });
+    expect(effectiveSetting(settings, 'p2', 'worktreeSubmodules', { worktreeSubmodules: 'top-level' })).toEqual({ value: 'none', source: 'environment' });
+    expect(parseProjectFile('{"defaultThreadEnvMode":"worktree"}')).toEqual({ defaultThreadEnvMode: 'worktree' });
+    expect(parseProjectFile('nope')).toBeNull();
+  });
+  test('project writes replace each member entry; clearing drops only that key', () => {
+    const client = as(fake({ projectSettingsOverrides: { p1: { defaultAutoPull: true } } }));
+    const scope = resolveScope(client, '', 'repo', '');
+    const settings = client.config.settings as Obj;
+    const patches = (key: string, value: unknown, clear: boolean, target = scope) => settingPlan(client, target, key, value as never, clear, settings).serverWrites.map(write => write.patch);
+    expect(patches('defaultRuntimeMode', 'auto', false)).toEqual([{ projectSettingsOverrides: { p1: { defaultAutoPull: true, defaultRuntimeMode: 'auto' }, p2: { defaultRuntimeMode: 'auto' } } }]);
+    expect(patches('defaultAutoPull', undefined, true)).toEqual([{ projectSettingsOverrides: { p1: null, p2: null } }]);
+    expect(settingPlan(client, scope, 'snoozeLimitedThreads', true, false, settings).unavailableReason).toBe('This setting is environment-wide and cannot be overridden by a project.');
+    expect(patches('snoozeLimitedThreads', true, false, resolveScope(client, '', '', ''))).toEqual([{ snoozeLimitedThreads: true }]);
+    expect(patches('defaultThreadEnvMode', undefined, true, resolveScope(client, '', '', ''))).toEqual([{ defaultThreadEnvMode: null }]);
+  });
+});
+
+describe('general rows', () => {
+  test('every reference row in order, with live values and inheritance', () => {
+    const client = as(fake({ snoozeLimitedThreads: true }));
+    const sections = generalSections(client, serverContext(client, resolveScope(client, '', '', ''), new Map()));
+    expect(sections.map(section => section.title)).toEqual(['New threads', 'Organization', 'Behavior', 'Projects & threads', 'Confirmations', 'Text generation', 'About', 'Diagnostics', 'Legacy features']);
+    expect(sections.flatMap(section => section.rows.map(row => row.title))).toEqual(['Model', 'Permissions', 'Workspace', 'Submodules', 'Project grouping', 'Project order', 'Auto-resume limited threads',
+      'Snooze limited threads', 'Working section (beta)', 'Auto-settle merged threads', 'Auto-settle inactive threads', 'Days of inactivity before auto-settle', 'Thread notifications',
+      'In-app notifications', 'Time format', 'Response streaming', 'Hide whitespace changes', 'Default diff file state', 'Diff layout', 'Proactive panels', 'Show skills in slash menu',
+      'Rich text composer', 'Collapse composer on scroll', 'Send shortcut', 'Follow-up behavior', 'Provider update checks', 'Continue threads after restarts', 'Background activity',
+      'Start from origin', 'Add project starts in', 'Unpin confirmation', 'Archive confirmation', 'Delete confirmation', 'Quit shortcut', 'Text generation model', 'Version', 'Update track', 'Mobile app', 'Diagnostics',
+      'Open source licenses', 'Plan mode (legacy)', 'Context window indicator (legacy)', 'Sidebar (legacy)']);
+    const row = (id: string) => sections.flatMap(section => section.rows).find(entry => entry.id === id)!;
+    expect([row('default-model').label, row('default-model').label2, row('default-model').status]).toEqual(['GPT-5.6-Luna', 'Medium', 'Automatic']);
+    expect([row('default-permissions').label, row('default-permissions').icon, row('default-permissions').inheritance]).toEqual(['Full access', 'lock-open', 'default']);
+    expect([row('snooze-limited-threads').checked, row('snooze-limited-threads').inheritance, row('snooze-limited-threads').resettable]).toEqual([true, 'environment', false]);
+    expect([row('new-threads').label, row('worktree-submodules').label, row('days-before-auto-settle').value]).toEqual(['Current checkout', 'Recursive', '3']);
+    expect(row('version').value).toBe('0.0.46-nightly.20261004.1'); // this app's own release, not the server's
+  });
+  test('project scope: overrides, t3.json and environment-wide rows', () => {
+    const client = as(fake({ projectSettingsOverrides: { p1: { defaultRuntimeMode: 'approval-required' }, p2: { defaultRuntimeMode: 'approval-required' } } }));
+    const scope = resolveScope(client, '', 'repo', '');
+    const sections = generalSections(client, serverContext(client, scope, new Map([['p1', { defaultThreadEnvMode: 'worktree' }], ['p2', { defaultThreadEnvMode: 'worktree' }]])));
+    const row = (id: string) => sections.flatMap(section => section.rows).find(entry => entry.id === id)!;
+    expect([row('default-permissions').label, row('default-permissions').inheritance, row('default-permissions').resettable]).toEqual(['Supervised', 'overridden', true]);
+    expect([row('new-threads').label, row('new-threads').inheritanceSummary]).toEqual(['New worktree', "Inherited from the repository's t3.json"]);
+    expect(row('default-model').inheritanceSummary).toBe('Inherited from Studio');
+    expect([row('snooze-limited-threads').inert, row('snooze-limited-threads').note]).toEqual([true, 'Environment-wide setting. Select an environment to change it.']);
+    expect(row('default-model').description).toBe('Model for new threads in this project.');
+  });
+  test('values are validated against the reference schema', () => {
+    const client = as(fake());
+    const context = serverContext(client, resolveScope(client, '', '', ''), new Map());
+    expect(serverValue('defaultRuntimeMode', 'auto', context)).toBe('auto');
+    expect(() => serverValue('defaultRuntimeMode', 'root', context)).toThrow();
+    expect(serverValue('sidebarAutoSettleAfterDays', '12', context, 'days')).toBe(12);
+    expect(() => serverValue('sidebarAutoSettleAfterDays', '91', context, 'days')).toThrow('1 to 90');
+    expect(serverValue('sidebarAutoSettleAfterDays', 'false', context)).toBeNull();
+    expect(serverValue('backgroundActivity', 'battery-saver', context)).toEqual({ schemaVersion: 1, profile: 'battery-saver', overrides: {} });
+    expect(serverValue('defaultModelSelection', 'fixture|astra', context)).toEqual({ instanceId: 'fixture', model: 'astra' });
+    expect(serverValue('defaultModelSelection', 'high', context, 'effort')).toEqual({ instanceId: 'fixture', model: 'luna', options: [{ id: 'reasoningEffort', value: 'high' }] });
+    expect(() => serverValue('defaultModelSelection', 'gone|x', context)).toThrow('unavailable');
+    expect(parseCoreTarget('default-model:effort|env1|repo:a/b|p1')).toEqual({ row: 'default-model', part: 'effort', machine: 'env1', projectKey: 'repo:a/b', checkout: 'p1' });
+  });
+});
+
+describe('traits picker', () => {
+  test('sections, Default badges and the bolt; a pick keeps the other traits (TraitsPicker)', () => {
+    const tier = { id: 'serviceTier', label: 'Service Tier', type: 'select', options: [{ id: 'default', label: 'Standard', isDefault: true }, { id: 'priority', label: 'Fast', description: '2x speed, increased usage' }] };
+    const descriptors = (provider.models[0]!.capabilities as Obj).optionDescriptors as Obj[];
+    descriptors.push(tier);
+    try {
+      const client = as(fake({ defaultModelSelection: { instanceId: 'fixture', model: 'luna', options: [{ id: 'reasoningEffort', value: 'high' }, { id: 'serviceTier', value: 'priority' }] } }));
+      const context = serverContext(client, resolveScope(client, '', '', ''), new Map());
+      const model = generalSections(client, context).flatMap(section => section.rows).find(entry => entry.id === 'default-model')!;
+      expect([model.label2, model.icon]).toEqual(['High', 'fast']);
+      expect(model.options2.map(entry => [entry.value, entry.icon, entry.selected])).toEqual([['section:reasoningEffort', 'section', false], ['reasoningEffort=low', '', false],
+        ['reasoningEffort=medium', 'default', false], ['reasoningEffort=high', '', true], ['section:serviceTier', 'section-rule', false], ['serviceTier=default', 'default', false], ['serviceTier=priority', '', true]]);
+      expect(model.options2.find(entry => entry.value === 'serviceTier=priority')!.detail).toBe('2x speed, increased usage');
+      expect(serverValue('defaultModelSelection', 'reasoningEffort=low', context, 'effort')).toEqual({ instanceId: 'fixture', model: 'luna', options: [{ id: 'serviceTier', value: 'priority' }, { id: 'reasoningEffort', value: 'low' }] });
+      expect(serverValue('defaultModelSelection', 'serviceTier=default', context, 'effort')).toEqual({ instanceId: 'fixture', model: 'luna', options: [{ id: 'reasoningEffort', value: 'high' }, { id: 'serviceTier', value: 'default' }] });
+      expect(() => serverValue('defaultModelSelection', 'section:serviceTier', context, 'effort')).toThrow();
+    } finally { descriptors.pop(); }
+  });
+});
+
+describe('writes through the command', () => {
+  test('environment and project writes reach server.updateSettings; device rows never do', async () => {
+    const client = fake();
+    await applyCoreSetting(as(client), native, 'snooze-limited-threads:|||', 'true');
+    expect(client.writes.at(-1)).toEqual({ patch: { snoozeLimitedThreads: true } });
+    await applyCoreSetting(as(client), native, 'default-permissions:||repo|p2', 'approval-required');
+    expect(client.writes.at(-1)).toEqual({ patch: { projectSettingsOverrides: { p2: { defaultRuntimeMode: 'approval-required' } } } });
+    await applyCoreSetting(as(client), native, 'default-permissions:reset||repo|p2', '');
+    expect((client.config.settings as Obj).projectSettingsOverrides).toEqual({});
+    const count = client.writes.length;
+    await applyCoreSetting(as(client), native, 'diff-layout:diffLayout|||', 'split');
+    await applyCoreSetting(as(client), native, 'time-format:timestampFormat|||', '24-hour');
+    expect(client.writes.length).toBe(count);
+    expect((client.local.clientSettings as Obj).diffLayout).toBe('split');
+    await applyCoreSetting(as(client), native, 'diff-layout:reset|||', 'diffLayout');
+    expect((client.local.clientSettings as Obj).diffLayout).toBe('stacked');
+    // useRunScopedPlan: a refused plan writes nothing and warns "Setting not saved" with the reason.
+    const before = client.writes.length;
+    await applyCoreSetting(as(client), native, 'snooze-limited-threads:||gone|', 'true');
+    expect(toasts(as(client)).at(-1)).toMatchObject({ kind: 'warning', title: 'Setting not saved', description: 'This project is no longer available.' });
+    await applyCoreSetting(as(client), native, 'snooze-limited-threads:||repo|', 'true');
+    expect(toasts(as(client)).at(-1)).toMatchObject({ kind: 'warning', description: 'This setting is environment-wide and cannot be overridden by a project.' });
+    expect(client.writes.length).toBe(before);
+  });
+  test('disconnected server rows refuse; restore resets device and environment values', async () => {
+    const offline = fake({}, false);
+    await applyCoreSetting(as(offline), native, 'snooze-limited-threads:|||', 'true');
+    expect(offline.writes).toEqual([]);
+    expect(toasts(as(offline)).at(-1)).toMatchObject({ kind: 'warning', title: 'Setting not saved', description: 'Connect an environment to save this setting.' });
+    const client = fake({ snoozeLimitedThreads: true, responseStreamingMode: 'turn' });
+    applyDeviceSetting(client.local as never, 'chatWidth', 'full');
+    expect(restoreLabels(client.local as never, client.config.settings as Obj)).toEqual(['Chat width', 'Snooze limited threads', 'Response streaming']);
+    expect(restoreLabels(fake({ backgroundActivity: { profile: 'balanced', overrides: {}, schemaVersion: 1 }, textGenerationModelSelection: { model: 'gpt-6-luna', options: [{ value: 'low', id: 'reasoningEffort' }], instanceId: 'codex' } }).local as never,
+      { backgroundActivity: { profile: 'balanced', overrides: {}, schemaVersion: 1 }, textGenerationModelSelection: { model: 'gpt-6-luna', options: [{ value: 'low', id: 'reasoningEffort' }], instanceId: 'codex' } })).toEqual([]);
+    await applyCoreSetting(as(client), native, 'restore-device-defaults:|||', '');
+    expect(client.writes.at(-1)).toEqual({ patch: { snoozeLimitedThreads: false, responseStreamingMode: 'paragraph' } });
+    expect((client.local.clientSettings as Obj).chatWidth).toBe('comfortable');
+  });
+  test("restore lists and resets the Browser defaults (browser-surface part 4; getChangedBrowserSettingLabels)", async () => {
+    // Settings › Integrations › Browser's rows are device-local: listed and reset with no environment connected.
+    const client = fake({}, false);
+    applyBrowserDefault(client, 'frame-rate', '60');
+    applyBrowserDefault(client, 'zoom', '1.25');
+    applyBrowserDefault(client, 'viewport', 'iphone-12-pro');
+    expect(restoreLabels(client.local as never, null)).toEqual(['Browser viewport', 'Browser zoom', 'Recording frame rate']);
+    applyDeviceSetting(client.local as never, 'chatWidth', 'wide');
+    applyDeviceSetting(client.local as never, 'browserLinkTarget', 'app');
+    applyBrowserDefault(client, 'appearance', 'dark');
+    applyBrowserDefault(client, 'key-presses', 'true');
+    applyBrowserDefault(client, 'auto-show', 'false');
+    expect(restoreLabels(client.local as never, null)).toEqual(['Chat width', 'Browser viewport', 'Browser zoom', 'Browser appearance',
+      'Recording frame rate', 'Recording key presses', 'Open links in', 'Floating preview']);
+    await applyCoreSetting(as(client), native, 'restore-device-defaults:|||', '');
+    expect(restoreLabels(client.local as never, null)).toEqual([]);
+    expect(browserDefaultsView(client)).toMatchObject({ viewportValue: 'fill', zoomLabel: '100%', appearanceLabel: 'System', frameRateLabel: '30 fps', keyPresses: false, autoShow: true });
+  });
+  test('restore lists and re-grants Agent browser access after the browser rows (RD-1; useSettingsRestore)', async () => {
+    const client = fake({ enableAgentBrowserAccess: false, snoozeLimitedThreads: true });
+    applyBrowserDefault(client, 'zoom', '1.25');
+    // The reference's order: the environment rows, getChangedBrowserSettingLabels, then "Agent browser access".
+    expect(restoreLabels(client.local as never, client.config.settings as Obj)).toEqual(['Snooze limited threads', 'Browser zoom', 'Agent browser access']);
+    expect(restoreLabels(client.local as never, null)).toEqual(['Browser zoom']);
+    expect(restoreLabels(client.local as never, { enableAgentBrowserAccess: true })).toEqual(['Browser zoom']);
+    await applyCoreSetting(as(client), native, 'restore-device-defaults:|||', '');
+    expect(client.writes.at(-1)).toEqual({ patch: { snoozeLimitedThreads: false, enableAgentBrowserAccess: true } });
+    expect(restoreLabels(client.local as never, client.config.settings as Obj)).toEqual([]);
+    expect(integrationRows(client.config.settings as Obj, '', 'Studio', true).browser[0]).toMatchObject({ title: 'Agent browser access', checked: true });
+    // Alone, it still enables Restore and names itself; Confirm writes only it.
+    const only = fake({ enableAgentBrowserAccess: false });
+    expect(await settingsCore(as(only), native, '', '', '', '', 'general', '', true)).toMatchObject({ restoreCount: 1, restoreText: 'This will reset: Agent browser access.' });
+    await applyCoreSetting(as(only), native, 'restore-device-defaults:|||', '');
+    expect(only.writes).toEqual([{ patch: { enableAgentBrowserAccess: true } }]);
+  });
+  test('a project or checkout scope restores device settings only: no override is set or cleared (useSettingsRestore)', async () => {
+    // The reference's one patch carries environment-wide keys, so planScopedSettingsPatch plans no server write there; the
+    // device keys save, so no warning. Clearing p1's override here would turn its agent browser access off (the environment's).
+    const overrides = { p1: { enableAgentBrowserAccess: true, responseStreamingMode: 'token' }, p2: { sidebarAutoSettleAfterDays: 7 } };
+    const client = fake({ enableAgentBrowserAccess: false, projectSettingsOverrides: overrides });
+    for (const id of ['restore-device-defaults:||repo|', 'restore-device-defaults:||repo|p1']) {
+      applyDeviceSetting(client.local as never, 'diffLayout', 'split');
+      const notices = toasts(as(client)).length;
+      expect(await applyCoreSetting(as(client), native, id, '')).toBe('Device settings restored');
+      expect([client.writes, (client.local.clientSettings as Obj).diffLayout, toasts(as(client)).length]).toEqual([[], 'stacked', notices]);
+      expect((client.config.settings as Obj).projectSettingsOverrides).toEqual(overrides);
+    }
+    // The environment scope still re-grants it on the environment.
+    await applyCoreSetting(as(client), native, 'restore-device-defaults:|||', '');
+    expect(client.writes).toEqual([{ patch: { enableAgentBrowserAccess: true } }]);
+  });
+  test('Restore defaults lists the scope target\'s values, in the reference\'s order (FX-1; useSettingsRestore over useScopedSettings)', async () => {
+    // As checked on the reference (audit-wave-followups-4): the environment snoozes limited threads; the checkout p1 of "repo" turns
+    // Auto-settle merged threads off and waits for the full response. Each scope lists what its representative target resolves to.
+    const client = fake({ snoozeLimitedThreads: true, projectSettingsOverrides: { p1: { sidebarAutoSettleOnMerge: false, responseStreamingMode: 'turn' } } });
+    const list = async (projectKey: string, checkout: string, route = 'general') => (await settingsCore(as(client), native, '', projectKey, checkout, '', route, '', true)).restoreText;
+    expect(await list('', '')).toBe('This will reset: Snooze limited threads.');
+    // p1's overrides over its environment, and New thread mode: the t3.json tier resolves the unset key to its built-in "local",
+    // which is not the default's null (the reference lists it in every project scope once the file is read).
+    const p1 = 'This will reset: Auto-settle merged threads, Snooze limited threads, Response streaming, New thread mode.';
+    expect(await list('repo', 'p1')).toBe(p1);
+    // Every route reads the scope (Restore defaults is the settings header's), and the project scope's target is its first member.
+    expect([await list('repo', 'p1', 'source-control'), await list('repo', '')]).toEqual([p1, p1]);
+    expect(await list('repo', 'p2')).toBe('This will reset: Snooze limited threads, New thread mode.');
+    // Device values take their places among the environment's; a font counts its family and its size; Visible threads is listed.
+    for (const [key, value] of [['confirmThreadDelete', 'false'], ['wordWrap', 'false'], ['fontSizeCode', '14'], ['sidebarThreadPreviewCount', '8'], ['chatWidth', 'wide']] as const)
+      applyDeviceSetting(client.local as never, key, value);
+    expect(await list('', '')).toBe('This will reset: Chat width, Visible threads, Snooze limited threads, Word wrap, Code font, Delete confirmation.');
+    // No connected target lists the device values alone (DEFAULT_SERVER_SETTINGS).
+    expect(restoreLabels(client.local as never, null)).toEqual(['Chat width', 'Visible threads', 'Word wrap', 'Code font', 'Delete confirmation']);
+  });
+  test('Restore defaults lists "Theme mix" for a theme on one appearance, after Follow system (useTheme themeHalves)', async () => {
+    // The library's Use puts a one-palette theme on its own half (assignHalf): the reference stores the mix and lists it
+    // (`themeHalves !== null`), so Restore defaults is enabled with it alone; a whole theme (setTheme) clears the mix.
+    const client = fake();
+    client.local.customThemes = [{ id: 'dusk', label: 'Dusk', appearance: 'dark', light: null, dark: { canvas: '#101820', accent: '#44cc88', text: '#f0f0f0' } }];
+    applyDeviceSetting(client.local as never, 'theme', 'dusk');
+    expect([(client.local.clientSettings as Obj).theme, (client.local.clientSettings as Obj).themeDark]).toEqual(['t3-code', 'dusk']);
+    expect(await settingsCore(as(client), native, '', '', '', '', 'general', '', true)).toMatchObject({ restoreCount: 1, restoreText: 'This will reset: Theme mix.' });
+    applyDeviceSetting(client.local as never, 'appearanceMode', 'dark');
+    expect(restoreLabels(client.local as never, null)).toEqual(['Follow system', 'Theme mix']);
+    applyDeviceSetting(client.local as never, 'theme', 'grove');
+    expect(restoreLabels(client.local as never, null)).toEqual(['Theme', 'Follow system']);
+    // A half over a whole theme is both.
+    applyDeviceSetting(client.local as never, 'theme', 'dusk');
+    expect(restoreLabels(client.local as never, null)).toEqual(['Theme', 'Follow system', 'Theme mix']);
+    await applyCoreSetting(as(client), native, 'restore-device-defaults:|||', '');
+    expect(restoreLabels(client.local as never, null)).toEqual([]);
+  });
+  test('t3.json is read for each member of a project scope', async () => {
+    const client = fake();
+    client.files['/a'] = '{"worktreeSubmodules":"none"}';
+    const core = await settingsCore(as(client), native, '', 'repo', 'p1', '', 'general', '', true);
+    const row = core.sections.flatMap(section => section.rows).find(entry => entry.id === 'worktree-submodules')!;
+    expect([row.label, row.inheritance, core.kind, core.scopeKey]).toEqual(['Skip', 'inherited', 'checkout', '|repo|p1']);
+    // A bare project id (Project settings' target) is its project on every environment: /projects/$projectKey
+    // redirects with the key and no machine (routes/projects.$projectKey.tsx; settings-diagnostics-and-scope PG-8).
+    const legacy = await settingsCore(as(client), native, '', '', '', 'p3', 'storage', '', true);
+    expect([legacy.kind, legacy.projectLabel, legacy.showScope]).toEqual(['project', 'Single checkout two', true]);
+  });
+  test("the Project page's Model row is General's, in the project scope", async () => {
+    // ProjectSettingsPanel renders ProjectDefaultsSettings' modelRow: ProviderModelPicker + TraitsPicker.
+    const client = fake();
+    const project = await settingsCore(as(client), native, '', 'repo', '', '', 'projects', '', true);
+    expect(project.projectModel.map(row => [row.id, row.kind, row.description, row.label, row.label2, row.status, row.divider]))
+      .toEqual([['default-model', 'model', 'Model for new threads in this project.', 'GPT-5.6-Luna', 'Medium', 'Automatic', false]]);
+    expect(project.scopeKey).toBe('|repo|');
+    expect((await settingsCore(as(client), native, '', '', '', '', 'projects', '', true)).projectModel).toEqual([]);
+    expect((await settingsCore(as(client), native, '', 'repo', '', '', 'general', '', true)).projectModel).toEqual([]);
+    // TraitsPicker's trigger names every trait (buildTraitsTriggerDisplay), as the composer's does: "Medium · 1M".
+    const wide = fake();
+    const context = { id: 'contextWindow', label: 'Context window', type: 'select', options: [{ id: '200k', label: '200K' }, { id: '1m', label: '1M', isDefault: true }] };
+    const luna = provider.models[0]!;
+    wide.config.providers = [{ ...provider, models: [{ ...luna, capabilities: { optionDescriptors: [...luna.capabilities!.optionDescriptors, context] } }] }];
+    const traits = (await settingsCore(as(wide), native, '', 'repo', '', '', 'projects', '', true)).projectModel[0]!;
+    expect([traits.label2, traits.options2.map(entry => entry.label)]).toEqual(['Medium · 1M', ['reasoningEffort', 'Low', 'Medium', 'High', 'Context window', '200K', '1M']]);
+  });
+});
+
+describe('navigation and search', () => {
+  const context = { connected: true, autoSettle: true, scopeKind: 'all', keybindings: [{ command: 'sidebar.toggle', key: 'mod+b' }] };
+  test('sidebar lists the reference sections; Project only for a project scope', () => {
+    expect(settingsNavigation('', context).items.map(item => item.title)).toEqual(['General', 'Appearance', 'Keybindings', 'SnapShots', 'Providers', 'Integrations', 'Scheduled Tasks', 'Source Control', 'Storage', 'Connections', 'Archive']);
+    expect(settingsNavigation('', { ...context, scopeKind: 'project' }).items[0]!.title).toBe('Project');
+    expect(breadcrumbLabel('open-source-licenses')).toBe('Open source licenses');
+  });
+  test('search ranks like the reference and keybinding commands sort last', () => {
+    expect(searchSettings('model', context).map(item => item.title).slice(0, 2)).toEqual(['Default model', 'Text generation model']);
+    expect(searchSettings('mod+b', context).map(item => item.title)).toEqual(['Sidebar: Toggle']);
+    expect(searchSettings('wrap', context)[0]!.id).toBe('word-wrap');
+    expect(searchSettings('auto settle', { ...context, autoSettle: false }).map(item => item.id)).not.toContain('auto-settle-inactive-threads');
+    expect(searchSettings('tailscale', context)).toEqual([]);
+    const result = settingsNavigation('send shortcut', context);
+    expect([result.firstRoute, result.firstTarget, result.items[0]!.section]).toEqual(['general', 'setting-send-shortcut', 'General']);
+    expect(scopeAvailable('environment-defaults', 'project')).toBe(false);
+    expect(commandLabel('composer.sendAlternate')).toBe('Composer: Opposite Queue or Steer Action');
+  });
+});
+
+describe('appearance', () => {
+  test('palette follows each half of the theme pair and contrast', () => {
+    const stock = palette(decodeClientPrefs({}));
+    expect(stock.canvas).toBe('light-dark(#fcfcfc, #0a0a0a)');
+    expect(stock.accent).toBe('light-dark(#1b4ed8, #346bf1)');
+    const mixed = palette(decodeClientPrefs({ themeLight: 'grove', themeDark: 'ocean' }));
+    expect(mixed.canvas).toBe(`light-dark(${themeRoles('grove', 'light').canvas}, ${themeRoles('ocean', 'dark').canvas})`);
+    expect(palette(decodeClientPrefs({ appearanceContrast: 200 })).text).toBe('light-dark(#000000, #ffffff)');
+    expect(palette(decodeClientPrefs({ appearanceContrast: 50 })).text).not.toBe(stock.text);
+    expect(mix('#000000', 0.5, '#ffffff')).toBe('#808080');
+  });
+  test('tiles, theme cards and rows', () => {
+    const prefs = decodeClientPrefs({ themeLight: 'iris', themeDark: 'iris' });
+    expect(modeTiles('dark', prefs).map(tile => [tile.label, tile.selected, tile.split])).toEqual([['System', false, true], ['Light', false, false], ['Dark', true, false]]);
+    const cards = themeCards(prefs);
+    expect(cards.map(card => card.label)).toEqual(['T3 Code', 'T3 Chat', 'Grove', 'Ocean', 'Ember', 'Iris']);
+    expect(cards.find(card => card.id === 'iris')!.orbs.every(orb => orb.picked)).toBe(true);
+    const rows = appearanceSections(decodeClientPrefs({ glassOpacity: 60 }), true).flatMap(section => section.rows);
+    expect(rows.map(row => row.title)).toEqual(['Contrast', 'Glass opacity', 'Environment identification', 'Diff colors', 'Composer context', 'Chat width', 'Panel animations', 'Interface font', 'Monospace font', 'Word wrap']);
+    expect(rows.find(row => row.id === 'setting-glass-opacity')!.label).toBe('60%');
+    expect(rows.filter(row => row.kind === 'font').map(row => [row.info, row.amount])).toEqual([['preview-prompt', 16], ['preview-code-terminal', 13]]);
+    // PromptFontPreview is the composer at the Prompt font size, whatever the Interface font size.
+    expect(appearanceSections(decodeClientPrefs({ fontSizeInterface: 12 }), true).flatMap(section => section.rows).filter(row => row.kind === 'font').map(row => [row.amount, row.previewSize])).toEqual([[12, 14], [13, 13]]);
+    const advanced = appearanceSections(decodeClientPrefs({ typographyAdvanced: true, fontSizeTerminal: 14 }), true).at(-1)!.rows;
+    expect(advanced.map(row => [row.title, row.info])).toEqual([['Interface font', ''], ['Prompt font', 'preview-prompt'], ['Code font', 'preview-code'], ['Terminal font', 'preview-terminal'], ['Font smoothing', ''], ['Word wrap', '']]);
+    expect(advanced.find(row => row.id === 'terminal-font')!.amount).toBe(14);
+  });
+});
+
+describe('custom themes', () => {
+  test('theme files: version, name, appearance, colors and variants; reserved ids refused', async () => {
+    const { parseThemeFile, toHex } = await import('./settings-themes');
+    expect(toHex('oklch(0.591646 0.217985 0.584)')).toBe(themeRoles('t3-chat', 'light').accent);
+    expect(toHex('#abc')).toBe('#aabbcc');
+    expect(toHex('rgb(255, 0, 0)')).toBe('#ff0000');
+    const theme = parseThemeFile(JSON.stringify({ version: 1, name: 'Dusk', appearance: 'dark', colors: { canvas: '#101820', accent: 'oklch(0.7 0.15 250)' }, variants: { light: { canvas: '#f8fafc' } } }), []);
+    expect([theme.id, theme.label, theme.dark?.canvas, theme.light?.canvas]).toEqual(['dusk', 'Dusk', '#101820', '#f8fafc']);
+    expect(() => parseThemeFile('{"version":2}', [])).toThrow('unsupported version');
+    expect(() => parseThemeFile(JSON.stringify({ version: 1, id: 'grove', name: 'Grove', appearance: 'light', colors: {} }), [])).toThrow('reserved');
+    expect(() => parseThemeFile(JSON.stringify({ version: 1, name: 'X', appearance: 'light', colors: { canvas: 'not-a-color' } }), [])).toThrow('not a valid color');
+    expect(parseThemeFile(JSON.stringify({ version: 1, name: 'Dusk', appearance: 'dark', colors: {} }), ['dusk']).id).toBe('dusk-2');
+  });
+  test('import, duplicate and remove through the command; palette and cards follow', async () => {
+    const client = fake();
+    await applyCoreSetting(as(client), native, 'theme-import:|||', JSON.stringify({ version: 1, name: 'Dusk', appearance: 'dark', colors: { canvas: '#101820' } }));
+    expect((client.local.customThemes as Obj[]).map(theme => theme.id)).toEqual(['dusk']);
+    expect((client.local.clientSettings as Obj).themeDark).toBe('dusk');
+    expect((client.local.clientSettings as Obj).themeLight).toBe('t3-code');
+    const core = await settingsCore(as(client), native, '', '', '', '', 'appearance', '', true);
+    expect(core.palette.canvas).toBe('light-dark(#fcfcfc, #101820)');
+    expect(core.themes.map(card => [card.id, card.custom])).toContainEqual(['dusk', true]);
+    const parts = ['grove', 'Grove copy', '#eeffee', '#118844', '#112211', '#44cc88'].map(encodeURIComponent).join('|');
+    await applyCoreSetting(as(client), native, 'theme-save:|||', parts);
+    const prefs = client.local.clientSettings as Obj;
+    expect([prefs.theme, prefs.themeLight, prefs.themeDark]).toEqual(['grove-copy', 'grove-copy', 'grove-copy']);
+    const copy = (client.local.customThemes as Obj[]).find(theme => theme.id === 'grove-copy') as Obj;
+    expect([(copy.light as Obj).canvas, (copy.light as Obj).accent, (copy.light as Obj).sidebar]).toEqual(['#eeffee', '#118844', themeRoles('grove', 'light').sidebar]);
+    await expect(applyCoreSetting(as(client), native, 'theme-save:|||', ['grove', '', '#fff', '#000', '#000', '#fff'].join('|'))).rejects.toThrow('Name the theme');
+    await applyCoreSetting(as(client), native, 'theme-remove:|||', 'grove-copy');
+    expect([(client.local.clientSettings as Obj).themeLight, (client.local.customThemes as Obj[]).length]).toEqual(['t3-code', 1]);
+  });
+});

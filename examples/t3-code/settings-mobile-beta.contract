@@ -1,0 +1,145 @@
+// General → About → Mobile app (lane r3-settings; upstream f1dcd93931
+// NightlyMobileBeta.tsx NightlyMobileBetaRow): `sm` outline iPhone and Android
+// buttons, each opening an end-aligned popover with the beta links as QR codes
+// (QRCodeSvg size 128, level M, margin 1, on a white rounded pad) and an `xs`
+// outline Copy link that reads "Copied" for two seconds.
+// A popover opens at its invoker's bottom-left, clamped to the window, so each
+// carries a transparent tail as wide as the gap from its trigger's right edge to
+// the window's (measured with frame() as the pointer arrives): the clamp then
+// lands the panel end-aligned. An absolute layer sizes to its min-content, so
+// nothing in a panel may wrap narrower than the reference draws it. Margins are
+// ignored there, so the 4-point gap is the layer's own padding. The codes' boxes
+// mount on first use only.
+use CoreRow from "./settings-core.contract"
+use CorePalette from "./settings-core.contract"
+use QrMark from "./settings-core.contract"
+use SettingsGhost from "./settings-core.contract"
+
+keyframes mbShownA
+  from opacity=1
+  99% opacity=1
+  to opacity=0
+keyframes mbShownB
+  from opacity=1
+  99% opacity=1
+  to opacity=0
+keyframes mbHiddenA
+  from opacity=0
+  99% opacity=0
+  to opacity=1
+keyframes mbHiddenB
+  from opacity=0
+  99% opacity=0
+  to opacity=1
+
+component MobileBetaControl
+  props
+    row: CoreRow
+    pal: CorePalette
+    busy: bool
+    change: action
+  state iosOpened = false
+  state androidOpened = false
+  state iosTail = 0
+  state androidTail = 0
+  action measureIos(over: bool)
+    iosOpened = iosOpened or over
+    iosTail = max(0, frame("settings-content-scroll").x + frame("settings-content-scroll").width - frame("mobile-beta-ios").x - frame("mobile-beta-ios").width)
+  action measureAndroid(over: bool)
+    androidOpened = androidOpened or over
+    androidTail = max(0, frame("settings-content-scroll").x + frame("settings-content-scroll").width - frame("mobile-beta-android").x - frame("mobile-beta-android").width)
+  action openIos
+    iosOpened = true
+    iosTail = max(0, frame("settings-content-scroll").x + frame("settings-content-scroll").width - frame("mobile-beta-ios").x - frame("mobile-beta-ios").width)
+  action openAndroid
+    androidOpened = true
+    androidTail = max(0, frame("settings-content-scroll").x + frame("settings-content-scroll").width - frame("mobile-beta-android").x - frame("mobile-beta-android").width)
+  view
+    row gap="0.5rem" align-items="center" flex-shrink=0 id="mobile-beta-control" testId="mobile-beta-control"
+      box position="relative" flex-shrink=0
+        button popovertarget="mobile-beta-ios-popup" press=openIos hover=measureIos id="mobile-beta-ios" aria-label="iPhone" class=SettingsGhost gap="0.375rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" testId="mobile-beta-ios"
+          // Button's [&_svg]:-mx-0.5: the glyph overlaps the padding by 2 points a side.
+          box margin-left="-0.125rem" margin-right="-0.125rem" display="flex"
+            MbAppleGlyph(size=16, color=pal.muted)
+          text "iPhone" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text white-space="nowrap"
+        row id="mobile-beta-ios-popup" popover="auto" position="absolute" padding-top="0.25rem" align-items="flex-start" testId="mobile-beta-ios-popup"
+          column padding="1rem" gap="0.75rem" flex-shrink=0 box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" role="dialog" aria-label="TestFlight beta"
+            column gap="0.25rem"
+              // One line each: an absolute layer sizes to its min-content, so the panel must not offer a narrower one.
+              text "TestFlight beta" font-size="0.875rem" font-weight=600 line-height="0.875rem" color=pal.text white-space="nowrap" role="heading" aria-level=2
+              text "Scan with your iPhone camera." font-size="0.75rem" line-height="1rem" color=pal.muted white-space="nowrap"
+            each mark in row.qr key=mark.id
+              when mark.id == "ios"
+                BetaLinkQr(mark=mark, mounted=iosOpened, pal=pal, busy=busy, copy=change(row.id, "copy", mark.url))
+          box width=iosTail height=1 flex-shrink=0
+      box position="relative" flex-shrink=0
+        button popovertarget="mobile-beta-android-popup" press=openAndroid hover=measureAndroid id="mobile-beta-android" aria-label="Android" class=SettingsGhost gap="0.375rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" testId="mobile-beta-android"
+          box margin-left="-0.125rem" margin-right="-0.125rem" display="flex"
+            MbAndroidGlyph(size=16, color=pal.muted)
+          text "Android" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text white-space="nowrap"
+        row id="mobile-beta-android-popup" popover="auto" position="absolute" padding-top="0.25rem" align-items="flex-start" testId="mobile-beta-android-popup"
+          column padding="1rem" gap="0.75rem" flex-shrink=0 box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" role="dialog" aria-label="Google Play beta"
+            column gap="0.25rem" width="18.5rem"
+              text "Google Play beta" font-size="0.875rem" font-weight=600 line-height="0.875rem" color=pal.text role="heading" aria-level=2
+              text "Use the same Google account for both steps. Step 2 can take up to an hour to work after you join the group." font-size="0.75rem" line-height="1rem" color=pal.muted max-width="18rem"
+            row gap="1rem" align-items="flex-start"
+              each mark in row.qr key=mark.id
+                when mark.id != "ios"
+                  column width="8.75rem" gap="0.5rem"
+                    text mark.caption font-size="0.75rem" font-weight=500 line-height="1rem" color=pal.text text-align="center" width="100%"
+                    BetaLinkQr(mark=mark, mounted=androidOpened, pal=pal, busy=busy, copy=change(row.id, "copy", mark.url))
+          box width=androidTail height=1 flex-shrink=0
+
+// BetaLinkQr: the white pad (rounded-lg bg-white p-1.5) around the 128-point code, then Copy link.
+// Copied: a second, narrower button over the first for two seconds (an A/B pair restarts it).
+component BetaLinkQr
+  props
+    mark: QrMark
+    mounted: bool
+    pal: CorePalette
+    busy: bool
+    copy: action
+  view
+    column gap="0.5rem" align-items="center" width="100%"
+      box width="8.75rem" height="8.75rem" padding="0.375rem" box-sizing="border-box" border-radius="0.625rem" background-color="#ffffff" flex-shrink=0
+        box width="8rem" height="8rem" position="relative" background-color="#ffffff" role="img" aria-label=mark.label testId=`mobile-beta-qr-${mark.id}`
+          when mounted
+            each cell in mark.cells key=`${cell.x}:${cell.y}`
+              box position="absolute" left=cell.x top=cell.y width=cell.w height=cell.h background-color="#000000"
+      box position="relative" flex-shrink=0
+        BetaCopyButton(label="Copy link", animation=(mark.copied == 0 ? "none" : (mark.copied % 2 == 0 ? "mbHiddenA 2s linear forwards" : "mbHiddenB 2s linear forwards")), pal=pal, busy=busy, copy=copy, testId=`mobile-beta-copy-${mark.id}`)
+        when mark.copied > 0
+          row position="absolute" left="-1.25rem" right="-1.25rem" top=0 bottom=0 justify-content="center" align-items="center"
+            BetaCopyButton(label="Copied", animation=(mark.copied % 2 == 0 ? "mbShownA 2s linear forwards" : "mbShownB 2s linear forwards"), pal=pal, busy=busy, copy=copy, testId=`mobile-beta-copied-${mark.id}`)
+
+component BetaCopyButton
+  props
+    label: string
+    animation: string
+    pal: CorePalette
+    busy: bool
+    copy: action
+    testId: string
+  view
+    button press=copy disabled=busy aria-label=label class=SettingsGhost height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" animation=animation testId=testId
+      text label font-size="0.75rem" font-weight=500 line-height="1rem" color=pal.text white-space="nowrap"
+
+// Icons.tsx AppleIcon and AndroidIcon (24-unit grid, currentColor).
+component MbAppleGlyph
+  props
+    size: number
+    color: string
+  view
+    svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="currentColor" flex-shrink=0 aria-hidden=true
+      path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"
+component MbAndroidGlyph
+  props
+    size: number
+    color: string
+  view
+    svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="currentColor" flex-shrink=0 aria-hidden=true
+      path d="m8 3-1-2m9 2 1-2" fill="none" stroke="currentColor" stroke-width=1.4 stroke-linecap="round"
+      path d="M5 10a7 7 0 0 1 14 0H5Zm4-4a.8.8 0 1 0 0 1.6A.8.8 0 0 0 9 6Zm6 0a.8.8 0 1 0 0 1.6A.8.8 0 0 0 15 6Z" fill-rule="evenodd"
+      path d="M5 11h14v7a2 2 0 0 1-2 2v2a1.5 1.5 0 0 1-3 0v-2h-4v2a1.5 1.5 0 0 1-3 0v-2a2 2 0 0 1-2-2v-7Z"
+      rect x=1 y=11 width=3 height=8 rx=1.5
+      rect x=20 y=11 width=3 height=8 rx=1.5

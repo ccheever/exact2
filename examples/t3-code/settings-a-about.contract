@@ -1,0 +1,37 @@
+// General → About (lane settings-a; settings-a-about.ts): the Version row's
+// update button over the app's own delivery facts (LLP 1030 D7).
+use CoreRow from "./settings-core.contract"
+use CorePalette from "./settings-core.contract"
+use SettingsGhost from "./settings-core.contract"
+
+// The two delivery facts the About section reads (exactDelivery, by field name).
+shape AboutDelivery
+  stream: string
+  staged: bool
+
+// AboutVersionSection's Button size sm variant outline, with its tooltip.
+// Check runs deliveryCheck (Checking… until the store stages an entry);
+// Install asks first (the root dialog), then deliveryActivate.
+component AboutUpdateButton
+  props
+    row: CoreRow
+    pal: CorePalette
+    busy: bool
+    change: action
+  state checking = false
+  state hovered = false
+  action check
+    checking = true
+    deliveryCheck()
+  action hover(over: bool)
+    hovered = over
+  view
+    box position="relative" flex-shrink=0
+      when row.value2 == "install"
+        button press=change(row.id, "install", "") hover=hover disabled=busy class=SettingsGhost height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" opacity=(busy ? 0.64 : 1) id="setting-version-update" testId="setting-version-update"
+          text row.label font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text white-space="nowrap" opacity=(busy ? 0.64 : 1)
+      else
+        button press=check hover=hover disabled=(row.disabled or checking) aria-label=(checking ? "Checking…" : row.label) class=SettingsGhost height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow=(row.disabled or checking ? "none" : "0 1px 2px #0000000d") opacity=(row.disabled or checking ? 0.64 : 1) id="setting-version-update" testId="setting-version-update"
+          text (checking ? "Checking…" : row.label) font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text white-space="nowrap" opacity=(row.disabled or checking ? 0.64 : 1)
+      when hovered and not row.disabled
+        text row.note position="absolute" bottom="2.125rem" right=0 z-index=60 padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover font-size="0.75rem" line-height="1.03125rem" color=pal.text white-space="nowrap" role="tooltip" testId="setting-version-update-tip"

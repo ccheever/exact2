@@ -1,0 +1,56 @@
+// Lane r6-media: the Device surface's opened device, workspace and floating player
+// (r6-media-device.ts). Its one import (lane r7-device) has none, so the surfaces' shapes can use
+// it without a cycle.
+use R7DevDeviceWorkspace from "./r7-device-shapes.contract"
+use R9DevFolding from "./r9-device-shapes.contract"
+shape R6DeviceRail
+  inputConnected: bool
+  appearance: string
+  appearanceLabel: string
+  appearanceIcon: string
+  appearanceDisabled: bool
+  textSize: string
+  textSizeDisabled: bool
+  screenshotLabel: string
+  screenshotDisabled: bool
+  menu: string
+  menuTop: number
+  menuRight: number
+shape R6DeviceStream
+  status: string
+  message: string
+  error: bool
+  inputNotice: string
+shape R6DeviceWorkspace
+  key: string
+  name: string
+  description: string
+  platform: string
+  deviceId: string
+  hostId: string
+  screenLabel: string
+  alert: string
+  stream: R6DeviceStream
+  rail: R6DeviceRail
+  r7: R7DevDeviceWorkspace
+  r9: R9DevFolding
+shape R6DeviceView
+  mode: string
+  pendingKey: string
+  openingName: string
+  openingDescription: string
+  openingMessage: string
+  operationError: string
+  booting: string
+  hostDetail: string
+  workspace: R6DeviceWorkspace
+shape R6DeviceMini
+  show: bool
+  key: string
+  name: string
+  description: string
+  platform: string
+  deviceId: string
+  hostId: string
+  stream: R6DeviceStream
+  sourceKey: string // previewMiniPlayerSourceKey: a gesture names the source it began on (the frame is the chat canvas's)

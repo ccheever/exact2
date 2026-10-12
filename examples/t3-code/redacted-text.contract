@@ -1,0 +1,29 @@
+use CnTooltip from "./settings-b-kit.contract"
+
+// RedactedSensitiveText (T3 Code 1e2ecbd975, RedactedSensitiveText.tsx:27-61): a
+// button whose text is the same-shape placeholder (redacted-text.ts) until a press
+// reveals the value and a second press hides it again. Hidden it is monospace 11 px,
+// muted, unselectable and blurred 4 px (Tailwind blur-xs); revealed it is muted;
+// hover raises either to the foreground. The tooltip names the next press. The
+// reveal flag is this instance's own state, so two rows reveal independently.
+component RedactedText
+  props
+    value: string
+    placeholder: string
+    label: string
+    revealTip: string
+    hideTip: string
+    testId: string
+  state revealed = false
+  state over = false
+  action toggle
+    revealed = not revealed
+  action hover(inside: bool)
+    over = inside
+  view
+    when value != ""
+      box position="relative" min-width=0 max-width="100%" hover=hover
+        button press=toggle aria-label=label testId=testId cursor="pointer" min-width=0 max-width="100%" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="baseline"
+          text (revealed ? value : placeholder) font-family="ui-monospace" font-size="0.6875rem" line-height="1.03125rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0 user-select=(revealed ? "auto" : "none") filter=(revealed ? "none" : "blur(4px)") color=(over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)") testId=`${testId}-text`
+        when over
+          CnTooltip(tip=(revealed ? hideTip : revealTip), tipId=`${testId}-tip`, above=20)
