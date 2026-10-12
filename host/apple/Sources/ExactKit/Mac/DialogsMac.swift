@@ -47,6 +47,8 @@ final class DialogHost {
     func owns(_ node: NodeView) -> Bool { entries.contains { $0.dialog === node } }
     func blocks(_ node: NSView) -> Bool {
         guard let active else { return false }
+        // An alert over the dialog is the top modal: its rows are its own.
+        if let alert = presenter?.alerts.modal, presenter?.menus.contains(alert, node) == true { return false }
         return presenter?.menus.contains(active, node) != true
     }
     private var accessibleActive: NodeView? {

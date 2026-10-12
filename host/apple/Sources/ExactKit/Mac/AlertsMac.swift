@@ -55,6 +55,12 @@ final class AlertHost {
         }
     }
     private(set) var presented: Presented?
+    /// The alertdialog whose chosen button is being pressed, after its sheet has ended.
+    private weak var answering: NodeView?
+    /// The alertdialog that is the top modal: the one presented, or being
+    /// answered. Over an open dialog its rows are its own, not the dialog's
+    /// to block (`DialogHost.blocks`).
+    var modal: NodeView? { presented?.node ?? answering }
     /// The sheet's window while an alert is up.
     var sheet: NSWindow? { presented?.alert.window }
     func isOpen(_ node: NodeView) -> Bool { presented?.node === node }
@@ -65,9 +71,13 @@ final class AlertHost {
     }
     /// Live, enabled, not inert, and not hidden by the page, though the
     /// alertdialog itself is hidden in place while the alert presents it.
+    /// Inert by its own tree (an authored `inert`, a route's), not by the
+    /// dialog that is open: the alert goes over that one, as `showModal()`
+    /// puts a dialog over the modal before it (an alert over a sheet).
     private func choosable(_ row: NodeView, in pop: NodeView) -> Bool {
         guard let menus = presenter?.menus else { return false }
-        return menus.live(row) && !row.disabled && !row.inert && menus.shown(row, in: pop)
+        let inert = sequence(first: row as NSView, next: { menus.parent(of: $0) }).contains { ($0 as? NodeView).map { $0.routeInert || $0.props["inert"] == "true" } ?? false }
+        return menus.live(row) && !row.disabled && !inert && menus.shown(row, in: pop)
     }
 
     /// What the alert for an `alertdialog` shows: its words, its buttons in
@@ -163,6 +173,8 @@ final class AlertHost {
         DispatchQueue.main.async { [weak self, owner] in
             guard let self, let presenter = self.presenter, self.valid(owner), row.enabled, let node = row.node, let pop = owner.node,
                   self.choosable(node, in: pop) else { return }
+            self.answering = pop
+            defer { self.answering = nil }
             presenter.press(node.id, fromNativeMenu: true)
         }
     }
