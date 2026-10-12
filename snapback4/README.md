@@ -39,8 +39,8 @@ is handed to whoever drives it. Pinned to Snapback4 **0.4.16**
 >   and each key has its own partition `name`.
 > - **Tests.** `epoch now` in the test file (the server keeps real time);
 >   `snapback4 dev` listening before `test web`; `clock data` before `fail
->   fetch`; `fresh` for an empty server before each test, once snapback4
->   has `POST /dev/reset`, else a fresh server per run or per file
+>   fetch`; `fresh` for an empty dev server before each test through
+>   0.4.23's `POST /dev/reset`
 >   (["Tests share the server"](#tests-share-the-server)).
 
 ## From TypeScript
@@ -275,7 +275,7 @@ app cannot write itself (an `owners` or `staff` table a rule reads) go in
 before the run, as the system, with `POST <origin>/seed` and a body such as
 `[{"table":"owners","row":{"id":"o1","person":"dev:alice"}}]` (`snapback4
 guide wire`, "Development doors"), or before each test with a `fresh
-"seed.json"` line once the server has `POST /dev/reset`. A `select` is driven with
+"seed.json"` line through `POST /dev/reset`. A `select` is driven with
 `type`; the offline test proves delivery after `pass fetch`, not only that
 the write was kept:
 
@@ -340,67 +340,14 @@ those from earlier tests in it. Three ways out:
     expect tree missing "note-0"
   ```
 
-  The door is snapback4's, and 0.4.22 does not have it: there it answers
-  404 and each test fails saying the server is older than the door. Until
-  the release that adds it, use the per-file server below. Tried against a
-  stand-in with the door's contract in front of 0.4.22 (2026-10-12): two
-  tests that each assert theirs is the only note pass with `fresh` and
-  fail without it.
+  Snapback4 0.4.23 has this door in `dev`; `serve` has no development
+  reset. `fresh` is for tests against `dev`.
 - **Each test owns its rows.** It writes a code or name no other test uses
   and asserts on that: newest first (`note-0` in a `last … by byTime` list),
   or through its own reply (the guestbook's `notice`, a derive of the reply's
   id). Never a total of a shared table, or "the list is empty". The
   guestbook's tests are of this kind, so they pass again on what a first run
   leaves.
-- **Each test file gets its own empty server** (until `fresh` has its
-  door). Put a test that counts, or
-  needs a table empty, in a file of its own (`tests/*.test.contract`), and
-  run each file against a fresh `--memory` server, seeded first, with an
-  app verb. `test-fresh.mjs` in the app's directory (the backend's above it,
-  as `exact new --snapback` has it):
-
-```js
-// `bun exact.mjs test-fresh [file …]`: each test file against its own empty
-// `snapback4 dev --memory`, seeded from ../fixtures/seed.json when there is one.
-import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
-import { once } from 'node:events';
-import { createInterface } from 'node:readline';
-import { resolve } from 'node:path';
-
-const port = 4400;                                    // app.ts's origin's port
-const files = process.argv.slice(2), seed = '../fixtures/seed.json';
-let failed = 0;
-for (const file of files.length ? files : ['app.test.contract']) {
-  const dev = spawn(resolve('../node_modules/.bin/snapback4'), ['dev', '--port', String(port), '--memory', '--no-watch'], { cwd: '..', stdio: ['ignore', 'pipe', 'ignore'] });
-  try {
-    const url = await new Promise((ready, refused) => {
-      createInterface({ input: dev.stdout }).once('line', (line) => ready(line.trim()));
-      dev.once('error', refused).once('exit', (code) => refused(new Error(`snapback4 dev exited ${code}: is another server on port ${port}?`)));
-    });
-    if (existsSync(seed)) {
-      const reply = await (await fetch(`${url}/seed`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: readFileSync(seed) })).json();
-      if (reply.seeded === undefined) throw new Error(`seed refused: ${JSON.stringify(reply)}`);
-    }
-    if (spawnSync(process.execPath, ['exact.mjs', 'test', 'web', file], { stdio: 'inherit' }).status !== 0) failed++;
-  } finally {
-    if (dev.pid && dev.exitCode === null) { dev.kill('SIGTERM'); await once(dev, 'exit'); }
-  }
-}
-process.exit(failed ? 1 : 0);
-```
-
-  Name it in `app.json`, `"commands": { "test-fresh": ["bun",
-  "test-fresh.mjs"] }`, and run `bun exact.mjs test-fresh
-  tests/*.test.contract` with no other server on that port (it starts its
-  own, one a file). A file costs a server and a browser, about four seconds.
-  Tried on a scratch app against 0.4.16 (2026-10-12): three files that each
-  assert a total of one, run twice, all pass; in one file on one server the
-  second test fails, and a rerun fails all three.
-
-With a snapback4 that has `POST /dev/reset`, `fresh` does in one line what
-this verb does per file, per test and with no restart; delete the verb then.
-
 ### Ports: the Snapback origin and the page's own
 
 Two ports, set apart. **The Snapback origin** is a constant in `app.ts`
@@ -604,8 +551,12 @@ if (got.ok) shown = got.path; else why = got.why.code; // E_ASSET_UNKNOWN: missi
 - `upload(path)` sends an app file (`exactBodyFrom`: the bytes never enter
   JavaScript, at most 64 MiB, under `fs.read`); `upload(bytes)` sends bytes.
   `asset` is what the server sniffed: `id`, `type`, `bytes`, `width`,
-  `height`, `duration`. The server takes JPEG, PNG, WebP and MP4 only
-  (`snapback4 guide assets`); a PDF is refused `E_ASSET_TYPE`.
+  `height`, `duration`. By default the server sniffs JPEG, PNG, WebP and MP4. For a PDF or
+  another attachment, use `upload(path, { file: { type: picked.type,
+  name: picked.name } })`: it sends `POST /assets?as=file&name=…` with the
+  declared content type. Place `{ id: asset.id }` in a `file` column.
+  `download` returns the attachment `name` and uses it in the default cache
+  filename; pass that name to `saveFile` when exporting it.
 - Both are online only and never retried here (a data module has no
   timers): offline is `E_OFFLINE` with nothing kept, so keep the picked
   path and ask again. A write naming an uploaded `{ id }` made offline

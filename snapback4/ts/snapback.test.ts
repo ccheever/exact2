@@ -122,6 +122,21 @@ table photos:
 
 mutation addPhoto(photo: image <=1000000):
   return insert photos { owner: viewer, photo }
+
+table documents:
+  owner: principal
+  attachment: file <=1000000
+  read <- .owner = viewer
+  insert <- .owner = viewer
+  update <- deny
+  delete <- .owner = viewer
+  sync to .owner last 100 by .id
+
+mutation addDocument(attachment: file <=1000000):
+  return insert documents { owner: viewer, attachment }
+
+query documents():
+  return documents first 100 by .id
 `;
 
 const scratch = mkdtempSync(join(tmpdir(), 'exact-snapback4-ts-'));
@@ -141,13 +156,20 @@ beforeAll(async () => {
   mkdirSync(join(project, 'snapback'), { recursive: true });
   writeFileSync(join(project, 'snapback/schema.q'), SCHEMA);
   const binary = process.env.SNAPBACK4_BIN ?? resolve(import.meta.dir, '../../node_modules/snapback4-darwin-arm64/snapback4');
-  server = spawn(binary, ['dev', '--port', '0', '--memory', '--no-watch'], { cwd: project, stdio: ['ignore', 'pipe', 'ignore'] });
+  server = spawn(binary, ['dev', '--port', '0', '--memory', '--no-watch'], { cwd: project, stdio: ['ignore', 'pipe', 'pipe'] });
   origin = await new Promise<string>((done, fail) => {
     const lines = createInterface({ input: server.stdout! });
     lines.on('line', line => { if (/^http:\/\/127\.0\.0\.1:\d+$/.test(line.trim())) done(line.trim()); });
-    server.on('exit', code => fail(new Error(`snapback4 dev exited ${code}`)));
+    let diagnostic = '';
+    server.stderr!.on('data', chunk => {
+      diagnostic += String(chunk);
+      const ready = /SNAPBACK4_READY .*url=(http:\/\/127\.0\.0\.1:\d+)/.exec(diagnostic);
+      if (ready) done(ready[1]);
+    });
+    server.on('error', fail);
+    server.on('exit', code => fail(new Error(`snapback4 dev exited ${code}: ${diagnostic}`)));
   });
-}, 600_000);
+}, 30_000);
 
 afterAll(() => {
   server?.kill();
@@ -842,6 +864,16 @@ test('upload sends bytes to /assets and download writes the asset to an app file
   expect(shown).toEqual({ ok: true, path: `app:/cache/snapback4-photos-alice-${sent.asset.id}.png`, type: 'image/png', bytes: png.byteLength });
   expect([...files.get(`app:/cache/snapback4-photos-alice-${sent.asset.id}.png`)!]).toEqual([...png]);
   expect((await alice.download(sent.asset.id, 'app:/tmp/one.png')).ok).toBe(true);
+  const pdf = new TextEncoder().encode('%PDF-1.4\nExact attachment\n%%EOF');
+  const uploaded = await alice.upload(pdf, { file: { type: 'application/pdf', name: 'review notes.pdf' } });
+  if (!uploaded.ok) throw new Error(uploaded.why.message);
+  expect(uploaded.asset).toMatchObject({ type: 'application/pdf', bytes: pdf.byteLength, name: 'review notes.pdf' });
+  expect((await alice.send('addDocument', { attachment: { id: uploaded.asset.id } }, Date.now())).state).toBe('sent');
+  const rows = await alice.read<{ attachment: { id: string; name: string; type: string } }[]>('documents', {}, Date.now());
+  expect(rows.data?.[0].attachment).toMatchObject({ id: uploaded.asset.id, name: 'review notes.pdf', type: 'application/pdf' });
+  const downloaded = await alice.download(uploaded.asset.id);
+  expect(downloaded).toEqual({ ok: true, path: `app:/cache/snapback4-photos-alice-${uploaded.asset.id}-review notes.pdf`, name: 'review notes.pdf', type: 'application/pdf', bytes: pdf.byteLength });
+  if (downloaded.ok) expect(files.get(downloaded.path)).toEqual(pdf);
   // Another viewer cannot read the row, so the bytes are not there for them.
   const bob = await withFiles('bob', join(scratch, 'photos-bob'));
   const hidden = await bob.download(sent.asset.id);
@@ -853,6 +885,21 @@ test('upload sends bytes to /assets and download writes the asset to an app file
   const lost = await away.upload(png);
   expect(lost.ok ? null : lost.why.code).toBe('E_OFFLINE');
   await away.close();
+}, 60_000);
+
+test('fresh uses the live 0.4.23 reset door, empties rows, and seeds the next test', async () => {
+  const { resetBackends } = await import('../../scripts/agent-test.mjs');
+  const first = await open('alice', join(scratch, 'fresh-first'));
+  expect((await first.send('send', { body: 'before reset' }, Date.now())).state).toBe('sent');
+  await first.close();
+  await resetBackends([origin]);
+  const empty = await open('alice', join(scratch, 'fresh-empty'));
+  expect((await empty.read('inbox', {}, Date.now())).data).toEqual([]);
+  await empty.close();
+  await resetBackends([origin], [{ table: 'messages', row: { id: 'seed-note', author: 'dev:alice', body: 'seeded', at: Date.now() } }]);
+  const seeded = await open('alice', join(scratch, 'fresh-seeded'));
+  expect((await seeded.read<{ body: string }[]>('inbox', {}, Date.now())).data?.map(row => row.body)).toEqual(['seeded']);
+  await seeded.close();
 }, 60_000);
 
 test('at bake (a native module that is not available) open refuses with code bake and calls nothing', async () => {

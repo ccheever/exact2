@@ -109,14 +109,15 @@ export interface Device { call(request: Request): Promise<Request>; close?(): Pr
 
 /** What the server established about an uploaded file (`POST /assets`):
  * pass `{ id }` as an `image` or `video` argument. */
-export interface Asset { id: string; type: string; bytes: number; width?: number | null; height?: number | null; duration?: number | null }
+export interface Asset { id: string; type: string; bytes: number; name?: string; width?: number | null; height?: number | null; duration?: number | null }
+export interface UploadOptions { file?: { type: string; name: string } }
 /** `upload`'s answer: the asset, or why not (`E_ASSET_TYPE`,
  * `E_ASSET_TOO_LARGE`, `E_ASSET_BOUNDS`, `E_RATE_LIMIT`, `E_OFFLINE`, …). */
 export type Uploaded = { ok: true; asset: Asset } | { ok: false; why: Refusal };
 /** `download`'s answer: the app file holding the bytes (an `image` or
  * `video` source), or why not (`E_ASSET_UNKNOWN`: missing, or hidden by its
  * row's read rule; `E_ASSET_VIEWED`; `E_OFFLINE`). */
-export type Downloaded = { ok: true; path: string; type: string; bytes: number } | { ok: false; why: Refusal };
+export type Downloaded = { ok: true; path: string; type: string; bytes: number; name?: string } | { ok: false; why: Refusal };
 
 const EXTENSIONS: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'video/mp4': 'mp4' };
 
@@ -600,15 +601,16 @@ export class Snapback {
    * has no timers): `E_RATE_LIMIT` is the app's to ask again. Then pass
    * `{ id: asset.id }` to the mutation; a write naming it offline queues
    * unpredicted, and the server judges it. */
-  async upload(file: string | ArrayBuffer | ArrayBufferView): Promise<Uploaded> {
+  async upload(file: string | ArrayBuffer | ArrayBufferView, options: UploadOptions = {}): Promise<Uploaded> {
     if (this.closed) throw new Error('Snapback4: this client is closed');
-    const headers = { ...(this.options.headers?.() ?? {}), 'content-type': 'application/octet-stream' };
+    const headers = { ...(this.options.headers?.() ?? {}), 'content-type': options.file?.type ?? 'application/octet-stream' };
+    const query = options.file ? `?as=file&name=${encodeURIComponent(options.file.name)}` : '';
     const init: RequestInit & { exactBodyFrom?: string } = typeof file === 'string'
       ? { method: 'POST', headers, exactBodyFrom: file }
       // A copy: the bytes sent are these, whatever the caller does with its buffer meanwhile.
       : { method: 'POST', headers, body: Uint8Array.from(ArrayBuffer.isView(file) ? new Uint8Array(file.buffer, file.byteOffset, file.byteLength) : new Uint8Array(file)) };
     let response: Response;
-    try { response = await fetch(`${this.options.origin}/assets`, init); } catch (error) { return { ok: false, why: unreached(error) }; }
+    try { response = await fetch(`${this.options.origin}/assets${query}`, init); } catch (error) { return { ok: false, why: unreached(error) }; }
     const body = await response.json().catch(() => null) as { asset?: Asset; denied?: Refusal } | null;
     if (response.ok && body?.asset?.id) return { ok: true, asset: body.asset };
     return { ok: false, why: body?.denied ?? { code: 'E_SERVER', family: 'transport', retryable: response.status >= 500, message: `the server answered the upload with HTTP ${response.status}` } };
@@ -626,16 +628,22 @@ export class Snapback {
     const fs = this.options.storage?.fs;
     if (!fs) return { ok: false, why: { code: 'E_CLIENT', family: 'client', message: 'download writes an app file: pass the dispatcher\'s `storage`, and grant fs.write for the path' } };
     let response: Response;
-    try { response = await fetch(`${this.options.origin}/assets/${encodeURIComponent(id)}`, { headers: this.options.headers?.() ?? {} }); } catch (error) { return { ok: false, why: unreached(error) }; }
+    try { response = await fetch(`${this.options.origin}/assets/${encodeURIComponent(id)}`, { headers: (this.options.headers?.() ?? {}) }); } catch (error) { return { ok: false, why: unreached(error) }; }
     if (!response.ok) {
       const body = await response.json().catch(() => null) as { denied?: Refusal } | null;
       return { ok: false, why: body?.denied ?? { code: 'E_SERVER', family: 'transport', retryable: response.status >= 500, message: `the server answered asset ${id} with HTTP ${response.status}` } };
     }
     const type = (response.headers.get('content-type') ?? '').split(';')[0].trim();
+    const disposition = response.headers.get('content-disposition') ?? '';
+    const encoded = /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1];
+    let name = /filename="([^"]*)"/i.exec(disposition)?.[1];
+    if (encoded) try { name = decodeURIComponent(encoded); } catch { /* Keep the plain filename. */ }
+    // An attachment name is metadata, never an app path supplied by the server.
+    const filename = name?.replace(/[/\\\x00-\x1f\x7f]/g, '_');
     const bytes = new Uint8Array(await response.arrayBuffer());
-    const file = path ?? `app:/cache/snapback4-${this.options.name}-${id}.${EXTENSIONS[type] ?? 'bin'}`;
+    const file = path ?? `app:/cache/snapback4-${this.options.name}-${id}${filename ? `-${filename}` : `.${EXTENSIONS[type] ?? 'bin'}`}`;
     try { await fs.writeFile(file, bytes); } catch (error) { return { ok: false, why: { code: 'E_CLIENT', family: 'client', message: `could not write ${file}: ${error instanceof Error ? error.message : String(error)}` } }; }
-    return { ok: true, path: file, type, bytes: bytes.byteLength };
+    return { ok: true, path: file, type, bytes: bytes.byteLength, ...(name === undefined ? {} : { name }) };
   }
 
   private async exchange(fetchRequest: Request): Promise<Request> {

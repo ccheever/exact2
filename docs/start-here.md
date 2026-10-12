@@ -260,6 +260,6 @@ reading the current date in a data module is refused.
 notes show its last lines.
 
 `fresh` at the file’s top (or leading a test) empties its `snapback4 dev` server
-via `POST /dev/reset` before each test. `fresh "seed.json"` then seeds it with
+via `POST /dev/reset` (Snapback4 0.4.24, `dev` only) before each test. `fresh "seed.json"` then seeds it with
 `[{"table": …, "row": {…}}]`, from a path relative to the test file. Without
 `fresh`, backend rows survive tests and runs. A server lacking reset fails the test.

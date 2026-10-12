@@ -188,7 +188,7 @@ export async function resetBackends(origins, rows = null, ms = 10000) {
     if (typeof status?.storeId !== 'string') continue;
     const r = await fetch(`${origin}/dev/reset`, { method: 'POST', signal: AbortSignal.timeout(ms), ...(rows ? { headers: { 'content-type': 'application/json' }, body: JSON.stringify(rows) } : {}) });
     const text = await r.text();
-    if (r.status === 404) throw new Error(`fresh: the snapback4 dev server at ${origin} has no reset door (POST /dev/reset answered 404: ${text.slice(0, 160)}); it is older than the snapback4 that adds it. Update snapback4 in the backend's directory, or drop \`fresh\` and give each test file its own server (snapback4/README.md, "Tests share the server")`);
+    if (r.status === 404) throw new Error(`fresh: the snapback4 dev server at ${origin} has no reset door (POST /dev/reset answered 404: ${text.slice(0, 160)}); it is older than the snapback4 that adds it. Install snapback4@0.4.23 in the backend's directory`);
     let reply = null; try { reply = JSON.parse(text); } catch { /* said below */ }
     if (!r.ok || reply?.reset !== true) throw new Error(`fresh: POST ${origin}/dev/reset answered ${r.status}: ${text.slice(0, 300)}`);
     said.push(`${origin} reset to generation ${reply.generation}${rows ? `, ${reply.seeded} row${reply.seeded === 1 ? '' : 's'} seeded` : ''}`);
