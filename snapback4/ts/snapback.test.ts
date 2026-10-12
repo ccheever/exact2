@@ -12,6 +12,10 @@ import { createInterface } from 'node:readline';
 import type { Change, SqliteStorage } from './web.ts';
 import type { MutationOp, QueryOp } from './snapback.ts';
 
+const binary = process.env.SNAPBACK4_BIN ?? resolve(import.meta.dir, '../../node_modules/.bin/snapback4');
+const version = /snapback4 (\d+)\.(\d+)\.(\d+)/.exec(spawnSync(binary, ['--version'], { encoding: 'utf8' }).stdout);
+const has024 = Boolean(version && (Number(version[1]) > 0 || Number(version[2]) > 4 || (Number(version[2]) === 4 && Number(version[3]) >= 24)));
+// Published 0.4.16 has no file schema type or dev reset; keep their cases for 0.4.24.
 const SCHEMA = `
 use identity
 table messages:
@@ -140,7 +144,7 @@ query documents():
 
 query myDocuments():
   return documents[owner = viewer] last 100 by .id
-`;
+`.replace(/\ntable documents:[\s\S]*$/, text => has024 ? text : '');
 
 const scratch = mkdtempSync(join(tmpdir(), 'exact-snapback4-ts-'));
 const wasm = join(scratch, 'snapback4.wasm');
@@ -158,7 +162,6 @@ beforeAll(async () => {
   const project = join(scratch, 'server');
   mkdirSync(join(project, 'snapback'), { recursive: true });
   writeFileSync(join(project, 'snapback/schema.q'), SCHEMA);
-  const binary = process.env.SNAPBACK4_BIN ?? resolve(import.meta.dir, '../../node_modules/snapback4-darwin-arm64/snapback4');
   server = spawn(binary, ['dev', '--port', '0', '--memory', '--no-watch'], { cwd: project, stdio: ['ignore', 'pipe', 'pipe'] });
   origin = await new Promise<string>((done, fail) => {
     const lines = createInterface({ input: server.stdout! });
@@ -867,6 +870,7 @@ test('upload sends bytes to /assets and download writes the asset to an app file
   expect(shown).toEqual({ ok: true, path: `app:/cache/snapback4-photos-alice-${sent.asset.id}.png`, type: 'image/png', bytes: png.byteLength });
   expect([...files.get(`app:/cache/snapback4-photos-alice-${sent.asset.id}.png`)!]).toEqual([...png]);
   expect((await alice.download(sent.asset.id, 'app:/tmp/one.png')).ok).toBe(true);
+  if (has024) {
   const pdf = new TextEncoder().encode('%PDF-1.4\nExact attachment\n%%EOF');
   const uploaded = await alice.upload(pdf, { file: { type: 'application/pdf', name: 'review notes.pdf' } });
   if (!uploaded.ok) throw new Error(uploaded.why.message);
@@ -877,6 +881,7 @@ test('upload sends bytes to /assets and download writes the asset to an app file
   const downloaded = await alice.download(uploaded.asset.id);
   expect(downloaded).toEqual({ ok: true, path: `app:/cache/snapback4-photos-alice-${uploaded.asset.id}-review notes.pdf`, name: 'review notes.pdf', type: 'application/pdf', bytes: pdf.byteLength });
   if (downloaded.ok) expect(files.get(downloaded.path)).toEqual(pdf);
+  }
   // Another viewer cannot read the row, so the bytes are not there for them.
   const bob = await withFiles('bob', join(scratch, 'photos-bob'));
   const hidden = await bob.download(sent.asset.id);
@@ -890,7 +895,7 @@ test('upload sends bytes to /assets and download writes the asset to an app file
   await away.close();
 }, 60_000);
 
-test('fresh uses the live 0.4.23 reset door, empties rows, and seeds the next test', async () => {
+(has024 ? test : test.skip)('fresh uses the live 0.4.24 reset door, empties rows, and seeds the next test', async () => {
   const { resetBackends } = await import('../../scripts/agent-test.mjs');
   const first = await open('alice', join(scratch, 'fresh-first'));
   expect((await first.send('send', { body: 'before reset' }, Date.now())).state).toBe('sent');
@@ -917,7 +922,6 @@ test('at bake (a native module that is not available) open refuses with code bak
 }, 60_000);
 
 test('password accounts on serve: signup, reopen, refresh, login, logout and isolated safe partitions', async () => {
-  const binary = process.env.SNAPBACK4_BIN!;
   const project = join(scratch, 'password-server'), deployed = join(project, 'production');
   mkdirSync(join(project, 'snapback'), { recursive: true });
   writeFileSync(join(project, 'snapback/schema.q'), SCHEMA.replace('use identity', 'use identity password'));

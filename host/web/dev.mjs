@@ -50,19 +50,6 @@ import { applyShaderTreeChange, sendStaticBody, watchLauncher, applyStaticChange
 
 const argv = guardFlags('web', process.argv.slice(2)); // --help, or a flag it does not take, before anything starts
 const arg = (name, fallback) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : fallback; };
-// Help before any work: `web --help` started the loop (app farm wave 1, six builds).
-if (argv.includes('--help') || argv.includes('-h')) {
-  console.log(`usage: bun host/web/dev.mjs [--app <name>] [--port <n>] [--lan] [--allow-host <name>]… [--wasm]
-  The dev loop: serves the app on 127.0.0.1 and rebuilds and reloads the page on every save.
-  --port <n>    serve on exactly this port (refused if taken); EXACT_PORT=<n> does the same.
-                Without either, the first free port from 8765. A native client opening the URL
-                starts the resident loop on the next port (n+1) when the port is named, else a free one.
-  --lan         bind every interface, so a phone on the network can open the printed LAN URL.
-  --allow-host  a name the server also answers to (a tunnel's public name).
-  --wasm        keep the app on the wasm loop instead of the JS target.
-  An app outside this repo is EXACT_APP_DIR's (its exact.mjs sets it: bun exact.mjs web --port <n>).`);
-  process.exit(0);
-}
 // The dev wasm links every capability (LLP 1047 D7): a new plan that adds
 // one restarts in place, never waiting on a wasm rebuild.
 const buildEnv = {...developmentBuildEnv(),EXACT_UPDATE_TRUST:'development',EXACT_WEB_LINK:'all'};
