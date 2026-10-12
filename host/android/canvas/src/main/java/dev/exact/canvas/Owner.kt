@@ -71,10 +71,11 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
      * scrollers as of this stream ([Native.scrollers]), null when that is what it last told; with no [ops], that
      * statement alone. [fields]: what exact2 tells of the text fields the reader hosts as of this stream
      * ([Native.fields], LLP 1115.001 D8), null when that is what it last told. [bars]: what it tells of its bars as
-     * of this stream ([Native.bars], D11), null likewise. */
+     * of this stream ([Native.bars], D11), null likewise. [access]: what it tells of the accessibility tree
+     * ([Native.access], D13), null likewise, and always while no accessibility service is on. */
     class Pub(
         val ops: IntBuffer?, val move: Boolean, val seq: Int, val feed: Int, val scrollers: IntArray?, val fields: IntArray?,
-        val bars: IntArray?,
+        val bars: IntArray?, val access: IntArray?,
     )
 
     /** At the main thread's own priority, not above it ([priority]): its work is ahead of the frame the main thread
@@ -135,6 +136,20 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
     /** Whether the host's wake descriptors are watched: once, however many readers boot it. */
     private var watching = false
 
+    /** Whether an accessibility service is on, and whether the reader holds nothing of the tree yet (LLP 1115.001
+     * D13): the exact thread's own. exact2 is asked for the tree with each stream only while one is on. */
+    private var accessible = false
+    private var accessAgain = false
+
+    /** An accessibility service came on ([on]), or the last one went: the reader is told the tree whole, or exact2
+     * forgets it. */
+    fun access(on: Boolean) {
+        handler.post {
+            if (on) { accessible = true; accessAgain = true; if (watching) produce() }
+            else if (accessible) { accessible = false; try { Native.accessOff() } catch (e: UnsatisfiedLinkError) {} }
+        }
+    }
+
     /** Boot at the size the view is expected to have; [done] on the main thread with whether it booted. An activity
      * made again in this process (LLP 1115.001 D15.1) calls this for its own view: [Native.start] then adopts the host
      * that runs on this thread, which paints everything again for the new reader, and starts no second one. */
@@ -147,6 +162,7 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
             if (ok) {
                 // What was published or scrolled for the reader before this one is not this one's.
                 queue.clear(); made.clear(); seq = 0
+                accessAgain = true
                 synchronized(lock) { owedDy = 0f; owedSeq = 0 }
                 if (!watching) {
                     watching = true
@@ -351,8 +367,10 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
         val told = Native.scrollers()
         val fields = Native.fields()
         val bars = Native.bars()
-        if (fresh == null && (told != null || fields != null || bars != null)) {
-            queue.add(Pub(null, true, seq, 0, told, fields, bars))
+        // A host library without the call (an older exact2) is not asked again.
+        val access = if (accessible) try { Native.access(accessAgain).also { accessAgain = false } } catch (e: UnsatisfiedLinkError) { accessible = false; null } else null
+        if (fresh == null && (told != null || fields != null || bars != null || access != null)) {
+            queue.add(Pub(null, true, seq, 0, told, fields, bars, access))
             if (!notifying.getAndSet(true)) main.post { notifying.set(false); published() }
         }
         if (fresh != null) {
@@ -367,7 +385,7 @@ internal class Owner(private val hwbuf: Boolean, private val fast: Boolean, prio
                 for (k in pics.indices step 3) if (!made.containsKey(pics[k])) made[pics[k]] = makePicture(pics[k], pics[k + 1], pics[k + 2], hwbuf)
                 android.os.Trace.endSection()
             }
-            queue.add(Pub(ints, ints.limit() > 0 && ints.get(0) == 22, seq, Native.feed(), told, fields, bars))
+            queue.add(Pub(ints, ints.limit() > 0 && ints.get(0) == 22, seq, Native.feed(), told, fields, bars, access))
             if (!notifying.getAndSet(true)) main.post { notifying.set(false); published() }
         }
         Native.chrome()?.let { c -> main.post { chrome(c) } }
@@ -467,6 +485,14 @@ internal object Exact {
         val o = owner
         if (o != null) { if (what != 2) o.input(); o.call { Native.bar(which, what, x, y) } }
         else { Native.bar(which, what, x, y); turned() }
+    }
+
+    /** What an accessibility service asks of node [id] of the tree exact2 last told ([Access], [Native.accessAct],
+     * LLP 1115.001 D13): on exact2's thread, and waited for, since the service is answered with whether it was
+     * done. exact2 then publishes what it changed. */
+    fun accessAct(id: Int, action: Int, value: Float): Boolean {
+        val o = owner
+        return if (o != null) { o.input(); o.sync { Native.accessAct(id, action, value) } } else Native.accessAct(id, action, value).also { turned() }
     }
 
     /** When the last touch lifted, or was held long enough to be a long press ([android.os.SystemClock.uptimeMillis]):

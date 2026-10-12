@@ -71,7 +71,7 @@ open class ExactActivity : Activity() {
         requests = Requests(this).also { it.back = { goes -> takeBack(goes) } }
         // No background of its own: the window's shows behind the page, the launch theme's surface until the host says
         // the page's ([chrome]).
-        root = FrameLayout(this)
+        root = Root(this)
         // The top layer's windows (LLP 1115.001 D10) are this activity's, and outlive its reader.
         requests.surfaces = Surfaces(this, root).also { it.covering = { on -> fields?.covered(on) } }
         read()
@@ -82,6 +82,31 @@ open class ExactActivity : Activity() {
             if (r - l != or - ol || b - t != ob - ot) root.rootWindowInsets?.let { window(it) }
         }
         setContentView(root)
+        accessibility.addAccessibilityStateChangeListener(accessWatch)
+    }
+
+    /** Whether an accessibility service is on (LLP 1115.001 D13). The reader answers one through its root
+     * ([Root], [Access]) and asks exact2 for the tree only while one is on: with none, exact2 is never asked and
+     * builds nothing. */
+    private val accessibility by lazy { getSystemService(android.view.accessibility.AccessibilityManager::class.java) }
+    private val accessWatch = android.view.accessibility.AccessibilityManager.AccessibilityStateChangeListener { on -> accessible(on) }
+
+    /** A service came on, or the last one went; or this activity's reader was made ([read]) and is told which. */
+    private fun accessible(on: Boolean) {
+        if (!reads() || !::view.isInitialized) return
+        if (on == root.accessible && !on) return
+        root.accessible = on
+        if (!on) { root.access.clear(); requests.surfaces?.access(null) }
+        val owner = view.owner
+        if (owner != null) owner.access(on) else view.accessible(on)
+    }
+
+    /** exact2's statement of the accessibility tree ([Native.access]): the page's goes to the root, a surface's to
+     * that surface's window, and the page under an open surface then has nothing that can be reached. */
+    private fun accessTold(words: IntArray) {
+        val told = Access.Told(words)
+        if (told.surface == 0) { requests.surfaces?.access(null); root.access.told(told) }
+        else { root.access.clear(); requests.surfaces?.access(told) }
     }
 
     private lateinit var requests: Requests
@@ -194,6 +219,13 @@ open class ExactActivity : Activity() {
         // A surface of the top layer that is open over this reader's page keeps its fields from the focus.
         hosted.covered(requests.surfaces?.open == true)
         view.fields = hosted
+        // What the reader answers accessibility services with (D13): the root answers for the page, the bars and
+        // the fields; the page's view and the layers are pictures and say nothing themselves. Hosted elements (a
+        // web view, a video) report themselves, after exact2's nodes.
+        view.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        view.access = { words -> accessTold(words) }
+        root.access.fields = hosted
+        root.access.others = { if (elements.childCount > 0) listOf<View>(elements) else emptyList() }
         root.addView(elements, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         root.addView(hosted, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         root.addView(view, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
@@ -210,9 +242,10 @@ open class ExactActivity : Activity() {
         // The app's bars (LLP 1115.001 D11), over the page and everything it hosts. The host tells this reader its
         // bars anew, as it paints everything again for it.
         view.bars = Bars(this, root)
+        accessible(accessibility.isEnabled)
     }
 
-    private lateinit var root: FrameLayout
+    private lateinit var root: Root
 
     /** The app is edge to edge (LLP 1115.001 D3.4): the window reaches under transparent system bars and into the
      * display's cutout, and the software keyboard is an inset the host is told, not a pan of the window. Android 15
@@ -349,6 +382,7 @@ open class ExactActivity : Activity() {
     }
 
     override fun onDestroy() {
+        accessibility.removeAccessibilityStateChangeListener(accessWatch)
         requests.destroy()
         release()
         super.onDestroy()
