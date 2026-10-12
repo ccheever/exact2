@@ -1300,7 +1300,7 @@
       "kind": "str",
       "measure": true,
       "styleable": true,
-      "_comment": "@ref LLP 1069.011 D2: a native button's style, a name in `buttonStyles`; absent, `bordered`. Only on a `button` whose appearance is `auto`."
+      "_comment": "@ref LLP 1069.011 D2: a native button's style, a name in `buttonStyles`. Absent, the platform's own default (LLP 1115.000 D15): plain tinted text on iOS, a push button on macOS, `bordered` on the web and the hosts that paint their own. Only on a `button` whose appearance is `auto`."
     },
     {
       "id": 218,

@@ -1,6 +1,8 @@
 // Native buttons on UIKit (LLP 1069.011): a `button appearance="auto"` is a
 // `Control` of type `button`, and its control is UIKit's own `UIButton` with
-// the `UIButton.Configuration` its `buttonStyles` row names. Its title and
+// the `UIButton.Configuration` its `buttonStyles` row names, or with no
+// `buttonStyle` written the platform's own (`ButtonFace.unsaid`, LLP 1115.000
+// D15: plain on iOS). Its title and
 // symbol are the node's face, read from the kernel (`exact_button_face`);
 // its children are never views. The control takes the touch and runs the
 // node's activation (D4); the node keeps keys and focus; the control is the
@@ -43,7 +45,7 @@ final class NativeButtonIOS: UIButton {
     /// Whether it draws glass: a glass row on iOS 26 and later.
     var isGlass = false
     /// The configuration drawn, its name in the table's iOS column.
-    var drawn = "bordered"
+    var drawn = ButtonFace.unsaid
     override var canBecomeFocused: Bool {
         #if os(tvOS)
         return isEnabled && isUserInteractionEnabled && owner?.inert != true && owner?.cssVisibilityHidden != true
@@ -100,7 +102,9 @@ extension NodeView {
 
 extension ControlHost {
     func makeNativeButton(_ node: NodeView) -> UIControl {
-        let button = NativeButtonIOS(configuration: .bordered())
+        // Its face is read and applied before it shows; until then it is the
+        // button nobody styled.
+        let button = NativeButtonIOS(configuration: Self.configuration(ButtonFace()).0)
         button.owner = node
         // The node is not an element. UIKit leaves this default false until
         // assistive technology loads its runtime, so expose the control's

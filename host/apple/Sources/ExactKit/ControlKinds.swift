@@ -153,7 +153,8 @@ struct SelectMenu: Equatable {
 /// 1069.011 D2) — each platform's draw, a `~` marking a stand-in. `style` is
 /// the `buttonStyle` its author wrote, nil when they wrote none: the face
 /// then carries no row, and the platform columns keep their defaults here,
-/// which are what a button with no style draws.
+/// which are what a button with no style draws (`unsaid`; the Mac's push
+/// button).
 struct ButtonFace: Equatable {
     /// Whether the node is a button at all; the rest is empty when not.
     var button = true
@@ -167,8 +168,8 @@ struct ButtonFace: Equatable {
     var label: String?
     var fits = true
     var style: String?
-    var ios = "bordered"
-    var iosBefore26 = "bordered"
+    var ios = ButtonFace.unsaid
+    var iosBefore26 = ButtonFace.unsaid
     var macos = "push"
     var known = true
 
@@ -191,6 +192,19 @@ struct ButtonFace: Equatable {
         macos = o["macos"] as? String ?? macos
         known = o["known"] as? Bool ?? true
     }
+
+    /// What UIKit draws for a button whose author wrote no `buttonStyle`, by
+    /// its name in the table's iOS column (LLP 1115.000 D15). On iOS it is
+    /// the plain configuration, tinted text with no fill, as `UIButton(type:
+    /// .system)` and SwiftUI's `Button` are; `buttonStyle="bordered"` is what
+    /// an author writes for the grey capsule. tvOS keeps the bordered button:
+    /// its focus look is drawn on the button's own shape, and a plain button
+    /// has none to draw it on. The two are told apart here and nowhere else.
+    #if os(iOS)
+    static let unsaid = "plain"
+    #else
+    static let unsaid = "bordered"
+    #endif
 
     /// The text a platform entry shows (a menu row, a confirmation's action):
     /// the title, else the label (a symbol-only button's).

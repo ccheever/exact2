@@ -108,6 +108,34 @@ fn header_states_when_it_is_the_navigation_bar() {
     }
 }
 
+/// LLP 1115.000 D15, D14.5: a button nobody styled is the platform's, and
+/// `vocab` says which that is on each host, under the tag and under the
+/// word an author writes to choose another.
+#[test]
+fn button_states_the_platforms_default_style_per_host() {
+    for name in ["button", "buttonStyle"] {
+        let out = stdout(&vocab(&[name]));
+        for part in [
+            "plain tinted text on iOS",
+            "a push button on macOS",
+            "bordered on the web",
+        ] {
+            assert!(out.contains(part), "{name}: {part}: {out}");
+        }
+    }
+    let button = stdout(&vocab(&["button"]));
+    for part in ["`buttonStyle=\"filled\"`", "`destructive=true`"] {
+        assert!(button.contains(part), "{part}: {button}");
+    }
+    let doc: Value = serde_json::from_str(&stdout(&vocab(&["--json", "buttonStyle"]))).unwrap();
+    assert!(
+        doc["attribute"]["note"]
+            .as_str()
+            .is_some_and(|n| n.contains("plain tinted text on iOS")),
+        "{doc}"
+    );
+}
+
 #[test]
 fn an_unknown_name_gets_the_compilers_suggestion_and_exit_1() {
     let output = vocab(&["paddin"]);
