@@ -232,8 +232,8 @@ Drives: [drive.sh](https://raw.githubusercontent.com/ccheever/exact2/6c0502ed3bc
 
 | Row | Result | Proof |
 | --- | --- | --- |
-| AD-1: the branch contains main | pass at the final merge (main `c4cd2bcba`) | Adopted main; Checks |
-| AD-1: the framework tree is main's | pass: empty after `6b6446e97`, `a793030ba` and on the final head | Adopted main; Checks |
+| AD-1: the branch contains main | pass at the final merge (main `b0e4a6c22`, review round 1) | Adopted main; Checks |
+| AD-1: the framework tree is main's | pass: empty after `6b6446e97`, `a793030ba`, `86dcbfd88` and on the final head | Adopted main; Checks |
 | AD-1: the checks pass | see Checks | Checks |
 | AD-1: the clone works | pass: the same three sessions before (the T3 tip `20ce9dfdb`'s bundle) and after (the bundle of `6297a1728`'s sources on main `b610c88ba`) exit 0, no op failed; screens equal but for the rows' own changes and main's platform rules (the launch scheme, X58; the launch focus in the first key view, LLP 1115.000 D7.5) | [shell](https://raw.githubusercontent.com/ccheever/exact2/8c79a05e63f94d098d95cc6074884e3145ea0c88/adopt-main-fixes-r11/ad1-shell.png), [Settings](https://raw.githubusercontent.com/ccheever/exact2/71739d0042f659834626ce4a822e3bc886fbfeb7/adopt-main-fixes-r11/ad1-settings.png), [pixels](https://raw.githubusercontent.com/ccheever/exact2/901987fc6fcb5d8fd05a1a975b105bdf4048d912/adopt-main-fixes-r11/ad1-pixels.txt) |
 | RT-1 X63 | pass: `macos/tests/r8-keys` before 6/6, after 6/6; the retired routing over a pre-#327 textarea fails 4 of 6 (⌘Z and Edit › Undo do nothing), so it stood only for want of #327. Real keys: step 4 | [record](https://raw.githubusercontent.com/ccheever/exact2/f466379af15c628b096ad3b48b6d223193f8015a/adopt-main-fixes-r11/x63-and-appkit-record.txt) |
@@ -316,7 +316,29 @@ login), window 1280×840. Never send a message, never change System Settings.
 
 ## Checks
 
-Once, on `476dae166` (the final code head; later commits change this record only), `target/r11/checks.sh`:
+Review round 1, once, on `3eb37c322` (the review's head: main `b0e4a6c22` merged, records only besides; the next commit
+changes this record only), `target/r11/checks-review.sh`. The change touches no clone Rust or Swift, so the
+`t3-code-macos` lib test and the AppKit binaries were not re-run (their round 11 results stand, below).
+
+| Check | Exit | Note |
+| --- | --- | --- |
+| `bun test examples/t3-code --timeout 60000` | 0 | 4,846 pass, 1 skip, 0 fail (327 files) |
+| strict `tsc` (README command) | 0 | |
+| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | 6,470 slots, 120,810 nodes, 48 resources, 33,303,262 bytes; 233 `lower-colour-one-scheme`, 20 `lower-dialog-role` shown (the cap; uncapped in "Each item"). `app.contract` 1,453 lines |
+| `git add -A && bun scripts/caps.mjs` | 0 | all budgets within cap |
+| `cargo build --all-targets --keep-going` | 0 | |
+| `cargo test --lib --bins --tests --no-fail-fast` | 0 | 3,946 passed, 0 failed, 36 ignored (99 suites) |
+| `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | |
+| `cargo fmt --all -- --check` | 0 | |
+| `bun scripts/boot.mjs` | 0 | |
+| `cargo check --workspace --all-targets --keep-going` (main's sixth check) | 0 | |
+| `host/apple/build.mjs t3-code-macos --bundle` | 0 | the review drive's after bundle, `86dcbfd88`'s sources |
+
+After a fresh fetch on the review's head: `git merge-base --is-ancestor origin/main HEAD` yes (main `b0e4a6c22`),
+`git rev-list --count HEAD..origin/feat(example)/t3-code` 0, `git diff origin/main HEAD -- ':!examples/t3-code'
+':!Cargo.lock' ':!Cargo.toml'` empty.
+
+Round 11, once, on `476dae166` (the code head then), `target/r11/checks.sh`:
 
 | Check | Exit | Note |
 | --- | --- | --- |
@@ -336,8 +358,7 @@ Once, on `476dae166` (the final code head; later commits change this record only
 
 After a fresh fetch on the final head: `git merge-base --is-ancestor c4cd2bcba HEAD` yes, `git rev-list --count
 HEAD..origin/feat(example)/t3-code` 0, `git diff c4cd2bcba HEAD -- ':!examples/t3-code' ':!Cargo.lock' ':!Cargo.toml'`
-empty. Main moved one commit after the checks (`b0e4a6c22`, the terminal's animation payloads); not adopted here, the next
-round takes it.
+empty. Main moved one commit after these checks (`b0e4a6c22`, the terminal's animation payloads), merged in review round 1.
 
 ## Attempts and evidence
 
