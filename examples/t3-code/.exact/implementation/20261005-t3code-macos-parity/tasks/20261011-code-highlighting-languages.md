@@ -133,19 +133,30 @@ NOASSERTION (11) or nothing (21) the upstream repository's LICENSE, package.json
 round): MIT 186, Apache-2.0 22, llvm Apache-2.0 with LLVM exceptions, BSD-2-Clause apache and matlab, BSD-3-Clause apex
 and haskell, ISC apl and emacs-lisp, the TextMate bundles' permission notice for nine (abap, applescript, erb, logo,
 mipsasm, po, ssh-config, toml, yaml), MPL-2.0 bird2, hcl and terraform, GPL-3.0 ada, gnuplot, nginx and racket, and no
-licence found for dax, dream-maker, glsl and tcl. Until the user decides (see "Decision needed"), the generator leaves
-out ten (`LICENCE_HELD`: the GPL-3.0 and MPL-2.0 ones, dax, dream-maker and tcl; no kept language's module loads one),
-so the data holds 243 grammars and 225 languages; glsl stays, because cpp, ruby, julia and seven other languages load it.
-`EXACT2-GAPS.md` ("Code colours") declares the held ten.
+licence found for dax, dream-maker, glsl and tcl.
+
+**Round 3 (2026-10-12): the coordinator's decisions.** (1) Licences: the generator leaves out the four GPL-3.0 grammars
+and the four with no licence (`LICENCE_HELD`: ada, gnuplot, nginx, racket; dax, dream-maker, glsl, tcl). glsl was looked
+for again and has none: `polym0rph/GLSL.tmbundle` (tm-grammars' source) has no LICENSE file, no GitHub licence, nothing
+in its README or `info.plist`, no header in the grammar, and no issue about one. A held language is no fence word or file
+language, so it paints as plain text; a held grammar is an empty grammar of its scope name (an include of it is a rule
+with no patterns, a key of its repository is missing), so the rule that embeds one stays and its content paints plain:
+cpp's `R"glsl(…)glsl"` (the delimiters keep their string colour), elm's `[glsl| … |]`, ts-tags'
+`/* glsl */` templates and latex's gnuplot code. `shiki-compare` gives Shiki the same empty grammars, so the comparison
+stays one registry against another. bird2, hcl and terraform (MPL-2.0) are back: `LICENSE-T3` carries the licence's
+Exhibit A notice, their repositories and commits and where their Source Code Form is, and each of their chunks carries
+the notice (the generator writes it). The data holds 245 grammars and 227 languages. (2) Load order: kept, every grammar
+from the start. Both are declared in `EXACT2-GAPS.md` ("Code colours") and `STATUS.md` "Known differences", the
+coordinator's decision; reversible (`LICENCE_HELD`).
 
 ## Acceptance results
 
 | Row | Result | Proof |
 | --- | --- | --- |
-| CH-1 languages | pass but the ten held for the licence decision (review round): 225 languages and 94 aliases, the clone's 319 fence words are Shiki 4.2's `bundledLanguages` keys less the held ten and their aliases bird, tf, tfvars (`shiki-compare --list`, which fails on any other difference; before 25 grammars). Review round, on this branch: the samples corpus less the held 221 languages, 170,522 characters, 0 differing; the 4 unsampled 0; the real files 214,594 characters 0; the TypeScript corpus 169,771 0; Korean markdown, `u.ts`, julia `2π` 0; long lines (≥ 1,000 and 999 characters, minified JavaScript, empty lines inside blocks) 0; and the app path itself (`highlight()` with the Files line limit) against Shiki with `tokenizeMaxLineLength` 1,000, by synColor class: the 221 samples 170,522 characters 0, the long-line files 12,717 0 ([review record](https://raw.githubusercontent.com/ccheever/exact2/359acbb648dd0cddc78f1599a16d8b3c7650f320/code-highlighting-languages/ch1-review-record.txt)). First round: Against real Shiki (Oniguruma), light, dark and italic of every non-blank character: the samples corpus 231 languages, 177,168 characters, 0 differing; the 4 without a sample (git-commit, git-rebase, html-derivative, nextflow-groovy) 0; real files for 12 languages (cpp 5 files, objective-c 4, objective-cpp 4, haskell 4, julia 4, sql, perl 2, php, vue, astro 2, proto, scss) 214,594 characters, 0; the 40-file TypeScript corpus 169,771 characters, 0 (regression guard, as in shiki-residuals); Korean markdown, Unicode identifiers, julia `2π` 0 (with ASCII `\b` only: 6 and 2) | [ch1-record.txt](https://raw.githubusercontent.com/ccheever/exact2/93dd5a4fb1d8e4144d44d31a25db6fcf5c21ee0c/code-highlighting-languages/ch1-record.txt), [samples log](https://raw.githubusercontent.com/ccheever/exact2/873840eaaed21297f18fd0f3ee0c264f0322e8c6/code-highlighting-languages/ch1-samples-harness.log), [real-files log](https://raw.githubusercontent.com/ccheever/exact2/5b15b11b20845233ac2efaf7a28c80d9d586827d/code-highlighting-languages/ch1-real-files-harness.log) |
-| CH-1 Hermes | pass (review round: long lines under slicing in Hermes, the reviewed head against this branch: the markdown emphasis, Korean markdown and rust raw-string lines never finished (dropped after 300 turns), now 2, 3 and 1 turns; the 3,618-character JavaScript line 141 turns, now 6, slices at most 40 ms; the record's per-language probe again: TypeScript 211 KB max 52 ms, cpp 55, asm with Korean 40, same turn counts; [review record](https://raw.githubusercontent.com/ccheever/exact2/359acbb648dd0cddc78f1599a16d8b3c7650f320/code-highlighting-languages/ch1-review-record.txt)). First round: 21,920 regexes, 29,488 distinct forms; the pinned `hermesc` compiles all as literals (exit 0) and vanilla Hermes 1.0.0 builds all with `new RegExp(s, f + 'dg')` (0 failures); no form has the `v` flag; slices of the app's slicing stay near 50 ms (TypeScript 211 KB max 52 ms, cpp 59, Korean-commented TypeScript median 40, asm with Korean max 41; before the work limit up to 427 ms in one line) | ch1-record.txt |
-| CH-1 sizes (U15) | measured: grammar source 1,130,900 → 11,738,851 bytes; `app.js` 4,991,714 → 15,595,454; `app.hbc` 6,174,159 → 13,222,347; the bake's `app.plan` 28,854,201 → 28,854,110 (the plan holds no grammar data); `T3 Code (Exact).app` 156,944 → 163,856 KB. Review round (ten grammars held, merged with the feature tip `8fa9446cc`): grammar source 11,340,593; `app.js` 15,214,893; `app.hbc` 12,883,176; bake `app.plan` 29,242,423 (the merged tip's); `.app` 164,140 KB; `contract build` in Checks | ch1-record.txt |
-| CH-1 in the app | pass. Review round (one agent drive of this branch's bundle on the merged head, light, 1280×840; before on `t3-code-evidence-base` `6db5cadea`; the reference on the same lane): chat fences through `fences.md` rendered in Files, which is ChatMarkdown in the reference (`FileMarkdownPreview`) and `messageCodeBlocks` in the clone, the function a thread message's fences use: before, cpp in the heuristic colours, haskell and julia plain, ```` ```Python ```` and ```` ```Dockerfile ```` coloured; after, every block as the reference, those two plain ([fences](https://raw.githubusercontent.com/ccheever/exact2/3ac1d14b18649858c67fa61c60a56ee8ae26d5d9/code-highlighting-languages/ch1-review-fences.png)); `long.ts`: before, the 1,016- and 1,000-character lines coloured and the next line still in the comment the second opens; after, both plain and the next line code, as the reference ([long lines](https://raw.githubusercontent.com/ccheever/exact2/f039e6692dcbe9a23fa784aa135fd943895eb964/code-highlighting-languages/ch1-review-long.png)); `docker/Dockerfile`: before coloured, after plain, as the reference ([nested Dockerfile](https://raw.githubusercontent.com/ccheever/exact2/2994040633cc2fa2d41cba1eaf900e52856fe1c7/code-highlighting-languages/ch1-review-dockerfile.png)). A message in a thread is not driven: it needs a provider turn, which the lane rules forbid. First round (agent drive, Files surface, 1280×840, light and dark): before, cpp and the C-like heuristic colours, haskell, julia, php and sql plain, the Korean markdown's `__밑줄__` bolded; after, each file's colours equal the reference's; the one difference is the declared one (the markdown's ` ```sh ` fence is coloured in the clone, plain in a fresh reference window) | [cpp](https://raw.githubusercontent.com/ccheever/exact2/763f19bdfc24f25dc27c1aad9317ab394762bca4/code-highlighting-languages/ch1-cpp.png), [haskell](https://raw.githubusercontent.com/ccheever/exact2/0786c1ec915d4c166d0e61f53a28c2135244f130/code-highlighting-languages/ch1-haskell.png), [julia](https://raw.githubusercontent.com/ccheever/exact2/216dbfde58c4969341ec422c51a89bca5964f774/code-highlighting-languages/ch1-julia.png), [php](https://raw.githubusercontent.com/ccheever/exact2/c7ac86395f0286168648b40ef7c754e074febbdd/code-highlighting-languages/ch1-php.png), [sql](https://raw.githubusercontent.com/ccheever/exact2/4b9ac6b018feacb5d6290bec0e5c594c02c27b2b/code-highlighting-languages/ch1-sql.png), [markdown](https://raw.githubusercontent.com/ccheever/exact2/5945c0b014d68f84e590cf3379101e280aee94d9/code-highlighting-languages/ch1-markdown.png) |
+| CH-1 languages | pass but the eight held for their licences (round 3, the coordinator's decision of 2026-10-12): 227 languages and 97 aliases; the clone's 324 fence words are Shiki 4.2's `bundledLanguages` keys less the held eight, which have no aliases (`shiki-compare --list`, which fails on any other difference; before 25 grammars). Round 3, on `0660c0dab`'s content, with the held grammars empty on both sides: the samples 223 languages, 170,646 characters, 0 differing; the 4 unsampled 0; the real files 214,594 0; the TypeScript corpus 169,771 0; Unicode 396 0; long lines 12,717 0; `--max-line 1000` (the app path) on the long lines and the 223 samples 0; and a held-grammar corpus (cpp `R"glsl(…)glsl"`, elm `[glsl| |]`, nim `glsl"""…"""`, ts-tags `/* glsl */` and `glsl` templates, latex `minted{gnuplot}`, the terraform, hcl and bird2 samples) 3,552 characters 0 ([round 3 record](https://raw.githubusercontent.com/ccheever/exact2/720c3cc2638b5df03960a1e77ec419b74be59d25/code-highlighting-languages/ch1-round3-record.txt)). Review round (ten held then): the samples corpus less the held 221 languages, 170,522 characters, 0 differing; the 4 unsampled 0; the real files 214,594 characters 0; the TypeScript corpus 169,771 0; Korean markdown, `u.ts`, julia `2π` 0; long lines (≥ 1,000 and 999 characters, minified JavaScript, empty lines inside blocks) 0; and the app path itself (`highlight()` with the Files line limit) against Shiki with `tokenizeMaxLineLength` 1,000, by synColor class: the 221 samples 170,522 characters 0, the long-line files 12,717 0 ([review record](https://raw.githubusercontent.com/ccheever/exact2/359acbb648dd0cddc78f1599a16d8b3c7650f320/code-highlighting-languages/ch1-review-record.txt)). First round: Against real Shiki (Oniguruma), light, dark and italic of every non-blank character: the samples corpus 231 languages, 177,168 characters, 0 differing; the 4 without a sample (git-commit, git-rebase, html-derivative, nextflow-groovy) 0; real files for 12 languages (cpp 5 files, objective-c 4, objective-cpp 4, haskell 4, julia 4, sql, perl 2, php, vue, astro 2, proto, scss) 214,594 characters, 0; the 40-file TypeScript corpus 169,771 characters, 0 (regression guard, as in shiki-residuals); Korean markdown, Unicode identifiers, julia `2π` 0 (with ASCII `\b` only: 6 and 2) | [ch1-record.txt](https://raw.githubusercontent.com/ccheever/exact2/93dd5a4fb1d8e4144d44d31a25db6fcf5c21ee0c/code-highlighting-languages/ch1-record.txt), [samples log](https://raw.githubusercontent.com/ccheever/exact2/873840eaaed21297f18fd0f3ee0c264f0322e8c6/code-highlighting-languages/ch1-samples-harness.log), [real-files log](https://raw.githubusercontent.com/ccheever/exact2/5b15b11b20845233ac2efaf7a28c80d9d586827d/code-highlighting-languages/ch1-real-files-harness.log) |
+| CH-1 Hermes | pass (round 3: the 21,333 regexes, 28,637 forms of the new data compile in the pinned `hermesc` (exit 0) and in Hermes (0 failures); the review's blocking loop confirmed fixed: the test's loop, `tokenizeLineWithin(…, -1)` retried, does not finish in 500 tries on the reviewed head `ac712a39b` and finishes in 79 here; a template-dense cpp line is not bounded by the work limit, which covers one-time work only: in Files and diffs the 1,000-character line limit bounds a line at 675 ms (962 characters) and a slice at about 1.4 s (two such lines), and a chat fence has no bound (2,960 characters 6.2 s; Oniguruma 151 ms), declared in STATUS "Known differences" ([round 3 record](https://raw.githubusercontent.com/ccheever/exact2/720c3cc2638b5df03960a1e77ec419b74be59d25/code-highlighting-languages/ch1-round3-record.txt)). Review round: long lines under slicing in Hermes, the reviewed head against this branch: the markdown emphasis, Korean markdown and rust raw-string lines never finished (dropped after 300 turns), now 2, 3 and 1 turns; the 3,618-character JavaScript line 141 turns, now 6, slices at most 40 ms; the record's per-language probe again: TypeScript 211 KB max 52 ms, cpp 55, asm with Korean 40, same turn counts; [review record](https://raw.githubusercontent.com/ccheever/exact2/359acbb648dd0cddc78f1599a16d8b3c7650f320/code-highlighting-languages/ch1-review-record.txt)). First round: 21,920 regexes, 29,488 distinct forms; the pinned `hermesc` compiles all as literals (exit 0) and vanilla Hermes 1.0.0 builds all with `new RegExp(s, f + 'dg')` (0 failures); no form has the `v` flag; slices of the app's slicing stay near 50 ms (TypeScript 211 KB max 52 ms, cpp 59, Korean-commented TypeScript median 40, asm with Korean max 41; before the work limit up to 427 ms in one line) | ch1-record.txt |
+| CH-1 sizes (U15) | measured: grammar source 1,130,900 → 11,738,851 bytes; `app.js` 4,991,714 → 15,595,454; `app.hbc` 6,174,159 → 13,222,347; the bake's `app.plan` 28,854,201 → 28,854,110 (the plan holds no grammar data); `T3 Code (Exact).app` 156,944 → 163,856 KB. Review round (ten grammars held, merged with the feature tip `8fa9446cc`): grammar source 11,340,593; `app.js` 15,214,893; `app.hbc` 12,883,176; bake `app.plan` 29,242,423 (the merged tip's); `.app` 164,140 KB; `contract build` in Checks. Round 3 (eight held, bird2, hcl and terraform back, merged with `ca4f28e35`): grammar source 11,427,102; `contract build` 29,208,699 (the plan holds no grammar data); `app.js` 15,300,293; `app.hbc` 12,952,920; bake `app.plan` 29,242,515 (+92 bytes, the merged tip's); `.app` 164,204 KB | ch1-record.txt, [round 3 record](https://raw.githubusercontent.com/ccheever/exact2/720c3cc2638b5df03960a1e77ec419b74be59d25/code-highlighting-languages/ch1-round3-record.txt) |
+| CH-1 in the app | pass. Round 3 not driven again: it changes which grammars the data holds, not how the app paints them, and `shiki-compare --max-line 1000` runs `highlight()` itself (the function Files, diffs and chat fences go through) against Shiki on the 223 samples and the long lines, and the held-grammar corpus through the engine (0 differing); the tests cover the fence words and file names. Review round (one agent drive of this branch's bundle on the merged head, light, 1280×840; before on `t3-code-evidence-base` `6db5cadea`; the reference on the same lane): chat fences through `fences.md` rendered in Files, which is ChatMarkdown in the reference (`FileMarkdownPreview`) and `messageCodeBlocks` in the clone, the function a thread message's fences use: before, cpp in the heuristic colours, haskell and julia plain, ```` ```Python ```` and ```` ```Dockerfile ```` coloured; after, every block as the reference, those two plain ([fences](https://raw.githubusercontent.com/ccheever/exact2/3ac1d14b18649858c67fa61c60a56ee8ae26d5d9/code-highlighting-languages/ch1-review-fences.png)); `long.ts`: before, the 1,016- and 1,000-character lines coloured and the next line still in the comment the second opens; after, both plain and the next line code, as the reference ([long lines](https://raw.githubusercontent.com/ccheever/exact2/f039e6692dcbe9a23fa784aa135fd943895eb964/code-highlighting-languages/ch1-review-long.png)); `docker/Dockerfile`: before coloured, after plain, as the reference ([nested Dockerfile](https://raw.githubusercontent.com/ccheever/exact2/2994040633cc2fa2d41cba1eaf900e52856fe1c7/code-highlighting-languages/ch1-review-dockerfile.png)). A message in a thread is not driven: it needs a provider turn, which the lane rules forbid. First round (agent drive, Files surface, 1280×840, light and dark): before, cpp and the C-like heuristic colours, haskell, julia, php and sql plain, the Korean markdown's `__밑줄__` bolded; after, each file's colours equal the reference's; the one difference is the declared one (the markdown's ` ```sh ` fence is coloured in the clone, plain in a fresh reference window) | [cpp](https://raw.githubusercontent.com/ccheever/exact2/763f19bdfc24f25dc27c1aad9317ab394762bca4/code-highlighting-languages/ch1-cpp.png), [haskell](https://raw.githubusercontent.com/ccheever/exact2/0786c1ec915d4c166d0e61f53a28c2135244f130/code-highlighting-languages/ch1-haskell.png), [julia](https://raw.githubusercontent.com/ccheever/exact2/216dbfde58c4969341ec422c51a89bca5964f774/code-highlighting-languages/ch1-julia.png), [php](https://raw.githubusercontent.com/ccheever/exact2/c7ac86395f0286168648b40ef7c754e074febbdd/code-highlighting-languages/ch1-php.png), [sql](https://raw.githubusercontent.com/ccheever/exact2/4b9ac6b018feacb5d6290bec0e5c594c02c27b2b/code-highlighting-languages/ch1-sql.png), [markdown](https://raw.githubusercontent.com/ccheever/exact2/5945c0b014d68f84e590cf3379101e280aee94d9/code-highlighting-languages/ch1-markdown.png) |
 
 Drives: before on `t3-code-evidence-base` at `6db5cadea` (lane `code-highlighting-languages-before`), after on this
 branch's bundle (the app code of `60a281a74`; lane `code-highlighting-languages`), the reference T3 Code `1e2ecbd975` on the
@@ -166,6 +177,11 @@ None: the rows are colours, which the agent drive's `screenshot … window` read
 
 ## Tests
 
+- Round 3, `code-highlighting-languages.test.ts` (+6, 27 in all): the counts with the eight held (227 languages, 97
+  aliases, 324 fence words, 245 chunks) and bird, bird2, hcl, terraform, tf, tfvars resolving; terraform, hcl and bird2 as
+  Shiki paints them; cpp `R"glsl(…)glsl"` and elm `[glsl| … |]` as Shiki paints them with an empty glsl grammar (the
+  delimiters keep their colours, the GLSL plain); every held fence word paints plain; held file names (`.frag`, `.vert`,
+  `.glsl`, `nginx.conf`, `.adb`, `.tcl`, `.rkt`) plain, `.tf`, `.tfvars`, `.hcl` coloured.
 - Review round, `code-highlighting-languages.test.ts` (+8): a line retried under a work limit below zero finishes
   though each try makes its back-reference regexes again (fails on the reviewed head: 500 tries); markdown emphasis,
   Korean markdown, rust raw strings and reStructuredText on its first use, each one line longer than half a turn, finish
@@ -184,6 +200,24 @@ None: the rows are colours, which the agent drive's `screenshot … window` read
   pins.
 
 ## Checks
+
+Round 3: run once on `0660c0dab` (the coordinator's decisions, on the merge `1fd790341` of `origin/feat(example)/t3-code`
+`ca4f28e35`). `b4b1e731e` after it changes a generator comment (so the data headers' hash) and notes: `gen-grammar
+--check`, `bun test` (4,737 pass), strict `tsc` and caps ran again on it, exit 0 each; the record commit after that is
+docs only. The coordinator asked for these checks; the cargo checks were not rerun (no Rust or Swift changed in this
+round; the merged feature tip's one Swift change, the real-input test `real-key-chords`, was checked in #482), and no
+live drive (data only).
+
+| Check | Exit | Note |
+| --- | --- | --- |
+| `gen-grammar.mjs --check` | 0 | the committed data is the generator's, byte for byte |
+| `bun test examples/t3-code --timeout 60000` | 0 | 4,737 pass, 0 fail (319 files) |
+| strict `tsc` (README command) | 0 | 424 files of the clone |
+| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | 29,208,699 bytes; `app.contract` 1,418 lines |
+| `git add -A && bun scripts/caps.mjs` | 0 | all budgets within cap |
+| `EXACT_APP_DIR=… bun host/apple/build.mjs t3-code-macos --bundle` | 0 | on `0660c0dab`'s content: `app.js` 15,300,293 B, `app.hbc` 12,952,920 B, bake `app.plan` 29,242,515 B, `.app` 164,204 KB |
+| `shiki-compare` (list, samples, extra, real, ts, unicode, long lines, `--max-line 1000` on the long lines and the samples, the held-grammar corpus) | 0 each | 0 differing everywhere ([round 3 record](https://raw.githubusercontent.com/ccheever/exact2/720c3cc2638b5df03960a1e77ec419b74be59d25/code-highlighting-languages/ch1-round3-record.txt)) |
+| `hermesc` on every regex form; Hermes `new RegExp` on every form | 0; 0 failures | 28,637 forms |
 
 Review round: run once on the merged head `a9dcd3803` (`d0d3a1ba4`, the review fixes, with `origin/feat(example)/t3-code`
 `8fa9446cc`); the record and PR text after it changed docs only.
@@ -211,33 +245,44 @@ tests) and `cargo test` (101: main's `button_migration` test on `apps/color-gall
 
 None. (A fence inside a thread message is not driven: that needs a provider turn, which the lane rules forbid; the
 function it goes through, `messageCodeBlocks`, is driven through Files' rendered markdown, which the reference renders
-with the same ChatMarkdown.)
+with the same ChatMarkdown.) Round 3: none; not driven live, since it changes which grammars the data holds, which
+`shiki-compare` checks on the app path (`highlight()`); the template-dense cpp line's cost is a declared known difference.
 
-## Decision needed
+## Decisions (decided 2026-10-12)
 
-1. **Grammar licences.** Read upstream (review round), 28 of the 32 grammars tm-grammars left at NOASSERTION or unstated
-   are permissive (MIT, Apache-2.0, BSD, ISC, the TextMate bundles' notice; `LICENSE-T3`). Until you decide, the data
-   leaves out ten (`tools/grammar/gen-grammar.mjs` `LICENCE_HELD`): ada, gnuplot, nginx, racket (GPL-3.0), bird2, hcl,
-   terraform (MPL-2.0) and dax, dream-maker, tcl (no licence found); their fence words and files paint plain
-   (`EXACT2-GAPS.md`). glsl (no licence found) stays: cpp, ruby, julia and seven other languages load it. The reference
-   ships all of them inside Shiki. Bring the ten back (empty the list, run the generator), keep them out, or also drop
-   glsl (cpp's, ruby's and the others' embedded GLSL then paints plain)?
-2. **Load order.** The reference colours a lazily embedded language (a markdown file's fences) only once its window has
-   loaded that language, and applies an injecting grammar (vue, ts-tags, angular) to other roots only after it has been
-   opened; the clone holds every grammar from the start (EXACT2-GAPS "Code colours: every grammar loaded from the start";
-   visible in the markdown image). Keep, or model the window's loaded set?
+1. **Grammar licences** (the coordinator): keep out the four GPL-3.0 grammars (ada, gnuplot, nginx, racket) and the ones
+   with no licence found (dax, dream-maker, tcl, and glsl, which has none either); bring back the three MPL-2.0 grammars
+   (bird2, hcl, terraform) with their notice in `LICENSE-T3`. Every held language renders as plain text, and a language
+   that embeds glsl leaves that part plain. Declared in `EXACT2-GAPS.md` and `STATUS.md` "Known differences";
+   reversible (`LICENCE_HELD` in `tools/grammar/gen-grammar.mjs`). Built in round 3.
+2. **Load order** (the coordinator): keep loading every grammar at the start; declared that the clone colours a lazily
+   embedded language (a Markdown fence) before a fresh reference window does (`EXACT2-GAPS.md`, `STATUS.md`).
+
+Not decided, for whoever takes it: a template-dense cpp line costs far more in Hermes than its slice charge (see
+"Seen while building"). Keeping the reference's colours exactly, the clone cannot bound one line's time without a clock;
+stopping a line after a count of regex work (as Shiki stops one after 500 ms, the rest of the line in its current
+scope) would bound it but paint such lines differently from the reference, which finishes them. Declared as a known
+difference, not changed.
 
 ## Seen while building, not a finding row
 
 - (Built in the review round: the 1,000-character line limit in Files and diffs, fence words as written, whole file names
   only as the whole path.)
-- Template-dense cpp lines are super-linear in the JavaScript regex engine (cpp's function-definition regexes scan the
-  rest of the line): one line of `template <typename T> std::vector<T> twice(const T& x) { … }` repeated takes, in Hermes,
-  114 ms at 370 characters, 438 ms at 740 and 1,667 ms at 1,480, and a 3,700-character one took a 9,594 ms slice; such a
-  slice is over the runner's 100 ms answer budget (the answer is refused; the slice's progress stays). Files and diffs now
-  stop at 1,000 characters as the reference does; a chat fence has no line limit there either, where Oniguruma is faster
-  and Shiki stops a line after 500 ms (`tokenizeTimeLimit`), which a data module without a clock cannot do. The real cpp
-  files of the corpus (47,530 characters) stay at 55 ms per slice at most. Not a review finding; noted for the queue.
+- Template-dense cpp lines are super-linear in the JavaScript regex engine: cpp's function-definition regexes (11,813 and
+  3,135 characters) run once per template and scan the rest of the line each time. The per-line work limit does not
+  bound them (round 3, asked by the coordinator): it covers one-time work (chunk parses, regex compiles) and stops a line
+  only before a compile, never during execution, and a line is never split; a line's execution is charged by its length
+  (2 units a cpp character) and not measured. Measured in Hermes on the app's path (round 3, grammar warm), one line of
+  `template <typename T> std::vector<T> twice(const T& x) { return {x, x}; } ` cut at n characters: 370 111 ms, 740 414,
+  962 675, 999 175 (a line ending on a whole template costs about four times one ending mid-template). In Files and diffs
+  what bounds it is the 1,000-character line limit, a length, not a time: for this text one line costs at most 675 ms (962
+  characters), and a slice, which starts lines while budget is left, takes two such lines (ten 962-character lines: five
+  slices of 1.34 to 1.37 s). A chat fence or search line has no line
+  limit, as in the reference, so no bound: 1,480 characters 1.6 s, 2,960 6.2 s, 3,700 9.6 s. The reference (Oniguruma,
+  Bun): 962 characters 26 ms, 2,960 151 ms, and Shiki stops a line after 500 ms (`tokenizeTimeLimit`), which a data
+  module without a clock cannot do. Such a slice passes the runner's 100 ms answer budget (the answer is refused; the
+  slice's progress stays). Real cpp files (the corpus's 47,530 characters) stay at 55 ms a slice. Declared in `STATUS.md`
+  "Known differences" ([round 3 record](https://raw.githubusercontent.com/ccheever/exact2/720c3cc2638b5df03960a1e77ec419b74be59d25/code-highlighting-languages/ch1-round3-record.txt)).
 - Chrome slants Korean in an italic run; the clone's Korean italic text stays upright (the font has no italic).
 - Dark images: the file tree's labels and the sidebar title keep the light raster after the live switch (X82, known).
 
@@ -247,5 +292,5 @@ Draft PR [#466](https://github.com/ccheever/exact2/pull/466) into `feat(example)
 
 ## Next action
 
-Review; the two decisions above (merging with the ten held is safe either way: adding them back is the list and a
-regeneration).
+Review of round 3 (the coordinator's two decisions applied and declared; the blocking finding's fix confirmed with its
+test; the cpp line cost stated, not bounded by the work limit). Then merge.
