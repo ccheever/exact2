@@ -23,9 +23,10 @@ final class FieldStepper: UIStepper {
 extension NodeView {
     /// Room kept between the text and the stepper.
     static let stepperGap: CGFloat = 8
-    /// The least text a field keeps beside its stepper: with less room than
-    /// this and the stepper, the field keeps priority and shows no stepper.
-    static let stepperLeastText: CGFloat = 44
+    /// The least text a field keeps beside its stepper (about three digits at
+    /// the body size): with less room than this and the stepper, the field
+    /// keeps priority and shows no stepper rather than a field it squeezes out.
+    static let stepperLeastText: CGFloat = 28
 
     var stepper: FieldStepper? { get { extras?.stepper } set { if newValue != nil || extras != nil { more.stepper = newValue } } }
 
@@ -74,15 +75,16 @@ extension NodeView {
         let step = NumberStepping.double(stepping.step)
         if hi <= lo { hi = lo + step }
         // Never an invalid pair in between: the new ceiling first when it clears the old floor.
-        if hi > made.minimumValue { made.maximumValue = hi; made.minimumValue = lo } else { made.minimumValue = lo; made.maximumValue = hi }
-        made.stepValue = step
-        made.autorepeat = true
-        made.wraps = false
+        // UIKit's setters are not free, even to the same value (`assign`).
+        if hi > made.minimumValue { assign(made, \.maximumValue, hi); assign(made, \.minimumValue, lo) } else { assign(made, \.minimumValue, lo); assign(made, \.maximumValue, hi) }
+        assign(made, \.stepValue, step)
+        assign(made, \.autorepeat, true)
+        assign(made, \.wraps, false)
         made.shown = NumberStepping.double(stepping.shown(field.text ?? ""))
-        made.value = made.shown
-        made.isEnabled = !disabled && props["editable"] != "false"
-        made.accessibilityLabel = props["accessibilityLabel"]
-        made.accessibilityIdentifier = props["testId"].map { "\($0)-stepper" }
+        assign(made, \.value, made.shown)
+        assign(made, \.isEnabled, !disabled && props["editable"] != "false")
+        assign(made, \.accessibilityLabel, props["accessibilityLabel"])
+        assign(made, \.accessibilityIdentifier, props["testId"].map { "\($0)-stepper" })
         layoutStepper()
     }
 

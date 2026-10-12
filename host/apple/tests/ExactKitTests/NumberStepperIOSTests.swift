@@ -199,7 +199,7 @@ final class NumberStepperIOSTests: XCTestCase {
         defer { session.destroy() }
         let field = try XCTUnwrap(node.field)
         let stepper = try XCTUnwrap(node.stepper)
-        XCTAssertTrue(stepper.isHidden, "less than 44 pt for text beside the stepper: no stepper")
+        XCTAssertTrue(stepper.isHidden, "less than 28 pt for text beside the stepper: no stepper")
         XCTAssertEqual(field.textRect(forBounds: field.bounds).maxX, 114, "the text keeps the field")
         node.bounds = CGRect(x: 0, y: 0, width: 200, height: 44)
         node.applyFieldContent(["rect": [6.0, 5.0, 188.0, 34.0]])

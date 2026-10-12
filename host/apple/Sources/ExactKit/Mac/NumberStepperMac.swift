@@ -71,14 +71,16 @@ extension NodeView {
         var hi = stepping.max.map(NumberStepping.double) ?? wide
         let step = NumberStepping.double(stepping.step)
         if hi <= lo { hi = lo + step }
-        made.minValue = lo
-        made.maxValue = hi
-        made.increment = step
+        if made.minValue != lo { made.minValue = lo }
+        if made.maxValue != hi { made.maxValue = hi }
+        if made.increment != step { made.increment = step }
         made.shown = NumberStepping.double(stepping.shown(shownFieldText))
-        made.doubleValue = made.shown
-        made.isEnabled = !disabled && props["editable"] != "false"
-        made.setAccessibilityLabel(props["accessibilityLabel"])
-        made.setAccessibilityIdentifier(props["testId"].map { "\($0)-stepper" })
+        if made.doubleValue != made.shown { made.doubleValue = made.shown }
+        let enabled = !disabled && props["editable"] != "false"
+        if made.isEnabled != enabled { made.isEnabled = enabled }
+        if made.accessibilityLabel() != props["accessibilityLabel"] { made.setAccessibilityLabel(props["accessibilityLabel"]) }
+        let identifier = props["testId"].map { "\($0)-stepper" }
+        if made.accessibilityIdentifier() != identifier { made.setAccessibilityIdentifier(identifier) }
         layoutField()
     }
 
