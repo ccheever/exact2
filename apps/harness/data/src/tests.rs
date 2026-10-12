@@ -389,8 +389,52 @@ fn bake_style_query_answers_without_side_effects() {
 }
 
 #[test]
-fn an_owned_frame_preserves_styles_and_cleans_text_and_links() {
+fn an_owned_frame_cleans_text_and_compacts_effective_style() {
     use crate::shapes::{Frame, Line, Run};
+    let styles = [
+        (false, false, 400.0),
+        (false, true, 300.0),
+        (true, false, 700.0),
+        (true, true, 700.0),
+    ];
+    let lines = vec![
+        Line {
+            runs: styles
+                .iter()
+                .enumerate()
+                .map(|(i, &(bold, dim, _))| Run {
+                    text: if i == 0 {
+                        "\u{1b}A\t\n\u{85}\u{7f}界e\u{301}".into()
+                    } else {
+                        format!("style {i}")
+                    },
+                    fg: format!("#{i}{i}{i}{i}{i}{i}"),
+                    bg: format!("#{i}{i}{i}{i}{i}f"),
+                    bold,
+                    dim,
+                    ..Run::default()
+                })
+                .collect(),
+        },
+        Line::default(),
+    ];
+    let frame = Frame::from_value(&value::frame("\u{1b}frame\t\n", lines)).unwrap();
+    assert_eq!(frame.title, "␛frame  ");
+    let runs = &frame.lines[0].runs;
+    assert_eq!(runs[0].text, "␛A  界e\u{301}");
+    assert_eq!(runs.len(), styles.len());
+    for (i, (run, &(_, _, weight))) in runs.iter().zip(&styles).enumerate() {
+        assert_eq!(run.fg, format!("#{i}{i}{i}{i}{i}{i}"));
+        assert_eq!(run.bg, format!("#{i}{i}{i}{i}{i}f"));
+        assert_eq!(run.weight, weight);
+    }
+    assert!(frame.lines[1].runs.is_empty());
+}
+
+#[test]
+fn a_session_preserves_rich_runs_and_cleans_text_and_links() {
+    use crate::shapes::{Run, Session};
+    use crate::state::{Entry, State};
     let mut styled = Run {
         text: "\u{1b}A\t\n\u{85}\u{7f}界e\u{301}".into(),
         fg: "#123456".into(),
@@ -410,31 +454,69 @@ fn an_owned_frame_preserves_styles_and_cleans_text_and_links() {
         ("https://example.test/\u{85}", ""),
         ("javascript:alert(1)", ""),
     ];
-    let lines = vec![
-        Line {
-            runs: vec![styled.clone()],
-        },
-        Line {
-            runs: links
-                .iter()
-                .map(|(href, _)| Run {
-                    text: "link".into(),
-                    href: (*href).into(),
-                    ..Run::default()
-                })
-                .collect(),
-        },
-        Line::default(),
-    ];
-    let frame = Frame::from_value(&value::frame("\u{1b}frame\t\n", lines)).unwrap();
-    assert_eq!(frame.title, "␛frame  ");
+    let state = State {
+        entries: vec![Entry {
+            blocks: vec![Block {
+                kind: "p".into(),
+                runs: std::iter::once(styled.clone())
+                    .chain(links.iter().map(|(href, _)| Run {
+                        text: "link".into(),
+                        href: (*href).into(),
+                        ..Run::default()
+                    }))
+                    .collect(),
+                ..Block::default()
+            }],
+            ..Entry::default()
+        }],
+        ..State::default()
+    };
+    let session = Session::from_value(&value::session(&state, usize::MAX)).unwrap();
+    let runs = &session.entries[0].blocks[0].runs;
     styled.text = "␛A  界e\u{301}".into();
-    assert_eq!(frame.lines[0].runs, [styled]);
-    for (run, (_, expected)) in frame.lines[1].runs.iter().zip(links) {
+    assert_eq!(runs[0], styled);
+    for (run, (_, expected)) in runs[1..].iter().zip(links) {
         assert_eq!(run.text, "link");
         assert_eq!(run.href, expected);
     }
-    assert!(frame.lines[2].runs.is_empty());
+}
+
+#[test]
+fn every_animation_frame_preserves_its_effective_style() {
+    use crate::shapes::Frame;
+    assert_eq!(ANIMATIONS.len(), 11);
+    for name in ANIMATIONS {
+        for (cols, rows) in [(1, 1), (13, 5), (80, 24)] {
+            for tick in [0.0, 17.0, 1234.0] {
+                let (title, original) = anim::frame(name, tick, cols, rows);
+                let compact = Frame::from_value(&value::frame(&title, original.clone())).unwrap();
+                assert_eq!(compact.title, title);
+                assert_eq!(compact.lines.len(), original.len());
+                for (actual_line, original_line) in compact.lines.iter().zip(&original) {
+                    assert_eq!(actual_line.runs.len(), original_line.runs.len());
+                    for (actual, original) in actual_line.runs.iter().zip(&original_line.runs) {
+                        assert_eq!(actual.text, original.text);
+                        assert_eq!(actual.fg, original.fg);
+                        assert_eq!(actual.bg, original.bg);
+                        assert_eq!(
+                            actual.weight,
+                            if original.bold {
+                                700.0
+                            } else if original.dim {
+                                300.0
+                            } else {
+                                400.0
+                            }
+                        );
+                        assert!(!original.italic, "{name} uses italic");
+                        assert!(!original.under, "{name} uses underline");
+                        assert!(!original.strike, "{name} uses strike");
+                        assert!(original.href.is_empty(), "{name} uses a link");
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[test]
