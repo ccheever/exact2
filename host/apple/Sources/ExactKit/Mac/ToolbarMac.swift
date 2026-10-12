@@ -10,8 +10,9 @@
 // stays, empty, at the same height. An app with no stack, or one whose
 // every mounted route asks for no bar, gets no toolbar; one comes with the
 // first route that shows a bar and then stays (`heldForBack`), so the title
-// bar's height changes at most that once. The route's header and title
-// stay in the content.
+// bar's height changes at most that once. With no toolbar declared, the
+// route's `header` is this bar too (LLP 1115.002 D2, HeaderMac.swift): its
+// heading the window's title, its buttons items after Back.
 #if os(macOS)
 import AppKit
 
@@ -21,10 +22,19 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
     private(set) var toolbar: NSToolbar?
     private(set) var items: [UInt32: NSToolbarItem] = [:]
     private var symbols: [UInt32: String] = [:]
+    /// The authored rendering the toolbar stands for: the declared toolbar,
+    /// or the route's header (`header`).
     private weak var owner: NodeView?
     /// LLP 1080.001 D3: the authored rendering hidden while the window's toolbar shows it.
     func hides(_ node: NodeView) -> Bool { projected && node === owner }
     private weak var heading: NodeView?
+    /// The route's header this bar shows, with no toolbar declared (LLP
+    /// 1115.002 D2), and what was last said of it in the session's log.
+    private(set) var header: WindowHeader?
+    private var headerDecision: String?
+    /// Why the selected route's header stays painted, when the bar cannot
+    /// show it whole (`state.window.toolbar.headerKept`); nil otherwise.
+    private(set) var headerKept: String?
     private var order: [NSToolbarItem.Identifier] = []
     /// Back (BackMac.swift): the way back from the pushed route, pressing
     /// what iOS's Back button presses. A standard item, so its size, glass
@@ -99,11 +109,36 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             return
         }
         savedTitle = base
-        appliedTitle = heading.map(text) ?? base
+        appliedTitle = title(over: base)
         if window.title != appliedTitle { window.title = appliedTitle }
     }
 
-    func detach() { reset(); window = nil }
+    /// The window's title while the toolbar is its own: a declared
+    /// toolbar's heading; else the authored document title (the head's),
+    /// else the heading of the route whose header the bar shows, else the
+    /// window's own, the app's name (LLP 1115.002 D2, §5 Q2). `base` is the
+    /// head's title or the window's own.
+    private func title(over base: String) -> String {
+        if let heading { return text(heading) }
+        if headTitle == nil, let title = header?.title, !title.isEmpty { return title }
+        return base
+    }
+
+    func detach() {
+        syncing = true
+        reset()
+        window = nil
+        syncing = false
+        reportCover()
+    }
+
+    /// The header's box is the platform's while the bar shows it (LLP
+    /// 1115.002 D8.1): said in the step in which it was projected, and taken
+    /// back in the step in which it stopped. Never from inside a pass:
+    /// telling the kernel can apply a batch, whose own pass must run whole.
+    private func reportCover() {
+        presenter.covers.report("header", projected ? header.map { [$0.header.id: .whole] } ?? [:] : [:])
+    }
 
     private func refuse(_ reason: String) {
         if refusal != reason { presenter.session?.log("window toolbar: \(reason)"); refusal = reason }
@@ -121,6 +156,12 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
     }
 
     func reset() {
+        // Taking the toolbar off resizes the window's content, which can lay
+        // the page out and apply a batch: its pass must not install the
+        // toolbar again while this one is letting it go.
+        let was = syncing
+        syncing = true
+        defer { syncing = was }
         prepare()
         let hadToolbar = toolbar != nil
         let old = toolbar
@@ -131,6 +172,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             if window.title == appliedTitle { window.title = savedTitle }
         }
         items.removeAll(); symbols.removeAll(); order.removeAll(); owner = nil; heading = nil
+        header = nil; decide(nil)
         heldForBack = false
         // The app's items and delegate were for that toolbar; the next one's
         // hatch says its own.
@@ -191,12 +233,38 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
 
     /// `state.window.toolbar` (the agent).
     var summary: [String: Any] {
-        guard let toolbar else { return ["installed": false] }
+        guard let toolbar else { return ["installed": false, "headerKept": headerKept ?? NSNull()] }
         return ["installed": window?.toolbar === toolbar, "displayMode": toolbar.displayMode.rawValue,
+                "style": window?.toolbarStyle.rawValue ?? NSNull(), "header": headerSummary ?? NSNull(), "headerKept": headerKept ?? NSNull(),
                 "items": toolbar.items.map(\.itemIdentifier.rawValue), "appItems": appItems.map(\.itemIdentifier.rawValue),
                 // AppKit's own validation of the app's items (their targets
                 // validate them, never Exact's delegate).
                 "appEnabled": appItems.map { $0.validate(); return $0.isEnabled }]
+    }
+
+    /// `state.window.toolbar.header`: the route's header the bar shows (LLP
+    /// 1115.002 D2), its items by their authored buttons, and which of them
+    /// AppKit has moved to the overflow menu.
+    private var headerSummary: [String: Any]? {
+        guard let header, projected, let toolbar else { return nil }
+        let shown = Set((toolbar.visibleItems ?? []).map(\.itemIdentifier))
+        return ["route": Int(header.route.id), "node": Int(header.header.id), "title": header.title, "back": header.backs.map { Int($0.id) },
+                "items": header.buttons.map { node -> [String: Any] in
+                    let item = items[node.id]
+                    var prominent = false
+                    if #available(macOS 26.0, *) { prominent = item?.style == .prominent }
+                    return ["id": Int(node.id), "testId": node.props["testId"] ?? NSNull(), "label": item?.label ?? "",
+                            "place": header.leading.contains { $0 === node } ? "leading" : "trailing", "enabled": available(node),
+                            "prominent": prominent, "overflow": item.map { !shown.contains($0.itemIdentifier) } ?? false]
+                }]
+    }
+
+    /// Say in the session's log what the bar made of the route's header, once per change.
+    private func decide(_ said: String?, kept: Bool = false) {
+        headerKept = kept ? said : nil
+        guard headerDecision != said else { return }
+        headerDecision = said
+        if let said { presenter.session?.log("window header: \(said)") }
     }
 
     private func children(_ node: NodeView) -> [NodeView] {
@@ -234,7 +302,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
     }
 
     func contains(_ node: NodeView) -> Bool {
-        toolbar != nil && (items[node.id] != nil || node === owner || node === heading)
+        toolbar != nil && (items[node.id] != nil || node === owner || node === heading || (projected && header?.places(node) == true))
     }
 
     func suppresses(_ node: NodeView) -> Bool {
@@ -276,13 +344,50 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         return (next, declarations, buttons, headings.first)
     }
 
+    /// Whether the author declared a toolbar for this window, shown now:
+    /// one the toolbar can show or not, the bar is theirs, and no route's
+    /// header is projected into it (LLP 1115.002 D2, "Precedence").
+    private func declares(in window: NSWindow) -> Bool {
+        presenter.carrying("toolbarPlacement").contains {
+            $0.props["toolbarPlacement"] == "window" && $0.props["accessibilityRole"] == "toolbar" && visible($0) && $0.window === window
+        }
+    }
+
+    /// The route's header as this window's bar shows it (LLP 1115.002 D2,
+    /// HeaderMac.swift): none under the agent's authored chrome, with a
+    /// toolbar the author declared, or for a header the bar cannot show
+    /// whole, which stays painted and is said once.
+    private func readHeader(in window: NSWindow) -> WindowHeader? {
+        guard !ExactEnv.authoredChrome, !declares(in: window),
+              let (root, route, pushed) = presenter.navigation.headerRoute, route.window === window, visible(route) else { decide(nil); return nil }
+        let back = root.props["navigationBack"].flatMap { $0.isEmpty ? nil : $0 }
+        switch WindowHeader.read(route: route, back: back, pushed: pushed, shown: visible) {
+        case .none:
+            decide(nil)
+            return nil
+        case .kept(let why):
+            decide("route #\(route.id)'s header is kept as authored: \(why)", kept: true)
+            return nil
+        case .shown(let header):
+            decide("route #\(route.id)'s header #\(header.header.id) is the window's title and toolbar (\(header.buttons.count) items)")
+            return header
+        }
+    }
+
     func sync() {
         guard !syncing else { return }
         syncing = true
-        defer { syncing = false }
+        present()
+        syncing = false
+        reportCover()
+    }
+
+    private func present() {
         prepare()
         guard let window, presenter.root.window === window else { reset(); return }
         let declared = declaration(in: window)
+        let header = declared == nil ? readHeader(in: window) : nil
+        if declared != nil { decide(nil) }
         // Back for an app with a stack, the author's toolbar or not: the
         // toolbar from the first route that shows a bar, the item on every
         // route that does not ask for none (`navigationBar="none"`). AppKit
@@ -298,16 +403,21 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         // hiding the tab bar on a screen takes the two away with the
         // sidebar; the toolbar stays, as it stays for a stack.
         let sidebar = presenter.sidebar.installed(in: window), sidebarItems = sidebar && presenter.sidebar.inToolbar(of: window)
-        guard declared != nil || held || sidebar else { reset(); return }
+        guard declared != nil || header != nil || held || sidebar else { reset(); return }
         // A host that takes its toolbar back wins. Never overwrite it on a tick.
         guard window.toolbar == nil || window.toolbar === toolbar else { refuse("window owner installed another toolbar"); return }
-        if declared == nil { items.removeAll(); symbols.removeAll() }
-        owner = declared?.owner; heading = declared?.heading
-        let declarations = declared?.shown ?? [], buttons = declared?.buttons ?? []
+        if declared == nil, header == nil { items.removeAll(); symbols.removeAll() }
+        owner = declared?.owner ?? header?.header; heading = declared?.heading
+        self.header = header
+        let declarations = declared?.shown ?? [], buttons = declared?.buttons ?? header?.buttons ?? []
         let installing = toolbar == nil
         if installing {
             savedTitle = window.title
-            let value = NSToolbar(identifier: "Exact.window.commands")
+            // An identifier of its own: AppKit keeps every toolbar of one
+            // identifier in a process the same, item for item, and each
+            // window's bar is its own route's (an insertion in one window
+            // put the item in another's, found as two tests in one process).
+            let value = NSToolbar(identifier: "Exact.window.commands." + UUID().uuidString)
             value.delegate = self
             value.displayMode = .iconOnly
             value.allowsUserCustomization = false
@@ -338,7 +448,9 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
                 symbols[node.id] = symbol
             }
             item.isBordered = true
-            item.isNavigational = node.props["toolbarPlacement"] == "navigation"
+            // A header's buttons before its heading lead the bar, ahead of the title, as Back does.
+            let navigational = node.props["toolbarPlacement"] == "navigation" || header?.leading.contains { $0 === node } == true
+            if item.isNavigational != navigational { item.isNavigational = navigational }
             prominence(item, node, face)
             // Text-bearing authored buttons remain labeled in icon-only mode.
             let title = face.map { $0.title ?? "" } ?? text(node)
@@ -346,7 +458,10 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             let enabled = !node.disabled && !node.inert && window.attachedSheet == nil
             if item.isEnabled != enabled { item.isEnabled = enabled }
         }
-        let nextOrder = declarations.compactMap { node -> NSToolbarItem.Identifier? in
+        // A header's: its leading buttons after Back, then its trailing
+        // ones, which the title's own stretch puts at the bar's end, where
+        // SwiftUI's toolbar puts a screen's actions.
+        let nextOrder = header.map { $0.buttons.compactMap { items[$0.id]?.itemIdentifier } } ?? declarations.compactMap { node -> NSToolbarItem.Identifier? in
             if node === heading { return .flexibleSpace }
             return items[node.id]?.itemIdentifier
         }
@@ -363,7 +478,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         }
         // Shown as it will answer, without waiting for AppKit's next validation.
         if back, backItem.isEnabled != navigation.canGoBack { backItem.isEnabled = navigation.canGoBack }
-        appliedTitle = heading.map(text) ?? savedTitle
+        appliedTitle = title(over: savedTitle)
         if window.title != appliedTitle { window.title = appliedTitle }
         let content = contentSize, attaching = window.toolbar !== toolbar
         if attaching { window.toolbar = toolbar }
@@ -372,7 +487,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         if attaching { keepContent(content) }
         hatchToolbar()
         // Hide only the authored rendering. Its logical nodes/actions survive.
-        guard let next = declared?.owner else { return }
+        guard let next = declared?.owner ?? header?.header else { return }
         savedAccessibilityHidden = next.isAccessibilityHidden()
         next.isHidden = true; next.setAccessibilityHidden(true); projected = true
     }
@@ -406,6 +521,12 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
     /// The driver uses the same target/action as AppKit, including overflow.
     /// This is host activation, not a claim to have injected a physical click.
     func activate(_ node: NodeView) -> Bool? {
+        // The stack's Back control in a header the bar shows: the bar's own
+        // Back stands for it, and is pressed as a person presses it.
+        if projected, header?.backs.contains(where: { $0 === node }) == true {
+            guard order.contains(Self.backIdentifier), validateToolbarItem(backItem), let action = backItem.action else { return false }
+            return NSApp.sendAction(action, to: backItem.target, from: backItem)
+        }
         guard let item = items[node.id] else { return nil }
         guard available(node), let action = item.action else { return false }
         return NSApp.sendAction(action, to: item.target, from: item)
@@ -413,12 +534,13 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
 
     func observation(_ node: NodeView) -> [String: Any]? {
         guard contains(node), let toolbar else { return nil }
-        var result: [String: Any] = ["view": node === owner ? "NSToolbar" : (node === heading ? "NSWindow.title" : "NSToolbarItem"),
+        let titled = node === heading || (projected && node === header?.heading)
+        var result: [String: Any] = ["view": node === owner ? "NSToolbar" : (titled ? "NSWindow.title" : "NSToolbarItem"),
                                    "placement": "window", "title": window?.title ?? "",
                                    "geometry": "system-owned", "attached": window?.toolbar === toolbar]
-        if let item = items[node.id] {
+        if let item = items[node.id] ?? (header?.backs.contains { $0 === node } == true && order.contains(Self.backIdentifier) ? backItem : nil) {
             result["identifier"] = item.itemIdentifier.rawValue
-            result["enabled"] = available(node)
+            result["enabled"] = item === backItem ? validateToolbarItem(item) : available(node)
             result["overflow"] = !(toolbar.visibleItems ?? []).contains(where: { $0 === item })
         }
         return result

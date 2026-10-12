@@ -638,7 +638,7 @@ package final class Presenter {
         defer { resetting = false }
         menus.reset()
         dialogs.reset()
-        toolbar.reset()
+        toolbar.reset() // its header's cover goes with `covers.reset()` below, untold
         navigation.reset()
         sidebar.reset()
         covers.reset()

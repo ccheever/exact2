@@ -240,7 +240,11 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
             window.titleVisibility = .visible
             if #available(macOS 11.0, *) { window.titlebarSeparatorStyle = .automatic }
         }
-        if view.hasWindowToolbar { window.toolbarStyle = .unifiedCompact }
+        // The bar a hand-built window has on this macOS, SwiftUI's own (LLP
+        // 1115.002 D2): `.unified`, about 52 points on macOS 27, which is what
+        // AppKit gives the style and not a number set here. A route's header
+        // is this bar, so it has room for a title beside its items.
+        if view.hasWindowToolbar { window.toolbarStyle = .unified }
         view.syncInsets()
     }
 
