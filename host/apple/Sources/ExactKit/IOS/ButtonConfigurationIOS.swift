@@ -35,6 +35,13 @@ enum ButtonConfigurationIOS {
         value?.cgColor(dark: traits.userInterfaceStyle == .dark,
             contrast: traits.accessibilityContrast == .high, tint: accent).map { UIColor(cgColor: $0) }
     }
+    /// Whether white would read under 3:1 on `fill` in these traits: its relative luminance is above 0.3.
+    static func prefersDarkInk(on fill: UIColor, traits: UITraitCollection) -> Bool {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        guard fill.resolvedColor(with: traits).getRed(&r, green: &g, blue: &b, alpha: &a), a > 0.5 else { return false }
+        let linear = { (v: CGFloat) in v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
+        return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b) > 0.3
+    }
     /// UIKit's public system-spacing constraint, evaluated on the running OS.
     static func systemSpacing(font: UIFont) -> CGFloat {
         let parent = UIView(), before = UIImageView(), after = UILabel()
@@ -88,7 +95,7 @@ enum ButtonConfigurationIOS {
     }
     static func apply(_ face: ButtonFace, to button: UIButton, traits: UITraitCollection, accent: UIColor?) {
         let rows = face.rows
-        var (config, _, _) = ControlHost.configuration(face)
+        var (config, drawn, _) = ControlHost.configuration(face)
         config.title = face.title
         config.subtitle = face.subtitle
         config.image = face.symbol.flatMap { UIImage(systemName: $0) }
@@ -126,6 +133,13 @@ enum ButtonConfigurationIOS {
         if rows.button.keys.contains(where: { $0.hasPrefix("padding_") }) { config.contentInsets = insets }
         let foreground = color(rows.title["text_color"], traits: traits, accent: accent)
         if let foreground { config.baseForegroundColor = foreground }
+        // LLP 1116.007 D3.10: the ink on an accent fill is chosen for contrast, as the web draws it (LLP 1116.003
+        // D3.1): black once white would fall under 3:1 on the accent as this scheme resolves it (relative luminance
+        // above 0.3). UIKit keeps white on a pale tint, which `check` finds at 1.4:1 on yellow and 2.1:1 on teal
+        // (three round-9 builds); the system blue, red and the rest keep UIKit's white. An authored colour wins.
+        else if (drawn == "filled" || drawn == "borderedProminent"), let accent, prefersDarkInk(on: accent, traits: traits) {
+            config.baseForegroundColor = .black
+        }
         let titleFontAuthored = rows.title["font_size"] != nil || rows.title["font_weight"] != nil
         // An authored colour survives UIKit's disabled-state foreground transform (D16).
         if titleFontAuthored || foreground != nil {
