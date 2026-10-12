@@ -1,0 +1,29 @@
+// The worktree setup card's view (timeline-worktree.ts setupView), apart from
+// timeline-worktree.contract so shapes.contract can name it without a cycle.
+shape SetupLine
+  id: string
+  text: string
+shape SetupStage
+  id: string
+  label: string
+  status: string
+  trailing: string
+  startedMs: number
+  endedMs: number
+  tail: list<SetupLine>
+shape WorktreeSetupView
+  id: string
+  phase: string
+  header: string
+  tone: string
+  showHeader: bool
+  collapsed: bool
+  summary: string
+  startedMs: number
+  endedMs: number
+  error: string
+  stages: list<SetupStage>
+  details: list<SetupLine>
+  detailsOpen: bool
+  terminal: bool
+  cancel: bool

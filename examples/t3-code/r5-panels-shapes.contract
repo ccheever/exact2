@@ -1,0 +1,87 @@
+// Lane r5-panels: the details card's pull request rows, the right panel's
+// "pull-request" surface reference and a sent attachment's preview, as
+// r5-panels-pr.ts and r5-panels-attach.ts answer them.
+use CodeHighlight from "./markdown.contract"
+use MarkdownEnv from "./markdown.contract"
+use MarkdownSource from "./markdown.contract"
+use MermaidDiagram from "./markdown.contract"
+use AttachmentUrl from "./timeline-attachments.contract"
+use R6PrExtra from "./r6-pr-shapes.contract"
+use R6MergeAsk from "./r6-pr-shapes.contract"
+
+shape R5CodeRun
+  id: string
+  text: string
+  syntax: string
+shape R5CodeLine
+  id: string
+  number: string
+  runs: list<R5CodeRun>
+shape R5TableRow
+  id: string
+  header: bool
+  cells: list<R5CodeRun>
+shape R5PrRow
+  key: string
+  label: string
+  tooltip: string
+  icon: string
+  state: string
+  tinted: bool
+  target: string
+  url: string
+  aria: string
+  split: bool
+  checks: string
+  checksCount: string
+  checksAria: string
+  action: string
+  actionTarget: string
+  actionLabel: string
+  actionTooltip: string
+  actionDisabled: bool
+  r6: R6PrExtra
+shape R5PrRows
+  show: bool
+  rows: list<R5PrRow>
+  rest: list<R5PrRow>
+  moreLabel: string
+  expanded: bool
+  merge: R6MergeAsk
+shape R5PrSurface
+  selected: string
+  number: number
+  label: string
+shape R5Attachment
+  id: string
+  name: string
+  size: string
+  preview: string
+  error: string
+  canRender: bool
+  rendered: bool
+  renderLabel: string
+  renderIcon: string
+  showWrap: bool
+  wrap: bool
+  canCopy: bool
+  copyLabel: string
+  copied: bool
+  canSave: bool
+  saving: bool
+  saveLabel: string
+  truncatedNote: string
+  table: list<R5TableRow>
+  lines: list<R5CodeLine>
+  gutter: number
+  url: string
+  noPreview: string
+  // audit-wave-followups-3 FW-2: the rendered Markdown is ChatMarkdown, as Files' (R4Files): app.contract's filesMarkdown
+  // answers markdownSource (kind "attachment"); md, code, diagrams, mdUrls and Copy code's check as the transcript's.
+  markdownSource: list<MarkdownSource>
+  md: MarkdownEnv
+  code: list<CodeHighlight>
+  diagrams: list<MermaidDiagram>
+  mdUrls: list<AttachmentUrl>
+  codeCopied: string
+  codeCopyNonce: number

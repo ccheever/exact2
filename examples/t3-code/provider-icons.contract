@@ -1,0 +1,80 @@
+use ProviderMark from "./icons.contract"
+
+// Lucide geometry used by the Providers and Connections settings routes
+// (24px grid, stroke 2), as the built T3 reference renders it.
+component PvIcon
+  props
+    name: string
+    size: number
+    color: string
+  view
+    svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
+      path fill=(name == "star-filled" ? "currentColor" : "none") d=(includes(["plus", "minus", "refresh", "trash", "undo", "warning"], name) ? (name == "plus" ? "M5 12h14M12 5v14" : name == "minus" ? "M5 12h14" : name == "refresh" ? "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16M8 16H3v5" : name == "trash" ? "M10 11v6M14 11v6M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" : name == "undo" ? "M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11" : "M21.73 18l-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3M12 9v4M12 17h.01") : includes(["update", "x", "lock", "lock-open", "star", "star-filled"], name) ? (name == "update" ? "M22 12a10 10 0 1 1-20 0a10 10 0 1 1 20 0M16 12l-4-4-4 4M12 16V8" : name == "x" ? "M18 6 6 18M6 6l12 12" : name == "lock" ? "M5 11h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2zM7 11V7a5 5 0 0 1 10 0v4" : name == "lock-open" ? "M5 11h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2zM7 11V7a5 5 0 0 1 9.9-1" : name == "star" ? "M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z" : "M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z") : includes(["pencil", "external", "check", "search", "info", "link"], name) ? (name == "pencil" ? "M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497zM15 5l4 4" : name == "external" ? "M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" : name == "check" ? "M20 6 9 17l-5-5" : name == "search" ? "M21 21l-4.34-4.34M19 11a8 8 0 1 1-16 0a8 8 0 1 1 16 0" : name == "info" ? "M22 12a10 10 0 1 1-20 0a10 10 0 1 1 20 0M12 16v-4M12 8h.01" : "M12 12h.01M16 12h.01M8 12h.01M17 7l5 5-5 5M7 7l-5 5 5 5") : includes(["terminal", "ellipsis", "laptop", "server", "download", "chevron"], name) ? (name == "terminal" ? "M12 19h8M4 17l6-6-6-6" : name == "ellipsis" ? "M13 12a1 1 0 1 1-2 0a1 1 0 1 1 2 0M20 12a1 1 0 1 1-2 0a1 1 0 1 1 2 0M6 12a1 1 0 1 1-2 0a1 1 0 1 1 2 0" : name == "laptop" ? "M18 5a2 2 0 0 1 2 2v8.526a2 2 0 0 0 .212.897l1.068 2.127a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45l1.068-2.127A2 2 0 0 0 4 15.526V7a2 2 0 0 1 2-2zM20.054 15.987H3.946" : name == "server" ? "M4 2h16a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zM4 14h16a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2zM6 6h.01M6 18h.01" : name == "download" ? "M12 15V3M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5" : "M6 9l6 6 6-6") : includes(["arrow-up", "arrow-down", "copy"], name) ? (name == "arrow-up" ? "m5 12 7-7 7 7M12 19V5" : name == "arrow-down" ? "M12 5v14M19 12l-7 7-7-7" : "M10 8h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2zM4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2") : "")
+
+// T3's ProviderInstanceIcon marks (Icons.tsx), drawn at `size` in the
+// driver's own colors; unknown drivers fall back to initials. An ACP Registry
+// instance draws its registry icon (`icon`, acp-icons.ts) over the ACP glyph.
+component DriverMark
+  props
+    driver: string
+    size: number
+    initials: string
+    icon: string
+  view
+    box width=`${size / 16}rem` height=`${size / 16}rem` display="flex" align-items="center" justify-content="center" flex-shrink=0
+      when driver == "codex"
+        ProviderMark(driver="codex", size=size, color="light-dark(#27272acc, #f5f5f5cc)")
+      when driver == "claudeAgent"
+        svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 256 257" flex-shrink=0 aria-hidden=true
+          path fill="#d97757" d="m50.228 170.321 50.357-28.257.843-2.463-.843-1.361h-2.462l-8.426-.518-28.775-.778-24.952-1.037-24.175-1.296-6.092-1.297L0 125.796l.583-3.759 5.12-3.434 7.324.648 16.202 1.101 24.304 1.685 17.629 1.037 26.118 2.722h4.148l.583-1.685-1.426-1.037-1.101-1.037-25.147-17.045-27.22-18.017-14.258-10.37-7.713-5.25-3.888-4.925-1.685-10.758 7-7.713 9.397.649 2.398.648 9.527 7.323 20.35 15.75L94.817 91.9l3.889 3.24 1.555-1.102.195-.777-1.75-2.917-14.453-26.118-15.425-26.572-6.87-11.018-1.814-6.61c-.648-2.723-1.102-4.991-1.102-7.778l7.972-10.823L71.42 0 82.05 1.426l4.472 3.888 6.61 15.101 10.694 23.786 16.591 32.34 4.861 9.592 2.592 8.879.973 2.722h1.685v-1.556l1.36-18.211 2.528-22.36 2.463-28.776.843-8.1 4.018-9.722 7.971-5.25 6.222 2.981 5.12 7.324-.713 4.73-3.046 19.768-5.962 30.98-3.889 20.739h2.268l2.593-2.593 10.499-13.934 17.628-22.036 7.778-8.749 9.073-9.657 5.833-4.601h11.018l8.1 12.055-3.628 12.443-11.342 14.388-9.398 12.184-13.48 18.147-8.426 14.518.778 1.166 2.01-.194 30.46-6.481 16.462-2.982 19.637-3.37 8.88 4.148.971 4.213-3.5 8.62-20.998 5.184-24.628 4.926-36.682 8.685-.454.324.519.648 16.526 1.555 7.065.389h17.304l32.21 2.398 8.426 5.574 5.055 6.805-.843 5.184-12.962 6.611-17.498-4.148-40.83-9.721-14-3.5h-1.944v1.167l11.666 11.406 21.387 19.314 26.767 24.887 1.36 6.157-3.434 4.86-3.63-.518-23.526-17.693-9.073-7.972-20.545-17.304h-1.36v1.814l4.73 6.935 25.017 37.59 1.296 11.536-1.814 3.76-6.481 2.268-7.13-1.297-14.647-20.544-15.1-23.138-12.185-20.739-1.49.843-7.194 77.448-3.37 3.953-7.778 2.981-6.48-4.925-3.436-7.972 3.435-15.749 4.148-20.544 3.37-16.333 3.046-20.285 1.815-6.74-.13-.454-1.49.194-15.295 20.999-23.267 31.433-18.406 19.702-4.407 1.75-7.648-3.954.713-7.064 4.277-6.286 25.47-32.405 15.36-20.092 9.917-11.6-.065-1.686h-.583L44.07 198.125l-12.055 1.555-5.185-4.86.648-7.972 2.463-2.593 20.35-13.999-.064.065Z"
+      when driver == "cursor"
+        svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 466.73 532.09" flex-shrink=0 aria-hidden=true color="light-dark(#26251E, #EDECEC)"
+          path fill="currentColor" d="M457.43,125.94L244.42,2.96c-6.84-3.95-15.28-3.95-22.12,0L9.3,125.94c-5.75,3.32-9.3,9.46-9.3,16.11v247.99c0,6.65,3.55,12.79,9.3,16.11l213.01,122.98c6.84,3.95,15.28,3.95,22.12,0l213.01-122.98c5.75-3.32,9.3-9.46,9.3-16.11v-247.99c0-6.65-3.55-12.79-9.3-16.11h-.01ZM444.05,151.99l-205.63,356.16c-1.39,2.4-5.06,1.42-5.06-1.36v-233.21c0-4.66-2.49-8.97-6.53-11.31L24.87,145.67c-2.4-1.39-1.42-5.06,1.36-5.06h411.26c5.84,0,9.49,6.33,6.57,11.39h-.01Z"
+      when driver == "grok"
+        svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" flex-shrink=0 aria-hidden=true color="light-dark(#0F0F0F, #F5F5F5)"
+          path fill="currentColor" d="M9.26905 15.284L17.2479 9.36086C17.6391 9.07047 18.1981 9.18374 18.3845 9.63478C19.3655 12.0135 18.9272 14.8721 16.9755 16.8349C15.0238 18.7976 12.3082 19.228 9.8261 18.2477L7.1146 19.5102C11.0037 22.1834 15.7263 21.5223 18.6774 18.5525C21.0182 16.1985 21.7432 12.9897 21.0653 10.0961L21.0714 10.1023C20.0884 5.85143 21.3131 4.15233 23.8218 0.677913C23.8812 0.595532 23.9406 0.513151 24 0.428711L20.6987 3.74866V3.73836L9.267 15.2861"
+          path fill="currentColor" d="M7.62249 16.7237C4.83113 14.0422 5.3124 9.89222 7.69417 7.49905C9.45541 5.72786 12.341 5.00497 14.86 6.06768L17.5653 4.81138C17.0779 4.45714 16.4533 4.07613 15.7365 3.80839C12.4966 2.46764 8.6178 3.13492 5.98413 5.78141C3.45081 8.32904 2.65415 12.2463 4.02219 15.5889C5.04412 18.0871 3.36889 19.8541 1.68137 21.6377C1.08337 22.2699 0.483318 22.9022 0 23.5716L7.62045 16.7257"
+      when driver == "opencode"
+        svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 32 40" flex-shrink=0 aria-hidden=true
+          path fill="light-dark(#CFCECD, #4B4646)" d="M24 32H8V16H24V32Z"
+          path fill="light-dark(#211E1E, #F1ECEC)" d="M24 8H8V32H24V8ZM32 40H0V0H32V40Z"
+      when driver == "antigravity"
+        image "assets/provider-antigravity.png" width=`${size / 16}rem` height=`${size / 16}rem` object-fit="contain" aria-hidden=true
+      when driver == "pi"
+        svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="165.29 165.29 469.43 469.43" flex-shrink=0 aria-hidden=true color="light-dark(#0F0F0F, #F5F5F5)"
+          path fill="currentColor" fill-rule="evenodd" d="M165.29 165.29H517.36V400H400V517.36H282.65V634.72H165.29ZM282.65 282.65V400H400V282.65Z"
+          path fill="currentColor" d="M517.36 400H634.72V634.72H517.36Z"
+      when driver == "acpRegistry"
+        AcpRegistryAgentIcon(icon=icon, size=size, color="light-dark(#000000, #ffffff)")
+      when driver != "codex" and driver != "claudeAgent" and driver != "cursor" and driver != "grok" and driver != "opencode" and driver != "antigravity" and driver != "pi" and driver != "acpRegistry"
+        text initials font-size="0.4375rem" font-weight=600 line-height=1 color="light-dark(#27272a, #f5f5f5)"
+
+// AcpRegistryAgentIcon (settings/AcpRegistryIcon.tsx:73-170): the ACP glyph until the registry
+// image loads, and again when it fails (an SVG is a load error on Apple, X44); the monochrome
+// glyph is tinted to the theme. No URL draws the glyph alone.
+component AcpRegistryAgentIcon
+  props
+    icon: string
+    size: number
+    color: string
+  state loaded = ""
+  state failed = ""
+  action didLoad
+    loaded = icon
+  action didFail(message: string)
+    failed = icon
+  view
+    box width=`${size / 16}rem` height=`${size / 16}rem` position="relative" display="flex" align-items="center" justify-content="center" flex-shrink=0 testId=(icon == "" ? "acp-icon-fallback" : `acp-icon-${loaded == icon ? "loaded" : failed == icon ? "failed" : "loading"}`)
+      when loaded != icon
+        AcpRegistryGlyph(size=size, color=color)
+      when icon != "" and failed != icon
+        image icon width=`${size / 16}rem` height=`${size / 16}rem` object-fit="contain" aria-hidden=true -exact-tint-color=color load=didLoad error=didFail position=(loaded == icon ? "relative" : "absolute") left=0 top=0 visibility=(loaded == icon ? "visible" : "hidden")
+
+// ACPRegistryIcon (Icons.tsx): the generic ACP Registry mark.
+component AcpRegistryGlyph
+  props
+    size: number
+    color: string
+  view
+    svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 576 220" flex-shrink=0 aria-hidden=true color=color
+      path fill="currentColor" d="M568.003 115.821L517.278 27.9661C507.183 10.4816 489.084 0.0227367 468.894 0.0227367C448.727 0.0227367 430.674 10.4361 420.556 27.8752L343.251 161.749H242.755C236.23 161.749 230.386 158.384 227.135 152.745C223.861 147.106 223.861 140.376 227.135 134.715L277.861 46.8603C281.112 41.2216 286.955 37.8338 293.481 37.8338C300.006 37.8338 305.827 41.1988 309.101 46.8603L312.125 52.0897C313.353 54.2042 315.604 55.5002 318.036 55.5002C320.469 55.5002 322.743 54.1815 323.948 52.067L337.385 28.5118C338.795 26.0335 338.522 22.9413 336.703 20.7586C325.699 7.57131 309.874 0 293.322 0C292.662 0 292.003 0 291.321 0.0454733C272.04 0.75031 254.76 11.1864 245.074 27.9434L200.215 105.657L155.81 29.1484C145.465 11.2092 126.594 0.0227367 106.608 0.0227367C105.949 0.0227367 105.289 0.0227367 104.607 0.06821C85.3265 0.773047 68.0467 11.2092 58.3608 27.9661L7.65806 115.821C-6.25678 139.899 -0.868187 168.82 21.05 187.759C29.8945 195.422 41.6039 199.628 54.0181 199.628H148.648C151.081 199.628 153.332 198.332 154.56 196.217L168.52 172.026C169.748 169.911 169.748 167.319 168.52 165.205C167.292 163.09 165.041 161.794 162.608 161.794H56.0417C49.5163 161.794 43.6729 158.429 40.4216 152.79C37.1475 147.152 37.1475 140.422 40.4216 134.76L91.1471 46.9057C94.3985 41.2671 100.242 37.8793 106.767 37.8793C113.293 37.8793 119.113 41.2443 122.387 46.9057L194.826 172.526C195.031 172.89 195.258 173.208 195.531 173.526C198.76 178.665 202.83 183.485 207.786 187.782C216.631 195.444 228.34 199.651 240.754 199.651H321.424L315.581 209.769C314.353 211.883 314.353 214.475 315.581 216.59C316.809 218.704 319.059 220 321.492 220H349.436C351.868 220 354.119 218.704 355.347 216.59L364.396 200.901L367.17 196.468C367.17 196.468 367.261 196.331 367.284 196.263L453.274 46.9285C456.525 41.2898 462.369 37.902 468.894 37.902C475.42 37.902 481.263 41.2671 484.514 46.9285L535.24 134.783C538.491 140.422 538.514 147.174 535.24 152.813C531.988 158.452 526.145 161.84 519.62 161.84H418.669C416.236 161.84 413.985 163.136 412.757 165.25L398.774 189.442C397.546 191.556 397.546 194.148 398.774 196.263C400.002 198.377 402.253 199.673 404.686 199.673H518.21C539.81 199.673 559.295 188.237 569.026 169.843C578.053 152.79 577.666 132.623 567.981 115.843L568.003 115.821Z"
