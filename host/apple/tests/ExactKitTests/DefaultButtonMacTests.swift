@@ -6,9 +6,17 @@ import AppKit
 import XCTest
 @testable import ExactKit
 
-final class DefaultButtonMacTests: XCTestCase {
+/// In both of a dialog's presentations: this class paints it in the page (the
+/// driver's own chrome), and `DefaultButtonSheetMacTests` runs every case
+/// again with it in AppKit's sheet (LLP 1115.002 D7.2).
+class DefaultButtonMacTests: XCTestCase {
     private var window: NSWindow!
-    override func tearDown() { window?.close(); window = nil }
+    private weak var presenter: Presenter?
+    /// Painted in the page, or AppKit's sheet.
+    var painted: Bool { true }
+    /// The window the keyboard is in: the open dialog's sheet, else the page's.
+    private var front: NSWindow { presenter?.dialogs.active?.window ?? window }
+    override func tearDown() { presenter?.dialogs.reset(); window?.close(); window = nil }
 
     /// A page (1) with a field outside any dialog (9, id `lone`), a textarea
     /// (10) and a link (11), and a `dialog` (3, id `form`) holding a field
@@ -18,6 +26,9 @@ final class DefaultButtonMacTests: XCTestCase {
     private func fixture(filled: Set<UInt32> = [12], fieldHandlers: [String] = [], open: Bool = true) -> Presenter {
         _ = NSApplication.shared
         let p = Presenter()
+        presenter = p
+        p.dialogs.painted = painted
+        p.menus.painted = painted
         let titles: [UInt32: String] = [7: "Cancel", 8: "Delete", 12: "OK"]
         p.buttonFace = { id in
             var face = ButtonFace(); face.title = titles[id]
@@ -60,12 +71,12 @@ final class DefaultButtonMacTests: XCTestCase {
         return p
     }
     private func key(_ chars: String, _ code: UInt16, flags: NSEvent.ModifierFlags = []) -> NSEvent {
-        NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: window.windowNumber, context: nil,
+        NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: front.windowNumber, context: nil,
                          characters: chars, charactersIgnoringModifiers: chars, isARepeat: false, keyCode: code)!
     }
     /// As the session's event monitor routes a key, then AppKit delivers it.
     private func deliver(_ p: Presenter, _ event: NSEvent) {
-        if !p.routeKey(event, focused: true, in: window) { window.sendEvent(event) }
+        if !p.routeKey(event, focused: true, in: front) { front.sendEvent(event) }
     }
     private var returnKey: NSEvent { key("\r", 36) }
     private func button(_ p: Presenter, _ id: UInt32) throws -> NativeButtonMac { try XCTUnwrap(p.controls.controls[id] as? NativeButtonMac) }
@@ -81,18 +92,18 @@ final class DefaultButtonMacTests: XCTestCase {
         XCTAssertEqual([cancel, delete, ok].map(\.keyEquivalent), ["", "", "\r"], "AppKit draws the one whose key equivalent is Return as the default")
         // From the field (no `submit` handler): its edit commits, then the default is pressed, and the focus stays in the field.
         let typing = try editor(p, 4)
-        XCTAssertTrue(window.firstResponder === typing, "autofocus")
+        XCTAssertTrue(front.firstResponder === typing, "autofocus")
         typing.insertText("x", replacementRange: typing.selectedRange())
         deliver(p, returnKey)
         XCTAssertEqual(pressed, [12])
         XCTAssertEqual(changed.count, 1)
         XCTAssertEqual(order, ["change", "press"], "the editing ends before the default button acts")
-        XCTAssertTrue(window.firstResponder === (try editor(p, 4)), "Return's press moves no focus")
+        XCTAssertTrue(front.firstResponder === (try editor(p, 4)), "Return's press moves no focus")
         // From another button: Return is still the default's, Space the focused one's.
-        XCTAssertTrue(window.makeFirstResponder(delete))
+        XCTAssertTrue(front.makeFirstResponder(delete))
         deliver(p, returnKey)
         XCTAssertEqual(pressed, [12, 12])
-        XCTAssertTrue(window.firstResponder === delete)
+        XCTAssertTrue(front.firstResponder === delete)
         deliver(p, key(" ", 49))
         XCTAssertEqual(pressed, [12, 12, 8], "Space presses the focused control")
         // Return with a modifier is not the default's.
@@ -103,7 +114,7 @@ final class DefaultButtonMacTests: XCTestCase {
         XCTAssertFalse(p.dialogs.pressDefault(returnKey, in: dialog))
         p.apply(wireBatch([["op": "props", "id": 12, "set": ["disabled": "false"]]]))
         // The dialog closed (Space on Cancel, its own command): nothing is the default any more.
-        XCTAssertTrue(window.makeFirstResponder(cancel))
+        XCTAssertTrue(front.makeFirstResponder(cancel))
         deliver(p, key(" ", 49))
         XCTAssertNil(p.dialogs.active)
         XCTAssertEqual(ok.keyEquivalent, "")
@@ -119,7 +130,7 @@ final class DefaultButtonMacTests: XCTestCase {
             XCTAssertNil(p.dialogs.defaultButton(of: dialog), name)
             XCTAssertEqual(try [7, 8, 12].map { try button(p, $0).keyEquivalent }, ["", "", ""], name)
             // Return does only what the focused control does with it: a button nothing, a field ends its editing.
-            XCTAssertTrue(window.makeFirstResponder(try button(p, 12)))
+            XCTAssertTrue(front.makeFirstResponder(try button(p, 12)))
             deliver(p, returnKey)
             XCTAssertEqual(pressed, [], "\(name): Return presses no merely focused button")
             XCTAssertTrue(p.dialogs.active === dialog)
@@ -139,7 +150,7 @@ final class DefaultButtonMacTests: XCTestCase {
         p.onPress = { pressed.append($0) }
         p.onSubmit = { submitted.append($0) }
         let typing = try editor(p, 4)
-        XCTAssertTrue(window.firstResponder === typing)
+        XCTAssertTrue(front.firstResponder === typing)
         deliver(p, returnKey)
         XCTAssertEqual(submitted, [4], "the field's own submit")
         XCTAssertEqual(pressed, [], "not the default button")
@@ -152,7 +163,7 @@ final class DefaultButtonMacTests: XCTestCase {
         p.onKey = nil
         // A textarea: a new line.
         let body = try XCTUnwrap(p.views[6]?.textArea)
-        XCTAssertTrue(window.makeFirstResponder(body))
+        XCTAssertTrue(front.makeFirstResponder(body))
         deliver(p, returnKey)
         XCTAssertEqual(pressed, [])
         XCTAssertTrue(body.string.contains("\n"), "Return in a textarea is a new line")
@@ -174,24 +185,28 @@ final class DefaultButtonMacTests: XCTestCase {
         deliver(p, returnKey)
         XCTAssertEqual(changed, ["page!"])
         XCTAssertEqual(submitted, [9])
-        XCTAssertTrue(window.firstResponder === (try editor(p, 9)), "the field keeps the focus, as NSTextField does")
+        XCTAssertTrue(front.firstResponder === (try editor(p, 9)), "the field keeps the focus, as NSTextField does")
         XCTAssertEqual(try editor(p, 9).selectedRange(), NSRange(location: 0, length: 5), "with its text selected, no caret")
         // The action moves the focus: it is kept, and nothing is selected behind it.
         p.onSubmit = { id in submitted.append(id); p.focusElement(["notes"]) }
         deliver(p, returnKey)
         XCTAssertEqual(submitted, [9, 9])
-        XCTAssertTrue(window.firstResponder === p.views[10]?.textArea, "a focus the action set is kept")
+        XCTAssertTrue(front.firstResponder === p.views[10]?.textArea, "a focus the action set is kept")
         // A textarea outside a dialog: a new line too.
         let notes = try XCTUnwrap(p.views[10]?.textArea)
         deliver(p, returnKey)
         XCTAssertTrue(notes.string.contains("\n"))
         // A link follows on Return and not on Space; nothing else is pressed by Return.
         let link = try XCTUnwrap(p.views[11])
-        XCTAssertTrue(window.makeFirstResponder(link))
+        XCTAssertTrue(front.makeFirstResponder(link))
         deliver(p, key(" ", 49))
         XCTAssertEqual(pressed, [])
         deliver(p, returnKey)
         XCTAssertEqual(pressed, [11])
     }
+}
+
+final class DefaultButtonSheetMacTests: DefaultButtonMacTests {
+    override var painted: Bool { false }
 }
 #endif

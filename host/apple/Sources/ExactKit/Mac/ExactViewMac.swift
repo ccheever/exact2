@@ -117,7 +117,9 @@ public final class ExactView: NSView {
     /// the first responder — as a page's shortcuts hear keys with no element
     /// focused (jukebox F11). Of several sessions in one window, the first in
     /// view order hears them then.
-    func ownsShortcutFocus() -> Bool {
+    func ownsShortcutFocus(in other: NSWindow? = nil) -> Bool {
+        // A sheet's window, or a popover's, holds this session's nodes alone (SheetsMac.swift).
+        if let other, other !== window { return self.session.presenter.hosts(other) }
         let first = window?.firstResponder
         let responder = first as? NSView
         let editorOwner = (responder as? NSTextView)?.delegate as? NSView
@@ -236,20 +238,21 @@ public final class ExactView: NSView {
             // Text editors can consume control chords before the responder chain.
             // Route declared commands first, scoped to this session's focused view.
             shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged, .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp]) { [weak self] event in
-                guard let self, event.window === self.window else { return event }
+                guard let self, self.session.presenter.hosts(event.window) else { return event }
                 // A modifier pressed is a keydown on the web (`"Shift"`), and
                 // released a keyup (#140); to AppKit a flags change, which
                 // goes on to it either way.
                 if event.type == .flagsChanged {
-                    if self.ownsShortcutFocus() { _ = self.session.presenter.keyDown(event); self.session.presenter.keyUp(event) }
+                    if self.ownsShortcutFocus(in: event.window) { _ = self.session.presenter.keyDown(event); self.session.presenter.keyUp(event) }
                     return event
                 }
                 if event.type != .keyDown && event.type != .keyUp {
                     self.session.presenter.menus.pointer(event)
-                    return event
+                    // A click on the window behind a `closedby="any"` sheet is the sheet's.
+                    return self.session.presenter.dialogs.pointer(event) ? nil : event
                 }
                 if event.type == .keyDown { self.session.presenter.flushKeyViewLoop() }
-                let focused = self.ownsShortcutFocus()
+                let focused = self.ownsShortcutFocus(in: event.window)
                 let code=KeyCodes.mac[Int(event.keyCode)] ?? "Unidentified"
                 if focused, event.modifierFlags.intersection([.command,.control]).isEmpty,
                    self.session.canvases.pressedControlKey(code,down:event.type == .keyDown,timestamp:event.timestamp) {return nil}

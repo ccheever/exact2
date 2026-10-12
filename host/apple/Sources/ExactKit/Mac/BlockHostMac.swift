@@ -5,9 +5,10 @@
 // pane's size, or a sheet's maximum). The kernel lays the subtree out in
 // that box and nothing else again, sends its frames in the box's own space
 // and the box's used size, which a sheet gives its window. Where the
-// container is and how it clips are AppKit's. Nothing in an app uses this
-// yet: stage 6a's proof drives it (`HostBlockMacTests`), the split (6b) and
-// the modal route's sheet (6c) are its first callers.
+// container is and how it clips are AppKit's. Stage 6a's proof drives it
+// (`HostBlockMacTests`); a `dialog`'s sheet is its first caller in an app
+// (stage 5, SheetsMac.swift), and the split (6b) and the modal route's
+// sheet (6c) are the next.
 #if os(macOS)
 import AppKit
 import CExact
@@ -74,6 +75,8 @@ final class BlockHost {
         weak var home: NSView?
         weak var next: NSView?
         var block: HostBlock
+        /// What its container does with its used size (a sheet sizes its window).
+        var used: ((CGSize) -> Void)?
     }
     private var entries: [UInt32: Entry] = [:]
     /// Each block's used size, as the last layout returned it.
@@ -86,14 +89,15 @@ final class BlockHost {
     /// its authored parent leaves it there.
     func owns(_ node: NodeView) -> Bool { entries[node.id]?.node === node }
 
-    /// Put `node`'s subtree in `container` and lay it out in `block`.
-    func show(_ node: NodeView, in container: NSView, block: HostBlock) {
+    /// Put `node`'s subtree in `container` and lay it out in `block`; `used`
+    /// hears its used size, now and whenever layout gives it another.
+    func show(_ node: NodeView, in container: NSView, block: HostBlock, used: ((CGSize) -> Void)? = nil) {
         guard let presenter, presenter.views[node.id] === node else { return }
         if entries[node.id] == nil {
             let home = node.superview, siblings = home?.subviews ?? []
             let next = siblings.firstIndex(of: node).flatMap { $0 + 1 < siblings.count ? siblings[$0 + 1] : nil }
-            entries[node.id] = Entry(node: node, home: home, next: next, block: block)
-        } else { entries[node.id]?.block = block }
+            entries[node.id] = Entry(node: node, home: home, next: next, block: block, used: used)
+        } else { entries[node.id]?.block = block; entries[node.id]?.used = used }
         if node.superview !== container {
             container.addSubview(node)
             presenter.topLayerChanged()
@@ -130,6 +134,7 @@ final class BlockHost {
         let size = CGSize(width: w.doubleValue, height: h.doubleValue)
         guard used[op.id] != size else { return }
         used[op.id] = size
+        entries[op.id]?.used?(size)
         onUsed?(op.id, size)
     }
 

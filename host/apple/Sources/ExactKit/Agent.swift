@@ -477,7 +477,7 @@ public final class Agent {
         if page != nil { PageFacts.agent = facts }
         var pageFacts: [String: Any] = ["visibility-state": PageFacts.hidden ? "hidden" : "visible",
                                        "online": PageFacts.onLine, "can-share": PageFacts.canShare, "can-open-files": PageFacts.canOpenFiles,
-                                       "has-focus": PageFacts.hasFocus(session.view?.window), "root-font-size": PageFacts.rootFontSize,
+                                       "has-focus": PageFacts.hasFocus(session.pageWindow), "root-font-size": PageFacts.rootFontSize,
                                        "display-scale": PageFacts.displayScale(session.presenter.viewport)]
         #if os(macOS)
         if let keyboardNavigation { KeyboardNavigation.agent = keyboardNavigation }

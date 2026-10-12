@@ -12,15 +12,19 @@
 // A chosen button presses its authored button by view id once, on the turn
 // after the sheet has ended, and only while the alert still showed what is
 // there (as the chooser's menu does, ChooserMac.swift). Any other shape is
-// presented as before: a chooser is the `NSMenu`, the rest is painted. An
-// alert has no outside (LLP 1115.000 D13.4): a click on the window behind the
-// sheet does nothing and Escape presses the cancel, which is the `closedby`
-// lowering implies for the shape, `closerequest`. So a `dialog` whose author
-// wrote `closedby="any"` is not presented as one: it is the painted dialog
-// over its dimmed page, which a click outside dismisses (DialogsMac.swift);
-// and under `closedby="none"` the cancel is given no Escape. The
-// agent sees the same alert: a tap on an authored button presses the alert's
-// button, and Return and Escape go to the sheet (AgentMac.swift).
+// no alert: a chooser is the `NSMenu`, and the rest is a sheet or a popover
+// holding its own subtree (LLP 1115.002 D7; SheetsMac.swift,
+// PopoversMac.swift). An alert has no outside (LLP 1115.000 D13.4): a click
+// on the window behind the sheet does nothing and Escape presses the cancel,
+// which is the `closedby` lowering implies for the shape, `closerequest`. So
+// a `dialog` whose author wrote `closedby="any"` is not presented as one: it
+// is the dialog's own sheet, which a click on the window behind it dismisses;
+// and under `closedby="none"` the cancel is given no Escape. Asked for while
+// a dialog is open, the alert is a sheet on that dialog's sheet (on the
+// page's window AppKit would hold it back until the first had gone), and
+// its rows are its own, not inert under the dialog beneath. The agent sees
+// the same alert: a tap on an authored button presses the alert's button,
+// and Return and Escape go to the sheet (AgentMac.swift).
 #if os(macOS)
 import AppKit
 
@@ -55,6 +59,12 @@ final class AlertHost {
         }
     }
     private(set) var presented: Presented?
+    /// The alertdialog whose chosen button is being pressed, after its sheet has ended.
+    private weak var answering: NodeView?
+    /// The alertdialog that is the top modal: the one presented, or being
+    /// answered. Over an open dialog its rows are its own, not the dialog's
+    /// to block (`DialogHost.blocks`).
+    var modal: NodeView? { presented?.node ?? answering }
     /// The sheet's window while an alert is up.
     var sheet: NSWindow? { presented?.alert.window }
     func isOpen(_ node: NodeView) -> Bool { presented?.node === node }
@@ -65,9 +75,13 @@ final class AlertHost {
     }
     /// Live, enabled, not inert, and not hidden by the page, though the
     /// alertdialog itself is hidden in place while the alert presents it.
+    /// Inert by its own tree (an authored `inert`, a route's), not by the
+    /// dialog that is open: the alert goes over that one, as `showModal()`
+    /// puts a dialog over the modal before it (an alert over a sheet).
     private func choosable(_ row: NodeView, in pop: NodeView) -> Bool {
         guard let menus = presenter?.menus else { return false }
-        return menus.live(row) && !row.disabled && !row.inert && menus.shown(row, in: pop)
+        let inert = sequence(first: row as NSView, next: { menus.parent(of: $0) }).contains { ($0 as? NodeView).map { $0.routeInert || $0.props["inert"] == "true" } ?? false }
+        return menus.live(row) && !row.disabled && !inert && menus.shown(row, in: pop)
     }
 
     /// What the alert for an `alertdialog` shows: its words, its buttons in
@@ -118,7 +132,9 @@ final class AlertHost {
     /// presentations.
     @discardableResult
     func present(_ pop: NodeView, from source: NodeView?) -> Bool {
-        guard let presenter, presented == nil, presenter.menus.live(pop), let window = presenter.viewport.window,
+        // On the sheet of the dialog that is open, when one is: AppKit keeps
+        // a second sheet on the page's window waiting behind the first.
+        guard let presenter, presented == nil, presenter.menus.live(pop), let window = presenter.frontWindow,
               window.attachedSheet == nil, let plan = plan(of: pop) else { return false }
         let menus = presenter.menus, rows = plan.rows
         let owner = Presented(node: pop, source: source, window: window, rows: rows, defaultRow: plan.defaultRow)
@@ -161,6 +177,8 @@ final class AlertHost {
         DispatchQueue.main.async { [weak self, owner] in
             guard let self, let presenter = self.presenter, self.valid(owner), row.enabled, let node = row.node, let pop = owner.node,
                   self.choosable(node, in: pop) else { return }
+            self.answering = pop
+            defer { self.answering = nil }
             presenter.press(node.id, fromNativeMenu: true)
         }
     }
@@ -170,7 +188,7 @@ final class AlertHost {
     /// still opening it, and each button live, in it, closing it, its title
     /// and enablement as presented.
     func valid(_ owner: Presented) -> Bool {
-        guard let presenter, let pop = owner.node, presenter.menus.live(pop), presenter.viewport.window === owner.window,
+        guard let presenter, let pop = owner.node, presenter.menus.live(pop), presenter.hosts(owner.window),
               plan(of: pop) != nil else { return false }
         if owner.sourced {
             guard let source = owner.source, presenter.menus.invokes(source, pop) else { return false }

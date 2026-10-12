@@ -1104,6 +1104,24 @@ On macOS, iOS and the web, an action can call `showModal(id)` or `close(id)`
 for a `dialog`. macOS and the web follow the invoker's modal focus path; iOS
 presents the dialog as an alert. Bare `close()` still closes the window.
 
+On the Mac a `dialog` that is not a confirmation is a sheet on its window, as
+iOS's is a sheet (LLP 1115.002 D7.2): AppKit centres it, dims the window under
+it and keeps clicks from it. It is as large as its content, at most the
+window's content area, and laid out as written (an authored `width` is used,
+`width="100%"` is all of that area; its insets are not, since AppKit places
+it). Escape and ⌘. close it, the one `buttonStyle="filled"` button answers
+Return, `closedby="none"` leaves only its own buttons, and `closedby="any"`
+also takes a click on the window behind it. A popover that is not a menu is
+AppKit's popover beside its invoker (D7.3), with AppKit's arrow and material,
+on the side its `position-area` names (`top …` above, `right …` beside, else
+below): `popover="auto"` closes on Escape, a click elsewhere or another window,
+`popover="manual"` only by its own buttons. Write no surface for either: the
+sheet and the popover are the platform's. A popover of a dialog's is written
+inside it, as in HTML (outside it, it is inert while the dialog is open). Under
+the agent both paint in the page as before; `--chrome platform` on `macos`
+shows them, `tap`, `type` and `tree` reach what is in them, and `screenshot
+"file" window` draws them over the window.
+
 With no `buttonStyle` a button is the platform's default: plain tinted text on
 iOS, a push button on macOS, bordered on the web. Say what the action is:
 `buttonStyle="filled"` on the screen's main action, `"bordered"` on one that
@@ -1830,7 +1848,8 @@ cancel it and a tap or click beside it does nothing, which is `closedby="closere
 implied for the alert's shape, so leave `closedby` unwritten. Write
 `closedby="any"` only to ask for the platform's dismissible form in its place:
 an action sheet on an iPhone (a popover on an iPad), a dialog a click outside
-closes on the web and the Mac, a Material dialog a tap outside cancels on Android.
+closes on the web, a sheet a click on the window behind it closes on the Mac, a
+Material dialog a tap outside cancels on Android.
 `close("<id>")` from an action closes it as its Cancel does.
 
 A submenu is a row whose `popovertarget` names another menu popover (`Copy ▸

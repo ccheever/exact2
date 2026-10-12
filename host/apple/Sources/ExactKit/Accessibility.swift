@@ -515,7 +515,9 @@ extension Presenter {
     #if os(macOS)
     var macModalAccessibilityChildren: [NodeView]? {
         guard let modal = macAccessibilityModal else { return nil }
-        return [modal] + menus.presented(within: modal).filter { $0 !== modal }
+        // In its sheet the dialog is that window's (LLP 1115.002 D7.2): the page behind it exposes nothing.
+        if modal.window !== viewport.window { return [] }
+        return [modal] + menus.presented(within: modal).filter { $0 !== modal && $0.window === viewport.window }
     }
     /// The frontmost exposed authored modal, or the dialog in HTML's top
     /// layer. The viewport serves it directly so AppKit cannot flatten a
