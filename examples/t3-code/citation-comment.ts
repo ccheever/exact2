@@ -51,8 +51,10 @@ export function citationPopover(press: Obj, base: ChipPopover, startOf: (citatio
 
 /**
  * The popover's Save (`chip-cite-save`; `chip-cite-send` saves and sends; `chip-cite-commit` is an outside press
- * committing a changed draft, which leaves the focus where the press put it) and Cancel or Escape (`chip-cite-cancel`):
- * `id` is the press's sequence, `value` the comment.
+ * committing a changed draft, which leaves the focus where the press put it unless it put it nowhere: then the prompt takes
+ * it after the chip, PopoverPopup's `finalFocus`), Cancel (`chip-cite-cancel`) and the window's Escape (`chip-cite-escape`:
+ * the editor's Cancel in its textarea, else Base UI's escape-key dismissal, which keeps the chip; the native editor knows
+ * where the focus is): `id` is the press's sequence, `value` the comment.
  */
 export async function citationCommentLocal(native: Native, op: string, id: string, value: string): Promise<string> {
   const seq = Number(id) || 0;
@@ -60,14 +62,14 @@ export async function citationCommentLocal(native: Native, op: string, id: strin
   const press = reply.ok ? obj(reply.value) : {};
   if (press.open !== true || str(press.kind) !== 'citation' || Number(press.seq) !== seq) return '';
   let text: string | undefined;
-  if (op === 'chip-cite-cancel') text = press.removeOnCancel === true ? '' : undefined;
+  if (op === 'chip-cite-cancel' || op === 'chip-cite-escape') text = press.removeOnCancel === true ? '' : undefined;
   else {
     if (value.length > ASSISTANT_CITATION_MAX_COMMENT_LENGTH) throw new ClientError(`Comments can contain up to ${ASSISTANT_CITATION_MAX_COMMENT_LENGTH.toLocaleString('en-US')} characters.`);
     const citation = citationOfLink(str(press.link));
     if (!citation) throw new ClientError('This citation can no longer be edited.');
     text = serializeAssistantCitation(withAssistantCitationComment(citation, value));
   }
-  const finish = await bridgeReply(native, { op: 'editorChipFinish', seq, ...(text === undefined ? {} : { text }), focus: op !== 'chip-cite-commit', send: op === 'chip-cite-send' });
+  const finish = await bridgeReply(native, { op: 'editorChipFinish', seq, ...(text === undefined ? {} : { text }), focus: op !== 'chip-cite-commit', send: op === 'chip-cite-send', ...(op === 'chip-cite-escape' ? { escape: true } : {}) });
   if (!finish.ok || obj(finish.value).applied !== true) throw new ClientError('The prompt could not be updated.');
   return '';
 }

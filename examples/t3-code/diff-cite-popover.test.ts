@@ -71,7 +71,7 @@ describe('DC-1: the citation chip\'s comment popover', () => {
     expect(parseAssistantCitationHref(/\((t3-citation:[^)]+)\)$/.exec(String(second.finishes()[0]!.text))![1]!)).toEqual(citation);
   });
 
-  test('Command/Ctrl+Enter saves and sends; an outside press commits without taking the focus', async () => {
+  test('Command/Ctrl+Enter saves and sends; an outside press commits without asking for the focus (the native editor gives it only when the press left it nowhere)', async () => {
     const send = editor(press());
     await citationCommentLocal(send.native, 'chip-cite-send', '7', 'why?');
     expect(send.finishes()[0]).toMatchObject({ focus: true, send: true });
@@ -87,6 +87,19 @@ describe('DC-1: the citation chip\'s comment popover', () => {
     const pencil = editor(press());
     await citationCommentLocal(pencil.native, 'chip-cite-cancel', '7', 'ignored draft');
     expect(pencil.finishes()).toEqual([{ op: 'editorChipFinish', seq: 7, focus: true, send: false }]);
+  });
+
+  test('the window\'s Escape asks the native editor, which knows where the focus is: in the textarea the editor\'s Cancel, elsewhere Base UI\'s escape-key close', async () => {
+    // The native editor drops `text` (the chip stays) and asks no focus when the textarea does not hold it
+    // (T3ComposerChipPress.finishCitation `escape`; the AppKit test covers that half).
+    const cited = editor(press({ anchor: 'source', removeOnCancel: true }));
+    await chipPopoverLocal({} as never, cited.native, 'chip-cite-escape', '7', '');
+    expect(cited.finishes()).toEqual([{ op: 'editorChipFinish', seq: 7, text: '', focus: true, send: false, escape: true }]);
+    const pencil = editor(press());
+    await citationCommentLocal(pencil.native, 'chip-cite-escape', '7', 'a draft past the limit'.repeat(400));
+    expect(pencil.finishes()).toEqual([{ op: 'editorChipFinish', seq: 7, focus: true, send: false, escape: true }]);
+    const window = await source('app-window.contract');
+    expect(window).toContain('  action chipEscape\n    if chip.kind == "citation"\n      chipClosed = chip.seq\n      editorOp("chip-cite-escape", `${chip.seq}`, "")');
   });
 
   test('only the comment the window showed; past 8,000 characters nothing is saved', async () => {
@@ -122,8 +135,9 @@ describe('DC-1: the citation chip\'s comment popover', () => {
     expect(resolveAssistantCitationCommentDismissal({ reason: 'outside-press', draft: ' a ', savedComment: 'a' })).toEqual({ kind: 'close' });
     expect(resolveAssistantCitationCommentDismissal({ reason: 'outside-press', draft: 'b', savedComment: 'a' })).toEqual({ kind: 'commit', comment: 'b' });
     expect(resolveAssistantCitationCommentDismissal({ reason: 'outside-press', draft: 'x'.repeat(8001), savedComment: undefined })).toEqual({ kind: 'keep-open' });
-    // Escape cancels whatever the draft (the editor's onCancel); an outside press here or the textarea's blur settles.
-    expect(window).toContain('  action chipEscape\n    if chip.kind == "citation"\n      citeCancel()');
+    // Escape closes whatever the draft (in the textarea the editor's onCancel, elsewhere escape-key); an outside press here or
+    // the textarea's blur settles.
+    expect(resolveAssistantCitationCommentDismissal({ reason: 'escape-key', draft: 'x'.repeat(8001), savedComment: undefined })).toEqual({ kind: 'close' });
     expect(window).toMatch(/if chip\.kind == "citation"\n {8}citeSettle\(\)\n {6}else\n {8}chipClose\(false\)/);
     expect(window).toContain('CitationCommentLayer(chip=chip, draft=citeText, viewportWidth=viewport.width, viewportHeight=viewport.height, edit=citeEdit, save=citeSave, cancel=citeCancel, settle=citeSettle)');
     expect(window).toContain('derive citeText = citeDraftSeq == chip.seq ? citeDraft : chip.comment');

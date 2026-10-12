@@ -25,7 +25,9 @@ import AppKit
 /// PopoverTrigger "Add comment to citation" / "Edit citation comment"), and Cite opens its comment at once under the
 /// cited text (`openCitation`). Its popover holds a draft the app keeps, so while it is open a press in the text (its
 /// trigger's included) only takes the focus, and the popover's blur settles the draft in the app; the app's Save,
-/// Cancel and Escape end it (`finishCitation`), rewriting or removing the chip.
+/// Cancel and Escape end it (`finishCitation`), rewriting or removing the chip. An edit in the prompt leaves it open
+/// (a draft past 8,000 characters keeps it open while the prompt has the focus): it follows its chip, and closes when
+/// the chip goes, as the reference's node view keeps its popover by its `citeKey`.
 final class T3ComposerChipPress {
     /// Newer presses win across editors.
     private static var lastSeq = 0
@@ -48,6 +50,8 @@ final class T3ComposerChipPress {
     private(set) var source: [Double] = []
     /// After Cite, Cancel and Escape take the chip away again (ComposerPromptEditorTiptap's `removeOnCancel`).
     private(set) var removeOnCancel = false
+    /// The open citation's source link, by which it follows its chip through edits around it (`validate`).
+    private var link = ""
     private var observers: [NSObjectProtocol] = []
     private var elements: [Element] = []
     private var monitor: Any?
@@ -127,6 +131,9 @@ final class T3ComposerChipPress {
         self.anchor = anchor
         self.source = source
         self.removeOnCancel = removeOnCancel
+        if chip.kind == "citation", let view = styler?.view, chip.end <= (view.string as NSString).length {
+            link = (view.string as NSString).substring(with: chip.range)
+        } else { link = "" }
         // A citation's comment takes the focus as it opens (PopoverPopup `initialFocus`: its textarea): the prompt gives it
         // up, so the popover's `autofocus` (which yields to a focused view, as HTML's does) lands there.
         if chip.kind == "citation", let window = styler?.view?.window, window.firstResponder === styler?.view { window.makeFirstResponder(nil) }
@@ -141,6 +148,20 @@ final class T3ComposerChipPress {
         sequence(first: view, next: { $0?.superview }).contains { $0?.accessibilityIdentifier() == "citation-comment" }
     }
 
+    /// Whether the window's focus is in the citation comment popover (its textarea, or a field editor working for it).
+    static func focusInCitationComment(_ window: NSWindow) -> Bool {
+        let responder = window.firstResponder as? NSView
+        return inCitationComment(responder) || inCitationComment((responder as? NSTextView)?.delegate as? NSView)
+    }
+
+    /// Whether nothing the web would focus holds the window's focus, the reference's `document.activeElement ===
+    /// document.body`: the window itself (a press on ground that takes no focus, which the outside press left there),
+    /// or a view that is no key view (a paragraph takes the focus only to select its text, where the web's stays on the body).
+    static func focusIsNowhere(_ window: NSWindow) -> Bool {
+        guard let responder = window.firstResponder, responder !== window else { return true }
+        return (responder as? NSView)?.canBecomeKeyView == false
+    }
+
     /// After Cite (ChatComposer citeAssistantText's `citationCommentAnchor`, the editor's requestCitationComment): the
     /// comment of the citation chip `href` just inserted opens under the cited text (`source`, the window frame the app
     /// measured), and Cancel or Escape removes that chip again. The chip is the one ending nearest before the caret.
@@ -153,18 +174,27 @@ final class T3ComposerChipPress {
         return true
     }
 
-    /// The app's Save, Cancel or Escape on a citation's comment (`seq` the one it showed): the chip's source becomes
-    /// `text` ("" removes it, nil keeps it), the comment closes and, with `focus`, the prompt takes the focus with the caret
-    /// after the chip, as ComposerCitationNodeView's onSave, onRemove and onRestoreFocus leave it.
-    @discardableResult func finishCitation(seq: Int, text: String?, focus: Bool) -> Bool {
+    /// The app's Save, Cancel, Escape or outside press's commit on a citation's comment (`seq` the one it showed): the
+    /// chip's source becomes `text` ("" removes it, nil keeps it), the comment closes and the prompt takes the focus with
+    /// the caret after the chip, as ComposerCitationNodeView's onSave, onRemove and onRestoreFocus leave it, when `focus`
+    /// (the popover's own Save, Cancel, Escape) or, for an outside press (`focus` false), when the press left the focus
+    /// nowhere (PopoverPopup's `finalFocus`: the body or the popup); a control the press focused, the prompt's text
+    /// included, keeps it. `escape` is the window's Escape: in the comment's textarea it is the editor's Cancel (after
+    /// Cite the chip goes); anywhere else it is Base UI's escape-key dismissal, which only closes it
+    /// (resolveAssistantCitationCommentDismissal: "close") and keeps the chip.
+    @discardableResult func finishCitation(seq: Int, text: String?, focus: Bool, escape: Bool = false) -> Bool {
         guard seq == self.seq, let chip, chip.kind == "citation", let styler, let view = styler.view else { return false }
+        let window = view.window
+        let inside = window.map(T3ComposerChipPress.focusInCitationComment) ?? false
+        let text = escape && !inside ? nil : text
+        let focus = (focus && (!escape || inside)) || inside || (window.map(T3ComposerChipPress.focusIsNowhere) ?? false)
         let string = view.string as NSString
         let current = chip.end <= string.length ? string.substring(with: chip.range) : nil
         close()
         guard let current else { return false }
-        if focus, let window = view.window, window.firstResponder !== view { window.makeFirstResponder(view) }
+        if focus, let window, window.firstResponder !== view { window.makeFirstResponder(view) }
         if let text, text != current {
-            // An outside press's commit (no focus) leaves the caret where the reader put it, moved with the text after the chip.
+            // An outside press's commit that left the focus on a control keeps the reader's caret, moved with the text after the chip.
             let kept = view.selectedRange(), delta = (text as NSString).length - chip.range.length
             guard styler.editor?.apply(chip.range, text, in: view) == true else { return false }
             if !focus {
@@ -184,17 +214,35 @@ final class T3ComposerChipPress {
         trigger = []
         source = []
         removeOnCancel = false
+        link = ""
         unfollow()
         onChange()
     }
 
-    /// The app's close (an outside press, View instructions): only the press it saw.
-    func close(seq: Int) { if seq == self.seq { close() } }
+    /// The app's close (an outside press, View instructions): only the press it saw. A citation's comment closed by an
+    /// outside press with nothing to commit gives the prompt the focus, the caret after the chip, when the press left the
+    /// focus nowhere (PopoverPopup's `finalFocus` → onRestoreFocus), as `finishCitation` does.
+    func close(seq: Int) {
+        guard seq == self.seq, let chip else { return }
+        guard chip.kind == "citation", let view = styler?.view, let window = view.window, chip.end <= (view.string as NSString).length,
+              T3ComposerChipPress.focusIsNowhere(window) || T3ComposerChipPress.focusInCitationComment(window) else { close(); return }
+        close()
+        if window.firstResponder !== view { window.makeFirstResponder(view) }
+        view.setSelectedRange(NSRange(location: chip.end, length: 0))
+    }
 
-    /// After a restyle: the open chip must still be one of the text's chips.
+    /// After a restyle: the open chip must still be one of the text's chips. A citation's comment follows its chip when an
+    /// edit around it moves it (its source link, nearest the old place), and closes when the chip goes.
     func validate() {
         guard let chip, let styler else { return }
-        if !styler.chips.contains(chip) { close(); return }
+        if !styler.chips.contains(chip) {
+            guard chip.kind == "citation", let view = styler.view, !link.isEmpty else { close(); return }
+            let text = view.string as NSString
+            let moved = styler.chips.filter { $0.kind == "citation" && $0.end <= text.length && text.substring(with: $0.range) == link }
+                .min { abs($0.start - chip.start) < abs($1.start - chip.start) }
+            guard let moved else { close(); return }
+            self.chip = moved
+        }
         remeasure()
     }
 

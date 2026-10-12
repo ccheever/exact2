@@ -390,10 +390,13 @@ component T3Window
   action chipClose(instructions: bool)
     chipClosed = chip.seq
     editorOp(instructions ? "chip-instructions" : "chip-close", `${chip.seq}`, instructions ? chip.path : "")
-  // The window's Escape (ChipPopoverEscape): a citation's comment cancels, as its editor's Escape does.
+  // The window's Escape (ChipPopoverEscape): a citation's comment cancels when its textarea has the focus, as its editor's
+  // Escape does; elsewhere (the prompt's, or none: a draft past 8,000 characters held open) it closes as Base UI's escape-key
+  // dismissal and keeps the chip (the native editor tells which: T3ComposerChipPress.finishCitation `escape`).
   action chipEscape
     if chip.kind == "citation"
-      citeCancel()
+      chipClosed = chip.seq
+      editorOp("chip-cite-escape", `${chip.seq}`, "")
     else
       chipClose(false)
   // diff-cite-popover DC-1: a citation's comment (citation-comment.contract, citation-comment.ts). The draft is the
@@ -416,7 +419,8 @@ component T3Window
     editorOp("chip-cite-cancel", `${chip.seq}`, "")
   // An outside press here, or the focus leaving the textarea (a press in the composer's text or on the chip's button again,
   // which the native editor answers by taking the focus: T3ComposerChipPress.swift): a changed draft is committed, one past
-  // the limit keeps the popover open, anything else closes it.
+  // the limit keeps the popover open, anything else closes it. A press that left the focus nowhere (the timeline's ground)
+  // then gives the prompt the focus after the chip (PopoverPopup's `finalFocus`, in the native editor).
   derive citeShown = chipShown and chip.kind == "citation"
   action citeSettle
     if citeShown and (citeDraftSeq != chip.seq or trim(citeDraft) == trim(chip.comment))

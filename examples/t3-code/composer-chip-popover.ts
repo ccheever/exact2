@@ -87,7 +87,7 @@ export async function chipPopoverView(client: T3Client, native: Native | null | 
  * a citation's comment's `chip-cite-…` (citation-comment.ts).
  */
 export async function chipPopoverLocal(client: T3Client, native: Native, op: string, id: string, value: string): Promise<string> {
-  if (op.startsWith('chip-cite-') && ['save', 'send', 'commit', 'cancel'].includes(op.slice(10))) return citationCommentLocal(native, op, id, value);
+  if (op.startsWith('chip-cite-') && ['save', 'send', 'commit', 'cancel', 'escape'].includes(op.slice(10))) return citationCommentLocal(native, op, id, value);
   if (op !== 'chip-close' && op !== 'chip-instructions') throw new ClientError(`Unknown editor action: ${op}`);
   await bridgeReply(native, { op: 'editorChipClose', seq: Number(id) || 0 }).catch(() => undefined);
   if (op === 'chip-instructions' && value) await openFileSurface(client, native, value, 0);

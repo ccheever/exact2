@@ -104,8 +104,9 @@ describe('the popover\'s Contract (composer-chip-popover.contract, app-window.co
     const view = window.slice(window.indexOf('\n  view\n    main testId="t3-code"'));
     const firstChild = view.split('\n').slice(3).find(row => !row.trimStart().startsWith('//')) ?? '';
     expect(firstChild).toBe('      ChipPopoverEscape(held=(chipShown and not (sshPrompt.open or paletteOpen or modelsOpen or optionsOpen != "" or projectsOpen or confirmOp != "")), dismiss=chipEscape)');
-    // diff-cite-popover DC-1: the same Escape cancels a citation's comment (citation-comment.contract), and closes a skill chip's details.
-    expect(window).toContain('  action chipEscape\n    if chip.kind == "citation"\n      citeCancel()\n    else\n      chipClose(false)');
+    // diff-cite-popover DC-1: the same Escape ends a citation's comment (its textarea's Cancel, else escape-key's close: the native
+    // editor tells which, citation-comment.ts `chip-cite-escape`), and closes a skill chip's details.
+    expect(window).toContain('  action chipEscape\n    if chip.kind == "citation"\n      chipClosed = chip.seq\n      editorOp("chip-cite-escape", `${chip.seq}`, "")\n    else\n      chipClose(false)');
     expect(window).not.toContain('dismiss=chipClose(false), escape=');
     const settings = await source('app-settings.contract');
     expect(settings).toContain('derive escapeOwned = settingsMenu != "" or modelsOpen or paletteOpen or chipOpen or ');

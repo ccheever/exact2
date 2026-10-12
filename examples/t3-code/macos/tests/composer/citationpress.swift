@@ -173,9 +173,10 @@ final class ComposerCitationTests: XCTestCase {
         XCTAssertEqual(fixture.base.editor.selectedRange().location, ("Before " + link(commentHref) as NSString).length)
         XCTAssertEqual(fixture.styler.chips[0].label, "Check the pure claim")
         XCTAssertEqual(fixture.press.accessibilityElements.map { $0.accessibilityLabel() ?? "" }, ["Edit citation comment"])
-        // An outside press's commit (no focus) keeps the reader's caret, moved with the text after the chip.
+        // An outside press's commit (no focus asked) in the prompt's text keeps the reader's caret, moved with the text after the chip.
         _ = fixture.press.openCitation(href: commentHref, source: [])
         let tail = (fixture.base.editor.string as NSString).length
+        fixture.base.window.makeFirstResponder(fixture.base.editor) // the press in the text took the focus
         fixture.base.editor.setSelectedRange(NSRange(location: tail, length: 0))
         XCTAssertTrue(fixture.press.finishCitation(seq: fixture.press.seq, text: link(quoteHref), focus: false))
         XCTAssertEqual(fixture.base.editor.string, "Before " + link(quoteHref) + " ")
@@ -192,12 +193,97 @@ final class ComposerCitationTests: XCTestCase {
         XCTAssertTrue(fixture.press.finishCitation(seq: seq, text: "", focus: true))
         XCTAssertEqual(fixture.base.editor.string, "Before " + link(commentHref) + "  ")
         XCTAssertTrue(fixture.base.window.firstResponder === fixture.base.editor)
-        // An edit (typing) closes an open comment, as the chip's node view going away does.
+        // An edit in the prompt leaves the comment open (a draft past 8,000 characters holds it open while the prompt has the
+        // focus) and it follows its chip; it closes when the chip goes, as the reference's node view keeps its popover by its citeKey.
         _ = fixture.base.composer.editor.insert(["text": link(quoteHref)])
         XCTAssertTrue(fixture.press.openCitation(href: quoteHref, source: []))
         XCTAssertEqual(fixture.press.state["anchorFrame"] as? [Double], fixture.press.trigger, "no source frame: at the button")
+        seq = fixture.press.seq
+        fixture.base.window.makeFirstResponder(fixture.base.editor)
         fixture.base.type("x")
+        XCTAssertTrue(fixture.press.isOpen && fixture.press.seq == seq, "typing after the chip leaves its comment open")
+        let cited = fixture.press.chip!
+        fixture.base.editor.setSelectedRange(NSRange(location: 0, length: 0))
+        fixture.base.type("Now ")
+        XCTAssertTrue(fixture.press.isOpen && fixture.press.seq == seq, "typing before the chip moves it; the comment follows")
+        XCTAssertEqual(fixture.press.chip?.start, cited.start + 4)
+        XCTAssertEqual(fixture.press.state["link"] as? String, link(quoteHref))
+        XCTAssertFalse(fixture.base.composer.editor.command(#selector(NSResponder.cancelOperation(_:)), in: fixture.base.editor),
+                       "the prompt's Escape leaves a citation's comment to the window's (ChipPopoverEscape → finishCitation `escape`)")
+        XCTAssertTrue(fixture.press.isOpen)
+        fixture.base.editor.setSelectedRange(fixture.press.chip!.range)
+        fixture.base.type("y")
+        XCTAssertFalse(fixture.press.isOpen, "the chip replaced: its comment closes")
+    }
+
+    /// PopoverPopup's `finalFocus` (AssistantCitationChip.tsx; Base UI 1.5.0 runs it on every close): when the comment closes
+    /// and the focus is nowhere (`document.activeElement === document.body`: the outside press landed on ground that takes
+    /// none) or still in the popup, the prompt takes it with the caret after the chip (onRestoreFocus); a control the press
+    /// focused keeps it. The window's Escape is the editor's Cancel in the comment's textarea and Base UI's escape-key
+    /// dismissal elsewhere, which keeps the chip (resolveAssistantCitationCommentDismissal: "close").
+    func testAPressThatLeavesTheFocusNowhereGivesItToThePromptAfterTheChip() {
+        let fixture = CitationFixture("See " + link(quoteHref) + " now")
+        let window = fixture.base.window, content = window.contentView!, prompt = fixture.base.editor
+        let popover = NSView(frame: NSRect(x: 0, y: 130, width: 200, height: 60)) // above the prompt (0, 0, 400, 120)
+        popover.setAccessibilityIdentifier("citation-comment")
+        let field = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 60))
+        popover.addSubview(field); content.addSubview(popover)
+        let other = NSTextView(frame: NSRect(x: 210, y: 130, width: 100, height: 60)) // a control outside the popover
+        content.addSubview(other)
+        let chip = fixture.styler.chips[0]
+        // The pencil, the draft untouched, a press on the window's ground: the app closes it (`chip-close`).
+        fixture.click(fixture.button(chip))
+        XCTAssertTrue(window.makeFirstResponder(field), "the popover's autofocus")
+        fixture.clickWindow(NSPoint(x: 380, y: 160))
+        XCTAssertTrue(window.firstResponder === window && T3ComposerChipPress.focusIsNowhere(window))
+        fixture.press.close(seq: fixture.press.seq)
         XCTAssertFalse(fixture.press.isOpen)
+        XCTAssertTrue(window.firstResponder === prompt, "finalFocus: the body had it, so onRestoreFocus")
+        XCTAssertEqual(prompt.selectedRange(), NSRange(location: chip.end, length: 0), "the caret after the chip")
+        // A changed draft, a press on the ground: the commit (no focus asked) puts the caret after the rewritten chip too.
+        fixture.click(fixture.button(chip))
+        XCTAssertTrue(window.makeFirstResponder(field))
+        fixture.clickWindow(NSPoint(x: 380, y: 160))
+        XCTAssertTrue(fixture.press.finishCitation(seq: fixture.press.seq, text: link(commentHref), focus: false))
+        XCTAssertTrue(window.firstResponder === prompt)
+        XCTAssertEqual(prompt.selectedRange(), NSRange(location: ("See " + link(commentHref) as NSString).length, length: 0))
+        // A press that focused another control leaves the focus there, closed or committed.
+        let commented = fixture.styler.chips[0]
+        fixture.click(fixture.button(commented))
+        XCTAssertTrue(window.makeFirstResponder(other))
+        XCTAssertFalse(T3ComposerChipPress.focusIsNowhere(window) || T3ComposerChipPress.focusInCitationComment(window))
+        fixture.press.close(seq: fixture.press.seq)
+        XCTAssertTrue(window.firstResponder === other, "a control the press focused keeps it")
+        fixture.click(fixture.button(commented))
+        XCTAssertTrue(window.makeFirstResponder(other))
+        XCTAssertTrue(fixture.press.finishCitation(seq: fixture.press.seq, text: link(quoteHref), focus: false))
+        XCTAssertTrue(window.firstResponder === other)
+        XCTAssertEqual(prompt.string, "See " + link(quoteHref) + " now")
+        // The window's Escape after Cite: with the focus in the comment's textarea it removes the chip just cited.
+        prompt.setSelectedRange(NSRange(location: (prompt.string as NSString).length, length: 0))
+        _ = fixture.base.composer.editor.insert(["text": link(commentHref)])
+        XCTAssertTrue(fixture.press.openCitation(href: commentHref, source: []))
+        XCTAssertTrue(window.makeFirstResponder(field) && T3ComposerChipPress.focusInCitationComment(window))
+        XCTAssertTrue(fixture.press.finishCitation(seq: fixture.press.seq, text: "", focus: true, escape: true))
+        XCTAssertFalse(prompt.string.contains(link(commentHref)), "the editor's Cancel: removeOnCancel")
+        XCTAssertTrue(window.firstResponder === prompt)
+        // With the focus in the prompt (a draft past the limit held it open): escape-key closes it and keeps the chip and the caret.
+        _ = fixture.base.composer.editor.insert(["text": link(commentHref)])
+        XCTAssertTrue(fixture.press.openCitation(href: commentHref, source: []))
+        let cited = fixture.press.chip!
+        window.makeFirstResponder(prompt)
+        prompt.setSelectedRange(NSRange(location: 1, length: 0))
+        XCTAssertTrue(fixture.press.finishCitation(seq: fixture.press.seq, text: "", focus: true, escape: true))
+        XCTAssertFalse(fixture.press.isOpen)
+        XCTAssertTrue(prompt.string.contains(link(commentHref)), "escape-key's close keeps the chip")
+        XCTAssertEqual(prompt.selectedRange(), NSRange(location: 1, length: 0), "and leaves the caret where the reader put it")
+        // With the focus nowhere (an outside press on the ground first, past the limit): the caret after the chip.
+        XCTAssertTrue(fixture.press.openCitation(href: commentHref, source: []))
+        XCTAssertTrue(window.makeFirstResponder(nil))
+        XCTAssertTrue(fixture.press.finishCitation(seq: fixture.press.seq, text: "", focus: true, escape: true))
+        XCTAssertTrue(prompt.string.contains(link(commentHref)))
+        XCTAssertTrue(window.firstResponder === prompt)
+        XCTAssertEqual(prompt.selectedRange(), NSRange(location: cited.end, length: 0), "onRestoreFocus: after the chip")
     }
 
     func testTheCommentButtonIsAnAccessibilityButton() {
