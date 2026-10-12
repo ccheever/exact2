@@ -1,6 +1,7 @@
 # macOS: hover does not follow the pointer during a mouse drag
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by #492
 **Systems:** host/apple macOS, pointer events
 **Severity:** P3
 **Author:** daehyeon-mun (T3 Code clone)
