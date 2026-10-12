@@ -47,3 +47,25 @@ test('a link press is the app navigation; a browser-owned one is the browser alo
     expect([JSON.stringify(attrs), JSON.stringify(mods), presses, ev.defaultPrevented]).toEqual([JSON.stringify(attrs), JSON.stringify(mods), app ? 1 : 0, app]);
   }
 });
+
+// An `href` that turns out empty is no link (the kernel's `Props::link`; LLP 1115 §3): the `<a>` keeps no `href`, so it
+// has no link role, pointer or target, where `href=""` would be a link to the page itself. A bound `href` is written as
+// it arrives and taken off as it empties (rt.js `P`).
+test('an href that turns out empty is not written', async () => {
+  const { P, sig, act, W } = await import(resolve(dir, 'rt.js'));
+  // The page a URL is resolved against, for this test alone: test files share one process, and another's stand-in
+  // document (frames-hatches.test.mjs leaves one) has no `baseURI`, so every `href` would be refused.
+  const had = Object.getOwnPropertyDescriptor(globalThis, 'document');
+  globalThis.document = { baseURI: 'https://app.example/' };
+  try {
+    const a = new Link({});
+    Object.assign(a, { getAttribute: k => a.attrs.get(k) ?? null, setAttribute: (k, v) => a.attrs.set(k, v), removeAttribute: k => a.attrs.delete(k) });
+    const to = sig('');
+    P(a, 'href', () => to());
+    expect(a.hasAttribute('href')).toBe(false);
+    act(() => W(to, '/about'))();
+    expect(a.attrs.get('href')).toBe('/about');
+    act(() => W(to, ''))();
+    expect(a.hasAttribute('href')).toBe(false);
+  } finally { if (had) Object.defineProperty(globalThis, 'document', had); else delete globalThis.document; }
+});

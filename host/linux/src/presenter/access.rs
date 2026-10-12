@@ -375,7 +375,7 @@ impl<D: DataSource> Presenter<D> {
     fn access_pressable(&self, node: &NodeRef<'_>) -> bool {
         node.node_type == NodeType::Pressable
             || ControlKind::of(node.node_type, node.props) == Some(ControlKind::Button)
-            || node.props.str(PropId::Href).is_some_and(|h| !h.is_empty())
+            || node.props.link().is_some()
             || (self.host.runner().handlers_of(node.id)).contains(&EventKind::Press)
     }
 
@@ -570,7 +570,7 @@ impl<D: DataSource> Presenter<D> {
                 };
                 (role::TOGGLE, flag::CHECKABLE | on)
             }
-            _ if node.props.str(PropId::Href).is_some_and(|h| !h.is_empty()) => (role::LINK, 0),
+            _ if node.props.link().is_some() => (role::LINK, 0),
             _ => (role::BUTTON, 0),
         };
         flags |= flag::CLICK;

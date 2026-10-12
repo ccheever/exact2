@@ -22,7 +22,7 @@ impl<D: DataSource> Presenter<D> {
         let mut at = Some(hit);
         while let Some(id) = at {
             let node = kernel.node(id)?;
-            if let Some(href) = node.props.str(PropId::Href).filter(|h| !h.is_empty()) {
+            if let Some(href) = node.props.link() {
                 return Some(href.to_string());
             }
             at = node.parent;
@@ -61,7 +61,7 @@ impl<D: DataSource> Presenter<D> {
         let mut at = palette.get(run).map(|p| p.source);
         while let Some(leaf) = at.filter(|leaf| *leaf != id) {
             let leaf = kernel.node(leaf)?;
-            if let Some(href) = leaf.props.str(PropId::Href).filter(|h| !h.is_empty()) {
+            if let Some(href) = leaf.props.link() {
                 return Some(href.to_string());
             }
             at = leaf.parent;

@@ -900,7 +900,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             // A page cannot style the phone's status bar (LLP 1105 D7).
             PropId::StatusBarStyle | PropId::StatusBarAnimation => continue,
             PropId::SwipeIndicator => "swipeIndicator",
-            PropId::Href if text.is_empty() => continue,
+            PropId::Href if node.props.link().is_none() => continue,
             PropId::Href => "href",
             PropId::Target => "target",
             PropId::Disabled => "disabled",

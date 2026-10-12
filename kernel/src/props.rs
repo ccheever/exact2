@@ -128,6 +128,16 @@ impl PropList {
         self.get(id).and_then(PropValue::as_bool)
     }
 
+    /// Where the node links to: its `href`, unless that turns out empty.
+    /// @ref LLP 1115 §3 — an empty `href` is no link on any host: no link
+    /// colour, role or pointer, and nothing to follow. It is HTML's `<a>`
+    /// with no `href`: the node is still that element, which is what
+    /// `Arena::is_button` reads from the row's presence, so its box is laid
+    /// out as it was. Every host asks this and not the row.
+    pub fn link(&self) -> Option<&str> {
+        self.str(PropId::Href).filter(|href| !href.is_empty())
+    }
+
     /// Whether `id` is set.
     pub fn contains(&self, id: PropId) -> bool {
         self.position(id).is_ok()

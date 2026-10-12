@@ -1431,7 +1431,6 @@ fn kind_for(node: &NodeRef<'_>) -> &'static str {
     }
 }
 
-/// Props by their own names, as strings.
 /// @ref LLP 1116.001 D1.4 — the scale the kernel draws a fitted paragraph
 /// at, which Swift multiplies its runs' sizes by: none at full size.
 pub(super) fn fit_scale(node: &NodeRef<'_>) -> Option<String> {
@@ -1439,16 +1438,17 @@ pub(super) fn fit_scale(node: &NodeRef<'_>) -> Option<String> {
     (node.node_type == NodeType::Text && scale != 1.0).then(|| style::num(scale))
 }
 
+/// Props by their own names, as strings. An empty `href` is no link: not told.
 fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
     for (id, value) in node.props.iter() {
         let text = match value {
+            PropValue::Str(_) if id == PropId::Href && node.props.link().is_none() => continue,
             PropValue::Str(s) => s.to_string(),
             PropValue::Bool(b) => b.to_string(),
             PropValue::Int(i) => i.to_string(),
             PropValue::Float(f) => style::num(*f as f32),
         };
-        let _: PropId = id;
         out.insert(id.name().to_string(), text);
     }
     // Swift paints a paragraph from its runs' `text`: the string the kernel

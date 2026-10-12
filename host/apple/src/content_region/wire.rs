@@ -109,7 +109,7 @@ pub(super) fn request(kernel: &Kernel, p: &Pending, known: u64) -> Result<String
                     &mut out,
                 );
                 out.push_str(",\"href\":");
-                quote(leaf.props.str(PropId::Href).unwrap_or(""), &mut out);
+                quote(leaf.props.link().unwrap_or(""), &mut out);
                 let _ = write!(out, ",\"key\":\"{}\"}}", motion_node(leaf.key));
             }
             out.push(']');

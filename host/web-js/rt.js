@@ -680,9 +680,9 @@ export function P(e, name, f) {
     let v = f();
     v = rel(name, v == null ? null : typeof v === "boolean" ? String(v) : String(v));
     // A URL that navigates is written only if the web host's policy takes it
-    // (navigation.js `navigableURL`: http, https, mailto, tel): a refused
-    // link loses its `href`, an iframe shows about:blank.
-    if (v != null && (name === "href" || (name === "src" && e.localName === "iframe")) && !navigable(v)) v = name === "src" ? "about:blank" : null;
+    // (navigation.js `navigableURL`: http, https, mailto, tel): a refused link loses its `href`, an iframe shows
+    // about:blank. An `href` that turns out empty is no link either: the kernel's `Props::link` (element.rs `props_of`).
+    if (v != null && (name === "href" || (name === "src" && e.localName === "iframe")) && (!navigable(v) || name === "href" && v === "")) v = name === "src" ? "about:blank" : null;
     if (PropHooks[name]?.(e, v)) return;
     if (e.$media && Media.mediaProp(e, name, v)) return; // media.js: `paused`, `volume`, `currentTime` … are the glue's; an `app:/` source its own
     if (name === "text") { if (!e.childElementCount && e.textContent !== (v ?? "")) e.textContent = v ?? ""; }

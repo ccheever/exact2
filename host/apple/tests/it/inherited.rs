@@ -847,3 +847,53 @@ fn pointer_events_none_reaches_a_box_that_inherits_it() {
         "{changed}"
     );
 }
+
+/// An `href` that turns out empty is no link (LLP 1115 §3, the kernel's
+/// `Props::link`): Swift is told no `href`, so every place it asks whether a
+/// run has one (its role, its pointer, what a press follows) answers no, and
+/// the run inherits its paragraph's colour. A target that arrives is told,
+/// with the link's colour, and one that leaves is cleared.
+#[test]
+fn an_href_that_turns_out_empty_is_no_href_to_swift() {
+    let plan = contract::compile(
+        r##"component App
+  state to = ""
+  action go
+    to = to == "" ? "/about" : ""
+  view
+    column color="#336699"
+      button appearance="none" press=go testId="go"
+        text "Go"
+      text testId="p"
+        text "Read " testId="plain"
+        text "about" href=to testId="run"
+"##,
+    )
+    .unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        402.0,
+        874.0,
+    )
+    .unwrap();
+    // The run as its paragraph tells it: `{"id":…,…,"handlers":[…]}`.
+    let run = view(&host, "run");
+    let told = |batch: &str| {
+        let from = batch
+            .find(&format!("{{\"id\":{run},\"parent\""))
+            .expect(batch);
+        batch[from..from + batch[from..].find("\"handlers\"").unwrap()].to_owned()
+    };
+    let page = "\"text_color\":[51,102,153,255]";
+    let made = told(&first);
+    assert!(!made.contains("\"href\""), "{made}");
+    assert!(made.contains(page), "{made}");
+    let linked = told(&host.dispatch(view(&host, "go"), Event::Press));
+    assert!(linked.contains("\"href\":\"/about\""), "{linked}");
+    assert!(!linked.contains(page), "{linked}");
+    let cleared = told(&host.dispatch(view(&host, "go"), Event::Press));
+    assert!(!cleared.contains("\"href\""), "{cleared}");
+    assert!(cleared.contains(page), "{cleared}");
+}

@@ -239,7 +239,15 @@ impl Lowerer<'_> {
         for (prop, value) in t.fixed_props {
             bindings.push(prop_row(*prop, self.fixed(false, value), IMPLIED));
         }
-        self.link_color(tag, parent_tag, expanded, children, &mut bindings);
+        self.link_color(
+            tag,
+            parent_tag,
+            expanded,
+            children,
+            scope,
+            locals,
+            &mut bindings,
+        );
         self.heading_style(tag, expanded, scope, locals, &mut bindings)?;
         // @ref LLP 1069.001 (amended 2026-10-07) — an indeterminate
         // `progress` (no `value`, LLP 1116 D8) is busy, as ARIA's

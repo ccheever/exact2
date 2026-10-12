@@ -83,7 +83,7 @@
     #exact-root [data-liststyle] > section > div > :is(button, a[href], [data-exact-on~="press"]):hover:not(:disabled, [data-native], :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover)) { box-shadow: -64px 0 0 var(--exact-quaternary-fill); }
   }
   /* A link in running text, or a block link that is text, underlines under the pointer and the keyboard's focus. */
-  #exact-root [data-exact-text] a[data-view]:is(:hover, :focus-visible), #exact-root a[data-view][href]:not([role], [data-button-style]):not(:has(> :not([data-exact-text], img))):is(:hover, :focus-visible) { text-decoration: underline; }
+  #exact-root [data-exact-text] a[data-view][href]:is(:hover, :focus-visible), #exact-root a[data-view][href]:not([role], [data-button-style]):not(:has(> :not([data-exact-text], img))):is(:hover, :focus-visible) { text-decoration: underline; }
 
   /* Fields and `select`: 36 px in every engine (a said line height again), the control's line, the field's own ground
      and ink (the page's `color` does not tint a surface the host paints; the node's own, inline or its class's,

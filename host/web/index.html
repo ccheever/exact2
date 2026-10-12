@@ -124,9 +124,11 @@
      and the tab bar are (the tint, iOS's \`LinkText\`); one holding a row or
      column, or given a \`role\` or a \`buttonStyle\`, is the author's row or
      button and inherits. Both are \`:where()\`, so an authored colour wins.
-     Every link points, as on any web page. Markdown's own links (never
-     views) keep the UA's look. */
-  #exact-root a[data-view] { text-decoration: none; cursor: pointer; display: block; }
+     Every link points, as on any web page: one with an \`href\`, since an
+     \`href\` that turns out empty is no link and is not written. Markdown's
+     own links (never views) keep the UA's look. */
+  #exact-root a[data-view] { text-decoration: none; display: block; }
+  #exact-root a[data-view][href] { cursor: pointer; }
   :where(#exact-root a[data-view]) { color: inherit; }
   :where(#exact-root a[data-view][href]:not([role], [data-button-style], [data-exact-text] a):not(:has(> :not([data-exact-text], img)))) { color: var(--exact-accent, AccentColor); }
   #exact-root [data-exact-text] a[data-view] { display: inline; }

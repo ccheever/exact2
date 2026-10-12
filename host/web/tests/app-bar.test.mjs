@@ -43,7 +43,8 @@ const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8'), DEFAULT_
           <a data-view href="mailto:b@b.c" id="l-role" role="button"><div data-exact-text>Button</div></a>
           <a data-view href="mailto:s@b.c" id="l-style" data-button-style="plain"><div data-exact-text>Styled</div></a>
           <div style="--exact-accent:rgb(10, 20, 30)"><a data-view href="tel:557" id="l-accent"><div data-exact-text>Tinted</div></a></div>
-          <div data-exact-text>An <a data-view href="/x" id="l-run" style="color:LinkText">inline run</a>.</div>
+          <div data-exact-text>An <a data-view href="/x" id="l-run" style="color:LinkText">inline run</a>, <a data-view id="l-plain" style="color:inherit">a run whose href is empty</a>.</div>
+          <a data-view id="l-blank"><div data-exact-text>A block link whose href is empty</div></a>
           <span id="ink" style="color:var(--exact-label)"></span><span id="accent" style="color:var(--exact-accent, AccentColor)"></span>
         </div>
       </div>
@@ -135,9 +136,11 @@ check('a block link of text is in the accent and points; the author\'s look wins
   // A link of text (or a symbol and text) is in the accent, the app's when it names one; an authored colour, a row
   // inside it, a role or a buttonStyle keeps the author's look; an inline run keeps its LinkText row. Every link points.
   // (The page's accent is the look's: the browser's own hue, fitted to read as text. Each engine words it its own way.)
+  // An `href` that turns out empty is not written (LLP 1115 §3): that `<a>` is no link, so it does not point and is not
+  // in the accent; the run's `inherit` is the compiler's row for an empty value.
   const accent = await evaluate(`getComputedStyle(document.getElementById('accent')).color`);
   expect(['rgb(1, 2, 3)', 'rgb(0, 0, 0)', 'rgba(0, 0, 0, 0)'].includes(accent)).toBe(false);
-  expect(await evaluate(`['l-text', 'l-symbol', 'l-authored', 'l-row', 'l-role', 'l-style', 'l-accent', 'l-run'].map(id => { const s = getComputedStyle(document.getElementById(id)); return id + ' ' + s.color + ' ' + s.cursor + ' ' + s.display + ' ' + s.textDecorationLine; })`)).toEqual([
+  expect(await evaluate(`['l-text', 'l-symbol', 'l-authored', 'l-row', 'l-role', 'l-style', 'l-accent', 'l-run', 'l-plain', 'l-blank'].map(id => { const s = getComputedStyle(document.getElementById(id)); return id + ' ' + s.color + ' ' + s.cursor + ' ' + s.display + ' ' + s.textDecorationLine; })`)).toEqual([
     `l-text ${accent} pointer block none`,
     `l-symbol ${accent} pointer block none`,
     'l-authored rgb(204, 0, 0) pointer block none',
@@ -146,6 +149,8 @@ check('a block link of text is in the accent and points; the author\'s look wins
     'l-style rgb(1, 2, 3) pointer block none',
     'l-accent rgb(10, 20, 30) pointer block none',
     'l-run rgb(0, 0, 238) pointer inline none',
+    'l-plain rgb(1, 2, 3) auto inline none',
+    'l-blank rgb(1, 2, 3) auto block none',
   ]);
 }), 30000);
 
