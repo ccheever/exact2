@@ -8,13 +8,17 @@ import XCTest
 /// and a picked item presses its row on the next turn, as a button menu's.
 final class ContextMenuMacTests: XCTestCase {
     private var windows: [NSWindow] = []
-    override func tearDown() { windows.forEach { $0.close() }; windows.removeAll() }
+    private var sessions: [ExactSession] = []
+    override func tearDown() { windows.forEach { $0.close() }; windows.removeAll(); sessions.forEach { $0.destroy() }; sessions.removeAll() }
 
     /// A source (1) naming popover 2: a preview row (3) and two items (4, 5)
-    /// with an `hr` (6) between them.
-    private func presenter() -> Presenter {
+    /// with an `hr` (6) between them. `inSession`: a session's presenter,
+    /// which lays out paragraphs.
+    private func presenter(inSession: Bool = false) -> Presenter {
         _ = NSApplication.shared
-        let p = Presenter()
+        let session = inSession ? ExactApp.shared.makeSession(label: "context-menu") : nil
+        if let session { sessions.append(session) }
+        let p = session?.presenter ?? Presenter()
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = p.viewport
@@ -224,6 +228,108 @@ final class ContextMenuMacTests: XCTestCase {
         p.onClipboard = { _, _, _ in heard += 1 }
         XCTAssertFalse(p.routeKey(contextKey(window), focused: true))
         XCTAssertEqual(heard, 0)
+    }
+
+    /// The action names AppKit's accessibility server gives an assistive
+    /// app for `element`: its `CopyActionNames` handler calls this function.
+    /// The in-process `accessibilityActionNames()` lists legacy ones only.
+    private func offered(_ element: Any) throws -> Set<String> {
+        typealias Names = @convention(c) (AnyObject) -> Unmanaged<NSArray>?
+        let symbol = try XCTUnwrap(dlsym(UnsafeMutableRawPointer(bitPattern: -2), "NSAccessibilityEntryPointActionNames"))
+        return Set(unsafeBitCast(symbol, to: Names.self)(element as AnyObject)?.takeUnretainedValue() as? [String] ?? [])
+    }
+
+    /// X84: VoiceOver's show menu (AXShowMenu, VO-⇧-M) takes the ContextMenu
+    /// key's path at the node, as Chrome sends both through
+    /// `ShowNonLocatedContextMenu`: its `contextmenu` at its drawn middle,
+    /// and a link run's at the run. It is offered only where one answers.
+    func testShowMenuRunsTheContextActionWhereOneAnswers() throws {
+        let p = presenter(inSession: true), source = try XCTUnwrap(p.views[1])
+        source.props.removeValue(forKey: "contextPopover")
+        func run(_ id: Int, _ text: String, _ props: [String: String] = [:], _ handlers: [String] = []) -> [String: Any] {
+            ["id": id, "parent": 8, "paint": true, "props": props.merging(["text": text]) { $1 }, "handlers": handlers, "style": ["font_size": 18.0]]
+        }
+        p.apply(wireBatch([
+            ["op": "create", "id": 7, "kind": "button", "handlers": ["press"]],
+            ["op": "frame", "id": 7, "x": 180, "y": 20, "w": 100, "h": 30],
+            ["op": "create", "id": 8, "kind": "text", "style": ["font_size": 18.0]],
+            ["op": "paragraph", "id": 8, "runs": [run(81, "Write to "), run(82, "the list", ["href": "mailto:list@example.test"], ["press", "contextmenu"]),
+                                                 run(83, " or "), run(84, "the team", ["href": "mailto:team@example.test"], ["press"])]],
+            ["op": "frame", "id": 8, "x": 20, "y": 80, "w": 400, "h": 28],
+            ["op": "children", "id": 9, "ids": [1, 2, 7, 8]],
+        ]))
+        p.viewport.layoutSubtreeIfNeeded()
+        let plain = try XCTUnwrap(p.views[7]), links = try XCTUnwrap(p.views[8]?.accessibilityChildren() as? [NSAccessibilityElement])
+        XCTAssertEqual(links.map { $0.accessibilityLabel() }, ["the list", "the team"])
+        XCTAssertEqual(try offered(source), ["AXPress", "AXShowMenu"])
+        XCTAssertEqual(try offered(links[0]), ["AXPress", "AXShowMenu"])
+        XCTAssertEqual(try offered(plain), ["AXPress"], "nothing answers it")
+        XCTAssertEqual(try offered(links[1]), ["AXPress"])
+        var heard: [UInt32] = [], samples: [[String]] = []
+        p.onClipboard = { id, kind, line in
+            XCTAssertEqual(kind, 10)
+            heard.append(id); samples.append(line.components(separatedBy: ","))
+        }
+        XCTAssertFalse(plain.accessibilityPerformShowMenu())
+        XCTAssertTrue(source.accessibilityPerformShowMenu())
+        // AppKit's server performs only an action it offers: a run's
+        // element is no view, and its base show menu raises.
+        if try offered(links[0]).contains("AXShowMenu") { XCTAssertTrue(links[0].accessibilityPerformShowMenu()) }
+        XCTAssertEqual(heard, [1, 82])
+        XCTAssertEqual(samples.first?.prefix(4).compactMap(Double.init), [60, 15, 0, 0], "the node's middle, no button held")
+        XCTAssertEqual(samples.first?.dropFirst(6).prefix(2).compactMap(Double.init), [80, 35])
+        let rect = links[0].accessibilityFrame(), window = try XCTUnwrap(windows.last)
+        let middle = p.client(window.convertFromScreen(NSRect(x: rect.midX, y: rect.midY, width: 0, height: 0)).origin)
+        if samples.count > 1 {
+            XCTAssertEqual(Double(samples[1][6]) ?? 0, Double(middle.x), accuracy: 1, "the run's middle")
+            XCTAssertEqual(Double(samples[1][7]) ?? 0, Double(middle.y), accuracy: 1)
+            XCTAssertEqual(samples[1][2...3].compactMap(Double.init), [0, 0])
+        }
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["disabled": "true"]]]))
+        XCTAssertEqual(try offered(source), ["AXPress"], "a disabled node hears no contextmenu")
+        XCTAssertFalse(source.accessibilityPerformShowMenu())
+        XCTAssertEqual(heard, [1, 82])
+    }
+
+    /// X84: show menu on a node with a `contextPopover` runs its action and
+    /// then tracks the popover's native menu, as the ContextMenu key does. A
+    /// default `button`'s accessibility element is its `NSButton`'s cell
+    /// (LLP 1069.011 D4; AppKit ignores the button), and its show menu is
+    /// its node's: a `contextPopover` is all such a button can have for it.
+    func testShowMenuOpensTheContextPopoversMenu() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "the agent presents painted popovers")
+        let p = presenter(), window = try XCTUnwrap(windows.last), source = try XCTUnwrap(p.views[1])
+        func native(_ id: Int, _ props: [String: String], x: Int) -> [[String: Any]] {
+            [["op": "create", "id": id, "kind": "control", "props": ["type": "button"].merging(props) { $1 }, "handlers": ["press"], "style": ["appearance": "auto"]],
+             ["op": "frame", "id": id, "x": x, "y": 20, "w": 100, "h": 30]]
+        }
+        p.apply(wireBatch(native(10, ["contextPopover": "m"], x: 180) + native(11, [:], x: 300) + [["op": "children", "id": 9, "ids": [1, 2, 10, 11]]]))
+        let button = try XCTUnwrap(p.controls.controls[10]?.cell), plain = try XCTUnwrap(p.controls.controls[11]?.cell)
+        XCTAssertTrue(button.isAccessibilityElement())
+        XCTAssertEqual(try offered(button), ["AXPress", "AXShowMenu"])
+        XCTAssertEqual(try offered(plain), ["AXPress"], "nothing answers it")
+        XCTAssertFalse(plain.accessibilityPerformShowMenu())
+        window.orderFrontRegardless()
+        var heard: [String] = []
+        p.onClipboard = { id, _, _ in heard.append("context \(id)") }
+        p.onPress = { heard.append("pick \($0)") }
+        let center = NotificationCenter.default
+        let observer = center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+            guard let menu = note.object as? NSMenu, menu.items.first?.title == "Pin" else { return }
+            heard.append("menu")
+            RunLoop.current.perform(inModes: [.eventTracking, .default]) {
+                menu.performActionForItem(at: 0)
+                menu.cancelTracking()
+            }
+        }
+        defer { center.removeObserver(observer) }
+        for (showMenu, expected) in [(source.accessibilityPerformShowMenu, ["context 1", "menu", "pick 4"]), (button.accessibilityPerformShowMenu, ["menu", "pick 4"])] {
+            heard = []
+            XCTAssertTrue(showMenu())
+            let deadline = Date(timeIntervalSinceNow: 5)
+            while !heard.contains("pick 4") && Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
+            XCTAssertEqual(heard, expected)
+        }
     }
 
     func testContextMenuDoesNotOpenForDisabledInertHiddenOrRemovedSources() throws {

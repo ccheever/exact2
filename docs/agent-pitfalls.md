@@ -969,6 +969,18 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   Flush ranks before capture and disable actions for that flush, including
   mirror writes. A same-batch texture upload then sees the new front sibling.
   (LLP 1083.000, Astra 6 regression.)
+- **A view's `accessibilityActionNames()` read in-process is not what
+  VoiceOver is offered.** It answered `[]` for a `NodeView` while an
+  assistive app read `AXPress`. Cause: that method is the legacy list;
+  AppKit's server adds every `accessibilityPerform…` the class overrides and
+  then drops each that `isAccessibilitySelectorAllowed(_:)` refuses. Fix: read
+  `NSAccessibilityEntryPointActionNames(element)` (exported; AppKit's
+  `CopyActionNames` handler calls it), as `ContextMenuMacTests` does, and
+  offer an action conditionally through `isAccessibilitySelectorAllowed`. An
+  `NSButton` is ignored and its cell is the element, so a native button's
+  action goes on its cell (`NativeButtonCellMac`). While the session is
+  locked, an `AXUIElement` read from any process stops at the application.
+  (X84, 2026-10-12.)
 - **A sub-agent's half-written crate breaks every build in the worktree.**
   Cause: a crate listed in the root `Cargo.toml`'s `members` is resolved by
   every `cargo` command, so one that does not parse or compile yet stops
