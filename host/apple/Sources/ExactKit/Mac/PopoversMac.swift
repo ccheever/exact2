@@ -34,7 +34,8 @@
 // popover itself is the size of its border box.
 //
 // The driver's own chrome (`--chrome agent`) paints it in the top layer as
-// before, and a menu's shape is painted there under either chrome.
+// before, and a menu's shape is painted there under either chrome: over the
+// page, or in the sheet of the dialog its invoker is in.
 #if os(macOS)
 import AppKit
 
@@ -93,7 +94,8 @@ extension MenuHost {
         guard let presenter else { return false }
         let pop = entry.popover
         // A button in the window's bar has no box in the page: its item's.
-        // AppKit shows a popover only against a view of a window that is on screen.
+        // AppKit shows no popover against an anchor it cannot see (measured:
+        // a window not on screen, a hidden view, one scrolled out of sight).
         let view: NSView, anchor: NSRect
         if let content = window.contentView, let bar = presenter.toolbar.anchor(of: source, in: content) { (view, anchor) = (content, bar) }
         else if source.window != nil { (view, anchor) = (source, self.anchor(source, in: source, run: entry.run)) }
@@ -130,9 +132,15 @@ extension MenuHost {
         }
         native.popover.show(relativeTo: rect, of: at, preferredEdge: at.isFlipped ? edge : Self.unflipped(edge))
         guard native.popover.isShown else {
-            // AppKit refused it: the page paints it, as it would have.
+            // AppKit showed none (its invoker is hidden or scrolled out of
+            // sight): the page paints it, as it would have. Its subtree goes
+            // home first, and is no open popover while it does: the batch
+            // that takes its block back would show it in the page and count
+            // its text twice.
             entry.native = nil
-            native.finish()
+            pop.isHidden = true
+            native.popover.close()
+            apart(entry) { native.finish() }
             return false
         }
         // The Tab loop in it is this session's, never AppKit's geometric one.

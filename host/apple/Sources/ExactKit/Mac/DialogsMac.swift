@@ -133,6 +133,7 @@ final class DialogHost {
         let hadFocus = window.map { ownsFocus($0) } ?? false
         let entry = entries.remove(at: i)
         let wasTop = i == entries.count
+        // Its sheet leaves with the dialog still in it, as a person watches it go.
         if let sheet = entry.sheet { end(entry, sheet) }
         dialog.isHidden = true
         if entry.sheet == nil {

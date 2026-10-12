@@ -357,6 +357,23 @@ final class SheetHostMacTests: XCTestCase {
         XCTAssertFalse(native.popover.isShown)
         XCTAssertTrue(pop.isDescendant(of: home), "back under its authored parent")
         XCTAssertNil(p.blocks.used[pop.id])
+
+        // A popover the driver paints (a menu's shape, under its own chrome
+        // for menus) from a button in a sheet is painted in the sheet, where
+        // its invoker is, not on the page behind it.
+        p.menus.painted = true
+        try f.press("open")
+        let third = try XCTUnwrap(f.window.attachedSheet)
+        try f.press("in-sheet-tags")
+        XCTAssertTrue(p.menus.isOpen(pop) && p.menus.windowed.isEmpty)
+        XCTAssertTrue(pop.window === third, "painted in the sheet's window")
+        let button = try f.node("in-sheet-tags"), content = try XCTUnwrap(third.contentView)
+        let box = pop.convert(pop.bounds, to: content)
+        XCTAssertTrue(content.bounds.contains(box), "inside the sheet: \(box)")
+        XCTAssertEqual(box.minX, button.convert(button.bounds, to: content).minX, accuracy: 0.5, "at its invoker's edge")
+        try f.press("cancel")
+        XCTAssertFalse(p.menus.isOpen(pop))
+        XCTAssertNil(f.window.attachedSheet)
     }
 
     /// The driver: a node in the sheet is where a person sees it, in the

@@ -109,6 +109,13 @@ final class MenuHost: NSObject {
     init(presenter: Presenter) { self.presenter = presenter }
 
     func isOpen(_ node: NodeView) -> Bool { entries.contains { $0.popover === node } }
+    /// `entry` out of the open popovers while `body` runs (PopoversMac.swift).
+    func apart(_ entry: Entry, _ body: () -> Void) {
+        guard let index = entries.firstIndex(where: { $0 === entry }) else { return body() }
+        entries.remove(at: index)
+        body()
+        entries.insert(entry, at: min(index, entries.count))
+    }
     /// The alertdialog the open menu presents, if one does.
     var presentedConfirmation: Confirmation? { entries.last?.confirmation }
     func owns(_ node: NodeView) -> Bool { entries.contains { $0.popover === node && $0.menu == nil } }
@@ -266,7 +273,9 @@ final class MenuHost: NSObject {
             refresh()
         } else {
             entry.layer.autoresizingMask = [.width, .height]
-            presenter.viewport.addSubview(entry.layer)
+            // Painted where its invoker is: over the page, or in the sheet
+            // of the dialog its invoker is in (a menu under the driver).
+            (window === page ? presenter.viewport : window.contentView ?? presenter.viewport).addSubview(entry.layer)
             entry.layer.setPaintForeground()
             entry.layer.addSubview(pop)
             pop.isHidden = false
@@ -413,7 +422,7 @@ final class MenuHost: NSObject {
         guard let presenter else { return }
         for entry in entries where entry.menu == nil && entry.native == nil {
             guard let source = entry.source else { continue }
-            entry.layer.frame = presenter.viewport.bounds
+            entry.layer.frame = entry.layer.superview?.bounds ?? presenter.viewport.bounds
             let anchor = anchor(source, in: entry.layer, run: entry.run)
             var box = entry.frame
             box.origin = PositionArea.origin(PositionArea.of(entry.popover), anchor: anchor, size: box.size,
