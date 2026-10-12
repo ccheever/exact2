@@ -192,6 +192,9 @@ test('judging: WCAG ratios, the floors, a clamp asked for, a reachable cover, th
   expect(invisible[0].hint).toContain('-exact-secondary-background');
   expect(found([{ ...card, x: 24 }])).toEqual([]);
   expect(found([{ ...card, edge: true }])).toEqual([]);
+  // LLP 1116.010 D2 (trivia, round 12): a card the host says none of is presented (below the viewport, past its scroller's edge) is
+  // not judged on the page's pixels there.
+  expect(found([{ ...card, vis: { x: 4, y: 20, w: 0, h: 0 } }])).toEqual([]);
   // Two 16 px targets: under 24 px and closer than 24 px apart, both; far apart, neither (WCAG 2.5.8's spacing); the platform's own, never.
   const small = (id, x) => ({ id, x, y: 2, w: 16, h: 16, control: 'press', sized: 'author' });
   expect(found([small(3, 0), small(4, 18)])).toEqual(['target:3', 'target:4']);
