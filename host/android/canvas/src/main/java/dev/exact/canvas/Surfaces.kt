@@ -136,11 +136,15 @@ internal class Pane(
  * moved or sized again; `what` 0 closes it. What happens in the window goes back by one call ([Exact.surface]).
  * `host/linux/src/presenter/top.rs` is exact2's side.
  *
- * Their motion is whatever the platform gives these two windows, with nothing set here. Filmed on a Pixel 10 Pro XL
- * (Android 16): the dialog fades and settles into place over about 180 ms as the scrim fades in, and leaves in
- * about 140 ms, its scrim in about 50; the menu has no motion at all, shown whole in one frame and gone in one. A
- * popup placed by [PopupWindow.showAtLocation] gets none of the grow a dropdown shown from an anchor view gets, so
- * the menu does not yet move as Material's does (a scale and fade from its anchor's corner, about 120 ms in).
+ * Their motion is the platform's. The dialog has what the platform gives its window, with nothing set here: filmed
+ * on a Pixel 10 Pro XL (Android 16), it fades and settles into place over about 180 ms as the scrim fades in, and
+ * leaves in about 140 ms, its scrim in about 50. The menu is given its motion here, since the platform gives none
+ * to a popup it did not place: [PopupWindow]'s default animation is the drop-down's, chosen only for a popup shown
+ * from an anchor view, and one placed by [PopupWindow.showAtLocation] has no window animation at all. So the menu's
+ * window keeps exact2's placement and is given a window animation of its own ([PopupWindow.setAnimationStyle]),
+ * which the window manager runs as it runs any window's: Material's menu, as Compose's `DropdownMenu` moves it, a
+ * scale from 80% at the corner by its anchor over 120 ms with a 30 ms fade in, and a 75 ms fade out
+ * (`res/anim/exact_menu_*`, `res/values/motion.xml`). The system's animation scale and "remove animations" apply.
  */
 internal class Surfaces(private val activity: ExactActivity, private val root: View) {
     /** Called when a surface's window comes over the page (true) and when it goes (false): the page under one is
@@ -220,13 +224,20 @@ internal class Surfaces(private val activity: ExactActivity, private val root: V
             MENU -> {
                 // The framework's popup window in the theme's own style; its background is not used. The window
                 // casts the shadow, from the pane's outline. Placed where exact2 says, not dropped from an anchor
-                // view, so the platform animates nothing (see the class's note on motion).
+                // view.
                 val popup = PopupWindow(activity)
                 popup.setBackgroundDrawable(null)
                 popup.contentView = pane
                 popup.width = frame[2]; popup.height = frame[3]
                 popup.elevation = elevation
                 pane.clipToOutline = true
+                // Its motion: the window manager's, from the corner by its anchor (the class's note on motion).
+                popup.animationStyle = when ((flags shr 2) and 3) {
+                    0 -> R.style.ExactMenu_TopStart
+                    1 -> R.style.ExactMenu_TopEnd
+                    2 -> R.style.ExactMenu_BottomStart
+                    else -> R.style.ExactMenu_BottomEnd
+                }
                 // Focusable: Back goes to it and the page under it takes no touch; a tap outside dismisses it.
                 popup.isFocusable = true
                 popup.isOutsideTouchable = flags and OUTSIDE_DISMISSES != 0
@@ -284,7 +295,8 @@ internal class Surfaces(private val activity: ExactActivity, private val root: V
         const val CLOSED = 0
         const val ALERT = 1
         const val MENU = 2
-        /** The flags: Back and Escape dismiss it; a tap outside dismisses it. */
+        /** The flags: Back and Escape dismiss it; a tap outside dismisses it. Bits 2 and 3 are the corner a menu
+         * grows from: its right side, its bottom. */
         const val BACK_DISMISSES = 1
         const val OUTSIDE_DISMISSES = 2
         /** What is told back beside a touch's 0 to 3 (`presenter::top::event`). */

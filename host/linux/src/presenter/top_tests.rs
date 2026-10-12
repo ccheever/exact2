@@ -918,3 +918,42 @@ fn a_driver_reveals_a_row_of_the_surface_and_opens_a_context_menu_by_its_node() 
     // The row's own press did not run.
     assert!(p.surface().is_none());
 }
+
+/// The menu's motion grows from the corner by its anchor (D10, as ruled):
+/// the statement says which, and the shell's window animates from it.
+#[test]
+fn a_menu_grows_from_the_corner_by_its_anchor() {
+    let menu = (200.0, 96.0);
+    // Under its anchor from its start; ending at its end; over it.
+    let below = (100.0, 100.0, 40.0, 40.0);
+    assert_eq!(look::origin(below, (100.0, 140.0), menu), 0, "top start");
+    assert_eq!(
+        look::origin((300.0, 100.0, 40.0, 40.0), (140.0, 140.0), menu),
+        1
+    );
+    assert_eq!(
+        look::origin((100.0, 700.0, 40.0, 40.0), (100.0, 604.0), menu),
+        2
+    );
+    assert_eq!(
+        look::origin((300.0, 700.0, 40.0, 40.0), (140.0, 604.0), menu),
+        3
+    );
+    // A context menu opens from where the finger is.
+    assert_eq!(look::origin((50.0, 50.0, 0.0, 0.0), (50.0, 50.0), menu), 0);
+    // The statement carries it beside what dismisses the menu: this one
+    // ends at its invoker's end and hangs under it.
+    let (mut p, _) = windowed();
+    tap(&mut p, "more").unwrap();
+    p.tell_shell();
+    let words = p.take_requests().unwrap();
+    let at = words.iter().position(|w| *w == 7).unwrap();
+    assert_eq!(words[at + 5], 0b0111, "Back and outside dismiss; top end");
+    // An alert's has none.
+    let (mut p, _) = windowed();
+    tap(&mut p, "ask").unwrap();
+    p.tell_shell();
+    let words = p.take_requests().unwrap();
+    let at = words.iter().position(|w| *w == 7).unwrap();
+    assert_eq!(words[at + 5], 0b0001);
+}

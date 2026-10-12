@@ -414,6 +414,16 @@ fn menu(engine: &mut TextEngine, entries: &[Option<Row>], inputs: &Inputs) -> La
     }
 }
 
+/// The corner of a menu at `at` that its motion grows from: the one at its
+/// anchor, where Compose's `DropdownMenu` puts its transform origin (to the
+/// corner). Bit 0: its right side, for a menu that ends at its anchor's
+/// end; bit 1: its bottom, for one that opens upward.
+pub fn origin(anchor: Rect4, at: (f32, f32), size: (f32, f32)) -> u32 {
+    let right = at.0 + size.0 / 2.0 < anchor.0 + anchor.2 / 2.0;
+    let bottom = at.1 + size.1 / 2.0 < anchor.1 + anchor.3 / 2.0;
+    u32::from(right) | u32::from(bottom) << 1
+}
+
 /// Where a menu of `size` goes for an anchor's box, all in the window's
 /// points: Compose's `DropdownMenuPositionProvider`. Along the row it
 /// starts at the anchor's start, else ends at its end, else sits against

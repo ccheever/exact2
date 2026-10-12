@@ -73,6 +73,8 @@ pub struct Surface {
     /// What to show, or `None`: this surface closed.
     pub kind: Option<SurfaceKind>,
     /// Bit 0: Back and Escape dismiss it. Bit 1: a tap outside dismisses it.
+    /// Bits 2 and 3: the corner of a menu its motion grows from, the one
+    /// at its anchor (bit 2 its right side, bit 3 its bottom).
     pub flags: u32,
     /// Where its window goes in the page's window, and its size, in pixels
     /// (x, y, width, height). An alert's place is the platform's: centred.
@@ -817,9 +819,12 @@ impl<D: DataSource> Presenter<D> {
         let stream = painter.record(layout.size, scale, &mut |backend| {
             layout.paint(backend, &mut text.borrow_mut(), &lit)
         });
-        let at = match open.kind {
-            SurfaceKind::Alert => (0.0, 0.0),
-            SurfaceKind::Menu => look::place(open.anchor, layout.size, window, margins),
+        let (at, origin) = match open.kind {
+            SurfaceKind::Alert => ((0.0, 0.0), 0),
+            SurfaceKind::Menu => {
+                let at = look::place(open.anchor, layout.size, window, margins);
+                (at, look::origin(open.anchor, at, layout.size))
+            }
         };
         let px = |v: f32| (v * scale).round() as i32;
         let cancellable = match &open.plan {
@@ -829,7 +834,9 @@ impl<D: DataSource> Presenter<D> {
         Some(Surface {
             serial: open.serial,
             kind: Some(open.kind),
-            flags: u32::from(cancellable) | u32::from(open.kind == SurfaceKind::Menu) << 1,
+            flags: u32::from(cancellable)
+                | u32::from(open.kind == SurfaceKind::Menu) << 1
+                | origin << 2,
             frame: [px(at.0), px(at.1), px(layout.size.0), px(layout.size.1)],
             shape: (layout.radius * scale, layout.elevation * scale),
             stream,
