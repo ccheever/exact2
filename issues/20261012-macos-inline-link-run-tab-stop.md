@@ -5,7 +5,7 @@
 **Severity:** P3
 **Author:** Daehyeon Mun (via the T3 Code clone)
 **Date:** 2026-10-12
-**Related:** T3 PR #474 (reply-links-reference-behavior); https://github.com/ccheever/exact2/blob/feat(example)/t3-code/examples/t3-code/EXACT2-GAPS.md (X77's note); LLP 1115.000 D7.2 (Tab follows the Mac's Keyboard navigation setting); `issues/20261010-macos-inline-run-contextmenu.md` (X77); `issues/20261012-macos-voiceover-show-menu.md` (X84, main PR #483); main PR #327
+**Related:** T3 PR #474 (reply-links-reference-behavior); https://github.com/ccheever/exact2/blob/feat(example)/t3-code/examples/t3-code/EXACT2-GAPS.md (X77's note); LLP 1115.000 D7.2 (Tab follows the Mac's Keyboard navigation setting); `issues/closed/20261010-macos-inline-run-contextmenu.md` (X77); `issues/20261012-macos-voiceover-show-menu.md` (X84, main PR #483); main PR #327
 
 ## Summary
 
