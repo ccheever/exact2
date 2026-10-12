@@ -1252,13 +1252,6 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         // A box styled before it joined its parent learns its material now.
         if superview != nil { syncVibrancy() }
     }
-    func updateKeyboardDismissal() {
-        switch props["keyboardDismissMode"] {
-        case "interactive": scroll?.keyboardDismissMode = .interactive
-        case "on-drag": scroll?.keyboardDismissMode = .onDrag
-        default: scroll?.keyboardDismissMode = .none
-        }
-    }
     func applyStyle(_ s: NodeStyle) {
         defer { video?.update(); applyCssVisibility(); if columnRecord?.columns.isEmpty == false { layoutColumnRules() } }
         let origin = style["transform_origin"]

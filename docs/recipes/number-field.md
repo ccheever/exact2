@@ -73,8 +73,9 @@ test "a bad amount says so, and people commit on Enter"
   rewriting the text mid-edit puts the next keystroke in the wrong place.
 - `parseNumber` answers an option: `none` for `""`, `"12px"` or `"1.2.3"`. Show a
   hint in words; leave the text as typed.
-- The number pad has no Return key, so `change` comes on blur. A `scroll` with
-  `keyboardDismissMode="on-drag"` lets a drag put the keyboard away.
+- The number pad has no Return key, so `change` comes on blur. In a `scroll` or `list`
+  a drag that reaches the keyboard puts it away; `keyboardDismissMode="on-drag"` does
+  as the drag starts.
 
 ## A value that can be negative
 
@@ -104,8 +105,8 @@ test "below zero converts"
 
 - **Putting the keyboard away** is the field's, not a permanent Done button in the bar:
   `enterkeyhint="done"` gives the pad a Done key that puts it away (and fires `change`),
-  `blur()` does from the action that uses the value, and `keyboardDismissMode` lets a
-  drag do it.
+  `blur()` does from the action that uses the value, and a drag on the scroller that
+  reaches the keyboard does too.
 - Show money with [money](money.md), and a big result with [numeric-readout](numeric-readout.md).
 
 ## A number in a form that saves

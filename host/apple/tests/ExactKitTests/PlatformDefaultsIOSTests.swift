@@ -105,6 +105,37 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         XCTAssertFalse(editors[2].isFirstResponder, "Next from the last field puts the keyboard away")
     }
 
+    /// LLP 1115.000 D9.1: with nothing written, a drag on a scroller that
+    /// scrolls vertically takes the keyboard down with it once it reaches
+    /// the keys, as a hand-built list or form has it; a sideways strip
+    /// leaves the keyboard alone. What the author wrote wins, `none`
+    /// included, and taking the word away gives the platform's answer back.
+    func testAVerticalScrollersDragTakesTheKeyboardUnlessItsAuthorSaysOtherwise() throws {
+        let p = presenter([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "view", "props": ["id": "n2"], "style": ["overflow_y": "scroll"]],
+            ["op": "create", "id": 3, "kind": "view", "props": ["id": "n3"], "style": ["overflow_x": "scroll", "overflow_y": "hidden"]],
+            ["op": "create", "id": 4, "kind": "view", "props": ["keyboardDismissMode": "none"], "style": ["overflow_y": "auto"]],
+            ["op": "create", "id": 5, "kind": "view", "props": ["keyboardDismissMode": "on-drag"], "style": ["overflow_y": "scroll"]],
+            ["op": "children", "id": 1, "ids": [2, 3, 4, 5]],
+            ["op": "roots", "ids": [1]],
+        ])
+        func mode(_ id: UInt32) throws -> UIScrollView.KeyboardDismissMode { try XCTUnwrap(p.views[id]?.scroll).keyboardDismissMode }
+        XCTAssertEqual(try mode(2), .interactive, "unsaid, on a vertical scroller: the keyboard follows the drag")
+        XCTAssertEqual(try mode(3), UIScrollView.KeyboardDismissMode.none, "a sideways strip")
+        XCTAssertEqual(try mode(4), UIScrollView.KeyboardDismissMode.none, "an authored none wins")
+        XCTAssertEqual(try mode(5), .onDrag, "an authored on-drag wins")
+        XCTAssertEqual(NavigationHost.ownedChanges(try XCTUnwrap(p.views[2]?.scroll), of: try XCTUnwrap(p.views[2]), insetByUIKit: false), [],
+                       "the unsaid mode is what Exact wrote, so the ownership check does not report it")
+        p.apply(wireBatch([["op": "props", "id": 5, "set": [:], "clear": ["keyboardDismissMode"]],
+                           ["op": "props", "id": 2, "set": ["keyboardDismissMode": "none"], "clear": []]]))
+        XCTAssertEqual(try mode(5), .interactive, "the word taken away: the platform's again")
+        XCTAssertEqual(try mode(2), UIScrollView.KeyboardDismissMode.none)
+        // The axis it scrolls is part of the unsaid answer.
+        p.apply(wireBatch([["op": "style", "id": 3, "style": ["overflow_x": "scroll", "overflow_y": "scroll"]]]))
+        XCTAssertEqual(try mode(3), .interactive)
+    }
+
     /// Only one scroll view answers the status bar, or UIKit scrolls none:
     /// with no routes and a page that does not scroll, the first vertical
     /// scroller; a horizontal one and the viewport are off.

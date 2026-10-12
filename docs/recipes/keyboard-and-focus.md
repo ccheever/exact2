@@ -44,7 +44,7 @@ component Guests
         else
           button press=startAdding aria-label="Add Guest" testId="start-adding"
             image "symbol:add"
-      list appearance="auto" listStyle="inset-grouped" keyboardDismissMode="interactive" flex=1 min-height=0
+      list appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
         section
           row
             input id="draft" value=draft input=edit submit=add placeholder="Add a guest"
@@ -97,7 +97,8 @@ test "Return in the add field adds and keeps typing"
 - **Tab** moves between the fields. On the Mac it reaches the buttons too only where the
   person has turned Keyboard navigation on in System Settings, as in every Mac app; a
   `tabindex=0` you write makes a control a stop whatever the setting.
-- **On scroll:** `keyboardDismissMode="interactive"` on the `list` or `scroll` lets a drag
-  pull the keyboard down, as Messages does; `"on-drag"` puts it away as the drag starts;
-  without it the keyboard stays, as UIKit's default. A composer that rides above the
-  keyboard: [chat-thread](chat-thread.md).
+- **On scroll:** with nothing written, a drag on a `list` or `scroll` that reaches the
+  keyboard pulls it down, as Messages does, and scrolling alone leaves it up.
+  `keyboardDismissMode="on-drag"` puts it away as the drag starts and `"none"` keeps it
+  up whatever the drag does. A composer that rides above the keyboard:
+  [chat-thread](chat-thread.md).

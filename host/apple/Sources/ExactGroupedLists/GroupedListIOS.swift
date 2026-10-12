@@ -584,6 +584,10 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             // default would not.
             assign(collection, \.alwaysBounceVertical, owner.scrollsVertically)
             assign(collection, \.bounces, owner.style["overscroll_behavior_y"]?.string != "none")
+            // A drag puts the keyboard away as it would on the list's own
+            // scroll, which is hidden and never dragged: the keyboard follows
+            // it unless the author said otherwise (LLP 1115.000 D9.1).
+            assign(collection, \.keyboardDismissMode, scroll.keyboardDismissMode)
             // A route's bar follows the scroller its `navigationScroll` names;
             // this list is drawn in that scroller's place, so the bar follows
             // the list (a large title over a hidden scroll never showed).

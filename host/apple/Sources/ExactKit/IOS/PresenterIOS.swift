@@ -274,9 +274,10 @@ package final class Presenter {
         work.perform()
         work.cancel() // its queued run, not this one
     }
+    /// A drag is moving the keyboard: on the scroller that shows, a grouped list's collection view included.
     var interactiveKeyboardDrag: Bool {
         views.values.contains { node in
-            guard let sv = node.scroll else { return false }
+            guard node.scroll != nil, let sv = navigation.shownScroll(node) else { return false }
             return sv.keyboardDismissMode == .interactive && (sv.isTracking || sv.isDragging)
         }
     }

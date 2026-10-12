@@ -80,6 +80,19 @@ final class GroupedListIOSTests: XCTestCase {
         XCTAssertEqual(seen["rows"] as? Int, 5)
     }
 
+    /// LLP 1115.000 D9.1: the collection view is what a finger drags, so it
+    /// puts the keyboard away as the list's own scroll would: following the
+    /// drag with nothing written, and as the author says otherwise.
+    func testADragOnTheListTakesTheKeyboardAsItsScrollWould() throws {
+        let p = presenter { self.model() }
+        let l = try list(p)
+        XCTAssertEqual(l.collection.keyboardDismissMode, .interactive, "unsaid: the keyboard follows the drag")
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["keyboardDismissMode": "on-drag"], "clear": []]]))
+        XCTAssertEqual(l.collection.keyboardDismissMode, .onDrag, "an authored mode reaches the list that shows")
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["keyboardDismissMode": "none"], "clear": []]]))
+        XCTAssertEqual(l.collection.keyboardDismissMode, UIScrollView.KeyboardDismissMode.none)
+    }
+
     func testARowIsAListCellOfTheModelsParts() throws {
         let p = presenter { self.model() }
         let profile = try cell(p, 10)

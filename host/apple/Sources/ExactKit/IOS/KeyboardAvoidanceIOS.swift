@@ -115,6 +115,32 @@ extension Presenter {
     }
 }
 
+// @ref LLP 1115.000 D9.1 — how a drag puts the keyboard away.
+extension NodeView {
+    /// What a drag on this node's scroller does to the keyboard. Unsaid, on
+    /// a scroller that scrolls vertically, the keyboard follows a drag that
+    /// reaches it (`.interactive`), as a hand-built list or form has it; it
+    /// never takes the keyboard from someone who was only scrolling. A
+    /// sideways scroller keeps UIKit's `.none`. An authored
+    /// `keyboardDismissMode` wins, `none` included: the prop has no default
+    /// row, so unsaid it is absent from the node's props, and absence is the
+    /// whole test.
+    var keyboardDismissal: UIScrollView.KeyboardDismissMode {
+        switch props["keyboardDismissMode"] {
+        case "interactive": return .interactive
+        case "on-drag": return .onDrag
+        case "none": return .none
+        default: return scroll?.scrollsY == true ? .interactive : .none
+        }
+    }
+    /// Written again when the prop or the axes the node scrolls change; a
+    /// grouped list's collection view takes it from here (`mount`).
+    func updateKeyboardDismissal() {
+        guard let scroll, scroll.keyboardDismissMode != keyboardDismissal else { return }
+        scroll.keyboardDismissMode = keyboardDismissal
+    }
+}
+
 extension Presenter {
     /// Return with `enterkeyhint="next"`: the next field, shown as focus
     /// shows any (`reveal`). In a grouped list that is the list's own order,

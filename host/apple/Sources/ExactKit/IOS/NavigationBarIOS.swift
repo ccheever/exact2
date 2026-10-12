@@ -1048,7 +1048,8 @@ extension NavigationHost {
     /// What Exact sets on a node's scroll view and nothing else may (LLP
     /// 1075.003 §3.5) and differs from what Exact writes: no inset (a
     /// refresh control insets it while it spins), no automatic adjustment
-    /// but a route's collapse or bottom-edge scroller's, the node as its delegate, the authored keyboard dismissal. The offset
+    /// but a route's collapse or bottom-edge scroller's, the node as its delegate, the node's keyboard dismissal (authored, or
+    /// the platform's for what it scrolls, LLP 1115.000 D9.1). The offset
     /// and the content size are Exact's too but are not checked: they move
     /// with the user and with layout, so no last write predicts them.
     static func ownedChanges(_ s: UIScrollView, of node: NodeView, insetByUIKit: Bool) -> [String] {
@@ -1060,12 +1061,7 @@ extension NavigationHost {
         #endif
         if s.contentInsetAdjustmentBehavior != (insetByUIKit ? .always : .never) { out.append("contentInsetAdjustmentBehavior") }
         if s.delegate !== node { out.append("delegate") }
-        let dismiss: UIScrollView.KeyboardDismissMode = switch node.props["keyboardDismissMode"] {
-        case "interactive": .interactive
-        case "on-drag": .onDrag
-        default: .none
-        }
-        if s.keyboardDismissMode != dismiss { out.append("keyboardDismissMode") }
+        if s.keyboardDismissMode != node.keyboardDismissal { out.append("keyboardDismissMode") }
         return out
     }
 }
