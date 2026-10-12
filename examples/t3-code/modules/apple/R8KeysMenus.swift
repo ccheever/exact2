@@ -22,7 +22,10 @@ import AppKit
 ///   thread.undo while no editable text has the focus, ⌘W closes an open right panel
 ///   before it closes the window. AppKit keeps one key equivalent per chord across
 ///   the bar (a later item with a different action loses it), so Edit › Undo and
-///   File › Close Window route a keystroke to the window's command first.
+///   File › Close Window route a keystroke to the window's command first. Editable
+///   text with the focus keeps Edit › Undo and Redo: since exact2 #327 (X63, adopted
+///   in round 11) Exact's textarea answers `undo:` and `redo:` with its own history,
+///   so they go up the responder chain as AppKit sends them.
 final class R8KeysMenus: NSObject, NSMenuDelegate, NSMenuItemValidation {
     private var reloadAction: Selector?
     private var saveTrace: NSMenuItem?
@@ -72,11 +75,6 @@ final class R8KeysMenus: NSObject, NSMenuDelegate, NSMenuItemValidation {
            let undo = edit.items.first(where: { $0.keyEquivalent == "z" && $0.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask) == .command }) {
             undo.action = #selector(undo(_:))
             undo.target = self
-        }
-        if let edit = bar.items.first(where: { $0.submenu?.title == "Edit" })?.submenu,
-           let redo = edit.items.first(where: { $0.action == NSSelectorFromString("redo:") }) {
-            redo.action = #selector(redo(_:))
-            redo.target = self
         }
         if let edit = bar.items.first(where: { $0.submenu?.title == "Edit" })?.submenu {
             self.edit = edit
@@ -161,29 +159,24 @@ final class R8KeysMenus: NSObject, NSMenuDelegate, NSMenuItemValidation {
         guard let text = NSApp.keyWindow?.firstResponder as? NSTextView, text.isEditable else { return nil }
         return text
     }
-    /// The focused text's own history, nil while it composes (marked text, as the host's ⌘Z and T3ComposerEditor
-    /// leave it alone). Exact's textarea keeps one per editor (host TextAreaMac.swift `textUndo`), which `undo:`
-    /// and `redo:` sent up the responder chain never reach: NSWindow answers them with the window's manager, so
-    /// ⌘Z, ⇧⌘Z and Edit › Undo did nothing in the composer and the prompt preview while the item read enabled
-    /// (fix-misc-batch, #298 bug 3; X63). The reference's roles act on the focused editor's history.
-    private func textHistory(_ text: NSTextView) -> UndoManager? { text.hasMarkedText() ? nil : text.undoManager }
+    /// Where Edit's `undo:` goes from the focused text: the first responder up its chain that answers it, as AppKit
+    /// sends a menu's nil-targeted action (Exact's textarea answers it with its own history since exact2 #327, X63; a
+    /// field's editor leaves it to its window).
+    private static func undoTarget(from text: NSTextView) -> NSResponder? {
+        var responder: NSResponder? = text
+        while let current = responder, !current.responds(to: #selector(undo(_:))) { responder = current.nextResponder }
+        return responder
+    }
 
     @objc func undo(_ sender: Any?) {
         // Editable text with the focus answers ⌘Z itself, or not at all: the reference binds thread.undo
-        // `when: "!terminalFocus && !editableFocus"`.
+        // `when: "!terminalFocus && !editableFocus"`, and its Edit › Undo role acts on the focused editor's history.
         if let text = focusedText() {
-            if let history = textHistory(text), history.canUndo { history.undo() }
+            _ = Self.undoTarget(from: text)?.tryToPerform(#selector(undo(_:)), with: sender)
             return
         }
         if keystroke(), let thread = command(Self.undoTitle), fire(thread) { return }
-        NSApp.sendAction(Selector(("undo:")), to: nil, from: sender)
-    }
-    @objc func redo(_ sender: Any?) {
-        if let text = focusedText() {
-            if let history = textHistory(text), history.canRedo { history.redo() }
-            return
-        }
-        NSApp.sendAction(Selector(("redo:")), to: nil, from: sender)
+        NSApp.sendAction(#selector(undo(_:)), to: nil, from: sender)
     }
     @objc func closeWindow(_ sender: Any?) {
         if keystroke(), let close = command(Self.closePanelTitle), fire(close) { return }
@@ -197,12 +190,12 @@ final class R8KeysMenus: NSObject, NSMenuDelegate, NSMenuItemValidation {
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
         case #selector(undo(_:)):
-            if let text = focusedText() { return textHistory(text)?.canUndo == true }
+            if let text = focusedText() {
+                guard let target = Self.undoTarget(from: text) else { return false }
+                return (target as? NSMenuItemValidation)?.validateMenuItem(item) ?? true
+            }
             guard let thread = command(Self.undoTitle) else { return false }
             return (thread.target as? NSMenuItemValidation)?.validateMenuItem(thread) ?? true
-        case #selector(redo(_:)):
-            if let text = focusedText() { return textHistory(text)?.canRedo == true }
-            return NSApp.keyWindow?.undoManager?.canRedo == true
         case #selector(closeWindow(_:)): return closeTarget() != nil || command(Self.closePanelTitle) != nil
         case #selector(reloadWindow(_:)): return reloadAction != nil
         default: return true

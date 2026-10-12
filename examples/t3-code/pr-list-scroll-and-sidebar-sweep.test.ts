@@ -54,30 +54,35 @@ describe('PS-2: the rows a sweep passes over, and after it (sweepRowHover)', () 
     // A new sweep forgets it. The pointer's first move (out of the section too) ends it through the window's hover
     // count: the host sends the leave of the control it kept hovered through the pan.
     expect(action(section, 'sweep')).toContain('sweepRest = ""');
-    // The section takes no hover of its own: the macOS host hovers one node at a time (#322), so a hover on the
+    // The section takes no hover of its own: the macOS host hovered one node at a time before main #327 (X62), so a hover on the
     // section would trade it with the row under the pointer on every move.
     const view = section.slice(section.indexOf('\n  view\n'));
     expect(view).not.toMatch(/\n    column [^\n]*\bhover=/);
     expect(section).not.toContain('sectionHover');
   });
 
-  test('the card or a control\'s tooltip closes as the sweep takes over, through the root\'s half of the hover', async () => {
+  test('the card or a control\'s tooltip closes as the sweep takes over, through the window\'s hover', async () => {
     const section = await component('sidebar.contract', 'ThreadSection');
     const sweep = action(section, 'sweep');
     // The 6 pt rule arms the sweep; its first arming closes the window's hover (whatever the press did to the focus).
     // (`armed` is the sweep's rows from before this move, "" on a fresh sweep: sidebar-sweep.test.ts runs it.)
-    expect(sweep).toMatch(/if not cancelled and \(armed != "" or movedX \* movedX \+ movedY \* movedY >= 36\)\n(\s*\/\/[^\n]*\n)*\s*if armed == ""\n\s*unhover\(hoverId, false\)\n\s*sweepKeys = /);
-    // `unhover` is the root's sidebarHover handed down as it is, which clears the hover it is told about.
+    expect(sweep).toMatch(/if not cancelled and \(armed != "" or movedX \* movedX \+ movedY \* movedY >= 36\)\n(\s*\/\/[^\n]*\n)*\s*if armed == ""\n\s*hoverCard\(hoverId, false\)\n\s*sweepKeys = /);
+    // `hoverCard` is the window's sidebarHover, which counts the hover and calls the root's half (it clears the hover it
+    // is told about), as a pointer leaving the row does. adopt-main-fixes-r11: since main #478 an action bound to `pan=`
+    // may call it; #468's sweep called the root's half (`unhover`), handed down as it is, which is no prop now.
     const windowText = await source('app-window.contract');
-    expect(windowText.match(/hoverSeq=sidebarHoverSeq, unhover=sidebarHoverRoot, /g)?.length).toBe(2);
+    expect(windowText).not.toContain('unhover=');
+    expect(windowText.match(/hoverCard=sidebarHover, [^\n]*hoverSeq=sidebarHoverSeq, /g)?.length).toBe(2);
     expect(action(windowText, 'sidebarHover').split('\n')[0]).toBe('    sidebarHoverSeq = sidebarHoverSeq + 1');
+    expect(action(windowText, 'sidebarHover').trimEnd().split('\n').at(-1)).toBe('    sidebarHoverRoot(id, over)');
     const root = await source('app.contract');
     expect(root).toContain('sidebarHoverRoot=sidebarHover,');
     expect(/\n  action sidebarHover\(id: string, over: bool\)[^\n]*\n    if over\n[\s\S]*?\n    else if sidebarHoverId == id\n      sidebarHoverId = ""\n/.test(root)).toBe(true);
     // Every section hears both.
     const sidebar = await source('sidebar.contract');
     expect(sidebar.match(/ThreadSection\(/g)?.length).toBe(5);
-    expect(sidebar.match(/hoverSeq=hoverSeq, unhover=unhover, /g)?.length).toBe(5);
+    expect(sidebar.match(/hoverCard=hoverCard, [^\n]*hoverSeq=hoverSeq, /g)?.length).toBe(5);
+    expect(sidebar).not.toContain('unhover');
   });
 
   test('Escape still cancels a live sweep from anywhere in the window, and only while it is live', async () => {

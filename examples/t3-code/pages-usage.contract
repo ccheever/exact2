@@ -658,7 +658,7 @@ component UnpricedInfo
 // PopoverPopup side="top" (align center, sideOffset 4) with tooltipStyle: w-fit, rounded-md, text-xs, py-1 px-2 inside
 // the dropdown glass's 1pt border, shadow-md/5; "API estimate excludes 10.0% unpriced records." Drawn in the page's
 // scroll content above the glyph's rect there (x, y, w), inside its placement box so the macOS host tracks the pointer on it
-// (X62): the popover's own hover keeps it open, as Base UI's does.
+// (X62, before main #327): the popover's own hover keeps it open, as Base UI's does.
 component UnpricedPopup
   inject
     rem: number

@@ -240,22 +240,15 @@ component BrowserImportWizard
     local: action
     track: action
     still: bool
-  state held = false
-  action hold(on: bool)
-    held = on
-    track("browser-import-popup", on)
-  // From the popup itself the web's Tab goes on to its first Tab stop and Shift+Tab (the focus trap's guard) round to its
-  // last; the Mac's key-view loop has no way on from a box that is no Tab stop (EXACT2-GAPS.md X79), so the popup's own
-  // keys take it there. Only while the popup holds the focus: a `focus`/`blur` here hears the popup alone, not its buttons.
-  action popupKeys(k: string, e: KeyboardEvent)
-    if held and k == "Tab" and wizard.tabFirst != ""
-      preventDefault()
-      focus(e.shiftKey ? wizard.tabLast : wizard.tabFirst)
   view
     column class=BpOverlay testId="browser-import-overlay"
-      column id="browser-import-popup" tabindex=-1 key=popupKeys focus=hold(true) blur=hold(false) class=BpPopup role="dialog" aria-modal=true aria-label=(wizard.step == "quit" ? `Quit ${wizard.sourceName} to import` : wizard.step == "configure" ? `Import from ${wizard.sourceName}` : wizard.step == "fullDiskAccess" ? `Let T3 Code read ${wizard.sourceName}’s cookies` : wizard.step == "importing" ? "Importing cookies" : wizard.step == "checking" ? `Checking ${wizard.sourceName}` : wizard.step == "done" ? wizard.doneTitle : `Couldn’t import from ${wizard.sourceName}`) testId=`browser-import-step-${wizard.step}`
-        // The focus trap (dialog-trap.contract) between the screen's first and last Tab stops (`wizardTabStops`).
-        FocusGuard(guardId="browser-import-guard-start", target=wizard.tabLast)
+      // The focus trap (dialog-trap.contract) between the screen's first and last Tab stops (`wizardTabStops`). Its guards
+      // lie beside the popup, before and after it, as Base UI's FloatingFocusManager renders them around the popup: from
+      // the popup itself (Base UI's `restoreFocus: "popup"` leaves the focus there) Tab goes on to its first stop and
+      // Shift+Tab to the guard before it, which sends the focus round to its last. adopt-main-fixes-r11: the popup's own
+      // `key` handler did both while the Mac had no Tab from a box that is no stop (X79, fixed on main by #490).
+      FocusGuard(guardId="browser-import-guard-start", target=wizard.tabLast)
+      column id="browser-import-popup" tabindex=-1 focus=track("browser-import-popup", true) blur=track("browser-import-popup", false) class=BpPopup role="dialog" aria-modal=true aria-label=(wizard.step == "quit" ? `Quit ${wizard.sourceName} to import` : wizard.step == "configure" ? `Import from ${wizard.sourceName}` : wizard.step == "fullDiskAccess" ? `Let T3 Code read ${wizard.sourceName}’s cookies` : wizard.step == "importing" ? "Importing cookies" : wizard.step == "checking" ? `Checking ${wizard.sourceName}` : wizard.step == "done" ? wizard.doneTitle : `Couldn’t import from ${wizard.sourceName}`) testId=`browser-import-step-${wizard.step}`
         when wizard.step == "quit"
           BiHeader(title=`Quit ${wizard.sourceName} to import`, description=`${wizard.sourceName} is open, so its cookies can’t be read yet. Quit it, then continue.`)
           BiFooter()
@@ -324,7 +317,7 @@ component BrowserImportWizard
               BiButton(buttonId="browser-import-retry", label="Try again", tone="default", disabled=false, keys="", press=local("browser-import-retry", ""), track=track)
         when wizard.canClose
           BiClose(press=local("browser-import-close", ""), track=track)
-        FocusGuard(guardId="browser-import-guard-end", target=wizard.tabFirst)
+      FocusGuard(guardId="browser-import-guard-end", target=wizard.tabFirst)
 
 component BiHeader
   props
