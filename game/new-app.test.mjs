@@ -9,8 +9,9 @@ import { outsideWorkspaceProblems, pathFrom, readManifest } from '../scripts/app
 import { appVerbs } from '../scripts/app-cli.mjs';
 import { applyPattern, createApp, createGame, patternFiles, patterns } from './new.mjs';
 
-/** A fake exact2 at `sdk` runs the real app-cli.mjs that an app's exact.mjs hands its verb to (LLP 1116.006 D7). */
-const withCli = (sdk) => { mkdirSync(resolve(sdk, 'scripts'), { recursive: true }); copyFileSync(resolve(import.meta.dir, '../scripts/app-cli.mjs'), resolve(sdk, 'scripts/app-cli.mjs')); };
+/** A fake exact2 at `sdk` runs the real app-cli.mjs that an app's exact.mjs hands its verb to (LLP 1116.006 D7), and the
+ * verify.mjs whose server `test` runs for an app that has one (LLP 1116.007 D2). */
+const withCli = (sdk) => { mkdirSync(resolve(sdk, 'scripts'), { recursive: true }); for (const file of ['app-cli', 'verify', 'help']) copyFileSync(resolve(import.meta.dir, `../scripts/${file}.mjs`), resolve(sdk, `scripts/${file}.mjs`)); };
 
 test('a new outside app passes the checks every run makes, and a drifted one is told what to paste', () => {
   const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
@@ -435,12 +436,12 @@ test('a pattern replaces the template, refuses an edited file unless forced, and
     applyPattern(dir, 'dashboard', { force: true });
     assert.doesNotMatch(read('app.ts'), /\/\/ mine/);
     assert.throws(() => applyPattern(dir, 'nope'), /no pattern nope; there are one-screen, list-detail/);
-    // rest: its server and test runner, and the command that runs them; another pattern takes them away again.
-    assert.match(applyPattern(dir, 'rest').next, /bun exact\.mjs api-test web$/);
-    assert.ok(existsSync(resolve(dir, 'server.ts')) && existsSync(resolve(dir, 'test.mjs')));
-    assert.deepEqual(JSON.parse(read('app.json')).commands, { 'api-test': ['bun', 'test.mjs'] });
+    // rest: its server, which `test` and `verify` run (LLP 1116.007 D2), no command of its own; another pattern takes it away again.
+    assert.match(applyPattern(dir, 'rest').next, /bun exact\.mjs test web$/);
+    assert.ok(existsSync(resolve(dir, 'server.ts')) && !existsSync(resolve(dir, 'test.mjs')));
+    assert.equal(JSON.parse(read('app.json')).commands, undefined);
     assert.equal(JSON.parse(read('app.json')).app.id, id);
-    assert.match(applyPattern(dir, 'one-screen').said, /removed server\.ts, test\.mjs$/);
+    assert.match(applyPattern(dir, 'one-screen').said, /removed server\.ts$/);
     assert.ok(!existsSync(resolve(dir, 'server.ts')) && JSON.parse(read('app.json')).commands === undefined);
     // A name with a quote stays one Contract string.
     const quoted = patternFiles('one-screen', { id: 'com.example.q', title: 'Say "Hi" $5' }).files['app.contract'];

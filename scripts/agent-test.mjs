@@ -157,7 +157,7 @@ export async function serverRequest(base, st) {
   const headers = { ...(st.body != null ? { 'content-type': 'application/json' } : {}), ...(st.as ? { authorization: `Bearer ${st.as}` } : {}) };
   let res;
   try { res = await fetch(url, { method: st.method, headers, body: st.body ?? undefined, signal: AbortSignal.timeout(10_000) }); }
-  catch (e) { throw new Error(`${said}: nothing answered (${e.message}); verify and api-test run the app's server, test uses the one running`); }
+  catch (e) { throw new Error(`${said}: nothing answered (${e.message}); test and verify start the app's server (server.ts, at the address app.ts calls) for a run; a server of its own that they leave alone must be running`); }
   const text = (await res.text().catch(() => '')).trim();
   if (!res.ok) throw new Error(`${said}: the server answered ${res.status}${text ? ` ${text.slice(0, 300)}` : ''}`);
 }
@@ -176,8 +176,8 @@ const LAUNCH = { epoch: 'epoch', 'time-zone': 'timeZone', locale: 'locale', seed
  * earlier run sees another's writes. The app's data lands before the first step (and after a `reload`), unless
  * the test says `before data`. A failed expect names the test, the line, and what
  * was seen. Returns `{ passed, failed, results }`, each result `{ name, failures, notes }`: notes are advice, never a failure.
- * `atEnd(s, { name, index, size, store, failures, reload })` (verify's, LLP 1116.005 D7) runs on each test's session after
- * its last step, unless the window closed; what it returns is the result's `end` (`{ error }` if it threw), and an
+ * `atEnd(s, { name, index, size, store, failures, reload, launch })` (verify's, LLP 1116.005 D7; `launch`: the epoch, zone, locale
+ * and seed the test launched with, LLP 1116.007 D3.4) runs on each test's session after its last step, unless the window closed; what it returns is the result's `end` (`{ error }` if it threw), and an
  * `end.keep` keeps the test's store for a later launch (the result's `store`), which the caller then removes.
  */
 export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch, failFetch, storage = 'test', touch = 'agent', chrome: bars = 'agent', atEnd } = {}) {
@@ -433,7 +433,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       }
       if (closedAt == null) for (const prefix of [...armed.keys()]) await unfired(prefix);
       else for (const [prefix, line] of armed) failures.push(`${t.name}: line ${line}: fail fetch ${JSON.stringify(prefix)} matched no fetch before the window closed at line ${closedAt}`);
-      if (atEnd && closedAt == null) end = await atEnd(s, { name: t.name, index: n, size: facts.size, store, failures, reload: t.steps.some((st) => st.op === 'reload') }).catch((e) => ({ error: e.message }));
+      if (atEnd && closedAt == null) end = await atEnd(s, { name: t.name, index: n, size: facts.size, store, failures, reload: t.steps.some((st) => st.op === 'reload'), launch: launchFacts({ ...facts, env: env ?? {} }) }).catch((e) => ({ error: e.message }));
     } finally {
       // A window the test closed took its session (on macOS, the app) with it: nothing is left to close but the carrier.
       await s.close().catch((e) => { if (closedAt == null) throw e; });

@@ -37,6 +37,11 @@ const BROKEN = `component CheckFixture
         column testId="tiny" press=toggle width=16 height=16 background-color="-exact-secondary-background"
         column testId="tiny2" press=toggle width=16 height=16 background-color="-exact-secondary-background"
       row testId="wide" width=600 height=20 background-color="-exact-secondary-background"
+      row testId="options" width=120 gap=4
+        button testId="opt-a" press=toggle flex=1 padding="8px 12px"
+          text "Fifty"
+        button testId="opt-b" press=toggle flex=1 padding="8px 12px"
+          text "Seventy five"
       column testId="swatch" press=toggle width=100 height=100 background-color=(on ? "#ff0000" : "#0000ff") transition="background-color 400ms linear"
 `;
 // The same kinds of views, as the platform would have them: nothing to find in either scheme.
@@ -171,6 +176,22 @@ test('judging: WCAG ratios, the floors, a clamp asked for, a reachable cover, th
   const row = { id: 6, x: 0, y: 0, w: 40, h: 20, control: 'press', sized: 'platform' }, tab = { id: 7, x: 0, y: 10, w: 40, h: 20, control: 'press', sized: 'platform' };
   expect(found([row, tab])).toEqual(['overlap:6']);
   expect(found([{ ...row, vis: { x: 0, y: 0, w: 40, h: 10 } }, tab])).toEqual([]);
+  // LLP 1116.007 D3.8: what a bar is drawn over is covered, not presented (`vis` empty): a text wholly under it is not judged for
+  // contrast, nor a control for size; one partly under it is judged on the fill under the part that shows (here the grey).
+  const under = { ...text, fg: [130, 130, 130, 1] };
+  expect(found([{ ...under, vis: { x: 2, y: 2, w: 16, h: 0 } }])).toEqual([]);
+  expect(found([{ id: 8, x: 0, y: 2, w: 16, h: 16, control: 'press', sized: 'author', vis: { x: 0, y: 2, w: 16, h: 0 } }])).toEqual([]);
+  const part = judge(obs([{ ...under, w: 36, vis: { x: 22, y: 2, w: 16, h: 16 } }]), png);
+  expect(part.map((f) => [f.kind, f.detail.bg])).toEqual([['contrast', '#808080']]);
+  // LLP 1116.007 D3 (unit-converter): the keyboard covers like a bar. A card under it shows the keyboard in the capture, not its
+  // edge, so it is not "invisible"; one partly under it is judged on the edges that show.
+  expect(found([card], { keyboard: 4 })).toEqual([]); // wholly under the keyboard
+  expect(found([card], { keyboard: 10 })).toEqual(['card:2']); // its top half shows, and is white on white
+  expect(found([{ ...text, fg: [130, 130, 130, 1] }], { keyboard: 2 })).toEqual([]); // a text under it is not judged for contrast
+  expect(found([row, tab], { keyboard: 10 })).toEqual([]); // nor are two controls overlapping beneath it
+  // A flex item past its container's side is an overflow of its own (tip-splitter's fifth radio), named for the row it spills.
+  const spill = judge(obs([{ id: 9, x: 24, y: 2, w: 20, h: 16, control: 'radio', sized: 'platform', spill: { by: 8, dx: 6 } }], { viewport: { w: 60, h: 20 } }), png);
+  expect(spill.map((f) => [f.kind, f.id, f.detail.past, f.detail.of])).toEqual([['overflow', 9, 6, 8]]);
 });
 
 test('a page with every finding class has each found, by testId, in the scheme it shows in; a clean page has none', async () => {
@@ -184,6 +205,8 @@ test('a page with every finding class has each found, by testId, in the scheme i
     expect(l.hidden).toEqual(['covered']); // its label "Under" is the button's finding, not a second one
     expect(l.a).toEqual(['overlap']);
     expect(l.wide).toEqual(['overflow']);
+    expect(l['opt-b']).toEqual(['overflow']); // a flex item wider than its row, within the viewport (LLP 1116.007 D3)
+    expect(l['opt-a']).toBeUndefined();
     expect(l.faint).toEqual(['contrast']);
     expect(l.card).toEqual(['card']);
     expect(l.tiny).toEqual(['target']);
@@ -258,5 +281,9 @@ test('a screenshot shows a transition where it ends, the clock unmoved; a film\'
     expect(frame(0)[0]).toBeGreaterThan(240); // still red at the clock it starts on
     expect(frame(1)[0]).toBeLessThan(200); // half way
     expect(frame(2)[2]).toBeGreaterThan(240); // blue where it ends
+    // LLP 1116.007 D3.6: after `resize` a screenshot is the new viewport, in its reply as in its pixels.
+    await session.resize(390, 844);
+    const small = await session.screenshot(join(dir, 'small.png')), png = decodePng(readFileSync(join(dir, 'small.png')));
+    expect([small.w, small.h, png.width, png.height]).toEqual([390, 844, 390, 844]);
   } finally { await session.close(); }
 }, 900000);

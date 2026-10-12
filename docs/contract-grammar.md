@@ -440,8 +440,9 @@ body (sent as `content-type: application/json`), and `as <persona>`, sent as
 299, or no answer, fails the step naming the status and the body's start. The app
 shows the write when it next reads, so follow it with `clock +<its poll's ms>` and
 `clock data` before the `expect` (a failed `expect` before the clock moved says so).
-`verify` and `api-test` run the server on an empty database; `test` uses the one
-running. `fail fetch` does not reach a `request`: the driver sends it, not the app.
+`test` and `verify` run the server on an empty database (one already answering there,
+your dev server, is refused). `fail fetch` does not reach a `request`: the driver sends
+it, not the app.
 `tap "id" drag to "other" [at x y]` ends on the other
 node (LLP 1094 D12). `tap "id" drag dx dy` is the driver's `tap … drag` (from the
 node's middle, or `from x y` in its box, in points; `press`, `over`, `hold` in

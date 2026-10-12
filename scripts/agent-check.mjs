@@ -68,6 +68,10 @@ function drawnRole(fg, scheme = 'light') {
 }
 
 const inter = (a, b) => ({ w: Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x), h: Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) });
+/** What is presented of an item's box: the host's `vis` (a clipping view, or a bar drawn over it, cuts it), less what the
+ * keyboard (its top, `kb`) covers; and whether none is (LLP 1116.007 D3). */
+const shown = (it, kb) => { const v = it.vis ? { ...it, ...it.vis } : it; return kb != null && v.y + v.h > kb ? { ...v, h: Math.max(0, kb - v.y) } : v; };
+const covers = (it, kb) => { const v = shown(it, kb); return v.w <= 0 || v.h <= 0; };
 const holds = (a, b) => a.x <= b.x + 0.5 && a.y <= b.y + 0.5 && a.x + a.w >= b.x + b.w - 0.5 && a.y + a.h >= b.y + b.h - 0.5;
 
 /** The findings for one observation (`obs`, the host's reply) and its capture (`png`, decoded; null skips what needs pixels). */
@@ -87,16 +91,17 @@ export function judge(obs, png, { host = 'web' } = {}) {
       add('clipped', it, { need: it.over.map(r0), clips: !!it.clips, unit }, it.clips ? 'let it wrap, give its box room, or ask for an ellipsis (`text-overflow: ellipsis` or `line-clamp`)' : 'its box is smaller than its text, which spills over what follows: drop the fixed size, or ask for `line-clamp`');
     } else if (it.text && it.cut) add('clipped', it, { cut: [r0(it.cut.dx), r0(it.cut.dy)], by: it.cut.by, edge: it.cut.edge, unit }, it.cut.edge ? OFFSCREEN : 'the clipping box is smaller than its content: let it grow, or scroll');
     if (it.outX) add('overflow', it, { past: r0(it.outX), width: vp.w, unit }, 'let it wrap or shrink (`min-width: 0`, `flex-wrap: wrap`, `max-width: 100%`), or scroll it inside its own box');
+    else if (it.spill) add('overflow', it, { past: r0(it.spill.dx), of: it.spill.by, unit }, 'a flex item\'s width stops at its content: let it shrink (`min-width: 0`, a smaller `padding`), or let the row wrap (`flex-wrap: wrap`) or scroll');
     // A target the author sized under the platform's minimum (WCAG 2.5.8's 24 px, with its spacing exception, on the web; 44 pt on iOS).
-    if (it.control && it.sized === 'author' && !it.inline && !it.disabled && (it.w < obs.target - 0.5 || it.h < obs.target - 0.5)) {
+    if (it.control && it.sized === 'author' && !it.inline && !it.disabled && !covers(it, obs.keyboard) && (it.w < obs.target - 0.5 || it.h < obs.target - 0.5)) {
       const spaced = host === 'web' && items.every((o) => o === it || !o.control || o.inline || !o.w ||
         Math.hypot((o.x + o.w / 2) - (it.x + it.w / 2), (o.y + o.h / 2) - (it.y + it.h / 2)) >= obs.target);
       if (!spaced) add('target', it, { min: obs.target, unit }, `make its box at least ${obs.target}×${obs.target} (padding, or \`min-height\`/\`min-width\`)`);
     }
     // Contrast against what it stands on: the fill the host found painted under it (LLP 1116.006 D5), else what the
-    // pixels show behind it.
-    if (it.text && it.fg && (it.bg || png)) {
-      const need = floor(it, obs.scheme), bg = need && (it.bg ?? backdrop(png, scale, it));
+    // pixels show behind it, read where it is presented (a bar's glass over it is not what it stands on, LLP 1116.007 D3.8).
+    if (it.text && it.fg && (it.bg || png) && !covers(it, obs.keyboard)) {
+      const need = floor(it, obs.scheme), bg = need && (it.bg ?? backdrop(png, scale, shown(it, obs.keyboard)));
       if (bg) {
         const ink = over(it.fg, bg), got = ratio(ink, bg);
         if (got < need - 0.005) add('contrast', it, { got: Math.floor(got * 10) / 10, need, fg: hex(ink), bg: hex(bg), ...(it.bg ? { on: it.on ?? 'page' } : {}) },
@@ -104,9 +109,12 @@ export function judge(obs, png, { host = 'web' } = {}) {
       }
     }
     // A card whose fill is what lies behind it, with no border or shadow: invisible.
-    if (it.fill && !it.edge && png) {
+    // Only where it is presented: under the keyboard the capture shows the keyboard, not the card's edge (unit-converter, round 9).
+    if (it.fill && !it.edge && png && !covers(it, obs.keyboard)) {
+      const v = shown(it, obs.keyboard), on = (x, y) => x >= v.x - 2.5 && x <= v.x + v.w + 2.5 && y >= v.y - 2.5 && y <= v.y + v.h + 2.5;
       const sides = [[it.x + 2, it.y + it.h / 2, it.x - 2, it.y + it.h / 2], [it.x + it.w - 2, it.y + it.h / 2, it.x + it.w + 2, it.y + it.h / 2],
         [it.x + it.w / 2, it.y + 2, it.x + it.w / 2, it.y - 2], [it.x + it.w / 2, it.y + it.h - 2, it.x + it.w / 2, it.y + it.h + 2]]
+        .filter(([ix, iy, ox, oy]) => on(ix, iy) && on(ox, oy))
         .map(([ix, iy, ox, oy]) => [pixel(png, scale, ix, iy), pixel(png, scale, ox, oy)]).filter(([a, b]) => a && b);
       if (sides.length >= 2 && sides.every(([a, b]) => near(a, b, 4))) {
         const fill = role(it.fillRole), behind = sides[0][1], scheme = obs.scheme ?? 'light';
@@ -123,7 +131,7 @@ export function judge(obs, png, { host = 'web' } = {}) {
   for (const a of controls) for (const b of items) {
     if (a === b || !(b.control || b.text) || (b.control && b.id < a.id && controls.includes(b))) continue;
     if (!b.control && (b.of === a.id || controls.some((c) => c !== a && holds(c, b)))) continue; // its own label, or another control's
-    const i = inter(a.vis ?? a, b.vis ?? b);
+    const i = inter(shown(a, obs.keyboard), shown(b, obs.keyboard));
     if (i.w >= 2 && i.h >= 2 && !holds(a, b) && !holds(b, a)) add('overlap', a, { with: b.id, by: [r0(i.w), r0(i.h)] }, 'give them room (a gap, or let the row wrap)');
   }
   // A control's own text covered with it is one finding: the control's.
@@ -153,7 +161,7 @@ function line(f, nodes) {
   const what = {
     covered: () => d.offscreen ? `its middle is past ${d.under}, and nothing scrolls to it` : `its middle is under ${under(d.under)} at rest${d.bar ? ` (${d.bar})` : ''}, and nothing scrolls it clear`,
     clipped: () => d.need ? `its text is ${[d.need[0] ? `${d.need[0]} ${d.unit} wider` : '', d.need[1] ? `${d.need[1]} ${d.unit} taller` : ''].filter(Boolean).join(' and ')} than its box${d.clips ? ', which clips it' : ', and spills'}` : `${d.edge ? `the ${d.edge} of the screen` : named(d.by, nodes)} cuts ${[d.cut[0] ? `${d.cut[0]} ${d.unit} of its width` : '', d.cut[1] ? `${d.cut[1]} ${d.unit} of its height` : ''].filter(Boolean).join(' and ')}`,
-    overflow: () => `runs ${d.past} ${d.unit} past the ${d.width}-wide viewport's side, and nothing scrolls it`,
+    overflow: () => d.of != null ? `runs ${d.past} ${d.unit} past ${named(d.of, nodes)}'s side, and nothing there scrolls or clips it` : `runs ${d.past} ${d.unit} past the ${d.width}-wide viewport's side, and nothing scrolls it`,
     target: () => `${f.box[2]}×${f.box[3]} ${d.unit}, under the ${d.min}×${d.min} minimum`,
     contrast: () => `${d.got}:1 (${d.fg} on ${d.bg}${d.on == null ? '' : d.on === 'own' ? ', its own fill' : d.on === 'page' ? ', the page' : `, ${named(d.on, nodes)}'s fill`}), needs ${d.need}:1`,
     card: () => `its fill ${d.fill} is what lies behind it (${d.behind}): it does not show`,

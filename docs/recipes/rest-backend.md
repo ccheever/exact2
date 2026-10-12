@@ -1,6 +1,6 @@
 # Recipe: your own REST server
 
-A list shared through a Bun server (`pattern rest` writes `server.ts`, `test.mjs` and this):
+A list shared through a Bun server (`pattern rest` writes `server.ts` and this):
 `fetch` with a bearer token, polled. The server listens at app.ts's
 `API` and answers CORS, the `OPTIONS` preflight too (the page is another origin).
 
@@ -110,9 +110,9 @@ test "another person's item arrives on the poll; the persona is kept"
   expect state persona == "Grace"
 ```
 
-- **`verify` runs the server itself** on an empty database: it starts server.ts with `DB`
+- **`test` and `verify` run the server themselves** on an empty database: it starts server.ts with `DB`
   naming a scratch file (`new Database(process.env.DB ?? 'data.db')`) and stops it after; a
-  server already answering is refused: stop yours. `api-test web` does the same for `test`.
+  server already answering is refused: stop yours.
 - **A second person is a test line**: `request POST "/items" {...} as grace` sends `Authorization:
   Bearer grace` (a persona's token is its name); then `clock +4000` (the poll), `clock data`.
 - **A persona switcher is a `radiogroup`** kept with `persist`, never a disabled button;

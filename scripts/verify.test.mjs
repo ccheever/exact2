@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { applyPattern, createApp } from '../game/new.mjs';
 import { chromium } from './agent-launch.mjs';
-import { appServer, groups, judgeRelaunch, relaunchStore, report, serverUrl, shotName } from './verify.mjs';
+import { appServer, groups, judgeRelaunch, pinnedLaunch, relaunchStore, report, serverUrl, shotName } from './verify.mjs';
 
 const SIZES = [[390, 844], [1280, 900]];
 const runs = (lines, screen) => SIZES.flatMap((size) => ['light', 'dark'].map((scheme) => ({ ...(screen ? { screen } : {}), size, scheme, asked: scheme, lines: lines(size, scheme), hidden: 0 })));
@@ -119,6 +119,27 @@ test('the relaunch: the store of a passing test that wrote the most; what came b
   assert.deepEqual(slow.problems.map((p) => p.trim().split(/\s+/)[0]), ['loading', 'failed']);
 });
 
+// LLP 1116.007 D3.4: a test that pinned its date left data a month-filtered screen shows only under that date, so the
+// relaunch is made under the test's launch facts and compared with a fresh launch under them; only a test whose facts
+// are not the driver's own asks for that second fresh launch.
+test('the relaunch keeps a test\'s pinned date, zone, locale and seed', () => {
+  const defaults = { epoch: Date.parse('2026-01-01T00:00:00Z'), timeZone: 'UTC', locale: 'en-US', seed: 1 };
+  const test = (launch) => ({ name: 'saves', failures: [], store: 's', end: { keep: true, resources: {}, ops: 3, launch } });
+  assert.equal(pinnedLaunch(test(defaults), defaults), false);
+  assert.equal(pinnedLaunch(test({ ...defaults, epoch: Date.parse('2026-10-12T12:00:00Z') }), defaults), true);
+  assert.equal(pinnedLaunch(test({ ...defaults, timeZone: 'Pacific/Auckland' }), defaults), true);
+  assert.equal(pinnedLaunch(test({ ...defaults, locale: 'fr-FR' }), defaults), true);
+  assert.equal(pinnedLaunch(test({ ...defaults, seed: 7 }), defaults), true);
+  assert.equal(pinnedLaunch({ name: 'saves', end: { keep: true } }, defaults), false); // a test run without launch facts
+
+  // The relaunch under October is compared with a fresh launch under October: the month's title is October's in both, so
+  // the entry's coming back, or its loss, is all that differs.
+  const october = (month) => ({ texts: new Set(['October 2026', ...month]), resources: { month: { title: 'October 2026', count: month.length } }, slots: {}, ops: 1 });
+  const saved = { ...test(defaults), end: { ...test(defaults).end, resources: october(['A fresh start.']).resources } };
+  assert.deepEqual(judgeRelaunch(saved, october([]), october(['A fresh start.'])).problems, []);
+  assert.equal(judgeRelaunch(saved, october([]), october([])).problems.length, 1);
+});
+
 test('the compiler\'s warnings: a group before the tests, capped as findings are, counted as findings', () => {
   const warning = (n) => `app.contract:${n}:23 warning [lower-colour-one-scheme] \`#336699\` on \`color\` stays the same in dark mode`;
   const one = report({ host: 'web', built: null, compiler: [warning(25)], tested: { passed: 2, failed: 0, results: [] }, checks: runs(() => []), shots: [], ms: 4000 });
@@ -189,6 +210,20 @@ test.skipIf(!!chromium().unavailable)('verify on a server app: its own server on
     assert.match(clean.stdout, /^relaunch on .*: the first screen shows what it stored: /m);
     assert.ok(readFileSync(resolve(dir, 'data.db')).equals(before), 'the builder\'s data.db is as it was');
     assert.deepEqual(['data.db-wal', '.exact/verify/db.sqlite'].filter((f) => existsSync(resolve(dir, f))), []);
+    // LLP 1116.007 D2: `test` runs the same server on the same terms (it was the builder's to start, and `api-test`'s to know),
+    // and an older app's api-test, whose test.mjs runs `test` under `withAppServer`, still passes on the one server it started.
+    const plain = (verb = 'test') => spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), verb, 'web'], { cwd: dir, encoding: 'utf8', timeout: 240_000 });
+    const tested = plain();
+    assert.equal(tested.status, 0, tested.stdout + tested.stderr);
+    assert.match(tested.stderr, /^test: bun server\.ts at http:\/\/127\.0\.0\.1:8787, on an empty database \(\.exact\/test\/db\.sqlite, removed after\)$/m);
+    assert.match(tested.stdout, /^1 passed, 0 failed$/m);
+    assert.ok(readFileSync(resolve(dir, 'data.db')).equals(before), 'test leaves the builder\'s data.db as it was');
+    writeFileSync(resolve(dir, 'test.mjs'), "const { withAppServer } = await import(`${process.env.EXACT2}/scripts/verify.mjs`);\nprocess.exit(await withAppServer(import.meta.dir, () =>\n  Bun.spawn(['bun', 'exact.mjs', 'test', ...process.argv.slice(2)], { cwd: import.meta.dir, stdio: ['inherit', 'inherit', 'inherit'] }).exited));\n");
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')), commands: { 'api-test': ['bun', 'test.mjs'] } }, null, 2));
+    const old = plain('api-test');
+    assert.equal(old.status, 0, old.stdout + old.stderr);
+    assert.match(old.stdout, /^1 passed, 0 failed$/m);
+    assert.deepEqual(['data.db-wal', '.exact/test/db.sqlite', '.exact/api-test/db.sqlite', '.exact/api-test/owner'].filter((f) => existsSync(resolve(dir, f))), []);
     // Their dev server (started here, so this test may stop it) holds the port: one line naming it, and it runs on.
     const dev = Bun.spawn([process.execPath, 'server.ts'], { cwd: dir, stdout: 'ignore', stderr: 'ignore' });
     try {
@@ -197,6 +232,10 @@ test.skipIf(!!chromium().unavailable)('verify on a server app: its own server on
       assert.equal(refused.status, 1, refused.stdout + refused.stderr);
       assert.equal(refused.lines.length, 1, refused.stdout);
       assert.match(refused.lines[0], new RegExp(`^verify: http://127\\.0\\.0\\.1:8787 already answers \\(pid ${dev.pid}: .*server\\.ts\\), and the tests would write into that server's database: stop it \\(kill ${dev.pid}\\) and run this again, which starts server\\.ts itself on an empty one$`));
+      assert.equal(dev.exitCode, null, 'the dev server runs on');
+      const held = plain();
+      assert.equal(held.status, 1, held.stdout + held.stderr);
+      assert.match(held.stderr, new RegExp(`^test: http://127\\.0\\.0\\.1:8787 already answers \\(pid ${dev.pid}: .*server\\.ts\\)`, 'm'));
       assert.equal(dev.exitCode, null, 'the dev server runs on');
     } finally { dev.kill(); await dev.exited; }
   } finally { rmSync(parent, { recursive: true, force: true }); }

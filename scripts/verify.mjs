@@ -6,8 +6,9 @@
 // phone width and a desktop width (iOS: the simulator's own size, with UIKit's bars), and runs `check` light and
 // dark there. Each test's end screen is checked the same way inside the test's own session (the web at both
 // widths, resized to each), so its secondary screens and populated states are in the report. Then the app
-// relaunches once on the store a passing test left, on real time (at most REAL_MS), and its first screen is
-// compared with the fresh one's: what the test stored should come back. One capture of each screen is kept in
+// relaunches once on the store a passing test left, on real time (at most REAL_MS) and under the date, zone,
+// locale and seed the test launched with (LLP 1116.007 D3.4), and its first screen is compared with a fresh
+// launch's under the same: what the test stored should come back. One capture of each screen is kept in
 // .exact/verify/ for milestones (four of the first screen: each width and scheme). It prints one short report
 // ending "verify: clean" or "verify: N problems" (`--json`: one object). Exit 1 when the build, a test, a launch
 // or the relaunch fails; check's findings, the relaunch's and the compiler's warnings (`contract build`'s,
@@ -19,7 +20,7 @@
 //
 //   bun scripts/verify.mjs [web|ios] --app <name> [--sim <udid|name>] [--json]
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { guardFlags } from './help.mjs';
@@ -80,9 +81,12 @@ export function heldLine(server) {
  * the database; `exited` is its exit code once it has ended on its own, else null. `forward` passes its stderr on. */
 export async function startServer(dir, server, name, { forward = false } = {}) {
   if (await answering(server.url)) throw new Error(heldLine(server));
-  const db = resolve(dir, '.exact', name, 'db.sqlite'), clear = () => { for (const end of ['', '-wal', '-shm', '-journal']) rmSync(`${db}${end}`, { force: true }); };
+  // `owner` names this process, for a `bun exact.mjs test` it runs (an api-test's test.mjs) to find the server already here.
+  const db = resolve(dir, '.exact', name, 'db.sqlite'), owner = resolve(dirname(db), 'owner');
+  const clear = () => { for (const end of ['', '-wal', '-shm', '-journal']) rmSync(`${db}${end}`, { force: true }); rmSync(owner, { force: true }); };
   mkdirSync(dirname(db), { recursive: true });
   clear();
+  writeFileSync(owner, `${process.pid}\n`);
   const child = Bun.spawn([process.execPath, server.entry], { cwd: dir, env: { ...process.env, DB: db, PORT: String(server.port) }, stdin: 'ignore', stdout: 'ignore', stderr: 'pipe' });
   let said = '';
   (async () => { for await (const chunk of child.stderr) { said = (said + new TextDecoder().decode(chunk)).slice(-4000); if (forward) process.stderr.write(chunk); } })().catch(() => {});
@@ -110,17 +114,25 @@ export async function startServer(dir, server, name, { forward = false } = {}) {
   return { stop, exited: () => child.exitCode, tail };
 }
 
-/** `fn` with the app's server running on an empty database, as verify runs it (`bun exact.mjs api-test`, the rest
- * pattern's test.mjs): its exit code, or 1 when the server cannot run, said in one line. */
-export async function withAppServer(dir, fn) {
+/** `fn` with the app's server running on an empty database, as verify runs it: its exit code, or 1 when the server cannot
+ * run, said in one line. `bun exact.mjs test` runs its tests so (LLP 1116.007 D2: `optional`: an app with no server, or one
+ * left alone as `verify` leaves it, runs them as they are, the second said once, and the tests use whatever answers there);
+ * a server its parent process runs (an older app's api-test test.mjs, which runs `test` under `withAppServer`) is used, not started again.
+ * `api-test` is the same call without `optional`: it wants a server, and says why it has none. */
+export async function withAppServer(dir, fn, { verb = 'api-test', optional = false } = {}) {
   const server = appServer(dir);
+  if (server && ['api-test', 'test', 'verify'].some((name) => readIn(dir, `.exact/${name}/owner`)?.trim() === String(process.ppid))) return fn(null);
   let running;
   try {
-    if (!server) throw new Error('no server: server.ts, server/index.ts, server/server.ts, or app.json\'s commands.server');
-    if (server.why) throw new Error(server.why);
-    running = await startServer(dir, server, 'api-test', { forward: true });
-  } catch (e) { console.error(`api-test: ${e.message}`); return 1; }
-  try { return await fn(running); } finally { await running.stop(); }
+    if (!server || server.why) {
+      if (!optional) throw new Error(server?.why ?? 'no server: server.ts, server/index.ts, server/server.ts, or app.json\'s commands.server');
+      if (server) console.error(`${verb}: ${server.why}; the tests use whatever answers there`);
+    } else {
+      running = await startServer(dir, server, verb, { forward: true });
+      console.error(`${verb}: bun ${server.entry} at ${server.url}, on an empty database (.exact/${verb}/db.sqlite, removed after)`);
+    }
+  } catch (e) { console.error(`${verb}: ${e.message}`); return 1; }
+  try { return await fn(running); } finally { await running?.stop(); }
 }
 
 /** Builds the web app when its dist is missing or older than its sources, as the driver would refuse it:
@@ -203,7 +215,7 @@ const testEnd = (host, shots) => async (s, t) => {
   const shot = (vp, scheme) => (scheme === 'light' && (host !== 'web' || vp.w === near[0]) ? path : undefined);
   const facts = await seen(s, state);
   const runs = await checkHere(s, { screen: t.name, sizes: host === 'web' ? WEB_SIZES : [null], shot, state });
-  return { keep: true, runs, shot: path, resources: facts.resources, ops: facts.ops, reload: t.reload };
+  return { keep: true, runs, shot: path, resources: facts.resources, ops: facts.ops, reload: t.reload, launch: t.launch };
 };
 
 /** The authored tests: `{ passed, failed, results }` (each with its end screen's `end`, and the store it left), `{ none }`
@@ -272,12 +284,40 @@ export function judgeRelaunch(test, fresh, after, { busy = [], failed = {} } = {
   return { shows, problems, said };
 }
 
-/** One launch on the store `test` left, at the phone's width (iOS: the simulator's, with UIKit's bars), not emptied:
+/** The facts a launch is made under that a test may pin (agent-launch.mjs `launchFacts`): the date at the clock's zero, the
+ * zone, the locale and the seed. */
+const LAUNCH_FACTS = ['epoch', 'timeZone', 'locale', 'seed'];
+const launchOf = (launch) => Object.fromEntries(LAUNCH_FACTS.filter((k) => launch?.[k] != null).map((k) => [k, launch[k]]));
+
+/** Whether `test` launched under facts other than the driver's own, which the first screens launch under: a date, zone,
+ * locale or seed its leading lines pinned. What it stored is read back under those facts, and a fresh launch to compare
+ * with must be made under them too (LLP 1116.007 D3.4). */
+export function pinnedLaunch(test, defaults) {
+  const launch = test.end?.launch;
+  return !!launch && LAUNCH_FACTS.some((k) => launch[k] != null && launch[k] !== defaults[k]);
+}
+
+/** What a fresh launch shows under `launch`'s facts on an empty scratch store, for `seen`'s comparison. */
+async function freshUnder(host, app, launch, store) {
+  const [{ open }, { driveStore, removeBrowserProfile }] = await Promise.all([import('./agent.mjs'), import('./agent-launch.mjs')]);
+  const s = await open({ host, app: app.name, storage: store, env: { EXACT_AGENT_STORAGE_FRESH: '1' }, ...launchOf(launch), ...(host === 'web' ? { size: WEB_SIZES[0] } : { chrome: 'platform' }) });
+  try {
+    await s.clock('data');
+    await s.clock('settle');
+    return await seen(s, await s.state().catch(() => ({})));
+  } finally {
+    await s.close();
+    if (host === 'web') await removeBrowserProfile(driveStore(app, store).profile).catch(() => {});
+  }
+}
+
+/** One launch on the store `test` left, under the facts the test launched with (its date, zone, locale and seed, as a
+ * `reload` relaunches), at the phone's width (iOS: the simulator's, with UIKit's bars), not emptied:
  * its first loads on real time, in REAL_STEP steps until nothing is in flight or REAL_MS pass, then its transitions
  * end; then `check both` (the web: at both widths, one capture kept). */
 async function relaunch(host, app, test, fresh, shots) {
   const [{ open }, { driveStore, removeBrowserProfile }] = await Promise.all([import('./agent.mjs'), import('./agent-launch.mjs')]);
-  const s = await open({ host, app: app.name, storage: test.store, ...(host === 'web' ? { size: WEB_SIZES[0] } : { chrome: 'platform' }) });
+  const s = await open({ host, app: app.name, storage: test.store, ...launchOf(test.end?.launch), ...(host === 'web' ? { size: WEB_SIZES[0] } : { chrome: 'platform' }) });
   try {
     const started = performance.now(), b = (st) => (st.background?.queued ?? 0) + (st.background?.inFlight ?? 0);
     const waiting = (st) => [...(st.pending ?? []).filter((p) => !p.device).map((p) => p.name), ...(b(st) ? ['storage'] : [])];
@@ -450,7 +490,16 @@ async function main(argv) {
     const fresh = firsts.find((runs) => runs.seen)?.seen ?? null;
     // The relaunch, on the store the chosen test left; the others' (the web's: Chrome profiles of this run) go after it.
     const chosen = relaunchStore(results, fresh);
-    if (chosen) relaunched = await relaunch(host, app, chosen, fresh, shots).catch((e) => ({ test: chosen.name, error: e.message }));
+    if (chosen) {
+      // A test that pinned its date (or zone, locale, seed) left data the driver's default date may not show, and a
+      // first screen of another date differs from the relaunch's for that alone: compare with a fresh launch under the
+      // test's facts. An app with a server has no fresh database after the tests: its relaunch is not compared.
+      relaunched = await (async () => {
+        const { launchFacts } = await import('./agent-launch.mjs');
+        const against = !pinnedLaunch(chosen, launchFacts({})) ? fresh : running ? null : await freshUnder(host, app, chosen.end.launch, host === 'web' ? `verify.${tag}.fresh` : 'verify');
+        return relaunch(host, app, chosen, against, shots);
+      })().catch((e) => ({ test: chosen.name, error: e.message }));
+    }
   } finally {
     if (host === 'web') {
       const { driveStore, removeBrowserProfile } = await import('./agent-launch.mjs');
