@@ -12,7 +12,7 @@ final class T3ComposerStyler {
     weak var editor: T3ComposerEditor?
     private(set) weak var view: NSTextView?
     private var underlay: T3ComposerUnderlay?
-    /// Above the text: the chip that is the selection, over the text view's highlight (realinput-1010e-followups RE-3).
+    /// Above the text: the chip that is the selection, over the text view's highlight.
     private(set) var overlay: T3ComposerUnderlay?
     private var observers: [NSObjectProtocol] = []
     private var click: NSClickGestureRecognizer?
@@ -219,7 +219,7 @@ final class T3ComposerStyler {
         noteSelection()
     }
 
-    /// realinput-1010e-followups RE-3: the chip whose whole source is the selection (ProseMirror's NodeSelection, which a
+    /// The chip whose whole source is the selection (ProseMirror's NodeSelection, which a
     /// press on a skill chip makes). The text view's highlight covers the pill painted below the text, so the overlay
     /// paints that chip again above it, tinted as the reference paints a selected chip (`data-composer-chip-selected`:
     /// Highlight at 30% over it).

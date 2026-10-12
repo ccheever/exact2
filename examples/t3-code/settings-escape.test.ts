@@ -1,6 +1,6 @@
 // settings-escape-and-nav (2026-10-09 desktop audit S1-1..S1-4, S2-1, S2-5), read from the Contract sources as
 // theme-color-picker.test.ts and dialog-focus.test.ts read theirs; the keys and the drag are driven on macOS
-// (the 20261009-settings-escape-and-nav record on the feat(example)/t3-code branch). The "Add custom model" field's block key is checked on the providers
+// (a source read cannot press them). The "Add custom model" field's block key is checked on the providers
 // page model in providers.test.ts ("an open "Add custom model" field survives other writes …"). Reference 1e2ecbd975: useEscapeToGoBack (hooks/useNavigateBack.ts)
 // leaves Settings only for an Escape nothing prevented; KeybindingsSettings.tsx's searches, When popover and
 // capture input, FontFamilyPicker's Combobox, ProviderModelsSection's slug field and every Base UI Dialog consume

@@ -1,4 +1,4 @@
-// Project paths as T3 Code compares, titles and browses them (20261005-app-activation). Ported from
+// Project paths as T3 Code compares, titles and browses them. Ported from
 // T3 Code (MIT, see LICENSE-T3), reference 1e2ecbd975: packages/shared/src/path.ts and
 // packages/client-runtime/src/state/projects.ts, as apps/web/src/lib/projectPaths.ts re-exports them.
 // `t3 app <dir>` (desktop-activation.ts) finds an existing project with `findProjectByPath` and

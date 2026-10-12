@@ -71,7 +71,7 @@ export async function environmentRequest(client: T3Client, native: Native, envir
 }
 /**
  * Any transport op (`request`, the diff's `prDiff`) on one server: the focused connection's, or a background
- * transport's at its generation (realinput-1010e-followups RE-5: a pull request's own server, not the focus).
+ * transport's at its generation (a pull request's own server, not the focus).
  */
 export async function environmentCall(client: T3Client, native: Native, environmentId: string, request: Obj, write = false, source: EnvironmentFleet = fleet): Promise<Obj> {
   if (!environmentId || environmentId === client.environmentId) return client.call(native, request, client.generation, write);

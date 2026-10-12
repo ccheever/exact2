@@ -1,5 +1,5 @@
 // Settings → Connections › This machine: Network access, its endpoints, Tailscale HTTPS and the
-// Authorized clients section (20261005-this-machine-network-access items 3-5), after T3 Code (MIT,
+// Authorized clients section, after T3 Code (MIT,
 // see LICENSE-T3; reference 1e2ecbd975) ConnectionsSettings.tsx (renderNetworkAccessRow,
 // renderEndpointRows, renderTailscaleRow, AuthorizedClientsHeaderAction, PairingClientsList,
 // PairingLinkListRow, ConnectedClientListRow, the four dialogs) and state/desktopNetworkAccess.ts.

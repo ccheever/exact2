@@ -1,7 +1,7 @@
-// realinput-1010g-followups (T3 Code 1e2ecbd975, MIT; see LICENSE-T3): what the real-input session realinput-1010g
-// found in the shell's context menu. This file holds the contract side of RG-1; the shell's search below the hit (RG-1)
-// and its system items (RG-3) are AppKit tests, macos/tests/contextmenu/realinput-1010g.swift; the inputs' autocorrect
-// (RG-2) is text-entry.test.ts, the reply links (RG-4) external-link-menu.test.ts and markdown_links.rs.
+// The shell's context menu as a person's right-click found it (T3 Code 1e2ecbd975, MIT; see LICENSE-T3). This file
+// holds the contract side of the tool icon's right-click (RG-1); the shell's search below the hit and the menu's system
+// items are AppKit tests (macos/tests/contextmenu/shell-menu-items.swift); the inputs' autocorrect is text-entry.test.ts,
+// the reply links external-link-menu.test.ts and markdown_links.rs.
 import { describe, test, expect } from 'bun:test';
 
 const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();

@@ -228,7 +228,7 @@ describe('the rows\' context popover (sidebar-row.contract ThreadMenu, DraftMenu
     expect(calls.filter(call => call.op === 'copyText').map(call => call.text)).toEqual(['/other']);
   });
 
-  // realinput-1010c (browser-surface-capture): the row showed `[101](t3-context://v1/preview-annotation/…)`; the reference's
+  // Under real input the row showed `[101](t3-context://v1/preview-annotation/…)`; the reference's
   // SidebarDraftRow reads replaceComposerContextReferences(prompt, label), its first line ("Tighten the button spacing Sen…").
   test('a draft row reads its context chips by their labels (SidebarDraftRow promptPreview)', () => {
     const { client } = fake([shell('a')], { threadId: 'a' });

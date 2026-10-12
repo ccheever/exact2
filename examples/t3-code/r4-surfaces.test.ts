@@ -354,8 +354,8 @@ describe('Device setup', () => {
   });
 });
 
-// RightPanelTabs handleKeyDown (PA-2), read from the Contract source as menu-keys.test.ts reads its menus; the macOS drive
-// in the 20261009-right-panel-launcher-and-files record on the feat(example)/t3-code branch proves the keys.
+// RightPanelTabs handleKeyDown (PA-2), read from the Contract source as menu-keys.test.ts reads its menus; driving the app
+// on macOS checks the keys themselves.
 describe('the surface launcher keyboard', () => {
   const component = async (name: string) => {
     const lines = (await Bun.file(new URL('./shell-panels.contract', import.meta.url)).text()).split('\n');
@@ -373,7 +373,7 @@ describe('the surface launcher keyboard', () => {
     expect(launcher).toContain('else if k == "ArrowUp" or k == "ArrowLeft"\n      preventDefault()\n      highlight = lit == -1 ? length(ids) - 1 : (lit - 1 + length(ids)) % length(ids)');
     expect(launcher).toContain('else if k == "Enter" and lit >= 0\n      preventDefault()\n      match at(ids, lit)\n        case some(id)\n          ui("choose", id)');
     expect(launcher).toContain('    else\n      ui("key", k)');
-    // realinput-1010-fixes RI-1: a letter of an available row, either case, is the launcher's alone (the reference's
+    // A letter of an available row, either case, is the launcher's alone (the reference's
     // capture listener prevents and stops it), so a real key handed on by the window's monitor goes nowhere else.
     expect(launcher).toContain('derive letters = concat(map(filter(surfaces, (entry) => entry.available), (entry) => entry.shortcut), map(filter(surfaces, (entry) => entry.available), (entry) => entry.letter))');
     expect(launcher).toContain('else if includes(letters, k)\n      preventDefault()\n      stopPropagation()\n      ui("key", k)\n    else\n      ui("key", k)');

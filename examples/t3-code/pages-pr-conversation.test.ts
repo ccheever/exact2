@@ -2,7 +2,7 @@
 // refresh): the Summary and Timeline models (pages-pr-summary.ts, pages-pr-timeline.ts) and the
 // panel's reads (pages-pr-detail.ts, pages-pr-refresh.ts) against injected host replies — the
 // failures, delays and announcements real GitHub cannot be made to produce on request. The live
-// rows ran against the real-GitHub lane (the task record).
+// rows ran against the real-GitHub lane (tools/github-lane).
 import { describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';
 import type { Obj } from './domain';

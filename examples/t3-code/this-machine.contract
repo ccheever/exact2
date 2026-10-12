@@ -2,7 +2,7 @@ use R4Glyph from "./r4-git.contract"
 use DialogOpenFocus from "./dialog-trap.contract"
 
 // Settings → Connections › This machine › Local environment's confirm
-// (LocalEnvironmentSetting.tsx AlertDialog; 20261005-local-primary-environment,
+// (LocalEnvironmentSetting.tsx AlertDialog;
 // this-machine.ts): "Turn off local environment?" with the destructive "Restart
 // and turn off", or "Turn on local environment?" with "Restart and turn on".
 // While the change runs the confirm reads "Restarting…" beside a spinner, Cancel

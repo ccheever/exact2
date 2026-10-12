@@ -1,4 +1,4 @@
-// 20261005-pr-code-tab: the Code tab's pure logic, ported with the reference's own test names and
+// The pull request Code tab's pure logic, ported with the reference's own test names and
 // cases (T3 Code 1e2ecbd975, MIT, see LICENSE-T3: components/pullRequest/{pullRequestDiff.logic,
 // pullRequestFilesViewed.logic,pullRequestFileOrder.logic,pullRequestDetail.logic}.test.ts), plus
 // the clone's own: the whitespace filter, the slice adoption and the review positions.

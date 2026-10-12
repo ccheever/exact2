@@ -64,7 +64,7 @@ component ChipPopoverLayer
           button press=instructions testId="chip-popover-instructions" display="flex" flex-direction="row" align-items="center" justify-content="center" box-sizing="border-box" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" flex-shrink=0
             text "View instructions" font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap"
 
-// The details' Escape (realinput-1010c-fixes RC-4): Base UI's Popover dismisses on an Escape anywhere in the document,
+// The details' Escape: Base UI's Popover dismisses on an Escape anywhere in the document,
 // wherever the focus is. The native editor's own cancelOperation only heard it while its text view had the focus, so a
 // real Escape after a click elsewhere (the heading, then the chip) left the details open. A hidden shortcut button, as
 // the palette's and the diff menus': a shortcut reaches it from any focus in the window before a field or the text

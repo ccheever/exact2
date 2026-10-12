@@ -3,7 +3,7 @@
 // (T3WindowChrome.setAppearance). On macOS `viewport.prefersColorScheme` is the system's appearance beneath the
 // window's own, so a view that picked its palette from it drew the other palette whenever the two differed (the
 // 2026-10-09 audit's PG-1, PA-11, TH-7). The root resolves one `scheme` and hands it down; these checks read the
-// Contract sources. The palettes themselves are proven by the macOS drive in the 20261009-app-color-scheme record on the feat(example)/t3-code branch.
+// Contract sources. The palettes themselves are checked by driving the app on macOS: a source read cannot see a colour.
 import { describe, expect, test } from 'bun:test';
 import { readdirSync } from 'node:fs';
 import type { T3Client } from './client';

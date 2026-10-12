@@ -4,7 +4,7 @@
 // dashes, no text replacement), so every editable textarea and text input in the clone carries it.
 // An input's correction includes AppKit's automatic capitalization: a right-click that selected a
 // typed word in Settings' search field accepted it ("theme" became "Theme", the selection collapsed
-// and the menu's Cut cut nothing; realinput-1010g RG-2).
+// and the menu's Cut cut nothing).
 import { describe, test, expect } from 'bun:test';
 import { readdirSync } from 'node:fs';
 
@@ -32,7 +32,7 @@ describe('typed text is kept as typed', () => {
     expect(missing).toEqual([]);
   });
 
-  test('every text input has autocorrect="off" (realinput-1010g RG-2)', async () => {
+  test('every text input has autocorrect="off"', async () => {
     const all = (await elements('input')).filter(({ line }) => !typesNoText(line));
     expect(all.length).toBeGreaterThan(90);
     const missing = all.filter(({ line }) => !/\bautocorrect="off"/.test(line)).map(({ at }) => at);

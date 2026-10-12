@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// A second client for the lane (20261005-this-machine-network-access, "Pair another client" and
+// A second client for the lane (to check "Pair another client" and
 // "Revoke"): redeems a pairing URL as a client does (POST /oauth/token with the URL's #token, a
 // websocket ticket, then /ws), stays connected, and logs each step with a timestamp (never the
 // credential or the bearer). Once the session is revoked it logs the refusal of a new socket and

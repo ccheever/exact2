@@ -2,7 +2,7 @@ import AppKit
 import WebKit
 import XCTest
 
-// The terminal surface spike (task 20261005-terminal-surface): the `t3-terminal` view
+// The terminal surface: the `t3-terminal` view
 // (T3TerminalView.swift) running T3 Code's Ghostty page from the app's assets.
 // Needs `bun examples/t3-code/terminal-host/build.mjs` first and `T3_APP_DIR` (the example
 // directory, whose `assets/` holds the page). `T3_TERMINAL_TEST_DIR` receives PNGs.

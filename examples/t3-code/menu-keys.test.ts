@@ -1,6 +1,6 @@
 // fix-keyboard-focus: the menus' keyboard (menu-keys.contract) and the real-input fixes of the batch report
 // (#298 bugs 4, 5, 6, 13 and 16), read from the Contract sources as dialog-focus.test.ts reads its dialogs.
-// These guard the wiring; the behavior is proven by the macOS drives in the 20261008-fix-keyboard-focus record on the feat(example)/t3-code branch.
+// These guard the wiring; the keys themselves are checked by driving the menus on macOS, which a source read cannot do.
 import { describe, expect, test } from 'bun:test';
 import { readdirSync } from 'node:fs';
 
@@ -211,7 +211,7 @@ describe('#298 bug 4: Custom snooze from the sidebar row by the real pointer and
   });
 });
 
-describe('realinput-1010d RD-5: the snooze menu sizes to its rows', () => {
+describe('the snooze menu sizes to its rows', () => {
   test('MenuPopup\'s one minimum (min-w-[min(10rem,…)]), no fixed width: "Next week" and "Mon 9:00 AM" fit inside', async () => {
     // A fixed 10.8rem cut the widest time at the menu's edge; the reference's menu is 192 px wide on a weekday.
     const row = await component('sidebar-row.contract', 'ThreadRow');
@@ -252,7 +252,7 @@ describe('#298 bugs 13 and 16: the pull request More menu and its Close dialog b
   });
 
   test('the Act on rows of More and of Check out have their own ids, so ↓ reaches the rows of the menu that is open', async () => {
-    // Real keys, 2026-10-09 (realinput-1009): More's ↓ stayed on "Fix findings" for each Act on row, because the key
+    // Under real keys, More's ↓ stayed on "Fix findings" for each Act on row, because the key
     // menu focused the row by id and the hidden Check out menu's row with that id came first.
     const more = await component('pages-pr-actions.contract', 'PrdActionsMenu');
     expect(more).toContain('KmItem(id=(handing ? `pr-more-act-on-${item.key}` : ""), label=item.label)');
@@ -287,7 +287,7 @@ describe('the Pull Requests Filters submenus (audit-wave-followups-3)', () => {
     expect(menu).toContain('action subEscape(k: string)\n    if k == "Escape" and sub != ""\n      preventDefault()\n      closeSub()');
     // The focus goes back to the submenu's row (FloatingFocusManager's return to the trigger), unless the pointer left
     // that row after the submenu opened: the trigger's mouseleave stops the return and the focus drops (BODY on the
-    // reference, from a row or from "Search authors"). realinput-1010c-fixes RC-3: it drops onto the popup's rest box, not
+    // reference, from a row or from "Search authors"). Here it drops onto the popup's rest box, not
     // onto nothing: with the window itself the first responder, the host's popover Escape ignored a real second Escape.
     // Main #446 fixed that (X73); the box stays (adopt-main-fixes-r10 RT-4, (b)) because the popover that closes with
     // the focus inside it gives it back to Filters, as the reference does, which `blur()` cannot until X66 (#319).

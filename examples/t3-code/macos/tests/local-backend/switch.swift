@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 import XCTest
 
-// 20261005-local-primary-environment: the Local environment switch's stopgap (decision U4; exact2
+// The Local environment switch's stopgap (decision U4; exact2
 // cannot relaunch, issue X45 / #122), the primary's descriptor in the status, the switch read at
 // launch (desktop-settings.json since decision U7: settings.swift; the failed-start test starts from an
 // old t3-code.json, which the attach carries over), and `handleFatalStartupError` (T3LocalFatal.swift). Each test runs its own

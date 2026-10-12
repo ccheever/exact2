@@ -1,9 +1,9 @@
-// The window's view: app.contract's `provide` and `view`, moved unchanged (20261008-app-contract-room) so
+// The window's view: app.contract's `provide` and `view`, moved here unchanged so
 // the root keeps its lines for state, resources and actions (X9). Each root name the view reads is a
 // prop of the same name; `pending(providerAuthChanged)` is `providerAuthPending`. A feature that shows
 // a new root value adds its prop here and `name=name` to app.contract's `T3Window(...)`. The use lines
 // keep app.contract's order: the plan orders shapes by first use. The window also owns the view-only
-// state no resource, task or mutation reads (20261008-app-contract-root-rewrite, #108): an action that
+// state no resource, task or mutation reads (#108): an action that
 // writes both sets the window's half, then calls the root's half, passed as `<name>Root`.
 use Time from "./app-shapes.contract"
 use Snapshot, Viewport, LicenseSettings, SnapshotSettings, Settings, Canvas from "./shapes.contract"
@@ -464,7 +464,7 @@ component T3Window
   // floating theme editor's fields count the focus a press gives them instead.
   action outsideFocus
     outsidePresses = outsidePresses + 1
-  // The root rewrite (20261008-app-contract-root-rewrite): the sidebar's hover card geometry, its list's scroll
+  // View-only state: the sidebar's hover card geometry, its list's scroll
   // offset and a row drag, moved from app.contract. The sidebars are drawn in `when` arms (legacy, dark, light),
   // so the window keeps their state. sidebarHoverId stays in the root: openSettings and openPage close the card.
   state sidebarHoverLast = ""
@@ -686,7 +686,7 @@ component T3Window
   view
     main testId="t3-code" pointerdown=outsidePressDown pointerup=outsidePressUp viewport-fit="cover" width="100%" height="100%" position="relative" display="flex" flex-direction="row" overflow="hidden" class=Canvas background-color=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #0a0a0a)" : settingsCore.palette.canvas) font-family=(settingsCore.interfaceFont == "ui-serif" ? "ui-serif" : settingsCore.interfaceFont == "ui-rounded" ? "ui-rounded" : settingsCore.interfaceFont == "serif" ? "serif" : settingsCore.interfaceFont == "sans-serif" ? "sans-serif" : settingsCore.interfaceFont == "monospace" ? "monospace" : settingsCore.interfaceFont == "ui-monospace" ? "ui-monospace" : settingsCore.interfaceFont == "ui-sans-serif" ? "ui-sans-serif" : "system-ui") color=(settingsCore.palette.text == "" ? "light-dark(#27272a, #f5f5f5)" : settingsCore.palette.text)
       // The skill chip details' Escape, the window's first node so it is the oldest shortcut that declares Escape
-      // (composer-chip-popover.contract ChipPopoverEscape, realinput-1010c-fixes RC-4); outside the SSH prompt's inert
+      // (composer-chip-popover.contract ChipPopoverEscape); outside the SSH prompt's inert
       // background, so it gives the key up while the prompt shows, as the details under it did.
       ChipPopoverEscape(held=(chipShown and not (sshPrompt.open or paletteOpen or modelsOpen or optionsOpen != "" or projectsOpen or confirmOp != "")), dismiss=chipEscape)
       row width="100%" height="100%" min-width=0 position="relative" inert=sshPrompt.open testId="ssh-background"

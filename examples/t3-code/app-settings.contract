@@ -94,7 +94,7 @@ component SettingsWindow
     modelsOpen: bool // settings-model-picker: Escape closes a General model picker, not Settings
     providerVisit: number // audit-wave-followups FU-4: counts the root's provider links that changed the page's target
     paletteOpen: bool // audit-wave-followups FU-5: the command palette over Settings owns Escape (its Dialog prevents it)
-    chipOpen: bool // realinput-1010c-fixes RC-4: a skill chip's details over Settings own Escape (Base UI's Popover dismisses on it)
+    chipOpen: bool // a skill chip's details over Settings own Escape (Base UI's Popover dismisses on it)
     editSettingsQueryRoot: action
     coreSearchKeyRoot: action
     corePickRoot: action
@@ -182,7 +182,7 @@ component SettingsWindow
     resizeSidebar: action
     finishResize: action
     resetSidebarWidth: action
-  // The root rewrite (20261008-app-contract-root-rewrite): Settings' view-only state lives here, not in app.contract:
+  // Settings' view-only state lives here, not in app.contract, so the root keeps its lines for what resources read:
   // the search's held Escape, the legacy rows, the restore dialog and the keybinding and licence searches. A
   // wrapper sets it, then calls the root's half (`…Root`), which keeps what a resource reads.
   state settingsEscapeHeld = false

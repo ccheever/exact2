@@ -1,4 +1,4 @@
-// 20261005-local-primary-environment: "This machine" is the primary environment. The first two
+// "This machine" is the primary environment. The first two
 // describes port T3 Code's tests with their original names (MIT, see LICENSE-T3; reference
 // 1e2ecbd975: apps/web/src/environments/primary/bootstrap.test.ts, components/chat/folderDrop.test.ts);
 // the rest cover the clone's wiring: the launch, the fleet, the switch, settings search, first run,

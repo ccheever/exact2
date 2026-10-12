@@ -1,7 +1,7 @@
 // The desktop shell's context menu in the window (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
 // apps/desktop/src/window/DesktopWindow.ts `installContextMenu`; the template is T3ShellMenu.swift). Electron raises
 // `context-menu` for every secondary click the page did not take, and the shell answers it. Contract has no window-wide
-// context-menu hook, so this module finds the same clicks itself (realinput-1010d RD-4, shell-context-menu). A secondary
+// context-menu hook, so this module finds the same clicks itself. A secondary
 // click is a right-click or, on a Mac, a Control-click (Chromium sends both as `contextmenu`; ExactKit runs a node's
 // `contextmenu` for a Control-click since main #487, X85, adopted in round 11), and each case below takes both:
 //
@@ -86,8 +86,8 @@ final class T3TextContextMenu: NSObject {
     static let contextMenuKeyCode: UInt16 = 0x6E
     /// Pops the shell's menu (tracks until the menu closes); a test records it instead. Without context-menu plug-ins:
     /// `popUpContextMenu` appends Services for a view that answers `validRequestor`, and AutoFill for a text view, which
-    /// Electron's menu (`popUpMenuPositioningItem`, DesktopWindow's template) has neither of (realinput-1010f RF-1,
-    /// realinput-1010g RG-3); nor Writing Tools, which macOS 15.2 and later add to a text view's menu where Apple
+    /// Electron's menu (`popUpMenuPositioningItem`, DesktopWindow's template) has neither of;
+    /// nor Writing Tools, which macOS 15.2 and later add to a text view's menu where Apple
     /// Intelligence is on.
     var present: (NSMenu, NSEvent, NSView) -> Void = { menu, event, view in
         T3TextContextMenu.withoutSystemItems(menu)
@@ -336,7 +336,7 @@ final class T3TextContextMenu: NSObject {
     /// An app-drawn image under `location` (window coordinates) anywhere below the node that took the click, topmost first:
     /// the image lets presses through, and so may the node that holds it. The work group's tool icon is two levels down
     /// (ToolActivityIcon's box › its `pointer-events="none"` hook box › `T3ToolActivityIcon`'s view), so the click is the
-    /// outer box's (realinput-1010g RG-1); Chromium's hit test for Copy Image passes `pointer-events: none` the same way.
+    /// outer box's; Chromium's hit test for Copy Image passes `pointer-events: none` the same way.
     static func drawnImage(at location: NSPoint, in view: NSView) -> CGImage? {
         for child in view.subviews.reversed() where !child.isHidden && child.frame.contains(view.convert(location, from: nil)) {
             if let drawn = child as? T3ShellImageView, let image = drawn.shellImage { return image }

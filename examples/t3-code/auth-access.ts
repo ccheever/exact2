@@ -1,4 +1,4 @@
-// Authorized clients of "This machine" (20261005-this-machine-network-access item 4), after T3 Code
+// Authorized clients of "This machine" (Settings › Connections), after T3 Code
 // (MIT, see LICENSE-T3; reference 1e2ecbd975): packages/client-runtime/src/state/auth.ts
 // (applyAuthAccessStreamEvent over `subscribeAuthAccess`), apps/web/src/environments/primary/auth.ts
 // (the six `/api/auth/*` calls) and ConnectionsSettings.tsx (sorting, the summary, records).

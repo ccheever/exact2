@@ -1,4 +1,4 @@
-// 20261005-this-machine-network-access item 2: the pure parts of packages/tailscale (tailscale.test.ts)
+// Tailscale HTTPS for "This machine": the pure parts of packages/tailscale (tailscale.test.ts)
 // and apps/desktop/src/backend/tailscaleEndpointProvider.test.ts, ported with the reference's test
 // names (MIT, see LICENSE-T3; reference 1e2ecbd975). The process tests (spawn, exit diagnostics, the
 // 1.5 s timeout) are the native reader's (macos/tests/local-backend/network.swift); `tailscale serve`

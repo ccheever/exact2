@@ -43,7 +43,7 @@ export function commandLabel(command: string) {
   return command.split('.').map(segment).join(': ');
 }
 
-/** `localBackend`: canManageLocalBackend; `localEnvironment`: the Local environment switch is on (20261005-local-primary-environment). */
+/** `localBackend`: canManageLocalBackend; `localEnvironment`: the Local environment switch is on. */
 export type SearchContext = { connected: boolean; autoSettle: boolean; scopeKind: string; keybindings?: Obj[]; localBackend?: boolean; localEnvironment?: boolean };
 type Item = { id: string; title: string; route: string; target: string; terms: string[]; scope: string; flags: string[]; secondary: boolean };
 function catalog(context: SearchContext): Item[] {

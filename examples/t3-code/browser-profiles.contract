@@ -81,7 +81,7 @@ shape BrowserProfilesView
   wizard: BrowserImportWizardView
   defaults: BrowserDefaultsView
 
-// The Add profile menu's keyboard rows (menu-keys.contract), its enabled MenuItems in order (realinput-1010c-fixes RC-6):
+// The Add profile menu's keyboard rows (menu-keys.contract), its enabled MenuItems in order:
 // Blank profile, then every browser it can import from, as Base UI's list navigation walks the menu's items. Disabled rows
 // ("Looking for browsers…", the limit, "Connect to an environment…") are not stops.
 fn bpAddItems(view: BrowserProfilesView): list<KmItem> = concat((view.hydrated and not view.atLimit ? [KmItem(id="browser-profiles-blank", label="Blank profile")] : []), (view.sourcesState == "ready" and view.canImport ? map(view.sources, (source) => KmItem(id=`browser-import-source-${source.id}`, label=source.name)) : []))

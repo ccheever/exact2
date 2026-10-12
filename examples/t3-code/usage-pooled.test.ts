@@ -423,8 +423,8 @@ describe('UsagePage refresh (UsagePage.refresh.test.tsx)', () => {
 
 
 // popover-escape-parity: light dismiss, read from the Contract sources as dialog-focus.test.ts reads
-// its handlers (the page's popover state is Contract state). The behavior is proven by the macOS drives
-// in the 20261008-popover-escape-parity record on the feat(example)/t3-code branch. Reference: UsageLimitsPooled.tsx PoolSegment is a Base UI
+// its handlers (the page's popover state is Contract state). The behavior is checked by driving the app
+// on macOS, which a source read cannot do. Reference: UsageLimitsPooled.tsx PoolSegment is a Base UI
 // Popover (non-modal); its useDismiss closes it on a press outside the popup and the popover's own
 // triggers (the segment and its LegendRow), on the click for a mouse ("intentional"), and a press on
 // another segment is outside it.
@@ -521,9 +521,9 @@ describe('light dismiss of a pinned segment popover (popover-escape-parity)', ()
     for (const file of readdirSync(new URL('./', import.meta.url)).filter(name => name.endsWith('.contract')).sort()) {
       (await source(file)).split('\n').forEach(line => { if (/^\s*[a-z][\w-]*\b[^\n]*\spointer(down|up|move)=/.test(line)) takers.push(`${file} ${/testId=(?:"([^"]+)"|`([^`]+)`)/.exec(line)?.slice(1).find(Boolean) ?? ''}`); });
     }
-    // browser-surface-capture (realinput-1010c, 1010d RD-1): the floating player hears `pointermove` for its pill and the
+    // The floating player hears `pointermove` for its pill and the
     // pill's tooltips (its buttons hear no hover, X62); a press there is the page's, the player's drag or resize, or a pill
-    // button's, and the Usage page's popover is never on screen with the chat's floating player. realinput-1010f RF-3: the
+    // button's, and the Usage page's popover is never on screen with the chat's floating player. The
     // diff gutter's number and "+" hear the pointer for their drags; the gutter is in a thread's Diff panel or a pull
     // request's Code tab, which the Usage page covers, so its popover is never on screen with them either. files-gutter-parity
     // FG-2: so do the Files preview's number and "+", a right-panel surface the Usage page covers too (a skill chip's details

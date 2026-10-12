@@ -5,9 +5,9 @@
 // the client's half); the rows then take the pointer again, so the row under it is the hovered one. The host keeps the
 // pressed row hovered through a pan and hovers nothing new at the release until the pointer moves, so the section keeps
 // that row as its rows' hover until the window's hover count moves on (`sweepRowHover`), and closes the card through the
-// root's half of the hover when the sweep arms. The agent drive of the task record shows them on the app.
+// root's half of the hover when the sweep arms. An agent drive of the app shows them.
 // PS-1 (X58): the Pull Requests list keeps its place across a window refocus; what moved it was the agent's first
-// `prefer` re-telling the system appearance (task record, one-file repro), which remounts the per-scheme subtrees. The
+// `prefer` re-telling the system appearance (a one-file repro showed it), which remounts the per-scheme subtrees. The
 // guard below keeps the list's mount free of the window's focus and visibility.
 import { describe, expect, test } from 'bun:test';
 import { contractFn } from './contract-fn-fixture';

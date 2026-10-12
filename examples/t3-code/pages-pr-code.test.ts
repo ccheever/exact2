@@ -1,8 +1,8 @@
-// 20261005-pr-code-tab: the Code tab through the panel's resource (pages-pr-detail.ts) and its
+// The pull request Code tab through the panel's resource (pages-pr-detail.ts) and its
 // presses and writes, against injected host replies — the slices of a 310-file change, a slice that
 // fails, a commit scope, the Viewed ticks and their one write, line comments into the review, and
 // the conversations' commands — the delays and failures real GitHub cannot be made to produce on
-// request. The live rows ran against the real-GitHub lane (the task record).
+// request. The live rows ran against the real-GitHub lane (tools/github-lane).
 import { describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';
 import type { Obj } from './domain';
@@ -281,7 +281,7 @@ describe('line comments into the review (PullRequestCodeTab beginComment, Add to
 });
 
 // The drags and the "+"'s press come on their own queued send (`chatlocal:pr-code-drag`, `chatlocal:pr-code-begin`, app.contract lineDragChanged).
-describe('the gutter\'s drags (realinput-1010f RF-3: onLineSelectionEnd and onGutterUtilityClick are both beginComment)', () => {
+describe('the gutter\'s drags (onLineSelectionEnd and onGutterUtilityClick are both beginComment)', () => {
   const row = (op: string, line: number, value: string) => `diffreview|${op}|${line}|${value}`;
   const marks = (view: Awaited<ReturnType<ReturnType<typeof fixture>['settle']>>) => view.codeTab.items.filter(item => item.path === 'src/catalog.js' && item.kind === 'line').map(item => `${item.side}:${item.line}${item.selected ? '*' : ''}`);
   test('a drag on the numbers paints its lines as it goes and opens the draft on its last line at the release', async () => {

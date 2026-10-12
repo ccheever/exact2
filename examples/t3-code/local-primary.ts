@@ -1,4 +1,4 @@
-// The primary environment, "This machine" (20261005-local-primary-environment items 1-3): the
+// The primary environment, "This machine": the
 // embedded server (local-backend.ts, T3LocalBackend.swift) as the environment this app runs on.
 // After T3 Code (MIT, see LICENSE-T3; reference 1e2ecbd975): apps/web/src/environments/primary/
 // target.ts (resolveDesktopPrimaryTarget, readPrimaryEnvironmentTarget), localEnvironment.ts,

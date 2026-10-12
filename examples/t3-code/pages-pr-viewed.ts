@@ -1,4 +1,4 @@
-// The Code tab's Viewed marks (20261005-pr-code-tab): usePullRequestFilesViewed (T3 Code 1e2ecbd975,
+// The Code tab's Viewed marks: usePullRequestFilesViewed (T3 Code 1e2ecbd975,
 // MIT, see LICENSE-T3: apps/web/src/components/pullRequest/usePullRequestFilesViewed.ts) as a plain
 // store the panel's resource and its commands share, one per change request on one environment.
 //

@@ -1,6 +1,6 @@
 // Ported from T3 Code (MIT, see LICENSE-T3) apps/web/src/onboarding/firstRun.logic.test.ts and
 // packages/shared/src/path.test.ts, reference 1e2ecbd975: the original names, vitest -> bun:test,
-// branded ids as plain strings (20261005-local-primary-environment item 6).
+// branded ids as plain strings.
 import { describe, expect, it } from "bun:test";
 
 import {

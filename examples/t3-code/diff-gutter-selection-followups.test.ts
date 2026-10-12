@@ -1,6 +1,6 @@
 // diff-gutter-selection-followups: the diff gutter's drag selects no text (GS-1), and the Files surface's selected lines
 // take the reference's blue (GS-2), as T3 Code (1e2ecbd975) draws them over @pierre/diffs (computed styles read over CDP,
-// light and dark). #413's drags and #416's colours run in realinput-1010f-followups.test.ts and diff-gutter-visuals.test.ts.
+// light and dark). #413's drags and #416's colours run in diff-gutter-pointer.test.ts and diff-gutter-visuals.test.ts.
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';

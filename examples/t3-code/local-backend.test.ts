@@ -1,4 +1,4 @@
-// 20261005-embedded-server-runtime: the TypeScript side of the embedded server's status.
+// The TypeScript side of the embedded server's status.
 import { describe, expect, test } from 'bun:test';
 import { defaultUpdateChannel, parseLocalBackendStatus, readLocalBackend, unknownLocalBackend } from './local-backend';
 import { CLIENT_VERSION } from './version-skew';

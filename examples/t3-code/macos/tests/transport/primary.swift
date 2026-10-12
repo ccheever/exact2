@@ -1,7 +1,7 @@
 import Foundation
 import XCTest
 
-// 20261005-local-primary-environment: the primary environment over T3Transport. Its bearer is the
+// The primary environment ("This machine") over T3Transport. Its bearer is the
 // embedded server's (memory, `primaryBearer`), it walks no routes, it is never saved and never
 // remembered by origin (its port can change every launch); a focus token `primary` beside
 // `t3.server.origin` names it for the next launch. A saved duplicate (same environment id) can be

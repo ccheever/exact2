@@ -144,7 +144,7 @@ export class PullRequestReviewStore {
   }
 }
 const stores = new WeakMap<object, PullRequestReviewStore>();
-/** The client's review store (the Code tab's line comments fill it; 20261005-pr-code-tab). */
+/** The client's review store (the Code tab's line comments fill it). */
 export function pullRequestReviewStore(client: object): PullRequestReviewStore {
   let store = stores.get(client);
   if (!store) { store = new PullRequestReviewStore(); stores.set(client, store); }

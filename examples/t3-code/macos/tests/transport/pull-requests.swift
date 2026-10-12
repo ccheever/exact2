@@ -1,7 +1,7 @@
 import Foundation
 import XCTest
 
-// 20261005-pr-code-tab: the pull request diff's narrow POST (T3Transport+PullRequests.swift) against
+// The pull request diff's narrow POST (T3Transport+PullRequests.swift) against
 // the R3 fixture server (r3.swift): the allow-listed body, the bearer, the reply, the refusals, and an
 // identical read joining the one still out.
 final class PullRequestDiffTransportTests: XCTestCase {

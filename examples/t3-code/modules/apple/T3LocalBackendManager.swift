@@ -1,4 +1,4 @@
-// The embedded server's supervisor (20261005-embedded-server-runtime): a port of T3 Code's
+// The embedded server's supervisor: a port of T3 Code's
 // desktop backend instance (MIT, see LICENSE-T3; reference 1e2ecbd975:
 // apps/desktop/src/backend/DesktopBackendManager.ts `makeBackendInstance`, `runBackendProcess`,
 // `calculateRestartDelay`; app/DesktopApp.ts `stopAllPoolInstances`).

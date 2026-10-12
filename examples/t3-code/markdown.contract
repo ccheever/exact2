@@ -534,7 +534,7 @@ component FlowRuns
       each run in runs key=run.id
         // A link's first run (ChatMarkdown's `<a>`): one link node per link, named with the whole link (`run.label`), on its
         // first word or code span; the link's other words and code spans follow as nodes hidden from assistive tech (their
-        // `label` is the same), so a reader meets one link with its URL, not words (realinput-1010g RG-4). A press anywhere
+        // `label` is the same), so a reader meets one link with its URL, not words. A press anywhere
         // opens it. Only a web link leads with its favicon and has the app's menu (ChatMarkdown's faviconHost); a mailto,
         // irc or xmpp link's press opens nothing, as the desktop shell's window-open handler opens none of them, and a
         // fragment's leaves for the new-thread draft (Electron's hash router; reply-links RL-1, reply-links-reference-

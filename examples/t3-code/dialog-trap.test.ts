@@ -1,10 +1,10 @@
 // dialog-trap-and-progress-value (DT-1): every modal dialog keeps Tab and Shift+Tab inside, as Base UI's focus trap does
 // in each Dialog and AlertDialog of T3 Code 1e2ecbd975. Exact keeps no Tab inside an `aria-modal` box on macOS
 // (exact2 #282), so each dialog carries a trap: the FocusGuard pair of dialog-trap.contract, or the `key`
-// handlers the older dialogs wrap with (20261008-dialog-shortcut-focus). These checks read the Contract sources, as
+// handlers the older dialogs wrap with. These checks read the Contract sources, as
 // dialog-focus.test.ts does: every `role="dialog"`/`"alertdialog"` is classified (a new one fails until it is), each
 // guarded popup opens and closes with its pair, and every literal a guard names is an element id. The behavior is proven
-// by the macOS drives in the 20261011-dialog-trap-and-progress-value record on the feat(example)/t3-code branch.
+// by driving each dialog on macOS: a source read cannot press Tab.
 import { describe, expect, test } from 'bun:test';
 import { readdirSync } from 'node:fs';
 
@@ -64,7 +64,7 @@ const GUARDED: Record<string, string> = {
   'timeline-plan.contract "plan-save-dialog"': 'plan-save',
   'timeline.contract "revert-dialog"': 'revert',
 };
-// The dialogs that wrap with their own `key` handlers (20261008-dialog-shortcut-focus and the tasks after it): the
+// The dialogs that wrap with their own `key` handlers (the older ones, from before the FocusGuard pair): the
 // component and the focus each wrap sends.
 const KEYED: Record<string, { component: string; wraps: string[] }> = {
   'codex-setup.contract "codex-picker"': { component: 'ChatGptAccountPicker', wraps: ['focus("codex-picker-connect-button")', 'focus(`codex-picker-option-${picker.first}`)'] },
@@ -352,7 +352,7 @@ describe('review fixes (PR #431)', () => {
 // first Tab and Shift+Tab already start inside the trap. Its default is the popup's first Tab stop (what Tab past the
 // last comes round to: the end guard's target, or a key wrap's); an element that autofocuses as it mounts, or the
 // dialog's own `initialFocus`, takes it first. Each modal dialog carries one DialogOpenFocus naming that element: a
-// dialog without one opened with nothing focused under real keys (realinput-1011a DT-5, DT-6, DT-8), so it fails here.
+// dialog without one opened with nothing focused under real keys, so it fails here.
 describe('every modal dialog takes the focus as it opens (Base UI\'s initialFocus)', () => {
   // Where the reference's popup puts the focus when it is not the first Tab stop (T3 Code 1e2ecbd975, apps/web/src).
   const NAMED: Record<string, [string, string]> = {
@@ -419,7 +419,7 @@ describe('every modal dialog takes the focus as it opens (Base UI\'s initialFocu
 // (FloatingFocusManager's `returnFocus`, DialogPopup's `finalFocus` left at its default): to its trigger, else to what held
 // the focus as it opened. Once a dialog takes the focus as it opens (above), closing it removes the focused node, so each
 // modal dialog gives the focus back: a DialogFinalFocus beside the `when` that mounts it naming its opener, its own
-// focus() on close, or (listed in the task record's Known differences, X53) no opener the view can name.
+// focus() on close, or (a known difference, X53) no opener the view can name.
 describe('every modal dialog gives the focus back as it closes (Base UI\'s finalFocus)', () => {
   type Final = { final: [string, string] } | { own: [string, string] } | { none: string };
   // A shared frame's callers each name their own: SettingsConfirm by dialogId, AppConfirm by confirmId.

@@ -1,7 +1,7 @@
 // diff-gutter-visuals: the diff gutter's selection colour and the "+"'s place, as T3 Code (1e2ecbd975) paints them in the
 // Code tab and the Diff panel (StyledDiffCodeView over @pierre/diffs; computed styles read over CDP, light and dark,
 // stacked and split). The projections' marks for what sits under a selected line run in diff-review.test.ts and
-// pages-pr-code.test.ts; #413's drags in diff-line-drag.test.ts and realinput-1010f-followups.test.ts.
+// pages-pr-code.test.ts; #413's drags in diff-line-drag.test.ts and diff-gutter-pointer.test.ts.
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';

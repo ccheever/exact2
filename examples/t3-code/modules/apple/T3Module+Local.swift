@@ -1,5 +1,5 @@
-// T3Module's embedded-server ops (T3Module.swift routes them; 20261005-embedded-server-runtime,
-// 20261005-local-primary-environment): the local backend's status for TypeScript and the Local
+// T3Module's embedded-server ops (T3Module.swift routes them): the local backend's status for
+// TypeScript and the Local
 // environment switch. The backend itself is one per app (T3LocalBackend.swift): each session's
 // module attaches at init and detaches at destroy.
 import Foundation
@@ -11,7 +11,7 @@ extension T3Module {
     /// changes, written by `desktopSettingsSet`. `localBackendSetEnabled {enabled}`: the switch's stopgap (stop, or start
     /// and wait until ready); it answers the status, or the reason it could not. `localNetworkFacts`,
     /// `localBackendRestart {host, tailscaleServe*}` and `localAccess {method, path, body}`: Network access,
-    /// Tailscale HTTPS and the Authorized clients (20261005-this-machine-network-access).
+    /// Tailscale HTTPS and the Authorized clients of "This machine".
     func localOps(_ request: [String: Any], reply: ExactReply, next: () -> Void) {
         let generation = request["generation"] as? Int ?? 0
         switch request["op"] as? String {
@@ -32,7 +32,7 @@ extension T3Module {
             catch let failure as T3Failure { reply.send(["ok": false, "generation": generation, "error": failure.json]) }
             catch let failure as T3DesktopSettingsWriteError { reply.send(["ok": false, "generation": generation, "error": T3Failure(kind: "DesktopSettings", message: failure.message).json]) }
             catch { reply.send(["ok": false, "generation": generation, "error": T3Failure(kind: "DesktopSettings", message: "\(error)").json]) }
-        // 20261005-this-machine-network-access (T3LocalNetwork.swift, T3LocalBackend.swift).
+        // Network access, Tailscale HTTPS and Authorized clients (T3LocalNetwork.swift, T3LocalBackend.swift).
         case "localNetworkFacts":
             let tailscale = request["tailscale"] as? Bool == true, probe = request["probe"] as? String ?? "", refresh = request["refresh"] as? Bool == true
             DispatchQueue.global(qos: .userInitiated).async {

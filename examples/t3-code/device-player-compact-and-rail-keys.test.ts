@@ -2,7 +2,7 @@
 // compact and essential rows (ThreadDetailsCard's density, ThreadDetailsPanel's rows per density), DP-2 the card as the
 // header's popover where the floating player leaves it no placement, DR-1 the device rail menus' keys at a focused row.
 // The canvas cases run chat-canvas-view.ts; the rows and the wiring are read from the Contract sources, as
-// menu-keys.test.ts reads its menus. The behaviour is driven on the macOS bundle (the task record's drive).
+// menu-keys.test.ts reads its menus. The behaviour is checked by driving the macOS bundle.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';
 import type { Native } from './protocol';

@@ -97,9 +97,9 @@ export async function detachThreadSessions(client: T3Client, native: Native, thr
 }
 
 /**
- * closeTerminal({ threadId, deleteHistory: true }) before the delete. The clone
- * has no thread terminal drawer yet (gap TN3): 20261005-terminal-drawer
- * replaces this hook with its `terminal.close` call.
+ * closeTerminal({ threadId, deleteHistory: true }) before the delete. The terminal
+ * drawer (terminal-drawer-view.ts) sets this hook to its `terminal.close` call; until
+ * it does, nothing is closed.
  */
 export let closeThreadTerminals: (client: T3Client, native: Native, threadId: string) => Promise<void> = async () => undefined;
 export function setCloseThreadTerminals(hook: typeof closeThreadTerminals): void { closeThreadTerminals = hook; }

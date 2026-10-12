@@ -4,7 +4,7 @@
 // controls in source order, less those, are its reference Tab order. Time and select inputs are stops on
 // macOS too since main #327 (X52, adopted in round 11; Custom snooze's Time and Unit, driven in adopt-main-fixes-r11),
 // with Keyboard navigation on as every control is (LLP 1115.000 D7.2). These checks guard the wiring; the behavior is
-// proven by the macOS drives in the 20261008-dialog-shortcut-focus and 20261012-adopt-main-fixes-r11 records on the feat(example)/t3-code branch.
+// checked by driving the app on macOS: a source read cannot press Tab.
 import { describe, expect, test } from 'bun:test';
 import { readdirSync } from 'node:fs';
 
@@ -145,7 +145,7 @@ describe('a dialog keeps Tab and Shift+Tab inside, in the reference order', () =
   });
 
   test('Add provider keeps the focus in the dialog when "Continue to sign-in" gives way to the Sign in step', async () => {
-    // Real keys, 2026-10-09 (realinput-1009): after "Continue to sign-in" the focused button unmounted and the focus fell
+    // Under real keys, after "Continue to sign-in" the focused button unmounted and the focus fell
     // to the window, so Tab reached nothing in the dialog. Base UI's DialogPopup restores it to the popup (restoreFocus
     // "popup") and Tab goes on to the step's first control. Here the step's "Account" heading takes it at mount: a
     // paragraph, which the host's key-view loop treats as where Tab starts from, with no Tab stop and no ring.

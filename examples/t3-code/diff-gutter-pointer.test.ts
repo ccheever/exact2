@@ -1,6 +1,7 @@
-// realinput-1010f-followups: what the real-input session realinput-1010f found, checked where a unit test reaches it.
-// RF-3's drags run in diff-line-drag.test.ts, pages-pr-code.test.ts and diff-review.test.ts; RF-1 and RF-5 in the AppKit
-// tests (macos/tests/contextmenu text-menu.swift, macos/tests/activity); RF-4 and RF-3's input under the agent drive.
+// What a person's pointer found in the diff gutter (RF-3) and the pending card (RF-4), checked where a unit test reaches
+// it. The gutter's drags also run in diff-line-drag.test.ts, pages-pr-code.test.ts and diff-review.test.ts; the shell
+// menu's Services and the activity reporter's pointer in the AppKit tests (macos/tests/contextmenu text-menu.swift,
+// macos/tests/activity); the card's press and the drags' input under an agent drive.
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';

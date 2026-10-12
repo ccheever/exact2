@@ -2,7 +2,7 @@ import AppKit
 import WebKit
 import XCTest
 
-// realinput-1010g-followups: what the real-input session realinput-1010g found in the shell's menu (#407).
+// The shell's context menu as a person's right-click found it (#407).
 // RG-1: the work group's tool icon sits two views below the node that takes its click, so Copy Image must look below
 // the hit view, not only at its own subviews. RG-3: the menu AppKit draws holds DesktopWindow's items only, read back
 // from the menu window while it is open (AppKit adds AutoFill and Services to the drawn menu, never to `menu.items`).

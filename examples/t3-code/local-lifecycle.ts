@@ -1,4 +1,4 @@
-// The primary environment's lifecycle stream (20261005-local-primary-environment items 6 and 9),
+// The primary environment's lifecycle stream (the first-run gate and the legacy thread migration),
 // after T3 Code (MIT, see LICENSE-T3; reference 1e2ecbd975): packages/client-runtime/src/state/
 // server.ts (`welcome`, `legacyThreadMigration` over `subscribeServerLifecycle`), apps/web/src/
 // state/server.ts primaryServerWelcomeAtom / primaryServerLegacyThreadMigrationAtom and

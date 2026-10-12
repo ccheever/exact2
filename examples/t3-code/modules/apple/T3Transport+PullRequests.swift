@@ -1,4 +1,4 @@
-// T3Transport's pull request ops (T3Transport.perform routes them; 20261005-pr-code-tab): the one
+// T3Transport's pull request ops (T3Transport.perform routes them): the one
 // HTTP read the client sends with a body, `POST /api/pull-requests/diff` (PullRequestDiffInput;
 // the reference's client gives it 60 s, packages/client-runtime/src/state/pullRequestDiffHttp.ts).
 // The client HTTP interface stays read-only (`http`): this op takes the request's fields, never a

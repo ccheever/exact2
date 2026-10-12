@@ -1,4 +1,4 @@
-// 20261005-this-machine-network-access item 1: DesktopServerExposure, ported with the reference's
+// Network access for the embedded server: DesktopServerExposure, ported with the reference's
 // test names (MIT, see LICENSE-T3; reference 1e2ecbd975: apps/desktop/src/backend/
 // DesktopServerExposure.test.ts). The Effect layers become injected functions: the settings store,
 // the interface read, the MagicDNS reader (the native `tailscale status`) and the probe.

@@ -1,7 +1,7 @@
 // The first-run decision (onboarding/firstRun.logic.ts) and the project-path
 // comparison it uses (packages/shared/src/path.ts), from T3 Code (MIT, see
 // LICENSE-T3), reference 1e2ecbd975. pages-welcome.ts decides the primary
-// environment's first-run gate with it (20261005-local-primary-environment item 6):
+// environment's first-run gate with it:
 // a desktop with a primary waits for its live workspace evidence; one without
 // (local environment off) decides as the hosted client does.
 

@@ -373,8 +373,8 @@ describe('desktopTabLifetime (through the panel)', () => {
   });
 });
 
-// The real-input session's three findings (task record, "Real-input batch steps"), read from the Contract sources as
-// menu-keys.test.ts reads its menus; the behavior is proven by that session's live check.
+// Three findings of a person's real keys and pointer, read from the Contract sources as
+// menu-keys.test.ts reads its menus; the behavior itself needs a live check with real input.
 describe('the chrome row as a hand finds it', () => {
   const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
   async function component(file: string, name: string): Promise<string> {

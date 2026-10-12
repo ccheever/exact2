@@ -23,7 +23,7 @@ import type { Cls, Token } from './timeline-highlight';
  *  plain text, since it is over HEURISTIC_MAX_CHARS too. */
 export const SHIKI_MAX_CHARS = 1_000_000;
 /** The characters one data-module turn tokenizes: at most about 50 ms in the pinned Hermes for the slowest
- *  grammars here (typescript, html; measurements in the shiki-residuals task record). */
+ *  grammars here (typescript, html; measured in that Hermes). */
 export const SLICE_BUDGET_CHARS = 2_500;
 /** The share of a turn a line that starts the turn may spend on one-time work beside its own cost (advance). */
 export const FIRST_LINE_WORK = 0.5;
@@ -31,7 +31,7 @@ export const FIRST_LINE_WORK = 0.5;
 const STALE_TURNS = 300;
 /** code-highlighting-languages: grammars Hermes runs well under TypeScript's 70,000 characters a second,
  *  with the weight each of their characters takes in the slice budget. Measured over the grammar samples
- *  and real files (task record code-highlighting-languages): cpp 37,000 a second; every other grammar
+ *  and real files: cpp 37,000 a second; every other grammar
  *  52,000 (javascript) or more. */
 export const SLOW_LANGUAGES: Record<string, number> = { cpp: 2 };
 /** The same for a line with a character outside ASCII, whose regexes run in their Unicode \b forms:

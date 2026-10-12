@@ -4,7 +4,7 @@
 // folded by groupPullRequestTimelineConversations (consecutive plain remarks are one "N comments"
 // section; commits, lifecycle and verdict rows stand alone), and the bar's comment, commit and
 // approval counts ("—" when the read failed, "…" while it runs). Commit rows are plain here: the
-// Code tab they open belongs to 20261005-pr-code-tab.
+// Code tab they open is pages-pr-code.ts.
 import { arr, num, obj, str, type Obj } from './domain';
 import { relativeLabel } from './pages-prs';
 import { noRemarkWrites, type PrReactionPill, type RemarkWrites } from './pages-pr-summary';

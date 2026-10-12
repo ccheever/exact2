@@ -56,7 +56,7 @@ enum T3ShellWebMenu {
 
     private static var systemItemsObserver: NSObjectProtocol?
     /// AppKit draws WebKit's menu with Services after a selection and AutoFill in a field, and reads the menu's switches
-    /// for them when the pop-up starts, before `willOpenMenu` (realinput-1010g RG-3; Electron's `<webview>` menu has
+    /// for them when the pop-up starts, before `willOpenMenu` (Electron's `<webview>` menu has
     /// neither). WebKit builds the menu item by item just before, so the switches go off at its first item.
     static func keepSystemItemsOut() {
         guard systemItemsObserver == nil else { return }

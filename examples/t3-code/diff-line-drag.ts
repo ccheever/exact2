@@ -1,4 +1,4 @@
-// The diff gutter's drags (realinput-1010f RF-3), as @pierre/diffs 1.3.0-beta.10's InteractionManager (MIT) runs them for
+// The diff gutter's drags, as @pierre/diffs 1.3.0-beta.10's InteractionManager (MIT) runs them for
 // T3 Code 1e2ecbd975 (see LICENSE-T3): a press on a line number starts a selection that follows the pointer over the file's
 // lines (a Shift-press extends the current selection; a press on the one line already selected clears it on release unless
 // the pointer moves first), and a press on the gutter's "+" starts a range from the current selection's top (or its own line)

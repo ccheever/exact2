@@ -297,7 +297,7 @@ describe('the picker in the theme editor', () => {
 });
 
 // popover-escape-parity: Escape in the theme editor, read from the Contract sources (as dialog-focus.test.ts
-// reads its handlers); the keys themselves are driven on macOS (the 20261008-popover-escape-parity record on the feat(example)/t3-code branch).
+// reads its handlers); the keys themselves are driven on macOS, which a source read cannot do.
 // Reference: ThemeEditorPanel.tsx is a plain `role="dialog"` div with no Escape of its own (its only
 // keydown listener cancels Inspect, not built here, X30), so an Escape in it reaches the page's
 // useEscapeToGoBack (Settings' navigateToMainApp) and the editor, above the router, stays; the colour

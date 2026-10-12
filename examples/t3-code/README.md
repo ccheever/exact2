@@ -335,8 +335,8 @@ Differences that belong to the app:
 
 Some checks need a person: physical modifier chords, right-click menus, real pointer drags
 and hovers, macOS notification and screen-capture grants, provider installs and logins, and
-GitHub writes. Agent drives cover the rest. The real-input sessions' records stay on the
-`feat(example)/t3-code` branch.
+GitHub writes. Agent drives cover the rest. Where a person's keys or pointer found what an agent drive
+could not, the comment at the fix says what happened and why the code is so.
 
 ## Source and checks
 

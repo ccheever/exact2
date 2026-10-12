@@ -93,7 +93,7 @@ describe('diff review engine', () => {
   test('a line comment becomes a review-comment chip with the reference record; deleting it removes the chip', async () => {
     const { client, command, calls } = harness(false);
     await command('diff'); await command('diffreview', 'reveal', 'a.ts');
-    // A click on number 3, then a Shift-click on 5 (the gutter's drags, realinput-1010f RF-3): the Diff panel's viewer has no
+    // A click on number 3, then a Shift-click on 5 (the gutter's drags): the Diff panel's viewer has no
     // onLineSelectionEnd (AnnotatableCodeView), so the lines stay selected and no draft opens.
     await command('diffreview', 'drag:additions', 'a.ts', 3); await command('diffreview', 'end', 'a.ts', 3);
     await command('diffreview', 'drag:additions:shift', 'a.ts', 5); await command('diffreview', 'end', 'a.ts', 5);
@@ -122,7 +122,7 @@ describe('diff review engine', () => {
   });
 });
 
-describe('the gutter\'s drags in the Diff panel (realinput-1010f RF-3)', () => {
+describe('the gutter\'s drags in the Diff panel', () => {
   test('a drag on the numbers selects the lines it crosses; a drag from the "+" opens the draft on its range', async () => {
     const { client, command } = harness(false);
     await command('diff'); await command('diffreview', 'reveal', 'a.ts');

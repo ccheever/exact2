@@ -1,4 +1,4 @@
-// 20261005-pr-code-tab: the Viewed marks' store, with usePullRequestFilesViewed.test.tsx's cases
+// The Code tab's Viewed marks: their store, with usePullRequestFilesViewed.test.tsx's cases
 // (T3 Code 1e2ecbd975, MIT, see LICENSE-T3) driven through the store the panel's resource and the
 // flush share (the hook's timer is the root task here), plus the 500-press cap.
 import { describe, expect, test } from 'bun:test';

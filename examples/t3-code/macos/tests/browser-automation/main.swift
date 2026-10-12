@@ -275,7 +275,7 @@ final class BrowserAutomationTests: XCTestCase {
         XCTAssertEqual(js(session.web, "window.clicks") as? Int, 4)
     }
 
-    /// realinput-1010d RD-3: in the panel the page sits in the stage's flipped host (`T3BrowserView.Host`), scaled to fit
+    /// In the panel the page sits in the stage's flipped host (`T3BrowserView.Host`), scaled to fit
     /// (a 1280 × 800 Responsive viewport in a narrower panel). The agent's cursor lands on the target there, tip up, as
     /// AgentBrowserCursor puts it at the point; it sat at the page's height minus the target's y.
     func testTheAgentCursorSitsOnItsTargetInTheStagesScaledHost() throws {

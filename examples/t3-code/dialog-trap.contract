@@ -31,7 +31,7 @@ component FocusGuard
 // Tab stop, unless the dialog names another or an element inside took the focus with `autoFocus` as it mounted), whether
 // a pointer or a key opened it, so the first Tab and Shift+Tab already start inside the trap. An `autofocus` takes the
 // focus only when nothing holds it (HTML's rule): a dialog with none opens with nothing focused, where a real Tab reaches
-// no stop at all (realinput-1011a DT-5, DT-6, DT-8), and one opened from a key leaves the focus on its opener behind the
+// no stop at all, and one opened from a key leaves the focus on its opener behind the
 // popup. Each modal dialog carries one DialogOpenFocus naming that element (`dialog-trap.test.ts` lists them): it moves
 // the focus there once, when the popup is first laid out (this box's first `resize` event, ResizeObserver's first entry:
 // the layout that drew the popup, as Base UI focuses from a layout effect). A popup hidden under `display: none` lays it
