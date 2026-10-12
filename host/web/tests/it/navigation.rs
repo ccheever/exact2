@@ -111,6 +111,15 @@ fn sweep(js: bool) {
     )
     .unwrap();
     std::fs::write(dir.join("no-navigate.plan"), no_handler.encode()).unwrap();
+    // No `notfound` route and no navigation root: no screen to draw "Page not found" in, so a launch no route matches
+    // opens the first screen, journaled, on every target.
+    let no_root = contract::bake(
+        contract::compile("routes nav\n  home \"/\"\n  about \"/about\"\n\ncomponent App\n  view\n    text top(nav).url testId=\"url\"\n")
+            .unwrap(),
+        Empty,
+    )
+    .unwrap();
+    std::fs::write(dir.join("no-root.plan"), no_root.encode()).unwrap();
     let accessibility = contract::compile(include_str!(
         "../../../../contract/corpus/accessibility.contract"
     ))

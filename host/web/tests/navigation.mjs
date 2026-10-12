@@ -28,6 +28,7 @@ else cpSync(process.env.EXACT_ROUTER_DIST, dist, { recursive: true });
 if (!js) for (const name of ['glue.js', 'navigation.js', 'motion-glue.js', 'collection-glue.js']) cpSync('host/web/' + name, dist + '/' + name);
 const bytes = [...readFileSync(dir + '/app.plan')];
 const noNavigate = [...readFileSync(dir + '/no-navigate.plan')];
+const noRoot = [...readFileSync(dir + '/no-root.plan')];
 // Only substitute the baked plan at the actual wasm's boot ABI. All
 // commits, keyed rows, control presses and journal lines are production.
 function fixture(plan) {
@@ -472,6 +473,22 @@ try {
     assert.equal(await evaluate('location.origin'), url);
     assert.equal(launched.calls.find(c => c.name === 'replaceState').args[2], url + '//evil.invalid/x?agent=1');
     assert.deepEqual(consoleLines, [], 'no browser exception for a double-slash notfound location');
+  });
+  // LLP 1116.009 D2, on both targets: with no `notfound` route and no navigation root to draw a screen for it, a launch no
+  // route matches opens the first screen, the refusal journaled (the runner's `launch`; router.js `launch`), and the address
+  // bar shows it. The JS target builds that plan; the wasm page swaps to it, the carried top matching nothing.
+  await run('a launch at a location no route matches, in an app with no navigation root, opens the first screen', async () => {
+    if (js) { served = dir + '/no-root'; jsBuild('no-root.plan', served); }
+    try {
+      const lines = consoleLines.length;
+      await fresh('/absent/path');
+      if (!js) await evaluate(`exact.reload(new Uint8Array(${JSON.stringify(noRoot)}))`);
+      await until(`location.pathname === '/'`);
+      const got = await evaluate(`(async()=>{const state=await exact.agent({op:'state'}); return {url:state.slots.nav.tabs[0].stack.at(-1).url, depth:state.slots.nav.tabs[0].stack.length, logs:(await exact.agent({op:'logs',since:0})).lines}})()`);
+      assert.deepEqual([got.url, got.depth], ['/', 1]);
+      assert.equal(got.logs.filter(l => l.includes('router launch refused: no route matches /absent/path')).length, 1, got.logs.join('\n'));
+      assert.deepEqual(consoleLines.slice(lines), [], 'the app boots: no browser exception');
+    } finally { served = dist; }
   });
   await run('accepted entries before boot and queued commits', async () => {
     await call('Page.navigate', {url: url + '/__test-mirror'});
