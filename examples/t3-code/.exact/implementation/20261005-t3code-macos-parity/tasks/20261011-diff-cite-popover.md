@@ -8,7 +8,7 @@ repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-diff-cite-popover
 pr_url: https://github.com/ccheever/exact2/pull/479
-verified_commit: 383724256
+verified_commit: 1789fa055
 ---
 
 # Cite: the citation chip's comment popover, and the rest of Cite
@@ -131,6 +131,9 @@ settle on an edit (it follows its chip by its source link and closes when the ch
 its popover by its `citeKey`), the prompt's own Escape leaves it alone, and the window's Escape sends `chip-cite-escape`:
 the native editor treats it as the editor's Cancel when the focus is in the comment's textarea, else as escape-key's close
 (no removal, the focus as above). (4) ⌘↵ save-and-send's live key route is listed under Not done with its blocker.
+The round's drive (run 3) found its own fault: the window's Escape hid the popover before the native editor looked for
+the focus, so Escape in the comment's textarea after Cite kept the chip; the window now leaves the popover drawn until the
+native editor closes it (`1789fa055`), and the retry (run 3b) removes the chip again.
 
 **X84 (new, not filed).** A column's automatic height takes a `field-sizing="content"` textarea's whole content height,
 its `max-height` aside: live, an 8,001-character comment made the popover 16,000 pt tall and blank (run 2, F1). A probe
@@ -142,11 +145,11 @@ textarea in a box held at 4rem to 10rem (the column 180 pt). `e7b809e24`.
 | Row | Result | Proof |
 | --- | --- | --- |
 | DC-1 pencil and label | pass: the chip reads the quote or the comment (64 units, cut at 16em with "…"), "+" no longer shows for a space; its pencil opens the comment above the chip, right-aligned to the button, the chip selected; AppKit test (label, width, button rect, press, accessibility "Add comment to citation" / "Edit citation comment") | [pencil](https://raw.githubusercontent.com/ccheever/exact2/080874db613a7e16972bb1905bc98665197d3cb5/diff-cite-popover/dc1-pencil.png), [AppKit chip](https://raw.githubusercontent.com/ccheever/exact2/7edc52a326a71e71a21d58d5c261320e4dbff272/diff-cite-popover/dc1-appkit-chip.png) |
-| DC-1 popover from Cite | pass: Cite inserts the chip and opens "Edit citation comment" under the cited word, the focus in "Comment on selected text"; typed, Enter: the chip reads the comment, the href carries it (`&comment=…`), the focus back in the prompt; Escape after Cite removes the chip; a press outside commits a changed draft; Bun tests of every op (save, send, commit, cancel, stale, too long) | [inline code](https://raw.githubusercontent.com/ccheever/exact2/a6d211c939b151a11d1330cb2ad1389c3dfd9863/diff-cite-popover/dc2-dc1-cite-inline-code.png), [Enter](https://raw.githubusercontent.com/ccheever/exact2/6092dd90226fad5af5a73329b3a968695249a22f/diff-cite-popover/dc1-enter-saves.png), [two lines](https://raw.githubusercontent.com/ccheever/exact2/748cd42ae28fe05d08511a574e8f73a7b36b4d65/diff-cite-popover/dc1-cite-two-lines.png), [Escape](https://raw.githubusercontent.com/ccheever/exact2/b03d7e1a6cd5365924a3dfb65488c5a46d75399b/diff-cite-popover/dc1-escape-removes.png), [outside press](https://raw.githubusercontent.com/ccheever/exact2/fd00e41f0435fb7e2fb1ffd849384f741d862f7a/diff-cite-popover/dc1-outside-press-commits.png), [record](https://raw.githubusercontent.com/ccheever/exact2/8971c928bd111b4fcfc6b1b01d16de522ec8322e/diff-cite-popover/dcp-record.txt) |
+| DC-1 popover from Cite | pass: Cite inserts the chip and opens "Edit citation comment" under the cited word, the focus in "Comment on selected text"; typed, Enter: the chip reads the comment, the href carries it (`&comment=…`), the focus back in the prompt; Escape after Cite removes the chip; a press outside commits a changed draft and, on the timeline's ground, gives "Message" the focus after the chip, as the reference (run 3b B2 and D2; R1 and R2); Bun tests of every op (save, send, commit, cancel, escape, stale, too long) | [inline code](https://raw.githubusercontent.com/ccheever/exact2/a6d211c939b151a11d1330cb2ad1389c3dfd9863/diff-cite-popover/dc2-dc1-cite-inline-code.png), [Enter](https://raw.githubusercontent.com/ccheever/exact2/6092dd90226fad5af5a73329b3a968695249a22f/diff-cite-popover/dc1-enter-saves.png), [two lines](https://raw.githubusercontent.com/ccheever/exact2/748cd42ae28fe05d08511a574e8f73a7b36b4d65/diff-cite-popover/dc1-cite-two-lines.png), [Escape](https://raw.githubusercontent.com/ccheever/exact2/b03d7e1a6cd5365924a3dfb65488c5a46d75399b/diff-cite-popover/dc1-escape-removes.png), [outside press](https://raw.githubusercontent.com/ccheever/exact2/fd00e41f0435fb7e2fb1ffd849384f741d862f7a/diff-cite-popover/dc1-outside-press-commits.png), [focus after the outside press](https://raw.githubusercontent.com/ccheever/exact2/28b23d3ccab4a7cd664b9a19858fa70d5dbadb40/diff-cite-popover/r3-outside-press-focus.png), [record](https://raw.githubusercontent.com/ccheever/exact2/8971c928bd111b4fcfc6b1b01d16de522ec8322e/diff-cite-popover/dcp-record.txt), [review round record](https://raw.githubusercontent.com/ccheever/exact2/6ef727cb97483c19f682457dcf1d4e0b94826792/diff-cite-popover/r3-record.txt) |
 | DC-1 popover from the pencil | pass, light and dark: the saved comment prefilled, Escape closes and keeps the chip | [pencil](https://raw.githubusercontent.com/ccheever/exact2/080874db613a7e16972bb1905bc98665197d3cb5/diff-cite-popover/dc1-pencil.png), [dark](https://raw.githubusercontent.com/ccheever/exact2/ca48e998de85042fe1bc10615a45ce3a3fa851d7/diff-cite-popover/dc1-dark.png) |
 | DC-1 source highlight | pass: the cited words (and the whole inline code span) marked in the primary at 45% while the comment is open, from Cite and from the pencil; the spaces between flowed words are not marked (each word's trailing space is drawn without its background) | [inline code](https://raw.githubusercontent.com/ccheever/exact2/a6d211c939b151a11d1330cb2ad1389c3dfd9863/diff-cite-popover/dc2-dc1-cite-inline-code.png), [two lines](https://raw.githubusercontent.com/ccheever/exact2/748cd42ae28fe05d08511a574e8f73a7b36b4d65/diff-cite-popover/dc1-cite-two-lines.png) |
-| DC-1 past 8,000 characters | Bun and source checks pass ("Comments can contain up to 8,000 characters.", "Shorten comment" disabled, nothing saved); live in run 2 the popover grew off the window (X84), fixed after the drive and measured with a probe app; the live check is real-input step F | [run 2 before the fix](https://raw.githubusercontent.com/ccheever/exact2/8048f20fc0d84682cad51e584d988b01361bc7e2/diff-cite-popover/f1-run2-before-x84.png), [record](https://raw.githubusercontent.com/ccheever/exact2/8971c928bd111b4fcfc6b1b01d16de522ec8322e/diff-cite-popover/dcp-record.txt) |
-| DC-1 ⌘↵ saves and sends | Bun (the op saves and asks the native editor to send) and AppKit (`pressSend` clicks the live Send only) pass; not driven live: it would start a provider turn | tests below |
+| DC-1 past 8,000 characters | pass: "Comments can contain up to 8,000 characters.", "Shorten comment" disabled, nothing saved (Bun); live in run 2 the popover grew off the window (X84), fixed after it, and run 3b shows the popover held at about 230 pt with the text scrolling inside. Held open there, it stays open through a keystroke in the prompt with its draft, and Escape in the prompt closes it and keeps the chip Cite inserted, as the reference (R3); with nothing focused the AppKit test covers Escape's close and the caret after the chip (R4) | [live](https://raw.githubusercontent.com/ccheever/exact2/fa1a9d99e53d76e3d87f01d81c65adf854bea1ee/diff-cite-popover/dc1-too-long-live.png), [keystroke in the prompt](https://raw.githubusercontent.com/ccheever/exact2/d545c3ec012e9eaac55cfdc8195092729241f60f/diff-cite-popover/r3-keep-open-typing.png), [Escape in the prompt](https://raw.githubusercontent.com/ccheever/exact2/ea9cdda9d387c2f42301985007941451a121e5ac/diff-cite-popover/r3-escape-in-prompt.png), [review round record](https://raw.githubusercontent.com/ccheever/exact2/6ef727cb97483c19f682457dcf1d4e0b94826792/diff-cite-popover/r3-record.txt) |
+| DC-1 ⌘↵ saves and sends | Bun (the op saves and asks the native editor to send) and AppKit (`pressSend` clicks the live Send only) pass; the live key route (⌘↵ reaching the textarea while Send declares no chord, then `pressSend`) is not driven: the lane's Send would start a provider turn (see Not done) | tests below |
 | DC-2 inline code and code blocks | pass: a selection across inline code and one in a code block offer Cite and cite the reference's selector (`start=16&end=44`, prefix and suffix equal, Bun against the CDP stream) | [inline code](https://raw.githubusercontent.com/ccheever/exact2/a6d211c939b151a11d1330cb2ad1389c3dfd9863/diff-cite-popover/dc2-dc1-cite-inline-code.png), [code block](https://raw.githubusercontent.com/ccheever/exact2/2ffb19525e19c670847ee26a48fc928d236ddc82/diff-cite-popover/dc2-code-block.png) |
 | DC-2 clearing the selection | pass for prose (cleared, as on the base); blocked for a code block's selection (stays drawn after Cite: #274's clear) | [Enter](https://raw.githubusercontent.com/ccheever/exact2/6092dd90226fad5af5a73329b3a968695249a22f/diff-cite-popover/dc1-enter-saves.png), [outside press](https://raw.githubusercontent.com/ccheever/exact2/fd00e41f0435fb7e2fb1ffd849384f741d862f7a/diff-cite-popover/dc1-outside-press-commits.png) |
 | DC-2 blocked rest | recorded: the selection rectangle and clear (X33, #274), following a scroll (X22, #127), in EXACT2-GAPS "Cite and the citation comment" | `EXACT2-GAPS.md` |
@@ -155,7 +158,10 @@ textarea in a box held at 4rem to 10rem (the column 180 pt). `e7b809e24`.
 Drives (agent mode, 1280×840, lane diff-cite-popover, the lane's Cite fixture answer seeded by `target/dcp/seed-cite.py`
 into "Timeline verification"): before on the evidence worktree at `6db5cadea` (`drive.sh before`); after on this branch's
 bundle, run 1 at `dea53111d` (found the focus and the outside press), run 2, the retry, at `383724256`; the reference is
-the lane's T3 Code (Alpha) over CDP (`ref-drive.mjs`, the same steps and comment). Light unless named.
+the lane's T3 Code (Alpha) over CDP (`ref-drive.mjs`, the same steps and comment). Light unless named. The review round:
+run 3 at `0a175762f` merged with the feature tip `8fa9446cc` (`drive-r3.sh`, a fresh storage) found Escape's ordering;
+run 3b, the retry, at `1789fa055` (`drive-r3b.sh`); the reference's R1 to R4 by `ref-r3.mjs`; the PR head's behavior by
+the AppKit probe on its sources (`target/dcp/r3-probe`), in the review round record.
 
 ## Real-input batch steps
 
@@ -167,14 +173,17 @@ cleared); thread "Timeline verification". Never send a message (no ⌘↵, no Re
    Expected: the popover "Edit citation comment" under "pure", its right edge at the word's end, the caret in it; the
    words marked blue; the selection gone; the chip with a pencil in the prompt. Type a comment, Return: the chip reads it.
 2. **B.** Click the chip's pencil: the popover above the chip, the comment in it; Escape closes it, the chip stays, the
-   caret after the chip. Click the pencil again, click on the timeline's empty ground: it closes (nothing changed).
+   caret after the chip. Click the pencil again, click on the timeline's empty ground: it closes (nothing changed) and the caret is in the
+   prompt after the chip (the reference's `finalFocus`).
 3. **C.** Drag across the closing paragraph's two lines; Cite; Escape: the chip just cited is gone.
 4. **D.** Drag across `parsePatch(text: string)` in the code block; Cite; type "draft kept"; click the empty timeline:
-   the chip reads "draft kept". Note whether the code selection stays drawn (blocked, #274).
+   the chip reads "draft kept", the caret in the prompt after it. Note whether the code selection stays drawn (blocked, #274).
 5. **E.** Settings › Appearance › Dark; the first chip's pencil: the popover in dark.
 6. **F.** The first chip's pencil; paste more than 8,000 characters (prose and one long word): "Comments can contain up to
    8,000 characters.", "Shorten comment" disabled, the popover at most about 230 pt tall with its text scrolling inside;
-   Escape.
+   Escape. Then Cite the closing paragraph again, paste more than 8,000 characters, click in the prompt's text and type a
+   letter: the popover stays open with its draft; Escape there: it closes and the chip just cited stays. Once more held
+   open, click the timeline's empty ground (the popover stays), Escape: it closes, the caret in the prompt after the chip.
 7. **G.** VoiceOver (or Accessibility Inspector) over the prompt: the pencil reads "Add comment to citation" (or "Edit
    citation comment") as a button, and pressing it opens the popover.
 
@@ -213,16 +222,16 @@ cleared); thread "Timeline verification". Never send a message (no ⌘↵, no Re
 
 ## Checks
 
-On the final head (after merging `origin/feat(example)/t3-code` at `e91bdc8af`, main's adoption round 10):
+On the final head of the review round (after merging `origin/feat(example)/t3-code` at `8fa9446cc`; code at `1789fa055`):
 
 | Check | Exit | Note |
 | --- | --- | --- |
-| `bun test examples/t3-code --timeout 60000` | 0 | 4684 pass, 1 skip, 0 fail (314 files) |
+| `bun test examples/t3-code --timeout 60000` | 0 | 4,722 pass, 1 skip, 0 fail (318 files) |
 | strict `tsc` (README command) | 0 | |
-| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | `app.contract` 1,398 lines (unchanged); 113,005 nodes, 29,668,080 bytes (+2.5% for the word and code texts' Cite and highlight arms) |
+| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | `app.contract` 1,418 lines (the merge's; this round adds none); 113,005 nodes, 30,010,368 bytes |
 | `cargo test -p t3-code-macos --lib` | 0 | 21 passed |
-| AppKit `macos/tests/composer` (README recipe) | 0 | 64 tests, 0 failures (`citationpress.swift` 6, `ComposerSendPressTests` 1 new) |
-| `host/apple/build.mjs t3-code-macos --bundle` | 0 | on the merged head (the merge brought main's round 10) |
+| AppKit `macos/tests/composer` (README recipe) | 0 | 65 tests, 0 failures (`citationpress.swift` 7: one new) |
+| `host/apple/build.mjs t3-code-macos --bundle` | 0 | on the merged head, before run 3 and again before run 3b |
 | `git add -A && bun scripts/caps.mjs` | 0 | all budgets within cap |
 | `cargo build --all-targets --keep-going` | 0 | |
 | `cargo test --lib --bins --tests --no-fail-fast` | 0 | 3,756 passed, 0 failed |
@@ -232,12 +241,17 @@ On the final head (after merging `origin/feat(example)/t3-code` at `e91bdc8af`, 
 
 ## Not done / not verified
 
-- Real-input steps A to G above (the coordinator's session); F's fix (X84) was measured with a probe app, not seen live in
-  the clone.
+- Real-input steps A to G above (the coordinator's session). X84's fix is now seen live in the agent drive (run 3b), not
+  yet under real input (step F).
+- ⌘↵ save-and-send's live key route (⌘↵ reaching the comment's textarea while Send declares no chord, then `pressSend`):
+  Bun and AppKit cover each half, but no drive presses it. Blocker: the lane's clone finds the Mac's provider CLIs, so its
+  Send would start a provider turn, which the task's rules forbid; it needs a lane whose Send cannot reach a provider.
+- Escape with nothing focused while a comment is held open past 8,000 characters (the reference's R4): AppKit only, not
+  driven (real-input step F covers it).
 - Clearing a code block's selection after Cite: blocked on #274 (`removeAllRanges`).
 - The selection rectangle (#274) and following a timeline scroll (#127): declared differences.
 - X84: a new framework gap, recorded in `EXACT2-GAPS.md`, not filed.
 
 ## Next action
 
-Review the draft PR; the real-input steps in the coordinator's session.
+Review the draft PR (the review round's four problems are fixed or listed); the real-input steps in the coordinator's session.
