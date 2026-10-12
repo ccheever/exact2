@@ -98,7 +98,9 @@ extension NodeView {
     /// Whether a click on this node in a window that is not key is also a
     /// press (LLP 1115.000 D7.9). Every node used to answer true, a
     /// browser's rule. AppKit's answer, measured on macOS 27.0
-    /// (`acceptsFirstMouse(for:)` of each): true for an `NSButton`, an
+    /// (`acceptsFirstMouse(for:)` of each): true for an `NSButton` (false
+    /// once it has `hasDestructiveAction`, which a native `destructive`
+    /// button keeps: `NativeButtonMac.acceptsFirstMouse`), an
     /// `NSSegmentedControl`, an `NSSwitch`, an `NSSlider`, an
     /// `NSPopUpButton`, an `NSTextField`, and for an `NSTableView`, an
     /// `NSOutlineView` and an `NSCollectionView`; false for an `NSView`, an

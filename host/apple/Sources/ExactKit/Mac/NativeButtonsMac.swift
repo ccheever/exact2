@@ -105,6 +105,13 @@ final class NativeButtonMac: NSButton {
         guard written?.interactive != false else { return nil }
         return super.hitTest(point)
     }
+    /// The click that brings its window forward is AppKit's to answer: true
+    /// for a button, false for one with `hasDestructiveAction` (measured on
+    /// macOS 27.0.1), so a person's first click on a window behind never
+    /// presses Delete. The agent's window is never key, so its every click
+    /// counts here as at a node (`NodeView.everyClickCounts`): without it a
+    /// destructive button took no click from the driver at all.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { NodeView.everyClickCounts || super.acceptsFirstMouse(for: event) }
     // `pointerdown`/`pointerup` (LLP 1005 §Events): AppKit's tracking loop
     // takes the button's mouse events, so the node hears them here. The up
     // goes before the action the loop sends, DOM's order.

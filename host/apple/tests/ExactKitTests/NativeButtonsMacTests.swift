@@ -104,6 +104,46 @@ final class NativeButtonsMacTests: XCTestCase {
         XCTAssertEqual(ink(painted), NSColor(srgbRed: 0, green: 128 / 255, blue: 0, alpha: 1))
     }
 
+    /// The role has AppKit's manners with it: an `NSButton` takes the click that brings its
+    /// window forward, and one with `hasDestructiveAction` does not (measured on macOS 27.0.1),
+    /// so a person's first click on a window behind never presses Delete. The agent's window is
+    /// never key, so its every click counts (LLP 1115.000 D7.9), a destructive button's too:
+    /// AppKit's answer alone left the driver no way to press one, and Shelf's "Remove…" row,
+    /// painted under the agent, took its tap and did nothing.
+    func testADestructiveButtonTakesTheAgentsClickAndNoOtherThatActivatesItsWindow() throws {
+        let p = presenter(box(1) + native(2, ["destructive": "true"]) + native(3, x: 140)
+                          + [["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]]],
+                          faces: [2: face("Delete"), 3: face("Keep")])
+        p.viewport.layoutSubtreeIfNeeded()
+        window.orderFrontRegardless()
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        let delete = try XCTUnwrap(p.controls.controls[2] as? NativeButtonMac), keep = try XCTUnwrap(p.controls.controls[3] as? NativeButtonMac)
+        XCTAssertTrue(delete.hasDestructiveAction)
+        addTeardownBlock { NodeView.everyClickCounts = ExactEnv.agentMode }
+        NodeView.everyClickCounts = false
+        XCTAssertTrue(keep.acceptsFirstMouse(for: nil), "a button clicks through")
+        XCTAssertFalse(delete.acceptsFirstMouse(for: nil), "a destructive one does not: AppKit's answer, a person's")
+        NodeView.everyClickCounts = true
+        XCTAssertTrue(delete.acceptsFirstMouse(for: nil), "the agent's every click counts")
+        // A click through the application, as the agent's `tap` sends it, the up queued for the button's tracking.
+        func click(_ button: NSButton) {
+            let at = button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil)
+            func event(_ type: NSEvent.EventType) -> NSEvent {
+                NSEvent.mouseEvent(with: type, location: at, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                   windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0)!
+            }
+            let up = event(.leftMouseUp)
+            NSApp.postEvent(up, atStart: true)
+            NSApp.sendEvent(event(.leftMouseDown))
+            if NSApp.nextEvent(matching: [.leftMouseUp], until: nil, inMode: .default, dequeue: true) != nil { NSApp.sendEvent(up) }
+        }
+        click(delete)
+        XCTAssertEqual(pressed, [2], "the agent's click presses a destructive button in a window that is not key")
+        click(keep)
+        XCTAssertEqual(pressed, [2, 3])
+    }
+
     func testItIsAppKitsButtonPressingOnce() throws {
         let p = presenter(box(1, handlers: ["press"]) + native(2, ["testId": "go"]) + native(3, handlers: []) + native(4, ["disabled": "true"])
                           + [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "roots", "ids": [1]]],
