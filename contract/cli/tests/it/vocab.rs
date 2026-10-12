@@ -488,12 +488,39 @@ fn concepts_answer_together_after_the_tags_of_their_name() {
     assert!(top.contains("scroll (a concept)"), "{top}");
     let every = stdout(&vocab(&["every"]));
     assert!(every.starts_with("`every` is refused"), "{every}");
-    assert!(every.contains("every(60000, step)"), "{every}");
+    assert!(every.contains("every(1000, tick)"), "{every}");
     let all = stdout(&vocab(&[]));
     assert!(
         all.contains("concepts (") && all.contains("  choice "),
         "{all}"
     );
+}
+
+/// LLP 1116.007 D1: the grammar's own words answer in one lookup, each in
+/// under a kilobyte, so a builder does not grep `contract-grammar.md` for
+/// `each` or get a 404 for `task`.
+#[test]
+fn the_grammars_words_each_answer_in_under_a_kilobyte() {
+    for word in [
+        "task", "every", "after", "send", "match", "each", "when", "let", "fn", "shape", "persist",
+        "props", "derive", "action", "resource", "mutation", "stepper",
+    ] {
+        let one: Value = serde_json::from_str(&stdout(&vocab(&["--json", word]))).unwrap();
+        let concept = &one["concept"];
+        assert!(concept.is_object(), "`{word}` has no answer: {one}");
+        let answer = concept["answer"].as_str().unwrap();
+        assert!(
+            answer.len() < 1024,
+            "`{word}` answers in {} bytes",
+            answer.len()
+        );
+    }
+    let stepper = stdout(&vocab(&["stepper"]));
+    assert!(
+        stepper.contains("UIStepper") && stepper.contains("NSStepper"),
+        "{stepper}"
+    );
+    assert!(stepper.contains("appearance=\"textfield\""), "{stepper}");
 }
 
 /// Each concept's answer holds the repair whole: the concepts D5.1 names
@@ -517,7 +544,8 @@ fn every_concepts_code_compiles_and_its_names_are_its_own() {
     let mut failures = Vec::new();
     for name in [
         "scroll", "loading", "plural", "choice", "screen", "modal", "confirm", "date", "persist",
-        "swipe",
+        "swipe", "task", "mutation", "resource", "match", "each", "when", "let", "fn", "shape",
+        "props", "derive", "action", "stepper",
     ] {
         let one: Value = serde_json::from_str(&stdout(&vocab(&["--json", name]))).unwrap();
         let blocks = one["concept"]["contract"].as_array().unwrap();

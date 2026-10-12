@@ -279,7 +279,7 @@ component App
 More: docs/recipes/navigation-stack.md
 
 ## date: the date, the time and the day
-names: day, today, clock, time, Date, exactTime, every
+names: day, today, clock, time, Date, exactTime
 
 The date is `time.epochAtZero + now`: the reserved source `exactTime()` answers the launch's
 epoch and the zone's offset, and `now` is state a `task` refreshes from `performanceNow()`
@@ -381,3 +381,301 @@ component App
   confirmation (`contract vocab confirm`). In tests, `tap "delete-Milk"` presses it.
 
 More: docs/recipes/list-rows.md (search, filter, the long-press menu)
+
+## task: a timer, once or repeating (every, after)
+names: every, after, timer, interval, setInterval, setTimeout, debounce
+
+A root `task` has one schedule: `every(ms, action)` repeats, `after(ms, action)` fires once,
+`every(frame, action)` ticks once a display frame. `task t mount` runs from launch; `task t
+when cond` only while `cond` holds, and `key=x` restarts it when `x` changes. The interval is
+a literal number of milliseconds, and the action takes no parameters.
+
+```contract
+component App
+  state n = 0
+  task t mount
+    every(1000, tick)
+  action tick
+    n = n + 1
+  view
+    text `${n}s` testId="n"
+```
+
+- A `derive` that reads `performanceNow()` is not read again as time passes: the tick's action
+  writes it to state. In a test `clock +N` fires the timers; never wait in real time.
+
+More: docs/recipes/timers.md
+
+## mutation: a write to the data module, and its reply (send)
+names: send, mutate, post, put, patch, request
+
+`mutation name as shape T` is the reply slot, an option (`none` until the reply lands);
+`send name = source(args)` in an action asks the data module's source. `pending(name)` is true
+while it is in flight; `refreshes res` asks a resource again when the reply lands, `then act`
+runs an action (no parameters) after it, `queue` keeps sends in order.
+
+```contract
+shape Reply
+  ok: bool
+
+component App
+  resource items = loadItems() as shape list<string> else empty()
+  mutation added as shape Reply refreshes items
+  action add
+    send added = addItem("Milk")
+  view
+    button press=add disabled=pending(added) testId="add"
+      text `Add (${length(items)})`
+```
+
+- One send of a mutation per path (`analyze-send-twice`): a second write needs its own mutation or
+  `queue`. Read the reply with `match added { case some(r) => r.ok, case none => false }`.
+
+More: docs/recipes/after-a-write.md
+
+## resource: a read from the data module
+names: source, sources, fetch, load, useEffect, useQuery, query
+
+`resource name = source(args) as shape T else empty()` asks the source in `app.ts` and shows its
+answer as `name`; the arguments are state, so a change asks again. Until the first answer it is
+`else empty()`, the shape's zero (`[]`, `""`, `0`, `false`). `pending(name)` is true while a
+request is in flight, `failed(name)` when it had no answer. Only the root declares one.
+
+```contract
+component App
+  state q = ""
+  resource hits = search(q) as shape list<string> else empty()
+  action edit(v: string)
+    q = v
+  view
+    column gap=8
+      input value=q input=edit aria-label="Search" testId="q"
+      text `${length(hits)} found` testId="n"
+```
+
+- The source answers exactly the shape (an extra field fails it), and a failed fetch is data, not
+  an exception. A child takes what it shows as props; `refresh name` in an action asks again.
+
+More: docs/recipes/fetch-loading-error.md
+
+## match: take an option apart (some, none)
+names: case, option, optional, null, undefined, nullable
+
+There is no `null` and no truthiness: a value that may be missing is an `option<T>`, `some(x)` or
+`none`, and `match` takes it apart with both arms, each once: as an expression, as a statement
+in an action (`match o`, then indented `case some(v)` and `case none`), or as a view node. A
+mutation's reply, `first(xs)` and `parseNumber(s)` are options.
+
+```contract
+component App
+  state picked = none
+  derive label = match picked { case some(p) => `Picked ${p}`, case none => "Nothing yet" }
+  action pick
+    picked = some("tea")
+  view
+    button press=pick testId="pick"
+      text label testId="label"
+```
+
+- `when x` needs a bool, never an option: take it apart with `match`, or compare it.
+
+## each: one node per item
+names: for, forEach, v-for, list-render, index
+
+`each item in items key=item.id` repeats its nodes once per item. The key, a string, number or bool,
+unique and stable, is the row's identity: its state, focus and animation follow the item. A second
+name binds the index: `each s, i in items key=s`. An action has no loops: reshape a list with `map`
+and `filter` in a `derive`, or in the data source.
+
+```contract
+component App
+  state items = ["Milk", "Eggs"]
+  view
+    column gap=4
+      each s, i in items key=s
+        text `${i + 1}. ${s}` testId=`row-${i}`
+```
+
+- A key that is the index (`key=i`) gives a row that moves or is deleted the wrong state: key by an id.
+
+## when: show nodes only under a condition (else, else when)
+names: if, else, conditional, v-if, ternary
+
+`when cond` over indented nodes shows them while `cond` is true; `else when cond` and `else` follow
+at its indent. The condition is a bool, with no truthiness (`length(xs) > 0`, not `xs`).
+A view chooses with `when`, an action with `if`, an expression with `cond ? a : b`.
+
+```contract
+component App
+  state n = 0
+  action more
+    n = n + 1
+  view
+    column gap=8
+      when n == 0
+        text "Nothing yet"
+      else when n < 3
+        text `${n} so far`
+      else
+        text "Plenty"
+      button press=more testId="more"
+        text "More"
+```
+
+- A view never uses `if`, and a component's view root is an element: wrap a `when` in a `column`.
+
+## let: a name inside an action
+names: local, const, var, variable
+
+An action reads the state it started with, and its writes commit together, so `doubled = count * 2`
+after `count = count + 1` uses the old `count`. `let next = count + 1` binds a local, read after
+its declaration, in its block, never reassigned, and not a name already in scope.
+
+```contract
+component App
+  state count = 0
+  state doubled = 0
+  action advance
+    let next = count + 1
+    count = next
+    doubled = next * 2
+  view
+    button press=advance testId="advance"
+      text `${count}/${doubled}` testId="result"
+```
+
+- A `let` reassigned (`type-let-reassign`) is a `state`, or choose the value where it is bound.
+
+## fn: a function you write
+names: function, functions, helper, util
+
+`fn name(a: T, b: U): V = expr` at the top of a file is an effect-free, nonrecursive expression, called
+positionally from a view, a `derive` or an action. It reads no state: pass what it needs. A call
+of an action gives no value, so a value computed in more than one place is a `fn`.
+
+```contract
+fn tax(price: number, pct: number): number = price * pct / 100
+
+component App
+  state price = 40
+  derive total = price + tax(price, 8)
+  view
+    text `${total}` testId="total"
+```
+
+- No loops: a list is reshaped with `map`, `filter`, `concat` and `slice`.
+
+## shape: a record type, and the type of a data answer
+names: record, struct, interface, typedef, model
+
+`shape Item` over indented `field: type` lines declares a record; a type is `number`, `string`, `bool`,
+`option<T>`, `list<T>` or another shape. A record is built with every field named, `Item(id="1", ...)`,
+and copied with one base and the changes, `Item(item, done=true)`. A resource's `as shape T` and a data
+source's answer are this type.
+
+```contract
+shape Item
+  id: string
+  title: string
+  done: bool
+
+component App
+  state item = Item(id="1", title="Milk", done=false)
+  action toggle
+    item = Item(item, done=not item.done)
+  view
+    button press=toggle testId="item"
+      text `${item.title}: ${item.done ? "done" : "to buy"}`
+```
+
+- No optional fields or methods: a field that may be missing is an `option<T>`.
+
+## props: a component's inputs, and its children
+names: prop, children, slot, inject, provide, component
+
+A child `component` declares `props` as indented `name: type` lines (a type `action` takes a
+handler) and is used with named arguments, `Tag(label="Tea", pick=choose("Tea"))`. The root is
+the file's first component. A `slot` in a child and `children` in its view place the nodes the
+caller indents under the use. Props are read-only.
+
+```contract
+component App
+  state chosen = ""
+  action choose(t: string)
+    chosen = t
+  view
+    column gap=8
+      Tag(label="Tea", pick=choose("Tea"))
+      text chosen testId="chosen"
+
+component Tag
+  props
+    label: string
+    pick: action
+  view
+    button press=pick testId=`tag-${label}`
+      text label
+```
+
+- Resources, mutations and tasks are the root's: a child takes their results as props.
+
+## derive: a value computed from state
+names: computed, memo, useMemo, selector, getter
+
+`derive name = expr` is recomputed when what it reads changes. It is read-only, never assigned in an
+action, and not state: whatever can be calculated from state is a derive, not a second `state`
+kept in step. Cycles are refused.
+
+```contract
+component App
+  state nums = [1, 5, 9]
+  state min = 4
+  derive big = filter(nums, n => n >= min)
+  view
+    text `${length(big)} of ${length(nums)}` testId="n"
+```
+
+- A derive is no timer: one that reads `performanceNow()` shows the time of its last recompute.
+
+## action: what a press, an input or a key does
+names: handler, onClick, onPress, onChange, setState, reducer
+
+`action name(params)` over indented statements: `x = expr` on its own state, `let`, `send`, `refresh`,
+`if`/`else`, `match`, a host command, or a call of another action. No loops, awaits or returns; the
+writes commit together. An event passes the arguments the handler captured, then its payload:
+`press=add(1)`, `input=edit` (the new text), `change=toggle(i.id)` (the new bool).
+
+```contract
+component App
+  state n = 0
+  action add(by: number)
+    n = n + by
+  view
+    row gap=8
+      button press=add(1) testId="inc"
+        text "+1"
+      button press=add(-1) testId="dec"
+        text "-1"
+      text `${n}` testId="n"
+```
+
+- An action reads the state it started with: bind a value with `let` to read it after writing it.
+
+## stepper: a count with plus and minus (a number field)
+names: UIStepper, NSStepper, quantity, spin-button, increment, counter
+
+`input type="number"` with `min`, `max` and `step` is a numeric field with the platform's stepping control
+(UIStepper on iOS, NSStepper on the Mac, the browser's spin buttons on the web); the field stays
+editable; `appearance="textfield"` drops the control. A count 1-99:
+
+```contract
+component App
+  state qty = "1"
+  action edit(v: string)
+    qty = v
+  view
+    input type="number" min=1 max=99 value=qty input=edit aria-label="Quantity" testId="qty"
+```
+
+- The value is text, as any field's: a step is an `input` and a `change` with the new text, which a
+  derive parses with `parseNumber` (docs/recipes/number-field.md). `step` defaults to 1.
