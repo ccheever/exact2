@@ -563,25 +563,32 @@ test('requestFullscreen without media refuses as media.js does', async () => {
 });
 
 test('notifications: refused without the grant, listed under the agent, else posted by the Notification API', async () => {
-  const { Hosts, clock, data, journal } = await import(resolve(dir, 'rt.js'));
+  const { Hosts, clock, data, journal, navigateTo } = await import(resolve(dir, 'rt.js'));
   await import(resolve(dir, 'notify.js'));
   const notices = globalThis.exact.notices, posted = [], closed = [], last = () => journal.at(-1).replace(/^t=\S+ /, '');
   clock.agent = true; data.grants = '';
   Hosts.showNotification('Stretch', null, 'stretch', null);
   expect(last()).toBe('showNotification: refused: the grants name no device.notifications');
   data.grants = 'net.fetch https://a.example\ndevice.notifications purpose.notifications\n';
-  Hosts.showNotification('Stretch', 'Now', 'stretch', null);
-  Hosts.showNotification('Stretch', 'Later', 'stretch', 5);
+  Hosts.showNotification('Stretch', 'Now', 'stretch', null, '/stretch');
+  Hosts.showNotification('Stretch', 'Later', 'stretch', 5, '/notifications');
   Hosts.showNotification('Alert', null, null, null);
-  expect(notices).toEqual([{ title: 'Stretch', body: 'Later', tag: 'stretch', showTrigger: 5 }, { title: 'Alert', body: null, tag: null, showTrigger: null }]);
+  expect(notices).toEqual([{ title: 'Stretch', body: 'Later', tag: 'stretch', showTrigger: 5, navigate: '/notifications' }, { title: 'Alert', body: null, tag: null, showTrigger: null, navigate: null }]);
   Hosts.closeNotification('stretch');
   expect(notices.map(n => n.title)).toEqual(['Alert']);
   globalThis.Notification = class { static permission = 'default'; static requestPermission() { Notification.permission = 'granted'; return Promise.resolve('granted'); }
     constructor(title, options) { this.title = title; this.options = options; posted.push(this); } close() { closed.push(this.title); } };
+  const previousFocus = globalThis.focus;
   try {
     clock.agent = false;
-    await Hosts.showNotification('Price alert', 'BTC crossed 100k', 'btc', null);
+    const navigated = [], focused = [];
+    globalThis.focus = () => focused.push(true);
+    navigateTo(location => navigated.push(location));
+    await Hosts.showNotification('Price alert', 'BTC crossed 100k', 'btc', null, 'https://example.test/notifications?unread=1');
     expect([posted[0].title, posted[0].options, last()]).toEqual(['Price alert', { body: 'BTC crossed 100k', tag: 'btc' }, 'showNotification: shown']);
+    let prevented = false;
+    posted[0].onclick({ preventDefault() { prevented = true; } });
+    expect([navigated, focused.length, prevented]).toEqual([['/notifications?unread=1'], 1, true]);
     await Hosts.showNotification('Stretch', null, 'stretch', Date.now() + 60_000);
     expect([posted.length, last()]).toEqual([1, 'showNotification: scheduled while this page is open']);
     await Hosts.closeNotification('stretch'); await Hosts.closeNotification('btc');
@@ -589,7 +596,36 @@ test('notifications: refused without the grant, listed under the agent, else pos
     await Hosts.showNotification('Soon', null, null, Date.now() + 20);
     await new Promise(r => setTimeout(r, 60));
     expect([posted.at(-1).title, last()]).toEqual(['Soon', 'showNotification: shown']);
-  } finally { delete globalThis.Notification; }
+    for (const [input, expected] of [[' \tthread/./42#reply ', '/thread/42'], ['app://thread/../thread/43?view=full#reply', '/thread/43?view=full']]) {
+      await Hosts.showNotification('Route', null, null, null, input);
+      posted.at(-1).onclick({ preventDefault() {} });
+      expect(navigated.at(-1)).toBe(expected);
+    }
+  } finally { delete globalThis.Notification; if (previousFocus === undefined) delete globalThis.focus; else globalThis.focus = previousFocus; }
+});
+
+test('notification clicks use the route location corpus, including canonical path encoding', async () => {
+  const { Hosts, clock, data, navigateTo } = await import(resolve(dir, 'rt.js'));
+  await import(resolve(dir, 'notify.js'));
+  const corpus = JSON.parse(readFileSync(new URL('../../../route/tests/corpus.json', import.meta.url), 'utf8'));
+  const cases = [...corpus.location_of, ...corpus.canonical.map(({ input, expected }) => ({
+    input: 'https://x' + (input.startsWith('/') ? input : '/' + input), expected,
+  }))];
+  const previous = globalThis.Notification, previousFocus = globalThis.focus;
+  let posted, got;
+  globalThis.Notification = class { static permission = 'granted'; constructor() { posted = this; } };
+  globalThis.focus = () => {};
+  try {
+    clock.agent = false; data.grants = 'device.notifications purpose.notifications\n';
+    navigateTo(location => { got = location; });
+    const mismatches = [];
+    for (const { input, expected } of cases) {
+      await Hosts.showNotification('Route', null, null, null, input);
+      posted.onclick({ preventDefault() {} });
+      if (got !== expected) mismatches.push({ input, expected, got });
+    }
+    expect(mismatches).toEqual([]);
+  } finally { globalThis.Notification = previous; globalThis.focus = previousFocus; navigateTo(null); }
 });
 
 // LLP 1090: a string past MAX_STRING comes only from a data source, which the

@@ -54,7 +54,7 @@ pub fn command_args<'e>(name: &str, args: &'e [Expr]) -> Vec<Option<&'e Expr>> {
     // author gave none.
     let order: &[&str] = match name {
         "share" => &["title", "text", "url"],
-        "showNotification" => &["title", "body", "tag", "showTrigger"],
+        "showNotification" => &["title", "body", "tag", "showTrigger", "navigate"],
         "stopSounds" => &["group"],
         _ => return args.iter().map(Some).collect(),
     };

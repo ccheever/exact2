@@ -639,7 +639,7 @@ fn share_args(args: &[Expr], scope: &Scope, shapes: &Shapes, span: Span) -> Resu
     Ok(())
 }
 
-/// `showNotification(title=, body=, tag=, showTrigger=)`: the Notification
+/// `showNotification(title=, body=, tag=, showTrigger=, navigate=)`: the Notification
 /// API's title and options by name, named only, `title` required; strings,
 /// and `showTrigger` a number (when to show it, in epoch milliseconds: the
 /// Notification Triggers draft's `TimestampTrigger`). `closeNotification(tag)`:
@@ -652,7 +652,7 @@ fn notification_args(
     shapes: &Shapes,
     span: Span,
 ) -> Result<(), TypeError> {
-    const USAGE: &str = "`showNotification(title=…, body=…, tag=…, showTrigger=…)`";
+    const USAGE: &str = "`showNotification(title=…, body=…, tag=…, showTrigger=…, navigate=…)`";
     if name == "closeNotification" {
         let one = matches!(args, [tag] if !matches!(tag, Expr::NamedArg(..)));
         if !one || Ty::String.unify(&infer(&args[0], scope, shapes)?).is_none() {
@@ -674,12 +674,12 @@ fn notification_args(
             );
         };
         let want = match arg_name.as_str() {
-            "title" | "body" | "tag" => Ty::String,
+            "title" | "body" | "tag" | "navigate" => Ty::String,
             "showTrigger" => Ty::Number,
             other => {
                 return err(
                     "type-notification-argument",
-                    format!("`showNotification` has no argument `{other}`; it takes title=, body=, tag= and showTrigger="),
+                    format!("`showNotification` has no argument `{other}`; it takes title=, body=, tag=, showTrigger= and navigate="),
                     *at,
                 )
             }

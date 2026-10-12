@@ -32,6 +32,16 @@ export function canonical(location) {
   });
   return "/" + segs.join("/") + (query ? "?" + enc(query, b => b < 0x21 || b > 0x7e || "\"#<>'".includes(String.fromCharCode(b))) : "");
 }
+/** `location_of` (route/src/location.rs): an incoming URL uses the router's path serializer. */
+export function locationOf(href) {
+  const input = clean(href), scheme = /^([A-Za-z][A-Za-z0-9+.-]*):([\s\S]*)$/.exec(input);
+  if (!scheme) return canonical(input);
+  if (!/^https?$/i.test(scheme[1])) return canonical('/' + scheme[2].replace(/^\/\//, ''));
+  const after = scheme[2].replace(/^[/\\]+/, ''), end = after.search(/[/\\?#]/);
+  // A leading backslash folds to `/` first, as path_query folds before it strips one `/`.
+  const rest = end < 0 ? '' : after.slice(end);
+  return canonical(rest[0] === '\\' ? '/' + rest.slice(1) : rest);
+}
 const empty = () => Names.map(() => "");
 const segments = p => p === "/" ? [] : p.replace(/^\//, "").split("/");
 function matchRoute(url) {

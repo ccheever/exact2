@@ -1,6 +1,7 @@
 # Notifications: a click runs an app action, and an app badge (rest of #114)
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Plain clicks use the router's own location canonicalization on both web targets and Apple; embedded Mac launches boot once before attaching views, preserving cold routes (route-corpus notification tests, attached-view Mac delegate test and host smoke); dismissal and session-ownership routing are tested on macOS (LaunchURLMacTests); on iOS only a cold launch's location is (NavigationBasicsIOSTests), the shared Notify.swift path otherwise untested there.
 **Systems:** notifications, Contract, GUI hosts
 **Severity:** P2
 **Author:** daehyeon-mun (GitHub report); Codex (filesystem transfer)

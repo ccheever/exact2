@@ -13,6 +13,9 @@
 import ExactKit
 import ExactComposition
 import UIKit
+#if !os(tvOS)
+import UserNotifications
+#endif
 
 // The process's own start (exec), from the kernel: what happened before
 // `main` — dyld, the Swift runtime, the static library's initializers.
@@ -171,6 +174,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             planRefusal = ExactDevelopmentPlan(path).installInitial(on: exact)
         }
         session = exact.makeSession(delegate: adapter, label: "main")
+        #if !os(tvOS)
+        exact.installNotificationClicks()
+        #endif
         // The one session owns its window and the process (LLP 1075.003.000.001 §2.1.1).
         session.hatchesOwnWindow = true
         session.hatchesOwnProcess = true
@@ -218,6 +224,10 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         guard let ws = scene as? UIWindowScene else { return }
         ExactEnv.stamp("scene")
         // @ref LLP 1038 D8 — consume the launch URL before constructing the view.
+        #if !os(tvOS)
+        let notificationResponse = connectionOptions.notificationResponse
+        if let notificationResponse { exact.openNotification(notificationResponse) }
+        #endif
         let contexts = connectionOptions.urlContexts.map(\.url).sorted { $0.absoluteString < $1.absoluteString }
         let activities = connectionOptions.userActivities.filter { $0.activityType == NSUserActivityTypeBrowsingWeb }
             .compactMap(\.webpageURL).sorted { $0.absoluteString < $1.absoluteString }

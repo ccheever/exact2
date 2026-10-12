@@ -337,6 +337,14 @@ impl<D: DataSource> Host<D> {
                 }
                 ("preventDefault", _) => self.prevented = true,
                 ("openURL", Some(url)) => self.open_url(&url),
+                ("showNotification", _) => {
+                    exact_runner::notify::arm(
+                        &mut self.runner,
+                        exact_runner::notify::Notice::from_args(&command.args),
+                        false,
+                        false,
+                    );
+                }
                 _ => {}
             }
         }
@@ -960,5 +968,35 @@ impl<D: DataSource> Host<D> {
             w: ((f.x + f.width) / COLUMN).round() as i32 - x,
             h: ((f.y + f.height) / ROW).round() as i32 - y,
         })
+    }
+}
+
+#[cfg(test)]
+mod notify_tests {
+    use super::*;
+    use exact_plan::Value;
+    use exact_runner::DataError;
+
+    struct Granted;
+    impl DataSource for Granted {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(source.into()))
+        }
+        fn grants(&self) -> &str {
+            "device.notifications purpose.notifications"
+        }
+    }
+
+    #[test]
+    fn a_notification_refused_by_the_terminal_is_journaled() {
+        let source = "component App\n  action remind\n    showNotification(title=\"Hello\", navigate=\"/inbox\")\n  view\n    button press=remind\n      text \"Remind\"";
+        let plan = contract::compile_terminal(source).unwrap();
+        let mut host = Host::boot(plan, Granted, Mode::Inline, 40, 10).unwrap();
+        host.act("remind");
+        let logs = exact_runner::agent::logs(&host.runner, 0);
+        assert!(
+            logs.contains("showNotification: refused: unavailable"),
+            "{logs}"
+        );
     }
 }

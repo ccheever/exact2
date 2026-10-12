@@ -156,6 +156,7 @@ public final class ExactApp {
     public var lifecycle: ExactAppLifecycle?
     private(set) var selectedToken: UInt64 = 0
     private var sessionRefs: [WeakSession] = []
+    let notificationProcessID = UUID().uuidString
     /// Every live session, in creation order.
     public var sessions: [ExactSession] { sessionRefs.compactMap(\.session) }
     /// The one dev connection (D11): the app URL `dev.mjs` prints, resolved
@@ -343,6 +344,7 @@ public final class ExactSession {
     public let app: ExactApp
     /// A host-owned name the agent carrier routes by (D9) and logs carry.
     public let label: String
+    let notificationOwnerID = UUID().uuidString
     public weak var delegate: ExactSessionDelegate?
     public private(set) var state: State = .created {
         didSet { if state != oldValue { let changed = state; app.deliver { [weak self] in guard let self else { return }; delegate?.exactSession(self, didChange: changed) } } }
@@ -1400,10 +1402,7 @@ public final class ExactSession {
     /// @ref LLP 1038 D8/D11 — pre-boot URLs are launch facts; the adapter consumes development links first.
     @discardableResult public func openURL(_ url: URL) -> Bool {
         guard state != .destroyed else { return false }
-        let location = incomingLocation(url)
-        if !booted { if launchLocation == nil { runtime.launch(location); launchLocation = location }
-                     else { pendingLaunchLocations.append(location) }; return true }
-        return navigate(location)
+        return openIncoming(incomingLocation(url))
     }
     /// A link the reader followed — a `link href`, a text run's `href`, a
     /// Markdown link. A path naming one of the app's routes is a location

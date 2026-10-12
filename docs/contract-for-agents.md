@@ -1866,7 +1866,11 @@ Platform facts are reserved sources (`exactViewport`, `exactPage`, `exactDeliver
 not have. `exactPage` answers `visibilityState`, `onLine`, `canShare`,
 `canOpenFiles` and `hasFocus` (`document.hasFocus()`: the app's window has the
 system's focus; false while another app or window is in front, so an app can
-choose an in-window message over a system notification). Under the agent each
+choose an in-window message over a system notification). A reminder that should
+open a route uses `showNotification(title="Done", navigate="/thread/42")`;
+its click reaches the navigation root as a warm `navigate` event or a cold
+launch location. Under the agent `state.notifications` lists `navigate`, and
+`type <navigation root> "/thread/42"` checks the destination. Under the agent each
 is the drive's (`prefer has-focus false`; `state.device`). Use dimensions,
 media preferences, page facts,
 and capability state rather than suffixing files by platform. Preference facts

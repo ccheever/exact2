@@ -813,8 +813,8 @@ function apply(batch) {
             .then(() => "share: shared", e => e?.name === "AbortError" ? "share: dismissed" : `share: refused: ${e?.name ?? e}`).then(log);
         }
         else if (op.name === "showNotification" || op.name === "closeNotification") { // the runner rules (refused, or listed for the agent: runner/src/notify.rs); notify-glue.js posts
-          const [title, body, tag, showTrigger] = op.args ?? [], close = op.name === "closeNotification", ruling = JSON.parse(readOut(wasm.exact_command(writeIn(JSON.stringify(close ? { command: op.name, tag: title, agent: agentMode } : { command: op.name, title, body, tag, showTrigger, agent: agentMode })))));
-          if (ruling.present) (notifyModule ??= loadAfterPaint('./notify-glue.js', 'notifications')).then(n => close ? n.close(title) : n.show({ title, body, tag, showTrigger }, log)); }
+          const [title, body, tag, showTrigger, navigateTo] = op.args ?? [], close = op.name === "closeNotification", ruling = JSON.parse(readOut(wasm.exact_command(writeIn(JSON.stringify(close ? { command: op.name, tag: title, agent: agentMode } : { command: op.name, title, body, tag, showTrigger, navigate: navigateTo, agent: agentMode })))));
+          if (ruling.present) (notifyModule ??= loadAfterPaint('./notify-glue.js', 'notifications')).then(n => close ? n.close(title) : n.show({ title, body, tag, showTrigger, navigate: navigateTo }, log, href => navigate(readOut(wasm.exact_location_of(writeIn(href)))))); }
         else if (!/^(playSound|playSounds|stopSounds)$/.test(op.name)) console.warn(`exact: unknown command ${op.name}`); // the voice table's are the runner's own, played from its `sound` op (LLP 1096 D7)
         break;
       }

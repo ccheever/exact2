@@ -419,6 +419,12 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// Canonical location from the input URL. @ref LLP 1038 D8
+    pub fn location_of(&mut self, len: usize) -> u32 {
+        let href = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]);
+        self.emit(exact_route::location_of(&href))
+    }
+
     /// Whether the location in the input buffer names a declared route
     /// (LLP 1038 §7): the page then follows a same-origin link in place.
     pub fn route_matches(&self, len: usize) -> u32 {
@@ -1163,6 +1169,12 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_host_go(len: u32, now_ms: f64) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().host_go(len as usize, now_ms))
+        }
+
+        /// The router's location from an incoming URL, in the output buffer.
+        #[no_mangle]
+        pub extern "C" fn exact_location_of(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().location_of(len as usize))
         }
 
         /// Whether a location (the input buffer) names a declared route.

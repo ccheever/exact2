@@ -11,6 +11,33 @@ impl DataSource for Empty {
     }
 }
 
+#[test]
+fn incoming_notification_locations_use_the_route_corpus_through_the_web_abi() {
+    let corpus: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../route/tests/corpus.json")).unwrap();
+    let mut bridge = exact_web::abi::Bridge::<caltrain_data::Caltrain>::new();
+    for section in ["location_of", "canonical"] {
+        for case in corpus[section].as_array().unwrap() {
+            let input = case["input"].as_str().unwrap();
+            let href = if section == "canonical" {
+                format!(
+                    "https://x{}{input}",
+                    if input.starts_with('/') { "" } else { "/" }
+                )
+            } else {
+                input.to_owned()
+            };
+            let count = bridge.input_write(href.as_bytes());
+            let len = bridge.location_of(count);
+            assert_eq!(
+                std::str::from_utf8(bridge.output_bytes(len as usize)).unwrap(),
+                case["expected"].as_str().unwrap(),
+                "{href}"
+            );
+        }
+    }
+}
+
 /// Real Chrome sweep, run by `bun scripts/smoke.mjs web`: the wasm host.
 #[test]
 #[ignore = "real Chrome sweep: bun scripts/smoke.mjs web"]

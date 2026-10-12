@@ -448,6 +448,13 @@ change can break.
   Take: none offered. Still refused: push delivery from a server, actions and
   replies on a notification, badges, repeating schedules, and a readable
   permission fact.
+  **Expanded (Charlie, 2026-10-11, notification click ruling; LLP 1114.001 D1):**
+  a plain click on a local notification may open its `navigate=` location
+  through the existing router (a warm `navigate` event, a cold launch location).
+  Consumer: the T3 Code clone opens the finished thread from its reminder.
+  This admits the body click only; action buttons and replies, badges, push,
+  repeats, and permission facts remain refused. Take: none named; Charlie's
+  scoped ruling admits this expansion.
 
 **Components** — roughly 15 built-in tags, not 40; roughly 12 Facet components, not 47.
 

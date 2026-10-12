@@ -120,7 +120,7 @@ pub const HOST_COMMANDS: &[&str] = &[
     "showModal",
     "share",
     // Local notifications by the Notification API's names (rules/DEFERRED.md,
-    // 2026-10-04): `showNotification(title=, body=, tag=, showTrigger=)` and
+    // 2026-10-04): `showNotification(title=, body=, tag=, showTrigger=, navigate=)` and
     // `closeNotification(tag)`.
     "showNotification",
     "closeNotification",

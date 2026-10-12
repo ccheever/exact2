@@ -448,6 +448,7 @@ fn function_text(f: &Function) -> String {
 /// A host command: an action statement, never a value.
 fn command_text(name: &str) -> String {
     let what = match name {
+        "showNotification" => "; `showNotification(title=…, body=…, tag=…, showTrigger=…, navigate=…)` posts a local notification; its plain click opens `navigate=` through the navigation root (warm event or cold launch location). Needs `device.notifications` (docs/reference.md#notifications)",
         "setRootFontSize" => "; `setRootFontSize(px)` sets CSS's `:root { font-size }`, the size every `rem` follows (px above 0), over the host's own; `setRootFontSize(\"medium\")` hands it back (LLP 1069.000 D3)",
         _ => "",
     };

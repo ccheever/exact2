@@ -211,6 +211,26 @@ pub(crate) fn compatibility_digest(inputs: &serde_json::Value) -> String {
     digest[..16].iter().map(|b| format!("{b:02x}")).collect()
 }
 
+fn commands_digest() -> String {
+    let mut h = Sha256::new();
+    for name in contract_syntax::HOST_COMMANDS {
+        let shape = match *name {
+            "share" => "3",
+            "showNotification" => "5",
+            "closeNotification" | "stopSounds" | "playSounds" => "1",
+            "playSound" => "4",
+            "scrollIntoView" => "4|6",
+            "saveFile" => "3|4",
+            _ => "positional",
+        };
+        h.update(format!("{name}:{shape}\n"));
+    }
+    h.finalize()[..16]
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
 fn compatibility_with_trust(
     app_dir: &Path,
     platform: &str,
@@ -327,6 +347,9 @@ fn compatibility_with_trust(
         "kernelSchema": format!("{:016x}", exact_kernel::SCHEMA_DIGEST),
         "formatVersion": exact_plan::FORMAT_VERSION,
         "formatDigest": format!("{:016x}", exact_plan::FORMAT_DIGEST),
+        // @ref LLP 1114.001 D1 — an OTA plan with a changed fixed command
+        // shape must not run in a binary that reads its old arguments.
+        "commands": commands_digest(),
         "abi": { "c": abi_version()?, "gpuModule": GPU_MODULE_ABI, "storeCodec": if binary_only { Value::Null } else { json!(exact_update::STORE_CODEC) } },
         "executors": executors,
         "rustMode": rust_mode,
@@ -682,6 +705,10 @@ mod tests {
         );
         assert_eq!(compat.inputs["javascriptGrants"], javascript);
         assert_eq!(compat.inputs["rustGrants"], rust);
+        assert_eq!(compat.inputs["commands"], super::commands_digest());
+        let mut without_commands = compat.inputs.clone();
+        without_commands.as_object_mut().unwrap().remove("commands");
+        assert_ne!(compat.id, super::compatibility_digest(&without_commands));
         let first = compat.id.clone();
         super::source_scopes(&mut compat, &format!("{rust}\n{javascript}"), rust);
         assert_eq!(
