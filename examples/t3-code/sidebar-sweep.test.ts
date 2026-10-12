@@ -22,17 +22,21 @@ rows.forEach(({ id }, i) => { frames[`row-${id}`] = { y: 30 * i, height: 28 }; f
 function section() {
   const state = threadSection.state();
   const data = { sidebar: { sweepEpoch: 0 } };
+  // The window's hover (pr-list-scroll-and-sidebar-sweep): its id and count, and each call of the root's half.
+  const unhovered: [string, boolean][] = [];
+  const hover = { hoverId: '|a|', hoverSeq: 0, unhover: (id: string, over: boolean) => { unhovered.push([id, over]); } };
   const scope = {
     min: Math.min, max: Math.max,
     join: (list: string[], sep: string) => list.join(sep),
     map: <T, U>(list: T[], f: (t: T) => U) => list.map(f),
     filter: <T>(list: T[], f: (t: T) => boolean) => list.filter(f),
     frame: (id: string) => { const f = frames[id]; if (!f) throw new Error(`no frame ${id}`); return f; },
-    rows, data, scrollY: 0,
+    rows, data, scrollY: 0, ...hover,
   };
   const call = (name: string, args: unknown[]) => threadSection.call(name, state, scope, args);
   return {
     state,
+    unhovered,
     move: (id: string, dy: number, verb = 'settle', dx = 0) => call('sweep', [id, verb, dx, dy]),
     cancel: () => call('cancelSweep', []),
     // The release is a `sweep|…` drop; the client bumps sweepEpoch when it lands, which ends the sweep.
@@ -81,5 +85,22 @@ describe('a sidebar row-action sweep starts fresh (sidebar.contract ThreadSectio
     expect([s.state.sweepCancelled, ...s.at]).toEqual([false, -10, 74, 64, '|c|']);
     s.move('c', -25);
     expect(s.at).toEqual([-35, 74, 39, '|b|c|']);
+  });
+
+  test('each sweep\'s first arming closes the window\'s hover once, a fresh sweep after a release included', () => {
+    // pr-list-scroll-and-sidebar-sweep (X13): SidebarPointerSensor's onStart, as the list takes `**:pointer-events-none`.
+    const s = section();
+    s.move('a', 4);
+    expect(s.unhovered).toEqual([]); // under the 6-pt distance: still the button's click
+    s.move('a', 4);
+    s.move('a', 10);
+    expect(s.unhovered).toEqual([['|a|', false]]);
+    s.release();
+    s.move('a', 10); // the same row's next sweep arms at once from its own press
+    s.move('a', 10);
+    expect(s.unhovered).toEqual([['|a|', false], ['|a|', false]]);
+    s.cancel();
+    s.move('a', 10);
+    expect(s.unhovered.length).toBe(2); // a cancelled sweep arms nothing more
   });
 });
