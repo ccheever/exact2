@@ -41,8 +41,16 @@ test('the device tools section title is an h3 and the import menu label is no he
 // are in the task record (20261010-settings-headings.md); these are the clone's views that draw them.
 test('Settings section titles are h2 and row titles h3, as the reference', () => {
   // General and Appearance (CoreSections, CoreRowView); the Project page's Model row is a CoreRowView too.
-  expect(line('settings-rows.contract', 'text section.title font-size="0.875rem" font-weight=400 line-height="1.25rem" color=pal.heading role=')).toContain('role="heading" aria-level=2');
-  expect(line('settings-rows.contract', 'SettingsSrHeading(title=section.title')).toContain('level=2');
+  const sectionTitle = 'text section.title font-size="0.875rem" font-weight=400 line-height="1.25rem" color=pal.heading role="heading" aria-level=2';
+  const rows = views().find(v => v.name === 'settings-rows.contract')!.lines;
+  expect(rows.filter(l => l.includes(sectionTitle))).toHaveLength(2);
+  // adopt-main-fixes-r10 RT-2: Legacy features' `<h2>` is inside its trigger, button › heading [level=2], since main
+  // #451 (X74) keeps a heading inside a Mac button as its child; the sr-only heading beside the button is gone.
+  const trigger = rows.findIndex(l => /^\s*button press=toggleLegacy .*aria-expanded=legacyOpen/.test(l));
+  expect(trigger).toBeGreaterThan(0);
+  expect(rows[trigger + 1]!.trim()).toBe(sectionTitle);
+  expect(rows[trigger + 1]!.search(/\S/)).toBe(rows[trigger]!.search(/\S/) + 2);
+  expect(rows.join('\n')).not.toContain('SettingsSrHeading');
   expect(line('settings-rows.contract', 'text row.title font-size="0.875rem" font-weight=500')).toContain('role="heading" aria-level=3');
   expect(line('settings-rows.contract', 'text "Version"')).toContain('role="heading" aria-level=3 aria-label=`Version ${row.value}`');
   expect(line('settings-rows.contract', 'text row.value font-family="ui-monospace"')).toContain('aria-hidden=true');
@@ -93,5 +101,10 @@ test('every drawn text heading writes its font-weight (main\'s D7 bolds an unsai
     ['settings-rows.contract', 'text section.title font-size="0.875rem" font-weight=400'],
     ['settings-scheduled.contract', 'text "Scheduled tasks" font-size="0.875rem" font-weight=400'],
     ['settings-licenses.contract', 'text "Third-party notices" font-size="0.875rem" font-weight=400'],
-  ] as const) expect(line(file, needle)).toContain('role="heading"');
+  ] as const) {
+    // settings-rows.contract draws two: a section's title and, inside its trigger, Legacy features' (RT-2, r10).
+    const found = all.find(v => v.name === file)!.lines.filter(l => l.includes(needle));
+    expect(found).toHaveLength(file === 'settings-rows.contract' ? 2 : 1);
+    for (const l of found) expect(l).toContain('role="heading"');
+  }
 });

@@ -249,6 +249,13 @@ public final class Agent {
         // A fetch fault (LLP 1103) is the runner's, below; the device facts are this host's.
         case "prefer" where req["faults"] == nil: Agent.reply(tagged(prefer(req)))
         case "screenshot": Agent.reply(tagged(screenshot(req)))
+        // What is wrong with the presented screen, as observations the driver judges (LLP 1116.003 D8).
+        case "check":
+            #if os(iOS) || os(tvOS)
+            Agent.reply(tagged(check(req)))
+            #else
+            Agent.reply(["error": "check: the web and iOS hosts carry it, not macOS yet"])
+            #endif
         case "sample": Agent.reply(tagged(sample(req)))
         case "logs":
             var forward = req

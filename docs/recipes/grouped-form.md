@@ -102,7 +102,6 @@ test "errors show after the first Save and clear when fixed"
   writes only `padding-top`/`padding-bottom` (`padding` or `width="100%"` runs it off
   the card).
 - Validate a derive of the raw text, and show it only after the first Save, under the
-  field in its row, in `-exact-system-red`, saying what to do. A section `footer` is
-  always the system's grey on iOS, so an error there reads as a hint.
+  field in its row, in `-exact-system-red`, saying what to do.
 - The list paints its own grouped background; don't set one. To keep a setting across
   launches, see [persisted-setting](persisted-setting.md).

@@ -17,7 +17,13 @@ test('usage figures format as usageFormat.ts does', () => {
 
 // usage-and-pr-pages PG-2: usageFormat.ts's CURRENCY is Intl.NumberFormat("en-US", USD, 2 digits), which rounds
 // half away from zero on the shortest digits (0.825 → $0.83); Bun's Intl is ICU, as Chrome's is, so it is the oracle.
-test('USD amounts round as the reference currency format does (half-expand, PG-2)', () => {
+// adopt-main-fixes-r10 RT-3: since main #447 (X72) the Apple hosts' Intl rounds the same, so `formatUsd` is that
+// formatter, as the reference's; the fixed list is ICU's answers, and the macOS app's own Hermes was checked live
+// (the Usage page's Day table, USD 0.825 on Oct 9 is $0.83).
+test('USD amounts round as the reference currency format does (half-expand, PG-2)', async () => {
+  const source = await Bun.file(new URL('pages-usage.ts', import.meta.url)).text();
+  expect(source).toContain("currency ??= new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 });");
+  expect(source).not.toContain('function plainDigits');
   const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 });
   expect([formatUsd(0.825), formatUsd(0.46 + 0.365), formatUsd(1.275), formatUsd(0.005), formatUsd(0.125), formatUsd(999.995), formatUsd(-0.825), formatUsd(-0.004), formatUsd(0)])
     .toEqual(['$0.83', '$0.83', '$1.28', '$0.01', '$0.13', '$1,000.00', '-$0.83', '-$0.00', '$0.00']);
