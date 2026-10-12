@@ -168,8 +168,9 @@ export function driveNotes(s, { host, storage }) {
   };
 }
 /** A test's `request` line (LLP 1116.006 D8): `st.path` under `base`, the server URL the app calls (or a whole URL),
- * its body as JSON, `as` the bearer token, as the rest pattern names a persona. A refusal or no answer throws, saying
- * what came back. */
+ * its body as JSON, `as` the bearer token, as the rest pattern names a persona. A status outside 200 through 299 or no
+ * answer throws, saying what came back; with `expect <status>` (LLP 1116.010 D3) that status is what passes, and any other
+ * throws: the test of a refusal. */
 export async function serverRequest(base, st) {
   const whole = /^https?:\/\//.test(st.path);
   if (!whole && !base) throw new Error(`request: app.ts calls no local server (http://127.0.0.1:<port>), so ${JSON.stringify(st.path)} is under nothing; write the whole URL`);
@@ -179,7 +180,8 @@ export async function serverRequest(base, st) {
   try { res = await fetch(url, { method: st.method, headers, body: st.body ?? undefined, signal: AbortSignal.timeout(10_000) }); }
   catch (e) { throw new Error(`${said}: nothing answered (${e.message}); test and verify start the app's server (server.ts, at the address app.ts calls) for a run; a server of its own that they leave alone must be running`); }
   const text = (await res.text().catch(() => '')).trim();
-  if (!res.ok) throw new Error(`${said}: the server answered ${res.status}${text ? ` ${text.slice(0, 300)}` : ''}`);
+  const answered = `the server answered ${res.status}${text ? ` ${text.slice(0, 300)}` : ''}`;
+  if (st.expect != null ? res.status !== st.expect : !res.ok) throw new Error(`${said}: ${answered}${st.expect != null ? `, expected ${st.expect}` : ''}`);
 }
 
 /** A launch line's op and the `open` option it sets (`size` aside: it is two numbers). */

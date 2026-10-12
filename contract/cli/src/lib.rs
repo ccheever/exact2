@@ -939,6 +939,7 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                     path,
                     body,
                     persona,
+                    status,
                     ..
                 } => {
                     s.push_str("{\"op\":\"request\",\"method\":");
@@ -951,6 +952,10 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                             Some(v) => q(v, &mut s),
                             None => s.push_str("null"),
                         }
+                    }
+                    // LLP 1116.010 D3: only when written, so a plain request's line is as it was.
+                    if let Some(status) = status {
+                        s.push_str(&format!(",\"expect\":{status}"));
                     }
                 }
                 Step::Resize { width, height, .. } => {

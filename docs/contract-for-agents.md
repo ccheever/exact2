@@ -2175,7 +2175,7 @@ test "the list shows an error, then retries and loads"
 To write through the app's own server as another person, `request POST "/items"
 {"title": "Bread"} as grace` is the driver calling it (`Authorization: Bearer grace`,
 under app.ts's local URL; a status outside 2xx fails the step with the status and
-body). The app shows the write when it next reads: `clock +<its poll's ms>`, `clock
+body, unless `… as bob expect 409` says it is the refusal the test wants). The app shows the write when it next reads: `clock +<its poll's ms>`, `clock
 data`, then `expect` ([rest-backend](recipes/rest-backend.md),
 [authored tests](contract-grammar.md#authored-tests)).
 

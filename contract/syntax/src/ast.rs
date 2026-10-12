@@ -266,7 +266,7 @@ pub enum Step {
         /// Where.
         span: Span,
     },
-    /// `request POST "/items" {"title": "Bread"} as grace` (LLP 1116.006
+    /// `request POST "/items" {"title": "Bread"} as grace [expect 409]` (LLP 1116.006
     /// D8): the driver writes through the app's server as another person.
     Request {
         /// `GET`, `POST`, `PUT`, `PATCH` or `DELETE`.
@@ -277,6 +277,8 @@ pub enum Step {
         body: Option<String>,
         /// Whose bearer token it carries.
         persona: Option<String>,
+        /// `expect 409` (LLP 1116.010 D3): the refusal's status; `None`: any 2xx.
+        status: Option<u16>,
         /// Where.
         span: Span,
     },

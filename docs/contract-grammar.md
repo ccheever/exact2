@@ -386,7 +386,7 @@ step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu"
               | "reload" NL
               | "fail" "fetch" STRING [ "times" NUMBER ] NL (* later fetches whose URL starts with it fail *)
               | "pass" "fetch" STRING NL             (* it stops failing *)
-              | "request" METHOD STRING [ json ] [ "as" ( IDENT | STRING ) ] NL
+              | "request" METHOD STRING [ json ] [ "as" ( IDENT | STRING ) ] [ "expect" NUMBER ] NL
                                                      (* the driver writes through the app's server *)
               | "close" NL                           (* the window's close button *)
               | "back" NL                            (* the platform's Back *)
@@ -441,7 +441,9 @@ first local one, `http://127.0.0.1:8787`; or a whole `http://` URL), an optional
 body (sent as `content-type: application/json`), and `as <persona>`, sent as
 `Authorization: Bearer <persona>` (the `rest` pattern's tokens are `ada` and `grace`;
 `as "token-grace"` for a token that is not one word). A status outside 200 through
-299, or no answer, fails the step naming the status and the body's start. The app
+299, or no answer, fails the step naming the status and the body's start; `expect 409`
+after the persona (a status from 100 through 599, LLP 1116.010 D3) is the test of a
+refusal: that status passes it, any other (a success too) fails it. The app
 shows the write when it next reads, so follow it with `clock +<its poll's ms>` and
 `clock data` before the `expect` (a failed `expect` before the clock moved says so).
 `test` and `verify` run the server on an empty database (one already answering there,

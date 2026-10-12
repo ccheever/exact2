@@ -633,7 +633,40 @@ fn a_test_writes_through_the_apps_server_as_another_person() {
         json.contains("{\"op\":\"request\",\"method\":\"PATCH\",\"path\":\"/items/1\",\"body\":\"{\\\"locked\\\":false}\",\"as\":null,\"line\":5},{\"op\":\"clock\""),
         "{json}"
     );
+    // LLP 1116.010 D3: `expect 409` after the persona, the status a refusal answers; in the JSON only when written.
+    let src = "test \"t\"\n  request POST \"/items\" {\"title\": \"Bread\"} as bob expect 409\n  request DELETE \"/items/3\" expect 404\n  request GET \"/items\"\n";
+    let tests = contract::tests(src).unwrap();
+    let steps = &tests[0].steps;
+    assert!(
+        matches!(&steps[0], Step::Request { persona: Some(who), status: Some(409), .. } if who == "bob")
+    );
+    assert!(matches!(
+        &steps[1],
+        Step::Request {
+            persona: None,
+            status: Some(404),
+            ..
+        }
+    ));
+    assert!(matches!(&steps[2], Step::Request { status: None, .. }));
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.contains("\"as\":\"bob\",\"expect\":409,\"line\":2}"),
+        "{json}"
+    );
+    assert!(
+        json.contains("\"as\":null,\"expect\":404,\"line\":3}"),
+        "{json}"
+    );
+    assert!(
+        json.contains("{\"op\":\"request\",\"method\":\"GET\",\"path\":\"/items\",\"body\":null,\"as\":null,\"line\":4}"),
+        "{json}"
+    );
     for (src, line) in [
+        ("test \"t\"\n  request POST \"/items\" expect\n", 2),
+        ("test \"t\"\n  request POST \"/items\" expect 99\n", 2),
+        ("test \"t\"\n  request POST \"/items\" expect 409.5\n", 2),
+        ("test \"t\"\n  request POST \"/items\" expect \"409\"\n", 2),
         ("test \"t\"\n  request post \"/items\"\n", 2),
         ("test \"t\"\n  request POST \"items\"\n", 2),
         ("test \"t\"\n  request POST \"/items\" {\"a\": 1,}\n", 2),
