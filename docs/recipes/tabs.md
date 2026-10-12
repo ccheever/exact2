@@ -62,5 +62,5 @@ test "each tab keeps its own stack"
   onto the selected tab's stack; the browser's Back, Forward and a deep link arrive there too.
 - Hide the bar on one screen with `display="none"` on the tablist, never `when`: the panels'
   routes are then found by no host.
-- A wide window (900 px up on the web) draws the bar, placed as above (the root column's last
-  child), as a sidebar; a tablist you arrange yourself stays yours.
+- A wide window (900 px up on the web) and a Mac window draw the bar, placed as above (the root
+  column's last child), as a sidebar; a tablist you arrange yourself stays yours.

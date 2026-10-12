@@ -24,7 +24,7 @@ const takesValue = (spec) => spec.includes(' ');
 const DRIVE = [
   ['--storage <name>', 'a scratch store, kept between drives by name'],
   ['--size <w>x<h>', 'the viewport (default 420x900; a simulator\'s own)'],
-  ['--chrome platform', 'Apple: UIKit\'s navigation and tab bars (default: painted)'],
+  ['--chrome platform', 'Apple: UIKit\'s bars, the Mac\'s sidebar (default: painted)'],
   ['--timing platform', 'Apple: UIKit\'s transitions keep their own timing (default: frozen)'],
   ['--touch platform', 'iOS simulator: every tap a real touch, through the XCTest runner'],
   ['--epoch <ISO|ms|now>', 'the date at the clock\'s zero (default 2026-01-01)'],

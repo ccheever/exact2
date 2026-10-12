@@ -34,6 +34,8 @@ internal class Bars(activity: ExactActivity, root: FrameLayout) {
     /** The faces the bars have drawn with, by what announces each: a bar painted again makes none anew. */
     private val faces = HashMap<List<Int>, Font>()
     private val layer = FrameLayout(activity).also {
+        // A bar is a picture: what is in it is said by the reader's root ([Access], LLP 1115.001 D13).
+        it.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
         root.addView(it, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
     }
     private val panes = arrayOf(pane(activity, TOP), pane(activity, BOTTOM))

@@ -721,10 +721,10 @@ public final class ExactSession {
         presenter.controls.radioGroup = { [unowned self] id in runtime.radioGroup(id) }
         presenter.buttonFace = { [unowned self] id in runtime.buttonFace(id) }
         presenter.onIntrinsic = { [unowned self] sizes in whenIdle { [unowned self] in apply(runtime.intrinsics(sizes)) } }
-        #if os(iOS) || os(tvOS)
-        // @ref LLP 1075.003 §3.5, Q3 (c) — what a bar covers reaches layout
-        // as an intrinsic size does; the hatches replay once the module connects.
+        // @ref LLP 1075.003 §3.5, Q3 (c) — what a bar covers reaches layout as an intrinsic
+        // size does, on AppKit too (LLP 1115.002 D8.1); the hatches replay once the module connects.
         presenter.onCovers = { [unowned self] covers in whenIdle { [unowned self] in apply(runtime.covers(covers)) } }
+        #if os(iOS) || os(tvOS)
         natives.onHatchesConnected = { [weak self] in
             self?.presenter.navigation.replayHatches()
             self?.presenter.elements.replay()
@@ -734,6 +734,7 @@ public final class ExactSession {
             self?.presenter.elements.replay()
             self?.presenter.toolbar.hatchToolbar()
         }
+        presenter.rootTabs = { [unowned self] id in runtime.rootTabs(id) }
         #endif
         presenter.onHover = { [unowned self] id, over in apply(runtime.hover(id, over: over, now: now())) }
         presenter.onFocus = { [unowned self] id in apply(runtime.focus(id, now: now())) }

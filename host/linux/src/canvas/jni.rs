@@ -701,6 +701,48 @@ macro_rules! canvas_jni {
                 with(|h| h.bar(which, what, x, y));
             }
 
+            /// What the reader is told of the accessibility tree (LLP
+            /// 1115.001 D13), when that is not what this last returned
+            /// (else null): `Presenter::reader_access` has the words. The
+            /// reader calls it only while an accessibility service is on;
+            /// `again` when it holds nothing of the tree.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_access(
+                env: *mut JNIEnv,
+                _class: jclass,
+                again: jboolean,
+            ) -> jintArray {
+                match with(|h| h.access(again != JNI_FALSE)).flatten() {
+                    Some(words) => ints(env, &words),
+                    None => std::ptr::null_mut(),
+                }
+            }
+
+            /// An accessibility service acts on node `id` of the tree last
+            /// told (`presenter::access::act`): 1 press, 2 hold, 3 scroll
+            /// on or step up, 4 scroll back or step down, 5 set a range to
+            /// `value`. Whether anything took it.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_accessAct(
+                _env: *mut JNIEnv,
+                _class: jclass,
+                id: jint,
+                action: jint,
+                value: jfloat,
+            ) -> jboolean {
+                flag(with(|h| h.access_act(id, action, value)).unwrap_or(false))
+            }
+
+            /// No accessibility service is on any more: the presenter
+            /// forgets the tree it told and builds none.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_canvas_Native_accessOff(
+                _env: *mut JNIEnv,
+                _class: jclass,
+            ) {
+                with(|h| h.access_off());
+            }
+
             /// One slice of laying out what the touch that is down would
             /// open (`CanvasHost::ahead`); whether more is left.
             #[no_mangle]

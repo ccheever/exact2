@@ -161,7 +161,8 @@ not say `EXACT_AGENT=1` answers no request, and a production bake drops that var
 | `perf` | the runner's table by plan site. `perf frames` was not tried; the handler answers it `virtual`, which is not the reader's frames |
 | `fail fetch`, `pass fetch`, a test's `reload` | work (Shelf's tests use them) |
 | `check` | refused by `agent.mjs` for every Android carrier ("the web and iOS hosts carry it") |
-| `--plan`, `--world`, a launch URL | refused: the reader boots the plan its APK bakes. `--size` is the phone's. `tree --ax`, `resize`, a drag and a wheel were not tried |
+| `--plan`, `--world`, a launch URL | refused: the reader boots the plan its APK bakes. `--size` is the phone's. `resize`, a drag and a wheel were not tried |
+| `tree --ax` | the reader's own answer ("Accessibility", below): what Android has for the window in front, joined to the views |
 
 Shelf's own tests (`apps/shelf/app.test.contract`, eleven) pass on the reader. They found three things on the way,
 each fixed where it was: a value the app sets that a field's keyboard would not admit ("12.5" in a number field)
@@ -814,6 +815,131 @@ Not built of D11:
   down) is written a second time here, in `presenter/bars.rs`: it is the iOS host's `contentScroller`, in Swift.
 - A bar's symbols are still the symbol table's paths (D14 is S2's), but for the Up arrow.
 
+## Accessibility (LLP 1115.001 D13)
+
+What the reader shows is painted: the page in one view, each bar and each surface of the top layer in a `Pane`. None
+of it said anything to an accessibility service, so TalkBack read an Exact app as one unlabelled view. The reader's
+root (`Root`, `Access.kt`) now answers through an `AccessibilityNodeProvider` whose virtual nodes are exact2's own
+statement of the tree (`host/linux/src/presenter/access.rs`), which reads the kernel's tree as the Apple hosts do.
+
+**Why the root, and not the page's view.** The bars are over the page's view and reach outside it (the top app bar
+fills the status bar's area), and the hosted text fields are its siblings, under it. The root holds all three, fills
+the window, and is where a finger's hover arrives first. The page's view, the bars' layer and its panes are marked
+not important for accessibility: they are pictures.
+
+**What a node is**, in the order a person reads: the top app bar's nodes (the Up arrow, leading buttons, the title,
+trailing buttons), then the page's, then the navigation bar's.
+
+| exact2's node | Android's node | Said by |
+|---|---|---|
+| text | `android.widget.TextView` | its text |
+| a heading | `TextView`, `isHeading` | the flag; Android has no heading level |
+| a button; a row of a menu or an alert | `android.widget.Button` | its text; click, and long click where it names a context menu |
+| a link (`href`, `role="link"`) | `TextView`, role description `link` | the role description |
+| a checkbox, a switch, a radio | `CheckBox`, `Switch`, `RadioButton` | checkable and checked |
+| a button with `aria-pressed` | `android.widget.ToggleButton` | checkable and checked |
+| a range | `android.widget.SeekBar` | its range; scroll forward and backward step it, set progress sets it |
+| progress | `android.widget.ProgressBar` | its range where it has one |
+| a named image | `android.widget.ImageView` | its content description |
+| a `select` | `android.widget.Spinner` | its name as content description, its choice as state description |
+| a tab; a navigation bar's destination | `android.view.View`, role description `Tab` | selected, its place among the tabs; no click while selected, as Material's own |
+| a `tablist`; the navigation bar | `android.view.ViewGroup` | a collection of one row, single selection |
+| a scroll container that scrolls | `ScrollView`, `HorizontalScrollView` | scrollable; scroll forward and backward; a list's rows give it a collection |
+| the Up arrow | `android.widget.ImageButton` | the framework's own words for it (`action_bar_up_description`: "Navigate up"), in the device's language |
+| a hosted text field | none: the field's own `EditText` | below |
+
+Hidden, inert and `aria-hidden` subtrees, and what a scroller does not show, are no nodes. A node's description
+(`aria-description`, `aria-describedby`) is its tooltip text. A live region (`aria-live`, `role="status"`,
+`role="alert"`) is a node with Android's live-region mode.
+
+**Identity.** A node's virtual id is exact2's identity for it: the view's own id, which the runner keeps while the
+view lives; under a list's row, a hash of the list's identity, the row's item key and the node's place in the row,
+since a row's views may be given to another item. So it is the same node after a commit, a scroll, and a row that
+leaves and returns (`presenter/access_tests.rs`). The Up arrow, an alert's headline and its text, and a page that
+scrolls as a whole have fixed ids of their own.
+
+**What reports itself is not reported twice.**
+
+- *A hosted text field* is a real `EditText` (`Fields.kt`). Where exact2's tree has one, the provider adds the
+  field's own view as the child, in its place in the order, and the field's node says it stands under that parent
+  and takes its accessible name as its hint (`Access.Stand`). Android's own node for it says the rest: its text,
+  that it is an edit box, its selection, its actions.
+- *An alert and a menu are windows.* While one is open exact2's tree is that surface alone, in the window's own
+  pixels: its pane answers with it, and the root answers with no node. The alert's window is titled by its headline,
+  as the platform's own alert is. Android itself leaves the activity's window out of what a service is given while
+  either is up (seen with `uiautomator dump --windows`), so the page is unreachable twice over.
+- *Hosted elements* (a web view, a video) report themselves; their layer is added after exact2's nodes. Not tried:
+  no app on the reader has one.
+
+**The calls.**
+
+| Call | Direction | What it says |
+|---|---|---|
+| `Native.access(again)` (`CanvasHost::access`, `Presenter::reader_access`) | exact2 tells, with each stream, only while a service is on | Null while nothing changed. Else the statement's number; the surface whose window the nodes are in (0: the page's); 1 when the tree is told whole; the route that shows and its title; a count of changes, four words each (a node, 0 for the view; what changed: bit 0 its subtree, bit 1 its text, bit 2 its state, bit 3 it scrolled, bit 4 it is a live region that speaks; how far a scroller moved, x and y as float bits); a count of nodes and for each, in reading order: its id, its parent's, its view, its role, its flags, its box in pixels, its range as float bits, its place in its set and the set's size, and three strings (name, value, description). `again`: the reader holds nothing and is told the tree whole |
+| `Native.accessAct(id, action, value)` (`CanvasHost::access_act`, `Presenter::access_act`) | reader asks, on exact2's thread, and waits | A service acts on a node: 1 press (the presenter's own press at the node, the path a driver's `tap` takes), 2 hold (its context menu, as a held finger opens it), 3 scroll a scroller on by what it shows less a line, or step a range up, 4 back or down, 5 set a range to `value`. Whether anything took it |
+| `Native.accessOff()` (`CanvasHost::access_off`, `Presenter::access_reset`) | reader tells | No service is on any more: exact2 forgets what it told |
+
+**Actions.** TalkBack's double tap is `ACTION_CLICK` on the node, which is `accessAct(id, 1)`; the Up arrow's is the
+system's Back. Accessibility focus is kept in `Access` and is not exact2's keyboard focus: neither moves the other. A
+hosted field takes its own click as any `EditText` does, which gives it the input focus and the keyboard.
+
+**Events.** A statement lists what changed and only that is sent: a content change for the node whose subtree,
+text or state changed (a checked or selected state as a state-description change; a tab that became selected also
+sends `TYPE_VIEW_SELECTED`), `TYPE_VIEW_SCROLLED` from a scroller that moved, and a content change from a live
+region, which is what TalkBack speaks one by. More than twelve changes, or another window's tree, is told whole: one
+content change of the view. A live region that came to say something is still listed then, also when it changed
+while a menu or an alert was open over it. The route is the root's pane: its title (the top app bar's) is the root's
+pane title, which Android announces when it changes.
+
+**With no service on, nothing is built.** `Owner` asks for the tree only while `AccessibilityManager` says a
+service is enabled; with none, `Native.access` is never called, the presenter makes no tree, and the root is a plain
+frame with no provider. Cold start, twenty launches each in alternating blocks on a Pixel 10 Pro XL, the build
+before this work (an older main, `a0600e637`) against the build with it: Shelf's median 92.0 ms before and 94.5
+after (quartiles 86 to 97 and 89 to 98), Caltrain's 88.0 and 88.0. With a service on, a scroll is a statement of
+the whole tree every frame; that is not coalesced.
+
+**`tree --ax`** (`AgentDrive`, `ExactActivity.ax`, `Access.ax`). The Linux handler has no window and answered "no
+AT-SPI tree". The reader answers a driver as it answers a service: exact2 is asked for the tree, and each node's own
+`AccessibilityNodeInfo`, the object Android hands a service, is read back on the main thread in the order a service
+walks it (a hosted field's from the field's own view; the open surface's window where one is open). An in-app read
+and not `uiautomator dump`, because the dump cannot say a heading, a role description, a range or a live region and
+cannot be joined to a view. It follows the provider's own child lists, so that a client outside the app is served
+the same nodes was checked apart, with `uiautomator`. `scripts/agent-ax.mjs` has Android's row of the per-platform
+table (LLP 1115.000 D14.4).
+
+`x_log_access=1` (a launch extra) logs each statement, each node a service focuses or acts on and each event sent.
+
+**Seen on a Pixel 10 Pro XL (Android 16, TalkBack 17.0.1), 2026-10-12.**
+
+- *With TalkBack off, from outside the app* (`uiautomator dump`, `uiautomator events`): Shelf's library, its add
+  form, a book's page, a row's menu and the alert each serve the nodes above in reading order, the fields in their
+  places with their names as hints, the Up arrow as "Navigate up", the tabs with their selection; `apps/unsaid`'s
+  checkbox and switch change their checked state on a tap and send one state change each from their own node; a
+  finger's scroll sends a scroll and a content change from the list; a route sends its pane title. `tree --ax`
+  through the carrier returns the same, joined to the views.
+- *With TalkBack on*: TalkBack found the tree and put its focus on the top app bar's title, "Library", with its
+  rectangle on the title's box; when the add form opened it moved its focus to "Cancel", the first node of the new
+  screen.
+- *Not seen.* TalkBack reading a screen from top to bottom, its double tap, its scroll action, its focus in an
+  alert or a menu, and anything it says. A touch or a key sent by `adb shell input` does not reach TalkBack on this
+  phone: it goes to the app as a plain touch (a single injected tap pressed a button with touch exploration on), so
+  TalkBack's own gestures could not be made from a shell. Its speech is not in the log without its developer
+  setting. A person with the phone, or a virtual input device (`uinput`), is what it takes.
+
+**Short of D13.**
+
+- The two role descriptions, `Tab` and `link`, are English words: the reader has no strings by language, and
+  Material ships its own "Tab" in each.
+- A swipe row's trailing action (Shelf's Delete) is no node and no custom action; the row's menu has the same
+  action.
+- A polite live region that arrives with a new route is spoken once where the app has no top app bar, since the
+  route is known by the bar.
+- `tabindex` and other authored order: the kernel's tree order is the reading order, and nothing else is read.
+- Braille, Switch Access and Voice Access get what the nodes give any service (names, roles, click, scroll);
+  none was tried.
+- The reader's `performAction` (click, long click, scroll, set progress) was reached on the phone only for
+  accessibility focus; the presenter's side of each is tested (`presenter/access_tests.rs`).
+
 ## Still the benchmark's
 
 The cut was the smallest one. Left in the reader:
@@ -828,8 +954,10 @@ The cut was the smallest one. Left in the reader:
 
 ## Not done
 
-- **Most of LLP 1115.001.** The controls have the desktop painter's shapes, a sheet or a chooser is refused, and
-  there is no accessibility tree. What is built of it:
+- **Most of LLP 1115.001.** The controls have the desktop painter's shapes, and a sheet or a chooser is refused.
+  What is built of it:
+  - *The reader answers accessibility services* (D13): the section above, with what was and was not seen of
+    TalkBack and what is short of it.
   - *A header is the top app bar and the root tablist the navigation bar* (D11): the section above, with what is
     not built of it.
   - *An alert and a menu are windows* (D10): the section above, with what is not built of it.

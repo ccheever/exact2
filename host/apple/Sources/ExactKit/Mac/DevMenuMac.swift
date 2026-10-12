@@ -194,6 +194,12 @@ public enum DevMenu {
         edit.addItem(withTitle: "Speech", action: nil, keyEquivalent: "").submenu = speech
         editItem.submenu = edit
         let view = ShortcutMenu(title: "View")
+        // Show Sidebar ⌃⌘S (LLP 1115.002 D3): the split view controller's
+        // own action, which names the item for what it will do. There only
+        // while the window's sidebar is the app's root tab bar (`ShortcutHost.sync`).
+        let sidebar = view.addItem(withTitle: "Show Sidebar", action: #selector(NSSplitViewController.toggleSidebar(_:)), keyEquivalent: "s")
+        sidebar.keyEquivalentModifierMask = [.command, .control]
+        sidebar.isHidden = true
         let fullScreen = view.addItem(withTitle: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
         fullScreen.keyEquivalentModifierMask = [.command, .control]
         bar.addItem(withTitle: "View", action: nil, keyEquivalent: "").submenu = view

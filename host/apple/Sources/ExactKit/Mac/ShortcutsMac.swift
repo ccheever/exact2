@@ -179,7 +179,7 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
         let ids = presenter.chrome.ids("accessibilityKeyShortcuts").union(presenter.toolbar.items.keys)
         // A tab a segment shows is shown, though its view is hidden (astra's code review).
         return ids.sorted().compactMap { presenter.views[$0] }.filter {
-            $0.isButton && $0.pressable && (presenter.segments.shown($0) ?? presenter.toolbar.visible($0))
+            $0.isButton && $0.pressable && (presenter.segments.shown($0) ?? presenter.sidebar.shows($0) ?? presenter.toolbar.visible($0))
                 && ($0.props["accessibilityKeyShortcuts"] != nil || presenter.toolbar.contains($0))
         }
     }
@@ -265,6 +265,10 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
         if let viewMenu {
             if !viewItems.isEmpty { viewItems.append(viewSeparator) } else { viewSeparator.menu?.removeItem(viewSeparator) }
             place(viewItems, in: viewMenu, at: 0)
+            // Show Sidebar is a window with a sidebar's (LLP 1115.002 D3).
+            for item in viewMenu.items where item.action == #selector(NSSplitViewController.toggleSidebar(_:)) {
+                item.isHidden = presenter?.sidebar.installed != true
+            }
         }
         // Reconcile only our own items. In particular, Open… and Close must
         // survive the next plan batch. Existing command objects stay stable.

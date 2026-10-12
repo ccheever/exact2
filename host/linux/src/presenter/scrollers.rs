@@ -96,7 +96,7 @@ fn scrolls(o: Overflow) -> bool {
 
 impl<D: DataSource> Presenter<D> {
     /// The page as a scroller: the document past the viewport.
-    fn page_scroller(&self) -> Scroller {
+    pub(super) fn page_scroller(&self) -> Scroller {
         let doc = self.document();
         let viewport = self.display.viewport().unwrap_or(self.viewport);
         let max = ((doc.0 - viewport.0).max(0.0), (doc.1 - viewport.1).max(0.0));
@@ -112,7 +112,7 @@ impl<D: DataSource> Presenter<D> {
 
     /// Scroller `id` as it stands, without its port (a painted box, looked
     /// up only for a touch); `None` for a node that is no scroll container.
-    fn scroller(&self, id: ViewId, limits: &BTreeMap<ViewId, f32>) -> Option<Scroller> {
+    pub(super) fn scroller(&self, id: ViewId, limits: &BTreeMap<ViewId, f32>) -> Option<Scroller> {
         if id == PAGE {
             return Some(self.page_scroller());
         }

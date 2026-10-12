@@ -109,6 +109,26 @@ object Native {
      * 0 down, 1 up, 2 move, 3 cancel) at ([x], [y]), pixels from the bar's own top left. exact2 knows what is
      * there: the Up arrow goes Back, a header's button and a destination are pressed. */
     @JvmStatic external fun bar(which: Int, what: Int, x: Float, y: Float)
+    /** What exact2 tells the reader of the accessibility tree ([Access], LLP 1115.001 D13), when that is not what
+     * this last returned (else null). Called only while an accessibility service is on; exact2 builds nothing
+     * otherwise. [again]: the reader holds nothing of the tree (it was made again, or a service was just turned on)
+     * and is told it whole. The words: the statement's number; the surface whose window the nodes are in (its
+     * serial; 0: the page's window); 1 when the tree is told whole (the only changes then listed speak); the
+     * identity of the route that shows (0: none) and its title, a string (its bytes' count, then UTF-8 padded to
+     * whole words); a count of changes and four words each (a node's identity, 0 for the view itself; what changed:
+     * bit 0 its subtree, bit 1 its text, bit 2 its state, bit 3 it scrolled, bit 4 it is a live region that
+     * speaks; and as float bits how far a scroller moved, x and y, in pixels); a count of nodes and for each, in
+     * the order a person reads: its identity, its parent's (0: the view), its view, its role and its flags
+     * ([Access]'s constants), its box (x, y, width, height, pixels: in the window, or in its own window for a
+     * surface), as float bits its range's least, greatest and present value (a scroller's offset and its farthest),
+     * its place in its set from 1 and the set's size, and three strings: its name, its value and its description. */
+    @JvmStatic external fun access(again: Boolean): IntArray?
+    /** An accessibility service acts on node [id] of the tree last told, on the host's thread: [action] 1 press
+     * (the presenter's own press at the node, as a driver's `tap`), 2 hold (its context menu), 3 scroll a scroller
+     * on or step a range up, 4 back or down, 5 set a range to [value]. Whether anything took it. */
+    @JvmStatic external fun accessAct(id: Int, action: Int, value: Float): Boolean
+    /** No accessibility service is on any more: exact2 forgets the tree it told and builds none until [access]. */
+    @JvmStatic external fun accessOff()
     /** One slice ([budgetUs] of shaping) of laying out what the touch that is down would open; whether more is left. */
     @JvmStatic external fun ahead(budgetUs: Int): Boolean
     @JvmStatic external fun copyImage(id: Int, bitmap: Bitmap): Boolean

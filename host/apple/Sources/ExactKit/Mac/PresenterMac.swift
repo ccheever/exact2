@@ -120,6 +120,12 @@ package final class Presenter {
     lazy var elements = ElementHatches(self)
     lazy var shortcuts = ShortcutHost(presenter: self)
     lazy var toolbar = WindowToolbarHost(self)
+    /// What native presentations cover of boxes (LLP 1115.002 D8.1, CoversMac.swift).
+    lazy var covers = HostCovers(self)
+    var onCovers: (([(UInt32, HostCover?)]) -> Void)?
+    /// The root tab bar as the window's sidebar (LLP 1115.002 D3), and the kernel's rule for a root's tabs.
+    lazy var sidebar = SidebarHost(self)
+    var rootTabs: ((UInt32) -> RootTabs?)?
     /// The head's title goes to the window the app attached, through the
     /// toolbar host that already owns its title (LLP 1048.003 D1).
     func headTitle(_ title: String?) { toolbar.headTitle(title) }
@@ -616,6 +622,8 @@ package final class Presenter {
         dialogs.reset()
         toolbar.reset()
         navigation.reset()
+        sidebar.reset()
+        covers.reset()
         segments.reset()
         controls.reset()
         fieldSelections.reset()
@@ -837,7 +845,7 @@ package final class Presenter {
     package func press(_ id: UInt32, fromNativeMenu: Bool = false, held: String = "") {
         pressHeld = held; defer { pressHeld = "" }
         guard let node = textHost(id), !node.inert, !node.disabled,
-              fromNativeMenu || (segments.shown(node) ?? !node.isHiddenOrHasHiddenAncestor) || toolbar.contains(node) else { return }
+              fromNativeMenu || (segments.shown(node) ?? sidebar.shows(node) ?? !node.isHiddenOrHasHiddenAncestor) || toolbar.contains(node) else { return }
         commitPendingEdit() // the press no longer ends a field's editing (FocusMac.swift)
         let command = dialogs.command(node, fromNativeMenu: fromNativeMenu)
         let popover = menus.command(node, fromNativeMenu: fromNativeMenu)
@@ -1204,6 +1212,7 @@ package final class Presenter {
         }
         if !flights.isEmpty { flightsBatchApplied() }
         navigation.sync(batch, reparented: reparented)
+        sidebar.sync(batch)
         if !pendingTips.isEmpty { settleTips() }
         fitDocument()
         // The page's canvas colour is the first root's background — what
@@ -1211,7 +1220,7 @@ package final class Presenter {
         // paints the root element's background over the whole canvas.
         // Unset, the platform's window background (LLP 1115 D2).
         let color = (root.subviews.first as? NodeView)?.color("background_color", .windowBackgroundColor) ?? .windowBackgroundColor
-        if viewport.backgroundColor != color { viewport.backgroundColor = color }
+        if viewport.backgroundColor != color { viewport.backgroundColor = color; navigation.groundChanged() }
         let first = root.subviews.first as? NodeView
         let fit = first?.props["viewportFit"]
         if fit != viewportFit { viewportFit = fit; onViewportFit?() }

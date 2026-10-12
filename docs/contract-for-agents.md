@@ -1562,6 +1562,11 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   presses it through its bar (`native: "tab-bar-item"`, `"bar-button-item"`). The
   bars' own motion runs on real time (`clock +300 real` before a screenshot); the
   software keyboard, another window, is not drawn.
+- On the Mac a root tablist placed as above (the root column's last child) is the
+  window's sidebar: AppKit's source list, one row a tab, with its button in the
+  toolbar and View ▸ Show Sidebar. Under the agent the authored tablist paints, as on
+  iOS; `--chrome platform` on `macos` shows the sidebar, and a tap naming a tab
+  presses its row (`native: "sidebar-row"`).
 - Hide the tab bar on a route with `display="none"` on the tablist. Never remove the
   tablist with `when`: without it the root has no tabs and the panels' routes are
   found by no host.

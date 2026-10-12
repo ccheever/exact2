@@ -39,6 +39,15 @@ internal class FieldText(context: Context) : EditText(context) {
     /** `x_log_fields=1`: what the keyboard asks of the field's input connection, to the log. Its composition is
      * between it and the field, and shows nowhere else. */
     var heard: ((String) -> Unit)? = null
+    /** Where the field stands in the accessibility tree the reader answers with ([Access], LLP 1115.001 D13), and
+     * what its author named it; null while that tree does not have it. The field reports itself, as any `EditText`
+     * does: this only says where, and by what name. */
+    var stand: Access.Stand? = null
+
+    override fun onInitializeAccessibilityNodeInfo(info: android.view.accessibility.AccessibilityNodeInfo) {
+        super.onInitializeAccessibilityNodeInfo(info)
+        stand?.place(info)
+    }
 
     override fun onSelectionChanged(selStart: Int, selEnd: Int) {
         super.onSelectionChanged(selStart, selEnd)
@@ -182,6 +191,9 @@ internal class Fields(context: Context) : FrameLayout(context) {
 
     /** The node op 28 draws for field [id] (main thread). */
     fun node(id: Int): RenderNode? = fields[id]?.node
+
+    /** Field [id]'s own view, where the accessibility tree has the field ([Access], LLP 1115.001 D13). */
+    fun text(id: Int): FieldText? = fields[id]?.text
 
     /** A stream draws field [id] (op 28, seen while the stream is ingested, before anything of it is drawn). Android
      * frees the drawing of a node that left the render tree, as a field's does when a paint leaves its row out (it

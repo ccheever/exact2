@@ -62,6 +62,19 @@ public final class ExactView: NSView {
         return session.presenter.toolbar.attach(to: window)
     }
     public func detachWindowToolbar() { session.presenter.toolbar.detach() }
+
+    /// Whether the session's root tab bar should be this view's window's
+    /// sidebar now (LLP 1115.002 D3): the app has root tabs whose placement
+    /// the author left unsaid, and this is not the agent's own chrome. The
+    /// window's owner composes it (`ExactSidebarController`), as it opts in
+    /// to the toolbar; a view mounted in someone else's window claims none.
+    public var wantsWindowSidebar: Bool { session.presenter.sidebar.wanted }
+    /// The owner hears when `wantsWindowSidebar` changes, after the batch
+    /// that changed it.
+    public var onWindowSidebar: (() -> Void)? {
+        get { session.presenter.sidebar.onWanted }
+        set { session.presenter.sidebar.onWanted = newValue }
+    }
     public var hasWindowToolbar: Bool {
         guard let toolbar = session.presenter.toolbar.toolbar else { return false }
         return window?.toolbar === toolbar
@@ -247,6 +260,9 @@ public final class ExactView: NSView {
         // view wants no frames; a mounted one asks again.
         session.frames.run(window != nil && (session.frames.motion || session.canvases.wantsFrames))
         if window != nil { fit(); session.presenter.syncAccessibility() }
+        // In a window's sidebar pane, or out of it: the sidebar stands for
+        // the tablist only while it is in a window (SidebarMac.swift).
+        session.presenter.sidebar.sync()
     }
 
     /// The insets the kernel gets: under `viewport-fit=cover` the view's own
