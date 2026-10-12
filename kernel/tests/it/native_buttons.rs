@@ -137,7 +137,7 @@ fn a_host_measurement_is_the_first_frame_and_wraps_at_each_width() {
     let request = answers.borrow().1.last().unwrap().clone();
     assert_eq!(request.face.subtitle.as_deref(), Some("A subtitle"));
     assert_eq!(request.face.symbol.as_deref(), Some("send"));
-    assert_eq!(request.button_style, "filled");
+    assert_eq!(request.button_style.as_deref(), Some("filled"));
     assert_eq!(k.provisional_layouts(), 0);
 }
 #[test]
@@ -379,7 +379,10 @@ fn changing_button_style_requests_layout_in_the_same_commit() {
         .unwrap();
     assert!(receipt.layout_invalidated);
     layout(&mut k);
-    assert_eq!(answers.borrow().1.last().unwrap().button_style, "plain");
+    assert_eq!(
+        answers.borrow().1.last().unwrap().button_style.as_deref(),
+        Some("plain")
+    );
     let receipt = k
         .apply(
             0,
@@ -392,7 +395,9 @@ fn changing_button_style_requests_layout_in_the_same_commit() {
         .unwrap();
     assert!(receipt.layout_invalidated);
     layout(&mut k);
-    assert_eq!(answers.borrow().1.last().unwrap().button_style, "bordered");
+    // With none written the kernel names none: what an unsaid button draws
+    // is each platform's default, which its host holds (LLP 1115.000 D15).
+    assert_eq!(answers.borrow().1.last().unwrap().button_style, None);
 }
 
 #[test]

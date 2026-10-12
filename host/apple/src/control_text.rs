@@ -157,7 +157,7 @@ pub(crate) fn button_measure(
     ctx: *mut c_void,
     r: &exact_kernel::ButtonMeasureRequest,
 ) -> exact_kernel::ButtonMeasure {
-    let face = crate::button::face_json(Some(&r.face), Some(&r.style), &r.button_style);
+    let face = crate::button::face_json(Some(&r.face), Some(&r.style), r.button_style.as_deref());
     let (width_kind, width) = match r.width {
         exact_kernel::AxisOffer::Definite(w) => (0, w),
         exact_kernel::AxisOffer::MinContent => (1, 0.0),

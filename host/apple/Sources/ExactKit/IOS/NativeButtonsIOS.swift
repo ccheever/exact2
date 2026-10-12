@@ -162,7 +162,7 @@ extension ControlHost {
             interactive: owner.style["pointer_events"]?.string != "none")
         guard button.written != written else { return }
         if !face.known, button.written?.face.style != face.style {
-            presenter.session?.log("buttonStyle `\(face.style)` is not a button style; drawing bordered")
+            presenter.session?.log("buttonStyle `\(face.style ?? "")` is not a button style; drawing bordered")
         }
         button.written = written
         let (_, drawn, glass) = Self.configuration(face)
@@ -186,7 +186,7 @@ extension ControlHost {
     /// What the agent's `layout` says of a native button (D10).
     func nativeObservation(_ button: NativeButtonIOS) -> [String: Any] {
         let face = button.written?.face ?? ButtonFace()
-        return ["view": "UIButton", "style": face.style, "drawn": button.drawn, "title": face.title as Any,
+        return ["view": "UIButton", "style": face.style as Any, "drawn": button.drawn, "title": face.title as Any,
                 "symbol": face.symbol as Any, "enabled": button.isEnabled,
                 "subtitle": face.subtitle as Any, "imagePlacement": face.placement ?? (face.leading ? "leading" : "trailing"),
                 "pointerEvents": button.isUserInteractionEnabled ? "auto" : "none",
