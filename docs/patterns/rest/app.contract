@@ -150,7 +150,7 @@ component App
                 // The message sits in the field's row, under the field.
                 row
                   column flex=1 min-width=0 gap=4
-                    input appearance="none" value=draftTitle input=editTitle placeholder="Title" aria-label="Title"
+                    input value=draftTitle input=editTitle placeholder="Title" aria-label="Title"
                       autofocus=true enterkeyhint="next" testId="add-title"
                     when formError != ""
                       text formError font="-exact-footnote" color="-exact-system-red" testId="add-error"
@@ -158,7 +158,7 @@ component App
                 header
                   text "Notes"
                 row padding-top=8 padding-bottom=8
-                  textarea appearance="none" value=draftNotes input=editNotes placeholder="Optional" aria-label="Notes"
+                  textarea value=draftNotes input=editNotes placeholder="Optional" aria-label="Notes"
                     rows=4 testId="add-notes" flex=1 min-width=0
       dialog id="remove" role="alertdialog" aria-label="Delete Item?"
         text "This can’t be undone."

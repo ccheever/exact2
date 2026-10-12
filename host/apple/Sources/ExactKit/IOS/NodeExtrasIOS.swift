@@ -66,6 +66,8 @@ final class NodeExtras {
     var textArea: UITextView?
     var field: UITextField?
     var pendingValue: String?
+    /// A native field in a grouped list's row (`isCellField`).
+    var fieldInCell = false
     var video: VideoView?
     var web: UIView?
     var metal: MetalView?
@@ -129,6 +131,7 @@ extension NodeView {
     var svgPressed: UInt32? { get { extras?.svgPressed } set { if newValue != nil || extras != nil { more.svgPressed = newValue } } }
     var clipPath: CGPath? { get { extras?.clipPath } set { if newValue != nil || extras != nil { more.clipPath = newValue } } }
     var clipRule: CGPathFillRule { get { extras?.clipRule ?? .winding } set { if newValue != .winding || extras != nil { more.clipRule = newValue } } }
+    var fieldInCell: Bool { get { extras?.fieldInCell ?? false } set { if newValue || extras != nil { more.fieldInCell = newValue } } }
     var boxGradient: CAGradientLayer? { get { extras?.boxGradient } set { if newValue != nil || extras != nil { more.boxGradient = newValue } } }
     var aimedGradient: AimedGradient? { get { extras?.aimedGradient } set { if newValue != nil || extras != nil { more.aimedGradient = newValue } } }
     var shadowCaster: ShadowCaster? { get { extras?.shadowCaster } set { if newValue != nil || extras != nil { more.shadowCaster = newValue } } }

@@ -83,7 +83,7 @@ component Shared
             section
               row
                 column flex=1 min-width=0 gap=4
-                  input appearance="none" value=draft input=edit submit=add placeholder="Add an item"
+                  input value=draft input=edit submit=add placeholder="Add an item"
                     aria-label="New item" testId="draft"
                   when listError != ""
                     text listError font="-exact-footnote" color="-exact-system-red" testId="error"

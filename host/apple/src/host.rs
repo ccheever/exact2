@@ -136,6 +136,7 @@ pub(crate) struct Mirror {
     content: Option<(f32, f32)>,
     flow: Vec<exact_kernel::FlowShape>,
     field_content: Option<exact_kernel::Frame>,
+    field_cell: bool,
 }
 
 /// One runner, one presenter.

@@ -482,6 +482,7 @@ mod field_tests {
                         weight: 700,
                         style: FontStyle::Italic,
                     },
+                    cell: false,
                 });
                 assert_eq!(
                     chrome,

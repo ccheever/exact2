@@ -73,6 +73,7 @@ impl LayoutTree {
                         weight: text.font_weight,
                         style: text.font_style,
                     },
+                    cell: arena.is_cell_field(slot),
                 };
                 let chrome = measurer.field_chrome(&request);
                 if !chrome.is_valid() {

@@ -121,6 +121,11 @@ pub struct FieldChromeRequest {
     /// Computed font. An authored family id resolves through the host's
     /// existing catalog; `family` is empty when the kernel has no name for it.
     pub font: ControlFont,
+    /// The field is a grouped list row's content (`NodeRef::is_cell_field`,
+    /// LLP 1116.005 D2): the field the platform draws in a list's cell. On
+    /// iOS the cell is the field, so it has no border of its own; a host
+    /// whose field is the same anywhere answers as for any other.
+    pub cell: bool,
 }
 
 /// Chrome in logical pixels, outside authored content, padding and borders.
