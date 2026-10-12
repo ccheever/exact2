@@ -1088,9 +1088,8 @@ function geoRead(op, id) {
   return bits & 1 ? [out[0], out[1], out[2], out[3], !!(bits & 2), false] : [0, 0, 0, 0, false, true];
 }
 export const x_frame = id => geoRead(0, id), x_measure = id => geoRead(1, id);
-/** `elementFromPoint(x, y)` (LLP 1094 D10): the `id` nearest the front-most
- * of the same untransformed boxes at the viewport point; `none` until the
- * reader has loaded. */
+/** `elementFromPoint(x, y)` (LLP 1094 D10): the `id` nearest the front-most untransformed box
+ * at the viewport point, `none` until the reader has loaded; `elementsFromPoint` every one. */
 export const x_elementFromPoint = (x, y) => { const root = document.getElementById("exact-root"), n = Geo?.point(x, y)?.closest('[id]:not([id=""])'); return n && n !== root && root.contains(n) && n.id || null; };
 export const x_elementsFromPoint = (x, y) => Geo?.namedPoints(x, y) ?? [];
 /** A Markdown field (LLP 1045 D5): markup-editor.js over its wasm replaces

@@ -74,9 +74,8 @@ impl std::fmt::Display for HostError {
     }
 }
 
-/// Plan bytes to boot: a copy of the caller's, or bytes that live as long as
-/// the program (a plan linked into it), whose data pool the decoded plan
-/// then keeps in place.
+/// Plan bytes to boot: a copy of the caller's, or bytes that live as long as the
+/// program (a plan linked into it), whose data pool the decoded plan keeps in place.
 #[derive(Clone, Copy)]
 pub(crate) enum PlanBytes<'a> {
     Copied(&'a [u8]),
@@ -146,6 +145,7 @@ pub struct Host<D: DataSource> {
     /// The plan marks nodes `hatch` (`presenter/hatches.rs` says what follows).
     pub(crate) hatched: bool,
 }
+
 impl<D: DataSource> Host<D> {
     /// Boot from plan bytes with a text measurer under a viewport (points):
     /// decode, boot the runner, lay out, hear the whole tree in the engine.
@@ -464,8 +464,8 @@ impl<D: DataSource> Host<D> {
         &self.runner
     }
 
-    /// The runner, mutably: a capability arm holds its device requests
-    /// there (LLP 1069.007 D3).
+    /// The runner, mutably: a capability arm holds its device requests there
+    /// (LLP 1069.007 D3).
     pub fn runner_mut(&mut self) -> &mut Runner<D> {
         &mut self.runner
     }
@@ -662,8 +662,7 @@ impl<D: DataSource> Host<D> {
         self.runner.roots()
     }
 
-    /// A node's presentation values: the engine's, else the committed
-    /// style's.
+    /// A node's presentation values: the engine's, else the committed style's.
     pub fn presented(&self, id: ViewId) -> Presented {
         let Some(node) = self.runner.kernel().node(id) else {
             return Presented::IDENTITY;
@@ -1193,8 +1192,7 @@ impl<D: DataSource> Host<D> {
         }
     }
 
-    /// The display preferences (LLP 1061 D5): re-answer `exactViewport()`
-    /// in one commit.
+    /// The display preferences (LLP 1061 D5): re-answer `exactViewport()` in one commit.
     pub fn set_preferences(&mut self, preferences: exact_runner::Preferences) -> Option<String> {
         match self.runner.set_preferences(preferences) {
             Ok(Some(receipt)) => self.commit(
