@@ -66,6 +66,13 @@ fn plan(declared: bool) -> Plan {
     if declared {
         b.set_resource_placeholder_value(session, &Value::str("…"));
     }
+    let number = b.primitive(TypeKind::Number);
+    let zero = b.constant(&Value::Number(0.));
+    let gen = b.slot("gen", number, zero);
+    let mut body = exact_plan::asm::Asm::new();
+    body.load_param(0).store_slot(gen);
+    let body = b.code(body);
+    b.action("gen", &[("value", number)], &[gen], body);
     b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
     b.finish().unwrap()
 }
@@ -156,7 +163,22 @@ fn without_a_declared_placeholder_the_build_time_answer_stands() {
 }
 
 #[test]
-fn an_ungranted_entry_is_not_a_secret() {
-    let r = launch(true, vec![("other".into(), b"x".to_vec())]);
+fn the_launch_s_store_decides_not_a_write_before_readiness() {
+    // Signed out at launch, signed in before the source is ready: the
+    // build-time answer stays until the source answers.
+    let mut r = launch(true, vec![]);
+    r.store.set("token", "alice").unwrap();
+    r.act("gen", vec![Value::Number(1.)]).unwrap();
+    shows(&r, "signed out");
+    r.data.ready = true;
+    r.data_ready().unwrap();
+    shows(&r, "signed in as alice");
+    // Signed in at launch, signed out before: the placeholder stays.
+    let mut r = launch(true, vec![token()]);
+    r.store.forget("token").unwrap();
+    r.act("gen", vec![Value::Number(1.)]).unwrap();
+    shows(&r, "…");
+    r.data.ready = true;
+    r.data_ready().unwrap();
     shows(&r, "signed out");
 }

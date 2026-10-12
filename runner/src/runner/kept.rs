@@ -169,7 +169,7 @@ impl<D: DataSource> Runner<D> {
     /// reader whose build-time answer a store holding secrets passed over
     /// for its placeholder (LLP 1027 D4, 2026-10-10).
     pub(super) fn journal_build_time(&mut self) {
-        let secrets = self.store.holds_secrets();
+        let secrets = self.store.opened_with_secrets();
         for i in 0..self.stale.len() {
             let Some(state) = self.resources[i].as_ref().filter(|_| self.stale[i]) else {
                 continue;

@@ -93,20 +93,20 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
-    /// Whether resource `i` is another's `else` row (LLP 1048.003 D6).
     /// A store reader whose build-time answer, the bake's empty store's,
     /// is passed over for its declared placeholder: before its source is
-    /// ready, at a store holding granted secrets the bake never saw (LLP
-    /// 1027 D4, approved 2026-10-10). Without an `else` it stands.
+    /// ready, at a launch whose store held granted secrets the bake never
+    /// saw (LLP 1027 D4, approved 2026-10-10). Without an `else` it stands.
     fn secrets_unseen(&self, i: usize, row: &ResourcesRow, resources: &[Option<Held>]) -> bool {
         !self.data.ready()
             && self.store_readers[i]
             && row.placeholder.map_or(row.placeholder_value.len > 0, |p| {
                 resources[p.0 as usize].is_some()
             })
-            && self.store.holds_secrets()
+            && self.store.opened_with_secrets()
     }
 
+    /// Whether resource `i` is another's `else` row (LLP 1048.003 D6).
     fn is_placeholder_row(&self, i: usize) -> bool {
         self.plan
             .resources
@@ -540,8 +540,10 @@ impl<D: DataSource> Runner<D> {
                             )
                         }
                         // @ref LLP 1048.003 D6 — the source can't answer yet
-                        // (its module isn't loaded) and nothing is compiled:
-                        // the placeholder shows, pending; `data_ready` asks.
+                        // (its module isn't loaded) and nothing is compiled,
+                        // or what is was passed over (`secrets_unseen`, LLP
+                        // 1027 D4): the placeholder shows, pending;
+                        // `data_ready` asks.
                         None if !self.data.ready()
                             && !exact_plan::runner_owned_source(self.plan.str(row.source))
                             && self.placeholder(i, &row, &resources).is_some() =>
