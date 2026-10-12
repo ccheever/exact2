@@ -1,6 +1,7 @@
 # web: an Exact contextmenu inside a checkbox, switch, radio, range or date input never runs
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by #495
 **Systems:** host/web-js, host/web (the wasm host's glue)
 **Severity:** P3
 **Author:** Daehyeon Mun (via the T3 Code clone)
