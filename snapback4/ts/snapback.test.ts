@@ -127,6 +127,9 @@ table photos:
 mutation addPhoto(photo: image <=1000000):
   return insert photos { owner: viewer, photo }
 
+query myPhotos():
+  return photos[owner = viewer] last 100 by .id
+
 table documents:
   owner: principal
   attachment: file <=1000000
@@ -1110,23 +1113,25 @@ test('password accounts on serve: signup, reopen, refresh, login, logout and iso
       name: signedIn.options.name, viewer: aliceSession.principal,
       headers: () => ({ authorization: `Bearer ${aliceSession.token}` }) });
     const privatePdf = new TextEncoder().encode('%PDF-1.4\nPrivate native document\n%%EOF');
-    const privateAsset = await signedIn.upload(privatePdf, { file: { type: 'application/pdf', name: 'native-private.pdf' } });
+    const privateImage = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='), c => c.charCodeAt(0));
+    const assetField = has024 ? 'attachment' : 'photo', privateQuery = has024 ? 'myDocuments' : 'myPhotos';
+    const privateAsset = has024 ? await signedIn.upload(privatePdf, { file: { type: 'application/pdf', name: 'native-private.pdf' } }) : await signedIn.upload(privateImage);
     if (!privateAsset.ok) throw new Error(privateAsset.why.code);
-    expect((await signedIn.send('addDocument', { attachment: { id: privateAsset.asset.id } }, Date.now())).state).toBe('sent');
-    const cached = await headersSibling.read<{ attachment: { id: string } }[]>('myDocuments', {}, Date.now());
+    expect((await signedIn.send(has024 ? 'addDocument' : 'addPhoto', { [assetField]: { id: privateAsset.asset.id } }, Date.now())).state).toBe('sent');
+    const cached = await headersSibling.read<Record<string, { id: string }>[]>(privateQuery, {}, Date.now());
     expect(cached.server).not.toBe(true);
-    expect(cached.data?.some(row => row.attachment.id === privateAsset.asset.id)).toBe(true);
+    expect(cached.data?.some(row => row[assetField].id === privateAsset.asset.id)).toBe(true);
     expect(authOnly.isOpen).toBe(false);
     expect(await authOnly.logout()).toEqual({ ok: true });
     expect(store.get('native-session')).toBeNull();
     expect(nativeDevice).toBeUndefined();
     expect(authenticatedSibling.usable).toBe(false);
     expect(headersSibling.usable).toBe(false);
-    await expect(headersSibling.read('myDocuments', {}, Date.now())).rejects.toThrow(/E_STALE/);
-    await expect(authenticatedSibling.read('myDocuments', {}, Date.now())).rejects.toThrow(/E_AUTH/);
+    await expect(headersSibling.read(privateQuery, {}, Date.now())).rejects.toThrow(/E_STALE/);
+    await expect(authenticatedSibling.read(privateQuery, {}, Date.now())).rejects.toThrow(/E_AUTH/);
     // Same-account login must create a new partition owner, not revive siblings.
     expect((await authOnly.login('alice@example.com', 'correct-horse-battery-staple')).ok).toBe(true);
-    await expect(authenticatedSibling.read('myDocuments', {}, Date.now())).rejects.toThrow(/E_STALE/);
+    await expect(authenticatedSibling.read(privateQuery, {}, Date.now())).rejects.toThrow(/E_STALE/);
     await signedIn.close(); await authenticatedSibling.close(); await headersSibling.close();
     expect((await authOnly.send('send', { body: 'unbound logout recovered' }, Date.now())).state).toBe('sent');
     await authOnly.logout(); await authOnly.close();
