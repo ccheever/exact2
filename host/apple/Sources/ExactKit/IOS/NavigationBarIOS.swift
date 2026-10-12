@@ -413,9 +413,11 @@ extension NavigationHost {
     func activateChrome(_ node: NodeView) -> [String: Any]? {
         guard !ExactEnv.authoredChrome else { return nil }
         let id = Int(node.id)
-        if tabBarShows, let root = container, let tabs = NavigationTabs.of(root, presenter), tabs.tabs.contains(where: { $0 === node }) {
+        if tabBarShows, let root = container, let tabs = NavigationTabs.of(root, presenter), let index = tabs.tabs.firstIndex(where: { $0 === node }) {
             guard !node.disabled else { return ["error": "tab #\(id) is disabled"] }
+            let root = reselectedRoot(index) // as the bar's own tap: the selected tab at its root scrolls to the top
             presenter.press(node.id)
+            if let root { scrollToTop(root) }
             return ["tapped": id, "pressed": id, "delivery": "host-activation", "native": "tab-bar-item"]
         }
         let shown = controllers.values.filter { c in
@@ -744,7 +746,7 @@ extension NavigationHost {
     /// replaced in place (trivia-quiz's results after its questions) find
     /// the bar as the content before left it, collapsed or inline; UIKit
     /// fits it to the item again only when asked (`sizeToFit`).
-    private func rest(_ sv: UIScrollView, in c: RouteController) {
+    func rest(_ sv: UIScrollView, in c: RouteController) {
         if sv.contentOffset.y != -sv.adjustedContentInset.top { sv.contentOffset.y = -sv.adjustedContentInset.top }
         // tvOS has no large titles.
         #if !os(tvOS)

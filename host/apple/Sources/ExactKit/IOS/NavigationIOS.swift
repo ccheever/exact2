@@ -173,6 +173,10 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// animates it (`.pop`, LLP 1021 §5.1). The selected route's key tells
     /// whether its press navigated.
     var unanimated = false
+    /// Whether a reselected tab's scroll to the top (`scrollToTop`) is
+    /// UIKit's animated one: not under the agent's frozen clock, nor in a
+    /// unit test, whose host never moved an animated offset when measured.
+    var scrollsToTopAnimated = !ExactEnv.agentFreezes
     var activeKey: String? { container?.props["navigationKey"] }
     /// While a push or pop runs: paints what each frame newly reveals.
     /// LLP 1075.003: each stack Exact built, by controller; what each shown
