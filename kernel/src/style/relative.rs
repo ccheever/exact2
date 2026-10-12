@@ -279,6 +279,17 @@ type PreparedLength = (Option<(Unit, f32)>, Option<StyleValue<'static>>);
 /// units have disjoint last bytes, after CSS whitespace. Keep the original
 /// value for each parser so its grammar and refusal stay unchanged.
 pub(crate) fn prepare(id: StyleId, value: &StyleValue) -> Result<PreparedLength, StyleValueError> {
+    // A text style is a keyword, so no last byte tells it: every name and
+    // alias begins `-` (LLP 1115 D3), which only a negative length shares.
+    if let StyleValue::Text(text) = value {
+        let dashed = text
+            .trim_start_matches(['\t', '\n', '\u{c}', '\r', ' '])
+            .starts_with('-');
+        if dashed && text_style(text).is_some() {
+            let relative = of(id, value)?;
+            return Ok((relative, relative.map(|r| provisional(id, r))));
+        }
+    }
     let last = match value {
         StyleValue::Text(text) => text
             .trim_end_matches(['\t', '\n', '\u{c}', '\r', ' '])
@@ -387,7 +398,21 @@ mod tests {
             "1px\0",
             "1em\u{b}",
             "\u{b}1ch",
+            // Not text styles, though they begin or end as one does.
+            "-exact-",
+            "-exact-nothing",
+            "exact-body",
+            "-exact-bodyem",
+            "-exact-bodych",
+            "-apple-system-nothing",
         ];
+        // Every text style by its name and its alias: a keyword, which no
+        // unit's last byte tells (LLP 1115 D3).
+        let styles = crate::TEXT_STYLES
+            .iter()
+            .flat_map(|s| [format!("-exact-{}", s.name), s.alias.to_string()])
+            .flat_map(|s| [s.to_ascii_uppercase(), s]);
+        let texts: Vec<String> = texts.iter().map(|t| t.to_string()).chain(styles).collect();
         for id in StyleId::ALL {
             for value in [
                 StyleValue::Auto,
@@ -396,7 +421,7 @@ mod tests {
             ] {
                 assert_eq!(prepare(id, &value), prior(id, &value), "{id:?} {value:?}");
             }
-            for text in texts {
+            for text in &texts {
                 for (left, right) in [("", ""), (" ", " "), ("\t\n", "\u{c}\r ")] {
                     let text = format!("{left}{text}{right}");
                     let value = StyleValue::Text(text.as_str().into());
