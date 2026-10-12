@@ -206,8 +206,10 @@ extension DialogHost {
     /// it to nothing; under `closedby="any"` it closes the dialog, when both
     /// halves of it were there. True when the click was the dialog's.
     func pointer(_ event: NSEvent) -> Bool {
-        guard let entry = entries.last, let sheet = entry.sheet, event.type == .leftMouseDown || event.type == .leftMouseUp,
-              let window = event.window, window !== sheet.window, presenter?.hosts(window) == true,
+        // Behind it: the page's window, or a sheet under this one. A popover
+        // the dialog opened is in front of it, and no click there is outside.
+        guard let entry = entries.last, entry.sheet != nil, event.type == .leftMouseDown || event.type == .leftMouseUp,
+              let window = event.window, window === presenter?.viewport.window || entries.dropLast().contains(where: { $0.sheet?.window === window }),
               entry.dialog.props["closedby"] == "any" else { downBehind = false; return false }
         if event.type == .leftMouseDown { downBehind = true; return true }
         let closes = downBehind
