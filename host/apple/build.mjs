@@ -300,8 +300,7 @@ export function developmentLinks(app, page) {
 function openingLinks(app, platform, development) {
   const handlers = app.manifest.protocol_handlers ?? [];
   const schemes = [...new Map([...(app.manifest.host?.[platform]?.urlSchemes ?? []), ...handlers.map((h) => h.protocol), ...(development ? [development.scheme] : [])].map((s) => [s.toLowerCase(), s])).values()];
-  return { ...(schemes.length ? { CFBundleURLTypes: [{ CFBundleURLName: app.id, CFBundleURLSchemes: schemes }] } : {}),
-    ...(handlers.length ? { ExactProtocolHandlers: handlers } : {}),
+  return { ...(schemes.length ? { CFBundleURLTypes: [{ CFBundleURLName: app.id, CFBundleURLSchemes: schemes }] } : {}), ...(handlers.length ? { ExactProtocolHandlers: handlers } : {}),
     ...(development ? { ExactDevelopmentURLScheme: development.scheme, ExactDevelopmentOrigins: development.origins, ExactDevelopmentToken: development.token } : {}) };
 }
 
