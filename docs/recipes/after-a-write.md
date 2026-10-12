@@ -31,7 +31,7 @@ component TagList
       section
         row gap=8 align-items="center"
           column flex=1 min-width=0 gap=4
-            input appearance="none" value=draft input=edit submit=add placeholder="New tag"
+            input value=draft input=edit submit=add placeholder="New tag"
               aria-label="New tag" enterkeyhint="done" testId="draft"
             when addError != "" and not pending(added)
               text addError font="-exact-footnote" color="-exact-system-red" testId="add-error"

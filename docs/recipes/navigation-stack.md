@@ -141,7 +141,7 @@ column navigationKey=`${e.id}` navigationPresentation="modal" navigationScroll="
     section
       row
         column flex=1 min-width=0 gap=4
-          input appearance="none" value=draft input=edit placeholder="Title" aria-label="Title" autofocus=true testId="add-title"
+          input value=draft input=edit placeholder="Title" aria-label="Title" autofocus=true testId="add-title"
           when formError != ""
             text formError font="-exact-footnote" color="-exact-system-red" testId="error-title"
 ```

@@ -336,12 +336,14 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   card and the separator, or make the row itself a `column`, which stacks its children
   (LLP 1116 D2); to choose that space write the row's `padding-top`/`padding-bottom`
   only, which replaces the column's. (Shelf recipe, 2026-10-10.)
-- **A text field or `textarea` in a grouped-list row draws a rounded box inside the
-  card.** Cause: a native field keeps its own border wherever it is (`UITextField`'s
-  rounded rect); a settings-style form's fields have none. Fix: `appearance="none"` on
-  a field that is a grouped-list row's content, as `apps/shelf`'s add sheet does.
-  **Candidate fix:** the iOS host could drop the border of a field carried into a
-  list cell. (Shelf recipe, 2026-10-10.)
+- **A text field or `textarea` in a grouped-list row written `appearance="none"` reads
+  as plain text on the web.** Cause: `appearance="none"` is the author's bare box on
+  every host: on a desktop page an 18 px line with no border or background, a small
+  target ("inputs read as plain text", bake-off round 7). Fix: leave the field unsaid.
+  Each host draws its field in a row: iOS borderless in its cell, which is the field (a
+  tap anywhere in the row reaches it), the web and macOS a field with its line, corners
+  and height (LLP 1116.005 D2), as `apps/shelf`'s add sheet shows. (Shelf recipe,
+  2026-10-10; round 7, 2026-10-11.)
 
 ## Actions
 

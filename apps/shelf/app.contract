@@ -313,7 +313,7 @@ component Shelf
                       header
                         text "Title"
                       row
-                        input appearance="none"
+                        input
                           value=draftTitle
                           input=editTitle
                           placeholder="Middlemarch"
@@ -329,7 +329,7 @@ component Shelf
                       header
                         text "Author"
                       row
-                        input appearance="none"
+                        input
                           value=draftAuthor
                           input=editAuthor
                           placeholder="Optional"
@@ -343,7 +343,6 @@ component Shelf
                         text "Pages"
                       row
                         input type="number"
-                          appearance="none"
                           value=draftPages
                           input=editPages
                           placeholder="Optional"
@@ -614,7 +613,7 @@ component Notes
     keep(bookId, v)
   view
     row padding-top=8 padding-bottom=8
-      textarea appearance="none"
+      textarea
         value=draft
         input=edit
         placeholder="Thoughts, quotes, where you left off…"

@@ -40,13 +40,13 @@ component Split
                 column flex=1 min-width=0 gap=4
                   row gap=8
                     text "Bill"
-                    input appearance="none" value=billText input=editBill inputmode="decimal" placeholder="0.00"
+                    input value=billText input=editBill inputmode="decimal" placeholder="0.00"
                       aria-label="Bill" text-align="end" testId="bill" flex=1 min-width=0
                   when billError != ""
                     text billError font="-exact-footnote" color="-exact-system-red" testId="bill-error"
               row
                 text "People"
-                input appearance="none" value=peopleText input=editPeople change=commitPeople inputmode="numeric"
+                input value=peopleText input=editPeople change=commitPeople inputmode="numeric"
                   aria-label="People" text-align="end" testId="people" flex=1 min-width=0
             section
               row

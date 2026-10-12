@@ -47,7 +47,7 @@ component Guests
       list appearance="auto" listStyle="inset-grouped" keyboardDismissMode="interactive" flex=1 min-height=0
         section
           row
-            input id="draft" appearance="none" value=draft input=edit submit=add placeholder="Add a guest"
+            input id="draft" value=draft input=edit submit=add placeholder="Add a guest"
               aria-label="New guest" autocomplete="name" testId="draft" flex=1 min-width=0
         section
           each g in shown key=g.id
