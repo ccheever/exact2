@@ -1,7 +1,7 @@
-// LLP 1116.000 D4 in a real browser: the shell's stylesheet and the
+// LLP 1116.000 D4 in a real browser: a default build's stylesheet and the
 // navigation glue's projection (navigation.js, which both web targets run)
-// over nodes as the hosts write them. A pushed route's app bar draws Back as
-// iOS draws UIKit's (a route above its stack's root, not a sheet, whose header
+// over nodes as the hosts write them. A pushed route's app bar draws Back,
+// in the bar's own ink (a route above its stack's root, not a sheet, whose header
 // does not hold the root's `navigationBack` control), and a block `link` of
 // text is in the accent with the pointing hand while an authored colour, a
 // row inside it, a `role` or a `buttonStyle` keeps the author's look. The
@@ -17,7 +17,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
-import { withLook } from '../look.mjs';
+import { DEFAULT_LOOK, withLook } from '../look.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const { executable: chrome, unavailable } = chromium();
@@ -27,7 +27,8 @@ const check = unavailable ? (name, ...args) => test.skip(`${name} — ${unavaila
 // A root with two tabs. The first tab's stack: a root, a pushed route, one
 // whose Back control is in its content, and a sheet. The second's: a root
 // with a long title, a pushed route, and one whose header holds its control.
-const page = readFileSync(resolve(WEB, 'index.html'), 'utf8').match(/<style>[\s\S]*?<\/style>/)[0] + `
+// Under the stylesheet a default build's page has (look.mjs).
+const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8'), DEFAULT_LOOK).match(/<style>[\s\S]*?<\/style>/)[0] + `
 <div id="exact-root">
   <main id="nav" navigationKey="2" navigationBack="back" style="display:block">
     <div role="tabpanel" id="p1">
@@ -43,6 +44,7 @@ const page = readFileSync(resolve(WEB, 'index.html'), 'utf8').match(/<style>[\s\
           <a data-view href="mailto:s@b.c" id="l-style" data-button-style="plain"><div data-exact-text>Styled</div></a>
           <div style="--exact-accent:rgb(10, 20, 30)"><a data-view href="tel:557" id="l-accent"><div data-exact-text>Tinted</div></a></div>
           <div data-exact-text>An <a data-view href="/x" id="l-run" style="color:LinkText">inline run</a>.</div>
+          <span id="ink" style="color:var(--exact-label)"></span><span id="accent" style="color:var(--exact-accent, AccentColor)"></span>
         </div>
       </div>
       <div navigationKey="3" id="r3"><header><h2>More</h2></header><button id="back">Done</button></div>
@@ -110,7 +112,8 @@ check('a pushed route draws Back at its app bar\'s leading edge, and goes back a
   expect(await evaluate(`const busy = document.getElementById('exact-root'); busy.setAttribute('aria-busy', 'true'); document.querySelector('#r3 #back').disabled = true; select('2'); const n = backs().length; busy.removeAttribute('aria-busy'); document.querySelector('#r3 #back').disabled = false; n`)).toBe(3);
   // The renderer's children stay its own: the button is the header's shadow root's, before its slot, at the leading edge.
   expect(await evaluate(`[document.querySelector('#r2 > header').children.length, document.querySelector('#r2 > header').shadowRoot.querySelector('button').getBoundingClientRect().right <= document.getElementById('title2').getBoundingClientRect().left]`)).toEqual([1, true]);
-  expect(await evaluate(`getComputedStyle(document.querySelector('#r2 > header').shadowRoot.querySelector('button')).color`)).toBe('rgb(0, 117, 255)');
+  // It is one of the bar's buttons, so in the bar's ink, the label's (LLP 1116 D1's look drew it in the accent, as UIKit does).
+  expect(await evaluate(`[getComputedStyle(document.querySelector('#r2 > header').shadowRoot.querySelector('button')).color === getComputedStyle(document.getElementById('ink')).color, getComputedStyle(document.getElementById('ink')).color === getComputedStyle(document.getElementById('links')).color]`)).toEqual([true, false]);
 
   // Keyboard: the first Tab stop of the shown route; Enter goes back (the runner's own, with no entry beneath known).
   await evaluate('document.activeElement.blur()');
@@ -131,9 +134,12 @@ check('a pushed route draws Back at its app bar\'s leading edge, and goes back a
 check('a block link of text is in the accent and points; the author\'s look wins', () => inChrome(async (evaluate) => {
   // A link of text (or a symbol and text) is in the accent, the app's when it names one; an authored colour, a row
   // inside it, a role or a buttonStyle keeps the author's look; an inline run keeps its LinkText row. Every link points.
+  // (The page's accent is the look's: the browser's own hue, fitted to read as text. Each engine words it its own way.)
+  const accent = await evaluate(`getComputedStyle(document.getElementById('accent')).color`);
+  expect(['rgb(1, 2, 3)', 'rgb(0, 0, 0)', 'rgba(0, 0, 0, 0)'].includes(accent)).toBe(false);
   expect(await evaluate(`['l-text', 'l-symbol', 'l-authored', 'l-row', 'l-role', 'l-style', 'l-accent', 'l-run'].map(id => { const s = getComputedStyle(document.getElementById(id)); return id + ' ' + s.color + ' ' + s.cursor + ' ' + s.display + ' ' + s.textDecorationLine; })`)).toEqual([
-    'l-text rgb(0, 117, 255) pointer block none',
-    'l-symbol rgb(0, 117, 255) pointer block none',
+    `l-text ${accent} pointer block none`,
+    `l-symbol ${accent} pointer block none`,
     'l-authored rgb(204, 0, 0) pointer block none',
     'l-row rgb(1, 2, 3) pointer block none',
     'l-role rgb(1, 2, 3) pointer block none',

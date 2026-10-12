@@ -1,13 +1,15 @@
 // The web's default look (LLP 1115.000 D4 part B): which designed look a web
-// build draws where the author says nothing. `apple` is LLP 1116 D1's, the
-// shell's own stylesheet (index.html), which imitates iOS. `neutral` is no
-// platform's: `neutral.css` after the shell's sheet, and the role table's
-// neutral column (kernel/tables/schema.json `colors`).
+// build draws where the author says nothing. `neutral` is no platform's:
+// `neutral.css` after the shell's sheet, and the role table's neutral column
+// (kernel/tables/schema.json `colors`). `apple` is LLP 1116 D1's, the shell's
+// own stylesheet (index.html), which imitates iOS.
 import { readFileSync } from 'node:fs';
 
-// The switch. `EXACT_WEB_LOOK=neutral` builds the neutral look now; making it
-// every build's is `'apple'` -> `'neutral'` on the next line.
-export const DEFAULT_LOOK = 'apple';
+// The switch, thrown on 2026-10-12 (Charlie, on seeing the two side by side:
+// "switch to the neutral look"). `EXACT_WEB_LOOK=apple` still builds the look
+// it replaced, byte for byte, while the hosts that paint their own controls
+// draw that one (LLP 1115.000 D17; QUEUE.md says when it goes).
+export const DEFAULT_LOOK = 'neutral';
 export const LOOK = process.env.EXACT_WEB_LOOK || DEFAULT_LOOK;
 if (!['apple', 'neutral'].includes(LOOK)) throw new Error(`EXACT_WEB_LOOK=${LOOK}: the looks are apple and neutral`);
 

@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
+import { DEFAULT_LOOK, withLook } from '../look.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const { executable: chrome, unavailable } = chromium();
@@ -26,7 +27,7 @@ const check = unavailable ? (name, ...args) => test.skip(`${name} — ${unavaila
 // route with no header. `window.then` is what the pressed control's action
 // does besides navigating, before the commit ends (a `focus()` command, an
 // `autofocus` field).
-const page = readFileSync(resolve(WEB, 'index.html'), 'utf8').match(/<style>[\s\S]*?<\/style>/)[0] + `
+const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8'), DEFAULT_LOOK).match(/<style>[\s\S]*?<\/style>/)[0] + `
 <div id="exact-root" style="height:100%">
   <main id="nav" navigationKey="list" navigationBack="back" style="display:flex;flex-direction:column;height:100%">
     <div role="tabpanel" id="p1" style="flex:1;position:relative">

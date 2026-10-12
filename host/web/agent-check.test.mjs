@@ -42,6 +42,11 @@ const BROKEN = `component CheckFixture
           text "Fifty"
         button testId="opt-b" press=toggle flex=1 padding="8px 12px"
           text "Seventy five"
+      row testId="shares" width=120 gap=4
+        column testId="share-a" press=toggle flex=1 padding="8px 12px"
+          text "Fifty"
+        column testId="share-b" press=toggle flex=1 padding="8px 12px"
+          text "Seventy five"
       column testId="swatch" press=toggle width=100 height=100 background-color=(on ? "#ff0000" : "#0000ff") transition="background-color 400ms linear"
 `;
 // The same kinds of views, as the platform would have them: nothing to find in either scheme.
@@ -270,8 +275,14 @@ test('a page with every finding class has each found, by testId, in the scheme i
     expect(l.hidden).toEqual(['covered']); // its label "Under" is the button's finding, not a second one
     expect(l.a).toEqual(['overlap']);
     expect(l.wide).toEqual(['overflow']);
-    expect(l['opt-b']).toEqual(['overflow']); // a flex item wider than its row, within the viewport (LLP 1116.007 D3)
+    expect(l['share-b']).toEqual(['overflow']); // a flex item wider than its row, within the viewport (LLP 1116.007 D3)
+    expect(l['share-a']).toBeUndefined();
+    // The same row of platform buttons (tip-splitter's radios): in the neutral look a button keeps to its share of the
+    // row, so the longer title is cut at its button's edge (LLP 1116 D1's look let the button spill past the row).
+    expect(l['opt-b']).toEqual(['clipped']);
     expect(l['opt-a']).toBeUndefined();
+    // The page says the look it draws, which is every build's (LLP 1115.000 D4 part B): its roles are judged in that column.
+    expect((await session.op({ op: 'check' })).look).toBe('neutral');
     expect(l.faint).toEqual(['contrast']);
     expect(l.card).toEqual(['card']);
     expect(l.tiny).toEqual(['target']);
