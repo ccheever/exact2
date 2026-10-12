@@ -1,6 +1,7 @@
 # Include the separate game workspace in asynchronous verification
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Async lane runs the separate game workspace with --locked and --no-fail-fast; a wiring test checks the scheduled command, and the locked test command rejected a stale lock before its earlier refresh.
 **Systems:** game workspace, shared GPU API, async lane
 **Author:** Codex (GPT-6), for Charlie Cheever
 **Date:** 2026-10-06

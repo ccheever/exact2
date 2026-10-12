@@ -1076,7 +1076,19 @@ Cargo's checks cover the root `default-members`: the deterministic, in-process
 crates, the web host's and the Apple host's Rust among them (the Apple host's
 real-socket, wall-clock and toolchain-launching tests are `async lane:`; a test
 may still re-run its own binary to isolate its environment). The async lane runs the same commands with
-`--workspace` (the other hosts, GPU, Hermes, platform shells, stress fixtures).
+`--workspace` (the other hosts, GPU, Hermes, platform shells, stress fixtures),
+and tests the separate game workspace with
+`cargo test --manifest-path game/Cargo.toml --workspace --locked --lib --bins --tests`.
+Changes to Apple host files, its Cargo path dependencies, or apps trigger the
+iOS simulator tests and touch smoke. Docs-only changes do not. The hourly
+`--tier 2` lane checks tvOS and runs target-specific `cargo check` for the Linux
+host and Caltrain and for the Windows host and Windows Desk. Install
+`x86_64-unknown-linux-gnu` and `x86_64-pc-windows-gnu` with `rustup target add`
+and provide `zig` for C dependencies on the Mac. Other Linux apps remain
+outside this check until their shared JavaScript host's target C++ build
+inputs are qualified. These cross checks cover compilation; native window
+presentation, KMS, and input devices
+remain unqualified until run on their platforms.
 
 Development and test builds optimize the third-party CPU rasterizer `tiny-skia`.
 Debug assertions and overflow checks remain enabled; the normal development

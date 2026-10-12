@@ -155,8 +155,19 @@ bun scripts/boot.mjs   # counts the module graph before first pixel: host glue o
 ```
 
 Cargo's three cover the root `default-members` (deterministic, in-process
-crates); the async lane runs them with `--workspace`, the UIKit XCTests for commits
-under `host/apple`, then `metrics.mjs --long`.
+crates). The async lane runs them with `--workspace`, tests the separate
+`game/Cargo.toml` workspace with `--locked --no-fail-fast`, runs UIKit XCTests and touch smoke
+when the coalesced commit range changes anything outside documentation-only paths
+(`llp/`, `issues/`, `rules/`, `docs/`, `QUEUE.md`, or a `*.md` file). This includes
+separately built modules, build scripts, and fixtures. The lane then runs
+`metrics.mjs --long`.
+Its hourly tier 2 checks tvOS and cross-compiles the Linux host with Caltrain
+and the Windows host with Windows Desk for their actual targets. Tier 2
+requires those Rust targets and Zig's C cross compiler on the Mac. These
+Cargo checks qualify source compilation only; window presentation, KMS, and
+input devices still require native machines. Other Linux apps are not yet
+selected: their shared JavaScript host reaches target C++ build inputs not
+qualified by this slice.
 
 ## Durable constraints (from the rules, restated for orientation)
 
